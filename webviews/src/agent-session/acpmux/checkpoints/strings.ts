@@ -29,7 +29,6 @@ const CHECKPOINT_KEYS = {
   release: "checkpoint.release",
   manualRetention: "checkpoint.manualRetention",
   failed: "checkpoint.failed",
-  // retry-prompt-ok: Review.tsx's Retry sends a saved checkpoint write again.
   retry: "checkpoint.retry",
   recovering: "checkpoint.recovering",
   ignored: "checkpoint.ignored",

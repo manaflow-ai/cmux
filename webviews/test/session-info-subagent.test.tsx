@@ -10,19 +10,20 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
+import {
+  resetSessionInfoState,
+  setSessionInfoMore,
+  setSessionInfoOpen,
+  setSessionInfoSection,
+} from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import type { SubagentScope } from "../src/agent-session/acpmux/session-info/subagentScope";
+import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
+import { activity, tool } from "../src/gallery/fixtures/acpmux";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { SessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/SessionInfo"));
-const { useSessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/useSessionInfo"));
-const { resetSessionInfoState, setSessionInfoMore, setSessionInfoOpen, setSessionInfoSection } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/sessionInfoState"),
-);
-const { setHeaderState } = await importWithDom(() => import("../src/agent-session/acpmux/header/headerState"));
-const { sessionSummary } = await importWithDom(() => import("../src/agent-session/acpmux/summary/sessionSummary"));
-const { activity, tool } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 

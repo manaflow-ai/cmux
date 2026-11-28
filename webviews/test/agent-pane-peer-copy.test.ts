@@ -38,15 +38,10 @@
 //     the chat read again, with none of the session before's live records.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+import { keptTail, rememberTail, resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-type AcpmuxDirectClient = import("../src/agent-session/acpmux/direct").AcpmuxDirectClient;
-const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
-const { keptTail, rememberTail, resetKeptTailsForTests } = await importWithDom(
-  () => import("../src/agent-session/acpmux/tailCache"),
-);
 
 const START = Date.UTC(2026, 9, 25, 9, 0, 0);
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });

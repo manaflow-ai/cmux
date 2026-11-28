@@ -10,8 +10,6 @@ description = "The cmux NEXT window handlers' rules (pure; the macOS app asks th
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-# Swift's String.count and prefix (grapheme clusters) for the page's host-op bounds (src/chat/host_op_pane.rs).
-unicode-segmentation = { workspace = true }
 uuid = { workspace = true }
 
 [lints]

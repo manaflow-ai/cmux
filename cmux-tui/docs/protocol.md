@@ -438,12 +438,8 @@ When the stream ends, it sends:
 ```
 
 A server-initiated detach adds `reason` (`network`, `disconnected-by` with
-an optional `by`, or `host-shutdown`). When a participant disconnects a whole
-client, the daemon first sends `{"event":"client-disconnected-by"}` on that
-client's control connection, even before its first attach. The optional `by`
-field identifies the participant. This notice stops automatic reconnection.
-On older daemons, a stream's `disconnected-by` reason also signals a whole-client
-disconnect unless the event identifies a single view with `view` or `scope:"view"`.
+`by`, or `host-shutdown`). Do not reconnect automatically after
+`disconnected-by`.
 
 ## Shared Terminal Sizing
 

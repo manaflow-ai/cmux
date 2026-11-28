@@ -3,7 +3,7 @@ import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextUpdater
 
-nonisolated extension InternalPageID {
+extension InternalPageID {
     static let changelog = InternalPageID(rawValue: "changelog")
 }
 

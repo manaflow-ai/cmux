@@ -8,12 +8,10 @@ import { act } from "react";
 import type { ComponentProps } from "react";
 import type { NewTabScreen } from "../src/agent-session/acpmux/newtab/NewTabScreen";
 import type { Root } from "react-dom/client";
+import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
-const { proseMirrorGlobals } = await importWithDom(() => import("../src/agent-session/acpmux/promptFieldTesting"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

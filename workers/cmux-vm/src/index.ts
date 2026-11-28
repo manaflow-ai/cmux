@@ -12,10 +12,7 @@ import { hyperdriveSqlLayer, withRequestConnection } from "./db/sql.ts";
 import { parseDbFault, withDbFault } from "./db/fault.ts";
 import { sqlStoresLayer } from "./db/stores.ts";
 import type { TenantLimitsObject } from "./limits/durable-object.ts";
-import type { PausedReplicaObject } from "./replica/durable-object.ts";
-import { durableObjectReplicaLayer } from "./replica/store.ts";
 import { durableObjectLimitsLayer } from "./limits/service.ts";
-import { durableObjectCreateAdmission, parseCreateAdmission, PROVIDER_CREATE_QUEUE_NAME } from "./limits/create-admission.ts";
 import { parseEnvironment, parseTenantList, parseVmQuotas, tenantPolicyLayer, withCiTeamQuotas } from "./policy.ts";
 import { parseHttpsProxyOrigins } from "./network-origin.ts";
 import { entitlementsFromPolicyLayer } from "./proofs/tenant-may-create.ts";
@@ -33,14 +30,10 @@ import { upstreamMeshLayer } from "./upstream/live-mesh.ts";
 import { sqlMembershipCacheLayer, sqlWebhookDeliveryStoreLayer } from "./db/identity.ts";
 import { deletedVmIds, recordedVmIds, sweepableTunnelDevices } from "./db/orphans.ts";
 import { sweepOrphanTunnels, sweepOrphanVms } from "./upstream/orphan-sweep.ts";
-import { sweepIdleVms } from "./upstream/idle-sweep.ts";
 import { cronPlan } from "./cron-plan.ts";
-import type { DeferringHandler } from "./after-response.ts";
 
 /** The per-tenant counters Durable Object; wrangler binds it as TENANT_LIMITS. */
 export { TenantLimitsObject } from "./limits/durable-object.ts";
-/** The per-VM paused-read replica (RFD 0144 piece 2); wrangler binds it as PAUSED_REPLICAS. */
-export { PausedReplicaObject } from "./replica/durable-object.ts";
 
 export interface Env {
   /** Approved service boot images; provider snapshot ids stay server-side. Default: none. */
@@ -54,7 +47,6 @@ export interface Env {
   readonly STACK_PROJECT_ID: string;
   readonly STACK_SECRET_SERVER_KEY: string;
   readonly TENANT_LIMITS: DurableObjectNamespace<TenantLimitsObject>;
-  readonly PAUSED_REPLICAS: DurableObjectNamespace<PausedReplicaObject>;
   /** local, preview, staging or production; anything else counts as production. */
   readonly ENVIRONMENT?: string;
   /** Production tenants (Stack team ids) treated as dev/test: comma or space separated. */
@@ -89,10 +81,6 @@ export interface Env {
   readonly CMUX_VM_CI_TRUST?: string;
   /** Team keys: a JSON array of { id, team, sha256[], scopes, labels, maxVms, maxUsdPerHour }; hashes only. See src/auth/team-keys.ts. */
   readonly CMUX_VM_TEAM_KEYS?: string;
-  /** Provider creates in flight per environment; the rest queue (src/limits/create-admission.ts). Default 3 (measured); "none" turns the queue off. */
-  readonly PROVIDER_CREATE_CONCURRENCY?: string;
-  /** The longest a create waits in that queue before a retryable 503, in ms (0..120000). Default 25000 (the platform's 270 s create budget less 245 s of create work). */
-  readonly PROVIDER_CREATE_QUEUE_WAIT_MS?: string;
   /** Staging only: the database fault switch, off unless set (src/db/fault.ts). Every other environment ignores it. */
   readonly CMUX_VM_DB_FAULT?: string;
 }
@@ -124,8 +112,7 @@ const liveServices = (env: Env) => {
     // TODO(cx-b4h, owner: Lawrence Chen): the real billing source; see Entitlements.
     entitlementsFromPolicyLayer.pipe(Layer.provide(policy)),
     durableObjectLimitsLayer(env.TENANT_LIMITS),
-    durableObjectReplicaLayer(env.PAUSED_REPLICAS),
-    upstreamLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY, environment: parseEnvironment(env.ENVIRONMENT), ...createAdmissionOf(env) }),
+    upstreamLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY, environment: parseEnvironment(env.ENVIRONMENT) }),
     // The shared positive membership cache (mesh M4) lives in Postgres, so the webhook revokes it for every isolate.
     Layer.provideMerge(
       stackLayers({
@@ -143,14 +130,6 @@ const liveServices = (env: Env) => {
       serverKey: Redacted.make(env.STACK_SECRET_SERVER_KEY),
     }),
   );
-};
-
-/** The environment's one provider create queue (limits/create-admission.ts), unless PROVIDER_CREATE_CONCURRENCY is "none". */
-const createAdmissionOf = (env: Env) => {
-  const settings = parseCreateAdmission(env.PROVIDER_CREATE_CONCURRENCY, env.PROVIDER_CREATE_QUEUE_WAIT_MS);
-  if (settings === null) return {};
-  const namespace = env.TENANT_LIMITS;
-  return { createAdmission: durableObjectCreateAdmission(() => namespace.get(namespace.idFromName(PROVIDER_CREATE_QUEUE_NAME)), settings) };
 };
 
 /** The provider snapshot and terminal clients (slice S3a). */
@@ -172,8 +151,7 @@ const meshServices = (env: Env) =>
   );
 
 interface Served {
-  /** Answers one request; `defer` (waitUntil) keeps it alive for the work it does after answering (its audit rows). */
-  readonly handler: DeferringHandler;
+  readonly handler: (request: Request) => Promise<Response>;
   /** One agent reaper run, or nothing when the service is not configured, its schema is not applied, or the environment does not reap (src/cron-plan.ts). */
   readonly reap: () => Promise<void>;
   /** One run of the orphan sweeps this environment runs (src/cron-plan.ts), or nothing when the schema is not applied. */
@@ -197,7 +175,7 @@ const unconfigured: Served = { handler: notConfigured, reap: () => Promise.resol
  */
 const runOrphanSweep = async (env: Env) => {
   const plan = cronPlan(env.ENVIRONMENT);
-  if (!plan.sweepVms && !plan.sweepTunnels && !plan.sweepIdleVms) return;
+  if (!plan.sweepVms && !plan.sweepTunnels) return;
   const config = { baseUrl: env.UPSTREAM_API_URL, apiKey: Redacted.make(env.UPSTREAM_API_KEY), environment: parseEnvironment(env.ENVIRONMENT) };
   const tunnels = !plan.sweepTunnels
     ? Promise.resolve()
@@ -216,20 +194,6 @@ const runOrphanSweep = async (env: Env) => {
       },
       () => console.error(JSON.stringify({ event: "cmux_vm_tunnel_sweep_failed" })),
     );
-  // Staging VMs paused or stopped for 24 h, every tenant (src/upstream/idle-sweep.ts); provider calls only, no database.
-  const idle = !plan.sweepIdleVms
-    ? Promise.resolve()
-    : Effect.runPromise(sweepIdleVms(config, { nowMs: Date.now(), dryRun: false })).then(
-      (report) => {
-        if (report.idle.length > 0 || !report.complete) {
-          console.log(JSON.stringify({
-            event: "cmux_vm_idle_sweep", listed: report.listed, complete: report.complete, idle: report.idle.length,
-            deleted: report.deleted, kept: report.kept, failed: report.failed,
-          }));
-        }
-      },
-      () => console.error(JSON.stringify({ event: "cmux_vm_idle_sweep_failed" })),
-    );
   try {
     if (!plan.sweepVms) return;
     const report = await Effect.runPromise(
@@ -245,13 +209,12 @@ const runOrphanSweep = async (env: Env) => {
     }
   } finally {
     await tunnels;
-    await idle;
   }
 };
 
 const makeServed = (env: Env): Served => {
   try {
-    if (!env.HYPERDRIVE || !env.TENANT_LIMITS || !env.PAUSED_REPLICAS || !env.UPSTREAM_API_KEY || !env.STACK_PROJECT_ID || !env.STACK_SECRET_SERVER_KEY) {
+    if (!env.HYPERDRIVE || !env.TENANT_LIMITS || !env.UPSTREAM_API_KEY || !env.STACK_PROJECT_ID || !env.STACK_SECRET_SERVER_KEY) {
       return unconfigured;
     }
     const secret = env.STACK_WEBHOOK_SECRET?.trim();
@@ -263,7 +226,7 @@ const makeServed = (env: Env): Served => {
     // A deploy must never run ahead of its migration: 503 "schema not applied" until the tables this build needs exist.
     const check = () => Effect.runPromise(Effect.provide(checkSchema, hyperdriveSqlLayer(env.HYPERDRIVE.connectionString)));
     return {
-      handler: makeSchemaGate(check, (incoming, defer) => handler(incoming, defer)),
+      handler: makeSchemaGate(check, (incoming) => handler(incoming)),
       // The reaper deletes VMs: it runs only against the schema this build was written for.
       reap: async () => {
         if (!cronPlan(env.ENVIRONMENT).reap) return;
@@ -308,8 +271,8 @@ export const withCommit = (response: Response, env: Pick<Env, "COMMIT_SHA">): Re
 };
 
 export default {
-  async fetch(request: Request, env: Env, context: ExecutionContext): Promise<Response> {
-    const response = await served(env).handler(request, (work) => context.waitUntil(work));
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const response = await served(env).handler(request);
     return new URL(request.url).pathname === "/healthz" ? withCommit(response, env) : response;
   },
   /** Cron (wrangler.jsonc triggers): the agent reaper and the orphan sweep. */

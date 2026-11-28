@@ -42,8 +42,6 @@ final class NewTabSparePool {
     }
     /// Memory pressure dropped the spares: none is made again until it is back to normal.
     private var pressured = false
-    /// The chat renderer recycle holds the pool empty while the old renderer exits (``holdEmpty()``).
-    private var held = false
     private let parking = PageOffscreenParking()
     /// The main window the spare parks in (the key one, or the last key one).
     private(set) weak var target: NSWindow?
@@ -328,7 +326,7 @@ final class NewTabSparePool {
         return returns.holds(view) ? .returning : nil
     }
     private func refusal(of view: AgentPaneView) -> String? {
-        pressured ? "memory pressure" : held ? "renderer recycle" : view.model.neverPooled ? "another machine's page" : !slot.shouldWarm ? "slot full" : view.model.newTab == nil ? "became a chat"
+        pressured ? "memory pressure" : view.model.neverPooled ? "another machine's page" : !slot.shouldWarm ? "slot full" : view.model.newTab == nil ? "became a chat"
             : view.model.userTouched ? "touched by \(view.model.touchedBy ?? view.model.hostTouch.by ?? "?")" : target == nil ? "no target window" : nil
     }
     /// A closed tab's page the pool can take back waits for `recycle` in the parking view, inside its window (`AgentPaneSpareReturns`).
@@ -359,26 +357,13 @@ final class NewTabSparePool {
         }
     }
 
-    /// Drops the spare and makes none until ``endHold()`` (the chat renderer recycle: a spare made now would
-    /// land in the renderer that is exiting).
-    func holdEmpty() {
-        held = true
-        dropAll()
-    }
-
-    /// The recycle ended: the pool warms again after quiet input.
-    func endHold() {
-        held = false
-        scheduleWarm()
-    }
-
     static func milliseconds(since start: ContinuousClock.Instant) -> Double { AgentPaneSpareOpening.milliseconds(since: start) }
 
     // MARK: Warming
 
     /// Arms the quiet-input deadline; each key or click pushes it back.
     private func scheduleWarm() {
-        guard !pressured, !held else { return }
+        guard !pressured else { return }
         let web = services.agentTabs.canHostChat && wantsPage
         guard target != nil, web || (wantsNative && nativeSpare == nil) else { return }
         watchMemoryPressure()
@@ -419,7 +404,7 @@ final class NewTabSparePool {
         guard services.agentTabs.canHostChat else { return }
         returns.expire(after: AgentPaneSpareReturns.limit, in: parking)
         guard webKit.state == .ready else { return webKit.probe { [weak self] in self?.scheduleWarm() } }
-        guard wantsPage, !pressured, !held, let content = target?.contentView else { return }
+        guard wantsPage, !pressured, let content = target?.contentView else { return }
         let start = ContinuousClock.now, page = NewTabPage.sparePage(services)
         let made = BenchSpans.measure("pool.makeSpare") { makeSpare?(page) ?? services.agentTabs.makeSpare(page) }
         if ContinuousClock.now - start > .seconds(1) { webKit.markSlow() } // it held the main thread

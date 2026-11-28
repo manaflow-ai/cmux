@@ -66,14 +66,9 @@ public final class ChiefSession {
     /// Tries the Mac's Chief again (set by the link's coordinator); nil
     /// where there is nothing to try (no link).
     @ObservationIgnored public var reconnect: (@MainActor () -> Void)?
-    /// A try to connect is in flight (``retryConnecting()``): until ``status`` is
+    /// A Try Again is in flight: the bar shows progress until ``status`` is
     /// set again or Chief connects.
-    public private(set) var isReconnecting = false {
-        didSet { if !isReconnecting { endReconnectWaits() } }
-    }
-    /// ``reconnectAndWait(cap:)`` calls waiting for the try in flight to come back.
-    @ObservationIgnored private var reconnectWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
-    @ObservationIgnored private var reconnectWaiterCount = 0
+    public private(set) var isReconnecting = false
     /// The backend the store runs on.
     public private(set) var backend: any ConversationBackend
     /// Who is in the conversation; the Cloud Chief's ids come with its backend.
@@ -316,46 +311,15 @@ public final class ChiefSession {
         return nil
     }
 
-    /// There is something to try while Chief is unavailable (a link's coordinator, a kept conversation's loader).
+    /// Try Again on the unavailable bar has something to try.
     public var canRetryConnecting: Bool { reconnect != nil }
 
-    /// Chief is unavailable and there is something to try: its screen tries again on its own
-    /// (``reconnectAndWait(cap:)`` under an ``AutoRetry``), never a Try Again to tap.
-    public var needsReconnect: Bool {
-        guard case .unavailable? = barItem else { return false }
-        return canRetryConnecting
-    }
-
-    /// Asks the coordinator to open the Mac's Chief again. A second call while one runs does nothing.
+    /// Try Again on the unavailable bar: asks the coordinator to open the
+    /// Mac's Chief again. A second tap while one runs does nothing.
     public func retryConnecting() {
         guard let reconnect, !isReconnecting else { return }
         isReconnecting = true
         reconnect()
-    }
-
-    /// ``retryConnecting()``, returning once the try came back (connected, refused or replaced:
-    /// ``isReconnecting`` ends) or after `cap`, so an automatic retry's backoff starts from its answer.
-    public func reconnectAndWait(cap: Duration = .seconds(15)) async {
-        retryConnecting()
-        guard isReconnecting else { return }
-        reconnectWaiterCount += 1
-        let id = reconnectWaiterCount
-        let clock = clock
-        // task-owner: the cap of one wait; ends at the cap or when the try comes back. A try that
-        // never answers ends at the cap, so the next one dials again instead of waiting on it.
-        let capTask = Task { [weak self] in
-            do { try await clock.sleep(for: cap) } catch { return }
-            guard let self, self.reconnectWaiters[id] != nil else { return }
-            self.endReconnect()
-        }
-        defer { capTask.cancel() }
-        await withCheckedContinuation { reconnectWaiters[id] = $0 }
-    }
-
-    private func endReconnectWaits() {
-        let waiting = reconnectWaiters
-        reconnectWaiters = [:]
-        for waiter in waiting.values { waiter.resume() }
     }
 
     /// The composer of a Chief screen that went away, for the screen that replaces it.

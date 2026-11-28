@@ -318,20 +318,12 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
         let recoverable = managed.is_some_and(|managed| {
             managed.status == crate::machine::ManagedMachineStatus::Recoverable
         });
-        // An automatic reconnect keeps the last ready presentation, including
-        // the rail. Its bounded actionable failure has one status line.
-        let recovering = app.machine_has_recovery_frame(machine.key);
-        let connection_phase = if recovering {
-            crate::machine::MachineConnectionPhase::Ready
-        } else {
-            machine_ui.connection_phase(machine.key)
-        };
-        let machine_status = if recovering { MachineStatus::Running } else { machine.status };
+        let connection_phase = machine_ui.connection_phase(machine.key);
         let status = match connection_phase {
             crate::machine::MachineConnectionPhase::Connecting => messages.connecting,
             crate::machine::MachineConnectionPhase::Failed => messages.unavailable,
             crate::machine::MachineConnectionPhase::Disconnected
-            | crate::machine::MachineConnectionPhase::Ready => match machine_status {
+            | crate::machine::MachineConnectionPhase::Ready => match machine.status {
                 MachineStatus::Running => messages.running,
                 MachineStatus::Connecting => messages.connecting,
                 MachineStatus::Sleeping => messages.sleeping,
@@ -359,7 +351,7 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
                     Some(app.config.theme.notification_error)
                 }
                 crate::machine::MachineConnectionPhase::Ready
-                | crate::machine::MachineConnectionPhase::Disconnected => match machine_status {
+                | crate::machine::MachineConnectionPhase::Disconnected => match machine.status {
                     MachineStatus::Running => Some(app.config.theme.notification_info),
                     MachineStatus::Connecting | MachineStatus::Sleeping => {
                         Some(app.config.theme.notification_warning)
@@ -667,9 +659,6 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         .as_ref()
         .map(|ui| ui.recoverable_workspaces().into_iter().cloned().collect::<Vec<_>>())
         .unwrap_or_default();
-    // Per-frame work (cmux-view-rows frame_work): every recoverable workspace is copied.
-    #[cfg(test)]
-    cmux_view_rows::frame_work::cloned(recoverable.len());
     let body_rows = (app.tree.workspaces().len() + recoverable.len()) * metrics.stride;
     let selected_body = (app.workspace_sidebar_focused() && app.workspace_rail_follow_selection)
         .then(|| match app.workspace_rail_selection {
@@ -747,12 +736,8 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         ));
     }
     for (i, ws) in app.tree.workspaces().iter().enumerate() {
-        #[cfg(test)]
-        cmux_view_rows::frame_work::walked(1);
         let span = rail::RowSpan::new(i * metrics.stride, metrics.height);
         let Some(y) = viewport.body_y(span) else { continue };
-        #[cfg(test)]
-        cmux_view_rows::frame_work::built(1);
         let active = i == app.tree.active_workspace;
         let focused_selection = app.workspace_sidebar_focused()
             && app.workspace_rail_selection == WorkspaceRailSelection::Workspace

@@ -76,11 +76,6 @@ class FixtureTests(unittest.TestCase):
         problems = paths.check(self.root)
         self.assertTrue(any("names Packages/Shared/**" in p for p in problems), problems)
 
-    def test_resource_wildcard_cannot_admit_unlinked_packages(self) -> None:
-        self.workflows(["Packages/Shared/A/**", "Packages/Shared/B/**", "Packages/iOS/Conv/**",
-                        "Packages/Shared/**/Resources/**"])
-        self.assertTrue(any("names Packages/Shared/**/Resources/**" in p for p in paths.check(self.root)))
-
     def test_a_missing_transitive_package_fails(self) -> None:
         self.workflows(["Packages/Shared/A/**", "Packages/iOS/Conv/**"])
         problems = paths.check(self.root)
@@ -95,27 +90,6 @@ class FixtureTests(unittest.TestCase):
 class RepoTests(unittest.TestCase):
     def test_the_repo_filters_match_the_app(self) -> None:
         self.assertEqual(paths.check(ROOT), [])
-
-    def test_the_rust_inputs_come_from_the_ffi_cargo_graph(self) -> None:
-        packages, roots = paths.ffi_closure(ROOT)
-        want = paths.rust_inputs(packages, roots)
-        self.assertIn("cmux-tui/crates/cmux-wg/**", want)  # cmux#55399's crate
-        self.assertIn("cmux-tui/Cargo.toml", want)
-        # Cargo reads only the building workspace's lock (ios_link_ffi_key): cmux-tui's lock builds nothing new.
-        self.assertNotIn("cmux-tui/Cargo.lock", want)
-        self.assertFalse([w for w in want if w.startswith("cmux-next-ios/")], "cmux-next-ios/** covers those")
-
-    def test_a_new_shared_crate_is_a_drift(self) -> None:
-        packages, roots = paths.ffi_closure(ROOT)
-        problems = paths.check(ROOT, rust=(packages + ["cmux-tui/crates/cmux-new-shared"], roots))
-        self.assertEqual(problems, ["ci/steps.toml: step ios-kit misses cmux-tui/crates/cmux-new-shared/** "
-                                    "(CmuxMobileLinkFFI compiles it)"])
-
-    def test_a_crate_the_ffi_dropped_is_a_drift(self) -> None:
-        packages, roots = paths.ffi_closure(ROOT)
-        problems = paths.check(ROOT, rust=([p for p in packages if p != "cmux-tui/crates/cmux-wg"], roots))
-        self.assertEqual(problems, ["ci/steps.toml: step ios-kit names cmux-tui/crates/cmux-wg/**, which "
-                                    "CmuxMobileLinkFFI does not compile"])
 
 
 if __name__ == "__main__":

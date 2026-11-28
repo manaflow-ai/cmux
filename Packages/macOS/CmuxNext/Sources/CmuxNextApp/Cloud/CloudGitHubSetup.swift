@@ -284,7 +284,7 @@ nonisolated enum CloudGitHubSetup {
     }
 
     /// Runs the setup on `machine` through `api`, the Worker machines client (`CloudService.machineAPI`).
-    static func run(_ identity: GitIdentity, app: Bool, machine: String, on api: CloudDaemon) async throws -> Outcome {
+    static func run(_ identity: GitIdentity, app: Bool, machine: String, on api: CloudAPIClient) async throws -> Outcome {
         let ran = try await api.exec(machine, command: command(identity, app: app), timeoutMs: timeoutMs)
         return parse(exitCode: ran.exitCode, stdout: ran.stdout)
     }

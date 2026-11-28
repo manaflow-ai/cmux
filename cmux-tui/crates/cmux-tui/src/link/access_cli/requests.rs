@@ -490,23 +490,19 @@ pub(super) fn answer(
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| "file".to_string());
     let once = format!("{root}/local/requests/{request_id}/{name}");
-    let (at, folder_remote) = if let How::Allow = how {
+    let at = if let How::Allow = how {
         // Once is for one file; a folder is shared with Always, whose
         // folder the card names.
         if is_dir {
             return Err(Failure::new("grant_refused", "a folder is shared with Always, not once"));
         }
         sync_cli::copy_file(socket, &target, &once).map_err(machine_failure)?;
-        (once, None)
+        once
     } else {
         always(socket, machine, session, root, &target, is_dir, shown.folder, &once)?
     };
     answer_machine(socket, request_id, json!({"outcome": "delivered", "path": at}))?;
-    let mut answered = json!({"request_id": request_id, "outcome": "delivered", "at": at});
-    if let Some(folder_remote) = folder_remote {
-        answered.set("folder_remote", json!(folder_remote));
-    }
-    Ok(answered)
+    Ok(json!({"request_id": request_id, "outcome": "delivered", "at": at}))
 }
 
 /// The grant of `session` on `machine` that already covers `target`.
@@ -538,7 +534,7 @@ fn always(
     is_dir: bool,
     shown: Option<&str>,
     once: &str,
-) -> Result<(String, Option<String>), Failure> {
+) -> Result<String, Failure> {
     let store = Store::open()?;
     let kept = covering(&store.grants, machine, session, target).cloned();
     let folder = match &kept {
@@ -558,7 +554,7 @@ fn always(
                 return Err(Failure::new("grant_refused", "it is in a read-write folder already"));
             }
             sync_cli::copy_file(socket, target, once).map_err(machine_failure)?;
-            return Ok((once.to_string(), None));
+            return Ok(once.to_string());
         }
         Some(grant) => grant.remote,
         None => {
@@ -571,12 +567,12 @@ fn always(
             if covering(&store.grants, machine, session, target).is_none() {
                 return Err(Failure::new("grant_not_found", "the folder was revoked meanwhile"));
             }
-            return Ok((at_copy(socket, &remote, &folder, target)?, Some(remote)));
+            return at_copy(socket, &remote, &folder, target);
         }
     };
     let at = at_copy(socket, &remote, &folder, target)?;
     drop(store);
-    Ok((at, Some(remote)))
+    Ok(at)
 }
 
 /// Where `target` is in the copy `remote` of `folder`; a file the copy

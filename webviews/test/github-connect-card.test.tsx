@@ -71,21 +71,6 @@ test("git's and gh's refusal line ask for a connect with no repository; the MCP 
   expect(githubConnectCall(mcp(mcpRefusal()))).toEqual({ reason: "not-connected", repo: "acme/web" });
   expect(githubConnectCall(mcp(mcpRefusal("needs_reauth")))).toEqual({ reason: "needs-reauth", repo: "acme/web" });
   expect(githubConnectCall(mcp(mcpRefusal("policy.denied")))).toEqual({ reason: "not-covered", repo: "acme/web" });
-  // The App asked for more (contents: read & write) and this installation has not accepted it yet.
-  expect(githubConnectCall(mcp(mcpRefusal("github.permissions_pending")))).toEqual({
-    reason: "permissions-pending",
-    repo: "acme/web",
-  });
-  expect(
-    githubConnectCall(
-      shell(
-        gitRefusal.replace(
-          "integration.not_found: no GitHub connection",
-          "github.permissions_pending: GitHub needs you to accept cmux's updated permissions",
-        ),
-      ),
-    ),
-  ).toEqual({ reason: "permissions-pending" });
   // The structured error alone (a harness that keeps only structuredContent), the repository from the call's args.
   const structured = JSON.parse(mcpRefusal()).structuredContent;
   expect(
@@ -93,37 +78,6 @@ test("git's and gh's refusal line ask for a connect with no repository; the MCP 
   ).toEqual({
     reason: "not-connected",
     repo: "octo/cat",
-  });
-});
-
-/// What cmux-host prints today (github_cli.rs `refusal_note`): the explained refusal on one line,
-/// then the code and deny reason in brackets.
-const ownerNotConnected = `cmux github credential: cmux could not get a GitHub token for manaflow-ai/cmux: manaflow-ai has no cmux GitHub App installation connected to this cmux team, so the team's GitHub grant does not cover it. If you own manaflow-ai, ${CONNECT} and install the App on manaflow-ai; if you only collaborate on it, ask its owner to install the cmux GitHub App on manaflow-ai with this repository, then connect it in cmux; then run the same command again. [policy.denied owner_not_connected]`;
-
-test("an org the team's grant leaves out (no App installation) asks for an install, on every surface", () => {
-  // git through the credential helper, and gh.
-  expect(githubConnectCall(shell(`${ownerNotConnected}\nfatal: Authentication failed`))).toEqual({
-    reason: "not-installed",
-  });
-  expect(
-    githubConnectCall(shell(ownerNotConnected.replace("cmux github credential", "cmux github gh"), "gh pr create")),
-  ).toEqual({ reason: "not-installed" });
-  // Any other bracketed refusal with the CLI reads by its code.
-  expect(
-    githubConnectCall(shell(ownerNotConnected.replace("[policy.denied owner_not_connected]", "[policy.denied]"))),
-  ).toEqual({ reason: "not-covered" });
-  // The GitHub MCP error carries the reason; the repository comes from the call's arguments.
-  const error = JSON.parse(mcpRefusal("policy.denied"));
-  error.structuredContent.error.reason = "owner_not_connected";
-  expect(githubConnectCall(mcp(JSON.stringify(error), { owner: "manaflow-ai", repo: "cmux" }))).toEqual({
-    reason: "not-installed",
-    repo: "manaflow-ai/cmux",
-  });
-  // Its text alone (Claude Code keeps only the text block).
-  const text = `cmux could not get a token for GitHub for manaflow-ai/cmux (policy.denied owner_not_connected): the team's GitHub grant does not cover manaflow-ai; the cmux GitHub App is not installed on manaflow-ai for this cmux team. Next: the team's GitHub connection does not cover this repository: ${CONNECT} and pick it on GitHub's page, or ask a team admin to allow it.`;
-  expect(githubConnectCall(mcp(text, { owner: "manaflow-ai", repo: "cmux" }))).toEqual({
-    reason: "not-installed",
-    repo: "manaflow-ai/cmux",
   });
 });
 
@@ -305,9 +259,7 @@ afterAll(() => {
 });
 
 let footers = 0;
-const footer = (
-  need: NonNullable<AcpmuxRow["githubConnect"]> = { reason: "not-connected", repo: "acme/web", callId: "call-1" },
-): AcpmuxRow => ({
+const footer = (): AcpmuxRow => ({
   id: `footer-${(footers += 1)}`,
   version: 1,
   at: Date.now(),
@@ -315,7 +267,7 @@ const footer = (
   status: "completed",
   text: "GitHub isn't connected for this chat.",
   retryable: true,
-  githubConnect: need,
+  githubConnect: { reason: "not-connected", repo: "acme/web", callId: "call-1" },
 });
 const card = () => host.querySelector("[data-github-connect]");
 const buttons = () => [...(card()?.querySelectorAll("button") ?? [])].map((element) => element.textContent);
@@ -324,11 +276,7 @@ const press = (label: string) =>
 const leave = () => act(async () => void dom.window.dispatchEvent(new dom.window.Event("blur")));
 const back = () => act(async () => void dom.window.dispatchEvent(new dom.window.Event("focus")));
 
-async function render(
-  connect: (repo: string | undefined) => Promise<void>,
-  offered = true,
-  need?: NonNullable<AcpmuxRow["githubConnect"]>,
-) {
+async function render(connect: (repo: string | undefined) => Promise<void>, offered = true) {
   const sent: string[] = [];
   const asked: (string | undefined)[] = [];
   const actions = offered
@@ -347,7 +295,7 @@ async function render(
   await act(async () =>
     root.render(
       <TurnActionsContext.Provider value={actions}>
-        <TurnFooter row={footer(need)} />
+        <TurnFooter row={footer()} />
       </TurnActionsContext.Provider>,
     ),
   );
@@ -377,20 +325,6 @@ test("one line, one filled Connect GitHub; the tap names the repository; back fr
   await leave();
   await back();
   expect(sent).toEqual(["Continue"]);
-});
-
-test("an org with no installation: one line naming it, one Install GitHub App that names the repository", async () => {
-  const { asked } = await render(async () => undefined, true, {
-    reason: "not-installed",
-    repo: "manaflow-ai/cmux",
-    callId: "call-1",
-  });
-  expect(card()!.textContent).toContain(
-    "This chat's GitHub grant doesn't cover manaflow-ai: the cmux GitHub App isn't installed on manaflow-ai",
-  );
-  expect(buttons()).toEqual(["Install GitHub App"]);
-  await press("Install GitHub App");
-  expect(asked).toEqual(["manaflow-ai/cmux"]);
 });
 
 test("the waiting card's Continue is the same step by hand, sent once", async () => {

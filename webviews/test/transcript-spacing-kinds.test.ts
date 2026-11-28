@@ -168,10 +168,6 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
     await page.addInitScript(() => {
       globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "claude-turn-fold": "runs" };
     });
-    // The notes are background ends: under the hat's `line` head (the default) they draw in the hat,
-    // not the transcript (Leo, c-9628ffdabf). This table measures them as transcript rows, so it pins
-    // the earlier head.
-    if (variant === "notes-live") await pinArms(page, { "subagent-tray-fold-head": "groups" });
     if (LIVE_RUNS_VARIANTS.has(variant)) {
       await pinLiveTurnRuns(page);
       // This table measures adjacent status rows, with the retained clock-on-line look.

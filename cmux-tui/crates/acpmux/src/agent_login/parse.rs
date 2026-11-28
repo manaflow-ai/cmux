@@ -37,42 +37,6 @@ pub fn hosts(agent: Agent) -> &'static [&'static str] {
     }
 }
 
-/// The hosts `agent`'s sign-in page is still that sign-in's page on, for the app that opened it
-/// in a tab of its own: the offered link's host first, then every host the provider's sign-in
-/// moves through on the way to its last page (Claude's link on claude.com signs in on claude.ai
-/// and ends on platform.claude.com). Once the sign-in ended (finished, cancelled, expired) the
-/// app closes that tab only while it shows one of these hosts; a tab the person took anywhere
-/// else is theirs and stays. A link that is not an allowed one for `agent` answers no host, so
-/// nothing is closed for it.
-pub fn page_hosts(agent: Agent, url: &str) -> Vec<String> {
-    let Some(url) = allowed_url_on(hosts(agent), url) else {
-        return Vec::new();
-    };
-    let own: &[&str] = match agent {
-        Agent::Claude => &[
-            "claude.com",
-            "claude.ai",
-            "platform.claude.com",
-            "console.anthropic.com",
-            "auth.anthropic.com",
-        ],
-        Agent::Codex => &["auth.openai.com"],
-        Agent::Grok => &["accounts.x.ai", "auth.x.ai"],
-        Agent::Cursor => CURSOR_HOSTS,
-        Agent::Github => GITHUB_HOSTS,
-        Agent::Gemini | Agent::OpenCode => &[],
-    };
-    let rest = url.strip_prefix("https://").unwrap_or(&url);
-    let first = rest.split(['/', '?', '#']).next().unwrap_or(rest).to_ascii_lowercase();
-    let mut out = vec![first];
-    for host in own {
-        if !out.iter().any(|h| h == host) {
-            out.push((*host).to_owned());
-        }
-    }
-    out
-}
-
 /// The longest link accepted.
 const MAX_URL: usize = 4096;
 

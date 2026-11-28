@@ -14,23 +14,18 @@ nonisolated extension ReleaseNotes {
         /// `tooling_only`): the page and the Updated card leave it out whatever its subject says.
         /// Nil in notes published before the flag.
         public var isInternal: Bool?
-        /// The product area the change belongs to ("Mac app", "iOS"), as the notes name it;
-        /// nil in notes published before the field. "What's in this build" groups by it.
-        public var area: String?
 
         enum CodingKeys: String, CodingKey {
-            case title, author, description, pr, area
+            case title, author, description, pr
             case isInternal = "internal"
         }
 
-        public init(title: String, author: String? = nil, description: String? = nil, pr: Int? = nil, isInternal: Bool? = nil,
-                    area: String? = nil) {
+        public init(title: String, author: String? = nil, description: String? = nil, pr: Int? = nil, isInternal: Bool? = nil) {
             self.title = title
             self.author = author
             self.description = description
             self.pr = pr
             self.isInternal = isInternal
-            self.area = area
         }
 
         /// A commit subject: "Title (#1234)" gives the title and PR 1234;

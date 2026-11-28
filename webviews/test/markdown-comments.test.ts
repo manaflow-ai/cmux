@@ -4,9 +4,7 @@
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import type { MarkdownEditor as Editor } from "../src/pages/markdown/editor";
-import { importWithDom } from "./support/importWithDom";
-
-const { parseComments, topIndexForLine } = await importWithDom(() => import("../src/pages/markdown/comments"));
+import { parseComments, topIndexForLine } from "../src/pages/markdown/comments";
 
 let dom: JSDOM;
 let MarkdownEditor: typeof Editor;

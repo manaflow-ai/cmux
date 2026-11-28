@@ -153,7 +153,6 @@ function canonicalLabel(
       return own && title.includes(path) ? title : `${verb} ${fromFolder(path, cwd)}`;
     }
     case "search":
-      // l10n-allow: English until translated: the harness's own search row verb
       return call.input.pattern ? `Search for ${call.input.pattern}` : undefined;
     case "glob":
       return call.input.pattern ? `${verb} ${call.input.pattern}` : undefined;

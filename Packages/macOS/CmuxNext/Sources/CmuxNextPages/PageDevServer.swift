@@ -50,6 +50,7 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         "cmux.home-channels",
         "cmux.icon-picker",
         "cmux.keybindings",
+        "cmux.machines",
         "cmux.markdown",
         "cmux.onboarding",
         "cmux.passwords",

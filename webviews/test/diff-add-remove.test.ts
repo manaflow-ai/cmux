@@ -4,14 +4,10 @@
 // from these two colors. Code tokens follow the palette in every mode (syntax-theme.test.ts).
 import { beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { importWithDom } from "./support/importWithDom";
-
-const { applyDiffViewerAppearance, resolveDiffViewerAppearance, setDiffChangeColors } = await importWithDom(
-  () => import("../src/appearance"),
-);
-const { contrastBetween } = await importWithDom(() => import("../src/syntax-colors"));
-const { pageSyntaxVariable } = await importWithDom(() => import("../src/syntax-theme"));
-const { sanitizeViewerPrefs } = await importWithDom(() => import("../src/viewer-prefs"));
+import { applyDiffViewerAppearance, resolveDiffViewerAppearance, setDiffChangeColors } from "../src/appearance";
+import { contrastBetween } from "../src/syntax-colors";
+import { pageSyntaxVariable } from "../src/syntax-theme";
+import { sanitizeViewerPrefs } from "../src/viewer-prefs";
 
 beforeAll(() => {
   const { window } = new JSDOM("<!doctype html>");

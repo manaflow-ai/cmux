@@ -28,13 +28,11 @@ export const AGENT_THEME_VARIABLES: Record<keyof AgentSessionTheme, string | nul
   palette: null,
   borders: null,
   focusRingEnabled: null,
-  agentSignature: null,
   toolRunLook: null,
   turnActionsPlacement: null,
   motion: null,
   statusIndicators: null,
   workingLook: null,
-  homeCardStyle: null,
   slots: null,
   subagentTrayPlacement: null,
 };

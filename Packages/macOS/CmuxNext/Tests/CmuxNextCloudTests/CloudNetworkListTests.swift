@@ -2,57 +2,71 @@
 import Foundation
 import Testing
 
-/// The Cloud network list is the daemon's `vm.networks` (cmux-platform's `GET /v1/host/network/target`, read in
-/// cmux-cloud-api `network.rs`) on the Worker machines client, sent as this Mac's install (auth `worker`; the route
-/// refuses a Stack session), never classic `/api/vm/network`: the team's one network (its team id, its mesh as
-/// `meshId`), or none before it has a mesh (Rust answers `[]` for the 404).
+/// The Cloud network list is cmux-platform's `GET /v1/host/network/target` on the Worker machines
+/// client, sent as this Mac's install (the route refuses a Stack session), never classic
+/// `/api/vm/network`: the team's one network (its team id, its mesh as `meshId`), or none before it has a mesh (404).
 @Suite(.serialized)
 struct CloudNetworkListTests {
-    actor Seen {
-        var input: Data?
-        func saw(_ data: Data) { input = data }
+    nonisolated final class NetworkAPI: URLProtocol {
+        nonisolated(unsafe) static var requests: [URLRequest] = []
+        nonisolated(unsafe) static var status = 200
+
+        override class func canInit(with _: URLRequest) -> Bool { true }
+        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+        override func startLoading() {
+            guard let url = request.url,
+                  let response = HTTPURLResponse(url: url, statusCode: Self.status, httpVersion: nil,
+                                                 headerFields: ["Content-Type": "application/json"]) else { return }
+            Self.requests.append(request)
+            let body = Self.status == 200
+                ? #"{"team":"team_aaaaaaaaaaaaaaaaaaaa","tenant":"t1","project":"p1","origin":"https://vm.invalid","mesh":"mesh_0123456789abcdefghjkmnpqrs","ipv4_cidr":"10.128.16.0/20"}"#
+                : #"{"code":"selector.not_found","message":"no available network mesh"}"#
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data(body.utf8))
+            client?.urlProtocolDidFinishLoading(self)
+        }
+
+        override func stopLoading() {}
     }
 
-    private func worker(answering body: String, _ seen: Seen = Seen()) throws -> CloudDaemon {
-        var api = CloudDaemon.workerMachines(baseURL: try #require(URL(string: "https://worker.invalid")),
-                                                accessToken: { "session" }, teamID: { "team_1" }, installToken: { "install" })
-        api.daemonCall = { input, _ in
-            await seen.saw(input)
-            return Data(#"{"ok":true,"body":\#(body)}"#.utf8)
-        }
-        return api
+    private func worker(status: Int) throws -> CloudAPIClient {
+        NetworkAPI.requests = []
+        NetworkAPI.status = status
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [NetworkAPI.self]
+        return CloudAPIClient.workerMachines(baseURL: try #require(URL(string: "https://worker.invalid")),
+                                             accessToken: { "session" }, teamID: { "team_1" },
+                                             session: URLSession(configuration: configuration),
+                                             installToken: { "install" })
     }
 
     @Test func theTeamsMeshIsItsNetworkReadAsTheInstall() async throws {
-        let seen = Seen()
-        let networks = try await worker(answering: #"[{"id":"team_aaaaaaaaaaaaaaaaaaaa","meshId":"mesh_0123456789abcdefghjkmnpqrs","cidr":"10.128.16.0/20","cidrV6":null,"scope":"team"}]"#, seen).listNetworks()
+        let networks = try await worker(status: 200).listNetworks()
         // The id is the team's, so `cloud network-list` output feeds `cloud tunnel attach` as it is.
         #expect(networks == [CloudNetwork(id: "team_aaaaaaaaaaaaaaaaaaaa", meshId: "mesh_0123456789abcdefghjkmnpqrs",
                                           cidr: "10.128.16.0/20", cidrV6: nil, scope: "team")])
-        let input = try #require(await seen.input)
-        let request = try #require(try JSONSerialization.jsonObject(with: input) as? [String: Any])
-        #expect(request["call"] as? String == "vm.networks")
-        #expect(request["auth"] as? String == "worker")
-        #expect(request["credential"] as? String == "install")
-        #expect(request["team"] as? String == "team_1")
-        #expect(request["api"] as? String == "https://worker.invalid")
+        let request = try #require(NetworkAPI.requests.first)
+        #expect(NetworkAPI.requests.count == 1)
+        #expect(request.httpMethod == "GET")
+        #expect(request.url?.absoluteString == "https://worker.invalid/v1/host/network/target")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer install")
+        #expect(request.value(forHTTPHeaderField: "x-cmux-team") == "team_1")
+        #expect(request.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == nil)
     }
 
     @Test func aTeamWithNoMeshYetHasNoNetwork() async throws {
-        #expect(try await worker(answering: "[]").listNetworks().isEmpty)
+        #expect(try await worker(status: 404).listNetworks().isEmpty)
     }
 
     @Test func aClassicClientSendsNothing() async throws {
-        let seen = Seen()
-        var classic = CloudDaemon(configuration: CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],
-                                                                                process: [:], isDebugBuild: true), tokens: { ("access", "refresh") },
-                                     teamID: { "team_1" })
-        classic.daemonCall = { input, _ in
-            await seen.saw(input)
-            return Data()
-        }
+        NetworkAPI.requests = []
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [NetworkAPI.self]
+        let classic = CloudAPIClient(configuration: CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],
+                                                                                    process: [:], isDebugBuild: true), tokens: { ("access", "refresh") },
+                                     teamID: { "team_1" }, session: URLSession(configuration: configuration))
         await #expect(throws: CloudAPIError.self) { try await classic.listNetworks() }
-        let sent = await seen.input
-        #expect(sent == nil)
+        #expect(NetworkAPI.requests.isEmpty)
     }
 }

@@ -234,8 +234,8 @@ export function AppPricingContent({
                 <DisabledButton>{pricing.currentPlan}</DisabledButton>
               )}
             </div>
-          ) : appStorePaymentGated || pending ? (
-            <DisabledButton>{pending ? pricing.go.cta : pricing.billingUnavailable}</DisabledButton>
+          ) : appStorePaymentGated ? (
+            <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
           ) : (
             <PricingCheckoutButton
               href={appPricingCheckoutURL(
@@ -408,18 +408,8 @@ export function AppPricingContent({
         style={appPricingStyle(theme)}
       >
         <div className="mx-auto w-full max-w-6xl">
-          <div className="mb-8 grid">
-            {/* Account state can resolve after the cards paint. Size the slot
-                with the signed-out notice at the actual viewport width. */}
-            <div
-              aria-hidden="true"
-              className={`invisible ${billingBannerClassName}`}
-            >
-              {pricing.signedOutNotice} {pricing.signedOutSignIn}
-            </div>
-            {personalization?.banner ??
-              (banner ? <BillingBanner banner={banner} /> : null)}
-          </div>
+          {personalization?.banner ??
+            (banner ? <BillingBanner banner={banner} /> : null)}
 
           <>
             <h1 className="text-2xl font-medium tracking-tight">
@@ -651,14 +641,11 @@ function pricingMessage(
   });
 }
 
-const billingBannerClassName =
-  "col-start-1 row-start-1 border border-border bg-code-bg px-4 py-3 text-sm";
-
 function BillingBanner({ banner }: { banner: BillingBannerModel }) {
   return (
     <div
       role="status"
-      className={billingBannerClassName}
+      className="mb-8 border border-border bg-code-bg px-4 py-3 text-sm"
     >
       {banner.message}
       {banner.action ? (

@@ -5,7 +5,6 @@
 
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -45,107 +44,12 @@ pub enum ChatChange {
 #[derive(Debug)]
 struct Slot {
     root: ChatRoot,
-    /// The scan's flags (`database`, `skipped`); its entries and files are held split below, and
-    /// put back together only for [`ChatIndex::save`].
     scan: RootScan,
-    /// The root's entries by the file they came from (`source_path`): one written file replaces
-    /// its own entries without a pass over the root's. Keyed by the path's bytes (`OsString`
-    /// orders by memcmp): a `PathBuf` key compares path components on each of ~15 steps per
-    /// insert, which doubled a 20,000-chat cache load.
-    by_path: BTreeMap<OsString, Vec<ChatEntry>>,
-    /// The files that hold each chat: a burst that touched a chat merges its copies only, where
-    /// it walked every entry of every root to find them (10 ms per event at 20,000 chats).
-    /// Sorted, so a full merge and a merge of some chats fold a chat's copies in one order;
-    /// nearly always one path, so a Vec, not a set.
-    by_key: HashMap<ChatKey, Vec<OsString>>,
-    /// Read state per session file, by path (a lookup where it was a scan of every file).
-    files: HashMap<PathBuf, FileState>,
     /// Each store file's stamp when an event last named it (None: it was not there).
     store_stamps: HashMap<PathBuf, Option<FileStamp>>,
 }
 
 impl Slot {
-    fn new(root: ChatRoot, scan: RootScan) -> Self {
-        let mut slot = Self {
-            root,
-            scan: RootScan::default(),
-            by_path: BTreeMap::new(),
-            by_key: HashMap::new(),
-            files: HashMap::new(),
-            store_stamps: HashMap::new(),
-        };
-        slot.set_scan(scan);
-        slot
-    }
-
-    /// Takes a whole scan in, split by file and by chat.
-    fn set_scan(&mut self, mut scan: RootScan) {
-        self.by_path.clear();
-        self.by_key.clear();
-        self.files = std::mem::take(&mut scan.files).into_iter().collect();
-        let entries = std::mem::take(&mut scan.entries);
-        self.scan = scan;
-        for entry in entries {
-            self.add_entry(entry);
-        }
-    }
-
-    /// The scan as one value again (the cache's shape).
-    fn to_scan(&self) -> RootScan {
-        RootScan {
-            entries: self.by_path.values().flatten().cloned().collect(),
-            files: self.files.iter().map(|(path, state)| (path.clone(), state.clone())).collect(),
-            ..self.scan.clone()
-        }
-    }
-
-    fn add_entry(&mut self, entry: ChatEntry) {
-        let paths = self.by_key.entry(entry.key()).or_default();
-        let path = entry.source_path.as_os_str();
-        if let Err(at) = paths.binary_search_by(|held| held.as_os_str().cmp(path)) {
-            paths.insert(at, path.to_owned());
-        }
-        match self.by_path.get_mut(path) {
-            Some(held) => held.push(entry),
-            None => {
-                let path = path.to_owned();
-                self.by_path.insert(path, vec![entry]);
-            }
-        }
-    }
-
-    /// Drops the entries read from `path`; returns their keys.
-    fn remove_path(&mut self, path: &Path) -> Vec<ChatKey> {
-        let path = path.as_os_str();
-        let Some(old) = self.by_path.remove(path) else { return Vec::new() };
-        let keys: Vec<ChatKey> = old.iter().map(ChatEntry::key).collect();
-        for key in &keys {
-            if let Some(paths) = self.by_key.get_mut(key) {
-                paths.retain(|held| held != path);
-                if paths.is_empty() {
-                    self.by_key.remove(key);
-                }
-            }
-        }
-        keys
-    }
-
-    /// Every entry, in the order a full merge folds them (path bytes, then file order).
-    fn entries(&self) -> impl Iterator<Item = &ChatEntry> {
-        self.by_path.values().flatten()
-    }
-
-    /// The entries of chat `key`: its files in path order, each file's entries in file order.
-    fn entries_of<'a>(&'a self, key: &'a ChatKey) -> impl Iterator<Item = &'a ChatEntry> + 'a {
-        self.by_key
-            .get(key)
-            .into_iter()
-            .flatten()
-            .filter_map(|path| self.by_path.get(path.as_os_str()))
-            .flatten()
-            .filter(move |entry| entry.harness == key.harness && entry.session_id == key.session_id)
-    }
-
     /// Whether store file `path` moved since an event last named it. macOS reports an extended
     /// attribute event on a WAL while processes read it, with nothing written; taken for a change,
     /// each daemon's read made every other daemon read the whole store again.
@@ -198,9 +102,10 @@ impl ChatIndex {
             .unwrap_or_default();
         let slots = roots
             .into_iter()
-            .map(|root| {
-                let scan = saved.remove(&root.id()).unwrap_or_default();
-                Slot::new(root, scan)
+            .map(|root| Slot {
+                scan: saved.remove(&root.id()).unwrap_or_default(),
+                store_stamps: HashMap::new(),
+                root,
             })
             .collect();
         let mut index = Self { slots, ..Self::default() };
@@ -222,7 +127,7 @@ impl ChatIndex {
         cache: &Path,
         write: &dyn Fn(&Path, &[u8]) -> io::Result<()>,
     ) -> io::Result<()> {
-        let roots = self.slots.iter().map(|slot| (slot.root.id(), slot.to_scan())).collect();
+        let roots = self.slots.iter().map(|slot| (slot.root.id(), slot.scan.clone())).collect();
         let bytes = serde_json::to_vec(&CacheFile { version: CACHE_VERSION, roots })
             .map_err(io::Error::other)?;
         write(cache, &bytes)
@@ -235,9 +140,9 @@ impl ChatIndex {
             let scan = old
                 .iter()
                 .position(|slot| slot.root.id() == root.id())
-                .map(|at| old.swap_remove(at).to_scan())
+                .map(|at| old.swap_remove(at).scan)
                 .unwrap_or_default();
-            self.slots.push(Slot::new(root, scan));
+            self.slots.push(Slot { root, scan, store_stamps: HashMap::new() });
         }
         self.remerge()
     }
@@ -274,7 +179,7 @@ impl ChatIndex {
         // The chats the burst touched: the old and new entries of each named
         // transcript. Only those are merged again; a store scan can change
         // any chat of its root, so it merges everything.
-        let mut touched: HashSet<ChatKey> = HashSet::new();
+        let mut touched: HashSet<String> = HashSet::new();
         let mut full = false;
         for slot in &mut self.slots {
             let mut store_changed = false;
@@ -302,7 +207,7 @@ impl ChatIndex {
                 }
             }
         }
-        if full { self.remerge() } else { self.remerge_keys(&touched) }
+        if full { self.remerge() } else { self.remerge_sessions(&touched) }
     }
 
     /// True once after a chat appeared or went away (the cache's chat set
@@ -366,17 +271,18 @@ impl ChatIndex {
         changes
     }
 
-    /// ``remerge`` for the chats in `keys` only: the same result for those keys, every other chat
-    /// left as it is. Costs the copies of those chats, however many chats the index holds.
-    fn remerge_keys(&mut self, keys: &HashSet<ChatKey>) -> Vec<ChatChange> {
-        if keys.is_empty() {
+    /// ``remerge`` for the chats whose session id is in `sessions` only: the
+    /// same result for those keys, every other chat left as it is.
+    fn remerge_sessions(&mut self, sessions: &HashSet<String>) -> Vec<ChatChange> {
+        if sessions.is_empty() {
             self.visits = 0;
             return Vec::new();
         }
-        let next = self.merge_keys(keys);
-        let stale: Vec<ChatKey> = keys
-            .iter()
-            .filter(|key| self.merged.contains_key(*key) && !next.contains_key(*key))
+        let next = self.merge_where(|entry| sessions.contains(entry.session_id.as_str()));
+        let stale: Vec<ChatKey> = self
+            .merged
+            .keys()
+            .filter(|key| sessions.contains(key.session_id.as_str()) && !next.contains_key(*key))
             .cloned()
             .collect();
         let mut changes = Vec::new();
@@ -420,112 +326,87 @@ impl ChatIndex {
         }
     }
 
-    /// Merges every root entry, in root order (the newest copy of a chat wins, accounts and roots
-    /// in root order).
     fn merge(&mut self) -> BTreeMap<ChatKey, IndexedChat> {
-        let mut fold = Fold::default();
-        for slot in &self.slots {
-            let (account, root_id) = slot_labels(slot);
-            for entry in slot.entries() {
-                fold.add(entry, &account, &root_id);
-            }
-        }
-        self.visits = fold.visits;
-        fold.merged
+        self.merge_where(|_| true)
     }
 
-    /// [`Self::merge`] for the chats in `keys` only, each from its own copies.
-    fn merge_keys(&mut self, keys: &HashSet<ChatKey>) -> BTreeMap<ChatKey, IndexedChat> {
-        let mut fold = Fold::default();
+    /// Merges the root entries `include` accepts, in root order (the newest
+    /// copy of a chat wins, accounts and roots in root order).
+    fn merge_where(
+        &mut self,
+        include: impl Fn(&ChatEntry) -> bool,
+    ) -> BTreeMap<ChatKey, IndexedChat> {
+        let mut visits = 0;
+        let mut merged: BTreeMap<ChatKey, IndexedChat> = BTreeMap::new();
         for slot in &self.slots {
-            let (account, root_id) = slot_labels(slot);
-            for key in keys {
-                for entry in slot.entries_of(key) {
-                    fold.add(entry, &account, &root_id);
+            let account = (slot.root.accounts.len() == 1).then(|| slot.root.accounts[0].clone());
+            let root_id = slot.root.id();
+            // Only person chats: not the Chief's sessions (cx-eb0m), acpmux's harness probes, or a
+            // session with no user message (Lawrence 2026-10-11).
+            for entry in slot
+                .scan
+                .entries
+                .iter()
+                .filter(|entry| include(entry) && crate::scan::is_person_chat(entry))
+            {
+                visits += 1;
+                let chat = merged.entry(entry.key()).or_insert_with(|| IndexedChat {
+                    entry: entry.clone(),
+                    accounts: Vec::new(),
+                    roots: Vec::new(),
+                });
+                // The newest copy (sr copies a transcript before a resume) wins.
+                if entry.updated_ms > chat.entry.updated_ms {
+                    chat.entry = entry.clone();
+                }
+                if let Some(account) = &account
+                    && !chat.accounts.contains(account)
+                {
+                    chat.accounts.push(account.clone());
+                }
+                if !chat.roots.contains(&root_id) {
+                    chat.roots.push(root_id.clone());
                 }
             }
         }
-        self.visits = fold.visits;
-        fold.merged
-    }
-
-    /// Whether the kept chats and order are what a full merge of every root gives now: the
-    /// incremental path's oracle in tests.
-    #[doc(hidden)]
-    pub fn matches_full_merge(&mut self) -> bool {
-        let visits = self.visits;
-        let full = self.merge();
         self.visits = visits;
-        let order: BTreeMap<OrderKey, ChatKey> =
-            full.iter().map(|(key, chat)| (order_key(&chat.entry), key.clone())).collect();
-        full == self.merged && order == self.order
-    }
-}
-
-fn slot_labels(slot: &Slot) -> (Option<String>, String) {
-    ((slot.root.accounts.len() == 1).then(|| slot.root.accounts[0].clone()), slot.root.id())
-}
-
-#[derive(Default)]
-struct Fold {
-    merged: BTreeMap<ChatKey, IndexedChat>,
-    visits: usize,
-}
-
-impl Fold {
-    // Only person chats: not the Chief's sessions (cx-eb0m), acpmux's harness probes, or a
-    // session with no user message (Lawrence 2026-10-11).
-    fn add(&mut self, entry: &ChatEntry, account: &Option<String>, root_id: &String) {
-        if !crate::scan::is_person_chat(entry) {
-            return;
-        }
-        self.visits += 1;
-        let chat = self.merged.entry(entry.key()).or_insert_with(|| IndexedChat {
-            entry: entry.clone(),
-            accounts: Vec::new(),
-            roots: Vec::new(),
-        });
-        // The newest copy (sr copies a transcript before a resume) wins.
-        if entry.updated_ms > chat.entry.updated_ms {
-            chat.entry = entry.clone();
-        }
-        if let Some(account) = account
-            && !chat.accounts.contains(account)
-        {
-            chat.accounts.push(account.clone());
-        }
-        if !chat.roots.contains(root_id) {
-            chat.roots.push(root_id.clone());
-        }
+        merged
     }
 }
 
 fn rescan(slot: &mut Slot) {
     // Moved, not cloned: each state holds its kept read.
-    let prior = std::mem::take(&mut slot.files);
+    let prior: HashMap<PathBuf, FileState> =
+        std::mem::take(&mut slot.scan.files).into_iter().collect();
     match scan_root(&slot.root.config(), &prior) {
-        Ok(scan) => slot.set_scan(scan),
-        Err(_) => slot.files = prior,
+        Ok(scan) => slot.scan = scan,
+        Err(_) => slot.scan.files = prior.into_iter().collect(),
     }
 }
 
-/// Reads `path` again. Returns the keys of its old and new entries.
-fn update_file(slot: &mut Slot, path: &Path) -> Vec<ChatKey> {
-    let mut keys = slot.remove_path(path);
-    let prev = slot.files.remove(path);
+/// Reads `path` again. Returns the session ids of its old and new entries.
+fn update_file(slot: &mut Slot, path: &Path) -> Vec<String> {
+    let prev_at = slot.scan.files.iter().position(|(file, _)| file == path);
+    let mut sessions: Vec<String> = Vec::new();
+    slot.scan.entries.retain(|entry| {
+        let keep = entry.source_path != path;
+        if !keep {
+            sessions.push(entry.session_id.clone());
+        }
+        keep
+    });
+    let prev = prev_at.map(|at| slot.scan.files.swap_remove(at).1);
     if !path.is_file() {
-        return keys;
+        return sessions;
     }
     if let Ok(read) = read_file(slot.root.harness, path, prev.as_ref()) {
         let mut entries: Vec<ChatEntry> = read.entry.into_iter().collect();
         crate::adapters::finish_file(slot.root.harness, &slot.root.path, &mut entries);
-        for entry in entries {
-            keys.push(entry.key());
-            slot.add_entry(entry);
-        }
-        slot.files.insert(path.to_path_buf(), read.state);
+        sessions.extend(entries.iter().map(|entry| entry.session_id.clone()));
+        slot.scan.entries.extend(entries);
+        slot.scan.files.push((path.to_path_buf(), read.state));
     }
-    keys
+    sessions
 }
 
 /// A chat's place in [`ChatIndex::newest_first`]: newest first, then the key text

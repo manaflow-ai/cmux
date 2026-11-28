@@ -14,12 +14,7 @@ import { SCREEN_RECORDING_POSTER_JPEG } from "../../../gallery/fixtures/videoPos
 import { LOGIN_TESTS_MP4 } from "../../../gallery/fixtures/toolImages";
 import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { frameName, framesNote } from "../composer/videoPrompt";
-import {
-  attachmentsHoldTheirBoxes,
-  heldUntilReleased,
-  paintShot,
-  useAttachmentView,
-} from "../../../gallery/fixtures/sentMedia";
+import { attachmentsHoldTheirBoxes, heldUntilReleased, paintShot } from "../../../gallery/fixtures/sentMedia";
 
 /// The host's `video.info` answer for the recording (composer/videoAttachments.ts).
 const VIDEO_INFO = {
@@ -132,8 +127,6 @@ function GallerySentVideo({
       },
     };
   });
-  // A recording placed in the text draws there only in the Inline view.
-  if (!useAttachmentView(placed ? "inline" : undefined)) return null;
   return (
     <ImageViewerContext.Provider value={() => {}}>
       <TurnActionsContext.Provider value={actions}>

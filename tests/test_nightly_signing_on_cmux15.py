@@ -69,9 +69,8 @@ def route(name: str, context: dict) -> object:
 
 class SigningOnCmux15Test(unittest.TestCase):
     def test_a_nightly_next_push_takes_the_pick_then_the_signer(self) -> None:
-        # Ten since #57000 moved post-feed deltas into their own signing job; nine since #62030 moved
-        # keep-published-dsyms off the signer to the one-job JIT VM.
-        self.assertEqual(len(JOBS), 9)
+        # Eight since #49284 added sign-live-code-variant.
+        self.assertEqual(len(JOBS), 8)
         rng = random.Random(15)
         for name in JOBS:
             source = manaflow_route(name)
@@ -123,8 +122,7 @@ class SigningOnCmux15Test(unittest.TestCase):
                     # Except a nightly-next-only job on another track: the one-job JIT VM (NIGHTLY_NEXT_ONLY_OWNED).
                     other_track = name in NIGHTLY_NEXT_ONLY_OWNED and ref != "refs/heads/nightly-next"
                     with self.subTest(job=name, event=event, ref=ref, mode="one-mini"):
-                        expected = JIT_LABEL if other_track else LABEL
-                        self.assertEqual(route(name, context), expected)
+                        self.assertEqual(route(name, context), JIT_LABEL if other_track else LABEL)
 
     def test_the_release_uploads_leave_the_signer(self) -> None:
         for name in UPLOADS:
@@ -205,7 +203,7 @@ class SigningOnCmux15Test(unittest.TestCase):
                          "${{  vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || "
                          "github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && "
                          "vars.CI_NIGHTLY_SIGN_RUNNER || "
-                         "'mac-nightly' }}")
+                         "'glaeda-nightly-std-xcode-26.6' }}")
 
 
 if __name__ == "__main__":

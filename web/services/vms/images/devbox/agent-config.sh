@@ -41,26 +41,6 @@ cmux_claude_plane_pair() {
   fi
 }
 
-# A shell that carries the image's OPENAI_BASE_URL but not CMUX_CODEROUTER_URL
-# (or a per-home model-plane.env that kept only the OpenAI pair) is still on
-# the image's plane: take the origin from the image's file. Without it the
-# per-home file was rewritten with no origin, hid the image's, and every agent
-# with no sign-in had no model route ("Not logged in", the 2026-11-25
-# cloud-claude-matrix sr2 rows). Any other base URL is the person's: no origin.
-cmux_heal_model_plane_origin() {
-  [ -z "${CMUX_CODEROUTER_URL-}" ] && [ -n "${OPENAI_BASE_URL-}" ] && [ -f /etc/cmux/model-plane.env ] || return 0
-  cmux_heal_base=${OPENAI_BASE_URL%/}
-  cmux_heal_origin=$(
-    OPENAI_BASE_URL= CMUX_CODEROUTER_URL=
-    . /etc/cmux/model-plane.env >/dev/null 2>&1
-    [ -n "$OPENAI_BASE_URL" ] && [ "${OPENAI_BASE_URL%/}" = "$cmux_heal_base" ] && printf '%s' "$CMUX_CODEROUTER_URL"
-  )
-  case "$cmux_heal_origin" in
-    https://*) CMUX_CODEROUTER_URL=$cmux_heal_origin; export CMUX_CODEROUTER_URL ;;
-  esac
-  unset cmux_heal_base cmux_heal_origin
-}
-
 cmux_write_agent_configs() {
   # Every model-plane var, persisted generically; OPENAI_BASE_URL is the
   # anchor: its presence means a boot env is present. Claude's pair is the
@@ -69,7 +49,6 @@ cmux_write_agent_configs() {
   # user's own key or endpoint (a one-off `ANTHROPIC_API_KEY=... claude`
   # passes through here via the launcher).
   cmux_model_plane_vars="OPENAI_BASE_URL OPENAI_API_KEY CMUX_CODEROUTER_URL ANTHROPIC_BASE_URL ANTHROPIC_API_KEY CMUX_VM_ID"
-  cmux_heal_model_plane_origin
   cmux_claude_plane_pair
   if [ -n "${OPENAI_BASE_URL-}" ]; then
     mkdir -p "$HOME/.config/cmux" 2>/dev/null && (
@@ -90,7 +69,6 @@ cmux_write_agent_configs() {
     ) || true
   elif [ "${cmux_shared_machine-0}" != 1 ] && [ -f "$HOME/.config/cmux/model-plane.env" ]; then
     . "$HOME/.config/cmux/model-plane.env" 2>/dev/null || true
-    cmux_heal_model_plane_origin
   elif [ -f /etc/cmux/model-plane.env ]; then
     # Baked into the image: the same alias origin for every machine; the
     # machine's TLS edge rule routes it and adds the credential.
@@ -708,5 +686,5 @@ cmux_prepare_shared_machine_model_env
 cmux_write_agent_configs
 cmux_write_cua_mcp_config
 cmux_claude_set_team_env_aside
-unset -f cmux_prepare_shared_machine_model_env cmux_write_agent_configs cmux_claude_set_team_env_aside cmux_claude_plane_pair cmux_heal_model_plane_origin
+unset -f cmux_prepare_shared_machine_model_env cmux_write_agent_configs cmux_claude_set_team_env_aside cmux_claude_plane_pair
 unset cmux_claude_plane_base cmux_claude_plane_key cmux_kind cmux_shared_machine

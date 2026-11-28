@@ -45,54 +45,9 @@ struct AASidebarEntryPointGalleryTests {
 
     // MARK: Sidebar menu
 
-    /// Registries whose menus outlive the call that built them. A menu item's target (`ActionMenuTarget`) holds its
-    /// registry weakly, as the app's live registry is, so a registry freed with its builder's scope leaves every row
-    /// unvalidated: AppKit's auto-enable then greys Customize Sidebar… out.
-    static var liveRegistries: [ActionRegistry] = []
-
-    /// Where `Stage.capture` writes its per-path images and view trees; nil outside `renderGallery`.
-    static var diagDirectory: URL?
-
-    /// The share of pixels that differ from the top-left pixel: about 0 for a stage that drew only its background.
-    static func ink(_ image: CGImage) -> Double {
-        let width = image.width, height = image.height
-        guard width > 0, height > 0, let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
-                                                             bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                                                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
-              let data = context.data else { return 0 }
-        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-        let pixels = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
-        var differing = 0
-        for index in stride(from: 0, to: width * height * 4, by: 4) {
-            let delta = (0..<3).map { abs(Int(pixels[index + $0]) - Int(pixels[$0])) }.max() ?? 0
-            if delta > 24 { differing += 1 }
-        }
-        return Double(differing) / Double(width * height)
-    }
-
-    /// Distinct colours (RGB quantised to 5 bits) on a 32×32 sample grid: a background-only stage shows one or two.
-    static func distinctColors(_ image: CGImage) -> Int {
-        let width = image.width, height = image.height
-        guard width > 0, height > 0, let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
-                                                             bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                                                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
-              let data = context.data else { return 0 }
-        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-        let pixels = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
-        var colors = Set<Int>()
-        for row in 0..<32 {
-            for column in 0..<32 {
-                let index = ((row * height / 32) * width + column * width / 32) * 4
-                colors.insert((Int(pixels[index]) >> 3) << 10 | (Int(pixels[index + 1]) >> 3) << 5 | Int(pixels[index + 2]) >> 3)
-            }
-        }
-        return colors.count
-    }
-
     /// The sidebar background menu as the app builds it, every row bound, Customize Sidebar… through the app's binding.
     static func backgroundMenu() -> NSMenu {
         let registry = ActionRegistry.standard()
-        liveRegistries.append(registry)
         for id in AASidebarDrawnMenuGalleryTests.actions(registry.contextMenuEntries(for: .sidebarBackground)) where id != "sidebar.customize" {
             registry.bind(id, invoke: { _ in })
         }
@@ -233,10 +188,7 @@ struct AASidebarEntryPointGalleryTests {
             root.addSubview(label)
         }
 
-        /// The stage as the window server composites it (glass and layer-backed views included), else
-        /// AppKit's `cacheDisplay` copy. `name` also writes each path's image and the view tree under
-        /// `diag/` in the gallery, so a blank variant says which path failed.
-        func capture(_ name: String? = nil) async throws -> CGImage {
+        func capture() throws -> CGImage {
             root.layoutSubtreeIfNeeded()
             for view in AANestedGroupsGalleryTests.all(root) {
                 view.layoutSubtreeIfNeeded()
@@ -247,40 +199,14 @@ struct AASidebarEntryPointGalleryTests {
             CATransaction.flush()
             let rep = try #require(root.bitmapImageRepForCachingDisplay(in: root.bounds))
             root.cacheDisplay(in: root.bounds, to: rep)
-            let cached = try #require(rep.cgImage)
-            var composited: CGImage?
-            for _ in 0..<20 where composited == nil {
-                try? await Task.sleep(for: .milliseconds(50))
-                CATransaction.flush()
-                composited = try? await window.screenshotImage()
-            }
-            if let name, let diag = AASidebarEntryPointGalleryTests.diagDirectory {
-                try AAGroupHeaderDensityGalleryTests.write(cached, to: diag.appending(path: "\(name)-cache.png"))
-                if let composited { try AAGroupHeaderDensityGalleryTests.write(composited, to: diag.appending(path: "\(name)-window.png")) }
-                if let layer = root.layer, let context = CGContext(data: nil, width: cached.width, height: cached.height, bitsPerComponent: 8,
-                                                                   bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                                                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
-                    context.scaleBy(x: CGFloat(cached.width) / root.bounds.width, y: CGFloat(cached.height) / root.bounds.height)
-                    layer.render(in: context)
-                    if let image = context.makeImage() { try AAGroupHeaderDensityGalleryTests.write(image, to: diag.appending(path: "\(name)-layer.png")) }
-                }
-                let tree = AANestedGroupsGalleryTests.all(root).map { view in
-                    "\(type(of: view)) frame=\(view.frame) hidden=\(view.isHidden) alpha=\(view.alphaValue) layer=\(view.layer.map { "\(type(of: $0)) opacity=\($0.opacity)" } ?? "none")"
-                }
-                let text = "window=\(window.frame) visible=\(window.isVisible) number=\(window.windowNumber) composited=\(composited != nil) "
-                    + "cacheInk=\(AASidebarEntryPointGalleryTests.ink(cached)) windowInk=\(composited.map(AASidebarEntryPointGalleryTests.ink) ?? -1)\n"
-                    + tree.joined(separator: "\n")
-                try text.write(to: diag.appending(path: "\(name)-tree.txt"), atomically: true, encoding: .utf8)
-            }
-            if let composited, AASidebarEntryPointGalleryTests.ink(composited) >= AASidebarEntryPointGalleryTests.ink(cached) { return composited }
-            return cached
+            return try #require(rep.cgImage)
         }
 
         func close() { window.close() }
     }
 
     /// The last good layout and the bad edit side by side, and the toast the app shows for it under them.
-    static func renderDiagnostics(dark: Bool) async throws -> CGImage {
+    static func renderDiagnostics(dark: Bool) throws -> CGImage {
         let side: CGFloat = 300, gap: CGFloat = 16, labelHeight: CGFloat = 22, toastArea: CGFloat = 120
         let width = side * 2 + gap * 3, height = labelHeight + side + toastArea
         let stage = try Stage(width: width, height: height, dark: dark)
@@ -302,12 +228,12 @@ struct AASidebarEntryPointGalleryTests {
         size.width = min(size.width, width - gap * 2)
         view.translatesAutoresizingMaskIntoConstraints = true
         view.frame = NSRect(x: (width - size.width) / 2, y: max(gap, (toastArea - size.height) / 2), width: size.width, height: size.height)
-        return try await stage.capture("\(dark ? "dark" : "light")-diagnostics")
+        return try stage.capture()
     }
 
     /// The sidebar right-clicked below its rows: the background menu, drawn as the drawn-menus look draws it, with the
     /// row that holds Customize Sidebar… open beside it and Customize Sidebar… highlighted.
-    static func renderSidebarMenu(dark: Bool) async throws -> CGImage {
+    static func renderSidebarMenu(dark: Bool) throws -> CGImage {
         let menu = backgroundMenu()
         let path = try customizePath(menu)
         let list = GlassMenuListView(), top = GlassMenuRow.rows(of: menu)
@@ -322,10 +248,7 @@ struct AASidebarEntryPointGalleryTests {
         let stage = try Stage(width: width, height: height, dark: dark)
         defer { stage.close() }
         try stage.sidebar(goodJSON, frame: NSRect(x: 0, y: 0, width: side, height: height))
-        // A menu panel sizes by constraints (GlassMenu pins it); placed by hand here, it sizes by its frame, else the
-        // capture's layout pass shrinks it to its 10-point minimum and the menu draws as a dot.
         let panel = Glass.makeMenuPanel(content: list)
-        panel.translatesAutoresizingMaskIntoConstraints = true
         panel.frame = NSRect(x: click, y: height - 120 - size.height, width: size.width, height: size.height)
         stage.root.addSubview(panel)
         panel.layoutSubtreeIfNeeded()
@@ -336,7 +259,6 @@ struct AASidebarEntryPointGalleryTests {
             let hovered = try #require(list.view(at: parent))
             let anchor = stage.root.convert(hovered.convert(hovered.bounds, to: nil), from: nil)
             let sidePanel = Glass.makeMenuPanel(content: child)
-            sidePanel.translatesAutoresizingMaskIntoConstraints = true
             sidePanel.frame = PopupPlacement.sideBySideFrame(anchor: anchor, size: childSize, screen: stage.root.bounds,
                                                              gap: gap, margin: 0).frame
             stage.root.addSubview(sidePanel)
@@ -347,7 +269,7 @@ struct AASidebarEntryPointGalleryTests {
         } else {
             list.highlight(path.child)
         }
-        return try await stage.capture("\(dark ? "dark" : "light")-sidebar-menu")
+        return try stage.capture()
     }
 
     /// The command palette filtered to "Customize sidebar", over the window it opens on.
@@ -362,13 +284,13 @@ struct AASidebarEntryPointGalleryTests {
         view.setFrameOrigin(NSPoint(x: margin, y: margin))
         stage.root.addSubview(view)
         view.layoutSubtreeIfNeeded()
-        return try await stage.capture("\(dark ? "dark" : "light")-palette")
+        return try stage.capture()
     }
 
     static func render(_ variant: Variant, dark: Bool) async throws -> CGImage {
         switch variant {
-        case .diagnostics: try await renderDiagnostics(dark: dark)
-        case .sidebarMenu: try await renderSidebarMenu(dark: dark)
+        case .diagnostics: try renderDiagnostics(dark: dark)
+        case .sidebarMenu: try renderSidebarMenu(dark: dark)
         case .palette: try await renderPalette(dark: dark)
         }
     }
@@ -379,10 +301,6 @@ struct AASidebarEntryPointGalleryTests {
         let root = AANestedGroupsGalleryTests.packageRoot, out = root.appending(path: "sidebar-entry-gallery")
         try? FileManager.default.removeItem(at: out)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
-        let diag = out.appending(path: "diag")
-        try FileManager.default.createDirectory(at: diag, withIntermediateDirectories: true)
-        Self.diagDirectory = diag
-        defer { Self.diagDirectory = nil }
         // Rows: dark, then light. Columns: one per variant, as wide as its widest image.
         var grid: [[CGImage]] = []
         for dark in [true, false] {
@@ -390,10 +308,6 @@ struct AASidebarEntryPointGalleryTests {
             for variant in Variant.allCases {
                 let image = try await Self.render(variant, dark: dark)
                 row.append(image)
-                // A variant that drew only the stage's background is a broken capture, not a picture.
-                let name = "\(dark ? "dark" : "light")-\(variant.rawValue)"
-                #expect(Self.ink(image) > 0.01, "\(name) is blank: it differs from its background on \(Self.ink(image)) of its pixels")
-                #expect(Self.distinctColors(image) >= 8, "\(name) is blank: \(Self.distinctColors(image)) distinct colours on a 32×32 sample")
                 try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: "\(dark ? "dark" : "light")-\(variant.rawValue).png"))
             }
             grid.append(row)

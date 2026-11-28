@@ -182,7 +182,7 @@ async fn a_peer_connection_hears_nothing_of_a_down_peer_in_a_refusal() {
     let (_, listed) = peer.answer(method::MUX_INFO, info("gone/m1")).await;
     let listed = listed.expect("refused");
     assert_eq!(
-        listed, "peer_unreachable: the request was not sent",
+        listed, "peer_unreachable: the request was not sent; retry later",
         "a peer's refusal told it of this host's peer"
     );
 

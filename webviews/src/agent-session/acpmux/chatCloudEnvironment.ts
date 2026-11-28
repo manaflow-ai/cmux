@@ -8,17 +8,6 @@ export function chatEnvironmentPick(own: string | undefined, settingDefault: str
   return own ?? (settingDefault || AUTO_ENVIRONMENT);
 }
 
-/// What a send names before the pick: the start's own environment, else a failed start's target on its
-/// Retry (`retry`, the card's `environment`) while the chat has made no deliberate pick since. The pick
-/// resets after Send, and that reset is not a new choice; a deliberate pick, Auto included, replaces it.
-export function retryEnvironmentFor(
-  explicit: string | undefined,
-  own: string | undefined,
-  retry: string | undefined,
-): string | undefined {
-  return explicit ?? (own === undefined ? retry : undefined);
-}
-
 /// A new chat's Cloud environment, held per chat (App.tsx, with its run mode): the Default Image setting
 /// until the chat picks its own, and the setting again when `chat` changes (a chat starts here, or another
 /// new chat shows) and once a Cloud send takes it, so a pick never rides into a later chat's send.
@@ -26,7 +15,7 @@ export function retryEnvironmentFor(
 /// Auto or with the flag off).
 export function useChatCloudEnvironment(chat: string): {
   pick: CloudEnvironmentPick;
-  forSend(explicit: string | undefined, retry?: string): string | undefined;
+  forSend(explicit: string | undefined): string | undefined;
 } {
   const settingDefault = useDefaultCloudImage();
   // `own` is the chat's explicit pick; undefined follows the setting.
@@ -43,8 +32,8 @@ export function useChatCloudEnvironment(chat: string): {
   );
   return {
     pick,
-    forSend: (explicit, retry) => {
-      const environment = cloudStartEnvironment(retryEnvironmentFor(explicit, own, retry), current);
+    forSend: (explicit) => {
+      const environment = cloudStartEnvironment(explicit, current);
       setHeld({ chat, own: undefined });
       return environment;
     },

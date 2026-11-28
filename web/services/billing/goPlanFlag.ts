@@ -7,13 +7,8 @@ import {
 } from "../client-config/posthogFlags";
 
 /** Web Plus is publicly available. App Store Go keeps its own rollout. */
-export function isWebPlusPlanEnabledImmediately(): boolean {
-  return (process.env.NODE_ENV ?? "test") !== "test" || process.env.CMUX_TEST_GO_PLAN_DISABLED !== "1";
-}
-
-/** The async form is used after personalization, while the initial pricing tree needs the same answer synchronously. */
 export async function isWebPlusPlanEnabled(_distinctId = "anonymous"): Promise<boolean> {
-  return isWebPlusPlanEnabledImmediately();
+  return (process.env.NODE_ENV ?? "test") !== "test" || process.env.CMUX_TEST_GO_PLAN_DISABLED !== "1";
 }
 
 /**

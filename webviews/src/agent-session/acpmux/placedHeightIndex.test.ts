@@ -63,13 +63,6 @@ describe("PlacedHeightIndex", () => {
     expect(after.materializeHeights().slice(68)).toEqual(new Float64Array([10, 10, 2, 3, 4]));
   });
 
-  // `capacity <<= 1` wrapped to 0 past 2^31 leaves and doubled 0 forever: a splice past the most the tree spans
-  // throws at once (scripts/check-cursor-loops.ts asks every loop here to say why it ends).
-  test("a splice past the most rows the tree spans throws instead of doubling forever", () => {
-    const rows = { length: 2 ** 37 } as ArrayLike<number>;
-    expect(() => PlacedHeightIndex.empty().splice(0, rows)).toThrow(RangeError);
-  });
-
   test("upper-bound lookup skips rows whose tops are equal", () => {
     const index = PlacedHeightIndex.fromHeights([0, 0, 12, 0, 8]);
     expect(index.upperBoundTop(-1)).toBe(0);

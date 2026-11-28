@@ -53,13 +53,6 @@ import Testing
         latest.state?.reason = "latest"
         latest.state?.owners = ["c1"]
         #expect(latest.reasonText == "Set by This Mac")
-        latest.state?.owners = ["c4", "c1"]
-        #if canImport(Darwin)
-        let owners = ListFormatter.localizedString(byJoining: ["This Mac", "Another Mac"])
-        #else
-        let owners = "This Mac and Another Mac"
-        #endif
-        #expect(latest.reasonText == "Set by \(owners)")
     }
 
     @Test func priorityOrderListsStoredTokensThenEveryDeviceInSight() throws {
@@ -74,7 +67,6 @@ import Testing
         // Drag This iPhone to the top.
         let order = TerminalSizingPresentation.reordered(rows, from: IndexSet(integer: 1), to: 0)
         #expect(order == ["device:ios-1", "mac", "device:ios-2"])
-        #expect(TerminalSizingPresentation.reordered(rows, from: IndexSet(integer: 8), to: 8) == rows.map(\.token))
         // Drag This Mac to the end.
         #expect(TerminalSizingPresentation.reordered(rows, from: IndexSet(integer: 0), to: 3) == ["device:ios-1", "device:ios-2", "mac"])
     }

@@ -4,10 +4,8 @@
 // just do it."). send-motion-reduced.test.ts reads the stylesheet's clocks in Chromium. Review of #38159, F1.
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { MOTION_MS, MOTION_SEND_MS } from "../src/motion/scale.generated";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { MOTION_MS, MOTION_SEND_MS } = await importWithDom(() => import("../src/motion/scale.generated"));
 
 const theme = {
   isDark: false,

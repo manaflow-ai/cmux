@@ -113,35 +113,6 @@ if (( PUSHED_REF_COUNT > 0 && DELETED_REF_COUNT == PUSHED_REF_COUNT )); then
     exit 0
 fi
 
-# A machine checkpoint push passes here too: every ref a `refs/heads/lane/...-wip` side ref (tools/wip_checkpoint.py
-# in leo-workspace) whose pushed commit is that tool's "WIP: automatic checkpoint" commit carrying "[skip ci]". Such a
-# ref only keeps a session's uncommitted work on GitHub so it cannot die with the session; it never lands, runs no CI,
-# and whoever picks the work up pushes a commit of their own, which this hook and CI's pushed-commits check judge.
-# Judging it here held the work on disk instead: a lane VM's lane/sidebar-root-fix was refused by the cmux-next
-# gate for 2 days (263 NOW passes, red wip-dirty), the same for the handoffs cmuxterm-hq#41846, #41954 and #41970.
-# Only these hooks are skipped; the clone's other pre-push hooks (the secret scrub, pr-owner) run as before.
-# CMUX_PREPUSH_CHECKPOINT_PASS=0 judges a checkpoint anyway.
-if [[ "${CMUX_PREPUSH_CHECKPOINT_PASS:-1}" != 0 ]] && (( PUSHED_REF_COUNT > DELETED_REF_COUNT )); then
-    CHECKPOINT_ONLY=1
-    while IFS=' ' read -r _ CP_LOCAL_SHA CP_REMOTE_REF _; do
-        [[ -z "$CP_LOCAL_SHA" || "$CP_LOCAL_SHA" =~ ^0+$ ]] && continue
-        if [[ ! "$CP_REMOTE_REF" =~ ^refs/heads/lane/.+-wip$ ]]; then
-            CHECKPOINT_ONLY=0
-            break
-        fi
-        CP_MESSAGE="$(git log -1 --format=%B "$CP_LOCAL_SHA" 2>/dev/null || true)"
-        if [[ "$CP_MESSAGE" != "WIP: automatic checkpoint"* || "$CP_MESSAGE" != *"[skip ci]"* ]]; then
-            CHECKPOINT_ONLY=0
-            break
-        fi
-    done < "$REFS_FILE"
-    if (( CHECKPOINT_ONLY )); then
-        echo "pre-push: a machine checkpoint (lane/...-wip, [skip ci]) is kept, not judged: it never lands; the" \
-            "commit that picks the work up runs every check (CMUX_PREPUSH_CHECKPOINT_PASS=0 judges it)." >&2
-        exit 0
-    fi
-fi
-
 TIMED=1  # a push with commits to check: report the phase times (header)
 phase setup
 HOOK_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd -P)"

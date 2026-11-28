@@ -35,15 +35,4 @@ import Testing
         #expect(requests.value(for: "AXFocused") == nil)
         #expect(!requests.wantsAccessibility)
     }
-
-    @Test func theLaunchSwitchKeepsItOnWhateverClientsSet() {
-        var requests = AssistiveClientRequests(environment: ["CMUX_NEXT_ACCESSIBILITY": "1"])
-        #expect(requests.wantsAccessibility)
-        _ = requests.set(false, for: "AXManualAccessibility")
-        #expect(requests.wantsAccessibility)
-        #expect(requests.value(for: "AXManualAccessibility") == false)
-        for off in [[:], ["CMUX_NEXT_ACCESSIBILITY": "0"], ["CMUX_NEXT_ACCESSIBILITY": ""]] {
-            #expect(!AssistiveClientRequests(environment: off).wantsAccessibility)
-        }
-    }
 }

@@ -56,8 +56,6 @@ fn whole_record() -> HostRecord {
         claude_translator: true,
         host_level: HOST_LEVEL,
         holder: Some(false),
-        local_chatgpt_expiry: Some(1_800_000_000),
-        local_kimi_expiry: Some(1_800_000_001),
     }
 }
 

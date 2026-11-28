@@ -29,8 +29,6 @@ const CAUSE: Record<GitHubConnectNeed["reason"], StringKey> = {
   "not-connected": "githubConnect.notConnected",
   "needs-reauth": "githubConnect.needsReauth",
   "not-covered": "githubConnect.notCovered",
-  "not-installed": "githubConnect.notInstalled",
-  "permissions-pending": "githubConnect.permissionsPending",
   asked: "githubConnect.asked",
 };
 
@@ -59,7 +57,6 @@ export function GitHubConnectCardView({
   const askArm = asked ? experimentArm(settingsAskCard) : undefined;
   const arm = askArm === "needs" ? "card" : (askArm ?? experimentArm(turnErrorCard));
   const repo = need.repo;
-  const owner = repo?.split("/")[0];
   const cause = asked
     ? (need.why ??
       (repo
@@ -67,13 +64,11 @@ export function GitHubConnectCardView({
         : need.org
           ? t("githubConnect.askedOrg", { org: need.org })
           : t("githubConnect.asked")))
-    : need.reason === "not-installed" && owner
-      ? t("githubConnect.notInstalledOwner", { owner })
-      : need.reason === "not-covered" && repo
-        ? t("githubConnect.notCoveredRepo", { repo })
-        : repo && need.reason === "not-connected"
-          ? t("githubConnect.notConnectedRepo", { repo })
-          : t(CAUSE[need.reason]);
+    : need.reason === "not-covered" && repo
+      ? t("githubConnect.notCoveredRepo", { repo })
+      : repo && need.reason === "not-connected"
+        ? t("githubConnect.notConnectedRepo", { repo })
+        : t(CAUSE[need.reason]);
   const line =
     phase.kind === "waiting"
       ? t("githubConnect.finishOnGitHub")
@@ -108,12 +103,7 @@ export function GitHubConnectCardView({
           <GitHubMark size={16} className="cv-settings-ask__icon" />
           <span className="cv-settings-ask__line text-fg">{line}</span>
           {offer && phase.kind !== "continuing" && (
-            <ConnectButton
-              phase={phase}
-              install={need.reason === "not-installed"}
-              onConnect={onConnect}
-              onContinue={onContinue}
-            />
+            <ConnectButton phase={phase} onConnect={onConnect} onContinue={onContinue} />
           )}
         </div>
       </section>
@@ -132,12 +122,7 @@ export function GitHubConnectCardView({
       </span>
       {offer && phase.kind !== "continuing" && (
         <span className="cv-turn-error__actions">
-          <ConnectButton
-            phase={phase}
-            install={need.reason === "not-installed"}
-            onConnect={onConnect}
-            onContinue={onContinue}
-          />
+          <ConnectButton phase={phase} onConnect={onConnect} onContinue={onContinue} />
         </span>
       )}
     </div>
@@ -227,17 +212,14 @@ function SettingsAskPopover({
   );
 }
 
-/// The card's one button: Connect GitHub (Install for an owner without the App, Try again after a refusal), or Continue while GitHub's
+/// The card's one button: Connect GitHub (Try again after a refusal), or Continue while GitHub's
 /// page is open.
 function ConnectButton({
   phase,
-  install,
   onConnect,
   onContinue,
 }: {
   phase: GitHubConnectPhase;
-  /// The App is not installed on the repository's owner: the button installs it.
-  install?: boolean;
   onConnect?: () => void;
   onContinue?: () => void;
 }) {
@@ -255,11 +237,7 @@ function ConnectButton({
       disabled={phase.kind === "opening"}
       onClick={onConnect}
     >
-      {phase.kind === "refused"
-        ? t("githubConnect.tryAgain")
-        : install
-          ? t("githubConnect.install")
-          : t("githubConnect.connect")}
+      {phase.kind === "refused" ? t("githubConnect.tryAgain") : t("githubConnect.connect")}
     </button>
   );
 }

@@ -25,9 +25,7 @@ mod write;
 
 use std::sync::OnceLock;
 
-pub use encoding::{
-    DEFLATE, FS_WRITE_DEFLATE_CAPABILITY, FS_WRITE_ZSTD_CAPABILITY, ZSTD, ZSTD_WINDOW_LOG_MAX,
-};
+pub use encoding::{DEFLATE, FS_WRITE_DEFLATE_CAPABILITY};
 pub use entry::{Entry, EntryKind, StatResult, revision};
 pub use error::FsError;
 pub use listing::Page;
@@ -113,8 +111,8 @@ pub fn installed() -> Option<&'static FsService> {
 }
 
 /// The capabilities to advertise in `identify`, when served: `fs-v1`,
-/// `fs-symlink-v1`, `fs-write-deflate-v1` and `fs-write-zstd-v1` (compressed
-/// `fs.write` bytes, [`encoding`]), [`FS_WRITE_NOFOLLOW_CAPABILITY`] and
+/// `fs-symlink-v1`, `fs-write-deflate-v1` (compressed `fs.write` bytes,
+/// [`encoding`]), [`FS_WRITE_NOFOLLOW_CAPABILITY`] and
 /// [`FS_READ_NOFOLLOW_CAPABILITY`].
 #[must_use]
 pub fn advertised() -> Vec<&'static str> {
@@ -123,7 +121,6 @@ pub fn advertised() -> Vec<&'static str> {
             FS_CAPABILITY,
             FS_SYMLINK_CAPABILITY,
             FS_WRITE_DEFLATE_CAPABILITY,
-            FS_WRITE_ZSTD_CAPABILITY,
             FS_WRITE_NOFOLLOW_CAPABILITY,
             FS_READ_NOFOLLOW_CAPABILITY,
         ]

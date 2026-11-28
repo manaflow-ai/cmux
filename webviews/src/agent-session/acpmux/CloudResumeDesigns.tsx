@@ -4,7 +4,7 @@
 // `queue` ships (ComposerQueue's held-for-wake line); `footer` and `transcript` exist here alone, so
 // the choice is made on what each looks like.
 import { ComposerQueue } from "./ComposerQueue";
-import { WaitSpinner } from "./conversation/WaitSpinner";
+import { Spinner } from "./conversation/icons";
 import { translate as t } from "./i18n";
 
 /// `queue`: the note is the line over the held prompt in the composer's queue (shipped).
@@ -23,7 +23,7 @@ const PROMPT = "Run the upload test 200 times and tell me if it still flakes.";
 export function CloudResumeDesigns({ design, slow }: CloudResumeDesignsProps) {
   const note = (
     <span className="acpmux-resume-design-note" data-enter="fade">
-      <WaitSpinner size={12} loading />
+      <Spinner size={12} loading />
       {t("composer.heldForWake")}
     </span>
   );

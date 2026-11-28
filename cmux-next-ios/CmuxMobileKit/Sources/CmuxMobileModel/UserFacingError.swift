@@ -11,18 +11,17 @@ import FoundationNetworking
 /// its own says it (`LocalizedError`, or an Apple error's own description);
 /// anything else says `fallback`. Logs and telemetry keep the raw error.
 public enum UserFacingError {
-    /// Said when an error has no sentence of its own. It names no retry: loads retry on their own
-    /// (AutoRetry), and an action's own page says what retrying it means.
-    public static let generic = "Something went wrong."
+    /// Said when an error has no sentence of its own.
+    public static let generic = "Something went wrong. Try again."
 
     public static func message(_ error: any Error, fallback: String = generic) -> String {
         if error is CancellationError { return fallback }
         if let urlError = error as? URLError {
             switch urlError.code {
             case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
-                return "You're offline. Connect to the internet."
+                return "You're offline. Connect to the internet and try again."
             case .timedOut:
-                return "The connection is slow right now."
+                return "The connection is slow right now. Try again."
             case .cancelled:
                 return fallback
             default:

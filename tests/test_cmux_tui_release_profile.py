@@ -139,10 +139,9 @@ class ChannelOnlyThinTest(unittest.TestCase):
         self.assertEqual(PROFILE_REF.findall(linux["target_set"]), [("shipped", "linux_target_set")])
         self.assertEqual(profiles()["shipped"]["linux_target_set"], "linux")
         self.assertEqual(resolve(linux["lto"]), "fat")
-        self.assertIn("build-linux", jobs["publish"]["needs"])
-        # FALLBACK_STARTS_WHEN_BUILD_FAILS: the macOS fallback plan starts when build fails, not
-        # after build-linux (a running Linux leg counts as not failed).
-        self.assertNotIn("build-linux", jobs["darwin-fallback-plan"]["needs"])
+        for name in ("publish", "darwin-fallback-plan"):
+            with self.subTest(job=name):
+                self.assertIn("build-linux", jobs[name]["needs"])
 
     def test_only_the_early_channel_reads_thin_artifacts(self):
         readers = []
@@ -154,10 +153,7 @@ class ChannelOnlyThinTest(unittest.TestCase):
                     w = step.get("with") or {}
                     names = [str(w.get(k, "")) for k in ("name", "pattern")] if "download-artifact" in str(step.get("uses", "")) else []
                     names += re.findall(r"(?:--pattern|--name|-n)[ =]+[\"']?([^\s\"']+)", str(step.get("run", "")))
-                    # cloud-machine-channel-journey.yml's machine-channel-journey-* artifacts are its own
-                    # journey results (cmux#57007), not thin builds.
-                    if any(n.startswith(MACHINE_PREFIX) and not n.startswith("machine-channel-journey-")
-                           for n in names):
+                    if any(n.startswith(MACHINE_PREFIX) for n in names):
                         readers.append((path.name, name))
         self.assertEqual(readers, [("cmux-machine-channel.yml", "point-x86_64"),
                                    ("cmux-machine-channel.yml", "point-linux")])
@@ -173,10 +169,6 @@ class ChannelOnlyThinTest(unittest.TestCase):
             run_ids = [step["with"].get("run-id") for step in job["steps"]
                        if "download-artifact" in str(step.get("uses", ""))]
             self.assertEqual(run_ids, ["${{ needs.plan.outputs.from_run || github.run_id }}"])
-            # This run's own artifacts take no token (the runtime service, not REST: run 45730730942).
-            tokens = [step["with"].get("github-token") for step in job["steps"]
-                      if "download-artifact" in str(step.get("uses", ""))]
-            self.assertEqual(tokens, ["${{ needs.plan.outputs.from_run != '' && steps.app.outputs.token || '' }}"])
         both = jobs["point-linux"]
         self.assertIn("build-x86_64", both["needs"])
         self.assertIn("build-aarch64", both["needs"])

@@ -3,17 +3,16 @@
 # shallow clone deepened past the boundary that hides the real base (the API's
 # rate limit failed nightly tour 45142205045 at this step).
 set -euo pipefail
-export GIT_CONFIG_COUNT=3 GIT_CONFIG_KEY_0=gc.auto GIT_CONFIG_VALUE_0=0 GIT_CONFIG_KEY_1=maintenance.auto GIT_CONFIG_VALUE_1=false GIT_CONFIG_KEY_2=core.hooksPath GIT_CONFIG_VALUE_2=/dev/null
-source "$(dirname "${BASH_SOURCE[0]}")/../../cmux-next/tests/lib/git-fixture.sh"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 script="$here/../media_merge_base.sh"
 tmp="$(mktemp -d)"
-git_fixture_trap_exit 'cd /; rm -rf "$tmp"'
+trap 'cd /; rm -rf "$tmp"' EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
+export GIT_CONFIG_COUNT=3 GIT_CONFIG_KEY_0=gc.auto GIT_CONFIG_VALUE_0=0 GIT_CONFIG_KEY_1=maintenance.auto GIT_CONFIG_VALUE_1=false GIT_CONFIG_KEY_2=core.hooksPath GIT_CONFIG_VALUE_2=/dev/null
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GITHUB_REPOSITORY=o/r
 
 # origin: a fork point, 150 commits on each side of it.
-git_fixture_init -b main "$tmp/origin"
+git init -q -b main "$tmp/origin"
 c() { git -C "$tmp/origin" commit -q --allow-empty -m "$1"; }
 c root; for i in $(seq 1 5); do c "trunk $i"; done
 fork="$(git -C "$tmp/origin" rev-parse HEAD)"
@@ -34,7 +33,7 @@ chmod +x "$tmp/bin/gh"
 export PATH="$tmp/bin:$PATH"
 
 # A depth-2 clone, as the workflow's checkout.
-git_fixture_clone --depth=2 --no-local "file://$tmp/origin" "$tmp/work" 2>/dev/null
+git clone -q --depth=2 --no-local "file://$tmp/origin" "$tmp/work" 2>/dev/null
 cd "$tmp/work"
 
 # The API answers: its answer, no fetch.

@@ -22,9 +22,6 @@ public final class AgentPaneExternalAttach {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.external-attach")
     /// The chat that last took files: `chat.composer.get` reads it back.
     private weak var last: AgentPaneView?
-    /// The exact files in the last delivered batch. Capture attribution matches its own URL rather
-    /// than borrowing this route's older composer destination.
-    private var lastAttachedURLs: Set<URL> = []
     /// When ``last`` took its files (wall clock): `chat.composer.get`'s `attached_at_ms`, so a probe
     /// times a door from the app's own stamp rather than from how often it reads the composer.
     private var lastAttachedAt: Date?
@@ -39,18 +36,6 @@ public final class AgentPaneExternalAttach {
     private let now: () -> ContinuousClock.Instant
 
     public init() { now = { .now } }
-
-    /// The files of routes the App parked before they reached this route, and why the oldest waits
-    /// (no window, no pane, Home shown): `chat.composer.get`'s `waiting.parked` and `parked_why`.
-    private var parkedFiles = 0, parkedWhy: String?
-
-    /// The App parked a route of `files` files, logged with `why`; nil: it ran its parked routes.
-    public func parked(files: Int?, why: String = "") {
-        guard let files else { return (parkedFiles, parkedWhy) = (0, nil) }
-        parkedFiles += files
-        if parkedWhy == nil { parkedWhy = why }
-        Self.logger.info("external open parked (\(why, privacy: .public)); \(self.parkedFiles, privacy: .public) file(s) wait")
-    }
 
     /// A test's clock, for files that waited past ``openingLimit``.
     init(now: @escaping () -> ContinuousClock.Instant) { self.now = now }
@@ -103,20 +88,12 @@ public final class AgentPaneExternalAttach {
     /// Whether files wait for a new chat (``attach(_:claimed:target:openChat:show:)``).
     var waitsForChat: Bool { opening != nil }
 
-    /// The session that synchronously received `url`, if it did. A queued or failed attach, and an
-    /// unrelated delivery that replaced the batch, return nil without changing composer history.
-    func session(for url: URL) -> String? {
-        guard opening == nil, lastAttachedURLs.contains(url) else { return nil }
-        return last?.model.sessionId
-    }
-
     /// The files waiting for a chat (one opening, or the next files'), oldest first.
     var waitingFiles: [URL] { (stranded?.urls ?? []) + (opening?.urls ?? []) }
 
     private func deliver(_ urls: [URL], claimed: String?, to view: AgentPaneView, show: @MainActor (AgentPaneView) -> Void) {
         last = view
         lastAttachedAt = Date()
-        lastAttachedURLs = Set(urls)
         show(view)
         view.attachExternal(urls, claimed: claimed)
         view.focusComposer()
@@ -127,38 +104,9 @@ public final class AgentPaneExternalAttach {
     /// `session` null for a chat not started yet, and all empty without a chat. The chat that last
     /// took files also answers `attached_at_ms`: the Unix ms its composer took them.
     public func composerState(focused: AgentPaneView?) async -> JSONValue {
-        let state: JSONValue
-        if let last {
-            let attachedAt = lastAttachedAt
-            state = Self.stamped(await last.composerReadback(), attachedAt: attachedAt)
-        } else if let focused {
-            state = await focused.composerReadback()
-        } else {
-            state = Self.noComposer
-        }
-        return Self.with(state, waiting: waiting)
-    }
-
-    /// Where files that have not reached a composer wait, so a late file names its place: `parked`
-    /// (and `parked_why`) in the App before this route, `opening` for a new chat whose tab the store
-    /// has not answered (`opening_ms`, how long), `stranded` for the next files to carry.
-    var waiting: JSONValue {
-        let age = opening.map { waiting -> Double in
-            let elapsed = (now() - waiting.since).components
-            return Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds / 1_000_000_000_000_000)
-        }
-        return .object([
-            "parked": .number(Double(parkedFiles)), "parked_why": parkedWhy.map { .string($0) } ?? .null,
-            "opening": .number(Double(opening?.urls.count ?? 0)), "opening_ms": age.map { .number($0) } ?? .null,
-            "stranded": .number(Double(stranded?.urls.count ?? 0)),
-        ])
-    }
-
-    /// `state` with `waiting` added, unchanged when it is not an object.
-    nonisolated static func with(_ state: JSONValue, waiting: JSONValue) -> JSONValue {
-        guard case .object(var fields) = state else { return state }
-        fields["waiting"] = waiting
-        return .object(fields)
+        if let last { return Self.stamped(await last.composerReadback(), attachedAt: lastAttachedAt) }
+        guard let focused else { return Self.noComposer }
+        return await focused.composerReadback()
     }
 
     /// `state` with `attached_at_ms` (Unix ms of `attachedAt`) added, unchanged without a stamp or an object.

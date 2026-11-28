@@ -4,8 +4,8 @@
 // makes more sense to have at baseline", each kind with its icon to hover across.
 import { expect, test } from "bun:test";
 import { translate } from "../i18n";
-import { trayHead, trayHeadParts, trayHeadForms, trayHeadGroups } from "./trayHeadKinds";
-import { trayItems, finishedTrayItems } from "./runningTray";
+import { trayHead, trayHeadForms, trayHeadGroups, trayHeadParts } from "./trayHeadKinds";
+import { finishedTrayItems, trayItems } from "./runningTray";
 import type { BackgroundCommand } from "../session-info/processes";
 
 const command = (id: string, line: string): BackgroundCommand => ({

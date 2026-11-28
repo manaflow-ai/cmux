@@ -27,9 +27,8 @@ export function connectionFailure(error: unknown): "disconnected" | "failed" {
     case "cmux.policy.turned_off":
       return "failed";
     default:
-      // The wire permits arbitrary owner error codes: the page keeps the error. A failed page read
-      // (auth, the machine list) is read again on its own either way (store.ts `readAgainLater`); a
-      // failed owner change is never replayed just because its retryable flag is true.
+      // The wire permits arbitrary owner error codes: retain the error and manual Retry.
+      // Never replay a failed owner operation just because its retryable flag is true.
       return "failed";
   }
 }

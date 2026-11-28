@@ -4,7 +4,6 @@ import CmuxNextActions
 import CmuxNextDesign
 @testable import CmuxNextSettings
 import CmuxNextTestSupport
-import CmuxNextSettingsWindow
 import Foundation
 import Testing
 

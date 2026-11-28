@@ -109,10 +109,6 @@ public struct TerminalTabPage: View {
     let isOnPage: Bool
     /// This page's own identity for the host's size-claim ownership.
     @State private var pageID = UUID()
-    /// When the connecting cover went up (nil: no cover), for ``TerminalLoadWatch``.
-    @State private var coverSince: ContinuousClock.Instant?
-    /// The cover has been up past ``TerminalLoadWatch/bound``.
-    @State private var coverOverdue = false
 
     public init(host: TerminalTabHost, insets: EdgeInsets, chromeTop: CGFloat? = nil, isInteractive: Bool,
                 isOnPage: Bool? = nil) {
@@ -172,60 +168,22 @@ public struct TerminalTabPage: View {
             // skeleton, which take no touches. No status over the content or by the composer:
             // the title pill's subtitle says it after 10 s (`TerminalModel.connectionLine`).
             .overlay {
-                let cover = Self.showsCover(attached: model.connectionState.isAttached, seeded: model.seeded,
-                                            drewLiveOutput: model.drewLiveOutput, heldFrame: model.coldFrame != nil)
-                let stage = cover ? TerminalLoadWatch.stage(model.connectionState, waited: coverOverdue ? TerminalLoadWatch.bound : .zero)
-                    : .loading
-                // A saved copy (the Mac's screen text or the page's last still) stays up past the
-                // bound; the title pill says the Mac is offline and how old it is.
-                let hasSavedCopy = model.cardScreenText?.isEmpty == false || model.coldFrame != nil
                 Group {
-                    if cover {
+                    if Self.showsCover(attached: model.connectionState.isAttached, seeded: model.seeded,
+                                       drewLiveOutput: model.drewLiveOutput, heldFrame: model.coldFrame != nil) {
                         // Once attached the cover stays until the live rows are drawn, then
                         // goes in one frame: a cut, never a fade over live rows (R3-4). Its
                         // rows are laid out for the page as it is now (keyboard up or down).
-                        // The saved copy as rows is the surface itself (seeded); this draws the
-                        // Mac's screen text, else the page's last still, and keeps drawing it past
-                        // the bound (Leo, 2026-11-25: "be able to still like interact with the rest
-                        // of the app with that saved copy"). Only with no saved copy at all does
-                        // the page, past its bound, draw no gray bars: words and Retry instead.
-                        TerminalConnectingView(topInset: insets.top,
-                                               lastFrame: model.cardScreenText == nil ? model.coldFrame : nil,
-                                               showsPlaceholder: stage == .loading || hasSavedCopy,
-                                               screenText: model.cardScreenText,
+                        TerminalConnectingView(topInset: insets.top, screenText: model.cardScreenText,
                                                rowsLift: rowsLift, rows: model.coldFrameRows, rowsMeasured: model.coldFrameMeasured)
                             .ignoresSafeArea()
                             .padding(.bottom, insets.bottom)
                             .transition(.identity)
                             .placeholderBound("terminal.page.connecting", .milliseconds(2000))
-                        if stage == .stalled, !hasSavedCopy {
-                            TerminalLoadStalledPanel(state: model.connectionState, linkStatus: model.linkStatus?()) { retryAttach() }
-                                .padding(.top, insets.top)
-                                .padding(.bottom, insets.bottom + rowsLift)
-                        }
                     }
                 }
                 .allowsHitTesting(isInteractive)
                 .accessibilityHidden(!isInteractive)
-                // The cover's bound: past it, the page says so and tries the attach again by
-                // itself, again after each retry delay, for as long as the cover is up.
-                .task(id: cover) {
-                    guard cover else {
-                        coverSince = nil
-                        coverOverdue = false
-                        return
-                    }
-                    coverSince = coverSince ?? .now
-                    try? await Task.sleep(until: coverSince! + TerminalLoadWatch.bound, clock: .continuous)
-                    guard !Task.isCancelled else { return }
-                    coverOverdue = true
-                    var attempt = 0
-                    while !Task.isCancelled {
-                        retryAttach()
-                        try? await Task.sleep(for: TerminalLoadWatch.retryDelay(attempt))
-                        attempt += 1
-                    }
-                }
             }
             // Presented by the controller (UIKit), not with `.sheet` here: a
             // SwiftUI sheet presented from inside the TabsKit page left the
@@ -234,46 +192,10 @@ public struct TerminalTabPage: View {
             .onChange(of: model.showArtifacts) { _, shown in
                 if shown { host.controller.presentArtifacts() } else { host.controller.dismissArtifacts() }
             }
-            #if DEBUG
-            .overlay(alignment: .topLeading) {
-                if TerminalModel.debugScreenTextProbe, isInteractive {
-                    TerminalScreenTextProbe(model: host.model)
-                }
-            }
-            #endif
     }
 }
-
-#if DEBUG
-/// DEBUG `-cmux-mobile-terminal-text-probe` (``TerminalModel/debugScreenTextProbe``): the
-/// screen's last rows, read twice a second, as a clear element's label for UI tests.
-private struct TerminalScreenTextProbe: View {
-    let model: TerminalModel
-
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-            let rows = model.debugScreenTail()
-            Text(rows)
-                .font(.system(size: 2))
-                .foregroundStyle(.clear)
-                .frame(width: 4, height: 4, alignment: .topLeading)
-                .allowsHitTesting(false)
-                // The whole text, whatever the 4 pt frame draws of it.
-                .accessibilityLabel(rows)
-                .accessibilityIdentifier("debug.terminal.screenText")
-        }
-    }
-}
-#endif
 
 extension TerminalTabPage {
-    /// Tries the attach again: the shell's recovery (the Mac's link, the tab's live session
-    /// in place of a placeholder, the session's attach), when there is one.
-    @MainActor func retryAttach() {
-        guard let reconnect = host.model.reconnect else { return }
-        Task { await reconnect() }
-    }
-
     /// Whether the page draws the connecting cover (the Mac's screen text or a skeleton) over
     /// its surface: only while the surface has no rows of its own, neither fed from the kept
     /// page nor drawn from the Mac, and never a still picture (it takes no scroll or tap).
@@ -369,8 +291,6 @@ struct TerminalCardScreenText: View {
     let text: String
     let topInset: CGFloat
     let width: CGFloat
-    /// The height the rows may fill: a page's room above its composer. Nil: a grid card's crop.
-    var visibleHeight: CGFloat? = nil
 
     var body: some View {
         let all = TerminalCardScreenLines.shown(text, capacity: .max)
@@ -380,7 +300,7 @@ struct TerminalCardScreenText: View {
         // Only the card's visible part counts: the last rows that fit, the prompt at the bottom (qa11).
         let lineHeight = UIFont.monospacedSystemFont(ofSize: size, weight: .regular).lineHeight
         let shown = TerminalCardScreenLines.shown(text, capacity: TerminalCardScreenLines.capacity(
-            visibleHeight: visibleHeight ?? width * TerminalCardCrop.cardAspect, topInset: topInset, lineHeight: lineHeight))
+            visibleHeight: width * TerminalCardCrop.cardAspect, topInset: topInset, lineHeight: lineHeight))
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(shown.enumerated()), id: \.offset) { _, line in
                 Text(String(line).isEmpty ? " " : String(line))

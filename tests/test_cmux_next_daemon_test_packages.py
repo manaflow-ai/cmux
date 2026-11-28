@@ -111,37 +111,6 @@ class TargetsOfTheMatches(unittest.TestCase):
                     box.commit()
                     self.assertEqual(run(box.root), ["-p", "a"])
 
-    def test_an_autotests_false_member_places_files_through_its_test_entries(self) -> None:
-        # cmux-tui (#56677, #56928): `autotests = false`, one `it` binary (tests/it/main.rs) gathers every
-        # tests/ file no [[test]] names, and a few files keep a binary of their own. Placing none of them sent
-        # the job back to every test target of every member, and each window's run filled the pool's disk.
-        box = self.box
-        box.crate("t", 'autotests = false\n\n[[test]]\nname = "it"\npath = "tests/it/main.rs"\n\n'
-                       '[[test]]\nname = "own"\npath = "tests/own.rs"\n\n[[test]]\nname = "bare"\n\n'
-                       '[dev-dependencies]\n')
-        box.write("cmux-tui/crates/t/tests/it/main.rs", "mod gathered;\n")
-        box.write("cmux-tui/crates/t/tests/gathered.rs", "#[test] fn cmux_next_gathered() {}\n")
-        box.write("cmux-tui/crates/t/tests/cli/inner.rs", "#[test] fn cmux_next_inner() {}\n")
-        box.write("cmux-tui/crates/t/tests/own.rs", "#[test] fn cmux_next_own() {}\n")
-        box.write("cmux-tui/crates/t/tests/bare.rs", "#[test] fn cmux_next_bare() {}\n")
-        box.write("cmux-tui/crates/t/src/lib.rs", "#[test] fn cmux_next_lib() {}\n")
-        box.crate("a")
-        box.write("cmux-tui/crates/a/tests/hits.rs", "#[test] fn cmux_next_hit() {}\n")
-        box.write("cmux-tui/crates/a/tests/misses.rs", "#[test] fn other() {}\n")
-        box.commit()
-        args = run(box.root)
-        self.assertEqual(pairs(args, "-p"), {"a", "t"}, args)
-        self.assertEqual(pairs(args, "--test"), {"it", "own", "bare", "hits"}, args)
-        self.assertIn("--lib", args)
-
-    def test_an_autotests_false_member_with_two_gathering_binaries_is_not_guessed(self) -> None:
-        box = self.box
-        box.crate("t", 'autotests = false\n\n[[test]]\nname = "x"\npath = "tests/x/main.rs"\n\n'
-                       '[[test]]\nname = "y"\npath = "tests/y/main.rs"\n')
-        box.write("cmux-tui/crates/t/tests/loose.rs", "#[test] fn cmux_next_loose() {}\n")
-        box.commit()
-        self.assertEqual(run(box.root), ["-p", "t"])
-
     def test_a_match_outside_a_member_tests_the_workspace(self) -> None:
         self.box.write("cmux-tui/loose/x.rs", "#[test] fn cmux_next_x() {}\n")
         self.box.commit()
@@ -166,9 +135,6 @@ class ThisRepository(unittest.TestCase):
         # acpmux's ~300 test binaries are what filled the disk: only its targets with cmux_next_ remain.
         self.assertIn("harness_health", tests)
         self.assertNotIn("hub_carrier", tests)
-        self.assertNotIn("hub_integration", tests)
-        # cmux-tui's integration tests are its one `it` binary (autotests = false, #56677).
-        self.assertIn("it", tests)
 
 
 if __name__ == "__main__":

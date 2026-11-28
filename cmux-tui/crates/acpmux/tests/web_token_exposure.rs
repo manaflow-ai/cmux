@@ -44,7 +44,6 @@ async fn client(origin: Origin) -> (mpsc::Sender<String>, mpsc::Receiver<String>
             peer_token: Some(PEER_TOKEN.into()),
             vm_boundary: false,
             github_broker: false,
-            group: None,
         },
     );
     cfg.peers.insert(
@@ -57,7 +56,6 @@ async fn client(origin: Origin) -> (mpsc::Sender<String>, mpsc::Receiver<String>
             peer_token: None,
             vm_boundary: false,
             github_broker: false,
-            group: None,
         },
     );
     cfg.store.mode = StoreMode::Memory;

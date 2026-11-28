@@ -1,4 +1,7 @@
-const appendEvent = journalPlugin("opencode");
+// cmux-tui-journal-plugin
+import { spawn } from "node:child_process";
+
+const helper = process.env.CMUX_TUI_HOOK;
 const events = new Set([
   "session.created",
   "session.updated",
@@ -41,11 +44,28 @@ function topology(event) {
   };
 }
 
+function emit(nativeEvent, native) {
+  if (!process.env.CMUX_TUI_SOCKET || !process.env.CMUX_TUI_TERMINAL_ID || !helper) return;
+  let payload;
+  try {
+    payload = JSON.stringify(native);
+  } catch (_) {
+    return;
+  }
+  const child = spawn(helper, ["opencode", nativeEvent], {
+    env: process.env,
+    stdio: ["pipe", "ignore", "ignore"],
+  });
+  child.on("error", () => {});
+  child.stdin.on("error", () => {});
+  child.stdin.end(payload);
+}
+
 const CmuxTuiJournal = async (context) => ({
   event: async ({ event }) => {
     const nativeEvent = event && typeof event.type === "string" ? event.type : "event";
     // OpenCode also emits streaming message-part deltas. Terminal capture
-    // already records their visible bytes, so reporting every token
+    // already records their visible bytes, so spawning one process per token
     // would add load without adding a semantic transition.
     if (!events.has(nativeEvent)) return;
     // An interrupt (Esc) or a recoverable context overflow arrives as
@@ -53,7 +73,7 @@ const CmuxTuiJournal = async (context) => ({
     const errorName = (event.properties || event.data || {}).error?.name;
     if (nativeEvent === "session.error" && NON_TERMINAL_SESSION_ERRORS.has(errorName)) return;
     const sessionTopology = topology(event);
-    const handoff = appendEvent(nativeEvent, {
+    emit(nativeEvent, {
       event,
       context: {
         directory: context?.directory,
@@ -64,7 +84,6 @@ const CmuxTuiJournal = async (context) => ({
     if (nativeEvent === "session.deleted" && sessionTopology.session_id) {
       sessionRoots.delete(sessionTopology.session_id);
     }
-    return handoff;
   },
 });
 

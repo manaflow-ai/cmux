@@ -12,7 +12,6 @@
 
 pub mod acpmux_policy;
 pub mod activity;
-pub mod api;
 pub mod appearance;
 pub mod auth;
 pub mod browser;
@@ -30,8 +29,6 @@ pub mod host;
 pub mod lan;
 pub mod link_deflate;
 pub mod link_socket;
-pub mod link_zstd;
-pub mod live_code;
 pub mod local_link;
 pub mod localhost;
 pub mod machine;
@@ -54,7 +51,6 @@ pub mod pairing;
 pub mod path_probe;
 pub mod peer;
 pub mod phone_frames;
-pub mod phone_page;
 pub mod policy;
 pub mod portmap;
 pub mod presence;
@@ -64,13 +60,10 @@ pub mod relay_publish;
 pub mod seal;
 pub mod sealed_notify;
 pub mod services;
-pub mod site_data;
 pub mod size_release;
 pub mod surface;
-pub mod tab_agent_screen;
 pub mod tab_snapshots;
 pub mod traffic;
-pub mod try_pr;
 pub mod viewport_link;
 pub mod viewport_sync;
 

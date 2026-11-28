@@ -197,8 +197,6 @@ fn plain(text: &str) -> bool {
 }
 
 fn rejoin(facts: &Facts) -> String {
-    // retry-prompt-ok: the fix is the join script itself (an install with side effects on this
-    // machine), not a repeat of a failed call.
     format!(
         "Re-run the join line without a token: curl -fsSL {}/v1/machines/join.sh | sh",
         origin(facts)

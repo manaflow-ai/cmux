@@ -186,9 +186,95 @@ impl AirGap {
 }
 
 #[cfg(test)]
-#[path = "timers_air_gap_tests.rs"]
-mod air_gap_tests;
+mod air_gap_tests {
+    use super::*;
+
+    const GAP: Duration = Duration::from_secs(20);
+
+    #[test]
+    fn no_gap_holds_nothing() {
+        let mut gap = AirGap::default();
+        gap.probed((0, 100), Instant::now());
+        assert_eq!(gap.floor(100), None);
+    }
+
+    #[test]
+    fn own_sends_hold_the_next_until_the_gap_passed() {
+        let now = Instant::now();
+        let mut gap = AirGap::default();
+        gap.set(Some(GAP));
+        assert_eq!(gap.floor(0), None, "nothing sent yet");
+        gap.probed((0, 100), now);
+        assert_eq!(gap.floor(100), Some(now + GAP));
+        // A pass that sent nothing of its own keeps the floor.
+        gap.probed((100, 100), now + Duration::from_secs(5));
+        assert_eq!(gap.floor(100), Some(now + GAP));
+    }
+
+    #[test]
+    fn data_since_the_last_pass_lifts_it() {
+        let now = Instant::now();
+        let mut gap = AirGap::default();
+        gap.set(Some(GAP));
+        gap.probed((0, 100), now);
+        assert_eq!(gap.floor(180), None, "data left: probes ride along");
+        gap.set(None);
+        assert_eq!(gap.floor(100), None);
+    }
+}
 
 #[cfg(test)]
-#[path = "timers_quiet_keepalive_tests.rs"]
-mod quiet_keepalive_tests;
+mod quiet_keepalive_tests {
+    use super::*;
+
+    const EVERY: Duration = Duration::from_secs(10);
+    const TICK: Duration = Duration::from_secs(1);
+
+    #[test]
+    fn an_idle_session_keeps_the_interval() {
+        let start = Instant::now();
+        let mut keepalive = QuietKeepalive::new(EVERY, start);
+        assert!(!keepalive.due(0, start + EVERY - TICK));
+        assert!(keepalive.due(0, start + EVERY));
+        keepalive.sent(start + EVERY);
+        assert!(!keepalive.due(0, start + EVERY * 2 - TICK));
+        assert!(keepalive.due(0, start + EVERY * 2));
+    }
+
+    #[test]
+    fn other_traffic_holds_it_and_the_gap_never_passes_the_interval() {
+        let start = Instant::now();
+        let mut keepalive = QuietKeepalive::new(EVERY, start);
+        // Something leaves every 5 s: no keepalive ever.
+        let mut tx = 0;
+        for second in 1..=60 {
+            if second % 5 == 0 {
+                tx += 100;
+            }
+            assert!(!keepalive.due(tx, start + TICK * second), "second {second}");
+        }
+        // Then silence: the send seen at 60 s may have left just after the
+        // 59 s run, so the keepalive is due by 69 s.
+        assert!(!keepalive.due(tx, start + TICK * 68));
+        assert!(keepalive.due(tx, start + TICK * 69));
+    }
+
+    #[test]
+    fn an_air_floor_shortens_the_gap_from_the_last_send() {
+        const FLOOR: Duration = Duration::from_secs(4);
+        let start = Instant::now();
+        let mut keepalive = QuietKeepalive::new(EVERY, start);
+        assert!(!keepalive.due(0, start + TICK * 3));
+        keepalive.set_every(FLOOR);
+        assert!(!keepalive.due(0, start + FLOOR - TICK));
+        assert!(keepalive.due(0, start + FLOOR));
+        keepalive.sent(start + FLOOR);
+        assert!(!keepalive.due(0, start + FLOOR * 2 - TICK));
+        assert!(keepalive.due(0, start + FLOOR * 2));
+        // Back to the persistent interval.
+        keepalive.sent(start + FLOOR * 2);
+        keepalive.set_every(EVERY);
+        assert!(!keepalive.due(0, start + FLOOR * 2 + EVERY - TICK));
+        assert!(keepalive.due(0, start + FLOOR * 2 + EVERY));
+    }
+}

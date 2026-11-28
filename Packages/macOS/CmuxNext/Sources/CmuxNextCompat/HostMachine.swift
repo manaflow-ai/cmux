@@ -1,4 +1,3 @@
-#if canImport(CryptoKit)
 public import Foundation
 import CryptoKit
 
@@ -40,4 +39,3 @@ public struct HostMachine: Sendable, Equatable {
         return Data(tag).prefix(16).map { String(format: "%02x", $0) }.joined()
     }
 }
-#endif

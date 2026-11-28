@@ -1,4 +1,3 @@
-#if canImport(AppKit)
 public import AppKit
 internal import ObjectiveC
 
@@ -156,4 +155,3 @@ extension NSEvent {
         cmuxPressedMouseButtonsWithSynthetic | SyntheticInput.held
     }
 }
-#endif

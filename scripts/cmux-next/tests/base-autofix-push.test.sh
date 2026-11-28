@@ -73,32 +73,6 @@ lane_push source.txt "moved before parity"
 STUB_ACTION_PARITY_LOG="$tmp/parity-heads" run > "$tmp/out" 2>&1 || fail "a parity-checked repair failed: $(cat "$tmp/out")"
 [[ "$(tail -1 "$tmp/parity-heads")" == "$(remote_tip)" ]] || fail "parity checked an older head than the pushed candidate"
 
-# A candidate failing only tests the tip already fails is no worse than the tip: it lands
-# (the CI target graph was refused for hours behind the tip's own stale action exports, job 137598172367).
-setup
-lane_push source.txt "tip already fails parity"
-tip_red="$(remote_tip)"
-printf '%s action_list_export_matches\n* english_catalog_equals_the_swift_dump\n' "$tip_red" > "$tmp/parity-fails"
-rm -f "$tmp/parity-targets"
-STUB_ACTION_PARITY_TARGETS="$tmp/parity-targets" STUB_ACTION_PARITY_FAILS="$tmp/parity-fails" run > "$tmp/out" 2>&1 || fail "a repair failing only the tip's own parity tests was refused: $(cat "$tmp/out")"
-[[ "$(remote_show "$gen")" == repaired ]] || fail "the repair did not land on a tip that already fails parity"
-# The tip's checkout builds into its own target dir: the tests bake their checkout's path in, and a
-# shared one left the candidate's next run reading the deleted tip tree (run 46102037292).
-grep -q '^tip ' "$tmp/parity-targets" || fail "the tip was not checked in its own checkout: $(cat "$tmp/parity-targets")"
-shared="$(LC_ALL=C comm -12 <(sed -n 's/^main //p' "$tmp/parity-targets" | LC_ALL=C sort -u) <(sed -n 's/^tip //p' "$tmp/parity-targets" | LC_ALL=C sort -u))"
-[[ -z "$shared" ]] || fail "the tip's parity check built into the candidate's target dir: $shared"
-grep -q 'adds no failure' "$tmp/out" || fail "the landing does not say the tip fails parity too"
-[[ -z "$(git -C "$tmp/bot" worktree list --porcelain | grep -c '^worktree ' | grep -vx 1)" ]] || fail "the tip's parity checkout was left behind"
-# A test that passes at the tip and fails on the candidate still refuses.
-setup
-lane_push source.txt "tip passes one parity test"
-tip_red="$(remote_tip)"
-printf '!%s english_catalog_equals_the_swift_dump\n* action_list_export_matches\n' "$tip_red" > "$tmp/parity-fails"
-before="$(remote_tip)"
-if STUB_ACTION_PARITY_FAILS="$tmp/parity-fails" run > "$tmp/out" 2>&1; then fail "a repair breaking a parity test the tip passes was pushed"; fi
-[[ "$(remote_tip)" == "$before" ]] || fail "a repair breaking a parity test the tip passes moved the remote"
-grep -q 'passing at the tip.*english_catalog_equals_the_swift_dump' "$tmp/out" || fail "the refusal does not name the newly failing test: $(cat "$tmp/out")"
-
 setup
 lane_push source.txt "moved before failed parity"
 before="$(remote_tip)"
@@ -651,27 +625,6 @@ for baseline in scripts/lint-namespace-types-baseline.txt scripts/lint-ios-packa
   lane_commit "lane exempts A" "$baseline" "Packages/a/A.swift:A"
   if run > "$tmp/out" 2>&1; then fail "a namespace rewrite passed past a $baseline move"; fi
   [[ "$(remote_show Packages/a/A.swift)" == "public enum A {}" ]] || fail "a namespace rewrite landed past a $baseline move"
-done
-
-# A daemon ABI surface follows SDK inputs, not unrelated Rust formatting inputs.
-setup_daemon_surface() {
-  setup
-  surface=cmux-tui/spec/api-compat.surface.json
-  lane_push "$surface" old
-  (cd "$tmp/bot" && git reset -q --hard origin/feat && git fetch -q origin feat && git reset -q --hard FETCH_HEAD)
-  base="$(git -C "$tmp/bot" rev-parse HEAD)"
-  (cd "$tmp/bot" && echo repaired > "$surface" && git commit -q -am "chore(next): base autofix")
-}
-setup_daemon_surface
-lane_push cmux-tui/crates/unrelated/src/lib.rs '// unrelated formatting input'
-run > "$tmp/out" 2>&1 || fail "daemon surface must land past unrelated Rust changes: $(cat "$tmp/out")"
-[[ "$(remote_show "$surface")" == repaired ]] || fail "daemon surface repair did not land"
-for input in cmux-tui/spec/sdk-schema.json cmux-tui/spec/api-compat.json \
-  cmux-tui/spec/api-compat-fixtures.json cmux-tui/crates/cmux-api-compat/src/coverage.rs; do
-  setup_daemon_surface
-  lane_push "$input" changed
-  if run > "$tmp/out" 2>&1; then fail "daemon surface landed after input $input changed"; fi
-  [[ "$(remote_show "$surface")" == old ]] || fail "daemon surface was written from stale $input"
 done
 
 echo "PASS: base autofix lands its repair on a moved feat-cmux-next; files whose inputs moved or that a newer commit wrote wait; the settings exports are regenerated on the newest tip, or land as progress"

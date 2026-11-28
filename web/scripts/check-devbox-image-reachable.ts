@@ -30,7 +30,7 @@ import { Freestyle, type FirewallSpec } from "freestyle";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { retryFreestyleOverload, cmuxTuiWebsocketSmokeCommand, devboxWaitForDaemonCommand, readImageManifest } from "./devbox-image-common";
+import { cmuxTuiWebsocketSmokeCommand, devboxWaitForDaemonCommand, readImageManifest } from "./devbox-image-common";
 import { resolveCmuxTuiSource } from "../services/vms/drivers/cmuxTuiDaemon";
 
 const argValue = (name: string): string | undefined => {
@@ -85,7 +85,7 @@ async function main(): Promise<void> {
   const elapsed = () => `${((Date.now() - t0) / 1000).toFixed(0)}s`;
 
   console.log(`reaching ${kind}/${size} ${target} with client ${live.commit.slice(0, 10)} (${live.sha256.slice(0, 12)}…)`);
-  const { vm, vmId } = await retryFreestyleOverload("vm start", () => fs.vms.create({ snapshotId: target, displayName: "cmux devbox reachability", firewall: FIREWALL }));
+  const { vm, vmId } = await fs.vms.create({ snapshotId: target, displayName: "cmux devbox reachability", firewall: FIREWALL });
   console.log(`${elapsed()} booted ${vmId}`);
   let failure: string | null = null;
   try {

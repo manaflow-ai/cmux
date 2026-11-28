@@ -193,14 +193,7 @@ export function HatFaces({
             data-tooltip-side="top"
             onClick={click(face)}
           >
-            <AgentIdentity
-              harness={face.harness}
-              tone={face.tone}
-              size={size}
-              fallback={face.icon}
-              plain
-              blankUnknown
-            />
+            <AgentIdentity harness={face.harness} tone={face.tone} size={size} fallback={face.icon} plain />
           </span>
         ))}
       </span>

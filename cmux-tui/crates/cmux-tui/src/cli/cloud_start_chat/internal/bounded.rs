@@ -65,19 +65,8 @@ pub(in crate::cli::cloud_start_chat) fn kill_steps() {
 /// grandchild that may hold its output pipes open) is killed then, and its output is read by `until` at the latest.
 /// The group is killed before the step's leader is reaped, so the kill never reaches a reused id.
 pub(in crate::cli::cloud_start_chat) fn output_by(
-    command: cmux_process::Command,
-    until: Instant,
-) -> Ran {
-    output_by_unless(command, until, &mut || None)
-}
-
-/// [`output_by`], whose `until` may move: when it comes with the step still running, `later` is asked, on this
-/// thread, and a later instant it names is the step's new `until` (asked again when that one comes). `None`, or an
-/// instant already past, ends the step there as [`output_by`] does. The caller bounds what `later` names.
-pub(in crate::cli::cloud_start_chat) fn output_by_unless(
     mut command: cmux_process::Command,
-    mut until: Instant,
-    later: &mut dyn FnMut() -> Option<Instant>,
+    until: Instant,
 ) -> Ran {
     if Instant::now() >= until {
         return ran_past_deadline();
@@ -121,13 +110,6 @@ pub(in crate::cli::cloud_start_chat) fn output_by_unless(
             end_group(&mut child);
         }
         let left = until.saturating_duration_since(Instant::now());
-        if left.is_zero()
-            && !exited
-            && let Some(moved) = later().filter(|moved| *moved > Instant::now())
-        {
-            until = moved;
-            continue;
-        }
         if left.is_zero() || pipes.iter().all(|pipe| pipe.ended) {
             break;
         }

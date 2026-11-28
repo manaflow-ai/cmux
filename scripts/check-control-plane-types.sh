@@ -6,14 +6,16 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+SWIFT_COMMITTED="Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/CtlWireModels.swift"
 TS_COMMITTED="workers/presence/src/generated/controlPlane.ts"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-./scripts/gen-control-plane-types.sh "$TMP/controlPlane.ts" >/dev/null
+./scripts/gen-control-plane-types.sh "$TMP/CtlWireModels.swift" "$TMP/controlPlane.ts" >/dev/null
 
 fail=0
+diff -u "$SWIFT_COMMITTED" "$TMP/CtlWireModels.swift" || fail=1
 diff -u "$TS_COMMITTED" "$TMP/controlPlane.ts" || fail=1
 
 if [ "$fail" -ne 0 ]; then

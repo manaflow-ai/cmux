@@ -120,7 +120,6 @@ enum HomeConversationStrings {
     static var requestGroupUntitled: String {
         String(localized: "home.requests.groupUntitled", defaultValue: "Invited you to a group", bundle: .localizedModule)
     }
-    // retry-prompt-ok: re-running a conversation action the person started (paid or side-effecting)
     static var requestFailed: String { String(localized: "home.outcome.failed", defaultValue: "That didn’t work. Try again.", bundle: .localizedModule) }
 
     // MARK: New Message
@@ -180,7 +179,7 @@ enum HomeConversationStrings {
     static var inviteTitle: String { String(localized: "home.invite.title", defaultValue: "Invite to cmux-next", bundle: .localizedModule) }
     static var inviteBody: String {
         String(localized: "home.invite.body",
-               defaultValue: "They get an email link. You can message them once they join.",
+               defaultValue: "They get an email with a link to join. You can message them here as soon as they accept.",
                bundle: .localizedModule)
     }
     static var inviteEmail: String { String(localized: "home.invite.email", defaultValue: "Email address", bundle: .localizedModule) }
@@ -211,7 +210,7 @@ enum HomeConversationStrings {
     static func seatImpact(_ impact: HomeTeamSeatImpact) -> String {
         switch impact {
         case .paidSeat:
-            String(localized: "home.teamInvite.paidSeat", defaultValue: "Adds one paid seat when they join (prorated).",
+            String(localized: "home.teamInvite.paidSeat", defaultValue: "When they join, the Team plan bills one more seat, prorated.",
                    bundle: .localizedModule)
         case .capped(let members, let limit):
             String(format: String(localized: "home.teamInvite.capped", defaultValue: "The plan has room for %2$d members; %1$d are in the team now.",

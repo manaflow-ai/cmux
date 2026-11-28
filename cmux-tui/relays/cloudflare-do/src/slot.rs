@@ -12,10 +12,9 @@ use worker::{
 };
 
 use crate::abuse::{
-    CIRCUIT_IDLE_TIMEOUT_MS, CIRCUITS_STORAGE_KEY, CLIENT_CONTROL_IDLE_TIMEOUT_MS, CapacityRefusal,
-    CircuitLedger, DAEMON_CONTROL_IDLE_TIMEOUT_MS, InlineLoad, PendingRoute,
-    SLOT_HANDSHAKE_TIMEOUT_MS, SlotEndpoint, SlotSocketCounts, admit_slot_socket,
-    websocket_counts_toward_capacity,
+    CIRCUIT_IDLE_TIMEOUT_MS, CIRCUITS_STORAGE_KEY, CLIENT_CONTROL_IDLE_TIMEOUT_MS, CircuitLedger,
+    DAEMON_CONTROL_IDLE_TIMEOUT_MS, InlineLoad, PendingRoute, SLOT_HANDSHAKE_TIMEOUT_MS,
+    SlotEndpoint, SlotSocketCounts, admit_slot_socket, websocket_counts_toward_capacity,
 };
 use crate::attachment::{InlineState, SlotAttachment, SlotPhase};
 use crate::auth::{DEFAULT_TICKET_ISSUER, TicketExpectation, issue_ticket, verify_ticket};
@@ -36,7 +35,6 @@ use crate::park::{
     connect_disposition, expired_while_parked, pairing_order, parked_and_live, parked_notice,
 };
 use crate::placement::{REGION_HEADER, is_region};
-use crate::retire::{close_deadline_ms, closed_by_awake_daemon};
 use crate::wire::{
     close, decode_control, send_control, upgrade_required, valid_circuit_id,
     valid_opaque_identifier, websocket_upgrade,
@@ -271,21 +269,6 @@ impl RelaySlot {
         }
     }
 
-    /// Closes the slot's retired standbys (`crate::retire::closed_by_awake_daemon`) but `socket`: its daemon just
-    /// sent a Register or Standby, so its machine is awake and the close frame wakes nothing.
-    fn close_retired_standbys(&self, socket: &WebSocket, slot: &str, now_ms: u64) {
-        for other in self.state.get_websockets_with_tag(CONTROL_TAG) {
-            if other == *socket {
-                continue;
-            }
-            if Self::attachment(&other).is_ok_and(|attachment| {
-                closed_by_awake_daemon(&attachment, other.as_ref().ready_state(), slot, now_ms)
-            }) {
-                close(&other, CLOSE_POLICY, "relay socket expired");
-            }
-        }
-    }
-
     /// Whether `socket`, a registered daemon, is still its slot's current
     /// registration (`crate::daemon::current_registration`).
     fn is_current_registration(&self, socket: &WebSocket, attachment: &SlotAttachment) -> bool {
@@ -303,12 +286,10 @@ impl RelaySlot {
     /// The slot's live inline circuits and their allocations in the window: read from the open sockets' attachments
     /// and memory, with no storage access (`crate::inline`).
     fn inline_load(&self, now_ms: u64) -> InlineLoad {
-        let live = live_inline_circuits(
-            self.state.get_websockets().into_iter().filter_map(|socket| {
+        let live =
+            live_inline_circuits(self.state.get_websockets().into_iter().filter_map(|socket| {
                 Some((socket.as_ref().ready_state(), Self::attachment(&socket).ok()?))
-            }),
-            now_ms,
-        );
+            }));
         self.inline_window.borrow().load(live, now_ms)
     }
 
@@ -341,17 +322,15 @@ impl RelaySlot {
         deadline_ms: u64,
         now_ms: u64,
         route: PendingRoute,
-    ) -> Result<Result<(), CapacityRefusal>> {
+    ) -> Result<bool> {
         let mut ledger = self.circuits().await?;
         let load = self.inline_load(now_ms);
-        if let Err(refusal) =
-            ledger.try_reserve_beside(circuit.0.clone(), deadline_ms, now_ms, Some(route), load)
-        {
-            return Ok(Err(refusal));
+        if !ledger.reserve_beside(circuit.0.clone(), deadline_ms, now_ms, Some(route), load) {
+            return Ok(false);
         }
         self.write_circuits(&ledger).await?;
         self.ensure_cleanup_alarm(deadline_ms).await?;
-        Ok(Ok(()))
+        Ok(true)
     }
 
     async fn activate_circuit(&self, circuit: &str, now_ms: u64) -> Result<bool> {
@@ -404,7 +383,7 @@ impl RelaySlot {
             .get_websockets()
             .into_iter()
             .filter_map(|socket| Self::attachment(&socket).ok())
-            .map(|attachment| close_deadline_ms(&attachment))
+            .map(|attachment| attachment.idle_deadline_ms)
             .filter(|deadline| *deadline > now_ms)
             .min();
         let mut ledger = self.circuits().await?;
@@ -484,7 +463,6 @@ impl RelaySlot {
                 Self::fail(other, "replaced", "daemon control connection was replaced", 4001);
             }
         }
-        self.close_retired_standbys(socket, &slot, now_ms);
 
         attachment.phase = SlotPhase::Registered;
         attachment.generation = number;
@@ -562,7 +540,6 @@ impl RelaySlot {
             }
         };
 
-        self.close_retired_standbys(socket, &slot, now_ms);
         // No await between this count and the attachment below: two standbys upgrading together cannot both
         // find room for the last place.
         let held = standby_count(
@@ -617,9 +594,12 @@ impl RelaySlot {
         // Everything below is synchronous: the standby chosen is the one taken.
         let now_ms = self.now_ms();
         let load = self.inline_load(now_ms);
-        if let Some(refusal) = ledger.inline_refusal(now_ms, load) {
-            worker::console_warn!("slot-circuit-capacity (inline): {refusal}");
-            Self::capacity(socket, "slot-circuit-capacity", &refusal.to_string());
+        if !ledger.admits_inline(now_ms, load) {
+            Self::capacity(
+                socket,
+                "slot-circuit-capacity",
+                "slot circuit quota or allocation rate limit was reached",
+            );
             return Ok(InlineOutcome::Refused);
         }
         let Some((standby, standby_attachment)) = self.takeable_standby(&request.slot, now_ms)
@@ -1096,11 +1076,12 @@ impl RelaySlot {
         )?;
         let join_deadline_ms = join_expires_at.saturating_mul(1_000);
         let route = PendingRoute { lane: lane.clone(), generation, region: region.clone() };
-        if let Err(refusal) =
-            self.reserve_pending_circuit(&circuit, join_deadline_ms, now_ms, route).await?
-        {
-            worker::console_warn!("slot-circuit-capacity: {refusal}");
-            Self::capacity(socket, "slot-circuit-capacity", &refusal.to_string());
+        if !self.reserve_pending_circuit(&circuit, join_deadline_ms, now_ms, route).await? {
+            Self::capacity(
+                socket,
+                "slot-circuit-capacity",
+                "slot circuit quota or allocation rate limit was reached",
+            );
             return Ok(Allocation::Sent);
         }
         // The awaits above let a Register replace the daemon, or its socket
@@ -1409,9 +1390,7 @@ impl DurableObject for RelaySlot {
                     sockets.iter().map(|(_, other)| other),
                 )
             } else {
-                // A daemon socket past its idle deadline is retired, not closed: a close frame wakes a paused
-                // machine (`crate::retire`).
-                close_deadline_ms(attachment)
+                attachment.idle_deadline_ms
             };
             if deadline <= now_ms {
                 close(socket, CLOSE_POLICY, "relay socket expired");

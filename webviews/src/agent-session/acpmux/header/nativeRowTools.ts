@@ -82,9 +82,7 @@ export interface RowToolBinding {
   variableMenu?: NativeRowMenuItem[];
 }
 
-// Made on first use, not while the pane's modules evaluate ahead of its handshake.
-let segmenter: Intl.Segmenter | undefined;
-const characters = () => (segmenter ??= intl.Segmenter(undefined, { granularity: "grapheme" }));
+const characters = intl.Segmenter(undefined, { granularity: "grapheme" });
 const encoder = new TextEncoder();
 
 /// Match AgentPaneTabRowTools.swift: non-empty, at most 64 graphemes and 256 UTF-8 bytes.
@@ -105,7 +103,7 @@ export function boundedNativeText(value: string, fallback = "…"): string {
 function boundTextNow(value: string, fallback: string): string {
   // Only the first graphemes are read: a long label (a prompt) is not segmented whole.
   const parts: string[] = [];
-  for (const part of characters().segment(value.trim())) {
+  for (const part of characters.segment(value.trim())) {
     if (parts.length >= NATIVE_MAX_TEXT_GRAPHEMES) break;
     parts.push(part.segment);
   }
@@ -116,7 +114,7 @@ function boundTextNow(value: string, fallback: string): string {
   }
   if (result) return result;
   const safeFallback =
-    Array.from(characters().segment(fallback), (part) => part.segment)
+    Array.from(characters.segment(fallback), (part) => part.segment)
       .slice(0, 1)
       .join("") || "…";
   return encoder.encode(safeFallback).byteLength <= NATIVE_MAX_TEXT_BYTES ? safeFallback : "…";
@@ -124,7 +122,7 @@ function boundTextNow(value: string, fallback: string): string {
 /// Visible text has a tighter budget than accessibility/menu labels. Keep both ends of branch names.
 export function nativeVisibleText(value: string, fallback = "…"): string {
   const clean = (value || fallback).replace(/[\r\n\v\f\u0085\u2028\u2029]/g, " ").trim() || "…";
-  const parts = Array.from(characters().segment(clean), (part) => part.segment);
+  const parts = Array.from(characters.segment(clean), (part) => part.segment);
   let left = Math.ceil(parts.length / 2),
     right = Math.floor(parts.length / 2);
   if (
@@ -269,8 +267,7 @@ function pullRequestBinding(
   t: Translate,
   key: NativeMenuKey,
 ): RowToolBinding {
-  const { ops } = extra;
-  const value = ops.displayed ?? extra.value;
+  const { value, ops } = extra;
   const identity = key(ops.identity || "pullRequest");
   const revision = key(JSON.stringify(value.checkList));
   const menu: NativeRowMenuItem[] = [],
@@ -286,9 +283,6 @@ function pullRequestBinding(
   addAction(menu, runs, `pullRequest.merge:${identity}`, ops.start);
   addAction(menu, runs, `pullRequest.confirm:${identity}`, ops.confirm);
   addAction(menu, runs, `pullRequest.cancel:${identity}`, ops.cancel);
-  ops.actions?.forEach((action) => addAction(menu, runs, `pullRequest.action:${identity}:${action.id}`, action));
-  if (ops.headSha) addMessages(menu, "pullRequest.head", [ops.headSha]);
-  addMessages(menu, "pullRequest.action", ops.actionMessages ?? []);
   addMessages(menu, "pullRequest", ops.question ? [ops.question, ...ops.messages] : ops.messages);
   const variableMenu = value.checkList.map((check, index) => {
     const id = `pullRequest.check:${identity}:${revision}:${index}`;

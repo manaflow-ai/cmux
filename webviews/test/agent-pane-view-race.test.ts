@@ -2,10 +2,8 @@
 // reader left must not prevent visibility changes from reaching the chat now on screen.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
 
 const SESSION_A = "view-race-a";
 const SESSION_B = "view-race-b";

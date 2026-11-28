@@ -10,18 +10,12 @@ import { renameCanCommit, renameReducer } from "../lib/rename";
 import { splitDividerTarget, splitRatioFromPointer, splitRatioToCommit } from "../lib/splitDrag";
 import { useContextTrigger } from "../hooks/useContextTrigger";
 import { ByteTerminal } from "./ByteTerminal";
-import { GhosttyTerminal } from "./GhosttyTerminal";
 import { ContextMenu } from "./ContextMenu";
 import { InlineRename } from "./InlineRename";
 import { RenderTerminal } from "./RenderTerminal";
-import { terminalRendererChoice } from "../lib/terminalRenderer";
-
-/** Read once per page load: `?terminal=ghostty` opts into ghostty-web. */
-const TERMINAL_RENDERER = terminalRendererChoice(typeof window === "undefined" ? "" : window.location.search);
 
 interface TerminalPaneProps {
   client: CmuxClient | null;
-  connected?: boolean;
   clients: ClientInfo[];
   screen: ScreenView | null;
   onRefreshClients(): void;
@@ -106,10 +100,7 @@ function TabButton({ tab, index, pane, onSelect, onNewTab, onClose, onRename }: 
             {
               label: t("renameTab"),
               onSelect: () =>
-                dispatchRename({
-                  type: "begin",
-                  target: { kind: "surface", id: tab.surface, value: label },
-                }),
+                dispatchRename({ type: "begin", target: { kind: "surface", id: tab.surface, value: label } }),
             },
             { label: t("newTabRight"), onSelect: onNewTab },
             { label: t("closeTab"), danger: true, onSelect: () => onClose(tab.surface) },
@@ -130,7 +121,6 @@ interface PaneLeafProps extends Omit<TerminalPaneProps, "screen" | "onSetSplitRa
 
 function PaneLeaf({
   client,
-  connected = true,
   clients,
   pane,
   paneId,
@@ -183,9 +173,7 @@ function PaneLeaf({
     [client, surface],
   );
   const terminalError =
-    connected && errorState !== null && errorState.client === client && errorState.surface === surface
-      ? errorState.message
-      : null;
+    errorState !== null && errorState.client === client && errorState.surface === surface ? errorState.message : null;
   const commitPaneRename = () => {
     if (!renameCanCommit(rename)) return;
     onRenamePane(paneId, rename.value.trim());
@@ -239,15 +227,7 @@ function PaneLeaf({
       <div className="pane-body">
         <span className="pane-side" aria-hidden="true" />
         <div className="pane-content">
-          {surface !== null && TERMINAL_RENDERER === "ghostty" ? (
-            <GhosttyTerminal
-              client={client}
-              surface={surface}
-              error={terminalError}
-              focusOnMount={focusTerminalOnMount}
-              onError={reportError}
-            />
-          ) : surface !== null && client !== null && (client.protocol ?? 0) >= 7 ? (
+          {surface !== null && client !== null && (client.protocol ?? 0) >= 7 ? (
             <RenderTerminal
               client={client}
               surface={surface}
@@ -323,15 +303,9 @@ function PaneLeaf({
             {
               label: t("renamePane"),
               onSelect: () =>
-                dispatchRename({
-                  type: "begin",
-                  target: { kind: "pane", id: paneId, value: pane?.name || "" },
-                }),
+                dispatchRename({ type: "begin", target: { kind: "pane", id: paneId, value: pane?.name || "" } }),
             },
-            {
-              label: zoomed ? t("restorePane") : t("zoomPane"),
-              onSelect: () => onZoomPane(paneId),
-            },
+            { label: zoomed ? t("restorePane") : t("zoomPane"), onSelect: () => onZoomPane(paneId) },
             ...(paneMenuSummary ? [{ label: paneMenuSummary.label, children: paneMenuClientItems }] : []),
             { label: t("closePane"), danger: true, onSelect: () => onClosePane(paneId) },
           ]}
@@ -703,7 +677,7 @@ export function TerminalPane({ screen, ...props }: TerminalPaneProps) {
   if (!screen) return <section className="terminal-empty terminal-root">{t("noSurface")}</section>;
   const node = layoutToViewModel(screen.layout, screen.zoomedPane, screen.activePane);
   return (
-    <div className="pane-layout" inert={props.connected === false}>
+    <div className="pane-layout">
       <LayoutNode {...props} node={node} screen={screen} paneById={paneById} />
     </div>
   );

@@ -11,7 +11,7 @@ import CmuxNextSettings
 /// data as an internal page tab of the active window, for screenshots
 /// (`debug.window_snapshot`) and dogfood before the real Home wiring.
 /// Compiled out of Release with this whole file.
-nonisolated extension InternalPageID {
+extension InternalPageID {
     static let homeNativeFixture = InternalPageID(rawValue: "home-native-fixture")
 }
 

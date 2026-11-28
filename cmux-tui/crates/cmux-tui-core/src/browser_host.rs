@@ -59,7 +59,7 @@ pub fn socket_path_for(daemon_socket: &Path) -> PathBuf {
     let leaf = format!("bh-{}", &digest[..12]);
     let beside = daemon_socket.parent().unwrap_or_else(|| Path::new("/tmp")).join(&leaf);
     #[cfg(unix)]
-    if !crate::socket_path::unix_socket_path_fits(&beside.join(PROVIDER_SOCKET_FILE)) {
+    if !crate::server::unix_socket_path_fits(&beside.join(PROVIDER_SOCKET_FILE)) {
         return crate::platform::fallback_runtime_dir().join(leaf).join(SOCKET_FILE);
     }
     beside.join(SOCKET_FILE)

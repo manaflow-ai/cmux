@@ -133,13 +133,13 @@ export default componentEntry<Props>({
       play: openTray,
     },
     "tray-busy": {
-      note: 'Resume pressed: off while acpmux has it, until the row changes (the run it started links to it). A Resume acpmux refuses as busy (a turn runs) looks the same: it is asked again on its own, never a "try again shortly".',
+      note: "Resume pressed: off while acpmux has it, until the row changes (the run it started links to it).",
       props: { surface: "tray", answer: "busy" },
       play: press("tray"),
     },
     "tray-refused": {
       note: "acpmux refused: its note lies where the line's time was, and Resume can be pressed again.",
-      props: { surface: "tray", answer: "retry.gone" },
+      props: { surface: "tray", answer: "retry.busy" },
       play: press("tray"),
     },
     "session-info-idle": {
@@ -168,7 +168,7 @@ export default componentEntry<Props>({
     },
     "tab-refused": {
       note: "The tab, refused: the note before the button.",
-      props: { surface: "tab", answer: "retry.running" },
+      props: { surface: "tab", answer: "retry.busy" },
       play: press("tab"),
     },
   },

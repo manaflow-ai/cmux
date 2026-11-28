@@ -20,7 +20,7 @@ export const isOpen = (prompt: GuestPrompt) => prompt.state === "sending" || pro
 
 const key = (shareId: string) => `cmux.guest.${shareId}.prompts`;
 const draftKey = (shareId: string) => `cmux.guest.${shareId}.draft`;
-const STATES = new Set(["sending", "held", "sent", "approved", "declined", "removed", "refused"]);
+const STATES = new Set(["sending", "held", "approved", "declined", "removed", "refused"]);
 
 function read(storage: Storage, shareId: string): GuestPrompt[] {
   try {

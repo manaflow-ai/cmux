@@ -9,7 +9,7 @@
 .cv-pending {
   margin: 0;
   font-family: var(--cv-font);
-  font-size: var(--cv-row-font-size);
+  font-size: var(--cv-font-size);
   letter-spacing: var(--cv-tracking, 0px);
   -webkit-font-smoothing: antialiased;
 }

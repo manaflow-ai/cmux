@@ -94,8 +94,8 @@ fn valid_hash(sha256: &str) -> bool {
 
 fn write_json(path: &Path, value: &impl Serialize) -> std::io::Result<()> {
     let part = path.with_extension(format!("part-{}", std::process::id()));
-    crate::home_fs::write(&part, serde_json::to_vec_pretty(value)?)?;
-    crate::home_fs::rename(&part, path)
+    std::fs::write(&part, serde_json::to_vec_pretty(value)?)?;
+    std::fs::rename(&part, path)
 }
 
 impl Head {
@@ -283,7 +283,7 @@ impl Head {
             }
             head.revision += 1;
             write_json(&self.root.join("head.json"), &read)?;
-            let _ = crate::home_fs::remove_file(self.proposal_path(id));
+            let _ = std::fs::remove_file(self.proposal_path(id));
             accepted.push(id.clone());
         }
         for id in drop {
@@ -291,7 +291,7 @@ impl Head {
                 refused.push(json!({"id": id, "reason": "not a proposal id"}));
                 continue;
             }
-            match crate::home_fs::remove_file(self.proposal_path(id)) {
+            match std::fs::remove_file(self.proposal_path(id)) {
                 Ok(()) => dropped.push(id.clone()),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                     dropped.push(id.clone())

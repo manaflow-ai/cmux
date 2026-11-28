@@ -7,21 +7,16 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { isPageError, type PageClient } from "../shared/pageClient";
 import {
-  answers,
-  blockHeight,
-  drawnBlock,
   NO_BLOCK,
-  type SidebarChatsOpenRows,
-  type SidebarChatsPending,
   parseBlock,
   parseSlice,
+  parseVisibleSlice,
+  SIDEBAR_CHATS_PARTS,
+  sliceSurface,
   SidebarChatsOps,
   type SidebarChatsBlock,
   type SidebarChatsSlice,
   type SidebarChatsStrings,
-  parseVisibleSlice,
-  SIDEBAR_CHATS_PARTS,
-  sliceSurface,
 } from "./model";
 import { SidebarChats } from "./SidebarChats";
 
@@ -76,58 +71,25 @@ export function mountSidebarChats(
   const windows = (surface: string | null, part: SidebarChatsBlock["part"]) =>
     surface === null ? !generic.has(sliceSurface(part)) : surface === sliceSurface(part);
   let cancelReady: (() => void) | null = null;
-  // The fold or Show More drawn before the host's answer, and what Earlier last listed open (an unfold's rows).
-  let pending: SidebarChatsPending | null = null;
-  let open: SidebarChatsOpenRows | null = null;
 
-  const send = (op: string, params: Record<string, unknown>, onSettled?: (ok: boolean) => void) => {
+  const send = (op: string, params: Record<string, unknown>) => {
     if (!client || !block) return;
-    void client.call(op, { revision: block.revision, ...params }).then(
-      () => onSettled?.(true),
-      (error: unknown) => {
-        console.error(`sidebar chats: ${op} failed`, error);
-        onSettled?.(false);
-      },
-    );
-  };
-
-  /** Draws `next` at once and sends `op`: the host's block replaces it when it answers (`answers`); a refused
-   * call takes it back. */
-  const sendAhead = (op: string, next: SidebarChatsPending) => {
-    if (!client || !block) return;
-    pending = next;
-    flushSync(render);
-    send(op, {}, (ok) => {
-      if (pending !== next) return;
-      if (ok) next.answered = true;
-      else {
-        pending = null;
-        if (block) flushSync(render);
-      }
+    void client.call(op, { revision: block.revision, ...params }).catch((error: unknown) => {
+      console.error(`sidebar chats: ${op} failed`, error);
     });
   };
 
   // Made once: the memoized rows keep them across blocks (`send` reads the block drawn at the click).
   const onOpen = (chat: string) => send(SidebarChatsOps.open, { chat });
-  const onFold = () => {
-    if (!block) return;
-    sendAhead(SidebarChatsOps.fold, {
-      kind: "fold",
-      folded: !drawnBlock(block, pending, open).folded,
-      answered: false,
-    });
-  };
-  const onMore = () => {
-    if (!block) return;
-    sendAhead(SidebarChatsOps.more, { kind: "more", rows: block.rows.length, answered: false });
-  };
+  const onFold = () => send(SidebarChatsOps.fold, {});
+  const onMore = () => send(SidebarChatsOps.more, {});
   const onMenu = (chat: string, point: { x: number; y: number }) => send(SidebarChatsOps.menu, { chat, point });
 
   const render = () => {
     reactRoot.render(
       block ? (
         <SidebarChats
-          block={drawnBlock(block, pending, open)}
+          block={block}
           slice={slice}
           strings={strings}
           onOpen={onOpen}
@@ -148,10 +110,8 @@ export function mountSidebarChats(
     cancelReady = nextFrame(() => {
       cancelReady = null;
       if (!block || block.revision !== revision) return;
-      // While a fold or Show More waits for its answer, the page draws ahead of `revision`: report that
-      // revision's own height, the one the host's layout reserves for it.
       const drawn = root.querySelector<HTMLElement>(".sc-block");
-      const height = pending ? blockHeight(block) : drawn ? Math.ceil(drawn.getBoundingClientRect().height) : 0;
+      const height = drawn ? Math.ceil(drawn.getBoundingClientRect().height) : 0;
       send(SidebarChatsOps.ready, { height });
     });
   };
@@ -160,8 +120,6 @@ export function mountSidebarChats(
     // A block older than the one drawn (a reordered event) changes nothing.
     if (block && next.revision <= block.revision) return;
     block = next;
-    if (pending && answers(pending, next)) pending = null;
-    if (next.part === "earlier" && !next.folded) open = { rows: next.rows, tail: next.tail };
     // A slice sent ahead of this block windows it only if it names this block and its surface; every other is
     // dropped. At most one matches: a surface with a generic slice held is in `generic`, so the old wire's does not.
     for (const [surface, held] of early)

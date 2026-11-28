@@ -8,7 +8,16 @@ struct AccessTokenLifetime: Sendable, Equatable {
     let lifetimeSeconds: Int?
 
     init?(_ token: String?, now: Date = Date()) {
-        guard let claims = AccessTokenClaims.payload(token),
+        guard let token else { return nil }
+        let segments = token.split(separator: ".")
+        guard segments.count >= 2 else { return nil }
+        var base64 = String(segments[1])
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let remainder = base64.count % 4
+        if remainder > 0 { base64 += String(repeating: "=", count: 4 - remainder) }
+        guard let data = Data(base64Encoded: base64),
+              let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let exp = (claims["exp"] as? NSNumber)?.doubleValue else { return nil }
         expiresInSeconds = Int(exp - now.timeIntervalSince1970)
         if let iat = (claims["iat"] as? NSNumber)?.doubleValue {

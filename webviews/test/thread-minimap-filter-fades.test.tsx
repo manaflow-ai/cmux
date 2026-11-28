@@ -6,8 +6,8 @@ import { readFileSync } from "node:fs";
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { teardownDom } from "./support/domTeardown";
-import { railFrame } from "./support/railFrame";
 // The compact rail; the full-height map reads the same side (ScrollMap.tsx).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
@@ -48,7 +48,6 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
-const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
 
 // jsdom has no layout: a 600 px viewport (the transcript's first height) over a long conversation,
 // and a scroll offset the test moves as the reader would.
@@ -135,10 +134,8 @@ test("right-clicking the rail filters its ticks to my prompts or to other agents
         />,
       ),
     );
-    await railFrame();
-    // Unfiltered, the received messages get no tick: the rail ticks the person's prompts (Leo,
-    // 2026-11-27: "honestly non-user messages shouldnt appear in the scroll rail anymore").
-    expect(ticks()).toHaveLength(8);
+    // Unfiltered, the received messages each keep a tick (no two sit next to each other to fold).
+    expect(ticks()).toHaveLength(12);
     await pick("Show Only My Messages");
     expect(ticks()).toHaveLength(8);
     await pick("Show Only Agent Messages");
@@ -155,7 +152,7 @@ test("right-clicking the rail filters its ticks to my prompts or to other agents
     ]);
     await act(async () => document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape" })));
     await pick("Show All Messages");
-    expect(ticks()).toHaveLength(8);
+    expect(ticks()).toHaveLength(12);
   } finally {
     await act(async () => root.unmount());
     setChatDisplay({});
@@ -179,7 +176,6 @@ test("Next Turn from above every kept prompt lands on the first one the filter k
         />,
       ),
     );
-    await railFrame();
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const scrolled = async () => void scroller.dispatchEvent(new dom.window.Event("scroll"));
     await pick("Show Only Agent Messages");
@@ -228,7 +224,7 @@ test("a filter keeps its prompts in order and counts the earlier ones it keeps",
     key: id,
     prompt: id,
     reply: [],
-    ...(from ? { from, others: true as const } : {}),
+    ...(from ? { from } : {}),
   });
   const all = [turn("a"), turn("b", "Grid fix"), turn("c"), turn("d", "Grid fix")];
   // An earlier indexed turn (before loadedStart 2) that a filter keeps still counts as earlier.
@@ -279,7 +275,6 @@ test("the transcript's edges deepen as the view leaves each end", async () => {
         />,
       ),
     );
-    await railFrame();
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     // A chat that opens at its end: no bottom fade there, and a top one at full depth far from the top.
     expect(scroller.style.getPropertyValue("--acpmux-fade-bottom-reach")).toBe("0");
@@ -324,7 +319,6 @@ test("the rail draws no background or shadow while the view is scrolled up", asy
         />,
       ),
     );
-    await railFrame();
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     // Scrolled up to the top of the chat, far from the latest message.
     await act(async () => {
@@ -363,16 +357,15 @@ test("the rail shows the agent's replies, prompts and replies together, and only
         />,
       ),
     );
-    await railFrame();
-    expect(ticks()).toHaveLength(8);
+    expect(ticks()).toHaveLength(12);
     await pick("Show Agent Replies");
     expect(ticks()).toHaveLength(12);
     expect(ticks().every((tick) => tick.dataset.reply !== undefined)).toBe(true);
     expect(ticks()[0]!.getAttribute("aria-label")).toStartWith("Reply 1 of 12");
     await pick("Show Messages and Replies");
-    // Every reply, and the prompts the person typed: another agent's message keeps only its reply.
+    expect(ticks()).toHaveLength(24);
     expect(ticks().map((tick) => tick.dataset.reply !== undefined)).toEqual(
-      Array.from({ length: 12 }, (_, at) => (at % 3 === 2 ? [true] : [false, true])).flat(),
+      Array.from({ length: 24 }, (_, at) => at % 2 === 1),
     );
     await pick("Show Turns with Errors");
     expect(ticks()).toHaveLength(1);
@@ -384,7 +377,7 @@ test("the rail shows the agent's replies, prompts and replies together, and only
     expect(edits.hasAttribute("disabled") || edits.getAttribute("aria-disabled") === "true").toBe(true);
     await act(async () => document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape" })));
     await pick("Show All Messages");
-    expect(ticks()).toHaveLength(8);
+    expect(ticks()).toHaveLength(12);
   } finally {
     await act(async () => root.unmount());
     setChatDisplay({});

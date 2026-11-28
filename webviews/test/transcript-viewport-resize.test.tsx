@@ -1,6 +1,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
 import { teardownDom } from "./support/domTeardown";
 
@@ -47,7 +48,6 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
-const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
 
 // jsdom has no layout: a viewport the test resizes (the pane's tab strip showing or hiding) over a
 // long conversation, and a scroll offset kept as the browser keeps it.
@@ -71,11 +71,7 @@ afterAll(async () => {
 });
 
 const row = (id: string, kind: string, text?: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
-// 24 turns: a cold open lays a chat this long out whole on its first frame (VirtualTranscript.tsx
-// `coldOpenRoughAbove`; a longer one opens its history at rough heights, laid out whole a frame later).
-// Each reply-only turn draws its Worked for line (turns.ts `holdsHeader`, #51896), so 30 turns crossed that
-// line, and these tests read the chat's end and place the reader on its first frame.
-const turns = Array.from({ length: 24 }, (_, index) => [
+const turns = Array.from({ length: 30 }, (_, index) => [
   row(`t${index}-user`, "user", `Question ${index}`),
   row(`t${index}-answer`, "assistant", `Answer ${index}.\n\nWith a second paragraph so the turn has height.`),
   { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },

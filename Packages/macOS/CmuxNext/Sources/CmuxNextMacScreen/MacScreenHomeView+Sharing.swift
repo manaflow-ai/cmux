@@ -1,22 +1,27 @@
 import AppKit
 import CmuxNextDesign
 
-/// What Allow Mac Screen on This Mac says about this Mac now, from its permissions and session: Rust's
-/// `homeSharing.status` decides; Swift puts the words in this person's language.
+/// What Allow Mac Screen on This Mac says about this Mac now, from its permissions and session.
 extension MacScreenHomeSnapshot.Sharing {
-    /// Rust's answer for this sharing state.
-    var rdStatus: [String: Any] {
-        RdUI.call("homeSharing.status", [
-            "session": MacScreenHomeView.rd(session), "screenRecordingGranted": screenRecordingGranted,
-            "accessibilityGranted": accessibilityGranted, "isSharing": isSharing, "busy": busy,
-        ]) as? [String: Any] ?? [:]
+    /// The status line: who is connected, else what the permissions let a device do. Without Screen
+    /// Recording no device can see this Mac; without Accessibility a device can only watch.
+    var statusText: String {
+        if let session { return MacScreenHomeView.sessionText(session) }
+        if !screenRecordingGranted {
+            return L.t("macScreen.home.hubNeedsScreenRecording", "Allow Screen Recording so your devices can see this Mac.")
+        }
+        if !accessibilityGranted {
+            return L.t("macScreen.home.hubViewOnly", "Ready for View Only. Allow Accessibility for Full Control.")
+        }
+        return MacScreenHomeView.sessionText(nil)
     }
 
-    /// The status line: who is connected, else what the permissions let a device do.
-    var statusText: String { MacScreenHomeView.text(rdStatus["statusText"], session) }
-
     /// The status dot's ink: lit while a viewer is connected, attention while no device can see this Mac.
-    var statusInk: KeyPath<MacScreenColors, NSColor> { MacScreenHomeView.ink(rdStatus["statusInk"]) }
+    var statusInk: KeyPath<MacScreenColors, NSColor> {
+        if session?.connected == true { return \.litGlyph }
+        if session == nil, !screenRecordingGranted { return \.attention }
+        return \.success
+    }
 }
 
 /// Allow Mac Screen on This Mac: the switch, its permissions and who is connected, in the look
@@ -45,24 +50,36 @@ extension MacScreenHomeView {
     /// rows were "too many ... steps").
     private func simpleSharing(_ sharing: MacScreenHomeSnapshot.Sharing) -> NSView {
         let content = MacScreenStack.make(.vertical, spacing: 0, alignment: .leading)
-        let status = sharing.rdStatus
-        let detail = Self.text(status["simpleDetail"], sharing.session)
-        add(padded(sharingSwitch(sharing, title: L.t("macScreen.home.allowToggleShort", "Allow Mac Screen"), detail: detail)), to: content)
-        if let session = sharing.session, let connected = status["connected"] as? [String: Any] {
-            add(MacScreenFill.divider(), to: content, inset: Self.rowInsets.left)
-            add(padded(connectedRow(session, connected)), to: content)
+        let detail: String = if !sharing.isSharing {
+            L.t("macScreen.home.shareThisMacOff", "Your devices can’t see or control this Mac.")
+        } else if sharing.session != nil {
+            L.t("macScreen.home.shareThisMacOn", "Your devices on this account can connect.")
+        } else {
+            sharing.statusText
         }
-        if let grant = (status["grant"] as? [String: Any]).map({ grantRow(sharing, $0) }) {
+        add(padded(sharingSwitch(sharing, title: L.t("macScreen.home.allowToggleShort", "Allow Mac Screen"), detail: detail)), to: content)
+        if sharing.isSharing, let session = sharing.session {
+            add(MacScreenFill.divider(), to: content, inset: Self.rowInsets.left)
+            add(padded(connectedRow(session)), to: content)
+        }
+        if sharing.isSharing, let grant = grantRow(sharing) {
             add(MacScreenFill.divider(), to: content, inset: Self.rowInsets.left)
             add(padded(grant), to: content)
         }
-        for row in noteRows(sharing) { add(padded(row), to: content) }
+        if let error = sharing.lastError { add(padded(errorRow(error)), to: content) }
         return MacScreenHomeParts.section(L.t("devices.section.this", "This Mac"), content: content)
     }
 
     /// "Connected: Studio · Viewing" with one Stop, while a device is connected or connecting.
-    private func connectedRow(_ session: MacScreenHubHost.Session, _ connected: [String: Any]) -> NSView {
-        let label = MacScreenText(Self.text(connected["text"], session), font: MacScreenType.body, wraps: true)
+    private func connectedRow(_ session: MacScreenHubHost.Session) -> NSView {
+        let text: String = if !session.connected {
+            String(format: L.t("macScreen.home.hubConnecting", "%@ is connecting…"), session.viewerName)
+        } else if session.scope == .view {
+            String(format: L.t("macScreen.home.connectedViewing", "Connected: %@ · Viewing"), session.viewerName)
+        } else {
+            String(format: L.t("macScreen.home.connectedControlling", "Connected: %@ · Controlling"), session.viewerName)
+        }
+        let label = MacScreenText(text, font: MacScreenType.body, wraps: true)
         label.setAccessibilityIdentifier("macScreen.home.connected")
         label.setContentHuggingPriority(.init(1), for: .horizontal)
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -70,17 +87,22 @@ extension MacScreenHomeView {
         let stop = MacScreenButton(L.t("macScreen.home.stopSession", "Stop"), role: .destructive, compact: true,
                                    id: "macScreen.home.stop") { _ = hubHost?.stopSession() }
         return MacScreenStack.make(.horizontal, spacing: 10, alignment: .centerY, [
-            glyphCell(MacScreenFill.dot(Self.ink(connected["ink"]), side: 8)), label, stop,
+            glyphCell(MacScreenFill.dot(session.connected ? \.litGlyph : \.attention, side: 8)), label, stop,
         ])
     }
 
     /// The macOS permissions as one step: one row, one Grant Access button that asks macOS for the first one
     /// missing (Screen Recording, then Accessibility) through the share host, so the helper that holds the
-    /// grant is the one asked. `grant`: Rust's answer, absent when both are granted.
-    private func grantRow(_ sharing: MacScreenHomeSnapshot.Sharing, _ grant: [String: Any]) -> NSView {
-        let screenRecording = grant["request"] as? String == "screenRecording"
-        let title = Self.text(grant["title"], sharing.session)
-        let detail = Self.text(grant["detail"], sharing.session)
+    /// grant is the one asked. nil when both are granted.
+    private func grantRow(_ sharing: MacScreenHomeSnapshot.Sharing) -> NSView? {
+        guard !sharing.screenRecordingGranted || !sharing.accessibilityGranted else { return nil }
+        let screenRecording = !sharing.screenRecordingGranted
+        let title = screenRecording && !sharing.accessibilityGranted
+            ? L.t("macScreen.home.grantBoth", "Screen Recording and Accessibility")
+            : screenRecording ? L.t("macScreen.home.screenRecording", "Screen Recording") : L.t("macScreen.home.accessibility", "Accessibility")
+        let detail = screenRecording
+            ? L.t("macScreen.home.grantDetail", "macOS asks once, so your devices can see and control this Mac.")
+            : L.t("macScreen.home.grantAccessibilityDetail", "macOS asks once, so your devices can click and type here.")
         let labels = MacScreenStack.make(.vertical, spacing: 2, alignment: .leading)
         MacScreenStack.addFullWidth(MacScreenText(title, font: MacScreenType.body, wraps: true), to: labels)
         MacScreenStack.addFullWidth(MacScreenText(detail, font: MacScreenType.caption, ink: \.secondary, wraps: true), to: labels)
@@ -109,7 +131,7 @@ extension MacScreenHomeView {
             add(MacScreenFill.divider(), to: content, inset: Self.rowInsets.left)
             add(padded(statusRow(sharing)), to: content)
         }
-        for row in noteRows(sharing) { add(padded(row), to: content) }
+        if let error = sharing.lastError { add(padded(errorRow(error)), to: content) }
         return MacScreenHomeParts.section(L.t("devices.section.this", "This Mac"), content: content)
     }
 
@@ -124,7 +146,7 @@ extension MacScreenHomeView {
             add(MacScreenFill.divider(), to: content, inset: Self.rowInsets.left)
             add(padded(statusRow(sharing, glyphColumn: false)), to: content)
         }
-        for row in noteRows(sharing) { add(padded(row), to: content) }
+        if let error = sharing.lastError { add(padded(errorRow(error)), to: content) }
         return MacScreenHomeParts.section(L.t("devices.section.this", "This Mac"), content: content)
     }
 
@@ -141,8 +163,8 @@ extension MacScreenHomeView {
             item(L.t("macScreen.home.accessibility", "Accessibility"), granted: sharing.accessibilityGranted),
             MacScreenSpacer(),
         ]
-        if let open = sharing.rdStatus["openSettings"] as? String {
-            let screenRecording = open == "screenRecording"
+        if !sharing.screenRecordingGranted || !sharing.accessibilityGranted {
+            let screenRecording = !sharing.screenRecordingGranted
             views.append(MacScreenButton(L.t("macScreen.home.openSettings", "Open System Settings"), compact: true) { [weak self] in
                 self?.host.openSettings(screenRecording: screenRecording)
             })
@@ -158,7 +180,7 @@ extension MacScreenHomeView {
 
     private func statusSharing(_ sharing: MacScreenHomeSnapshot.Sharing) -> NSView {
         let content = MacScreenStack.make(.vertical, spacing: 0, alignment: .leading)
-        let title = Self.text(sharing.rdStatus["statusTitle"], sharing.session)
+        let title = sharing.isSharing ? sharing.statusText : L.t("macScreen.home.allowToggleShort", "Allow Mac Screen")
         let toggle = sharingSwitch(sharing, title: title, emphasized: sharing.isSharing)
         if sharing.isSharing {
             let row = MacScreenStack.make(.horizontal, spacing: 10, alignment: .centerY, [glyphCell(MacScreenFill.dot(sharing.statusInk, side: 8)), toggle])
@@ -174,7 +196,7 @@ extension MacScreenHomeView {
         } else {
             add(padded(toggle), to: content)
         }
-        for row in noteRows(sharing) { add(padded(row), to: content) }
+        if let error = sharing.lastError { add(padded(errorRow(error)), to: content) }
         return MacScreenHomeParts.section(L.t("devices.section.this", "This Mac"), content: content)
     }
 
@@ -205,7 +227,7 @@ extension MacScreenHomeView {
             if let session = sharing.session { views.append(sessionButtons(session)) }
             MacScreenStack.addFullWidth(MacScreenStack.make(.horizontal, spacing: 8, alignment: .centerY, views), to: content)
         }
-        for row in noteRows(sharing) { MacScreenStack.addFullWidth(row, to: content) }
+        if let error = sharing.lastError { MacScreenStack.addFullWidth(errorRow(error), to: content) }
         return MacScreenHomeParts.section(L.t("macScreen.home.allowTitle", "Allow Mac Screen on This Mac"), content: content)
     }
 
@@ -290,18 +312,6 @@ extension MacScreenHomeView {
         ])
     }
 
-    /// The hub note (this Mac not on the hub yet), then the last error, each look's last rows.
-    private func noteRows(_ sharing: MacScreenHomeSnapshot.Sharing) -> [NSView] {
-        var rows: [NSView] = []
-        if let note = sharing.hubNote {
-            let text = MacScreenText(note, font: MacScreenType.caption, ink: \.secondary, wraps: true)
-            text.setAccessibilityIdentifier("macScreen.home.hubNote")
-            rows.append(text)
-        }
-        if let error = sharing.lastError { rows.append(errorRow(error)) }
-        return rows
-    }
-
     private func errorRow(_ error: String) -> NSView {
         MacScreenStack.make(.horizontal, spacing: 6, alignment: .firstBaseline, [
             MacScreenGlyph("exclamationmark.circle.fill", font: MacScreenType.caption, ink: \.danger),
@@ -357,49 +367,10 @@ extension MacScreenHomeView {
     }
 
     static func sessionText(_ session: MacScreenHubHost.Session?) -> String {
-        text(RdUI.call("homeSharing.sessionText", ["session": rd(session)]), session)
-    }
-
-    /// The session as Rust's `homeSharing` ops take it.
-    static func rd(_ session: MacScreenHubHost.Session?) -> Any {
-        guard let session else { return NSNull() }
-        return ["connected": session.connected, "scope": session.scope == .view ? "view" : "full"]
-    }
-
-    /// A status dot's ink by Rust's name.
-    static func ink(_ name: Any?) -> KeyPath<MacScreenColors, NSColor> {
-        switch name as? String {
-        case "litGlyph": \.litGlyph
-        case "attention": \.attention
-        default: \.success
-        }
-    }
-
-    /// Rust's Text in this person's language: its key localized, `$viewerName` the session's viewer.
-    static func text(_ value: Any?, _ session: MacScreenHubHost.Session?) -> String {
-        let key = (value as? [String: Any])?["key"] as? String ?? ""
-        let words: String = switch key {
-        case "macScreen.home.hubReady": L.t("macScreen.home.hubReady", "Ready. Your devices can connect.")
-        case "macScreen.home.hubConnecting": L.t("macScreen.home.hubConnecting", "%@ is connecting…")
-        case "macScreen.indicator.viewing": L.t("macScreen.indicator.viewing", "%@ is viewing this Mac")
-        case "macScreen.indicator.controlling": L.t("macScreen.indicator.controlling", "%@ is controlling this Mac")
-        case "macScreen.home.hubNeedsScreenRecording":
-            L.t("macScreen.home.hubNeedsScreenRecording", "Allow Screen Recording so your devices can see this Mac.")
-        case "macScreen.home.hubViewOnly": L.t("macScreen.home.hubViewOnly", "Ready for View Only. Allow Accessibility for Full Control.")
-        case "macScreen.home.connectedViewing": L.t("macScreen.home.connectedViewing", "Connected: %@ · Viewing")
-        case "macScreen.home.connectedControlling": L.t("macScreen.home.connectedControlling", "Connected: %@ · Controlling")
-        case "macScreen.home.grantBoth": L.t("macScreen.home.grantBoth", "Screen Recording and Accessibility")
-        case "macScreen.home.screenRecording": L.t("macScreen.home.screenRecording", "Screen Recording")
-        case "macScreen.home.accessibility": L.t("macScreen.home.accessibility", "Accessibility")
-        case "macScreen.home.grantDetail": L.t("macScreen.home.grantDetail", "macOS asks once, so your devices can see and control this Mac.")
-        case "macScreen.home.grantAccessibilityDetail":
-            L.t("macScreen.home.grantAccessibilityDetail", "macOS asks once, so your devices can click and type here.")
-        case "macScreen.home.shareThisMacOff": L.t("macScreen.home.shareThisMacOff", "Your devices can’t see or control this Mac.")
-        case "macScreen.home.shareThisMacOn": L.t("macScreen.home.shareThisMacOn", "Your devices on this account can connect.")
-        default: L.t("macScreen.home.allowToggleShort", "Allow Mac Screen")
-        }
-        let args = (value as? [String: Any])?["args"] as? [String] ?? []
-        guard !args.isEmpty else { return words }
-        return String(format: words, arguments: args.map { _ in session?.viewerName ?? "" })
+        guard let session else { return L.t("macScreen.home.hubReady", "Ready. Your devices can connect.") }
+        if !session.connected { return String(format: L.t("macScreen.home.hubConnecting", "%@ is connecting…"), session.viewerName) }
+        return session.scope == .view
+            ? String(format: L.t("macScreen.indicator.viewing", "%@ is viewing this Mac"), session.viewerName)
+            : String(format: L.t("macScreen.indicator.controlling", "%@ is controlling this Mac"), session.viewerName)
     }
 }

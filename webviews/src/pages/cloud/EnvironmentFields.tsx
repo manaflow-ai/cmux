@@ -264,13 +264,10 @@ export function EnvironmentScript({
   state,
   store,
   strings,
-  deriveStillTrying = false,
 }: {
   state: EnvironmentState;
   store: EnvironmentStore;
   strings: Strings;
-  /** The suggested script's read has failed for a while (the sheet reads it again on its own). */
-  deriveStillTrying?: boolean;
 }) {
   const { t } = strings;
   const script = state.draft?.script ?? state.derivedScript ?? "";
@@ -337,10 +334,14 @@ export function EnvironmentScript({
         </div>
         <div className="env-editor-foot">{t(L.envFileLimit)}</div>
       </div>
-      {/* A failed suggestion is read again on its own (EnvironmentSheet): quiet until that lasts. */}
-      {state.deriving && !state.deriveFailed && <output className="env-note">{t(L.loading)}</output>}
-      {state.deriveFailed && deriveStillTrying && (
-        <p className="env-note env-derive-still-trying">{t(L.envDeriveStillTrying)}</p>
+      {state.deriving && <output className="env-note">{t(L.loading)}</output>}
+      {state.deriveFailed && (
+        <p role="alert" className="env-note">
+          {t(L.envDeriveFailed)}{" "}
+          <button type="button" className="env-link" onClick={() => void store.derive()}>
+            {t(L.retry)}
+          </button>
+        </p>
       )}
       {state.derivedScript !== undefined && state.draft?.script !== null && (
         <button type="button" className="env-link" onClick={() => store.edit({ script: null })}>

@@ -283,7 +283,7 @@ else
 fi
 [ ${#dirs[@]} -gt 0 ] || { echo "no run finished" >&2; exit 1; }
 # summarize.py checks that the head does not change the harness (git diff base head): both commits must be here.
-if [ -z "$build" ]; then git -C "$repo" fetch -q --no-recurse-submodules origin "$base_commit" "$head_commit" 2>/dev/null || true; fi
+if [ -z "$build" ]; then git -C "$repo" fetch -q origin "$base_commit" "$head_commit" 2>/dev/null || true; fi
 if [ "$aa" = 1 ]; then
   python3 -I "$here/summarize.py" --aa "$out/summary.json" "${dirs[@]}"
 else

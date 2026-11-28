@@ -19,14 +19,4 @@ fn forwards_launcher_arguments() {
     assert!(!is_requested(&strings(&["open", "preview"])));
     assert!(!is_requested(&strings(&["dev"])));
     assert!(!is_requested(&strings(&["ui-host", "dev"])));
-    assert!(is_requested(&strings(&["ios", "verify", "--pr", "60152"])));
-    assert!(!is_requested(&strings(&["ios"])));
-}
-
-#[test]
-fn ios_verify_runs_off_macos_and_in_release_builds() {
-    let launcher = LAUNCHERS.iter().find(|launcher| launcher.words == ["ios", "verify"]).unwrap();
-    assert_eq!(launcher.script, "scripts/ci/ios-verify.sh");
-    assert!(!launcher.dev_only);
-    assert!(!launcher.macos_only);
 }

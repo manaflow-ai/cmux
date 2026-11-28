@@ -29,7 +29,6 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use bytes::Bytes;
-use futures_util::{StreamExt, stream::FuturesUnordered};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, watch};
@@ -189,32 +188,17 @@ fn parse_url(url: &str, username: &str, credential: &str) -> Option<TurnServer> 
 /// The TURN servers of `servers` to try: the first one over UDP, and the
 /// best one over a stream (TLS on 443, else any TLS, else plain TCP).
 pub fn turn_servers(servers: &[IceServer]) -> (Option<TurnServer>, Option<TurnServer>) {
-    let (udp, streams) = turn_server_candidates(servers);
-    let stream = streams.into_iter().next();
-    (udp, stream)
-}
-
-/// The first UDP endpoint and every ranked stream endpoint from an ICE list.
-fn turn_server_candidates(servers: &[IceServer]) -> (Option<TurnServer>, Vec<TurnServer>) {
     let mut all = servers_in_order(servers);
     // A server whose last allocation failed goes behind the others (stable:
     // the listed order otherwise), so the next dial, redial or TURN retry
     // starts on one that may answer.
     all.sort_by_key(|server| failed_recently(&server.address));
     let endpoints: Vec<Endpoint> = all.iter().map(TurnServer::endpoint).collect();
-    let udp = cmux_braid_carrier::best(&endpoints, &[CarrierKind::TurnUdp], NetFacts::default())
-        .and_then(|best| all.iter().find(|server| server.endpoint() == *best).cloned());
-    let streams = ranked_stream_servers(&all);
-    (udp, streams)
-}
-
-/// Stream TURN endpoints in the order the carrier ladder uses. Keep every
-/// endpoint at a rank so a failed preferred relay can fall through to the
-/// next advertised TLS or TCP listener within the dial's stream deadline.
-fn ranked_stream_servers(servers: &[TurnServer]) -> Vec<TurnServer> {
-    let mut streams: Vec<_> = servers.iter().filter(|server| server.transport.is_stream()).cloned().collect();
-    streams.sort_by_key(|server| cmux_braid_carrier::rank(&server.endpoint()));
-    streams
+    let pick = |kinds: &[CarrierKind]| {
+        let best = cmux_braid_carrier::best(&endpoints, kinds, NetFacts::default())?;
+        all.iter().find(|server| server.endpoint() == *best).cloned()
+    };
+    (pick(&[CarrierKind::TurnUdp]), pick(&[CarrierKind::TurnTls, CarrierKind::TurnTcp]))
 }
 
 /// A TURN server whose allocation failed is tried after the others for this
@@ -582,18 +566,15 @@ impl TurnCarrier {
         refusal: &std::sync::Mutex<Option<crate::egress::EgressError>>,
     ) -> Option<Self> {
         let silent_now = || udp_silent.as_ref().is_some_and(|silent| *silent.borrow());
-        let (udp, streams) = turn_server_candidates(&options.ice_servers);
+        let (udp, stream) = turn_servers(&options.ice_servers);
         let udp = udp.filter(|_| !options.block_udp);
         let tried_udp = udp.is_some();
         // UDP_WAIT hands a slow UDP allocation over to the stream one; with
         // no stream server there is nothing to hand over to, and UDP gets
         // NO_STREAM_UDP_WAIT (on a lossy link, losing an answer or two
         // takes it past UDP_WAIT), within the dial's own bound.
-        let udp_wait = if !streams.is_empty() {
-            UDP_WAIT
-        } else {
-            NO_STREAM_UDP_WAIT.min(options.timeout.max(UDP_WAIT))
-        };
+        let udp_wait =
+            if stream.is_some() { UDP_WAIT } else { NO_STREAM_UDP_WAIT.min(options.timeout.max(UDP_WAIT)) };
         // Every UDP server listed, the one `turn_servers` picks first: a dead
         // first server (its process gone, its host unreachable) hands over to
         // the next one, each with its own `udp_wait`, instead of leaving a
@@ -620,7 +601,41 @@ impl TurnCarrier {
             None
         };
         let stream_attempt = |delay: Duration| {
-            Self::allocate_streams(streams.clone(), options, late, refusal, delay, udp_silent.clone())
+            let stream = stream.clone();
+            let silent = udp_silent.clone();
+            async move {
+                let server = stream?;
+                // Ask the system's proxy settings (a PAC file may be fetched
+                // and run) beside the stagger, not inside the allocation's bound.
+                let hops = async {
+                    let (host, port) = split_host_port(&server.address, 443).unwrap_or_default();
+                    crate::egress::proxy::hops(
+                        &host,
+                        port,
+                        server.transport == TurnTransport::Tls,
+                        &options.egress.proxy,
+                    )
+                    .await
+                };
+                let wait = async {
+                    tokio::select! {
+                        () = tokio::time::sleep(delay) => {}
+                        () = until_silent(silent) => {}
+                    }
+                };
+                let (hops, ()) = tokio::join!(hops, wait);
+                let proxied = hops.first().is_some_and(|hop| *hop != crate::egress::Hop::Direct);
+                let limit = if proxied { PROXIED_STREAM_WAIT } else { STREAM_WAIT };
+                match bounded(limit, Self::spawn_on(server, options), late).await {
+                    Ok(carrier) => Some((carrier, proxied)),
+                    Err(AllocFailure::Proxy(error)) => {
+                        tracing::warn!(%error, "the proxy refused TURN over TLS");
+                        *refusal.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(error);
+                        None
+                    }
+                    Err(AllocFailure::Other(_)) => None,
+                }
+            }
         };
         if !tried_udp {
             return stream_attempt(Duration::ZERO).await.map(|(carrier, _)| carrier);
@@ -665,70 +680,6 @@ impl TurnCarrier {
         }
     }
 
-    /// Stagger ranked streams within the existing allocation deadline. Starting
-    /// a backup leaves earlier attempts eligible until a relay answers.
-    async fn allocate_streams(
-        streams: Vec<TurnServer>,
-        options: &DialOptions,
-        late: Option<&LateTurn>,
-        refusal: &std::sync::Mutex<Option<crate::egress::EgressError>>,
-        delay: Duration,
-        silent: Option<watch::Receiver<bool>>,
-    ) -> Option<(Self, bool)> {
-        let first = streams.first()?.clone();
-        // Ask the system's proxy settings (a PAC file may be fetched and run)
-        // beside the stagger, not inside the allocation's bound; a proxied leg
-        // gets one more round trip (`CONNECT`) and the proxy's own connection.
-        let hops = async {
-            let (host, port) = split_host_port(&first.address, 443).unwrap_or_default();
-            crate::egress::proxy::hops(
-                &host,
-                port,
-                first.transport == TurnTransport::Tls,
-                &options.egress.proxy,
-            )
-            .await
-        };
-        let wait = async {
-            tokio::select! {
-                () = tokio::time::sleep(delay) => {}
-                () = until_silent(silent) => {}
-            }
-        };
-        let (hops, ()) = tokio::join!(hops, wait);
-        let proxied = hops.first().is_some_and(|hop| *hop != crate::egress::Hop::Direct);
-        let limit = if proxied { PROXIED_STREAM_WAIT } else { STREAM_WAIT };
-        let deadline = tokio::time::Instant::now() + limit;
-        let mut pending = FuturesUnordered::new();
-        let mut servers = streams.into_iter();
-        while let Some(server) = servers.next() {
-            let now = tokio::time::Instant::now();
-            if now >= deadline {
-                break;
-            }
-            let slots = u32::try_from(servers.len() + 1).unwrap_or(u32::MAX);
-            let next_start = now + (deadline - now) / slots;
-            pending.push(Self::spawn_on(server, options));
-            while let Ok(Some(result)) = tokio::time::timeout_at(next_start, pending.next()).await {
-                match result {
-                    Ok(Ok(carrier)) => return Some((carrier, proxied)),
-                    Ok(Err(AllocFailure::Proxy(error))) => {
-                        tracing::warn!(%error, "the proxy refused TURN over TLS");
-                        *refusal.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(error);
-                    }
-                    Ok(Err(error)) => tracing::debug!(%error, "TURN stream allocation failed"),
-                    Err(_) => tracing::debug!("TURN stream allocation task ended"),
-                }
-            }
-        }
-        if let Some(late) = late {
-            for attempt in pending {
-                late.keep(attempt);
-            }
-        }
-        None
-    }
-
     /// Allocate on `server` in a task of its own: a caller that gives up (a
     /// timeout, the losing side of the UDP and TLS race) drops only the
     /// answer, and the task still finishes and releases what it opened.
@@ -760,19 +711,7 @@ impl TurnCarrier {
         let (host, port) = split_host_port(&server.address, 443)
             .ok_or_else(|| AllocFailure::Other(format!("bad TURN address {}", server.address)))?;
         let secure = server.transport == TurnTransport::Tls;
-        // The direct hop dials the remembered literals when DNS is down
-        // (`route_literals`); TLS still names the host.
-        let direct = |_: &str, _: u16| async {
-            let targets = options
-                .routes
-                .resolve(&server.address, 0)
-                .await
-                .map_err(|e| crate::egress::EgressError::Io(format!("{}: {e}", server.address)))?;
-            TcpStream::connect(&targets[..])
-                .await
-                .map_err(|e| crate::egress::EgressError::Io(format!("{}: {e}", server.address)))
-        };
-        match crate::egress::connect_tcp_with(&host, port, secure, &options.egress, direct).await {
+        match crate::egress::connect_tcp(&host, port, secure, &options.egress).await {
             Ok((tcp, via)) => {
                 if let crate::egress::Via::Proxy(hop) = &via {
                     tracing::info!(%hop, server = server.address, "TURN over TLS through the proxy");
@@ -812,19 +751,6 @@ impl TurnCarrier {
     }
 
     async fn allocate_inner(server: TurnServer, options: &DialOptions) -> Result<Self, AllocFailure> {
-        // UDP: the server's IPv4 literal (the socket is IPv4), resolved here rather than in the
-        // `turn` crate so a dial with DNS down reaches it at its remembered literal.
-        let udp_target = if server.transport == TurnTransport::Udp {
-            let found = options.routes.resolve(&server.address, 0).await.map_err(|e| e.to_string())?;
-            Some(
-                found
-                    .into_iter()
-                    .find(SocketAddr::is_ipv4)
-                    .ok_or_else(|| "no IPv4 address for the TURN server".to_owned())?,
-            )
-        } else {
-            None
-        };
         let (conn, dead): (Arc<dyn Conn + Send + Sync>, Option<watch::Receiver<bool>>) = match server
             .transport
         {
@@ -850,7 +776,7 @@ impl TurnCarrier {
         // The server address the client compares against: the stream's peer.
         let turn_serv_addr = match (&dead, conn.remote_addr()) {
             (Some(_), Some(peer)) => peer.to_string(),
-            _ => udp_target.map_or_else(|| server.address.clone(), |target| target.to_string()),
+            _ => server.address.clone(),
         };
         // Watch the server's replies for the realm and nonce a CreatePermission
         // of ours needs (the `turn` crate keeps them to itself).
@@ -897,9 +823,6 @@ impl TurnCarrier {
         };
         let relayed = relay.local_addr().map_err(|e| e.to_string())?;
         let server_addr: Option<SocketAddr> = turn_serv_addr.parse().ok();
-        if let Some(reached) = server_addr {
-            options.routes.confirm(&server.host, reached.ip());
-        }
         let queue = Arc::new(ClassQueue::default());
         let (inbound_tx, inbound) = mpsc::channel(INBOUND_QUEUE);
         let (permits, permit_requests) = mpsc::unbounded_channel();
@@ -916,11 +839,10 @@ impl TurnCarrier {
             tokio::spawn(sender_loop(relay, queue, early, permit_requests, Arc::clone(&duplicates)))
         };
         let receiver = {
-            let (relay, counts) = (Arc::clone(&relay), Arc::clone(&duplicates));
+            let relay = Arc::clone(&relay);
             tokio::spawn(async move {
                 let mut buffer = vec![0u8; 65_536];
                 while let Ok((len, from)) = relay.recv_from(&mut buffer).await {
-                    counts.received.fetch_add(1, Ordering::Relaxed);
                     match inbound_tx.try_send((Bytes::copy_from_slice(&buffer[..len]), from)) {
                         Ok(()) | Err(mpsc::error::TrySendError::Full(_)) => {}
                         Err(mpsc::error::TrySendError::Closed(_)) => return,
@@ -970,17 +892,6 @@ impl TurnCarrier {
         (self.duplicates.datagrams.load(Ordering::Relaxed), self.duplicates.bytes.load(Ordering::Relaxed))
     }
 
-    /// What this carrier carried so far.
-    pub fn carried(&self) -> Carried {
-        let load = |counter: &AtomicU64| counter.load(Ordering::Relaxed);
-        Carried {
-            sent: load(&self.duplicates.sent),
-            failed: load(&self.duplicates.failed),
-            skipped: load(&self.duplicates.skipped),
-            received: load(&self.duplicates.received),
-        }
-    }
-
     /// Queue one datagram to `to` through the TURN server, in `class`
     /// (dropped past its class's bound; WireGuard and TCP retransmit).
     pub fn send(&self, datagram: &[u8], to: SocketAddr, class: SendClass) {
@@ -1005,9 +916,8 @@ impl TurnCarrier {
     /// data) within `bound` of the first: the allocation is dead (its watch
     /// says so, the session takes a new one) and the server goes behind the
     /// others ([`turn_servers`]). The caller derives `bound` from the path's
-    /// smoothed RTT, with a floor (`Paths::turn_server_bound`). Only for
-    /// UDP: a stream reports its own failure, and a quiet path whose server
-    /// answers is the peer's or the link's matter.
+    /// smoothed RTT. Only for UDP: a stream reports its own failure, and a
+    /// quiet path whose server answers is the peer's or the link's matter.
     pub fn check_server(&self, bound: Duration) {
         let Some(server) = self.server else { return };
         if self.transport.is_stream() || self.is_dead() || self.checking.swap(true, Ordering::AcqRel) {
@@ -1283,33 +1193,24 @@ async fn sender_loop(
         }
         early_window.retain(|addr| !sent.ready.contains(addr));
         if sent.failed.get(&to).is_some_and(|at| at.elapsed() < FAILED_TARGET_WAIT) {
-            duplicates.skipped.fetch_add(1, Ordering::Relaxed);
             continue;
         }
         // In its early window, or ready: either way the server holds a
         // permission for it, so an indication arrives.
         let around = early_window.contains(&to) || sent.ready.contains(&to);
         if busy.is_some() && around && early.indicate(&datagram, to).await.is_some() {
-            duplicates.sent.fetch_add(1, Ordering::Relaxed);
             continue;
         }
         // The crate goes on with the next datagram once it is done with the last.
         sent.settle(busy.take()).await;
         let task = {
-            let (relay, datagram, counts) = (Arc::clone(&relay), datagram.clone(), Arc::clone(&duplicates));
+            let (relay, datagram) = (Arc::clone(&relay), datagram.clone());
             tokio::spawn(async move {
                 let started = tokio::time::Instant::now();
                 let ok = match relay.send_to(&datagram, to).await {
-                    Ok(_) => {
-                        counts.sent.fetch_add(1, Ordering::Relaxed);
-                        true
-                    }
+                    Ok(_) => true,
                     Err(error) => {
-                        // At most once per address per FAILED_TARGET_WAIT:
-                        // what follows is that address going dark, so it is
-                        // in the default log.
-                        counts.failed.fetch_add(1, Ordering::Relaxed);
-                        tracing::info!(%error, %to, "TURN send failed; skipping this peer address for a while");
+                        tracing::debug!(%error, %to, "TURN send failed; skipping this peer address for a while");
                         false
                     }
                 };
@@ -1345,34 +1246,11 @@ async fn sender_loop(
 const CRATE_SEND_GRACE: Duration = Duration::from_millis(5);
 
 /// Datagrams sent twice (a Send indication beside the crate's own send)
-/// and their bytes on the wire to the server, and what the carrier carried
-/// at all: its close line read `datagrams=0` on every healthy carrier (only
-/// duplicates counted), so a carrier that never moved a byte and one that
-/// carried a session closed alike (Leo, 2026-11-27: "so between mac and ios
-/// connections something broke").
+/// and their bytes on the wire to the server.
 #[derive(Debug, Default)]
 pub struct Duplicates {
     pub datagrams: AtomicU64,
     pub bytes: AtomicU64,
-    /// Datagrams that went to the server (the crate's sends that returned
-    /// ok, and Send indications that went alone).
-    pub sent: AtomicU64,
-    /// The crate's sends that failed (each skips its address for
-    /// `FAILED_TARGET_WAIT`).
-    pub failed: AtomicU64,
-    /// Datagrams dropped because their address was in that wait.
-    pub skipped: AtomicU64,
-    /// Datagrams relayed from the peer to this side.
-    pub received: AtomicU64,
-}
-
-/// What a [`TurnCarrier`] carried (see [`Duplicates`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Carried {
-    pub sent: u64,
-    pub failed: u64,
-    pub skipped: u64,
-    pub received: u64,
 }
 
 fn is_wireguard(datagram: &[u8]) -> bool {
@@ -1637,20 +1515,7 @@ impl Drop for TurnCarrier {
         // message on a stream.
         self.queue.close();
         let (datagrams, bytes) = self.duplicates();
-        let Carried { sent, failed, skipped, received } = self.carried();
-        let dead = *self.dead.borrow();
-        tracing::info!(
-            sent,
-            received,
-            failed,
-            skipped,
-            dead,
-            relayed = %self.relayed,
-            server = self.address,
-            datagrams,
-            bytes,
-            "TURN carrier closed (datagrams/bytes: sent twice in the early window)"
-        );
+        tracing::info!(datagrams, bytes, "TURN carrier closed; datagrams sent twice in the early window");
         for task in self.tasks.iter().skip(1) {
             task.abort();
         }
@@ -1824,33 +1689,6 @@ mod tests {
         assert!(started.elapsed() < UDP_WAIT, "waited on the dead server: {:?}", started.elapsed());
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_slow_working_turn_stream_can_win_after_a_backup_fails() {
-        let turn = crate::testing::TestTurn::start().await;
-        // This relay answers within STREAM_WAIT, after the backup gets its turn.
-        turn.delay_streams(STREAM_WAIT / 2 + Duration::from_millis(400));
-        let backup = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let backup_addr = backup.local_addr().unwrap();
-        let mut ice = turn.ice.clone();
-        ice.urls.retain(|url| url.starts_with("turns:"));
-        ice.urls.push(format!("turns:{backup_addr}?transport=tcp"));
-        let options = DialOptions {
-            ice_servers: vec![ice],
-            turn_tls_roots: Some(Arc::clone(&turn.roots)),
-            ..DialOptions::default()
-        };
-        let reject = async {
-            let (socket, _) = backup.accept().await.unwrap();
-            drop(socket);
-        };
-        let (carrier, ()) = tokio::time::timeout(STREAM_WAIT + Duration::from_secs(1), async {
-            tokio::join!(TurnCarrier::allocate(&options), reject)
-        })
-        .await
-        .expect("the backup was attempted");
-        assert!(turn.is_relayed(&carrier.expect("the preferred allocation was kept").relayed));
-    }
-
     /// A UDP allocation never learned its server was gone (only a stream
     /// does), so a relay-only session sat on it until the link's 45 s
     /// keepalive timeout and a redial (cmux#53760's relay failover: 62 s
@@ -1927,13 +1765,10 @@ mod tests {
         assert_eq!(turn_servers(&bare), (None, None));
     }
 
-    /// TURN over TLS alone (UDP blocked, and only the `turns:` listener, so a
-    /// refused TLS leg does not fall through to plain TCP), leaving this
-    /// device as `egress` says.
+    /// TURN over TLS alone (UDP blocked), leaving this device as `egress` says.
     fn tls_only(turn: &crate::testing::TestTurn, egress: crate::egress::Egress) -> DialOptions {
-        let urls = turn.ice.urls.iter().filter(|url| url.starts_with("turns:")).cloned().collect();
         DialOptions {
-            ice_servers: vec![IceServer { urls, ..turn.ice.clone() }],
+            ice_servers: vec![turn.ice.clone()],
             block_udp: true,
             include_loopback: true,
             egress,
@@ -2207,27 +2042,6 @@ mod tests {
         for n in 60..160 {
             assert_eq!(later.get(&wg_data(n)), Some(&1), "datagram {n}");
         }
-    }
-
-    /// The close line names what the carrier carried, both ways: before,
-    /// it had only the duplicate count, 0 on a healthy carrier and on one
-    /// that never moved a byte alike.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn a_carrier_counts_what_it_carried_both_ways() {
-        let (mut carrier, peer, _turn) = delayed_carrier(Duration::from_millis(5)).await;
-        assert_eq!(carrier.carried(), Carried::default());
-        carrier.permit(&[peer.local_addr().unwrap()]);
-        let plain = |n: u64| format!("plain datagram {n}").into_bytes();
-        let arrived = send_and_count(&carrier, &peer, plain, 0..20, Duration::from_millis(300)).await;
-        assert_eq!(arrived.len(), 20);
-        for n in 0..3 {
-            peer.send_to(&plain(n), carrier.relayed).await.unwrap();
-        }
-        for _ in 0..3 {
-            tokio::time::timeout(Duration::from_secs(3), carrier.inbound.recv()).await.unwrap().unwrap();
-        }
-        let carried = carrier.carried();
-        assert_eq!((carried.sent, carried.failed, carried.skipped, carried.received), (20, 0, 0, 3));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

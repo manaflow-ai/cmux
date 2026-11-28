@@ -7,128 +7,128 @@
       "localizations" : {
         "ar" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "هذا الإصدار لا يتضمن استخدام الكمبيوتر"
+            "state" : "needs_review",
+            "value" : "استخدام الكمبيوتر غير متاح في هذا الإصدار"
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ova verzija nema upravljanje računarom"
+            "state" : "needs_review",
+            "value" : "Korištenje računara nije dostupno u ovoj verziji"
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dette build har ikke computerbrug"
+            "state" : "needs_review",
+            "value" : "Computerbrug er ikke tilgængelig i denne version"
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dieser Build hat keine Computernutzung"
+            "state" : "needs_review",
+            "value" : "Computernutzung ist in diesem Build nicht verfügbar"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This build has no computer use"
+            "value" : "Computer use isn't available in this build"
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Esta versión no tiene uso del ordenador"
+            "state" : "needs_review",
+            "value" : "El uso del ordenador no está disponible en esta versión"
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cette version n’a pas l’utilisation de l’ordinateur"
+            "state" : "needs_review",
+            "value" : "L’utilisation de l’ordinateur n’est pas disponible dans cette version"
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Questa build non ha l’uso del computer"
+            "state" : "needs_review",
+            "value" : "L’uso del computer non è disponibile in questa versione"
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "このビルドにはコンピュータ操作がありません"
+            "state" : "needs_review",
+            "value" : "このビルドではコンピュータ操作を使用できません"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "កំណែនេះគ្មានការប្រើកុំព្យូទ័រទេ"
+            "state" : "needs_review",
+            "value" : "ការប្រើកុំព្យូទ័រមិនមាននៅក្នុងកំណែនេះទេ"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "이 빌드에는 컴퓨터 사용이 없습니다"
+            "state" : "needs_review",
+            "value" : "이 빌드에서는 컴퓨터 사용을 사용할 수 없습니다"
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Denne versjonen har ikke datamaskinbruk"
+            "state" : "needs_review",
+            "value" : "Datamaskinbruk er ikke tilgjengelig i denne versjonen"
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ta wersja nie ma sterowania komputerem"
+            "state" : "needs_review",
+            "value" : "Obsługa komputera nie jest dostępna w tej wersji"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Esta versão não tem uso do computador"
+            "state" : "needs_review",
+            "value" : "O uso do computador não está disponível nesta versão"
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "В этой сборке нет управления компьютером"
+            "state" : "needs_review",
+            "value" : "Управление компьютером недоступно в этой сборке"
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "บิลด์นี้ไม่มีการใช้คอมพิวเตอร์"
+            "state" : "needs_review",
+            "value" : "การใช้คอมพิวเตอร์ไม่พร้อมใช้งานในบิลด์นี้"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bu sürümde bilgisayar kullanımı yok"
+            "state" : "needs_review",
+            "value" : "Bilgisayar kullanımı bu sürümde kullanılamıyor"
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "У цій збірці немає керування комп’ютером"
+            "state" : "needs_review",
+            "value" : "Керування комп’ютером недоступне в цій збірці"
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bản dựng này không có điều khiển máy tính"
+            "state" : "needs_review",
+            "value" : "Không thể sử dụng máy tính trong bản dựng này"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "此版本没有电脑操作"
+            "state" : "needs_review",
+            "value" : "此版本无法使用电脑操作"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "此版本沒有電腦操作"
+            "state" : "needs_review",
+            "value" : "此版本無法使用電腦操作"
           }
         }
       }

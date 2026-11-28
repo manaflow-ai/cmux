@@ -8,19 +8,20 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
+import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
+import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
+import {
+  bindSessionInfoPane,
+  resetSessionInfoState,
+  setSessionInfoOpen,
+  setSessionInfoSection,
+} from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import type { BackgroundCommand, SessionInfoProcess } from "../src/agent-session/acpmux/session-info/processes";
+import { TasksSection } from "../src/agent-session/acpmux/session-info/TasksSection";
+import { SummaryTasks } from "../src/agent-session/acpmux/summary/SummaryTasks";
+import { assistant, chat, user } from "../src/gallery/fixtures/acpmux";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { setChatDisplay } = await importWithDom(() => import("../src/agent-session/acpmux/chatDisplay"));
-const { setHeaderState } = await importWithDom(() => import("../src/agent-session/acpmux/header/headerState"));
-const { useSessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/useSessionInfo"));
-const { bindSessionInfoPane, resetSessionInfoState, setSessionInfoOpen, setSessionInfoSection } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/sessionInfoState"),
-);
-const { TasksSection } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/TasksSection"));
-const { SummaryTasks } = await importWithDom(() => import("../src/agent-session/acpmux/summary/SummaryTasks"));
-const { assistant, chat, user } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

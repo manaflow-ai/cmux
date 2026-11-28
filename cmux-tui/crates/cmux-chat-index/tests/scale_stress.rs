@@ -300,12 +300,7 @@ fn stress_bench_chat_index_scale() {
         eprintln!("skipped: set CMUX_STRESS=1 or name stress_bench in the filter");
         return;
     }
-    // CMUX_STRESS_CHATS=20000,100000 runs those sizes only (an A/B of two builds, back to back).
-    let sizes: Vec<usize> = std::env::var("CMUX_STRESS_CHATS")
-        .ok()
-        .map(|v| v.split(',').filter_map(|n| n.trim().parse().ok()).collect())
-        .unwrap_or_else(|| vec![100, 5_000, 20_000, 100_000]);
-    for chats in sizes {
+    for chats in [100, 5_000, 20_000, 100_000] {
         let home = tempfile::tempdir().unwrap();
         let build = Instant::now();
         let corpus = Corpus::build(home.path(), chats);

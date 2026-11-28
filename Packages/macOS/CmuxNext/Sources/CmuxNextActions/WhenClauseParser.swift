@@ -90,7 +90,7 @@ nonisolated struct WhenClauseParser {
         let key = try parseKey()
         if take("==") { return .equals(key, try parseValue()) }
         if take("!=") { return .notEquals(key, try parseValue()) }
-        if take("=~") { return .matches(key, pattern: WhenPattern(try parseRegex())) }
+        if take("=~") { return .matches(key, pattern: try parseRegex()) }
         let beforeNot = index
         if takeWord("not") {
             guard takeWord("in") else {

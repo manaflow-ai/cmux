@@ -23,14 +23,14 @@ pub(super) fn descriptors() -> [Value; 4] {
         ),
         descriptor(
             "cloud_repo_add",
-            "Attach a repository to a Cloud chat. A bare name resolves automatically; ambiguous names return choices. If GitHub needs connecting, the inline card waits and runs this add again on its own, without a new user message.",
+            "Attach a repository to a Cloud chat. A bare name resolves automatically; ambiguous names return choices. If GitHub needs connecting, the inline card waits and retries this add automatically without a new user message.",
             json!({"repo":{"type":"string","minLength":1},"ref":{"type":"string","minLength":1}}),
             &["session", "repo"],
             false,
         ),
         descriptor(
             "cloud_repo_wait_github",
-            "Wait for GitHub to connect. When connected is true, call cloud_repo_add with the same arguments; a bounded wait returning false is resumed by the recovery card.",
+            "Wait for GitHub to connect, then retry the same cloud_repo_add when connected is true. A bounded wait returning false can be resumed by the recovery card.",
             json!({"timeout_ms":{"type":"integer","minimum":0,"maximum":cloud_repo::MAX_WAIT_MS,"default":30000}}),
             &["session"],
             true,

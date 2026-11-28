@@ -7,12 +7,8 @@
 // thumb went from none to full the frame it started scrolling, and back the frame it stopped.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { importWithDom } from "./support/importWithDom";
-
-const { watchSideways } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/sideways"));
-const { SCROLLER_FADE_ATTRIBUTE, SCROLLING_ATTRIBUTE, SIDEWAYS_SCROLLER_ATTRIBUTE } = await importWithDom(
-  () => import("../src/scrollers"),
-);
+import { watchSideways } from "../src/agent-session/acpmux/conversation/sideways";
+import { SCROLLER_FADE_ATTRIBUTE, SCROLLING_ATTRIBUTE, SIDEWAYS_SCROLLER_ATTRIBUTE } from "../src/scrollers";
 
 /** The thumb's ink in percent of its full color, stepped inline while it fades. */
 const SIDEWAYS_INK_PROPERTY = "--cmux-sideways-ink";

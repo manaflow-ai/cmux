@@ -26,12 +26,8 @@
 #                  free, build in the canonical root. Its DerivedData is kept,
 #                  so the build is incremental from the host's last Release
 #                  compile there (changes judged by content, not file times),
-#                  and every task that has to run asks the cache first. A node
-#                  that does not answer builds the same way in a second root,
-#                  CMUX_NEXT_RELEASE_PLAIN_ROOT (default FLEET_CAS_ROOT/
-#                  next-release-plain), with the cache off; "off" there builds
-#                  the fallback way. A busy root or a failed clone builds the
-#                  fallback way at once; nothing waits.
+#                  and every task that has to run asks the cache first. A node that does not answer, a busy root or a
+#                  failed clone builds the fallback way at once; nothing waits.
 #   write          The trusted writer only (cmuxterm-hq build-fleet catch-up
 #                  fill, under fleet-cas-writer-build.sh, which publishes the
 #                  fill's marker). Refused in GitHub Actions. The DerivedData
@@ -100,20 +96,7 @@ while IFS= read -r setting; do
   plugin_settings+="$setting"$'\n'
 done <<< "$helper_output"
 plugin_settings="${plugin_settings%$'\n'}"
-use_cache=1
-if ! (( plugin_ok && remote_ok )); then
-  [[ "$mode" != write ]] || refuse_or_fallback 3 "the fleet-cas node does not answer on $socket"
-  # No node (every AWS Mac, a mini whose node is down): still build incrementally, in a canonical
-  # root of its own with the cache off. The fallback DerivedData is keyed on the runner's name, and
-  # a per-job runner's name is new for every job, so it was always cold: 6 of the 16 Release compiles
-  # cut at 60 min on per-job runners, 2026-11-24..26. Its own root, because turning the cache on or
-  # off in one DerivedData rebuilds everything. CMUX_NEXT_RELEASE_PLAIN_ROOT=off builds the old way.
-  plain_root="${CMUX_NEXT_RELEASE_PLAIN_ROOT:-$fleet_root/next-release-plain}"
-  [[ "$plain_root" != off ]] || fallback "the fleet-cas node does not answer on $socket"
-  note "the fleet-cas node does not answer on $socket; building in the host's plain root, cache off"
-  cas_root="$plain_root"
-  use_cache=0
-fi
+(( plugin_ok && remote_ok )) || refuse_or_fallback 3 "the fleet-cas node does not answer on $socket"
 
 # The lock, without waiting: busy means another Release compile owns the root right now.
 lock_status=0
@@ -149,17 +132,13 @@ elif [[ -d "$derived_data" ]]; then
   fi
 fi
 
-if (( use_cache )); then
-  # The local CAS path is part of the keys too, so it is the fleet root's fixed one.
-  CMUX_NEXT_RELEASE_XCODE_SETTINGS="$(printf '%s\n' \
-    COMPILATION_CACHE_ENABLE_CACHING=YES \
-    "COMPILATION_CACHE_CAS_PATH=$fleet_root/cas" \
-    COMPILATION_CACHE_ENABLE_DIAGNOSTIC_REMARKS=YES \
-    "$plugin_settings")"
-  export CMUX_NEXT_RELEASE_XCODE_SETTINGS
-else
-  unset CMUX_NEXT_RELEASE_XCODE_SETTINGS
-fi
+# The local CAS path is part of the keys too, so it is the fleet root's fixed one.
+CMUX_NEXT_RELEASE_XCODE_SETTINGS="$(printf '%s\n' \
+  COMPILATION_CACHE_ENABLE_CACHING=YES \
+  "COMPILATION_CACHE_CAS_PATH=$fleet_root/cas" \
+  COMPILATION_CACHE_ENABLE_DIAGNOSTIC_REMARKS=YES \
+  "$plugin_settings")"
+export CMUX_NEXT_RELEASE_XCODE_SETTINGS
 # clear-stale-scheme-build-state.sh accepts this root's DerivedData (stale-module recovery).
 export CMUX_NEXT_RELEASE_CAS_ROOT="$cas_root"
 # Every runner on the host has its own checkout, with its own file times, and the clone keeps
@@ -167,10 +146,6 @@ export CMUX_NEXT_RELEASE_CAS_ROOT="$cas_root"
 # whichever runner cloned it (as compile-app-host-test-product.sh does).
 export XCBUILD_FILE_SYSTEM_MODE=checksum-only
 [[ -z "${GITHUB_ENV:-}" ]] || echo "CMUX_NEXT_RELEASE_DERIVED_DATA=$derived_data" >> "$GITHUB_ENV" || true
-if (( use_cache )); then
-  note "$mode: building $head in $src into $derived_data through the fleet-cas node"
-else
-  note "$mode: building $head in $src into $derived_data (kept, no compile cache)"
-fi
+note "$mode: building $head in $src into $derived_data through the fleet-cas node"
 # The clone's own script, so the build's paths are the canonical ones.
 exec "$src/scripts/cmux-next/check-release-compile.sh" "$derived_data"

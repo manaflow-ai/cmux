@@ -88,7 +88,6 @@ function Kinds({ look, only, tint = "theme" }: Props) {
           kind="error"
           title="Couldn't start the session"
           message="Lost the connection to Cloud machine dev during the start."
-          // retry-prompt-ok: starting a session again starts a machine and an agent, a cost the person chooses.
           retry={{ label: "Retry", onRetry: () => setAnswer("retry") }}
           actions={[{ id: "details", label: "Details", onSelect: noop }]}
           onDismiss={noop}

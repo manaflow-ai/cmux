@@ -147,14 +147,8 @@ async fn link_taking(
 async fn a_company_tls_inspection_root_the_os_trusts_carries_the_link() {
     let ca = TestCa::new();
     let turn = TestTurn::start_signed_by(&ca).await;
-    // Only the `turns:` listener: a refused TLS leg would otherwise fall
-    // through to the test server's plain TCP listener and link anyway.
-    let tls_ice = cmux_mobile_link::api::IceServer {
-        urls: turn.ice.urls.iter().filter(|url| url.starts_with("turns:")).cloned().collect(),
-        ..turn.ice.clone()
-    };
     let phone = |trust: TlsTrust| DialOptions {
-        ice_servers: vec![tls_ice.clone()],
+        ice_servers: vec![turn.ice.clone()],
         block_udp: true,
         egress: Egress { trust, ..Egress::default() },
         ..options()

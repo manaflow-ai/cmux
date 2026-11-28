@@ -22,9 +22,7 @@ extension DaemonStore {
     }
 
     private func firstPane(of key: WorkspaceKey) -> PaneModel? {
-        // O(1) by the index; `workspaces` is still read so an observer (`appearance`) hears the workspace join.
-        _ = workspaces
-        return workspace(key: key)?.screens.first?.panes.first
+        workspaces.first { $0.key == key }?.screens.first?.panes.first
     }
 
     private func appearance(ofPaneIn key: WorkspaceKey) async -> Bool {

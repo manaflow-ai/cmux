@@ -1,6 +1,5 @@
-// The Markdown page reads again on its own while the link is lost (agent-session/acpmux/autoRetry.ts) and says
-// "Not connected to cmux." only once it lasts (ui/lasting.ts), in a quiet line with no button: a launch or
-// a daemon restart drops the link for a few seconds (Leo, 2026-11-22: a "try again" is a vacuous decision).
+// The Markdown page says "Not connected to cmux." only once a lost link lasts (ui/lasting.ts): a launch
+// or a daemon restart drops the link for a few seconds, and the page read again when it came back.
 import { act } from "react";
 import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -55,29 +54,22 @@ function closedClient(): PageClient & { configReads: number } {
   };
 }
 
-test("a lost link reads again on its own, shows nothing until it lasts, then one quiet line; the link back reads again", async () => {
+test("a lost link shows nothing until it lasts, then Not connected; the link back reads again", async () => {
   jest.useFakeTimers();
   const client = closedClient();
   const store = new MarkdownStore(client);
   const rootElement = document.createElement("div");
   document.body.append(rootElement);
   const root = createRoot(rootElement);
-  const notice = () => rootElement.querySelector("output p")?.textContent ?? null;
+  const notice = () => rootElement.querySelector("[role=alert]")?.textContent ?? null;
   try {
     await act(async () => {
       root.render(<MarkdownPage store={store} strings={strings} editorRef={() => undefined} />);
       await store.start();
     });
     expect(store.getState().phase).toBe("disconnected");
-    // A second at a time, so each automatic ask's answer lands before the next timer.
-    for (let elapsed = 0; elapsed < LASTING_MS - 1_000; elapsed += 1_000) {
-      await act(async () => {
-        jest.advanceTimersByTime(1_000);
-        await settle();
-      });
-    }
     await act(async () => {
-      jest.advanceTimersByTime(900);
+      jest.advanceTimersByTime(LASTING_MS - 100);
       await settle();
     });
     expect(notice()).toBeNull();
@@ -86,16 +78,12 @@ test("a lost link reads again on its own, shows nothing until it lasts, then one
       await settle();
     });
     expect(notice()).toContain(strings.t(L.disconnected));
-    // No Retry button: the page asked again by itself meanwhile (1 s doubling, so several asks in 25 s).
-    expect(rootElement.querySelector("button")).toBeNull();
-    const asked = client.configReads;
-    expect(asked).toBeGreaterThan(3);
-    // The link is back: the page reads the file again at once.
+    // The link is back: the page reads the file again.
     await act(async () => {
       store.linkChanged(true);
       await settle();
     });
-    expect(client.configReads).toBe(asked + 1);
+    expect(client.configReads).toBe(2);
   } finally {
     await act(async () => root.unmount());
     rootElement.remove();

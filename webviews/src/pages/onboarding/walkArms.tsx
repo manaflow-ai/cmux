@@ -11,7 +11,6 @@
 // one line each, the hero tile keeps its box and only its faces change.
 import { useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { DialogButton } from "../../ui/DialogButton";
-import { KeyHint } from "../../ui/KeyHint";
 import { SlidingIndicator } from "../../ui/motion/SlidingIndicator";
 import { Switch } from "../../ui/Switch";
 import {
@@ -362,7 +361,8 @@ function ExitTryIt() {
           <span className="onb-make-option-text">
             <span className="onb-make-option-title">
               Open the palette
-              <KeyHint keys="⌘K" className="onb-walk-key" />
+              <kbd className="onb-walk-key">⌘</kbd>
+              <kbd className="onb-walk-key">K</kbd>
             </span>
             <span className="onb-make-option-detail">Every command and setting, by name. Done.</span>
           </span>
@@ -372,7 +372,8 @@ function ExitTryIt() {
           <span className="onb-make-option-text">
             <span className="onb-make-option-title">
               Start one agent
-              <KeyHint keys="⌘N" className="onb-walk-key" />
+              <kbd className="onb-walk-key">⌘</kbd>
+              <kbd className="onb-walk-key">N</kbd>
             </span>
             <span className="onb-make-option-detail">Claude or Codex in a new chat, with what you set here.</span>
           </span>

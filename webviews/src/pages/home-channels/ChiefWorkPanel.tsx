@@ -4,7 +4,7 @@ import { KeyboardScope } from "../../ui/KeyboardScope";
 import { StatusGlyph } from "../../ui/StatusGlyph";
 import type { Strings } from "../shared/i18n";
 import { HomeIcon } from "./icons";
-import type { HomeChiefWork, HomeChiefAgent, HomeChiefPlan } from "./chiefWorkTypes";
+import type { HomeChiefAgent, HomeChiefPlan, HomeChiefWork } from "./chiefWorkTypes";
 import { useExperimentArm } from "../../experiments/useExperimentArm";
 import { chiefPlans, type ChiefPlansArm } from "./chiefPlans.experiment";
 import "./chiefWork.css";
@@ -12,9 +12,7 @@ import "./chiefWork.css";
 export interface ChiefWorkPanelProps {
   snapshot?: HomeChiefWork;
   loading: boolean;
-  /** The read has failed for the house deadline and is still being asked again (`useAutoRetry`): one
-   *  quiet line, no button. Earlier failures show nothing. */
-  stillTrying?: boolean;
+  error?: string;
   onRefresh(): void;
   onClose(): void;
   strings: Strings;
@@ -26,15 +24,7 @@ const agentRank = { waiting: 0, working: 1, failed: 2, idle: 3 };
 const taskRank = { running: 0, unknown: 1, failed: 2, cancelled: 2, done: 2 };
 
 /** A snapshot view: no timers, subscriptions or parallel copy of the Chief's work state. */
-export function ChiefWorkPanel({
-  snapshot,
-  loading,
-  stillTrying,
-  onRefresh,
-  onClose,
-  strings,
-  plans,
-}: ChiefWorkPanelProps) {
+export function ChiefWorkPanel({ snapshot, loading, error, onRefresh, onClose, strings, plans }: ChiefWorkPanelProps) {
   const { t } = strings;
   const experimentPlans = useExperimentArm(chiefPlans);
   const arm = plans ?? experimentPlans;
@@ -75,15 +65,15 @@ export function ChiefWorkPanel({
         </header>
         <div className="hc-chief-work__body">
           <output className="hc-chief-work__notice">
-            {stillTrying
-              ? t("work.stillLoading")
+            {error
+              ? t("work.unavailable")
               : loading
                 ? t("work.loading")
                 : snapshot?.truncated
                   ? t("work.partial")
                   : null}
           </output>
-          {snapshot && agents.length === 0 && tasks.length === 0 && !snapshot.truncated && !stillTrying ? (
+          {snapshot && agents.length === 0 && tasks.length === 0 && !snapshot.truncated && !error ? (
             <p className="hc-chief-work__empty">{t("work.empty")}</p>
           ) : (
             <>

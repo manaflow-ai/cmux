@@ -117,60 +117,6 @@ def explain(error: urllib.error.HTTPError, what: str) -> None:
           file=sys.stderr)
 
 
-# Spare tokens, each another App installation's hourly pool (GH_TOKEN_SPARES, whitespace-separated, as
-# gh_budget_wait.sh reads them). A call refused for a spent hour moves to the next spare at once, with no wait:
-# run 45823496118's generate-nightly-deltas and run 45825165164's keep-published-dsyms gave up on github.token's
-# spent hour ("the next try (1098s away) is past this download's 240s retry budget", 2026-11-26).
-spares: list[str] = []
-# The token the calls use now: the job's own until a spare takes over.
-active: str | None = None
-
-
-def token_for(token: str) -> str:
-    return active or token
-
-
-def rate_limited(error: urllib.error.HTTPError) -> bool:
-    """GitHub refused the call for a spent hour (429, or a 403 with Remaining 0), not for a permission."""
-    headers = error.headers or {}
-    return error.code == 429 or (error.code == 403 and headers.get("X-RateLimit-Remaining") == "0")
-
-
-def next_spare(error: urllib.error.HTTPError, what: str) -> bool:
-    """Move to the next spare after a spent hour, or past a spare that cannot read (401, a 403 that is no limit)."""
-    global active, job_refusal
-    on_spare = active is not None
-    if not on_spare and rate_limited(error):
-        job_refusal = error
-    if not (rate_limited(error) or on_spare and error.code in (401, 403, 404)):
-        return False
-    while spares:
-        active = spares.pop(0)
-        print(f"{what}: HTTP {error.code}; the next try goes out on a spare token now ({len(spares)} left)",
-              file=sys.stderr)
-        return True
-    return False
-
-
-# The job token's own spent-hour refusal, kept so a dead spare can hand back to it and wait for its reset.
-job_refusal: urllib.error.HTTPError | None = None
-
-
-def back_to_job_token(error: urllib.error.HTTPError, what: str) -> urllib.error.HTTPError:
-    """Every spare is spent or cannot read: go back to the job's own token and wait for its hour's reset.
-    2026-11-28 09:46Z (keep-published-dsyms, run 46125411693): github.token's hour was spent (403), both
-    CI_POOL_TOKEN spares answered 401, and the 401 ended the download in 1 s with the reset under an hour away."""
-    global active
-    if active is None:
-        return error
-    if job_refusal is None or error.code not in (401, 403, 404) or rate_limited(error):
-        return error
-    active = None
-    print(f"{what}: HTTP {error.code} on the last spare; back on the job's token until its hour resets",
-          file=sys.stderr)
-    return job_refusal
-
-
 def with_retries(call, what: str):
     """Run call(); retry a refused or failed GitHub response until the shared deadline or MAX_ATTEMPTS."""
     global retry_deadline
@@ -180,9 +126,6 @@ def with_retries(call, what: str):
         try:
             return call()
         except urllib.error.HTTPError as error:
-            if next_spare(error, what):
-                continue
-            error = back_to_job_token(error, what)
             if not retryable(error.code) or attempt >= MAX_ATTEMPTS:
                 explain(error, what)
                 raise
@@ -202,7 +145,7 @@ def api_json(path: str, token: str) -> dict:
     def call() -> dict:
         req = urllib.request.Request(
             f"{API}{path}",
-            headers={"Authorization": f"Bearer {token_for(token)}", "Accept": "application/vnd.github+json"},
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
         )
         _, body, _ = deadline_http.request(req, 60, raise_errors=True)
         return json.loads(body)
@@ -252,7 +195,7 @@ def find_artifact_by_id(repo: str, run_id: str, artifact_id: str, token: str) ->
 def blob_url(artifact: dict, token: str) -> str:
     def call() -> str:
         opener = urllib.request.build_opener(NoRedirect)
-        req = urllib.request.Request(artifact["archive_download_url"], headers={"Authorization": f"Bearer {token_for(token)}"})
+        req = urllib.request.Request(artifact["archive_download_url"], headers={"Authorization": f"Bearer {token}"})
         try:
             opener.open(req, timeout=60)
         except urllib.error.HTTPError as error:
@@ -337,7 +280,6 @@ def main() -> None:
     parser.add_argument("--connections", type=int, default=16)
     args = parser.parse_args()
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
-    spares.extend(t for t in (os.environ.get("GH_TOKEN_SPARES") or "").split() if t != token)
     repo, run_id = os.environ.get("GITHUB_REPOSITORY"), args.run_id
     if not (token and repo and run_id):
         raise SystemExit("GH_TOKEN, GITHUB_REPOSITORY and GITHUB_RUN_ID (or --run-id) are required")
@@ -347,8 +289,7 @@ def main() -> None:
     elif args.pattern:
         artifacts = find_artifacts(repo, run_id, args.pattern, token)
     else:
-        # One id, or several comma-separated (dsyms-find-attempt.sh's `artifacts` output).
-        artifacts = [find_artifact_by_id(repo, run_id, i.strip(), token) for i in args.artifact_id.split(",") if i.strip()]
+        artifacts = [find_artifact_by_id(repo, run_id, args.artifact_id, token)]
     os.makedirs(args.out, exist_ok=True)
     for artifact in artifacts:
         with tempfile.TemporaryDirectory() as tmp:

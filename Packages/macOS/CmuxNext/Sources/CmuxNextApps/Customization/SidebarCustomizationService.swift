@@ -97,10 +97,7 @@ public final class SidebarCustomizationService: SidebarCustomization {
         // task-owner: one watch per rows mount, cancelled when it remounts.
         sceneWatch = Task { [weak self] in
             for await scene in ObservationStream({ model.scene }) {
-                // Off the main actor: a decorated row's glyph re-encodes its choreography (up to 32 KiB) on every
-                // scene change, per row; the cmux#59531 sidebar hang was this shape of work on the main thread.
-                let next = await Self.decorationsOffMain(scene)
-                self?.setDecorations(next)
+                self?.setDecorations(Self.decorations(scene))
             }
         }
     }
@@ -132,7 +129,7 @@ public final class SidebarCustomizationService: SidebarCustomization {
     /// Every `Group` node naming its row by `row` (the id) or `title`, read as a decoration (later nodes win).
     /// `title` is read too: a rows view that names rows by title (the documented example, the example
     /// looks) decorated nothing while only `row` was read.
-    nonisolated static func decorations(_ scene: AppScene) -> [String: SidebarRowDecoration] {
+    static func decorations(_ scene: AppScene) -> [String: SidebarRowDecoration] {
         var out: [String: SidebarRowDecoration] = [:]
         for node in scene.nodes.values where node.type == .group {
             var props: [String: String] = [:]
@@ -146,7 +143,7 @@ public final class SidebarCustomizationService: SidebarCustomization {
     /// `{choreography: "glyph", trigger?}` (the same, with a trigger), or `{choreography: <a
     /// cmux.particles/1 document>, trigger?}`, which the app host's validator checked with the scene
     /// (a refused one arrives as null and plays nothing). Nil for anything else.
-    nonisolated static func glyph(_ indicator: AppJSON?) -> SidebarRowGlyph? {
+    static func glyph(_ indicator: AppJSON?) -> SidebarRowGlyph? {
         if indicator?.stringValue == "glyph" { return SidebarRowGlyph() }
         guard let members = indicator?.objectValue, let choreography = members["choreography"] else { return nil }
         let trigger = members["trigger"]?.stringValue.flatMap { $0.isEmpty ? nil : String($0.prefix(32)) }
@@ -155,14 +152,8 @@ public final class SidebarCustomizationService: SidebarCustomization {
         return SidebarRowGlyph(document: text, trigger: trigger)
     }
 
-    /// `decorations(_:)` on the cooperative pool, so a scene change never encodes rows on the main actor.
-    @concurrent nonisolated static func decorationsOffMain(_ scene: AppScene) async -> [String: SidebarRowDecoration] {
-        decorations(scene)
-    }
-
-    nonisolated private static func compactText(_ value: AppJSON) -> String? {
+    private static func compactText(_ value: AppJSON) -> String? {
         let encoder = JSONEncoder()
-        // The order is read: equal documents must give equal text for SidebarRowGlyph's Equatable.
         encoder.outputFormatting = [.sortedKeys]
         return (try? encoder.encode(value)).flatMap { String(data: $0, encoding: .utf8) }
     }
@@ -192,12 +183,6 @@ final class AppHoverCardContent: SidebarCustomContent {
     }
 
     var isReady: Bool { mount.model.status == .ready }
-
-    /// The script failed to load or render; a disconnect is not a failure (it reconnects by itself).
-    var hasFailed: Bool {
-        if case .failed = mount.model.status { return true }
-        return false
-    }
 
     /// Why the card did not draw, in plain words: a script error's place and message (`Line 2,
     /// column 12: expecting ';'`), else what failed (AppFailureCopy); a disconnected reason as it is.

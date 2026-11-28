@@ -297,12 +297,6 @@ impl Router {
         inbox.wake.notify_one();
     }
 
-    /// Whether some connection is attached to `session` now (an open chat, here or a peer's):
-    /// a peer's quiet link stays while one is (`Hub::keeps_peer`).
-    pub(crate) fn hears(&self, session: &str) -> bool {
-        lock(&self.routes).by_session.contains_key(session)
-    }
-
     /// How many inboxes are routed to (a closed connection's is gone).
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn inboxes(&self) -> usize {

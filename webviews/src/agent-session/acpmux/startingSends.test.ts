@@ -166,10 +166,9 @@ test("a new chat's first prompt draws as its first row with the Thinking line, a
   expect(drawn.rows.map((row) => [row.id, row.kind, row.text, row.pending])).toEqual([
     ["local-p1", "user", "first", true],
   ]);
-  // The transcript draws the turn's "Working for" and the start-look Thinking line under it at once
-  // (conversation/turns.ts `waiting`, `sentHeader`), under the id the running turn's header keeps.
+  // The transcript draws the start-look Thinking line under it at once (conversation/turns.ts `waiting`).
   const shaped = turnView(drawn.rows, new Set(), { now: 10 });
-  expect(shaped.map((row) => row.id)).toEqual(["local-p1", "worked-local-p1", LIVE_THINKING]);
+  expect(shaped.map((row) => row.id)).toEqual(["local-p1", LIVE_THINKING]);
   // The composer's queue draws only the prompts after it.
   expect(queuedStartingSends(sends, drawn.rows).map((send) => send.id)).toEqual(["p2"]);
   // Once the chat's client draws the prompt (the same id), its row is the client's and nothing is added.

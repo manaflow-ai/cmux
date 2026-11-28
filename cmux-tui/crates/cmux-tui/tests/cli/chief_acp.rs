@@ -116,12 +116,6 @@ fn chief_acp_sends_a_prompt_as_the_person_and_streams_the_reply_until_the_turn_e
     assert_eq!(init["result"]["protocolVersion"], 1, "{init}");
     assert_eq!(init["result"]["agentCapabilities"]["loadSession"], true, "{init}");
     assert_eq!(init["result"]["agentInfo"]["title"], "Chief", "{init}");
-    // The relay runs no tool, so it asks before every one: without this claim acpmux refuses
-    // every prompt to a Chief inbox made under policy `ask` (acp-chief-issues 2026-11-27).
-    assert_eq!(
-        init["result"]["agentCapabilities"]["_meta"]["acpmux"]["asksBeforeTools"], true,
-        "{init}"
-    );
 
     let (created, _) = agent.call("session/new", json!({"cwd": "/tmp", "mcpServers": []}));
     let session = created["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{created}"));

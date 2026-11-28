@@ -8,14 +8,15 @@ import { afterEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import type { GroupHoverList } from "../src/agent-session/acpmux/conversation/MessageGroupHover";
+import {
+  GroupHoverLookContext,
+  MessageGroupHover,
+  type GroupHoverList,
+  hoverMessages,
+  inboxHover,
+} from "../src/agent-session/acpmux/conversation/MessageGroupHover";
 import type { IncomingMessage } from "../src/agent-session/acpmux/conversation/incomingMessage";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { GroupHoverLookContext, MessageGroupHover, hoverMessages, inboxHover } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/MessageGroupHover"),
-);
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -110,7 +111,7 @@ test("the hover shows the newest message whole, then each other sender once with
     "lane-c",
   ]);
   expect(senders.map((s) => s.querySelector(".cv-group-hover__count")?.textContent ?? "")).toEqual(["3", "2", ""]);
-  expect(senders[2]?.querySelector(".cv-unverified")).toBeNull();
+  expect(senders[2]?.querySelector(".cv-unverified")).not.toBeNull();
   expect(container.textContent).not.toContain("a one");
   expect(container.querySelector(".cv-group-hover__item")).toBeNull();
   expect(container.querySelector(".cv-group-hover__more")).toBeNull();
@@ -199,7 +200,7 @@ test("names read short and plain, and the broker's label never shows", async () 
   expect(text).not.toContain("[message");
   expect(text).not.toContain("gcp-agent-lane-3/");
   expect(container.querySelector(".cv-group-hover__body")?.textContent).toBe("chat-targets report\nsecond line");
-  expect(container.querySelectorAll(".cv-unverified").length).toBe(0);
+  expect(container.querySelectorAll(".cv-unverified").length).toBe(4);
 });
 
 // Leo, 2026-11-14, on the digest with a second sender's name and no way to read it: "this has no
@@ -228,7 +229,7 @@ test("the default hover shows each sender once, newest first, with its count and
     "a two",
     "b one",
   ]);
-  expect(threads[1]?.querySelector(".cv-unverified")).toBeNull();
+  expect(threads[1]?.querySelector(".cv-unverified")).not.toBeNull();
   expect(container.textContent).not.toContain("a one");
   expect(container.querySelector(".cv-group-hover__more")).toBeNull();
 });

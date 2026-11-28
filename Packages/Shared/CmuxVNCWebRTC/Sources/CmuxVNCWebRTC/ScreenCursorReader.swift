@@ -26,12 +26,7 @@ final class ScreenCursorReader {
         return unsafeBitCast(pointer, to: SeedFunction.self)()
     }
 
-    private let rules: ScreenRules
     private var seed: Int32?
-
-    init(rules: ScreenRules) {
-        self.rules = rules
-    }
     private var display: CGRect?
     private var lastRead: Date?
 
@@ -53,7 +48,7 @@ final class ScreenCursorReader {
         self.display = display
         lastRead = Date()
         guard let rendered = await MainActor.run(body: { Self.renderCurrent(on: display) }) else { return nil }
-        return Self.shape(rendered, display: display, rules: rules)
+        return Self.shape(rendered, display: display)
     }
 
     /// The current cursor drawn at the display's pixel scale (main actor: AppKit).
@@ -95,18 +90,12 @@ final class ScreenCursorReader {
     }
 
     /// The shape message for a rendered cursor on `display`.
-    static func shape(_ rendered: Rendered, display: CGRect, rules: ScreenRules) -> ScreenCursorShape? {
+    static func shape(_ rendered: Rendered, display: CGRect) -> ScreenCursorShape? {
         guard display.width > 0, display.height > 0, let png = pngData(rendered.image) else { return nil }
-        struct Request: Encodable { var png: String, hotspotX: Double, hotspotY: Double }
-        struct Answer: Decodable { var id: String }
-        let encoded = png.base64EncodedString()
-        guard let id = rules.ask("screen_cursor_shape", Request(png: encoded, hotspotX: Double(rendered.hotspot.x),
-                                                               hotspotY: Double(rendered.hotspot.y)), as: Answer.self)?.id
-        else { return nil }
         let size = rendered.size
         let shape = ScreenCursorShape(
-            id: id,
-            png: encoded,
+            id: ScreenCursorShape.id(png: png, hotspot: rendered.hotspot),
+            png: png.base64EncodedString(),
             w: min(1, size.width / display.width), h: min(1, size.height / display.height),
             hx: min(1, max(0, rendered.hotspot.x / size.width)), hy: min(1, max(0, rendered.hotspot.y / size.height)),
             pw: size.width, ph: size.height)

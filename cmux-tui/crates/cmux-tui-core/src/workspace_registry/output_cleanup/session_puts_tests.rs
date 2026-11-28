@@ -10,11 +10,10 @@ use std::sync::Arc;
 use rusqlite::{Connection, params};
 use serde_json::{Value, json};
 
-use super::super::super::session_journal::{query_journal_head, query_session_journal_after};
 use super::super::stage::{
     BEFORE_LIVE_COUNT, PUT_RECORDS_LIMIT, StageControl, StageOutcome, stage_registry,
 };
-use super::super::{DONE_META_KEY, V1_DONE_META_KEY, previous_path, staging_path, swap_at_open};
+use super::super::{DONE_META_KEY, V1_DONE_META_KEY, previous_path, staging_path};
 use super::*;
 
 /// Flaps the first session only before the seal, so its latest put is in a
@@ -458,63 +457,6 @@ fn a_registry_the_v1_cleanup_finished_compacts_its_put_flood_once() {
     assert!(mux.workspace_registry.lock().unwrap().output_cleanup_done().unwrap());
     mux.shutdown();
     drop(mux);
-    let _ = std::fs::remove_dir_all(&root);
-}
-
-#[test]
-fn an_all_output_journal_swaps_to_an_empty_rebuilt_journal() {
-    let root = temp_root("empty-rebuilt");
-    let db_path = {
-        let mux = open(&root);
-        let db_path = mux.workspace_registry.lock().unwrap().session_journal_database_path();
-        mux.shutdown();
-        db_path.unwrap()
-    };
-    seed_output(&db_path);
-
-    let outcome = stage_registry(
-        &db_path,
-        &StageControl {
-            on_pending: &|| {},
-            next_segment: &|| true,
-            catch_up: &|| false,
-            stopped: Arc::new(|| false),
-        },
-    )
-    .unwrap();
-    assert_eq!(outcome, StageOutcome::Built);
-    assert!(swap_at_open(&db_path, &|_| Ok(())), "the empty rebuilt journal did not swap");
-
-    let db = Connection::open(&db_path).unwrap();
-    assert_eq!(query_journal_head(&db).unwrap(), 1);
-    assert_eq!(
-        db.query_row("SELECT COUNT(*) FROM session_journal", [], |row| row.get::<_, i64>(0))
-            .unwrap(),
-        0
-    );
-    assert_eq!(
-        db.query_row("SELECT COUNT(*) FROM journal_segments", [], |row| row.get::<_, i64>(0))
-            .unwrap(),
-        0
-    );
-    assert_eq!(
-        db.query_row("SELECT COUNT(*) FROM journal_pruned_ranges", [], |row| row.get::<_, i64>(0))
-            .unwrap(),
-        1
-    );
-    let page = query_session_journal_after(&db, 0, 16).unwrap();
-    assert_eq!(page.head_sequence, 1);
-    assert!(page.records.is_empty());
-    drop(db);
-
-    // Removing every record must not let the next write reuse a pruned sequence.
-    seed_output(&db_path);
-    let db = Connection::open(&db_path).unwrap();
-    let page = query_session_journal_after(&db, 1, 16).unwrap();
-    assert_eq!(page.head_sequence, 2);
-    assert_eq!(page.records.len(), 1);
-    assert_eq!(page.records[0].sequence, 2);
-    drop(db);
     let _ = std::fs::remove_dir_all(&root);
 }
 

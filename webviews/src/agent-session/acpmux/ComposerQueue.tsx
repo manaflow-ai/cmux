@@ -48,11 +48,9 @@ import { QueuedImages } from "./QueuedImages";
 import type { QueuedVideo } from "./queuedImagesModel";
 import { framesNoteVideo } from "./composer/videoPrompt";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
-import { resumePausedQueue } from "./queuePause";
 import type { ComposerAttachment } from "./attachments";
 import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
-import { KeyHint } from "../../ui/KeyHint";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
 
 import { lacksImageBytes, ownQueue, queuedAttachments } from "./conversation/queuedMessages";
@@ -62,7 +60,7 @@ import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SlashComman
 import { useSkillWords } from "./conversation/skillWords";
 import { withSkillWords } from "./conversation/withSkillWords";
 import { claimedReply } from "./conversation/waitingAskStore";
-import { type QueuedEntry, shownText, heldReason, uniqueById } from "./composerQueueModel";
+import { type QueuedEntry, shownText, heldReason, uniqueById, queueSummary } from "./composerQueueModel";
 import { acpmuxPerf } from "./perf";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { revealControls } from "../../ui/revealCover";
@@ -224,7 +222,6 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   chat,
   paused,
   pauseReason,
-  pauseSaid = false,
   t,
   onRemove,
   onCancelEdit,
@@ -247,9 +244,6 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   paused?: boolean;
   /// That turn's error (queuePause.ts), which the paused note names.
   pauseReason?: string;
-  /// The composer status dot says the pause, with its reason and Resume (ComposerStatusDot.tsx
-  /// `dotSaysQueuePaused`; RFD 0128): the paused note stays out, the prompts it holds stay listed.
-  pauseSaid?: boolean;
   t: Translate;
   /// Withdraws a waiting prompt; false when it already started (it then leaves with the turn).
   onRemove?(id: string): Promise<boolean>;
@@ -417,21 +411,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
     const pad = parseFloat(current.ownerDocument.defaultView?.getComputedStyle(current).paddingBottom ?? "") || 0;
     const need = last ? offsets(current, last).bottom + pad : 0;
     if (need < parseFloat(current.style.minHeight || "0") - 0.5) release(current);
-  }, [
-    queue,
-    leaving,
-    sentNow,
-    editing,
-    dropped,
-    open,
-    unfolded,
-    paused,
-    pauseReason,
-    pauseSaid,
-    wakeNoteShown,
-    skills,
-    t,
-  ]);
+  }, [queue, leaving, sentNow, editing, dropped, open, unfolded, paused, pauseReason, wakeNoteShown, skills, t]);
   // A held list gives room back when the stack around it grows (a permission card or a question
   // arrives under the pointer, the pane shortens): past the room the pane leaves the stack, or by
   // what a part above it has had to give up since the hold began (bottomStack.css shrinks those
@@ -655,21 +635,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
       rows.disconnect();
       for (const row of current.querySelectorAll(":scope > .acpmux-queued")) rows.observe(row);
     }
-  }, [
-    queue,
-    leaving,
-    sentNow,
-    editing,
-    dropped,
-    open,
-    unfolded,
-    paused,
-    pauseReason,
-    pauseSaid,
-    wakeNoteShown,
-    skills,
-    t,
-  ]);
+  }, [queue, leaving, sentNow, editing, dropped, open, unfolded, paused, pauseReason, wakeNoteShown, skills, t]);
   useEffect(
     () => () => {
       const document = list.current?.ownerDocument;
@@ -692,21 +658,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
       focusNext.current = undefined;
       focusRoute(into, "system", "the queue changed: the composer");
     }
-  }, [
-    queue,
-    leaving,
-    sentNow,
-    editing,
-    dropped,
-    open,
-    unfolded,
-    paused,
-    pauseReason,
-    pauseSaid,
-    wakeNoteShown,
-    skills,
-    t,
-  ]);
+  }, [queue, leaving, sentNow, editing, dropped, open, unfolded, paused, pauseReason, wakeNoteShown, skills, t]);
   const act = (id: string, action: () => Promise<boolean>) => {
     setLeaving((current) => new Set(current).add(id));
     const restore = () =>
@@ -736,8 +688,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   // for Resume (`cancel.rs`): `paused`, so the note and its Resume stay (review of #36821, F1).
   // acpmux's own prompts (a surge digest, a subagent's resume) are never the person's rows: they list
   // in Session Info's Background tasks (session-info/agentSide.ts; Leo, 2026-11-24).
-  const note = paused && !pauseSaid;
-  if (shown.length === 0 && !(note && queue.length > 0)) return null;
+  if (shown.length === 0 && !(paused && queue.length > 0)) return null;
   // Prompts sent now come first: queued prompts count from after them.
   const steering = shown.filter((entry) => entry.next).length;
   // A long queue folds to its next prompts; the rows shown are always the first ones, in order.
@@ -960,9 +911,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
     label: (
       <>
         {label}
-        <span className="ui-menu-shortcut">
-          <KeyHint keys={key} />
-        </span>
+        <span className="ui-menu-shortcut">{key}</span>
       </>
     ),
     onSelect,
@@ -1082,9 +1031,8 @@ export const ComposerQueue = React.memo(function ComposerQueue({
       </span>
     );
   };
-  // A row's text (or its edit) and actions. A prompt sent now that has not been taken yet is an
-  // ordinary queued row, first in line: there is no "Steering" state (Leo, 2026-11-27: "this just
-  // shouldnt exist tho ... it should just be steered if steered").
+  // A row's text (or its edit) and actions. A prompt sent now says "Steering" ahead of its text; a
+  // queued one keeps "Queued" for assistive tech only.
   const cells = (entry: QueuedEntry, index: number) => (
     <>
       {!entry.next && (
@@ -1121,6 +1069,11 @@ export const ComposerQueue = React.memo(function ComposerQueue({
           {/* WebKit does not clamp a button's own lines: the clamp is on its text. */}
           <span className="acpmux-queued-clamp ui-reveal-text">
             {entry.author && <AuthorChip author={entry.author} inline />}
+            {entry.next && (
+              <span className="acpmux-queued-kind" data-kind="steer">
+                {t("composer.steering")}
+              </span>
+            )}
             {entry.retry ? (
               <>
                 <span className="acpmux-queued-kind" data-kind="retry">
@@ -1202,8 +1155,9 @@ export const ComposerQueue = React.memo(function ComposerQueue({
           page.defaultView?.addEventListener("blur", done, { signal: ended.signal });
         }}
         aria-label={`${t("composer.queue")} (${shown.length})`}
+        title={queueSummary(shown.length, t)}
       >
-        {note && (
+        {paused && (
           <li className="acpmux-queue-paused">
             <span
               // tooltip-allow: a long error is cut to the row; its whole text is the tooltip
@@ -1216,7 +1170,11 @@ export const ComposerQueue = React.memo(function ComposerQueue({
                 type="button"
                 className="acpmux-queue-resume"
                 // acpmux's first prompt: a held one (trustHeld.ts) is not acpmux's to resume.
-                onClick={() => resumePausedQueue(queue, onChange)}
+                onClick={() =>
+                  void onChange((queue.find((row) => !row.held) ?? queue[0]).id, { op: "resume" }).catch(
+                    () => undefined,
+                  )
+                }
               >
                 {t("composer.queueResume")}
               </button>

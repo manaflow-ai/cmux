@@ -151,23 +151,18 @@ class ForeignLog:
 
     def __init__(self, own_pids, window, scale, display=None):
         self.own_pids, self.window, self.scale, self.display = set(own_pids), window, scale, display
-        self.samples = []  # (t, [foreign window above the app])
-        self._all_samples = []  # (t, [judged window]); retained for diagnostics in seen()
+        self.samples = []  # (t, [judged window])
         self.lock = threading.Lock()
 
     def add(self, t, windows):
-        all_windows = judged(windows, self.own_pids, self.window, self.display)
-        # Keep operational samples limited to candidates above the app. Windows behind it remain
-        # in _all_samples so diagnostics can explain why they were ignored.
-        kept = [item for item in all_windows if item["above"] and not item["overlay"] and item["visible"]]
+        kept = judged(windows, self.own_pids, self.window, self.display)
         with self.lock:
             self.samples.append((t, kept))
-            self._all_samples.append((t, all_windows))
 
     def seen(self, t0, t1, rects):
         """Every foreign window of the span, one per (owner, pid, bounds); a covering sample's verdict wins."""
         with self.lock:
-            span = [windows for t, windows in self._all_samples if t0 <= t <= t1 and windows]
+            span = [windows for t, windows in self.samples if t0 <= t <= t1 and windows]
         out = {}
         for windows in span:
             for item in windows:

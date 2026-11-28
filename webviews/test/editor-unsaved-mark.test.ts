@@ -3,13 +3,10 @@
 // (edited, saving, a failed save), and stop saying so once it is.
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import type { CodeView } from "../src/pages/editor/store";
+import { EDITOR_CONFIG_OP, EDITOR_SAVE_OP } from "../src/pages/editor/host";
+import { EditorStore, type CodeView } from "../src/pages/editor/store";
 import type { PageClient } from "../src/pages/shared/pageClient";
-import { importWithDom } from "./support/importWithDom";
-
-const { EDITOR_CONFIG_OP, EDITOR_SAVE_OP } = await importWithDom(() => import("../src/pages/editor/host"));
-const { EditorStore } = await importWithDom(() => import("../src/pages/editor/store"));
-const { UNSAVED_EDITS_ATTRIBUTE } = await importWithDom(() => import("../src/pages/shared/pageHealth"));
+import { UNSAVED_EDITS_ATTRIBUTE } from "../src/pages/shared/pageHealth";
 
 test("the editor marks the document from the edit until its text is saved", async () => {
   const dom = new JSDOM("<!doctype html><body></body>");

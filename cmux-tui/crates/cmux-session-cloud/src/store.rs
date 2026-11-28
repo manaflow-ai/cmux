@@ -39,7 +39,7 @@ impl FsStore {
     }
 
     fn path(&self, sha256: &str) -> PathBuf {
-        self.dir.join(sha256.get(..2).unwrap_or(sha256)).join(sha256)
+        self.dir.join(&sha256[..2]).join(sha256)
     }
 }
 

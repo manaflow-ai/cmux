@@ -53,10 +53,8 @@ impl Picker {
         };
         p.refilter();
         if let Some(cur) = current
-            && let Some(i) = p
-                .visible
-                .iter()
-                .position(|&r| p.rows.get(r).is_some_and(|row| !row.header && row.value == cur))
+            && let Some(i) =
+                p.visible.iter().position(|&r| !p.rows[r].header && p.rows[r].value == cur)
         {
             p.cursor = i;
         }
@@ -72,7 +70,7 @@ impl Picker {
             }
             if r.header {
                 // Keep a header when any of its rows match.
-                let any = self.rows.iter().skip(i + 1).take_while(|x| !x.header).any(|x| {
+                let any = self.rows[i + 1..].iter().take_while(|x| !x.header).any(|x| {
                     x.label.to_lowercase().contains(&f)
                         || x.value.to_lowercase().contains(&f)
                         || x.group.to_lowercase().contains(&f)
@@ -100,9 +98,7 @@ impl Picker {
         }
         let mut c = self.cursor.min(n - 1);
         let mut steps = 0;
-        while self.visible.get(c).and_then(|&i| self.rows.get(i)).is_none_or(|row| row.header)
-            && steps < n
-        {
+        while self.rows[self.visible[c]].header && steps < n {
             if dir > 0 {
                 c = (c + 1) % n
             } else {
@@ -126,7 +122,7 @@ impl Picker {
                 break;
             }
             c = next;
-            if self.visible.get(c).and_then(|&i| self.rows.get(i)).is_some_and(|row| !row.header) {
+            if !self.rows[self.visible[c]].header {
                 self.cursor = c;
                 break;
             }
@@ -134,10 +130,6 @@ impl Picker {
         self.reveal = true;
     }
     pub fn selected(&self) -> Option<&PickRow> {
-        self.visible.get(self.cursor).and_then(|&i| self.rows.get(i))
+        self.visible.get(self.cursor).map(|&i| &self.rows[i])
     }
 }
-
-#[cfg(test)]
-#[path = "picker_tests.rs"]
-mod tests;

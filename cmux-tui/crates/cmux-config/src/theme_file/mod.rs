@@ -103,11 +103,10 @@ const LOOK_PREFIXES: [&str; 8] = [
 /// grouping), so one file restyles the sidebar as a whole (the shipped
 /// `minimal-sessions`); the tab strip's and titlebar's buttons and inactive
 /// tabs; pane corners; the agent chat's text sizes, sender marks and Session
-/// Info; the transcript look and its tokens, and how a reply streams
-/// (`agentPane.display.streaming`)
-/// (docs/cmux-next/transcript-customization.md); and Markdown's reading
-/// face. Keep in step with Swift `ThemeFileOverlay.lookKeys`.
-const LOOK_KEYS: [&str; 49] = [
+/// Info; and the transcript look and its tokens
+/// (docs/cmux-next/transcript-customization.md). Keep in step with Swift
+/// `ThemeFileOverlay.lookKeys`.
+const LOOK_KEYS: [&str; 45] = [
     "terminal.fontFamily",
     "agentPane.display.code.family",
     "terminal.fontSize",
@@ -117,7 +116,6 @@ const LOOK_KEYS: [&str; 49] = [
     "sidebar.sectionLook",
     "agentPane.display.transcriptLook",
     "agentPane.display.transcriptTokens",
-    "agentPane.display.streaming",
     "sidebar.look",
     "sidebar.drawnMenus",
     "sidebar.density",
@@ -154,9 +152,6 @@ const LOOK_KEYS: [&str; 49] = [
     "agentPane.display.senderIcon.badge",
     "agentPane.display.senderIcon.corner",
     "agentPane.display.trayHandle",
-    "markdown.font.preset",
-    "terminal.cursorStyle",
-    "terminal.cursorBlink",
 ];
 /// The workspace row's own keys (`sidebar.workspaceRow.<name>`: which
 /// elements show, their order, where the status mark sits, the row layout).
@@ -217,18 +212,10 @@ pub fn readable_path(config_dir: &Path, name: &str, bundled: Option<&Path>) -> O
 /// The theme files cmux ships (`Resources/theme-files`, the app's
 /// `Contents/Resources/theme-files`), so the daemon and the CLI read them
 /// with no app bundle. A user's file of the same name wins.
-const SHIPPED: [(&str, &str); 17] = [
+const SHIPPED: [(&str, &str); 11] = [
     ("charcoal", include_str!("../../../../../Resources/theme-files/charcoal.json")),
     ("classic-desktop", include_str!("../../../../../Resources/theme-files/classic-desktop.json")),
     ("claude-desktop", include_str!("../../../../../Resources/theme-files/claude-desktop.json")),
-    (
-        "earthly-delights",
-        include_str!("../../../../../Resources/theme-files/earthly-delights.json"),
-    ),
-    (
-        "frutiger-aero-2027",
-        include_str!("../../../../../Resources/theme-files/frutiger-aero-2027.json"),
-    ),
     ("harbor", include_str!("../../../../../Resources/theme-files/harbor.json")),
     (
         "minimal-sessions",
@@ -238,11 +225,7 @@ const SHIPPED: [(&str, &str); 17] = [
     ("meadow", include_str!("../../../../../Resources/theme-files/meadow.json")),
     ("miku", include_str!("../../../../../Resources/theme-files/miku.json")),
     ("moss", include_str!("../../../../../Resources/theme-files/moss.json")),
-    ("one-bit", include_str!("../../../../../Resources/theme-files/one-bit.json")),
     ("phosphor", include_str!("../../../../../Resources/theme-files/phosphor.json")),
-    ("sakura", include_str!("../../../../../Resources/theme-files/sakura.json")),
-    ("sakura-yoru", include_str!("../../../../../Resources/theme-files/sakura-yoru.json")),
-    ("sumi", include_str!("../../../../../Resources/theme-files/sumi.json")),
     ("teal", include_str!("../../../../../Resources/theme-files/teal.json")),
 ];
 
@@ -567,10 +550,6 @@ impl<'a> Reader<'a> {
             Validation::Domain(DomainKind::BackdropSelection | DomainKind::BackdropPicture)
         ) {
             self.picture(written)
-        } else if let (Validation::Domain(DomainKind::BackdropPictures), Value::Array(items)) =
-            (&row.validation, written)
-        {
-            Value::Array(items.iter().map(|item| self.picture(item)).collect())
         } else if row.key == crate::font_faces::SETTING_KEY {
             // A font pack's face files resolve as pictures do: `file:../fonts/x.woff2`.
             match written {

@@ -138,8 +138,6 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
 
     var connectedPath: LinkPathKind? { handle.path().kind }
 
-    var ffiLinkHandle: AnyObject? { handle }
-
     var peerScope: String { handle.peerScope() }
 
     var tunnelKeys: TunnelKeys? {
@@ -225,10 +223,6 @@ extension FFIMacLink: BrowserStreamOpening {
 
     func openLocalhost(port: UInt16) async throws -> any LinkChannel {
         try await openChannel(service: "localhost", args: ["port": String(port)])
-    }
-
-    func openSiteData(tab: String, url: String) async throws -> any LinkChannel {
-        try await openChannel(service: "site-data", args: ["surface": tab, "url": url, "trigger": "open_on_iphone"])
     }
 
     func openSurface(tab: String, sink: any BrowserStreamSink) async throws -> any BrowserStreamConnection {
@@ -319,14 +313,6 @@ final class FFIChannel: LinkChannel, @unchecked Sendable {
 
     func send(_ data: Data) async throws {
         do { try await handle.send(data: data) } catch let error as CmuxMobileError { throw error.linkError }
-    }
-
-    func observedWrite(_ data: Data) -> LinkWrite {
-        let watch = ChannelWriteWatch()
-        return LinkWrite(send: { [handle] in
-            do { try await handle.sendObserved(data: data, watch: watch) }
-            catch let error as CmuxMobileError { throw error.linkError }
-        }, takeProgress: { watch.takeProgress() }, cancel: { watch.cancel() })
     }
 
     func receive() async throws -> Data? {

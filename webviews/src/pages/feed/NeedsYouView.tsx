@@ -66,14 +66,7 @@ export function NeedsYouView(props: FeedProps & { hub?: HubApprovals }) {
           : null}
         {shown.map((item) =>
           style === "cards" ? (
-            <RequestCard
-              key={item.id}
-              item={item}
-              store={store}
-              strings={strings}
-              time={relativeTime(item.created_at, snap.now, strings.language)}
-              {...answerState(snap, item)}
-            />
+            <RequestCard key={item.id} item={item} store={store} snap={snap} strings={strings} />
           ) : (
             <NeedsYouRow key={item.id} item={item} store={store} strings={strings} {...answerState(snap, item)} />
           ),

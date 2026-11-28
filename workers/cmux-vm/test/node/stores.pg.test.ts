@@ -6,7 +6,6 @@ import creationReceiptIndex from "../../migrations/0011_cmux_vm_creation_receipt
  * (PGlite). No network database is involved.
  */
 import { PGlite } from "@electric-sql/pglite";
-import { freshPg } from "./fresh-pglite.ts";
 import { Effect, Layer, Option } from "effect";
 import { beforeEach, describe, expect, it } from "vitest";
 import migration1 from "../../migrations/0001_cmux_vm_ownership.sql?raw";
@@ -26,7 +25,7 @@ const migrations = [migration1, migration2, creationReceipts, creationReceiptInd
 const run = <A, E>(effect: Effect.Effect<A, E, OwnershipStore | ApiKeyStore | AuditStore>) => Effect.runPromise(Effect.provide(effect, layer));
 
 beforeEach(async () => {
-  pg = await freshPg();
+  pg = new PGlite();
   for (const migration of migrations) await pg.exec(migration);
   layer = sqlStoresLayer.pipe(
     Layer.provide(

@@ -8,7 +8,6 @@
 // Transparency, and appearance.liquidGlass off once it ships): the opaque popup surface, no blur.
 import { type CSSProperties } from "react";
 import { componentEntry } from "../../gallery/format";
-import { KeyHint } from "../KeyHint";
 import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
 
 type Look = "glass" | "text-floor" | "off";
@@ -60,7 +59,7 @@ function HoverGlassGallery({ look, scheme }: Props) {
           <p style={{ position: "absolute", inset: 0, margin: 0, opacity: 0.9 }}>{TRANSCRIPT}</p>
           <p style={{ position: "relative" }}>Tooltip</p>
           <div className="ui-tooltip ui-glass" style={{ ...place, width: "fit-content" }}>
-            Show sidebar <KeyHint keys="⌘S" className="ui-tooltip-hint" />
+            Show sidebar <span className="ui-tooltip-hint">⌘S</span>
           </div>
           <p style={{ position: "relative" }}>Title tooltip</p>
           <div className="ui-title-tooltip ui-glass" style={{ ...place, position: "relative", width: "fit-content" }}>
@@ -81,7 +80,7 @@ function HoverGlassGallery({ look, scheme }: Props) {
           <p style={{ position: "relative" }}>Header icon preview</p>
           <div className="ui-card ui-glass acpmux-header-preview" style={{ ...place, width: 176, padding: 8 }}>
             <div style={{ height: 48, borderRadius: 4, background: "var(--ds-surface-inset)", marginBottom: 8 }} />
-            <strong>Browser</strong> <KeyHint keys="⌘⇧B" />
+            <strong>Browser</strong> <kbd>⌘⇧B</kbd>
           </div>
           <p style={{ position: "relative" }}>Thread minimap card</p>
           <div

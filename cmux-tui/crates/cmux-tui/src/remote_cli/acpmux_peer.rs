@@ -196,7 +196,6 @@ impl std::fmt::Debug for Tokens {
 /// A lease in force.
 struct Live {
     name: String,
-    registry_id: Option<String>,
     acpmux: Arc<acpmux::client::Client>,
     workspace_client: Arc<WorkspaceClient>,
     acpmux_home: WorkspaceId,
@@ -229,7 +228,6 @@ impl Live {
             .ok_or_else(|| Failure::Stop("the machine daemon runs from an unknown place".into()))?
             .to_owned();
         let name = peer_name(identity["machine_name"].as_str().unwrap_or_default());
-        let registry_id = identity["registry_id"].as_str().map(str::to_owned);
         let workspace_client = WorkspaceClient::connect(multiplexer.clone())
             .await
             .map_err(|e| Failure::Retry(format!("workspace rpc: {}", e.message)))?;
@@ -282,7 +280,6 @@ impl Live {
         };
         let mut live = Self {
             name,
-            registry_id,
             acpmux,
             workspace_client,
             acpmux_home,
@@ -303,13 +300,7 @@ impl Live {
     }
 
     async fn lease(&mut self) -> Result<(), String> {
-        let params = lease_params(
-            &self.name,
-            &self.url(),
-            &self.tokens,
-            self.vm_boundary,
-            self.registry_id.as_deref(),
-        );
+        let params = lease_params(&self.name, &self.url(), &self.tokens, self.vm_boundary);
         // The daemon answers within its 30 s settle budget (`wait`).
         tokio::time::timeout(LEASE_BUDGET, self.acpmux.request("_acpmux/peer_lease", params))
             .await
@@ -366,20 +357,13 @@ impl Live {
 /// sessions there at the VM boundary, Claude Code without the sandbox (acpmux
 /// `hub/vm_boundary.rs`). Held with the lease only, never saved, and asked
 /// again at the next link.
-fn lease_params(
-    name: &str,
-    url: &str,
-    tokens: &Tokens,
-    vm_boundary: bool,
-    registry_id: Option<&str>,
-) -> Value {
+fn lease_params(name: &str, url: &str, tokens: &Tokens, vm_boundary: bool) -> Value {
     json!({
         "name": name,
         "url": url,
         "token": tokens.token,
         "peerToken": tokens.peer_token,
         "vmBoundary": vm_boundary,
-        "cloudRegistryId": registry_id,
         "wait": true,
     })
 }
@@ -568,7 +552,3 @@ async fn probe_status(url: &str, tokens: &Tokens) -> Result<Value, String> {
 #[cfg(test)]
 #[path = "acpmux_peer_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "acpmux_peer_seeded_tests.rs"]
-mod seeded_tests;

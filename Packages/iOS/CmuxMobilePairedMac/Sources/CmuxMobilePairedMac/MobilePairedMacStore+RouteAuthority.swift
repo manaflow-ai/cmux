@@ -159,7 +159,10 @@ extension MobilePairedMacStore {
                     lastSeenAt: now,
                     isActive: current.isActive
                 )
-                try deleteReadableRoutes(macDeviceID: macDeviceID, ownerKey: ownerKey)
+                try exec(
+                    "DELETE FROM mac_routes WHERE mac_device_id = ? AND owner_key = ?;",
+                    binding: [.text(macDeviceID), .text(ownerKey)]
+                )
                 didWrite = true
                 return
             }
@@ -174,7 +177,10 @@ extension MobilePairedMacStore {
                 lastSeenAt: now,
                 isActive: current.isActive
             )
-            try deleteReadableRoutes(macDeviceID: macDeviceID, ownerKey: ownerKey)
+            try exec(
+                "DELETE FROM mac_routes WHERE mac_device_id = ? AND owner_key = ?;",
+                binding: [.text(macDeviceID), .text(ownerKey)]
+            )
             for remainingRoute in remaining {
                 guard let disclosed = remainingRoute.disclosed(
                     for: .authenticated,
@@ -364,7 +370,10 @@ extension MobilePairedMacStore {
                     endpoint: staleRoute.endpoint
                 )
             }
-            try deleteReadableRoutes(macDeviceID: macDeviceID, ownerKey: ownerKey)
+            try exec(
+                "DELETE FROM mac_routes WHERE mac_device_id = ? AND owner_key = ?;",
+                binding: [.text(macDeviceID), .text(ownerKey)]
+            )
             for route in currentRoutes {
                 try exec("""
                     INSERT INTO mac_routes (

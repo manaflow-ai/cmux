@@ -6,14 +6,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
-import { importWithDom } from "./support/importWithDom";
-
-const { foldMotion } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/fold"));
-const { ToolRow } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/ToolRow"));
-const { ToolRun } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/ToolRun"));
-const { resetTranscriptDisclosure } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel"),
-);
+import { foldMotion } from "../src/agent-session/acpmux/conversation/fold";
+import { ToolRow } from "../src/agent-session/acpmux/conversation/ToolRow";
+import { ToolRun } from "../src/agent-session/acpmux/conversation/ToolRun";
+import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
 
 let dom: JSDOM;
 let root: Root | undefined;

@@ -1,8 +1,8 @@
 // A subagent's transcript inside the Background tasks panel (BackgroundTasksPanel.tsx): its replies,
 // and between them its work: a stretch of two or more tool calls folds under one quiet line, "Ran 11
 // commands, read a file, 2 failed", which opens to its steps, each thought under "Thought process" and
-// each call on a line that opens to what it ran and said; a lone call keeps its own line. A running
-// call carries its own spinner; the shared one shows only while the agent has no row yet. Claude Code's drill-in, in our type (Leo, 2026-11-09:
+// each call on a line that opens to what it ran and said; a lone call keeps its own line. The shared
+// spinner sits under the last row while it runs. Claude Code's drill-in, in our type (Leo, 2026-11-09:
 // "this claude background tasks thing and being able to click into subagents'/helpers' stuff is really
 // good"); before, every call and every thought drew a line of its own (transcriptRuns.experiment.ts
 // keeps that as its `lines` arm).
@@ -27,7 +27,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { useFold } from "../conversation/fold";
 import { Markdown } from "../conversation/Markdown";
-import { Bot, Spinner } from "../conversation/icons";
+import { Spinner } from "../conversation/icons";
 import { toolRunSummary } from "../conversation/toolRunSummary";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -318,9 +318,7 @@ export function SubagentTranscript({
         );
       })}
       {last !== undefined && <div ref={bottom} className="acpmux-bg__sentinel" aria-hidden="true" />}
-      {/* A spinner of its own only while nothing else shows the agent works: a running call carries its
-          own, and an empty spinner-only row under the last one said nothing (Leo, 2026-11-24). */}
-      {running && last === undefined && units.length === 0 && !notice && (
+      {running && last === undefined && (
         <div className="acpmux-bg__working">
           <Spinner size={14} loading />
         </div>
@@ -433,7 +431,7 @@ function NestedAgent({ id, name, running, opens }: { id: string; name: string; r
   const { open: openAgent, stop } = useContext(NestedAgents);
   const open = opens ? openAgent : undefined;
   return (
-    <div className="acpmux-bg__task" data-state={running ? "running" : "done"} data-kind="agent">
+    <div className="acpmux-bg__task" data-state={running ? "running" : "done"}>
       <Button
         variant="ghost"
         type="button"
@@ -444,16 +442,11 @@ function NestedAgent({ id, name, running, opens }: { id: string; name: string; r
         {running ? (
           <Spinner size={12} loading />
         ) : (
-          <span className="acpmux-bg__glyph" data-kind="agent" aria-hidden="true">
-            <Bot size={14} />
-          </span>
-        )}
-        <span className="acpmux-bg__label">{name}</span>
-        {open && (
-          <span className="acpmux-bg__chevron" aria-hidden="true">
+          <span className="acpmux-bg__disclosure" aria-hidden="true">
             <Icon name="disclosure.collapsed" size={12} row />
           </span>
         )}
+        <span className="acpmux-bg__label">{name}</span>
       </Button>
       {running && stop?.(id, name)}
     </div>

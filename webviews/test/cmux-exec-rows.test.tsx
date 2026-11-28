@@ -11,16 +11,12 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { translatorFor } from "../src/agent-session/acpmux/i18n";
+import { cmuxTitle, execParts, execView, scriptCalls } from "../src/agent-session/acpmux/conversation/cmuxExec";
+import { mcpCall } from "../src/agent-session/acpmux/conversation/mcpCalls";
+import { jsTokens } from "../src/agent-session/acpmux/conversation/jsHighlight";
+import { treeText, valueTree } from "../src/agent-session/acpmux/conversation/valueTree";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { translatorFor } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
-const { cmuxTitle, execParts, execView, scriptCalls } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/cmuxExec"),
-);
-const { mcpCall } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/mcpCalls"));
-const { jsTokens } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/jsHighlight"));
-const { treeText, valueTree } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/valueTree"));
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const t = translatorFor("en");

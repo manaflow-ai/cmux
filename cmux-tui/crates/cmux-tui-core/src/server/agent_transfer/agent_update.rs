@@ -40,9 +40,8 @@
 //! Who: trusted local (Unix) connections only, as `agent-session-attach`.
 //! The remote relay (`remote_relay/gate.rs`, the conversations-only
 //! `cmux link` entry) runs before this handler and does not list these verbs
-//! (default deny); a WebSocket client is refused here. Unknown params are
-//! ignored for wire compatibility; `ids` are only names acpmux matches
-//! against its own rows. Client-supplied commands are never executed.
+//! (default deny); a WebSocket client is refused here. Unknown params are a
+//! bad request; `ids` are only names acpmux matches against its own rows.
 
 use crate::panic_free::JsonFields;
 use std::path::Path;
@@ -382,8 +381,7 @@ fn list_read(link: &AcpmuxLink, socket: &Path) -> Result<Option<ListRead>, Failu
                     || name.starts_with("optchat-")
                     || summary.harness.starts_with("optchat-compact-");
                 if !chief {
-                    let residency = extra.get("residency");
-                    count(&v1_status(&summary, &extra), residency, &mut live, &mut running);
+                    count(&v1_status(&summary, &extra), &mut live, &mut running);
                 }
             }
             ControlFlow::Continue(())
@@ -434,14 +432,7 @@ fn list_failure(error: std::io::Error) -> Failure {
 }
 
 /// One chat of `status` in [`threads`]' counts.
-/// A chat counts live while its harness is resident and running while it is busy: its versioned
-/// `residency` (acpmux `hub/residency.rs`) when it has one, else its status (an older acpmux).
-fn count(status: &str, residency: Option<&Value>, live: &mut usize, running: &mut usize) {
-    if let Some(r) = acpmux_list_types::residency::Residency::of(residency) {
-        *live += usize::from(r.resident);
-        *running += usize::from(r.resident && r.busy);
-        return;
-    }
+fn count(status: &str, live: &mut usize, running: &mut usize) {
     match status {
         "ready" => *live += 1,
         "running" | "waiting" => {
@@ -479,12 +470,7 @@ fn threads(sessions: &Value) -> (usize, usize) {
         if summary.get("peer").is_some_and(|peer| !peer.is_null()) || is_chief(summary) {
             continue;
         }
-        count(
-            summary.field("status").as_str().unwrap_or_default(),
-            summary.get("residency"),
-            &mut live,
-            &mut running,
-        );
+        count(summary.field("status").as_str().unwrap_or_default(), &mut live, &mut running);
     }
     (live, running)
 }

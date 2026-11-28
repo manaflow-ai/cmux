@@ -1,7 +1,6 @@
 // Full run details above the reply. Virtualized rows can mount outside the viewport: only read
 // their bounded, paginated steps when actually visible. Run events update just this entry.
 import { memo, useEffect, useRef, useState } from "react";
-import type { ChatDetail } from "../../agent-session/acpmux/chatDetail";
 import type { Strings } from "../shared/i18n";
 import type { RunEntry } from "./runs";
 import type { HomeRun } from "./types";
@@ -12,14 +11,11 @@ export const RunTranscript = memo(function RunTranscript({
   strings,
   onLoad,
   agentNames,
-  detail,
 }: {
   entry: RunEntry;
   strings: Strings;
   onLoad(run: HomeRun): void;
   agentNames: ReadonlyMap<string, string>;
-  /** The ladder level: what opens (chatDetail.ts detailParts). */
-  detail?: ChatDetail;
 }) {
   const element = useRef<HTMLElement>(null);
   const [visible, setVisible] = useState(false);
@@ -42,7 +38,7 @@ export const RunTranscript = memo(function RunTranscript({
   return (
     <section ref={element} className="lg-run-transcript" aria-label={run.title || strings.t("run.title")}>
       {steps.length === 0 && <p className="lg-run-empty">{strings.t(entry.complete ? "run.empty" : "run.starting")}</p>}
-      <RunSteps run={run} steps={steps} agentNames={agentNames} detail={detail} />
+      <RunSteps run={run} steps={steps} agentNames={agentNames} />
       {run.status === "failed" && run.error && (
         <p className="lg-run-error" role="alert">
           {run.error}

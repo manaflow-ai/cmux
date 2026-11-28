@@ -10,8 +10,8 @@ import type { TimelineRunBoardProps } from "./TimelineRunBoard";
  * `approved`: review checkbox -> data-approved=attempt-a. The built gallery stage was inspected
  * with the accessibility tree; no screenshot is checked in because capture belongs to the matrix.
  */
-// The board reconnects and replays on its own: the play only waits for it.
 const replay: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /Reconnect and replay/ });
   await ctx.waitFor(
     () =>
       ctx.document.querySelector('[data-connection="live"]') !== null &&
@@ -58,11 +58,11 @@ export default componentEntry<TimelineRunBoardProps>({
       props,
     },
     disconnected: {
-      note: "The replay keeps failing past the deadline: the saved cursor and durable activity stay visible, the board keeps asking on its own, and one quiet line says so (no Reconnect button).",
-      props: { ...props, recovered: undefined, disconnected: true },
+      note: "The saved replay cursor and durable activity remain visible while workers continue beyond a disconnected board.",
+      props: { ...props, disconnected: true },
     },
     replayed: {
-      note: "The board's own replay recovers the worker that finished offline and advances the cursor without restarting the run.",
+      note: "Replay recovers the worker that finished offline and advances the cursor without restarting the run.",
       props: { ...props, disconnected: true },
       play: replay,
     },

@@ -44,12 +44,6 @@ if [ "$count" -le $(( ${FAKE_ZIG_HANGS:-0} + ${FAKE_ZIG_FAILURES:-0} )) ]; then
   echo "error: unable to connect to server: UnknownHostName" >&2
   exit 1
 fi
-# The build runner's compile: CPU for FAKE_ZIG_COMPILE seconds, nothing written
-# (every package already here).
-if [ "${FAKE_ZIG_COMPILE:-0}" -gt 0 ]; then
-  end=$((SECONDS + FAKE_ZIG_COMPILE))
-  while [ "$SECONDS" -lt "$end" ]; do :; done
-fi
 # A slow download that keeps arriving: a new piece every second.
 for i in $(seq 1 "${FAKE_ZIG_SLOW:-0}"); do
   mkdir -p zig-pkg/.tmp-slow; echo "$i" > "zig-pkg/.tmp-slow/$i"; sleep 1
@@ -159,7 +153,7 @@ rm -f "$TMP/cache/p/N-short.tar.gz"
 run 1 0
 [ "$status" = 0 ] || fail "a hung fetch then a success did not pass"
 [ "$(cat "$TMP/count")" = 2 ] || fail "expected 2 fetch attempts after one hang, got $(cat "$TMP/count")"
-grep -q "attempt 1 of 3 was stopped: it made no download or CPU progress for 2s; retrying" "$TMP/out" || fail "the stall was not reported"
+grep -q "attempt 1 of 3 was stopped: it made no download progress for 2s; retrying" "$TMP/out" || fail "the stall was not reported"
 children_gone || fail "the hung attempt's child process outlived its deadline"
 [ -d "$TMP/cache/tmp/other-job" ] || fail "clearing a hung attempt removed another job's download from the shared tmp/"
 [ -z "$(ls -d "$TMP/src/zig-pkg"/.tmp-* 2>/dev/null)" ] || fail "the hung attempt's partial unpack was left in zig-pkg/"
@@ -187,12 +181,6 @@ FAKE_ZIG_SLOW=6 run 0 0
 [ "$status" = 0 ] || fail "a slow but progressing fetch was stopped"
 [ "$(cat "$TMP/count")" = 1 ] || fail "a slow but progressing fetch was retried"
 
-# The build runner's compile writes nothing for longer than the stall timeout
-# but runs on CPU: it is not a stall (job 140353209304 lost 4 attempts to it).
-FAKE_ZIG_COMPILE=6 run 0 0
-[ "$status" = 0 ] || fail "a fetch compiling its build runner was stopped as a stall"
-[ "$(cat "$TMP/count")" = 1 ] || fail "a fetch compiling its build runner was retried"
-
 # A fetch that keeps progressing but never ends is stopped at the attempt limit.
 FAKE_ZIG_SLOW=600 ATTEMPT_TIMEOUT=3 run 0 0
 [ "$status" != 0 ] || fail "a fetch past its attempt limit passed"
@@ -209,7 +197,7 @@ children_gone || fail "a child zig left running outlived the fetch"
 run 5 0
 [ "$status" != 0 ] || fail "three hung fetches passed"
 [ "$(cat "$TMP/count")" = 3 ] || fail "expected 3 attempts for three hangs, got $(cat "$TMP/count")"
-grep -q "attempt 3 of 3 was stopped: it made no download or CPU progress for 2s; giving up" "$TMP/out" || fail "three hangs did not end with a clear error"
+grep -q "attempt 3 of 3 was stopped: it made no download progress for 2s; giving up" "$TMP/out" || fail "three hangs did not end with a clear error"
 children_gone || fail "a hung attempt's child process outlived its deadline"
 [ ! -e "$TMP/cache/p/N-done" ] || fail "a hung fetch left a package that looks complete"
 (( elapsed < 40 )) || fail "three 2 s stalls took ${elapsed}s"

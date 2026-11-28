@@ -4,12 +4,10 @@
 // code in place, without re-registering a Shiki theme or re-rendering.
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { importWithDom } from "./support/importWithDom";
-
-const { syntaxThemes } = await importWithDom(() => import("../src/agent-session/acpmux/diffTheme"));
-const appearanceModule = await importWithDom(() => import("../src/appearance"));
-const { contrastBetween, SYNTAX_MIN_CONTRAST } = await importWithDom(() => import("../src/syntax-colors"));
-const { shikiThemeFromGhostty } = await importWithDom(() => import("../src/pierre-options"));
+import { syntaxThemes } from "../src/agent-session/acpmux/diffTheme";
+import * as appearanceModule from "../src/appearance";
+import { contrastBetween, SYNTAX_MIN_CONTRAST } from "../src/syntax-colors";
+import { shikiThemeFromGhostty } from "../src/pierre-options";
 
 type ThemeWindow = Window & { cmuxTheme?: { current?: unknown } };
 type Appearance = Parameters<typeof appearanceModule.resolveDiffViewerAppearance>[0];

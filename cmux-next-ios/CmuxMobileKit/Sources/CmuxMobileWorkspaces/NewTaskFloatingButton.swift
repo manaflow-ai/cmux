@@ -107,9 +107,7 @@ private struct NewTaskButtonHost: ViewModifier {
                 }
                 .ignoresSafeArea(.keyboard, edges: .bottom)
             }
-            // Gone at once when a page is pushed (not shrinking over the page coming in);
-            // back with its spring once a page has left.
-            .animation(shows ? theme.motion.snap.animation.unlessReduceMotion : nil, value: shows)
+            .animation(theme.motion.snap.animation.unlessReduceMotion, value: shows)
             #if DEBUG
             // `-cmux-mobile-open-new-task`: New Task opens at launch (its captures at Accessibility sizes).
             .task {

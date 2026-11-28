@@ -29,7 +29,6 @@ use acpmux::server::{Origin, serve_connection_with};
 use request_stack::arms::{self, Ask};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
-use std::path::Path;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -49,7 +48,7 @@ fn small_stack_runtime() -> tokio::runtime::Runtime {
 }
 
 /// A connection to a new in-process hub of the stand-in agent, served on the runtime's workers.
-fn connect(scratch: &Path) -> Client {
+fn connect() -> Client {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["python3", FAKE]}},
         "defaultHarness": "fake",
@@ -57,11 +56,7 @@ fn connect(scratch: &Path) -> Client {
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
-    // Route bindings and profiles are file-backed even with an in-memory session store.
-    cfg.path = Some(scratch.join("config.json"));
-    cfg.profile_sources.cmux_json = Some(scratch.join("cmux.json"));
-    cfg.profile_sources.user_dir = Some(scratch.join("harnesses"));
-    let store = acpmux::store::open(&cfg.store, scratch).unwrap();
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
     let (in_tx, in_rx) = mpsc::channel(64);
     let (out_tx, out_rx) = mpsc::channel(4096);
@@ -73,9 +68,8 @@ fn connect(scratch: &Path) -> Client {
 
 #[test]
 fn a_new_chat_and_its_prompt_are_served_on_a_default_tokio_worker_stack() {
-    let scratch = daemon_env::Scratch::new("acpmux-request-stack");
     small_stack_runtime().block_on(async {
-        let mut client = connect(scratch.path());
+        let mut client = connect();
         let session = client.new_session().await;
         let prompt = json!({"sessionId": session,
             "prompt": [{"type": "text", "text": "on a small stack"}]});
@@ -90,14 +84,13 @@ const NOT_REACHED: [i64; 2] = [-32602, -32601];
 
 #[test]
 fn every_request_kind_of_dispatch_request_is_served_on_a_default_tokio_worker_stack() {
-    let scratch = daemon_env::Scratch::new("acpmux-request-stack");
     small_stack_runtime().block_on(async {
-        let mut client = connect(scratch.path());
+        let mut client = connect();
         let session = client.new_session().await;
         let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hello"}]});
         let (reply, _) = client.call("session/prompt", prompt).await;
         assert!(reply.get("error").is_none(), "{reply}");
-        let cwd = scratch.path().to_string_lossy();
+        let cwd = std::env::temp_dir().to_string_lossy().into_owned();
         let mut wrong = Vec::new();
         for (method, ask) in arms::table() {
             let (params, why) = match ask {

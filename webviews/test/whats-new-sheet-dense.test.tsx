@@ -7,17 +7,13 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
+import { createStrings } from "../src/pages/shared/i18n";
 import table from "../src/pages/changelog/generated/strings.json";
+import { mergedView, titleKey } from "../src/pages/changelog/model";
+import { placeholderAreas, placeholderRows, sheetRows } from "../src/pages/changelog/SheetPage";
+import { parseSheetLayout } from "../src/pages/changelog/store";
+import { dayOfNightlies } from "../src/pages/changelog/whatsNewFixtures";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { createStrings } = await importWithDom(() => import("../src/pages/shared/i18n"));
-const { mergedView, titleKey } = await importWithDom(() => import("../src/pages/changelog/model"));
-const { placeholderAreas, placeholderRows, sheetRows } = await importWithDom(
-  () => import("../src/pages/changelog/SheetPage"),
-);
-const { parseSheetLayout } = await importWithDom(() => import("../src/pages/changelog/store"));
-const { dayOfNightlies } = await importWithDom(() => import("../src/pages/changelog/whatsNewFixtures"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "location", "IS_REACT_ACT_ENVIRONMENT"] as const;

@@ -7,8 +7,8 @@
 import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { teardownDom } from "./support/domTeardown";
-import { railFrame } from "./support/railFrame";
 // These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
@@ -47,7 +47,6 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
-const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
 
 const VIEWPORT = 600;
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => VIEWPORT });
@@ -75,15 +74,13 @@ const turns = Array.from({ length: TURNS }, (_, index) => [
 // 2026-10-29: "giving it faster scrttoll/hover over"); it was Codex's 250 ms, the app's other cards 450.
 test("the minimap's turn preview opens at once and follows the pointer from row to row", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
+  jest.useFakeTimers();
   try {
     await act(async () =>
       root.render(
         <VirtualTranscript rows={turnView(turns, new Set())} onToggleActivity={() => {}} expanded={new Set()} />,
       ),
     );
-    // The rail's ticks draw in a real frame after the open (railFrame); the hover delays then run on the fake clock.
-    await railFrame();
-    jest.useFakeTimers();
     const rail = dom.window.document.querySelector<HTMLElement>(".acpmux-minimap__rail")!;
     expect(rail).not.toBeNull();
     const tick = (index: number) => dom.window.document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick")[index]!;

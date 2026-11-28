@@ -240,13 +240,10 @@ function startedLine(
   const all = [...line.named, ...line.more];
   const id = `${SUBAGENT_STARTED}:${group.id}`;
   const at = Math.min(...all.map((agent) => agent.startedAt));
-  // Read beside a closed turn, whose fold hides the done lines, it says they finished (turns.ts `outside`).
-  const allEnded = all.every((agent) => agent.state !== "running" && agent.state !== "failed" && !awaitsOwnWork(agent));
   const key = JSON.stringify([
     at,
     group.inBackground,
     line.named.length,
-    allEnded,
     all.map(({ id, name, task, kind, prompt, harness }) => [id, name, task, kind, prompt, harness]),
   ]);
   made.add(id);
@@ -259,7 +256,6 @@ function startedLine(
     version: versionOf(key),
     subagents: all,
     startedNamed: line.named.length,
-    ...(allEnded && { startedAllEnded: true as const }),
     ...(group.inBackground !== undefined && { inBackground: group.inBackground }),
   };
   cache.set(id, { key, row });

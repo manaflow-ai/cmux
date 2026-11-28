@@ -7,6 +7,14 @@ import Testing
 /// says so, the host leaves the cursor out of the picture and sends where
 /// the person's and the agent's pointers are, as fractions of the display.
 struct TelepointerTests {
+    @Test func aViewerSaysItDrawsPointers() {
+        #expect(ScreenStreamHost.viewerDrawsPointers(ScreenInput(t: "caps", s: "telepointers")))
+        #expect(ScreenStreamHost.viewerDrawsPointers(ScreenInput(t: "caps", s: "scroll-px, telepointers")))
+        #expect(!ScreenStreamHost.viewerDrawsPointers(ScreenInput(t: "caps", s: "scroll-px")))
+        #expect(!ScreenStreamHost.viewerDrawsPointers(ScreenInput(t: "caps")))
+        #expect(!ScreenStreamHost.viewerDrawsPointers(ScreenInput(t: "text", s: "telepointers")), "only a caps message")
+    }
+
     @Test func pointersAreFractionsOfTheStreamedDisplay() {
         // A second display to the right of a 1728-point-wide main display.
         let display = CGRect(x: 1728, y: 0, width: 1920, height: 1080)
@@ -44,7 +52,7 @@ struct TelepointerTests {
     @Test func theViewerReportIsACapsInput() throws {
         let input = ScreenInput(t: ScreenHostMessage.capabilitiesType, s: ScreenHostMessage.telepointersCapability)
         let decoded = try JSONDecoder().decode(ScreenInput.self, from: JSONEncoder().encode(input))
-        #expect(decoded.t == "caps" && decoded.s == "telepointers")
+        #expect(ScreenStreamHost.viewerDrawsPointers(decoded))
     }
 
     #if os(macOS)

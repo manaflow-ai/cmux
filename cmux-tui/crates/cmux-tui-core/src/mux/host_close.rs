@@ -202,10 +202,10 @@ fn signal_host_close(close: PendingHostClose) -> Option<PendingHostClose> {
         Ok(None) => {
             runtime.kill();
             if let (Some(identity), Some(root)) = (identity.as_ref(), host_root.as_ref()) {
-                schedule_discovered_terminal_host_cleanup(
-                    root.clone(),
-                    identity.terminal_id.clone(),
-                    Some(identity.incarnation.clone()),
+                terminate_discovered_terminal_host_in(
+                    root,
+                    &identity.terminal_id,
+                    Some(&identity.incarnation),
                 );
             }
             return None;
@@ -219,10 +219,10 @@ fn signal_host_close(close: PendingHostClose) -> Option<PendingHostClose> {
             }
             runtime.kill();
             if let (Some(identity), Some(root)) = (identity.as_ref(), host_root.as_ref()) {
-                schedule_discovered_terminal_host_cleanup(
-                    root.clone(),
-                    identity.terminal_id.clone(),
-                    Some(identity.incarnation.clone()),
+                terminate_discovered_terminal_host_in(
+                    root,
+                    &identity.terminal_id,
+                    Some(&identity.incarnation),
                 );
             }
             None
@@ -255,10 +255,10 @@ fn finish_host_close(close: PendingHostClose) {
     };
     runtime.kill();
     if !acknowledged && let (Some(identity), Some(root)) = (identity, host_root) {
-        schedule_discovered_terminal_host_cleanup(
-            root,
-            identity.terminal_id,
-            Some(identity.incarnation),
+        terminate_discovered_terminal_host_in(
+            &root,
+            &identity.terminal_id,
+            Some(&identity.incarnation),
         );
     }
 }

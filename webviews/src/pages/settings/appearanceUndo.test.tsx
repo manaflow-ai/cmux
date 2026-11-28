@@ -102,9 +102,7 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
     expect(undoButton().getAttribute("aria-label")).toBe("Undo: Background → Shuffle Paintings");
 
     await click(undoButton());
-    // The durable history takes the step back (settings-history-v1): no write of the page's own,
-    // one settings.undo per entry the pick wrote (the background, then the memory beside it).
-    expect(ops(page.provider, "cmux.settings.undo")).toHaveLength(2);
+    expect(ops(page.provider, "cmux.settings.reset")).toEqual([{ key: "appearance.background" }]);
     expect(page.store.getSnapshot().rows.get("appearance.background")?.customized).toBe(false);
     expect(redoButton().disabled).toBe(false);
     expect(redoButton().getAttribute("aria-label")).toBe("Redo: Background → Shuffle Paintings");

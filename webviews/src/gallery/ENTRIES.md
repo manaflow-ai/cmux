@@ -315,13 +315,6 @@ composer look and theme file keys are the values the rows show (`lookSettingsVal
 `src/gallery/golden/look.ts`). Appearance holds a look's own rows; Chat is a long section with the
 chat's display rows. `--settings` captures each section whole beside the golden screen, in the sheet.
 
-With `--settings`, each look also gets a window scene (`<look>-window-<section>-<scheme>.png`,
-`--settings-window 1920x1200`): the mock app with the golden chat and that Settings section side by
-side, both under the look. The pane contents are the real web components; the sidebar, tab strips
-and traffic lights are the mock app's web stand-in for native chrome, marked `data-stand-in` in the
-DOM and captioned so in the sheet. What only native draws is left out rather than faked: the
-expanded sidebar density, `sidebar.sectionLook`, and the tab bar's margin and title-area tones.
-
 `looks.golden-menus` (`src/gallery/golden/GoldenMenus.gallery.tsx`) is the golden screen's menus and
 popover, which portal outside the chat: an open menu with a section label, shortcuts, an open submenu,
 a disabled and a red destructive row, beside the plan usage popover, a variant per look.

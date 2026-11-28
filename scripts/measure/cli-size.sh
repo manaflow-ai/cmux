@@ -48,8 +48,7 @@ if [[ "${1:-}" == toolchain ]]; then
   trap cli_size_cleanup EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
-  source "$root/scripts/measure/fetch-commit.sh"
-  have() { measure_fetch_commit "$root" "$1" 2>/dev/null; }
+  have() { git -C "$root" cat-file -e "$1^{commit}" 2>/dev/null || git -C "$root" fetch -q origin "$1" 2>/dev/null; }
   tree_at() {  # tree_at REF DIR: a worktree of REF, its ghostty-next shared with this checkout when the pins match
     local ref=$1 dir=$2
     git -C "$root" worktree add -q --detach "$dir" "$ref"

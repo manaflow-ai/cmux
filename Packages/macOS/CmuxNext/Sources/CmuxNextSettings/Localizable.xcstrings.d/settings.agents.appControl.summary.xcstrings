@@ -20,7 +20,7 @@
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Smiju li agenti u cmuxu upravljati i mijenjati aplikaciju"
+            "value" : "Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je"
           }
         },
         "da" : {
@@ -104,19 +104,19 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux ajanları uygulamayı yönetip değiştirebilir mi"
+            "value" : "cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Чи можуть агенти cmux керувати застосунком і змінювати його"
+            "value" : "Чи можуть агенти в cmux керувати застосунком і змінювати його"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tác nhân cmux có được điều khiển và sửa ứng dụng không"
+            "value" : "Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không"
           }
         },
         "zh-Hans" : {

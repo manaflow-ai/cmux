@@ -13,8 +13,7 @@ public enum ChiefOffCard: Equatable, Sendable {
     case off
     /// Turn On was tapped and its answer has not come back.
     case turningOn
-    /// Turning it on failed (no answer, a server error) and has kept failing past the quiet
-    /// bound: Home turns it on again on its own (the person already asked), with no Try Again.
+    /// Turning it on failed (no answer, a server error): Try Again.
     case failed
     /// The service refused because this account may not run the Chief's model.
     case unavailable
@@ -22,7 +21,7 @@ public enum ChiefOffCard: Equatable, Sendable {
     /// Why a Turn On of one chief did not take.
     public struct Refusal: Equatable, Sendable {
         public enum Kind: Equatable, Sendable {
-            /// Worth another try (Home makes it on its own): no answer, a server error, any other refusal.
+            /// Worth another tap: no answer, a server error, any other refusal.
             case retryable
             /// This account may not run the Chief's model (the service's owner list).
             case unavailable
@@ -61,13 +60,6 @@ public enum ChiefOffCard: Equatable, Sendable {
         return refusal.kind == .unavailable ? .unavailable : .failed
     }
 
-    /// Whether the card's button is there and takes a tap: only before the person asked
-    /// (a failed Turn On is tried again on its own).
-    public var offersTurnOn: Bool { self == .off }
-
-    /// The card while Home turns it on again on its own: a failed Turn On shows as turning on
-    /// until it has failed past the quiet bound (`failingPastBound`), then as failed, with no button.
-    public func shown(failingPastBound: Bool) -> ChiefOffCard {
-        self == .failed && !failingPastBound ? .turningOn : self
-    }
+    /// Whether the card's button is there and takes a tap.
+    public var offersTurnOn: Bool { self == .off || self == .failed }
 }

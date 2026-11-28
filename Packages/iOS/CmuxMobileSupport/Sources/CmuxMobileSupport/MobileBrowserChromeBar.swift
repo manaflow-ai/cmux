@@ -160,7 +160,6 @@ public struct MobileBrowserChromeBar: View {
             } else {
                 chromeButton(
                     systemImage: "arrow.clockwise",
-                    // retry-prompt-ok: the browser's own Reload control, used on purpose
                     label: L10n.string("mobile.browserStream.reload", defaultValue: "Reload"),
                     identifier: identifiers.reload,
                     action: actions.reload

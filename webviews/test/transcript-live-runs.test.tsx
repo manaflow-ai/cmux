@@ -124,8 +124,7 @@ test("a pending harness prompt keeps one thinking line in place", () => {
 
   // The line under a prompt held behind its agent's start is the turn's own Thinking line (one id,
   // one version), with no start status: nothing reads "Starting Claude Code… Cancel" (Leo, 2026-11-01).
-  // The turn's "Working for" holds its place over it from the send (`sentHeader`).
-  expect(starting.map((entry) => entry.kind)).toEqual(["user", "worked", "thinking"]);
+  expect(starting.map((entry) => entry.kind)).toEqual(["user", "thinking"]);
   expect(startThinking).toHaveLength(1);
   expect(startThinking[0]).toMatchObject({ id: "thinking-live", version: 1, queued: "pending-prompt", untimed: true });
   expect(starting.filter((entry) => entry.status !== undefined)).toHaveLength(0);
@@ -133,7 +132,7 @@ test("a pending harness prompt keeps one thinking line in place", () => {
   const ready = turnView([{ ...pending, queued: undefined }], new Set(), { now: pending.at });
   const readyThinking = ready.filter((entry) => entry.kind === "thinking");
 
-  expect(ready).toHaveLength(3);
+  expect(ready).toHaveLength(2);
   expect(readyThinking).toHaveLength(1);
   expect(readyThinking[0]).toMatchObject({ id: "thinking-live", version: 1 });
   expect(readyThinking[0]?.status).toBeUndefined();

@@ -2,7 +2,7 @@
 // A background command in the Background tasks panel, rendered as Claude Desktop's panel renders it
 // (Leo, 2026-11-07: "only showing the terminal thing, I don't think is very useful ... They have it
 // as a properly rendered thing"): "Running N" with each running command as a card, open, its full
-// command in mono, wrapped, then its output streaming (nothing under the command until it prints); then "Finished N", folded.
+// command in mono, wrapped, then its output streaming or "No output yet"; then "Finished N", folded.
 // The output comes through the reader the composer hat's tail polls (BackgroundTaskOutputContext),
 // answered here by a fixture. Light and dark come from the gallery's appearance axis.
 import { componentEntry } from "../../../gallery/format";
@@ -123,7 +123,7 @@ export default componentEntry<Props>({
   load: async () => GalleryCardPanel,
   variants: {
     "running-no-output": {
-      note: "A command that has printed nothing yet: Running 1, its card open with the full command in the Shell block and no filler line.",
+      note: "A command that has printed nothing yet: Running 1, its card open with the full command and No output yet.",
       props: { shape: "empty" },
     },
     "running-output": {
@@ -135,7 +135,7 @@ export default componentEntry<Props>({
       props: { shape: "long" },
     },
     "finished-collapsed": {
-      note: "One running and three finished: Finished 3 is folded under Running 1, with Clear finished on the Finished heading (shown on its hover).",
+      note: "One running and three finished: Finished 3 is folded under Running 1, with Clear finished in the header.",
       props: { shape: "finished" },
     },
     "finished-expanded": {

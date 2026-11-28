@@ -38,6 +38,7 @@ import "./composerAttachments.css";
 import "./composer/dropOverlay.css";
 import "./markdownField.css";
 import "./modelPicker.css";
+import "./keys.css";
 import "./summary/summary.css";
 import "./summary/WorkflowCard.css";
 import "./summary/workflowDots.css";

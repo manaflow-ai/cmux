@@ -7,17 +7,20 @@ import Foundation
 import Testing
 
 /// Leo 2026-11-22: "in all cases, the hovered buttons should just replace the other ones." One row per mark set (the
-/// blue dot, an unread count, the error mark, everything at once), drawn at rest and hovered, dark and light: the
+/// blue dot, an unread count, the error mark, everything at once, and the usage warning triangle), drawn at rest and hovered, dark and light: the
 /// hovered cells show only the controls in the trailing cluster. Artifact `sidebar-hover-replaces-gallery.tar`
 /// (`CMUX_TEST_REQUIRE_GUI=1`).
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarHoverReplacesMarksGalleryTests {
-    /// Each mark set.
-    static let variants: [SidebarRowCloseClearsMarksTests.Marks] = [.unreadDot, .unreadCount, .error, .pullRequestCount, .everything]
+    /// Each mark set, and the blue dot and everything again on a row that also draws the usage warning triangle.
+    static let variants: [(SidebarRowCloseClearsMarksTests.Marks, warned: Bool)] = [
+        (.unreadDot, false), (.unreadCount, false), (.error, false), (.pullRequestCount, false), (.everything, false),
+        (.unreadDot, true), (.everything, true),
+    ]
 
-    static func render(_ marks: SidebarRowCloseClearsMarksTests.Marks, hovered: Bool, dark: Bool) throws -> CGImage {
+    static func render(_ marks: SidebarRowCloseClearsMarksTests.Marks, warned: Bool = false, hovered: Bool, dark: Bool) throws -> CGImage {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
-        let (sidebar, window) = SidebarRowCloseClearsMarksTests.sidebar(marks, style: .corner)
+        let (sidebar, window) = SidebarRowCloseClearsMarksTests.sidebar(marks, style: .corner, warned: warned)
         defer { window.close() }
         sidebar.list.model.workspacePin = (isPinned: { _ in false }, toggle: { _ in })
         sidebar.list.contextMenuProvider = { _ in NSMenu() }
@@ -56,12 +59,12 @@ import Testing
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         // Rows: each mark set; columns: dark rest, dark hovered, light rest, light hovered.
         var grid: [[CGImage]] = []
-        for marks in Self.variants {
+        for (marks, warned) in Self.variants {
             var line: [CGImage] = []
             for dark in [true, false] {
                 for hovered in [false, true] {
-                    let image = try Self.render(marks, hovered: hovered, dark: dark)
-                    let name = "\(marks.rawValue)-\(dark ? "dark" : "light")-\(hovered ? "hover" : "rest").png"
+                    let image = try Self.render(marks, warned: warned, hovered: hovered, dark: dark)
+                    let name = "\(marks.rawValue)\(warned ? "-warned" : "")-\(dark ? "dark" : "light")-\(hovered ? "hover" : "rest").png"
                     try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: name))
                     line.append(image)
                 }

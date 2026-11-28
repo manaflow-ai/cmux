@@ -6,8 +6,8 @@ import Testing
 /// The web pieces switched out remotely (WebUpdates+Pieces.swift): the app reads the answer of
 /// `cmux app web-pieces check` and maps each switched-out piece onto a folder it has checked.
 @Suite struct WebPiecesAnswerTests {
-    static let pane = /* ci-target-graph: non-input */ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
-    static let pages = /* ci-target-graph: non-input */ "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"
+    static let pane = "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
+    static let pages = "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"
 
     /// What `cmux app web-pieces check` prints (cmux-web-pieces `evaluate`, plus the CLI's own fields).
     static func answer(paneServe: String, paneUpdate: String?, refusedActive: Bool = false, drillRefusedActive: Bool? = nil) -> Data {

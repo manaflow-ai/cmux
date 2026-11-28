@@ -1,4 +1,3 @@
-#if canImport(Darwin)
 import Darwin
 import Foundation
 import Testing
@@ -60,4 +59,3 @@ struct ChildSignalDefaultsTests {
         #expect(failure == EPIPE)
     }
 }
-#endif

@@ -34,12 +34,7 @@ const HOUR = 3_600_000;
 // Each item of the row by its name: a control's label (Retry's wrapper by its button's), else its text.
 const labels = () =>
   // A hidden element is a control's description (aria-describedby), not an item of the row.
-  // The buttons sit in the row's end slot (RowSlots.tsx): its items, in order, after the age.
-  [
-    ...host.querySelectorAll(
-      ".cv-user__actions > .cv-message-footer-row > :not([hidden], .cv-row-slots__actions), .cv-user__actions > .cv-message-footer-row > .cv-row-slots__actions > :not([hidden])",
-    ),
-  ].map(
+  [...host.querySelectorAll(".cv-user__actions > .cv-message-footer-row > :not([hidden])")].map(
     (node) =>
       node.getAttribute("aria-label") ??
       node.querySelector("button")?.getAttribute("aria-label") ??

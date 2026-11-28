@@ -19,8 +19,8 @@ const selectCandidate: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[data-selected-attempt="attempt-c"]'));
 };
 
-// The board reconnects and replays on its own: the play only waits for it.
 const reconnectAndReplay: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Reconnect and replay" });
   await ctx.waitFor(() => ctx.document.querySelector('[data-replay-state="replayed"]'));
   await ctx.waitFor(() =>
     ctx.document
@@ -84,13 +84,9 @@ export default componentEntry<CompareRunBoardProps>({
       play: selectCandidate,
     },
     "offline-replay": {
-      note: "Interaction receipt: the offline board keeps the last durable snapshot, then reconnects and replays on its own, recovering Attempt C through event 151 (no Reconnect button).",
+      note: "Interaction receipt: the offline banner preserves the last durable snapshot, then reconnect and replay recovers Attempt C through event 151.",
       props: { ...props, disconnected: true },
       play: reconnectAndReplay,
-    },
-    "offline-still-trying": {
-      note: "The replay keeps failing past the deadline: the last durable snapshot stays, the board keeps asking on its own, and one quiet line says so, with no button.",
-      props: { ...props, recovered: undefined, disconnected: true },
     },
     "attach-terminal": {
       note: "Interaction receipt: the one-use attach bridge returns a fixture ticket, attaches Attempt B, and records the terminal handoff in the live capture receipt.",

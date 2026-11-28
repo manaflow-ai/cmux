@@ -486,7 +486,7 @@ const DENSITIES: MakeItYoursDensity[] = [
  * Terminal First, and after a person picked Compact and a painting. */
 export function makeItYoursState(
   kind: MakeItYoursFixture = "fresh",
-  { introWalk = false, walk }: { introWalk?: boolean; walk?: MakeItYoursState["walk"] } = {},
+  { introWalk = false }: { introWalk?: boolean } = {},
 ): OnboardingState {
   const choices: MakeItYoursState = {
     workStyle: kind === "terminal" ? "terminal" : "gui",
@@ -501,7 +501,6 @@ export function makeItYoursState(
     chatsRunIn: kind === "picked" ? "cloud" : "local",
     loaded: kind !== "loading",
     ...(introWalk ? { introWalk: true } : {}),
-    ...(walk ? { walk } : {}),
   };
   return {
     step: "makeItYours",

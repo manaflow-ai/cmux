@@ -1,4 +1,3 @@
-import CCmuxScreenshots
 public import Foundation
 
 /// `cmux://screenshots`: the address of the Screenshots pane. The pane is a
@@ -21,7 +20,7 @@ public nonisolated struct ScreenshotsPageAddress: Sendable {
     ///
     /// - Parameter url: any address.
     public static func matches(_ url: URL?) -> Bool {
-        guard let url else { return false }
-        return ScreenshotsFFI.bytes(url.absoluteString) { cmux_screenshots_page_matches($0, $1) }
+        guard let url, url.scheme?.lowercased() == "cmux" else { return false }
+        return url.host()?.lowercased() == "screenshots"
     }
 }

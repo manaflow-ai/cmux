@@ -4,7 +4,6 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { teardownDom } from "./support/domTeardown";
-import { actTurn, until } from "./support/until";
 
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
 const scope = globalThis as Record<string, unknown>;
@@ -94,10 +93,9 @@ test.serial("Resume uses native attach, then rereads the missing chat; disposal 
     );
   }
   await act(async () => root.render(<Recovery />));
-  // No Reconnect button: the card reads the machines again on its own (autoRetry.ts, first ask
-  // within 1 s; Leo, 2026-11-22: "vacuous decisions like that should be just done").
-  expect(mount.querySelector('[data-action="reconnect"]')).toBeNull();
-  await until(() => calls.filter((method) => method === "cloudMachine.recoveryList").length >= 2, actTurn);
+  const retry = mount.querySelector<HTMLButtonElement>('[data-action="reconnect"]');
+  expect(retry).not.toBeNull();
+  await act(async () => retry!.click());
   expect(calls.filter((method) => method === "cloudMachine.recoveryList")).toHaveLength(2);
   const button = mount.querySelector<HTMLButtonElement>('[data-action="resumeMachine"]');
   expect(button).not.toBeNull();

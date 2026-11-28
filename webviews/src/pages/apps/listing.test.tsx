@@ -225,7 +225,7 @@ test("a deep link to an app the store does not list lands on Discover with a qui
   expect(snap.detailStatus).toBe("idle");
   expect(snap.notice).toBe("notInStore");
   expect(html).toContain(en["store.notice.notInStore"]!.replace("'", "&#x27;"));
-  expect(html).not.toContain(en["store.stillLoading"]!);
+  expect(html).not.toContain(en["store.error.load"]!);
   expect(html).not.toContain(en["store.detail.notFound"]!);
   expect(html).not.toContain('role="alert"');
   expect(html).toContain("apps-hero");

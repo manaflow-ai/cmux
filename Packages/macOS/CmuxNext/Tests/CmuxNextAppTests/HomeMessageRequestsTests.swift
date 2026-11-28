@@ -16,6 +16,34 @@ struct HomeMessageRequestsTests {
     static let lunch = HomeMessageRequest(conversation: ConversationID("conv_0Y05MEWEFMQQB63VDHQB9MXAJT"), inviter: "Frank",
                                           isGroup: true, title: "Lunch", preview: "", createdAt: nil, trusted: true)
 
+    @Test func refreshListsTheOwnersRequests() async {
+        let source = FakeRequestSource(listed: [Self.austin, Self.lunch])
+        let requests = HomeMessageRequests(source: source)
+        await requests.reload()
+        #expect(requests.items == [Self.austin, Self.lunch])
+    }
+
+    @Test(arguments: [HomeRequestAnswer.accept, .decline, .block])
+    func anAnswerTakesTheRequestOffTheList(_ answer: HomeRequestAnswer) async {
+        let source = FakeRequestSource(listed: [Self.austin, Self.lunch])
+        let requests = HomeMessageRequests(source: source)
+        await requests.reload()
+        source.listed = [Self.lunch]
+        let done = await requests.answer(Self.austin.conversation, answer)
+        #expect(done)
+        #expect(requests.items == [Self.lunch])
+        #expect(source.answers == [Self.austin.conversation: answer])
+    }
+
+    @Test func aRefusedAnswerPutsTheRequestBack() async {
+        let source = FakeRequestSource(listed: [Self.austin], refuse: true)
+        let requests = HomeMessageRequests(source: source)
+        await requests.reload()
+        let done = await requests.answer(Self.austin.conversation, .accept)
+        #expect(!done)
+        #expect(requests.items == [Self.austin])
+    }
+
     @Test func theSidebarShowsTheRequestCountOnlyWhenThereAreRequests() {
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
         var opened = 0
@@ -64,6 +92,26 @@ struct HomeMessageRequestsTests {
         let joined = ConversationSummary(id: named.id, participants: [me, Participant(id: ParticipantID("user_austin"), kind: .human, displayName: "Austin")],
                                          createdAt: .distantPast, updatedAt: .distantPast)
         #expect(joined.homeInviteWaiting(me: me.id) == nil)
+    }
+}
+
+/// The owner's requests as a test sets them; records each answer.
+@MainActor
+final class FakeRequestSource: HomeMessageRequestSource {
+    var listed: [HomeMessageRequest]
+    var answers: [ConversationID: HomeRequestAnswer] = [:]
+    let refuse: Bool
+
+    init(listed: [HomeMessageRequest], refuse: Bool = false) {
+        self.listed = listed
+        self.refuse = refuse
+    }
+
+    func messageRequests() async throws -> [HomeMessageRequest] { listed }
+
+    func answer(_ conversation: ConversationID, _ answer: HomeRequestAnswer) async throws {
+        if refuse { throw CancellationError() }
+        answers[conversation] = answer
     }
 }
 

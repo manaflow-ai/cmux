@@ -5,15 +5,11 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
-import type { ChangelogSnapshot } from "../src/pages/changelog/store";
+import { SheetBuilds } from "../src/pages/changelog/SheetPage";
+import { ChangelogStore, type ChangelogSnapshot } from "../src/pages/changelog/store";
 import type { IndexEntry } from "../src/pages/changelog/types";
 import type { PageClient } from "../src/pages/shared/pageClient";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-type ChangelogStore = import("../src/pages/changelog/store").ChangelogStore;
-const { SheetBuilds } = await importWithDom(() => import("../src/pages/changelog/SheetPage"));
-const { ChangelogStore } = await importWithDom(() => import("../src/pages/changelog/store"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "location", "IS_REACT_ACT_ENVIRONMENT"] as const;

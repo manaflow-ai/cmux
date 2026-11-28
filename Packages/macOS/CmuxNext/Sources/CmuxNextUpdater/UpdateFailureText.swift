@@ -23,16 +23,12 @@ nonisolated enum UpdateFailureText {
     static func sparkleStage(_ code: Int) -> String? {
         switch code {
         case 1000, 1002, 1004:
-            // retry-prompt-ok: an update check that leads to a download and install the person starts; the scheduled check also runs again by itself
             UpdaterStrings.text("updater.failure.feed", "cmux couldn't read the update list. Try again later.")
         case 2000, 2001:
-            // retry-prompt-ok: an update download that replaces binaries
             UpdaterStrings.text("updater.failure.download", "The update didn't download. Check your network, then try again.")
         case 3000, 3001, 3002:
-            // retry-prompt-ok: an update download that replaces binaries
             UpdaterStrings.text("updater.failure.verify", "The downloaded update didn't pass its safety check. Try again.")
         case 4000...4012:
-            // retry-prompt-ok: an update install that replaces binaries and relaunches
             UpdaterStrings.text("updater.failure.install", "The update didn't install. Try again.")
         default:
             nil
@@ -41,7 +37,6 @@ nonisolated enum UpdateFailureText {
 
     /// The line for an update failure cmux has no words for.
     static var generic: String {
-        // retry-prompt-ok: an update that downloads and replaces binaries
         UpdaterStrings.text("updater.failure.generic", "Something went wrong with the update. Try again.")
     }
 }

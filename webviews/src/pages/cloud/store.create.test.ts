@@ -1,6 +1,5 @@
-// The create sheet's snapshot list (hq#4554): a failed `cloud.snapshot.list` stays on the draft as a
-// failure, never as an empty list, until a re-read answers; the sheet reads it again on its own
-// (CreateSheet.tsx, useAutoRetry) and the re-read keeps the draft.
+// The create sheet's snapshot list (hq#4554): a failed `cloud.snapshot.list` stays on the draft
+// as a failure with Retry, never as an empty list, and Retry keeps the draft.
 import { describe, expect, test } from "bun:test";
 import { MockCloudProvider } from "./mockProvider";
 import { ACTION_RUN, CloudOps } from "./ops";
@@ -25,7 +24,7 @@ const creates = (provider: MockCloudProvider) =>
   ).length;
 
 describe("Cloud create sheet: snapshot list", () => {
-  test("a failed list is a failure on the draft, not an empty list; a re-read keeps the draft", async () => {
+  test("a failed list is a failure on the draft, not an empty list; Retry reloads it and keeps the draft", async () => {
     const { store, provider, unsubscribe } = await started();
     provider.failNext = CloudOps.snapshotList;
     store.openCreate();
@@ -39,8 +38,7 @@ describe("Cloud create sheet: snapshot list", () => {
 
     const before = listCalls(provider);
     store.retrySnapshots();
-    // The failure stays while the re-read is out, so the sheet's quiet stretch does not restart.
-    expect(store.getSnapshot().create!.snapshotsFailed).toBe(true);
+    expect(store.getSnapshot().create!.snapshotsFailed).toBeUndefined();
     await flush();
     const draft = store.getSnapshot().create!;
     expect(listCalls(provider)).toBe(before + 1);
@@ -75,7 +73,7 @@ describe("Cloud create sheet: snapshot list", () => {
     unsubscribe();
   });
 
-  test("a re-read does nothing unless the list failed; a closed sheet's answer lands on no newer one", async () => {
+  test("Retry does nothing unless the list failed; an answer for a closed sheet lands on no newer one", async () => {
     const { store, provider, unsubscribe } = await started();
     store.openCreate();
     await flush();

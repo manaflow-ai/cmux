@@ -14,10 +14,7 @@
 use crate::no_panic::LockExt;
 use crate::peer::PeerNotice;
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex, OnceLock};
-
-#[path = "peer_list_slot.rs"]
-mod peer_list_slot;
+use std::sync::{Arc, Mutex};
 use tokio::sync::{Notify, mpsc};
 
 pub(crate) type Item = (String, u64, PeerNotice);
@@ -41,7 +38,6 @@ struct Inner {
     state: Mutex<State>,
     room: Notify,
     cap: usize,
-    lists: OnceLock<peer_list_slot::ListSlot>,
 }
 
 #[derive(Default)]
@@ -75,27 +71,7 @@ impl NoticeOutbox {
                 state: Mutex::new(State::default()),
                 room: Notify::new(),
                 cap: cap.max(1),
-                lists: OnceLock::new(),
             }),
-        }
-    }
-
-    pub(crate) fn coalesce_lists(&self) {
-        self.inner.lists.get_or_init(Default::default);
-    }
-
-    pub(crate) fn take_waiting_list(&self, number: u64) -> Option<Vec<Arc<str>>> {
-        self.inner.lists.get()?.take(number)
-    }
-
-    // Publish only *after* securing room. A cancelled send waiting on a full backlog
-    // cannot supersede a list whose marker the hub already accepted.
-    fn accepted(&self, item: Item) -> Item {
-        match (self.inner.lists.get(), item) {
-            (Some(slot), (peer, generation, PeerNotice::Sessions(rows))) => {
-                (peer, generation, PeerNotice::WaitingList(slot.hold(rows)))
-            }
-            (_, item) => item,
         }
     }
 
@@ -119,23 +95,20 @@ impl NoticeOutbox {
                     return Err(Closed);
                 }
                 if state.backlog.is_empty() && !state.draining {
-                    match self.inner.hub.try_reserve() {
-                        Ok(permit) => {
-                            let Some(next) = item.take() else { return Ok(()) };
-                            permit.send(self.accepted(next));
-                            return Ok(());
-                        }
+                    let Some(next) = item.take() else { return Ok(()) };
+                    match self.inner.hub.try_send(next) {
+                        Ok(()) => return Ok(()),
                         Err(mpsc::error::TrySendError::Closed(_)) => {
                             state.closed = true;
                             return Err(Closed);
                         }
-                        Err(mpsc::error::TrySendError::Full(())) => {}
+                        Err(mpsc::error::TrySendError::Full(next)) => item = Some(next),
                     }
                 }
                 let Some(next) = item.take() else { return Ok(()) };
                 let merged = merge_into(&mut state.backlog, &next.0, next.1, &next.2);
                 if merged || state.backlog.len() < self.inner.cap {
-                    state.backlog.push_back(self.accepted(next));
+                    state.backlog.push_back(next);
                     crate::gauges::peer_notices().link_held(state.backlog.len() as u64, merged);
                     if !state.draining {
                         state.draining = true;

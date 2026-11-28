@@ -10,11 +10,16 @@
 // written. Matching by path suffix hid some of these and wrongly tied a monorepo's docs/notes.txt to
 // its notes.txt. Without a canonical path (an older log or peer) the card falls back to that match.
 import { expect, test } from "bun:test";
-import { importWithDom } from "./support/importWithDom";
-
-const { FOLDER, NOTES, activity, checkpoint, editWithDiff, editedCard, translatorWrite, useDom } = await importWithDom(
-  () => import("./support/unknownWrite"),
-);
+import {
+  FOLDER,
+  NOTES,
+  activity,
+  checkpoint,
+  editWithDiff,
+  editedCard,
+  translatorWrite,
+  useDom,
+} from "./support/unknownWrite";
 
 const dom = useDom();
 

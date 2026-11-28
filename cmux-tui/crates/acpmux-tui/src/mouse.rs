@@ -189,8 +189,7 @@ impl App {
             .iter()
             .find(|(rect, _)| x >= rect.x && x < rect.x + rect.width && y == rect.y)
             .copied()?;
-        let row_text = self.rows_cache.get(row)?;
-        let col = ((x - rect.x) as usize).min(row_text.chars().count());
+        let col = ((x - rect.x) as usize).min(self.rows_cache[row].chars().count());
         Some((row, col))
     }
 
@@ -207,7 +206,7 @@ impl App {
         let dragging = self.dialog.viewport.drag.is_some() || self.sidebar_drag.is_some();
         if let (Overlay::Picker(p), false) = (&mut self.overlay, dragging)
             && let Some((_, vi)) = p.row_rects.iter().find(|(r, _)| hit(*r)).cloned()
-            && p.visible.get(vi).and_then(|&ri| p.rows.get(ri)).is_some_and(|row| !row.header)
+            && p.visible.get(vi).map(|&ri| !p.rows[ri].header).unwrap_or(false)
         {
             p.cursor = vi;
             over = true;
@@ -249,9 +248,9 @@ impl App {
         }
         self.menu_pressed = false;
         if let Overlay::Menu(m) = &self.overlay
-            && let Some(item) = m.item_at(x, y).and_then(|i| m.items.get(i))
+            && let Some(i) = m.item_at(x, y)
         {
-            let a = item.action.clone();
+            let a = m.items[i].action.clone();
             self.overlay = Overlay::None;
             self.run_menu_action(a);
         }
@@ -298,10 +297,11 @@ impl App {
             if let Overlay::Picker(p) = &mut self.overlay
                 && let Some((_, vi)) = p.row_rects.iter().find(|(r, _)| hit(*r)).cloned()
             {
-                if let Some(row) = p.visible.get(vi).and_then(|&ri| p.rows.get(ri)).cloned()
-                    && !row.header
+                if let Some(&ri) = p.visible.get(vi)
+                    && !p.rows[ri].header
                 {
                     p.cursor = vi;
+                    let row = p.rows[ri].clone();
                     let target = p.on_pick.clone();
                     let is_agent = matches!(target, PickTarget::Agent);
                     self.overlay = Overlay::None;

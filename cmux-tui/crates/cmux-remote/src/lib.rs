@@ -27,8 +27,6 @@ mod mux_lanes;
 pub mod observability;
 mod owner_lock;
 mod per_lane;
-pub mod phase_timing;
-mod port_holder;
 pub mod provider;
 pub mod resume_hold;
 pub mod resume_pipe;
@@ -45,7 +43,6 @@ pub use ssh_artifacts::{
 };
 mod ssh_artifacts;
 pub mod ssh_bootstrap;
-pub mod ssh_control;
 mod ssh_payload_proxy;
 #[cfg(unix)]
 pub mod unix_socket;

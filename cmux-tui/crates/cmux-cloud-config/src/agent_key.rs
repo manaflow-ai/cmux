@@ -130,7 +130,7 @@ pub fn answer(status: u16, body: &[u8], base_url: &str, team_id: &str) -> Result
     if status == 0 {
         return Err(Refusal::new(
             "unavailable",
-            "The cmux VM service didn't answer within 20 s, so no agent key was made. Check this Mac's network connection.",
+            "The cmux VM service didn't answer. Try again in a moment.",
             Some(0),
         )
         .with_app_text("unreachable"));

@@ -100,7 +100,7 @@ await requireBrowserLane("composer-emoji.browser.test.ts", async () => {
   test("stills of every look, light and dark (with FAST_CHECKS_OUT)", async () => {
     if (!out) return;
     for (const look of ["caret", "wide", "strip"])
-      for (const variant of ["tedd", "emoticon-dd", "later-line"])
+      for (const variant of ["tedd", "emoticon-dd"])
         for (const colorScheme of ["light", "dark"] as const) {
           const page = await stage(variant, look, colorScheme);
           const { menu, box } = await read(page);
@@ -141,16 +141,6 @@ await requireBrowserLane("composer-emoji.browser.test.ts", async () => {
     await page.close();
   });
 
-  // Leo, 2026-11-22: "for some reason i can't do :pleading_face: with the emoji here".
-  test(":plead on a later line of the draft lists 🥺, highlighted, over the typed `:`", async () => {
-    const page = await stage("later-line");
-    const state = await read(page);
-    expect(state.rows[0]).toBe("🥺 :pleading_face:");
-    expect(state.active).toBe("acpmux-emoji-0");
-    expect(state.menu!.bottom).toBeLessThanOrEqual(state.box!.top);
-    await page.close();
-  });
-
   test(":DD lists a laughing face, never the middle finger, highlighted", async () => {
     const page = await stage("emoticon-dd");
     const state = await read(page);
@@ -169,10 +159,6 @@ await requireBrowserLane("composer-emoji.browser.test.ts", async () => {
     "type-past",
     "no-trigger",
     "heart",
-    "later-line-return",
-    "closing-colon",
-    // "skin-tone" is left out: in Chromium its play's 👋🏽 never showed in 5 s on the runner, while
-    // the jsdom lifecycle test writes it (test/composer-emoji-lifecycle.test.tsx). Open on #50354.
   ])
     test(`play ${variant} passes`, async () => {
       const page = await stage(variant);
@@ -183,8 +169,6 @@ await requireBrowserLane("composer-emoji.browser.test.ts", async () => {
       expect(await page.evaluate(() => document.documentElement.dataset.galleryReady)).not.toBe("error");
       if (variant === "return-picks") expect((await read(page)).text).toContain("aw 🥺");
       if (variant === "type-past") expect((await read(page)).text).toContain("aw :pl ok");
-      if (variant === "later-line-return") expect((await read(page)).text).toContain("🥺");
-      if (variant === "closing-colon") expect((await read(page)).text).toContain("aw 🥺");
       if (variant === "heart") expect((await read(page)).rows[0]).toBe("❤️ :heart:");
       await page.close();
     });

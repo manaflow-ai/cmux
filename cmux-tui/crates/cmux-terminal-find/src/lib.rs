@@ -39,6 +39,3 @@ pub const SNIPPET_CHARS: usize = 160;
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-mod long_line_tests;

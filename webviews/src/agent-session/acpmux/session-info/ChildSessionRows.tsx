@@ -6,7 +6,6 @@
 // its live state in words. Waiting on the person first, then running, failed and idle
 // (`orderedSessions`). A row opens that chat.
 import { useT } from "../i18n";
-import { useConnectionQuietKeys } from "../../../ui/lasting";
 import { Spinner } from "../conversation/icons";
 import { SenderIcon } from "../subagents/SenderIcon";
 import { agentTone } from "../subagents/agentTones";
@@ -25,15 +24,13 @@ export function ChildSessionRows({
   onOpen?: (sessionId: string) => void;
 }) {
   const t = useT();
-  // A retry waits out the shared bound before its row says so (retryState.ts ``retryWords``).
-  const connectionQuiet = useConnectionQuietKeys();
   return (
     <>
       <WindowedRows
         items={orderedSessions(sessions)}
         render={(child) => {
           const status = sessionStatus(child);
-          const label = sessionStateText(t, child, connectionQuiet);
+          const label = sessionStateText(t, child);
           return (
             <li key={child.sessionId}>
               <button
@@ -56,7 +53,7 @@ export function ChildSessionRows({
                 <span className="acpmux-summary-text">
                   <span className="acpmux-summary-agent__name">{child.title}</span>
                 </span>
-                <span className="acpmux-summary-meta acpmux-summary-agent__state" title={label.word}>
+                <span className="acpmux-summary-meta acpmux-summary-agent__state">
                   {label.working && <Spinner size={ROW_ICON} loading />}
                   {label.text}
                 </span>

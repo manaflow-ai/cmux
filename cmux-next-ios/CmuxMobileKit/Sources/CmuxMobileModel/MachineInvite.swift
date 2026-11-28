@@ -28,20 +28,8 @@ public struct MachineInvite: Hashable, Sendable, Identifiable, CustomStringConve
     /// The one line the new machine runs (the Mac's `PairingCode.Invite.line`).
     public var line: String { "cmux pair \(display)" }
 
-    /// The same for a Mac or Linux machine without cmux (the Mac's `PairingCode.Invite.installLine`,
-    /// `AddDevicePlatform.pinnedInstall`): the immutable install script, run only after it matches
-    /// ``installStaticSHA256``, never `curl | sh` of a moving URL.
-    public var installLine: String {
-        let url = "https://cmux.com/tui/install-static/\(Self.installStaticSHA256).sh"
-        return "(d=\"$(mktemp -d)\" && curl -fsSL \(url) -o \"$d/install.sh\""
-            + " && echo \"\(Self.installStaticSHA256)  $d/install.sh\" | $(command -v sha256sum || echo shasum -a 256) -c"
-            + " && sh \"$d/install.sh\"; s=$?; rm -rf \"$d\"; exit \"$s\") && ~/.cmux/bin/\(line)"
-    }
-
-    /// The sha256 of `web/public/tui/install-static.sh` (the Mac's `AddDevicePlatform.installStaticSHA256`),
-    /// served unchanged forever at `https://cmux.com/tui/install-static/<sha256>.sh`.
-    /// `cmux-tui/scripts/install-static-pin.py --write` sets it; its check fails when it differs.
-    public static let installStaticSHA256 = "f2cbb6f11bd4743973c3f492e8fe2d1c4700c114784394da909890adec3e57de"
+    /// The same for a Mac or Linux machine without cmux (the Mac's `PairingCode.Invite.installLine`).
+    public var installLine: String { "curl -fsSL https://cmux.com/tui/install-static.sh | sh && ~/.cmux/bin/\(line)" }
 
     /// Never the code.
     public var description: String { "MachineInvite" }

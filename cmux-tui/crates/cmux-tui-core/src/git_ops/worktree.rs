@@ -1,9 +1,7 @@
 //! `git.worktree.create`: a chat's own worktree, so an agent works on a
 //! branch of its own while the user's checkout stays as it is. The worktree
 //! is `~/.cmux/worktrees/<project>/<name>` (with `agentPane.sessionWorktrees`
-//! set to `project`, `<project>/.claude/worktrees/<name>`; `worktrees.location`
-//! names another shared folder) on a new branch `cmux/<name>` (the prefix is
-//! `worktrees.branchPrefix`),
+//! set to `project`, `<project>/.claude/worktrees/<name>`) on a new branch `cmux/<name>`,
 //! made from `base` (default: the current branch, else HEAD's commit) with
 //! `git worktree add` in the user's environment, so their post-checkout hook
 //! and filters run as in a terminal. The base is recorded as
@@ -38,12 +36,10 @@ use crate::Mux;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
 use cmux_config::session_worktrees::{self, SessionWorktrees};
-use cmux_config::worktree_names;
 use cmux_json::JsonSet as _;
 
 pub(super) const OPERATION: &str = "git.worktree.create";
-/// The prefix of the branches cmux makes unless `worktrees.branchPrefix` names another.
-pub(super) const BRANCH_PREFIX: &str = worktree_names::DEFAULT_BRANCH_PREFIX;
+pub(super) const BRANCH_PREFIX: &str = "cmux/";
 const MAX_NAME_CHARS: usize = 48;
 /// Suffixes tried after a taken name: `name-2` up to this.
 const MAX_SUFFIX: usize = 99;
@@ -75,10 +71,15 @@ pub(super) fn dispatch(
         let attempt = match journal.attempt::<Attempt>(&fingerprint) {
             Some(attempt) => attempt,
             None => {
-                let names = Names::read(mux);
+                let setting = cmux_config::Target::Key(session_worktrees::KEY.to_string());
+                let place = mux.with_settings(|state| {
+                    SessionWorktrees::parse(
+                        state.get(&setting).row.and_then(|row| row.value).as_ref(),
+                    )
+                });
                 // The folder is chosen once: a retry reads the root the journal kept.
-                let folder = storage_folder(target.common_dir(), &names)?;
-                let attempt = plan(repository, &folder, &names.branch_prefix, &request.fields)?;
+                let folder = storage_folder(target.common_dir(), place)?;
+                let attempt = plan(repository, &folder, &request.fields)?;
                 journal.start(&fingerprint, &attempt)?;
                 attempt
             }
@@ -111,37 +112,13 @@ pub(super) fn dispatch(
     })
 }
 
-/// The settings that place and name a new worktree.
-pub(super) struct Names {
-    place: SessionWorktrees,
-    /// `worktrees.location`: None for `~/.cmux/worktrees`.
-    location: Option<serde_json::Value>,
-    pub(super) branch_prefix: String,
-}
-
-impl Names {
-    pub(super) fn read(mux: &Arc<Mux>) -> Self {
-        let value = |key: &str| {
-            let target = cmux_config::Target::Key(key.to_string());
-            mux.with_settings(|state| state.get(&target).row.and_then(|row| row.value))
-        };
-        Self {
-            place: SessionWorktrees::parse(value(session_worktrees::KEY).as_ref()),
-            location: value(worktree_names::LOCATION_KEY),
-            branch_prefix: worktree_names::branch_prefix(
-                value(worktree_names::BRANCH_PREFIX_KEY).as_ref(),
-            ),
-        }
-    }
-}
-
-/// The folder this project's worktrees go in: `~/.cmux/worktrees/<project>`
-/// (or `<worktrees.location>/<project>`), or with `agentPane.sessionWorktrees` Project, `<project>/.claude/worktrees`, made with a
+/// The folder this project's worktrees go in: `~/.cmux/worktrees/<project>`,
+/// or with `place` Project, `<project>/.claude/worktrees`, made with a
 /// `.gitignore` of `*` so the main checkout's status never lists them (and
 /// the ignore file ignores itself; the repository's own settings are never
 /// edited).
-fn storage_folder(common_dir: &Path, names: &Names) -> Result<PathBuf, ResourceError> {
-    if names.place.in_project() {
+fn storage_folder(common_dir: &Path, place: SessionWorktrees) -> Result<PathBuf, ResourceError> {
+    if place.in_project() {
         let Some(main) = main_root(common_dir) else {
             let message = "this repository has no main checkout to keep worktrees in";
             return Err(refused(OPERATION, "no_project_folder", message, Value::Null));
@@ -176,13 +153,8 @@ fn storage_folder(common_dir: &Path, names: &Names) -> Result<PathBuf, ResourceE
         let message = "the session host has no home folder for worktrees";
         return Err(refused(OPERATION, "no_home", message, Value::Null));
     };
-    let custom = worktree_names::location(names.location.as_ref(), &home);
-    let root = match custom {
-        Some(root) => std::fs::create_dir_all(&root).map(|()| root),
-        None => cmux_git::worktree_root::worktree_root(&home),
-    }
-    .map_err(|error| {
-        let message = format!("cannot prepare the worktree folder: {error}");
+    let root = cmux_git::worktree_root::worktree_root(&home).map_err(|error| {
+        let message = format!("cannot prepare ~/.cmux/worktrees: {error}");
         refused(OPERATION, "no_worktree_root", message, Value::Null)
     })?;
     Ok(root.join(project(common_dir)))
@@ -192,7 +164,6 @@ fn storage_folder(common_dir: &Path, names: &Names) -> Result<PathBuf, ResourceE
 pub(super) fn plan(
     repository: &Repository,
     folder: &Path,
-    branch_prefix: &str,
     fields: &Map<String, Value>,
 ) -> Result<Attempt, ResourceError> {
     let base = match fields.get("base").and_then(Value::as_str) {
@@ -220,7 +191,7 @@ pub(super) fn plan(
         .filter(|name| !name.is_empty())
         .unwrap_or_else(generated_name);
     let free = |candidate: &str| {
-        let branch = format!("refs/heads/{branch_prefix}{candidate}");
+        let branch = format!("refs/heads/{BRANCH_PREFIX}{candidate}");
         !folder.join(candidate).exists() && repository.commit(&branch).is_none()
     };
     let chosen = std::iter::once(name.clone())
@@ -232,7 +203,7 @@ pub(super) fn plan(
     };
     Ok(Attempt {
         root: folder.join(&chosen),
-        branch: format!("{branch_prefix}{chosen}"),
+        branch: format!("{BRANCH_PREFIX}{chosen}"),
         base,
         base_commit,
     })

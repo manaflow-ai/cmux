@@ -91,12 +91,6 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
     }
     rows.extend(app.sessions.iter().cloned());
     let filtered: Vec<usize> = (0..rows.len()).filter(|i| app.row_visible(*i)).collect();
-    // Per-frame work (cmux-view-rows frame_work): every row is copied and filtered.
-    #[cfg(test)]
-    {
-        cmux_view_rows::frame_work::cloned(rows.len());
-        cmux_view_rows::frame_work::walked(rows.len());
-    }
     // Every session of a project sits under one header; groups are ordered
     // by their most recent session (the list is already recency-sorted).
     let group_of = |s: &Value| -> String {
@@ -114,8 +108,7 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
     let mut members: std::collections::HashMap<String, Vec<usize>> =
         std::collections::HashMap::new();
     for &i in &filtered {
-        let Some(row) = rows.get(i) else { continue };
-        let g = group_of(row);
+        let g = group_of(&rows[i]);
         if !members.contains_key(&g) {
             order.push(g.clone());
         }
@@ -130,7 +123,7 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
                 entries.push(Entry::Blank);
             }
             let cwd = idxs.iter().find_map(|&i| {
-                let s = rows.get(i)?;
+                let s = &rows[i];
                 (s.get("peer").is_none())
                     .then(|| s.get("cwd").and_then(Value::as_str).map(str::to_owned))
                     .flatten()
@@ -151,9 +144,6 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
             entries.push(Entry::More(g, hidden));
         }
     }
-    // Per-frame work: an entry per listed row and header, in view or not.
-    #[cfg(test)]
-    cmux_view_rows::frame_work::built(entries.len());
     let body_y = area.y + 2;
     let body_h = area.height.saturating_sub(2 + footer_h) as usize;
     let sel_pos =
@@ -220,7 +210,7 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
             }
             Entry::Row(idx) => {
                 let idx = *idx;
-                let Some(s) = rows.get(idx) else { continue };
+                let s = &rows[idx];
                 let is_sel = idx == selected;
                 let is_draft = s.get("draft").and_then(Value::as_bool).unwrap_or(false);
                 let name_owned = if is_draft {
@@ -260,14 +250,7 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
                     ("●", row_style.fg(c.warn_fg))
                 } else if status == "waiting" {
                     ("?", row_style.fg(c.attention_fg))
-                } else if s
-                    .get("sessionState")
-                    .and_then(|v| v.get("state"))
-                    .and_then(serde_json::Value::as_str)
-                    == Some("errored")
-                    || s.get("sessionState").is_none()
-                        && matches!(status, "disconnected" | "unreachable")
-                {
+                } else if matches!(status, "disconnected" | "unreachable") {
                     ("!", row_style.fg(c.error_fg))
                 } else if dot > 0 && !is_sel {
                     (

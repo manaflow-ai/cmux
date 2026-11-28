@@ -8,6 +8,7 @@
 // - with no motion (no Web Animations, Reduce Motion) every change applies at once.
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { MOTION_SETTLE_MS } from "../src/motion/scale.generated";
 import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=host><div id=root></div></div>", {
@@ -35,7 +36,6 @@ const replacements: Record<string, unknown> = {
 };
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
-const { MOTION_SETTLE_MS } = await import("../src/motion/scale.generated");
 const proto = dom.window.HTMLElement.prototype as unknown as Record<string, unknown>;
 const host = dom.window.document.getElementById("host")!;
 Object.defineProperty(proto, "offsetParent", { configurable: true, get: () => host });

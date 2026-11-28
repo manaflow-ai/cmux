@@ -11,10 +11,7 @@
 //!    window): only with `Delivery::Foreground`, after activating the
 //!    window, or on a headless server where no person shares the pointer,
 //!    and then only when the target is on top at the point (pointer) or
-//!    holds the input focus (keys). A foreground click or drag reads the
-//!    person's pointer first and puts it back after, so it never stays
-//!    where the agent pressed; a foreground hover activates the window and
-//!    sends the window a MotionNotify (route 2), so the real pointer stays.
+//!    holds the input focus (keys).
 
 use std::os::fd::AsRawFd;
 use std::time::{Duration, Instant};
@@ -124,7 +121,6 @@ impl X11Desktop {
         let button = button_code(spec.button);
         if let Some(route) = self.xtest_route(c, spec.delivery, Some(p))? {
             let mods = self.modifier_codes(&spec.modifiers)?;
-            let saved = self.person_pointer(route);
             self.xtest_motion(p)?;
             for m in &mods {
                 self.fake(xproto::KEY_PRESS_EVENT, *m)?;
@@ -136,7 +132,6 @@ impl X11Desktop {
             for m in mods.iter().rev() {
                 self.fake(xproto::KEY_RELEASE_EVENT, *m)?;
             }
-            self.restore_pointer(saved)?;
             self.flush()?;
             return Ok(ActionOutcome::delivered(route).at(p));
         }
@@ -188,11 +183,9 @@ impl X11Desktop {
         Ok(synthetic_note(ActionOutcome::delivered("xsendevent").at(p)))
     }
 
-    /// The pointer onto `target`, nothing pressed (a hover): XTest only on a
-    /// headless server (no person's pointer to move), else a synthetic
-    /// MotionNotify to the X window under the point. Foreground activates
-    /// the window first; the person's pointer stays where it is either way
-    /// (a hover that moved it would have to leave it there).
+    /// The pointer onto `target`, nothing pressed (a hover): XTest where it
+    /// may move the real pointer (foreground, or headless), else a synthetic
+    /// MotionNotify to the X window under the point.
     pub(crate) fn move_impl(
         &self,
         target: &PointerTarget,
@@ -200,10 +193,7 @@ impl X11Desktop {
     ) -> DResult<ActionOutcome> {
         let c = self.client(target.window_id())?;
         let p = self.point_of(&c, target)?;
-        if delivery == Delivery::Foreground {
-            self.activate(&c)?;
-        }
-        if let Some(route) = self.xtest_route(&c, Delivery::Background, Some(p))? {
+        if let Some(route) = self.xtest_route(&c, delivery, Some(p))? {
             self.xtest_motion(p)?;
             self.flush()?;
             return Ok(ActionOutcome::delivered(route).at(p));
@@ -233,14 +223,12 @@ impl X11Desktop {
             y: from.y + (to.y - from.y) * f64::from(i) / f64::from(steps),
         };
         if let Some(route) = self.xtest_route(&c, delivery, Some(from))? {
-            let saved = self.person_pointer(route);
             self.xtest_motion(from)?;
             self.fake(xproto::BUTTON_PRESS_EVENT, b)?;
             for i in 1..=steps {
                 self.xtest_motion(lerp(i))?;
             }
             self.fake(xproto::BUTTON_RELEASE_EVENT, b)?;
-            self.restore_pointer(saved)?;
             self.flush()?;
             return Ok(ActionOutcome::delivered(route).at(to));
         }
@@ -386,13 +374,7 @@ impl X11Desktop {
             Some(name) => (Route::XTest, name, false),
             None => match self.focus_in(c) {
                 Some(focus) => (Route::Send(focus), "xsendevent", false),
-                // A focus read that failed is read again for a moment
-                // (nothing is sent meanwhile) before the keys are refused.
-                None => match crate::reread::reread(crate::reread::REREAD_WAIT, || {
-                    Some(self.lend_plan(c)).filter(|plan| !matches!(plan, Lend::Unknown))
-                })
-                .unwrap_or(Lend::Unknown)
-                {
+                None => match self.lend_plan(c) {
                     Lend::Yes => (Route::Send(c.win), "xsendevent", true),
                     Lend::No => (Route::Send(c.win), "xsendevent", false),
                     Lend::SameAppHasFocus => {
@@ -405,9 +387,8 @@ impl X11Desktop {
                     }
                     Lend::Unknown => {
                         return Err(DesktopError::Unsupported(
-                            "which window has the keyboard focus did not answer for over a second, so keys \
-                             for this window might reach the person's and none were sent; use set_value or \
-                             an element action"
+                            "could not read which window has the keyboard focus, so keys for this window \
+                             might reach the person's; try again, or use set_value or an element action"
                                 .into(),
                         ));
                     }
@@ -616,24 +597,6 @@ impl X11Desktop {
         mark_injection();
         self.conn.xtest_fake_input(kind, detail, CURRENT_TIME, self.root, 0, 0, 0).map_err(xerr)?;
         Ok(())
-    }
-
-    /// Where the person's pointer is, before an XTest gesture on the
-    /// foreground route moves it (`None` on a headless server: no person).
-    fn person_pointer(&self, route: &str) -> Option<Point> {
-        if route != "xtest" {
-            return None;
-        }
-        let r = self.conn.query_pointer(self.root).ok()?.reply().ok()?;
-        Some(Point { x: f64::from(r.root_x), y: f64::from(r.root_y) })
-    }
-
-    /// The pointer back where [`Self::person_pointer`] found it.
-    fn restore_pointer(&self, saved: Option<Point>) -> DResult<()> {
-        match saved {
-            Some(p) => self.xtest_motion(p),
-            None => Ok(()),
-        }
     }
 
     fn xtest_motion(&self, p: Point) -> DResult<()> {

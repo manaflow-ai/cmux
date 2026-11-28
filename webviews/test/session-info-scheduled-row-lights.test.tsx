@@ -9,16 +9,11 @@
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { TasksSectionInput } from "../src/agent-session/acpmux/session-info/native/tasks";
+import { translate } from "../src/agent-session/acpmux/i18n";
+import { NativeInfoActions } from "../src/agent-session/acpmux/session-info/native/model";
+import { tasksSection, type TasksSectionInput } from "../src/agent-session/acpmux/session-info/native/tasks";
+import { TasksSection } from "../src/agent-session/acpmux/session-info/TasksSection";
 import type { SummaryWakeup } from "../src/agent-session/acpmux/summary/sessionSummary";
-import { importWithDom } from "./support/importWithDom";
-
-const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
-const { NativeInfoActions } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/native/model"),
-);
-const { tasksSection } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/native/tasks"));
-const { TasksSection } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/TasksSection"));
 
 const NOW = 1_800_000_000_000;
 const heartbeat: SummaryWakeup = {

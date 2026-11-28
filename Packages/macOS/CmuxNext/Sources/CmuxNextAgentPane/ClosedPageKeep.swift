@@ -38,10 +38,7 @@ public final class ClosedPageKeeper<Page: AnyObject> {
         }
     }
 
-    private func lowPowerChanged() { dropAll() }
-
-    /// Tears every kept page down now (Low Power Mode; the chat renderer recycle, whose old process they keep).
-    public func dropAll() {
+    private func lowPowerChanged() {
         for page in kept.removeAll() { teardown(page) }
         timer.cancel()
         observePower()

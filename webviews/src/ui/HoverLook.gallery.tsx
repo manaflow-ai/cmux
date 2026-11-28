@@ -6,7 +6,6 @@
 // l10n-allow-file: gallery fixture labels, not shipped UI.
 import { useLayoutEffect } from "react";
 import { componentEntry } from "../gallery/format";
-import { KeyHint } from "./KeyHint";
 import { HOVER_LOOK_ATTRIBUTE, type HoverLook } from "./hoverLook.experiment";
 
 type Props = { look?: HoverLook | "off" };
@@ -22,7 +21,7 @@ function HoverLookGallery({ look = "crisp" }: Props) {
     <div className="hover-look-gallery">
       <div className="hover-look-gallery-row">
         <div className="ui-tooltip ui-glass" role="tooltip">
-          <KeyHint keys="⌘T" className="ui-tooltip-hint" />
+          <span className="ui-tooltip-hint">⌘T</span>
           <span className="ui-tooltip-text">New tab</span>
         </div>
         <div className="ui-tooltip ui-glass" role="tooltip">

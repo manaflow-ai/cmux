@@ -180,10 +180,8 @@ final class UnsentKeysClock {
     }
 
     /// (b) Keys the person typed while the Mac was unreachable, dropped past
-    /// the hold: they never run, and nothing is said (Leo, 2026-11-23:
-    /// "remove the 'Keys typed while your Mac was unreachable were not sent.'
-    /// banner ... things just work").
-    @Test func keysTypedDuringAnOutageAreDroppedSilently() async throws {
+    /// the hold: the notice says so, and they never run.
+    @Test func keysTypedDuringAnOutageSayTheyWereNotSent() async throws {
         let rig = try await Self.makeRig()
         defer { rig.close() }
         try await rig.dropLink()
@@ -192,8 +190,8 @@ final class UnsentKeysClock {
         rig.screen.surface.perform([.text("ls")])
         try await rig.reattachAfterTheHold()
 
-        try await Task.sleep(for: .milliseconds(200)) // test: the drop's event reaches the screen
-        #expect(rig.model.composerNotice == nil, "no banner for dropped keys")
+        try await Self.waitUntil { rig.model.composerNotice != nil }
+        #expect(rig.model.composerNotice == TerminalConnectionState.inputNotSentNotice)
         #expect(rig.sent == sentBefore, "keys typed in the outage ran after it")
     }
 

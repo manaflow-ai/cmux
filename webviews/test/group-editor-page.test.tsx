@@ -6,7 +6,6 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -44,9 +43,9 @@ afterAll(async () => {
   await teardownDom(saved, { scope });
 });
 
-const { mountGroupEditor } = await importWithDom(() => import("../src/pages/group-editor/mount"));
-const { GroupEditorOps, SET_ICON_ITEM } = await importWithDom(() => import("../src/pages/group-editor/host"));
-const { fixtureColors, fixtureSession } = await importWithDom(() => import("../src/pages/group-editor/fixtures"));
+const { mountGroupEditor } = await import("../src/pages/group-editor/mount");
+const { GroupEditorOps, SET_ICON_ITEM } = await import("../src/pages/group-editor/host");
+const { fixtureColors, fixtureSession } = await import("../src/pages/group-editor/fixtures");
 
 type Call = { op: string; params: Record<string, unknown> };
 

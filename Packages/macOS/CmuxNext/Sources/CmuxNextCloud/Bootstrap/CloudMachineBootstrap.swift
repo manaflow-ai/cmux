@@ -45,7 +45,7 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
     /// One read of the run's end (``waitForRun(on:bound:)``).
     public nonisolated static var waitCommand: String { facts.waitCommand }
 
-    /// The calls a bootstrap makes, over ``CloudDaemon`` in the app and fakes in tests.
+    /// The calls a bootstrap makes, over ``CloudAPIClient`` in the app and fakes in tests.
     public struct Machine: Sendable {
         var write: @Sendable (_ path: String, _ data: Data, _ mode: Int) async throws -> Void
         var exec: @Sendable (_ command: String) async throws -> CloudExecResult
@@ -56,7 +56,7 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
             self.exec = exec
         }
 
-        public init(api: CloudDaemon, machineID: String) {
+        public init(api: CloudAPIClient, machineID: String) {
             self.init(write: { try await api.writeFile(machineID, path: $0, data: $1, mode: $2) },
                       exec: { try await api.exec(machineID, command: $0, timeoutMs: 20_000) })
         }

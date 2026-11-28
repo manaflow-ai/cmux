@@ -161,7 +161,7 @@ export default componentEntry<ChiefWebProps>({
     reconnecting: { props: fixture("reconnecting") },
     "transcript-load-failed": {
       props: { ...fixture(), loadTranscript: () => Promise.reject(new Error("offline")), reloadPage: () => {} },
-      note: "The transcript's chunk could not load (a dropped connection): the page keeps trying on its own, with no Retry, and says one quiet line once it lasts.",
+      note: "The transcript's chunk could not load (a dropped connection): the page says so with Retry, and keeps trying.",
     },
     "machine-claude": {
       props: fixture("signin-claude"),
@@ -174,33 +174,6 @@ export default componentEntry<ChiefWebProps>({
     "machine-codex": {
       props: fixture("signin-codex"),
       note: "Device code and explicit continuation, without a code-paste field.",
-    },
-    // Leo, 2026-11-22: no vacuous Try again. A Chief that does not answer is asked again on its own;
-    // one that stays away past the deadline gets one quiet line, with no button.
-    "still-trying": {
-      props: {
-        storage: memoryStorage(),
-        api: {
-          me: async () => {
-            throw new Error("Chief gateway did not answer");
-          },
-          ticket: async () => ({ ticket: "", websocketUrl: "" }),
-          send: async () => undefined,
-        },
-      },
-      note: "Selected: the account's Chief has not answered for a while; the page keeps asking, with no Retry.",
-    },
-    "machine-still-checking": {
-      props: {
-        ...fixture("signin-claude"),
-        loginApi: {
-          ...fixture("signin-claude").loginApi!,
-          status: async () => {
-            throw new Error("status did not answer");
-          },
-        },
-      },
-      note: "A sign-in card whose run status has not been read yet: one quiet line, read again on its own.",
     },
     expired: {
       props: {

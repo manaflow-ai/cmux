@@ -153,15 +153,6 @@ impl Match {
             })
     }
 
-    /// A target with a menu role (menu_item, menu_bar_item, menu) is looked
-    /// up in the app's menu bar too, so one batch step can press a menu
-    /// command (File > Save) with no look first to learn its id.
-    fn in_menus(&self) -> bool {
-        self.role.as_deref().is_some_and(|r| {
-            ["menu_item", "menu_bar_item", "menu"].iter().any(|m| r.eq_ignore_ascii_case(m))
-        })
-    }
-
     /// `role "button", label "Save"`.
     fn describe(&self) -> String {
         let mut parts = Vec::new();
@@ -625,23 +616,10 @@ impl Engine {
             let config = self.config();
             self.authorize(&config, ctx, Access::Observe, Some(&app), false)
                 .map_err(|e| audited(e, Some(&app)))?;
-            let (n, line, tree) =
+            let (n, line) =
                 self.resolve_target(ctx, &window, m).map_err(|e| audited(e, Some(&app)))?;
             set_key(&mut step, "element_id", json!(n.to_string()));
             resolved = Some(json!({"element_id": n.to_string(), "matched": line}));
-            // The read that found the target is the elements' baseline too
-            // (not one that read the menu bar: a step's state never does).
-            if prev.is_none() && !m.in_menus() {
-                *prev = Some(self.baseline_from(ctx, window_id, tree, opts));
-            }
-        }
-        // No earlier look at the window's elements (the agent acted at once,
-        // as the instructions ask): read them once before the action, so its
-        // outcome can be decided by comparing, and the agent is not sent to
-        // look again (every look is a model turn). A read that fails or is
-        // not allowed leaves the step as before: a first look after it.
-        if prev.is_none() {
-            *prev = self.baseline(ctx, window_id, opts);
         }
         let windows_before = self.window_ids_over_target(window_id);
         let world_before = self.desktop.world();
@@ -734,8 +712,8 @@ impl Engine {
         ctx: &CallContext,
         window: &Window,
         m: &Match,
-    ) -> Result<(u32, String, crate::desktop::UiTree), ToolOutput> {
-        let tree = self.read_for_match(ctx, &window.id, m.in_menus())?;
+    ) -> Result<(u32, String), ToolOutput> {
+        let tree = self.read_for_match(ctx, &window.id)?;
         let mut hits = Vec::new();
         find_all(&tree.root, m, &mut hits);
         let what = m.describe();
@@ -751,8 +729,7 @@ impl Engine {
             [one] if !tree.truncated => {
                 let n = ids::parse(&one.id).unwrap_or_default();
                 self.record_shown(&ctx.session, &window.id, &[n]);
-                let line = element_line(one);
-                Ok((n, line, tree))
+                Ok((n, element_line(one)))
             }
             [_] => Err(ToolOutput::error(
                 "ambiguous_element",
@@ -779,61 +756,18 @@ impl Engine {
         }
     }
 
-    /// The window's elements just before a step, for a step with no earlier
-    /// look to compare with: one read at the same options the step's own
-    /// state is read with ([`Self::attach_state`]), so the two compare line
-    /// for line. Only where the agent may look; None when the read fails.
-    /// It is not shown to the agent, so its next look is unchanged.
-    fn baseline(
-        &self,
-        ctx: &CallContext,
-        window_id: &str,
-        opts: &outline::Options,
-    ) -> Option<outline::Outline> {
-        let window = self.window(window_id).ok()?;
-        let app = self.app_of(&window);
-        let config = self.config();
-        self.authorize(&config, ctx, Access::Observe, Some(&app), false).ok()?;
-        let tree = self
-            .walk_tree_for(
-                Some(&ctx.session),
-                window_id,
-                TreeOptions { menus: false, ..TreeOptions::default() },
-            )
-            .ok()?;
-        Some(self.baseline_from(ctx, window_id, tree, opts))
-    }
-
-    /// An outline of `tree` as a step's state would give it (frames in the
-    /// session's screenshot pixels where it has a capture of the window).
-    fn baseline_from(
-        &self,
-        ctx: &CallContext,
-        window_id: &str,
-        mut tree: crate::desktop::UiTree,
-        opts: &outline::Options,
-    ) -> outline::Outline {
-        let seen =
-            lock(&self.seen).get(&(ctx.session.clone(), format!("w:{window_id}"))).map(|(g, _)| *g);
-        if let Some(geometry) = seen {
-            rewrite_frames(&mut tree.root, &geometry);
-        }
-        outline::build(&tree.root, tree.truncated, opts)
-    }
-
     /// The window read for a match, whole where one read can cover it: a
     /// read cut short at the default limit is read again wider.
     fn read_for_match(
         &self,
         ctx: &CallContext,
         window_id: &str,
-        menus: bool,
     ) -> Result<crate::desktop::UiTree, ToolOutput> {
         let read = |max_nodes| {
             self.walk_tree_for(
                 Some(&ctx.session),
                 window_id,
-                TreeOptions { max_nodes, menus, ..TreeOptions::default() },
+                TreeOptions { max_nodes, menus: false, ..TreeOptions::default() },
             )
             .map_err(|e| ToolOutput::desktop(&e))
         };
@@ -952,8 +886,7 @@ impl Engine {
         w: &WaitFor,
         first: bool,
     ) -> Result<(Probe, crate::desktop::UiTree), ToolOutput> {
-        let menus = matches!(&w.subject, Subject::Match(m) if m.in_menus());
-        let tree = self.read_for_match(ctx, &window.id, menus)?;
+        let tree = self.read_for_match(ctx, &window.id)?;
         let element: Option<Element> = match &w.subject {
             Subject::Id(n) => {
                 let resolved = lock(&self.observe.ids).window(&window.id).map(|r| r.resolve(*n));

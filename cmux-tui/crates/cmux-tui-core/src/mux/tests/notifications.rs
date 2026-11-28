@@ -1153,7 +1153,7 @@ fn agent_turning_blocked_posts_once_per_transition_when_blocked_delivery_is_bann
     assert!(posted_during(&mux, || report(AgentState::Blocked)).is_empty());
     // Unblocked, then Blocked again: a new transition posts again.
     report(AgentState::Working);
-    std::thread::sleep(Duration::from_millis(5));
+    std::thread::sleep(std::time::Duration::from_millis(5));
     assert_eq!(posted_during(&mux, || report(AgentState::Blocked)).len(), 1);
     let blocked = mux
         .resource_notifications(16)

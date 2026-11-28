@@ -8,12 +8,6 @@ const repo = "https://github.com/manaflow-ai/cmux";
 // A build with no canary verdict (`pending`) has no badge.
 const titles = { promoted: "Promoted", held: "Held", pulled: "Pulled", pending: null } as const;
 
-const prTitles = [
-  "Fix the Dock badge after a restart",
-  "Show which PRs went into each build",
-  "Faster first reply on Cloud start",
-];
-
 function build(
   number: number,
   commit: string,
@@ -32,9 +26,7 @@ function build(
     pulled_reason: null,
     installed: false,
     kept: false,
-    // Every PR of the build with its title, as hosts send them since the PR list.
-    prs: prTitles.map((title, i) => ({ number: number * 7 + i, url: `${repo}/pull/${number * 7 + i}`, title })),
-    prs_label: `PRs (${prTitles.length})`,
+    prs: [{ number: number * 7, url: `${repo}/pull/${number * 7}` }],
     // This Mac follows a feed: every build but the installed and pulled ones offers Switch.
     switch: health !== "pulled" && !extra.installed,
     ...extra,

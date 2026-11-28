@@ -7,7 +7,7 @@ import { Check, ChevronRight } from "../conversation/icons";
 import { CardDismiss } from "./CardDismiss";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { ANSWER_HOLD_MS, useAnswerHold } from "../answerHold";
-import { KeyHint } from "../../../ui/KeyHint";
+import { Keycap } from "../Keycap";
 import { NativeError } from "../nativeError";
 import { knownRefusalText } from "../transportErrors";
 import {
@@ -498,7 +498,6 @@ function PendingQuestion({
         </legend>
         {refused && (
           <p className="acpmux-question-error" role="alert">
-            {/* retry-prompt-ok: answering again re-sends the answer to the agent, the person chooses to */}
             {t("question.replyFailed")}
             {refused.reason && " "}
             {refused.reason && <span className="acpmux-question-error-reason">{refused.reason}</span>}
@@ -516,7 +515,7 @@ function PendingQuestion({
                 onClick={skip}
               >
                 {inlineText(reject.label)}
-                <KeyHint keys="esc" aria-hidden="true" />
+                <Keycap>esc</Keycap>
               </button>
             )}
           </WithFacts>
@@ -528,7 +527,7 @@ function PendingQuestion({
             onClick={() => dispatch({ type: "number", value: consent.accept + 1 })}
           >
             {inlineText(accept.label)}
-            <KeyHint keys="↩" aria-hidden="true" />
+            <Keycap>↩</Keycap>
           </button>
         </div>
       </fieldset>
@@ -710,7 +709,6 @@ function PendingQuestion({
         </div>
         {refused && (
           <p className="acpmux-question-error" role="alert">
-            {/* retry-prompt-ok: answering again re-sends the answer to the agent, the person chooses to */}
             {t("question.replyFailed")}
             {refused.reason && " "}
             {refused.reason && <span className="acpmux-question-error-reason">{refused.reason}</span>}
@@ -737,7 +735,7 @@ function PendingQuestion({
               onClick={skip}
             >
               {t("question.skip")}
-              <KeyHint keys="esc" aria-hidden="true" />
+              <Keycap>esc</Keycap>
             </button>
             {/* In an ask of several questions the button is as wide as Next and Send both, so Skip
                 stays put when it turns from one to the other. */}
@@ -762,7 +760,8 @@ function PendingQuestion({
               >
                 <SwapLabel shown={t("composer.send")} other={many ? t("question.next") : undefined} />
                 <span className="acpmux-question-keys">
-                  <KeyHint keys="⌘↩" aria-hidden="true" />
+                  <Keycap>⌘</Keycap>
+                  <Keycap>↩</Keycap>
                 </span>
               </button>
             )}

@@ -205,7 +205,6 @@ export function CheckpointReview({
       {busy && <output>{busy === "creating" ? s.creating : busy === "recovering" ? s.recovering : s.loading}</output>}
       {pending && !busy && onRetry && (
         <button type="button" onClick={onRetry}>
-          {/* retry-prompt-ok: sends a saved create, keep or release again, a write to the repository's checkpoints. */}
           {s.retry}
         </button>
       )}

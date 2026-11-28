@@ -474,9 +474,6 @@ pub enum AutoReason {
     Away,
     /// A turn has run long.
     LongTurn,
-    /// This computer is over its CPU and RAM budget (the host budget's verdict). Shadow only:
-    /// [`verdict::judge`] logs it and nothing moves for it yet (RFD 0072's first stage).
-    Busy,
 }
 
 /// The memory pressure the OS reports.
@@ -489,8 +486,7 @@ pub enum Pressure {
     Critical,
 }
 
-/// This computer's state. Memory and battery come from the host budget's verdict
-/// ([`verdict::signals`]); the app reads only sleep, disk and idle time.
+/// This computer's state, as the app reads it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Signals {
@@ -758,8 +754,6 @@ pub fn own_machine(session: &str, before: Option<&str>, machines: &[Machine]) ->
         None => OwnMachine::Create,
     }
 }
-
-pub mod verdict;
 
 #[cfg(test)]
 mod tests;

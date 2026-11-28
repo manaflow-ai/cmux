@@ -2,12 +2,10 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { PeoplePicker } from "../src/pages/home-channels/PeoplePicker";
 import type { Strings } from "../src/pages/shared/i18n";
 import type { HomeParticipant } from "../src/pages/home-channels/types";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { PeoplePicker } = await importWithDom(() => import("../src/pages/home-channels/PeoplePicker"));
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();

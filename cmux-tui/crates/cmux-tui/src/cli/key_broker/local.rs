@@ -14,7 +14,7 @@
 //! - **Where a value lives.** The OS secret store (the login Keychain on a Mac, the Secret Service
 //!   on Linux), item `key.NAME` of the store the machine vault uses (`acpmux::vault::store`). There
 //!   is no file or memory fallback: a machine with no OS store refuses. The audit
-//!   (`~/.config/cmux-next/keys.json`, 0600) gets one record per key: its name, purpose, the hosts it is
+//!   (`~/.config/cmux/keys.json`, 0600) gets one record per key: its name, purpose, the hosts it is
 //!   for, who stored it and who asked, when it expires, every place a copy was written (`stores`)
 //!   and every place it was entered (`uses`). Never a value.
 //! - **How a value comes in.** stdin only (a pipe from the provider's CLI or API, or a no-echo

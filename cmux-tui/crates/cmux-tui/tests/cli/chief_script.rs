@@ -346,9 +346,6 @@ impl EnsuredDaemon {
 impl Drop for EnsuredDaemon {
     fn drop(&mut self) {
         let _ = self.server("stop").arg("--end-terminals").output();
-        // A failed stop leaves the server (and its agents) running; once the
-        // home is gone nothing can reach them (cmux#64121).
-        end_processes_of_home(&self.dir);
         let _ = fs::remove_dir_all(&self.dir);
     }
 }

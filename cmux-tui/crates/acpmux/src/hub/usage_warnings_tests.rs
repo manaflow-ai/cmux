@@ -10,11 +10,6 @@ fn row(family: &str, stats: Value) -> Value {
     json!({"name": "dep-1", "status": "idle", "family": family, "usageStats": stats})
 }
 
-/// The limits with the opt-in `autocompactCap` rule on (`usageWarnings.autocompactCap: true`).
-fn cap_on() -> UsageLimits {
-    UsageLimits { autocompact_cap: true, ..UsageLimits::default() }
-}
-
 fn rules(warnings: &[Value]) -> Vec<&str> {
     warnings.iter().filter_map(|w| w["rule"].as_str()).collect()
 }
@@ -25,7 +20,7 @@ fn a_runaway_claude_session_breaks_all_three_rules_with_its_numbers() {
         "claude",
         json!({"autocompact": "none", "autocompactCap": null, "contextTokens": 412_000, "subagents1h": 90}),
     );
-    let w = usage_warnings(&deputy, &cap_on());
+    let w = usage_warnings(&deputy, &UsageLimits::default());
     assert_eq!(rules(&w), ["noAutocompactCap", "contextTokens", "subagentsPerHour"]);
     assert_eq!(w[0]["value"], 412_000);
     assert_eq!(w[0]["limit"], Value::Null);
@@ -126,7 +121,7 @@ fn the_context_line_is_the_sessions_own_window() {
     assert_eq!(usage_warnings(&over, &limits)[0]["limit"], 200_000);
     // An explicit contextTokens wins over the window; 0 turns the rule off.
     let fixed: UsageWarningsConfig =
-        serde_json::from_value(json!({"contextTokens": 300_000, "autocompactCap": true})).unwrap();
+        serde_json::from_value(json!({"contextTokens": 300_000})).unwrap();
     assert_eq!(
         rules(&usage_warnings(&wide, &fixed.limits())),
         ["noAutocompactCap", "contextTokens"]
@@ -135,25 +130,13 @@ fn the_context_line_is_the_sessions_own_window() {
     assert!(usage_warnings(&capped, &off.limits()).is_empty());
 }
 
-/// With no window known, the line is 400k (Leo, 2026-11-03: "i have everybody on 400k context
-/// window is all").
+/// With no window known, the line is the autocompact window acpmux starts Claude Code with.
 #[test]
-fn the_fallback_line_is_400k() {
-    assert_eq!(FALLBACK_CONTEXT_TOKENS, 400_000);
-}
-
-/// No autocompact cap is how Claude Code ships, and acpmux gives a chat none unless the settings
-/// name a window (`harness_limits::SETTING_AUTOCOMPACT_WINDOW`), so the rule is opt-in: on by
-/// default it flagged every such chat and pointed it at a profile only Leo's fleet has (Leo,
-/// 2026-11-26: "identify all the weird opinoinated fleet things we shipped into the app and
-/// remove them").
-#[test]
-fn no_cap_warns_only_when_turned_on() {
-    let plain = row("claude", json!({"autocompact": "none", "autocompactCap": null}));
-    assert!(!UsageLimits::default().autocompact_cap);
-    assert!(usage_warnings(&plain, &UsageLimits::default()).is_empty());
-    let on: UsageWarningsConfig = serde_json::from_value(json!({"autocompactCap": true})).unwrap();
-    assert_eq!(rules(&usage_warnings(&plain, &on.limits())), ["noAutocompactCap"]);
+fn the_fallback_line_is_the_launch_autocompact_window() {
+    assert_eq!(
+        FALLBACK_CONTEXT_TOKENS.to_string(),
+        crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW.1
+    );
 }
 
 #[test]
@@ -186,7 +169,7 @@ fn no_cap_with_no_context_read_yet_still_warns() {
         "claude",
         json!({"autocompact": "none", "autocompactCap": null, "contextTokens": null}),
     );
-    let w = usage_warnings(&fresh, &cap_on());
+    let w = usage_warnings(&fresh, &UsageLimits::default());
     assert_eq!(rules(&w), ["noAutocompactCap"]);
     assert_eq!(w[0]["value"], Value::Null);
     assert!(
@@ -248,15 +231,14 @@ fn an_unknown_field_never_warns() {
     let capped = row("claude", json!({"autocompact": "capped", "autocompactCap": null}));
     assert!(usage_warnings(&capped, &UsageLimits::default()).is_empty());
     let none = row("claude", json!({"autocompact": "none", "autocompactCap": null}));
-    assert!(usage_warnings(&none, &UsageLimits::default()).is_empty(), "the cap rule is opt-in");
-    assert_eq!(rules(&usage_warnings(&none, &cap_on())), ["noAutocompactCap"]);
+    assert_eq!(rules(&usage_warnings(&none, &UsageLimits::default())), ["noAutocompactCap"]);
 }
 
 /// A peer's row is renamed `<peer>/<name>`; its commands follow, so they reach the peer's session.
 #[test]
 fn a_peers_row_names_the_peers_session_in_its_commands() {
     let mut summary = row("claude", json!({"autocompact": "none", "contextTokens": 412_000}));
-    let warnings = usage_warnings(&summary, &cap_on());
+    let warnings = usage_warnings(&summary, &UsageLimits::default());
     summary["usageWarnings"] = json!(warnings);
     summary["name"] = json!("box/dep-1");
     super::usage_warnings::for_name(&mut summary);

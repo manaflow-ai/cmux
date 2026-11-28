@@ -95,7 +95,7 @@ def main():
     results["checks"]["filter_labels"] = labels
     results["checks"]["per_computer"] = {h: [d[:8] for d in ds] for h, ds in per_computer.items()}
     ok_filter = len(listed) == len(rigs) and all(len(ds) == len(computers[h]) for h, ds in per_computer.items())
-    sim.tap_q(ident="workspaces.filter.all", timeout=10)
+    sim.tap_q(label="All Macs", timeout=10)
 
     # Settings > Devices: every build listed, none marked as another build.
     j.tab("Settings")

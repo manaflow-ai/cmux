@@ -171,36 +171,3 @@ fn known_refusals_get_the_clis_own_words_and_keep_their_code() {
     let unknown = json!({ "code": "feature.disabled", "message": "Cloud is off" });
     assert_eq!(localized_error(&unknown), unknown);
 }
-
-#[test]
-fn a_mint_cmux_api_could_not_reach_is_asked_again() {
-    let patience = || {
-        Patience::new("a test", Duration::from_secs(5))
-            .quiet()
-            .spaced(Duration::from_millis(1), Duration::from_millis(2))
-    };
-    let mut asks = 0;
-    let answer = retry_unavailable(patience(), || {
-        asks += 1;
-        Ok(if asks < 3 {
-            Ok(Err(json!({"code": "unavailable"})))
-        } else {
-            Ok(Ok(json!({"ok": 1})))
-        })
-    });
-    assert_eq!(answer, Ok(Ok(Ok(json!({"ok": 1})))));
-    assert_eq!(asks, 3);
-
-    let mut asks = 0;
-    let answer = retry_unavailable(patience(), || {
-        asks += 1;
-        Ok(Ok(Err(json!({"code": "handoff_invalid"}))))
-    });
-    assert_eq!(answer, Ok(Ok(Err(json!({"code": "handoff_invalid"})))));
-    assert_eq!(asks, 1);
-
-    let answer = retry_unavailable(Patience::new("a test", Duration::ZERO).quiet(), || {
-        Ok(Ok(Err(json!({"code": "unavailable"}))))
-    });
-    assert_eq!(answer, Ok(Ok(Err(json!({"code": "unavailable"})))));
-}

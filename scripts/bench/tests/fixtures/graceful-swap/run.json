@@ -1,7 +1,0 @@
-{"version": "1", "label": "overlay", "trigger": "web-overlay.sh install-app APP", "ok": false,
- "regions": {"focused": {"transient_frames": 7, "blank_frames": 3, "changed_frames": 9, "kept": false, "end_diff": 0.03,
-   "shift_px": -8, "first_change_ms": 140, "settled_ms": 1210, "transient_at_ms": []},
-   "unfocused": {"transient_frames": 0, "blank_frames": 0, "changed_frames": 0, "kept": true, "end_diff": 0.0,
-   "shift_px": 0, "first_change_ms": null, "settled_ms": 0, "transient_at_ms": []}},
- "probe": [{"kind": "swap", "page": "agent-chat", "kept_text": true, "kept_selection": false, "kept_focus": true,
-   "kept_attachments": true, "kept_scroll": true, "restored_ms": 420, "layout_shift": 0.002}]}

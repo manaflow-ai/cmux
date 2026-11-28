@@ -46,7 +46,7 @@ public nonisolated struct ThemeFileSetting: Sendable {
     /// The theme file `root` names, nil when unset or not a valid name (the schema check reports it).
     /// Rust answers (`theme.name`).
     public static func name(in root: JSONValue) -> String? {
-        SettingsRust.answer("theme.name", .object(["root": root.keeping([configPath])]))["name"]?.stringValue
+        SettingsRust.answer("theme.name", .object(["root": root]))["name"]?.stringValue
     }
 
     /// The names of the theme files in the folder and the shipped ones, each once, sorted as Finder

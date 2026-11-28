@@ -338,18 +338,6 @@ struct Provider {
     events: &'static [&'static str],
 }
 
-macro_rules! journal_plugin {
-    ($file:literal) => {
-        Format::Plugin {
-            template: concat!(
-                include_str!("../assets/agent-hooks/plugin-stream.js"),
-                "\n",
-                include_str!(concat!("../assets/agent-hooks/", $file))
-            ),
-        }
-    };
-}
-
 const PROVIDERS: &[Provider] = &[
     Provider {
         id: "codex",
@@ -427,7 +415,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".omp/agent/config.json",
         override_env: None,
         override_relative_path: "config.json",
-        format: journal_plugin!("omp.ts"),
+        format: Format::Plugin { template: include_str!("../assets/agent-hooks/omp.ts") },
         events: &[],
     },
     Provider {
@@ -436,7 +424,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".campfire/agent/config.json",
         override_env: None,
         override_relative_path: "config.json",
-        format: journal_plugin!("campfire.ts"),
+        format: Format::Plugin { template: include_str!("../assets/agent-hooks/campfire.ts") },
         events: &[],
     },
     Provider {
@@ -517,7 +505,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".config/opencode/plugins/cmux-tui-journal.js",
         override_env: Some("OPENCODE_CONFIG_DIR"),
         override_relative_path: "plugins/cmux-tui-journal.js",
-        format: journal_plugin!("opencode.js"),
+        format: Format::Plugin { template: include_str!("../assets/agent-hooks/opencode.js") },
         events: &[],
     },
     Provider {
@@ -526,7 +514,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".config/amp/plugins/cmux-tui-journal.ts",
         override_env: None,
         override_relative_path: "plugins/cmux-tui-journal.ts",
-        format: journal_plugin!("amp.ts"),
+        format: Format::Plugin { template: include_str!("../assets/agent-hooks/amp.ts") },
         events: &[],
     },
     Provider {
@@ -535,7 +523,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".pi/agent/extensions/cmux-tui-journal.ts",
         override_env: Some("PI_CODING_AGENT_DIR"),
         override_relative_path: "extensions/cmux-tui-journal.ts",
-        format: journal_plugin!("pi.ts"),
+        format: Format::Plugin { template: include_str!("../assets/agent-hooks/pi.ts") },
         events: &[],
     },
 ];
@@ -1724,18 +1712,19 @@ fn provider_status(
                 state
             }
         }
-        Format::Plugin { template } => match fs::read(path) {
-            Ok(content) if content == template.as_bytes() => "installed",
+        Format::Plugin { .. } => match fs::read(path) {
+            Ok(content) if is_current_plugin(&content) => "installed",
             Ok(content) if is_owned_plugin(&content) => "partial",
             _ => "absent",
         },
-        Format::HermesPlugin { module: expected_module, manifest: expected_manifest } => {
+        Format::HermesPlugin { .. } => {
             let module = fs::read(path.join("__init__.py"));
             let manifest = fs::read(path.join("plugin.yaml"));
             match (module, manifest) {
                 (Ok(module), Ok(manifest))
-                    if module == expected_module.as_bytes()
-                        && manifest == expected_manifest.as_bytes() =>
+                    if [module.as_slice(), manifest.as_slice()]
+                        .into_iter()
+                        .all(is_current_plugin) =>
                 {
                     "installed"
                 }
@@ -1933,6 +1922,10 @@ fn is_owned_plugin(content: &[u8]) -> bool {
         .any(|needle| content.windows(needle.len()).any(|window| window == needle))
 }
 
+fn is_current_plugin(content: &[u8]) -> bool {
+    content.windows(PLUGIN_MARKER.len()).any(|window| window == PLUGIN_MARKER.as_bytes())
+}
+
 fn ensure_owned_plugin_directory(path: &Path) -> anyhow::Result<()> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
@@ -2047,28 +2040,6 @@ fn muse_hook_command(helper: &Path, event: &str) -> anyhow::Result<String> {
     Ok(format!("{program} muse {event} #{COMMAND_MARKER}"))
 }
 
-/// How long `provider` waits for the hook command this installer writes for
-/// `event` before it gives up on it (and Claude Code shows "A hook didn't
-/// answer in time"): the `timeout` written, in the provider's own unit, as a
-/// duration. 5 s for a provider or file shape that writes none, the shortest
-/// any of them is given. The helper answers inside it (cmux-tui-hook
-/// `answer_deadline`).
-pub fn installed_hook_wait(provider: &str, event: &str) -> Duration {
-    let Some(entry) = PROVIDERS.iter().find(|entry| entry.id == provider) else {
-        return Duration::from_secs(COMMAND_HOOK_TIMEOUT_SECONDS);
-    };
-    match entry.format {
-        Format::Nested { timeout, .. } if entry.id == "gemini" => {
-            Duration::from_millis(installed_hook_timeout(*entry, event, timeout))
-        }
-        Format::Nested { timeout, .. } | Format::Flat { timeout } => {
-            Duration::from_secs(installed_hook_timeout(*entry, event, timeout))
-        }
-        Format::AntigravityJson => Duration::from_secs(10),
-        _ => Duration::from_secs(COMMAND_HOOK_TIMEOUT_SECONDS),
-    }
-}
-
 /// Pre-tool gates allow time for repo sync. Codex SessionEnd stays below its 3s cap.
 fn installed_hook_timeout(provider: Provider, event: &str, timeout: u64) -> u64 {
     if provider.id == "codex" {
@@ -2115,13 +2086,12 @@ pub fn claude_session_hook_settings(
     let binary = shell_quote(binary.to_str().context("the cmux-tui path is not UTF-8")?);
     let hooks = root.get_mut("hooks").and_then(Value::as_object_mut).context("hooks missing")?;
     for (event, groups) in hooks.iter_mut() {
+        let command = emit_hook_command(&binary, provider.id, event);
         for group in groups.as_array_mut().into_iter().flatten() {
             let handlers = group.get_mut("hooks").and_then(Value::as_array_mut);
             for handler in handlers.into_iter().flatten() {
                 if let Some(handler) = handler.as_object_mut() {
-                    let timeout = handler.get("timeout").and_then(Value::as_u64).unwrap_or(timeout);
-                    let command = emit_hook_command(&binary, provider.id, event, timeout);
-                    handler.insert("command".into(), Value::String(command));
+                    handler.insert("command".into(), Value::String(command.clone()));
                     // The pre-tool helper is synchronous; journal-only events are asynchronous.
                     handler.insert("async".into(), Value::Bool(!sync_barrier_event(event)));
                 }
@@ -2187,30 +2157,18 @@ fn sync_barrier_event(event: &str) -> bool {
 
 #[cfg(unix)]
 /// The fallback for `claude_session_hook_settings`. Pre-tool decisions are
-/// preserved; journal receipts from other events are discarded. The emit
-/// ends itself at [`emit_deadline_ms`] of the hook's installed `timeout`
-/// (seconds), so a stalled daemon never runs the hook past it.
-fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str, timeout: u64) -> String {
+/// preserved; journal receipts from other events are discarded.
+fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str) -> String {
     if sync_barrier_event(event) {
         return format!(
             "{quoted_binary} {HOOK_MODE_ARG} {provider} {event}||exit 2;#{COMMAND_MARKER}"
         );
     }
     format!(
-        "{quoted_binary} agent hook emit --source {} --event {} --deadline-ms {} >/dev/null 2>&1||:;echo {{}};#{COMMAND_MARKER}",
+        "{quoted_binary} agent hook emit --source {} --event {} >/dev/null 2>&1||:;echo {{}};#{COMMAND_MARKER}",
         shell_quote(provider),
         shell_quote(event),
-        emit_deadline_ms(timeout),
     )
-}
-
-/// When a hook installed with `timeout_seconds` answers: the timeout minus a
-/// tenth, the margin held between 1.5 s and 5 s (5 s gives 3.5 s, 3 s gives
-/// 1.5 s, 90 s gives 85 s), the rule the hook helper and leo-workspace#10655 use.
-pub fn emit_deadline_ms(timeout_seconds: u64) -> u64 {
-    let timeout = timeout_seconds.saturating_mul(1000);
-    let margin = (timeout / 10).clamp(1500, 5000);
-    timeout.saturating_sub(margin).max(500)
 }
 
 /// Codex's shared app-server may run hooks without the launching terminal's
@@ -2359,41 +2317,6 @@ pub fn codex_session_flag_hook_settings(
     let mut state = toml_edit::InlineTable::new();
     state.insert(&flag.state_key, entry.into());
     Ok([flag.setting, format!("hooks.state={state}")])
-}
-
-/// The `-c` values that run several commands as Codex session-flag hooks, trusted: one
-/// `hooks.<Event>=[...]` per event, each command its own group in the order given (group `i`,
-/// handler 0), and one `hooks.state` holding every trust entry. Two hooks on one event (the
-/// repository gate and the dedupe, both PreToolUse) need this: a second `hooks.PreToolUse=`
-/// would replace the first.
-pub fn codex_session_flag_hooks_settings(
-    hooks: &[(&str, &str, u64)],
-) -> anyhow::Result<Vec<String>> {
-    let mut events: Vec<(&str, Vec<String>)> = Vec::new();
-    let mut state = toml_edit::InlineTable::new();
-    for &(event, command, timeout) in hooks {
-        let label = codex_event_state_label(event)?;
-        if !events.iter().any(|(e, _)| *e == event) {
-            events.push((event, Vec::new()));
-        }
-        let Some((_, group)) = events.iter_mut().find(|(e, _)| *e == event) else {
-            anyhow::bail!("Codex hook event {event} was not recorded");
-        };
-        let mut entry = toml_edit::InlineTable::new();
-        entry.insert("trusted_hash", codex_trust_hash(label, command, timeout).into());
-        let key = format!("/<session-flags>/config.toml:{label}:{}:0", group.len());
-        state.insert(&key, entry.into());
-        group.push(format!(
-            "{{hooks=[{{type=\"command\",command={},timeout={timeout}}}]}}",
-            toml_edit::Value::from(command),
-        ));
-    }
-    let mut out: Vec<String> = events
-        .into_iter()
-        .map(|(event, groups)| format!("hooks.{event}=[{}]", groups.join(",")))
-        .collect();
-    out.push(format!("hooks.state={state}"));
-    Ok(out)
 }
 
 /// Returns persisted trust hashes for the current cmux-owned hook identities.

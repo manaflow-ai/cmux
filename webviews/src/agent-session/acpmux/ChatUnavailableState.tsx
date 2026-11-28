@@ -1,18 +1,14 @@
-import { useLayoutEffect, useRef } from "react";
 import { RESUME_NOTE_DELAY_MS, useAfterDelay, useLinkDownSaid } from "./afterDelay";
 import type { ChatUnavailable } from "./chatUnavailable";
-import { WaitSpinner } from "./conversation/WaitSpinner";
+import { Spinner } from "./conversation/icons";
 import { relativeTime } from "./conversation/relativeTime";
 import { currentLanguage, useT } from "./i18n";
 import { shortSession } from "./chatUnavailableStateModel";
-import { useAutoRetry } from "./autoRetry";
 
 /// The tab's chat is not here (`missingSession`): centered in place of the transcript, quiet, in the
 /// new chat hero's type (EmptyState.tsx), it says which case it is. Deleted: Remove from Sidebar
-/// closes the tab. Its machine is not connected: the machine and when it was last seen, while the
-/// pane reads the machines and the chat list again on its own (`onReconnect`, on the shared backoff,
-/// autoRetry.ts), so the chat opens once it is listed; no Reconnect button, since asking again is no
-/// one's decision (Leo, 2026-11-22: "vacuous decisions like that should be just done"). Still
+/// closes the tab. Its machine is not connected: the machine, when it was last seen, and Reconnect,
+/// which reads the machines and the chat list again (the chat opens once it is listed). Still
 /// connecting (the grace, chatUnavailable.ts): nothing, an empty area where the chat opens once it
 /// is listed; never "unavailable" (Leo 2026-10-21: "second pic is weird has "this chat isn't
 /// available"") and no spinner or "Reconnecting…" (Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT
@@ -57,7 +53,6 @@ export function ChatUnavailableState({
   resumeLong?: boolean;
   error?: string;
   onRemove(): void;
-  /// Reads the machines and the chat list again; the state asks it on its own while offline.
   onReconnect(): void;
   onResume?(): void;
   /// Close Tab, on every case but deleted (Remove from Sidebar closes that one's tab).
@@ -72,16 +67,13 @@ export function ChatUnavailableState({
   line?: boolean;
 }) {
   const t = useT();
-  // A machine that is not connected: read the machines and the chat list again on the shared
-  // backoff while this shows (a hidden pane asks nothing, and asks once when it shows again).
-  useAutoRetry(unavailable.reason === "offline", onReconnect);
   // A pause is invisible at first, as a resume is (Leo, 2026-11-03: the wait "you mostly perceive as
   // "thinking""): a machine that wakes within RESUME_NOTE_DELAY_MS never shows its card, and one
   // resuming shows its spinner only past it. The spinner's slot is kept from the first frame, so it
   // shifts nothing when it appears.
   const pausedShown = useAfterDelay(unavailable.reason === "paused", noteDelayMs);
   const resumeSlow = useAfterDelay(resuming, noteDelayMs);
-  // A machine whose link just dropped: its offline line with Reconnect shows only after
+  // A machine whose link just dropped: "Reconnecting…" shows only once the drop has lasted past
   // LINK_DOWN_SAID_MS, the time acpmux takes to notice a dead link and redial it, so a link back on
   // its own never shows the state (Leo, 2026-11-14: "i also want all our connectivity stuff to shut
   // the fuck up").
@@ -97,7 +89,9 @@ export function ChatUnavailableState({
     (unavailable.reason === "paused" && !pausedShown) ||
     (unavailable.reason === "offline" && !offlineShown)
   )
-    return line ? null : <ConnectingArea />;
+    return line ? null : (
+      <div className="acpmux-empty acpmux-unavailable" data-unavailable="connecting" aria-busy="true" />
+    );
   // A deleted chat names the machine acpmux had it on when the pane knows it, else the tab's machine;
   // one not connected names only the peer acpmux had it on, never this Mac's name (the handshake's
   // for a chat of this Mac); one not found here is not on the tab's machine.
@@ -153,6 +147,7 @@ export function ChatUnavailableState({
             time: relativeTime(unavailable.lastSeen, now, currentLanguage()),
           })
         : t("unavailable.offline.detail");
+    action = { label: t("unavailable.reconnect"), run: onReconnect, kind: "reconnect" };
   }
   // Remove from Sidebar closes a deleted chat's tab; every other case keeps MissingChat's Close Tab.
   const closes = onClose !== undefined && unavailable.reason !== "deleted";
@@ -190,7 +185,7 @@ export function ChatUnavailableState({
         data-enter="top"
       >
         <p className="acpmux-peer-copy-title">
-          {resuming && <WaitSpinner size={12} loading className="acpmux-peer-copy-spinner" />}
+          {resuming && <Spinner size={12} loading className="acpmux-peer-copy-spinner" />}
           {title}
         </p>
         {error && (
@@ -241,12 +236,12 @@ export function ChatUnavailableState({
           <span className="acpmux-unavailable-progress" aria-hidden={!resumeSlow}>
             {resumeSlow && (
               <span className="acpmux-unavailable-progress-mark" data-enter="fade">
-                <WaitSpinner size={20} loading />
+                <Spinner size={20} loading />
               </span>
             )}
           </span>
         ) : (
-          resuming && <WaitSpinner size={20} loading />
+          resuming && <Spinner size={20} loading />
         )}
         {error && (
           <p className="acpmux-unavailable-detail" role="alert">
@@ -264,23 +259,4 @@ export function ChatUnavailableState({
       </div>
     </div>
   );
-}
-
-/// The loading layout's empty area. While it is up it marks the pane (`.acpmux-main[data-connecting]`),
-/// which styles.css reads to keep the dock in flow and lay its notices over the stage's foot. An
-/// attribute, not `.acpmux-main:has(> .acpmux-stage > [data-unavailable="connecting"])`: once a `:has()`
-/// over the pane is matched (every open chat, its dock always there), each node any later render inserts
-/// under the pane restyles the whole pane (about 2,300 elements, 25 ms in the god chat's open). The
-/// layout effect sets it before paint.
-function ConnectingArea() {
-  const ref = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const main = ref.current?.closest<HTMLElement>(".acpmux-main");
-    if (!main) return;
-    main.dataset.connecting = "";
-    return () => {
-      delete main.dataset.connecting;
-    };
-  }, []);
-  return <div ref={ref} className="acpmux-empty acpmux-unavailable" data-unavailable="connecting" aria-busy="true" />;
 }

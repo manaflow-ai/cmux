@@ -53,9 +53,9 @@ public struct AppInstallLink {
         guard let first = await BundledCLIRun.run(cli, kind.link + [link, "--json"], timeout: timeout) else {
             return show(AppInstallLinkStrings.failed(AppInstallLinkStrings.didNotFinish), in: window, duration: .seconds(12))
         }
-        if first.status == 0 { return show(await summary(first.stdout), in: window, duration: .seconds(8)) }
-        guard let consent = await Consent.parse(first.stderr) else {
-            return show(AppInstallLinkStrings.failed(await reason(first)), in: window, duration: .seconds(12))
+        if first.status == 0 { return show(summary(first.stdout), in: window, duration: .seconds(8)) }
+        guard let consent = Consent(first.stderr) else {
+            return show(AppInstallLinkStrings.failed(reason(first)), in: window, duration: .seconds(12))
         }
         let spec = CmuxDialogSpec(title: AppInstallLinkStrings.title, lines: consent.lines,
                                   buttons: [.cancel(AppInstallLinkStrings.cancel),
@@ -67,18 +67,14 @@ public struct AppInstallLink {
         guard let second = await BundledCLIRun.run(cli, kind.install + [consent.reference, "--yes"], timeout: timeout) else {
             return show(AppInstallLinkStrings.failed(AppInstallLinkStrings.didNotFinish), in: window, duration: .seconds(12))
         }
-        let outcome = second.status == 0 ? await summary(second.stdout) : AppInstallLinkStrings.failed(await reason(second))
-        show(outcome, in: window, duration: .seconds(10))
+        show(second.status == 0 ? summary(second.stdout) : AppInstallLinkStrings.failed(reason(second)), in: window, duration: .seconds(10))
     }
 
     /// The CLI's `community.needs_consent` (`details.card`) or `setup.needs_consent` (`details.text`)
-    /// refusal: the card it would print, and the pinned reference. Parsed off the main actor: stderr is a
-    /// process's output, so its size is not bounded here.
-    private nonisolated struct Consent: Sendable {
+    /// refusal: the card it would print, and the pinned reference.
+    private struct Consent {
         let lines: [String]
         let reference: String
-
-        @concurrent static func parse(_ stderr: Data) async -> Consent? { Consent(stderr) }
 
         init?(_ stderr: Data) {
             guard let line = BundledCLIRun.lastLine(stderr),
@@ -95,26 +91,18 @@ public struct AppInstallLink {
 
     /// What the CLI said it installed: the receipt's name from `--json`, else its first line
     /// (`installed theme Teal Twin (…)`).
-    private static func summary(_ stdout: Data) async -> String {
-        let parts = await summaryParts(stdout)
-        return parts.installed.map { AppInstallLinkStrings.installed($0) } ?? parts.firstLine
-    }
-
-    /// The installed name from a `--json` receipt (empty when it names none; nil when stdout is not JSON), and
-    /// stdout's first line. Off the main actor: stdout is a process's output, so its size is not bounded here.
-    @concurrent nonisolated private static func summaryParts(_ stdout: Data) async -> (installed: String?, firstLine: String) {
+    private static func summary(_ stdout: Data) -> String {
         let text = String(decoding: stdout, as: UTF8.self)
         if let object = try? JSONSerialization.jsonObject(with: stdout) as? [String: Any] {
             let receipt = (object["receipt"] ?? object["installed"]) as? [String: Any]
             let name = (receipt?["name"] ?? object["name"] ?? object["id"]) as? String
-            return (name ?? "", text)
+            return AppInstallLinkStrings.installed(name ?? "")
         }
-        return (nil, text.split(whereSeparator: \.isNewline).first.map(String.init) ?? text)
+        return text.split(whereSeparator: \.isNewline).first.map(String.init) ?? text
     }
 
-    /// The CLI's own message: its JSON error's `message`, else its last line. Off the main actor: the output is a
-    /// process's, so its size is not bounded here.
-    @concurrent nonisolated private static func reason(_ result: ProcessResult) async -> String {
+    /// The CLI's own message: its JSON error's `message`, else its last line.
+    private static func reason(_ result: ProcessResult) -> String {
         guard let line = BundledCLIRun.lastLine(result.stderr) else { return BundledCLIRun.lastLine(result.stdout) ?? "exit \(result.status)" }
         if let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any], let message = object["message"] as? String {
             return message.split(whereSeparator: \.isNewline).first.map(String.init) ?? message

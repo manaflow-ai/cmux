@@ -272,7 +272,7 @@ async fn fake_peer(features: Value) -> (u16, mpsc::UnboundedReceiver<Value>) {
     let (cancels, received) = mpsc::unbounded_channel();
     tokio::spawn(async move {
         while let Ok((tcp, _)) = listener.accept().await {
-            let Ok(mut ws) = acpmux::server::accept_ws(tcp).await else { continue };
+            let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
             let (cancels, features) = (cancels.clone(), features.clone());
             tokio::spawn(async move {
                 // Non-text frames (the client's pings, #38015) are not requests: skip them.

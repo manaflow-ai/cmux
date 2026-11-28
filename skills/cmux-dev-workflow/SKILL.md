@@ -28,10 +28,6 @@ python3 scripts/cmux_worktree.py add -b my-branch ~/cmux-worktrees/my-branch ori
 python3 scripts/cmux_worktree.py add --cargo cmux-tui -b my-branch PATH origin/feat-cmux-next  # Rust work
 ```
 
-The same file is `git cow` wherever hq installs it on PATH (`git-cow`: every agent Mac and fleet
-Mac): `git cow add -b BRANCH PATH [COMMIT]` takes `git worktree add`'s arguments and defaults
-(COMMIT is HEAD), clones the files the same way, and runs plain `git worktree add` where it cannot.
-
 - **What it does.** The files are APFS clones of a clean, locked seed checkout (in
   `~/Library/Caches/cmux-worktree-seed/`), and the tool writes the new index with the clones' stat
   data, so git never re-hashes them; `git read-tree -m -u` then writes only the files that differ

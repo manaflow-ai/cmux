@@ -12,7 +12,6 @@ import { estimatedSpendUsd, estimatedUsdPerHour, sizeOfCreate, spendWindows, typ
 import { actorRef, type Principal } from "../domain/principal.ts";
 import { badRequest, Forbidden, QuotaExceeded, unavailable } from "../errors.ts";
 import type { TenantId } from "../lib/ids.ts";
-import { CREATE_SEND_GRACE_MS } from "../limits/ledger.ts";
 import { TenantLimits } from "../limits/service.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
 import { visitOwnedVms, type OwnedVmPage } from "../proofs/tenant-owns-resource.ts";
@@ -65,9 +64,9 @@ export const withRunCap = (principal: Principal, requested: CreateVmRequest): Cr
  * The refusal of a create past the live-VM cap, naming the holder, the cap and the current count. Paused VMs count
  * (they are live and resume without a create), so resuming one never passes a cap a create would not.
  */
-const overVmCap = (budget: AgentBudget, live: number, holders: ReadonlyArray<string> = []) =>
+const overVmCap = (budget: AgentBudget, live: number) =>
   new QuotaExceeded({
-    message: `This ${budget.holder ?? "agent key"} has ${live} live VMs, at its maxVms cap of ${budget.maxVms}; delete one, or resume a paused one instead of creating${holders.length === 0 ? "" : ` (held by: ${holders.slice(0, 8).join("; ")})`}`,
+    message: `This ${budget.holder ?? "agent key"} has ${live} live VMs, at its maxVms cap of ${budget.maxVms}; delete one, or resume a paused one instead of creating`,
     budget: "agent_vms",
   });
 
@@ -106,20 +105,11 @@ export const agentBudgetAllows = <C>(caller: Named<C, Principal>, scope: KeyHasS
       .pipe(Effect.catchTag("StoreError", (error) => Effect.fail(unavailable(error))));
     const agent = agentSlotOwner(caller.value);
     const slotId = crypto.randomUUID();
-    // A run-capped key's VMs are paused and deleted upstream within the cap, so a slot held for a create that may
-    // exist lapses after it (plus the send grace), not after the 25 h a long-lived key's create may live.
-    const runCap = caller.value.maxRunSeconds;
-    const heldBoundMs = runCap === undefined ? undefined : runCap * 1000 + CREATE_SEND_GRACE_MS;
-    const limits = yield* TenantLimits;
-    const admitted = yield* limits
-      .admitAgentSlot(caller.value.tenantId, agent, budget.maxVms, owned.results, slotId, heldBoundMs)
+    const admitted = yield* (yield* TenantLimits)
+      .admitAgentSlot(caller.value.tenantId, agent, budget.maxVms, owned.results, slotId)
       .pipe(Effect.mapError(unavailable));
     // Lost a race to a concurrent create: its slot fills the cap.
-    // The refusal names what holds the budget (best effort), so a cap held by a create that made nothing is visible.
-    if (!admitted) {
-      const holders = yield* limits.describeAgentSlots(caller.value.tenantId, agent, owned.results).pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
-      return yield* Effect.fail(overVmCap(budget, budget.maxVms, holders));
-    }
+    if (!admitted) return yield* Effect.fail(overVmCap(budget, budget.maxVms));
     return { agent, slotId };
   });
 

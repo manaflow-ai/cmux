@@ -186,11 +186,7 @@ fn write_cancellation_test_authorization(root: &Path, repo: &Path, token: &str) 
 fn wait_for_direct_child(parent_pid: u32) -> rustix::process::Pid {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     loop {
-        // Only the long-running git: the sidecar's short-lived cmux host call is a child too, and
-        // `pgrep -P` alone could hand back that one, which is in a group of its own.
         let output = Command::new("/usr/bin/pgrep")
-            .arg("-x")
-            .arg("git")
             .arg("-P")
             .arg(parent_pid.to_string())
             .output()

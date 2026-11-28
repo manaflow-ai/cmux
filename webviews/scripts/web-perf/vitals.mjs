@@ -28,8 +28,8 @@ for (let i = 0; i < args.length; i++) {
   else if (a === "--no-throttle") throttle = false;
   else urls.push(a);
 }
-if (urls.length === 0 || !Number.isInteger(runs) || runs < 1) {
-  console.error("usage: vitals.mjs [--runs N>=1] [--out FILE] [--interact SELECTOR] [--no-throttle] URL...");
+if (urls.length === 0) {
+  console.error("usage: vitals.mjs [--runs N] [--out FILE] [--interact SELECTOR] [--no-throttle] URL...");
   process.exit(2);
 }
 
@@ -65,19 +65,15 @@ async function once(browser, url) {
     });
   }
   const js = { wire: 0, decoded: 0, files: 0 };
-  // Every script's sizes are read before the context closes, so late chunks still count.
-  const scriptReads = [];
-  page.on("response", (r) => {
+  page.on("response", async (r) => {
     if (r.request().resourceType() !== "script") return;
-    scriptReads.push(
-      (async () => {
-        const sizes = await r.request().sizes();
-        const body = await r.body();
-        js.wire += sizes.responseBodySize || body.length;
-        js.decoded += body.length;
-        js.files += 1;
-      })().catch(() => {}),
-    );
+    try {
+      const sizes = await r.request().sizes();
+      const body = await r.body();
+      js.wire += sizes.responseBodySize || body.length;
+      js.decoded += body.length;
+      js.files += 1;
+    } catch {}
   });
   const t0 = Date.now();
   await page.goto(url, { waitUntil: "load", timeout: 90_000 });
@@ -86,15 +82,8 @@ async function once(browser, url) {
     const n = performance.getEntriesByType("navigation")[0];
     return n ? n.responseStart - n.requestStart : null;
   });
-  // LCP is final at the first input, so read it before interacting, once it has held
-  // still for a second (late images, fonts and paints arrive after network idle).
-  let lcp = await page.evaluate(() => window.__vitals.lcp);
-  for (let waited = 0; waited < 10_000; waited += 1_000) {
-    await page.waitForTimeout(1_000);
-    const next = await page.evaluate(() => window.__vitals.lcp);
-    if (next === lcp) break;
-    lcp = next;
-  }
+  // LCP is final at the first input, so read it before interacting.
+  const lcp = await page.evaluate(() => window.__vitals.lcp);
   const targets = await page.locator(interact).all();
   for (const el of targets.slice(0, 5)) {
     const href = await el.getAttribute("href").catch(() => null);
@@ -105,7 +94,6 @@ async function once(browser, url) {
   }
   await page.waitForTimeout(500);
   const inp = await page.evaluate(() => window.__vitals.inp).catch(() => null);
-  await Promise.all(scriptReads);
   await context.close();
   return {
     ttfb,
@@ -118,15 +106,7 @@ async function once(browser, url) {
   };
 }
 
-// The fleet's arm64 machines have only chrome-headless-shell (CMUX_CHROME_HEADLESS_SHELL);
-// x64 CI installs system Chrome (as scripts/latency/run.ts uses), not Playwright's bundled
-// Chromium. Take whichever this machine has.
-const headlessShell = process.env.CMUX_CHROME_HEADLESS_SHELL;
-const browser = await (
-  headlessShell
-    ? chromium.launch({ headless: true, executablePath: headlessShell })
-    : chromium.launch({ headless: true, channel: "chrome" })
-).catch(() => chromium.launch({ headless: true }));
+const browser = await chromium.launch();
 const results = [];
 for (const url of urls) {
   const samples = [];
@@ -147,7 +127,6 @@ for (const url of urls) {
     jsWireKB: pick("jsWireKB"),
     jsDecodedKB: pick("jsDecodedKB"),
     jsFiles: pick("jsFiles"),
-    samples,
   };
   results.push(row);
   const f = (x) => (x == null ? "-" : Math.round(x));
@@ -164,8 +143,3 @@ const meta = {
   at: new Date().toISOString(),
 };
 if (out) writeFileSync(out, JSON.stringify({ meta, results }, null, 2));
-const empty = results.filter((r) => r.runs === 0).map((r) => r.url);
-if (empty.length > 0) {
-  console.error(`no sample collected for: ${empty.join(" ")}`);
-  process.exit(1);
-}

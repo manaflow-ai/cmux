@@ -99,47 +99,6 @@ max}` over the last 60 round trips and 120 frames. It is read-only: it never
 connects, disconnects or sends input, and carries no credential or screen
 content.
 
-`app mac-screen-replay --path <movie> [--tab <tab>] [--frames <1-120>]
-[--loops <1-1000>] [--timeout <1-600>]` works with every build: the app's
-`mac_screen.replay` plays the movie (an MP4 the Screen Sharing toolbar's Record
-wrote, or any H.264 or HEVC movie; a relative path is the caller's) `--loops`
-times (default 20) through a Screen Sharing tab's own decoder and presenter,
-with no host peer: the tab `--tab` names, else one showing its home page (`tab
-new-mac-screen --json` opens one). That tab then lists in `app mac-screens`
-with `decode_ms`, `glass_ms` and `decode_present_ms`. The CLI reads
-`mac_screen.state` until the pane has presented `--frames` frames (default
-120, the whole window) and prints `{ok, tab, store_tab, frames_presented,
-decode_present_ms, decode_ms, glass_ms, present_ms, unpresented_frames, ...}`
-(exit 0); past `--timeout` seconds (default 60) it prints what it has with `ok:
-false` (exit 1). A tab off screen presents nothing. Home or closing the tab
-ends the replay; it never connects or sends input.
-
-`app chat memory [--empty-tab <tab>] [--empty-bytes <n>]` works with every build
-and reads on request only (no timer, no sampler, no cache between runs). The
-app's `agent.chat.memory` hands over pids only (the app, its local daemons, and
-per open chat the pid of its WebKit web content process or null); the CLI reads
-each distinct pid's memory once (macOS `phys_footprint`, the number Activity
-Monitor calls Memory, through `proc_pid_rusage`; `metric` names it) and returns
-`{metric, app, daemons, empty, chats, processes, summary}`. Chats that share one
-web content process are grouped by pid and the process is counted once in
-`processes` and `summary.web_total_bytes`; each such chat lists the others in
-`shared_with`. `empty` is the baseline page: `--empty-bytes`, else the chat in
-`--empty-tab`, else a New Tab page alone in its process (`source`
-`bytes`/`tab`/`new_tab`; `reason` when there is none and every ratio is null; a
-shared process is never a baseline). Each chat's `ratio` is its process's
-footprint over the baseline; `summary.ratio_median` and `ratio_max` run over
-processes that hold a chat with content, once each, never the baseline's own.
-
-`tab <tab> show --json` on a Mac Screen tab adds `mac_screen`, the same read
-shaped for an agent: `tab`, `device`, `device_id`, `route` (the daemon's: what
-the tab shows), `state`, `connect_stage`, `hub_phase`, `phase`, `connected`,
-`has_frame`, `first_frame_ms`, `fps`, `transport` (the stream's path, `Direct`
-or `Relayed`), `carrier` (the transport under it), `scope`, `error`, `failure`
-and `timed_out_at`. With no app, or a tab the app does not list, `mac_screen`
-is `{route, unavailable}` with the reason and the tab's record stands. `tab
-new-mac-screen --json` answers with the opened tab's id as `tab` and its
-`mac_screen`, when the app lists the tab once the open returns.
-
 `app chat perf --tab <tab> [--seconds <1-60>]` works with every build: the
 app's `agent.chat.perf` runs the chat page's own capture for that many
 seconds (default 5) and returns `{tab, seconds, duration_ms, measured,
@@ -154,16 +113,6 @@ frames, so `measured` is false with `unmeasured_reason` `page_hidden` or
 `no_frames`. Nothing in the page measures outside a capture. A tab that is
 not an agent chat is `invalid_params`; a chat whose page this launch never
 made is `unavailable`.
-
-`app chat perf --page-source` (no `--tab`, no `--seconds`) works with every
-build and answers at once: `agent.chat.perf {"page_source": true}` returns
-`{page_source: {spare_adopted, spare_empty, spare_unready, spare_refused,
-kept, cold, cold_why, refused_why}}`, how each chat page made since launch got
-its page (the warm spare, a Reopen Closed chat's kept page, or a cold build,
-with why as `{reason: count}`), and `pages: {chat, new_tab, frozen,
-released}`: the chat and New Tab pages built now, how many chat pages are
-asleep, and how many were let go while hidden since launch. It reads no tab and runs nothing in a page, so
-an unloaded or asleep chat changes nothing, and it never resets the counts.
 
 `app machines [--no-refresh]` works with every build: it reads the app's
 `machine.list`, the right sidebar's Machines section as the person sees it,

@@ -111,10 +111,6 @@ public protocol BrowserStreamOpening: Sendable {
     /// Opens one connection to `port` on the Mac's loopback (`localhost` service,
     /// PROTOCOL.md): a native browser tab's request to `localhost:<port>`.
     func openLocalhost(port: UInt16) async throws -> any LinkChannel
-    /// Opens the Mac's one-shot hand-off of a browser tab's cookies and local storage
-    /// for the tab's own site (`site-data` service, PROTOCOL.md): only from the
-    /// person's Open on iPhone, only when the Mac lists `site-data-handoff-v1`.
-    func openSiteData(tab: String, url: String) async throws -> any LinkChannel
 }
 
 extension BrowserStreamOpening {
@@ -126,9 +122,5 @@ extension BrowserStreamOpening {
 
     public func openLocalhost(port: UInt16) async throws -> any LinkChannel {
         throw LinkError(code: "unknown_service", message: "This Mac does not forward localhost")
-    }
-
-    public func openSiteData(tab: String, url: String) async throws -> any LinkChannel {
-        throw LinkError(code: "unknown_service", message: "This Mac does not hand over sign-ins")
     }
 }

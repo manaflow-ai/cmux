@@ -18,39 +18,6 @@ fn recording_acknowledging_session() -> (Arc<RemoteSession>, Receiver<Value>) {
     (session, received_requests)
 }
 
-#[test]
-fn an_unattached_connection_kick_stops_reconnect() {
-    let session = test_session(Box::new(SilentWriter));
-
-    session.handle_line(json!({"event": "client-disconnected-by"}));
-
-    assert!(session.disconnected_by_peer());
-}
-
-#[test]
-fn a_view_detach_does_not_stop_reconnect_for_the_connection() {
-    let session = test_session(Box::new(SilentWriter));
-
-    session.handle_line(json!({
-        "event": "detached",
-        "surface": 7,
-        "scope": "view",
-        "reason": "disconnected-by",
-    }));
-
-    assert!(!session.disconnected_by_peer());
-}
-
-#[test]
-fn a_surface_scoped_session_accepts_an_unattached_connection_kick() {
-    let session = test_session(Box::new(SilentWriter));
-    session.event_surface_filter.store(7, Ordering::Release);
-
-    session.handle_line(json!({"event": "client-disconnected-by"}));
-
-    assert!(session.disconnected_by_peer());
-}
-
 #[cfg(unix)]
 #[test]
 fn repeated_surface_overflow_stops_until_reconnect() {

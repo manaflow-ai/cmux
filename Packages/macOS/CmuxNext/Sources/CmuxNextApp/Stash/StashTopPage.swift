@@ -4,7 +4,7 @@ import CmuxNextHistoryPages
 import CmuxNextIcons
 import CmuxNextPages
 
-nonisolated extension InternalPageID {
+extension InternalPageID {
     /// Stashed Tabs as a top page: Show Stashed Tabs (the palette, Window menu, CLI and MCP),
     /// Import from OneTab… and the `cmux://stashed` address open it.
     static let stashed = InternalPageID(rawValue: "stashed")

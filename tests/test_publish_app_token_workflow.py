@@ -50,21 +50,11 @@ APP_TOKEN_EXEMPT = {
         "signs and notarizes the live code variant and uploads it to R2 with the nightly-next R2 keys; "
         "it writes nothing to a release and sends no github.token"
     ),
-    "restore-historical-notes": (
-        "a manual nightly-next restore (#62726) under release-next: restores archived notes and verifies the public "
-        "signed pair behind the R2 publish lease; its github.token holds only actions/contents: read, no App key"
-    ),
-    "nightly-next-deltas": (
-        "builds and uploads the nightly-next deltas after the feed with the Sparkle key and the nightly-next "
-        "R2 keys; it writes nothing to a release and sends no github.token"
-    ),
 }
 RELEASE_APP_SECRETS = ("CMUX_RELEASE_APP_ID", "CMUX_RELEASE_APP_KEY")
 # nightly-next-one builds before it publishes: its build steps' gh calls already wait through a rate limit
 # (the budget wrapper goes on PATH before the build), and it mints the App token only for publication.
 BUDGET_FIRST = {"nightly-next-one"}
-# A gh command in a step's run: `gh`, then a space, at a word start.
-GH_CALL = re.compile(r"(?:^|[\s;|&(`])gh\s", re.M)
 
 
 def release_app_jobs(jobs: dict) -> set[str]:
@@ -147,8 +137,8 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual((len(mint), len(app), len(budget)), (1, 1, 1), name)
             # Mint, then this wrapper, then gh_budget_wait.sh, which wraps it and keeps its wait.
             if name in BUDGET_FIRST:
-                # Its build runs before publication, so the budget wrapper is installed first. The App
-                # wrapper still follows its mint step and all github.token users follow both wrappers.
+                # Each wrapper calls the gh first on PATH when it was installed, so here the App wrapper
+                # calls the budget wrapper, which still waits: app -> budget -> gh.
                 self.assertEqual(app[0], mint[0] + 1, name)
                 self.assertLess(budget[0], mint[0], name)
             else:
@@ -162,20 +152,9 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual({k for k in step["with"] if k.startswith("permission-")}, {"permission-contents"}, name)
             self.assertEqual(steps[app[0]]["env"], {"GH_APP_TOKEN": "${{ steps.gh-app-token.outputs.token }}",
                                                     "GH_FALLBACK_TOKEN": "${{ github.token }}"}, name)
-            # Every step that sends github.token to gh runs after the wrapper is on PATH. A step that
-            # hands it only to git as FETCH_TOKEN (an http extraheader: the Mac git credential step,
-            # anchor github-token-for-git, #58418, and the warm checkout, #58081) runs before the
-            # checkout the wrapper comes from, and must call no gh.
+            # Every step that sends github.token runs after the wrapper is on PATH.
             for i, s in enumerate(steps):
-                env = s.get("env", {}) or {}
-                if [k for k, v in env.items() if "github.token" in str(v)] == ["FETCH_TOKEN"]:
-                    self.assertIsNone(GH_CALL.search(str(s.get("run", ""))), (name, s.get("name")))
-                    continue
-                if i != app[0] and "github.token" in str(env):
-                    if name in BUDGET_FIRST and i < mint[0]:
-                        # The build phase precedes token minting and intentionally uses the default
-                        # github.token. Publication steps follow both wrappers.
-                        continue
+                if i != app[0] and "github.token" in str(s.get("env", {})):
                     self.assertGreater(i, budget[0], (name, s.get("name")))
 
     def test_release_asset_uploads_take_the_app_token_first(self) -> None:

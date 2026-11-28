@@ -41,9 +41,6 @@ pub(super) struct DisconnectCell {
     changed: Condvar,
     /// What the daemon's shutdown notice said, once it came.
     shutdown_notice: Mutex<Option<DaemonShutdownNotice>>,
-    /// The daemon detached this client on someone's request (a kick): its
-    /// connection end is not a failure to reconnect from.
-    disconnected_by_peer: std::sync::atomic::AtomicBool,
 }
 
 impl DisconnectCell {
@@ -58,16 +55,6 @@ impl DisconnectCell {
     /// The daemon's shutdown notice, or `None` when it sent none.
     pub(super) fn shutdown_notice(&self) -> Option<DaemonShutdownNotice> {
         *self.shutdown_notice.lock().unwrap_or_else(|poison| poison.into_inner())
-    }
-
-    /// Records a `detached` event with `reason:"disconnected-by"`.
-    pub(super) fn record_disconnected_by_peer(&self) {
-        self.disconnected_by_peer.store(true, std::sync::atomic::Ordering::Release);
-    }
-
-    /// Whether the daemon detached this client on someone's request.
-    pub(super) fn disconnected_by_peer(&self) -> bool {
-        self.disconnected_by_peer.load(std::sync::atomic::Ordering::Acquire)
     }
 
     pub(super) fn lock(&self) -> LockResult<MutexGuard<'_, DisconnectState>> {

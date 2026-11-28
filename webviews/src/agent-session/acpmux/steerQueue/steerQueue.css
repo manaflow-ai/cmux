@@ -173,9 +173,13 @@
   display: none;
   flex: none;
   align-self: center;
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
 }
 .acpmux-steer-row[aria-selected="true"] .acpmux-steer-key {
-  display: inline-flex;
+  display: block;
 }
 
 .acpmux-steer-empty {
@@ -235,6 +239,8 @@
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
 }
-.acpmux-steer-hint .ui-key-hint {
+.acpmux-steer-hint kbd {
   margin-right: 4px;
+  font: inherit;
+  color: var(--agent-text);
 }

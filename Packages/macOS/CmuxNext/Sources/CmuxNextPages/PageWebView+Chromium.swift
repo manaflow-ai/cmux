@@ -38,9 +38,6 @@ extension PageWebView {
     /// behind another tab, so it can be frozen and released (CMUX-571).
     public func setChromiumVisibility(_ requested: Bool) {
         guard let session = chromiumSession else { return }
-        // Health times only a page whose document can beat: it hears each change of what Chromium was told.
-        let wasHidden = session.toldHidden
-        defer { if session.toldHidden != wasHidden { healthFeed?.pageVisibilityChanged(self) } }
         guard requested, window != nil, !isHiddenOrHasHiddenAncestor else { return session.setVisible(false) }
         let ancestors = sequence(first: self as NSView, next: \.superview).dropFirst()
         let clear = ancestors.contains { $0.alphaValue <= 0.001 && !($0 is PageOffscreenParking) }

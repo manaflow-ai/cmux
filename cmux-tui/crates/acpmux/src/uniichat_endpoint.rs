@@ -70,8 +70,6 @@ impl Endpoint {
             return Err(format!("UniiChat url {base} has no host"));
         }
         let base = format!("{scheme}://{host}");
-        // A server the person named (--url or the env), or the listed hosted one.
-        cmux_egress::allow_named(&host);
         let home = options
             .home
             .clone()

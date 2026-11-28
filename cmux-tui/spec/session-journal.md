@@ -238,39 +238,6 @@ Structured and compiled-regex filters run off the mutation path. Idle
 subscribers wait on the fanout signal instead of polling the database. A hook
 process never runs synchronously inside the journal transaction.
 
-## Session list rows
-
-A session list (the desktop sidebar, the iPhone list, Cloud, another
-machine's catalog) and each session's journal are separate streams. A row can
-reach a viewer before the records it summarizes, so the viewer could show a row
-as new, or notify about it, and then open an empty session. Committing both in
-one transaction on the server does not stop this: the order in which they are
-shown is decided at the viewer.
-
-Every `session.list` and `session.get` row names the journal head of the read
-in `extra.journal_head_sequence`, as a decimal string like every cursor. It is
-in `extra` because `SessionSnapshot` forbids unknown sibling fields, so an
-older SDK would reject a new field. The full `session.snapshot` leaves it out,
-because its cut already names its own cursor.
-
-A viewer compares that head with its own journal cursor for the session, which
-is the last sequence it received or resumed from:
-
-- If the cursor is below the head, the row is **syncing**. It shows as
-  syncing, never as new or unread. The viewer fetches the tail, and holds every
-  notification about the row.
-- When the cursor reaches the head, the row is synced. Held notifications are
-  released in the order they were offered, each exactly once.
-- Heads only move forward. An older list read cannot make a row look synced.
-- A row without the field comes from a daemon that predates it, and is never
-  held.
-
-The rule is one pure Rust value, `cmux::session_list_sync::SessionListSync`,
-with no clock and no I/O. Every list view uses it instead of re-deriving the
-rule. `bindings/rust/tests/session_list_sync.rs` delays one session's journal
-stream by 5 s and asserts that no notification fires and no row shows as new
-while its cursor is behind the head.
-
 ## Producer ingress
 
 A producer installs a versioned manifest before appending namespaced events:

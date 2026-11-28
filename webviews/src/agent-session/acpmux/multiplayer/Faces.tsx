@@ -140,9 +140,7 @@ export function PresenceStack({ viewing, look = "stack" }: { viewing: Participan
   const shown = viewing.slice(0, PRESENCE_STACK);
   const names = viewing.map((person) => person.name).join(", ");
   return (
-    // A row accessory (header/tabRow.ts): in the pane's tab row the faces take only the room the header's buttons
-    // leave, hiding whole when there is none, so someone opening the chat never moves or folds a button.
-    <div className="cv-presence" data-look={look} data-tab-row-accessory="">
+    <div className="cv-presence" data-look={look}>
       <span className="cv-presence__label">{t("multiplayer.viewing", { names })}</span>
       {shown.map((person) => (
         // tooltip-allow: a face, with a name beside it only in the names look.

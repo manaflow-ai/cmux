@@ -25,7 +25,6 @@ export type EnvironmentState = {
   draft?: EnvironmentDraft;
   derivedScript?: string;
   deriving?: boolean;
-  /** The suggested script's read failed; stays set across the re-reads until one answers. */
   deriveFailed?: boolean;
   error?:
     | "load"
@@ -48,8 +47,7 @@ export type EnvironmentState = {
     | "vaultHost"
     | "vaultText"
     | "vaultUnreadable"
-    | "vaultRefused"
-    | "click";
+    | "vaultRefused";
 };
 
 /** The platform's secret refusals (cmux-platform#1008), shown as the same sentence the editor's own check shows.
@@ -71,9 +69,6 @@ const refusals: Record<string, EnvironmentState["error"]> = {
   "vault.secret_unreadable": "vaultUnreadable",
   "vault.grant_refused": "vaultRefused",
   "vault.request_rejected": "vaultRefused",
-  // The app saves an environment only on the person's own click (AgentPaneModel's cloud.environment gate);
-  // a click another process posted is refused. Say so, instead of the generic "try again" that hides why.
-  "transport.gesture_required": "click",
 };
 
 /** One draft for every entry point; stale reads never resurrect a closed or different editor. */
@@ -96,22 +91,11 @@ export class EnvironmentStore {
     this.state = { ...this.state, ...patch };
     for (const listener of this.listeners) listener();
   }
-  /**
-   * Opens the editor and reads the environment. `again` (a re-read after a failed one) keeps the
-   * failure until the read answers, so the sheet's quiet stretch spans its re-reads (EnvironmentSheet).
-   */
-  async open(options: EnvironmentOpen = {}, again = false) {
+  async open(options: EnvironmentOpen = {}) {
     if (this.state.saving) return;
     this.options = options;
     const generation = ++this.generation;
-    const failed = again ? this.state.error : undefined;
-    this.state = {
-      open: true,
-      section: options.section ?? "overview",
-      loading: true,
-      saving: false,
-      ...(failed ? { error: failed } : {}),
-    };
+    this.state = { open: true, section: options.section ?? "overview", loading: true, saving: false };
     this.set({});
     try {
       const created =
@@ -131,21 +115,13 @@ export class EnvironmentStore {
           : (await this.client.list()).find((item) => item.scope === "personal" && item.is_default));
       if (generation !== this.generation) return;
       if (!environment) return this.set({ loading: false, error: "missing" });
-      this.set({ original: environment, draft: environmentDraft(environment), loading: false, error: undefined });
+      this.set({ original: environment, draft: environmentDraft(environment), loading: false });
       if (environment.setup_script === null && options.repo) void this.derive();
     } catch {
       if (generation === this.generation) this.set({ loading: false, error: "load" });
     }
   }
-  /**
-   * Reads the environment again after a failed open. A read is asked again on its own by the sheet;
-   * only a failed `create` waits for the person (`retryCreates`): asking again makes an environment.
-   */
-  retry = () => this.open(this.options, true);
-  /** The failed open was making a new environment (`create`): its retry makes one, so the person chooses it. */
-  get retryCreates(): boolean {
-    return !!this.options.create && !!this.client.create;
-  }
+  retry = () => this.open(this.options);
   close = () => {
     if (this.state.saving) return;
     ++this.generation;
@@ -167,7 +143,7 @@ export class EnvironmentStore {
     const { original } = this.state;
     if (!original || !this.options.repo || this.state.deriving) return;
     const generation = this.generation;
-    this.set({ deriving: true });
+    this.set({ deriving: true, deriveFailed: false });
     try {
       const result = await this.client.derive({
         repo: this.options.repo,
@@ -176,7 +152,7 @@ export class EnvironmentStore {
       });
       if (generation !== this.generation) return;
       if (!scriptFits(result.setup.script)) throw new Error("script size");
-      this.set({ derivedScript: result.setup.script, deriving: false, deriveFailed: false });
+      this.set({ derivedScript: result.setup.script, deriving: false });
     } catch {
       if (generation === this.generation) this.set({ deriving: false, deriveFailed: true });
     }

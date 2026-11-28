@@ -1,4 +1,3 @@
-#if canImport(CoreGraphics)
 public import CoreGraphics
 public import Darwin
 
@@ -39,4 +38,3 @@ public struct CaptureExcludedWindows: Sendable {
         })
     }
 }
-#endif

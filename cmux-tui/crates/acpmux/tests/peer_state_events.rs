@@ -90,7 +90,7 @@ async fn an_unforced_waiting_reconnect_waits_for_the_handshake_in_progress() {
     tokio::spawn(async move {
         let (tcp, _) = listener.accept().await.unwrap();
         drop(listener);
-        let mut ws = acpmux::server::accept_ws(tcp).await.unwrap();
+        let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
         let mut answer_rx = Some(answer_rx);
         while let Some(Ok(frame)) = ws.next().await {
             let Ws::Text(text) = frame else { continue };

@@ -25,17 +25,10 @@ pub struct Report {
 /// The index of the most truthful report, and the indexes of the others holding edits it lacks
 /// (to pull deltas from). `None` when `reports` is empty.
 pub fn most_truthful(reports: &[Report], stale_ms: u64) -> Option<(usize, Vec<usize>)> {
-    let fresh: Vec<usize> = reports
-        .iter()
-        .enumerate()
-        .filter(|(_, report)| report.age_ms < stale_ms)
-        .map(|(i, _)| i)
-        .collect();
+    let fresh: Vec<usize> = (0..reports.len()).filter(|&i| reports[i].age_ms < stale_ms).collect();
     let pool: Vec<usize> = if fresh.is_empty() { (0..reports.len()).collect() } else { fresh };
     let best = *pool.iter().max_by(|&&a, &&b| {
-        let (Some(ra), Some(rb)) = (reports.get(a), reports.get(b)) else {
-            return std::cmp::Ordering::Equal;
-        };
+        let (ra, rb) = (&reports[a], &reports[b]);
         let a_dominates = ra.vv.dominates(&rb.vv) && ra.vv != rb.vv;
         let b_dominates = rb.vv.dominates(&ra.vv) && ra.vv != rb.vv;
         a_dominates
@@ -45,16 +38,43 @@ pub fn most_truthful(reports: &[Report], stale_ms: u64) -> Option<(usize, Vec<us
             // Reverse so that among full ties the first listed wins.
             .then(b.cmp(&a))
     })?;
-    let best_report = reports.get(best)?;
-    let lacking = reports
-        .iter()
-        .enumerate()
-        .filter(|(i, report)| *i != best && !best_report.vv.dominates(&report.vv))
-        .map(|(i, _)| i)
+    let lacking = (0..reports.len())
+        .filter(|&i| i != best && !reports[best].vv.dominates(&reports[i].vv))
         .collect();
     Some((best, lacking))
 }
 
 #[cfg(test)]
-#[path = "truth_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    fn rep(name: &str, vv: Vv, age_ms: u64) -> Report {
+        Report { replica: name.to_owned(), vv, age_ms }
+    }
+
+    #[test]
+    fn the_vm_that_took_over_the_chat_is_the_truth_once_it_covers_the_mac() {
+        let reports = [
+            rep("mac", Vv::from([("mac", 10)]), 100),
+            rep("vm", Vv::from([("mac", 10), ("vm", 4)]), 200),
+        ];
+        assert_eq!(most_truthful(&reports, 30_000), Some((1, vec![])));
+    }
+
+    #[test]
+    fn concurrent_replicas_pick_the_bigger_and_name_the_other_to_pull_from() {
+        let reports = [
+            rep("mac", Vv::from([("mac", 12), ("vm", 1)]), 100),
+            rep("vm", Vv::from([("mac", 10), ("vm", 9)]), 100),
+        ];
+        assert_eq!(most_truthful(&reports, 30_000), Some((1, vec![0])));
+    }
+
+    #[test]
+    fn a_stale_replica_loses_to_a_fresh_one_even_with_more_edits() {
+        let reports =
+            [rep("vm", Vv::from([("vm", 50)]), 120_000), rep("mac", Vv::from([("mac", 3)]), 50)];
+        assert_eq!(most_truthful(&reports, 30_000), Some((1, vec![0])));
+        assert_eq!(most_truthful(&[], 30_000), None);
+    }
+}

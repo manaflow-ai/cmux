@@ -111,8 +111,7 @@ test("a connection that drops while the prompt waits for its resend waits on the
   clients.connected(dropped);
   await droppedAsked;
   clients.connected(third);
-  const went = await waited;
-  expect(went === "away" ? went : went?.name).toBe("third");
+  expect((await waited)?.name).toBe("third");
   // A connection that stays and never shows it: not sent.
   const quiet: Waiting = { name: "quiet", isClosed: false, awaitResent: async () => false };
   clients.connected(quiet);

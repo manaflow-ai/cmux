@@ -16,24 +16,13 @@ const SESSION: &str = "X-Cmux-Session";
 pub const OFF_ENV: &str = "SUBROUTER2_COST_LABELS";
 const MAX_LABEL: usize = 128;
 
-/// The lane VM's model front: a loopback relay whose every route is the sr2
-/// gateway, so a request sent to it reaches the gateway with its headers.
-const MODEL_FRONT_PORT: &str = "4026";
-
-/// Whether `url` names the sr2 gateway (its tailnet host or port 4016), or
-/// the loopback model front that relays only to it. Lane VMs point Claude at
-/// `http://127.0.0.1:4026`; before the front counted here, none of their
-/// requests carried labels, and most of the gateway's spend read as agent
-/// `unknown`, which no per-lane limit can see.
+/// Whether `url` names the sr2 gateway (its tailnet host or port 4016).
 pub fn is_sr2_gateway(url: &str) -> bool {
     let rest = url.trim().split_once("://").map_or(url.trim(), |(_, r)| r);
     let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
     let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
     let (name, port) = host.rsplit_once(':').unwrap_or((host, ""));
-    let loopback = matches!(name, "127.0.0.1" | "localhost" | "[::1]");
-    name.split('.').next() == Some("sr2-gateway")
-        || port == "4016"
-        || (loopback && port == MODEL_FRONT_PORT)
+    name.split('.').next() == Some("sr2-gateway") || port == "4016"
 }
 
 /// A value mapped into the gateway's label charset: anything else becomes

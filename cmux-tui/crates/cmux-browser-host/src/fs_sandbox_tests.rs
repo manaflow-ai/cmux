@@ -14,7 +14,6 @@ fn sandbox() -> (FsSandbox, PathBuf, PathBuf) {
     (FsSandbox::with_tmp(&root, base.join("tmp")), root, outside)
 }
 
-#[cfg(unix)] // std::os::unix::fs::symlink
 #[test]
 fn intermediate_symlinks_cannot_leave_the_root() {
     let (fs, root, outside) = sandbox();
@@ -26,7 +25,6 @@ fn intermediate_symlinks_cannot_leave_the_root() {
     assert_eq!(written["error"]["code"], "EACCES");
 }
 
-#[cfg(unix)] // std::os::unix::fs::symlink
 #[test]
 fn a_dangling_final_symlink_cannot_write_outside() {
     let (fs, root, outside) = sandbox();

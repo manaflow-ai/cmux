@@ -543,45 +543,66 @@ async fn one_pool_record(daemon: &Daemon) -> Value {
     }
 }
 
-/// Only a bound chat may hold a Claude setup token so Disconnect can withdraw it.
+/// A Cloud chat's start carries its owner's model credential (`_meta.acpmux.credentials`), and
+/// before cmux#45953 such a `session/new` never claimed a pooled agent: every Cloud chat paid a
+/// cold harness start. A hint now names the credential the coming start will carry; only a
+/// `session/new` with that same credential takes the entry it warmed, while another credential,
+/// or none, starts cold and never runs on the warmed agent's login.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_claude_setup_token_is_withdrawable_after_its_bound_start() {
+async fn a_credentialed_hint_is_taken_only_by_a_start_with_that_credential() {
+    // A stand-in Claude Code, so the credential goes into its spawn as Claude's would. The plain
+    // ACP fake given the Claude family never came up pooled: a Claude-family start is Claude's.
     let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
     let fakeb =
         json!({"kind": "claude-stdio", "family": "claude", "argv": ["python3", fake_claude]});
+    // The person's chats: only theirs take a pooled Claude Code (`made_for_a_person`).
     let daemon = Daemon::with_fakeb_proven("cred", &fakeb);
     let mut rpc = daemon.rpc().await;
     rpc.prove().await;
-    let binding = format!("claude-token:{}", "a".repeat(64));
-    let credentials =
-        json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat-fixture"}, "connection": binding});
-    let warmed = rpc
+    let home = daemon.home.clone();
+    let credential = |token: &str| json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": token}});
+    let start = |token: Option<&str>| {
+        let mut acpmux = json!({"harness": "fakeb"});
+        if let Some(token) = token {
+            acpmux["credentials"] = credential(token);
+        }
+        json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": acpmux}})
+    };
+    let hint = |token: &str| json!({"harness": "fakeb", "cwd": home, "wait": true, "credentials": credential(token)});
+
+    // Another credential, or none: the warmed agent is never handed to it. Another credential
+    // leaves the entry (it ends only with no start for it); a start with none ends it, as any
+    // start whose key differs ends its slot's entry.
+    for token in [Some("sk-ant-oat01-owner-b"), None] {
+        let warmed = rpc.call("_acpmux/prewarm", hint("sk-ant-oat01-owner-a")).await;
+        assert_eq!(warmed["accepted"], true, "{warmed}");
+        wait_pool_ready(&mut rpc, "fakeb").await;
+        let pooled = one_pool_record(&daemon).await;
+        let other = rpc.call("session/new", start(token)).await;
+        let other = other["sessionId"].as_str().expect("session id").to_owned();
+        assert!(!taken(&daemon, &other), "a start on {token:?} took the warmed agent");
+        assert_ne!(other, pooled["session_id"].as_str().unwrap());
+    }
+
+    // The same credential: the start takes the warmed agent.
+    let warmed = rpc.call("_acpmux/prewarm", hint("sk-ant-oat01-owner-a")).await;
+    assert_eq!(warmed["accepted"], true, "{warmed}");
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let pooled = one_pool_record(&daemon).await;
+    let t = Instant::now();
+    let same = rpc.call("session/new", start(Some("sk-ant-oat01-owner-a"))).await;
+    eprintln!("credentialed session/new on the warmed agent: {:?}", t.elapsed());
+    let same = same["sessionId"].as_str().expect("session id").to_owned();
+    assert_eq!(same, pooled["session_id"].as_str().unwrap(), "the start takes the pooled id");
+    assert!(taken(&daemon, &same));
+    assert_runs_on_pooled_host(&daemon, &same, &pooled);
+    let reply = rpc
         .call(
-            "_acpmux/prewarm",
-            json!({"harness": "fakeb", "cwd": daemon.home, "wait": true, "credentials": credentials}),
+            "session/prompt",
+            json!({"sessionId": same, "prompt": [{"type": "text", "text": "hello"}]}),
         )
         .await;
-    assert_eq!(warmed["accepted"], false);
-    assert!(daemon.pool_records().is_empty());
-
-    let started = rpc
-        .call(
-            "session/new",
-            json!({"cwd": daemon.home, "mcpServers": [], "_meta": {"acpmux": {
-                "harness": "fakeb", "credentials": credentials
-            }}}),
-        )
-        .await;
-    let session = started["sessionId"].as_str().expect("session id");
-    assert!(!taken(&daemon, session));
-
-    let method = "agent/credentials.update";
-    let status = rpc.call(method, json!({"sessionId": session})).await;
-    assert_eq!(status["connection"], binding);
-    assert_eq!(status["held"], true);
-    rpc.call(method, json!({"withdrawBindings": [binding]})).await;
-    let status = rpc.call(method, json!({"sessionId": session})).await;
-    assert_eq!(status["held"], false);
+    assert_eq!(reply["stopReason"], "end_turn", "{reply}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -875,42 +896,6 @@ async fn a_pooled_claude_pinned_to_manual_is_taken_in_manual() {
     assert!(taken(&daemon, &claimed), "the session came from the pool");
     let info = rpc.call("_acpmux/info", json!({"sessionId": claimed})).await;
     assert_eq!(info["modes"]["currentModeId"], "default", "{info}");
-}
-
-/// A pooled Claude Code is warmed before a chat takes it (`claude_stdio::WARM`): one
-/// `side_question` reaches the idle process while it waits, so the person's first prompt does not
-/// pay for its first API call's setup, and the chat that takes it still starts in the pool.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_pooled_claude_is_warmed_with_one_side_question_before_it_is_taken() {
-    let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
-    let tag = "claudewarm";
-    let log = std::env::temp_dir().join(format!("asp-{tag}-control-{}.log", std::process::id()));
-    let _ = std::fs::remove_file(&log);
-    let fakeb = json!({
-        "kind": "claude-stdio",
-        "family": "claude",
-        "argv": ["python3", fake_claude],
-        "env": {"FAKE_CLAUDE_CONTROL_LOG": log.display().to_string()},
-    });
-    let daemon = Daemon::with_fakeb_proven(tag, &fakeb);
-    let mut rpc = daemon.rpc().await;
-    rpc.prove().await;
-    let home = daemon.home.clone();
-    let warmed =
-        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
-    assert_eq!(warmed["accepted"], true, "{warmed}");
-    wait_pool_ready(&mut rpc, "fakeb").await;
-    let sides = || {
-        std::fs::read_to_string(&log)
-            .unwrap_or_default()
-            .lines()
-            .filter(|l| *l == "side_question")
-            .count()
-    };
-    assert_eq!(sides(), 1, "a ready pooled Claude Code was warmed once");
-    let (claimed, _) = new_session(&mut rpc, &home, "fakeb").await;
-    assert!(taken(&daemon, &claimed), "the warmed session came from the pool");
-    let _ = std::fs::remove_file(&log);
 }
 
 /// A Claude Code chat a script makes never takes a pooled Claude Code: the pool started it for

@@ -1,9 +1,5 @@
-#if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
-#if canImport(Darwin)
+#if DEBUG || CMUX_BLOCKING_CHECKS
 internal import Darwin
-#else
-internal import Glibc
-#endif
 
 /// A new blocking call site on its way from the main thread to the drain queue: a fixed-size value
 /// (no reference, no allocation) that a ``BlockingPendingRing`` slot holds.

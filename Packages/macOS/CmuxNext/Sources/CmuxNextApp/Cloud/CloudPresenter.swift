@@ -81,16 +81,9 @@ enum CloudPresenter {
                                                button: CloudStrings.proRequiredUpgrade, cancel: CloudStrings.cancel), done: { closed($0) })
             return true
         }
-        present(planOfferSpec(message, plan: "pro"), in: window) { answer in closed(answer?.button == "confirm") }
+        confirm(CloudStrings.proRequiredTitle, message ?? CloudStrings.proRequiredBody, button: CloudStrings.proRequiredUpgrade,
+                identifier: "cmux.dialog.cloud.proRequired", in: window, done: closed)
         return true
-    }
-
-    static func planOfferSpec(_ message: String?, plan: String) -> CmuxDialogSpec {
-        let pro = plan == "pro"
-        return confirmSpec(pro ? CloudStrings.proRequiredTitle : CloudStrings.upgradeTitle,
-                           message ?? (pro ? CloudStrings.proRequiredBody : CloudStrings.upgradeRequired),
-                           button: pro ? CloudStrings.proRequiredUpgrade : CloudStrings.upgradeButton,
-                           identifier: "cmux.dialog.cloud.proRequired")
     }
 
     static func copy(_ text: String) {

@@ -9,8 +9,6 @@ import { UiProvider } from "../../../ui/UiProvider";
 import { settleReact } from "../../../../test/support/domTeardown";
 import { resetHeaderStateForTests, setHeaderState } from "../header/headerState";
 import { HybridChip } from "./HybridMounts";
-import { setExperimentSwitches } from "../../../experiments/switches";
-import { CLOUD_TOGGLE_SWITCH } from "./hybridModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -56,14 +54,9 @@ function installDom(): HTMLElement {
   return dom.window.document.getElementById("root")!;
 }
 
-// The chip ships behind the default-off Cloud Toggle experiment; these tests draw it switched on.
-beforeEach(() => {
-  resetHeaderStateForTests();
-  setExperimentSwitches({ [CLOUD_TOGGLE_SWITCH]: true });
-});
+beforeEach(() => resetHeaderStateForTests());
 afterEach(async () => {
   resetHeaderStateForTests();
-  setExperimentSwitches({});
   if (root) await act(async () => root!.unmount());
   root = undefined;
   await settleReact();

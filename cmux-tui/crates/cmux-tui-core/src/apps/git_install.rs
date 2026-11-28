@@ -64,18 +64,16 @@ pub(crate) struct GitState {
     done: Mutex<std::collections::VecDeque<Done>>,
     transport: OnceLock<Arc<dyn GitTransport>>,
     /// One fetch at a time.
-    pub(super) fetching: Mutex<()>,
+    fetching: Mutex<()>,
     /// One `sources.json` read-modify-write at a time.
     index: Mutex<()>,
-    /// The background update check and what it found (`git_updates.rs`).
-    pub(super) updates: Mutex<super::git_updates::Updates>,
 }
 
 fn staged_key(reference: &str, commit: &str) -> String {
     format!("{reference}#{commit}")
 }
 
-pub(super) fn git_error(code: &str) -> impl Fn(String) -> ApiError + '_ {
+fn git_error(code: &str) -> impl Fn(String) -> ApiError + '_ {
     move |message| ApiError::new(code, message)
 }
 
@@ -103,7 +101,7 @@ impl Supervisor {
         let _ = self.git.transport.set(transport);
     }
 
-    pub(super) fn git_transport(&self) -> Arc<dyn GitTransport> {
+    fn git_transport(&self) -> Arc<dyn GitTransport> {
         self.git.transport.get_or_init(|| Arc::new(HttpTransport)).clone()
     }
 
@@ -175,7 +173,6 @@ impl Supervisor {
                     result => result,
                 }
             }
-            ("apps.updates.list", _) => self.updates_list(&args),
             ("apps.uninstall", _) => {
                 let result = self.store_call_base(client, op, args, origin)?;
                 if let Some(app) = app.as_deref() {
@@ -186,11 +183,6 @@ impl Supervisor {
             _ => {
                 let mut result = self.store_call_base(client, op, args, origin)?;
                 self.decorate(short, &mut result);
-                if short == "apps.installed.list" {
-                    // Listing the installed apps is when an update check
-                    // that is due starts, off this request (no timer loop).
-                    self.check_updates_if_due(false);
-                }
                 Ok(result)
             }
         }
@@ -225,20 +217,6 @@ impl Supervisor {
     /// Fetches `reference` at the commit its ref names and validates it:
     /// the staged package an install of the same reference takes.
     pub(crate) fn git_stage(&self, reference: &str) -> Result<Staged, ApiError> {
-        let staged = self.git_fetch(reference)?;
-        let key = RepoRef::parse(reference).map_err(git_error("apps.git.reference"))?.reference();
-        self.git
-            .staged
-            .lock()
-            .recover_poison()
-            .insert(staged_key(&key, &staged.source.commit), staged.clone());
-        Ok(staged)
-    }
-
-    /// Fetches and validates `reference` at the commit its ref names without
-    /// staging it: the update check reads a new commit's scopes this way, so
-    /// only a consent card's read ever lets an install take a commit.
-    pub(super) fn git_fetch(&self, reference: &str) -> Result<Staged, ApiError> {
         let reference = RepoRef::parse(reference).map_err(git_error("apps.git.reference"))?;
         // The person named this repository: its host passes the egress gate.
         cmux_egress::allow_named(&reference.host);
@@ -283,7 +261,13 @@ impl Supervisor {
             dir: relative,
             verified_source,
         };
-        Ok(Staged { at: Instant::now(), source, package, reviewed })
+        let staged = Staged { at: Instant::now(), source, package, reviewed };
+        self.git
+            .staged
+            .lock()
+            .recover_poison()
+            .insert(staged_key(&reference.reference(), &staged.source.commit), staged.clone());
+        Ok(staged)
     }
 
     /// Downloads the release's built package (else the tree at the commit),
@@ -586,13 +570,20 @@ impl Supervisor {
                 return self.git_result(&id);
             }
             if installed && let Some(current) = inner.catalog.packages.get(&id) {
-                let new = super::git_updates::new_scopes(&current.facts(), &staged.package.facts());
+                let before = current.facts();
+                let after = staged.package.facts();
+                let new: Vec<&String> = after
+                    .requested
+                    .iter()
+                    .chain(&after.optional)
+                    .filter(|s| !before.requested.contains(*s) && !before.optional.contains(*s))
+                    .collect();
                 if !consented && !new.is_empty() {
                     return Err(ApiError::new(
                         "apps.update.needs_consent",
                         format!(
                             "the new version of {id} also asks for {}: review it with `cmux apps install {}`",
-                            new.join(", "),
+                            new.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
                             staged.source.reference().reference()
                         ),
                     ));
@@ -748,7 +739,6 @@ impl Supervisor {
             }
             let Some(source) = inner.catalog.git.remove(app) else { return };
             self.git.staged.lock().recover_poison().retain(|_, s| s.package.id != app);
-            self.forget_update_offer(app);
             inner.catalog.packages.remove(app);
             source
         };

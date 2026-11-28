@@ -86,10 +86,8 @@ export const unavailable = (cause?: unknown): ServiceUnavailable => {
 
 /** The request conflicts with the resource's current state (for example, starting a VM that is being deleted). */
 /** Machine-readable reasons a 409 can carry; most conflicts carry none. */
-export const ConflictCode = Schema.Literal("mesh.device.intent_revoked", "creation.intent_refused").annotations({
-  description:
-    "mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again. " +
-    "creation.intent_refused: this Idempotency-Key's recorded create refuses this attempt (its intent changed, it was cancelled or completed, or its reservation expired); retrying the same key never creates it.",
+export const ConflictCode = Schema.Literal("mesh.device.intent_revoked").annotations({
+  description: "mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again.",
 });
 
 export class Conflict extends Schema.TaggedError<Conflict>()(

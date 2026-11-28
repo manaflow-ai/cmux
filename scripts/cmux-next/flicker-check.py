@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Finds chrome that blinks, jumps, flashes or settles in steps in a screen recording.
+"""Finds chrome that blinks or settles in steps in a screen recording.
 
 Record one scripted interaction (hover, open, switch) at 60 fps, then:
 
@@ -23,16 +23,8 @@ brightness is followed frame by frame. Two patterns are reported:
   replaced by content of another height: a layout shift.
 - glide: the same move spread over --glide-frames or more frames (an
   animation or a scroll). Reported, never a failure.
-- flash: a block of the screen (--flash-cells or more cells) changes, stays
-  changed, and then every cell of it returns to exactly how it looked before,
-  longer than a blink but within --flash-ms (default 3000). A banner, chip,
-  spinner or notice that came and went with nothing lasting behind it: a
-  "Reconnecting..." for a link that healed itself, a loading row for a load
-  that was already done, a warning for a state that was never real. The
-  error classes it belongs to, and the code that designs each one out:
-  docs/cmux-next/spurious-ui.md.
 
-Exits 1 when a blink, staggered, jump or flash is found, so a scripted capture can
+Exits 1 when a blink, staggered or jump is found, so a scripted capture can
 gate on it (--report-only always exits 0; the JSON still lists them).
 --frames-dir writes the frames around each finding as PNGs for review.
 A .y4m recording (YUV4MPEG2, what `ffmpeg -f yuv4mpegpipe` writes) is read
@@ -221,11 +213,6 @@ def staggered(series, change, settle_frames, steps, columns, cell):
 
 def changed_regions(before, after, change, columns, rows):
     """The changed cells between two frames, as 8-connected groups: (cells, box in cells)."""
-    return [(len(group), box) for group, box in changed_groups(before, after, change, columns, rows)]
-
-
-def changed_groups(before, after, change, columns, rows):
-    """The changed cells between two frames, as 8-connected groups: (cell indexes, box in cells)."""
     changed = {c for c, (a, b) in enumerate(zip(before, after)) if abs(b - a) > change}
     regions = []
     while changed:
@@ -244,52 +231,8 @@ def changed_groups(before, after, change, columns, rows):
                         stack.append(n)
         xs = [c % columns for c in group]
         ys = [c // columns for c in group]
-        regions.append((group, [min(xs), min(ys), max(xs) + 1, max(ys) + 1]))
+        regions.append((len(group), [min(xs), min(ys), max(xs) + 1, max(ys) + 1]))
     return regions
-
-
-def flashes(series, change, blink_frames, flash_frames, hold_frames, min_cells, columns, rows):
-    """Blocks that appear and then go, leaving the screen as it was: per changed
-    group of at least min_cells cells, the frame where every one of its cells is
-    back within change/2 of its look before the change, and stays back for
-    hold_frames, provided at least half of them stayed changed until then (so a
-    block that changes into something else and keeps changing is not one).
-    Returns (frame, frames shown, cells, box in cells); a return within
-    blink_frames is left to the blink finder."""
-    tol = change / 2
-    busy = {}  # cell -> the last frame an earlier group's scan already covered it
-    found = []
-    for i in range(1, len(series)):
-        for cells, box in changed_groups(series[i - 1], series[i], change, columns, rows):
-            if len(cells) < min_cells or all(busy.get(c, -1) >= i for c in cells):
-                continue
-            before = [series[i - 1][c] for c in cells]
-            end = min(len(series), i + flash_frames + 1)
-            back_at, k = None, i
-            for k in range(i + 1, end):
-                off = sum(1 for c, b in zip(cells, before) if abs(series[k][c] - b) > tol)
-                if off == 0:
-                    settled = k + hold_frames <= len(series) and all(
-                        abs(series[m][c] - b) <= tol for m in range(k, k + hold_frames) for c, b in zip(cells, before))
-                    back_at = k if settled else None
-                    break
-                if off * 2 < len(cells):
-                    break
-            for c in cells:
-                busy[c] = max(busy.get(c, -1), k)
-            if back_at is not None and back_at - i > blink_frames:
-                found.append((i, back_at - i, len(cells), box))
-    # Pieces of one notice (a banner and the rows it pushed) appear and go together: one flash.
-    merged = []
-    for frame, shown, count, box in sorted(found):
-        last = merged[-1] if merged else None
-        if last and frame - last[0] <= 2 and abs((frame + shown) - (last[0] + last[1])) <= 2:
-            lb = last[3]
-            merged[-1] = (last[0], last[1], last[2] + count,
-                          [min(lb[0], box[0]), min(lb[1], box[1]), max(lb[2], box[2]), max(lb[3], box[3])])
-            continue
-        merged.append((frame, shown, count, box))
-    return merged
 
 
 def signatures(frame, width, box, along_rows, chunks):
@@ -455,12 +398,11 @@ def dump(path, crop, events, directory, fps):
                         "-vsync", "0", str(directory / f"{n:02d}-{event['kind']}-f%04d.png")], check=True)
 
 
-FAILING = ("blink", "staggered", "jump", "flash")
+FAILING = ("blink", "staggered", "jump")
 
 
 def analyse(recording, crop=None, cell=6, change=6.0, blink_frames=6, settle_frames=18, steps=3, min_cells=1,
-            glide_frames=4, min_shift=2.0, reach=48, shift_tol=6.0, min_lines=4, flash_ms=3000, flash_cells=3,
-            hold_frames=6):
+            glide_frames=4, min_shift=2.0, reach=48, shift_tol=6.0, min_lines=4):
     """The findings in one recording, as the JSON report's dict."""
     width, height, captured = probe(recording)
     fps = captured if recording.suffix == ".y4m" else RATE
@@ -486,13 +428,6 @@ def analyse(recording, crop=None, cell=6, change=6.0, blink_frames=6, settle_fra
         del event["frames"]
         events.append(event)
     events = [e for e in events if e["cells"] >= min_cells]
-    rows = scaled_height // grid
-    for frame, shown, cells, (cx0, cy0, cx1, cy1) in flashes(
-            series, change, blink_frames, max(blink_frames + 1, round(flash_ms * fps / 1000)), hold_frames,
-            flash_cells, columns, rows):
-        events.append({"kind": "flash", "frame": frame, "ms": round(frame * 1000 / fps),
-                       "duration_ms": round(shown * 1000 / fps), "cells": cells,
-                       "box": [round(v * grid * scale) for v in (cx0, cy0, cx1, cy1)]})
     # Held frames of a variable-rate capture read as still frames between moves.
     gap = max(2, round(RATE / max(captured, 1)) + 1)
     for event in jumps(found, glide_frames, gap, grid):
@@ -522,10 +457,6 @@ def main(argv=None):
     parser.add_argument("--glide-frames", type=int, default=4,
                         help="a move spread over this many frames or more is a glide, not a jump")
     parser.add_argument("--min-shift", type=float, default=2.0, help="source pixels a jump must move")
-    parser.add_argument("--flash-ms", type=int, default=3000,
-                        help="a block that appears and is gone again within this long (and longer than a blink) "
-                             "is a flash")
-    parser.add_argument("--flash-cells", type=int, default=3, help="cells a flash must cover (a caret is one)")
     parser.add_argument("--report-only", action="store_true", help="exit 0 whatever is found")
     parser.add_argument("--frames-dir", type=Path)
     parser.add_argument("--json", type=Path)
@@ -534,8 +465,7 @@ def main(argv=None):
     crop = [int(v) for v in args.crop.split(",")] if args.crop else None
     result = analyse(args.recording, crop=crop, cell=args.cell, change=args.change, blink_frames=args.blink_frames,
                      settle_frames=args.settle_frames, steps=args.steps, min_cells=args.min_cells,
-                     glide_frames=args.glide_frames, min_shift=args.min_shift, flash_ms=args.flash_ms,
-                     flash_cells=args.flash_cells)
+                     glide_frames=args.glide_frames, min_shift=args.min_shift)
     if result["captured_fps"] < 50:
         print(f"warning: captured at {result['captured_fps']:.1f} fps on average; a one-frame blink at 60 Hz can "
               "fall between frames", file=sys.stderr)

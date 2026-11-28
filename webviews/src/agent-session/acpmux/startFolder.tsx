@@ -17,7 +17,6 @@ export function WorktreeFailure({
   return (
     <output className="acpmux-switch-notice acpmux-folder-choice">
       <span role="alert">{message ?? t("worktree.failedPlain")}</span>{" "}
-      {/* retry-prompt-ok: makes the worktree again (a new branch and checkout on disk, a clone for a GitHub repository). */}
       {onRetry && (
         <>
           <button type="button" className="acpmux-folder-choice-button" onClick={onRetry}>

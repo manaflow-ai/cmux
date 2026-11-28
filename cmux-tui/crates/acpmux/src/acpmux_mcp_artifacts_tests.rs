@@ -569,36 +569,6 @@ fn legacy_artifact_schema() -> Value {
     }}})
 }
 
-/// Saves that keep landing first are waited out: the save goes again on each new head until it
-/// lands, and the agent never relays "try again" (Leo, 2026-11-22).
-#[tokio::test]
-async fn save_goes_again_while_other_saves_keep_landing_first() {
-    let id = "01J8Z7Q4M6N2K5P8R3T1V9W0X2";
-    let (base, server) = fixture(vec![
-        (200, JSON, json!({"repo": "r", "headSha": "1".repeat(40)}).to_string().into_bytes()),
-        (200, JSON, json!({"sha256": "a".repeat(64), "size": 11}).to_string().into_bytes()),
-        (409, JSON, json!({"currentHeadSha": "2".repeat(40)}).to_string().into_bytes()),
-        (409, JSON, json!({"currentHeadSha": "3".repeat(40)}).to_string().into_bytes()),
-        (409, JSON, json!({"currentHeadSha": "4".repeat(40)}).to_string().into_bytes()),
-        (
-            200,
-            JSON,
-            json!({"id": id, "headSha": "5".repeat(40), "commit": {}}).to_string().into_bytes(),
-        ),
-    ])
-    .await;
-    let result = run(
-        &client(&base),
-        "artifact_save",
-        json!({"title": "Build report", "kind": "html", "html": "<h1>ok</h1>"}),
-    )
-    .await;
-    let seen = server.await.unwrap();
-    assert_eq!(result["isError"], false, "{result}");
-    let last: Value = serde_json::from_slice(&seen[5].body).unwrap();
-    assert_eq!(last["expectedHeadSha"], "4".repeat(40));
-}
-
 #[tokio::test]
 async fn legacy_schema_fallback_keeps_all_3_mib_and_retries_conflict_without_reupload() {
     let bytes = Bytes::from(vec![b'x'; 3 << 20]);

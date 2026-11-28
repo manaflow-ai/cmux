@@ -1,9 +1,8 @@
-import { KeyHint } from "../../ui/KeyHint";
+import { keycapLegend } from "../../ui/keycapLegend";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Dialog } from "../../ui/Dialog";
 import { KeyboardScope } from "../../ui/KeyboardScope";
-import { useAutoRetry } from "./autoRetry";
 import { browseFailureMessage } from "./browseFailureModel";
 import { useT } from "./i18n";
 import {
@@ -86,11 +85,6 @@ export function AddProjectPanel({
     };
   }, [host, requested, step, retry]);
 
-  // A folder list that failed is read again on its own (autoRetry.ts): asking again is the only answer, so it is not
-  // the person's click. Only one that keeps failing says so, in one quiet line with no button.
-  const listFailed = step === "directory" && host.list !== undefined ? error : undefined;
-  const { stillTrying } = useAutoRetry(listFailed, () => setRetry((value) => value + 1), { busy: loading });
-
   const back = () => {
     browseRequest.current += 1;
     setBrowsing(false);
@@ -125,11 +119,7 @@ export function AddProjectPanel({
             label: directoryName(path),
             disabled: false,
           }));
-  const typed = query.trim().toLocaleLowerCase();
-  const shown = choices.filter((choice) => choice.label.toLocaleLowerCase().includes(typed));
-  // By id: the Combobox asks whether each suggestion is disabled on every key, and a folder of
-  // thousands asked by a scan of the list each time cost a key half a second.
-  const choiceById = new Map(choices.map((choice) => [choice.id, choice]));
+  const shown = choices.filter((choice) => choice.label.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   const chooseFolder = () => {
     if (host.list) {
       setStep("directory");
@@ -155,7 +145,7 @@ export function AddProjectPanel({
       });
   };
   const select = (id: string) => {
-    const choice = choiceById.get(id);
+    const choice = choices.find((item) => item.id === id);
     if (choice?.disabled) return;
     if (step === "environment" && choice?.id === "local") {
       setStep("source");
@@ -224,7 +214,7 @@ export function AddProjectPanel({
           onSubmit={select}
           onCancel={onClose}
           cancelOnBlur={false}
-          isItemDisabled={(id) => choiceById.get(id)?.disabled ?? step !== "directory"}
+          isItemDisabled={(id) => choices.find((choice) => choice.id === id)?.disabled ?? step !== "directory"}
           autoHighlight
           rootClassName="acpmux-add-project-combobox"
           label={step === "directory" ? t("project.path") : title}
@@ -233,7 +223,7 @@ export function AddProjectPanel({
           listClassName="acpmux-add-project-list"
           itemClassName="acpmux-add-project-item"
           renderItem={(id) => {
-            const choice = choiceById.get(id)!;
+            const choice = choices.find((item) => item.id === id)!;
             return (
               <>
                 <FolderIcon />
@@ -244,21 +234,17 @@ export function AddProjectPanel({
           }}
           inline
         />
-        <output
-          className="acpmux-add-project-status"
-          role={(error && !listFailed) || revealError ? "alert" : undefined}
-        >
+        <output className="acpmux-add-project-status" role={error || revealError ? "alert" : undefined}>
           {loading || browsing ? (
             t("project.loading")
-          ) : listFailed ? (
-            stillTrying ? (
-              <span data-still-trying="">{t("project.stillLoading")}</span>
-            ) : null
           ) : error ? (
             <>
               <span>{error}</span>
-              <button type="button" disabled={browsing} onClick={() => chooseFolder()}>
-                {/* retry-prompt-ok: opens the native folder chooser again, a sheet the person must want. */}
+              <button
+                type="button"
+                disabled={browsing}
+                onClick={() => (host.list ? setRetry((value) => value + 1) : chooseFolder())}
+              >
                 {t("project.retry")}
               </button>
             </>
@@ -291,23 +277,23 @@ export function AddProjectPanel({
                 disabled={!directory || loading || !!error}
                 onClick={add}
               >
-                {t("project.addFolder")} <KeyHint keys="⌘↩" />
+                {t("project.addFolder")} <kbd>{keycapLegend("⌘↩")}</kbd>
               </button>
             </>
           )}
         </div>
         <div className="acpmux-add-project-footer">
           <span>
-            <KeyHint keys="↑↓" /> {t("project.navigate")}
+            <kbd>↑↓</kbd> {t("project.navigate")}
           </span>
           <span>
-            <KeyHint keys="↩" /> {t("project.select")}
+            <kbd>{keycapLegend("↩")}</kbd> {t("project.select")}
           </span>
           <span>
-            <KeyHint keys="⌥←" /> {t("project.back")}
+            <kbd>⌥←</kbd> {t("project.back")}
           </span>
           <span>
-            <KeyHint keys={t("project.escape")} /> {t("project.close")}
+            <kbd>{t("project.escape")}</kbd> {t("project.close")}
           </span>
         </div>
       </div>

@@ -2110,134 +2110,134 @@
         }
       }
     },
-    "work.stillLoading": {
-      "comment": "Chief Home Work: a read of the work inventory that kept failing past the deadline; it is asked again on its own (no button)",
+    "work.unavailable": {
+      "comment": "Chief Home Work: read-only current-machine work inventory",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Still loading background work…"
+            "value": "Background work is unavailable. Try refreshing."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يزال تحميل العمل في الخلفية جاريًا…"
+            "value": "العمل في الخلفية غير متاح. حاول التحديث."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rad u pozadini se još učitava…"
+            "value": "Pozadinski rad nije dostupan. Pokušajte osvježiti."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Indlæser stadig baggrundsarbejde…"
+            "value": "Baggrundsarbejde er ikke tilgængeligt. Prøv at opdatere."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hintergrundaktivität wird noch geladen…"
+            "value": "Hintergrundaktivität ist nicht verfügbar. Versuche zu aktualisieren."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Todavía cargando el trabajo en segundo plano…"
+            "value": "El trabajo en segundo plano no está disponible. Prueba a actualizar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chargement du travail en arrière-plan toujours en cours…"
+            "value": "Le travail en arrière-plan est indisponible. Essayez d’actualiser."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Caricamento del lavoro in background ancora in corso…"
+            "value": "Il lavoro in background non è disponibile. Prova ad aggiornare."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "バックグラウンド作業をまだ読み込んでいます…"
+            "value": "バックグラウンド作業を表示できません。更新してみてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "នៅតែកំពុងផ្ទុកការងារផ្ទៃខាងក្រោយ…"
+            "value": "មិនអាចបង្ហាញការងារផ្ទៃខាងក្រោយបានទេ។ សូមព្យាយាមផ្ទុកឡើងវិញ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "백그라운드 작업을 아직 불러오는 중…"
+            "value": "백그라운드 작업을 확인할 수 없습니다. 새로고침해 보세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Laster fortsatt bakgrunnsarbeid…"
+            "value": "Bakgrunnsarbeid er ikke tilgjengelig. Prøv å oppdatere."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nadal wczytuję pracę w tle…"
+            "value": "Praca w tle jest niedostępna. Spróbuj odświeżyć."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ainda carregando o trabalho em segundo plano…"
+            "value": "O trabalho em segundo plano está indisponível. Tente atualizar."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Фоновая работа ещё загружается…"
+            "value": "Фоновая работа недоступна. Попробуйте обновить."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ยังคงโหลดงานเบื้องหลัง…"
+            "value": "ไม่สามารถแสดงงานเบื้องหลังได้ ลองรีเฟรช"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arka plan işleri hâlâ yükleniyor…"
+            "value": "Arka plan işleri kullanılamıyor. Yenilemeyi deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Фонова робота ще завантажується…"
+            "value": "Фонова робота недоступна. Спробуйте оновити."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vẫn đang tải công việc nền…"
+            "value": "Không thể xem công việc nền. Hãy thử làm mới."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "仍在加载后台工作…"
+            "value": "后台工作不可用。请尝试刷新。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "仍在載入背景工作…"
+            "value": "無法顯示背景工作。請嘗試重新整理。"
           }
         }
       }
@@ -2634,530 +2634,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "關閉"
-          }
-        }
-      }
-    },
-    "detail.messages": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Messages"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "الرسائل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Poruke"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Beskeder"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nachrichten"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mensajes"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Messages"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Messaggi"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "メッセージ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "សារ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "메시지"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Meldinger"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wiadomości"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mensagens"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Сообщения"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ข้อความ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mesajlar"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Повідомлення"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tin nhắn"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "消息"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "訊息"
-          }
-        }
-      }
-    },
-    "detail.normal": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Normal"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "عادي"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Normalno"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Normal"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Normal"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Normal"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Normal"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Normale"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "標準"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ធម្មតា"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "보통"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Normal"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Normalny"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Normal"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Обычный"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ปกติ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Normal"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Звичайний"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bình thường"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "标准"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "標準"
-          }
-        }
-      }
-    },
-    "detail.thinking": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Thinking"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "التفكير"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Razmišljanje"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tænkning"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Denken"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Razonamiento"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Réflexion"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ragionamento"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "思考"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការគិត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "생각"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tenkning"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Myślenie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Raciocínio"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Размышления"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การคิด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Düşünme"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Міркування"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Suy nghĩ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "思考"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "思考"
-          }
-        }
-      }
-    },
-    "detail.verbose": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verbose"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "مفصّل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Detaljno"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Detaljeret"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ausführlich"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Detallado"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Détaillé"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dettagliato"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "詳細"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "លម្អិត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "자세히"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Detaljert"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Szczegółowy"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Detalhado"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Подробный"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แบบละเอียด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ayrıntılı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Детальний"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chi tiết"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "详细"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "詳細"
           }
         }
       }

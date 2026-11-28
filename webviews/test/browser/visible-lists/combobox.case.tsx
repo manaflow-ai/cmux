@@ -1,25 +1,16 @@
 // ui/Combobox inline with N suggestions and no pinned actions, as the project chooser uses it:
-// the caller filters on each key. `?vary=1` gives every third row a second line (rows of two
-// heights), and `window.__removeItem(id)` takes an item out of the open list.
+// the caller filters on each key.
 import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { Combobox } from "../../../src/ui/Combobox";
 import { caseItems, type VisibleListCase } from "./case";
 
-function ComboboxCaseRow({ label, lines }: { label: string; lines: number }) {
-  return lines === 1 ? (
-    <span>{label}</span>
-  ) : (
-    <span style={{ display: "flex", flexDirection: "column" }}>
-      <span>{label}</span>
-      <span>{label} line 2</span>
-    </span>
-  );
+function ComboboxCaseRow({ label }: { label: string }) {
+  return <span>{label}</span>;
 }
 
 let changeOne = () => {};
-const vary = new URLSearchParams(location.search).get("vary") === "1";
 
 function CaseCombobox({ n, pinned }: { n: number; pinned: boolean }) {
   const [items, setItems] = useState(() => caseItems(n));
@@ -31,8 +22,6 @@ function CaseCombobox({ n, pinned }: { n: number; pinned: boolean }) {
       setItems((previous) =>
         previous.map((item, index) => (index === 2 ? { ...item, label: `${item.label}!` } : item)),
       );
-    (window as unknown as { __removeItem(id: string): void }).__removeItem = (id) =>
-      setItems((previous) => previous.filter((item) => item.id !== id));
   }, []);
   const labels = new Map(items.map((item) => [item.id, item.label]));
   const suggestions = items.filter((item) => item.label.includes(query)).map((item) => item.id);
@@ -48,9 +37,7 @@ function CaseCombobox({ n, pinned }: { n: number; pinned: boolean }) {
       onCancel={() => {}}
       cancelOnBlur={false}
       label="Items"
-      renderItem={(id) => (
-        <ComboboxCaseRow label={labels.get(id) ?? id} lines={vary && Number(id.slice(3)) % 3 === 0 ? 2 : 1} />
-      )}
+      renderItem={(id) => <ComboboxCaseRow label={labels.get(id) ?? id} />}
       listClassName="case-list"
     />
   );
@@ -62,8 +49,7 @@ export function comboboxCase(pinned: boolean): VisibleListCase {
       (window as unknown as { __submitted: string[] }).__submitted = [];
       const style = document.createElement("style");
       style.textContent =
-        ".case-list { max-height: 320px; overflow: auto; } .ui-combobox-item { box-sizing: border-box; }" +
-        (vary ? " .ui-combobox-item { line-height: 18px; padding: 5px 8px; }" : " .ui-combobox-item { height: 28px; }");
+        ".case-list { max-height: 320px; overflow: auto; } .ui-combobox-item { height: 28px; box-sizing: border-box; }";
       document.head.append(style);
       flushSync(() => createRoot(root).render(<CaseCombobox n={n} pinned={pinned} />));
       const scroller = () =>

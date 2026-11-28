@@ -1,8 +1,7 @@
 // cmux-web-test-timeout: 300
 // The permission chip is quiet, like Claude's mode label (Leo 2026-10-18): Full access draws in the
-// footer's mode tone (--agent-muted, the one muted label the model and effort chips draw too, since
-// fe4cdc6faaf2's contrast audit moved the mode off the soft tone, which held 3.84:1 on the light
-// page against a button's 4.5:1), not a warning-colored shield and label that sit in the composer all the time. The shield's "!" mark still names the risk, and the menu keeps the warning
+// footer's mode tone (--agent-soft, as every mode does since #22667; the model and effort are the
+// muted label beside it), not a warning-colored shield and label that sit in the composer all the time. The shield's "!" mark still names the risk, and the menu keeps the warning
 // color on Full access's icon, where the mode is chosen.
 // Real Chromium and WebKit (the app's engine) on the gallery stage. CI fails the file when it cannot
 // launch them (requireBrowserLane). Locally: CMUX_BROWSER_TESTS=1 bun test test/quiet-access-chip.test.ts
@@ -110,9 +109,9 @@ await requireBrowserLane("quiet-access-chip.test.ts", async () => {
             shield: getComputedStyle(access.querySelector("svg")!).color,
             model: getComputedStyle(model).color,
             // The footer's mode tone, resolved where the chip draws.
-            muted: (() => {
+            soft: (() => {
               const probe = document.createElement("span");
-              probe.style.color = "var(--agent-muted)";
+              probe.style.color = "var(--agent-soft)";
               access.parentElement!.append(probe);
               const color = getComputedStyle(probe).color;
               probe.remove();
@@ -122,8 +121,8 @@ await requireBrowserLane("quiet-access-chip.test.ts", async () => {
         },
         { selector: trigger, MODEL_PICKER },
       );
-      expect(colors.access).toBe(colors.muted);
-      expect(colors.shield).toBe(colors.muted);
+      expect(colors.access).toBe(colors.soft);
+      expect(colors.shield).toBe(colors.soft);
       await page.close();
     });
 

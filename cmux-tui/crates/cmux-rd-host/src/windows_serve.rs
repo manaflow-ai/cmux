@@ -50,9 +50,6 @@ struct Turn {
     addr: String,
     username: String,
     password: String,
-    /// `udp` (the default), `tcp` or `tls` (`turn_stream`'s relays).
-    #[serde(default)]
-    transport: String,
 }
 
 /// The setup line (the Unix `serve`'s; `display` and `capture` are not used: GDI captures
@@ -67,9 +64,6 @@ struct Setup {
     stun: Vec<String>,
     #[serde(default)]
     turn: Vec<Turn>,
-    /// TCP and TLS relays, tried after the UDP ones, for a network that blocks UDP.
-    #[serde(default)]
-    turn_stream: Vec<Turn>,
     #[serde(default)]
     max_fps: Option<u32>,
     #[serde(default)]
@@ -158,7 +152,7 @@ impl LinkWire {
                 }
                 Err(TryRecvError::Empty) => return Ok(()),
                 Err(TryRecvError::Disconnected) => {
-                    return Err("the app closed the session's input".into());
+                    return Err("the app closed the session's input".into())
                 }
             }
         }
@@ -238,13 +232,11 @@ pub fn run(opts: &Opts) -> Res<()> {
     let turn: Vec<TurnServer> = setup
         .turn
         .iter()
-        .chain(&setup.turn_stream)
         .filter_map(|t| {
             Some(TurnServer {
                 addr: resolve(&t.addr)?,
                 username: t.username.clone(),
                 password: t.password.clone(),
-                transport: cmux_rd_link::net::TurnTransport::from_setup(&t.transport, &t.addr)?,
             })
         })
         .collect();
@@ -376,9 +368,6 @@ fn serve_session(
         preset: "ultrafast",
         profile: "baseline",
         openh264_lib: opts.get("openh264-lib"),
-        // `video.sharp_text` is offered by Linux hosts only (`stream::offers_sharp_text`), so a
-        // Windows session never negotiates it; windows.rs's sessions set it the same way.
-        sharp_text: false,
     })?;
     wire.send_control(&Control::Welcome {
         encoder: encoder.name(),

@@ -47,8 +47,6 @@ def resolved(runs_on: str, owner: str, linux_runner: str, overflow: str, trusted
             "CI_CLOUD_OVERFLOW_SAVED": [overflow],
             "CI_TRUSTED_RUNNER": [trusted],
             "LINUX_RUNNER_DARWIN_CROSS": [darwin_cross],
-            # The overflow switch (scripts/ci/one_linux_label.py OVERFLOW): unset until a failover writes it.
-            "CI_OVERFLOW_LINUX": [""],
         },
         silent=("needs",),
     )
@@ -59,8 +57,6 @@ HOSTED = "ubuntu-24.04"
 # The one job with its own override: the Darwin cross-compile shadow.
 DARWIN_CROSS_JOB = "macos-cross-shadow"
 DARWIN_CROSS = "darwin-cross-pool"
-# The darwin cross build lane (cmuxterm-hq build-fleet/swift-linux-builder/lane-build-runners).
-DARWIN_CROSS_HOST = "cmux-gcp-lane-build-x64"
 # The remaining nightly publication jobs take this label on their first attempt.
 NIGHTLY = "cmux-gcp-nightly-x64"
 # The JIT-only nightly label (#47905): one job per VM, holding the nightly's App keys; it serves nightly runs only,
@@ -167,7 +163,7 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             with self.subTest(expression=expr):
                 self.assertEqual(expr, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + arm +
                                  "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name "
-                                 "!= github.repository && 'ubuntu-24.04' || 'cmux-linux' " + "}}")
+                                 "!= github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' " + "}}")
 
     def test_the_short_jobs_are_linux_jobs_of_this_workflow(self) -> None:
         names = {name for name, _ in linux_routes()}
@@ -204,9 +200,6 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             # The persistent pool is one label; there is no other Blacksmith size to move to.
             if runs_on.rstrip().endswith(f"'{PERSISTENT}' }}}}"):
                 continue
-            # A host pin (the darwin cross build lane) names its host, not a size: nothing to move.
-            if runs_on.rstrip().endswith(f"'{DARWIN_CROSS_HOST}' }}}}"):
-                continue
             for linux_runner in ("", "blacksmith-4vcpu-ubuntu-2404", SMALL):
                 with self.subTest(job=name, linux_runner=linux_runner):
                     size = size_label(WORKFLOW.name, name)
@@ -220,17 +213,15 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
                     self.assertEqual([m for m in pool_members(size_pool) if m != FLEET][0], size)
                     self.assertEqual([m for m in pool_members(failover_pool) if m != FLEET][0], failover)
 
-    def test_only_the_darwin_cross_shadow_pins_the_cross_build_lane(self) -> None:
-        # linux-pickers-gone (host pins): the shadow names the lane's label, not vars.LINUX_RUNNER_DARWIN_CROSS.
+    def test_only_the_darwin_cross_shadow_reads_its_override(self) -> None:
         for name, runs_on in linux_routes():
-            with self.subTest(job=name):
-                self.assertNotIn("LINUX_RUNNER_DARWIN_CROSS", runs_on)
-                labels = resolved(runs_on, "manaflow-ai", "", "", "")
-                if name == DARWIN_CROSS_JOB:
-                    self.assertIn(DARWIN_CROSS_HOST, labels)
-                    self.assertNotIn("cmux-linux", labels)
-                else:
-                    self.assertNotIn(DARWIN_CROSS_HOST, labels)
+            for linux_runner in ("", POOL):
+                with self.subTest(job=name, linux_runner=linux_runner):
+                    labels = resolved(runs_on, "manaflow-ai", linux_runner, "", "", DARWIN_CROSS)
+                    if name == DARWIN_CROSS_JOB:
+                        self.assertIn(DARWIN_CROSS, labels)
+                    else:
+                        self.assertNotIn(DARWIN_CROSS, labels)
 
     def test_the_nightly_path_takes_the_owned_pool_first(self) -> None:
         # The tree request and publication jobs use the nightly runners on their first attempt.

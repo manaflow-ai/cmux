@@ -32,11 +32,9 @@
 //
 // The first render runs --concurrency cases at once (default: one per CPU), each worker with its
 // own browser: rendered one at a time, a shard's ~1,400 cases took ~23 minutes. Budgets are CPU
-// time, so a busy runner does not stretch them. The renders again (the retries) run a quarter as many
-// workers (at least one), so a state that broke, ran slow or shifted only because its neighbours
-// loaded the runner is judged again on a quieter one. One at a time, a shard whose first render left
-// 86 cases not ready spent its 20-minute step on ~97 retries at 7-15 s each (most waiting out a play's
-// timeout, not CPU) and timed out with no verdict (batch run 46081509797, leg 21, 2026-11-28).
+// time, so a busy runner does not stretch them. The renders again (the retries) run one at a time,
+// so a state that broke, ran slow or shifted only because its neighbours loaded the runner is
+// judged again on a quiet one.
 //
 //   CMUX_GALLERY_IN_VM=1 bun health.ts --manifest m.json --gallery-dir ../../webviews/dist/gallery
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -49,9 +47,6 @@ import { type Engine, type MatrixCase, parseManifest, runLocal, shardCases } fro
 import { INVARIANT_BASELINE_PATH, type InvariantResult, everyRun, invariantSummary, invariantsOf, judgeInvariants, readInvariantBaseline } from "./invariant-baseline";
 import { SHIFT_BASELINE_PATH, type ShiftResult, judgeShift, least, limit as shiftLimit, readShiftBaseline, shiftScores, shiftSummary } from "./shift-baseline";
 import { UNDECLARED_BASELINE_PATH, type UndeclaredResult, judgeUndeclared, leastCount, readUndeclaredBaseline, undeclaredCounts, undeclaredSummary } from "./undeclared-baseline";
-
-/** Workers for a retry render: a quarter of the first render's, at least one (see the header). */
-export const retryConcurrency = (concurrency: number): number => Math.max(1, Math.floor(concurrency / 4));
 
 export type HealthResult = {
   id: string;
@@ -92,28 +87,6 @@ export function brokenReason(result: HealthResult): string | null {
 /** The allowlist's key: a state, whatever theme, width or engine showed it. */
 export const stateKey = (result: { params?: Record<string, unknown> }): string =>
   `${String(result.params?.entry ?? "")}#${String(result.params?.variant ?? "")}`;
-
-/**
- * The shard's cases, split by state: every case of a state lands in the shard its state's FNV-1a hash
- * names, whatever cases come before it. The split by position (shardCases, `--shard-by index`) moved
- * every state to another shard whenever one case was added or removed ahead of it, so `health (8)` was a
- * different set of states at each commit: a post-merge bisect probe judged leg 8 at its commit by states
- * that were never red at the batch (the red one was in another leg there), and a standing red hopped legs
- * from batch to batch and was a "new" red again each time (batch run 46040477174: legs 6, 8, 14 and 15 red,
- * each on a state the base replay did not share). Keyed by state, a leg holds the same states at any commit
- * with the same shard count, and a state's themes and widths render (and retry) in one shard.
- */
-export function shardStates<T extends { params?: Record<string, unknown> }>(cases: T[], shardCount: number, shardIndex: number): T[] {
-  if (!Number.isInteger(shardCount) || shardCount < 1) throw new Error("shardCount must be a positive integer");
-  if (!Number.isInteger(shardIndex) || shardIndex < 0 || shardIndex >= shardCount) throw new Error("shardIndex must be within shardCount");
-  return cases.filter((item) => stateShard(stateKey(item), shardCount) === shardIndex);
-}
-
-export function stateShard(state: string, shardCount: number): number {
-  let hash = 0x811c9dc5;
-  for (const byte of new TextEncoder().encode(state)) hash = Math.imul(hash ^ byte, 0x01000193) >>> 0;
-  return hash % shardCount;
-}
 
 export type Verdict = {
   /** Broken states the allowlist does not name: the check fails on these. */
@@ -186,8 +159,6 @@ async function main(): Promise<void> {
       retries: { type: "string", default: "2" },
       "shard-count": { type: "string", default: "1" },
       "shard-index": { type: "string", default: "0" },
-      // state (shardStates: a leg is the same states at every commit) or index (shardCases, by position).
-      "shard-by": { type: "string", default: "state" },
       concurrency: { type: "string", default: String(availableParallelism()) },
     },
   });
@@ -201,14 +172,13 @@ async function main(): Promise<void> {
   const undeclaredBaseline = readUndeclaredBaseline(values["undeclared-baseline"]);
   const invariantBaseline = readInvariantBaseline(values["invariant-baseline"]);
   const all = parseManifest(JSON.parse(await readFile(values.manifest, "utf8")));
-  if (values["shard-by"] !== "state" && values["shard-by"] !== "index") throw new Error("--shard-by is state or index");
-  const cases = (values["shard-by"] === "index" ? shardCases : shardStates)(all, Number(values["shard-count"]), Number(values["shard-index"]));
+  const cases = shardCases(all, Number(values["shard-count"]), Number(values["shard-index"]));
   const outputDir = resolve(values["output-dir"]);
   await mkdir(outputDir, { recursive: true });
   const concurrency = Number(values.concurrency);
   if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("--concurrency must be a positive integer");
   const run = (manifest: string, attempt: number) =>
-    runLocal({ manifest, galleryDir: values["gallery-dir"]!, outputDir: join(outputDir, `attempt-${attempt}`), threshold: 0, engines, shardCount: 1, shardIndex: 0, concurrency: attempt === 0 ? concurrency : retryConcurrency(concurrency) });
+    runLocal({ manifest, galleryDir: values["gallery-dir"]!, outputDir: join(outputDir, `attempt-${attempt}`), threshold: 0, engines, shardCount: 1, shardIndex: 0, concurrency: attempt === 0 ? concurrency : 1 });
 
   const shard = join(outputDir, "shard.json");
   await writeFile(shard, JSON.stringify(cases));

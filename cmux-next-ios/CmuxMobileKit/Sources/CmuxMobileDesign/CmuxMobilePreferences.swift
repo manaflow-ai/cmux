@@ -15,9 +15,8 @@ public enum CmuxMobilePreferences {
         /// in its cell. Read by the terminal (`TerminalSurfacePrediction`).
         public static let predictiveEchoFullScreen = "cmuxMobile.settings.predictiveEchoFullScreen"
         /// Settings → Terminal → Fit to Phone: on resizes the Mac's terminal to
-        /// the phone; off keeps the Mac's grid unless phone-side re-wrap is enabled.
+        /// the phone (as before); off, the phone re-wraps it at its own width.
         public static let terminalFitToPhone = "cmuxMobile.settings.terminalFitToPhone"
-        public static let terminalPhoneProjection = "cmuxMobile.settings.terminalPhoneProjection"
         /// Settings → Terminal → Jump to Bottom Button (CMUX-10): off removes the
         /// terminal's Jump to bottom row above the composer.
         public static let terminalJumpToBottom = "cmuxMobile.settings.terminalJumpToBottom"
@@ -66,9 +65,6 @@ public enum CmuxMobilePreferences {
         /// Settings → Composer → Swipe Down to Collapse (off by default; `ComposerReturnTextView`).
         public static let swipeDownCollapsesComposer = "cmuxMobile.settings.swipeDownCollapsesComposer"
         public static let followUp = "cmuxMobile.settings.followUp"
-        /// Settings → Composer → Session Facts (RFD 0130, off by default): `off`, `pulse` (live
-        /// counters beside the context meter) or `door` (an info mark); either opens the Session card.
-        public static let composerFooterFacts = "cmuxMobile.settings.composerFooterFacts"
         /// Workspaces → one line per workspace (the Mac's Compact Workspace List).
         public static let compactWorkspaceList = "cmuxMobile.settings.compactWorkspaceList"
         /// Settings → Advanced → Site Monograms on Tab Cards (taste prototype, off by default): a
@@ -90,13 +86,12 @@ public enum CmuxMobilePreferences {
     public static let defaultPredictiveEcho = true
     public static let defaultPredictiveEchoFullScreen = false
     public static let defaultTerminalFitToPhone = false
-    public static let defaultTerminalPhoneProjection = false
     public static let defaultTerminalJumpToBottom = true
     /// Off: a shell line is not prose. On for talking to an agent CLI in
     /// prose (Leo, 2026-11-24: "an autocorect toggle in the terminal composer").
     public static let defaultTerminalComposerAutocorrect = false
     public static let defaultTerminalChatToggle = false
-    /// Off again (iOS regression row 18, Aziz 2026-11-26, Leo "Ok"); `TerminalScrollDefault` holds the value Settings reads too.
+    /// On (Leo asked twice, 2026-11-25): `TerminalScrollDefault` holds the value Settings reads too.
     public static let defaultTerminalPlainScroll = TerminalScrollDefault.plainScroll
     public static let defaultQuietCloudConnect = false
     public static let defaultTerminalZoomFullScreenApps = false
@@ -191,12 +186,6 @@ public enum CmuxMobilePreferences {
     public static func terminalFitToPhone(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: Key.terminalFitToPhone) == nil
             ? defaultTerminalFitToPhone : defaults.bool(forKey: Key.terminalFitToPhone)
-    }
-
-    /// Phone-side re-wrap is opt-in; otherwise the phone renders the Mac's grid.
-    public static func terminalPhoneProjection(_ defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: Key.terminalPhoneProjection) == nil
-            ? defaultTerminalPhoneProjection : defaults.bool(forKey: Key.terminalPhoneProjection)
     }
 
     /// A downward swipe inside a composer's text collapses it (`ComposerSwipeCollapse`). Read as each swipe begins.

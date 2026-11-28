@@ -287,8 +287,7 @@ pub unsafe extern "C" fn cmux_rd_session_pop_message(
     unsafe { with_session(session, run) }
 }
 
-/// Records one decode time of `stream`, naming no frame: no LTR token is
-/// acknowledged (the app's call before `cmux_rd_session_note_frame_decode`).
+/// Records one decode time of `stream`.
 ///
 /// # Safety
 /// `session` is valid.
@@ -298,25 +297,7 @@ pub unsafe extern "C" fn cmux_rd_session_note_decode(
     stream: u16,
     decode_us: u32,
 ) -> i32 {
-    let run = |h: &mut CmuxRdSession| unit(h.inner.note_decode(stream, None, decode_us));
-    // SAFETY: `session` is NULL or valid by this function's contract, and the
-    // header lets one thread at a time call a session, so no other access overlaps.
-    unsafe { with_session(session, run) }
-}
-
-/// Records one decode time of frame `frame` of `stream`, the frame that
-/// decoded: its LTR token is acknowledged to the host.
-///
-/// # Safety
-/// `session` is valid.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_rd_session_note_frame_decode(
-    session: *mut CmuxRdSession,
-    stream: u16,
-    frame: u32,
-    decode_us: u32,
-) -> i32 {
-    let run = |h: &mut CmuxRdSession| unit(h.inner.note_decode(stream, Some(frame), decode_us));
+    let run = |h: &mut CmuxRdSession| unit(h.inner.note_decode(stream, decode_us));
     // SAFETY: `session` is NULL or valid by this function's contract, and the
     // header lets one thread at a time call a session, so no other access overlaps.
     unsafe { with_session(session, run) }
@@ -516,51 +497,6 @@ pub unsafe extern "C" fn cmux_rd_session_stage_ledger(
     }
     let run = |h: &mut CmuxRdSession| {
         let json = h.inner.stage_ledger_json();
-        // SAFETY: guaranteed by the caller.
-        unsafe { copy_out(json.as_bytes(), out, cap, out_len) }
-    };
-    // SAFETY: `session` is NULL or valid by this function's contract, and the
-    // header lets one thread at a time call a session, so no other access overlaps.
-    unsafe { with_session(session, run) }
-}
-
-/// The viewer began connecting at `at_us` (the clock passed to `push_*`):
-/// where the session report's first frame counts from. The first call counts.
-///
-/// # Safety
-/// `session` is valid.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_rd_session_note_connect_started(
-    session: *mut CmuxRdSession,
-    at_us: u64,
-) -> i32 {
-    let run = |h: &mut CmuxRdSession| {
-        h.inner.note_connect_started(at_us);
-        CMUX_RD_OK
-    };
-    // SAFETY: `session` is NULL or valid by this function's contract, and the
-    // header lets one thread at a time call a session, so no other access overlaps.
-    unsafe { with_session(session, run) }
-}
-
-/// Writes this session's report so far as one UTF-8 JSON object
-/// (`cmux.rd-session-report/1`). `CMUX_RD_ERR_BUFFER` when `cap` is too
-/// small; `*out_len` then holds the size needed.
-///
-/// # Safety
-/// `session` is valid; `out` is writable for `cap` bytes; `out_len` is writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_rd_session_report(
-    session: *mut CmuxRdSession,
-    out: *mut u8,
-    cap: usize,
-    out_len: *mut usize,
-) -> i32 {
-    if out_len.is_null() {
-        return CMUX_RD_ERR_NULL;
-    }
-    let run = |h: &mut CmuxRdSession| {
-        let json = h.inner.session_report_json();
         // SAFETY: guaranteed by the caller.
         unsafe { copy_out(json.as_bytes(), out, cap, out_len) }
     };

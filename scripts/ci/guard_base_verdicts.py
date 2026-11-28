@@ -42,7 +42,7 @@ WORKFLOW = "cmux-next-guards.yml"
 BRANCH = "feat-cmux-next"
 ARTIFACT_PREFIX = "guard-verdicts-"
 MAX_BEHIND = 60
-RUNS_PAGE = 100
+RUNS_PAGE = 30
 CHECK_SEPARATOR = " :: "
 TIMEOUT_S = 20
 
@@ -77,26 +77,15 @@ def step_of(key: str) -> str:
     return key.split(CHECK_SEPARATOR, 1)[0]
 
 
-# A push run that never ran the guard group has no artifact. The push concurrency group keeps one pending run, so with
-# a merge about a minute apart 98 of the newest 100 completed push runs were `cancelled` (2026-11-26); the newest
-# real run was about 40 commits back, below a first page of 30 cancelled ones. Every one of those got a compare call:
-# up to 31 GITHUB_TOKEN reads per pull request run against the repository's shared budget, and 5 of 8 sampled runs
-# then failed with HTTP 403 and re-ran every red step on the base (270-500 s of a ~12 minute step).
-SKIPPED_CONCLUSIONS = frozenset({"cancelled", "skipped"})
-MAX_SOURCES = 3  # candidate push runs main tries when the nearest one uploaded no artifact
-
-
-def sources(repo: str, base: str, token: str, get=api_json):
-    """Each (push run, ancestor..base changed paths or None at the base itself) that may hold the base's verdicts,
-    nearest first. The runs come newest first and feat-cmux-next only moves forward, so the first ancestor is the
-    nearest and every older run is further: no compare is read past the first ancestor until it is needed."""
+def find_source(repo: str, base: str, token: str, get=api_json) -> tuple[dict, list[str] | None] | None:
+    """(push run, ancestor..base changed paths or None at the base itself), the nearest completed one."""
     runs = get(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={BRANCH}&event=push&status=completed"
                f"&per_page={RUNS_PAGE}", token).get("workflow_runs") or []
-    runs = [run for run in runs if run.get("conclusion") not in SKIPPED_CONCLUSIONS]
-    exact = [run for run in runs if run.get("head_sha") == base]
-    if exact:
-        yield exact[0], None
-    seen: set[str] = {base}
+    for run in runs:
+        if run.get("head_sha") == base:
+            return run, None
+    best: tuple[int, dict, list[str] | None] | None = None
+    seen: set[str] = set()
     for run in runs:
         sha = run.get("head_sha") or ""
         if not sha or sha in seen:
@@ -106,17 +95,19 @@ def sources(repo: str, base: str, token: str, get=api_json):
         # "ahead": base is ahead of the run's commit, which is then an ancestor of the base.
         if compare.get("status") != "ahead" or int(compare.get("behind_by") or 0) != 0:
             continue
-        if int(compare.get("ahead_by") or 0) > MAX_BEHIND:
-            return  # every older run is further back still
+        ahead = int(compare.get("ahead_by") or 0)
+        if ahead > MAX_BEHIND or (best is not None and ahead >= best[0]):
+            continue
         files = compare.get("files")
         # The compare lists at most 300 files: a full listing, or nothing is reused from this ancestor.
         paths = [f["filename"] for f in files] if isinstance(files, list) and len(files) < 300 else None
-        yield run, (paths if paths is not None else ["<unlisted>"] * 10_000)
-
-
-def find_source(repo: str, base: str, token: str, get=api_json) -> tuple[dict, list[str] | None] | None:
-    """The nearest of sources(), or None."""
-    return next(sources(repo, base, token, get=get), None)
+        best = (ahead, run, paths)
+        if ahead <= 1:
+            break
+    if best is None:
+        return None
+    _ahead, run, paths = best
+    return run, (paths if paths is not None else ["<unlisted>"] * 10_000)
 
 
 def download_results(repo: str, run: dict, token: str, get=api_json, fetch=_request) -> tuple[dict, dict] | None:
@@ -228,19 +219,13 @@ def main(argv: list[str]) -> int:
     if not token:
         return everything("no token")
     try:
-        downloaded = None
-        tried: list[str] = []
-        for run, changed in sources(args.repo, args.base, token):
-            downloaded = download_results(args.repo, run, token)
-            if downloaded is not None:
-                break
-            tried.append(str(run.get("id")))
-            if len(tried) >= MAX_SOURCES:
-                break
-        if downloaded is None and not tried:
+        found = find_source(args.repo, args.base, token)
+        if found is None:
             return everything(f"no completed {BRANCH} push run at {args.base[:12]} or within {MAX_BEHIND} commits before it")
+        run, changed = found
+        downloaded = download_results(args.repo, run, token)
         if downloaded is None:
-            return everything(f"push runs {', '.join(tried)} uploaded no {ARTIFACT_PREFIX}artifact")
+            return everything(f"push run {run.get('id')} uploaded no {ARTIFACT_PREFIX}artifact")
         usable = None if changed is None else unreachable_steps(Path(args.root), steps, changed)
     except (OSError, ValueError, KeyError, zipfile.BadZipFile, urllib.error.URLError) as error:
         return everything(f"{type(error).__name__}: {error}")

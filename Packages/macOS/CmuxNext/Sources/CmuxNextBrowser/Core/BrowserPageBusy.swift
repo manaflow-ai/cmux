@@ -81,9 +81,9 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
     }
 
     /// Unmuted media playing or a video in Picture in Picture (it plays on in
-    /// its floating window) (`media`), any media element that plays, muted included (`plays`, `PageProbe.mediaPlays`),
-    /// a running Web Audio context, a live camera, microphone or screen capture, or form fields whose value differs
-    /// from the page's default (form interaction): the fallback for a page without the recorder.
+    /// its floating window), a running Web Audio context, a live camera,
+    /// microphone or screen capture, or form fields whose value differs from the
+    /// page's default (form interaction): the fallback for a page without the recorder.
     /// A page that does not answer within the deadline is treated as busy and kept.
     package static let fieldProbeScript = """
     (() => {
@@ -98,8 +98,7 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
         if (e.type === 'checkbox' || e.type === 'radio') return e.checked !== e.defaultChecked;
         return e.value !== e.defaultValue;
       });
-      const plays = [...document.querySelectorAll('audio,video')].some(m => !m.paused && !m.ended);
-      return JSON.stringify({media, plays, form});
+      return JSON.stringify({media, form});
     })()
     """
 

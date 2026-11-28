@@ -72,7 +72,7 @@ const PALETTE_ONLY: &[(&str, &str, &[&str])] = &[
         "view",
         COMPACT,
         &[
-            "newColumn", "newColumnLeft", "newRow", "newPaneAutoLayout",
+            "splitRight", "newColumn", "newColumnLeft", "newRow", "splitDown", "newPaneAutoLayout",
             "equalizeSplits", "resizePaneLeft", "resizePaneRight", "resizePaneUp", "resizePaneDown",
             "toggleCanvasLayout", "canvasOverview", "canvasTidy", "canvasRevealFocusedPane",
             "palette.newSimulatorPane", "home.switchView", "home.toggleChiefPet",

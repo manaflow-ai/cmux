@@ -38,16 +38,12 @@ afterEach(() => {
 
 /**
  * Every description line the page draws: a row's line under its title, a card's intro, a status
- * line. `.selectable` lines show a value (a file path, a config file), not a description. A hidden
- * element is not drawn: it is a control's screen-reader description (FactsHoverCard.tsx WithFacts,
- * a device's whole fingerprint), so its text is not part of the line.
+ * line. `.selectable` lines show a value (a file path, a config file), not a description.
  */
 function descriptionLines(container: ParentNode): string[] {
-  return [...container.querySelectorAll<HTMLElement>(".row-help:not(.selectable), [data-intro]")].map((line) => {
-    const drawn = line.cloneNode(true) as HTMLElement;
-    for (const hidden of drawn.querySelectorAll("[hidden]")) hidden.remove();
-    return drawn.textContent?.trim() ?? "";
-  });
+  return [...container.querySelectorAll<HTMLElement>(".row-help:not(.selectable), [data-intro]")].map(
+    (line) => line.textContent?.trim() ?? "",
+  );
 }
 
 const phases: ComputerUsePhase[] = ["off", "unavailable", "starting", "ready", "version_mismatch"];

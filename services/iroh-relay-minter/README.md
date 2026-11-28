@@ -96,37 +96,3 @@ CMUX_IROH_MINT_DEV_PORT=9460 cargo run --locked --example loopback
 It still requires `IROH_SERVICES_API_SECRET` and
 `CMUX_IROH_MINT_HMAC_SECRET_B64` in the process environment. Do not use a
 credential copied through chat for a deployed environment; rotate it first.
-
-## Relay-credential mirror (off by default)
-
-`POST /api/relay-credentials` is a second home for the trust broker's
-`relay.request.v1`, for when Cloudflare is down (RFD 0146,
-`cloudflare-down-3h.md` step 5). Leo picked the stateless option on
-2026-11-27 (TBD d-645f8cf975, "Trust the 1 h ticket, default-off").
-
-The caller sends `Authorization: IrohTicket <ticket>`, the same 1 h v2 API ticket
-the Worker accepts, and an empty body. The mirror checks the ticket's HMAC,
-audience, environment, project, and its 1 h lifetime. It then signs the same
-EdDSA relay JWT that `workers/iroh-v2/src/relay.ts` signs, for every configured
-relay URL, and answers
-`{"schemaId":"relay.result.v1","credentials":[{relayURL,token,expiresAt,refreshAfter}]}`.
-
-The mirror cannot read the Worker's device store, so it does not see a
-revocation. A device revoked during an outage keeps minting until its ticket
-expires, which is at most 1 h later. To hold that bound, each credential expires
-at the ticket's expiry or 30 minutes after issue, whichever comes first.
-`/v2/tickets` keeps a single home, because a new ticket needs the Stack check
-and the device record.
-
-The mirror stays off, and the route answers 404 without reading any other
-variable, unless `CMUX_RELAY_MIRROR_ENABLED=1`. Turning it on takes:
-
-- `CMUX_RELAY_MIRROR_ENVIRONMENT` and `CMUX_RELAY_MIRROR_PROJECT_ID`, which are
-  the Worker's `ENVIRONMENT` and `STACK_PROJECT_ID`.
-- `CMUX_RELAY_MIRROR_TICKET_KEYS`, which is the Worker's `API_TICKET_KEYS`
-  (JSON `{keyId: base64url}`).
-- `CMUX_RELAY_MIRROR_RELAY_URLS`, which is the Worker's `RELAY_URLS` (JSON
-  array).
-- `CMUX_RELAY_MIRROR_RELAY_KEY_ID` and `CMUX_RELAY_MIRROR_RELAY_SIGNING_KEY`,
-  which are the Worker's `RELAY_KEY_ID` and `RELAY_SIGNING_KEY` (an Ed25519
-  PKCS#8 PEM).

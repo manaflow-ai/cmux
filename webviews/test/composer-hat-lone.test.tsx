@@ -7,7 +7,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
-import { LASTING_MS, setLastingGrace } from "../src/ui/lasting";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -139,8 +138,6 @@ describe("one item heads the hat", () => {
   });
 
   test("a lone subagent acpmux retries says so at the row's end, with no stale step", async () => {
-    // The retry has waited out the shared bound (retryWords): the gallery's zero grace shows it at once.
-    setLastingGrace(0);
     const view = await hat({
       items: [
         agentItem({
@@ -158,7 +155,6 @@ describe("one item heads the hat", () => {
       expect(head.querySelector(".acpmux-running-tray__latest")).toBeNull();
     } finally {
       await view.done();
-      setLastingGrace(LASTING_MS);
     }
   });
 

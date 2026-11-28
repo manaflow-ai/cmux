@@ -611,7 +611,7 @@ fn remove_entry(env: &Env, app: App) -> Result<()> {
             // Move the skill aside first and judge the file that moved, so a skill another writer
             // puts there while this runs is the one judged, never one deleted unread.
             let aside = path.with_file_name(format!("SKILL.md.cmux-unlink-{}", std::process::id()));
-            match crate::home_fs::rename(&path, &aside) {
+            match std::fs::rename(&path, &aside) {
                 Ok(()) => {}
                 // Already gone: nothing to remove.
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -621,9 +621,9 @@ fn remove_entry(env: &Env, app: App) -> Result<()> {
             if !ours {
                 // Put it back without replacing a file written there since: a hard link fails
                 // when the name is taken, and then the moved file stays beside it, named.
-                return match crate::home_fs::hard_link(&aside, &path) {
+                return match std::fs::hard_link(&aside, &path) {
                     Ok(()) => {
-                        let _ = crate::home_fs::remove_file(&aside);
+                        let _ = std::fs::remove_file(&aside);
                         Err(ForeignEntry.into())
                     }
                     Err(e) => Err(anyhow!(
@@ -633,11 +633,11 @@ fn remove_entry(env: &Env, app: App) -> Result<()> {
                     )),
                 };
             }
-            crate::home_fs::remove_file(&aside)
+            std::fs::remove_file(&aside)
                 .with_context(|| format!("removing {}", aside.display()))?;
             // The skill's own folder, when nothing else is in it.
             if let Some(dir) = path.parent() {
-                let _ = crate::home_fs::remove_dir(dir);
+                let _ = std::fs::remove_dir(dir);
             }
             Ok(())
         }

@@ -3,7 +3,7 @@ import CmuxNextActions
 import CmuxNextChecklist
 import SwiftUI
 
-nonisolated extension InternalPageID {
+extension InternalPageID {
     static let workspaceTodo = InternalPageID(rawValue: "workspace-todo")
 }
 

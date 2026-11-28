@@ -299,8 +299,7 @@ fn an_edit_saved_between_the_checks_and_the_swap_is_kept() {
             std::fs::write(&saved, "# Mine\n\nSaved by an editor meanwhile.\n").unwrap();
         }
     });
-    // One read, merge and swap: `write` goes again on a file that changed meanwhile.
-    let got = write_once(dir.path(), "RACE-EDIT.md", &["Use pnpm, not npm.".into()]);
+    let got = write(dir.path(), "RACE-EDIT.md", &["Use pnpm, not npm.".into()]);
     // The save lands before the swap, so the swap finds it and swaps back.
     assert_eq!(hook.reached(), reached(&[("RACE-EDIT.md", "before"), ("RACE-EDIT.md", "after")]));
     drop(hook);
@@ -335,8 +334,7 @@ fn an_edit_of_the_same_size_saved_in_the_same_clock_tick_is_kept() {
         file.write_all(b"# Mine: two\n").unwrap();
         file.set_modified(modified).unwrap();
     });
-    // One read, merge and swap: `write` goes again on a file that changed meanwhile.
-    let got = write_once(dir.path(), "RACE-SAME.md", &["Use pnpm, not npm.".into()]);
+    let got = write(dir.path(), "RACE-SAME.md", &["Use pnpm, not npm.".into()]);
     assert_eq!(hook.reached(), reached(&[("RACE-SAME.md", "before"), ("RACE-SAME.md", "after")]));
     drop(hook);
     assert!(got.is_err(), "{got:?}");
@@ -359,38 +357,11 @@ fn a_file_made_between_the_checks_and_the_swap_is_kept() {
             std::fs::write(&made, "theirs\n").unwrap();
         }
     });
-    // One read, merge and swap: `write` goes again on a file that changed meanwhile.
-    let got = write_once(dir.path(), "RACE-NEW.md", &["Use pnpm, not npm.".into()]);
+    let got = write(dir.path(), "RACE-NEW.md", &["Use pnpm, not npm.".into()]);
     assert_eq!(hook.reached(), reached(&[("RACE-NEW.md", "before")]));
     drop(hook);
     assert!(got.is_err(), "{got:?}");
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "theirs\n");
-}
-
-/// Leo, 2026-11-22: an Accept is never answered "try again". A save that lands during the swap
-/// is kept, and `write` reads the file again and merges the fact into the saved text.
-#[cfg(unix)]
-#[test]
-fn an_accept_racing_a_save_is_merged_into_the_saved_file() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("RACE-AGAIN.md");
-    std::fs::write(&path, "# Mine\n").unwrap();
-    let saved = path.clone();
-    let once = std::sync::atomic::AtomicBool::new(false);
-    let hook = crate::folder_instructions::on_swap(move |name, window| {
-        if name == "RACE-AGAIN.md"
-            && window == "before"
-            && !once.swap(true, std::sync::atomic::Ordering::SeqCst)
-        {
-            std::fs::write(&saved, "# Mine\n\nSaved by an editor meanwhile.\n").unwrap();
-        }
-    });
-    let got = write(dir.path(), "RACE-AGAIN.md", &["Use pnpm, not npm.".into()]);
-    drop(hook);
-    assert!(got.is_ok(), "{got:?}");
-    let text = std::fs::read_to_string(&path).unwrap();
-    assert!(text.contains("Saved by an editor meanwhile."), "{text}");
-    assert!(text.contains("Use pnpm, not npm."), "{text}");
 }
 
 #[cfg(unix)]

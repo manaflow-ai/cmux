@@ -17,62 +17,6 @@ pub struct TeamPolicyLayer {
     /// The managing team's id and the policy version these values come from.
     pub team_id: String,
     pub version: i64,
-    /// The team's device-scoped RFD 0211 policy keys as the backend sent
-    /// them (`agents.harnesses`, `sandbox.local`, `projection.syncBack`, ...),
-    /// unfiltered: enforcement paths outside the settings catalog (sync-back)
-    /// read them from the saved layer.
-    pub features: BTreeMap<String, Value>,
-}
-
-/// A policy key's value: the backend sends `{value, mode}`; a bare value is
-/// accepted too.
-pub fn feature_value(features: &BTreeMap<String, Value>, key: &str) -> Option<Value> {
-    let raw = features.get(key)?;
-    Some(raw.get("value").cloned().unwrap_or_else(|| raw.clone()))
-}
-
-fn joined_list(value: &Value, strip_star: bool) -> Option<String> {
-    let items: Vec<String> = value
-        .as_array()?
-        .iter()
-        .filter_map(Value::as_str)
-        .map(|item| {
-            let item = item.trim();
-            if strip_star { item.trim_end_matches('*') } else { item }.to_string()
-        })
-        .filter(|item| !item.is_empty())
-        .collect();
-    (!items.is_empty()).then(|| items.join(", "))
-}
-
-/// The settings the team's RFD 0211 keys force on this install. Only keys
-/// the team set reach here, so nothing changes for a team that set none.
-/// `agents.*` fill the lockdown lists (cmux#64460) without turning
-/// `sessions.lockdown` on, which would also turn Cloud and computer use off;
-/// `sandbox.local` maps to the Seatbelt toggle (cmux#56119).
-fn settings_from_features(
-    features: &BTreeMap<String, Value>,
-    defaults: &mut BTreeMap<String, Value>,
-    enforced: &mut BTreeMap<String, Value>,
-) {
-    match feature_value(features, "sandbox.local").as_ref().and_then(Value::as_str) {
-        Some("required") => {
-            enforced.insert("sessions.sandbox".into(), Value::Bool(true));
-        }
-        Some("on") => {
-            defaults.insert("sessions.sandbox".into(), Value::Bool(true));
-        }
-        _ => {}
-    }
-    if let Some(list) =
-        feature_value(features, "agents.harnesses").and_then(|v| joined_list(&v, false))
-    {
-        enforced.insert("sessions.lockdownHarnesses".into(), Value::String(list));
-    }
-    if let Some(list) = feature_value(features, "agents.models").and_then(|v| joined_list(&v, true))
-    {
-        enforced.insert("sessions.lockdownModels".into(), Value::String(list));
-    }
 }
 
 impl TeamPolicyLayer {
@@ -82,10 +26,7 @@ impl TeamPolicyLayer {
         let keep = |values: &BTreeMap<String, Value>| {
             values
                 .iter()
-                .filter(|(key, _)| {
-                    schema.row(key).is_some()
-                        || crate::schema::replaced_old_keys().any(|old| &old == *key)
-                })
+                .filter(|(key, _)| schema.row(key).is_some())
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect()
         };
@@ -117,17 +58,12 @@ impl TeamPolicyLayer {
             .get("version")
             .and_then(Value::as_f64)
             .filter(|x| crate::value::is_exact_integer(*x));
-        let features = map("features");
-        let mut defaults = map("defaults");
-        let mut enforced = map("enforced");
-        settings_from_features(&features, &mut defaults, &mut enforced);
         let layer = TeamPolicyLayer {
             team_name: text("team_name"),
-            defaults,
-            enforced,
+            defaults: map("defaults"),
+            enforced: map("enforced"),
             team_id: text("team"),
             version: version.map_or(0, |x| x as i64),
-            features,
         };
         Some(layer.limited_to_catalog(schema))
     }
@@ -142,11 +78,6 @@ impl TeamPolicyLayer {
             "version": self.version,
             "defaults": self.defaults,
             "enforced": self.enforced,
-            "features": self.features,
         })
     }
 }
-
-#[cfg(test)]
-#[path = "team_tests.rs"]
-mod tests;

@@ -4,12 +4,8 @@
 // pages' own `appearance.fontFamily`, so code drew in Menlo whatever the terminal used.
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { importWithDom } from "./support/importWithDom";
-
-const { applyDiffViewerAppearance, followHostTerminalTheme, resolveDiffViewerAppearance } = await importWithDom(
-  () => import("../src/appearance"),
-);
-const { EDITOR_DEFAULTS, monacoOptions } = await importWithDom(() => import("../src/pages/editor/settings"));
+import { applyDiffViewerAppearance, followHostTerminalTheme, resolveDiffViewerAppearance } from "../src/appearance";
+import { EDITOR_DEFAULTS, monacoOptions } from "../src/pages/editor/settings";
 
 type ThemeWindow = Window & { cmuxTheme?: { current?: unknown } };
 

@@ -62,7 +62,7 @@ struct RFBHandshakeTests {
         server.data += serverInit(width: 640, height: 480, name: "box")
         let transport = ScriptedTransport(server.data)
         let reader = RFBReader(transport: transport)
-        let info = try await RFBHandshake(credentials: VNCCredentials(), rules: .fixture).run(reader: reader, transport: transport)
+        let info = try await RFBHandshake(credentials: VNCCredentials()).run(reader: reader, transport: transport)
         #expect(info.width == 640 && info.height == 480 && info.name == "box" && info.protocolMinor == 8)
         #expect(transport.sent == Array("RFB 003.008\n".utf8) + [1, 1])
     }
@@ -74,7 +74,7 @@ struct RFBHandshakeTests {
         server.u32(0)
         server.data += serverInit(width: 10, height: 10)
         let transport = ScriptedTransport(server.data)
-        let info = try await RFBHandshake(credentials: VNCCredentials(), rules: .fixture).run(reader: RFBReader(transport: transport), transport: transport)
+        let info = try await RFBHandshake(credentials: VNCCredentials()).run(reader: RFBReader(transport: transport), transport: transport)
         #expect(info.protocolMinor == 8)
     }
 
@@ -87,8 +87,8 @@ struct RFBHandshakeTests {
         server.u32(0)
         server.data += serverInit(width: 8, height: 8)
         let transport = ScriptedTransport(server.data)
-        _ = try await RFBHandshake(credentials: VNCCredentials(password: "secret"), rules: .fixture).run(reader: RFBReader(transport: transport), transport: transport)
-        let expected = VNCPasswordResponse(password: "secret", challenge: challenge, rules: .fixture).bytes
+        _ = try await RFBHandshake(credentials: VNCCredentials(password: "secret")).run(reader: RFBReader(transport: transport), transport: transport)
+        let expected = VNCPasswordResponse(password: "secret", challenge: challenge).bytes
         #expect(expected.count == 16)
         #expect(Array(transport.sent[12 ..< 13]) == [2])
         #expect(Array(transport.sent[13 ..< 29]) == expected)
@@ -103,25 +103,24 @@ struct RFBHandshakeTests {
         server.string("bad password")
         let transport = ScriptedTransport(server.data)
         await #expect(throws: RFBError.authenticationFailed("bad password")) {
-            try await RFBHandshake(credentials: VNCCredentials(password: "x"), rules: .fixture).run(reader: RFBReader(transport: transport), transport: transport)
+            try await RFBHandshake(credentials: VNCCredentials(password: "x")).run(reader: RFBReader(transport: transport), transport: transport)
         }
     }
 
-    @Test func withoutRulesTheHandshakeFails() async {
-        let transport = ScriptedTransport(Array("RFB 003.008\n".utf8))
-        await #expect(throws: VNCRules.unavailable) {
-            try await RFBHandshake(credentials: VNCCredentials(), rules: VNCRules()).run(reader: RFBReader(transport: transport), transport: transport)
-        }
+    @Test func securityChoice() throws {
+        let both = RFBHandshake(credentials: VNCCredentials(username: "u", password: "p"))
+        #expect(try both.choose(from: [2, 30]) == 30)
+        #expect(try RFBHandshake(credentials: VNCCredentials(password: "p")).choose(from: [2, 30]) == 2)
+        #expect(throws: RFBError.credentialsRequired) { try RFBHandshake(credentials: VNCCredentials()).choose(from: [30]) }
+        #expect(throws: RFBError.passwordRequired) { try RFBHandshake(credentials: VNCCredentials()).choose(from: [2]) }
+        #expect(try RFBHandshake(credentials: VNCCredentials()).choose(from: [2, 1]) == 1)
     }
 
-    @Test func aRefusalComesBackAsItsError() async {
-        var server = Bytes()
-        server.data += Array("RFB 003.008\n".utf8)
-        server.u8(1); server.u8(30)
-        let transport = ScriptedTransport(server.data)
-        await #expect(throws: RFBError.credentialsRequired) {
-            try await RFBHandshake(credentials: VNCCredentials(), rules: .fixture).run(reader: RFBReader(transport: transport), transport: transport)
-        }
+    @Test func accountPasswordNeverGoesOutAsAVNCPassword() throws {
+        let account = RFBHandshake(credentials: VNCCredentials(username: "me", password: "secret"))
+        // It asks for a VNC password instead of sending the account password's DES response.
+        #expect(throws: RFBError.passwordRequired) { try account.choose(from: [2]) }
+        #expect(try account.choose(from: [2, 30]) == 30)
     }
 
     @Test func oversizedServerInitIsRejected() async {
@@ -132,7 +131,7 @@ struct RFBHandshakeTests {
         server.data += serverInit(width: 65535, height: 65535)
         let transport = ScriptedTransport(server.data)
         await #expect(throws: RFBError.self) {
-            try await RFBHandshake(credentials: VNCCredentials(), rules: .fixture).run(reader: RFBReader(transport: transport), transport: transport)
+            try await RFBHandshake(credentials: VNCCredentials()).run(reader: RFBReader(transport: transport), transport: transport)
         }
     }
 
@@ -142,7 +141,7 @@ struct RFBHandshakeTests {
         server.u32(258)
         let transport = ScriptedTransport(server.data)
         await #expect(throws: RFBError.self) {
-            try await RFBHandshake(credentials: VNCCredentials(password: "x"), rules: .fixture).run(reader: RFBReader(transport: transport), transport: transport)
+            try await RFBHandshake(credentials: VNCCredentials(password: "x")).run(reader: RFBReader(transport: transport), transport: transport)
         }
     }
 
@@ -152,7 +151,7 @@ struct RFBHandshakeTests {
         server.u32(1)
         server.data += serverInit(width: 4, height: 4)
         let transport = ScriptedTransport(server.data)
-        let info = try await RFBHandshake(credentials: VNCCredentials(), rules: .fixture).run(reader: RFBReader(transport: transport), transport: transport)
+        let info = try await RFBHandshake(credentials: VNCCredentials()).run(reader: RFBReader(transport: transport), transport: transport)
         #expect(info.protocolMinor == 3)
         #expect(transport.sent == Array("RFB 003.003\n".utf8) + [1])
     }
@@ -204,3 +203,57 @@ struct VNCKeysymTests {
         #expect(VNCKeysym(character: "\n") == .returnKey)
     }
 }
+
+struct AuthenticationTests {
+    // OpenSSL DES-ECB over bytes 0...15 with the first eight UTF-8 password
+    // bytes bit-reversed and zero-padded. Exercises both challenge blocks.
+    @Test(arguments: [
+        ("", "491e890de9ace932838a49792f2213f3"),
+        ("v", "136289336fd73274f0b2f69202229f46"),
+        ("password", "b866924125c8eebb9debc1db61c538e2"),
+        ("password123", "b866924125c8eebb9debc1db61c538e2"),
+        ("a🌍12345", "0e674da292a0e84a3c34f90b9dad0f9c"),
+    ])
+    func vncDESKnownAnswer(password: String, ciphertext: String) {
+        #expect(VNCPasswordResponse(password: password, challenge: Array(0 ..< 16)).bytes == hex(ciphertext))
+    }
+
+    @Test func modularExponentiationSmall() throws {
+        let math = try #require(ModularExponentiation(modulus: [23]))
+        #expect(math.power([5], [6]) == [8])
+        #expect(math.power([8], [6]) == [13])
+        #expect(ModularExponentiation(modulus: [24]) == nil)
+    }
+
+    @Test func modularExponentiationMatchesReference() throws {
+        // 1024-bit Oakley group 2 prime (RFC 2409), g = 2.
+        let math = try #require(ModularExponentiation(modulus: hex(oakley2)))
+        #expect(math.power([0, 2], hex(exponent)) == hex(expected))
+    }
+
+    @Test func appleDHRoundTrip() throws {
+        let auth = AppleDHAuthentication(generator: 5, prime: [23], serverPublicKey: [8])
+        let padding = (0 ..< 128).map { UInt8($0) }
+        let response = try #require(auth.response(username: "bob", password: "pw", privateKey: [6], padding: padding))
+        #expect(response.clientPublicKey == [8])
+        // OpenSSL AES-128-ECB with MD5([13]) as the key.
+        #expect(response.encryptedCredentials == hex(
+            "bc22f01689cef4ad73569b9f5640440293e7a58bbe8574e58747d333418a74a5" +
+            "00e6cbcdfb86078ff9ff67b5704c80893de99f7e8759b80386835a0a70765ced" +
+            "ec92af137626c99b58af257891c1495b4453bd9c231f0f3abb3978118c933432" +
+            "35b95f663073a68504b7cf88713f659aa7ad77245a8274055f4db7c627ebf3a0"))
+        let credentials = AppleDHAuthentication.credentials(username: "bob", password: "pw", padding: padding)
+        #expect(Array(credentials[0 ..< 4]) == Array("bob".utf8) + [0])
+        #expect(Array(credentials[64 ..< 67]) == Array("pw".utf8) + [0])
+    }
+}
+
+func hex(_ text: String) -> [UInt8] {
+    let digits = Array(text.filter(\.isHexDigit))
+    return stride(from: 0, to: digits.count, by: 2).map { UInt8(String(digits[$0 ..< $0 + 2]), radix: 16)! }
+}
+
+let oakley2 = "ffffffffffffffffc90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea63b139b22514a08798e3404ddef9519b3cd3a431b302b0a6df25f14374fe1356d6d51c245e485b576625e7ec6f44c42e9a637ed6b0bff5cb6f406b7edee386bfb5a899fa5ae9f24117c4b1fe649286651ece65381ffffffffffffffff"
+let exponent = "1f2e3d4c5b6a79881726354453627180ffeeddccbbaa99887766554433221100a5a5a5a51f2e3d4c5b6a79881726354453627180ffeeddccbbaa99887766554433221100a5a5a5a51f2e3d4c5b6a79881726354453627180ffeeddccbbaa99887766554433221100a5a5a5a5"
+/// `pow(2, exponent, oakley2)` from Python.
+let expected = "a6ca431cee9c05952f52ec33d2995c5c4ef65a69a923f7bb294289dde8921168849b87b571588918c812fc721e3b0e164d36261679fd74d07ac4f71d3f493bda6a12d7072ae9b1b5f5f1d31bc3cb25611c7ac7080c0ca372638381285fd59e910dfcf010a1b7c0b9414def2b6aa2e0adf05cbe0026f8f79012a7d89eda469255"

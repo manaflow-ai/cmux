@@ -3,12 +3,12 @@ import { Markdown } from "../../agent-session/acpmux/conversation/Markdown";
 
 export type GithubRefLook = "before" | "chip" | "plain-link" | "link-card";
 
-// A reply like the one Leo pointed at (2026-11-07), with the other forms a reply names a pull request by.
+// The reply Leo pointed at (2026-11-07), with the other forms a reply names a pull request by.
 const REPLY = [
   "Shipped this morning:",
   "",
-  "- Relay deploy (cmux#54): live on the canary ring.",
-  "- Quota guard: cmux#37758; notes in acme/notes#1234.",
+  "- Relay deploy (subrouter-internal#54): live on the canary ring.",
+  "- Quota guard: cmux#37758 and hq#4879; notes in lw#1234.",
   "- Upstream fix: acme/widgets#9.",
   "",
   "Still text: `cmux#1` in code, C#, F#7, color #123456 and issue #1 of 3.",

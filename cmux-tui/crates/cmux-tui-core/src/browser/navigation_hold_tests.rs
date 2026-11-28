@@ -280,8 +280,10 @@ fn navigation_hold_refuses_history_commands_before_the_surface_attaches() {
     let surface = starting_surface();
     let browser = surface.as_browser().expect("browser surface");
 
-    for (command, result) in [("back", browser.back()), ("forward", browser.forward())] {
-        let error = result.expect_err("a history move before attach is refused, not acked");
+    for (command, result) in
+        [("back", browser.back()), ("forward", browser.forward()), ("reload", browser.reload())]
+    {
+        let error = result.expect_err("a history command before attach is refused, not acked");
         assert!(error.to_string().contains("still starting"), "{command}: {error}");
     }
 

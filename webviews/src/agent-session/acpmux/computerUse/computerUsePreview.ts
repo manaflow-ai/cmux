@@ -31,7 +31,6 @@
 // it. That model is ported from Petal's telepointers (kiruna-labs/petal @ 7ac436a,
 // web-harness/src/telepointer.ts and telepointerDisplay.ts, Apache-2.0).
 import { useSyncExternalStore } from "react";
-import { usePaneView, viewStore } from "../paneViewStore";
 
 /// The card's room at the chat's right: its 180px, 12px from the pane's edge, a 12px gap to the
 /// column (computerUsePreview.css).
@@ -148,38 +147,24 @@ const sameTelepointer = (a?: ComputerUsePreviewTelepointer, b?: ComputerUsePrevi
 const sameTelepointers = (a?: ComputerUsePreviewTelepointers, b?: ComputerUsePreviewTelepointers) =>
   sameTelepointer(a?.agent, b?.agent) && sameTelepointer(a?.person, b?.person);
 
-// One card a pane view (paneViewStore.ts); the page itself is the null view.
-const cards = viewStore<ComputerUsePreview | null>(null);
+let current: ComputerUsePreview | null = null;
 /// Moving, full size and the chip (Labs > Show Preview Features); off, the card is the top right one.
 let controls = false;
-/// The session the person closed in a view: hidden at once, before the host's push that takes it away.
-const closedBy = viewStore<string | undefined>(undefined);
-/// The person's moves the host has not echoed yet, by view and session (a few per view): a move made in
-/// one view is drawn there until the host's push to that view agrees.
-const movesByView = new Map<string | null, Map<string, ComputerUsePreviewMove>>();
-function movesOf(view: string | null): Map<string, ComputerUsePreviewMove> {
-  let moves = movesByView.get(view);
-  if (!moves) {
-    moves = new Map();
-    movesByView.set(view, moves);
-  }
-  return moves;
-}
-/// What a view draws: its host card with the person's moves over it.
-const shownBy = viewStore<ComputerUsePreview | null>(null);
-/// The moves and the Labs controls' readers (every view).
+/// The session the person closed here: hidden at once, before the host's push that takes it away.
+let closed: string | undefined;
+/// The person's moves the host has not echoed yet, by session (a few per page).
+const moves = new Map<string, ComputerUsePreviewMove>();
+/// What the page draws: the host's card with the person's moves over it.
+let shown: ComputerUsePreview | null = null;
 const listeners = new Set<() => void>();
 
-/// Redraws `view`'s card, or every view's (a move or the Labs controls touch them all).
-function notify(view?: string | null): void {
-  const views = view === undefined ? new Set([...cards.views(), ...shownBy.views()]) : [view];
-  for (const each of views) shownBy.set(withMoves(each), each);
+function notify(): void {
+  shown = withMoves(current);
   for (const listener of listeners) listener();
 }
 
-function withMoves(view: string | null): ComputerUsePreview | null {
-  const card = cards.get(view);
-  return card && withMove(card, movesOf(view).get(card.session), card.session === closedBy.get(view), controls);
+function withMoves(card: ComputerUsePreview | null): ComputerUsePreview | null {
+  return card && withMove(card, moves.get(card.session), card.session === closed, controls);
 }
 
 /// `card` with the person's `move` over it; `closedHere`: the person closed it on this page;
@@ -243,8 +228,7 @@ export function readComputerUsePreview(value: unknown): ComputerUsePreview | nul
 }
 
 /// Replaces the card from a host push.
-export function setComputerUsePreview(value: unknown, view: string | null = null): void {
-  const current = cards.get(view);
+export function setComputerUsePreview(value: unknown): void {
   const next = readComputerUsePreview(value);
   if (
     next?.session === current?.session &&
@@ -262,49 +246,43 @@ export function setComputerUsePreview(value: unknown, view: string | null = null
   // surface brought it back, so the close made on this page is over.
   if (
     next &&
-    closedBy.get(view) === next.session &&
+    closed === next.session &&
     current?.session === next.session &&
     current.hidden === true &&
     next.hidden !== true &&
-    !movesOf(view).has(next.session)
+    !moves.has(next.session)
   )
-    closedBy.set(undefined, view);
-  cards.set(next, view);
+    closed = undefined;
+  current = next;
   // The host speaks for the place once its push says what the person asked for.
-  const moves = movesOf(view);
   const move = next ? moves.get(next.session) : undefined;
   if (next && move && echoes(next, move)) moves.delete(next.session);
-  notify(view);
+  notify();
 }
 
-export function currentComputerUsePreview(view: string | null = null): ComputerUsePreview | null {
-  return shownBy.get(view);
+export function currentComputerUsePreview(): ComputerUsePreview | null {
+  return shown;
 }
 
 /// Hides the card of `session` here at once (the close button); the host's next push agrees.
-export function closeComputerUsePreview(session: string, view: string | null = null): void {
-  if (closedBy.get(view) === session && movesOf(view).get(session)?.hidden === true) return;
-  closedBy.set(session, view);
-  moveComputerUsePreview(session, { hidden: true }, view);
+export function closeComputerUsePreview(session: string): void {
+  if (closed === session && moves.get(session)?.hidden === true) return;
+  closed = session;
+  moveComputerUsePreview(session, { hidden: true });
 }
 
 /// Brings back the card of `session` the person hid (the chip).
-export function showComputerUsePreview(session: string, view: string | null = null): void {
-  if (closedBy.get(view) === session) closedBy.set(undefined, view);
-  moveComputerUsePreview(session, { hidden: false }, view);
+export function showComputerUsePreview(session: string): void {
+  if (closed === session) closed = undefined;
+  moveComputerUsePreview(session, { hidden: false });
 }
 
 /// The person moved, resized, hid or showed the card of `session`: drawn at once, until the host's push
 /// agrees.
-export function moveComputerUsePreview(
-  session: string,
-  move: ComputerUsePreviewMove,
-  view: string | null = null,
-): void {
-  const moves = movesOf(view);
+export function moveComputerUsePreview(session: string, move: ComputerUsePreviewMove): void {
   if (moves.size >= 16 && !moves.has(session)) moves.clear();
   moves.set(session, { ...moves.get(session), ...move });
-  notify(view);
+  notify();
 }
 
 /// The place the card draws at.
@@ -364,7 +342,7 @@ function subscribe(listener: () => void): () => void {
 }
 
 export function useComputerUsePreview(): ComputerUsePreview | null {
-  return shownBy.use();
+  return useSyncExternalStore(subscribe, currentComputerUsePreview, currentComputerUsePreview);
 }
 
 /// Whether the card can be moved, made full size and hidden to a chip (Labs > Show Preview Features).
@@ -378,10 +356,9 @@ export function useComputerUsePreviewMoves(card: ComputerUsePreview | null): Com
   // The session's own move and closed flag are the snapshots (a move stores a new object), so a
   // memoized render (React Compiler) keys on them: a store read whose result went unused let
   // the compiler keep the card drawn before the move.
-  const view = usePaneView();
   const session = card?.session;
-  const moveOf = () => (session === undefined ? undefined : movesOf(view).get(session));
-  const closedOf = () => session !== undefined && session === closedBy.get(view);
+  const moveOf = () => (session === undefined ? undefined : moves.get(session));
+  const closedOf = () => session !== undefined && session === closed;
   const move = useSyncExternalStore(subscribe, moveOf, moveOf);
   const closedHere = useSyncExternalStore(subscribe, closedOf, closedOf);
   const movable = useComputerUsePreviewControls();

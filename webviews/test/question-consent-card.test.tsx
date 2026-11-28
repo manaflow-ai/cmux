@@ -8,10 +8,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AgentQuestion, QuestionReply } from "../src/agent-session/acpmux/question/model";
+import { QuestionCard } from "../src/agent-session/acpmux/question/QuestionCard";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { QuestionCard } = await importWithDom(() => import("../src/agent-session/acpmux/question/QuestionCard"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -122,7 +120,7 @@ const button = (container: HTMLElement, selector: string) => container.querySele
 const text = (element: Element | null) => element?.textContent?.replace(/\s+/g, " ").trim();
 /// A button's label and the key drawn in it.
 const labelAndKey = (element: Element) => {
-  const key = element.querySelector(".ui-key-hint");
+  const key = element.querySelector("kbd");
   return [
     text(element)
       ?.slice(0, -(key?.textContent?.length ?? 0))

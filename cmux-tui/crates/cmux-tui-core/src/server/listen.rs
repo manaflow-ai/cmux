@@ -449,8 +449,6 @@ pub struct BoundSocket {
     // Declared first: the listener closes before the file is removed.
     listener: transport::Listener,
     file: SocketFile,
-    /// The session it serves, named by `identify` while the owner restores.
-    session: String,
 }
 
 /// Removes the socket file on drop unless ownership moved on (`release`).
@@ -479,11 +477,10 @@ impl BoundSocket {
         &self.file.path
     }
 
-    /// The listener, the socket path (whose cleanup the caller takes) and
-    /// the session.
-    pub(super) fn into_parts(self) -> (PathBuf, transport::Listener, String) {
-        let Self { listener, file, session } = self;
-        (file.release(), listener, session)
+    /// The listener and the socket path, whose cleanup the caller takes.
+    pub(super) fn into_parts(self) -> (PathBuf, transport::Listener) {
+        let Self { listener, file } = self;
+        (file.release(), listener)
     }
 }
 
@@ -517,11 +514,7 @@ pub fn bind_session_socket(session: &str, path: Option<PathBuf>) -> anyhow::Resu
     }
     let listener = transport::listen(&path)?;
     drop(start_lock);
-    let bound = BoundSocket {
-        listener,
-        file: SocketFile { path, owned: true },
-        session: session.to_owned(),
-    };
+    let bound = BoundSocket { listener, file: SocketFile { path, owned: true } };
     platform::restrict_file(bound.path())?;
     Ok(bound)
 }
@@ -567,7 +560,7 @@ impl ServedSession {
 /// pipe or a closed transport. The CLI reads `type: "refused"`.
 pub(super) const REFUSED_BUSY_LINE: &str = concat!(
     r#"{"protocol":"cmux.protocol/2","type":"refused","code":"server.busy","#,
-    r#""message":"the session is at its connection limit"}"#,
+    r#""message":"the session is at its connection limit; retry"}"#,
     "\n"
 );
 

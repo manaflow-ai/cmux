@@ -95,7 +95,7 @@ AFTER_RUN_S = 60.0
 KEEP_SESSIONS = ("update", "sparkle-update")
 # What a person who keeps automatic updates has in their own file (downloadAutomatically is user-only over the
 # socket): post-update-hitches.py's settings.
-SPARKLE_SETTINGS = {"app": {"quitBehavior": "keep"}, "updates": {"installOnQuit": True, "automatic": "download"}}
+SPARKLE_SETTINGS = {"app": {"quitBehavior": "keep"}, "updates": {"installOnQuit": True, "downloadAutomatically": True}}
 STAGE_S = 900.0
 PREWARM_S = 120.0
 INSTALL_S = 300.0
@@ -229,25 +229,7 @@ def press_cmd_q(app: App) -> str | None:
     done = subprocess.run(["osascript", "-l", "JavaScript", "-e", script], capture_output=True, text=True, timeout=20)
     if "posted" in done.stdout:
         return None
-    if "untrusted" in done.stdout and startup.cua_argv():
-        # A fleet measure step lacks the Accessibility grant (every cmdq row not run, startup-matrix gamut
-        # 2026-11-28); the console's CuaDriver holds it, as for the first-launch prompt's Open.
-        return cua_cmd_q(pid)
     return f"Cmd-Q could not be pressed: {(done.stdout + done.stderr).strip()[:200]} (this process lacks Accessibility)"
-
-
-def cua_cmd_q(pid: int) -> str | None:
-    """Cmd-Q through CuaDriver to the app's largest window, delivered with the app frontmost (as a person presses
-    it). None when pressed."""
-    area = lambda w: (w.get("bounds") or {}).get("width", 0) * (w.get("bounds") or {}).get("height", 0)
-    wins = startup.walk(startup.cua("list_windows", {"pid": pid}), lambda o: isinstance(o, dict) and "window_id" in o)
-    if not wins:
-        return "Cmd-Q could not be pressed: CuaDriver lists no window of the app (this process lacks Accessibility)"
-    reply = startup.cua("hotkey", {"pid": pid, "window_id": max(wins, key=area)["window_id"], "keys": ["cmd", "q"],
-                                   "delivery_mode": "foreground"})
-    if reply.get("error"):
-        return f"Cmd-Q could not be pressed: CuaDriver hotkey: {str(reply['error'])[:200]}"
-    return None
 
 
 # ---- chats -----------------------------------------------------------------------------------
@@ -262,10 +244,7 @@ def chat_items(app: App, chat: str) -> list[dict]:
             break
         items += page
         last = page[-1].get("id")
-        # A short page is not the end: a page may stop at a byte budget before 200 items (the long chat's 4 KB
-        # turns read back as 19 of 40 answers in every pass, startup-matrix gamut 2026-11-28); only an empty
-        # page or no newer id ends it.
-        if not isinstance(last, int) or last <= after:
+        if len(page) < 200 or not isinstance(last, int) or last <= after:
             break
         after = last
     return items
@@ -409,13 +388,8 @@ class Gamut:
                     raise RuntimeError(f"long chat turn {t}: {why}")
                 wait_for(quiet, 30, 0.05)
             if not wait_for(lambda: assistant_text(app, chat).count("long turn") >= self.args.long_turns, 60, 0.5):
-                items = chat_items(app, chat)
-                roles = {}
-                for item in items:
-                    roles[str(item.get("role"))] = roles.get(str(item.get("role")), 0) + 1
                 raise RuntimeError(f"the long chat has {assistant_text(app, chat).count('long turn')} of "
-                                   f"{self.args.long_turns} answers ({len(items)} items read, by role {roles}; "
-                                   f"state {json.dumps(chat_state(app, chat))[:200]})")
+                                   f"{self.args.long_turns} answers")
             case["long_messages"] = len(chat_items(app, chat))
         if state == "stream":
             why = send(app, chat, STREAM_PROMPT)
@@ -655,9 +629,8 @@ class Gamut:
         row["settled_ms"] = settled_at
         row["launch_snapshot_applied"] = "launch_snapshot_applied" in marks
         row["pop_in"] = sorted(k[:-len(".by_deadline")] for k in marks if k.endswith(".by_deadline"))
-        # Every launch mark: a gap between two kept marks (reveal.sidebar to reveal.tabs) names its step only with the
-        # window.*, dfl.*, frame.* and main.* marks between them (startup-matrix, 2026-11-28).
-        row["marks"] = dict(marks)
+        row["marks"] = {k: v for k, v in marks.items() if k.startswith(("first_", "reveal.", "agent_pane.", "daemon.",
+                                                                       "launch_", "main_start", "connecting_"))}
         if self.app.process.poll() is not None:
             failures.append(f"the reopened app exited (status {self.app.process.poll()})")
             return row
@@ -952,12 +925,11 @@ def main(argv: list[str] | None = None) -> int:
                 # names its config root (acpmux ProfileSources::current): without this a tagged build (quit-gamut.sh
                 # head=) answered "unknown harness" to every round.
                 env["XDG_CONFIG_HOME"] = str(Path(env["HOME"]) / ".config")
-                for name in l5.HARNESS_DIRS:  # NEXT's own `cmux-next`, and `cmux` for builds before #56195
-                    folder = Path(env["XDG_CONFIG_HOME"]) / name / "harnesses"
-                    folder.mkdir(parents=True, exist_ok=True)
-                    (folder / f"{HARNESS}.toml").write_text(
-                        f'schema = 1\nid = "{HARNESS}"\nname = "Gamut test agent"\nprotocol = "acp"\n'
-                        f'command = "/usr/bin/python3"\nargs = [{json.dumps(str(gamut.fake))}]\n')
+                folder = Path(env["XDG_CONFIG_HOME"]) / "cmux" / "harnesses"
+                folder.mkdir(parents=True, exist_ok=True)
+                (folder / f"{HARNESS}.toml").write_text(
+                    f'schema = 1\nid = "{HARNESS}"\nname = "Gamut test agent"\nprotocol = "acp"\n'
+                    f'command = "/usr/bin/python3"\nargs = [{json.dumps(str(gamut.fake))}]\n')
                 gamut.boot(bundle, env)
                 gamut.app.cli("setup", "trust", str(gamut.work))
                 gamut.run(bundle, env, newer, previous)

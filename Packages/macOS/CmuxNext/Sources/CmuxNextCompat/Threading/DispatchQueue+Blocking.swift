@@ -1,6 +1,3 @@
-#if DEBUG || CMUX_BLOCKING_CHECKS
-public import Darwin
-#endif
 public import Dispatch
 
 extension DispatchQueue {
@@ -15,13 +12,7 @@ extension DispatchQueue {
     /// - Throws: What `work` throws.
     @inlinable
     public func blockingSync<T>(fileID: StaticString = #fileID, line: UInt = #line, execute work: () throws -> T) rethrows -> T {
-        // Not through blockingCall: a rethrows function may only call functions that rethrow its own closure.
-        #if DEBUG || CMUX_BLOCKING_CHECKS
         assertBlockingAllowed(.syncWait, fileID: fileID, line: line)
-        guard pthread_main_np() != 0 else { return try sync(execute: work) }
-        let previous = BlockingOpenCall.enter(.syncWait, fileID: fileID, line: line)
-        defer { BlockingOpenCall.leave(previous) }
-        #endif
         return try sync(execute: work)
     }
 }
@@ -35,6 +26,7 @@ extension DispatchWorkItem {
     ///   - line: The calling code's `#line`.
     @inlinable
     public func blockingWait(fileID: StaticString = #fileID, line: UInt = #line) {
-        blockingCall(.syncWait, fileID: fileID, line: line) { wait() }
+        assertBlockingAllowed(.syncWait, fileID: fileID, line: line)
+        wait()
     }
 }

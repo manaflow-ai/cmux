@@ -78,8 +78,6 @@ test("a chat on the store: switch first, the hold, its rows, and its kept window
   const { mockSessions } = await import("./mockFixture");
   const { setNativeHost } = await import("./native");
   const [a, b] = mockSessions.map((session) => session.sessionId);
-  // A page a host already opened a chat on: its open guesses the switch and asks it before any attach.
-  (await import("./rows/chatSource")).resetChatRowsState("on");
   // Daemon requests and host posts, in the order the page made them.
   const asked: { to: string; method: string; params: any }[] = [];
   const sids = new Map<string, string>();
@@ -118,14 +116,8 @@ test("a chat on the store: switch first, the hold, its rows, and its kept window
   );
   const direct = client as any;
   // As the host calls it: the document's receiver, which the client installed before its first open.
-  // Each batch under its own number, as AcpmuxChatRowsHost numbers them: since #47334 a batch under the
-  // number of the one last applied is the host's repeat of it, taken again and not applied.
-  let batch = 0;
   const feed = (changes: string[]) =>
-    (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!.receive({
-      batch: (batch += 1),
-      changes,
-    });
+    (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!.receive({ batch: 1, changes });
   try {
     await settle(() => asked.some((ask) => ask.method === "_acpmux/attach" && ask.params.sessionId === a));
     // The switch is asked, then the v1 attach is the hold: no page, no log read.
@@ -198,13 +190,13 @@ test("a chat on the store: switch first, the hold, its rows, and its kept window
 /// A daemon with the hold whose chat list never answers, and a host that answers `chat.rows.open`
 /// with `open`: the open's chat comes from its early attach alone (decision 289). With `list`, the
 /// list answers once it settles.
-async function listOut(open: (params: any) => Promise<unknown>, list?: Promise<void>, said?: "on") {
+async function listOut(open: (params: any) => Promise<unknown>, list?: Promise<void>) {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const { mockSessions } = await import("./mockFixture");
   const { setNativeHost } = await import("./native");
   const { resetChatRowsState } = await import("./rows/chatSource");
-  resetChatRowsState(said);
+  resetChatRowsState();
   const a = mockSessions[0]!.sessionId;
   const asked: { to: string; method: string; params: any }[] = [];
   setNativeHost(async (method, params) => {
@@ -247,9 +239,9 @@ test("an early attach the open dropped while its switch was out, for a chat no l
   const askEarly = proto.askEarly;
   let opening: any;
   const caught = (client: unknown) => (opening = client);
-  proto.askEarly = function (this: unknown, ...args: unknown[]) {
+  proto.askEarly = function (this: unknown) {
     caught(this);
-    return askEarly.apply(this, args);
+    return askEarly.call(this);
   };
   let listed = () => {};
   const list = new Promise<void>((resolve) => (listed = resolve));
@@ -257,17 +249,13 @@ test("an early attach the open dropped while its switch was out, for a chat no l
   const gateA = new Promise<void>((resolve) => (answerA = resolve));
   // The first open (the early attach's switch, for the tab's chat) waits on `answerA`.
   let first = true;
-  const run = await listOut(
-    async (params) => {
-      if (first) {
-        first = false;
-        await gateA;
-      }
-      return { sid: params.sid };
-    },
-    list,
-    "on",
-  );
+  const run = await listOut(async (params) => {
+    if (first) {
+      first = false;
+      await gateA;
+    }
+    return { sid: params.sid };
+  }, list);
   try {
     await settle(() => run.hostPosts().some((post) => post.method === "chat.rows.open" && post.params.chat === run.a));
     proto.askEarly = askEarly;
@@ -300,16 +288,13 @@ test("with the list still out, a host without chat.rows: the chat draws from its
   const client = await run.connecting;
   try {
     await settle(() => run.rows().length > 0);
-    // A page no host has opened a chat on guesses no switch (0-RTT, #55175): its plain attach goes out
-    // with initialize, then one open is asked of the host and refused, and the chat attaches plain
-    // again, not the hold. Once per page: the refusal leaves the switch off for every later open.
+    // One open asked of the host, refused; then one plain attach, not the hold.
     expect(run.hostPosts().map((post) => post.method)).toEqual(["chat.rows.open"]);
-    expect(run.attaches()).toHaveLength(2);
-    expect(run.attaches().map((ask) => ask.params.hold)).toEqual([undefined, undefined]);
+    expect(run.attaches()).toHaveLength(1);
+    expect(run.attaches()[0]!.params.hold).toBeUndefined();
     const open = run.asked.findIndex((ask) => ask.method === "chat.rows.open");
-    const attaches = run.asked.flatMap((ask, at) => (ask.method === "_acpmux/attach" ? [at] : []));
-    expect(attaches[0]).toBeLessThan(open);
-    expect(open).toBeLessThan(attaches[1]!);
+    const attach = run.asked.findIndex((ask) => ask.method === "_acpmux/attach");
+    expect(open).toBeLessThan(attach);
     expect(client.selectedSessionId).toBe(run.a);
   } finally {
     client.close?.();
@@ -319,14 +304,10 @@ test("with the list still out, a host without chat.rows: the chat draws from its
 
 test("with the list still out, a host that opens: the hold's reply gives the row and the first window draws", async () => {
   let sid = "";
-  const run = await listOut(
-    async (params) => {
-      sid = String(params.sid);
-      return { sid };
-    },
-    undefined,
-    "on",
-  );
+  const run = await listOut(async (params) => {
+    sid = String(params.sid);
+    return { sid };
+  });
   const client = await run.connecting;
   try {
     await settle(() => run.attaches().length > 0);

@@ -1,4 +1,3 @@
-#if canImport(QuartzCore)
 import CmuxNextCompat
 import Foundation
 import QuartzCore
@@ -148,4 +147,3 @@ private final class CallbackLog {
         #expect(log.events == ["commit", "completion"])
     }
 }
-#endif

@@ -9,7 +9,7 @@ import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 
-nonisolated extension InternalPageID {
+extension InternalPageID {
     static let homeChannels = InternalPageID(rawValue: "home-channels")
 }
 
@@ -52,7 +52,7 @@ extension PageFactory {
         let (editRoute, edits) = Self.homeChannelsEditRoute()
         var routes = [PageRoute(prefix: "cmux.host.credential.", provider: provider),
                       PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
-                      PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: services.agentHarnesses.chiefBackendPage),
+                      PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
                       editRoute] + extra
         if let dock { routes.append(PageRoute(prefix: HomeSwitchPageRoute.prefix, provider: HomeSwitchPageRoute(dock: dock))) }
         guard let page = PageWebView(descriptor: descriptor, routes: routes,

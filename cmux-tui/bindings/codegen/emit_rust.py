@@ -157,7 +157,7 @@ def _serde_field_options(
 def _header(ir: SdkIR) -> str:
     return (
         "// This file is generated. Do not edit by hand.\n"
-        f"// cmux-tui mux protocol {ir.mux_protocol}; the IR SHA-256 is SDK_IR_SHA256 in metadata.rs.\n"
+        f"// cmux-tui mux protocol {ir.mux_protocol}, IR {ir.ir_sha256}.\n"
         "// The emitter owns this layout so generation is independent of the installed rustfmt.\n"
         "\n"
     )

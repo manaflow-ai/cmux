@@ -106,40 +106,7 @@ def judge(loop: dict) -> dict:
         "biggest_gap": max(per_stage, key=lambda s: per_stage[s]["over_floor_ms"] or 0.0) if per_stage else None,
         "target": loop.get("target"),
         "graph": graph,
-        **({"crates_p50_s": crates} if (crates := crate_p50s(loop)) else {}),
-        **({"swap_parts_p50_ms": parts} if (parts := swap_part_p50s(loop)) else {}),
-        **({"first_exec": loop["first_exec"]} if loop.get("first_exec") else {}),
     }
-
-
-def swap_part_p50s(loop: dict) -> dict:
-    """The swap stage split by the swapper's own marks (detail.rounds[].swap.trace, seconds), p50 ms per part, plus
-    the swapped binary's p50 size: the swap's floor runs a build already started once, the real one a new file."""
-    seen: dict[str, list[float]] = {}
-    for r in (loop.get("detail") or {}).get("rounds") or []:
-        swap = r.get("swap") or {}
-        for k, v in (swap.get("trace") or {}).items():
-            if isinstance(v, (int, float)):
-                seen.setdefault(k, []).append(float(v) * 1000)
-        if isinstance(swap.get("cmux-tui_bytes"), int):
-            seen.setdefault("binary_bytes", []).append(float(swap["cmux-tui_bytes"]))
-    return {k: round(statistics.median(v), 1) for k, v in seen.items()}
-
-
-def crate_p50s(loop: dict) -> dict:
-    """Each rebuilt crate's p50 rustc seconds and start offset across rounds, slowest first (detail.rounds[].crates).
-
-    The compile stage spans every crate the edit reaches, so a ratio alone cannot say which one went slow; this keeps
-    the breakdown in report.json beside the stage it explains."""
-    seen: dict[str, list[tuple[float, float]]] = {}
-    for r in (loop.get("detail") or {}).get("rounds") or []:
-        for c in r.get("crates") or []:
-            if isinstance(c.get("s"), (int, float)):
-                seen.setdefault(f"{c.get('crate')}:{c.get('kind')}", []).append((float(c["s"]), float(c.get("starts_at_s") or 0)))
-    rows = {k: {"p50_s": round(statistics.median(s for s, _ in v), 3),
-                "starts_at_p50_s": round(statistics.median(t for _, t in v), 3), "rounds": len(v)}
-            for k, v in seen.items()}
-    return dict(sorted(rows.items(), key=lambda kv: -kv[1]["p50_s"]))
 
 
 def main(argv: list[str]) -> int:

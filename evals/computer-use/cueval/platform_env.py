@@ -11,7 +11,6 @@ from __future__ import annotations
 import ctypes
 import ctypes.util
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -192,23 +191,6 @@ def mac_new_windows(handle: dict, timeout: float = 5.0) -> list[dict]:
         time.sleep(0.25)
 
 
-# macOS processes that put up system alerts over every app (CFUserNotification prompts, Gatekeeper's
-# "downloaded from the internet", authorization dialogs). One of them took focus from the person fixture on
-# the cold first trial of NIGHTLY 8a3db889's suite (background-person-typing t0: the agent's first batch
-# reported focus moved_to com.apple.UserNotificationCenter with no foreground call of its own).
-SYSTEM_ALERT_APPS = ("com.apple.UserNotificationCenter", "com.apple.CoreServicesUIAgent", "com.apple.SecurityAgent")
-
-
-def mac_system_alerts() -> list[dict]:
-    """The system-alert windows on screen now: app_id, window_id, title (no clicks: one may be a TCC prompt)."""
-    out = []
-    for app_id in SYSTEM_ALERT_APPS:
-        data = cu_call("list_windows", {"app_id": app_id}, timeout=5) or {}
-        out += [{"app_id": app_id, "window_id": str(w.get("window_id")), "title": w.get("title") or ""}
-                for w in data.get("windows", []) if w.get("app_id") == app_id]
-    return out
-
-
 def mac_close_window(window_id: str) -> None:
     """Close a window the harness opened by pressing its close button through accessibility
     (a background cmd+w goes nowhere: the menu item is disabled while the app is in the back)."""
@@ -287,18 +269,6 @@ def snapshot(name: str) -> str:
         cmd = ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        return snapshot_text(r.stdout, r.stderr, r.returncode)
+        return (r.stdout + r.stderr).strip()
     except (OSError, subprocess.TimeoutExpired) as e:
         return f"unreadable: {e}"
-
-
-# macOS tools log to stderr with the time and the process id first ("2026-11-26 14:17:23.528
-# defaults[2524:15461] The domain/default pair ... does not exist"), so the same unchanged setting read
-# twice differed and denied-os-appearance failed every trial its agent refused correctly (run 20261126T141603).
-_LOG_PREFIX = re.compile(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(?:\.\d+)? \S+\[\d+(?::[0-9a-fx]+)?\]\s*", re.M)
-
-
-def snapshot_text(stdout: str, stderr: str, returncode: int) -> str:
-    """A setting read as its value, exit status and message, without the per-run log prefix of stderr."""
-    err = _LOG_PREFIX.sub("", stderr or "").strip()
-    return f"exit {returncode}: " + " ".join(x for x in ((stdout or "").strip(), err) if x)

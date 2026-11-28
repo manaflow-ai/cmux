@@ -27,7 +27,6 @@ pub mod alerts;
 #[cfg(unix)]
 pub mod client;
 pub mod cursor;
-pub mod cursor_draw;
 pub mod desktop;
 pub mod displays;
 pub mod engine;
@@ -40,10 +39,8 @@ pub mod outcome;
 pub mod policy;
 pub mod preview;
 pub mod record;
-pub mod reread;
 pub mod session;
 pub mod stop;
-pub mod takeover;
 pub mod tools;
 pub mod wire;
 

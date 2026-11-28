@@ -172,7 +172,6 @@ export default historyPageEntry({
         await ctx.waitFor(
           () =>
             ctx.document.querySelector<HTMLElement>('[role="alert"].history-error')?.textContent ===
-            // retry-prompt-ok: a refused Remove (destructive) is the person's to try again.
             "Something went wrong. Try again.",
         );
         if (!ctx.document.querySelector(".history-row")) throw new Error("history rows disappeared after refusal");

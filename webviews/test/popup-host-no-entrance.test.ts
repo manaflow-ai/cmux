@@ -4,11 +4,8 @@
 // by choosing showPopupAtOnce instead of openPopup, while close motion stays unchanged.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import type { PopupModel } from "../src/ui/popupHost";
+import { createPopupHost, type PopupModel } from "../src/ui/popupHost";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { createPopupHost } = await importWithDom(() => import("../src/ui/popupHost"));
 
 const scope = globalThis as Record<string, unknown>;
 const saved = Object.getOwnPropertyDescriptor(scope, "document");

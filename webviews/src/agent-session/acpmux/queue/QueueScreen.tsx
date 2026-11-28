@@ -20,7 +20,7 @@ import React, {
 } from "react";
 import { age } from "../homeListsModel";
 import { useT, type Translate } from "../i18n";
-import { KeyHint } from "../../../ui/KeyHint";
+import { Keycap } from "../Keycap";
 import { AgentMark } from "../tabMarks";
 import type { NeedsYouAnswer } from "../needsYou/model";
 import { formatCost } from "../ledger/ledgerModel";
@@ -349,28 +349,28 @@ export function QueueScreen({
       <div className="wq-foot">
         <div className="wq-keys">
           <span>
-            <KeyHint keys="j" aria-hidden="true" />
-            <KeyHint keys="k" aria-hidden="true" />
+            <Keycap>j</Keycap>
+            <Keycap>k</Keycap>
             {t("waiting.key.move")}
           </span>
           <span>
-            <KeyHint keys="↩" aria-hidden="true" />
+            <Keycap>↩</Keycap>
             {t("waiting.key.open")}
           </span>
           {allowKey && (
             <span>
-              <KeyHint keys={allowKey} aria-hidden="true" />
+              <Keycap>{allowKey}</Keycap>
               {t("waiting.key.allow")}
             </span>
           )}
           {denyKey && (
             <span>
-              <KeyHint keys={denyKey} aria-hidden="true" />
+              <Keycap>{denyKey}</Keycap>
               {t("waiting.key.deny")}
             </span>
           )}
           <span>
-            <KeyHint keys="x" aria-hidden="true" />
+            <Keycap>x</Keycap>
             {t("waiting.key.export")}
           </span>
         </div>
@@ -529,7 +529,7 @@ const Row = memo(function Row({
                     aria-keyshortcuts={acceptKey}
                     onClick={() => onVerdict(item, "accept")}
                   >
-                    {acceptKey && <KeyHint keys={acceptKey} aria-hidden="true" />}
+                    {acceptKey && <Keycap>{acceptKey}</Keycap>}
                     {t("waiting.pr.accept")}
                   </button>
                   <button
@@ -539,7 +539,7 @@ const Row = memo(function Row({
                     aria-keyshortcuts={changesKey}
                     onClick={() => onOpenComment(item.id)}
                   >
-                    {changesKey && <KeyHint keys={changesKey} aria-hidden="true" />}
+                    {changesKey && <Keycap>{changesKey}</Keycap>}
                     {t("waiting.pr.changes")}
                   </button>
                 </>
@@ -556,7 +556,7 @@ const Row = memo(function Row({
                       aria-keyshortcuts={key}
                       onClick={() => onAnswer(item, each)}
                     >
-                      {key && <KeyHint keys={key} aria-hidden="true" />}
+                      {key && <Keycap>{key}</Keycap>}
                       {each.label}
                     </button>
                   );

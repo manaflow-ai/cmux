@@ -12,10 +12,6 @@ type Props = {
   many?: boolean;
   /** PACKAGE_TOKEN as stored before every secret needed a host: no hosts, so it loads invalid. */
   legacy?: boolean;
-  /** The environment read stays down: the sheet reads it again on its own. */
-  readDown?: boolean;
-  /** The suggested setup script's read stays down: the sheet reads it again on its own. */
-  deriveDown?: boolean;
 };
 const ready: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cloud-environment-sheet .env-fields"));
@@ -62,13 +58,6 @@ const manyExpanded: Play = async (ctx) => {
   while (closed()) await ctx.click({ selector });
   await ctx.waitFor(() => !closed());
 };
-// The stage's zero grace (lasting.ts setLastingGrace) shows the quiet line at once.
-const stillTrying: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".cloud-environment-sheet .env-still-trying"));
-};
-const deriveStillTrying: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".cloud-environment-sheet .env-derive-still-trying"));
-};
 const saveFailure: Play = async (ctx) => {
   await ready(ctx);
   await ctx.type("\necho ready", { selector: ".env-code textarea" });
@@ -90,16 +79,7 @@ export default componentEntry<Props>({
       import("../shared/i18n"),
       import("./generated/strings.json"),
     ]);
-    return function EnvironmentGallery({
-      section,
-      failure,
-      full,
-      delivery,
-      many,
-      legacy,
-      readDown,
-      deriveDown,
-    }: Props) {
+    return function EnvironmentGallery({ section, failure, full, delivery, many, legacy }: Props) {
       const [strings] = useState(() => createStrings(table));
       const [store] = useState(() => {
         let environment: CloudEnvironment = {
@@ -150,10 +130,7 @@ export default componentEntry<Props>({
           updated_by: "user_example",
         };
         return new EnvironmentStore({
-          list: async () => {
-            if (readDown) throw new Error("Simulated read failure");
-            return [environment];
-          },
+          list: async () => [environment],
           get: async () => environment,
           update: async (_id, patch) => {
             if (failure) throw new Error("Simulated save failure");
@@ -179,10 +156,7 @@ export default componentEntry<Props>({
             };
             return environment;
           },
-          derive: async () => {
-            if (deriveDown) throw new Error("Simulated derive failure");
-            return { setup: { script: "#!/bin/bash\nset -euo pipefail\nnpm ci\nnpm run build\n" } };
-          },
+          derive: async () => ({ setup: { script: "#!/bin/bash\nset -euo pipefail\nnpm ci\nnpm run build\n" } }),
         });
       });
       useEffect(() => {
@@ -264,18 +238,7 @@ export default componentEntry<Props>({
       props: { section: "variables" },
       play: ready,
     },
-    "read-still-trying": {
-      note: "The environment read keeps failing: the sheet reads it again on its own and, once that lasts, says so in one quiet line with no button.",
-      props: { section: "overview", readDown: true },
-      play: stillTrying,
-    },
-    "derive-still-trying": {
-      note: "The suggested setup script keeps failing: read again on its own, one quiet line, and the editor stays open to write one's own.",
-      props: { section: "script", deriveDown: true },
-      play: deriveStillTrying,
-    },
     "save-failure": {
-      // retry-prompt-ok: a save of the person's edits; Save stays theirs to press again.
       note: "A failed save keeps the script draft and offers retry.",
       props: { section: "script", failure: true },
       play: saveFailure,

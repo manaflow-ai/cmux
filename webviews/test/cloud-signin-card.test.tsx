@@ -5,6 +5,17 @@
 // the person's click. These tests drive the card and its wire with a mocked client.
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import {
+  autoSignIn,
+  cloudAgentLogin,
+  localApiKeyLogin,
+  loginAgent,
+  loginFailure,
+  offersGateway,
+  signInURL,
+  signsInByPage,
+  takesApiKey,
+} from "../src/agent-session/acpmux/cloudAgentLogin";
 import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -43,17 +54,6 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
-const {
-  autoSignIn,
-  cloudAgentLogin,
-  localApiKeyLogin,
-  loginAgent,
-  loginFailure,
-  offersGateway,
-  signInURL,
-  signsInByPage,
-  takesApiKey,
-} = await import("../src/agent-session/acpmux/cloudAgentLogin");
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -172,36 +172,41 @@ beforeEach(async () => {
   await act(async () => root.render(<></>));
 });
 
-// Rule 7 (design/transcript-motion-model.md): a step's action row takes its new height in one frame
-// under every motion setting; nothing animates its size.
-test.each(["full", "off", "reduced"])(
-  "sign-in steps change their action row in one frame with motion %s",
-  async (motion) => {
-    const { client } = mockClient();
-    const { signIn } = signInFor(client);
-    await render({ route: cloudRoute, cloudSignIn: signIn });
-    const actions = host.querySelector<HTMLElement>(".cv-turn-error__actions")!;
-    const frames: Keyframe[][] = [];
-    let cancellations = 0;
-    const html = dom.window.document.documentElement;
-    html.dataset.agentMotion = motion;
-    actions.getBoundingClientRect = () => ({ height: actions.querySelector("input") ? 100 : 24 }) as DOMRect;
-    actions.animate = (keyframes) => {
-      frames.push(keyframes as Keyframe[]);
-      return { cancel: () => cancellations++ } as unknown as Animation;
-    };
-    try {
-      await act(async () => button("Use an API key")!.click());
-      expect(actions.querySelector('input[type="password"]')).not.toBeNull();
-      expect(frames).toEqual([]);
-      await act(async () => root.render(<></>));
-      expect(cancellations).toBe(0);
-      expect(actions.style.overflow).toBe("");
-    } finally {
-      delete html.dataset.agentMotion;
-    }
-  },
-);
+test.each(["full", "off", "reduced"])("sign-in steps resize their action row with motion %s", async (motion) => {
+  const { client } = mockClient();
+  const { signIn } = signInFor(client);
+  await render({ route: cloudRoute, cloudSignIn: signIn });
+  const actions = host.querySelector<HTMLElement>(".cv-turn-error__actions")!;
+  const frames: Keyframe[][] = [];
+  let cancellations = 0;
+  const html = dom.window.document.documentElement;
+  html.dataset.agentMotion = motion;
+  actions.getBoundingClientRect = () => ({ height: actions.querySelector("input") ? 100 : 24 }) as DOMRect;
+  actions.animate = (keyframes) => {
+    frames.push(keyframes as Keyframe[]);
+    return { cancel: () => cancellations++ } as unknown as Animation;
+  };
+  try {
+    await act(async () => button("Use an API key")!.click());
+    expect(actions.querySelector('input[type="password"]')).not.toBeNull();
+    expect(frames).toEqual(
+      motion === "full"
+        ? [
+            [
+              { height: "24px", maxHeight: "24px" },
+              { height: "100px", maxHeight: "100px" },
+            ],
+          ]
+        : [],
+    );
+    // Going away cancels the finite resize and removes the clip immediately.
+    await act(async () => root.render(<></>));
+    expect(cancellations).toBe(motion === "full" ? 1 : 0);
+    expect(actions.style.overflow).toBe("");
+  } finally {
+    delete html.dataset.agentMotion;
+  }
+});
 
 test("only an allowed provider page over https opens", () => {
   expect(signInURL("https://claude.ai/oauth/authorize?code=true")).toBe("https://claude.ai/oauth/authorize?code=true");

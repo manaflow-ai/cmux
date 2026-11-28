@@ -28,7 +28,7 @@
 // (App.tsx `dismissHatQuestion`, waitingAskStore.ts): it leaves the hat, while the ask itself still
 // waits where it was asked (its card, its chat, the sidebar's Needs you dot). A started chat's name
 // keeps the asker line above to itself, cut only where the pager and the × begin.
-import React, { type CSSProperties, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { type CSSProperties, useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { DismissButton } from "../../../ui/DismissButton";
 import { useAnswerHold } from "../answerHold";
@@ -469,7 +469,6 @@ export function HatQuestions({
               {replyLook !== "inline" && field}
               {failed === shown.id && (
                 <p className="acpmux-hat-questions__failed" role="alert">
-                  {/* retry-prompt-ok: answering again re-sends the answer to the agent, the person chooses to */}
                   {t("question.replyFailed")}
                 </p>
               )}

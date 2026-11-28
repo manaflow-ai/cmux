@@ -447,8 +447,8 @@ fn select_workspace_target(
         return Ok(selected(candidate, "workspace"));
     }
 
-    if let [(_, only)] = candidates.as_slice() {
-        return Ok(selected(only, "only-browser-tab"));
+    if candidates.len() == 1 {
+        return Ok(selected(&candidates[0].1, "only-browser-tab"));
     }
     Err(anyhow!(
         "cannot infer a cmux workspace for agent-browser; run it inside a cmux terminal or set CMUX_TUI_BROWSER_TAB_ID"
@@ -560,7 +560,7 @@ fn write_control_request(
     let mut offset = 0;
     while offset < encoded.len() {
         writer.set_write_timeout(Some(remaining_socket_timeout(deadline)?))?;
-        match writer.write(encoded.get(offset..).unwrap_or_default()) {
+        match writer.write(&encoded[offset..]) {
             Ok(0) => return Err(std::io::Error::from(std::io::ErrorKind::WriteZero).into()),
             Ok(written) => offset += written,
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
@@ -608,11 +608,8 @@ fn read_control_line(
             line.len().saturating_add(consumed) <= limit,
             "cmux-tui response exceeds 16 MiB"
         );
-        let Some(chunk) = available.get(..consumed) else {
-            anyhow::bail!("cmux-tui control socket reported an impossible read");
-        };
-        let complete = chunk.last() == Some(&b'\n');
-        line.extend_from_slice(chunk);
+        let complete = available[consumed - 1] == b'\n';
+        line.extend_from_slice(&available[..consumed]);
         reader.consume(consumed);
         if complete {
             return Ok(line);

@@ -35,9 +35,12 @@ export default componentEntry<Props>({
       note: "After Resume, or while the machine boots: a spinner and Starting, no second Resume.",
       props: { noteDelayMs: 0, copy, now: GALLERY_NOW, machine: "starting", onResume },
     },
-    offline: {
-      note: "An offline machine's chat keeps its copy while the pane asks acpmux to redial it on its own: no Reconnect, and no \"Couldn't reconnect. Try again.\" when a redial is refused (Leo, 2026-11-22).",
+    refused: {
+      note: "The offline chat keeps its copy and shows the daemon doctor failure after Reconnect is refused.",
       props: { noteDelayMs: 0, copy, now: GALLERY_NOW, onReconnect: refusedReconnect },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Reconnect" });
+      },
     },
     "paused-no-time": {
       note: "A copy that names no time.",

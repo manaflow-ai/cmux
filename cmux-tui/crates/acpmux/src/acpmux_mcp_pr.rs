@@ -444,15 +444,9 @@ pub(crate) fn newest_runs(rollup: &[Value]) -> Vec<&Value> {
         let workflow = text(c, "workflowName").or(text(c, "workflow_name")).unwrap_or_default();
         let key = format!("{workflow}\u{0}{}", text_or_empty(c, "name"));
         match newest.get(&key).copied() {
-            Some(j) if rollup.get(j).is_some_and(|prev| run_order(prev, j) > run_order(c, i)) => {
-                if let Some(flag) = keep.get_mut(i) {
-                    *flag = false;
-                }
-            }
+            Some(j) if run_order(&rollup[j], j) > run_order(c, i) => keep[i] = false,
             Some(j) => {
-                if let Some(flag) = keep.get_mut(j) {
-                    *flag = false;
-                }
+                keep[j] = false;
                 newest.insert(key, i);
             }
             None => {
@@ -477,20 +471,19 @@ pub(crate) fn newest_runs(rollup: &[Value]) -> Vec<&Value> {
     };
     let survivors: Vec<usize> = newest.values().copied().collect();
     for &i in &survivors {
-        let Some(c) = rollup.get(i) else { continue };
+        let c = &rollup[i];
         if !cancelled(c) {
             continue;
         }
         let name = text_or_empty(c, "name");
         if survivors.iter().any(|&j| {
-            let Some(t) = rollup.get(j) else { return false };
+            let t = &rollup[j];
             j != i
                 && text_or_empty(t, "name") == name
                 && !failed(t)
                 && run_order(t, j) > run_order(c, i)
-        }) && let Some(flag) = keep.get_mut(i)
-        {
-            *flag = false;
+        }) {
+            keep[i] = false;
         }
     }
     rollup.iter().zip(keep).filter_map(|(c, k)| k.then_some(c)).collect()

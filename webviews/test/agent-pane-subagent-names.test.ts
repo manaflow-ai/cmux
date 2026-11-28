@@ -9,20 +9,19 @@ import { afterEach, expect, test } from "bun:test";
 import { createElement, act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+import {
+  mockSessions,
+  sessionHistory,
+  SUBAGENT_NAMES_AGENT_ID,
+  SUBAGENT_NAMES_SESSION,
+  SUBAGENT_NAMES_TASK,
+} from "../src/agent-session/acpmux/mockFixture";
+import { agentMessage } from "../src/agent-session/acpmux/conversation/agentMessages";
+import { AgentNamesContext, agentNames } from "../src/agent-session/acpmux/conversation/agentNames";
+import { MessageCard } from "../src/agent-session/acpmux/conversation/MessageCard";
+import { SubagentDoneLine } from "../src/agent-session/acpmux/subagents/SubagentDoneLine";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
-const { mockSessions, sessionHistory, SUBAGENT_NAMES_AGENT_ID, SUBAGENT_NAMES_SESSION, SUBAGENT_NAMES_TASK } =
-  await importWithDom(() => import("../src/agent-session/acpmux/mockFixture"));
-const { agentMessage } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/agentMessages"));
-const { AgentNamesContext, agentNames } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/agentNames"),
-);
-const { MessageCard } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/MessageCard"));
-const { SubagentDoneLine } = await importWithDom(
-  () => import("../src/agent-session/acpmux/subagents/SubagentDoneLine"),
-);
 
 const CHAT = "0190a000-0000-7000-8000-0000000000f8";
 const START = Date.UTC(2026, 10, 3, 4, 0, 0);

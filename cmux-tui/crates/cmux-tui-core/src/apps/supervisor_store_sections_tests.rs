@@ -101,9 +101,7 @@ fn shelf(answer: &Value) -> Vec<(String, Value, Value)> {
 #[test]
 fn the_store_shelves_come_in_order_and_page() {
     let root = temp_dir();
-    // A sample under another publisher (a `cmux/` bundled package is a
-    // first-party STORE app since #47762, `Shelf::of`).
-    write_app(&root.0.join("bundled"), "demo", "examples/demo", json!({}));
+    write_app(&root.0.join("bundled"), "demo", "cmux/demo", json!({}));
     let supervisor = store_supervisor(&root);
 
     let answer = sections(&supervisor, json!({}));

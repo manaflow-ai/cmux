@@ -1710,127 +1710,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ask or write something down"
+            "value": "What do you want to ask or write down?"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اسأل أو دوّن شيئًا"
+            "value": "ماذا تريد أن تسأل أو تدوّن؟"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pitaj ili nešto zapiši"
+            "value": "Šta želite pitati ili zapisati?"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Spørg eller skriv noget ned"
+            "value": "Hvad vil du spørge om eller skrive ned?"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Frag oder halte etwas fest"
+            "value": "Was möchtest du fragen oder festhalten?"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pregunta o anota algo"
+            "value": "¿Qué quieres preguntar o anotar?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Posez une question ou notez quelque chose"
+            "value": "Que voulez-vous demander ou noter ?"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chiedi o annota qualcosa"
+            "value": "Cosa vuoi chiedere o annotare?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "質問やメモを書く"
+            "value": "質問したいことや書き留めたいことは？"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "សួរ ឬកត់ត្រាអ្វីមួយ"
+            "value": "តើអ្នកចង់សួរ ឬកត់ត្រាអ្វី?"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "질문하거나 기록하세요"
+            "value": "무엇을 묻거나 적고 싶으신가요?"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Spør eller skriv noe ned"
+            "value": "Hva vil du spørre om eller skrive ned?"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zapytaj lub coś zanotuj"
+            "value": "O co chcesz zapytać lub co zapisać?"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pergunte ou anote algo"
+            "value": "O que você quer perguntar ou registrar?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Спросите или запишите что-нибудь"
+            "value": "О чём хотите спросить или что записать?"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ถามหรือจดบันทึกบางอย่าง"
+            "value": "คุณต้องการถามหรือจดอะไร"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sorun ya da bir şey not edin"
+            "value": "Ne sormak ya da not etmek istiyorsunuz?"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Запитайте або запишіть щось"
+            "value": "Про що хочете запитати або що записати?"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hỏi hoặc ghi lại điều gì đó"
+            "value": "Bạn muốn hỏi hoặc ghi lại điều gì?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "提问或记下点什么"
+            "value": "你想问什么或记下什么？"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "提問或記下點什麼"
+            "value": "你想問什麼或記下什麼？"
           }
         }
       }
@@ -2889,127 +2889,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This team's forum is off"
+            "value": "The forum is not on for this team"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "منتدى هذا الفريق متوقف"
+            "value": "المنتدى غير مفعّل لهذا الفريق"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forum ovog tima je isključen"
+            "value": "Forum nije uključen za ovaj tim"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dette teams forum er slået fra"
+            "value": "Forummet er ikke slået til for dette team"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Das Forum dieses Teams ist aus"
+            "value": "Das Forum ist für dieses Team nicht aktiviert"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El foro de este equipo está desactivado"
+            "value": "El foro no está activado para este equipo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le forum de cette équipe est désactivé"
+            "value": "Le forum n’est pas activé pour cette équipe"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il forum di questo team è spento"
+            "value": "Il forum non è attivo per questo team"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このチームのフォーラムはオフです"
+            "value": "このチームではフォーラムが有効になっていません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "វេទិការបស់ក្រុមនេះបិទ"
+            "value": "វេទិកាមិនទាន់បើកសម្រាប់ក្រុមនេះទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 팀의 포럼이 꺼져 있습니다"
+            "value": "이 팀에서는 포럼이 꺼져 있습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Teamets forum er av"
+            "value": "Forumet er ikke slått på for dette teamet"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forum tego zespołu jest wyłączone"
+            "value": "Forum nie jest włączone dla tego zespołu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O fórum desta equipe está desligado"
+            "value": "O fórum não está ativado para esta equipe"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Форум этой команды выключен"
+            "value": "Форум не включён для этой команды"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ฟอรัมของทีมนี้ปิดอยู่"
+            "value": "ฟอรัมยังไม่เปิดใช้สำหรับทีมนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu ekibin forumu kapalı"
+            "value": "Forum bu ekip için açık değil"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Форум цієї команди вимкнено"
+            "value": "Форум не ввімкнено для цієї команди"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diễn đàn của nhóm này đang tắt"
+            "value": "Diễn đàn chưa được bật cho nhóm này"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此团队的论坛已关闭"
+            "value": "此团队未开启论坛"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此團隊的論壇已關閉"
+            "value": "此團隊未開啟論壇"
           }
         }
       }
@@ -4199,127 +4199,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in to read the forum"
+            "value": "Sign in to read your team's forum"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "سجّل الدخول لقراءة المنتدى"
+            "value": "سجّل الدخول لقراءة منتدى فريقك"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prijavi se da čitaš forum"
+            "value": "Prijavite se da čitate forum svog tima"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Log ind for at læse forummet"
+            "value": "Log ind for at læse dit teams forum"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Melde dich an, um das Forum zu lesen"
+            "value": "Melde dich an, um das Forum deines Teams zu lesen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inicia sesión para leer el foro"
+            "value": "Inicia sesión para leer el foro de tu equipo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connectez-vous pour lire le forum"
+            "value": "Connectez-vous pour lire le forum de votre équipe"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Accedi per leggere il forum"
+            "value": "Accedi per leggere il forum del tuo team"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サインインしてフォーラムを読む"
+            "value": "サインインしてチームのフォーラムを読む"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ចូលដើម្បីអានវេទិកា"
+            "value": "ចូល ដើម្បីអានវេទិការបស់ក្រុមអ្នក"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "로그인하여 포럼 읽기"
+            "value": "로그인하여 팀 포럼 읽기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Logg på for å lese forumet"
+            "value": "Logg på for å lese teamets forum"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zaloguj się, aby czytać forum"
+            "value": "Zaloguj się, aby czytać forum zespołu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Entre para ler o fórum"
+            "value": "Entre para ler o fórum da sua equipe"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Войдите, чтобы читать форум"
+            "value": "Войдите, чтобы читать форум команды"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ลงชื่อเข้าเพื่ออ่านฟอรัม"
+            "value": "ลงชื่อเข้าใช้เพื่ออ่านฟอรัมของทีม"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forumu okumak için oturum açın"
+            "value": "Ekibinizin forumunu okumak için oturum açın"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Увійдіть, щоб читати форум"
+            "value": "Увійдіть, щоб читати форум команди"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đăng nhập để đọc diễn đàn"
+            "value": "Đăng nhập để đọc diễn đàn của nhóm"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "登录以阅读论坛"
+            "value": "登录以阅读团队论坛"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "登入以閱讀論壇"
+            "value": "登入以閱讀團隊論壇"
           }
         }
       }

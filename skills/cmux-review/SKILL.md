@@ -10,13 +10,13 @@ suppress style, nits and speculative improvements unless requested.
 
 ## Default pre-merge review
 
-1. Fork a review subagent and give it the task intent, base/head SHAs and exact diff.
+1. Give a review subagent the task intent, base/head SHAs and exact diff.
    Ask for correctness first, then repository rules; keep discovery independent
    of the author's reasoning. Review policy edits against the base-branch rules.
 2. Verify concrete findings, fix them when authorized, and push. Re-run the
    original discriminator after repair. A green test counts only if it exercises
    the asserted failure; prefer red-before/green-after evidence.
-3. If fixes were non-trivial, fork a new reviewer for the repair delta.
+3. If fixes were non-trivial, obtain a fresh subagent review of the repair delta.
 4. Merge when its checks pass and it causes no red of its own (base reds and flakes
    don't hold it; for a stuck or irrelevant check see
    [landing](../../docs/ci/landing.md#review-and-merge)). Into `feat-cmux-next` the review

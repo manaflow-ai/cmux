@@ -10,12 +10,7 @@
 //! `file:../wallpapers/...` and `folder:../wallpapers/...` values to point
 //! there, so two themes' art never mix. What cmux has no setting for yet
 //! (per-pane art, the header image, accent glow, cursor style, tab-close
-//! colors) became settings of their own (schemas/settings/source/appearance.json,
-//! Theme Flourishes, and `terminal.cursorStyle` / `terminal.cursorBlink`): install
-//! writes them into each theme file it installs ([`with_settings`]), so they
-//! apply with that theme file and go when another one is picked. A flourish
-//! this cmux does not know is checked as far as it can be and named in
-//! [`Art::pending`].
+//! colors) is checked, copied and named in [`Art::pending`].
 
 use std::path::{Component, Path, PathBuf};
 
@@ -48,35 +43,6 @@ pub struct Art {
     pub source: PathBuf,
     /// What the marker asks for that this cmux has no setting for yet.
     pub pending: Vec<String>,
-    /// What the marker asks for that install applies, as marker names
-    /// (`flourishes.accentGlow`, `header`, `wallpapers.pane`).
-    pub applied: Vec<String>,
-    /// The settings the flourishes, header and pane art become, in key order.
-    pub settings: Vec<(String, Setting)>,
-}
-
-/// One setting a theme's art becomes.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Setting {
-    /// A value as it is.
-    Value(Value),
-    /// A repository image (`header/dark.webp`): a `file:` picture of the installed copy.
-    Picture(String),
-    /// Repository images: a list of `file:` pictures of the installed copies.
-    Pictures(Vec<String>),
-}
-
-/// The color of `mode` (`dark` or `light`) in a checked color value: the
-/// string itself, or that mode's member (else the other mode's).
-fn mode_color(value: Option<&Value>, mode: &str) -> Option<Value> {
-    match value? {
-        Value::String(text) => Some(Value::String(text.clone())),
-        Value::Object(modes) => {
-            let other = if mode == "dark" { "light" } else { "dark" };
-            modes.get(mode).or_else(|| modes.get(other)).cloned()
-        }
-        _ => None,
-    }
 }
 
 fn refuse(why: impl Into<String>) -> Error {
@@ -157,15 +123,8 @@ fn path_list(value: Option<&Value>, what: &str) -> Result<Vec<String>, Error> {
     }
 }
 
-/// Checks the flourishes, turns those this cmux has settings for into
-/// `settings`, and names the others in `pending`.
-fn flourishes(
-    header: &Value,
-    pending: &mut Vec<String>,
-    applied: &mut Vec<String>,
-    settings: &mut Vec<(String, Setting)>,
-) -> Result<(), Error> {
-    let mut set = |key: &str, value: Value| settings.push((key.to_owned(), Setting::Value(value)));
+/// Checks the flourishes and names those this cmux cannot apply yet.
+fn flourishes(header: &Value, pending: &mut Vec<String>) -> Result<(), Error> {
     let Some(value) = header.get("flourishes").filter(|v| !v.is_null()) else { return Ok(()) };
     let Some(map) = value.as_object() else {
         return Err(refuse("cmux-theme.json: \"flourishes\" must be an object"));
@@ -183,21 +142,7 @@ fn flourishes(
                 }
                 number_in(glow.get("radius"), 0.0, 200.0, "flourishes.accentGlow.radius")?;
                 number_in(glow.get("opacity"), 0.0, 1.0, "flourishes.accentGlow.opacity")?;
-                let dark = mode_color(glow.get("dark"), "dark");
-                let light = mode_color(glow.get("light"), "light");
-                // The app draws no glow without a dark color: a light-only glow is both.
-                if let Some(dark) = dark.or_else(|| light.clone()) {
-                    set("appearance.accentGlow.dark", dark);
-                    if let Some(light) = light {
-                        set("appearance.accentGlow.light", light);
-                    }
-                    for part in ["radius", "opacity"] {
-                        if let Some(value) = glow.get(part) {
-                            set(&format!("appearance.accentGlow.{part}"), value.clone());
-                        }
-                    }
-                }
-                applied.push("flourishes.accentGlow".to_owned());
+                pending.push("flourishes.accentGlow".to_owned());
             }
             "cursor" => {
                 let cursor = item.as_object().ok_or_else(|| {
@@ -210,8 +155,7 @@ fn flourishes(
                             CURSOR_STYLES.join(", ")
                         )));
                     }
-                    set("terminal.cursorStyle", style.clone());
-                    applied.push("flourishes.cursor.style".to_owned());
+                    pending.push("flourishes.cursor.style".to_owned());
                 }
                 if let Some(blink) = cursor.get("blink") {
                     if !blink.is_boolean() {
@@ -219,12 +163,7 @@ fn flourishes(
                             "cmux-theme.json: flourishes.cursor.blink is true or false",
                         ));
                     }
-                    let on = blink.as_bool() == Some(true);
-                    set(
-                        "terminal.cursorBlink",
-                        Value::String(if on { "on" } else { "off" }.to_owned()),
-                    );
-                    applied.push("flourishes.cursor.blink".to_owned());
+                    pending.push("flourishes.cursor.blink".to_owned());
                 }
                 if let Some(c) = cursor.get("color") {
                     // Applied through each theme file's own `colors.cursor`.
@@ -247,20 +186,7 @@ fn flourishes(
                         "cmux-theme.json: flourishes.tabClose.interpolation is oklab or srgb",
                     ));
                 }
-                // One resting color: a per-mode `from` rests in its dark color.
-                if let Some(from) = mode_color(close.get("from"), "dark") {
-                    set("appearance.tabClose.from", from);
-                }
-                if let Some(to) = mode_color(close.get("to"), "dark") {
-                    set("appearance.tabClose.toDark", to);
-                }
-                if let Some(to) = mode_color(close.get("to"), "light") {
-                    set("appearance.tabClose.toLight", to);
-                }
-                if let Some(how) = close.get("interpolation") {
-                    set("appearance.tabClose.interpolation", how.clone());
-                }
-                applied.push("flourishes.tabClose".to_owned());
+                pending.push("flourishes.tabClose".to_owned());
             }
             other => pending.push(format!("flourishes.{other}")),
         }
@@ -272,8 +198,6 @@ fn flourishes(
 pub fn read_art(dir: &Path, header: &Value) -> Result<Art, Error> {
     let mut images = Vec::new();
     let mut pending = Vec::new();
-    let mut applied = Vec::new();
-    let mut settings = Vec::new();
     match header.get("wallpapers") {
         None | Some(Value::Null) => {}
         Some(Value::Object(sets)) => {
@@ -292,16 +216,10 @@ pub fn read_art(dir: &Path, header: &Value) -> Result<Art, Error> {
                                     "cmux-theme.json: wallpapers.pane.{mode}: only dark and light"
                                 )));
                             }
-                            let paths = path_list(Some(list), &format!("wallpapers.pane.{mode}"))?;
-                            images.extend(paths.iter().cloned());
-                            if !paths.is_empty() {
-                                settings.push((
-                                    format!("appearance.paneArt.{mode}"),
-                                    Setting::Pictures(paths),
-                                ));
-                            }
+                            images
+                                .extend(path_list(Some(list), &format!("wallpapers.pane.{mode}"))?);
                         }
-                        applied.push("wallpapers.pane".to_owned());
+                        pending.push("wallpapers.pane".to_owned());
                     }
                     other => {
                         return Err(refuse(format!(
@@ -322,26 +240,15 @@ pub fn read_art(dir: &Path, header: &Value) -> Result<Art, Error> {
                         "cmux-theme.json: header.{mode}: only dark and light"
                     )));
                 }
-                let paths = path_list(Some(path), &format!("header.{mode}"))?;
-                if paths.len() > 1 {
-                    return Err(refuse(format!("cmux-theme.json: header.{mode} is one image")));
-                }
-                if let Some(first) = paths.first() {
-                    settings.push((
-                        format!("appearance.sidebarHeader.{mode}"),
-                        Setting::Picture(first.clone()),
-                    ));
-                }
-                images.extend(paths);
+                images.extend(path_list(Some(path), &format!("header.{mode}"))?);
             }
-            applied.push("header".to_owned());
+            pending.push("header".to_owned());
         }
         Some(_) => {
             return Err(refuse("cmux-theme.json: \"header\" is {\"dark\": ..., \"light\": ...}"));
         }
     }
-    flourishes(header, &mut pending, &mut applied, &mut settings)?;
-    settings.sort_by(|a, b| a.0.cmp(&b.0));
+    flourishes(header, &mut pending)?;
     images.sort();
     images.dedup();
     if images.len() > MAX_IMAGES {
@@ -391,7 +298,7 @@ pub fn read_art(dir: &Path, header: &Value) -> Result<Art, Error> {
             MAX_ART_BYTES >> 20
         )));
     }
-    Ok(Art { images, source: dir.to_path_buf(), pending, applied, settings })
+    Ok(Art { images, source: dir.to_path_buf(), pending })
 }
 
 /// Where a repository image goes under `<config dir>/wallpapers/<entry>/`:
@@ -456,60 +363,6 @@ pub fn rewrite(text: &str, path: &str, entry: &str, art: &Art) -> Result<String,
                 key_path.join(".")
             ))
         })?;
-    }
-    Ok(out)
-}
-
-/// The settings `art` becomes for the library entry `entry`, a picture as
-/// `file:../wallpapers/<entry>/...` (relative to the themes folder, as a theme
-/// file's own pictures are).
-pub fn settings(art: &Art, entry: &str) -> Vec<(String, Value)> {
-    let picture = |image: &str| {
-        Value::String(format!("file:../{WALLPAPERS}/{entry}/{}", installed_path(image)))
-    };
-    art.settings
-        .iter()
-        .map(|(key, setting)| {
-            let value = match setting {
-                Setting::Value(value) => value.clone(),
-                Setting::Picture(image) => picture(image),
-                Setting::Pictures(images) => {
-                    Value::Array(images.iter().map(|i| picture(i)).collect())
-                }
-            };
-            (key.clone(), value)
-        })
-        .collect()
-}
-
-/// Whether the theme file object `root` sets `key` (dotted), in any mix of
-/// nested and dotted members.
-fn sets(root: &serde_json::Map<String, Value>, parts: &[&str]) -> bool {
-    (1..=parts.len()).any(|split| {
-        let (head, rest) = parts.split_at(split);
-        root.get(&head.join(".")).is_some_and(|value| {
-            rest.is_empty() || value.as_object().is_some_and(|inner| sets(inner, rest))
-        })
-    })
-}
-
-/// `text` (a theme file) with each of `settings` set, nested, unless the
-/// file sets that key itself: the theme file's own value wins.
-pub fn with_settings(
-    text: &str,
-    path: &str,
-    settings: &[(String, Value)],
-) -> Result<String, Error> {
-    let Ok(Value::Object(root)) = jsonc::parse(text) else { return Ok(text.to_owned()) };
-    let mut out = text.to_owned();
-    for (key, value) in settings {
-        let parts: Vec<&str> = key.split('.').collect();
-        if sets(&root, &parts) {
-            continue;
-        }
-        let key_path: Vec<String> = parts.iter().map(|part| (*part).to_owned()).collect();
-        out = jsonc::set(&out, &key_path, value)
-            .map_err(|_| refuse(format!("{path}: could not add {key} from cmux-theme.json")))?;
     }
     Ok(out)
 }

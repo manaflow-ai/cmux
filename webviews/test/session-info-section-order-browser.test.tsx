@@ -10,11 +10,9 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Browser, Page } from "playwright";
+import { requireBrowserLane } from "./support/requireBrowserLane";
+import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { requireBrowserLane } = await importWithDom(() => import("./support/requireBrowserLane"));
-const { gridLength } = await importWithDom(() => import("../src/agent-session/acpmux/transcriptGrid"));
 
 await requireBrowserLane("session-info-section-order-browser.test.tsx", async () => {
   setDefaultTimeout(60_000);

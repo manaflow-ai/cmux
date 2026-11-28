@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
 # Terminal throughput in about a minute on any Mac with cmux NEXT installed (goal terminal-throughput): the same
 # 200 MB burst as the perf cron's `throughput` part (scripts/cmux-next/terminal-throughput-bench.py, the one
-# measuring path), through an installed NEXT and an installed Ghostty interleaved (the bench's --paired: per pair one
-# NEXT burst then one Ghostty burst, 5 pairs), MB/s each and NEXT/Ghostty as the median of the per-pair ratios plus
-# their spread. Host load hits both bursts of a pair alike, so the ratio needs no quiet host: no build, no virtual
-# display, no measurement slot or bench lock; the fleet runs it on a shared display class (--class isolated).
-# terminal-throughput.sh, the exclusive per-commit path, stays the confirm.
+# measuring path), through an installed NEXT and an installed Ghostty back to back, MB/s each and NEXT/Ghostty.
+# No build, no virtual display, no measurement slot or bench lock: terminal-throughput.sh is the per-commit path.
 #
 #   scripts/measure/terminal-throughput-quick.sh [--next APP] [--ghostty APP] [--trace] [BENCH ARGS...]
 #   cmux-bench terminal-throughput-quick --host fleet [--arg trace=1]   (the measure queue: benches/terminal_throughput_quick.py)
@@ -21,10 +18,9 @@
 #                   stage_split). The traced burst runs slower; it is still a timed run.
 #   KEY=VALUE       the measure queue's form (cmux-ci run --arg=KEY=VALUE): next=APP, ghostty=APP, trace=1, mb=N,
 #                   runs=N, payload=NAME, and artifact=1, which also copies the report to artifacts/terminal-throughput-quick.json
-#   BENCH ARGS      passed on (they win over the defaults here, --paired --runs 5): --mb N, --runs N, --payload sgr, ...
+#   BENCH ARGS      passed on (they win over the defaults here): --mb N, --runs N, --payload sgr, --breakdown, ...
 #
-# Prints the bench's TERMINAL-THROUGHPUT lines (TERMINAL-THROUGHPUT-PAIRS: each pair's ratio), then one line: NEXT
-# MB/s, Ghostty MB/s, the pair-median ratio and its spread, seconds, report path.
+# Prints the bench's TERMINAL-THROUGHPUT lines, then one line: NEXT MB/s, Ghostty MB/s, ratio, seconds, report path.
 # Exits as the bench does (1 when a terminal gave no timed burst).
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -70,7 +66,7 @@ started=$SECONDS
 set +e
 /usr/bin/python3 -I "$here/../cmux-next/terminal-throughput-bench.py" --installed "$next" \
   ${ghostty_args[@]+"${ghostty_args[@]}"} --out "$out" --json "$report" \
-  --interrupt-runs 0 --timeout 60 --paired --runs 5 ${pass[@]+"${pass[@]}"}
+  --interrupt-runs 0 --timeout 60 ${pass[@]+"${pass[@]}"}
 rc=$?
 set -e
 if [[ -n "$artifact" && -s "$report" ]]; then
@@ -89,7 +85,7 @@ rows = {r["name"].rsplit(".", 1)[1]: r["p50"] for r in report.get("rows", [])}
 fmt = lambda v, unit: f"{v} {unit}" if v is not None else "none"
 print(f"terminal-throughput-quick: NEXT {fmt(rows.get('next_mb_s'), 'MB/s')}, "
       f"Ghostty {fmt(rows.get('ghostty_mb_s'), 'MB/s')} ({report.get('ghostty', {}).get('version', '?')}), "
-      f"ratio {fmt(rows.get('ratio'), 'x')} (pair median, spread {fmt(rows.get('pair_spread_pct'), '%')}); payload {report.get('payload')} {report.get('payload_bytes', 0) // 10**6} MB, "
+      f"ratio {fmt(rows.get('ratio'), 'x')}; payload {report.get('payload')} {report.get('payload_bytes', 0) // 10**6} MB, "
       f"{report.get('runs_per_terminal')} runs each, host {report.get('host')}, {seconds} s, report {path}")
 traced = [(label, report.get(key, {}).get("trace")) for label, key in (("NEXT", "next"), ("Ghostty", "ghostty"))]
 if any(t is not None for _, t in traced):

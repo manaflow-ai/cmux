@@ -74,13 +74,13 @@ pub fn decide<H: Clone + Eq>(
         (true, false) => Decision::Push(local.cloned()),
         (false, true) => Decision::Apply(remote.cloned()),
         (true, true) => match (local, remote) {
-            (Some(l), Some(r)) if l != r => {
+            (l, r) if l == r => Decision::RecordSynced(l.cloned()),
+            (Some(l), Some(r)) => {
                 Decision::Conflict(Conflict::Content { local: l.clone(), remote: r.clone() })
             }
             (None, Some(r)) => Decision::Conflict(Conflict::LocalDeleted { remote: r.clone() }),
             (Some(l), None) => Decision::Conflict(Conflict::RemoteDeleted { local: l.clone() }),
-            // Both sides made the same change (the same content, or both deleted it).
-            (l, _) => Decision::RecordSynced(l.cloned()),
+            (None, None) => unreachable!("both absent is equal, handled above"),
         },
     }
 }

@@ -18,7 +18,3 @@ flate2.workspace = true
 aes = "0.8"
 num-bigint = "0.4"
 getrandom.workspace = true
-# The `vnc_*` JSON ops (json.rs) the Swift package asks.
-base64.workspace = true
-serde.workspace = true
-serde_json.workspace = true

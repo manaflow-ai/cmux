@@ -41,8 +41,6 @@ export const PEER_LINKS: Record<AcpmuxLink, Shown> = {
   authFailed: { link: "offline", why: "authFailed", stuck: true },
   updateRequired: { link: "offline", why: "updateRequired", stuck: true },
   paused: null,
-  // Left closed because unused: the machine was reachable, and using it connects it.
-  idle: { link: "connected" },
 };
 
 const LOCAL = "localNetwork" satisfies LinkCause;

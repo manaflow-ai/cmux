@@ -5,7 +5,7 @@ import CmuxNextCompat
 import CmuxNextCloud
 import CmuxNextPages
 
-nonisolated extension InternalPageID {
+extension InternalPageID {
     static let stats = InternalPageID(rawValue: "stats")
     static let artifacts = InternalPageID(rawValue: "artifacts")
 }
@@ -34,12 +34,13 @@ enum StatsPageTab {
         })
         // The Artifacts page (``ArtifactsPageProvider``): on for everyone; signed out, every read answers sign in.
         services.pages.register(WebPageTab(.artifacts, symbol: "shippingbox", title: ArtifactsPageProvider.title) { [weak services] in
-            let authChanges = services.map { s in ArtifactsPageProvider.authChanges { s.cloud.auth.isSignedIn ? s.cloud.auth.user?.id : nil } }
-            return ArtifactsPageProvider.page(fetch: { @MainActor [weak services] read in // the daemon's cloud.artifacts.read
-                guard let services, let socket = await services.machines.local.connection?.endpoint?.socketPath else { throw CloudCallRefusal(code: "transport", message: "") }
-                let a = try await CloudCLICall(cli: services.bundledCLI).artifactsRead(path: read.path, query: read.query, signedIn: services.cloud.auth, socket: socket)
-                return ArtifactsReply(status: a.status, body: a.body, contentType: a.contentType, commit: a.commit, size: a.size)
-            }, authChanges: authChanges)
+            let baseURL = services?.cloud.configuration.artifactsAPIBaseURL()
+            let auth = services?.cloud.auth
+            let authChanges = auth.map { auth in ArtifactsPageProvider.authChanges { auth.isSignedIn ? auth.user?.id : nil } }
+            return ArtifactsPageProvider.page(baseURL: baseURL, authChanges: authChanges) { @MainActor in
+                guard let auth, auth.isSignedIn else { return nil }
+                return try await auth.tokens().access
+            }
         })
         registry.bindEffect("artifacts.show") { [weak services] invocation in
             if let services { _ = services.pages.show(.artifacts, in: services.windows.active, focus: invocation.allowsViewChange) }

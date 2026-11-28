@@ -10,6 +10,7 @@ import path from "node:path";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -45,7 +46,6 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
-const { translatorFor } = await import("../src/agent-session/acpmux/i18n");
 const host = dom.window.document.getElementById("root")!;
 const style = dom.window.document.createElement("style");
 style.textContent = readFileSync(

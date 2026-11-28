@@ -4,7 +4,6 @@
  * and the expiry.
  */
 import { PGlite } from "@electric-sql/pglite";
-import { freshPg } from "./fresh-pglite.ts";
 import { Effect, Layer, Option } from "effect";
 import { beforeEach, describe, expect, it } from "vitest";
 import ownership from "../../migrations/0001_cmux_vm_ownership.sql?raw";
@@ -34,7 +33,7 @@ const revokeAs = async (meshId: string, intentId: string, when: Date, caller = o
 };
 
 beforeEach(async () => {
-  pg = await freshPg();
+  pg = new PGlite();
   for (const migration of [ownership, s2, snapshots, mesh, meshM2, meshM3, deviceIntents]) await pg.exec(migration);
   store = sqlDeviceIntents({
     query: (operation, text, params) =>

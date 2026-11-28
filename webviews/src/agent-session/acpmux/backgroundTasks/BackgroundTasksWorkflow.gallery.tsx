@@ -12,7 +12,7 @@ import { workflowPaneId, type TranscriptRead } from "../summary/workflowTranscri
 import { backgroundGroups } from "./backgroundTasks";
 import { BackgroundTasksPanel } from "./BackgroundTasksPanel";
 
-type Props = { drill: boolean; loads: boolean; parallel?: boolean; fails?: boolean };
+type Props = { drill: boolean; loads: boolean; parallel?: boolean };
 
 const SESSION = "gallery";
 const text = (sessionUpdate: string, value: string) => ({ sessionUpdate, content: { type: "text", text: value } });
@@ -35,17 +35,12 @@ const PAGE = {
   ],
 };
 
-function GalleryWorkflowPanel({ drill, loads, parallel, fails }: Props) {
+function GalleryWorkflowPanel({ drill, loads, parallel }: Props) {
   const nodes = workflowFixture(parallel ? "parallel" : "running");
   const rows: AcpmuxRow[] = [{ id: "wf", version: 1, at: 0, kind: SUBAGENTS, subagents: nodes }];
   const commands = parallel ? backgroundCommands(parallelWorkflowProcesses(), [], true) : [];
   const groups = backgroundGroups({ rows, commands, sessions: [], chatName: "This chat", sessionId: SESSION });
-  const read: TranscriptRead = () =>
-    fails
-      ? Promise.reject(new Error("acpmux did not answer"))
-      : loads
-        ? Promise.resolve(PAGE)
-        : new Promise<never>(() => undefined);
+  const read: TranscriptRead = () => (loads ? Promise.resolve(PAGE) : new Promise<never>(() => undefined));
   const pane = workflowPaneId({ sessionId: SESSION, runId: "wf_7c2e91", agentId: "a4" });
   return (
     <div className="acpmux-shell" style={{ height: "100%" }}>
@@ -89,10 +84,6 @@ export default componentEntry<Props>({
     transcript: {
       note: "The workflow agent's transcript once its first page lands: its prompt, thought, tool call and reply.",
       props: { drill: true, loads: true },
-    },
-    "transcript-still-loading": {
-      note: "The transcript's reads keep failing: the pane asks again on its own, and past the deadline one quiet line says it is still loading, with no button.",
-      props: { drill: true, loads: false, fails: true },
     },
   },
 });

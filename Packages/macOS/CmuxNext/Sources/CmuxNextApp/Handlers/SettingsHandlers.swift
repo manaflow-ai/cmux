@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAppCore
 import CmuxNextAppTry
@@ -88,7 +87,6 @@ enum SettingsHandlers {
             try FeatureFlagsPage(services: services).open(invocation)
         })
         UpgradeToPro.bind(into: registry, context: context)
-        SettingsHistoryPage.bindUndo(into: registry, daemon: context.services.daemon) // Undo Settings Change
     }
 
     private static func openEffect(_ url: URL, _ context: AppActionContext) -> ActionEffect {

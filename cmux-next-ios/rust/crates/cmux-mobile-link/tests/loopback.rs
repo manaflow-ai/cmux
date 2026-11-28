@@ -1,9 +1,5 @@
 //! Both dialers carry the same Link through a local fake signaling server.
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
-};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -407,48 +403,6 @@ async fn wireguard_falls_back_from_turn_udp_to_turn_tls() {
     assert_eq!(run.phone, LinkPath::TurnTls, "{run:?}");
     assert_eq!(turn.stream_connections(), 1);
     eprintln!("UDP-blocked fallback run took {:?}", started.elapsed());
-}
-
-/// A service can advertise more than one stream TURN endpoint at the same
-/// rank. If the preferred listener is unreachable, a UDP-blocked phone tries
-/// the next TLS endpoint within the same stream allocation budget.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn wireguard_falls_back_to_second_turn_stream_when_preferred_relay_is_unreachable() {
-    let turn = TestTurn::start().await;
-    turn.set_udp_blocked(true);
-    let blocked_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let blocked_port = blocked_listener.local_addr().unwrap().port();
-    let blocked_connections = Arc::new(AtomicUsize::new(0));
-    let blocked_connections_task = {
-        let blocked_connections = Arc::clone(&blocked_connections);
-        tokio::spawn(async move {
-            loop {
-                let (socket, _) = blocked_listener.accept().await.unwrap();
-                blocked_connections.fetch_add(1, Ordering::SeqCst);
-                tokio::spawn(async move {
-                    let _socket = socket;
-                    tokio::time::sleep(Duration::from_secs(10)).await;
-                });
-            }
-        })
-    };
-    let mut ice = turn.ice.clone();
-    ice.urls.insert(1, format!("turns:127.0.0.1:{blocked_port}?transport=tcp"));
-    let phone = DialOptions {
-        ice_servers: vec![ice],
-        // Drop the phone's direct UDP packets and unsolicited replies at the
-        // test network boundary. The dialer still offers every normal route.
-        drop_outbound_udp: true,
-        restrict_inbound_udp: true,
-        turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)),
-        ..options()
-    };
-    let run = exercise_turn(phone, options()).await;
-    assert_eq!(run.phone, LinkPath::TurnTls, "{run:?}");
-    assert_eq!(run.mac, Some(LinkPath::TurnTls), "{run:?}");
-    assert_eq!(blocked_connections.load(Ordering::SeqCst), 1, "the preferred relay was not attempted");
-    assert_eq!(turn.stream_connections(), 1, "the working TLS endpoint should be the only accepted stream");
-    blocked_connections_task.abort();
 }
 
 /// The Mac's network blocks UDP (STUN never answers, here simulated by
@@ -903,74 +857,6 @@ async fn webrtc_reliable_link_resumes_over_a_new_transport() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wireguard_reliable_link_resumes_over_a_new_transport() {
     reliable_resume(TransportKind::WireGuard).await;
-}
-
-/// One echo round trip on a fresh channel of `link`.
-async fn echo_once(link: &cmux_mobile_link::Link, what: &str) {
-    let mut channel = link.open("echo", serde_json::json!({})).await.unwrap_or_else(|error| {
-        panic!("{what}: open failed: {error:?}");
-    });
-    channel.send(Bytes::from_static(b"still here")).await.unwrap();
-    match tokio::time::timeout(Duration::from_secs(10), channel.recv()).await.expect("echo in time") {
-        Some(ChannelEvent::Data(bytes)) => assert_eq!(&bytes[..], b"still here", "{what}"),
-        other => panic!("{what}: unexpected {other:?}"),
-    }
-}
-
-/// A reliable link outlives its input lane. Every phone build opens the
-/// lane's second connection on each carrier it dials when both sides list
-/// `input`, though a reliable link sends input on its main carrier; the Mac
-/// must take that connection as the carrier's lane, not as a resumed link
-/// that ends the live one (2026-11-26: the Mac dropped the lane's receiver
-/// on a reliable link, its listener then served the phone's lane as a
-/// resume, and the link closed with "peer closed the link" before any drop).
-async fn reliable_link_outlives_its_input_lane(kind: TransportKind) {
-    let server = FakeSignaling::start(FakeOptions::default()).await;
-    let phone_id = uuid::Uuid::new_v4().to_string();
-    let mac_id = uuid::Uuid::new_v4().to_string();
-    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
-    let registry = std::sync::Arc::new(cmux_mobile_link::ResumeRegistry::default());
-    let mac_options = DialOptions { reliable: true, resume_registry: Some(registry.clone()), ..options() };
-    assert!(mac_options.input_lane, "both sides list the input lane");
-    let _mac_task = spawn_echo_mac_with(mac, mac_options);
-    let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
-    let phone_options = DialOptions { reliable: true, ..options() };
-    // Whether the lane's connection reaches the Mac before or after its
-    // answer returns is a race; several dials meet the losing order.
-    let mut link = None;
-    for attempt in 0..6 {
-        let connected =
-            dial::connect(&phone, &mac_id, kind, &phone_options, LinkConfig::default()).await.expect("dial");
-        let dialed = connected.link.clone();
-        assert!(dialed.reliable_stats().is_some(), "{kind:?}: both sides offered the reliable link");
-        echo_once(&dialed, &format!("{kind:?} dial {attempt} at once")).await;
-        // The lane's connection lands within moments of the dial.
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        assert!(!dialed.is_closed(), "{kind:?}: dial {attempt}: the link closed once its lane opened");
-        echo_once(&dialed, &format!("{kind:?} dial {attempt}")).await;
-        if let Some(previous) = link.replace(dialed) {
-            previous.close("next dial");
-        }
-    }
-    let link = link.expect("a dialed link");
-    link.drop_carrier("test cut");
-    let resumed = dial::resume(&phone, &mac_id, kind, &phone_options, &link).await.expect("resume");
-    assert!(resumed.resumed);
-    tokio::time::sleep(Duration::from_millis(1500)).await;
-    assert!(!link.is_closed(), "{kind:?}: the resumed link closed once its lane opened");
-    echo_once(&link, &format!("{kind:?} resumed")).await;
-    assert_eq!(link.reliable_stats().unwrap().resumes, 1, "{kind:?}: one resume, the test's own");
-    link.close("done");
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn wireguard_reliable_link_outlives_its_input_lane() {
-    reliable_link_outlives_its_input_lane(TransportKind::WireGuard).await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn webrtc_reliable_link_outlives_its_input_lane() {
-    reliable_link_outlives_its_input_lane(TransportKind::WebRtc).await;
 }
 
 /// The reliable link stays off when only one side offers it: today's link.

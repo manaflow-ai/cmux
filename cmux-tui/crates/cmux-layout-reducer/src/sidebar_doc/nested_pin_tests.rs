@@ -1,6 +1,6 @@
 //! Pin and Unpin on nested groups (a283's remote groups slice 1, pinning-DESIGN.md):
 //! a top-level group pins and unpins with its whole tree; a nested group or a
-//! workspace in one pins to the Pinned band and unpins back into its own parent; a member of a pinned tree is not
+//! workspace in one pins inside its own parent; a member of a pinned tree is not
 //! pinned itself, so Unpin leaves it in the tree. Closing the last workspace removes
 //! the groups it empties in a machine section, never in Pinned.
 
@@ -98,31 +98,28 @@ fn a_pinned_tree_unpins_whole_to_its_place() {
 }
 
 #[test]
-fn a_nested_group_pins_to_the_band_with_its_subtree_and_unpins_back_into_its_parent() {
+fn a_nested_group_pins_first_in_its_parent_with_its_subtree() {
     let mut doc = fixture();
     run(&mut doc, vec![Op::Pin { items: vec!["branch".into()] }]);
-    let branch = doc.item("branch").unwrap();
-    assert_eq!((branch.section.as_str(), branch.parent.as_deref()), (PINNED_SECTION_ID, None));
-    assert_eq!(names(&doc, PINNED_SECTION_ID, Some("branch")), ["w3", "w4"], "its subtree follows");
-    assert_eq!(names(&doc, &sec(), Some("project")), ["w1", "w2"]);
-    run(&mut doc, vec![Op::Unpin { items: vec!["branch".into()] }]);
     let branch = doc.item("branch").unwrap();
     assert_eq!(
         (branch.section.as_str(), branch.parent.as_deref()),
         (sec().as_str(), Some("project"))
     );
-    assert_eq!(names(&doc, &sec(), Some("project")), ["w1", "w2", "branch"]);
-    assert_eq!(doc.item(&ws("w3")).unwrap().section, sec(), "its subtree came back");
+    assert!(branch.pinned_in_group());
+    assert_eq!(names(&doc, &sec(), Some("project")), ["branch", "w1", "w2"]);
+    assert_eq!(names(&doc, &sec(), Some("branch")), ["w3", "w4"]);
+    run(&mut doc, vec![Op::Unpin { items: vec!["branch".into()] }]);
+    assert!(!doc.item("branch").unwrap().pinned_in_group());
+    assert_eq!(doc.item("branch").unwrap().parent.as_deref(), Some("project"));
 }
 
 #[test]
-fn a_workspace_in_the_deepest_group_pins_to_the_band_and_back() {
+fn a_workspace_in_the_deepest_group_pins_there() {
     let mut doc = fixture();
     run(&mut doc, vec![Op::Pin { items: vec![ws("w4")] }]);
-    assert_eq!(names(&doc, PINNED_SECTION_ID, None), ["w4"]);
-    assert_eq!(names(&doc, &sec(), Some("branch")), ["w3"]);
-    run(&mut doc, vec![Op::Unpin { items: vec![ws("w4")] }]);
-    assert_eq!(names(&doc, &sec(), Some("branch")), ["w3", "w4"]);
+    assert_eq!(names(&doc, &sec(), Some("branch")), ["w4", "w3"]);
+    assert_eq!(doc.item(&ws("w4")).unwrap().parent.as_deref(), Some("branch"));
 }
 
 #[test]

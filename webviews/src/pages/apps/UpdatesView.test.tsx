@@ -9,6 +9,7 @@ const strings: Strings = {
   t: (key) =>
     ({
       "store.action.checkUpdates": "Check for updates",
+      "store.action.retry": "Retry",
       "store.action.update": "Update",
       "store.badge.updateAvailable": "Update available",
       "store.updates.available": "%@ updates available",
@@ -53,15 +54,11 @@ test("renders localized update actions instead of raw lookup keys", () => {
   expect(html).not.toContain("store.updates.retry");
 });
 
-// Leo, 2026-11-22: no vacuous Retry. A failed check is checked again on its own (useAutoRetry) and
-// says nothing at first; only a failure that lasts the deadline says the list may be out of date.
-test("a failed update check never also says every app is up to date, and offers no Retry", () => {
+test("a failed update check never also says every app is up to date", () => {
   const store = { refreshUpdates() {}, update() {} } as unknown as AppsStore;
   const failed = { ...snapshot, updates: [], updatesStale: true, updatesError: "offline" } as unknown as AppsSnapshot;
   const html = renderToStaticMarkup(<UpdatesView snap={failed} store={store} strings={strings} />);
 
+  expect(html).toContain("Update information may be out of date.");
   expect(html).not.toContain("All apps are up to date");
-  expect(html).not.toContain("Retry");
-  expect(html).not.toContain("offline");
-  expect(html).not.toContain("Update information may be out of date.");
 });

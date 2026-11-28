@@ -90,7 +90,7 @@ impl fmt::Display for PtyOpenError {
         match self.kind {
             PtyOpenErrorKind::CapacityExhausted => write!(
                 f,
-                "PTY capacity exhausted; close unused terminals or tmux sessions: {}",
+                "PTY capacity exhausted; close unused terminals or tmux sessions and retry: {}",
                 self.source
             ),
             PtyOpenErrorKind::Other => write!(f, "failed to open PTY: {}", self.source),

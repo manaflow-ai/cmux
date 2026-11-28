@@ -131,39 +131,6 @@ import Testing
         #expect(h.sidebar.list.displayed == Insert.fullLayout(h), "the last drawn row closed")
     }
 
-    /// Lineage nesting (on by default since #28103) draws sub-sessions under the session that started them, in
-    /// lineage order. A create or a close of a row no session started still splices, and whatever the row is, the list
-    /// shows the full layout: at every index, beside a parent, between its sub-sessions' nodes, and for a parent itself.
-    @Test(arguments: 0...10)
-    func aCreateAndACloseUnderTheSessionTreeShowTheFullLayout(at index: Int) {
-        let was = SidebarSessionTree.shared.state
-        defer { SidebarSessionTree.shared.state = was }
-        // ci-2 started ci-3 and ci-6; ci-3 started ci-8 (drawn folded under it: below the top level).
-        SidebarSessionTree.shared.state = SidebarSessionTreeState(parents: [
-            WorkspaceID("ci-3"): WorkspaceID("ci-2"), WorkspaceID("ci-6"): WorkspaceID("ci-2"), WorkspaceID("ci-8"): WorkspaceID("ci-3"),
-        ])
-        for selects in [true, false] {
-            let h = Insert.make(10, extra: Self.extra())
-            defer { h.window.close() }
-            let counts = Insert.insert(h, at: index, selects: selects)
-            let list = h.sidebar.list
-            #expect(list.displayed.row(for: .workspace(Insert.created)) != nil, "create at \(index): the new row is not listed")
-            #expect(list.displayed == Insert.fullLayout(h), "create at \(index), selects \(selects)")
-            // Before a root row (ci-0, ci-1, ci-2) the new row splices: one row laid out, not the list.
-            if index <= 2 { #expect(counts["layout_rows"] == 1, "create at \(index) laid out \(counts)") }
-            // The same row closed again.
-            let closed = Self.set(h, h.rows)
-            #expect(list.displayed.row(for: .workspace(Insert.created)) == nil, "close at \(index): the row is listed")
-            #expect(list.displayed == Insert.fullLayout(h), "close at \(index), selects \(selects)")
-            if index <= 2, !selects { #expect(closed["layout_rows"] == 1, "close at \(index) laid out \(closed)") }
-            // A row of the lineage closed (a parent, a sub-session, a plain one): the full layout, by whichever path.
-            var nodes = h.rows
-            nodes.remove(at: index)
-            Self.set(h, nodes)
-            #expect(list.displayed == Insert.fullLayout(h), "closing row \(index), selects \(selects)")
-        }
-    }
-
     /// The detectors find a close and a move, and nothing else.
     @Test func theSetsAreFoundOnlyForOneLooseRow() {
         let a = SidebarNode.workspace(SidebarWorkspace(id: WorkspaceID("a"), title: "a"))

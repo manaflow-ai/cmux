@@ -158,7 +158,7 @@ pub(super) fn handle(
     }
 }
 
-pub(super) fn validate_url(raw: &str) -> bool {
+fn validate_url(raw: &str) -> bool {
     raw.len() <= 16_384
         && !raw.chars().any(|c| c.is_control() || c.is_whitespace())
         && url::Url::parse(raw)

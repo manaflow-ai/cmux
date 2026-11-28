@@ -18,10 +18,9 @@ pub(crate) use send_async::{list_lines as sent_list_lines, status_line as sent_s
 
 mod extra;
 pub(crate) mod fanout;
-mod history_upkeep;
 pub(crate) mod launch;
 pub(crate) mod ls;
-pub(crate) mod ls_archived;
+mod ls_archived;
 mod ls_leads;
 mod ls_pages;
 mod ls_tools;
@@ -29,7 +28,6 @@ pub use ls::LsArgs;
 mod move_end;
 mod parent;
 mod rebalance;
-mod route_death;
 mod send_async;
 pub(crate) mod session_move;
 pub(crate) use session_move::move_auto;

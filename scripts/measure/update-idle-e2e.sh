@@ -22,7 +22,6 @@ set -uo pipefail
 
 main() {
   cd "$(dirname "$0")/../.." || exit 3
-  source scripts/measure/build-progress.sh
   local out tools report="$PWD/.build/update-idle-e2e/report.tgz"
   mkdir -p "$PWD/.build" || exit 3
   out="$(mktemp -d "$PWD/.build/update-idle-e2e.XXXXXX")" || exit 3
@@ -112,10 +111,10 @@ build_app() {
     ./scripts/download-prebuilt-ghosttykit.sh >>"$out/build-$side.log" 2>&1 || { echo "UIE GhosttyKit download failed" >&2; return 3; }
   fi
   # Build the changed rule into the test bundle; the checked-in binary pin may predate it.
-  measure_quiet "UIE FFI build $side" "$out/build-$side.log" env CMUX_APP_FFI_OUT="$out/ffi-$side" ./scripts/cmux-next/build-app-ffi.sh \
+  CMUX_APP_FFI_OUT="$out/ffi-$side" ./scripts/cmux-next/build-app-ffi.sh >>"$out/build-$side.log" 2>&1 \
     || { echo "UIE FFI build $side failed" >&2; return 3; }
-  measure_quiet "UIE acpmux build $side" "$out/build-$side.log" env CMUX_FLEET_BUILD_TAG="$tag" ./scripts/cmux-next/build-acpmux.sh || { echo "UIE acpmux build $side failed" >&2; tail -n 40 "$out/build-$side.log" >&2; return 3; }
-  measure_quiet "UIE app build $side" "$out/build-$side.log" env CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --no-global-cli-links --config bench \
+  CMUX_FLEET_BUILD_TAG="$tag" ./scripts/cmux-next/build-acpmux.sh >>"$out/build-$side.log" 2>&1 || { echo "UIE acpmux build $side failed" >&2; tail -n 40 "$out/build-$side.log" >&2; return 3; }
+  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --no-global-cli-links --config bench >>"$out/build-$side.log" 2>&1 \
     || { echo "UIE app build $side failed" >&2; tail -n 40 "$out/build-$side.log" >&2; return 3; }
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/build-$side.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then

@@ -119,8 +119,7 @@ impl Hub {
     }
 }
 
-const NOT_RECREATED: &str =
-    "could not be recreated, so its agent cannot start until the worktree is back";
+const NOT_RECREATED: &str = "could not be recreated; retry after the worktree is back";
 
 fn folder_missing(meta: &crate::store::SessionMeta) -> RpcError {
     super::folder_missing(&meta.name, &meta.cwd, NOT_RECREATED)

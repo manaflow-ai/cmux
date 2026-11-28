@@ -2,8 +2,7 @@ name: Zig global cache
 description: >-
   Restore Zig's global cache (where setup-zig points every build's local cache, so it holds the
   compiled Ghostty and its packages) under a stable, weekly key. Only a feat-cmux-next push saves it,
-  once per key, as does the default branch's push or schedule (cloud-journey-prod.yml runs only there);
-  every other run restores only. Use it right after mlugg/setup-zig with
+  once per key; every other run restores only. Use it right after mlugg/setup-zig with
   `use-cache: false`: setup-zig's own cache saves a new entry of up to 2 GiB on every run of every
   branch (`setup-zig-cache-<job>-<tarball>--<run_id>-<attempt>`), and on 2026-11-18 those filled the
   repository's 10 GB store and evicted the cargo caches. tests/test_ci_no_run_scoped_cache_keys.py
@@ -50,11 +49,10 @@ runs:
           echo "week=$(date -u +%G-W%V)"
         } >> "$GITHUB_OUTPUT"
 
-    # feat-cmux-next pushes, and the default branch's pushes and schedules (a scheduled workflow such as
-    # cloud-journey-prod.yml runs only on main): restore, and save at the job's end when the week's key missed.
+    # feat-cmux-next pushes: restore, and save at the job's end when the week's key missed.
     - name: Restore and later save the Zig global cache
       id: seed
-      if: ${{ steps.probe.outputs.kept != 'true' && ((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || ((github.event_name == 'push' || github.event_name == 'schedule') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))) }}
+      if: ${{ steps.probe.outputs.kept != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
       uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       with:
         path: ${{ steps.probe.outputs.dir }}
@@ -81,7 +79,7 @@ runs:
     # Everything else: pull requests read feat-cmux-next's entry (a pull request's base scope);
     # other branches read their own and the default branch's. Never saves.
     - name: Restore the Zig global cache
-      if: ${{ steps.probe.outputs.kept != 'true' && !((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || ((github.event_name == 'push' || github.event_name == 'schedule') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))) }}
+      if: ${{ steps.probe.outputs.kept != 'true' && !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') }}
       continue-on-error: true
       uses: ./.github/actions/cache-restore
       with:

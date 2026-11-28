@@ -488,11 +488,6 @@ impl OrderedSession {
         self.inner.transport_disconnect_reason()
     }
 
-    /// Whether the daemon detached this client on someone's request (a kick).
-    pub(super) fn disconnected_by_peer(&self) -> bool {
-        self.inner.disconnected_by_peer()
-    }
-
     /// What the daemon's shutdown notice said, if one came.
     pub(super) fn daemon_shutdown_notice(&self) -> Option<crate::session::DaemonShutdownNotice> {
         self.inner.daemon_shutdown_notice()

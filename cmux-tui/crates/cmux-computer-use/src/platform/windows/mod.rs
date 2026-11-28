@@ -13,9 +13,8 @@
 //! - Background-first: semantic UI Automation patterns first, then window
 //!   messages posted to the child window under the point or with the
 //!   keyboard focus. Nothing is activated, and the person's pointer never
-//!   moves. `Delivery::Foreground` raises the window and uses SendInput
-//!   for clicks and drags (the pointer is put back after; the activity
-//!   tracker knows to ignore it); a hover stays a posted WM_MOUSEMOVE.
+//!   moves. `Delivery::Foreground` raises the window and uses SendInput,
+//!   which the person's activity tracker knows to ignore.
 //! - Protected UI: a locked workstation, the secure desktop (UAC, sign-in)
 //!   or a session-0 service has no reachable input desktop; [`permissions`]
 //!   says so and every action refuses.

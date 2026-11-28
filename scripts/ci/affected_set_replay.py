@@ -63,8 +63,7 @@ INPUTS: list[tuple[str, tuple[str, ...] | None]] = [
     (r"react-apps|Agent pane on real acpmux|chat-open|web bundles", WEB + (r"^Packages/macOS/CmuxNext/",)),
     (r"app compile|fast tier|terminal crates|journey", RUST_TUI + SWIFT_APP),
     (r"api-workerd|^backend", (r"^backend/", r"^workers/", r"^services/", r"^web/")),
-    # pr-router.yml calls cmux-next-fast-gates.yml since 11-26: its checks read `cmux-next fast gates / <job>`.
-    (r"^(cmux-next fast gates / )?(fast gates$|post cmux-next/fast-gates)", EVERYTHING),
+    (r"^fast gates$|^post cmux-next/fast-gates", EVERYTHING),
     (r"^tooling-tests$", (r"^scripts/", r"^tests/", r"^\.github/")),
     (r"^generated drift$", (r"^cmux-next/", r"^Packages/macOS/CmuxNext/", r"^cmux-tui/", r"^scripts/")),
     (r"^pr pipeline / linux$|^linux-preflight$", EVERYTHING),

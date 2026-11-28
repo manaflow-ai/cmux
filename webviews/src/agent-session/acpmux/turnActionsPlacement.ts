@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from "react";
+
 export type TurnActionsPlacement = "left" | "right";
 
 let current: TurnActionsPlacement = "left";
@@ -15,5 +17,12 @@ export function configureTurnActionsPlacement(value: unknown): void {
   }
   for (const listener of listeners) listener();
 }
+
+const subscribe = (listener: () => void) => {
+  listeners.add(listener);
+  return () => void listeners.delete(listener);
+};
 const snapshot = () => current;
 export const turnActionsPlacementSnapshot = snapshot;
+
+export const useTurnActionsPlacement = (): TurnActionsPlacement => useSyncExternalStore(subscribe, snapshot, snapshot);

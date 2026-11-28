@@ -1,8 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { importWithDom } from "./support/importWithDom";
-
-const { accessibleName, resolveTarget } = await importWithDom(() => import("../src/gallery/play"));
+import { accessibleName, resolveTarget } from "../src/gallery/play";
 
 const page = (html: string) => new JSDOM(`<!doctype html><body>${html}</body>`).window.document;
 

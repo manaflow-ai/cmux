@@ -8,127 +8,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Couldn't load model connections."
+            "value" : "This Mac can't list its connections right now."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "تعذّر تحميل اتصالات النماذج."
+            "value" : "لا يمكن لهذا الـ Mac عرض اتصالاته الآن."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Učitavanje veza s modelima nije uspjelo."
+            "value" : "Ovaj Mac trenutno ne može prikazati svoje veze."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Modelforbindelserne kunne ikke indlæses."
+            "value" : "Denne Mac kan ikke vise sine forbindelser lige nu."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Modellverbindungen konnten nicht geladen werden."
+            "value" : "Dieser Mac kann seine Verbindungen gerade nicht auflisten."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No se pudieron cargar las conexiones de modelos."
+            "value" : "Este Mac no puede mostrar sus conexiones ahora mismo."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Impossible de charger les connexions aux modèles."
+            "value" : "Ce Mac ne peut pas lister ses connexions pour le moment."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Impossibile caricare le connessioni ai modelli."
+            "value" : "Questo Mac non riesce a elencare le sue connessioni al momento."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "モデル接続を読み込めませんでした。"
+            "value" : "この Mac は現在、接続を一覧表示できません。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "មិនអាចផ្ទុកការតភ្ជាប់ម៉ូដែលបានទេ។"
+            "value" : "Mac នេះមិនអាចរាយការតភ្ជាប់របស់វាបានទេពេលនេះ។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "모델 연결을 불러오지 못했습니다."
+            "value" : "이 Mac에서 지금 연결 목록을 가져올 수 없습니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kunne ikke laste inn modelltilkoblingene."
+            "value" : "Denne Macen kan ikke vise tilkoblingene sine akkurat nå."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nie udało się wczytać połączeń z modelami."
+            "value" : "Ten Mac nie może teraz wyświetlić swoich połączeń."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Não foi possível carregar as conexões de modelos."
+            "value" : "Este Mac não consegue listar as conexões agora."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Не удалось загрузить подключения к моделям."
+            "value" : "Этот Mac сейчас не может показать свои подключения."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "โหลดการเชื่อมต่อโมเดลไม่ได้"
+            "value" : "Mac เครื่องนี้แสดงรายการการเชื่อมต่อไม่ได้ในขณะนี้"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Model bağlantıları yüklenemedi."
+            "value" : "Bu Mac şu anda bağlantılarını listeleyemiyor."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Не вдалося завантажити підключення до моделей."
+            "value" : "Цей Mac зараз не може показати свої підключення."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Không thể tải kết nối mô hình."
+            "value" : "Máy Mac này hiện không thể liệt kê các kết nối."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "无法加载模型连接。"
+            "value" : "这台 Mac 目前无法列出其连接。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "無法載入模型連線。"
+            "value" : "這台 Mac 目前無法列出其連線。"
           }
         }
       }

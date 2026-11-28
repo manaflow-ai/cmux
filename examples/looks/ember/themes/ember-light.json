@@ -5,7 +5,7 @@
 // corners, quick spring motion.
 {
   "name": "Ember Light",
-  "description": "Light: light glass, a white sidebar, one coral accent.",
+  "description": "A floating command-surface look, Light: light glass, a white inset sidebar, neutral gray selection, one coral red.",
 
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",

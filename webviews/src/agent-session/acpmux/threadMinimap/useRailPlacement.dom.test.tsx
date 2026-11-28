@@ -39,14 +39,6 @@ test("an Interface Scale change places the rail again", async () => {
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   dom.window.document.documentElement.style.setProperty("--cmux-ui-scale", "1");
-  // Placing the rail reads no computed style: one restyles whatever is dirty first, at a chat page's
-  // start every element of its drawn copy (chatSnapshot/paint.ts) too.
-  let reads = 0;
-  const computed = dom.window.getComputedStyle.bind(dom.window);
-  dom.window.getComputedStyle = (...args: Parameters<typeof computed>) => {
-    reads++;
-    return computed(...args);
-  };
   // Imported after the DOM is in place: the scale store listens on `window` when it loads.
   const { useRailPlacement } = await import("./useRailPlacement");
 
@@ -74,5 +66,4 @@ test("an Interface Scale change places the rail again", async () => {
   });
   // At scale 2 the column is 400 CSS px, so the text starts 300px in.
   expect(placements.at(-1)).toBe(300);
-  expect(reads).toBe(0);
 });

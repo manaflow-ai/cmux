@@ -195,41 +195,6 @@ test("the line a selection starts on stays mounted while the pane scrolls far pa
   expect(Number((lines()[1] as HTMLElement).dataset.index)).toBeGreaterThan(300);
 });
 
-test("a selection made with the keyboard keeps its lines mounted while the pane scrolls far past them, and copies whole", async () => {
-  const { pane } = await mount(1_000);
-  const row = (index: number) => host.querySelector<HTMLElement>(`.feed-diff-line[data-index="${index}"]`);
-  const start = row(3)!;
-  const end = row(8)!;
-  // No pointer: a selection from "ne 3" on line 3 to " li" on line 8, as Shift and the arrows (or
-  // find, or a script) make one. The browser says so with a selectionchange (jsdom too, a task later).
-  await act(async () => {
-    dom.window.getSelection()!.setBaseAndExtent(start.firstChild!, 2, end.firstChild!, 3);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-  await act(async () => {
-    pane.scrollTop += LINE * 400;
-    pane.dispatchEvent(new dom.window.Event("scroll"));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-  expect(row(5)).toBeNull();
-  expect(Number((lines()[2] as HTMLElement).dataset.index)).toBeGreaterThan(300);
-  expect(start.isConnected).toBe(true);
-  expect(end.isConnected).toBe(true);
-  const selection = dom.window.getSelection()!;
-  expect(selection.anchorNode).toBe(start.firstChild);
-  expect(selection.focusNode).toBe(end.firstChild);
-
-  let copied = "";
-  const event = new dom.window.Event("copy", { bubbles: true, cancelable: true }) as Event & {
-    clipboardData: { setData(type: string, text: string): void };
-  };
-  event.clipboardData = { setData: (_type, text) => (copied = text) };
-  dom.window.document.dispatchEvent(event);
-  expect(event.defaultPrevented).toBe(true);
-  const shown = diffLines(9).slice(3);
-  expect(copied).toBe([shown[0]!.slice(2), ...shown.slice(1, -1), shown.at(-1)!.slice(0, 3)].join("\n"));
-});
-
 test("a row's preview still shows its first lines and an ellipsis", async () => {
   host = dom.window.document.getElementById("root")!;
   root = createRoot(host);

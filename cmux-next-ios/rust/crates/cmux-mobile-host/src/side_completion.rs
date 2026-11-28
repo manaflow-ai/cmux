@@ -76,19 +76,13 @@ impl SideCompletion {
     }
 
     pub(crate) fn answer(&self, line: Vec<u8>) -> Vec<u8> {
-        // Every daemon line passes here (a 5,000-workspace tree is ~1 MB). With no ordered
-        // request in flight there is nothing to match: no parse at all.
-        if self.0.lock().unwrap().pending.is_none() {
-            return line;
-        }
-        // Only the head fields, never a tree of the reply's rows (`ReplyHead` skips them).
-        let Ok(head) = serde_json::from_slice::<ReplyHead>(&line) else { return line };
-        if head.event || !head.ok {
+        let Ok(mut reply) = serde_json::from_slice::<Value>(&line) else { return line };
+        if reply.get("event").is_some() || reply.get("ok").is_none() {
             return line;
         }
         let mut pending = {
             let mut state = self.0.lock().unwrap();
-            if state.pending.as_ref().is_none_or(|pending| head.id.as_ref() != Some(&pending.id)) {
+            if state.pending.as_ref().is_none_or(|pending| reply.get("id") != Some(&pending.id)) {
                 return line;
             }
             // Serialize invalidation with scope teardown. Once pending is
@@ -108,8 +102,6 @@ impl SideCompletion {
         if !pending.added_id {
             return line;
         }
-        // Only a reply to an id hostd added is rewritten: the whole of it, once.
-        let Ok(mut reply) = serde_json::from_slice::<Value>(&line) else { return line };
         match pending.original_id.take() {
             Some(id) => {
                 reply["id"] = id;
@@ -122,23 +114,6 @@ impl SideCompletion {
         line.push(b'\n');
         line
     }
-}
-
-/// The fields of a daemon line `answer` reads. Every other field (a tree's rows) is skipped
-/// as it is scanned, not built into a `Value`.
-#[derive(serde::Deserialize)]
-struct ReplyHead {
-    #[serde(default)]
-    id: Option<Value>,
-    /// Present at all, as `Value::get(..).is_some()` read it (`null` counts).
-    #[serde(default, deserialize_with = "present")]
-    ok: bool,
-    #[serde(default, deserialize_with = "present")]
-    event: bool,
-}
-
-fn present<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
-    <serde::de::IgnoredAny as serde::Deserialize>::deserialize(deserializer).map(|_| true)
 }
 
 #[cfg(test)]

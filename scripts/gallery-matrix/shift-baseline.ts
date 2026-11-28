@@ -23,23 +23,11 @@ import { parseArgs } from "node:util";
 
 export type ShiftBaseline = { states: Record<string, number> };
 
-type BrowserShift = { value: number; sources: string[] };
-type StepLike = {
-  layoutShift?: number;
-  shifts?: BrowserShift[];
-  boxShift?: number;
-  boxMoves?: { label: string; dx: number; dy: number }[];
-  step?: string;
-};
+type StepLike = { layoutShift?: number; boxShift?: number; boxMoves?: { label: string; dx: number; dy: number }[]; step?: string };
 export type ShiftResult = {
   params?: Record<string, unknown>;
   ready?: string | null;
-  load?: {
-    layoutShift?: number;
-    shifts?: BrowserShift[];
-    boxShift?: number;
-    boxMoves?: { label: string; dx: number; dy: number }[];
-  } | null;
+  load?: { layoutShift?: number; boxShift?: number; boxMoves?: { label: string; dx: number; dy: number }[] } | null;
   play?: { steps?: StepLike[] } | null;
 };
 
@@ -75,16 +63,7 @@ export function caseMoves(result: ShiftResult): string[] {
     ...(result.play?.steps ?? []).map((step) => ({ name: step.step ?? "step", phase: step })),
   ].filter(({ phase }) => larger(phase) > 0);
   return phases.slice(0, 3).map(({ name, phase }) => {
-    // A phase scored by the browser's layout-shift entries alone (no tracked box moved, as when a
-    // picker opens over the composer) names those entries' nodes, so its red says what moved.
-    const boxMoves = (phase?.boxMoves ?? []).slice(0, 2).map((move) => `${move.label} [${move.dx} ${move.dy}]`);
-    const moves = boxMoves.length
-      ? boxMoves
-      : [...(phase?.shifts ?? [])]
-          .sort((a, b) => b.value - a.value)
-          .flatMap((shift) => shift.sources)
-          .filter((source, index, all) => all.indexOf(source) === index)
-          .slice(0, 2);
+    const moves = (phase?.boxMoves ?? []).slice(0, 2).map((move) => `${move.label} [${move.dx} ${move.dy}]`);
     return `${name}: ${larger(phase).toFixed(4)}${moves.length ? ` (${moves.join(", ")})` : ""}`;
   });
 }

@@ -144,8 +144,7 @@ async fn session(mut stream: TcpStream, secret: &str, mut url: String) -> String
             au.extend_from_slice(&[0, 0, 0, 1, if req.force_idr { 0x65 } else { 0x41 }]);
             au.extend(painted.to_be_bytes().map(|b| b | 0x80));
             au.resize(au.len() + 2500, 0xAB);
-            let encoded =
-                Encoded { access_unit: au, idr: req.force_idr, t_capture_us: now(), ltr_token: None };
+            let encoded = Encoded { access_unit: au, idr: req.force_idr, t_capture_us: now() };
             if let Ok(o) = engine.encoded(&req, Some(encoded), now()) {
                 pending = emit(&mut out, o);
             }

@@ -30,13 +30,12 @@ pub(super) fn hide_unreachable_peer(e: crate::rpc::RpcError) -> crate::rpc::RpcE
     if reason != Some("peer_unreachable") {
         return e;
     }
-    crate::rpc::RpcError::internal("peer_unreachable: the request was not sent").with_data(
-        serde_json::json!({
+    crate::rpc::RpcError::internal("peer_unreachable: the request was not sent; retry later")
+        .with_data(serde_json::json!({
             "reason": "peer_unreachable",
             "retryable": true,
             "detail": "the request was not sent",
-        }),
-    )
+        }))
 }
 
 /// A remote-origin (Web) connection never learns a token: not the
@@ -106,7 +105,7 @@ fn redact_peer_row(peer: &mut Value) {
 
 /// The `_acpmux/host_health` fields a peer's `peer_status` row copies that
 /// are its resources, and what its health loop found wrong (`problems`).
-const PEER_RESOURCES: [&str; 13] = [
+const PEER_RESOURCES: [&str; 12] = [
     "cpus",
     "load",
     "ram",
@@ -119,7 +118,6 @@ const PEER_RESOURCES: [&str; 13] = [
     "problems",
     "power",
     "network",
-    "autoCloud",
 ];
 
 /// A harness catalog without values that shape its process. The app and Web

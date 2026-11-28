@@ -36,8 +36,7 @@ server.bind(path)
 server.listen(8)
 lock = threading.Lock()
 with open(log, "a") as out:
-    out.write(json.dumps({"method": "_launch", "params": {"no_activate": os.environ.get("CMUX_NEXT_NO_ACTIVATE"),
-                                                         "skip_onboarding": os.environ.get("CMUX_NEXT_SKIP_ONBOARDING")}}) + "\n")
+    out.write(json.dumps({"method": "_launch", "params": {"no_activate": os.environ.get("CMUX_NEXT_NO_ACTIVATE")}}) + "\n")
     markers = {key: os.environ[key] for key in ("CMUX_SOCKET_PATH", "CMUX_BUNDLE_ID", "CMUX_TAG", "MUX_AGENT_TOKEN_FILE")
                if key in os.environ}
     out.write(json.dumps({"method": "_markers", "params": markers}) + "\n")
@@ -207,15 +206,7 @@ class AppWindowCaptureTests(unittest.TestCase):
         self.assertFalse(Path(f"{self.log}.osascript").exists())
         launches = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
         launches = [entry["params"] for entry in launches if entry["method"] == "_launch"]
-        self.assertEqual([entry["no_activate"] for entry in launches], ["1"], "the app refuses activation itself")
-
-    def test_the_tour_skips_first_run_onboarding(self) -> None:
-        # A fresh profile's onboarding sheet covered the window, so every shot showed it, not the tour.
-        done, _ = self.run_tour()
-        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        launches = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
-        launches = [entry["params"] for entry in launches if entry["method"] == "_launch"]
-        self.assertEqual([entry["skip_onboarding"] for entry in launches], ["1"])
+        self.assertEqual(launches, [{"no_activate": "1"}], "the app refuses activation itself")
 
     def test_the_app_runs_as_under_capture_with_a_fixture_prompt(self) -> None:
         # pr-media's privacy check refused every core-tour shot for the CI Mac's name in the
@@ -896,14 +887,6 @@ class FixtureCropTests(unittest.TestCase):
         self.assertIn("not visible", self.tour.capture_fixture(self.app, self.path, self.config))
         self.assertFalse(self.path.exists())
 
-    def test_a_failed_command_step_names_its_reason(self) -> None:
-        # The job log prints `detail`; "exited 1" alone hid "no terminal is \"focused\"" (run 45880649238).
-        self.app.cli.return_value = subprocess.CompletedProcess([], 1, "", 'no terminal is "focused"\n')
-        result = self.tour.run_step(self.app, mock.Mock(), {"title": "Send", "cmux": ["terminal", "focused", "send"], "wait": 0},
-                                    1, self.path.parent)
-        self.assertEqual(result["status"], "failed")
-        self.assertEqual(result["detail"], 'exited 1 (no terminal is "focused")')
-
     def test_capture_failure_cannot_leave_a_passing_step(self) -> None:
         step = {"title": "menu", "capture": self.config, "wait": 0}
         with mock.patch.object(self.tour, "capture_fixture", return_value="no native menu overlay"):
@@ -1112,102 +1095,10 @@ class WindowVideoTests(unittest.TestCase):
             process.kill.assert_called_once_with()
             self.assertIsNone(recording.process)
 
-class RecorderEndTests(unittest.TestCase):
-    """A window whose frames stop for good is named in the manifest (frames_ended): warn-before-quit-shortcut's
-    before quits on the first ⌘Q, and whats-new-clips.py ends its clip on the window going away."""
-
-    def record(self, answers):
-        sys.path.insert(0, str(SCRIPT.parent))
-        import tour
-        screen = mock.Mock(mode="direct")
-        queue = list(answers)
-
-        def capture(path, kind):
-            answer = queue.pop(0) if queue else answers[-1]
-            if answer is None:
-                path.write_bytes(b"jpg")
-            return answer
-        screen.capture.side_effect = capture
-        with tempfile.TemporaryDirectory() as root, mock.patch.object(tour, "frame_interval", return_value=0.01):
-            recorder = tour.Recorder(screen, Path(root))
-            recorder.step = 2
-            recorder.start()
-            deadline = time.monotonic() + 5
-            while (queue or screen.capture.call_count < len(answers) + 2) and time.monotonic() < deadline:
-                time.sleep(0.01)
-            frames = recorder.stop()
-        return frames, recorder.ended
-
-    def test_frames_that_stop_for_good_name_the_step_and_reason(self):
-        frames, ended = self.record([None, None, "no window server id for the app's window"])
-        self.assertEqual(len(frames), 2)
-        self.assertEqual((ended["step"], ended["reason"]), (2, "no window server id for the app's window"))
-
-    def test_a_capture_that_fails_once_then_recovers_ends_nothing(self):
-        _, ended = self.record([None, "busy", None])
-        self.assertIsNone(ended)
-
-    def test_a_window_never_captured_is_frames_error_not_an_end(self):
-        frames, ended = self.record(["no such window"])
-        self.assertEqual((frames, ended), ([], None))
-
-
-class StepEnvironmentTests(unittest.TestCase):
-    """A step's own CLI writes the files the launch's app reads: media run 45937441993's theme-flourishes ran
-    `cmux theme install` into the runner's ~/.config/cmux-next while its tagged app read its own, so every frame
-    of the clip was one unthemed window."""
-
-    def app(self, root: Path, **kwargs):
-        sys.path.insert(0, str(SCRIPT.parent))
-        import tour
-        bundle = root / "cmux DEV ci-media-slot0-head.app"
-        (bundle / "Contents").mkdir(parents=True)
-        with (bundle / "Contents/Info.plist").open("wb") as plist:
-            plistlib.dump({"CFBundleExecutable": "fakeapp", "LSEnvironment": {"CMUX_TAG": "ci-media-slot0-head"}}, plist)
-        session = mock.Mock(prefix=[], capture_prefix=[], shareable=lambda path: (path.mkdir(parents=True, exist_ok=True), path)[1])
-        return tour.App(bundle, session, root / "work", **kwargs)
-
-    def test_the_cli_writes_the_tours_settings_file_and_customize_folder(self) -> None:
-        with tempfile.TemporaryDirectory() as temp, mock.patch.dict(os.environ, {"CMUX_NEXT_CONFIG_FILE": "/runner/own.json"}):
-            root = Path(temp)
-            customize, automations = str(root / "work/customize"), str(root / "work/env/automations")
-            app = self.app(root, settings={}, launch_env={"CMUX_CUSTOMIZE_DIR": customize,
-                                                          "CMUX_AUTOMATIONS_DIR": automations,
-                                                          "ACPMUX_HARNESS_FIXTURE": "/fixture.json"})
-            env = app.environment()
-            self.assertEqual(env["CMUX_NEXT_CONFIG_FILE"], str(root / "work/cmux-next.json"))
-            self.assertEqual(env["CMUX_CUSTOMIZE_DIR"], customize)
-            self.assertEqual(env["CMUX_AUTOMATIONS_DIR"], automations)
-            self.assertNotIn("ACPMUX_HARNESS_FIXTURE", env, "only the app's files, not every launch knob")
-
-    def test_with_no_tour_settings_the_caller_keeps_its_own(self) -> None:
-        with tempfile.TemporaryDirectory() as temp, mock.patch.dict(os.environ, {"CMUX_NEXT_CONFIG_FILE": "/runner/own.json"}):
-            env = self.app(Path(temp)).environment()
-            self.assertEqual(env["CMUX_NEXT_CONFIG_FILE"], "/runner/own.json")
-
-    def test_a_clip_that_installs_a_theme_has_its_own_settings_file(self) -> None:
-        """`theme install` writes the settings file and the themes beside it; without the tour's own file that is
-        the runner's, never the tagged app's."""
-        for path in sorted((ROOT / "release-notes/next/clips").glob("*.json")):
-            spec = json.loads(path.read_text(encoding="utf-8"))
-            writes = [step["title"] for step in spec.get("steps", [])
-                      if (step.get("cmux") or [])[:2] in (["theme", "install"], ["theme", "use"])]
-            if writes and spec.get("app", "mac") == "mac":
-                self.assertIn("settings", spec, f"{path.name}: {writes} write the settings file; give the spec "
-                                                "\"settings\": {} so they write the tour's own")
-
-
 class CustomizeTemplatesTourTests(unittest.TestCase):
     """The customize-templates tour types each template into the app's terminal (base64, so
     no shell expansion touches it, and no checkout is needed on the capture Mac); what it
     types must be the files in skills/cmux-customization/templates as they are now."""
-
-    def test_skill_sidebar_starter_matches_the_native_starter(self) -> None:
-        template = (ROOT / "skills/cmux-customization/templates/starter/main.js").read_text()
-        source = ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Customization/CustomizeFolder.swift"
-        script = re.search(r'let starterScript = """\n(.*?)\n"""', source.read_text(), re.DOTALL)
-        self.assertIsNotNone(script, "could not find the Swift starter")
-        self.assertEqual(template, script[1], "the skill and native sidebar starter scripts must match")
 
     def test_the_tour_writes_the_checked_in_templates_and_probe(self) -> None:
         import base64

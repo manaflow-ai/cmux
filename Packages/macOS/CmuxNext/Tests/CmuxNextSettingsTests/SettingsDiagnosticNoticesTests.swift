@@ -1,18 +1,10 @@
-import CmuxNextDesign
-@testable import CmuxNextSettings
+import CmuxNextSettings
 import Testing
 
 /// A value cmux-next.json sets that the running build refuses is announced
 /// once (a toast names the key, the value and why), not again on every
 /// reload, and again only after it was fixed and broken anew.
 struct SettingsDiagnosticNoticesTests {
-    /// The ignored-value toast is off by default (Leo 2026-11-25: "make it stop showing the
-    /// customization not applied/reviewd and shit popup tosts"): the refusal shows at its Settings
-    /// row, and Debug Settings `settings.diagnosticToast` turns the toast back on.
-    @Test @MainActor func theIgnoredValueToastIsOffByDefault() {
-        #expect(SettingsDiagnosticToastStyle.tunable.defaultValue == .off)
-    }
-
     private let background = SettingsDiagnostic(kind: .invalidValue, path: "appearance.background",
                                                 message: "expected none, daily, desktop, bundled art, folder:<absolute path>, or an absolute system wallpaper or image path")
     private let accent = SettingsDiagnostic(kind: .invalidValue, path: "appearance.accent", message: "expected one of blue, red")

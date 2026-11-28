@@ -12,7 +12,6 @@
 
 use std::time::Duration;
 
-use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode};
@@ -241,7 +240,7 @@ pub(super) fn command_create_params(
         "concurrency": {"max": 1, "on_limit": "skip"},
     });
     if let Some(policy) = catch_up {
-        params.set("catch_up", json!(policy));
+        params["catch_up"] = json!(policy);
     }
     params
 }

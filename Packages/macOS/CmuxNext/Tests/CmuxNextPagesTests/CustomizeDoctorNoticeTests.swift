@@ -25,23 +25,6 @@ import Testing
                               untilWindow: {}, present: shown)
     }
 
-    /// Off by default (Leo 2026-11-25: "make it stop showing the customization not applied/reviewd
-    /// and shit popup tosts"): with the key unset a new finding runs nothing and pops nothing.
-    @Test func theNoticeIsOffByDefaultSoAFindingPopsNoToast() async {
-        #expect(CmuxConfigSnapshot.customizeDoctorNoticeDefault == false)
-        #expect(CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: []).customizeDoctorNotice == false)
-        let on = JSONValue.object(["customize": .object(["doctorNotice": .bool(true)])])
-        #expect(CmuxConfigSnapshot.parse(on, validDensities: [], validMetrics: []).customizeDoctorNotice == true)
-        let runs = Runs()
-        runs.answer = Self.answer("pr-1 is still on")
-        var shown: [String] = []
-        let notice = makeNotice(runs) { shown.append($0) }
-        notice.request()
-        await notice.running?.value
-        #expect(runs.arguments.isEmpty)
-        #expect(shown.isEmpty)
-    }
-
     @Test func theDecisionIsTheAnnounceLineWhenTheNoticeIsOn() {
         let announced = JSONValue.object(["doctor": .object(["announce": .string("1 customization problem: pr-1 is still on")])])
         #expect(CustomizeDoctorNotice.announcement(announced, isOn: true) == "1 customization problem: pr-1 is still on")
@@ -56,7 +39,6 @@ import Testing
         runs.answer = Self.answer("pr-1 is still on")
         var shown: [String] = []
         let notice = makeNotice(runs) { shown.append($0) }
-        notice.isOn = { true }
         notice.request()
         await notice.running?.value
         #expect(runs.arguments == [["--json", "customize", "doctor", "--announce"]])
@@ -69,7 +51,6 @@ import Testing
         runs.answer = Self.answer(nil)
         var shown: [String] = []
         let notice = makeNotice(runs) { shown.append($0) }
-        notice.isOn = { true }
         notice.request()
         await notice.running?.value
         runs.answer = (1, Data(#"{"doctor":{"announce":"stale"}}"#.utf8), Data(#"{"code":"x","message":"y"}"#.utf8))
@@ -97,7 +78,6 @@ import Testing
         let runs = Runs()
         runs.answer = Self.answer(nil)
         let notice = makeNotice(runs) { _ in }
-        notice.isOn = { true }
         notice.request()
         notice.request()
         notice.request()
@@ -120,7 +100,6 @@ import Testing
                                            },
                                            untilWindow: {}, present: { _ in })
         loads.notice = notice
-        notice.isOn = { true }
         notice.request()
         await notice.running?.value
         // The first run's end started the second.

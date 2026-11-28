@@ -9,21 +9,12 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, jest, test } from "
 import { JSDOM } from "jsdom";
 import { act, createRef, useState } from "react";
 import type { Root } from "react-dom/client";
+import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
-import type { KeptAttachments } from "../src/agent-session/acpmux/composer/keptAttachments";
-import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
-const { inlineTokenIds, withoutInlineTokens } = await importWithDom(
-  () => import("../src/agent-session/acpmux/attachments"),
-);
-const { useWebSwapHold } = await importWithDom(() => import("../src/pages/shared/useWebSwapHold"));
-const { KEPT_ATTACHMENTS_SETTLE_MS } = await importWithDom(
-  () => import("../src/agent-session/acpmux/composer/keptAttachments"),
-);
-const {
+import { inlineTokenIds, withoutInlineTokens, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import { useWebSwapHold } from "../src/pages/shared/useWebSwapHold";
+import { KEPT_ATTACHMENTS_SETTLE_MS, type KeptAttachments } from "../src/agent-session/acpmux/composer/keptAttachments";
+import {
   WEB_SWAP_FOCUS,
   WEB_SWAP_FOCUS_KEY,
   WEB_SWAP_KEPT_SCROLL,
@@ -31,7 +22,8 @@ const {
   installWebSwap,
   pageReleaseHold,
   takeWebSwapFocus,
-} = await importWithDom(() => import("../src/pages/shared/webSwap"));
+} from "../src/pages/shared/webSwap";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

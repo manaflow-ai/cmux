@@ -23,10 +23,7 @@ extension ChatController {
             self?.host.scrollView.page(dir, event: NSApp.currentEvent)
         }
         let field = demo.compose.textView.view
-        field.onPress = { [weak self] e in
-            self?.draftPictureClick.cancel()  // cmux: a double click on a picture opens nothing (DraftPictureClick)
-            self?.host.fieldChrome.pressLight(e)
-        }
+        field.onPress = { [weak self] e in self?.host.fieldChrome.pressLight(e) }
         field.onRelease = { [weak self] e in self?.host.fieldChrome.releaseFlash(e) }
     }
 }

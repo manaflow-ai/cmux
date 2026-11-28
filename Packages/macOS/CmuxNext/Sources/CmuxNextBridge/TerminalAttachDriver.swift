@@ -138,13 +138,6 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     /// The daemon reports the terminal running again after a dead report.
     public func processRevived() { send(.processRevived) }
     public func close() { send(.close) }
-    /// Closes, handing back the input queued while attaching (``TerminalAttachMachine/takeQueuedInput()``)
-    /// instead of dropping it; taken and closed under one lock, so no key slips between the two.
-    public func closeHandingOffInput() -> [Data] {
-        var held: [Data] = []
-        send(.close) { held = $0.machine.takeQueuedInput() }
-        return held
-    }
     /// The view's local history did not match the host's: ask the live link
     /// for READY + history (`snapshot-request`, reason gap). Not a machine
     /// event: the link and its geometry stay as they are.
@@ -159,9 +152,8 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
 
     // MARK: Reducer and applier
 
-    private func send(_ event: Machine.Event, first: ((inout Core) -> Void)? = nil) {
+    private func send(_ event: Machine.Event) {
         var batch = core.withLock { core -> [Machine.Effect] in
-            first?(&core)
             let effects = core.machine.reduce(event)
             if let onGridSent { Self.reportGrids(effects, of: core.machine, to: onGridSent) }
             core.outbox += effects

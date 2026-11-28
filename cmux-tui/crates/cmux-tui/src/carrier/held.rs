@@ -286,7 +286,7 @@ async fn on_held(
             Ok(Stream { mux, vmk: held.vmk, lease, dialed: false, opened: Duration::ZERO })
         }
         // The session is gone (the daemon lost it) or gave up resuming
-        // (`client::resume_window`): it takes no new stream, and the
+        // (`client::RESUME_DEADLINE`): it takes no new stream, and the
         // caller dials a fresh session for this one.
         Ok(Err(_)) => {
             held.retired.store(true, Ordering::Release);

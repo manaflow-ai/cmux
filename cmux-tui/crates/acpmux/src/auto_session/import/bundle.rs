@@ -115,9 +115,9 @@ fn agent_files(staged: &Path, files: &[AgentFile]) -> Result<(Vec<Value>, Value)
             return Err(format!("the copy names an unknown cmux-harness file: {path:?}"));
         };
         if let Some(parent) = target.parent() {
-            crate::home_fs::create_dirs(parent).map_err(|e| io(path, e))?;
+            std::fs::create_dir_all(parent).map_err(|e| io(path, e))?;
         }
-        crate::home_fs::write(&target, &file.bytes).map_err(|e| io(path, e))?;
+        std::fs::write(&target, &file.bytes).map_err(|e| io(path, e))?;
     }
     Ok((native, harness))
 }

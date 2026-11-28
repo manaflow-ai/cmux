@@ -180,7 +180,7 @@ async fn lane_asking(action: Value) -> (u16, oneshot::Receiver<Value>) {
     let (tx, rx) = oneshot::channel();
     tokio::spawn(async move {
         let (tcp, _) = l.accept().await.unwrap();
-        let mut ws = acpmux::server::accept_ws(tcp).await.unwrap();
+        let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
         let mut tx = Some(tx);
         // The Mac's link pings every 2 s and drops after 6 s with no byte back (#38015): read
         // past each ping (tungstenite answers it as it reads), as a real machine does, and

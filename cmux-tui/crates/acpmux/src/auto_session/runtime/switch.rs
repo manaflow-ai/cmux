@@ -81,13 +81,6 @@ impl<C: AutoCloud + 'static> Loop<C> {
         reply: Option<Reply>,
     ) {
         if self.side != Side::Laptop {
-            // On a Cloud machine, a chat it holds may stop or start being kept in the Cloud
-            // (Cloud and Auto): the store takes that from its holder, for the agent of a chat
-            // that runs here. Auto on or off is the person's devices' to switch.
-            let held = self.chats.get(id).is_some_and(|tracked| auto(&tracked.chat));
-            if on && held && keep.is_some() {
-                return self.keep(id, keep, reply);
-            }
             let refusal = "Auto mode is switched from the person's own devices";
             return answer(reply, Err(RpcError::invalid_params(refusal)));
         }
@@ -132,7 +125,7 @@ impl<C: AutoCloud + 'static> Loop<C> {
     /// Auto on for a chat that has it on: the request may say whether the chat stays in the
     /// Cloud when this machine returns. The store is asked first. Nothing changes here until it
     /// answered, and its answer is the request's ([`Self::kept`]).
-    pub(super) fn keep(&mut self, id: &str, keep: Option<bool>, reply: Option<Reply>) {
+    fn keep(&mut self, id: &str, keep: Option<bool>, reply: Option<Reply>) {
         let Some(tracked) = self.chats.get_mut(id) else {
             return answer(reply, Ok(row(&self.hub, id)));
         };
@@ -248,5 +241,34 @@ impl<C: AutoCloud + 'static> Loop<C> {
 }
 
 #[cfg(test)]
-#[path = "switch_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_prompt_id_the_store_takes_is_the_message_id() {
+        assert_eq!(message_id(Some("p-1_a.b:c")), "p-1_a.b:c");
+        let minted = message_id(Some("has space"));
+        assert_ne!(minted, "has space");
+        assert!(minted.len() <= MESSAGE_ID_MAX);
+        assert_ne!(message_id(None), message_id(None));
+    }
+
+    #[test]
+    fn switching_on_again_starts_from_nothing_but_keeps_the_leftover() {
+        let mut old = AutoRecord::on();
+        old.auto = false;
+        old.epoch = 9;
+        old.snapshot = 4;
+        old.anchor = Some("tree".into());
+        old.leftover = Some(crate::auto_session::record::Leftover {
+            files: vec!["a".into()],
+            at: 1,
+            path: "/x/p".into(),
+            top: "/x".into(),
+        });
+        let record = fresh_record(Some(old), Some(true));
+        assert!(record.auto && record.here && record.keep_in_cloud);
+        assert_eq!((record.epoch, record.snapshot, record.anchor.clone()), (0, 0, None));
+        assert!(record.leftover.is_some());
+    }
+}

@@ -1,6 +1,5 @@
 //! Small primitives of the cmux-tui daemon that hold no daemon state: accept
-//! retry backoff ([`backoff`]), retrying transient failures for the person
-//! ([`retry`]), stream interruption ([`stream_interrupt`]),
+//! retry backoff ([`backoff`]), stream interruption ([`stream_interrupt`]),
 //! terminal-create debug spans ([`debug_spans`]), short ids, this machine's
 //! name, the respawn marker text, the few settings-file keys the daemon
 //! reads ([`user_settings`]), and a mutex-guarded value whose readers load a
@@ -14,7 +13,6 @@ pub mod backoff;
 pub mod debug_spans;
 pub mod machine_name;
 pub mod published;
-pub mod retry;
 pub mod short_id;
 pub mod stream_interrupt;
 pub mod terminal_respawn_text;

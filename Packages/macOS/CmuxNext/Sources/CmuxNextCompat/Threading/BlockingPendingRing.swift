@@ -1,4 +1,4 @@
-#if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
+#if DEBUG || CMUX_BLOCKING_CHECKS
 internal import Atomics
 
 /// A fixed single-producer, single-consumer ring of ``BlockingPendingCall``s: the main thread

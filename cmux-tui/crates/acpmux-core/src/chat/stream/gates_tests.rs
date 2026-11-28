@@ -1133,8 +1133,7 @@ const STOPPED_GOD: u64 = 1 << 30;
 const STOPPED_STRETCH: u64 = 8 << 20;
 const STOPPED_TEXT: usize = 8 * 1024;
 const STOPPED_BATCH: usize = 128;
-/// Settled rows the reference reader keeps, by id: more than any window holds. A row a window
-/// delivered (the chat's opening row stays in every window) is never evicted.
+/// Settled rows the reference reader keeps, by id: more than any window holds.
 const VIEW_ROWS: usize = 4096;
 const STOPPED_CASE: &str = "V2_PR04_CHAT_CASE";
 const STOPPED_LINE: &str = "PR4_CHAT_STOPPED ";
@@ -1160,8 +1159,6 @@ fn marker_in(payload: &[u8]) -> u64 {
 #[derive(Default)]
 struct View {
     rows: BTreeMap<u64, u64>,
-    /// Ids a window delivered: they stay in `rows`.
-    pinned: std::collections::BTreeSet<u64>,
     window: Vec<(u64, u64)>,
     cursor: u64,
     edition: u32,
@@ -1175,11 +1172,8 @@ impl View {
         let head = RowHead::parse(row.get().as_bytes()).expect("a row text");
         let hashed = (head.id, hash_of(row.get()));
         self.rows.insert(hashed.0, hashed.1);
-        while self.rows.len() > VIEW_ROWS + self.pinned.len() {
-            let Some(&oldest) = self.rows.keys().find(|id| !self.pinned.contains(id)) else {
-                break;
-            };
-            self.rows.remove(&oldest);
+        while self.rows.len() > VIEW_ROWS {
+            self.rows.pop_first();
         }
         hashed
     }
@@ -1203,8 +1197,7 @@ impl View {
             self.cursor = window.cursor;
             self.edition = window.edition;
             self.windows += 1;
-            let rows: Vec<(u64, u64)> = window.rows.iter().map(|row| self.keep(row)).collect();
-            self.pinned.extend(rows.iter().map(|(id, _)| *id));
+            let rows = window.rows.iter().map(|row| self.keep(row)).collect();
             self.window = rows;
             return;
         }

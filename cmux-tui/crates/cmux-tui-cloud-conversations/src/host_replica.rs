@@ -46,10 +46,7 @@ use cmux_json::JsonSet as _;
 mod ask;
 mod chief;
 mod ops;
-mod seal;
 use ops::Decided;
-pub use seal::ReplicaSeal;
-use seal::Sealer;
 
 /// The capability `identify` advertises when the publisher is installed.
 pub const CLOUD_HOST_REPLICA_CAPABILITY: &str = "cloud-host-replica-v1";
@@ -108,10 +105,6 @@ pub struct HostReplicaParams {
     pub client_version: Option<String>,
     /// The host's name in the team directory.
     pub host_name: String,
-    /// Seal every published `state` at rest to the owner's paired device
-    /// keys (RFD 0163 row 7); `None` publishes it as today.
-    #[serde(default)]
-    pub seal: Option<ReplicaSeal>,
 }
 
 impl fmt::Debug for HostReplicaParams {
@@ -122,7 +115,6 @@ impl fmt::Debug for HostReplicaParams {
             .field("install_token", &"[redacted]")
             .field("expires_at", &self.expires_at)
             .field("host_name", &self.host_name)
-            .field("seal", &self.seal)
             .finish()
     }
 }
@@ -149,9 +141,6 @@ pub struct HostReplicaOptions {
     pub now_ms: Arc<dyn Fn() -> u64 + Send + Sync>,
     /// Platform reported at enrollment.
     pub platform: &'static str,
-    /// Refuse a lease without a `seal`, so no `state` leaves the Mac in the
-    /// clear (RFD 0163 row 7). Off by default.
-    pub require_seal: bool,
 }
 
 impl Default for HostReplicaOptions {
@@ -171,7 +160,6 @@ impl Default for HostReplicaOptions {
                     .map_or(0, |elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
             }),
             platform: if cfg!(target_os = "macos") { "macos" } else { "linux" },
-            require_seal: false,
         }
     }
 }
@@ -185,7 +173,6 @@ struct Lease {
     user: String,
     install: String,
     generation: u64,
-    seal: Option<Arc<Sealer>>,
 }
 
 impl Lease {
@@ -222,7 +209,6 @@ impl Lease {
         let install = token_claim(&token, "inst").ok_or_else(|| {
             CloudError::BadRequest("install_token is not an install token (no inst)".into())
         })?;
-        let seal = params.seal.map(Sealer::new).transpose()?.map(Arc::new);
         Ok(Self {
             origin,
             token,
@@ -232,7 +218,6 @@ impl Lease {
             user,
             install,
             generation,
-            seal,
         })
     }
 
@@ -382,7 +367,6 @@ impl HostReplica {
                     was_online: false,
                     chief_seq: 0,
                     chief_last: None,
-                    seal: None,
                 }
                 .run();
             })?);
@@ -404,22 +388,12 @@ impl HostReplica {
     pub fn set_lease(&self, params: HostReplicaParams) -> Result<Value, CloudError> {
         {
             let mut state = self.inner.lock();
-            if self.inner.options.require_seal && params.seal.is_none() {
-                return Err(CloudError::BadRequest(
-                    "seal is required: this host publishes no state in the clear".into(),
-                ));
-            }
             let lease = Lease::new(params, 0)?;
             // A renewal (same user, install and origin) swaps the token in place: the
             // open socket stays (HostDO closes it at its own token's expiry, and the
             // next connect uses the new token). Anything else is a new lease.
             let renewal = state.lease.as_ref().is_some_and(|old| {
-                old.user == lease.user
-                    && old.install == lease.install
-                    && old.origin == lease.origin
-                    // Turning the seal on or off reconnects, so no state is sent
-                    // in the clear on a socket opened before it.
-                    && old.seal.is_some() == lease.seal.is_some()
+                old.user == lease.user && old.install == lease.install && old.origin == lease.origin
             });
             let generation = match state.lease.as_ref() {
                 Some(old) if renewal => old.generation,
@@ -603,8 +577,6 @@ struct Driver {
     /// The Chief stream's own seq (snapshots only) and its last published state.
     chief_seq: u64,
     chief_last: Option<String>,
-    /// The connection's seal: every `state` it sends goes through `at_rest`.
-    seal: Option<Arc<Sealer>>,
 }
 
 /// The lease fields one connection uses (the token stays zeroizing).
@@ -616,7 +588,6 @@ struct Use {
     host_name: String,
     user: String,
     install: String,
-    seal: Option<Arc<Sealer>>,
     enroll_url: String,
     ws_url: Box<dyn Fn(&str) -> String + Send>,
 }
@@ -735,7 +706,6 @@ impl Driver {
             host_name: lease.host_name.clone(),
             user: lease.user.clone(),
             install: lease.install.clone(),
-            seal: lease.seal.clone(),
             enroll_url: lease.url("/v1/ops", false),
             ws_url: Box::new(move |path| format!("{ws_origin}{path}")),
         })
@@ -754,7 +724,6 @@ impl Driver {
     fn connect_once(&mut self, lease: &Use) -> Result<Ended, Phase> {
         self.inner.set_phase(Phase::Connecting, None);
         self.inner.need_if_expiring(lease.expires_at);
-        self.seal = lease.seal.clone();
         let host = match self.host(lease) {
             Ok(host) => host,
             Err(Err(phase)) => return Err(phase),
@@ -962,36 +931,30 @@ impl Driver {
                 .set_phase(Phase::Online, Some(format!("state_too_large: {} bytes", text.len())));
             return Ok(());
         }
-        let sealed = {
+        let (seq, frame) = {
             let mut guard = self.inner.lock();
-            let seq = guard.seq + 1;
-            // Sealed before the seq moves: a state that does not seal is not sent.
-            match self.at_rest(stream, seq, state) {
-                Ok(state) => {
-                    guard.seq = seq;
-                    Ok((seq, state))
-                }
-                Err(why) => Err(why),
+            if snapshot {
+                // A snapshot always moves to a new seq, so it replaces the tail.
+                guard.seq += 1;
+                let seq = guard.seq;
+                (
+                    seq,
+                    json!({ "t": "publish", "stream": stream, "snapshot": {
+                    "t": "snapshot", "stream": stream, "seq": seq, "state": state, "decided": [] } }),
+                )
+            } else {
+                guard.seq += 1;
+                let seq = guard.seq;
+                (
+                    seq,
+                    json!({ "t": "publish", "stream": stream, "event": {
+                    "t": "event", "stream": stream, "seq": seq, "tx": self.inner.tx(),
+                    "op": "host.session.update", "params": {},
+                    "actor": { "kind": "install", "user": lease.user, "install": lease.install },
+                    "origin": "script", "at": (self.inner.options.now_ms)(),
+                    "effects": { "state": state, "writes": [] } } }),
+                )
             }
-        };
-        let (seq, state) = match sealed {
-            Ok(sealed) => sealed,
-            Err(why) => {
-                self.inner.set_phase(Phase::Online, Some(why));
-                return Ok(());
-            }
-        };
-        let frame = if snapshot {
-            // A snapshot always moves to a new seq, so it replaces the tail.
-            json!({ "t": "publish", "stream": stream, "snapshot": {
-                "t": "snapshot", "stream": stream, "seq": seq, "state": state, "decided": [] } })
-        } else {
-            json!({ "t": "publish", "stream": stream, "event": {
-                "t": "event", "stream": stream, "seq": seq, "tx": self.inner.tx(),
-                "op": "host.session.update", "params": {},
-                "actor": { "kind": "install", "user": lease.user, "install": lease.install },
-                "origin": "script", "at": (self.inner.options.now_ms)(),
-                "effects": { "state": state, "writes": [] } } })
         };
         wire.send(&frame.to_string()).map_err(|error| error.0)?;
         self.inner.lock().published_seq = seq;
@@ -1034,13 +997,6 @@ impl Driver {
                         .and_then(|t| serde_json::from_str::<Value>(t).ok())
                     else {
                         return Ok(());
-                    };
-                    let state = match self.at_rest(stream, seq, state) {
-                        Ok(state) => state,
-                        Err(why) => {
-                            self.inner.set_phase(Phase::Online, Some(why));
-                            return Ok(());
-                        }
                     };
                     let answer = json!({ "t": "snapshot", "to": to, "stream": stream, "seq": seq,
                         "state": state, "decided": decided });

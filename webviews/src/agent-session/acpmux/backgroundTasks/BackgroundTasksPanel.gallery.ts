@@ -326,7 +326,7 @@ export default agentPaneEntry({
       play: finishedOpen,
     },
     transcript: {
-      note: "A click on an agent opens its transcript in place on the same frame, with back, expand and close; no spinner-only row under its last call.",
+      note: "A click on an agent opens its transcript in place on the same frame, with back, expand and close; the spinner under it while it runs.",
       snapshot: snapshot(true),
       play: async (ctx) => {
         await openDocument(ctx);

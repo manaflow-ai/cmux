@@ -66,18 +66,11 @@ impl MediaEngine {
             let depended_on = state.tile_of.is_some()
                 || unstarted.iter().any(|&(frame, _)| frame == state.last_frame);
             let keyframe_due = state.force_idr.is_some()
-                || state.force_ltr_refresh
-                || out
-                    .encode
-                    .as_ref()
-                    .is_some_and(|r| r.stream == stream && (r.force_idr || r.force_ltr_refresh));
+                || out.encode.as_ref().is_some_and(|r| r.stream == stream && r.force_idr);
             let bytes: usize = unstarted.iter().map(|&(_, b)| b).sum();
             let worth_a_keyframe =
                 state.last_keyframe_bytes > 0 && bytes > state.last_keyframe_bytes;
-            // With LTR the restart is a refresh P-frame from what the viewer decoded,
-            // which costs about one frame: the stale queue is never worth keeping.
-            let cheap_restart = state.can_refresh(self.cfg.ltr_enabled);
-            if !depended_on || keyframe_due || worth_a_keyframe || cheap_restart {
+            if !depended_on || keyframe_due || worth_a_keyframe {
                 drop.extend(unstarted.iter().map(|&(frame, _)| (stream, frame)));
             }
         }
@@ -118,7 +111,6 @@ impl MediaEngine {
                 frames.push(header.frame);
             }
         }
-        let ltr_enabled = self.cfg.ltr_enabled;
         let mut restart = Vec::new();
         for (&stream, frames) in &dropped {
             let Some(state) = self.streams.get_mut(&stream) else { continue };
@@ -128,31 +120,17 @@ impl MediaEngine {
             }
             state.probe_from_us = None;
             state.probes = 0;
-            // An LTR refresh that never left was never decoded: the restart is a keyframe.
-            if state.refresh_sent.is_some_and(|(frame, _)| frames.contains(&frame)) {
-                state.restart(false, IdrReason::Outage);
-            }
             if state.tile_of.is_some() || frames.contains(&state.last_frame) {
-                // The viewer still holds the references it acknowledged: an LTR refresh
-                // from one restarts the stream without a keyframe.
-                let refresh = state.can_refresh(ltr_enabled);
-                state.restart(refresh, IdrReason::Outage);
+                state.force_idr.get_or_insert(IdrReason::Outage);
                 restart.push(stream);
             }
         }
         // The outage end already cleared every gate's in-flight count.
         match out.encode.as_mut() {
             Some(req) if restart.contains(&req.stream) => {
-                let Some(state) = self.streams.get(&req.stream) else { return };
                 if !req.force_idr {
-                    if state.force_idr.is_some() {
-                        req.force_idr = true;
-                        req.force_ltr_refresh = false;
-                        req.idr_reason = state.force_idr;
-                    } else {
-                        req.force_ltr_refresh = true;
-                        req.acknowledged_ltr_tokens.clone_from(&state.acknowledged_ltr_tokens);
-                    }
+                    req.force_idr = true;
+                    req.idr_reason = Some(IdrReason::Outage);
                 }
             }
             Some(_) => {}

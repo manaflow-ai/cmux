@@ -2,11 +2,6 @@
 """What a running cmux NEXT app could take from a change without a new build (try-pr.sh).
 
     live_apply.py [--repo DIR] [--json] BASE HEAD
-    live_apply.py --paths-from FILE     (`-` for stdin; prints JSON)
-
-`--paths-from` classifies `STATUS<TAB>PATH` lines (git diff --name-status) by path alone, with no
-Swift diff, so a Swift file never reads as live there. nightly.yml uses it on the GitHub compare
-file list to skip a nightly-next rebuild whose changes are all `no-app` or `web-live`.
 
 Reads `git diff BASE HEAD` (no GitHub API) and prints the verdict of the heaviest change in it:
 
@@ -115,8 +110,7 @@ def swift_reasons(lines, added_file):
         elif CASE.match(body) and indent == 4:
             reasons.add("enum case")
         elif FUNC.match(body):
-            # A one-line func carries its body after the signature (`func f() -> Bool { x }`): compare only up to the body's brace.
-            sig = re.sub(r"\s+", " ", re.split(r"\{", body.strip(), maxsplit=1)[0].strip())
+            sig = re.sub(r"\s+", " ", body.strip().rstrip("{").strip())
             (removed if sign == "-" else added).append(sig)
     if set(removed) - set(added):
         reasons.add("signature")  # one went away or changed; a new function alone is fine
@@ -197,22 +191,6 @@ def parse_diff(text):
     return diffs
 
 
-HOT_APPLY_KINDS = {"no-app", "web-live"}
-
-
-def classify_paths(files):
-    """Path-only verdict: Swift reads as `rebuild` (no diff to prove it live). `hot_apply_only` is true
-    when every change is no-app or web-live: the signed web update pointer delivers it with no new build."""
-    files = list(files)
-    result = classify(files, {})
-    for path in result["files"].pop("swift-live", []):
-        result["files"].setdefault("rebuild", []).append(path)
-        result["reasons"].setdefault("Swift without a diff", []).append(path)
-    result["verdict"] = next((v for v in ORDER if v in result["files"]), "no-app")
-    result["hot_apply_only"] = bool(files) and set(result["files"]) <= HOT_APPLY_KINDS
-    return result
-
-
 def classify_range(repo, base, head):
     def git(*args):
         return subprocess.run(["git", "-C", repo, *args], check=True, capture_output=True, text=True,
@@ -227,16 +205,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--repo", default=os.getcwd())
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--paths-from", help="classify STATUS<TAB>PATH lines by path alone; prints JSON")
-    parser.add_argument("base", nargs="?")
-    parser.add_argument("head", nargs="?")
+    parser.add_argument("base")
+    parser.add_argument("head")
     args = parser.parse_args(argv)
-    if args.paths_from:
-        text = sys.stdin.read() if args.paths_from == "-" else open(args.paths_from).read()
-        print(json.dumps(classify_paths(parse_name_status(text))))
-        return 0
-    if not (args.base and args.head):
-        parser.error("BASE and HEAD are required without --paths-from")
     result = classify_range(args.repo, args.base, args.head)
     if args.json:
         print(json.dumps(result, indent=2))

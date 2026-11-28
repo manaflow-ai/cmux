@@ -103,7 +103,6 @@ public final class MacScreenApprovalPrompt {
             } catch {
                 guard let self else { return }
                 answering = false
-                // retry-prompt-ok: answering a screen-share request is the person's decision (it lets another device see or control this Mac)
                 self.error = L.t("macScreen.approval.failed", "The answer did not reach the device hub. Try again.")
             }
         }

@@ -51,8 +51,6 @@ pub const HEARTBEAT_ENV: &str = "CMUX_VM_AGENT_HEARTBEAT_MS";
 /// Where a trajectory restore stages its bundles (the work user's, 0700).
 pub const TRAJECTORY_STAGING: &str = "/var/lib/cmux-trajectory-restore";
 const MAX_LINE: usize = 64 * 1024;
-/// The ceiling of the activity stream's reconnect backoff (`Worker::activity_reset`).
-const ACTIVITY_RETRY_MAX_MS: u64 = 5_000;
 
 fn log(line: &str) {
     eprintln!("cmux-host: cloud: {line}");
@@ -538,13 +536,6 @@ fn bind_retry_wait(backoff: &mut Backoff, network_changed: bool) -> u64 {
     if network_changed { 0 } else { backoff.next(0, random_unit()) }
 }
 
-/// When an unbound worker's bind retries after a resume at `now` (monotonic ms): at once when a
-/// retry was waiting (`retry_at` later than now), else as it was (None: nothing to move).
-/// A bound worker has no bind to retry; its session's own resume runs instead.
-fn bind_retry_after_resume(bound: bool, retry_at: Option<u64>, now: u64) -> Option<u64> {
-    (!bound && retry_at.is_some_and(|at| at > now)).then_some(now)
-}
-
 struct Client {
     stream: UnixStream,
     buf: Vec<u8>,
@@ -678,7 +669,7 @@ impl Worker {
                 buf: Vec::new(),
                 connected: false,
                 retry_at: None,
-                backoff: Backoff::new(500, ACTIVITY_RETRY_MAX_MS),
+                backoff: Backoff::new(1_000, 60_000),
                 unsupported: false,
             },
             live: None,
@@ -834,16 +825,6 @@ impl Worker {
                     if let Some(live) = self.live.as_mut() {
                         let reqs = live.session.resume(now, wall_ms());
                         self.drive(reqs);
-                    }
-                    // A bind waiting out its backoff from before the stop retries now: the
-                    // stop froze the monotonic clock its retry runs on, and what failed it
-                    // (the network, a clock set to the snapshot's time) changed with the resume.
-                    if let Some(at) =
-                        bind_retry_after_resume(self.live.is_some(), self.bind_retry_at, now)
-                    {
-                        self.bind_backoff.reset();
-                        // This pass's `fire_deadlines` binds.
-                        self.bind_retry_at = Some(at);
                     }
                 }
                 _ => {}
@@ -1025,10 +1006,6 @@ impl Worker {
             return;
         }
         self.noise_key_wait = None;
-        // A never-bound machine takes the channel's build before this bind
-        // (`updater::role::before_first_bind`), not five minutes after it.
-        #[cfg(target_os = "linux")]
-        crate::updater::role::before_first_bind(&self.paths);
         let changes = cmux_server::cloud_http::network_changes();
         // The bind writes carrier.json; the keyset refresher's write waits.
         let carrier_lock = self.keyset.carrier_lock();
@@ -1221,10 +1198,7 @@ impl Worker {
             buf: Vec::new(),
             connected: false,
             retry_at: None,
-            // Until the stream is live the Cloud reads the machine as `blind_report` and never pauses
-            // it, and a start's session host comes up seconds after the agent: a 60 s ceiling left a
-            // stream up to a minute late. A connect to an absent socket costs nothing, so 5 s at most.
-            backoff: Backoff::new(500, ACTIVITY_RETRY_MAX_MS),
+            backoff: Backoff::new(1_000, 60_000),
             unsupported: false,
         }
     }
@@ -1354,16 +1328,6 @@ impl Worker {
         let Some(live) = self.live.as_mut() else { return };
         let block = super::pressure::read(self.paths.root())
             .and_then(|r| self.pressure.observe(&r, wall_ms()).to_json());
-        if block.as_ref() != live.session.pressure_block() {
-            // One line a change (the read-back reads it: `journalctl -u cmux-host | grep pressure`).
-            let shown = |b: Option<&Value>| b.map_or_else(|| "none".to_owned(), Value::to_string);
-            log(&format!(
-                "pressure: {} (was {}) at {}",
-                shown(block.as_ref()),
-                shown(live.session.pressure_block()),
-                wall_ms()
-            ));
-        }
         let reqs = live.session.pressure(block, now);
         self.drive(reqs);
     }
@@ -1527,9 +1491,6 @@ fn agent_ask(line: &str, paths: &Paths) -> Option<Ask> {
     }
     if let Some(ask) = msg.get(super::github_status::REQUEST_KEY) {
         return Some(Ask::GithubStatus(super::github_status::check_ask(ask)));
-    }
-    if let Some(ask) = msg.get(super::agent_home_pull::REQUEST_KEY) {
-        return Some(Ask::AgentHomePull(super::agent_home_pull::check_ask(ask)));
     }
     if let Some(ask) = msg.get(super::carrier_ticket::REQUEST_KEY) {
         return Some(Ask::CarrierTicket(super::carrier_ticket::check_ask(ask)));

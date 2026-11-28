@@ -321,8 +321,6 @@ export function continuity(trace: FeelTrace, box: string, edge: Edge, restFrames
 /** Collects verdicts for one component's report. */
 export class Verdicts {
   readonly list: Verdict[] = [];
-  /** The checks known red on this base (stage.ts `known` with `checks`): expectPass lets these fail. */
-  known: readonly string[] = [];
   /** Records `measured <= limit`. */
   atMost(check: string, measured: number, limit: number, unit = "") {
     this.list.push({

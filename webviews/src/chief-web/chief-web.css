@@ -12,7 +12,6 @@
 .chief-web__empty{display:flex;flex:1;min-height:0;flex-direction:column;justify-content:center;align-items:center;gap:16px;padding:24px;text-align:center}
 .chief-web__empty h2{max-width:280px;margin:0;font-size:var(--text-title);line-height:var(--text-title--line-height);font-weight:600}
 .chief-web__empty p{margin:0;color:var(--agent-muted)}
-.chief-web__still-loading{color:var(--agent-muted)}
 .chief-web__action{padding:8px 16px;min-height:var(--chief-touch-target);box-sizing:border-box;border:1px solid var(--agent-border);border-radius:12px;background:var(--agent-surface);font:inherit}
 .chief-web__dock{flex:none;padding:8px max(var(--chief-inset),env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(var(--chief-inset),env(safe-area-inset-left));display:flex;flex-direction:column;gap:8px}
 .chief-web .guest-composer{gap:4px;padding:8px;border:1px solid var(--agent-border);border-radius:16px;align-items:flex-end}

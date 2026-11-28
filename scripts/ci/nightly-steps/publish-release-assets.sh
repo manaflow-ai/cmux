@@ -8,7 +8,7 @@
 # Every wait in this job (notes, assets, archive, gh) shares one hour
 # (GH_BUDGET_WAIT_MAX_SECONDS), so the job's 120 minutes keep 60 for the work.
 set -euo pipefail
-if [ "$NIGHTLY_TRACK" != rc ]; then
+if [ "$NIGHTLY_TRACK" = nightly-next ]; then
   # arm64 only (decide): the x86_64, universal and legacy names keep their last build.
   variants=(arm64)
   aliases=("${CHANNEL_DMG_PREFIX}-arm64.dmg")

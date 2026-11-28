@@ -87,9 +87,6 @@ final class ExternalOpenController {
         perform(.attachImages(urls, from: source))
     }
 
-    /// Capture Screenshot to Chat and `chat.capture.toChat`: a screenshot into this route (``CaptureToChat``).
-    var captureToChat: CaptureToChat { CaptureToChat(route: chatAttach) { [weak self] in self?.attachToChat($0, from: $1) } }
-
     /// Finder service "New cmux Tab Here" with the selected paths.
     func newTabHere(_ paths: [String]) {
         for path in paths { perform(router.newTabHere(path)) }
@@ -114,7 +111,7 @@ final class ExternalOpenController {
     func perform(_ route: ExternalOpenRoute) {
         let windows = services.windows
         guard let controller = windows.active else {
-            park(route, why: "no window")
+            pending.append(route)
             if windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
             return
         }
@@ -130,13 +127,13 @@ final class ExternalOpenController {
         if case .deepLink = route { leavesHome = false } else { leavesHome = true }
         let onHome = { leavesHome && controller.showsHomeWorkspace }
         if controller.focusedPane == nil || onHome(), !controller.showOpenableWorkspace() { createWorkspaceForPending(in: controller) }
-        guard let pane = controller.focusedPane, !onHome() else { return park(route, why: onHome() ? "home shown" : "no pane") }
+        guard let pane = controller.focusedPane, !onHome() else { return pending.append(route) }
         // Routes parked for a pane run first, in order, once one can take them: a cold launch's open
         // that missed the content flushes was otherwise parked for good (screenshot-into-chat "lost").
         // Not from Home, where a parked non-link route would park again under a deep link.
         if !pending.isEmpty, !controller.showsHomeWorkspace {
             let routes = pending + [route]
-            pending = []; chatAttach.parked(files: nil)
+            pending = []
             return routes.forEach(perform)
         }
         if case .deepLink(let url) = route {
@@ -159,9 +156,9 @@ final class ExternalOpenController {
         if !services.environment.noActivate { NSApp.activate() }
     }
 
-    /// A workspace being created to hold what opens while a window lists only Home; its content runs the queue (`flush`).
+    /// A workspace being created to hold what opens while a window lists
+    /// only Home; its content runs the queue (`flush`).
     private var creatingWorkspace = false
-    private func park(_ route: ExternalOpenRoute, why: String) { pending.append(route); chatAttach.parked(files: route.attachedFiles, why: why) } // logged, read back
 
     private func createWorkspaceForPending(in controller: WindowController) {
         guard !creatingWorkspace, case let windows = services.windows else { return }
@@ -182,12 +179,12 @@ final class ExternalOpenController {
         }
     }
 
-    /// A window installed its content, or a workspace made for the queue was created: run what waited for one. No pane yet (Home shown as a top page)
-    /// shows the made workspace, whose first pane's mount runs it; else an open waited for the next door's `perform` (screenshot-into-chat "late").
+    /// A window installed its content, or a workspace made for the queue was created: run what waited for one.
     func flush() {
-        guard !pending.isEmpty, let controller = services.windows.active else { return }
-        guard controller.focusedPane != nil else { return _ = controller.showOpenableWorkspace() }
-        let routes = pending; pending = []; chatAttach.parked(files: nil); routes.forEach(perform)
+        guard !pending.isEmpty, services.windows.active?.focusedPane != nil else { return }
+        let routes = pending
+        pending = []
+        routes.forEach(perform)
     }
 
     private func deliver(_ route: ExternalOpenRoute, to pane: PaneController) {
@@ -208,7 +205,6 @@ final class ExternalOpenController {
         // The one file path every opener takes (Open File..., `file.open`); a refusal shows its reason.
         case .file(let url): services.viewers.openFile(url, in: pane, markdown: false)
         case .shareLink(let url): AgentShareLinks(host: services).open(url) { [weak pane] in pane?.newBrowserTab(url: $0) }
-        case .macScreen(let device): services.macScreenTabs.open(services.macScreenPages.record(forDevice: device, requesting: .view), in: pane.workspace?.pageTabPane(from: pane) ?? pane, focus: true, byPerson: true)
         case .attachImages(let urls, let source):
             // The pane's chat, else the one shown in the workspace's most recently focused pane; a New Tab page is no chat; a chat not made answers nil, so its files go with the next.
             let recent = pane.workspace.map { content in content.recentPanes.compactMap { content.panes[$0] } } ?? []

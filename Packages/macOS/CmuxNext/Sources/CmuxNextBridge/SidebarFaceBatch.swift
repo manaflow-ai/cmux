@@ -1,5 +1,4 @@
 internal import CCmuxLayoutReducerFFI
-import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSidebar
@@ -231,16 +230,8 @@ public final class SidebarFaceBatch {
         return row
     }
 
-    /// The bytes ``run()`` hands Rust: every staged C struct and the strings buffer.
-    var sentBytes: Int {
-        MemoryLayout<CmuxSidebarFaceWorkspace>.stride * workspaces.count + MemoryLayout<CmuxSidebarFacePane>.stride * panes.count
-            + MemoryLayout<CmuxSidebarFaceTab>.stride * faceTabs.count + MemoryLayout<CmuxSidebarFaceEntry>.stride * entries.count
-            + MemoryLayout<CmuxSidebarFaceRequest>.stride + strings.count
-    }
-
     /// Maps every row of the batch in one call. Nil when the rules could not read the request.
     func run() -> Reply? {
-        BridgeByteMeter.record("sidebar.faceRows", sent: sentBytes, received: 0)
         let reply: UnsafePointer<CmuxSidebarFaceReply>? = workspaces.withUnsafeBufferPointer { workspaces in
             panes.withUnsafeBufferPointer { panes in
                 faceTabs.withUnsafeBufferPointer { tabs in

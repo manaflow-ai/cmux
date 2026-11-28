@@ -14,7 +14,8 @@ final class AppTaskManagerSource: TaskManagerSampleSource {
 
     /// The pids of this Mac's connected daemons.
     var localDaemonPIDs: Set<Int32> {
-        Set((services?.machines.daemons ?? []).filter(\.isLocal).compactMap { $0.identity?.pid }.filter { $0 > 0 })
+        guard let services else { return [] }
+        return Set(services.machines.daemons.filter(\.isLocal).compactMap { $0.identity?.pid }.filter { $0 > 0 })
     }
 
     func sample() async -> TaskManagerSampleSet {

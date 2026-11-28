@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "re
 import { CloudSignIn } from "./conversation/CloudSignIn";
 import { ErrorDetails } from "./conversation/ErrorDetails";
 import type { CloudSignIn as CloudSignInActions } from "./cloudAgentLogin";
-import { WaitSpinner } from "./conversation/WaitSpinner";
+import { Spinner } from "./conversation/icons";
 import { useT } from "./i18n";
 import { useNoticeTurn } from "./noticeSlotModel";
 import { type HarnessHealth, needsLogin, skip, type UpdateOffer, skipped } from "./harnessHealthNoticeModel";
@@ -68,6 +68,7 @@ export function HarnessHealthNotice({
   onSignInVisible?: (visible: boolean) => void;
 }) {
   const t = useT();
+  const actionsRef = useRef<HTMLDivElement>(null);
   const [dismissed, setDismissed] = useState<string>();
   const [progress, setProgress] = useState<Progress>();
   const signedOut = health && needsLogin(health.auth) && health.login ? health.login : undefined;
@@ -196,7 +197,7 @@ export function HarnessHealthNotice({
     // Names whose sign-in it is and the one fix, as the composer's notice does (sessionAuth.ts).
     text = t(health.auth === "expired" ? "auth.login.expired" : "auth.login.signedOut", { agent: name });
     buttons = signIn ? (
-      <CloudSignIn signIn={signIn} rowId={undefined} prompt={undefined} />
+      <CloudSignIn signIn={signIn} rowId={undefined} prompt={undefined} actionsRef={actionsRef} />
     ) : (
       <button type="button" data-notice-action="login" onClick={() => run(signedOut!)}>
         {t("auth.fix.signInTo", { name })}
@@ -233,7 +234,6 @@ export function HarnessHealthNotice({
           </button>
         )}
         <button type="button" data-notice-action="retry" onClick={() => startUpdate()}>
-          {/* retry-prompt-ok: runs the agent's updater again (an install). */}
           {t("harness.tryAgain")}
         </button>
       </>
@@ -255,10 +255,10 @@ export function HarnessHealthNotice({
         {/* The spinner trails the text, so starting or finishing work never moves the words. */}
         <p className="acpmux-host-error-message">
           {text}
-          {busy && <WaitSpinner size={12} className="acpmux-harness-spinner" loading />}
+          {busy && <Spinner size={12} className="acpmux-harness-spinner" loading />}
         </p>
         {/* Not Now leads, so Restart Chat or Try Again appearing or going never moves it. */}
-        <div className="acpmux-host-error-actions">
+        <div className="acpmux-host-error-actions" ref={actionsRef}>
           {notNow}
           {buttons}
         </div>

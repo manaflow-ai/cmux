@@ -1,4 +1,3 @@
-import CmuxNextSettingsWindow
 import CmuxNextDesign
 import CmuxNextTerminal
 import Foundation
@@ -13,7 +12,7 @@ import Observation
 /// kept here, so pickers draw strips without reading files.
 @MainActor
 @Observable
-final class ThemeCatalog: SettingsPaletteThemes {
+final class ThemeCatalog {
     /// Theme names, sorted case-insensitively.
     private(set) var names: [String] = []
     /// Each theme's swatch strip (`ThemeSwatch`), read after the names.

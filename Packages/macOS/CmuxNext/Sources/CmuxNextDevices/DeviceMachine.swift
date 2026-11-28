@@ -15,15 +15,15 @@ import IOKit
 /// default space (NIGHTLY, release) keeps the value it always had. The hardware UUID alone is no
 /// secret (any app on the Mac can read it), so the key is what stops a device elsewhere from naming
 /// this Mac; nil where there is no hardware UUID (not a Mac) or no secret.
-package struct DeviceMachine: Sendable, Equatable {
-    package let id: String?
+struct DeviceMachine: Sendable, Equatable {
+    let id: String?
 
     /// This Mac's in the default build space, read once.
     /// Only a Mac names one: elsewhere there is no hardware UUID, so no secret is made either.
-    package static let current: DeviceMachine = DeviceMachine(hardwareUUID: platform.uuid, secret: platform.secret)
+    static let current: DeviceMachine = DeviceMachine(hardwareUUID: platform.uuid, secret: platform.secret)
 
     /// This Mac's in `buildSpace`: ``current`` for the default space.
-    package static func current(in buildSpace: DeviceHubBuildSpace) -> DeviceMachine {
+    static func current(in buildSpace: DeviceHubBuildSpace) -> DeviceMachine {
         guard let space = buildSpace.headerValue else { return current }
         return DeviceMachine(hardwareUUID: platform.uuid, secret: platform.secret, buildSpace: space)
     }

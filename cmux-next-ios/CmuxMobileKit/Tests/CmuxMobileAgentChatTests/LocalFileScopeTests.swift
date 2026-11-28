@@ -48,7 +48,7 @@ import Testing
             #expect(shown == url)
             #expect(scope.starts == 1)
             #expect(scope.stops == 0)
-            // A retry loads it again: the same access, not a second one.
+            // Try Again loads it again: the same access, not a second one.
             _ = try await source.load(file.artifact)
             #expect(scope.starts == 1)
             #expect(scope.stops == 0)

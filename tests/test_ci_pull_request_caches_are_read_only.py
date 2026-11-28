@@ -43,10 +43,6 @@ def reads_secret_prefix(value: object, *prefixes: str) -> bool:
     return workflow_jobs.ALL_SECRETS in names or any(name.startswith(prefixes) for name in names)
 
 
-# The nightly seeds the caches; its compilation-cache refreshers run in a workflow it calls (size budget).
-NIGHTLY_WORKFLOWS = ("nightly.yml", "nightly-compilation-cache.yml")
-
-
 def main() -> int:
     failures: list[str] = []
 
@@ -59,8 +55,7 @@ def main() -> int:
 
     seeded = {
         (step["with"]["key"], step["with"]["path"])
-        for workflow_name in NIGHTLY_WORKFLOWS
-        for _, step in cache_steps(workflow_name)
+        for _, step in cache_steps("nightly.yml")
         if not step["uses"].startswith(RESTORE)
     }
     for job_name, step in ci_steps:
@@ -76,7 +71,7 @@ def main() -> int:
     # its offline resolve (test-e2e.yml, run 36134675453). Every other reader
     # restores the store nightly.yml writes, through cache-restore.
     for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
-        if path.name in NIGHTLY_WORKFLOWS:
+        if path.name == "nightly.yml":
             continue
         workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
         for job_name, step in cache_steps(path.name):
@@ -143,13 +138,12 @@ def main() -> int:
         if "CF_R2_" in ci_text or reads_secret_prefix(ci_text, "CI_CACHE_R2_") \
                 or any(reads_secret_prefix(job, "CI_CACHE_R2_") for job in ci_jobs.values()):
             failures.append(f"{workflow_name} must not reference the R2 bucket credentials")
-    for workflow_name in NIGHTLY_WORKFLOWS:
-        for job_name, step in cache_steps(workflow_name):
-            for name, value in (step.get("env") or {}).items():
-                if reads_secret_prefix(value, "CF_R2_"):
-                    failures.append(f"{workflow_name} {job_name}: cache writes must use dedicated CI_CACHE_R2_* credentials, never release credentials")
-                if reads_secret_prefix(value, "CI_CACHE_R2_") and "== 'r2' &&" not in str(value):
-                    failures.append(f"{workflow_name} {job_name}: {name} must be empty unless the run saves to R2")
+    for job_name, step in cache_steps("nightly.yml"):
+        for name, value in (step.get("env") or {}).items():
+            if reads_secret_prefix(value, "CF_R2_"):
+                failures.append(f"nightly.yml {job_name}: cache writes must use dedicated CI_CACHE_R2_* credentials, never release credentials")
+            if reads_secret_prefix(value, "CI_CACHE_R2_") and "== 'r2' &&" not in str(value):
+                failures.append(f"nightly.yml {job_name}: {name} must be empty unless the run saves to R2")
 
     # The write credentials live in the ci-cache-writer environment, whose
     # deployment branches are limited to main. Every job that names them must
@@ -161,8 +155,6 @@ def main() -> int:
     # enters it only on main.
     signing_writer = "${{ github.ref == 'refs/heads/main' && 'release' || '' }}"
     next_writer = "${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}"
-    next_push_writer = ("${{ github.ref == 'refs/heads/feat-cmux-next' && github.event_name == 'push' "
-                        "&& 'next-cache-writer' || '' }}")
     store_signer = ("${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || "
                     "github.ref == 'refs/heads/nightly-next' && 'artifacts' || '' }}")
     signing_secret = ("IOS_", "ASC_API_", "APPLE_")
@@ -204,9 +196,7 @@ def main() -> int:
             # cmux NEXT writes its own bucket through its own environment, whose
             # deployment branches are feat-cmux-next only; it never names main's
             # bucket (cmux-next-fast-tier-seed.yml).
-            # Some jobs further restrict credentials to pushes. Accept that
-            # exact form with the same bucket checks, never a partial match.
-            if environment in ({"name": next_writer}, {"name": next_push_writer}):
+            if environment == {"name": next_writer}:
                 bucket = workflow_jobs.effective_env(document, job).get("CI_CACHE_R2_BUCKET")
                 if bucket == "cmux-ci-cache-next" and "vars.CI_CACHE_R2_BUCKET" not in path.read_text(encoding="utf-8"):
                     continue
@@ -236,8 +226,7 @@ def main() -> int:
     outputs = json.loads(result.stdout)
     if outputs.get("should_build") != "false" or outputs.get("should_publish") != "false":
         failures.append("manual cache-only dispatch must neither build nor publish an app")
-    # One nightly job calls both refreshers (nightly-compilation-cache.yml), so its condition gates them both.
-    for job in ("refresh-compilation-caches",):
+    for job in ("refresh-compilation-cache", "refresh-test-compilation-cache"):
         if "inputs.seed_only" not in nightly["jobs"][job]["if"]:
             failures.append(f"{job} must allow manual cache seeding")
         # Owned pools serve pull requests, so the scheduled Blacksmith warmers

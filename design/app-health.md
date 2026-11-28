@@ -23,15 +23,21 @@ repair that kinda thing, and even better of course, prevent it from ever happeni
 
 ## What appears
 
-The start state is an ordinary app with nothing extra on screen. Slow, stuck and repairing parts,
-and queued actions, draw no footer indicator: the app keeps the last frame and owns recovery.
-Only a failed repair shows a calm line naming the part, with the existing click opening **Repair now**.
-The Rust model holds exhausted repairs quiet until the episode has lasted at least 10 seconds, even
-when all retry attempts fail immediately. Recovery before that deadline cancels escalation.
+The start state is an ordinary app with nothing extra on screen. When a part is stuck, being repaired or
+out of repairs, or the host queues an action of the person's while it is unreachable, a tiny dot and one
+line appear at the sidebar's bottom-left. The line names the part and what is happening to it, in words
+the person can act on: "Agent chat isn't responding" (a click opens Repair now), "Repairing Agent chat…"
+(the app is on it), "Agent chat needs a repair" (its repairs ran out), "Reconnecting; will close
+Background task when back". The dot takes the danger color when a part is stuck or its repairs ran out,
+the attention color while the app repairs it, and is muted for a queued action alone.
 
-Leo, 2026-11-16, on “Repairing Connection to the session service…”: “pls no messages like this :(”.
-A ten-second delay followed by endless automatic progress is still chatter. The popover is an
-explicitly opened diagnostic view and retains repair details, receipts and queued actions.
+A part that is only **slow** shows nothing there. Slow means it still answers, late: a page whose
+heartbeat is 5 to 10 s behind, most often because the Mac is busy. If it stops answering the model makes
+it stuck at 10 s and repairs it, which the line then says. Leo, 2026-11-11, after a heavily loaded Mac
+showed "Agent pane: Slow" again and again: "the agent pane: slow indicator on the bottom left is uselsss
+and layout shifts the space. it's bad". The popover still lists a slow part with its detail, and the
+"Restoring sessions…" card already covers a slow restore. The agent pane's page is named "Agent chat",
+not its resource's "Agent pane".
 
 The line never takes room in the footer row. It floats on its own small chip in the sidebar
 cards' veil (the chip radius; never a solid fill) just above the row and any card over it, at the avatar's leading
@@ -74,8 +80,8 @@ run over unsaved edits: the page's reload refuses, and the next step comes.
 ## Queued actions never apply and revert
 
 While the session daemon or page host is unreachable, a tab click or close is queued by the host
-and retained as pending in diagnostics, or refused with an actionable failure. It does not
-announce the automatic reconnect in the footer. It never selects for a moment and snaps back. Leo, 2026-11-09, on the restart loop: "so in
+and shown as pending ("Reconnecting; will close Background task when back"), or refused with that
+status. It never selects for a moment and snaps back. Leo, 2026-11-09, on the restart loop: "so in
 this case even just clicking on the top bar made it flicker. i couldnt close the background task tab
 for some reason".
 

@@ -331,7 +331,6 @@ pub fn reason(code: &str, facts: &Facts) -> Option<String> {
             "you spent your monthly Cloud budget; an admin can raise it".to_owned()
         }
         "cloud.rate_limited" => {
-            // retry-prompt-ok: a rate-limit window the person must wait out, named in seconds.
             format!("too many Cloud machine starts; try again in {} s", facts.wait_s())
         }
         _ => return None,

@@ -129,10 +129,6 @@ pub enum ProcessCmd {
         hook_denied: Option<std::path::PathBuf>,
         #[arg(long = "hook-key", hide = true)]
         hook_key: Option<String>,
-        /// The harness tool call the hook rewrote into this start: the process registry lists
-        /// the task under it.
-        #[arg(long = "tool-call", hide = true)]
-        tool_call: Option<String>,
         /// The command, run by bash -c.
         command: String,
     },
@@ -162,11 +158,10 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
         slow,
         hook_denied,
         hook_key,
-        tool_call,
         command,
     } = cmd
     {
-        let start = Start { cwd, description, notify: !no_notify, route, slow, tool_call, command };
+        let start = Start { cwd, description, notify: !no_notify, route, slow, command };
         let env = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
         let outcome = start_task(&start, &env).await;
         return finish_start(&start, outcome, hook_denied.zip(hook_key), json_out);
@@ -832,7 +827,6 @@ struct Start {
     notify: bool,
     route: Option<String>,
     slow: Option<String>,
-    tool_call: Option<String>,
     command: String,
 }
 
@@ -853,9 +847,6 @@ fn start_params(start: &Start, env: Env<'_>, here: Option<std::path::PathBuf>) -
     }
     if let Some(d) = start.description.as_deref().filter(|d| !d.trim().is_empty()) {
         params.set("description", json!(d));
-    }
-    if let Some(call) = start.tool_call.as_deref().filter(|c| !c.trim().is_empty()) {
-        params.set("toolCallId", json!(call));
     }
     let mark = env(crate::sender_env::SUBAGENT_ENV);
     let sub = mark.as_deref().and_then(|v| v.split_once(':')).filter(|(kind, id)| {

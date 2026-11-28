@@ -5,7 +5,7 @@ import Foundation
 /// `restart-tab`. The classic migration parks the workspaces it brings over
 /// in the background, so their terminals start only when first shown.
 /// Tabs that are not terminals, or whose shell already ended, are skipped.
-extension ParkTabsRequest {
+public struct ParkTabsRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         /// The tabs whose terminal was parked.
         public var parked: [SurfaceID]
@@ -13,5 +13,13 @@ extension ParkTabsRequest {
         public init(parked: [SurfaceID]) {
             self.parked = parked
         }
+    }
+
+    public static let command = "park-tabs"
+    public static let requiredCapability: String? = DaemonCapability.tabPark.rawValue
+    public var surfaces: [SurfaceID]
+
+    public init(surfaces: [SurfaceID]) {
+        self.surfaces = surfaces
     }
 }

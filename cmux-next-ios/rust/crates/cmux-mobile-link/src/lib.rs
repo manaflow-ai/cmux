@@ -15,8 +15,6 @@
 //! - [`path_report`]: one log line per path change and per 10 s (path, srtt).
 //! - [`names`]: the link's capability names, declared once (PROTOCOL.md "Capabilities").
 //! - [`local`], [`local_hub`]: nearby links with no internet (mDNS ad policy, the Mac's local hub).
-//! - [`route_literals`]: the IP literals each dialed host last resolved to (a dial needs no DNS).
-//! - [`zstd_stream`]: `zstd-stream-v1`, one zstd stream per acpmux channel on the link.
 //! - [`reconnect`]: the reconnect decision as one pure step (a port of `LinkMachine.swift`).
 //! - [`viewport`]: viewport state sync's VT rendering and the phone's datagram receiver.
 
@@ -27,7 +25,6 @@
 pub mod api;
 pub mod build_space;
 pub mod bundle_link;
-pub mod chat_open;
 pub mod class_queue;
 pub mod classes;
 pub mod dial;
@@ -49,13 +46,11 @@ pub mod local_hub;
 pub mod mailbox_client;
 pub mod media;
 pub mod names;
-pub mod net_return;
 pub mod path_report;
 pub mod reconnect;
 pub mod relay_cache;
 pub mod relay_hold;
 pub mod reliable;
-pub mod route_literals;
 mod send_queue;
 pub mod signal_dial;
 pub mod signaling;
@@ -63,7 +58,6 @@ pub mod signaling;
 pub mod testing;
 pub mod timing;
 pub mod viewport;
-pub mod zstd_stream;
 
 pub use build_space::BuildSpace;
 pub use dial::{Connected, DialError, DialOptions, LinkPath, Overlay, TransportKind, UltraSetting};

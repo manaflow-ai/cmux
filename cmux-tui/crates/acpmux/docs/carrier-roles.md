@@ -177,10 +177,6 @@ A teammate's notifications other than a `session/cancel` of a chat it was given 
 (`a_teammates_cancel_notification_goes_on_only_for_a_chat_it_was_given`),
 and so are its answers to requests the daemon sends a client.
 
-One method is answered before the carrier gate: `_acpmux/request_state`, which the connection
-loop answers with the connection's own request ids still running and lately answered
-(`server/in_flight.rs`). It names nothing of any chat, so a teammate gets it as any client does.
-
 A teammate's `session/new` is refused whatever it carries (`mcpServers`, a `cwd`, a policy):
 it never starts a session on the VM. The test `the_owner_and_team_matrix_covers_every_method`
 (`src/server/carrier_tests.rs`) reads every method from `rpc.rs` and checks each against this

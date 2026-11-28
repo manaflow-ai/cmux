@@ -9,23 +9,17 @@
 //   - a chat on an acpmux peer reads only that peer's link as acpmux reports it (`peerStates`), and a
 //     chat on this Mac draws nothing;
 //   - connected is the dot alone; connecting, reconnecting and offline name the machine and the
-//     sidebar header's word for the state; offline asks acpmux for the peer again on its own (the
-//     shared backoff, autoRetry.ts), with no Reconnect button;
+//     sidebar header's word for the state; offline offers Reconnect, which asks acpmux for the peer;
 //   - the row's element stays one element through every state, so the row's other controls stay put.
 import { afterAll, afterEach, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { chat, summary, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { PeerLink } from "../src/agent-session/acpmux/peerLink";
-import { AUTO_RETRY_FIRST_MS, AUTO_RETRY_MAX_MS } from "../src/agent-session/acpmux/autoRetry";
+import { LINK_DOWN_SAID_MS, setLinkDownSaidMs } from "../src/agent-session/acpmux/afterDelay";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { chat, summary, user } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
-const { LINK_DOWN_SAID_MS, setLinkDownSaidMs } = await importWithDom(
-  () => import("../src/agent-session/acpmux/afterDelay"),
-);
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -147,24 +141,21 @@ test("a peer chat's row says each link state in the sidebar's words, in one elem
   expect(element?.getAttribute("aria-label")).toBe("walk-remote · Connected");
   expect(reconnect()).toBeNull();
 
-  // Automatic recovery keeps the plain dot with no words (Leo, 2026-11-16: "pls no messages like this").
-  for (const state of ["connecting", "reconnecting", "restarting", "degraded"]) {
+  for (const [state, link_, words] of [
+    ["connecting", "connecting", "Connecting…"],
+    ["reconnecting", "connecting", "Reconnecting…"],
+    ["restarting", "connecting", "Reconnecting…"],
+    ["degraded", "connecting", "Reconnecting…"],
+    ["offline", "offline", "Offline"],
+  ] as const) {
     await render(started("walk-remote", state));
     expect(link(), state).toBe(element);
-    expect(link()?.dataset.link, state).toBe("connecting");
-    expect(link()?.hasAttribute("data-said"), state).toBe(false);
-    expect(link()?.hasAttribute("data-quiet"), state).toBe(true);
-    expect(link()?.getAttribute("aria-label"), state).toBe("walk-remote");
-    expect(host.querySelector(".acpmux-machine-link-spinner"), state).toBeNull();
-    expect(reconnect(), state).toBeNull();
+    expect(link()?.dataset.link, state).toBe(link_);
+    expect(link()?.hasAttribute("data-said"), state).toBe(true);
+    expect(said(), state).toBe(`walk-remote${words}`);
+    expect(link()?.getAttribute("aria-label"), state).toBe(`walk-remote · ${words}`);
+    expect(reconnect() !== null, state).toBe(false);
   }
-  await render(started("walk-remote", "offline"));
-  expect(link()).toBe(element);
-  expect(link()?.dataset.link).toBe("offline");
-  expect(link()?.hasAttribute("data-said")).toBe(true);
-  expect(said()).toBe("walk-remoteOffline");
-  expect(link()?.getAttribute("aria-label")).toBe("walk-remote · Offline");
-  expect(reconnect()).toBeNull();
 
   // Back: the words fold away, the same element keeps the dot.
   await render(started("walk-remote", "connected"));
@@ -172,25 +163,21 @@ test("a peer chat's row says each link state in the sidebar's words, in one elem
   expect(link()?.hasAttribute("data-said")).toBe(false);
 });
 
-test("an offline peer is asked for again on its own, with no Reconnect button", async () => {
-  // Leo, 2026-11-22: "vacuous decisions like that should be just done".
-  jest.useFakeTimers();
+test("an offline peer offers Reconnect, which asks for that peer", async () => {
   const asked: PeerLink[] = [];
   let answer!: () => void;
   await render(started("walk-remote", "offline"), (pressed) => {
     asked.push(pressed);
     return new Promise<void>((resolve) => (answer = resolve));
   });
-  expect(reconnect()).toBeNull();
-  expect(link()?.querySelector("button")).toBeNull();
-  // The first ask comes within 1 s (autoRetry.ts AUTO_RETRY_FIRST_MS, jittered down); while it is in
-  // flight no second one is sent, however long it takes.
-  await act(async () => void jest.advanceTimersByTime(AUTO_RETRY_FIRST_MS));
+  const button = reconnect()!;
+  expect(button.textContent).toBe("Reconnect");
+  await act(async () => button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
   expect(asked).toEqual([{ machine: "walk-remote", link: "offline" }]);
-  await act(async () => void jest.advanceTimersByTime(AUTO_RETRY_MAX_MS * 2));
-  expect(asked).toHaveLength(1);
+  expect(reconnect()?.disabled).toBe(true);
+  expect(reconnect()?.textContent).toBe("Reconnecting…");
   await act(async () => answer());
-  expect(link()?.querySelector("button")).toBeNull();
+  expect(reconnect()?.disabled).toBe(false);
 });
 
 test("a Cloud peer that does not answer leaves it to the peer copy banner", async () => {
@@ -212,15 +199,13 @@ test("a paused Cloud peer that was connected draws no Reconnecting spinner", asy
   expect(host.querySelector(".acpmux-composer-foot")?.textContent ?? "").not.toContain("Reconnecting");
 });
 
-test("an open Cloud chat whose link drops with no banner keeps the quiet dot in the footer", async () => {
-  // The chat is still read from its machine (no Mac's copy, so no peer copy banner): an automatic
-  // reconnect keeps the dot and says nothing (Leo, 2026-11-16: "pls no messages like this").
+test("an open Cloud chat whose link drops with no banner keeps its warning in the footer", async () => {
+  // The chat is still read from its machine (no Mac's copy, so no peer copy banner): the footer is the
+  // only place that says the link is coming back.
   await render(started("dev-vm-2", "connected", "cloud"));
   await render(started("dev-vm-2", "reconnecting", "cloud"));
   expect(link()?.dataset.link).toBe("connecting");
-  expect(link()?.hasAttribute("data-quiet")).toBe(true);
-  expect(link()?.hasAttribute("data-said")).toBe(false);
-  expect(host.querySelector(".acpmux-composer-foot")?.textContent ?? "").not.toContain("Reconnecting");
+  expect(said()).toBe("dev-vm-2Reconnecting…");
 });
 
 test("a Cloud peer whose sign-in or build needs a person still says so", async () => {
@@ -254,7 +239,7 @@ function linked(peer: string, link: string, since: number, extra: Partial<Acpmux
   return { ...snapshot, peerLinks: { [peer]: { link, since } }, ...extra } as AcpmuxSnapshot;
 }
 
-test("a link that just dropped keeps the plain dot, with no spinner or words; only an offline one past the bound is said", async () => {
+test("a link that just dropped keeps the plain dot, with no spinner or words, until the bound, then says it once", async () => {
   jest.useFakeTimers();
   setLinkDownSaidMs(LINK_DOWN_SAID_MS);
   await render(started("walk-remote", "connected"));
@@ -276,13 +261,8 @@ test("a link that just dropped keeps the plain dot, with no spinner or words; on
   await act(async () => void jest.advanceTimersByTime(3_999));
   expect(link()?.hasAttribute("data-said")).toBe(false);
   await act(async () => void jest.advanceTimersByTime(1));
-  // Automatic reconnecting stays quiet past the bound (Leo, 2026-11-16: "pls no messages like this").
-  expect(link()?.hasAttribute("data-said")).toBe(false);
-  expect(link()?.hasAttribute("data-quiet")).toBe(true);
-  // The same drop going offline is past the bound, so it is said at once.
-  await render(linked("walk-remote", "offline", Date.now()));
   expect(link()?.hasAttribute("data-said")).toBe(true);
-  expect(said()).toBe("walk-remoteOffline");
+  expect(said()).toBe("walk-remoteReconnecting…");
 });
 
 test("a link acpmux has had down past the bound is said at once", async () => {

@@ -51,13 +51,9 @@ test("the turn's end puts Worked for in Working for's place, at the same height"
   expect(after.heights[worked]).toBe(during.heights[header]);
 });
 
-// A reply-only turn's end keeps its Worked for line in this place (turns.ts `holdsHeader`, #51896), so it draws
-// Working for from its first row, as every turn does; it once drew none, then the heading arrived with the first
-// work row and moved the reply down. Leo, 2026-11-22: "accounting for space for the worked for/working heading should always be there anyways so it disappearing means there's multiple problems".
-test("a turn of only a reply so far draws Working for under its prompt, where its end draws Worked for", () => {
+test("a turn of only a reply so far draws no Working for: its end has no fold line to take its place", () => {
   const live = shown(turnView(turn.slice(0, 2), new Set(), { now: 60_000, agentFamily: "codex", working: true }));
-  expect(live.map((each) => each.id)).toEqual(["u", "worked-u", "plan", expect.any(String)]);
-  expect(live[1]).toMatchObject({ kind: WORKED, turnPhase: "running" });
+  expect(live.some((each) => each.turnPhase === "running")).toBe(false);
 });
 
 test("the line arm keeps the clock on the bottom line and draws nothing over the work", () => {

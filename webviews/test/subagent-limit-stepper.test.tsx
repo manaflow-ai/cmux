@@ -11,23 +11,14 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { SubagentLimitStepper } from "../src/agent-session/acpmux/session-info/SubagentLimitStepper";
+import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import type { SubsessionLimits } from "../src/agent-session/acpmux/model";
-import type { StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
+import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
+import { startedSessions, type StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
+import { slotCounts, subsessionLimits } from "../src/agent-session/acpmux/subsessionLimits";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { SessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/SessionInfo"));
-const { SubagentLimitStepper } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/SubagentLimitStepper"),
-);
-const { resetSessionInfoState } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/sessionInfoState"),
-);
-const { sessionEntry } = await importWithDom(() => import("../src/agent-session/acpmux/sessionList"));
-const { startedSessions } = await importWithDom(() => import("../src/agent-session/acpmux/started/startedSessions"));
-const { slotCounts, subsessionLimits } = await importWithDom(
-  () => import("../src/agent-session/acpmux/subsessionLimits"),
-);
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();

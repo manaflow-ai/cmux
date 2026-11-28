@@ -37,8 +37,7 @@ pub fn open() -> Result<Arc<dyn Desktop>, String> {
 }
 
 /// The person's own mouse and keyboard use, for pause-on-takeover. On macOS
-/// this is the Rust worker's (the Screen Sharing helper's); cmux Remote's
-/// Swift worker supplies its own event tap through the C ABI instead.
+/// the Swift worker supplies it through the C ABI instead.
 pub fn person_activity() -> Arc<dyn PersonActivity> {
     #[cfg(windows)]
     {
@@ -48,19 +47,13 @@ pub fn person_activity() -> Arc<dyn PersonActivity> {
     {
         linux::person_activity()
     }
-    #[cfg(target_os = "macos")]
-    {
-        macos::person_activity()
-    }
-    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         Arc::new(crate::engine::NoTakeover)
     }
 }
 
-/// The on-screen agent cursor (cmux blue). On macOS it is drawn while the
-/// worker runs under [`macos::run_with_app`] (the Screen Sharing helper's);
-/// cmux Remote's Swift worker draws its own.
+/// The on-screen agent cursor (cmux blue). On macOS the Swift worker draws it.
 pub fn cursor_overlay() -> Arc<dyn CursorSink> {
     #[cfg(windows)]
     {
@@ -70,11 +63,7 @@ pub fn cursor_overlay() -> Arc<dyn CursorSink> {
     {
         linux::cursor_overlay()
     }
-    #[cfg(target_os = "macos")]
-    {
-        macos::cursor_overlay()
-    }
-    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         Arc::new(crate::cursor::NoCursor)
     }

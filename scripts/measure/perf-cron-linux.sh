@@ -78,10 +78,7 @@ case "$part" in
     # (scripts/ci/run-webviews-tests.sh does the same on these workers).
     playwright_version="$(cd webviews && python3 -I -c 'import json; print(json.load(open("package.json"))["devDependencies"]["playwright"])' 2>/dev/null || echo unknown)"
     export PLAYWRIGHT_BROWSERS_PATH="$cache/playwright-$playwright_version"
-    # --with-deps: a fresh pool worker lacks WebKit's system libraries (libavif, libmanette, libenchant ...), and the
-    # composer-typing bench exited 1 on "Host system is missing dependencies" (step 82df1fc7c16a5ae083bacd8b,
-    # 2026-11-26); react-apps-check-fleet.sh and the nightly workflow install the same way.
-    (cd webviews && ./node_modules/.bin/playwright install --with-deps webkit) 2>&1 | tee -a "$setup_log" || setup_yield "playwright webkit"
+    (cd webviews && ./node_modules/.bin/playwright install webkit) 2>&1 | tee -a "$setup_log" || setup_yield "playwright webkit"
     # Required, as on the runner job (its "Install Playwright" step).
     chrome_out="$(cd webviews && "$root/scripts/ci/ensure-system-chrome.sh" 2>>"$setup_log")" || setup_yield "system Chrome"
     printf '%s\n' "$chrome_out"
@@ -107,10 +104,7 @@ else
   echo "perf-cron-linux.sh: the branch tip's perf-cron.py was not fetched or has no part $part; using the commit's own"
 fi
 
-# -u: the part's progress lines (the god part's pane build and paired rounds, each up to 20 min) reach the step log
-# as they print. Piped, Python block-buffers them, so a healthy web-ui-god run looked silent and cmux-ci's 45 min
-# silent limit stopped it (step 26f423b903ecd334a1dbe269, 2026-11-28).
-python3 -I -u "$cron" run-linux-part --part "$part" --runner-class fleet-linux-c4d-32 --out "$work/part"
+python3 -I "$cron" run-linux-part --part "$part" --runner-class fleet-linux-c4d-32 --out "$work/part"
 [ -f "$work/part/result.json" ] || { echo "perf-cron-linux.sh: run-linux-part wrote no result" >&2; exit 1; }
 python3 -I - "$work/part" "$out/step.json" <<'PY'
 import json, os, sys

@@ -11,15 +11,11 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
+import { SILENT_MS } from "../src/agent-session/acpmux/conversation/thinkingModel";
+import { continuationStart, liveClock, THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { StatusVerbContext } from "../src/agent-session/acpmux/statusVerbs";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { Thinking } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/Thinking"));
-const { SILENT_MS } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/thinkingModel"));
-const { continuationStart, liveClock, THINKING, turnView } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/turns"),
-);
-const { StatusVerbContext } = await importWithDom(() => import("../src/agent-session/acpmux/statusVerbs"));
 
 // The line's two times (liveLineTimes.experiment.ts `labelled`) on the line itself
 // (liveTurnClock.experiment.ts `line`): this file reads the thinking time and the turn's clock.
@@ -215,12 +211,6 @@ test("a notice that set the agent going again after its reply starts the turn's 
   const line = liveLine([prompt, reply, notice]);
   expect(line.at).toBe(notice.at);
   expect(drawn(line, notice.at + 24_000)).toBe("Thinking 24s");
-  // A call after the reply: the agent was still at work, so a notice steered in then (acpmux
-  // who-else) set nothing going and the clock keeps the prompt's start. A thought is not a call.
-  const ran = activity("r", T0 + 61_000, [shell("bun run typecheck", "completed", T0 + 61_000, T0 + 70_000)]);
-  expect(continuationStart([prompt, reply, ran, notice], T0)).toBe(T0);
-  const mused = activity("t", T0 + 61_000, [thought(T0 + 61_000, T0 + 62_000)]);
-  expect(continuationStart([prompt, reply, mused, notice], T0)).toBe(notice.at);
 });
 
 const scope = globalThis as Record<string, unknown>;

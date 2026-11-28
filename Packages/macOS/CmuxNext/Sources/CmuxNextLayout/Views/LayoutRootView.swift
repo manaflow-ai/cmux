@@ -154,11 +154,6 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         get { context.dividerMenu }
         set { context.dividerMenu = newValue }
     }
-    /// Times each divider drag's first frame (``TransitionFrameLog``); nil times nothing.
-    public var frameTiming: TransitionFrameLog? {
-        get { context.frameTiming }
-        set { context.frameTiming = newValue }
-    }
     /// Whether a split or a pane close holds the terminals' grids now (``onTerminalGridHold``).
     public var holdsTerminalGrids: Bool { !context.gridHoldScreens.isEmpty }
 
@@ -689,9 +684,6 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     override public func layout() {
         super.layout()
         Self.layoutPasses &+= 1
-        // A window edge drag runs in AppKit's tracking loop, which the app's event monitor does not see:
-        // each live-resize pass notes the drag, so low background work waits until it ends.
-        if window?.inLiveResize == true { Interactivity.note(.drag) }
         fitScreensToBounds()
         updateVisibility()
         if overlayPlane.syncFrame() { overlayIsStale = true }

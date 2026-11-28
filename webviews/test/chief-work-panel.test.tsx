@@ -6,12 +6,12 @@ import { createStrings } from "../src/pages/shared/i18n";
 import table from "../src/pages/home-channels/generated/strings.json";
 
 const strings = createStrings(table, ["en"]);
-const render = (snapshot?: HomeChiefWork, loading = false, stillTrying = false) =>
+const render = (snapshot?: HomeChiefWork, loading = false, error?: string) =>
   renderToStaticMarkup(
     <ChiefWorkPanel
       snapshot={snapshot}
       loading={loading}
-      stillTrying={stillTrying}
+      error={error}
       strings={strings}
       onRefresh={() => undefined}
       onClose={() => undefined}
@@ -21,9 +21,8 @@ const render = (snapshot?: HomeChiefWork, loading = false, stillTrying = false) 
 test("loading or failed reads never claim there is no background work", () => {
   expect(render(undefined, true)).toContain("Loading work");
   expect(render(undefined, true)).not.toContain("No background work");
-  // A read failing past the deadline says it is still loading (useAutoRetry), never that there is none.
-  expect(render(undefined, false, true)).toContain("Still loading background work");
-  expect(render({ agents: [], tasks: [], truncated: false }, false, true)).not.toContain("No background work");
+  expect(render(undefined, false, "chief.work_unavailable")).toContain("Background work is unavailable");
+  expect(render(undefined, false, "chief.work_unavailable")).not.toContain("No background work");
   expect(render({ agents: [], tasks: [], truncated: false })).toContain("No background work");
   expect(render({ agents: [], tasks: [], truncated: true })).toContain("Some work could not be loaded");
   expect(render({ agents: [], tasks: [], truncated: true })).not.toContain("No background work");

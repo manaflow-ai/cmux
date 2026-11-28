@@ -123,7 +123,6 @@ extension AgentPaneGitPullRequest {
 
     /// GitHub has not worked out yet whether it can merge (just after a push).
     nonisolated static var mergeUnknownMessage: String {
-        // retry-prompt-ok: merging a pull request is a side effect the person must choose
         String(localized: "agentPane.error.gitMergeUnknown",
                defaultValue: "GitHub is still checking whether this pull request can merge. Try again in a moment.",
                bundle: .localizedModule)

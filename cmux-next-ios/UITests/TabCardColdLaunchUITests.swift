@@ -127,10 +127,7 @@ final class TabCardColdLaunchUITests: XCTestCase {
         app.launchEnvironment["CMUX_MOBILE_LIST_PASSES"] = "0"
         if !cardPictures { app.launchEnvironment["CMUX_MOBILE_LIST_NO_CARD_PICTURES"] = "1" }
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-tab", "workspaces", "-cmux-mobile-no-restore",
-                                "-cmux-mobile-card-face-probe",
-                                // Every pane, browsers included: this explicit filter value keeps these
-                                // cards in the grid while this test counts them.
-                                "-cmux.mobile.overview.paneFilter", "agents+terminals+browsers"]
+                                "-cmux-mobile-card-face-probe"]
         return app
     }
 

@@ -70,7 +70,7 @@ impl KinfoProc {
     }
 
     /// The process's name: its executable's base name, at most 16 bytes.
-    pub(crate) fn command(&self) -> &[u8] {
+    fn command(&self) -> &[u8] {
         let comm = &self.0[Self::P_COMM..Self::P_COMM + Self::P_COMM_LEN];
         &comm[..comm.iter().position(|byte| *byte == 0).unwrap_or(comm.len())]
     }

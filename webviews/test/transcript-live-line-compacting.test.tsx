@@ -11,15 +11,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import type { WorkingCounts } from "../src/agent-session/acpmux/conversation/workingForModel";
+import { THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
+import { WorkingCountsContext, type WorkingCounts } from "../src/agent-session/acpmux/conversation/workingForModel";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { THINKING, turnView } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/turns"));
-const { Thinking } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/Thinking"));
-const { WorkingCountsContext } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/workingForModel"),
-);
 
 const START = Date.UTC(2026, 10, 7, 8, 0, 0);
 const row = (id: string, kind: string, second: number, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -77,8 +72,6 @@ const saved = new Map<string, unknown>();
 
 beforeEach(() => {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
-  // Each change shown at once: the line's dwell (LINE_DWELL_MS) has its own tests in Thinking.test.tsx.
-  dom.window.document.documentElement.dataset.liveDwell = "off";
   for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
     saved.set(key, scope[key]);
   Object.assign(scope, {

@@ -40,7 +40,6 @@ extension ActiveTeam {
         struct Answer: Decodable { var rows: [Row] }
         let request = Request(teams: teams.map { Facts(id: $0.id, name: $0.name, plan: $0.plan) }, active: active)
         // An FFI that does not answer still lists every team, by name, with the active one checked.
-        // bridge-ok: one call for every team, per account change or menu open (SidebarAccount, TeamRowText), never per row or frame
         return CloudStartCore().call("cloud_auth_team_rows", request, as: Answer.self)?.rows
             ?? teams.map { Row(id: $0.id, title: $0.name, kind: .team, active: $0.id == active) }
     }

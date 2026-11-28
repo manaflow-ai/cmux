@@ -53,14 +53,11 @@ mod slides_tool;
 mod terminal_talk_tools;
 #[cfg(test)]
 mod tests;
-mod token_tools;
 mod tool_list;
 mod transport;
 mod upstream;
 mod upstream_listing;
-mod usage_insights_tool;
 mod v2_tools;
-mod vault_tools;
 mod video_tools;
 mod watch;
 mod workflow;
@@ -266,7 +263,7 @@ pub(super) trait Backend {
         Err(CallFailure::local(
             FailureKind::NotRun,
             "repo.unavailable",
-            "This server has no Cloud machine daemon connection for repository actions.",
+            "Connect to the Cloud machine and retry.",
         ))
     }
 
@@ -1266,9 +1263,6 @@ impl<B: Backend> Server<B> {
         if keys_tools::owns(name) {
             return Ok(self.call_keys(name, &arguments));
         }
-        if vault_tools::owns(name) {
-            return Ok(self.call_vault(name, &arguments));
-        }
         if name == open_tool::NAME {
             if !self.actions_loaded {
                 self.refresh_actions();
@@ -1306,12 +1300,6 @@ impl<B: Backend> Server<B> {
             return Ok(result);
         }
         if let Some(result) = device_tools::call(name, &arguments) {
-            return Ok(result);
-        }
-        if let Some(result) = usage_insights_tool::call(name, &arguments) {
-            return Ok(result);
-        }
-        if let Some(result) = token_tools::call(name, &arguments) {
             return Ok(result);
         }
         if let Some(tool) = remote_tools::find(name) {

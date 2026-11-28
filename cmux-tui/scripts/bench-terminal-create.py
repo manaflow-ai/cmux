@@ -254,10 +254,6 @@ def main():
                     help="background writers that write and F_FULLFSYNC in a loop (a busy Mac's disk)")
     ap.add_argument("--host-model", choices=("hosts", "holder"), default="hosts",
                     help="hosts: a terminal host process per terminal; holder: the install's one holder")
-    ap.add_argument("--malloc-space-efficient", action="store_true",
-                    help="start the daemon as the app does since CMUX-571's daemon malloc change: macOS's malloc in "
-                         "space-efficient mode (MallocSpaceEfficient=1 and its marker, which the daemon clears for "
-                         "its children; cmux-tui-platform malloc_space.rs)")
     args = ap.parse_args()
 
     root = tempfile.mkdtemp(prefix="tc-", dir=args.root_dir)
@@ -288,10 +284,6 @@ def main():
     )
     if args.host_model == "holder":
         env["CMUX_TUI_TERMINAL_HOST_MODEL"] = "holder"
-    if args.malloc_space_efficient:
-        env["MallocSpaceEfficient"] = "1"
-        env["CMUX_MALLOC_SPACE_EFFICIENT"] = "1"
-    result_malloc = "space-efficient" if args.malloc_space_efficient else "default"
     spans_path = os.path.join(root, "spans.ndjson")
     if args.spans:
         env["CMUX_TUI_DEBUG_SPANS"] = spans_path
@@ -301,7 +293,7 @@ def main():
         stdout=log, stderr=subprocess.STDOUT, env=env, start_new_session=True,
     )
     result = {"label": args.label, "platform": platform.platform(), "rounds": args.rounds,
-              "host_model": args.host_model, "malloc": result_malloc, "ops": {}}
+              "host_model": args.host_model, "ops": {}}
     failed = False
     try:
         deadline = time.time() + 30

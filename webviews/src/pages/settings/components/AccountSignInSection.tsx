@@ -11,12 +11,12 @@
 import { useSettingsState, useStore } from "../context";
 import { ACCOUNT_ACTIONS, parseAccountRow, type AccountFamily } from "../../shared/signIn/accountSignIn";
 import { AccountSwitcher } from "../../shared/signIn/AccountSwitcher";
-import { terminalSignIn, type SettingsSignIn } from "./useSettingsSignIn";
+import { terminalSignIn, useSettingsSignIn } from "./useSettingsSignIn";
 
-export function AccountSignInSection({ signIn }: { signIn: SettingsSignIn }) {
+export function AccountSignInSection() {
   const store = useStore();
-  const settingsAccounts = useSettingsState().accounts;
-  const listed = settingsAccounts?.signInAccounts;
+  const listed = useSettingsState().accounts?.signInAccounts;
+  const signIn = useSettingsSignIn();
   const start = (family: AccountFamily, account: string | null) =>
     signIn.begin(family, account, () => void store.runHarnesses(terminalSignIn(family, account)));
 
@@ -29,7 +29,6 @@ export function AccountSignInSection({ signIn }: { signIn: SettingsSignIn }) {
         signIn={signIn.running}
         busy={signIn.busy}
         look="inline"
-        hideAddFamilies={settingsAccounts?.github ? ["github"] : undefined}
         onAdd={(family) => start(family, null)}
         onSignIn={(account) => start(account.family, account.id)}
         onUse={(account) => signIn.gesture(ACCOUNT_ACTIONS.switch, account)}

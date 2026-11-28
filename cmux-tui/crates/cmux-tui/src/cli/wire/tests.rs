@@ -391,10 +391,10 @@ fn stopped_owner_reload_error_is_localized_for_human_output() {
 
         let expected = match locale.as_str() {
             "en_US.UTF-8" => {
-                "the local server stopped before it applied the configuration reload; it reads the configuration when the session starts again"
+                "the local server stopped before it applied the configuration reload; start the session and retry"
             }
             "ja_JP.UTF-8" => {
-                "ローカルサーバーが設定の再読み込みを適用する前に停止しました。セッションを再び起動すると設定が読み込まれます"
+                "ローカルサーバーが設定の再読み込みを適用する前に停止しました。セッションを起動して再試行してください"
             }
             _ => panic!("unexpected probe locale {locale}"),
         };

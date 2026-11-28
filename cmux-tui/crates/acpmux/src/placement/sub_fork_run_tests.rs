@@ -14,10 +14,10 @@ struct FakeHarness {
 }
 
 impl Harness for FakeHarness {
-    async fn run(&self, job: &Job, out: &mut (dyn FnMut(Frame) + Send)) -> Result<i32, String> {
-        out(Frame::Out("reading the task".into()));
+    async fn run(&self, job: &Job, out: &mut (dyn FnMut(&str) + Send)) -> Result<i32, String> {
+        out("reading the task");
         work_on(&job.checkout);
-        out(Frame::Out(format!("done: {}", job.prompt)));
+        out(&format!("done: {}", job.prompt));
         Ok(self.exit)
     }
 }
@@ -279,9 +279,6 @@ async fn a_job_that_is_not_json_answers_an_error_frame() {
         command: None,
         cwd: None,
         path: None,
-        env: Vec::new(),
-        env_held: Vec::new(),
-        merged: false,
     };
     let mut out = Vec::new();
     run_job(&job, &FakeHarness { exit: 0 }, &mut out).await.unwrap();

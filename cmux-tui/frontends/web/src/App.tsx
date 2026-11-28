@@ -3,7 +3,6 @@ import "@xterm/xterm/css/xterm.css";
 import { ConnectScreen } from "./components/ConnectScreen";
 import { ClientsIndicator } from "./components/ClientsIndicator";
 import { RenderGraphicsBudgetProvider } from "./components/RenderGraphics";
-import { ReconnectNotice } from "./components/ReconnectNotice";
 import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
 import { TerminalPane } from "./components/TerminalPane";
@@ -27,7 +26,6 @@ function AppContent() {
   const [drawer, dispatchDrawer] = useReducer(drawerReducer, "closed");
   const hasSession = connection.info !== null || connection.tree !== null;
   const activeWorkspace = connection.view.find((workspace) => workspace.active) ?? null;
-
   if (!hasSession) {
     return (
       <ConnectScreen
@@ -41,7 +39,14 @@ function AppContent() {
 
   return (
     <main className={`app-shell drawer-${drawer}`}>
-      <ReconnectNotice needsAction={connection.status === "reconnect-failed"} onRetry={connection.retryConnection} />
+      {connection.status === "reconnecting" && connection.reconnect && (
+        <div className="reconnect-banner" role="status">
+          {t("reconnecting", {
+            seconds: Math.max(1, Math.ceil(connection.reconnect.delayMs / 1000)),
+            attempt: connection.reconnect.attempt,
+          })}
+        </div>
+      )}
       <header className="mobile-toolbar">
         <button
           type="button"
@@ -78,9 +83,7 @@ function AppContent() {
         onRenameWorkspace={connection.mutations.renameWorkspace}
       />
       <TerminalPane
-        key={connection.info?.session}
         client={connection.client}
-        connected={connection.status === "connected"}
         clients={connection.clients}
         screen={connection.active}
         onRefreshClients={connection.refreshClients}

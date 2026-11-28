@@ -34,7 +34,6 @@ use cmux_remote::provider::{
     SupportedClientAuthModes, TailnetCarrierMode, WireGuardDialer, sanitized_route,
 };
 use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
-use cmux_remote::ssh_control::SshConnectionShare;
 use cmux_remote_protocol::{
     LanePolicy, REMOTE_PROTOCOL_VERSION, RouteId, RoutePolicy, SessionId, WorkspaceRequest,
     WorkspaceResponse,
@@ -809,7 +808,6 @@ fn start_connected(flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
 
 fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
     let startup_started = Instant::now();
-    cmux_remote::phase_timing::mark("start");
     let owner = flags.exit_with_parent.then(current_parent_process_id);
     refuse_unusable_local_paths(&flags)?;
     let invitation = flags
@@ -917,9 +915,6 @@ fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRun
         agent_hooks: flags.agent_hooks.clone(),
         // `remote connect` and `serve`: ssh speaks to the person.
         capture_stderr: false,
-        // One authentication per connect: the probe, install steps and
-        // carrier share one SSH connection (issue 38157).
-        connection_share: SshConnectionShare::new(),
     };
     let relay_route_names = relay_routes.keys().cloned().collect::<Vec<_>>();
     let tailnet_mode = match cmux_tui_core::user_settings::tailnet_carrier() {
@@ -1018,13 +1013,11 @@ fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRun
     // like a later drop, and its PATH.admin answers meanwhile (cmuxterm-hq#7766). An enrollment
     // keeps its approval window, and an upgrade its one bootstrap.
     let recover_first_connect = flags.headless && invitation.is_none() && !flags.upgrade;
-    let daemon_took_ik = known.as_ref().is_some_and(|known| known.takes_ik);
     let options = ClientRuntimeOptions {
         routes,
         providers,
         identity: store.identity(),
         expected_daemon,
-        daemon_took_ik,
         auth,
         device_name: flags.device_name.unwrap_or_else(default_device_name),
         session,
@@ -1036,7 +1029,6 @@ fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRun
         ssh,
         ssh_bootstrap,
     };
-    cmux_remote::phase_timing::mark("routes-resolved");
     let runtime = if recover_first_connect {
         start_recovering_client_runtime(options, move || owner.is_none_or(parent_process_is))?
     } else {
@@ -1053,12 +1045,6 @@ fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRun
         if let Some(via) = &dial_via {
             async_runtime.block_on(store.remember_via_machine(&pinned.fingerprint, via))?;
         }
-        // Its IK offer, so the first connect after enrolling already runs IK.
-        if runtime.daemon_takes_ik() != pinned.takes_ik {
-            async_runtime.block_on(
-                store.remember_takes_ik(&pinned.fingerprint, runtime.daemon_takes_ik()),
-            )?;
-        }
     } else if carrier_auth {
         let name = credential_free_route_hint(&route_strings[0])?;
         async_runtime.block_on(store.pin_carrier_daemon(
@@ -1074,12 +1060,6 @@ fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRun
             async_runtime
                 .block_on(store.remember_verified_route(&known.fingerprint, &route))?
                 .ok_or_else(|| anyhow!(catalog().remote_client.known_daemon_refresh_missing))?;
-        }
-        // The next cold connect runs IK when this one's welcomes offered it; a write only when
-        // that changed, so a steady connect touches the store no more than before.
-        let takes_ik = runtime.daemon_takes_ik();
-        if takes_ik != known.takes_ik {
-            async_runtime.block_on(store.remember_takes_ik(&known.fingerprint, takes_ik))?;
         }
     }
 
@@ -1736,7 +1716,6 @@ pub(crate) fn validate_managed_ssh_options(options: &ManagedSshOptions) -> anyho
         maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
         agent_hooks: Vec::new(),
         capture_stderr: false,
-        connection_share: SshConnectionShare::disabled(),
     })?;
     Ok(())
 }

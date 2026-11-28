@@ -52,7 +52,6 @@ impl App {
             notice,
             notice_ack,
             machine_reconnect,
-            self.machine_recovery_notice_deadline(),
             self.sidebar_plugin_retry_at,
             self.background_refresh_retry_at,
             files_refresh,

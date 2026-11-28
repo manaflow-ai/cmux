@@ -29,7 +29,6 @@ struct LaunchSnapshotWindow {
               let record = document.windows.first(where: { $0.id == front }), let window = saved.window(front) else { return false }
         manager.launchWindowID = front
         manager.state(for: front).adopt(record)
-        manager.launchFocus = LaunchFocusChoice(shownAtLaunch: manager.state(for: front).workspaceID)
         manager.registry.provisional[front] = window.workspaceIDs
         // Unregistered (no workspaces), so it is presented at once.
         manager.makeController(for: WindowRegistry.Window(id: front, frame: window.frame, display: window.display))

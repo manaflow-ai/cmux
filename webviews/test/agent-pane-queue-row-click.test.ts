@@ -325,19 +325,10 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
         const line = await text.evaluate((el) => {
           const clamp = el.querySelector(".acpmux-queued-clamp") as HTMLElement;
           const style = getComputedStyle(clamp);
-          const mask = style.maskImage || style.webkitMaskImage;
-          return {
-            nowrap: style.whiteSpace,
-            overflow: style.textOverflow,
-            mask,
-            height: el.getBoundingClientRect().height,
-          };
+          return { nowrap: style.whiteSpace, overflow: style.textOverflow, height: el.getBoundingClientRect().height };
         });
         expect(line.nowrap).toBe("nowrap");
-        // A cut line ends in the reveal fade, not an ellipsis (.ui-reveal-text, ui/motion/motion.css; Leo,
-        // 2026-11-24, #54401: "show the whole line before ellipsis-ing").
-        expect(line.overflow).toBe("clip");
-        expect(line.mask).toContain("linear-gradient");
+        expect(line.overflow).toBe("ellipsis");
         expect(await opacity(page, `${ROW} .acpmux-queued-actions`)).toBe(0);
         await hoverRow(page, ROW);
         expect(await opacity(page, `${ROW} .acpmux-queued-actions`)).toBe(1);

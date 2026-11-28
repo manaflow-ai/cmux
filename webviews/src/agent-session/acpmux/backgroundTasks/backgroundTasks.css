@@ -89,7 +89,7 @@
   letter-spacing: var(--text-body--letter-spacing);
 }
 .acpmux-bg__head {
-  flex: 0 0 var(--ds-control-primary);
+  flex: 0 0 calc(var(--ds-control-row) + var(--ds-space-4));
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);
@@ -154,12 +154,7 @@
 /* The list's first heading ("Running 5") stands clear of the header's tools rather than against
    them (Leo, 2026-11-05: "we have a lot of work to do regarding spacing"). */
 .acpmux-bg__list {
-  padding-top: var(--ds-space-2);
-}
-/* As its own tab there is no head (Leo, 2026-11-24: the title was "spaced so far down"): the list
-   starts under the tab row. */
-.acpmux-bg[data-headless] .acpmux-bg__list {
-  padding-top: var(--ds-space-3);
+  padding-top: var(--ds-space-4);
 }
 .acpmux-bg__empty {
   margin: var(--ds-space-4) var(--ds-space-2);
@@ -250,29 +245,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.acpmux-bg__agent .acpmux-bg__label {
+  font-weight: var(--weight-emphasis);
+}
 .acpmux-bg__chevron,
 .acpmux-bg__disclosure {
   flex: none;
   display: inline-flex;
   color: var(--agent-muted);
-}
-/* A row's kind, by its leading glyph (BackgroundTasksPanel.tsx `KindGlyph`): an agent's in the normal
-   tone, a command's or tool call's muted, with its title muted too. */
-.acpmux-bg__glyph {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--agent-muted);
-}
-.acpmux-bg__glyph[data-kind="agent"] {
-  color: var(--agent-text);
-}
-.acpmux-bg__task[data-kind="command"] {
-  color: var(--agent-muted);
-}
-.acpmux-bg__task[data-kind="command"][data-state="running"] .acpmux-bg__label {
-  color: var(--agent-text);
 }
 .acpmux-bg__time {
   flex: none;
@@ -374,45 +354,6 @@
 .acpmux-bg__section-count {
   font-variant-numeric: tabular-nums;
 }
-/* Finished's heading: its Clear finished is a text button at the line's end, shown while the heading is
-   hovered or has focus, never a bare icon at rest. */
-.acpmux-bg__section-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--ds-space-2);
-  min-width: 0;
-}
-.acpmux-bg__clear.ui-btn {
-  appearance: none;
-  flex: none;
-  height: auto;
-  min-height: var(--ds-control-compact);
-  padding: 0 var(--ds-space-2);
-  border: none;
-  border-radius: var(--ds-radius-control);
-  background: none;
-  color: var(--agent-muted);
-  font: inherit;
-  font-size: var(--text-detail);
-  letter-spacing: var(--text-detail--letter-spacing);
-  cursor: default;
-  opacity: 0;
-}
-.acpmux-bg__section-bar:hover .acpmux-bg__clear.ui-btn,
-.acpmux-bg__section-bar:has([data-popup-open]) .acpmux-bg__clear.ui-btn,
-.acpmux-bg__section-bar:is(:has([data-popup-open]), :focus-within) .acpmux-bg__clear.ui-btn,
-.acpmux-bg__clear.ui-btn:focus-visible {
-  opacity: 1;
-}
-.acpmux-bg__clear.ui-btn:hover:not(:disabled) {
-  background: var(--ds-color-hover);
-  color: var(--agent-text);
-}
-.acpmux-bg__clear.ui-btn:focus-visible {
-  outline: var(--cmux-focus-ring-width) solid var(--ds-color-focus);
-  outline-offset: calc(-1 * var(--cmux-focus-ring-width));
-}
 .acpmux-bg__list[hidden] {
   display: none;
 }
@@ -421,41 +362,9 @@
   padding-left: var(--ds-space-2);
 }
 
-/* ---------- Rows look (backgroundTasksRows.experiment.ts) ---------- */
-/* rule: no tinted block; agents are parted by a hairline, their tasks stand in a rail. */
-.acpmux-bg__list[data-rows="rule"] .acpmux-bg__group {
-  background: none;
-  border-radius: 0;
-  padding: var(--ds-space-1) 0;
-}
-.acpmux-bg__list[data-rows="rule"] .acpmux-bg__group + .acpmux-bg__group {
-  margin-top: var(--ds-space-1);
-  box-shadow: inset 0 var(--cmux-hairline) 0 var(--agent-border);
-}
-.acpmux-bg__list[data-rows="rule"] .acpmux-bg-card {
-  background: none;
-}
-.acpmux-bg__list[data-rows="rule"] .acpmux-bg__tasks {
-  margin-left: var(--ds-space-3);
-  padding-left: var(--ds-space-2);
-  box-shadow: inset var(--cmux-hairline) 0 0 var(--agent-border);
-}
-/* tile: the glyph sits in a small tile, the agents' in the accent, the commands' neutral. */
-.acpmux-bg__list[data-rows="tile"] .acpmux-bg__glyph,
-.acpmux-bg__list[data-rows="tile"] .acpmux-bg-card__glyph {
-  width: var(--ds-control-compact);
-  height: var(--ds-control-compact);
-  border-radius: var(--ds-radius-control);
-  background: var(--ds-color-hover);
-}
-.acpmux-bg__list[data-rows="tile"] .acpmux-bg__glyph[data-kind="agent"] {
-  color: var(--agent-accent);
-  background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
-}
-
 /* ---------- A subagent's transcript ---------- */
 .acpmux-bg__transcript {
-  padding: var(--ds-space-2) var(--ds-space-4) var(--ds-space-4);
+  padding: var(--ds-space-3) var(--ds-space-4) var(--ds-space-4);
   display: flex;
   flex-direction: column;
   gap: var(--ds-space-2);
@@ -553,10 +462,6 @@
 .acpmux-bg__stop.ui-btn svg {
   width: var(--ds-icon-12);
   height: var(--ds-icon-12);
-}
-.acpmux-bg .ui-btn:not([data-icon]) .acpmux-bg__glyph svg {
-  width: var(--ds-icon-14);
-  height: var(--ds-icon-14);
 }
 .acpmux-bg__name.ui-btn[data-disabled],
 .acpmux-bg__task-open.ui-btn[data-disabled] {

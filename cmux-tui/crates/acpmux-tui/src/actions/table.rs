@@ -247,15 +247,6 @@ pub const ACTIONS: &[ActionDef] = &[
         args: "[MODE]",
     },
     ActionDef {
-        action: Action::Plan,
-        name: "plan",
-        aliases: &[],
-        label: "toggle Plan mode",
-        keys: "Alt-Shift-p",
-        group: "settings",
-        args: "",
-    },
-    ActionDef {
         action: Action::Effort,
         name: "effort",
         aliases: &["reasoning"],

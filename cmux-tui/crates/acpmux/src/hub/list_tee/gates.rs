@@ -559,7 +559,6 @@ fn hub_book_session(n: usize, state: &str) -> crate::mesh::BookSession {
         daemon_id: "d-machine-b".into(),
         harness: "claude".into(),
         state: state.into(),
-        stuck_reason: None,
         last_seen_at: 5,
         ..Default::default()
     }

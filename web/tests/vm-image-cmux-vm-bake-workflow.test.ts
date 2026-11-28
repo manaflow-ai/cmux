@@ -26,7 +26,7 @@ const step = (name: string) => {
   return found;
 };
 
-type Inputs = { mode: string; clones: string; keep_snapshot: boolean; probes: boolean; agent_tools: boolean; team_vm: boolean; dev_tree: boolean; dev_snapshot?: string; layered?: boolean; large_image?: boolean; roll?: boolean };
+type Inputs = { mode: string; clones: string; keep_snapshot: boolean; probes: boolean; agent_tools: boolean; team_vm: boolean; dev_tree: boolean; dev_snapshot?: string; layered?: boolean; large_image?: boolean };
 const BASE: Inputs = { mode: "bake", clones: "2", keep_snapshot: true, probes: false, agent_tools: true, team_vm: false, dev_tree: false };
 const PROD_COPY: Inputs = { mode: "prod-copy", clones: "2", keep_snapshot: false, probes: false, agent_tools: true, team_vm: false, dev_tree: false, dev_snapshot: `sh-${"3".repeat(32)}` };
 
@@ -201,10 +201,7 @@ describe("cloud-vm-image-bake.yml", () => {
 
       const smoke = await runStep("Smoke", inputs, dir);
       expect(smoke.result.status).toBe(0);
-      expect(smoke.argv.at(-1)).toBe(`../images/cmux-vm/smoke.ts --snapshot sh-test --tag ${tag} --clones 2 --idle-seconds 120 --out-dir ${smoke.out} --edge-baseline none${teamVm ? " --team-vm" : ""}`);
-      // An image roll judges the edge-rule clone against the live image (smoke.ts --edge-baseline live).
-      const rollSmoke = await runStep("Smoke", { ...inputs, roll: true }, dir);
-      expect(rollSmoke.argv.at(-1)).toContain(" --edge-baseline live");
+      expect(smoke.argv.at(-1)).toBe(`../images/cmux-vm/smoke.ts --snapshot sh-test --tag ${tag} --clones 2 --idle-seconds 120 --out-dir ${smoke.out}${teamVm ? " --team-vm" : ""}`);
 
       // What bake.ts and smoke.ts write into the out dir.
       const name = `cmuxnp-dev-vmimg-${tag}`;

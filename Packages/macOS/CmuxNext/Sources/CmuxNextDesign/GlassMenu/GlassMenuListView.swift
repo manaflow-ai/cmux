@@ -38,7 +38,7 @@ final class GlassMenuListView: NSView {
     /// The rows' least and most width (points): a menu is as wide as its longest row within them.
     static let minWidth: CGFloat = 220
     static let maxWidth: CGFloat = 360
-    static let separatorHeight: CGFloat = MenuMetrics.separatorHeight
+    static let separatorHeight: CGFloat = 9
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }

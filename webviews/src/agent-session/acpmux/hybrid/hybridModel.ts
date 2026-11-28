@@ -43,6 +43,9 @@ export type SlotHolder = { session: string; title: string };
 /// cloud over a soft rainbow halo.
 export type HybridLook = "rainbow" | "sky" | "aurora";
 
+/// A chat nobody touched: Auto, off.
+export const HYBRID_OFF: HybridView = { lit: false, pin: "auto", at: "local", used: 0, total: 3 };
+
 /// The view after the person clicks the button, shown at once while the write is in flight.
 export function clicked(view: HybridView): HybridView {
   if (view.lit || view.waiting) {
@@ -51,12 +54,6 @@ export function clicked(view: HybridView): HybridView {
   if (view.used >= view.total) return { ...view, waiting: true };
   return { ...view, lit: true, used: view.used + 1 };
 }
-
-/// Settings > Advanced > Experiments' Cloud Toggle (`experiments.cloudToggle`, off by default): the
-/// composer's place chip and cloud toggle, the move card, Session Info's cloud rows and the chat
-/// cards' place and Evacuate rows draw only while it is on (Leo, 2026-11-24: "don't unilaterally
-/// MERGE ui stuff yet"; a new look ships as a switch people can turn on).
-export const CLOUD_TOGGLE_SWITCH = "cloudToggle";
 
 /// A hybrid start's machine side (RFD 0078, "the start"; cmux-cloud-start-core `hybrid::Cloud`, as
 /// its `Effect::Show` sends it). A chat with Cloud chosen starts on this Mac at once while its

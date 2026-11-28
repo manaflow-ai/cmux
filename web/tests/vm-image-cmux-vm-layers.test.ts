@@ -149,7 +149,7 @@ describe("image inputs_sha256", () => {
 
   test("the full and the layered bake record one key for one lock: the layered bake's agents key", () => {
     expect(key).toMatch(/^[0-9a-f]{64}$/);
-    for (const extra of [[], ["--team-vm"], ["--labs-npm-host-cache"]]) {
+    for (const extra of [[], ["--team-vm"]]) {
       const fullKey = bakeInputsSha256(argv(...extra), lockText, tree);
       const layered = argv(...extra, "--layered", "--defer-inventory");
       expect(bakeInputsSha256(layered, lockText, tree)).toBe(fullKey!);
@@ -159,9 +159,6 @@ describe("image inputs_sha256", () => {
     // A production copy repeats the dev image's lock and flags, so it records the dev image's key.
     expect(bakeInputsSha256(argv("--prod-copy"), lockText, tree)).toBe(key);
     expect(bakeInputsSha256(argv("--team-vm"), lockText, tree)).not.toBe(key);
-    expect(full.labsNpmHostCache).toBe(false);
-    expect(argv("--labs-npm-host-cache").labsNpmHostCache).toBe(true);
-    expect(bakeInputsSha256(argv("--labs-npm-host-cache"), lockText, tree)).not.toBe(key);
   });
 
   test("a cmux-tui or hook pin leaves it; an agent pin, a system lock field or an input blob changes it", () => {
@@ -224,29 +221,6 @@ describe("layer snapshot GC", () => {
     expect(layerLabel(`cmuxnp-dev-vmimg-${"x".repeat(41)}`, `cmuxnp-dev-vmimg-agt-${key("a")}`)).toBe(`cmuxnp-dev-vmimg-${"x".repeat(41)}`);
   });
 
-  test("a stalled layer is rebuilt under its evict slug, which every later bake picks over the snapshot it replaced", async () => {
-    const { evictedLayerSlug, pickLayer, labelParent, layerLabel } = await import("../scripts/cmux-vm-image/layers");
-    const { isStallError } = await import("../scripts/cmux-vm-image/bake");
-    const own = `cmuxnp-dev-vmimg-agt-${key("a")}`;
-    // Roll 46107492079 attempts 2 and 3: a cached-layer builder ran a step past its budget, then the client timed out.
-    expect(isStallError(new Error("step clean failed (status 124, timed out)"))).toBe(true);
-    expect(isStallError(Object.assign(new Error("The operation timed out."), { name: "TimeoutError" }))).toBe(true);
-    expect(isStallError(new Error("step identity-final failed: no status (timed out)"))).toBe(true);
-    expect(isStallError(new Error("step identity-final failed"))).toBe(false);
-    const fresh = evictedLayerSlug(own, "sh-6c5a2351f39e44f8a916c2ffbe813a95");
-    expect(fresh).toBe(`${own}-e6c5a`);
-    // A rebuild of a rebuild keeps one suffix.
-    expect(evictedLayerSlug(fresh, "sh-beef0000")).toBe(`${own}-ebeef`);
-    const old = { id: "sh-old", slug: own, createdAt: at(1) };
-    const rebuilt = { id: "sh-new", slug: fresh, createdAt: at(2) };
-    expect(pickLayer([old], own)?.id).toBe("sh-old");
-    expect(pickLayer([old, rebuilt], own)?.id).toBe("sh-new");
-    expect(pickLayer([rebuilt, old], own)?.id).toBe("sh-new");
-    expect(pickLayer([{ id: "sh-x", slug: `${own}0`, createdAt: at(3) }, { id: "sh-y", slug: `cmuxnp-dev-vmimg-agt-${key("b")}-e1234`, createdAt: at(3) }], own)).toBeUndefined();
-    // An image built on the rebuild still records it as its parent, so gc-layers.ts keeps it.
-    expect(labelParent(layerLabel("cmuxnp-dev-vmimg-ci-46107492079-3", fresh))).toBe(fresh);
-  });
-
   test("keeps the newest per layer and every labeled chain under a live image; deletes the rest of the layers", async () => {
     const { planLayerGc } = await import("../scripts/cmux-vm-image/gc-layers");
     const all = [sys("1", 1), sys("2", 2), sys("3", 3), agt("4", 1, "1"), agt("5", 2, "2"), agt("6", 3, "3"), app(1, 1.5, "4")];
@@ -300,12 +274,6 @@ describe("deferred inventory", () => {
 });
 
 describe("baked npm cache", () => {
-  (process.platform === "linux" ? test : test.skip)("experimental guest profiles share the npm seed for offline installs", async () => {
-    const result = await runChild("python3", ["-I", path.join(repoRoot, "web/tests/fixtures/npm-host-cache.py")], { timeout: 45_000 });
-    expect(result.stderr).toBe("");
-    expect(result.status).toBe(0);
-  }, 50_000);
-
   test("the prefill parses, installs as the work user, reports its size and enforces the cap", async () => {
     const { npmCachePrefillCommand, NPM_CACHE_CAP_MB, PREFILL_NODE_DEPS } = await import("../scripts/cmux-vm-image/dep-cache");
     const cmd = npmCachePrefillCommand();

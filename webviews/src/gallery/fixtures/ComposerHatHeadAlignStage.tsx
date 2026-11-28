@@ -103,8 +103,6 @@ export function ComposerHatHeadAlignStage({ start = "mixed" }: { start?: Compose
         >
           <SubagentTray
             key="gallery-head-align"
-            // Its marks and controls on one centre line: the `groups` header, which draws marks.
-            foldHeadLook="groups"
             chat="gallery-head-align"
             items={items}
             finished={finished}

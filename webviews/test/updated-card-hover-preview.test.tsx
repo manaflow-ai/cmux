@@ -16,14 +16,11 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { PageClient } from "../src/pages/shared/pageClient";
+import { MOTION_SETTLE, MOTION_SETTLE_MS } from "../src/motion/scale.generated";
 import type { ReleaseNotes } from "../src/pages/changelog/types";
 import type { UpdateHighlights } from "../src/pages/changelog/updateHighlights";
-import type { IntentTimers } from "../src/pages/changelog/updatedPreview";
+import { PreviewIntent, previewEntries, type IntentTimers } from "../src/pages/changelog/updatedPreview";
 import { settleReact, teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { MOTION_SETTLE, MOTION_SETTLE_MS } = await importWithDom(() => import("../src/motion/scale.generated"));
-const { PreviewIntent, previewEntries } = await importWithDom(() => import("../src/pages/changelog/updatedPreview"));
 
 /** Yields macrotasks until `done` holds, at most `capMs`. */
 async function until(done: () => boolean, capMs = 2000) {

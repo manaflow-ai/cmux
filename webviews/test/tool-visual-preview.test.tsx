@@ -1,23 +1,15 @@
 // l10n-allow-file: synthetic capture fixtures.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { tool } from "../src/gallery/fixtures/acpmux";
+import { ToolRow } from "../src/agent-session/acpmux/conversation/ToolRow";
+import { McpCallRows } from "../src/agent-session/acpmux/conversation/McpCallRows";
+import gallery from "../src/agent-session/acpmux/conversation/ToolRow.gallery";
+import { toolImages } from "../src/agent-session/acpmux/toolImages";
+import { ToolVisualRow } from "../src/agent-session/acpmux/conversation/ToolVisualPreview";
+import { ImageViewerContext } from "../src/agent-session/acpmux/conversation/imageViewerContext";
 import { JSDOM } from "jsdom";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { tool } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
-const { ToolRow } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/ToolRow"));
-const { McpCallRows } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/McpCallRows"));
-const { default: gallery } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/ToolRow.gallery"),
-);
-const { toolImages } = await importWithDom(() => import("../src/agent-session/acpmux/toolImages"));
-const { ToolVisualRow } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/ToolVisualPreview"),
-);
-const { ImageViewerContext } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/imageViewerContext"),
-);
 
 const image = "data:image/png;base64,iVBORw0KGgo=";
 const envelope = JSON.stringify([{ type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" }]);

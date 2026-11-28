@@ -4,7 +4,6 @@
 #   Contents/Resources/libexec/cmux-server-helper           the helper (root, launchd)
 #   Contents/Library/LaunchDaemons/com.cmux.server.helper.plist
 #   Contents/Library/LaunchAgents/com.cmux.server.plist     the server (`cmux host run`)
-#   Contents/Library/LaunchAgents/com.cmux.launch-preread.plist  the login-time pre-read (stamp_preread)
 #
 # Two modes:
 #   bundle-server-helper.sh                 Xcode phase "Bundle server helper": compiles the
@@ -74,7 +73,6 @@ stamp() {
   fi
   stamp_helper "$contents" "$bundle_id" "$drop"
   stamp_agent "$contents" "$bundle_id" "$drop"
-  stamp_preread "$contents" "$bundle_id"
 }
 
 # Starts a plist at $1.tmp with Label $2, BundleProgram $3 (relative to the app
@@ -145,40 +143,6 @@ stamp_agent() {
   # cmux-server-core's app_service_agent_plist, which writes this plist byte for
   # byte (golden: cmux-tui/crates/cmux-server-core/tests/fixtures/app-service-agent.plist).
   plutil -insert ProcessType -string Standard "$plist.tmp"
-  plist_commit "$plist"
-  echo "bundle-server-helper: $label"
-}
-
-# The login-time pre-read (app.backgroundReady = warmAtLogin, off by default):
-# Contents/Library/LaunchAgents/com.cmux.launch-preread.plist runs the bundled
-# Contents/Resources/bin/cmux-launch-preread (placed by "Bundle cmux-tui")
-# once at load, which is login once the app registered it
-# (BackgroundReadyPrereadAgent, only while the setting says so). It reads the
-# app's code into the page cache, bounded by bytes and time, and exits, so
-# no KeepAlive: nothing stays running. Background CPU and low-priority I/O,
-# and Nice, so it never competes with the person's own login. Label
-# `<bundle id>.launch-preread` (cmux-background-ready's preread_agent_label):
-# each build has its own. Every channel carries it when the reader is
-# bundled (it is opt-in, so stable too); a bundle without the reader gets no
-# plist and the app reports the pre-read is not in this build. No
-# StandardOutPath: the reader writes its one line to the system log too.
-stamp_preread() {
-  local contents="$1" bundle_id="$2" program="Contents/Resources/bin/cmux-launch-preread" plist label
-  plist="$contents/Library/LaunchAgents/com.cmux.launch-preread.plist"
-  if [[ ! -f "${contents%/Contents}/$program" ]]; then
-    rm -f "$plist"
-    rmdir "$contents/Library/LaunchAgents" 2>/dev/null || true
-    echo "bundle-server-helper: no launch pre-read in $bundle_id"
-    return 0
-  fi
-  label="$bundle_id.launch-preread"
-  mkdir -p "$(dirname "$plist")"
-  plist_begin "$plist" "$label" "$program" "$bundle_id"
-  plutil -insert ProgramArguments -string "$program" -append "$plist.tmp"
-  plutil -insert RunAtLoad -bool YES "$plist.tmp"
-  plutil -insert ProcessType -string Background "$plist.tmp"
-  plutil -insert LowPriorityIO -bool YES "$plist.tmp"
-  plutil -insert Nice -integer 10 "$plist.tmp"
   plist_commit "$plist"
   echo "bundle-server-helper: $label"
 }

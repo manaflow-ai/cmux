@@ -11,13 +11,12 @@ import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
 import { BookmarkIcon } from "../threadMinimap/BookmarkIcon";
 import { useRowMark } from "../threadMinimap/promptMarks";
-import { AlertCircle, Check, DoubleCheck, Pin, Speaker, StopReading, TurnFork, Undo } from "./icons";
-import { WaitSpinner } from "./WaitSpinner";
+import { AlertCircle, Check, DoubleCheck, Pin, Speaker, Spinner, StopReading, TurnFork, Undo } from "./icons";
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
-import { exactTime, messageAge, messageAgeWidest, nextMessageAge } from "./relativeTime";
+import { exactTime, messageAge, nextMessageAge, messageAgeWidest } from "./relativeTime";
 import { CopyButton } from "./CopyButton";
 import { copyMarkdownResult } from "../richClipboard";
-import { hasMessageMenuHost, openMessageMenu, openForkMenu, releaseMessagePopupOnUnmount } from "./messageMenu";
+import { hasMessageMenuHost, openMessageMenu, openForkMenu } from "./messageMenu";
 import { RowReplyButton } from "./SelectionReply";
 import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { useTranscriptReadOnly } from "./readOnly";
@@ -69,6 +68,15 @@ export function ReplyTime({ at, detail }: { at: number; detail?: string }) {
 /// one centered 24px line with equal control slots, including the retry model chevron.
 export function MessageFooterRow({ children, className }: { children: ReactNode; className?: string }) {
   return <span className={["cv-message-footer-row", className].filter(Boolean).join(" ")}>{children}</span>;
+}
+
+/// The dot between a prompt's age and its buttons (Leo's spec for the row under a prompt).
+export function MessageDot() {
+  return (
+    <span className="cv-user__dot" aria-hidden="true">
+      ·
+    </span>
+  );
 }
 
 /// Copy through CopyButton (its name as a tooltip, a check once the clipboard took the text), at the
@@ -162,7 +170,6 @@ export function ForkButton({
         <button
           {...described}
           type="button"
-          ref={releaseMessagePopupOnUnmount}
           className="cv-iconbtn cv-iconbtn--compact cv-fork-button"
           aria-label={label}
           title={label}
@@ -175,7 +182,7 @@ export function ForkButton({
           }}
         >
           {state === "pending" ? (
-            <WaitSpinner size={ROW_ICON} until={<TurnFork size={ROW_ICON} />} />
+            <Spinner size={ROW_ICON} loading />
           ) : state === "done" ? (
             <Check size={ROW_ICON} />
           ) : state === "failed" ? (
@@ -247,7 +254,7 @@ export function RewindButton({ rowId }: { rowId: string }) {
       onClick={go}
     >
       {state.kind === "pending" ? (
-        <WaitSpinner size={ROW_ICON} until={<Undo size={ROW_ICON} />} />
+        <Spinner size={ROW_ICON} loading />
       ) : state.kind === "done" ? (
         <Check size={ROW_ICON} />
       ) : state.kind === "failed" ? (
@@ -312,7 +319,6 @@ export function MessageMore({ rowId }: { rowId: string }) {
     <button
       type="button"
       className="cv-iconbtn cv-iconbtn--compact"
-      ref={releaseMessagePopupOnUnmount}
       aria-haspopup="menu"
       aria-label={label}
       title={label}
@@ -395,6 +401,18 @@ export function PromptActions({
     </MessageFooterRow>
   );
   return <div className="cv-user__actions">{pending ? pending(actions, {}) : actions}</div>;
+}
+
+/// The hover row at the end of a message this agent sent another one (MessageCard.tsx): Copy,
+/// kept clear of the line's words.
+export function SentActions({ text }: { text: string }) {
+  return (
+    <span className="cv-sent-actions">
+      <MessageFooterRow>
+        <MessageCopy text={text} />
+      </MessageFooterRow>
+    </span>
+  );
 }
 
 /// The row at the end of another agent's message line (IncomingMessageCard.tsx IncomingMessageLine):

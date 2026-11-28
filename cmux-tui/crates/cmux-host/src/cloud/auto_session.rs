@@ -31,12 +31,6 @@
 //! | `inbox` | `session`, `after` | `GET :id/inbox?after=` |
 //! | `inbox_ack` | `session`, `body` | `POST :id/inbox/ack` |
 //! | `assignment_ack` | `session`, `body` | `POST :id/assignment/ack` |
-//! | `move` | `session`, `body` (`{to, device?}`) | `POST :id/move` |
-//! | `keep` | `session`, `body` (`{keepInCloud}`) | `POST :id/keep` |
-//!
-//! `move` and `keep` are the chat's own agent moving it while this machine
-//! holds it (acpmux `chat_place.rs`): home to the laptop that stands by, or
-//! between Cloud and AutoCloud. The store takes them only from the holder.
 //!
 //! `body` is the route's JSON body as the store reads it (it names `holder`
 //! and `epoch`). `bytes` is a chunk in base64, on the way in and in a `chunk`
@@ -101,14 +95,10 @@ pub enum Kind {
     Inbox,
     InboxAck,
     AssignmentAck,
-    /// The holder asks the store to move the chat it holds (`to: local`).
-    Move,
-    /// The holder sets whether the chat it holds is kept in the Cloud.
-    Keep,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 17] = [
+    pub const ALL: [Kind; 15] = [
         Kind::Machine,
         Kind::Assignments,
         Kind::Get,
@@ -124,8 +114,6 @@ impl Kind {
         Kind::Inbox,
         Kind::InboxAck,
         Kind::AssignmentAck,
-        Kind::Move,
-        Kind::Keep,
     ];
 
     /// The line's `call`.
@@ -146,8 +134,6 @@ impl Kind {
             Kind::Inbox => "inbox",
             Kind::InboxAck => "inbox_ack",
             Kind::AssignmentAck => "assignment_ack",
-            Kind::Move => "move",
-            Kind::Keep => "keep",
         }
     }
 
@@ -171,8 +157,6 @@ impl Kind {
             Kind::Inbox => ("GET", "/inbox"),
             Kind::InboxAck => ("POST", "/inbox/ack"),
             Kind::AssignmentAck => ("POST", "/assignment/ack"),
-            Kind::Move => ("POST", "/move"),
-            Kind::Keep => ("POST", "/keep"),
         }
     }
 
@@ -188,12 +172,6 @@ impl Kind {
                 | Kind::InboxAck
                 | Kind::AssignmentAck
         )
-    }
-
-    /// The call carries a wish body, which names no writer: the store reads
-    /// the writer from the install (`move`, `keep`).
-    pub fn has_wish(self) -> bool {
-        matches!(self, Kind::Move | Kind::Keep)
     }
 
     fn names_chunk(self) -> bool {
@@ -241,23 +219,6 @@ pub fn valid_sha256(name: &str) -> bool {
 /// A whole number the store reads as one (a JavaScript safe integer).
 fn count(v: &Value) -> Option<u64> {
     v.as_u64().filter(|n| *n < (1 << 53))
-}
-
-/// A `move` or `keep` body as the store reads it, with nothing else in it.
-fn wish(kind: Kind, body: &Value) -> Result<Value, String> {
-    if kind == Kind::Keep {
-        let keep = body.field("keepInCloud").as_bool().ok_or("body must be {keepInCloud: bool}")?;
-        return Ok(json!({ "keepInCloud": keep }));
-    }
-    let to = body.field("to").as_str().filter(|to| matches!(*to, "cloud" | "local"));
-    let to = to.ok_or("body must be {to: cloud|local, device?}")?;
-    match body.field("device") {
-        Value::Null => Ok(json!({ "to": to })),
-        Value::String(device) if device.starts_with("device:") && valid_holder(device) => {
-            Ok(json!({ "to": to, "device": device }))
-        }
-        _ => Err("device must be device:<id>".to_owned()),
-    }
 }
 
 /// A holder as a writer names it: short, one line, no spaces.
@@ -399,9 +360,6 @@ impl Call {
                 return Err("body must be the route's body, naming holder and epoch".to_owned());
             }
             call.body = Some(body.clone());
-        }
-        if kind.has_wish() {
-            call.body = Some(wish(kind, v.field("body"))?);
         }
         Ok(call)
     }

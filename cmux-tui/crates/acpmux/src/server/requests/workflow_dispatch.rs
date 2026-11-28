@@ -329,7 +329,6 @@ pub(super) async fn local(
                 new_params,
                 None,
                 Some(identity.session_id.clone()),
-                tokio::time::Instant::now(),
             ))
             .await?;
             hub.resolve(&identity.session_id)?

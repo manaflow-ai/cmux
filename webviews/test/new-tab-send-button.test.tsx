@@ -5,17 +5,14 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
-import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { CMUX_PASS_THROUGH } from "../src/agent-session/acpmux/cmuxCommands";
+import { parseImportedSession } from "../src/agent-session/acpmux/importSession";
+import { inlineToken, inlineTokenIds, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { NewTabCommandActions } from "../src/agent-session/acpmux/newtab/useNewTabCommand";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
-const { proseMirrorGlobals } = await importWithDom(() => import("../src/agent-session/acpmux/promptFieldTesting"));
-const cmuxCommands = await importWithDom(() => import("../src/agent-session/acpmux/cmuxCommands"));
-const { parseImportedSession } = await importWithDom(() => import("../src/agent-session/acpmux/importSession"));
-const { inlineToken, inlineTokenIds } = await importWithDom(() => import("../src/agent-session/acpmux/attachments"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -356,7 +353,7 @@ async function commandPage(
 }
 
 test("screen: a ready inline attachment survives /model passthrough", async () => {
-  const page = await commandPage("screen", undefined, undefined, false, () => cmuxCommands.CMUX_PASS_THROUGH);
+  const page = await commandPage("screen", undefined, undefined, false, () => CMUX_PASS_THROUGH);
   await page.paste();
   await page.edit("/model opus");
   await page.send();

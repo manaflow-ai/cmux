@@ -9,10 +9,8 @@ import Foundation
 /// Nothing here asks for a permission: the grant is requested once at join (`cmux share prepare`).
 extension MacScreenHubHost {
     /// What the default does next.
-    public enum DefaultSharingStep: String, Equatable, Sendable {
-        case none
-        case turnOn = "turn_on"
-        case turnOff = "turn_off"
+    public enum DefaultSharingStep: Equatable, Sendable {
+        case none, turnOn, turnOff
     }
 
     /// This Mac's sharing as the machine record shows it.
@@ -27,23 +25,18 @@ extension MacScreenHubHost {
 
     /// The default's next step. `shared` is nil before the hub lists this Mac, `turnedOff` before the
     /// store is read, and `grantKnown` is false until a permission read answers: each of those waits.
-    /// cmux-rd-core's `rd_hub_sharing` decides.
     nonisolated static func defaultSharingStep(shared: Bool?, grantKnown: Bool, screenRecording: Bool,
                                                turnedOff: Bool?) -> DefaultSharingStep {
-        (sharingReply(shared: shared, grantKnown: grantKnown, screenRecording: screenRecording, turnedOff: turnedOff)?["step"] as? String)
-            .flatMap(DefaultSharingStep.init(rawValue:)) ?? .none
+        guard let shared, grantKnown, let turnedOff else { return .none }
+        if shared && !screenRecording { return .turnOff }
+        if !shared && screenRecording && !turnedOff { return .turnOn }
+        return .none
     }
 
     nonisolated static func sharingState(shared: Bool, grantKnown: Bool, screenRecording: Bool, turnedOff: Bool) -> SharingState {
-        (sharingReply(shared: shared, grantKnown: grantKnown, screenRecording: screenRecording, turnedOff: turnedOff)?["state"] as? String)
-            .flatMap(SharingState.init(rawValue:)) ?? (shared ? .on : .off)
-    }
-
-    private nonisolated static func sharingReply(shared: Bool?, grantKnown: Bool, screenRecording: Bool, turnedOff: Bool?) -> [String: Any]? {
-        var request: [String: Any] = ["grant_known": grantKnown, "screen_recording": screenRecording]
-        if let shared { request["shared"] = shared }
-        if let turnedOff { request["turned_off"] = turnedOff }
-        return MacScreenRules.rdHub("rd_hub_sharing", request)
+        if grantKnown && !screenRecording { return .needsGrant }
+        if shared { return .on }
+        return turnedOff ? .turnedOff : .off
     }
 
     /// The step for this Mac now (observable: the hub's record, the grant, the person's switch).

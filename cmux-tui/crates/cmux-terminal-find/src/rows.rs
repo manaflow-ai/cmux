@@ -174,18 +174,8 @@ fn search_line(matcher: &Matcher, rows: &VecDeque<RowCells>, top: u64, out: &mut
     }
     let found: Vec<(usize, usize)> = matcher.ranges(&text).collect();
     for &(start, end) in found.iter().rev() {
-        let Some(first) = spans
-            .partition_point(|span| span.byte <= start)
-            .checked_sub(1)
-            .and_then(|i| spans.get(i))
-        else {
-            continue;
-        };
-        let Some(final_span) =
-            spans.partition_point(|span| span.byte < end).checked_sub(1).and_then(|i| spans.get(i))
-        else {
-            continue;
-        };
+        let first = &spans[spans.partition_point(|span| span.byte <= start) - 1];
+        let final_span = &spans[spans.partition_point(|span| span.byte < end) - 1];
         let (snippet, snippet_start, snippet_len) = snippet(&text, start, end);
         out.push(ScreenMatch {
             start: ScreenPoint { row: first.row, column: first.column },

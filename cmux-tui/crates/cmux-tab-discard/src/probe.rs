@@ -15,10 +15,6 @@ use std::collections::HashMap;
 pub struct PageProbe {
     /// Unmuted media playing, media the tab's mute silences, or Picture in Picture.
     pub playing_media: bool,
-    /// The tab reports media the person resumes from outside the page (macOS Now Playing, the
-    /// media keys, the tab's media menu), paused too. A frozen page runs none of those, so it
-    /// keeps the page from a freeze only; a discard ends the session with the page (issue 51079).
-    pub media_session: bool,
     /// The person's form edits in the tab's frames.
     pub edited_form: bool,
     /// Camera, microphone or screen capture the page started.
@@ -46,7 +42,6 @@ impl Default for PageProbe {
     fn default() -> Self {
         PageProbe {
             playing_media: false,
-            media_session: false,
             edited_form: false,
             capturing: false,
             web_audio: false,
@@ -85,10 +80,9 @@ impl PageProbe {
     }
 
     /// The page does something a freeze stops (a freeze keeps memory and state, so form input and
-    /// a `beforeunload` do not count), or holds a media session the person resumes from outside it.
+    /// a `beforeunload` do not count).
     pub fn stops_when_frozen(&self) -> bool {
         self.playing_media
-            || self.media_session
             || self.capturing
             || self.web_audio
             || self.web_rtc

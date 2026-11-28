@@ -27,10 +27,10 @@ final class PageInfoRowView: PopupRowView {
         let trailing = Self.makeAccessory(accessory)
         var layout = Layout()
         layout.leading = PageInfoStyle.rowInset
-        layout.leadingColumn = PageInfoStyle.iconSize
-        layout.gap = PageInfoStyle.iconGap
-        layout.trailing = PageInfoStyle.trailingInset
-        layout.trailingGap = MenuMetrics.trailing
+        layout.leadingColumn = PageInfoStyle.iconColumn - PageInfoStyle.rowInset
+        layout.gap = PageInfoStyle.rowInset
+        layout.trailing = PageInfoStyle.rowInset
+        layout.trailingGap = PageInfoStyle.rowInset
         let hasSubtitle = !(subtitle?.isEmpty ?? true)
         layout.minHeight = hasSubtitle ? PageInfoStyle.rowHeightWithSubtitle : PageInfoStyle.rowHeight
         super.init(leading: icon, title: title, subtitle: subtitle, trailing: trailing, layout: layout, interactive: interactive)

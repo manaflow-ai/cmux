@@ -152,8 +152,9 @@ public struct SidebarDocDrag {
                 }
             }
         }
-        let target = SidebarDocStore.target(section: section, parent: position.group?.rawValue, index: position.index, siblings: siblings,
-                                            moving: Set(moving), nested: position.group == nil ? Self.nestedGroups(shown) : nil)
+        var target = SidebarDocStore.target(section: section, parent: position.group?.rawValue, index: position.index, siblings: siblings,
+                                            moving: Set(moving))
+        if position.group == nil { target = Self.topLevelAnchor(target, siblings: siblings, nested: Self.nestedGroups(shown), moving: Set(moving)) }
         let adopt = (target.before ?? target.after).flatMap { pending[$0] }.map { [$0] } ?? []
         return (target, adopt)
     }
@@ -165,15 +166,31 @@ public struct SidebarDocDrag {
         })
     }
 
+    /// `target` with its anchor moved off a nested group: a top-level slot counts the section's
+    /// rows flat, so the slot before a subgroup (or after the last row, when that is a subgroup)
+    /// named the subgroup as a top-level sibling, a move the document refuses. Such a slot is the
+    /// gap before the next top-level row, or after the last one.
+    static func topLevelAnchor(_ target: SidebarDocTarget, siblings: [String], nested: Set<String>, moving: Set<String>) -> SidebarDocTarget {
+        guard let anchor = target.before ?? target.after, nested.contains(anchor) else { return target }
+        let staying = siblings.filter { !moving.contains($0) }
+        if target.before != nil, let start = staying.firstIndex(of: anchor),
+           let next = staying[start...].first(where: { !nested.contains($0) }) {
+            return SidebarDocTarget(section: target.section, before: next)
+        }
+        guard let last = staying.last(where: { !nested.contains($0) }) else { return SidebarDocTarget(section: target.section, index: 0) }
+        return SidebarDocTarget(section: target.section, after: last)
+    }
+
     /// Where Move to Top (or a list reorder) sends workspace rows the document does not place when their
     /// list section has no document section here (a machine the client holds no section for yet): `index` of
     /// that machine's section, `sec_m_<session>`, which the rows' adopt (sent first) makes. Nil unless every
     /// moving row is a live workspace of one session with no item, outside a group.
     public func unplacedTarget(_ position: DropPosition, moving ids: [WorkspaceID]) -> SidebarDocTarget? {
-        // The op decides (`unplaced_target`); when it does not answer, no move.
-        let rows = ids.map { RustSidebarDocTarget.UnplacedRequest.Row(placed: item(.workspace($0)) != nil, session: adoptRef($0)?["session_id"]) }
-        let request = RustSidebarDocTarget.UnplacedRequest(in_group: position.group != nil, index: position.index, rows: rows)
-        return RustSidebarClient.call(RustSidebarDocTarget.op, request, as: RustSidebarDocTarget.OptionalTargetReply.self)?.target
+        guard position.group == nil, !ids.isEmpty, ids.allSatisfy({ item(.workspace($0)) == nil }) else { return nil }
+        let sessions = Set(ids.compactMap { adoptRef($0)?["session_id"] })
+        guard sessions.count == 1, let session = sessions.first, !session.isEmpty,
+              ids.allSatisfy({ adoptRef($0)?["session_id"] != nil }) else { return nil }
+        return SidebarDocTarget(section: SidebarDocStore.machineSectionPrefix + session, index: position.index)
     }
 
     /// The anchor target of a band position: `index` among `section`'s items in `layout`.
@@ -187,24 +204,18 @@ public struct SidebarDocDrag {
     public func keyboardMove(_ ids: [WorkspaceID], up: Bool, model: SidebarModel) -> Bool {
         guard let matches = model.filterMatches else { return false }
         let moving = Set(ids)
-        // Every shown or moving workspace row in list order, with its document section, item and group; the op
-        // (`keyboard_move`) picks the neighbour and the anchor. When it does not answer, no move.
-        var visible: [RustSidebarDocTarget.KeyboardMoveRequest.Visible] = []
-        for shown in model.sections {
-            let docSection = section(shown.id)
-            for node in shown.nodes {
-                var group: String?
-                if case .group(let nodeGroup) = node { group = nodeGroup.id.rawValue }
-                for workspace in node.workspaces where matches.contains(workspace.id) || moving.contains(workspace.id) {
-                    visible.append(.init(id: workspace.id.rawValue, section: docSection, item: item(.workspace(workspace.id)), group: group))
-                }
-            }
-        }
-        let request = RustSidebarDocTarget.KeyboardMoveRequest(visible: visible, moving: ids.map(\.rawValue),
-                                                               items: ids.map { item(.workspace($0)) }, up: up)
-        guard let move = RustSidebarClient.call(RustSidebarDocTarget.op, request, as: RustSidebarDocTarget.KeyboardMoveReply.self)?.move
-        else { return false }
-        drop(move.items, move.target)
+        let visible = model.sections.flatMap { section in section.nodes.flatMap { node in
+            node.workspaces.filter { matches.contains($0.id) || moving.contains($0.id) }.map { (section.id, node, $0.id) }
+        } }
+        guard let first = visible.firstIndex(where: { moving.contains($0.2) }),
+              let last = visible.lastIndex(where: { moving.contains($0.2) }) else { return false }
+        let neighbour = up ? visible[..<first].last : visible[(last + 1)...].first
+        guard let (sectionID, node, id) = neighbour, let section = section(sectionID), let anchor = item(.workspace(id)) else { return false }
+        let items = ids.compactMap { item(.workspace($0)) }
+        guard items.count == ids.count else { return false }
+        var parent: String?
+        if case .group(let group) = node { parent = group.id.rawValue }
+        drop(items, up ? SidebarDocTarget(section: section, parent: parent, before: anchor) : SidebarDocTarget(section: section, parent: parent, after: anchor))
         return true
     }
 
@@ -220,14 +231,5 @@ public struct SidebarDocDrag {
         default:
             return .position(DropPosition(section: row.section, group: row.group, index: row.siblingIndex + (hit.zone == .after ? 1 : 0)))
         }
-    }
-
-    /// The chat move a refused `hit` makes (Leo 2026-11-19, a visible move between machines): a top-level slot of
-    /// one of `targets`' machine sections, which the document refuses as another machine's. Nil anywhere else, and
-    /// for a row with no chat to move (`targets` empty).
-    public static func chatMove(_ hit: SidebarDragGeometry.Hit, rows: [String: SidebarRow], targets: [MachineID]) -> DropPosition? {
-        guard hit.target == nil, !targets.isEmpty, let row = rows[hit.slot.key], case .machine(let machine) = row.section,
-              targets.contains(machine), case .position(let position) = display(hit, row: row), position.group == nil else { return nil }
-        return position
     }
 }

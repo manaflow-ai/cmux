@@ -76,11 +76,6 @@ export type PersistentWorkspaceProviderInput = {
   readonly memoryMb?: number;
   readonly providerMetadata?: Record<string, unknown>;
   readonly networkId?: string;
-  /**
-   * Wait for a free address or start capacity instead of failing (202
-   * `vm_create_waiting`); the same-key retry starts the machine.
-   */
-  readonly waitForCapacity?: boolean;
   readonly terminal?: {
     readonly agent?: "claude" | "codex" | "opencode" | "pi";
     readonly prompt?: string;
@@ -143,13 +138,6 @@ export type PersistentWorkspaceLookupInput = {
   readonly ownerId: string;
   readonly runtimeId: string;
 };
-
-/** The wait state of a queued Cloud VM create, read by tag to keep this module free of the VM workflow imports. */
-function createWaitStateOf(cause: unknown): string | null {
-  if (!cause || typeof cause !== "object") return null;
-  const tagged = cause as { _tag?: unknown; state?: unknown };
-  return tagged._tag === "VmCreateWaitingError" && typeof tagged.state === "string" ? tagged.state : null;
-}
 
 export class PersistentWorkspaceError extends Error {
   readonly code: string;
@@ -418,15 +406,8 @@ export function createPersistentWorkspaceService(input: {
       });
       return viewOf(record, await attachTarget(record));
     } catch (cause) {
-      // A create queued for an address or capacity (services/vms/createWait.ts)
-      // stays provisioning; the same-key retry is what starts it.
-      const waitState = createWaitStateOf(cause);
       try {
-        await update(record, waitState ? {
-          lifecycle: "provisioning",
-          failureCode: waitState,
-          failureMessage: null,
-        } : {
+        await update(record, {
           lifecycle: "failed",
           failureCode: cause instanceof PersistentWorkspaceError ? cause.code : "provider_create_failed",
           failureMessage: redactMessage(cause instanceof Error ? cause.message.slice(0, 500) : String(cause).slice(0, 500)),

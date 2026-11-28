@@ -78,11 +78,6 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(result["verdict"], "rebuild")
         self.assertEqual(result["reasons"], {"stored property": [VIEW]})
 
-    def test_a_one_line_function_whose_body_changed_is_not_a_signature_change(self):
-        changed = {VIEW: [("-", "    func on(_ e: [String: String]) -> Bool { e[\"k\"] == \"1\" }"),
-                          ("+", "    func on(_ e: [String: String]) -> Bool { e[\"k\"] != \"0\" }")]}
-        self.assertEqual(self.verdict([("M", VIEW)], changed), "swift-live")
-
     def test_a_changed_signature_needs_a_rebuild_and_a_new_function_does_not(self):
         changed = {VIEW: [("-", "    func draw(_ a: Int) {"), ("+", "    func draw(_ a: Int, b: Int) {")]}
         self.assertEqual(self.verdict([("M", VIEW)], changed), "rebuild")

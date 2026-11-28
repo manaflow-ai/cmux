@@ -16,7 +16,7 @@ extension PageDescriptor {
         id: "cmux.chief-inspector", resource: "chief-inspector", namespaces: ["cmux.chief_inspector."])
 }
 
-nonisolated extension InternalPageID {
+extension InternalPageID {
     static let chiefInspector = InternalPageID(rawValue: "chief-inspector")
 }
 

@@ -33,8 +33,6 @@ public nonisolated struct AgentChatSummary: Equatable, Sendable {
     public var createdAt: Date?
     /// The pull requests it opened (their URLs).
     public var pullRequests: [String]
-    /// The git branch of the session folder, when known (acpmux `gitBranch`): a thread row's branch line.
-    public var branch: String?
 
     /// Creates a chat summary; every field is the lane's own value.
     /// - Parameters:
@@ -53,10 +51,9 @@ public nonisolated struct AgentChatSummary: Equatable, Sendable {
     ///   - updatedAt: Its last output.
     ///   - createdAt: Its start.
     ///   - pullRequests: The pull request URLs it opened.
-    ///   - branch: The folder's git branch, when known.
     public init(id: String, title: String, harness: String?, state: String, unread: Bool, project: String?, cwd: String?,
                 workspace: String?, machine: String?, step: String?, error: String?, since: Date?, updatedAt: Date?,
-                createdAt: Date?, pullRequests: [String], branch: String? = nil) {
+                createdAt: Date?, pullRequests: [String]) {
         self.id = id
         self.title = title
         self.harness = harness
@@ -72,7 +69,6 @@ public nonisolated struct AgentChatSummary: Equatable, Sendable {
         self.updatedAt = updatedAt
         self.createdAt = createdAt
         self.pullRequests = pullRequests
-        self.branch = branch
     }
 
     /// The chat in the script's shape: snake_case keys, times as epoch milliseconds, null for unknown.
@@ -83,7 +79,7 @@ public nonisolated struct AgentChatSummary: Equatable, Sendable {
             "id": .string(id), "title": .string(title), "harness": text(harness), "state": .string(state), "unread": .bool(unread),
             "project": text(project), "cwd": text(cwd), "workspace": text(workspace), "machine": text(machine),
             "step": text(step), "error": text(error), "since_ms": time(since), "updated_ms": time(updatedAt),
-            "created_ms": time(createdAt), "pull_requests": .array(pullRequests.map(AppJSON.string)), "branch": text(branch),
+            "created_ms": time(createdAt), "pull_requests": .array(pullRequests.map(AppJSON.string)),
         ]
     }
 }

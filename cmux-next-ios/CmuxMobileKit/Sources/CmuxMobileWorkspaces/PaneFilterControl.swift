@@ -11,8 +11,9 @@ private let theme = CmuxMobileTheme.standard
 /// "browsers ... we tuck that ... in some kinda toggle or setting filter whatever."
 ///
 /// Three styles, drawn side by side in the gallery (`-cmux-mobile-recovery-gallery panefilter`):
-/// - `menu` (A, the gallery variant): a glass circle with the system funnel glyph, with a small
-///   count of the panes it hides, filled in the accent once the person changes the filter.
+/// - `menu` (A, the one the grid shows): a glass circle beside More, the system funnel glyph,
+///   with a small count of the panes it hides, filled in the accent once the person changes the
+///   filter. One tap opens the choice; the grid's header keeps its controls and its title.
 /// - `segmented` (B): a glass capsule under the title, Agents | Terminals | Browsers, each a toggle.
 ///   Always visible, but it takes a row of the grid on every visit for a choice made rarely.
 /// - `chips` (C): the scope as two chips and Browsers as a third, as Mail's filter bar does. Most
@@ -23,7 +24,7 @@ public struct PaneFilterControl: View {
 
         var title: String {
             switch self {
-            case .menu: "A · Menu"
+            case .menu: "A · Menu beside More (shipped)"
             case .segmented: "B · Segmented row under the title"
             case .chips: "C · Filter chips"
             }
@@ -55,7 +56,20 @@ public struct PaneFilterControl: View {
 
     private var menu: some View {
         Menu {
-            MenuContent(setting: setting, result: result)
+            Picker(selection: $setting.scope) {
+                Label("Agents", systemImage: "sparkle").tag(PaneScope.agents)
+                Label("Agents and Terminals", systemImage: "apple.terminal").tag(PaneScope.agentsAndTerminals)
+            } label: {
+                EmptyView()
+            }
+            .pickerStyle(.inline)
+            Section {
+                Toggle(isOn: $setting.showsBrowsers) {
+                    Label("Show Browsers", systemImage: "globe")
+                }
+            } footer: {
+                if let hidden = hiddenLine { Text(hidden) }
+            }
         } label: {
             Image(systemName: setting.isChanged ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease")
                 .font(.system(size: metrics.toolbarGlyph, weight: .medium))
@@ -83,30 +97,6 @@ public struct PaneFilterControl: View {
         .accessibilityIdentifier("workspace.grid.paneFilter")
     }
 
-    /// The filter's menu rows, shared by the gallery control and the overview's More menu.
-    /// Keeping these rows separate avoids a nested menu when the filter is hosted by More.
-    struct MenuContent: View {
-        @Bindable var setting: PaneFilterSetting
-        var result: PaneFilterResult?
-
-        var body: some View {
-            Picker(selection: $setting.scope) {
-                Label("Agents", systemImage: "sparkle").tag(PaneScope.agents)
-                Label("Agents and Terminals", systemImage: "apple.terminal").tag(PaneScope.agentsAndTerminals)
-            } label: {
-                EmptyView()
-            }
-            .pickerStyle(.inline)
-            Section {
-                Toggle(isOn: $setting.showsBrowsers) {
-                    Label("Show Browsers", systemImage: "globe")
-                }
-            } footer: {
-                if let hidden = paneFilterHiddenLine(result) { Text(hidden) }
-            }
-        }
-    }
-
     // MARK: B
 
     private var segmented: some View {
@@ -132,7 +122,7 @@ public struct PaneFilterControl: View {
                 .background(on ? theme.colors.label.color.opacity(0.12) : .clear, in: .capsule)
                 .contentShape(.capsule)
         }
-        .buttonStyle(.cmuxPressFillCapsule)
+        .buttonStyle(.plain)
         .disabled(!enabled)
         .accessibilityAddTraits(on ? .isSelected : [])
     }
@@ -159,7 +149,7 @@ public struct PaneFilterControl: View {
                 .frame(height: 30)
                 .contentShape(.capsule)
         }
-        .buttonStyle(.cmuxPressGlass)
+        .buttonStyle(.plain)
         .glassEffect(on ? .regular.tint(theme.colors.accent.color).interactive() : .regular.interactive(), in: .capsule)
         .accessibilityAddTraits(on ? .isSelected : [])
     }
@@ -172,7 +162,15 @@ public struct PaneFilterControl: View {
     }
 
     private var hiddenLine: String? {
-        paneFilterHiddenLine(result)
+        guard let result, result.filtering else { return nil }
+        var parts: [String] = []
+        if result.hiddenTerminals > 0 {
+            parts.append(result.hiddenTerminals == 1 ? "1 terminal" : "\(result.hiddenTerminals) terminals")
+        }
+        if result.hiddenBrowsers > 0 {
+            parts.append(result.hiddenBrowsers == 1 ? "1 browser" : "\(result.hiddenBrowsers) browsers")
+        }
+        return parts.joined(separator: ", ") + " hidden"
     }
 
     private var accessibilityValue: String {
@@ -201,8 +199,8 @@ public struct PaneFilterGallery: View {
                 ForEach(PaneFilterControl.Style.allCases, id: \.self) { style in
                     VStack(alignment: .leading, spacing: 12) {
                         Text(style.title).font(.headline)
-                        row(style, standard, caption: "Default: agents and terminals, browsers shown",
-                            hidden: (0, 0))
+                        row(style, standard, caption: "Default: agents and terminals, 1 browser tucked away",
+                            hidden: (0, 1))
                         row(style, narrowed, caption: "Agents only", hidden: (2, 1))
                     }
                     .accessibilityIdentifier("paneFilterGallery.\(style.rawValue)")
@@ -219,25 +217,10 @@ public struct PaneFilterGallery: View {
         HStack(spacing: 12) {
             PaneFilterControl(setting: setting, style: style,
                               result: PaneFilterResult(shown: [0], hiddenTerminals: hidden.terminals,
-                                                       hiddenBrowsers: hidden.browsers,
-                                                       filtering: hidden.terminals + hidden.browsers > 0))
+                                                       hiddenBrowsers: hidden.browsers, filtering: true))
             Text(caption).font(.footnote).foregroundStyle(theme.colors.label2.color)
         }
     }
 }
 #endif
-#endif
-
-#if os(iOS)
-private func paneFilterHiddenLine(_ result: PaneFilterResult?) -> String? {
-    guard let result, result.filtering else { return nil }
-    var parts: [String] = []
-    if result.hiddenTerminals > 0 {
-        parts.append(result.hiddenTerminals == 1 ? "1 terminal" : "\(result.hiddenTerminals) terminals")
-    }
-    if result.hiddenBrowsers > 0 {
-        parts.append(result.hiddenBrowsers == 1 ? "1 browser" : "\(result.hiddenBrowsers) browsers")
-    }
-    return parts.joined(separator: ", ") + " hidden"
-}
 #endif

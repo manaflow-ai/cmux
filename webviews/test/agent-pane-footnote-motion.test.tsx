@@ -6,10 +6,8 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { Markdown } from "../src/agent-session/acpmux/conversation/Markdown";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { Markdown } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/Markdown"));
 
 const reply = "The cap is WebKit's.[^1]\n\n[^1]: PreferPageRenderingUpdatesNear60FPSEnabled.";
 

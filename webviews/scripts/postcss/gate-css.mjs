@@ -6,14 +6,13 @@
 import { readFile, writeFile } from "node:fs/promises";
 import postcss from "postcss";
 import focusRingGate from "./focusRingGate.mjs";
-import splitHasLists from "./splitHasLists.mjs";
 
 const files = process.argv.slice(2);
 if (!files.length) {
   console.error("usage: gate-css.mjs <file.css>...");
   process.exit(2);
 }
-const processor = postcss([focusRingGate(), splitHasLists()]);
+const processor = postcss([focusRingGate()]);
 for (const file of files) {
   const out = await processor.process(await readFile(file, "utf8"), { from: file, map: false });
   await writeFile(file, out.css);

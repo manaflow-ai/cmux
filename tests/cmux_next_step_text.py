@@ -10,26 +10,15 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
-# A step with `working-directory:` calls its script relative to that directory (`../../../scripts/...`).
-STEP_CALL = re.compile(r"^bash -e (?:\.\./)*(scripts/ci/cmux-next-steps/[A-Za-z0-9_.-]+\.sh)$")
-
-
-# The checks job's slow commands moved out of the workflow into this manifest (#59284); the step that starts them
-# feeds it to the pool on stdin, so its commands are that step's commands.
-SLOW_CHECKS = "scripts/ci/cmux-next-slow-checks.txt"
+STEP_CALL = re.compile(r"^bash -e (scripts/ci/cmux-next-steps/[A-Za-z0-9_.-]+\.sh)$")
 
 
 def step_body(path: str) -> str:
-    """A moved step's script without its shebang and leading comment header, plus the slow-check manifest's
-    commands when the script runs them."""
+    """A moved step's script without its shebang and leading comment header."""
     lines = (ROOT / path).read_text().splitlines(keepends=True)
     while lines and lines[0].startswith("#"):
         lines.pop(0)
-    body = "".join(lines)
-    if SLOW_CHECKS in body:
-        manifest = (ROOT / SLOW_CHECKS).read_text().splitlines()
-        body = body.rstrip("\n") + "\n" + "".join(line + "\n" for line in manifest if line.strip() and not line.startswith("#"))
-    return body
+    return "".join(lines)
 
 
 def step_run(step: dict) -> str:
@@ -39,7 +28,7 @@ def step_run(step: dict) -> str:
     return step_body(call.group(1)) if call else run
 
 
-STEP_CALL_LINE = re.compile(r"^( *)run: bash -e (?:\.\./)*(scripts/ci/cmux-next-steps/[A-Za-z0-9_.-]+\.sh)$", re.MULTILINE)
+STEP_CALL_LINE = re.compile(r"^( *)run: bash -e (scripts/ci/cmux-next-steps/[A-Za-z0-9_.-]+\.sh)$", re.MULTILINE)
 
 
 def inline_steps(text: str) -> str:

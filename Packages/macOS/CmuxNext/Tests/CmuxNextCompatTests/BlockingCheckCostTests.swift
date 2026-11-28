@@ -1,10 +1,6 @@
 #if CMUX_BLOCKING_CHECKS && !DEBUG
 @testable import CmuxNextCompat
-#if canImport(Darwin)
 import Darwin
-#else
-import Glibc
-#endif
 import Foundation
 import Testing
 

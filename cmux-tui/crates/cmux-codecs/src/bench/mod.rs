@@ -207,7 +207,6 @@ impl Viewer {
             need_recovery: self.reassembler.need_recovery(),
             arrivals: std::mem::take(&mut self.arrivals),
             nacks,
-            acked_ltr_tokens: Vec::new(),
         };
         let mut d = header(DatagramKind::Feedback);
         d.extend_from_slice(&fb.encode());
@@ -331,7 +330,6 @@ pub fn run_row(cfg: &RowCfg) -> Res<Value> {
                     access_unit: bytes,
                     idr,
                     t_capture_us: t_capture,
-                    ltr_token: None,
                 });
                 match engine.encoded(&req, result, now) {
                     Ok(out) => {

@@ -18,15 +18,8 @@
 # Existing sites are rows of scripts/cmux-next/state-roots-baseline.tsv:
 # path<TAB>matching lines<TAB>keep|move<TAB>reason (`keep` = a resolver or a
 # reviewed use, `move` = should ask a resolver). A file with more matches
-# than its row, or matches and no row, fails. A file with fewer matches (or
-# none left) prints a note to lower or delete its row; --strict-rows makes it
-# fail, which CI's step passes (scripts/ci/cmux-next-slow-checks.txt,
-# check-pool-whole.txt), so a PR still lowers the row before it merges and the
-# ratchet only goes down. The pre-push gate runs it without the flag, like the
-# sibling ratchets (check-no-raw-spawn.py, check-no-process-scan.py): a push
-# that removed a site is never refused for it (fs-agent-lane-39, 2026-11-27:
-# lane/shrink-census-r3's WIP checkpoint refused 18 h for two stale
-# classic-ids rows, "no longer has com.cmuxterm.app: delete its row").
+# than its row, or matches and no row, fails; a file with fewer matches also
+# fails until its row is lowered, so the ratchet only goes down.
 #
 # Second check, per line, on the NEXT-vs-Classic axis (goal
 # next-zero-classic-footprint-all-surfaces): cmux NEXT never names cmux
@@ -45,21 +38,17 @@
 # importer, harnesses that drive Classic); `move` = reason starts `lane A`
 # (state roots, lane/next-own-state-roots) or `lane B` (reads behind consent,
 # lane/classic-reads-behind-consent), whose PR deletes the row. More
-# occurrences than a row or an unlisted text fail; a row with fewer is a note
-# (a failure with --strict-rows), as above.
+# occurrences than a row, an unlisted text, or a row with fewer fail.
 #
-# Usage: scripts/cmux-next/check-state-roots.sh [repo-root] [--list] [--strict-rows]
-#   --list         print every matching line and exit 0.
-#   --strict-rows  a row above the tree's count (lower or delete it) fails too.
+# Usage: scripts/cmux-next/check-state-roots.sh [repo-root] [--list]
+#   --list  print every matching line and exit 0.
 set -euo pipefail
 
 root=""
 list=0
-strict_rows=0
 for arg in "$@"; do
   case "$arg" in
     --list) list=1 ;;
-    --strict-rows) strict_rows=1 ;;
     -h|--help) sed -n '2,45p' "$0"; exit 0 ;;
     *) root="$arg" ;;
   esac
@@ -106,8 +95,6 @@ fi
 
 status=0
 counted=""
-# Rows above the tree's count: the push removed debt and the row still names it.
-stale_rows=""
 while IFS= read -r file; do
   found="$(matches "$file")"
   [[ -z "$found" ]] && continue
@@ -124,13 +111,15 @@ while IFS= read -r file; do
     printf '%s\n' "$found" | awk -v f="$file" '{ print "  " f ":" $0 }' >&2
     status=1
   elif (( count < limit )); then
-    stale_rows+="  $file has $count line(s), baseline $limit: lower its row in scripts/cmux-next/state-roots-baseline.tsv"$'\n'
+    echo "check-state-roots: $file has $count line(s), baseline $limit: lower its row in scripts/cmux-next/state-roots-baseline.tsv" >&2
+    status=1
   fi
 done < <(files | tr '\n' '\0' | (cd "$root" && xargs -0 grep -lE "$pattern" 2>/dev/null) | LC_ALL=C sort)
 while (( ! list )) && IFS=$'\t' read -r path count; do
   [[ -z "$path" ]] && continue
   if (( count > 0 )) && ! printf '%s' "$counted" | awk -F'\t' -v f="$path" '$1 == f { hit = 1 } END { exit !hit }'; then
-    stale_rows+="  $path has no literal state root left: delete its row in scripts/cmux-next/state-roots-baseline.tsv"$'\n'
+    echo "check-state-roots: $path has no literal state root left: delete its row in scripts/cmux-next/state-roots-baseline.tsv" >&2
+    status=1
   fi
 done <<< "$rows"
 # ---- Classic ids and paths, per matched text --------------------------------
@@ -141,7 +130,7 @@ BEGIN {
   suf = "([^A-Za-z0-9_-]|$)"
   re = "(\\.config|\\.local/state|Library/Caches|\\.cache|Library/Logs)/cmux" suf \
     "|/tmp/cmux[^\"\047 ]*\\.sock" \
-    "|com\\.cmuxterm\\.app([^.A-Za-z0-9_-]|$)" \
+    "|com\\.cmuxterm\\.app([^.]|$)" \
     "|(appendingPathComponent|appending|push)\\((path: |component: )?\"cmux\"[,)]" \
     "|join\\([^()]*\"cmux\"[,)]"
 }
@@ -154,11 +143,6 @@ FNR == 1 { hash = (FILENAME ~ /\.(sh|py)$/) }
     m = substr(line, RSTART, RLENGTH)
     line = substr(line, RSTART + RLENGTH)
     if (m ~ /^\/tmp\/cmux-next/) continue
-    # The key is the bare text: the character after it (a quote, slash, space,
-    # comma or paren) is context, so rewording a line keeps its baseline row.
-    if (m ~ /^com\.cmuxterm\.app/) m = "com.cmuxterm.app"
-    else if (m ~ /^(\.config|\.local|Library|\.cache)/) sub(/cmux.$/, "cmux", m)
-    else if (m !~ /^\/tmp\//) sub(/[,)]$/, ")", m)
     print FILENAME "\t" m
   }
 }'
@@ -201,24 +185,12 @@ if [[ -f "$ids_baseline" ]]; then
 fi
 ids_report="$( { [[ -f "$ids_baseline" ]] && sed 's/^/B\t/' "$ids_baseline" | grep -vE '^B	(#|$)' || true; ids_found | sed 's/^/F\t/'; } \
   | awk -F'\t' '
-    # A row written before keys were bare (a trailing quote, slash or comma) reads as its bare key,
-    # so a row the base adds the old way still matches, under this check and the one before it.
-    # A row for an id that only starts with the Classic id (com.cmuxterm.appx) names nothing this check finds;
-    # the installed copy the pre-push hook runs still counts it, so it stays until that copy has this rule.
-    $1 == "B" { t = $3
-      if (t ~ /^com\.cmuxterm\.app[A-Za-z0-9_-]/) next
-      if (t ~ /^com\.cmuxterm\.app([^.]|$)/) t = "com.cmuxterm.app"
-      else if (t ~ /^(\.config|\.local|Library|\.cache)/) sub(/cmux.$/, "cmux", t)
-      else if (t !~ /^\/tmp\//) sub(/[,)]$/, ")", t)
-      lim[$2 FS t] += $4; next }
+    $1 == "B" { lim[$2 FS $3] = $4; next }
     $1 == "F" { key = $2 FS $3; seen[key] = 1
       l = (key in lim) ? lim[key] : 0
       if ($4 > l) printf "  %s has %d x %s, baseline %d (names a Classic path or id)\n", $2, $4, $3, l
       else if ($4 < l) printf "  %s has %d x %s, baseline %d: lower its row in scripts/cmux-next/classic-ids-baseline.tsv\n", $2, $4, $3, l }
     END { for (k in lim) if (!(k in seen) && lim[k] > 0) { split(k, p, FS); printf "  %s no longer has %s: delete its row in scripts/cmux-next/classic-ids-baseline.tsv\n", p[1], p[2] } }' )"
-ids_stale="$(printf '%s\n' "$ids_report" | grep -E ': (lower|delete) its row in ' || true)"
-[[ -n "$ids_stale" ]] && stale_rows+="$ids_stale"$'\n'
-ids_report="$(printf '%s\n' "$ids_report" | grep -vE ': (lower|delete) its row in ' || true)"
 if [[ -n "$ids_report" ]]; then
   echo "check-state-roots: cmux NEXT must not name cmux Classic's paths or ids (.config/cmux, .local/state/cmux, Library/Caches/cmux, .cache/cmux, Library/Logs/cmux, /tmp/cmux*.sock, com.cmuxterm.app, an assembled \"cmux\" folder):" >&2
   printf '%s\n' "$ids_report" | LC_ALL=C sort >&2
@@ -226,15 +198,6 @@ if [[ -n "$ids_report" ]]; then
   status=1
 fi
 
-if [[ -n "$stale_rows" ]]; then
-  if (( strict_rows )); then
-    echo "check-state-roots: these baseline rows name more sites than the tree has; lower or delete them:" >&2
-    status=1
-  else
-    echo "check-state-roots: note: these baseline rows name more sites than the tree has; lower or delete them (CI's step fails on them, --strict-rows):" >&2
-  fi
-  printf '%s' "$stale_rows" | LC_ALL=C sort >&2
-fi
 if (( status )); then
   echo "check-state-roots: ask the build's resolver for state paths (BuildIdentity, ChiefHome, AcpmuxEnvironment; Rust build_identity, cli/chief/home.rs, environment.rs), never a literal root." >&2
 else

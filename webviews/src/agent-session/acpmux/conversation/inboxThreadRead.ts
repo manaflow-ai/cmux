@@ -46,6 +46,11 @@ export function setThreadRead(
   if (reads.size > KEEP) reads.delete(reads.keys().next().value!);
 }
 
+/// Forgets every read (tests).
+export function resetThreadReads(): void {
+  reads.clear();
+}
+
 /// The longest newest message a shut line holds on itself.
 const ON_LINE_CHARS = 60;
 

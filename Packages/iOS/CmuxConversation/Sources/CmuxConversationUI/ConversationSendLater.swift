@@ -376,7 +376,6 @@ extension ConversationViewController {
         let failed = store.message(rowID: rowID)?.delivery?.isFailed == true
         var actions: [UIMenuElement] = []
         if failed {
-            // retry-prompt-ok: re-sends a scheduled message
             actions.append(UIAction(title: String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), image: UIImage(systemName: "arrow.clockwise")) { [weak self] _ in
                 self?.store.retryScheduled(rowID: rowID)
             })

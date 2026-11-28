@@ -10,14 +10,6 @@
 // composer's right-click). "both" (text and row, which showed each attachment twice) reads as "strip".
 // It is only a look: a draft's text, its attachment marks and their order are the same in every
 // view, so switching never changes what is sent. Anything else reads as "strip".
-// One value, three writers, no precedence: Settings' Attachment View, the composer's right-click
-// (composer/attachmentViewMenu.ts) and a sent prompt's right-click (Swift AgentPaneContextMenu
-// `attachmentViewRows`, `chat.menu.attachmentView`) each write `agentPane.attachmentView`, so the
-// last pick wins and every composer, New Tab and every sent message follow it at once. No view
-// keeps one per message. Each view puts an attachment in one place (Leo, 2026-11-27: inline was
-// showing "inline + top bar"): "inline", in the text where it was placed, and one with no recorded
-// place at the end of its message, never in a row over it; "strip", in the row over the text and
-// never in it. A message of attachments alone draws them alone in either.
 // `agentPane.composerVimKeys` (`composerVimKeys`) is off by default: on, the chat's prompt takes the minimal
 // modal vim of composer/vimKeys.ts (Esc for normal mode); off, the composer never reads those keys.
 // `agentPane.scrollToBottomOnSend` is on by default and preserves the existing send-to-latest
@@ -56,8 +48,6 @@
 // `emptyChatComposerPosition` is `agentPane.emptyChatComposerPosition` ("bottom" by default): "center"
 // sits a chat's composer in the middle of the pane until its first message (styles.css,
 // [data-empty-chat-composer="center"]). Anything else reads as "bottom".
-// `composerPlaceholder` is `agentPane.composerPlaceholder` ("" by default): the idle prompt's text in
-// every chat; empty keeps cmux's own. A profile sets its reference app's (examples/looks/t3code).
 // `followUpMode` is `agentPane.followUpMode` ("steer" by default): what Return and Send do with a
 // message sent while an agent that steers is mid-turn, "steer" it into the turn or "queue" it for after
 // (followUpMode.ts); ⌘Return does the other. Anything else reads as "steer".
@@ -105,7 +95,6 @@ export type ComposerSettings = {
   composerRing: ComposerRing;
   composerLook: ComposerLookSetting;
   emptyChatComposerPosition: EmptyChatComposerPosition;
-  composerPlaceholder: string;
   followUpMode: FollowUpMode;
   cloudEnvironments: boolean;
   cloudLeaseOnOpen: boolean;
@@ -131,7 +120,6 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   composerRing: "context",
   composerLook: "auto",
   emptyChatComposerPosition: "bottom",
-  composerPlaceholder: "",
   followUpMode: "steer",
   cloudEnvironments: true,
   cloudLeaseOnOpen: true,
@@ -166,7 +154,6 @@ export function readComposerSettings(value: unknown): ComposerSettings {
       ? (raw.dictationSource as DictationSource)
       : "cmux",
     dictationShortcut: typeof raw.dictationShortcut === "string" ? raw.dictationShortcut : "",
-    composerPlaceholder: typeof raw.composerPlaceholder === "string" ? raw.composerPlaceholder : "",
     spellChecking: flag("spellChecking"),
     composerVimKeys: flag("composerVimKeys"),
     attachmentView,

@@ -51,10 +51,6 @@ Left to right in the toolbar row:
    Zoom, Bookmarks, Downloads, Design Mode, Theme, DevTools, Profile, then More (always). Profile
    is pinned by default and draws the tab's profile as its avatar (its letter or icon on its
    color); a press opens the profile menu. The profile is never inside the address bar.
-   An incognito tab's button is the incognito disc: the incognito glyph on the primary-text
-   plate (dark on a light theme), never the plain person glyph; its menu's header names
-   Incognito and when its data goes. Every header has its reason line, the built-in default's
-   too ("Default for all workspaces"). (cmuxterm-hq RFD 0125, D1 and D2.)
    The profile menu is a flat list (`BrowserProfileMenuStyle.list`). Behind the default-off
    experiment Browser Profile Card it opens as Helium's and Chrome's (`.card`): a card with
    the profile's large avatar, its name and why the tab has it; one quiet "Signed in as …" row

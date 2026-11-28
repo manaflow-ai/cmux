@@ -37,6 +37,14 @@ use crate::resource_router::ParsedResourceRequest;
 use cmux_json::JsonSet as _;
 
 const OPERATION: &str = "git.commit";
+/// State files that make a plain commit the wrong action, and their names.
+const IN_PROGRESS: [(&str, &str); 5] = [
+    ("MERGE_HEAD", "merge"),
+    ("rebase-merge", "rebase"),
+    ("rebase-apply", "rebase"),
+    ("CHERRY_PICK_HEAD", "cherry-pick"),
+    ("REVERT_HEAD", "revert"),
+];
 
 /// A started commit, as the journal keeps it.
 #[derive(Debug, Serialize, Deserialize)]
@@ -110,13 +118,6 @@ pub(super) fn dispatch(
     let deadline = deadline();
     let target = Target::resolve(mux, request, OPERATION)?;
     let arguments = parse(&request.fields, &target.repository.root)?;
-    // The home folder's repository: its untracked files are every file the person has, and no
-    // read of it lists them (`cmux_git::home`), so `add -A` would commit files nobody was shown.
-    if arguments.include_untracked && !target.repository.lists_untracked() {
-        let message = "the home folder's repository commits its tracked changes only; name a new \
-                       file in paths to add it";
-        return Err(refused(OPERATION, "home_repository", message, Value::Null));
-    }
     let fingerprint = target.fingerprint(request);
     target.exclusive(OPERATION, || {
         if let Some(replayed) = ledger::prior(mux, &key, OPERATION, &fingerprint)? {
@@ -203,7 +204,7 @@ pub(super) fn dispatch(
 /// Refuses while a merge, rebase, cherry-pick or revert is in progress: a
 /// commit then would conclude or corrupt it.
 fn in_progress(git_dir: &Path) -> Result<(), ResourceError> {
-    if let Some(state) = cmux_git::in_progress(git_dir) {
+    if let Some((_, state)) = IN_PROGRESS.iter().find(|(file, _)| git_dir.join(file).exists()) {
         let message = format!("a {state} is in progress; finish or abort it first");
         return Err(refused(OPERATION, "merge_in_progress", message, json!({"state": state})));
     }

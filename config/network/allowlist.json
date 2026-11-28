@@ -470,39 +470,6 @@
    "purpose": "shared workspace links"
   },
   {
-   "host": "console.cmux.dev",
-   "category": "backend",
-   "builds": [
-    "release",
-    "dev"
-   ],
-   "named_in": "code",
-   "ports": [
-    {
-     "port": "tcp/443",
-     "use": "HTTPS (TLS)"
-    }
-   ],
-   "ips": "dns",
-   "purpose": "cmux console: the in-app GitHub connect completion page"
-  },
-  {
-   "host": "console-staging.cmux.dev",
-   "category": "backend",
-   "builds": [
-    "dev"
-   ],
-   "named_in": "code",
-   "ports": [
-    {
-     "port": "tcp/443",
-     "use": "HTTPS (TLS)"
-    }
-   ],
-   "ips": "dns",
-   "purpose": "cmux console (staging): the GitHub connect completion page for staging builds"
-  },
-  {
    "host": "cmux-platform-production.debussy.workers.dev",
    "category": "backend",
    "builds": [

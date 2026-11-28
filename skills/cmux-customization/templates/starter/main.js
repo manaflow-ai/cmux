@@ -1,7 +1,6 @@
 // The customize app's script: a classic script, not a module (no import or export).
 // The scene globals (VStack, Panel, Row, Button, Toggle, Text, signal, computed, cmux, ...)
 // are already defined. cmux reloads this file every time it is saved.
-// Show or hide this sidebar with Toggle Custom Sidebar (Cmd+Shift+P) or Ctrl+Opt+Cmd+B.
 
 // State lives in signals; a view that reads one redraws when it changes.
 const [tasks, setTasks] = signal([
@@ -43,7 +42,7 @@ function renderSection() {
         () => (tasks().length === 0 ? EmptyState({ title: "Nothing left", symbol: "checkmark.circle" }) : null)
       ])
     ]),
-    Row({ title: "Edit main.js in the views folder from cmux customize paths", symbol: "pencil", tint: cmux.theme.text.secondary })
+    Row({ title: "Edit ~/.config/cmux/customize/main.js", symbol: "pencil", tint: cmux.theme.text.secondary })
   ])
 }
 

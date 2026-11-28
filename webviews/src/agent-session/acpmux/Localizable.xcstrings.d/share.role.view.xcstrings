@@ -7,128 +7,128 @@
       "localizations" : {
         "ar" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "يمكنه العرض"
+            "state" : "translated",
+            "value" : "مشاهد"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Može gledati"
+            "value" : "Gledalac"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Kan se"
+            "value" : "Seer"
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Kann ansehen"
+            "state" : "translated",
+            "value" : "Betrachter"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Can view"
+            "value" : "Viewer"
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Puede ver"
+            "state" : "translated",
+            "value" : "Lector"
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Peut voir"
+            "state" : "translated",
+            "value" : "Lecteur"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Può vedere"
+            "value" : "Visualizzatore"
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "閲覧可"
+            "state" : "translated",
+            "value" : "閲覧者"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "អាចមើល"
+            "value" : "អ្នកមើល"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "보기 가능"
+            "state" : "translated",
+            "value" : "뷰어"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Kan se"
+            "value" : "Leser"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Może wyświetlać"
+            "value" : "Przeglądający"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Pode ver"
+            "value" : "Leitor"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Может смотреть"
+            "value" : "Читатель"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ดูได้"
+            "value" : "ผู้ดู"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Görüntüleyebilir"
+            "value" : "Görüntüleyen"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Може переглядати"
+            "value" : "Глядач"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Có thể xem"
+            "value" : "Người xem"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "可查看"
+            "state" : "translated",
+            "value" : "查看者"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "可檢視"
+            "state" : "translated",
+            "value" : "檢視者"
           }
         }
       }

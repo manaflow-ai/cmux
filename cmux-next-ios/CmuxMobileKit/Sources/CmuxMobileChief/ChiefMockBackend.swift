@@ -1,6 +1,5 @@
 import CmuxAgentQuestion
 import CmuxConversationCore
-import CmuxMobileModel
 import Foundation
 import ImageIO
 
@@ -16,11 +15,10 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
     let engine: Engine
     public let liveFeed = ChiefLiveFeed()
 
-    /// `sleep` paces Chief (pass a no-op in tests); `now` stamps the seeded transcript, and
-    /// ``MockClock`` the messages after it (a fixed instant for the App Review gate's stills).
+    /// `sleep` paces Chief (pass a no-op in tests); `now` stamps messages.
     /// `quiet`: a new conversation with people (New Message's demo) — no seeded transcript,
     /// no question and no replies; a sent message is delivered and read.
-    public init(identity: ChiefIdentity = .standard, now: Date = MockClock.now(),
+    public init(identity: ChiefIdentity = .standard, now: Date = Date(),
                 sleep: @escaping Sleep = { try? await Task.sleep(for: $0) }, quiet: Bool = false) {
         let showsLiveDemo = ProcessInfo.processInfo.arguments.contains("-cmux-mobile-chief-live")
         engine = Engine(identity: identity, now: now, sleep: sleep, showsLiveDemo: showsLiveDemo, quiet: quiet)
@@ -65,11 +63,11 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
     }
 
     public func edit(messageID: String, text: String) async throws -> ConversationMessage {
-        try await engine.update(messageID) { $0.text = text; $0.editedAt = MockClock.now(); $0.editCount += 1 }
+        try await engine.update(messageID) { $0.text = text; $0.editedAt = Date(); $0.editCount += 1 }
     }
 
     public func unsend(messageID: String) async throws -> ConversationMessage {
-        try await engine.update(messageID) { $0.text = ""; $0.unsentAt = MockClock.now(); $0.reactions = [] }
+        try await engine.update(messageID) { $0.text = ""; $0.unsentAt = Date(); $0.reactions = [] }
     }
 
     public func setTyping(_ isTyping: Bool) async {}
@@ -182,7 +180,7 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
             let seq = headSeq + 1
             let message = ConversationMessage(
                 id: "msg_local_\(seq)", seq: seq, clientMessageID: draft.clientMessageID, senderID: identity.meID,
-                sentAt: MockClock.now(), text: draft.text, replyToID: draft.replyToID,
+                sentAt: Date(), text: draft.text, replyToID: draft.replyToID,
                 attachments: draft.attachmentIDs.compactMap { uploads[$0] }, delivery: .delivered,
                 mentions: draft.mentions, textRuns: draft.textRuns, effect: draft.effect
             )
@@ -196,7 +194,7 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
         func respond(to message: ConversationMessage) async {
             await sleep(.milliseconds(700))
             guard var read = messages.first(where: { $0.id == message.id }) else { return }
-            read.delivery = .read(MockClock.now())
+            read.delivery = .read(Date())
             store(read)
             emit(read)
             guard !quiet else { return }
@@ -223,7 +221,7 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
             let tabled = ConversationMarkdownTables.extract(linked.text, links: linked.links)
             let answer = ConversationMessage(
                 id: "msg_local_\(seq)", seq: seq, clientMessageID: "chief-\(seq)", senderID: identity.chiefID,
-                sentAt: MockClock.now(), text: tabled.text, textRuns: tabled.runs, links: tabled.links, tables: tabled.tables
+                sentAt: Date(), text: tabled.text, textRuns: tabled.runs, links: tabled.links, tables: tabled.tables
             )
             store(answer)
             emit(answer)
@@ -254,7 +252,7 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
             let seq = headSeq + 1
             let message = ConversationMessage(
                 id: "msg_local_\(seq)", seq: seq, clientMessageID: "chief-\(seq)", senderID: identity.chiefID,
-                sentAt: MockClock.now(), text: text
+                sentAt: Date(), text: text
             )
             store(message)
             emit(message)

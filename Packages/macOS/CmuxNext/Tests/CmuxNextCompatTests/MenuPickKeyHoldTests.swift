@@ -1,4 +1,3 @@
-#if canImport(AppKit)
 import AppKit
 import CmuxNextCompat
 import Testing
@@ -68,4 +67,3 @@ import Testing
         #expect(replayed == ["a", "b"])
     }
 }
-#endif

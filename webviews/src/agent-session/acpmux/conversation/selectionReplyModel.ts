@@ -1,6 +1,5 @@
 import { useSyncExternalStore } from "react";
 import { selectionText } from "./chipCopy";
-import { TRANSCRIPT_CHROME } from "./transcriptSelectionCopy";
 
 export type SelectionReplyLook = "chip" | "icon" | "none" | "row";
 const LOOKS: readonly SelectionReplyLook[] = ["chip", "icon", "none", "row"];
@@ -81,40 +80,6 @@ function columnOf(node: Node | null): SelectionReplyTarget["column"] {
   return { left: block.left, right: body.right };
 }
 
-/// Whether `text` is selected text the chip may end on: the range also holds the text the browser
-/// does not select (a "Worked for" line, a tool card: `user-select: none`) or hides, and chrome the
-/// copy leaves out (a prompt's age and Copy under it), which a triple-click on a prompt runs through
-/// to the next reply's first paragraph. As the copy reads it (transcriptSelectionCopy.ts, mathCopy.ts).
-/// The nearest element that sets `user-select` decides: WebKit inherits it, other engines answer
-/// `auto` under a `none` parent, and a message opts back in under the page's `none`. `memo` keeps
-/// each element's answer for one walk, so a long unselectable tool card costs one look per node.
-function selectable(text: Node, memo: Map<Element, boolean>): boolean {
-  const parent = text.parentElement;
-  const view = text.ownerDocument?.defaultView;
-  if (!parent || !view) return true;
-  const own = view.getComputedStyle(parent);
-  if (own.visibility === "hidden" || own.display === "none") return false;
-  if (parent.closest(TRANSCRIPT_CHROME)) return false;
-  return selectsWithin(parent, view, memo);
-}
-
-function selectsWithin(element: Element, view: Window, memo: Map<Element, boolean>): boolean {
-  const known = memo.get(element);
-  if (known !== undefined) return known;
-  const style = view.getComputedStyle(element);
-  const select = style.userSelect || style.getPropertyValue("-webkit-user-select");
-  const answer =
-    select === "none"
-      ? false
-      : select && select !== "auto"
-        ? true
-        : element.parentElement
-          ? selectsWithin(element.parentElement, view, memo)
-          : true;
-  memo.set(element, answer);
-  return answer;
-}
-
 /// The text node of the selection's last selected character (its first for a backward drag). A
 /// drag let go deep past a block ends the range in the next block, or the next message: its column
 /// is not the selected text's. Walks from that end only, a few nodes, never the whole selection.
@@ -131,28 +96,13 @@ function edgeTextOf(range: Range, backward: boolean): Node {
     while (node.lastChild) node = node.lastChild;
   }
   walker.currentNode = node;
-  const memo = new Map<Element, boolean>();
   for (let at: Node | null = node; at; at = backward ? walker.nextNode() : walker.previousNode()) {
-    if (at.nodeType !== 3 || !(at as Text).data.trim() || !range.intersectsNode(at) || !selectable(at, memo)) continue;
+    if (at.nodeType !== 3 || !(at as Text).data.trim() || !range.intersectsNode(at)) continue;
     // The boundary's own text node holds no selected character when the range stops at its edge.
     if (at === container && offset === (backward ? (at as Text).length : 0)) continue;
     return at;
   }
   return container;
-}
-
-/// The boxes of `node`'s selected characters (a text node; none for an element), with a width. A
-/// range's own boxes also hold the border box of each element it wholly holds: a triple-click on a
-/// prompt selects to the next message's first paragraph, and the box of an element between the two
-/// (a full-width row gap under the prompt) came last, so the chip went far below the prompt.
-function selectedTextRects(range: Range, node: Node): DOMRect[] {
-  const doc = node.ownerDocument;
-  if (node.nodeType !== 3 || !doc) return [];
-  const part = doc.createRange();
-  part.selectNodeContents(node);
-  if (node === range.startContainer) part.setStart(node, range.startOffset);
-  if (node === range.endContainer) part.setEnd(node, range.endOffset);
-  return Array.from(part.getClientRects?.() ?? []).filter((rect) => rect.width > 0);
 }
 
 /// The selected transcript text and where its end is (viewport px), or undefined when the
@@ -172,14 +122,7 @@ export function selectionReplyTarget(doc: Document): SelectionReplyTarget | unde
   // A selection that runs to the start of the next block ends in a caret-thin box there: its last
   // character is the last box with a width.
   const wide = rects.filter((rect) => rect.width > 0);
-  // The first and last selected characters are measured in their own text nodes, so no element box
-  // the range holds stands in for them (selectedTextRects); the range's boxes are the fallback.
-  const lastText = edgeTextOf(range, false);
-  const firstText = edgeTextOf(range, true);
-  const lastRects = selectedTextRects(range, lastText);
-  const firstRects = firstText === lastText ? lastRects : selectedTextRects(range, firstText);
-  const last = lastRects[lastRects.length - 1] ?? (wide.length ? wide : rects)[(wide.length ? wide : rects).length - 1];
-  const first = firstRects[0] ?? wide[0];
+  const last = (wide.length ? wide : rects)[(wide.length ? wide : rects).length - 1];
   // A backward drag ends at the range's start: the chip goes where the pointer let go.
   const backward =
     selection.anchorNode !== null &&
@@ -191,7 +134,7 @@ export function selectionReplyTarget(doc: Document): SelectionReplyTarget | unde
   // caret-thin box where the pointer is not: the chip goes on the first or last selected character.
   // Leo, 2026-11-11: "if you go close, you still get it. But if you go deep into it, there's
   // something that messes up there."
-  const rect = (backward ? (first ?? rects[0]) : last) ?? range.getBoundingClientRect?.();
+  const rect = (backward ? (wide[0] ?? rects[0]) : last) ?? range.getBoundingClientRect?.();
   if (!rect) return { text, left: 0, top: 0, bottom: 0 };
   const end = last ? { right: last.right, top: last.top, bottom: last.bottom } : undefined;
   return {
@@ -200,8 +143,8 @@ export function selectionReplyTarget(doc: Document): SelectionReplyTarget | unde
     top: rect.top,
     bottom: rect.bottom,
     end,
-    start: first ? { top: first.top, bottom: first.bottom } : undefined,
-    column: columnOf(backward ? firstText : lastText),
+    start: wide[0] ? { top: wide[0].top, bottom: wide[0].bottom } : undefined,
+    column: columnOf(edgeTextOf(range, backward)),
   };
 }
 
@@ -287,15 +230,7 @@ export function transcriptTextProbe(doc: Document): TextProbe {
     for (const row of Array.from(doc.querySelectorAll("[data-row-id]"))) {
       if (row.parentElement?.closest("[data-row-id]")) continue;
       const rowBox = row.getBoundingClientRect();
-      // A row's content can draw past its box: a prompt's age and Copy hang under its bubble, and
-      // the chip went over them. The row's overflow counts (scrollWidth and scrollHeight hold it).
-      const reach = {
-        left: rowBox.left,
-        top: rowBox.top,
-        right: Math.max(rowBox.right, rowBox.left + row.scrollWidth),
-        bottom: Math.max(rowBox.bottom, rowBox.top + row.scrollHeight),
-      };
-      if (!crosses(box, reach)) continue;
+      if (!crosses(box, rowBox)) continue;
       const walker = doc.createTreeWalker(row, 4);
       for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
         if (!node.data.trim()) continue;

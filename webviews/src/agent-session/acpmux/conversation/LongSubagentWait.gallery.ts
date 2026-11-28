@@ -34,7 +34,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/Thinking.tsx#Thinking"],
   variants: {
     "waiting-on-subagents": {
-      note: "Three foreground subagents still run: the line is the subagents' mark and 3 (named on hover), and its clock is the turn's whole time, never a 1h 24m think.",
+      note: "Three foreground subagents still run: the line reads Waiting on 3 subagents, and its clock is the turn's whole time, never a 1h 24m think.",
       snapshot: chat(
         [
           prompt(),

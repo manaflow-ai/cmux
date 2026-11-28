@@ -169,9 +169,34 @@ fn inbox(me: App, args: &Value) -> Value {
 }
 
 #[cfg(test)]
-#[path = "acpmux_mcp_bridge_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_app_lists_send_inbox_ls_and_last_and_names_the_other_app() {
+        for me in desktop_bridge::APPS {
+            let tools = tools(*me);
+            let names: Vec<_> =
+                tools.as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+            assert_eq!(names, ["send", "inbox", "ls", "last"]);
+            for other in desktop_bridge::APPS.iter().filter(|a| a != &me) {
+                assert!(tools[0]["description"].as_str().unwrap().contains(other.address));
+            }
+            assert!(!tools[0]["description"].as_str().unwrap().contains(me.address));
+        }
+    }
+}
 
 #[cfg(test)]
-#[path = "acpmux_mcp_bridge_send_timeout_tests.rs"]
-mod send_timeout_tests;
+mod send_timeout_tests {
+    use super::*;
+
+    /// The timeout names the step and says the message may be queued, not a plain "took over".
+    #[test]
+    fn a_timed_out_send_says_it_may_be_queued() {
+        let m = send_timeout_message("lane-b");
+        assert!(m.contains("lane-b") && m.contains("20s"), "{m}");
+        assert!(m.contains("may already be queued"), "{m}");
+        assert!(!m.contains("took over"), "{m}");
+    }
+}

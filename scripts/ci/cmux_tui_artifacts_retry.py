@@ -33,13 +33,9 @@ from dataclasses import dataclass
 import json
 import os
 import sys
-import time
-import urllib.error
 import urllib.request
 
 MAX_ATTEMPTS = 3
-API_ATTEMPTS = 3
-MAX_RATE_WAIT = 45
 CONFLICT_TITLE = "immutable-r2-conflict"
 TREE_PREFLIGHT_JOB = "cmux-tui tree preflight"
 TREE_PUBLISH_JOBS = ("publish tree-addressed cmux-tui",)
@@ -117,41 +113,9 @@ def _api(method: str, url: str, token: str) -> object:
             "X-GitHub-Api-Version": "2022-11-28",
         },
     )
-    # A 403/429 with a rate-limit signal is the token's REST budget, not a missing permission
-    # (the job holds actions: write, which includes read). Run 46120896444 (a49c3280) died on a
-    # bare "HTTP Error 403" with no body printed, so the cause could not be told. Print the body,
-    # and wait out a short limit instead of leaving the failed publish unretried.
-    for attempt in range(1, API_ATTEMPTS + 1):
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                body = response.read()
-            return json.loads(body) if body else None
-        except urllib.error.HTTPError as err:
-            detail = err.read().decode("utf-8", "replace")[:500]
-            wait = _rate_limit_wait(err.code, err.headers, detail)
-            print(f"{method} {url}: HTTP {err.code}: {detail}", file=sys.stderr)
-            if wait is None or attempt == API_ATTEMPTS:
-                raise
-            print(f"rate limited; waiting {wait}s (try {attempt}/{API_ATTEMPTS})", file=sys.stderr)
-            time.sleep(wait)
-    raise AssertionError("unreachable")
-
-
-def _rate_limit_wait(code: int, headers, detail: str) -> int | None:
-    """Seconds to wait when the response is a rate limit that clears within MAX_RATE_WAIT, else None."""
-    if code not in (403, 429):
-        return None
-    retry_after = headers.get("Retry-After")
-    reset = headers.get("X-RateLimit-Reset")
-    if retry_after and retry_after.isdigit():
-        wait = int(retry_after)
-    elif headers.get("X-RateLimit-Remaining") == "0" and reset and reset.isdigit():
-        wait = max(1, int(reset) - int(time.time()) + 1)
-    elif "rate limit" in detail.lower():
-        wait = 30
-    else:
-        return None
-    return wait if wait <= MAX_RATE_WAIT else None
+    with urllib.request.urlopen(request, timeout=30) as response:
+        body = response.read()
+    return json.loads(body) if body else None
 
 
 def main(argv: list[str]) -> int:

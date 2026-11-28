@@ -31,10 +31,10 @@ extension BrowserProfileService {
     }
 
     /// The avatar the toolbar's profile button draws for tab `key`, with one profile too (the button is
-    /// where a second one is made); an incognito tab's is the incognito disc (cmuxterm-hq RFD 0125, D1),
-    /// never the plain glyph.
-    func toolbarBadge(forTab key: String) -> BrowserProfileBadge {
-        guard !services.cache.browserTabs.isIncognitoTab(key) else { return .incognito(name: WindowStrings.incognitoBadge) }
+    /// where a second one is made); nil for incognito tabs (their window says incognito), which keep
+    /// the plain glyph.
+    func toolbarBadge(forTab key: String) -> BrowserProfileBadge? {
+        guard !services.cache.browserTabs.isIncognitoTab(key) else { return nil }
         let id = services.cache.tabModel(key).map(profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
         let record = record(id)
         return BrowserProfileBadge(monogram: record?.monogram ?? "?", color: record?.color.flatMap(GroupColor.init(rawValue:)),

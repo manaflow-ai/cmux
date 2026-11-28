@@ -73,7 +73,6 @@ function ToolCardRow({
         kind={kind}
         message={card.text}
         leading={card.state === "working" ? <Spinner size={14} /> : undefined}
-        // retry-prompt-ok: the tool's own retry action, which runs the tool again with its side effects.
         retry={retry && { label: retry.title, hint: retry.hint, onRetry: () => send(retry.id, false) }}
         actions={actions}
         check={

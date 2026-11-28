@@ -1,8 +1,4 @@
-// A Cloud chat's new preview ports, kept per pane view (goal memory-per-chat, paneView.ts): in a
-// shared pane document each chat has its own context, known ports and cards, so one chat's app never
-// shows in another's. The null view is the page itself, which is every page today.
 import { useSyncExternalStore } from "react";
-import { usePaneView } from "./paneViewStore";
 
 export type CloudPreviewPort = { port: number; process?: string };
 export type CloudPreviewContext = { machineID?: string; sessionId?: string; turnId?: string; active: boolean };
@@ -17,40 +13,13 @@ type PortEvent = CloudPreviewPort & {
 };
 
 const NONE: readonly CloudPreviewPort[] = [];
-
-type ViewPorts = {
-  current: readonly CloudPreviewPort[];
-  knownPorts: Set<number>;
-  knownByContext: Map<string, Set<number>>;
-  unscopedKnown: Set<number>;
-  context: CloudPreviewContext | undefined;
-  pending: readonly unknown[];
-};
-
-const byView = new Map<string | null, ViewPorts>();
-/// Readers a view, apart from its ports so a drop or reset keeps them listening.
-const listeners = new Map<string | null, Set<() => void>>();
-
-function portsOf(view: string | null): ViewPorts {
-  let state = byView.get(view);
-  if (!state) {
-    state = {
-      current: NONE,
-      knownPorts: new Set(),
-      knownByContext: new Map(),
-      unscopedKnown: new Set(),
-      context: undefined,
-      pending: [],
-    };
-    byView.set(view, state);
-  }
-  return state;
-}
-
-function wake(view: string | null): void {
-  const set = listeners.get(view);
-  if (set) for (const listener of set) listener();
-}
+let current: readonly CloudPreviewPort[] = NONE;
+let knownPorts = new Set<number>();
+const knownByContext = new Map<string, Set<number>>();
+const unscopedKnown = new Set<number>();
+const listeners = new Set<() => void>();
+let context: CloudPreviewContext | undefined;
+let pending: readonly unknown[] = [];
 
 function validPort(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 65535;
@@ -91,6 +60,11 @@ function parseEvent(value: unknown): PortEvent | undefined {
   };
 }
 
+export function readCloudPreviewPort(value: unknown): CloudPreviewPort | undefined {
+  const event = parseEvent(value);
+  return event ? { port: event.port, ...(event.process ? { process: event.process } : {}) } : undefined;
+}
+
 function contextKey(value: CloudPreviewContext | undefined): string {
   if (!value) return "";
   return [value.machineID ?? "", value.sessionId ?? "", value.turnId ?? ""].join("\u0000");
@@ -108,127 +82,102 @@ function matches(event: PortEvent, target: CloudPreviewContext): boolean {
   return true;
 }
 
-function apply(state: ViewPorts, event: PortEvent, target: CloudPreviewContext): boolean {
+function apply(event: PortEvent, target: CloudPreviewContext): boolean {
   if (!matches(event, target)) return false;
-  const remember = () => {
-    state.knownByContext.set(contextKey(target), state.knownPorts);
-    state.knownByContext.set(machineSessionKey(target), state.knownPorts);
-  };
   if (event.state === "down" || event.state === "closed") {
-    state.knownPorts.delete(event.port);
-    state.unscopedKnown.delete(event.port);
+    knownPorts.delete(event.port);
+    unscopedKnown.delete(event.port);
     // A new turn copies the session baseline, so a close must also leave the session's set, or
     // the next turn restores the closed port as known and a reopen shows no card.
-    remember();
-    state.current = state.current.filter((item) => item.port !== event.port);
+    knownByContext.set(contextKey(target), knownPorts);
+    knownByContext.set(machineSessionKey(target), knownPorts);
+    current = current.filter((item) => item.port !== event.port);
     return false;
   }
-  if (event.known === true || !target.active || state.knownPorts.has(event.port)) {
-    state.knownPorts.add(event.port);
-    remember();
+  if (event.known === true || !target.active || knownPorts.has(event.port)) {
+    knownPorts.add(event.port);
+    knownByContext.set(contextKey(target), knownPorts);
+    knownByContext.set(machineSessionKey(target), knownPorts);
     return false;
   }
-  state.knownPorts.add(event.port);
-  remember();
-  state.current = [...state.current, { port: event.port, ...(event.process ? { process: event.process } : {}) }];
+  knownPorts.add(event.port);
+  knownByContext.set(contextKey(target), knownPorts);
+  knownByContext.set(machineSessionKey(target), knownPorts);
+  current = [...current, { port: event.port, ...(event.process ? { process: event.process } : {}) }];
   return true;
 }
 
-/// Sets `view`'s chat context (its machine, session, turn and whether it is working).
-export function setCloudPreviewContext(next: CloudPreviewContext, view: string | null = null): void {
-  const state = portsOf(view);
+export function setCloudPreviewContext(next: CloudPreviewContext): void {
   const key = contextKey(next);
-  const changed = contextKey(state.context) !== key;
-  state.context = next;
+  const changed = contextKey(context) !== key;
+  context = next;
   if (changed) {
-    state.current = NONE;
-    state.knownPorts = new Set<number>([
-      ...(state.knownByContext.get(key) ?? []),
-      ...(state.knownByContext.get(machineSessionKey(next)) ?? []),
-      ...state.unscopedKnown,
+    current = NONE;
+    knownPorts = new Set<number>([
+      ...(knownByContext.get(key) ?? []),
+      ...(knownByContext.get(machineSessionKey(next)) ?? []),
+      ...unscopedKnown,
     ]);
-    state.knownByContext.set(key, state.knownPorts);
+    knownByContext.set(key, knownPorts);
   }
-  const queued = state.pending;
-  state.pending = [];
-  const before = state.current;
+  const queued = pending;
+  pending = [];
+  const before = current;
   for (const value of queued) {
     const event = parseEvent(value);
-    if (event) apply(state, event, next);
+    if (event) apply(event, next);
   }
-  if (changed || before !== state.current) wake(view);
+  if (changed || before !== current) for (const listener of listeners) listener();
 }
 
-/// A port the host saw open for `view`'s chat; true when it is a new card.
-export function addCloudPreviewPort(value: unknown, view: string | null = null): boolean {
+export function addCloudPreviewPort(value: unknown): boolean {
   const event = parseEvent(value);
   if (!event) return false;
-  const state = portsOf(view);
-  if (!state.context) {
-    state.pending = [...state.pending, value];
+  if (!context) {
+    pending = [...pending, value];
     return false;
   }
-  const before = state.current;
-  const added = apply(state, event, state.context);
-  if (before !== state.current) wake(view);
+  const before = current;
+  const added = apply(event, context);
+  if (before !== current) for (const listener of listeners) listener();
   return added;
 }
 
-/// Ports `view`'s chat already had open: known, so none becomes a card.
-export function seedCloudPreviewPorts(values: readonly unknown[], view: string | null = null): void {
-  const state = portsOf(view);
+export function seedCloudPreviewPorts(values: readonly unknown[]): void {
   for (const value of values) {
     const event = parseEvent(value);
     if (event) {
-      state.knownPorts.add(event.port);
-      if (!state.context) state.unscopedKnown.add(event.port);
+      knownPorts.add(event.port);
+      if (!context) unscopedKnown.add(event.port);
     }
   }
-  if (state.context) {
-    state.knownByContext.set(contextKey(state.context), state.knownPorts);
-    state.knownByContext.set(machineSessionKey(state.context), state.knownPorts);
+  if (context) {
+    knownByContext.set(contextKey(context), knownPorts);
+    knownByContext.set(machineSessionKey(context), knownPorts);
   }
 }
 
-export function cloudPreviewPorts(view: string | null = null): readonly CloudPreviewPort[] {
-  return byView.get(view)?.current ?? NONE;
+export function cloudPreviewPorts(): readonly CloudPreviewPort[] {
+  return current;
 }
 
-/// Forgets a view that closed, waking its readers with no cards.
-export function dropCloudPreviewPorts(view: string): void {
-  if (byView.delete(view)) wake(view);
-}
-
-/// Tests: forgets every view's ports.
 export function resetCloudPreviewPorts(): void {
-  const views = [...byView.keys()];
-  byView.clear();
-  for (const view of views) wake(view);
+  current = NONE;
+  knownPorts = new Set<number>();
+  knownByContext.clear();
+  unscopedKnown.clear();
+  context = undefined;
+  pending = [];
+  for (const listener of listeners) listener();
 }
 
-export function subscribeCloudPreviewPorts(listener: () => void, view: string | null = null): () => void {
-  let set = listeners.get(view);
-  if (!set) {
-    set = new Set();
-    listeners.set(view, set);
-  }
-  set.add(listener);
-  return () => {
-    const current = listeners.get(view);
-    if (!current) return;
-    current.delete(listener);
-    if (current.size === 0) listeners.delete(view);
-  };
+export function subscribeCloudPreviewPorts(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => void listeners.delete(listener);
 }
 
-/// React: the calling component's view's new ports.
 export function useCloudPreviewPorts(): readonly CloudPreviewPort[] {
-  const view = usePaneView();
-  return useSyncExternalStore(
-    (listener) => subscribeCloudPreviewPorts(listener, view),
-    () => cloudPreviewPorts(view),
-    () => cloudPreviewPorts(view),
-  );
+  return useSyncExternalStore(subscribeCloudPreviewPorts, cloudPreviewPorts, cloudPreviewPorts);
 }
 
 declare global {

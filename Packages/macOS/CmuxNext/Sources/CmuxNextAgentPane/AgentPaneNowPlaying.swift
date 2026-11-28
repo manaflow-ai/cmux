@@ -18,8 +18,7 @@ public final class AgentPaneNowPlaying {
         didSet {
             guard track != oldValue else { return }
             // Held per pane to one per turn, and while nobody sees it: the artwork is a data URL.
-            // Only the New Tab screen draws the player.
-            for view in views.allObjects { view.shownPushes.push("nowPlaying", to: view, newTabOnly: true) { [weak self] in self?.send(to: $0) } }
+            for view in views.allObjects { view.shownPushes.push("nowPlaying", to: view) { [weak self] in self?.send(to: $0) } }
         }
     }
     /// Runs a page's control (`nowPlaying.command`) on what plays.

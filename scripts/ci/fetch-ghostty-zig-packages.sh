@@ -10,7 +10,7 @@
 # past the job's timeout, while a healthy fetch on a slow runner takes up to
 # 20 minutes (the same run's attempt 3), so the deadline is on progress: an
 # attempt whose download (zig-pkg/ and the global cache's p/ and tmp/) has not
-# grown, and whose processes used no CPU, for CMUX_ZIG_FETCH_STALL_TIMEOUT is stopped, as is one that runs past
+# grown for CMUX_ZIG_FETCH_STALL_TIMEOUT is stopped, as is one that runs past
 # CMUX_ZIG_FETCH_ATTEMPT_TIMEOUT (a backstop well above the slowest healthy
 # fetch). A stopped attempt's whole process group is killed, and so is anything
 # zig leaves running when it exits or when this script is cancelled.
@@ -94,20 +94,11 @@ fi
 # came from a restore or the curl seed, nothing else made it.
 if [[ -n "$cache" ]]; then mkdir -p "$cache/p" "$cache/tmp"; fi
 
-# A signature of the attempt's progress: it changes while bytes arrive, and while
-# the attempt's processes (process group $1) use CPU. With every package already
-# here, `zig build --fetch=all` compiles the build runner first and downloads
-# nothing: on a slow runner that took over 180 s, so all 4 attempts were stopped
-# as stalls while running on CPU (state Rl, writing maker_zcu.o; cmux_next_
-# daemon tests job 140353209304, 28 min, 42 of 42 packages seeded). A hung
-# download waits in the kernel and its CPU time stands still. `ps -o time` reads
-# the same on Linux and macOS; where ps cannot, only the download counts.
+# A signature of what has been downloaded so far: it changes while bytes arrive.
 progress() {
-  local pgid=${1:-} dirs=(zig-pkg)
+  local dirs=(zig-pkg)
   [[ -n "$cache" ]] && dirs+=("$cache/p" "$cache/tmp")
-  { du -sk "${dirs[@]}" 2>/dev/null || true; find "${dirs[@]}" 2>/dev/null | wc -l || true
-    if [[ -n "$pgid" ]]; then ps -A -o pgid=,time= 2>/dev/null | awk -v g="$pgid" '$1 == g { print $2 }' || true; fi
-  } | tr -s ' \t\n' ' '
+  { du -sk "${dirs[@]}" 2>/dev/null || true; find "${dirs[@]}" 2>/dev/null | wc -l || true; } | tr -s ' \t\n' ' '
 }
 
 # Whether an archive is whole. An unknown kind, or no tool to check it, counts
@@ -232,12 +223,12 @@ fetch_once() {
     while kill -0 "$pid" 2>/dev/null; do
       now=$SECONDS
       if (( now >= next_sample )); then
-        current="$(progress "$pid")"
+        current="$(progress)"
         if [[ "$current" != "$last" ]]; then last=$current last_change=$now; fi
         next_sample=$((now + sample))
       fi
       if (( now - last_change >= stall_timeout )); then
-        echo "made no download or CPU progress for ${stall_timeout}s" > "$marker"
+        echo "made no download progress for ${stall_timeout}s" > "$marker"
       elif (( now - start >= attempt_timeout )); then
         echo "ran past its ${attempt_timeout}s limit" > "$marker"
       fi

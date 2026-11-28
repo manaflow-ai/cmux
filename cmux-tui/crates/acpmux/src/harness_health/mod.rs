@@ -13,14 +13,12 @@ mod agent_files;
 pub mod auto;
 pub mod channel;
 mod codex_provider;
-mod codex_releases;
 pub(crate) mod inventory;
 pub(crate) mod inventory_feed;
 mod inventory_refresh;
 pub(crate) use inventory_refresh::INVENTORY_REFRESH_FEATURE;
 mod update_plan;
 pub(crate) use update_plan::UPDATE_PLAN_FEATURE;
-pub(crate) mod turns;
 mod update_prepare;
 pub(crate) use update_prepare::UPDATE_PREPARE_FEATURE;
 pub mod latest;
@@ -65,9 +63,6 @@ pub struct HarnessHealth {
     /// When `latest` was read (ms since the epoch).
     pub latest_checked_at: Option<u64>,
     pub outdated: bool,
-    /// Visible models added to the newer Codex release, keyed by provider ID.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub new_codex_models: Option<BTreeMap<String, String>>,
     pub auth: Auth,
     /// Why `auth` is what it is (the probe error, or the check that ran).
     pub auth_detail: Option<String>,
@@ -78,7 +73,7 @@ pub struct HarnessHealth {
     /// Why a part of the check failed (not installed, `--version` failed).
     pub problem: Option<String>,
     pub checked_at: u64,
-    /// Auto-update is on for it (`auto.rs`; on unless the person turned it off).
+    /// The person turned auto-update on for it (`auto.rs`; off by default).
     #[serde(default)]
     pub auto_update: bool,
     /// The last update auto-update ran for it, since the daemon started.
@@ -143,7 +138,7 @@ pub struct Settings {
     pub cache: Option<PathBuf>,
     /// The user's home, where bun and the native installers live.
     pub home: PathBuf,
-    /// The harnesses turned auto-update off (`<acpmux home>/harness-auto-update.json`); None: off for all.
+    /// The harnesses with auto-update on (`<acpmux home>/harness-auto-update.json`); None: none.
     pub auto_update: Option<PathBuf>,
     /// A capture fixture's rows (`harness_fixture.rs`): served as every
     /// check, with nothing read from this machine and no update run.
@@ -166,7 +161,6 @@ pub struct HealthService {
     ran: Mutex<HashMap<String, auto::AutoUpdateResult>>,
     /// One auto-update run at a time.
     updating: tokio::sync::Mutex<()>,
-    pub(crate) turns: turns::InstallTurns,
 }
 
 fn now_ms() -> u64 {
@@ -654,10 +648,6 @@ impl HealthService {
                 matches!((&row.latest, &row.version), (Some(l), Some(v)) if probe::is_newer(l, v));
         }
         self.apply_acp_auth(&mut rows);
-        // Private registries can distribute a different binary for the same version.
-        if settings.sources.as_ref().is_some_and(|s| s.npm == latest::Sources::public().npm) {
-            codex_releases::fill(&mut rows, &previous).await;
-        }
         self.mark_auto(&mut rows, &settings);
         if let Some(path) = settings.cache.as_deref() {
             save(path, &rows);
@@ -793,7 +783,6 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
         latest: None,
         latest_checked_at: None,
         outdated: false,
-        new_codex_models: None,
         auth,
         auth_detail,
         update,
@@ -919,7 +908,6 @@ mod tests {
             latest: None,
             latest_checked_at: None,
             outdated: false,
-            new_codex_models: None,
             auth: Auth::SignedOut,
             auth_detail: None,
             login: Some("codex login".into()),
@@ -957,7 +945,6 @@ mod tests {
             latest: None,
             latest_checked_at: None,
             outdated: false,
-            new_codex_models: None,
             auth: Auth::Unknown,
             auth_detail: None,
             login: Some("muse login".into()),

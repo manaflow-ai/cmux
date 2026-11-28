@@ -20,7 +20,7 @@ struct BesideColumnRevealTests {
     }
 
     @Test func theNewColumnScrollsIntoViewAndFocusStaysInTheChat() {
-        let state = ColumnScrollState()
+        var state = ColumnScrollState()
         let chat = PaneID("chat")
         state.reduce(.sync(Self.strip(columns: 2), focused: chat, source: .programmatic, animated: false))
         state.reduce(.sync(Self.strip(columns: 3), focused: chat, source: .programmatic, animated: false))

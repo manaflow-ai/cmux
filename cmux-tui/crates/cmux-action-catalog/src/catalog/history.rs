@@ -171,7 +171,6 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::SESSION_3.optional()],
         cli_name: "history resume",
         main_menu: Some("window"),
-        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -211,7 +210,6 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         arguments: &[args::ID_3, args::NEW_TAB.optional()],
         cli_name: "history open",
-        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {

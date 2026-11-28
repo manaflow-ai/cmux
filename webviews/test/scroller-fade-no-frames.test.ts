@@ -4,9 +4,7 @@
 // that cannot draw frames runs no fade, and stopping it is a no-op.
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { importWithDom } from "./support/importWithDom";
-
-const { followShownScrollerFade } = await importWithDom(() => import("../src/scrollers"));
+import { followShownScrollerFade } from "../src/scrollers";
 
 test("the scroller fade stops cleanly in a view with no animation frames", () => {
   const dom = new JSDOM("<!doctype html><div></div>");

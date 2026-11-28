@@ -23,8 +23,6 @@ export type WriteStatus = {
   detached: boolean;
   ahead: number;
   behind: number;
-  /// A merge, rebase, cherry-pick or revert that stopped partway: Commit is off until it ends.
-  inProgress?: string;
 };
 
 const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
@@ -44,7 +42,6 @@ export function readWriteStatus(value: unknown): WriteStatus | undefined {
     detached: raw.detached,
     ahead: count(raw.ahead),
     behind: count(raw.behind),
-    inProgress: text(raw.in_progress),
   };
 }
 
@@ -189,8 +186,6 @@ export function readPushDone(result: unknown): PushDone | undefined {
 
 /// The localized line for a failed Commit or Push. Every reason the session host names has its
 /// own text; one it adds later reads as the op's generic failure.
-// retry-prompt-ok: every "Retry" / "Refresh and try again" below follows a failed git commit or push, a write
-// the person runs again (GitActions.tsx's Retry and Refresh), so these instructions stay.
 const COMMIT_REASONS: Record<string, StringKey> = {
   nothing_to_commit: "git.commit.nothingToCommit",
   head_moved: "git.headMoved",
@@ -232,10 +227,10 @@ export const REFRESH_REASONS = new Set([
   "native.session_changed",
 ]);
 
-/// Refusals from the pane's host, before anything reached git. A chat whose folder is not on this
-/// Mac gets no Commit or Push at all: its host lists no write ops (DiffPageProvider.withGit).
+/// Refusals from the pane's host, before anything reached git.
 const NATIVE_REASONS: Record<string, StringKey> = {
   "native.session_changed": "git.sessionChanged",
+  "native.no_session_folder": "git.noSessionFolder",
 };
 
 export function failureText(op: GitWriteOp, failure: WriteFailure): string {
@@ -246,11 +241,11 @@ export function failureText(op: GitWriteOp, failure: WriteFailure): string {
   return translate(key ?? (op === "commit" ? "git.commit.failed" : "git.push.failed"));
 }
 
-/// Whether Commit can run: no merge, rebase, cherry-pick or revert stopped partway (the host
-/// refuses `merge_in_progress` then). A status not read yet leaves Commit on.
-export function canCommit(status: WriteStatus | undefined): boolean {
-  return !status?.inProgress;
-}
+/// Every machine reason the spec lists for either op, for tests that keep the texts complete.
+export const KNOWN_REASONS = {
+  commit: [...Object.keys(COMMIT_REASONS), ...Object.keys(SHARED_REASONS), "git_failed"],
+  push: [...Object.keys(PUSH_REASONS), ...Object.keys(SHARED_REASONS), "git_failed"],
+};
 
 /// Whether Push can run: on a branch, with a commit, and either something ahead or no upstream yet.
 export function canPush(status: WriteStatus | undefined): boolean {

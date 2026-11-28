@@ -153,32 +153,6 @@ export const pageBytes = (maxBytes: unknown) =>
     MAX_PAGE_BYTES,
   );
 
-/// paging.rs NON_TRANSCRIPT_UPDATES: agent updates a `transcript` page leaves out.
-const NON_TRANSCRIPT_UPDATES = new Set([
-  "usage_update",
-  "available_commands_update",
-  "current_mode_update",
-  "config_option_update",
-  "compaction_summary",
-  "prompt_suggestion",
-]);
-
-/// paging.rs EventFilter `matches`: whether a record answers an ask's `kinds`. `transcript`, `mux` and `all` are
-/// categories, not kinds: the pane's older-history read asks for `["transcript", ...]`, and a stand-in
-/// daemon that matched it as a literal kind answered an empty page, which the pane takes for the end of the
-/// chat's history (direct.ts `historyExhausted`). A `transcript` here is every record but the agent updates
-/// paging.rs leaves out (its mux kinds are the fixtures' all).
-export function kindsMatch(kinds: unknown, rec: { dir?: string; kind?: string }): boolean {
-  if (!Array.isArray(kinds)) return true;
-  const kind = rec.kind ?? "";
-  return kinds.some((ask) => {
-    if (ask === "all") return true;
-    if (ask === "transcript") return !kind.endsWith(".replay") && !NON_TRANSCRIPT_UPDATES.has(kind);
-    if (ask === "mux") return rec.dir === "mux";
-    return kind === ask;
-  });
-}
-
 /// The newest page before `beforeSeq`, oldest first, and whether older records remain (pure). `maxBytes` is the
 /// ask's param as sent: events.rs folds superseded updates when it is named and not null.
 export function newestPage<T extends Rec>(

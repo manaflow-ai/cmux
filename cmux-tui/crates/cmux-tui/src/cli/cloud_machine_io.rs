@@ -5,8 +5,7 @@
 use std::io::{Read as _, Write as _};
 
 use cmux_cloud_api::machine_io::{
-    Answer, Request, Resume, Route, line, now_ms, perform_with, runtime_and_client, scrub, usage,
-    write_line,
+    Answer, Request, Route, line, now_ms, perform, runtime_and_client, scrub, usage, write_line,
 };
 use cmux_cloud_api::session::secure_origin;
 
@@ -54,14 +53,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     }
     request.credential = request.credential.trim().to_owned();
     let (route, answer) = match runtime_and_client() {
-        Ok((runtime, client)) => runtime.block_on(perform_with(
-            &client,
-            &request,
-            now_ms,
-            Resume::default(),
-            // Stderr, so the answer line on stdout stays one JSON object; the chat shows it as progress.
-            &|step| eprintln!("cmux: {} {step}", request.machine),
-        )),
+        Ok((runtime, client)) => runtime.block_on(perform(&client, &request, now_ms)),
         Err(message) => (Route::Proxy, Answer::error(0, "transport", &message)),
     };
     let mut answer = scrub(answer, &request.credential);

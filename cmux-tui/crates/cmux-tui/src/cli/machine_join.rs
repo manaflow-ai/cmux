@@ -39,7 +39,7 @@
 //! machine signs in through the vendor's own flow on that machine.
 
 use std::future::Future;
-use std::io::{IsTerminal as _, Write};
+use std::io::{BufRead, IsTerminal as _, Write};
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -52,7 +52,6 @@ use cmux_json::JsonSet as _;
 /// The production platform: the default, the same hub `acpmux host join` and production's join.sh use,
 /// so a line minted with no flags is redeemed where it was minted.
 pub(super) const DEFAULT_ORIGIN: &str = cmux_cloud_environment::PRODUCTION_PLATFORM;
-#[cfg(test)]
 const TOKEN_ENV: &str = "CMUX_CLOUD_ACCESS_TOKEN";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 /// A list merge (`machine list`, `device list`) costs at most this.
@@ -74,11 +73,6 @@ const MAX_TTL_SECS: u64 = 600;
 pub(super) const USB_TTL_SECS: u64 = MAX_TTL_SECS;
 
 mod bootstrap;
-mod placement;
-mod session;
-#[cfg(test)]
-use session::NoCredential;
-pub(crate) use session::read_credential;
 pub(super) mod vault;
 mod windows;
 
@@ -88,11 +82,8 @@ const USAGE: &str = "usage: cmux machine add [--name NAME] [--ttl 10m] [--wait|-
        cmux machine revoke ID|NAME [--yes]
        cmux machine rotate ID|NAME
        cmux machine vault set|rm NAME, cmux machine vault ls, cmux machine vault grant|revoke MACHINE
-       cmux machine placement on|off|status
   each takes --platform URL (or CMUX_PLATFORM_ORIGIN, alias CMUX_PLATFORM_URL; default the production platform)
-  and --cloud-token-file PATH, --cloud-token-stdin or CMUX_CLOUD_ACCESS_TOKEN; with none of them, the signed-in
-  app's session (--app-session asks for it on a plain add instead of the Add Machine card).
-  cmux machine placement on|off sets whether the team's new machines book its own joined machines first (owner or admin).
+  and --cloud-token-file PATH, --cloud-token-stdin or CMUX_CLOUD_ACCESS_TOKEN.
   cmux machine add HOST (without --vault or --bootstrap) opens the app's Add Machine card for an ssh host.";
 const SIGN_IN: &str = "sign in: pass --cloud-token-file PATH (or set CMUX_CLOUD_ACCESS_TOKEN), or use Add Machine in the app";
 
@@ -101,9 +92,6 @@ pub(crate) struct Auth {
     pub platform: Option<String>,
     pub token_file: Option<PathBuf>,
     pub token_stdin: bool,
-    /// Sign in with the app's session (`auth.token`, the token `cmux auth token` prints) even on a
-    /// plain `machine add`, which otherwise opens the app's Add Machine card.
-    pub app_session: bool,
 }
 
 /// `machine add`'s words.
@@ -134,17 +122,9 @@ impl AddArgs {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Verb {
     Add(AddArgs),
-    Revoke {
-        machine: String,
-        yes: bool,
-    },
-    Rotate {
-        machine: String,
-    },
+    Revoke { machine: String, yes: bool },
+    Rotate { machine: String },
     Vault(vault::VaultVerb),
-    /// `machine placement on|off|status`: `Some(enabled)` sets the team's joined placement,
-    /// `None` reads it.
-    Placement(Option<bool>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -168,16 +148,6 @@ impl Failure {
 
     fn usage(message: impl Into<String>) -> Self {
         Self { code: "usage.invalid", message: message.into(), exit: 2 }
-    }
-
-    /// An "isn't available on this server" failure names the server it asked: the platform origin
-    /// comes from --platform or CMUX_PLATFORM_ORIGIN as well as the default, and a 404 from staging
-    /// (joined machines off there by design) read as production's.
-    fn naming_server(mut self, origin: &str) -> Self {
-        if self.code.ends_with(".unavailable") && self.message.contains(" on this server") {
-            self.message = self.message.replacen(" on this server", &format!(" on {origin}"), 1);
-        }
-        self
     }
 }
 
@@ -203,21 +173,26 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         Err(error) => return Some(fail(Failure::usage(error.0))),
     };
     let env = |key: &str| std::env::var(key).ok();
-    let (credential, team, app_platform) = match session::sign_in(&command, &env, args) {
-        Ok(signed_in) => signed_in,
-        Err(Ok(code)) => return Some(code),
-        Err(Err(failure)) => return Some(fail(failure)),
+    let credential = match read_credential(&command.auth, &env, &mut std::io::stdin().lock()) {
+        Ok(Some(credential)) => credential,
+        Ok(None) => {
+            // With no credential, `machine add` stays the app's Add Machine card wherever an
+            // app answers, as it was before joining existed.
+            if matches!(&command.verb, Verb::Add(add) if add.plain())
+                && let Some(code) = super::app_commands::run_app_action_fallback(args)
+            {
+                return Some(code);
+            }
+            return Some(fail(Failure::usage(SIGN_IN)));
+        }
+        Err(message) => return Some(fail(Failure::usage(message))),
     };
-    // An explicit `--platform` wins; else the platform of the API the app's token came from
-    // (`session::platform_of_api`, never that API itself: it 404s every machine route); else the
-    // usual variables and production.
-    let flag = command.auth.platform.as_deref().or(app_platform.as_deref());
-    let origin = match platform_origin(flag, &env) {
+    let origin = match platform_origin(command.auth.platform.as_deref(), &env) {
         Ok(origin) => origin,
         Err(message) => return Some(fail(Failure::usage(message))),
     };
     let platform = match Platform::new(origin, credential, REQUEST_TIMEOUT) {
-        Ok(platform) => platform.with_team(team),
+        Ok(platform) => platform,
         Err(failure) => return Some(fail(failure)),
     };
     let interactive = std::io::stdout().is_terminal() && std::io::stdin().is_terminal();
@@ -249,7 +224,7 @@ pub(super) fn verb_help(args: &[String]) -> Option<String> {
         rest.iter().take_while(|w| *w != "--").any(|w| matches!(w.as_str(), "-h" | "--help"));
     if scope != "machine"
         || !asks
-        || !matches!(verb.as_str(), "add" | "revoke" | "rotate" | "vault" | "placement")
+        || !matches!(verb.as_str(), "add" | "revoke" | "rotate" | "vault")
     {
         return None;
     }
@@ -286,9 +261,7 @@ pub(super) fn verb_help(args: &[String]) -> Option<String> {
 /// `None` for another module (`machine list`, `machine add HOST`).
 pub(super) fn parse(args: &[String]) -> Option<Result<Command, UsageError>> {
     let [scope, verb, rest @ ..] = args else { return None };
-    if scope != "machine"
-        || !matches!(verb.as_str(), "add" | "revoke" | "rotate" | "vault" | "placement")
-    {
+    if scope != "machine" || !matches!(verb.as_str(), "add" | "revoke" | "rotate" | "vault") {
         return None;
     }
     // `machine add HOST` stays the app's ssh card unless it asks for the one-command join.
@@ -302,27 +275,19 @@ pub(super) fn parse(args: &[String]) -> Option<Result<Command, UsageError>> {
     Some(parse_verb(verb, rest))
 }
 
-/// Switches the `machine` verbs (add, revoke, rotate, vault, placement) own that take no value,
-/// so a `--json` after one is the global output mode, not its value (`machine add HOST
-/// --bootstrap --json`, `machine revoke NAME --yes --cloud-token-stdin --json`). Scoped to
-/// `machine`: `cloud new-machine --bootstrap NAME` takes a value, so they are not in the global
+/// Switches `machine add` and `machine vault` own that take no value, so a `--json` after one is
+/// the global output mode, not its value (`machine add HOST --bootstrap --json`). Scoped to these
+/// verbs: `cloud new-machine --bootstrap NAME` takes a value, so they are not in the global
 /// `BOOLEAN_FLAGS`.
 #[cfg(unix)]
 pub(super) fn own_switch(command: &[String], flag: &str) -> bool {
     let ours = matches!(
         command.get(..2),
-        Some([scope, verb]) if scope == "machine"
-            && matches!(verb.as_str(), "add" | "revoke" | "rotate" | "vault" | "placement")
+        Some([scope, verb]) if scope == "machine" && matches!(verb.as_str(), "add" | "vault")
     );
     ours && matches!(
         flag,
-        "--vault"
-            | "--bootstrap"
-            | "--yes"
-            | "--wait"
-            | "--no-wait"
-            | "--cloud-token-stdin"
-            | "--app-session"
+        "--vault" | "--bootstrap" | "--yes" | "--wait" | "--no-wait" | "--cloud-token-stdin"
     )
 }
 
@@ -397,14 +362,12 @@ fn parse_verb(verb: &str, rest: &[String]) -> Result<Command, UsageError> {
             (_, "platform") => auth.platform = value,
             (_, "cloud-token-file") => auth.token_file = value.map(PathBuf::from),
             (_, "cloud-token-stdin") => auth.token_stdin = true,
-            (_, "app-session") => auth.app_session = true,
             _ => return Err(usage()),
         }
     }
-    let ways = [auth.token_stdin, auth.token_file.is_some(), auth.app_session];
-    if ways.into_iter().filter(|given| *given).count() > 1 {
+    if auth.token_stdin && auth.token_file.is_some() {
         return Err(UsageError::new(
-            "give the credential one way: --cloud-token-file, --cloud-token-stdin or --app-session",
+            "give the credential one way: --cloud-token-file or --cloud-token-stdin",
         ));
     }
     let verb = match (verb, positional.as_slice()) {
@@ -422,7 +385,6 @@ fn parse_verb(verb: &str, rest: &[String]) -> Result<Command, UsageError> {
         }
         ("revoke", [machine]) => Verb::Revoke { machine: machine.clone(), yes },
         ("rotate", [machine]) => Verb::Rotate { machine: machine.clone() },
-        ("placement", words) => Verb::Placement(placement::parse_state(words)?),
         _ => return Err(usage()),
     };
     Ok(Command { verb, auth })
@@ -478,6 +440,33 @@ fn parse_ttl(text: &str) -> Result<u64, UsageError> {
     let seconds =
         digits.parse::<u64>().map_err(|_| error())?.checked_mul(scale).ok_or_else(error)?;
     if (60..=max).contains(&seconds) { Ok(seconds) } else { Err(error()) }
+}
+
+/// The caller's cmux credential: stdin, then the file, then the environment.
+/// `None` when no way names one. Errors name neither the file's path nor its
+/// contents (a pasted secret could be in either).
+pub(crate) fn read_credential(
+    auth: &Auth,
+    env: &dyn Fn(&str) -> Option<String>,
+    stdin: &mut dyn BufRead,
+) -> Result<Option<String>, String> {
+    let raw = if auth.token_stdin {
+        let mut line = String::new();
+        stdin
+            .read_line(&mut line)
+            .map_err(|e| format!("the credential on stdin could not be read ({:?})", e.kind()))?;
+        line
+    } else if let Some(path) = &auth.token_file {
+        std::fs::read_to_string(path)
+            .map_err(|e| format!("the --cloud-token-file could not be read ({:?})", e.kind()))?
+    } else {
+        return Ok(env(TOKEN_ENV).map(|c| c.trim().to_owned()).filter(|c| !c.is_empty()));
+    };
+    let credential = raw.trim().to_owned();
+    if credential.is_empty() {
+        return Err("the cmux credential is empty".into());
+    }
+    Ok(Some(credential))
 }
 
 /// `--platform`, else `CMUX_PLATFORM_ORIGIN` (or its alias `CMUX_PLATFORM_URL`), else the
@@ -777,7 +766,7 @@ fn entries(body: Value) -> Option<Vec<Value>> {
 /// The platform's machine-join refusal codes. Errors print only these and the codes of the
 /// platform's Cloud refusal table ([`cmux_cloud_machine::refusals::PLATFORM`]: a cap, a rate
 /// limit, a machine's state), each from its own table.
-const KNOWN_CODES: &[&str] = &[
+const KNOWN_CODES: [&str; 62] = [
     "lease.not_found",
     "reservation.expired",
     "reservation.terminal",
@@ -810,12 +799,6 @@ const KNOWN_CODES: &[&str] = &[
     "vault.no_entry",
     "vault.invalid_hosts",
     "vault.model_key_proxy_only",
-    // The tailnet node the vault keeps (`cmux vm tailnet keep|adopt`, RFD 0169).
-    "vault.tailnet_node_missing",
-    "vault.tailnet_node_conflict",
-    "vault.tailnet_node_open_failed",
-    "vault.tailnet_holder_conflict",
-    "vault.invalid_holder",
     // A workspace's machine (`POST /v1/workspaces/{w}/machine`, `link start-chat ensure`).
     "cloud_environment.not_found",
     "machine.conflict",
@@ -897,19 +880,6 @@ pub(super) fn run(
     hooks: &mut Hooks<'_>,
     interrupt: impl Future<Output = ()>,
 ) -> Result<i32, Failure> {
-    run_verb(command, platform, output, options, out, hooks, interrupt)
-        .map_err(|failure| failure.naming_server(&platform.origin))
-}
-
-fn run_verb(
-    command: &Command,
-    platform: &Platform,
-    output: OutputMode,
-    options: RunOptions,
-    out: &mut dyn Write,
-    hooks: &mut Hooks<'_>,
-    interrupt: impl Future<Output = ()>,
-) -> Result<i32, Failure> {
     match &command.verb {
         Verb::Add(args) => {
             if args.vault {
@@ -953,7 +923,6 @@ fn run_verb(
         }
         Verb::Rotate { machine } => rotate(platform, machine, output, out),
         Verb::Vault(verb) => vault::run(verb, platform, output, out, hooks),
-        Verb::Placement(set) => placement::run(platform, *set, output, out),
     }
 }
 
@@ -1501,7 +1470,7 @@ pub(crate) fn device_credential(
     token_file: Option<PathBuf>,
     token_stdin: bool,
 ) -> Result<Option<String>, String> {
-    let auth = Auth { platform: None, token_file, token_stdin, app_session: false };
+    let auth = Auth { platform: None, token_file, token_stdin };
     read_credential(&auth, &|key: &str| std::env::var(key).ok(), &mut std::io::stdin().lock())
 }
 
@@ -1513,16 +1482,13 @@ pub(crate) fn rows_for_devices(
     credential.map(|credential| rows_signed_in(platform, credential))
 }
 
-/// The team's joined machines for `machine list`, signed in with its platform
-/// flags (or the environment); `None` when no credential is given.
-pub(super) fn read_joined() -> Option<Result<Vec<Value>, String>> {
-    rows_with(LIST_AUTH.get().unwrap_or(&Auth::default()))
-}
-
-/// The daemon's `machine.list` result with `rows` (a [`read_joined`]) added.
-/// Fails open: a platform that could not be read leaves the list as it was,
-/// with a note on stderr.
-pub(super) fn apply_joined(result: Value, rows: Result<Vec<Value>, String>) -> Value {
+/// The daemon's `machine.list` result with the joined machines added. Fails
+/// open: a platform that cannot be read leaves the list as it was, with a
+/// note on stderr.
+pub(super) fn merge(_global: &GlobalArgs, result: Value) -> Value {
+    let Some(rows) = rows_with(LIST_AUTH.get().unwrap_or(&Auth::default())) else {
+        return result;
+    };
     let (merged, note) = merge_rows(result, rows);
     // On stderr in every mode, quiet included: a list that left them out says so.
     if let Some(reason) = note {
@@ -1556,25 +1522,16 @@ pub(super) fn merge_rows(
 /// How long `machine list` waits for acpmux's own machines (`acp host ls`), a local read.
 const PEER_READ_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// The machines acpmux reaches itself (`acpmux machine add HOST`), each a valid
-/// `cmux chat --on NAME` (hq#11835: such a machine was in `acpmux machine ls` and took
-/// chats from acpmux, but `machine list` and `--on` did not know it). `None` when no
-/// acpmux runs here: it reaches no machine, and a list never starts one.
-pub(super) fn read_peers() -> Option<Result<Vec<Value>, String>> {
+/// `result` with the machines acpmux reaches itself added (`acpmux machine add HOST`), each a
+/// valid `cmux chat --on NAME` (hq#11835: such a machine was in `acpmux machine ls` and took
+/// chats from acpmux, but `machine list` and `--on` did not know it). Fails open with a note
+/// on stderr, as the joined rows do; quiet mode says nothing.
+pub(super) fn merge_peers(global: &GlobalArgs, result: Value) -> Value {
+    // No acpmux running here: it reaches no machine, and a list never starts one.
     if !acpmux::config::socket_path().exists() {
-        return None;
+        return result;
     }
-    Some(super::chat_start::joined::peers_within(PEER_READ_TIMEOUT))
-}
-
-/// `result` with `peers` (a [`read_peers`]) added. Fails open with a note on stderr,
-/// as the joined rows do; quiet mode says nothing.
-pub(super) fn apply_peers(
-    global: &GlobalArgs,
-    result: Value,
-    peers: Result<Vec<Value>, String>,
-) -> Value {
-    match peers {
+    match super::chat_start::joined::peers_within(PEER_READ_TIMEOUT) {
         Ok(peers) => merge_peer_rows(result, &peers),
         Err(reason) => {
             if global.output != OutputMode::Quiet {
@@ -1634,6 +1591,3 @@ pub(super) fn merge_peer_rows(mut result: Value, peers: &[Value]) -> Value {
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-mod seeded_tests;

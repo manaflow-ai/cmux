@@ -110,12 +110,7 @@ fn install_check(args: &[String]) -> i32 {
         client_log::stderr_log!("startup", "{BIN}: install check: {error}");
         return 1;
     }
-    #[cfg(unix)]
-    let result = cmux_install_check::run(args, &stdin);
-    // cmux-install-check reads unix install state; Windows has no install to check.
-    #[cfg(not(unix))]
-    let result: Result<String, String> = Err("install check is unix-only".to_owned());
-    match result {
+    match cmux_install_check::run(args, &stdin) {
         Ok(json) => {
             println!("{json}");
             0

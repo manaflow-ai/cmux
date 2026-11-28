@@ -1,6 +1,0 @@
-// Header-only: the Screenshots pane's C ABI, cbindgen's output in cmux-screenshots. The app links the
-// symbols through CCmuxAppFFI (build-app-ffi.sh exports them).
-module CCmuxScreenshots {
-    header "../../../../../../cmux-tui/crates/cmux-screenshots/include/cmux_screenshots.h"
-    export *
-}

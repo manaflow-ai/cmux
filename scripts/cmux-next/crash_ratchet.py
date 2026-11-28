@@ -27,9 +27,7 @@ change's regression). Two raises are allowed, each on purpose:
                     much. A hit REF was already red on never moves into a row.
 --baseline-against BASE_TREE judges a change's baseline against the base's (the CI
 job and safe-push run it): a counted row above the base's row (after proven moves)
-fails, a waived row above it is printed as a recorded waiver. A row no higher than
-the base's row plus the hits the old cut hid in the base tree (behind a mid-file
-test module) is recorded debt, not a raise.
+fails, a waived row above it is printed as a recorded waiver.
 
   Swift (Packages/macOS/CmuxNext/Sources and the Sources of every package in its
   `.package(path:)` closure, so code the app links is in scope, except third-party
@@ -93,7 +91,7 @@ test module) is recorded debt, not a raise.
                       left it reading a NULL or freed entry (SIGSEGV, cx-9dh7). Children
                       get their variables through their spawn environment. At run time,
                       ProcessEnvironmentGuard.write refuses an allowed write after its freeze.
-  Rust (cmux-tui/crates/*/src, code outside inline #[cfg(test)] module blocks, no tests/ folders):
+  Rust (cmux-tui/crates/*/src, code before an inline #[cfg(test)] module, no tests/ folders):
     unwrap            .unwrap()
     expect            .expect(
     panic_macro       panic!, unreachable!, todo!, unimplemented!
@@ -159,8 +157,8 @@ RENDER_FONT = re.compile(
     r"|(?<![\w.])\.(?:systemFont|boldSystemFont|monospacedSystemFont|monospacedDigitSystemFont)\(ofSize")
 STATIC_LET = re.compile(r"\bstatic\s+let\b")
 # Modules that decode external input or draw on background threads (Lawrence, 2026-10-09).
-INDEX_MODULES = {"MessagesLabHome", "MessagesLabSidebar", "CmuxHomeRender", "CMUXMobileCore",
-                 "CmuxNextDaemon", "CmuxNextControl", "CmuxNextMobile", "CmuxTerminalSizing"}
+INDEX_MODULES = {"MessagesLabHome", "MessagesLabSidebar", "CmuxHomeRender", "CMUXMobileCore", "CmuxIrxTransport",
+                 "CmuxIrohTransport", "CmuxNextDaemon", "CmuxNextControl", "CmuxNextMobile", "CmuxTerminalSizing"}
 INDEX_SUBSCRIPT = re.compile(r"(?<![\w.])(?:[a-z_]\w*|self)(?:\.\w+)*(?:\(\))?\[([^\[\]]+)\]")
 OPTIONAL_BINDING = re.compile(r"\b(?:if|guard|while)\s+(?:let|var)\b|,\s*let\s+\w+\s*=")
 INT_CONVERSION = re.compile(
@@ -1145,72 +1143,15 @@ def scan_rust(repo, scan, exported):
         replay(scan, events)
 
 
-# Set to 1 to read with the old cut (everything after the first inline test module dropped): hidden_debt's second
-# scan. An environment variable, so parallel_map's worker processes see it whatever their start method.
-OLD_CUT_ENV = "CRASH_RATCHET_OLD_CUT"
-
-
-def hidden_debt(tree, exported):
-    """{row: hits} the old cut hid in TREE: this reader's count over the old cut's, where it is higher. Only the
-    reader's change, never a hit the tree was red on."""
-    new = scan_rows(scan_tree(tree, exported))
-    previous = os.environ.get(OLD_CUT_ENV)
-    os.environ[OLD_CUT_ENV] = "1"
-    try:
-        old = scan_rows(scan_tree(tree, exported))
-    finally:
-        if previous is None:
-            os.environ.pop(OLD_CUT_ENV, None)
-        else:
-            os.environ[OLD_CUT_ENV] = previous
-    return {row: n - old.get(row, 0) for row, n in new.items() if n > old.get(row, 0)}
-
-
-@functools.lru_cache(maxsize=1)
-def _test_module_blocks():
-    """rust_test_modules.py beside this file (its brace matcher), or None in a folder without it."""
-    import importlib.util
-    path = os.path.join(HERE, "rust_test_modules.py")
-    if not os.path.isfile(path):
-        return None
-    spec = importlib.util.spec_from_file_location("cmux_crash_rust_test_modules", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module if hasattr(module, "_block_end") else None
-
-
-def rust_product_text(text):
-    """TEXT with each inline test module's own `{ ... }` block blanked (newlines kept, so line numbers hold).
-    Product code after a mid-file test module still counts: the old cut at the first one hid it, and a sweep that
-    moved such a module out then read as adding hits that were already there (lane/inline-tests-sweep-8,
-    2026-11-27: cmux-tui-core expect.waived 4 -> 5). Without rust_test_modules.py beside this file, the old cut."""
-    blocks = None if os.environ.get(OLD_CUT_ENV) == "1" else _test_module_blocks()
-    if blocks is None:
-        inline = INLINE_TESTS.search(text)
-        return text if not inline else text[:inline.start()]
-    out, pos = [], 0
-    while True:
-        match = INLINE_TESTS.search(text, pos)
-        if not match:
-            out.append(text[pos:])
-            return "".join(out)
-        end = blocks._block_end(text, match.end() - 1)
-        out.append(text[pos:match.start()])
-        if end is None:
-            out.append("\n" * text.count("\n", match.start()))
-            return "".join(out)
-        out.append("\n" * text.count("\n", match.start(), end))
-        pos = end
-
-
 def _rust_file_events(item):
     """One Rust file's hits, as _swift_file_events's ("add", ...) events."""
     path, rel = item
     events = []
     text = open(path, encoding="utf-8", errors="replace").read()
-    # Inline test modules (`#[cfg(test)] mod x { ... }`) are blanked, each its own block only; a
+    # Inline test modules (`#[cfg(test)] mod x {`) are cut; a
     # `#[cfg(test)] mod x;` declaration is not code.
-    lines = rust_product_text(text).split("\n")
+    inline = INLINE_TESTS.search(text)
+    lines = (text if not inline else text[:inline.start()]).split("\n")
     for index, line in enumerate(lines):
         stripped = line.lstrip()
         if stripped.startswith("//"):
@@ -1414,15 +1355,6 @@ def baseline_against(repo, exported, base_tree):
     moves = proven_moves(scan_tree(base_tree, True), scan_tree(repo, exported)) if risen else {}
     allowance, carried = carry_moves(base_rows, risen, moves)
     print_moves(carried)
-    # Hits already in the base tree that the old cut hid (product code after a mid-file test module): a row may
-    # record them. Recorded, not added; a hit the base was red on is not among them.
-    hidden = hidden_debt(base_tree, True) if any(n > allowance.get(r, 0) for r, n in risen.items()) else {}
-    for row, n in sorted(risen.items()):
-        limit = allowance.get(row, 0)
-        if n > limit and hidden.get(row):
-            allowance[row] = limit + min(hidden[row], n - limit)
-            print(f"crash-ratchet: recorded: {row_label(row)} base row {base_rows.get(row, 0)}, head {n}: "
-                  f"{allowance[row] - limit} hit(s) the base tree had behind a mid-file test module")
     raised = 0
     for row, n in sorted(head_rows.items()):
         limit, was = allowance.get(row, 0), base_rows.get(row, 0)

@@ -90,7 +90,6 @@ pub fn run<R: Channel, W: Write>(read: R, mut write: W, limits: Limits) -> i32 {
                     strings,
                     main,
                     main_name,
-                    state,
                 },
             ) => {
                 let mut created = match AppVm::new(limits) {
@@ -100,20 +99,17 @@ pub fn run<R: Channel, W: Write>(read: R, mut write: W, limits: Limits) -> i32 {
                         return exit::FATAL;
                     }
                 };
-                let outcome = created.init_with_state(
-                    InitParams {
-                        app,
-                        settings,
-                        api_version,
-                        ops,
-                        known_ops,
-                        locale,
-                        strings,
-                        main,
-                        main_name,
-                    },
-                    state,
-                );
+                let outcome = created.init(InitParams {
+                    app,
+                    settings,
+                    api_version,
+                    ops,
+                    known_ops,
+                    locale,
+                    strings,
+                    main,
+                    main_name,
+                });
                 let ready = match &outcome {
                     Ok(()) => Some(FromHost::Ready { runtime: runtime_version(&mut created) }),
                     Err(VmError::Init(error)) => {

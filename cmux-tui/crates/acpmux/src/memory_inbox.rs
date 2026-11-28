@@ -303,26 +303,7 @@ static WRITING: Mutex<()> = Mutex::new(());
 /// ones added. The file is replaced whole or not at all, never through a link, and never
 /// committed.
 pub fn write(cwd: &Path, rel: &str, facts: &[String]) -> Result<Vec<String>, String> {
-    use cmux_tui_util::retry::{Attempt, Patience};
     let _one = WRITING.lock().unwrap_or_else(|e| e.into_inner());
-    // A file another program writes meanwhile (an editor's save, an agent's append) is read and
-    // merged again, for a few seconds: the person's Accept is never answered "try again".
-    Patience::new(format!("{rel} to stop changing"), REWRITE_WAIT).quiet().run(|| {
-        write_once(cwd, rel, facts).map_err(|e| {
-            if crate::folder_instructions::is_changed_while(&e, rel) {
-                Attempt::Retry(e)
-            } else {
-                Attempt::Fail(e)
-            }
-        })
-    })
-}
-
-/// How long [`write`] reads and merges a file again while it keeps changing.
-const REWRITE_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
-
-/// One read, merge and replace of [`write`].
-fn write_once(cwd: &Path, rel: &str, facts: &[String]) -> Result<Vec<String>, String> {
     let read = read_stamped(cwd, rel)?;
     let stamp = read.as_ref().map(|(_, stamp)| *stamp);
     let existing = read.map(|(text, _)| text).unwrap_or_default();

@@ -20,108 +20,72 @@ pub fn breaks_params_rule(
     object: &Map<String, Value>,
     mode_fields: Option<&BTreeSet<String>>,
 ) -> bool {
-    params_rule_violation(object, mode_fields).is_some()
-}
-
-/// Which part of the params rule a page frame breaks, for the refusal's
-/// detail and the log ([`breaks_params_rule`]); None when it keeps it. Names
-/// a key (at most 64 characters), never a value.
-pub fn params_rule_violation(
-    object: &Map<String, Value>,
-    mode_fields: Option<&BTreeSet<String>>,
-) -> Option<String> {
     let p = policy();
-    let method = object.get("method").and_then(Value::as_str)?;
-    let raw_params = object.get("params")?;
-    let Some(params) = raw_params.as_object() else {
-        return Some("params is not an object".into());
+    let (Some(method), Some(raw_params)) =
+        (object.get("method").and_then(Value::as_str), object.get("params"))
+    else {
+        return false;
     };
-    let Some(known) = p.known_params.get(method) else {
-        return (!params.is_empty()).then(|| format!("{method} takes no params"));
-    };
-    if let Some(key) = params.keys().find(|k| !contains(&known.params, k)) {
-        return Some(format!("unknown param {}", quoted(key)));
+    let Some(params) = raw_params.as_object() else { return true };
+    let Some(known) = p.known_params.get(method) else { return !params.is_empty() };
+    if params.keys().any(|k| !contains(&known.params, k)) {
+        return true;
     }
     if matches!(method, "acp.trust.get" | "acp.trust.set")
         && params.get("peer").is_some_and(|peer| peer.as_str().is_none_or(str::is_empty))
     {
-        return Some("peer is not a machine name".into());
+        return true;
     }
     let setting = contains(&p.setting_methods, method);
     let empty = BTreeSet::new();
     let denied = if setting { &empty } else { mode_fields.unwrap_or(&empty) };
-    if let Some(key) = params.keys().find(|k| contains(denied, k)) {
-        return Some(format!("mode field {}", quoted(key)));
+    if params.keys().any(|k| contains(denied, k)) {
+        return true;
     }
-    let raw_meta = params.get("_meta")?;
-    let Some(meta) = raw_meta.as_object() else {
-        return Some("_meta is not an object".into());
-    };
+    let Some(raw_meta) = params.get("_meta") else { return false };
+    let Some(meta) = raw_meta.as_object() else { return true };
     if setting && meta.contains_key(&p.gesture_ticket_key) {
-        return meta
-            .keys()
-            .find(|k| **k != p.gesture_ticket_key)
-            .map(|k| format!("unknown _meta key {}", quoted(k)));
+        return meta.keys().any(|k| *k != p.gesture_ticket_key);
     }
     // A permission answer's `_meta` holds the pick's ticket and nothing else, as
     // does a plan build's (it answers the plan approval).
     if matches!(method, "_acpmux/permission_respond" | "_acpmux/plan/build" | "chat.fix_from_link")
     {
-        return (meta.len() != 1 || !meta.contains_key(&p.gesture_ticket_key))
-            .then(|| "_meta holds more than the gesture ticket".into());
+        return meta.len() != 1 || !meta.contains_key(&p.gesture_ticket_key);
     }
     // A prompt held for the folder trust answer redeems its ticket beside its
-    // acpmux.promptId.
+    // acpmux.promptId (AcpmuxPaneMethods.swift `breaksParamsRule`).
     let prompt = method == "session/prompt";
-    if let Some(key) = meta.keys().find(|k| {
-        *k != "acpmux" && *k != TRACEPARENT_KEY && !(prompt && **k == p.gesture_ticket_key)
-    }) {
-        return Some(format!("unknown _meta key {}", quoted(key)));
+    if meta
+        .keys()
+        .any(|k| k != "acpmux" && k != TRACEPARENT_KEY && !(prompt && *k == p.gesture_ticket_key))
+    {
+        return true;
     }
     if meta.get(TRACEPARENT_KEY).is_some_and(|v| !is_traceparent(v)) {
-        return Some("_meta.traceparent is not a W3C traceparent".into());
+        return true;
     }
-    let raw_acpmux = meta.get("acpmux")?;
-    let Some(acpmux) = raw_acpmux.as_object() else {
-        return Some("_meta.acpmux is not an object".into());
-    };
-    if let Some(key) = acpmux.keys().find(|k| contains(denied, k)) {
-        return Some(format!("mode field {} in _meta.acpmux", quoted(key)));
+    let Some(raw_acpmux) = meta.get("acpmux") else { return false };
+    let Some(acpmux) = raw_acpmux.as_object() else { return true };
+    if acpmux.keys().any(|k| !contains(&known.acpmux, k) || contains(denied, k)) {
+        return true;
     }
-    if let Some(key) = acpmux.keys().find(|k| !contains(&known.acpmux, k)) {
-        return Some(format!("unknown _meta.acpmux key {}", quoted(key)));
-    }
-    // A harness list's peer names one machine: a non-empty string.
+    // A harness list's peer names one machine (AcpmuxPaneMethods+Params.swift
+    // `breaksParamsRule`): a non-empty string.
     if method == "_acpmux/harnesses"
         && acpmux.get("peer").is_some_and(|peer| peer.as_str().is_none_or(str::is_empty))
     {
-        return Some("_meta.acpmux.peer is not a machine name".into());
-    }
-    if method != "session/new" {
-        return None;
+        return true;
     }
     // A start's model is a spawn parameter (Claude Code's `--model`, `${model}`
     // in a harness's argv or env): one model id, never a flag or anything else.
-    if acpmux.get("model").is_some_and(|m| !is_model_id(m)) {
-        return Some("_meta.acpmux.model is not a model id".into());
-    }
-    acpmux
-        .get("cloudRegistryId")
-        .is_some_and(|registry| {
-            registry.as_str().is_none_or(|id| id.is_empty() || id.len() > 128)
-                || acpmux.get("peer").and_then(Value::as_str).is_none_or(str::is_empty)
-        })
-        .then(|| "_meta.acpmux.cloudRegistryId requires a peer and a registry id".into())
-}
-
-/// A key as a refusal names it: quoted, cut to 64 characters.
-fn quoted(key: &str) -> String {
-    format!("\"{}\"", key.chars().take(64).collect::<String>())
+    method == "session/new" && acpmux.get("model").is_some_and(|m| !is_model_id(m))
 }
 
 /// The one `_meta` key besides `acpmux` any request may carry: the W3C trace
 /// context of the user action that sent it (one trace id per action,
-/// cmux#55505), which acpmux writes into its `CMUX_TRACE_FILE` trace.
+/// cmux#55505), which acpmux writes into its `CMUX_TRACE_FILE` trace. Mirrors
+/// AcpmuxPaneMethods+Params.swift `traceparentKey`.
 pub const TRACEPARENT_KEY: &str = "traceparent";
 
 /// `00-<32 hex trace id>-<16 hex parent id>-<2 hex flags>`, lowercase, nothing
@@ -218,10 +182,12 @@ pub fn stripping_unknown_params(
 /// The `_meta.acpmux` keys an `initialize` may never carry, even as an opt-in
 /// the relay does not know: the LocalApp token is the host's alone and the
 /// person key never crosses the socket (cx-fcaq). They stay refused, as does a
-/// daemon `modeFields` name.
+/// daemon `modeFields` name (AcpmuxPaneMethods+Params.swift
+/// `initializeRefusedAcpmux`).
 pub const INITIALIZE_REFUSED_ACPMUX: [&str; 2] = ["localAppToken", "personKey"];
 
-/// The handshake fails safe: an `initialize` with `_meta.acpmux` keys
+/// The handshake fails safe (AcpmuxPaneMethods+Params.swift
+/// `strippingInitializeOptIns`): an `initialize` with `_meta.acpmux` keys
 /// outside its known list (capability opt-ins a newer page asks for, as
 /// cmux#46563's `peerRowBatches` was) goes with those keys removed, so the
 /// daemon never sees them, instead of the relay refusing every connect. Only
@@ -278,7 +244,8 @@ pub const MAXIMUM_MODEL_ID_BYTES: usize = 256;
 
 /// One model id as harnesses name them (`claude-opus-5-5[1m]`,
 /// `provider/model:tag`, `model@version`): 1 to [`MAXIMUM_MODEL_ID_BYTES`]
-/// ASCII letters, digits and `._-/:@[]+`, not starting with `-`.
+/// ASCII letters, digits and `._-/:@[]+`, not starting with `-`
+/// (AcpmuxPaneMethods+Params.swift `isModelID`).
 pub fn is_model_id(value: &Value) -> bool {
     let Some(model) = value.as_str() else { return false };
     !model.is_empty()

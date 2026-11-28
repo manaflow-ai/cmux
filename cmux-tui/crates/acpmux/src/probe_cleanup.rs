@@ -27,23 +27,9 @@ pub fn remove_probe_transcripts(unattended: &Path) {
     let Some(home) = dirs::home_dir() else { return };
     let claude =
         login_var("CLAUDE_CONFIG_DIR").map(PathBuf::from).unwrap_or_else(|| home.join(".claude"));
+    remove_claude(&claude, unattended);
     let codex = login_var("CODEX_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".codex"));
-    for folder in spellings(unattended) {
-        remove_claude(&claude, &folder);
-        remove_codex(&codex, &folder, Duration::from_secs(3 * 24 * 3600));
-    }
-}
-
-/// The folder as acpmux names it and as the harness records it: an agent's working folder is the
-/// resolved one (macOS's temp dir `/var/folders/...` is `/private/var/folders/...` to it).
-fn spellings(folder: &Path) -> Vec<PathBuf> {
-    let mut all = vec![folder.to_path_buf()];
-    if let Ok(resolved) = fs::canonicalize(folder)
-        && resolved != folder
-    {
-        all.push(resolved);
-    }
-    all
+    remove_codex(&codex, unattended, Duration::from_secs(3 * 24 * 3600));
 }
 
 /// A variable from the daemon's environment, else the imported login environment (under launchd
@@ -104,38 +90,4 @@ fn rollout_cwd(path: &Path) -> Option<String> {
     BufReader::new(file.take(1 << 20)).read_line(&mut first).ok().filter(|n| *n > 0)?;
     let value: serde_json::Value = serde_json::from_str(first.trim()).ok()?;
     value.get("payload")?.get("cwd")?.as_str().map(str::to_owned)
-}
-
-#[cfg(all(test, unix))]
-mod spelling_tests {
-    use super::*;
-
-    /// A probe folder reached through a link (macOS's `/var` is `/private/var`) is cleaned under
-    /// both names: Claude Code files its sessions by the resolved one.
-    #[test]
-    fn a_linked_probe_folder_is_cleaned_under_both_names() {
-        let root = std::env::temp_dir().join(format!("acpmux-spell-{}", uuid::Uuid::now_v7()));
-        let real = root.join("real");
-        fs::create_dir_all(&real).unwrap();
-        let real = fs::canonicalize(&real).unwrap();
-        let link = root.join("link");
-        std::os::unix::fs::symlink(&real, &link).unwrap();
-        assert_eq!(spellings(&link), vec![link.clone(), real.clone()]);
-        assert_eq!(spellings(&real), vec![real.clone()]);
-        let config = root.join("claude");
-        let project = |folder: &Path| -> PathBuf {
-            let name: String = folder
-                .to_string_lossy()
-                .chars()
-                .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-                .collect();
-            config.join("projects").join(name)
-        };
-        fs::create_dir_all(project(&real)).unwrap();
-        for folder in spellings(&link) {
-            remove_claude(&config, &folder);
-        }
-        assert!(!project(&real).exists(), "the resolved folder's sessions are gone");
-        let _ = fs::remove_dir_all(&root);
-    }
 }

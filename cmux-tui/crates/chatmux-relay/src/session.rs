@@ -1089,7 +1089,7 @@ async fn relay_session(
                                     "actionId": action_id,
                                     "ok": false,
                                     "code": "busy",
-                                    "message": "relay is busy: too many actions are running, so this one was not started",
+                                    "message": "relay is busy; retry this action",
                                 });
                                 let size = serde_json::to_string(&result)
                                     .map(|text| text.len() as u64)
@@ -1200,7 +1200,7 @@ async fn relay_session(
                                             "type": "pty_error",
                                             "ptyId": id,
                                             "code": "busy",
-                                            "message": if is_slow { "relay is busy: too many terminal requests are queued, so this one was not run" } else { "relay is busy: too many terminal commands are queued, so this one was not run" },
+                                            "message": if is_slow { "relay is busy; retry this terminal request" } else { "relay is busy; retry this terminal command" },
                                         }))
                                         .or_else(|| raw.get("requestId").and_then(Value::as_str).map(|id| serde_json::json!({
                                             "version": PTY_PROTOCOL_VERSION,
@@ -1208,7 +1208,7 @@ async fn relay_session(
                                             "requestId": id,
                                             "surfaces": [],
                                             "code": "busy",
-                                            "message": "relay is busy: too many terminal requests are queued, so this one was not run",
+                                            "message": "relay is busy; retry this terminal request",
                                         })));
                                     if let Some(reply) = reply {
                                         // This response is mandatory. Send it directly so a full

@@ -5,10 +5,8 @@ import { act, startTransition, useCallback, useLayoutEffect, useRef, useState } 
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { LayeredMap } from "../src/agent-session/acpmux/conversation/layeredMap";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { LayeredMap } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/layeredMap"));
 
 // Exercise the production callback with React's real priority queues, without mounting the
 // whole agent pane. In particular, an updater is not interchangeable with its eager result.
@@ -20,27 +18,17 @@ const source = readFileSync(
 const comparisonStart = source.indexOf("function sameDrawn(");
 const comparisonEnd = source.indexOf("\n}\n", source.indexOf("function changesDrawn(")) + 3;
 const comparison = source.slice(comparisonStart, comparisonEnd);
-// A production callback alone, up to the end of its own dependency list (`}, [...]);`): other
-// callbacks (reportRow, placeRowNow) sit between flushDrawn and the observer and need the pane's
-// other refs.
-function productionCallbackOf(name: string): string {
-  const start = source.indexOf(`  const ${name} = useCallback(`);
-  if (start < 0) throw new Error(`VirtualTranscript.tsx has no ${name} callback`);
-  const end = /\n  \}, \[[^\]]*\]\);\n/g;
-  end.lastIndex = start;
-  const match = end.exec(source);
-  if (!match) throw new Error(`${name} has no end`);
-  return source.slice(start, match.index + match[0].length);
-}
-// flushDrawn asks its update through askDrawn, which notes it in drawnAsk (`setDrawn` here).
-const askCallback = productionCallbackOf("askDrawn");
-const productionCallback = productionCallbackOf("flushDrawn");
+// flushDrawn alone, up to its own `}, []);`: other callbacks (reportRow, placeRowNow) sit between it and
+// the observer and need the pane's other refs.
+const flushStart = source.indexOf("  const flushDrawn = useCallback(");
+const flushEnd = "\n  }, []);\n";
+const productionCallback = source.slice(flushStart, source.indexOf(flushEnd, flushStart) + flushEnd.length);
 // The mutation run must fail the priority regression: rendered state alone misses queued work.
 const callback =
   process.env.CMUX_TEST_NAIVE_DRAWN_GUARD === "1"
     ? productionCallback.replace(
-        "    askDrawn((current) => {",
-        "    if (!changesDrawn(drawnRef.current, updates)) return;\n    askDrawn((current) => {",
+        "    setDrawn((current) => {",
+        "    if (!changesDrawn(drawnRef.current, updates)) return;\n    setDrawn((current) => {",
       )
     : productionCallback;
 type Height = {
@@ -53,25 +41,25 @@ type Height = {
 };
 type Heights = Map<string, Height>;
 /// The drawn heights as the transcript keeps them (conversation/layeredMap.ts).
-type Drawn = import("../src/agent-session/acpmux/conversation/layeredMap").LayeredMap<Height>;
+type Drawn = LayeredMap<Height>;
 type Ref<T> = { current: T };
 type Inputs = {
   drawnRef: Ref<Drawn>;
   pendingDrawn: Ref<Heights>;
   changedDrawn: Ref<Set<string>>;
   setDrawn: (update: (current: Drawn) => Drawn) => void;
+  /// The transcript's fold ride (conversation/foldRide.ts), let go before rows are placed; none rides here.
+  foldRide: Ref<{ release(): void } | undefined>;
 };
 const useFlush = compileFunction(
   new Bun.Transpiler({ loader: "ts" }).transformSync(`
 ${comparison}
-function useFlush({ drawnRef, pendingDrawn, changedDrawn, setDrawn }) {
-const drawnAsk = useRef({ ran: false });
-${askCallback}
+function useFlush({ drawnRef, pendingDrawn, changedDrawn, setDrawn, foldRide }) {
 ${callback}
 return flushDrawn;
 }`) + "\nreturn useFlush;",
-  ["useCallback", "useRef"],
-)(useCallback, useRef) as (inputs: Inputs) => () => void;
+  ["useCallback"],
+)(useCallback) as (inputs: Inputs) => () => void;
 
 let root: Root | undefined;
 let dom: JSDOM | undefined;
@@ -130,6 +118,7 @@ async function setup() {
       drawnRef,
       pendingDrawn,
       changedDrawn,
+      foldRide: { current: undefined },
       setDrawn: (update) => {
         control.calls += 1;
         setDrawn(update);
@@ -176,10 +165,8 @@ test("idle equal-height confirmations leave no dirty placement IDs", async () =>
   console.log(
     `drawn-height idle confirmations: ${JSON.stringify({ ticks: 120, setDrawn: control.calls, renders: control.renders - before, dirtyIds })}`,
   );
-  // The first equal report still asks: nothing has run yet, and an equal entry may supersede an
-  // update queued at another priority (the test above). Once that ask ran and gave what is drawn,
-  // with nothing asked still waiting, an equal report asks nothing (VirtualTranscript.tsx `drawnAsk`).
-  expect(control.calls).toBe(1);
+  // Keep the updater: an equal entry may supersede an update queued at another priority.
+  expect(control.calls).toBe(120);
   expect(dirtyIds).toBe(0);
   expect(control.renders).toBe(before);
   expect([...control.dirty]).toEqual([]);

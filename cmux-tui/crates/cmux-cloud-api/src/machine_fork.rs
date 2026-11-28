@@ -12,16 +12,12 @@
 use serde_json::{Map, Value, json};
 
 use super::chat::is_path_id;
-use super::previews::{answered, platform_client};
+use super::previews::{answered, client};
 use super::{Failure, Request, optional_text, text};
 
 /// A fork is a snapshot plus a restore on the carrier: about 6.4 s on staging (cmux-platform
 /// `docs/agent-vm-lifecycle.md`), with a long tail on a large memory image.
 const FORK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
-
-/// The sizes a fork can start at, smallest first: the platform's chat ladder (cmux-platform
-/// `Admission.ts` `CHAT_SIZE_NAMES`).
-pub const FORK_SIZES: &[&str] = &["sm", "md", "lg", "xl", "2xl"];
 
 /// The longest `clientKey` the platform takes.
 const MAX_CLIENT_KEY: usize = 128;
@@ -44,29 +40,13 @@ pub async fn fork_machine(request: &Request, args: &Map<String, Value>) -> Resul
             )));
         }
     };
-    // A ladder size the copy starts at, never smaller than the machine (RFD 0144 piece 8).
-    let size = match optional_text(args, "size") {
-        None => None,
-        Some(s) if FORK_SIZES.contains(&s) => Some(s),
-        Some(other) => {
-            return Err(Failure::Transport(format!(
-                "size must be one of {}, not {other:?}",
-                FORK_SIZES.join(", ")
-            )));
-        }
-    };
     let mut body = json!({ "clientKey": key });
-    if let Some(o) = body.as_object_mut() {
-        if let Some(v) = visibility {
-            o.insert("visibility".into(), json!(v));
-        }
-        if let Some(s) = size {
-            o.insert("size".into(), json!(s));
-        }
+    if let (Some(v), Some(o)) = (visibility, body.as_object_mut()) {
+        o.insert("visibility".into(), json!(v));
     }
     let body: cmux_cloud_client::types::MachinesForkBody = serde_json::from_value(body)
         .map_err(|e| Failure::Transport(format!("machine.fork body: {e}")))?;
-    let client = platform_client(request)?;
+    let client = client(request)?;
     let on =
         machine.parse().map_err(|_| Failure::Transport(format!("not a path id: {machine}")))?;
     let sent = async { client.machines_fork(&on, &body).await.map(|r| json!(r.into_inner())) };

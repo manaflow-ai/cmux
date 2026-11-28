@@ -636,17 +636,6 @@ pub fn session_placement(group: bool, top: bool) -> SessionPlacement {
     }
 }
 
-/// The file-location URL scheme Open in Editor hands the selected editor (`scheme://file<path>:<line>`),
-/// by its macOS bundle ID; None for an editor without one, or a line out of 1 to 10,000,000: it gets
-/// the file itself.
-pub fn editor_scheme(line: Option<i64>, bundle_id: Option<&str>) -> Option<&'static str> {
-    let line = line?;
-    if !(1..=10_000_000).contains(&line) {
-        return None;
-    }
-    tables().editor_schemes.get(bundle_id?.to_lowercase().as_str()).copied()
-}
-
 #[cfg(test)]
 #[path = "agent_tests.rs"]
 mod tests;

@@ -312,8 +312,6 @@ impl Hub {
         self.wake_start_retries();
         // The log retention worker sees the shutdown begun and ends (`retention.rs`).
         self.retention_wake.notify_one();
-        // So does the lifecycle worker (`session_lifecycle.rs`).
-        self.lifecycle_wake.notify_one();
         // So does the cold archive's preview worker (`cold_archive.rs`).
         self.cold_wake.notify_one();
         // So does the cold segments' worker (`cold_segments.rs`).
@@ -501,7 +499,7 @@ impl Hub {
         // Each chat's last change is on disk before this returns, also while another save of it
         // runs: the seal that follows refuses every later write.
         for s in self.sessions() {
-            if !s.meta_writer.needs_flush(&s, &*self.store) {
+            if !s.meta_writer.needs_flush(&s) {
                 continue;
             }
             if let Err(e) = self.write_meta(&s) {

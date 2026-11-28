@@ -6,16 +6,10 @@
 // words people use for it.
 import { afterAll, describe, expect, test } from "bun:test";
 import exported from "../../schemas/settings/settings-schema.json";
+import { threadMinimapLayout } from "../src/agent-session/acpmux/threadMinimap/layout.experiment";
+import { MINIMAP_KEY, resolveThreadMinimapArm } from "../src/agent-session/acpmux/chatDisplay";
+import { armIds } from "../src/experiments/experiment";
 import { installDom } from "../src/pages/settings/testDom";
-import { importWithDom } from "./support/importWithDom";
-
-const { threadMinimapLayout } = await importWithDom(
-  () => import("../src/agent-session/acpmux/threadMinimap/layout.experiment"),
-);
-const { MINIMAP_KEY, resolveThreadMinimapArm } = await importWithDom(
-  () => import("../src/agent-session/acpmux/chatDisplay"),
-);
-const { armIds } = await importWithDom(() => import("../src/experiments/experiment"));
 
 type Text = { text: string; key: string | null };
 type Row = {

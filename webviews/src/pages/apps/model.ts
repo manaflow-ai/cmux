@@ -17,18 +17,7 @@ export const RiskLabel: Record<ScopeRisk, string> = {
   restricted: "store.risk.restricted",
 };
 
-export type StoreTab = "discover" | "features" | "installed";
-
-/**
- * How the Features tab lays out its switches (`features=` in the route, like `card=`): `list` is
- * the default, grouped rows with a switch each (Settings' look); `tiles` (a card per feature) and
- * `chips` (one compact toggle chip per feature) are DEV variants shown in the gallery.
- */
-export type FeaturesStyle = "list" | "tiles" | "chips";
-
-export function parseFeaturesStyle(value: string | null | undefined): FeaturesStyle {
-  return value === "tiles" || value === "chips" ? value : "list";
-}
+export type StoreTab = "discover" | "installed";
 
 /** `apps.store.layout` (Debug Settings): grid is the default; list and split are DEV variants. */
 export type StoreLayout = "grid" | "list" | "split";
@@ -111,7 +100,6 @@ export interface StoreRoute {
   examples: ExamplesStyle;
   listing: ListingStyle;
   browse: BrowseStyle;
-  features: FeaturesStyle;
   /** `shelf=examples` opens Discover on the Examples shelf (when the owner offers it). */
   shelf: DiscoverShelf;
   app?: string;
@@ -122,7 +110,7 @@ export function parseRoute(hash: string): StoreRoute {
   const [path, query = ""] = text.split("?", 2);
   const params = new URLSearchParams(query);
   const name = path.replace(/^\//, "");
-  const tab: StoreTab = name === "installed" ? "installed" : name === "features" ? "features" : "discover";
+  const tab: StoreTab = name === "installed" ? "installed" : "discover";
   return {
     tab,
     layout: parseLayout(params.get("layout")),
@@ -130,7 +118,6 @@ export function parseRoute(hash: string): StoreRoute {
     examples: parseExamplesStyle(params.get("examples")),
     listing: parseListingStyle(params.get("listing")),
     browse: parseBrowseStyle(params.get("browse")),
-    features: parseFeaturesStyle(params.get("features")),
     shelf: params.get("shelf") === "examples" ? "example" : "store",
     app: params.get("app") || undefined,
   };

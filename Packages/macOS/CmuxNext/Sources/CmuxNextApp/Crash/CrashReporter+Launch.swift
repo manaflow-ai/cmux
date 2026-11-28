@@ -16,7 +16,7 @@ extension CrashReporter {
         bundleID: String?,
         info: [String: Any] = Bundle.main.infoDictionary ?? [:],
         defaults: UserDefaults = .standard,
-        managed: any ManagedPreferenceReader = ManagedPreferenceLocation.reader(keys: [CrashReportingPolicy.disableTelemetryPolicyKey]),
+        managed: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader(),
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> CrashReporter {
         let forced = managed.read().forced[CrashReportingPolicy.disableTelemetryPolicyKey]?.boolValue == true

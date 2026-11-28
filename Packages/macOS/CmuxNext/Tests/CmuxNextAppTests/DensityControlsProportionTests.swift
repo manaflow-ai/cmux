@@ -60,11 +60,7 @@ struct DensityControlsProportionTests {
             let close = try #require(cell.closeButtonRect)
             let plate = try #require(cell.closeBackgroundLayer)
             let glyph = try #require(cell.closeGlyphLayer)
-            // Helium's hover (Lawrence 2026-11-28: "must perfectly match helium"): its 4 pt corner, centered on the x.
-            #expect(plate.cornerRadius == 4, "\(preset): plate corner \(plate.cornerRadius)")
-            #expect(abs(plate.frame.midX - close.midX) <= 0.5 && abs(plate.frame.midY - close.midY) <= 0.5, "\(preset): plate \(plate.frame), x \(close)")
-            #expect(cell.layer.bounds.contains(plate.frame) && !plate.frame.intersects(cell.iconLayer.frame))
-            #expect(plate.frame.contains(glyph.frame))
+            #expect(plate.cornerRadius == Metrics.buttonCornerRadius(proportionalTo: close.height))
             #expect(close.contains(glyph.frame))
             #expect(!close.intersects(cell.iconLayer.frame))
             // The title layer spans the tab and fades under the x by design; its text must end before the x.

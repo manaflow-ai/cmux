@@ -15,23 +15,14 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+import { resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { EnvironmentSection } from "../src/agent-session/acpmux/session-info/EnvironmentSection";
+import { translate } from "../src/agent-session/acpmux/i18n";
+import { environmentSection } from "../src/agent-session/acpmux/session-info/native/environment";
+import { NativeInfoActions } from "../src/agent-session/acpmux/session-info/native/model";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-type AcpmuxDirectClient = import("../src/agent-session/acpmux/direct").AcpmuxDirectClient;
-const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
-const { resetKeptTailsForTests } = await importWithDom(() => import("../src/agent-session/acpmux/tailCache"));
-const { EnvironmentSection } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/EnvironmentSection"),
-);
-const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
-const { environmentSection } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/native/environment"),
-);
-const { NativeInfoActions } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/native/model"),
-);
 
 const SESSION = "menubar-chats-menu";
 const THIS_MAC = "cosmic-gray";

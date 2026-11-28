@@ -8,12 +8,10 @@ import { settleReact } from "./support/domTeardown";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
-import { importWithDom } from "./support/importWithDom";
-
-const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
-const { proseMirrorGlobals } = await importWithDom(() => import("../src/agent-session/acpmux/promptFieldTesting"));
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

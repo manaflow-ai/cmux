@@ -11,10 +11,10 @@ public import CoreGraphics
 ///   the title, so a narrow selected tab is icon and x only;
 /// - a tab narrower than the minimum inactive width (closing, growing in)
 ///   shows nothing.
-/// Differences: a pinned tab is icon-only, and on hover swaps its centered icon
-/// for the x as a crowded tab does, so it closes like any tab (Leo 2026-11-23,
-/// ask c-b5d3e0efb6: "so what, you cant close a pinned tab? no good reason for
-/// these limitations"). A tab that cannot close keeps its icon. A crowded inactive tab
+/// Differences: a pinned tab keeps its centered icon on hover and never shows
+/// an x; it closes from its right-click menu (Lawrence msg 19392: "hover on
+/// pinned tab should not have close button, should only be able to close in
+/// right click"; takes back HQ #4743's hover swap). A crowded inactive tab
 /// swaps its centered icon for the x on hover until both the icon and the x
 /// fit; the icon stays put when both fit (nxdog9, Lawrence 2026-10-20).
 /// A selected tab keeps its existing close once it is narrower than Chromium's
@@ -47,10 +47,8 @@ public struct TabChromeVisibility: Hashable, Sendable {
         metrics: TabStripMetrics = .standard
     ) -> TabChromeVisibility {
         if isPinned {
-            // The pinned icon owns the one centered slot; a hover gives it to the x, as a crowded tab's.
-            let showsClose = isHovered && isClosable
-            return TabChromeVisibility(showsIcon: !showsClose, showsTitle: false, showsClose: showsClose, centersContent: true,
-                                       closeReplacesStatus: showsClose && hasStatus)
+            // The pinned icon owns the one centered slot, hovered or not: no x (Lawrence msg 19392).
+            return TabChromeVisibility(showsIcon: true, showsTitle: false, showsClose: false, centersContent: true)
         }
         // Narrower than an icon-only tab (Chrome's inactive minimum, 32; an opening or closing tab): nothing
         // shows. Not the strip's crowding minimum, which keeps a title (cx-kp9b4) and in Scroll mode is 140.

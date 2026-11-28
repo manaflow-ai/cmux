@@ -4,17 +4,11 @@
 //! read with `cmux_config::jsonc`, the settings owner's own reader. Classic is
 //! imported by the app only after the person consents. Read at each use,
 //! so a settings change applies to the next new chat.
-//!
-//! [`read_for`] is what a chat started in a folder reads: the user's file with the folder's
-//! project layer over it (`<project>/.cmux/cmux-next.json`, `cmux_config::project`), only when
-//! that project folder is trusted, only for the per-project keys, and never over a value MDM
-//! forces. A key a chat reads at its start reads it through `read_for(cwd)`, and joins
-//! `cmux_config::project::PROJECT_KEYS`.
 
 use cmux_config::{jsonc, location};
 use serde_json::Value;
 use std::ffi::OsString;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// The override the app and tests set.
 pub use cmux_config::CONFIG_OVERRIDE;
@@ -66,56 +60,6 @@ pub fn read() -> Settings {
 /// The NEXT settings file passed to a server that cmux starts.
 pub fn resolved_path() -> PathBuf {
     path_from(|name| std::env::var_os(name).filter(|v| !v.is_empty()), dirs::home_dir)
-}
-
-/// The settings a chat started in `cwd` reads: [`read`] with the per-project keys of `cwd`'s
-/// trusted project over it (see the module doc). A user file that does not parse stays
-/// unreadable: a project file never makes it readable.
-pub fn read_for(cwd: &Path) -> Settings {
-    let user = read();
-    let Some(layer) = trusted_project(cwd) else { return user };
-    if layer.values.is_empty() {
-        return user;
-    }
-    let forced =
-        cmux_config::managed::default_reader(|name| std::env::var(name).ok()).read().forced;
-    overlay(user, &layer, &|key: &str| forced.contains_key(key))
-}
-
-/// `cwd`'s project layer when its project folder is trusted (`trust::get`'s level; a damaged
-/// trust record is no answer). None: no project file, or the folder is not trusted.
-fn trusted_project(cwd: &Path) -> Option<cmux_config::project::ProjectLayer> {
-    let home = dirs::home_dir();
-    let folder = cmux_config::project::find(cwd, home.as_deref())?;
-    let paths = crate::trust::Paths::current()?;
-    let reply = crate::trust::get(&paths, &folder.to_string_lossy()).ok()?;
-    (reply["level"] == "trusted")
-        .then(|| cmux_config::project::ProjectLayer::read(&folder, cmux_config::Schema::embedded()))
-}
-
-/// `user` with `layer`'s values over it, except the keys `managed` says a managed layer sets.
-/// A flat key in the user's file (`"agents.promptCache": ...`) gives way to the project's value.
-pub fn overlay(
-    user: Settings,
-    layer: &cmux_config::project::ProjectLayer,
-    managed: &dyn Fn(&str) -> bool,
-) -> Settings {
-    let mut doc = match user {
-        Settings::Parsed(doc) if doc.is_object() => doc,
-        Settings::Missing => Value::Object(Default::default()),
-        other => return other,
-    };
-    for (key, value) in layer.values.iter().filter(|(key, _)| !managed(key)) {
-        if let Some(members) = doc.as_object_mut() {
-            members.remove(key);
-        }
-        doc = cmux_config::value::with_value(
-            &doc,
-            value.clone(),
-            &cmux_config::keypath::key_path(key),
-        );
-    }
-    Settings::Parsed(doc)
 }
 
 /// The settings file's text, or `None` when there is none to read.

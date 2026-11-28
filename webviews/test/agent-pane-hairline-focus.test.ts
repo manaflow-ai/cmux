@@ -26,9 +26,6 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
   /** The composer edge's alpha over the harness's transparent page, at rest and focused. */
   const REST = 0.22;
   const FOCUSED = 0.26;
-  /** The New Tab box is one borderless card (#57406, 0380bce741ca: newtab/screen.css makes its edge and
-   *  focused edge transparent except under Increase Contrast): its rim layer stays, drawn clear. */
-  const EDGE = { composer: { rest: REST, focused: FOCUSED }, newtab: { rest: 0, focused: 0 } } as const;
   setDefaultTimeout(120_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -125,7 +122,7 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
         const restRims = rest.filter(isRing);
         expect(restRims.length, `${box} draws one rim`).toBe(1);
         expect(restRims[0].spread * scale, `${box} rim in device px`).toBe(1);
-        expect(restRims[0].alpha, `${box} rim at rest`).toBeCloseTo(EDGE[box].rest, 2);
+        expect(restRims[0].alpha, `${box} rim at rest`).toBeCloseTo(REST, 2);
 
         await focusByKey(page, `#${field}`);
         const focused = await shadows(page, box);
@@ -138,7 +135,7 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
         const rim = focused.filter(isRing);
         expect(rim.length, `${box} focused draws one rim`).toBe(1);
         expect(rim[0].spread, `${box} focused rim keeps its width`).toBe(restRims[0].spread);
-        expect(rim[0].alpha, `${box} focused rim brightens a step`).toBeCloseTo(EDGE[box].focused, 2);
+        expect(rim[0].alpha, `${box} focused rim brightens a step`).toBeCloseTo(FOCUSED, 2);
         expect(await outline(page, box), `${box} draws no outline`).toBe("none");
         expect(await outline(page, field), `${field} draws no outline`).toBe("none");
         await page.close();

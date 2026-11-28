@@ -103,7 +103,7 @@ fn a_record_with_a_current_image_plans_the_image_at_its_frame() {
 }
 
 #[test]
-fn a_record_whose_image_is_gone_plans_no_stage_zero_window() {
+fn a_record_whose_image_is_gone_plans_the_plain_shell() {
     let support = Support::new("plain");
     let data = LaunchRecordData {
         windows: vec![window("w1")],
@@ -114,7 +114,7 @@ fn a_record_whose_image_is_gone_plans_no_stage_zero_window() {
     };
     write_atomic(support.0.join("launch-record.bin"), &data).unwrap();
     let (_, p) = plan_in(&support);
-    assert_eq!((p.reason, p.shows_window), (7, false));
+    assert_eq!((p.reason, p.shows_window), (7, true));
     assert_eq!(text(&p.image_path), "");
 }
 
@@ -172,7 +172,7 @@ fn the_plan_struct_has_the_headers_layout() {
 }
 
 #[test]
-fn a_record_of_another_session_plans_no_stage_zero_window() {
+fn a_record_of_another_session_plans_the_plain_shell_at_the_default_frame() {
     let support = Support::new("session");
     let data = LaunchRecordData {
         windows: vec![window("w1")],
@@ -188,14 +188,10 @@ fn a_record_of_another_session_plans_no_stage_zero_window() {
     std::fs::create_dir_all(support.0.join("cmux-next")).unwrap();
     let registry = support.0.join("cmux-next/launch-snapshot-registry.cmux-app");
     std::fs::write(&registry, "reg-new").unwrap();
-    // Another session restores it: no picture to draw, and Stage 0 never draws the plain shell
-    // (#62017, Leo: "stop putting the opaque thing from the start"), so it makes no window.
     let (_, p) = plan_in(&support);
-    // #62017: stage 0 never opens a window for the plain shell (no opaque
-    // cover); the reason and default frame still say why.
     assert_eq!(
         (p.reason, p.shows_window, p.uses_default_frame, p.shows_bare),
-        (11, false, true, false)
+        (11, true, true, false)
     );
     assert_eq!(text(&p.image_path), "");
     std::fs::write(&registry, "reg-old\n").unwrap();

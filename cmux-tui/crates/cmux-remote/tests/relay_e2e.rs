@@ -785,11 +785,7 @@ async fn native_relay_recovers_concurrent_clients_and_persistent_streams() {
                 workspace_clients.push(workspace);
             }
 
-            // Every carrier is up: the daemon's control socket, two per lane (5 clients' three
-            // `Auto` lanes) and the daemon's three waiting Standbys (`STANDBY_SOCKETS`). A lane
-            // `cmux-relay` pairs inline is the client's own socket and a Standby; one on the
-            // circuit route is a socket at each end, plus its client's shared control socket.
-            proxy.wait_for_active(1 + 5 * 3 * 2 + 3).await;
+            proxy.wait_for_active(36).await;
             registration.shutdown().await;
             proxy.drop_all();
             tokio::time::sleep(Duration::from_millis(150)).await;

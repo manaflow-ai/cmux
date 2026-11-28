@@ -69,15 +69,6 @@ struct AgentChatDestinationsTests {
         #expect(AgentChatDestinations.resolve("missing", in: rows) == nil)
     }
 
-    @Test func anIdlePeerCanOpenAChat() throws {
-        let rows = AgentChatDestinations.rows(localTitle: "This Mac", peers: [
-            AgentChatPeer(name: "build-box", isSSH: true, connected: false, state: "idle"),
-        ], cloud: .init(signedIn: false, loaded: true, machines: []))
-        let idle = try #require(AgentChatDestinations.resolve("build-box", in: rows))
-        #expect(idle.opens && idle.state == "idle")
-        #expect(idle.route == .peer("build-box"))
-    }
-
     @Test(arguments: [false, true])
     func sameNamePeerAndCloudKeepTheirIdentityAndOwnState(cloudReady: Bool) throws {
         let cloudID = Self.sameNameCloudID

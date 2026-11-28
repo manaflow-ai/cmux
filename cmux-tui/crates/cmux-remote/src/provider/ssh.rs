@@ -18,7 +18,6 @@ use crate::provider::{
     sanitized_route,
 };
 use crate::ssh_args::background_ssh_arguments;
-use crate::ssh_control::{SshConnectionShare, SshTarget};
 
 const SSH_GRACEFUL_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 /// ssh's ConnectTimeout for a redial (any open after the first). Short, so a
@@ -69,9 +68,6 @@ pub struct SshProviderConfig {
     /// as one line, and an ended link's error carries it after
     /// [`SSH_STDERR_MARK`]. Off, ssh speaks to the person directly.
     pub capture_stderr: bool,
-    /// One authenticated connection per host, shared by the bootstrap and
-    /// every carrier link of this connect (issue 38157). Off by default.
-    pub connection_share: SshConnectionShare,
 }
 
 impl Default for SshProviderConfig {
@@ -86,7 +82,6 @@ impl Default for SshProviderConfig {
             maximum_frame_bytes: 65_535,
             agent_hooks: Vec::new(),
             capture_stderr: false,
-            connection_share: SshConnectionShare::disabled(),
         }
     }
 }
@@ -295,7 +290,6 @@ impl LinkGroup for SshLinkGroup {
                 kind: TransportPathKind::Direct,
                 remote: Some(self.description.clone()),
                 rtt_micros: None,
-                outer: None,
             }),
         }
     }
@@ -304,26 +298,14 @@ impl LinkGroup for SshLinkGroup {
         if self.closed.load(Ordering::Acquire) {
             return Err(ProviderError::Transport("SSH connection group is closed".into()));
         }
-        // With a shared connection the link is a client of its master (no
-        // second authentication). Otherwise forwarding stays as configured
-        // unless `extra_args` pin `ControlMaster=no`: this run can become the
-        // shared master that interactive sessions reuse.
-        let mut extra_args = self
-            .config
-            .connection_share
-            .client_arguments(&SshTarget {
-                ssh_binary: self.config.ssh_binary.clone(),
-                destination: self.destination.clone(),
-                port: self.port,
-                extra_args: self.config.extra_args.clone(),
-            })
-            .await
-            .map_err(|error| ProviderError::Transport(error.to_string()))?;
-        extra_args.extend(self.connect_timeout_args(request.generation).await);
-        extra_args.extend(self.config.extra_args.iter().cloned());
+        let mut ssh_args = self.connect_timeout_args(request.generation).await;
+        ssh_args.extend(self.config.extra_args.iter().cloned());
         let mut command = Command::new(&self.config.ssh_binary);
+        // Forwarding stays as configured unless `extra_args` pin
+        // `ControlMaster=no`: otherwise this run can become the shared master
+        // that interactive sessions reuse.
         command
-            .args(background_ssh_arguments(self.port, &extra_args, &self.destination))
+            .args(background_ssh_arguments(self.port, &ssh_args, &self.destination))
             .args(remote_link_command(&self.config));
         // stderr is always read, for the banner timeout; uncaptured, every
         // byte still goes on to this process's stderr as ssh wrote it.
@@ -479,75 +461,23 @@ impl SshProcessLink {
         }
     }
 
-    /// An ended link's error, with what ssh said and how it exited when
-    /// it was captured. A quiet run that exited 0 (the remote command
-    /// ended cleanly) keeps the plain end; a quiet run that exited
-    /// otherwise names its exit, so a Nightly row says `ssh_exit_255`
-    /// (ssh itself failed) or `ssh_exit_1` (the remote command failed)
-    /// instead of `ssh_link_closed`.
+    /// An ended link's error, with what ssh said when it was captured.
     async fn with_stderr(&self, error: Option<LinkError>) -> Option<LinkError> {
         let said = match &self.stderr {
             Some(stderr) => stderr.settled().await,
             None => None,
         };
-        let exit = self.exit().await;
-        let ended = match &exit {
-            Some(exit) => format!("the ssh link ended ({exit})"),
-            None => "the ssh link ended".to_owned(),
-        };
         match (said, error) {
-            (None, None | Some(LinkError::Closed)) if exit.as_deref().is_some_and(failed) => {
-                Some(LinkError::Transport(ended))
-            }
             (None, error) => error,
-            (Some(said), None | Some(LinkError::Closed)) => {
-                Some(LinkError::Transport(format!("{ended}; {SSH_STDERR_MARK}\"{said}\"")))
-            }
+            (Some(said), None | Some(LinkError::Closed)) => Some(LinkError::Transport(format!(
+                "the ssh link ended; {SSH_STDERR_MARK}\"{said}\""
+            ))),
             (Some(said), Some(LinkError::Transport(detail))) => {
-                let detail = match &exit {
-                    Some(exit) => format!("{detail} ({exit})"),
-                    None => detail,
-                };
                 Some(LinkError::Transport(format!("{detail}; {SSH_STDERR_MARK}\"{said}\"")))
             }
             (Some(_), Some(error)) => Some(error),
         }
     }
-
-    /// How the ssh run exited (`ssh exit 255`, `ssh signal 9`), waiting at
-    /// most [`STDERR_SETTLE`]; `None` while it still runs or when a close
-    /// holds it.
-    async fn exit(&self) -> Option<String> {
-        let mut child = self.child.try_lock().ok()?;
-        let child = child.as_mut()?;
-        let status = match child.try_wait() {
-            Ok(Some(status)) => status,
-            Ok(None) => tokio::time::timeout(STDERR_SETTLE, child.wait()).await.ok()?.ok()?,
-            Err(_) => return None,
-        };
-        exit_words(status)
-    }
-}
-
-/// An exit status as words a why code is read from: `ssh exit N`, or
-/// `ssh signal N` for a run a signal ended.
-fn exit_words(status: std::process::ExitStatus) -> Option<String> {
-    if let Some(code) = status.code() {
-        return Some(format!("ssh exit {code}"));
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::ExitStatusExt as _;
-        if let Some(signal) = status.signal() {
-            return Some(format!("ssh signal {signal}"));
-        }
-    }
-    None
-}
-
-/// True for an exit that is not a clean `ssh exit 0`.
-fn failed(exit: &str) -> bool {
-    exit != "ssh exit 0"
 }
 
 impl fmt::Debug for SshProcessLink {
@@ -569,9 +499,12 @@ impl FrameLink for SshProcessLink {
     async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
         match self.inner.send(frame).await {
             Ok(()) => Ok(()),
+            Err(error) if self.stderr.is_some() => {
+                Err(self.with_stderr(Some(error)).await.unwrap_or(LinkError::Closed))
+            }
             Err(error) => {
                 self.forwarded().await;
-                Err(self.with_stderr(Some(error)).await.unwrap_or(LinkError::Closed))
+                Err(error)
             }
         }
     }
@@ -579,17 +512,12 @@ impl FrameLink for SshProcessLink {
     async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
         match self.inner.receive().await {
             Ok(Some(frame)) => Ok(Some(frame)),
-            ended => {
-                // A forwarded stderr is written out first; a captured one
-                // (and the run's exit, either way) goes into the error.
+            ended if self.stderr.is_none() => {
                 self.forwarded().await;
-                match ended {
-                    Ok(_) => self.with_stderr(None).await.map_or(Ok(None), Err),
-                    Err(error) => {
-                        Err(self.with_stderr(Some(error)).await.unwrap_or(LinkError::Closed))
-                    }
-                }
+                ended
             }
+            Ok(None) => self.with_stderr(None).await.map_or(Ok(None), Err),
+            Err(error) => Err(self.with_stderr(Some(error)).await.unwrap_or(LinkError::Closed)),
         }
     }
 

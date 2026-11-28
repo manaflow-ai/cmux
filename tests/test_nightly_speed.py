@@ -59,34 +59,6 @@ def synthetic(n, mtf, stages, sha=None, hosts=None):
             "merge_to_feed": mtf, "stages": dict(stages), "runners": {"build": "ultra1"}, "hosts": hosts or {}, "jobs": []}
 
 
-
-def fixture_attribution(records, git_dir, base_ref=ns.BASE_REF, *, confirm_feeds=True, **kwargs):
-    """Legacy graph fixtures now explicitly supply synthetic provider and publication receipts.
-    Provider rejection and differing clocks are tested separately with independent payloads below.
-    """
-    now = kwargs.get("now", ns.time.time())
-    since = now - kwargs.get("window_days", ns.PR_WINDOW_DAYS) * 86400
-    candidates = ns.first_parent_pr_merges(git_dir, base_ref, since, kwargs.get("run", subprocess.run))
-    provider = {}
-    for r in candidates:
-        if r["pr"] is not None and r["github"]:
-            provider[r["pr"]] = {k: r[k] for k in ("pr", "sha", "merged_at")}
-    def verified(f):
-        return {"confirmed": True, "confirmed_identity": True, "sha_source": "signed_notes", **f}
-    if confirm_feeds:
-        records = [verified(f) for f in records]
-        if "feeds" in kwargs:
-            kwargs["feeds"] = [verified(f) for f in kwargs["feeds"]]
-    if "run" in kwargs:
-        graph = kwargs["run"]
-        def complete_graph(cmd, **kw):
-            if "--is-shallow-repository" in cmd:
-                return subprocess.CompletedProcess(cmd, 0, "false\n", "")
-            return graph(cmd, **kw)
-        kwargs["run"] = complete_graph
-    return ns.pr_attribution(records, git_dir, base_ref, **kwargs,
-                             provider_merges={"rows": list(provider.values()), "complete": True})
-
 class FakeGh:
     """gh issue list/edit/create and gh api, by argv; records every call."""
 
@@ -157,7 +129,7 @@ class Record(unittest.TestCase):
         st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
         self.assertEqual(st["new"], ["4318547490101"])
         self.assertEqual(sorted(st["new_unpublished"]), [43194746628, 43198322667], "the in-progress sign run waits")
-        apis = [c[0][2] for c in gh.calls if c[0][:2] == ["gh", "api"] and "/pulls?" not in c[0][2]]
+        apis = [c[0][2] for c in gh.calls if c[0][:2] == ["gh", "api"]]
         self.assertEqual(len(apis), 5, "one list, two job lists for the build, one for each failed sign run")
         cancelled = next(u for u in st["unpublished"] if u["sign_run"] == 43194746628)
         self.assertEqual((cancelled["conclusion"], cancelled["held_min"]), ("cancelled", 24.13))
@@ -169,7 +141,7 @@ class Record(unittest.TestCase):
                      api={"workflows/nightly.yml/runs": {"workflow_runs": RUNS}})
         st2 = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh2)
         self.assertEqual((st2["new"], st2["new_unpublished"]), ([], []))
-        self.assertEqual(len([c for c in gh2.calls if c[0][:2] == ["gh", "api"] and "/pulls?" not in c[0][2]]), 1)
+        self.assertEqual(len([c for c in gh2.calls if c[0][:2] == ["gh", "api"]]), 1)
         self.assertEqual(len(st2["records"]), 1)
 
     def test_a_job_of_one_name_in_both_runs_keeps_both_walls(self):
@@ -214,8 +186,6 @@ class PrAttribution(unittest.TestCase):
             ]) + "\n"
 
         def __call__(self, cmd, **kw):
-            if "--is-shallow-repository" in cmd:
-                return subprocess.CompletedProcess(cmd, 0, "false\n", "")
             if "rev-list" in cmd:
                 return subprocess.CompletedProcess(cmd, 128, "", "no rev-list in this fake")
             if "log" in cmd:
@@ -233,7 +203,7 @@ class PrAttribution(unittest.TestCase):
             {"build": "n1", "sha": "a1a1a1a", "feed_at": "2026-11-14T01:00:00Z"},
             {"build": "n2", "sha": "a2a2a2a", "feed_at": "2026-11-16T00:00:00Z"},
         ]
-        result = fixture_attribution(feeds, ".", "origin/feat-cmux-next", run=self.Git(),
+        result = ns.pr_attribution(feeds, ".", "origin/feat-cmux-next", run=self.Git(),
                                    now=ns.ts("2026-11-20T00:00:00Z"))
         self.assertEqual(result["count"], 4)
         self.assertEqual(result["attributed"], 2)
@@ -292,7 +262,7 @@ class PrAttribution(unittest.TestCase):
 
         feeds = [{"build": "n1", "sha": "a1a1a1a", "feed_at": "2026-11-14T12:00:00Z"},
                  {"build": "n2", "sha": "a2a2a2a", "feed_at": "2026-11-16T01:00:00Z"}]
-        result = fixture_attribution(feeds, ".", run=Git(), now=ns.ts("2026-11-20T00:00:00Z"))
+        result = ns.pr_attribution(feeds, ".", run=Git(), now=ns.ts("2026-11-20T00:00:00Z"))
         rows = {row["pr"]: row for row in result["rows"]}
         self.assertEqual((rows[1]["status"], rows[1]["reason"], rows[1]["build"]),
                          ("unattributed", ns.BEFORE_FEEDS, None))
@@ -338,10 +308,10 @@ class PrAttribution(unittest.TestCase):
               when="2026-11-19T01:11:00Z")
             merges = ns.first_parent_pr_merges(repo, "local", ns.ts("2026-11-15T00:00:00Z"))
             head = g("rev-parse", "HEAD")
-            data = fixture_attribution([{"build": "n0", "sha": fork, "feed_at": "2026-11-18T03:00:00Z"},
+            data = ns.pr_attribution([{"build": "n0", "sha": fork, "feed_at": "2026-11-18T03:00:00Z"},
                                       {"build": "n1", "sha": head, "feed_at": "2026-11-19T02:00:00Z"}],
                                      repo, "local", now=ns.ts("2026-11-20T00:00:00Z"), window_days=5)
-        self.assertEqual([m["pr"] for m in merges], [None, 48675, None, 102, 100])
+        self.assertEqual([m["pr"] for m in merges], [None, 48675, 102, 100])
         self.assertEqual(merges[1]["merged_at"], "2026-11-19T01:10:00Z")
         rows = {r["pr"]: r for r in data["rows"]}
         self.assertEqual((rows[48675]["build"], rows[48675]["merge_to_nightly"]), ("n1", 50.0))
@@ -374,7 +344,7 @@ class PrAttribution(unittest.TestCase):
                 return subprocess.CompletedProcess(cmd, 0, "\n".join(held) + "\n", "")
             raise AssertionError(cmd)
 
-        data = fixture_attribution(recs, ".", run=git, now=end, window_days=4)
+        data = ns.pr_attribution(recs, ".", run=git, now=end, window_days=4)
         self.assertEqual(data["count"], 2500)
         self.assertGreater(data["reasons"][ns.BEFORE_FEEDS], 0)
         body = ns.issue_body(recs, unp, ".", run=FakeGh(), pr_data=data)
@@ -414,16 +384,16 @@ class PrAttribution(unittest.TestCase):
         end, feeds, git = self.busy_week()
         records = [{**f, "landed_at": None} for f in feeds[-ns.HISTORY_KEEP:]]
         old_merge = 1000 + 5  # merged 10 min before feed 6, far older than the oldest of the 40 records
-        only_records = fixture_attribution(records, ".", run=git, now=end)
+        only_records = ns.pr_attribution(records, ".", run=git, now=end)
         self.assertEqual({r["pr"]: r for r in only_records["rows"]}[old_merge]["reason"], ns.BEFORE_FEEDS)
         self.assertTrue(only_records["partial"])
         kept = ns.feed_list(feeds, records, end)
         self.assertEqual(len(kept), len(feeds), "every feed of the 7 days and the one before them")
         # A predecessor alone proves nothing: no run classification, the label stays.
-        unproven = fixture_attribution(records, ".", run=git, now=end, feeds=kept)
+        unproven = ns.pr_attribution(records, ".", run=git, now=end, feeds=kept)
         self.assertTrue(unproven["partial"])
         span = {"from": ns.iso(end - 8 * 86400), "to": ns.iso(end)}
-        data = fixture_attribution(records, ".", run=git, now=end, feeds=kept, classified=span)
+        data = ns.pr_attribution(records, ".", run=git, now=end, feeds=kept, classified=span)
         row = {r["pr"]: r for r in data["rows"]}[old_merge]
         self.assertEqual((row["build"], row["feed_sha"], row["merge_to_nightly"]), ("b6", feeds[6]["sha"], 10.0))
         self.assertEqual((data["attributed"], data["count"], data["partial"]), (len(feeds) - 1, len(feeds) - 1, False))
@@ -435,7 +405,7 @@ class PrAttribution(unittest.TestCase):
         self.assertNotIn("partial", full)
         self.assertIn(f"Observed window: {data['since']} to {data['until']}; 0 merges before it", full)
         # Without the predecessor the window is not proven: the label stays.
-        short = fixture_attribution(records, ".", run=git, now=end, feeds=kept[1:], classified=span)
+        short = ns.pr_attribution(records, ".", run=git, now=end, feeds=kept[1:], classified=span)
         self.assertTrue(short["partial"])
         self.assertIn("(partial: observed window)", ns.render_verdict({**verdict, "pr_attribution": short}))
 
@@ -462,7 +432,7 @@ class PrAttribution(unittest.TestCase):
     def test_the_pr_json_holds_no_host_runner_or_diff(self):
         end, feeds, git = self.busy_week()
         span = {"from": ns.iso(end - 8 * 86400), "to": ns.iso(end)}
-        data = fixture_attribution(feeds[-3:], ".", run=git, now=end, feeds=feeds, classified=span)
+        data = ns.pr_attribution(feeds[-3:], ".", run=git, now=end, feeds=feeds, classified=span)
         rec = fixture_record()
         self.assertTrue(rec.get("hosts") and rec.get("jobs"), "the fixture carries hosts and jobs")
         with tempfile.TemporaryDirectory() as tmp:
@@ -490,8 +460,7 @@ class PrAttribution(unittest.TestCase):
         for banned in ("build_runner", "hosts", "host", "runners", "runner", "jobs", "diff", "bisect", "stages", "subject", "slow"):
             self.assertNotIn(banned, found)
         self.assertEqual(set(doc["rows"][0]), {"pr", "sha", "merged_at", "feed_sha", "feed_at", "merge_to_nightly",
-                                               "reason", "pr_number", "merge_sha", "feed_source_sha",
-                                               "feed_uploaded_at", "pr_merge_to_feed_min"})
+                                               "reason"})
         self.assertEqual((doc["partial"], doc["count"], len(doc["rows"])), (False, len(feeds) - 1, len(feeds) - 1))
         self.assertEqual(doc["observed_window"], {"from": data["oldest_feed"], "to": data["until"]})
 
@@ -530,7 +499,7 @@ class OneJob(unittest.TestCase):
                          "runs/43185474901/attempts/1/jobs": {"jobs": PUSH_JOBS}})
         st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
         self.assertEqual(st["new"], ["4318547490101", "4330000000101"], "the two-run build and the one-job build")
-        apis = [c[0][2] for c in gh.calls if c[0][:2] == ["gh", "api"] and "/pulls?" not in c[0][2]]
+        apis = [c[0][2] for c in gh.calls if c[0][:2] == ["gh", "api"]]
         self.assertEqual(len(apis), 6, "one list, two job lists for the two-run build, one for the one-job build, "
                                        "one for each failed sign run")
         self.assertEqual(sum("runs/43185474901/" in a for a in apis), 1,
@@ -551,7 +520,7 @@ class OneJob(unittest.TestCase):
                      api={"workflows/nightly.yml/runs": {"workflow_runs": [one_job_run()] + RUNS}})
         st2 = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh2)
         self.assertEqual((st2["new"], st2["new_unpublished"]), ([], []))
-        self.assertEqual(len([c for c in gh2.calls if c[0][:2] == ["gh", "api"] and "/pulls?" not in c[0][2]]), 1)
+        self.assertEqual(len([c for c in gh2.calls if c[0][:2] == ["gh", "api"]]), 1)
 
     def test_a_push_run_that_published_nothing_is_read_once(self):
         runs = [one_job_run()]
@@ -565,7 +534,7 @@ class OneJob(unittest.TestCase):
         gh2 = FakeGh(issues=[{"number": 9, "title": ns.ISSUE_TITLE, "body": body}],
                      api={"workflows/nightly.yml/runs": {"workflow_runs": runs}})
         ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh2)
-        self.assertEqual(len([c for c in gh2.calls if c[0][:2] == ["gh", "api"] and "/pulls?" not in c[0][2]]), 1, "its jobs are not read again")
+        self.assertEqual(len([c for c in gh2.calls if c[0][:2] == ["gh", "api"]]), 1, "its jobs are not read again")
 
     def test_a_push_run_listed_before_its_sign_run_is_forgotten_once_the_sign_run_is_listed(self):
         push = next(r for r in RUNS if r["id"] == 43185474901)
@@ -629,7 +598,7 @@ class OneJob(unittest.TestCase):
         gh3 = FakeGh(issues=[{"number": 9, "title": ns.ISSUE_TITLE, "body": body}], api=api(rerun))
         st3 = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh3)
         self.assertEqual((st3["new"], st3["new_unpublished"]), ([], []))
-        self.assertEqual(len([c for c in gh3.calls if c[0][:2] == ["gh", "api"] and "/pulls?" not in c[0][2]]), 1)
+        self.assertEqual(len([c for c in gh3.calls if c[0][:2] == ["gh", "api"]]), 1)
 
     def test_a_rerun_that_publishes_nothing_again_is_read_once_per_attempt(self):
         def record(attempt, body=None):
@@ -638,7 +607,7 @@ class OneJob(unittest.TestCase):
                         api={"workflows/nightly.yml/runs": {"workflow_runs": runs},
                              f"runs/43300000001/attempts/{attempt}/jobs": {"jobs": one_job_jobs(feed=False)}})
             st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
-            reads = len([c for c in gh.calls if c[0][:2] == ["gh", "api"] and "/pulls?" not in c[0][2]])
+            reads = len([c for c in gh.calls if c[0][:2] == ["gh", "api"]])
             return st, reads, ns.issue_body(st["records"], st["unpublished"], ".", run=gh)
 
         st, reads, body = record(1)
@@ -659,7 +628,7 @@ class OneJob(unittest.TestCase):
                         api={"workflows/nightly.yml/runs": {"workflow_runs": runs},
                              f"runs/43300000001/attempts/{attempt}/jobs": {"jobs": one_job_jobs(feed=False)}})
             ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
-            self.assertEqual(len([c for c in gh.calls if c[0][:2] == ["gh", "api"] and "/pulls?" not in c[0][2]]), reads, f"attempt {attempt}")
+            self.assertEqual(len([c for c in gh.calls if c[0][:2] == ["gh", "api"]]), reads, f"attempt {attempt}")
 
     def test_a_completed_run_is_read_whatever_its_conclusion_or_event(self):
         # A job after the publisher can fail a run that published (run 44087850352), and a dispatch publishes too
@@ -672,7 +641,7 @@ class OneJob(unittest.TestCase):
         self.assertEqual((st["new"], sorted(st["new_unpublished"]), st["why"]), ([], [1, 2, 4], None))
         self.assertEqual(sorted(u["conclusion"] for u in st["unpublished"]),
                          ["cancelled", "failure", "success, no feed upload"])
-        self.assertEqual(len([c for c in gh.calls if c[0][:2] == ["gh", "api"] and "/pulls?" not in c[0][2]]), 4)
+        self.assertEqual(len([c for c in gh.calls if c[0][:2] == ["gh", "api"]]), 4)
 
     def test_a_step_is_shown_in_the_diff_only_when_it_moved(self):
         then = synthetic(1, 20.0, {"j_one_job": 18.0, "step:Sign the app": 0.5, "step:Make the DMG": 2.0})
@@ -997,7 +966,7 @@ class PublicationReceipt(unittest.TestCase):
         r = st["records"][0]
         self.assertEqual((r["feed_at"], r["confirmed"], r["sha"]),
                          ("2026-11-21T12:59:48Z", True, "a9aa7a318206e006b1758ea8f9f47effc4e9d825"))
-        self.assertEqual(len([c for c in gh.calls if c[0][:2] == ["gh", "api"] and "/pulls?" not in c[0][2]]), 2, "one list, one job list")
+        self.assertEqual(len([c for c in gh.calls if c[0][:2] == ["gh", "api"]]), 2, "one list, one job list")
         # A tail-only dispatch (the publisher skipped, no write) is no publication.
         tail = [j for j in jobs if j["name"] != "nightly-next-one"]
         gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": [run]},
@@ -1014,7 +983,7 @@ class PublicationReceipt(unittest.TestCase):
         st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
         self.assertEqual((st["new"], st["new_unpublished"]), ([], [43300000001]))
         self.assertEqual([(e["build"], e["confirmed"]) for e in st["feeds"]], [("4330000000101", True)])
-        self.assertEqual(len([c for c in gh.calls if c[0][:2] == ["gh", "api"] and "/pulls?" not in c[0][2]]), 4, "the list and three attempts")
+        self.assertEqual(len([c for c in gh.calls if c[0][:2] == ["gh", "api"]]), 4, "the list and three attempts")
         # A rerun of a recorded run is read at its new attempt; the older record's attempt is not read again.
         rec, _ = ns.build_record(one_job_run(), one_job_run(), [], self.jobs("success"), None)
         body = ns.issue_body([rec], [], ".", run=gh)
@@ -1024,7 +993,7 @@ class PublicationReceipt(unittest.TestCase):
         st2 = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh2)
         self.assertEqual((st2["new"], st2["new_unpublished"], [r["build"] for r in st2["records"]]),
                          ([], [43300000001], ["4330000000101"]))
-        self.assertEqual(len([c for c in gh2.calls if c[0][:2] == ["gh", "api"] and "/pulls?" not in c[0][2]]), 2)
+        self.assertEqual(len([c for c in gh2.calls if c[0][:2] == ["gh", "api"]]), 2)
         self.assertEqual([(u["sign_run"], u["attempt"]) for u in st2["unpublished"]], [(43300000001, 2)],
                          "the later attempt's line stays beside the record: it is how that attempt is known")
 
@@ -1032,9 +1001,9 @@ class PublicationReceipt(unittest.TestCase):
         end, feeds, git = PrAttribution.busy_week()
         span = {"from": ns.iso(end - 8 * 86400), "to": ns.iso(end)}
         seeded = [{k: v for k, v in f.items() if k != "confirmed"} for f in feeds]  # records from before receipts
-        data = fixture_attribution([], ".", run=git, now=end, feeds=seeded, classified=span, confirm_feeds=False)
-        self.assertEqual((data["attributed"], data["unconfirmed"], data["feeds"]), (0, len(feeds), len(feeds)),
-                         "unconfirmed publications do not enter percentiles")
+        data = ns.pr_attribution([], ".", run=git, now=end, feeds=seeded, classified=span)
+        self.assertEqual((data["attributed"], data["unconfirmed"], data["feeds"]), (len(feeds) - 1, len(feeds), len(feeds)),
+                         "attribution uses them")
         self.assertTrue(data["partial"])
         verdict = {"build": "b59", "sha": feeds[-1]["sha"], "merge_to_feed": 20.0, "verdict": "in budget",
                    "budget_min": 30.0, "window": 1, "over": False, "p50": 20.0, "p95": 20.0,
@@ -1044,8 +1013,8 @@ class PublicationReceipt(unittest.TestCase):
         self.assertIn(f"{len(feeds)} of {len(feeds)} feeds are unconfirmed (no read-back receipt).", text)
         # One unconfirmed feed among confirmed ones is enough to keep it.
         mixed = feeds[:30] + seeded[30:31] + feeds[31:]
-        self.assertTrue(fixture_attribution([], ".", run=git, now=end, feeds=mixed, classified=span, confirm_feeds=False)["partial"])
-        self.assertFalse(fixture_attribution([], ".", run=git, now=end, feeds=feeds, classified=span)["partial"])
+        self.assertTrue(ns.pr_attribution([], ".", run=git, now=end, feeds=mixed, classified=span)["partial"])
+        self.assertFalse(ns.pr_attribution([], ".", run=git, now=end, feeds=feeds, classified=span)["partial"])
         # A stored confirmed entry is not downgraded by its unconfirmed record.
         self.assertTrue(ns.feed_list(feeds[-1:], seeded[-1:], end)[0]["confirmed"])
 
@@ -1062,11 +1031,10 @@ class PublicationReceipt(unittest.TestCase):
         head = [{k: v for k, v in f.items() if k not in ("sha_source", "confirmed_identity")} for f in feeds]
         claimed = [{**f, "confirmed_identity": True} for f in head]  # identity claimed with no build_sha source
         for fs in (head, claimed, feeds[:30] + head[30:31] + feeds[31:]):
-            data = fixture_attribution([], ".", run=git, now=end, feeds=fs, classified=span, confirm_feeds=False)
+            data = ns.pr_attribution([], ".", run=git, now=end, feeds=fs, classified=span)
             self.assertTrue(data["partial"])
-            self.assertEqual(data["attributed"], 0 if fs is head or fs is claimed else len(feeds) - 1,
-                             "only verified publications enter percentiles")
-        data = fixture_attribution([], ".", run=git, now=end, feeds=head, classified=span, confirm_feeds=False)
+            self.assertEqual(data["attributed"], len(feeds) - 1, "attribution uses them")
+        data = ns.pr_attribution([], ".", run=git, now=end, feeds=head, classified=span)
         self.assertEqual((data["unconfirmed"], data["unidentified"]), (0, len(feeds)))
         verdict = {"build": "b59", "sha": feeds[-1]["sha"], "merge_to_feed": 20.0, "verdict": "in budget",
                    "budget_min": 30.0, "window": 1, "over": False, "p50": 20.0, "p95": 20.0,
@@ -1137,7 +1105,7 @@ class PublicationReceipt(unittest.TestCase):
         # Classified only from inside the window, or only up to before the newest attributed feed: partial.
         for span in ({"from": ns.iso(since + 3600), "to": ns.iso(end)},
                      {"from": ns.iso(end - 8 * 86400), "to": feeds[-2]["feed_at"]}):
-            data = fixture_attribution([], ".", run=git, now=end, feeds=feeds, classified=span)
+            data = ns.pr_attribution([], ".", run=git, now=end, feeds=feeds, classified=span)
             self.assertTrue(data["partial"], span)
             verdict = {"build": "b59", "sha": feeds[-1]["sha"], "merge_to_feed": 20.0, "verdict": "in budget",
                        "budget_min": 30.0, "window": 1, "over": False, "p50": 20.0, "p95": 20.0,
@@ -1176,7 +1144,7 @@ class PublicationReceipt(unittest.TestCase):
         self.assertTrue(ns.covered(rows, pairs, end - 7 * 86400, last, span), "a span to the report's end covers it")
         self.assertTrue(ns.covered(rows, pairs, end - 7 * 86400, last + 0.75, span),
                         "the span is stored to the second: 14:03:13Z covers a report until 14:03:13.750")
-        data = fixture_attribution([], ".", run=git, now=last + 7200,
+        data = ns.pr_attribution([], ".", run=git, now=last + 7200,
                                  feeds=[{**f, "confirmed": True, "confirmed_identity": True} for f in feeds],
                                  classified=span)
         self.assertTrue(data["partial"])
@@ -1237,7 +1205,7 @@ class PublicationReceipt(unittest.TestCase):
             g("commit", "--allow-empty", "-qm", "cmux-next: pin CCmuxAppFFI (#46990)", when="2026-11-19T01:00:00Z",
               direct=True)
             head = g("rev-parse", "HEAD")
-            data = fixture_attribution([{"build": "n0", "sha": start, "feed_at": "2026-11-17T01:00:00Z"},
+            data = ns.pr_attribution([{"build": "n0", "sha": start, "feed_at": "2026-11-17T01:00:00Z"},
                                       {"build": "n1", "sha": head, "feed_at": "2026-11-19T02:00:00Z"}], repo, "main",
                                      now=ns.ts("2026-11-20T00:00:00Z"), window_days=3)
         rows = {r["sha"]: r for r in data["rows"]}
@@ -1245,103 +1213,7 @@ class PublicationReceipt(unittest.TestCase):
         self.assertEqual((rows[follow]["reason"], rows[follow]["canonical_sha"]), (ns.DUPLICATE_PR, merge))
         self.assertEqual([r["reason"] for r in data["rows"] if r["pr"] == 46990], [ns.DIRECT_PR])
         self.assertEqual((data["attributed"], data["p50"]), (1, 1560.0), "one PR, one time")
-        self.assertEqual(data["reasons"], {ns.DUPLICATE_PR: 1, ns.DIRECT_PR: 1, "no PR number in merge metadata": 1})
-
-
-class VerifiedPrAttribution(unittest.TestCase):
-    def test_shallow_missing_ancestor_cannot_attribute_to_a_later_feed(self):
-        provider = {"complete": True, "rows": [{"pr": 7, "sha": "m1", "merged_at": "2026-11-14T00:00:00Z"}]}
-        feeds = [{"build": "old", "sha": "aaaaaaa", "feed_at": "2026-11-12T00:00:00Z"},
-                 {"build": "first", "sha": "bbbbbbb", "feed_at": "2026-11-14T01:00:00Z"},
-                 {"build": "later", "sha": "ccccccc", "feed_at": "2026-11-14T02:00:00Z"}]
-        feeds = [{**f, "confirmed": True, "confirmed_identity": True, "sha_source": "signed_notes"} for f in feeds]
-        def graph(cmd, **kw):
-            if "--is-shallow-repository" in cmd:
-                return subprocess.CompletedProcess(cmd, 0, "true\n", "")
-            if "log" in cmd:
-                return subprocess.CompletedProcess(cmd, 0, "m1\tp1\t1794614400\tmerge (#7)\n", "")
-            if "rev-list" in cmd:
-                return subprocess.CompletedProcess(cmd, 0, "m1\n" if cmd[-1] == "ccccccc" else "", "")
-            raise AssertionError(cmd)
-        result = ns.pr_attribution(feeds, ".", run=graph, now=ns.ts("2026-11-20T00:00:00Z"),
-                                   provider_merges=provider,
-                                   classified={"from": "2026-11-12T00:00:00Z", "to": "2026-11-20T00:00:00Z"})
-        self.assertTrue(result["partial"])
-        self.assertEqual((result["matched_prs"], result["unmatched_prs"], result["p50"]), (0, 1, None))
-        self.assertEqual(result["rows"][0]["reason"], "could not verify nightly head ancestry")
-
-    def test_provider_clock_identity_and_first_verified_feed(self):
-        graph = PrAttribution.Git()
-        graph.log += "m5\tp1\t1794700800\tspoofed merge (#101)\0noreply@github.com\n"
-        feeds = [
-            {"build": "old", "sha": "a0a0a0a", "feed_at": "2026-11-13T12:00:00Z"},
-            {"build": "unverified", "sha": "a1a1a1a", "feed_at": "2026-11-14T00:30:00Z", "confirmed": False},
-            {"build": "first", "sha": "a1a1a1a", "feed_at": "2026-11-14T01:00:00Z"},
-            {"build": "retry", "sha": "a1a1a1a", "feed_at": "2026-11-14T02:00:00Z"},
-        ]
-        feeds = [{"confirmed": True, "confirmed_identity": True, "sha_source": "signed_notes", **f} for f in feeds]
-        provider = {"complete": True, "rows": [{"pr": 101, "sha": "m1", "merged_at": "2026-11-14T00:02:00Z"}]}
-        result = ns.pr_attribution(feeds, ".", run=graph, now=ns.ts("2026-11-20T00:00:00Z"),
-                                   provider_merges=provider)
-        doc = ns.pr_stream(result)
-        row = next(r for r in doc["rows"] if r["sha"] == "m1")
-        self.assertEqual((row["pr_number"], row["merge_sha"], row["feed_source_sha"],
-                          row["feed_uploaded_at"], row["pr_merge_to_feed_min"]),
-                         (101, "m1", "a1a1a1a", "2026-11-14T01:00:00Z", 58.0))
-        self.assertEqual((doc["matched_prs"], doc["excluded_commits"], doc["unverified_feeds"]), (1, 4, 1))
-        self.assertTrue(doc["coverage_partial"])
-        self.assertEqual((doc["p50"], doc["p90"]), (58.0, 58.0))
-        replay = ns.pr_attribution(list(reversed(feeds)), ".", run=graph,
-                                   now=ns.ts("2026-11-20T00:00:00Z"), provider_merges=provider)
-        self.assertEqual(ns.pr_stream(replay), doc)
-
-    def test_missing_provider_never_falls_back_to_committer_metadata(self):
-        result = ns.pr_attribution([], ".", run=PrAttribution.Git(), now=ns.ts("2026-11-20T00:00:00Z"))
-        self.assertEqual((result["matched_prs"], result["p50"], result["p90"]), (0, None, None))
-        self.assertFalse(result["provider_complete"])
-        self.assertTrue(result["partial"])
-        self.assertTrue(all(row["merged_at"] is None for row in result["rows"]))
-
-    def test_provider_merge_without_message_marker_or_matching_commit_clock(self):
-        def graph(cmd, **kw):
-            if "--is-shallow-repository" in cmd:
-                return subprocess.CompletedProcess(cmd, 0, "false\n", "")
-            if "log" in cmd:
-                return subprocess.CompletedProcess(cmd, 0, "", "")
-            if "rev-list" in cmd:
-                self.assertFalse(any(x.startswith("--since") for x in cmd))
-                return subprocess.CompletedProcess(cmd, 0, "m1" if cmd[-1] == "aaaaaaa" else "", "")
-            return subprocess.CompletedProcess(cmd, 0, "", "")
-        provider = {"complete": True, "rows": [{"pr": 7, "sha": "m1", "merged_at": "2026-11-14T01:00:00Z"}]}
-        feeds = [{"build": "old", "sha": "bbbbbbb", "feed_at": "2026-11-13T01:00:00Z"},
-                 {"build": "first", "sha": "aaaaaaa", "feed_at": "2026-11-14T01:00:00Z"}]
-        feeds = [{**f, "confirmed": True, "confirmed_identity": True, "sha_source": "signed_notes"} for f in feeds]
-        result = ns.pr_attribution(feeds, ".", run=graph, now=ns.ts("2026-11-20T00:00:00Z"), provider_merges=provider)
-        self.assertEqual((result["matched_prs"], result["p50"]), (1, 0.0))
-        provider["rows"][0]["merged_at"] = "2026-11-14T01:00:01Z"
-        result = ns.pr_attribution(feeds, ".", run=graph, now=ns.ts("2026-11-20T00:00:00Z"), provider_merges=provider)
-        self.assertEqual((result["unmatched_prs"], result["p50"]), (1, None))
-        # A later republication of the same source must not hide its negative first wait.
-        feeds.append({**feeds[-1], "build": "retry", "feed_at": "2026-11-14T02:00:00Z"})
-        result = ns.pr_attribution(feeds, ".", run=graph, now=ns.ts("2026-11-20T00:00:00Z"), provider_merges=provider)
-        self.assertEqual((result["unmatched_prs"], result["p50"]), (1, None))
-
-    def test_provider_pages_validate_base_and_merge_not_subject(self):
-        entry = {"number": 7, "merge_commit_sha": "a" * 40, "merged_at": "2026-11-14T01:00:00Z",
-                 "updated_at": "2026-11-14T02:00:00Z", "base": {"ref": "feat-cmux-next"}}
-        gh = FakeGh(api={"&page=1": [entry] * 100, "&page=2": [
-            {**entry, "number": 8, "merged_at": None},
-            {**entry, "number": 9, "base": {"ref": "main"}}]})
-        result = ns.provider_pr_merges("o/r", "origin/feat-cmux-next", ns.ts("2026-11-13T00:00:00Z"), "t", gh)
-        self.assertTrue(result["complete"])
-        self.assertEqual(result["rows"], [{"pr": 7, "sha": "a" * 40, "merged_at": "2026-11-14T01:00:00Z"}])
-        self.assertEqual(len(gh.calls), 2)
-        limited = ns.provider_pr_merges("o/r", "origin/feat-cmux-next", ns.ts("2026-11-13T00:00:00Z"), "t", gh, max_pages=1)
-        self.assertFalse(limited["complete"])
-        self.assertEqual(limited["rows"], result["rows"])
-        failed = ns.provider_pr_merges("o/r", "origin/feat-cmux-next", 0, "t", FakeGh())
-        self.assertFalse(failed["complete"])
-        self.assertEqual(failed["reason"], "provider merge page unavailable")
+        self.assertEqual(data["reasons"], {ns.DUPLICATE_PR: 1, ns.DIRECT_PR: 1})
 
 
 if __name__ == "__main__":

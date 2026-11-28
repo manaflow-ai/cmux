@@ -88,9 +88,6 @@ ACPMUX_NAMES = (
     "cmux-tui-rd-aarch64-unknown-linux-gnu",
     "cmux-tui-rd-notices-x86_64-unknown-linux-gnu.md",
     "cmux-tui-rd-notices-aarch64-unknown-linux-gnu.md",
-    # The opt-in login prereader, carried only when the commit manifest attests it.
-    "cmux-tui-launch-preread-aarch64-apple-darwin",
-    "cmux-tui-launch-preread-x86_64-apple-darwin",
 )
 # The rest of the signed Linux release file's names (cmuxterm-hq docs/design/linux-signed-packages.md
 # section 2; scripts/ci/cmux-machine-channel.py LINUX_RELEASE_NAMES on LINUX_RELEASE_TARGETS): the hook,

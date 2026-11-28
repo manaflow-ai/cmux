@@ -119,8 +119,7 @@ fn mask_text(v: &mut Value) -> bool {
     changed
 }
 
-/// The keys every session summary has (`Hub::session_summary`), this daemon's or a peer's. A
-/// page cut by `fields` keeps them (`hub/page_first.rs` `KEPT_FIELDS`), or it would go unmasked.
+/// The keys every session summary has (`Hub::session_summary`), this daemon's or a peer's.
 const SUMMARY_KEYS: [&str; 3] = ["sessionId", "harness", "lastSeq"];
 
 fn is_summary(v: &Value) -> bool {

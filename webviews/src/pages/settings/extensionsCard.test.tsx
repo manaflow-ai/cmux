@@ -10,7 +10,7 @@ import { hasIcon } from "./icons";
 
 const restore = installDom();
 afterAll(() => restore());
-const { renderCard, changeValue, click, fire, ops, settle } = await import("./testing");
+const { renderCard, changeValue, click, fire, ops } = await import("./testing");
 const { ExtensionsCard } = await import("./components/ExtensionsCard");
 const { categories, CATEGORY_CARDS } = await import("./categories");
 
@@ -183,20 +183,4 @@ test("a DEV-only setting shows only in a DEV build", async () => {
   });
   expect(row(dev.container, "variant")).not.toBeNull();
   dev.unmount();
-});
-
-test("a manifest saved while Settings is open redraws the card with the new schema (hot reload)", async () => {
-  const page = await renderCard(<ExtensionsCard />);
-  expect(row(page.container, "compact")).not.toBeNull();
-  // The extension's author saves its manifest: a renamed setting and a new one. The daemon reloads it
-  // and the app tells the page (`cmux.settings.extensions.changed`), as it does on an install or removal.
-  // The card must list again and draw the new schema without a remount.
-  const app = page.provider.extensionApps[0]!;
-  const { compact, ...rest } = app.schema.properties;
-  app.schema.properties = { ...rest, dense: { ...compact!, title: "Dense rows" } };
-  page.provider.extensionsChanged();
-  await settle();
-  expect(row(page.container, "compact")).toBeNull();
-  expect(row(page.container, "dense").textContent).toContain("Dense rows");
-  page.unmount();
 });

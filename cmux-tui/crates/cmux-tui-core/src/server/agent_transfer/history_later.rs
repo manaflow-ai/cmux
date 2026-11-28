@@ -285,10 +285,7 @@ fn hold_prefix(transfers: &AgentTransfers, manifest: &Value) -> Result<String, F
         .collect();
     let mut moves = lock(&transfers.moves);
     evict(&mut moves, |m| m.touched);
-    moves.insert(
-        prepare_id.clone(),
-        Move { files, epoch: 0, touched: Instant::now(), moving_session: None },
-    );
+    moves.insert(prepare_id.clone(), Move { files, epoch: 0, touched: Instant::now() });
     Ok(prepare_id)
 }
 

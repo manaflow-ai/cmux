@@ -35,7 +35,7 @@ export function ClaudeConnectRow({
 }) {
   const t = useT();
   return (
-    <span className="acpmux-connect-claude-row" data-connected={connected || undefined}>
+    <div className="acpmux-connect-claude-row" data-connected={connected || undefined}>
       <AgentMark agent={mark ?? CLAUDE_CONNECT_BRAND} size={14} reserve />
       <span className="acpmux-connect-claude-row-text">
         <span className="acpmux-connect-claude-row-name">{name}</span>
@@ -56,7 +56,7 @@ export function ClaudeConnectRow({
             className="ui-button ui-btn acpmux-connect-claude-row-button"
             data-variant="subtle"
             data-size="sm"
-            onClick={() => onConnect()}
+            onClick={onConnect}
           >
             {t("picker.connectClaude.connect")}
           </button>
@@ -65,7 +65,7 @@ export function ClaudeConnectRow({
             {t("picker.connectClaude.connect")}
           </span>
         ))}
-    </span>
+    </div>
   );
 }
 
@@ -75,49 +75,47 @@ export function ClaudeConnectRow({
 /// its progress line without a second press; a host with only its own way in (`open`) runs that.
 export function useClaudeConnectFlow(): { row?: ClaudeConnectRowProps; card: ReactNode } {
   const host = useClaudeConnect();
-  const [openBrand, setOpenBrand] = useState<string>();
+  const [open, setOpen] = useState(false);
   const [saved, setSaved] = useState(false);
   const [ran, setRan] = useState(false);
   const progress = host?.progress ?? CONNECT_IDLE;
   // A sign-in that ran and ended with no error saved the connection: Connected until the host's
   // `needed` turns false (the row and card go); a later need (it was removed) starts over.
-  if (openBrand && progress.phase !== null && !ran) setRan(true);
+  if (open && progress.phase !== null && !ran) setRan(true);
   if (ran && progress.phase === null && progress.error === null && !saved) setSaved(true);
-  const brands = host?.brands ?? [CLAUDE_CONNECT_BRAND];
-  if ((saved || openBrand || ran) && (!host?.needed || (openBrand && !brands.includes(openBrand)))) {
+  if ((saved || open || ran) && !host?.needed) {
     setSaved(false);
-    setOpenBrand(undefined);
+    setOpen(false);
     setRan(false);
   }
   const begin = host?.begin;
   const row: ClaudeConnectRowProps | undefined = host?.needed
     ? {
-        brands,
+        brand: host.brand ?? CLAUDE_CONNECT_BRAND,
         connected: saved,
-        onConnect: (brand = brands[0]) => {
-          if (!brand || !brands.includes(brand)) return;
+        onConnect: () => {
           if (begin || host.add) {
-            setOpenBrand(brand);
-            if (begin && progress.phase === null) void begin(brand).catch(() => undefined);
-          } else host.open?.(brand);
+            setOpen(true);
+            if (begin) void begin().catch(() => undefined);
+          } else host.open?.();
         },
       }
     : undefined;
-  const family = openBrand === CODEX_CONNECT_BRAND ? "codex" : "claude";
+  const family = (host?.brand ?? CLAUDE_CONNECT_BRAND) === CODEX_CONNECT_BRAND ? "codex" : "claude";
   const card =
-    openBrand && host?.needed && brands.includes(openBrand) ? (
+    open && host?.needed ? (
       <div className="acpmux-connect-float ui-glass ui-glass-floats">
         <ConnectCard
           family={family}
           progress={progress}
           done={saved}
-          {...(begin ? { onBegin: () => begin(openBrand) } : {})}
+          {...(begin ? { onBegin: begin } : {})}
           {...(host.cancel
             ? {
                 onCancel: () => {
                   // A Cancel ends the run with no error: not a save, so no Connected; the card
                   // folds back to the row's Connect.
-                  setOpenBrand(undefined);
+                  setOpen(false);
                   setRan(false);
                   host.cancel?.();
                 },
@@ -132,7 +130,7 @@ export function useClaudeConnectFlow(): { row?: ClaudeConnectRowProps; card: Rea
               }
             : {})}
           {...(host.addKey ? { onApiKey: host.addKey } : {})}
-          onDismiss={() => setOpenBrand(undefined)}
+          onDismiss={() => setOpen(false)}
         />
       </div>
     ) : null;

@@ -440,7 +440,7 @@ impl RenderState {
         unsafe {
             sys::ghostty_render_state_set(
                 self.raw,
-                sys::GHOSTTY_RENDER_STATE_OPT_DIRTY,
+                sys::GHOSTTY_RENDER_STATE_OPTION_DIRTY,
                 &value as *const _ as *const c_void,
             );
         }
@@ -495,12 +495,12 @@ impl RenderState {
     /// Current cursor shape and blink mode, even when the cursor is hidden
     /// or outside the viewport.
     pub fn cursor_visual(&self) -> Result<(CursorShape, bool)> {
-        let shape = match self
-            .get::<sys::GhosttyCursorStyle>(sys::GHOSTTY_RENDER_STATE_DATA_CURSOR_VISUAL_STYLE)?
-        {
-            sys::GHOSTTY_CURSOR_STYLE_BAR => CursorShape::Bar,
-            sys::GHOSTTY_CURSOR_STYLE_UNDERLINE => CursorShape::Underline,
-            sys::GHOSTTY_CURSOR_STYLE_BLOCK_HOLLOW => CursorShape::BlockHollow,
+        let shape = match self.get::<sys::GhosttyRenderStateCursorVisualStyle>(
+            sys::GHOSTTY_RENDER_STATE_DATA_CURSOR_VISUAL_STYLE,
+        )? {
+            sys::GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_BAR => CursorShape::Bar,
+            sys::GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_UNDERLINE => CursorShape::Underline,
+            sys::GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_BLOCK_HOLLOW => CursorShape::BlockHollow,
             _ => CursorShape::Block,
         };
         let blinking: bool = self.get(sys::GHOSTTY_RENDER_STATE_DATA_CURSOR_BLINKING)?;
@@ -651,7 +651,7 @@ impl RenderState {
                 unsafe {
                     sys::ghostty_render_state_row_set(
                         self.rows,
-                        sys::GHOSTTY_RENDER_STATE_ROW_OPT_DIRTY,
+                        sys::GHOSTTY_RENDER_STATE_ROW_OPTION_DIRTY,
                         &clean as *const _ as *const c_void,
                     );
                 }
@@ -706,31 +706,22 @@ fn fill_cell(cells: sys::GhosttyRenderStateRowCells, cell: &mut Cell, grapheme_b
     if grapheme_len > 0 {
         grapheme_buf.clear();
         grapheme_buf.resize(grapheme_len as usize, 0);
-        // The 1.0 ABI takes a GhosttyCodepointBuffer {ptr, cap, len} for this
-        // kind, not a bare uint32_t array: handing it the array made the
-        // library read codepoints as the destination pointer (SIGSEGV, or
-        // blank cells when the write landed somewhere harmless).
-        let mut out = sys::GhosttyCodepointBuffer {
-            ptr: grapheme_buf.as_mut_ptr(),
-            cap: grapheme_buf.len(),
-            len: 0,
-        };
         let result = unsafe {
             sys::ghostty_render_state_row_cells_get(
                 cells,
                 sys::GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF,
-                &mut out as *mut _ as *mut c_void,
+                grapheme_buf.as_mut_ptr() as *mut c_void,
             )
         };
         if result == sys::GHOSTTY_SUCCESS {
-            grapheme_buf.truncate(out.len.min(grapheme_buf.len()));
             for &cp in grapheme_buf.iter() {
                 cell.text.push(char::from_u32(cp).unwrap_or('\u{FFFD}'));
             }
         }
     }
 
-    let mut style = sys::GhosttyStyle::default();
+    let mut style =
+        sys::GhosttyStyle { size: size_of::<sys::GhosttyStyle>(), ..Default::default() };
     let style_ok = unsafe {
         sys::ghostty_render_state_row_cells_get(
             cells,
@@ -767,7 +758,8 @@ pub(crate) fn read_grid_ref_cell(
     let mut raw = sys::GhosttyCell::default();
     check(unsafe { sys::ghostty_grid_ref_cell(grid_ref, &mut raw) })?;
 
-    let mut style = sys::GhosttyStyle::default();
+    let mut style =
+        sys::GhosttyStyle { size: size_of::<sys::GhosttyStyle>(), ..Default::default() };
     check(unsafe { sys::ghostty_grid_ref_style(grid_ref, &mut style) })?;
 
     let mut grapheme_len = 0usize;
@@ -800,213 +792,10 @@ pub(crate) fn read_grid_ref_cell(
     Ok(cell)
 }
 
-/// The style half of a [`Cell`], converted once per page style.
-#[derive(Clone, Copy)]
-struct CachedStyle {
-    bold: bool,
-    faint: bool,
-    italic: bool,
-    underline_style: Option<UnderlineStyle>,
-    strikethrough: bool,
-    inverse: bool,
-    blink: bool,
-    invisible: bool,
-    fg: ColorSpec,
-    style_bg: ColorSpec,
-    resolved_fg: Option<Rgb>,
-}
-
-/// Reads many cells of one terminal snapshot with fewer FFI calls than
-/// [`read_grid_ref_cell`] per cell.
-///
-/// Each cell costs one `ghostty_grid_ref_cell` plus one
-/// `ghostty_cell_get_multi` (content tag, width, codepoint, style id). A
-/// page style is fetched and converted once per (page, style id) and then
-/// reused: the reader borrows the terminal immutably for its whole life, so
-/// no page or style table changes under it. Grapheme clusters and cell
-/// backgrounds take their extra call only when the content tag says the
-/// cell has one. The output is identical to [`read_grid_ref_cell`] (the
-/// oracle tests in `styled_history_tests.rs` hold it to that).
-pub(crate) struct GridCellReader<'a> {
-    palette: &'a [Rgb; 256],
-    grapheme_buf: Vec<u32>,
-    styles: HashMap<(usize, sys::GhosttyStyleId), CachedStyle>,
-    last_style: Option<((usize, sys::GhosttyStyleId), CachedStyle)>,
-}
-
-impl<'a> GridCellReader<'a> {
-    pub(crate) fn new(palette: &'a [Rgb; 256]) -> Self {
-        Self { palette, grapheme_buf: Vec::new(), styles: HashMap::new(), last_style: None }
-    }
-
-    pub(crate) fn read(&mut self, grid_ref: &sys::GhosttyGridRef) -> Result<Cell> {
-        let mut raw = sys::GhosttyCell::default();
-        check(unsafe { sys::ghostty_grid_ref_cell(grid_ref, &mut raw) })?;
-
-        let mut tag: sys::GhosttyCellContentTag = sys::GHOSTTY_CELL_CONTENT_CODEPOINT;
-        let mut wide: sys::GhosttyCellWide = sys::GHOSTTY_CELL_WIDE_NARROW;
-        let mut codepoint: u32 = 0;
-        let mut style_id: sys::GhosttyStyleId = 0;
-        let keys = [
-            sys::GHOSTTY_CELL_DATA_CONTENT_TAG,
-            sys::GHOSTTY_CELL_DATA_WIDE,
-            sys::GHOSTTY_CELL_DATA_CODEPOINT,
-            sys::GHOSTTY_CELL_DATA_STYLE_ID,
-        ];
-        let mut values: [*mut c_void; 4] = [
-            (&mut tag as *mut sys::GhosttyCellContentTag).cast(),
-            (&mut wide as *mut sys::GhosttyCellWide).cast(),
-            (&mut codepoint as *mut u32).cast(),
-            (&mut style_id as *mut sys::GhosttyStyleId).cast(),
-        ];
-        let mut written = 0usize;
-        let multi = unsafe {
-            sys::ghostty_cell_get_multi(
-                raw,
-                keys.len(),
-                keys.as_ptr(),
-                values.as_mut_ptr(),
-                &mut written,
-            )
-        };
-        if multi != sys::GHOSTTY_SUCCESS {
-            // A library that can't answer every key in one call still
-            // answers the per-cell path, field by field.
-            return read_grid_ref_cell(grid_ref, self.palette, &mut self.grapheme_buf);
-        }
-
-        let style = self.style(grid_ref, style_id)?;
-        let mut cell = Cell {
-            width: cell_width_from(wide),
-            fg: style.fg,
-            resolved_fg: style.resolved_fg,
-            bold: style.bold,
-            faint: style.faint,
-            italic: style.italic,
-            underline: style.underline_style.is_some(),
-            underline_style: style.underline_style,
-            strikethrough: style.strikethrough,
-            inverse: style.inverse,
-            blink: style.blink,
-            invisible: style.invisible,
-            ..Cell::default()
-        };
-
-        match tag {
-            sys::GHOSTTY_CELL_CONTENT_CODEPOINT if codepoint != 0 => {
-                cell.text.push(char::from_u32(codepoint).unwrap_or('\u{FFFD}'));
-            }
-            sys::GHOSTTY_CELL_CONTENT_CODEPOINT_GRAPHEME if codepoint != 0 => {
-                read_graphemes(grid_ref, &mut self.grapheme_buf, &mut cell.text)?;
-            }
-            _ => {}
-        }
-        cell.bg = match tag {
-            sys::GHOSTTY_CELL_CONTENT_BG_COLOR_PALETTE | sys::GHOSTTY_CELL_CONTENT_BG_COLOR_RGB => {
-                raw_cell_bg_spec(raw).unwrap_or(style.style_bg)
-            }
-            _ => style.style_bg,
-        };
-        cell.resolved_bg = resolve_color_spec(cell.bg, self.palette);
-        Ok(cell)
-    }
-
-    fn style(
-        &mut self,
-        grid_ref: &sys::GhosttyGridRef,
-        style_id: sys::GhosttyStyleId,
-    ) -> Result<CachedStyle> {
-        // Style ids are per page, so the page is part of the key.
-        let key = (grid_ref.node as usize, style_id);
-        if let Some((last_key, style)) = self.last_style
-            && last_key == key
-        {
-            return Ok(style);
-        }
-        let style = match self.styles.get(&key) {
-            Some(style) => *style,
-            None => {
-                #[cfg(test)]
-                GRID_STYLE_FETCHES.with(|fetches| fetches.set(fetches.get().saturating_add(1)));
-                let mut raw_style = sys::GhosttyStyle::default();
-                check(unsafe { sys::ghostty_grid_ref_style(grid_ref, &mut raw_style) })?;
-                let style = cached_style(&raw_style, self.palette);
-                self.styles.insert(key, style);
-                style
-            }
-        };
-        self.last_style = Some((key, style));
-        Ok(style)
-    }
-}
-
-#[cfg(test)]
-thread_local! {
-    /// Tests: page styles [`GridCellReader`] fetched over FFI.
-    pub(crate) static GRID_STYLE_FETCHES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
-}
-
-fn cached_style(style: &sys::GhosttyStyle, palette: &[Rgb; 256]) -> CachedStyle {
-    let flags: u16 = style.flags;
-    let fg = style_color_spec(style.fg_color);
-    CachedStyle {
-        bold: flags & STYLE_FLAG_BOLD != 0,
-        faint: flags & STYLE_FLAG_FAINT != 0,
-        italic: flags & STYLE_FLAG_ITALIC != 0,
-        underline_style: underline_style(
-            ((flags & STYLE_UNDERLINE_MASK) >> STYLE_UNDERLINE_SHIFT).into(),
-        ),
-        strikethrough: flags & STYLE_FLAG_STRIKETHROUGH != 0,
-        inverse: flags & STYLE_FLAG_INVERSE != 0,
-        blink: flags & STYLE_FLAG_BLINK != 0,
-        invisible: flags & STYLE_FLAG_INVISIBLE != 0,
-        fg,
-        style_bg: style_color_spec(style.bg_color),
-        resolved_fg: resolve_color_spec(fg, palette),
-    }
-}
-
-/// Appends the cell's grapheme cluster (base codepoint plus extras) to
-/// `text`, exactly as [`read_grid_ref_cell`] does.
-fn read_graphemes(
-    grid_ref: &sys::GhosttyGridRef,
-    grapheme_buf: &mut Vec<u32>,
-    text: &mut String,
-) -> Result<()> {
-    let mut grapheme_len = 0usize;
-    let query =
-        unsafe { sys::ghostty_grid_ref_graphemes(grid_ref, ptr::null_mut(), 0, &mut grapheme_len) };
-    if query != sys::GHOSTTY_SUCCESS && query != sys::GHOSTTY_OUT_OF_SPACE {
-        check(query)?;
-    }
-    if grapheme_len > 0 {
-        grapheme_buf.clear();
-        grapheme_buf.resize(grapheme_len, 0);
-        check(unsafe {
-            sys::ghostty_grid_ref_graphemes(
-                grid_ref,
-                grapheme_buf.as_mut_ptr(),
-                grapheme_buf.len(),
-                &mut grapheme_len,
-            )
-        })?;
-        for &cp in grapheme_buf.iter().take(grapheme_len) {
-            text.push(char::from_u32(cp).unwrap_or('\u{FFFD}'));
-        }
-    }
-    Ok(())
-}
-
 fn style_color_spec(color: sys::GhosttyStyleColor) -> ColorSpec {
-    // libghostty-vt 1.0 stores the tag in one byte; bindgen types the
-    // constants as i32 or u32 by target, so compare as i64.
-    match i64::from(color.tag) {
-        tag if tag == i64::from(sys::GHOSTTY_STYLE_COLOR_PALETTE) => {
-            ColorSpec::Palette(unsafe { color.value.palette })
-        }
-        tag if tag == i64::from(sys::GHOSTTY_STYLE_COLOR_RGB) => {
-            ColorSpec::Rgb(Rgb::from(unsafe { color.value.rgb }))
-        }
+    match color.tag {
+        sys::GHOSTTY_STYLE_COLOR_PALETTE => ColorSpec::Palette(unsafe { color.value.palette }),
+        sys::GHOSTTY_STYLE_COLOR_RGB => ColorSpec::Rgb(Rgb::from(unsafe { color.value.rgb })),
         _ => ColorSpec::Default,
     }
 }
@@ -1059,10 +848,6 @@ pub(crate) fn cell_width(raw: sys::GhosttyCell) -> CellWidth {
     if result != sys::GHOSTTY_SUCCESS {
         return CellWidth::Narrow;
     }
-    cell_width_from(wide)
-}
-
-fn cell_width_from(wide: sys::GhosttyCellWide) -> CellWidth {
     match wide {
         sys::GHOSTTY_CELL_WIDE_WIDE => CellWidth::Wide,
         sys::GHOSTTY_CELL_WIDE_SPACER_TAIL => CellWidth::SpacerTail,
@@ -1086,30 +871,16 @@ fn underline_style(value: i32) -> Option<UnderlineStyle> {
     .find_map(|(raw, style)| (raw == value).then_some(style))
 }
 
-// GhosttyStyleFlags bits (libghostty-vt 1.0 style.h). The header defines
-// them as casting macros, which bindgen does not translate.
-const STYLE_FLAG_BOLD: u16 = 1 << 0;
-const STYLE_FLAG_ITALIC: u16 = 1 << 1;
-const STYLE_FLAG_FAINT: u16 = 1 << 2;
-const STYLE_FLAG_BLINK: u16 = 1 << 3;
-const STYLE_FLAG_INVERSE: u16 = 1 << 4;
-const STYLE_FLAG_INVISIBLE: u16 = 1 << 5;
-const STYLE_FLAG_STRIKETHROUGH: u16 = 1 << 6;
-const STYLE_UNDERLINE_SHIFT: u16 = 8;
-const STYLE_UNDERLINE_MASK: u16 = 0x7 << STYLE_UNDERLINE_SHIFT;
-
 fn apply_style(cell: &mut Cell, raw: sys::GhosttyCell, style: &sys::GhosttyStyle) {
-    let flags: u16 = style.flags;
-    cell.bold = flags & STYLE_FLAG_BOLD != 0;
-    cell.faint = flags & STYLE_FLAG_FAINT != 0;
-    cell.italic = flags & STYLE_FLAG_ITALIC != 0;
-    cell.underline_style =
-        underline_style(((flags & STYLE_UNDERLINE_MASK) >> STYLE_UNDERLINE_SHIFT).into());
+    cell.bold = style.bold;
+    cell.faint = style.faint;
+    cell.italic = style.italic;
+    cell.underline_style = underline_style(style.underline);
     cell.underline = cell.underline_style.is_some();
-    cell.strikethrough = flags & STYLE_FLAG_STRIKETHROUGH != 0;
-    cell.inverse = flags & STYLE_FLAG_INVERSE != 0;
-    cell.blink = flags & STYLE_FLAG_BLINK != 0;
-    cell.invisible = flags & STYLE_FLAG_INVISIBLE != 0;
+    cell.strikethrough = style.strikethrough;
+    cell.inverse = style.inverse;
+    cell.blink = style.blink;
+    cell.invisible = style.invisible;
     cell.fg = style_color_spec(style.fg_color);
     cell.bg = raw_cell_bg_spec(raw).unwrap_or_else(|| style_color_spec(style.bg_color));
 }

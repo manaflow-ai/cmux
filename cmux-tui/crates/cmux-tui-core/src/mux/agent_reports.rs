@@ -1,6 +1,5 @@
 //! Agent reports: raw socket and resource agent reports, the sequence-locked commit, and the agent list.
 
-use super::agent_roster_fold::ReportEcho;
 use super::*;
 use cmux_json::JsonSet as _;
 
@@ -451,19 +450,6 @@ impl Mux {
             (staged, installed)
         });
         drop(registry);
-        // A direct report's echo, noted before the hook projector's lock
-        // goes: until it is in the journal the roster holds the agent's older
-        // state (`ReportEchoes`).
-        let echoed = origin == AgentReportOrigin::Direct && !commit.replayed;
-        if echoed {
-            self.note_report_echo(ReportEcho::new(
-                terminal_id.clone(),
-                record.state,
-                record.source,
-                record.session.clone(),
-                record.updated_at_ms,
-            ));
-        }
         drop(sequence_guard);
         // The notification's events come before the report's, as before.
         if let Some((staged, (ring, shown_by))) = notified {
@@ -530,23 +516,16 @@ impl Mux {
                 );
             }
             if origin == AgentReportOrigin::Direct {
-                #[cfg(test)]
-                if let Some(seam) = self
-                    .agent_roster_worker
-                    .report_echo_seam
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .take()
-                {
-                    seam();
-                }
                 // The roster only folds journal events, so a direct report
                 // records its intent in the log; the fold recognizes the
                 // echo adapter and applies it roster-only.
-                // Every echo, in the terminal's commit order (`agent_report_echoes.rs`).
-                if echoed {
-                    self.write_report_echoes(&agent.terminal_id);
-                }
+                self.append_agent_report_echo(
+                    &agent.terminal_id,
+                    agent.state,
+                    agent.source,
+                    agent.session.as_deref(),
+                    agent.updated_at_ms,
+                );
             }
         }
         if newly_blocked {

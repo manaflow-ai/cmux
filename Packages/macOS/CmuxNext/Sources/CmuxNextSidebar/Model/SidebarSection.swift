@@ -110,8 +110,8 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
     /// shown in the header's tooltip (`Cost.lines`); nil for machines
     /// that bill nothing.
     public var cost: Cost?
-    /// Automatic recovery (`SidebarPlaceholderGrace.holdingConnectingLabels`): keep the cached
-    /// rows without a connection label until a state that needs the person arrives.
+    /// Connecting for less than its grace (`SidebarPlaceholderGrace.holdingConnectingLabels`): one list
+    /// does not name "Connecting…" on its workspace rows yet, so a launch or a quick reconnect shows none.
     public var holdsStatusLabel = false
 
     /// The header's screen control, one rule for its hover button and its right-click rows: Share on
@@ -235,23 +235,6 @@ public nonisolated struct SidebarSection: Identifiable, Hashable, Sendable {
 
     /// Every workspace in this section, in visual order.
     public var workspaces: [SidebarWorkspace] { nodes.flatMap(\.workspaces) }
-
-    /// The ids of `among` that `sections` list: one walk of the rows, no set of every listed workspace (the sidebar
-    /// pass asks only about its pending rows' ids).
-    public static func listed(_ among: Set<String>, in sections: [SidebarSection]) -> Set<String> {
-        var listed = Set<String>()
-        guard !among.isEmpty else { return listed }
-        for section in sections {
-            for node in section.nodes {
-                switch node {
-                case let .workspace(ws): if among.contains(ws.id.rawValue) { listed.insert(ws.id.rawValue) }
-                case let .group(group): for ws in group.workspaces where among.contains(ws.id.rawValue) { listed.insert(ws.id.rawValue) }
-                case .item: break
-                }
-            }
-        }
-        return listed
-    }
 
     /// How many machine sections `sections` hold. With one, its header (when
     /// shown) is the list's "Projects" title, not the machine's, and draws

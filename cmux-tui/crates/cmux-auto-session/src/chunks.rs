@@ -259,6 +259,4 @@ pub fn assemble<B: AsRef<[u8]>>(
 }
 
 #[cfg(test)]
-mod persisted_format_tests;
-#[cfg(test)]
 mod tests;

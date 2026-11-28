@@ -72,10 +72,9 @@ describe("make cmux yours", () => {
       expect(words).toContain(strings.t(key));
     // The preview look (the default) names only the chosen work; each tile carries its name as its label.
     expect(html).toContain(`aria-label="${strings.t("onboarding.makeItYours.background.shuffle")}"`);
-    // The three middle densities by Settings' names (cmux#49636); the outer two wait behind More.
-    for (const name of ["Compact", "Default", "Comfortable"]) expect(words).toContain(name);
-    expect(words).not.toContain("Ultra-compact");
-    expect(words).toContain(strings.t("onboarding.makeItYours.density.more"));
+    // Every density Settings has, by Settings' names (cmux#49636).
+    for (const name of ["Ultra-compact", "Compact", "Default", "Comfortable", "Spacious"])
+      expect(words).toContain(name);
     // Settings' two rows for a background: Opacity and Material, with every material.
     for (const key of [
       "onboarding.makeItYours.opacity",
@@ -96,16 +95,13 @@ describe("make cmux yours", () => {
     expect(look.match(/data-face="dark"/g)?.length).toBe(5);
     expect(look).not.toContain('name="density"');
     // Density is asked once, on Tune only.
-    expect(render(makeItYoursState("fresh", WALK)).match(/name="density"/g)?.length).toBe(3);
+    expect(render(makeItYoursState("fresh", WALK)).match(/name="density"/g)?.length).toBe(5);
     // One checked radio per group: House (what they have), GUI-first, Full Access, Banners and Sound,
     // Default, no background; no material set.
     expect(await checked(makeItYoursState("fresh", WALK))).toEqual({
       look: "house",
       workStyle: "gui",
-      chatsRunIn: "local",
-      chatFeel: "instant",
       permission: "fullAccess",
-      computerUse: "fullAccess",
       noise: "bannersSound",
       density: "cozy",
       background: "",
@@ -116,11 +112,8 @@ describe("make cmux yours", () => {
     expect(await checked(makeItYoursState("picked", WALK))).toEqual({
       look: "house",
       permission: "fullAccess",
-      computerUse: "fullAccess",
       noise: "bannersSound",
       workStyle: "gui",
-      chatsRunIn: "cloud",
-      chatFeel: "instant",
       density: "compact",
       background: "dahl-dresden-moonlight",
       material: "frosted",
@@ -131,11 +124,9 @@ describe("make cmux yours", () => {
   test("both looks draw every choice; only cards name the background tiles", () => {
     const cards = render(makeItYoursState("fresh", WALK), "cards");
     const rows = render(makeItYoursState("fresh", WALK), "rows");
-    // Five looks, two ways to work, two places chats run, three chat feels, three permissions, five
-    // Computer Use modes, three noises, three densities (two more behind More), None and eleven
+    // Five looks, two ways to work, three permissions, three noises, five densities, None and eleven
     // backgrounds, four materials.
-    for (const html of [cards, rows])
-      expect(html.match(/type="radio"/g)?.length).toBe(5 + 2 + 2 + 3 + 3 + 5 + 3 + 3 + 12 + 4);
+    for (const html of [cards, rows]) expect(html.match(/type="radio"/g)?.length).toBe(5 + 2 + 3 + 3 + 5 + 12 + 4);
     expect(cards).toContain("onb-make-tile-name");
     expect(rows).not.toContain("onb-make-tile-name");
   });
@@ -169,7 +160,6 @@ describe("make cmux yours", () => {
       (page2 = createRoot(root)).render(<OnboardingPage store={store} strings={strings} makeItYoursScreen="tune" />),
     );
     await act(async () => radio("density", "comfortable").click());
-    await act(async () => root.querySelector<HTMLButtonElement>("button[data-density-more]")!.click());
     await act(async () => radio("density", "ultraCompact").click());
     await act(async () => radio("density", "spacious").click());
     await act(async () => radio("background", "").click());

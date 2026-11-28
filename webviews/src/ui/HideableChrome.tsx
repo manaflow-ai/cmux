@@ -81,8 +81,7 @@ export function ChromeArea({
       items={hidden.map((item) => ({
         id: `show-${item.id}`,
         label: item.showLabel,
-        // One hidden piece with an icon beside one without would leave the other an empty icon gutter.
-        icon: hidden.every((piece) => piece.icon) ? item.icon : undefined,
+        icon: item.icon,
         onSelect: () => item.setShown(true),
       }))}
     >

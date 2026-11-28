@@ -45,7 +45,7 @@ import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_launch import BenchApp, bundle_executable  # noqa: E402
+from bench_launch import BenchApp  # noqa: E402
 from daemon_teardown import end_terminals  # noqa: E402
 
 STATIC_PAGE_HTML = "<!doctype html><title>idle</title><h1>static page</h1><p>no script, no animation</p>"
@@ -293,9 +293,9 @@ def main():
 
     tag = args.tag
     bundle = args.app or os.path.expanduser(f"~/Library/Developer/Xcode/DerivedData/cmux-{tag}/Build/Products/Debug/cmux DEV {tag}.app")
-    if not os.path.isdir(bundle):
+    binary = os.path.join(bundle, "Contents/MacOS/cmux DEV")
+    if not os.path.exists(binary):
         raise SystemExit(f"bench-idle: no app at {bundle}")
-    bundle_executable(bundle)  # a bench (Release) build's executable is not `cmux DEV`: its Info.plist names it
     if args.fresh:
         # Saved tabs (a restored Chromium tab starts CEF) would change every scenario.
         # NEXT's own folder and an older build's in classic's (a new build adopts that one at launch).

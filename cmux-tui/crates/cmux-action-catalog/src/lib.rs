@@ -16,21 +16,16 @@
 
 pub mod bindings;
 pub mod catalog;
-pub mod context_menus;
 pub mod customize_elements;
-pub mod deep_link;
 pub mod ffi;
 pub mod hand_built_menus;
 pub mod json;
-pub mod key_tiers;
 pub mod model;
 pub mod palette;
 pub mod request;
-pub mod status_menus;
 pub mod strings;
 pub mod tables;
 pub mod text;
-pub mod when_clause;
 
 use std::collections::HashMap;
 use std::sync::OnceLock;

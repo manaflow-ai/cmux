@@ -75,7 +75,7 @@ mod allocation_metrics {
     }
 }
 
-pub mod memory;
+mod memory;
 
 pub mod hub;
 pub mod life;

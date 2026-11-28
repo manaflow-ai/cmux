@@ -34,10 +34,6 @@ pub struct Child {
     ended: bool,
     /// Why it outlives this handle ([`Child::detach`]).
     detached: Option<&'static str>,
-    /// Windows: the job a group leader runs in with what it starts
-    /// (`crate::job`); a kill or a drop ends the job.
-    #[cfg(windows)]
-    job: Option<crate::job::Job>,
 }
 
 /// How long a dropped child has between SIGTERM and SIGKILL.
@@ -69,8 +65,6 @@ impl Child {
             leads_group: false,
             ended: false,
             detached: None,
-            #[cfg(windows)]
-            job: None,
         }
     }
 
@@ -84,8 +78,6 @@ impl Child {
             leads_group: false,
             ended: false,
             detached: None,
-            #[cfg(windows)]
-            job: None,
         }
     }
 
@@ -93,11 +85,6 @@ impl Child {
     /// group or session.
     pub(crate) fn set_leads_group(&mut self, leads_group: bool) {
         self.leads_group = leads_group;
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn set_job(&mut self, job: Option<crate::job::Job>) {
-        self.job = job;
     }
 
     /// Let the child outlive this handle: dropping it then neither signals
@@ -130,8 +117,7 @@ impl Child {
         }
     }
 
-    /// Send SIGKILL (Windows: terminate; a group leader's whole job, so what
-    /// it started ends too). A child already reaped is no error.
+    /// Send SIGKILL (Windows: terminate). A child already reaped is no error.
     pub fn kill(&mut self) -> io::Result<()> {
         match &mut self.inner {
             #[cfg(target_vendor = "apple")]
@@ -147,15 +133,7 @@ impl Child {
                 Ok(())
             }
             #[cfg(not(target_vendor = "apple"))]
-            Inner::Std(child) => {
-                #[cfg(windows)]
-                if let Some(job) = &self.job
-                    && job.terminate().is_ok()
-                {
-                    return Ok(());
-                }
-                child.kill()
-            }
+            Inner::Std(child) => child.kill(),
         }
     }
 
@@ -335,9 +313,9 @@ impl Drop for Child {
         }
         #[cfg(windows)]
         {
-            // No zombies: terminating it (its job, when it leads a group) is
-            // the whole end.
-            let _ = self.kill();
+            // No groups and no zombies: terminating it is the whole end.
+            let Inner::Std(child) = &mut self.inner;
+            let _ = child.kill();
         }
     }
 }

@@ -125,7 +125,7 @@ test("the checklist rows' durations use the same clock: seconds, then m:ss", () 
     "en",
   );
   expect(rows.map((row) => [row.id, row.duration])).toEqual([
-    ["machine", "0s"],
+    ["machine", "<1s"],
     ["clone", "1:15"],
     ["setup", "12s"],
     ["harness", undefined],

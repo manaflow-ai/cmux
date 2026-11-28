@@ -67,29 +67,6 @@ describe("devices that go offline", () => {
     expect(await auditEvents(viewer, s.sid)).toEqual(["requested", "approved"]);
   });
 
-  it("sends a reconnecting host a fresh ticket for a session it was approved but never served", async () => {
-    const { host, viewer } = await setup();
-    const s = await approvedSession(host, viewer);
-    // The host's link drops (the first ticket went down with it) and comes back.
-    host.user!.ws.close(1000, "network");
-    await host.user!.waitClosed();
-    await host.connect();
-    const again = await host.user!.next((f) => f.type === "session.ticket" && f.sessionId === s.sid);
-    expect(again.role).toBe("host");
-    expect(again.peer.id).toBe(viewer.id);
-    expect(again.ticket).not.toBe(s.ht.ticket);
-    // Only the host: the viewer's socket gets no second ticket.
-    expect(await viewer.user!.none((f) => f.type === "session.ticket" && f.sessionId === s.sid)).toBe(true);
-  });
-
-  it("sends a reconnecting viewer no host ticket", async () => {
-    const { host, viewer } = await setup();
-    const s = await approvedSession(host, viewer);
-    await viewer.connect();
-    expect(await viewer.user!.none((f) => f.type === "session.ticket" && f.sessionId === s.sid)).toBe(true);
-    expect(await host.user!.none((f) => f.type === "session.ticket" && f.sessionId === s.sid)).toBe(true);
-  });
-
   it("does not treat a replaced socket as offline", async () => {
     const { account, host, viewer } = await setup();
     await approvedSession(host, viewer);

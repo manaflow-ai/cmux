@@ -65,7 +65,6 @@ fn the_compiled_catalog_reads_and_lists_the_looks() {
 /// manifest names the same id and whose preview files exist.
 #[test]
 fn the_catalog_looks_from_this_repo_are_its_examples() {
-    // affected-reads: examples/looks
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     for look in catalog().unwrap().looks {
         let reference = look.reference().unwrap();

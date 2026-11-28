@@ -155,27 +155,13 @@ fn grace() -> Option<Duration> {
 /// only after its owner app exited. Once its executable is gone (`prune.rs`), a daemon on a home of
 /// its own with that grace and a stored chat log stops after only `prune::RETIRED_GRACE` unused,
 /// by the same census; never a memory-store one (`memory_store`), whose stop loses its chats.
-pub(super) fn unused(
-    hub: Weak<crate::hub::Hub>,
-    memory_store: bool,
-) -> impl Future<Output = String> {
-    // The owner is read at the call, before the daemon says it is ready, not at the first poll
-    // after it: an app that quit in between left an owner with no executable on record, which no
-    // relaunched app could match (`owner_exit::adopt_if_relaunched`), so it was never followed.
-    let owner = (!super::managed_by_acpmux_unit()).then(owner_exit::follow).flatten();
-    unused_following(owner, hub, memory_store)
-}
-
-async fn unused_following(
-    owner: Option<(u32, watch::Receiver<bool>)>,
-    hub: Weak<crate::hub::Hub>,
-    memory_store: bool,
-) -> String {
+pub(super) async fn unused(hub: Weak<crate::hub::Hub>, memory_store: bool) -> String {
     if super::managed_by_acpmux_unit() {
         return std::future::pending().await;
     }
     let own_home = !super::uses_shared_home();
     let grace = grace().filter(|_| own_home);
+    let owner = owner_exit::follow();
     #[cfg(unix)]
     let retirable = grace.is_some() && !memory_store && super::prune::enabled();
     #[cfg(not(unix))]
@@ -234,16 +220,8 @@ async fn unused_following(
             // No owner: a sender that never sends and is never dropped.
             None => (None, NO_OWNER.subscribe()),
         };
-        let why = unused_for_relaunch(
-            CLIENTS.subscribe(),
-            grace,
-            owner_gone,
-            in_use,
-            super::owner_relaunch::left,
-        )
-        .await;
-        // The pid followed last: a relaunched app adopted after the first owner exited.
-        match owner_exit::current_pid().or(owner_pid) {
+        let why = unused_for(CLIENTS.subscribe(), grace, owner_gone, in_use).await;
+        match owner_pid {
             Some(pid) if why.starts_with(OWNER_GONE) => format!("{why} (app pid {pid})"),
             _ => why,
         }
@@ -265,44 +243,22 @@ const OWNER_GONE: &str = "its app quit";
 /// the wait is [`owner_exit::OWNER_EXIT_GRACE`], and after a census that found the daemon kept,
 /// [`owner_exit::OWNER_KEPT_RECHECK`] (or the grace, when shorter).
 async fn unused_for<F, Fut>(
-    clients: watch::Receiver<Use>,
-    grace: Option<Duration>,
-    owner_gone: watch::Receiver<bool>,
-    in_use: F,
-) -> String
-where
-    F: FnMut() -> Fut,
-    Fut: Future<Output = Option<&'static str>>,
-{
-    unused_for_relaunch(clients, grace, owner_gone, in_use, || None).await
-}
-
-/// [`unused_for`] that, once the owner exited, also waits out a relaunch marker
-/// (`owner_relaunch.rs`): `relaunch` says how long a relaunch is still expected, and why. Until it
-/// ends, an owner's exit is an update's hand-off, not a quit; a relaunched owner adopted meanwhile
-/// (`owner_gone` false again) ends the short wait altogether.
-async fn unused_for_relaunch<F, Fut, R>(
     mut clients: watch::Receiver<Use>,
     grace: Option<Duration>,
     mut owner_gone: watch::Receiver<bool>,
     mut in_use: F,
-    relaunch: R,
 ) -> String
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Option<&'static str>>,
-    R: Fn() -> Option<(Duration, String)>,
 {
     let mut kept_after_owner = false;
-    // Whether the last wait was a relaunch's: its stop says the relaunch did not come.
-    let mut waited_relaunch: Option<String> = None;
     loop {
         let gone = *owner_gone.borrow_and_update();
         // The guard `wait_for` returns is a lock: read from it and drop it before any await.
         // The owner's exit while a client is connected may leave only observers: look again.
-        // Once gone, a relaunched owner adopted (`owner_exit::adopt_if_relaunched`) turns it back.
         let owner_exits = async {
-            if owner_gone.changed().await.is_err() {
+            if gone || owner_gone.changed().await.is_err() {
                 std::future::pending::<()>().await;
             }
         };
@@ -317,23 +273,8 @@ where
             } else {
                 owner_exit::OWNER_EXIT_GRACE
             };
-            let short = grace.map_or(short, |g| g.min(short));
-            match relaunch() {
-                Some((left, why)) if left > short => {
-                    tracing::info!(
-                        "the owner app is gone; {why}: its relaunch is awaited up to {}s",
-                        left.as_secs()
-                    );
-                    waited_relaunch = Some(why);
-                    Some(left)
-                }
-                _ => {
-                    waited_relaunch = None;
-                    Some(short)
-                }
-            }
+            Some(grace.map_or(short, |g| g.min(short)))
         } else {
-            waited_relaunch = None;
             grace
         };
         let sleep = async {
@@ -344,7 +285,7 @@ where
         };
         // A closed owner channel (its watch ended) is no exit: it is not waited on again.
         let owner_changed = async {
-            if owner_gone.changed().await.is_err() {
+            if gone || owner_gone.changed().await.is_err() {
                 std::future::pending::<()>().await;
             }
         };
@@ -367,13 +308,6 @@ where
             continue;
         }
         match kept {
-            None if gone && waited_relaunch.is_some() => {
-                let why = waited_relaunch.unwrap_or_default();
-                return format!(
-                    "{OWNER_GONE} for a relaunch ({why}) that did not come within {}s, and nothing used the daemon: no client, agent, turn or task",
-                    waited.as_secs()
-                );
-            }
             None if gone => {
                 return format!(
                     "{OWNER_GONE} and nothing used the daemon for {}s: no client, agent, turn or task",
@@ -392,5 +326,221 @@ where
 }
 
 #[cfg(test)]
-#[path = "unused_exit_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    const G: Duration = Duration::from_secs(60);
+
+    fn sender() -> &'static watch::Sender<Use> {
+        Box::leak(Box::new(watch::Sender::new(Use::default())))
+    }
+
+    fn nothing_keeps() -> impl FnMut() -> std::future::Ready<Option<&'static str>> {
+        || std::future::ready(None)
+    }
+
+    fn no_owner() -> watch::Receiver<bool> {
+        Box::leak(Box::new(watch::Sender::new(false))).subscribe()
+    }
+
+    fn owner() -> &'static watch::Sender<bool> {
+        Box::leak(Box::new(watch::Sender::new(false)))
+    }
+
+    /// The owner app exits while no client is connected: the daemon stops one owner grace later,
+    /// not one grace later.
+    #[tokio::test(start_paused = true)]
+    async fn quit_helpers_the_owners_exit_shortens_the_wait() {
+        let (clients, app) = (sender(), owner());
+        let task = tokio::spawn(unused_for(
+            clients.subscribe(),
+            Some(G),
+            app.subscribe(),
+            nothing_keeps(),
+        ));
+        tokio::time::sleep(G / 2).await;
+        let quit = tokio::time::Instant::now();
+        app.send_replace(true);
+        let why = task.await.unwrap();
+        assert!(why.starts_with(OWNER_GONE), "{why}");
+        assert_eq!(quit.elapsed(), owner_exit::OWNER_EXIT_GRACE);
+    }
+
+    /// The shared home has no grace: only the owner's exit lets it stop.
+    #[tokio::test(start_paused = true)]
+    async fn quit_helpers_with_no_grace_only_the_owners_exit_stops_it() {
+        let (clients, app) = (sender(), owner());
+        let task =
+            tokio::spawn(unused_for(clients.subscribe(), None, app.subscribe(), nothing_keeps()));
+        tokio::time::sleep(G * 100).await;
+        assert!(!task.is_finished(), "stopped with its app running");
+        app.send_replace(true);
+        let quit = tokio::time::Instant::now();
+        task.await.unwrap();
+        assert_eq!(quit.elapsed(), owner_exit::OWNER_EXIT_GRACE);
+    }
+
+    /// A client connected after the owner exited keeps the daemon; the short wait starts when it
+    /// leaves.
+    #[tokio::test(start_paused = true)]
+    async fn quit_helpers_a_client_keeps_it_after_the_owners_exit() {
+        let (clients, app) = (sender(), owner());
+        app.send_replace(true);
+        let held = arrive(clients);
+        let task =
+            tokio::spawn(unused_for(clients.subscribe(), None, app.subscribe(), nothing_keeps()));
+        tokio::time::sleep(G * 10).await;
+        assert!(!task.is_finished(), "stopped with a client");
+        let left = tokio::time::Instant::now();
+        drop(held);
+        task.await.unwrap();
+        assert_eq!(left.elapsed(), owner_exit::OWNER_EXIT_GRACE);
+    }
+
+    /// Work after the owner's exit (Keep Sessions Running): the daemon stays while it runs and
+    /// asks again every recheck, then stops.
+    #[tokio::test(start_paused = true)]
+    async fn quit_helpers_work_keeps_it_after_the_owners_exit_and_is_asked_again() {
+        let (clients, app) = (sender(), owner());
+        app.send_replace(true);
+        let asked = AtomicUsize::new(0);
+        let in_use = || {
+            let n = asked.fetch_add(1, Ordering::SeqCst);
+            std::future::ready((n < 2).then_some("a running agent"))
+        };
+        let start = tokio::time::Instant::now();
+        unused_for(clients.subscribe(), None, app.subscribe(), in_use).await;
+        assert_eq!(asked.load(Ordering::SeqCst), 3);
+        assert_eq!(
+            start.elapsed(),
+            owner_exit::OWNER_EXIT_GRACE + owner_exit::OWNER_KEPT_RECHECK * 2
+        );
+    }
+
+    /// R-LIFECYCLE ORPHANS: after a Keep Sessions quit with live shells, the app's cmux-tui
+    /// daemon stays (it holds the terminals) and keeps one `_acpmux/watch` open for its chat
+    /// notices. That watch only observes: once the owner app is gone it keeps nothing, so the
+    /// daemon and its router stop when no agent, turn or task keeps them (fleet repro on build
+    /// 3a43a131: acpmux and router ran on with parent 1 after every quit).
+    #[tokio::test(start_paused = true)]
+    async fn quit_helpers_a_watch_only_client_keeps_nothing_after_the_owners_exit() {
+        let (clients, app) = (sender(), owner());
+        let watcher = arrive(clients);
+        watcher.observes();
+        let task =
+            tokio::spawn(unused_for(clients.subscribe(), None, app.subscribe(), nothing_keeps()));
+        tokio::time::sleep(G * 10).await;
+        assert!(!task.is_finished(), "stopped with its app running");
+        app.send_replace(true);
+        let quit = tokio::time::Instant::now();
+        let why = task.await.unwrap();
+        assert!(why.starts_with(OWNER_GONE), "{why}");
+        assert_eq!(quit.elapsed(), owner_exit::OWNER_EXIT_GRACE);
+        drop(watcher);
+    }
+
+    /// While the owner app runs, a watch-only client keeps the daemon as any client does.
+    #[tokio::test(start_paused = true)]
+    async fn a_watch_only_client_keeps_it_while_its_app_runs() {
+        let clients = sender();
+        let watcher = arrive(clients);
+        watcher.observes();
+        let wait = unused_for(clients.subscribe(), Some(G), owner().subscribe(), nothing_keeps());
+        assert!(tokio::time::timeout(G * 10, wait).await.is_err(), "stopped with a client");
+    }
+
+    /// A client that also works (not only a watch) keeps it after the owner's exit.
+    #[tokio::test(start_paused = true)]
+    async fn quit_helpers_a_working_client_beside_a_watcher_keeps_it() {
+        let (clients, app) = (sender(), owner());
+        app.send_replace(true);
+        let watcher = arrive(clients);
+        watcher.observes();
+        let worker = arrive(clients);
+        let task =
+            tokio::spawn(unused_for(clients.subscribe(), None, app.subscribe(), nothing_keeps()));
+        tokio::time::sleep(G * 10).await;
+        assert!(!task.is_finished(), "stopped with a working client");
+        let left = tokio::time::Instant::now();
+        drop(worker);
+        task.await.unwrap();
+        assert_eq!(left.elapsed(), owner_exit::OWNER_EXIT_GRACE);
+        drop(watcher);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn no_client_for_the_grace_and_nothing_else_stops_it() {
+        let clients = sender();
+        let start = tokio::time::Instant::now();
+        let why = unused_for(clients.subscribe(), Some(G), no_owner(), nothing_keeps()).await;
+        assert!(why.starts_with("unused for 60s"), "{why}");
+        assert_eq!(start.elapsed(), G);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_connected_client_keeps_it() {
+        let clients = sender();
+        let held = arrive(clients);
+        let wait = unused_for(clients.subscribe(), Some(G), no_owner(), nothing_keeps());
+        assert!(tokio::time::timeout(G * 10, wait).await.is_err(), "stopped with a client");
+        drop(held);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_grace_starts_when_the_last_client_leaves() {
+        let clients = sender();
+        let held = arrive(clients);
+        let task =
+            tokio::spawn(unused_for(clients.subscribe(), Some(G), no_owner(), nothing_keeps()));
+        tokio::time::sleep(G * 2).await;
+        let left = tokio::time::Instant::now();
+        drop(held);
+        task.await.unwrap();
+        assert_eq!(left.elapsed(), G);
+    }
+
+    /// A client that came and went inside a grace is seen, though the count is 0 again.
+    #[tokio::test(start_paused = true)]
+    async fn a_brief_visit_starts_the_grace_again() {
+        let clients = sender();
+        let start = tokio::time::Instant::now();
+        let task =
+            tokio::spawn(unused_for(clients.subscribe(), Some(G), no_owner(), nothing_keeps()));
+        tokio::time::sleep(G / 2).await;
+        drop(arrive(clients));
+        task.await.unwrap();
+        assert_eq!(start.elapsed(), G / 2 + G);
+    }
+
+    /// A client that arrived while the census ran keeps it, though nothing else did.
+    #[tokio::test(start_paused = true)]
+    async fn a_client_arriving_during_the_census_keeps_it() {
+        let clients = sender();
+        let asked = AtomicUsize::new(0);
+        let start = tokio::time::Instant::now();
+        let in_use = || {
+            if asked.fetch_add(1, Ordering::SeqCst) == 0 {
+                drop(arrive(clients));
+            }
+            std::future::ready(None)
+        };
+        unused_for(clients.subscribe(), Some(G), no_owner(), in_use).await;
+        assert_eq!(asked.load(Ordering::SeqCst), 2);
+        assert_eq!(start.elapsed(), G * 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn what_keeps_it_is_asked_again_one_grace_later() {
+        let clients = sender();
+        let asked = AtomicUsize::new(0);
+        let start = tokio::time::Instant::now();
+        let in_use = || {
+            let n = asked.fetch_add(1, Ordering::SeqCst);
+            std::future::ready((n < 2).then_some("a running agent"))
+        };
+        unused_for(clients.subscribe(), Some(G), no_owner(), in_use).await;
+        assert_eq!(asked.load(Ordering::SeqCst), 3);
+        assert_eq!(start.elapsed(), G * 3);
+    }
+}

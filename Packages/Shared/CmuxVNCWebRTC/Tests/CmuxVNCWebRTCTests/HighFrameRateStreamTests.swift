@@ -14,23 +14,17 @@ import WebRTC
 /// Heavy (hardware encode and decode at 120 fps for about 30 s) and
 /// timing-bound, so it runs only when asked: `CMUX_VNC_120FPS=1`
 /// (scripts/measure/mac-screen-120fps.sh), on an otherwise quiet Mac. One
-/// case at a time: two streams would share the hardware encoder. The
-/// encoding comes from cmux-rd-screen's rules (`CMUX_RD_SCREEN_DYLIB`, which
-/// the script builds).
+/// case at a time: two streams would share the hardware encoder.
 @Suite(.serialized)
 struct HighFrameRateStreamTests {
     static let enabled = ProcessInfo.processInfo.environment["CMUX_VNC_120FPS"] == "1"
-    /// The most pixels a second the hardware H.264 encoder is asked for above 60 fps
-    /// (cmux-rd-screen `quality::MAXIMUM_ENCODED_PIXEL_RATE`).
-    static let maximumEncodedPixelRate = 360_000_000.0
 
     @Test(.enabled(if: enabled), .timeLimit(.minutes(3)), arguments: [ScreenQuality.auto, .smooth])
     func aProMotionScreenStreamsAt120Fps(quality: ScreenQuality) async throws {
-        #expect(ScreenRules.bundled.installed, "set CMUX_RD_SCREEN_DYLIB to the built libcmux_rd_screen_ffi.dylib")
         let (hostSide, viewerSide) = LoopbackSignaling.pair()
         let lines = LogLines()
         let source = ScrollingScreen(width: 3456, height: 2234, fps: 120)
-        let host = ScreenStreamHost(name: "MacBook Pro", backend: { source }, rules: .bundled, log: { line in
+        let host = ScreenStreamHost(name: "MacBook Pro", backend: { source }, log: { line in
             lines.append(line)
             print("host: \(line)")
         })
@@ -74,13 +68,13 @@ struct HighFrameRateStreamTests {
         for line in lines.matching("video:").suffix(2) { print("MAC-SCREEN-120FPS encoder \(line)") }
 
         #expect(agreed.value == 120, "the host agreed on 120 fps with a 120 Hz viewer")
-        // Never more than the hardware encoder sustains at 120 fps (cmux-rd-screen's MAXIMUM_ENCODED_PIXEL_RATE).
+        // Never more than the hardware encoder sustains at 120 fps (ScreenQuality.maximumEncodedPixelRate).
         // Auto keeps that size; Smooth Motion lets WebRTC lower it further to hold the frame rate, as at 60.
         let pixelRate = size.width * size.height * 120
-        #expect(pixelRate <= Self.maximumEncodedPixelRate * 1.01,
+        #expect(pixelRate <= Double(ScreenQuality.maximumEncodedPixelRate) * 1.01,
                 "streamed at \(Int(size.width))x\(Int(size.height)), \(Int(pixelRate / 1e6)) Mpixel/s")
         if quality == .auto {
-            #expect(pixelRate >= Self.maximumEncodedPixelRate * 0.97, "Auto scales no more than the encoder needs")
+            #expect(pixelRate >= Double(ScreenQuality.maximumEncodedPixelRate) * 0.97, "Auto scales no more than the encoder needs")
         }
         #expect(source.deliveredFps >= 115, "the synthetic source itself kept 120 fps (the Mac was too busy to measure)")
         #expect(decodedFps >= 110, "a 120 fps stream decodes at \(Int(decodedFps)) fps")

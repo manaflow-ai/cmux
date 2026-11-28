@@ -11,9 +11,6 @@ export type HandedBack = { text: string; attachments: ComposerAttachment[] };
 
 const waiting = new Map<string, HandedBack>();
 const listeners = new Set<(back: HandedBack) => void>();
-// The prompts acpmux recorded lately, by id: a copy about to be handed back after its record came
-// (a held prompt the host's journal resent while its sender gave it up) is never handed back.
-const recorded = new Set<string>();
 
 /// Prompt `promptId` went back to the composer although acpmux may have it.
 export function noteHandedBack(promptId: string, back: HandedBack): void {
@@ -24,20 +21,10 @@ export function noteHandedBack(promptId: string, back: HandedBack): void {
 
 /// acpmux recorded prompt `promptId`: whoever holds a handed-back copy of it lets go.
 export function promptRecorded(promptId: string): void {
-  recorded.delete(promptId);
-  recorded.add(promptId);
-  // Bounded: the page's last few hundred prompts are the ones a late give-back can be about.
-  while (recorded.size > 512) recorded.delete(recorded.values().next().value as string);
   const back = waiting.get(promptId);
   if (!back) return;
   waiting.delete(promptId);
   for (const listener of listeners) listener(back);
-}
-
-/// Whether acpmux recorded prompt `promptId` already: its copy must not go back into a composer or
-/// a draft, where the next Send would carry it again.
-export function wasRecorded(promptId: string): boolean {
-  return recorded.has(promptId);
 }
 
 export function onHandedBackRecorded(listener: (back: HandedBack) => void): () => void {

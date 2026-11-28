@@ -18,17 +18,15 @@ pub const FLAG: &str = "--login-stdin";
 
 /// The target daemon's capability for a finish that carries a login.
 pub const CAPABILITY: &str = "agent-transfer-credentials-v1";
-/// The target can persist a login binding and withdraw credentials by that binding.
-pub const WITHDRAWAL_CAPABILITY: &str = "agent-session-credential-withdrawal-v1";
 
 /// Most bytes read from stdin: one token is far below it.
 pub const MAX_STDIN_BYTES: usize = 64 * 1024;
 
-/// A login read from stdin with its optional saved connection binding.
+/// A login read from stdin: the agent's environment variables. A field a newer app adds beside
+/// `env` is ignored, so an older cmux-tui still moves the chat with the login.
 #[derive(Clone, PartialEq, Eq, Deserialize)]
 pub struct Login {
     env: BTreeMap<String, String>,
-    connection: Option<String>,
 }
 
 impl std::fmt::Debug for Login {
@@ -40,16 +38,7 @@ impl std::fmt::Debug for Login {
 impl Login {
     /// The finish's `credentials` param.
     pub fn wire(&self) -> Value {
-        let mut wire = json!({"env": self.env});
-        if let Some(connection) = &self.connection {
-            wire["connection"] = json!(connection);
-        }
-        wire
-    }
-
-    /// A bound login needs the target to persist the binding before resuming the chat.
-    pub fn is_bound(&self) -> bool {
-        self.connection.is_some()
+        json!({"env": self.env})
     }
 }
 
@@ -82,7 +71,8 @@ impl Refusal {
                 "sending the agent login with the move: the Cloud API did not say this machine is yours"
             }
             Self::Outdated => {
-                "sending the agent login with the move: the target daemon runs an older cmux-tui"
+                "sending the agent login with the move: the target daemon runs an older cmux-tui \
+                 without agent-transfer-credentials-v1"
             }
         }
     }

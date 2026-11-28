@@ -10,18 +10,13 @@ import { join } from "node:path";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { noChat, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { CmuxCommand, CmuxCommandResult } from "../src/agent-session/acpmux/cmuxCommands";
-import type { SendChoice } from "../src/agent-session/acpmux/composer/sendMenuModel";
+import { LONG_PRESS_MS } from "../src/agent-session/acpmux/composer/SendMenu";
+import { SEND_KEYS, sendChoiceForKey, type SendChoice } from "../src/agent-session/acpmux/composer/sendMenuModel";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { noChat, user } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
-const { LONG_PRESS_MS } = await importWithDom(() => import("../src/agent-session/acpmux/composer/SendMenu"));
-const { SEND_KEYS, sendChoiceForKey } = await importWithDom(
-  () => import("../src/agent-session/acpmux/composer/sendMenuModel"),
-);
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -48,10 +43,7 @@ let root: Root | undefined;
 let host: HTMLElement;
 
 beforeAll(() => {
-  dom = new JSDOM("<!doctype html><div id=root></div>", {
-    pretendToBeVisual: true,
-    url: "https://cmux.test/",
-  });
+  dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
   const { window } = dom;
   Object.assign(scope, {
     ResizeObserver: class {
@@ -102,13 +94,7 @@ function idle(): AcpmuxSnapshot {
   const sessionId = `send-menu-${++chats}`;
   return noChat([], {
     sessionId,
-    summary: {
-      sessionId,
-      harness: "claude",
-      cwd: "/Users/you/src/app",
-      turnCount: 1,
-      steering: true,
-    },
+    summary: { sessionId, harness: "claude", cwd: "/Users/you/src/app", turnCount: 1, steering: true },
     rows: [user("Add retries", 1)],
     canFork: true,
   });
@@ -162,22 +148,17 @@ async function rightClick(button: HTMLElement) {
   const box = button.getBoundingClientRect();
   await act(async () => {
     button.dispatchEvent(
-      new window.MouseEvent("contextmenu", {
-        bubbles: true,
-        cancelable: true,
-        clientX: box.left,
-        clientY: box.top,
-      }),
+      new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: box.left, clientY: box.top }),
     );
   });
 }
 
 const menu = () => document.querySelector<HTMLElement>('[role="menu"]');
-/** Each row's name and the key it draws (its KeyHint's raw keys, as the native menu reads them). */
+/** Each row's name and the key it draws. */
 const rows = () =>
   [...(menu()?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])].map((row) => ({
     label: row.getAttribute("aria-label"),
-    key: row.querySelector(".ui-menu-shortcut .ui-key-hint, .ui-key-hint.ui-menu-shortcut")?.getAttribute("data-keys"),
+    key: row.querySelector(".ui-menu-shortcut")?.textContent,
   }));
 const row = (label: string) =>
   [...(menu()?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])].find(
@@ -190,8 +171,8 @@ const key = (choice: SendChoice) =>
     keyCode: 13,
     bubbles: true,
     cancelable: true,
-    metaKey: SEND_KEYS[choice]!.meta,
-    altKey: SEND_KEYS[choice]!.alt,
+    metaKey: SEND_KEYS[choice].meta,
+    altKey: SEND_KEYS[choice].alt,
   });
 
 test("a right-click on Send while a turn runs lists Send, Queue for later and Send in side chat with their keys", async () => {
@@ -200,7 +181,7 @@ test("a right-click on Send while a turn runs lists Send, Queue for later and Se
   expect(rows()).toEqual([
     { label: "Send", key: "↩" },
     { label: "Queue for later", key: "⌘↩" },
-    { label: "Send in side chat", key: undefined },
+    { label: "Send in side chat", key: "⌥↩" },
   ]);
   expect(sent).toEqual([]);
 });
@@ -295,7 +276,7 @@ test("a click on Send still sends at once, with no menu", async () => {
   expect(menu()).toBeNull();
 });
 
-test("Return and Command-Return keep their send actions", async () => {
+test("each row's key, pressed in the prompt, sends that way", async () => {
   const steer = await composer(working(), "now");
   await act(async () => void steer.field.dispatchEvent(key("send")));
   expect(steer.sent).toEqual([{ text: "now", steer: true }]);
@@ -305,31 +286,20 @@ test("Return and Command-Return keep their send actions", async () => {
   const queue = await composer(working(), "later");
   await act(async () => void queue.field.dispatchEvent(key("queue")));
   expect(queue.sent).toEqual([{ text: "later", steer: false }]);
+  act(() => root?.unmount());
+  root = undefined;
+
+  const side = await composer(working(), "elsewhere");
+  await act(async () => void side.field.dispatchEvent(key("side")));
+  expect(side.commands).toEqual([{ command: "side", args: "elsewhere" }]);
+  expect(side.sent).toEqual([]);
 });
 
-for (const side of [true, false]) {
-  for (const modifier of ["altKey", "shiftKey"] as const) {
-    test(`${modifier}+Return inserts a line without sending (side chat available: ${side})`, async () => {
-      const { field, sent, commands } = await composer(working(), "first line", side);
-      // Keep the real Composer -> MarkdownField event path: the parent used to consume Alt+Enter.
-      await act(async () => {
-        field.dispatchEvent(
-          new window.KeyboardEvent("keydown", {
-            key: "Enter",
-            keyCode: 13,
-            bubbles: true,
-            cancelable: true,
-            [modifier]: true,
-          }),
-        );
-      });
-      expect(field.querySelectorAll("p")).toHaveLength(2);
-      expect(field.textContent).toBe("first line");
-      expect(sent).toEqual([]);
-      expect(commands).toEqual([]);
-    });
-  }
-}
+test("Option-Return sends no side chat where the chat cannot fork", async () => {
+  const { field, commands } = await composer(working(), "elsewhere", false);
+  await act(async () => void field.dispatchEvent(key("side")));
+  expect(commands).toEqual([]);
+});
 
 test("the menu's keys are Return forms the app leaves to the composer, read back as the same way", () => {
   // KeyBindingDefaults.textInputKeys, as the action catalog exports it: no app binding takes these
@@ -339,38 +309,15 @@ test("the menu's keys are Return forms the app leaves to the composer, read back
     (each) => `${[...each.modifiers].sort().join("+")}|${each.key}`,
   );
   for (const choice of Object.keys(SEND_KEYS) as SendChoice[]) {
-    const binding = SEND_KEYS[choice];
-    if (!binding) continue;
-    const { meta, alt } = binding;
+    const { meta, alt } = SEND_KEYS[choice];
     const modifiers = [...(meta ? ["cmd"] : []), ...(alt ? ["opt"] : [])].sort().join("+");
     expect(textInput).toContain(`${modifiers}|\r`);
-    expect(
-      sendChoiceForKey({
-        key: "Enter",
-        metaKey: meta,
-        altKey: alt,
-        shiftKey: false,
-        ctrlKey: false,
-      }),
-    ).toBe(choice);
+    expect(sendChoiceForKey({ key: "Enter", metaKey: meta, altKey: alt, shiftKey: false, ctrlKey: false })).toBe(
+      choice,
+    );
   }
-  // Shift-Return and Option-Return add a line; neither sends.
-  expect(
-    sendChoiceForKey({
-      key: "Enter",
-      metaKey: false,
-      altKey: true,
-      shiftKey: false,
-      ctrlKey: false,
-    }),
-  ).toBe(undefined);
-  expect(
-    sendChoiceForKey({
-      key: "Enter",
-      metaKey: false,
-      altKey: false,
-      shiftKey: true,
-      ctrlKey: false,
-    }),
-  ).toBe(undefined);
+  // Shift-Return adds a line; it is no way to send.
+  expect(sendChoiceForKey({ key: "Enter", metaKey: false, altKey: false, shiftKey: true, ctrlKey: false })).toBe(
+    undefined,
+  );
 });

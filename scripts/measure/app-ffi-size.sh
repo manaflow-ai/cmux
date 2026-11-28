@@ -3,11 +3,7 @@
 # Contents/MacOS/cmux, per LTO mode, built the same way on the same Mac:
 #
 #   cmux-ci run --class exclusive --label measure --script scripts/measure/app-ffi-size.sh \
-#     --ref <sha> --artifact artifacts/app-ffi-size.json [--arg=off --arg=fat --arg=fat@z]
-#
-# A mode is LTO[@OPT]: `fat@z` builds with fat LTO and the release opt-level
-# set to z (CARGO_PROFILE_RELEASE_OPT_LEVEL; per-package overrides in the
-# FFI's Cargo.toml still win, so the hot crates stay at what it pins).
+#     --ref <sha> --artifact artifacts/app-ffi-size.json [--arg=off --arg=fat]
 #
 # For each mode (default: off fat) it builds the arm64 library as the release
 # does, then links it alone, with -dead_strip, into a dylib that exports only
@@ -28,10 +24,7 @@ source "$root/scripts/lib/rust-targets.sh"
 json="{"
 for mode in "${modes[@]}"; do
   start=$SECONDS
-  lto="${mode%%@*}"
-  opt_env=()
-  [[ "$mode" == *@* ]] && opt_env=(CARGO_PROFILE_RELEASE_OPT_LEVEL="${mode#*@}")
-  env ${opt_env[@]+"${opt_env[@]}"} CMUX_APP_FFI_LTO="$lto" CMUX_APP_FFI_ARCHS=arm64 CMUX_APP_FFI_OUT="$out/$mode" \
+  CMUX_APP_FFI_LTO="$mode" CMUX_APP_FFI_ARCHS=arm64 CMUX_APP_FFI_OUT="$out/$mode" \
     bash "$root/scripts/cmux-next/build-app-ffi.sh" >&2
   seconds=$((SECONDS - start))
   lib="$out/$mode/macos/libcmux_app_ffi.a"

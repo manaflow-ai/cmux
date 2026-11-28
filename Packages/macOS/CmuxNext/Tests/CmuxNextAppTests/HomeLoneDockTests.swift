@@ -100,4 +100,28 @@ struct HomeLoneDockTests {
         #expect(TabPromotion.staysPut(tab: page.id, in: home))
         #expect(!TabPromotion.staysPut(tab: joined.id, in: home), "a tab dragged into Home's dock was kept there")
     }
+
+    /// A Home restored from before keeps the shell the dock move left on its right only while it is
+    /// real: a used terminal, or anything else, stays; the untouched shell at `~` closes.
+    @Test func theRestoredPlaceholderShellIsTheOnlyRightTabThatCloses() throws {
+        let home = "/Users/me"
+        func placeholder(_ right: [TabSnapshot]?) throws -> SurfaceID? {
+            let store = Self.home(right: right)
+            let screen = try #require(store.workspaces.first?.screens.first)
+            return HomeDock.placeholderShell(on: screen, home: home)?.surface
+        }
+        #expect(try placeholder([Self.shell(2)]) == 2)
+        #expect(try placeholder([Self.shell(2, cwd: "/Users/me/", title: "")]) == 2)
+        #expect(try placeholder([Self.shell(2, cwd: nil)]) == nil, "a shell in an unknown folder is not known to be it")
+        #expect(try placeholder([Self.shell(2, cwd: "/Users/me/src/cmux", title: "cmux")]) == nil, "a shell moved on is real")
+        #expect(try placeholder([Self.shell(2), Self.shell(3)]) == nil, "two tabs are the person's")
+        #expect(try placeholder([TabSnapshot(surface: 2, kind: .browser, title: "~")]) == nil)
+        var named = Self.shell(2)
+        named.name = "server"
+        #expect(try placeholder([named]) == nil)
+        var dead = Self.shell(2)
+        dead.dead = true
+        #expect(try placeholder([dead]) == nil)
+        #expect(try placeholder(nil) == nil, "a lone dock has nothing to close")
+    }
 }

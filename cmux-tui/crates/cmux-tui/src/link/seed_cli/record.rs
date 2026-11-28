@@ -57,10 +57,6 @@ pub(super) struct Record {
     /// the second machine, which its frozen pass builds on. Never kept past the commit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) hop: Option<HopState>,
-    /// A copy's base record when `CMUX_LINK_SNAPSHOT_BASE` is on: the snapshot commit of the
-    /// folder as the copy sent it (`seed/snapshot.rs`), in this folder's snapshot store.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) snapshot: Option<String>,
 }
 
 /// What a hop's bulk pass left on the second machine ([`Record::hop`]).

@@ -7,9 +7,7 @@
 // highlight color stays the selection in both.
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { importWithDom } from "./support/importWithDom";
-
-const { resolveDiffViewerAppearance } = await importWithDom(() => import("../src/appearance"));
+import { resolveDiffViewerAppearance } from "../src/appearance";
 
 type ThemeWindow = Window & { cmuxTheme?: { current?: unknown } };
 

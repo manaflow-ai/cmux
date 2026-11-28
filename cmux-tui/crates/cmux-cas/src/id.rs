@@ -41,9 +41,8 @@ impl Id {
             _ => Err(format!("id {s:?} is not 64 lowercase hex digits")),
         };
         let mut id = [0u8; 32];
-        for (pair, slot) in b.chunks_exact(2).zip(id.iter_mut()) {
-            let [hi, lo] = pair else { return Err("incomplete hex pair".into()) };
-            *slot = digit(*hi)? << 4 | digit(*lo)?;
+        for (i, slot) in id.iter_mut().enumerate() {
+            *slot = digit(b[2 * i])? << 4 | digit(b[2 * i + 1])?;
         }
         Ok(Self(id))
     }

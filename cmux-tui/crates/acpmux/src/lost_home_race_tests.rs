@@ -82,11 +82,8 @@ pub(crate) fn tree(dir: &Path) -> Vec<String> {
 /// A copy of the tree at `from` made at `to`: a seed for a new home restored from the old one,
 /// so a writer that reads the new home by path and writes the held one finds the same state in
 /// both, and a write by path would change the new home.
-/// Private modes on the copy (0700 dirs, 0600 files), whatever the checkout's umask left on
-/// the fixtures: the store refuses a group-writable state file, so a 0002 checkout read nothing.
 pub(crate) fn copy_tree(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).unwrap();
-    set_mode(to, 0o700);
     for entry in std::fs::read_dir(from).unwrap() {
         let entry = entry.unwrap();
         let (path, target) = (entry.path(), to.join(entry.file_name()));
@@ -94,20 +91,9 @@ pub(crate) fn copy_tree(from: &Path, to: &Path) {
             copy_tree(&path, &target);
         } else {
             std::fs::copy(&path, &target).unwrap();
-            set_mode(&target, 0o600);
         }
     }
 }
-
-#[cfg(unix)]
-fn set_mode(path: &Path, mode: u32) {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
-}
-
-/// Windows has no unix modes; the store's group-writable check is unix only too.
-#[cfg(not(unix))]
-fn set_mode(_path: &Path, _mode: u32) {}
 
 /// The held check: whether it passed, and whether the test let it go on; and the writer's
 /// signal that it reached the hold, or the test's that it may go on.

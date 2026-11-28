@@ -2,9 +2,7 @@
 //! output, [`find_url`] reads the sign-in link out of it, and [`command`] is how both the daemon
 //! (`claude_token::Service`) and `cmux cloud connect claude` start it.
 
-#[cfg(unix)]
 use std::os::fd::{FromRawFd as _, OwnedFd, RawFd};
-#[cfg(unix)]
 use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
 
@@ -191,7 +189,6 @@ pub fn command(program: &Path, slave: &Path, no_browser: bool) -> cmux_process::
     command
 }
 
-#[cfg(unix)]
 /// A new pty `columns` wide: its master, its slave and the slave's path, both close-on-exec.
 pub fn open_pty(columns: u16) -> Result<(OwnedFd, OwnedFd, PathBuf), String> {
     let mut name = [0 as libc::c_char; 128];
@@ -226,7 +223,6 @@ pub fn open_pty(columns: u16) -> Result<(OwnedFd, OwnedFd, PathBuf), String> {
     Ok((master, slave, path))
 }
 
-#[cfg(unix)]
 /// All of `bytes` to `fd`; false when it stops taking them.
 pub fn write_all(fd: RawFd, bytes: &[u8]) -> bool {
     let mut written = 0usize;
@@ -245,7 +241,6 @@ pub fn write_all(fd: RawFd, bytes: &[u8]) -> bool {
     true
 }
 
-#[cfg(unix)]
 /// Ends `child`'s process group (it leads one: [`command`] starts a new session), then `child`
 /// if it is still there 2 s later. Only for a child this process spawned and has not reaped.
 pub fn stop(child: &mut cmux_process::Child) {

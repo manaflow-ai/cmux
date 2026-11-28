@@ -5,6 +5,7 @@ import { afterAll, afterEach, expect, jest, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { teardownDom } from "./support/domTeardown";
 // The edge-strip gutter (gutter.experiment.ts): the placement whose occluded state and strip these cover.
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
@@ -51,7 +52,6 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
-const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
 
 // jsdom has no layout: a 600 px viewport, a pane `paneWidth` wide, and a scroll offset.
 const VIEWPORT = 600;

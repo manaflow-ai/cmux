@@ -3,14 +3,14 @@ import CmuxNextDesign
 import CoreGraphics
 import Testing
 
-/// A tab's x is Helium's, point for point (Lawrence msg 48706: "color + shape + size + roundness etc must all match";
-/// 2026-11-28: "both size and icon size etc must perfectly match helium").
+/// A tab's x is Helium's at every density, scaled with the row (Lawrence 2026-11-13: "need to match the X icon on
+/// helium in terms of hover too (like roundness of it), should be applied to all densities").
 ///
-/// Helium (imputnet/helium tabs.patch, tab_close_button.cc, layout-constants.patch; rounded icons on): a 14 pt icon and
-/// visible square (`kTabCloseButtonSize`); close_weight500_custom's ink, 13.42 of 24 units with a 2.25 unit stroke; a
-/// `RoundRectHighlightPathGenerator` plate with a 4 pt corner. At its Default density (28 pt tab) the plate is the 14 pt
-/// square, 6 pt inside the tab's end; at Spacious (32 pt tab) it is the 26 pt button less `Insets(1)`, 24 pt, around the
-/// square 8 pt inside the end. cmux draws Default's x on tabs under 32 pt and Spacious's from 32 pt.
+/// Helium 0.21.3.1 at its 28 pt tab, measured from 2x captures on cmux-lawrence-2 (refs in
+/// plans/cmux-next/helium-density/): the hover square is 14 pt with a 4 pt corner (tab_close_button.cc's
+/// `RoundRectHighlightPathGenerator` radius, not concentric with the pill), its right edge 6 pt inside the pill,
+/// and the x's ink is 8 pt square. Default resolves those shares on its 30 pt reference row, then every density
+/// scales those reference sizes independently of the specified row-height exceptions.
 @MainActor @Suite(.serialized) struct HeliumTabCloseButtonTests {
     nonisolated static let presets = DensityPreset.allCases
 
@@ -22,30 +22,29 @@ import Testing
         body(TabStripMetrics.standard, Metrics.tabHeight)
     }
 
-    /// Helium's numbers at every density: the square, icon, ink, stroke and corner never scale; the plate and the end
-    /// inset are Default's below a 32 pt tab and Spacious's from it.
+    private static func half(_ value: CGFloat) -> CGFloat { (value * 2).rounded() / 2 }
+
     @Test(arguments: presets)
-    func theXIsHeliumsInPoints(_ preset: DensityPreset) {
+    func theXIsHeliumsShareOfTheRow(_ preset: DensityPreset) {
         withDensity(preset) { m, row in
-            let spacious = row >= 32
-            #expect(m.closeButtonSize == 14, "\(preset): square \(m.closeButtonSize)")
-            #expect(m.closePlateSide == (spacious ? 24 : 14), "\(preset): plate \(m.closePlateSide) on a \(row) pt tab")
-            #expect(m.closeCornerRadius == 4, "\(preset): corner \(m.closeCornerRadius)")
-            #expect(m.contentTrailingInset == (spacious ? 8 : 6), "\(preset): square \(m.contentTrailingInset) pt from the end")
-            #expect(abs(m.closeGlyphInk - 14 * 13.42 / 24) < 0.0001, "\(preset): ink \(m.closeGlyphInk)")
-            #expect(abs(m.closeGlyphLineWidth - 14 * 2.25 / 24) < 0.0001, "\(preset): stroke \(m.closeGlyphLineWidth)")
+            let scale = CGFloat(preset.scaleFactor)
+            #expect(m.closeButtonSize == Self.half(15 * scale), "\(preset): hover square \(m.closeButtonSize) on a \(row) pt tab")
+            #expect(m.contentTrailingInset == Self.half(6.5 * scale), "\(preset): x to the pill's end \(m.contentTrailingInset)")
+            #expect(m.closeGlyphInk == Self.half(8.5 * scale), "\(preset): x ink \(m.closeGlyphInk)")
+            #expect(m.closeCornerRadius == Self.half(m.closeButtonSize * 4 / 14), "\(preset): hover corner \(m.closeCornerRadius)")
         }
     }
 
-    /// Default (Helium's Default x): the 14 pt square with a 4 pt corner, its end 6 pt inside the pill's.
-    @Test func theDefaultX() {
+    /// Helium's hover corner is the x's own, not nested in the pill: Default's 15 pt square rounds 4.5 pt.
+    @Test func theHoverCornerIsTheXsOwnAtDefault() {
         withDensity(.cozy) { m, row in
-            #expect(row < 32)
-            #expect(m.closePlateSide == 14 && m.closeCornerRadius == 4 && m.contentTrailingInset == 6)
+            #expect(row == 30)
+            #expect(m.closeButtonSize == 15)
+            #expect(m.closeCornerRadius == 4.5)
         }
     }
 
-    /// The click target keeps Apple's 20 x 20 pt minimum around the x.
+    /// A smaller x keeps Apple's 20 x 20 pt click target around it.
     @Test(arguments: presets)
     func theClickTargetStaysTwentyPoints(_ preset: DensityPreset) {
         withDensity(preset) { m, _ in

@@ -22,13 +22,6 @@ nothing: one cargo run is one result. AUDIT_PERCENT of hits run anyway, as for s
 `--workspace` fallback, an unreadable manifest, no store) prints the arguments it was given: every crate runs.
 Off: CI_STEP_RESULTS=off, as for steps.
 
-A change reaches a crate when one of its paths (CI_PATHS_FILE: the pull request's diff, which ci_steps hands a step)
-is one of the crate's key inputs above, a deleted path counting as its old package's. A crate no changed path reaches
-does not run, store or no store: its key is the base's, so its result is the base's (the trust routing gives the
-step's `inputs`, at crate grain). An iOS or mobile Rust change (cmux-mobile-*, cmux-terminal-projection: 46 of the
-workspace's 200 packages no tested crate reaches) runs none. An unknown change, a pipeline path (ci_steps.
-PIPELINE_PATHS), SHARED, or a path of the step's inputs no package holds (schemas/settings, a step script) reaches all.
-
   crate_results.py plan STATE -- ARGS...   ARGS: the packages script's output; STATE: a file `post` reads
   crate_results.py post STATE
   crate_results.py replay [--commits N]    the hit share crate keys would have had over the last N first-parent
@@ -168,7 +161,6 @@ class Workspace:
                 self.under.setdefault(path.rsplit("/", i)[0], []).append(path)
         self.dirs = self.under.keys()
         self._escapes: dict[str, list[str]] = {}
-        self.gone: set[str] = set()  # deleted paths `reaches` lets a `../` name resolve to
 
     def closure(self, folder: str) -> list[str]:
         seen, todo = set(), [folder]
@@ -181,7 +173,7 @@ class Workspace:
         return sorted(seen)
 
     def exists(self, path: str) -> bool:
-        return path in self.files or path in self.dirs or path in self.gone
+        return path in self.files or path in self.dirs
 
     def escapes(self, path: str, folder: str) -> list[str]:
         """The tracked paths outside its package's folder that a source names with a literal that climbs out.
@@ -228,38 +220,6 @@ class Workspace:
             paths.update(self.under.get(prefix, ()))
         paths.update(p for p in SHARED if p in self.files)
         return sorted(paths)
-
-    def owner(self, path: str) -> str | None:
-        """The deepest package folder that holds a path, tracked or not (a deleted file's old package)."""
-        parts = path.split("/")
-        for i in range(len(parts) - 1, -1, -1):
-            folder = "/".join(parts[:i])
-            if folder in self.docs:
-                return folder
-        return None
-
-    def reaches(self, folder: str, changed: list[str]) -> bool:
-        """Whether a changed path is one of the crate's key inputs (`inputs`): a file of a package its closure holds,
-        one under a path its sources name with `../`, a [patch] folder or SHARED. A deleted path counts too (its old
-        package; a `../` name it no longer resolves to), so a deletion is never a path no crate reads."""
-        closure = set(self.closure(folder))
-        if any(self.owner(p) in closure or p in SHARED for p in changed):
-            return True
-        gone = {p for p in changed if p not in self.files}
-        gone |= {p.rsplit("/", i)[0] for p in gone for i in range(1, p.count("/") + 1)}
-        self.gone = gone
-        try:
-            prefixes = set(self.patches)
-            for f in sorted(closure):
-                for path in self.owned[f]:
-                    if path.endswith(".rs"):
-                        prefixes.update(self.escapes(path, f))
-        finally:
-            self.gone = set()
-            self._escapes.clear()  # names resolved against the deleted paths are not the key's
-        if "" in prefixes:
-            return True
-        return any(p == x or p.startswith(x + "/") for p in changed for x in prefixes)
 
     def has_lib(self, folder: str) -> bool:
         return "lib" in self.docs[folder] or f"{folder}/src/lib.rs" in self.files
@@ -349,27 +309,13 @@ def disk_reader(root: Path) -> Reader:
     return read
 
 
-def unreached(ws: Workspace, planned: list[tuple[str, str, list[str], list[str]]], paths: list[str] | None,
-              out=sys.stdout) -> set[str]:
-    """The crates no changed path reaches: none of its key inputs changed, so its tests are the base's. Nothing when
-    the change is unknown (no CI_PATHS_FILE), touches the pipeline, or names a path of the step's own inputs that no
-    package holds (a schema, a step script): those may reach any crate."""
-    if paths is None or any(p in ci_steps.PIPELINE_PATHS for p in paths):
-        return set()
-    step = ci_steps.load().steps.get(STEP)
-    if step is None:
-        return set()
-    loose = sorted(p for p in paths if p not in SHARED and ws.owner(p) is None and ci_steps.routed(step, [p]))
-    if loose:
-        print(f"crate results: {loose[0]} is an input of the step no package holds; every crate is reached", file=out)
-        return set()
-    return {name for name, folder, *_ in planned if not ws.reaches(folder, paths)}
-
-
 def plan(state: Path, args: list[str], env: dict[str, str], root: Path = ROOT, store=None, out=sys.stdout) -> list[str]:
-    """The cargo arguments for the crates the change reaches whose keys missed; writes the keys `post` stores."""
+    """The cargo arguments for the crates whose keys missed; writes the keys `post` stores."""
     state.write_text("{}", encoding="utf-8")
     store = store if store is not None else ci_steps.StepResults.from_env(env)
+    if store is None:
+        print("crate results: no store here (CI_STEP_RESULTS off, or not a fleet Actions run); every crate runs", file=out)
+        return args
     files = tree_files(root)
     try:
         ws = Workspace(files or {}, disk_reader(root))
@@ -380,23 +326,10 @@ def plan(state: Path, args: list[str], env: dict[str, str], root: Path = ROOT, s
     if planned is None:
         print(f"crate results: cannot split {' '.join(args) or 'no arguments'} by crate; every crate runs", file=out)
         return args
-    skip = unreached(ws, planned, ci_steps.read_paths(env.get("CI_PATHS_FILE")), out)
-    for name in sorted(skip):
-        print(f"crate results: {name} not reached: no changed path is one of its inputs (its files, its path "
-              f"dependencies', what its sources name outside it, SHARED); its tests do not run", file=out)
-    reached = [e for e in planned if e[0] not in skip]
-    if skip:
-        print(f"crate results: {len(skip)} of {len(planned)} crates not reached by this change", file=out)
-    if not reached:
-        return []
-    if store is None:
-        print("crate results: no store here (CI_STEP_RESULTS off, or not a fleet Actions run); every reached crate runs",
-              file=out)
-        return miss_args(reached, parse_args(args)[1]) if skip else args
     context = step_doc(env)
-    keys = {name: crate_key(ws, folder, name, fl, ts, context) for name, folder, fl, ts in reached}
+    keys = {name: crate_key(ws, folder, name, fl, ts, context) for name, folder, fl, ts in planned}
     runs, audits = [], []
-    for entry in reached:
+    for entry in planned:
         name = entry[0]
         audit = ci_steps.audited(keys[name], env)
         hit = store.lookup(keys[name], f"crate.{name}", audit)
@@ -412,7 +345,7 @@ def plan(state: Path, args: list[str], env: dict[str, str], root: Path = ROOT, s
         print(f"crate results: the store: {store.error}", file=out)
     state.write_text(json.dumps({"started": time.time(), "audits": audits,
                                  "keys": {e[0]: keys[e[0]] for e in runs}}), encoding="utf-8")
-    print(f"crate results: {len(reached) - len(runs)} of {len(reached)} reached crates reused, {len(runs)} run", file=out)
+    print(f"crate results: {len(planned) - len(runs)} of {len(planned)} crates reused, {len(runs)} run", file=out)
     return miss_args(runs, parse_args(args)[1]) if runs else []
 
 

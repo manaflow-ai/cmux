@@ -1,12 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { runPlay, selectTextWithDriver, syntheticKey, syntheticPointer } from "../src/gallery/frame/playRunner";
+import { isSubpixelLayoutShift, longFramePart } from "../src/gallery/play";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { runPlay, selectTextWithDriver, syntheticKey, syntheticPointer } = await importWithDom(
-  () => import("../src/gallery/frame/playRunner"),
-);
-const { isSubpixelLayoutShift, longFramePart } = await importWithDom(() => import("../src/gallery/play"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

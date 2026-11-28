@@ -10,17 +10,13 @@
 //! - [`timing_ratio`]: no wall-clock ratio or upper percentile assert in a default-run test
 //!   (cmuxterm-hq docs/handbook/timing-on-a-busy-host.md, fix 7), run by hand over a checkout;
 //!   [`nextest`] says which tests nextest runs beside others.
-//! - [`visible_only`]: lists draw only their visible rows; per-frame work in a draw fn does not
-//!   grow with the items it lists. A ratchet (visible_only_known.txt) run by PR CI
-//!   (cmux-tui-spec.yml's clippy job, `cmux-source-scan visible-only`).
 //! - [`rows`]: how a test row or a ratchet's list is held to what a check found (the exact
 //!   multiset, duplicates counted).
 //!
-//! `cmux-source-scan test-hooks|timing-ratio|visible-only ...` runs either over a checkout.
+//! `cmux-source-scan test-hooks|timing-ratio ...` runs either over a checkout.
 
 pub mod nextest;
 pub mod rows;
 pub mod source;
 pub mod test_hooks;
 pub mod timing_ratio;
-pub mod visible_only;

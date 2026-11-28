@@ -8,7 +8,6 @@ mod give_late;
 mod give_machine;
 mod laptop;
 mod machine;
-mod replica;
 
 use std::path::PathBuf;
 

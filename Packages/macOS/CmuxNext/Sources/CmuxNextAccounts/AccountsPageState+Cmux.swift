@@ -15,8 +15,6 @@ extension AccountsPageState {
         /// A hint while the sign-in waits in the browser.
         public let note: String?
         public let error: String?
-        /// Signed out: what Sign In signs in to ("Signs in to cmux.com"), the line under the button.
-        public var signInBackend: String?
     }
 }
 
@@ -45,7 +43,7 @@ extension AccountsModel {
         return .init(title: AccountsStrings.cmuxTitle, detail: nil, status: AccountsStrings.cmuxSignedOut,
                      statusKind: account.failed ? "attention" : "quiet", busy: false,
                      buttons: [button(.signIn, AccountsStrings.signInToCmux)],
-                     note: backend, error: error, signInBackend: account.signInBackend)
+                     note: backend, error: error)
     }
 }
 

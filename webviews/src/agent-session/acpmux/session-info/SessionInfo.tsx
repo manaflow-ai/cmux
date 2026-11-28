@@ -65,8 +65,6 @@ import type { SessionInfoCloudControl } from "../hybrid/SessionInfoCloud";
 
 import { SessionInfoSectionList, type SessionInfoCompactLook } from "./SessionInfoGroup";
 import { sectionOrder, tuckedSections } from "./sectionOrder";
-import { withoutHiddenSections } from "./shownSections";
-import { useSessionInfoHiddenSections } from "../chatDisplay";
 import { SessionInfoSection } from "./SessionInfoSection";
 import { SourcesSection } from "./SourcesSection";
 import {
@@ -87,6 +85,8 @@ import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentCountsMeta, SubagentsSection } from "./SubagentsSection";
 import type { ResumeActions } from "../subagents/ResumeControl";
+import { CarriedSection, carriedSummary } from "./CarriedSection";
+import { useCarried, type ReadCarried, type ResolveCarried } from "./carriedSectionModel";
 import { sessionStatus } from "./childSessionRowsModel";
 import { chatOutputs } from "./chatOutputs";
 import { producedLinks, type ProducedLink } from "./producedLinks";
@@ -182,9 +182,6 @@ export function SessionInfoPanel({
   // Pushed beside the chat, or in the empty gutter, its sections sit on the pane with no card behind
   // them, as the native panel draws it (#32661; Leo, 2026-11-02: "we still HAVE AN ASININE BACKGROUND").
   const glass = placement === "overlay" && (foot !== undefined || onDismiss !== undefined);
-  // Inline (a band atop the transcript, in the chat's flow): the column's width, no drag handle (CSS), no
-  // glass and no cut out of the transcript, which runs under it, not behind it.
-  const inline = placement === "inline";
   // Floating over the chat (the narrow pane's Summary popover), the chat under it blurs itself there in
   // a see-through Chromium page (ui/glass/seeThroughBlur.ts), as WebKit's backdrop draws it, so its
   // text never reads through the glass (Leo 2026-10-30: "I don't like the non-glassness"). Pushing,
@@ -193,11 +190,7 @@ export function SessionInfoPanel({
   // The transcript leaves the panel's box out while it shows (chatCut.ts), so nothing scrolls under
   // it: its pixels hold still while the chat scrolls (Leo, 2026-11-03: "the session info thing not
   // flicker EVER when im scrolling"). Its place re-measures when it moves.
-  useChatCut(
-    frame,
-    !inline && !presence?.leaving,
-    `${placement}:${width}:${foot ?? ""}:${side}:${overlap}:${under ?? ""}`,
-  );
+  useChatCut(frame, !presence?.leaving, `${placement}:${width}:${foot ?? ""}:${side}:${overlap}:${under ?? ""}`);
   // The foot animates only once it has been drawn at its first measure: the open draws it at once.
   const footKnown = foot !== undefined && foot > 0;
   // Only a foot that goes down (the composer's stack shrank) glides. One that rises (the stack grew: the
@@ -261,7 +254,7 @@ export function SessionInfoPanel({
       data-foot-moves={footKnown && footSettled && !footRises ? "" : undefined}
       style={
         {
-          width: inline ? undefined : width,
+          width,
           // Pushing, its enter and exit run its right margin from minus this (sessionInfo.css).
           "--acpmux-session-info-width": `${width}px`,
           ...(under ? { "--acpmux-session-info-top": under } : {}),
@@ -385,7 +378,6 @@ export function SessionInfo({
   sections,
   onSection,
   onOpenSourceFile,
-  onRemoveFolder,
   onOpenUrl,
   onOpenImage,
   readPromptImage,
@@ -394,6 +386,8 @@ export function SessionInfo({
   cloud,
   onSaveEnvironment,
   onReconnectMcp,
+  readCarried,
+  onResolveCarried,
   onCompact,
   onOpenFolder,
   edits,
@@ -479,8 +473,6 @@ export function SessionInfo({
   sections?: SessionInfoSections;
   onSection?: (id: SessionInfoSectionId, open: boolean) => void;
   onOpenSourceFile?: (path: string) => unknown;
-  /// Removes one of the chat's additional directories and restarts it with the remaining folders.
-  onRemoveFolder?: (path: string) => Promise<unknown> | unknown;
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string, path?: string) => void;
   /// A pasted image's bytes by its id, for its Sources row (direct.ts `promptImage`).
@@ -490,6 +482,10 @@ export function SessionInfo({
   onSaveEnvironment?: () => Promise<unknown> | void;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  /// Carried memory (CarriedSection.tsx): reads `_acpmux/agent_home` while the section is open, and
+  /// sends `_acpmux/agent_home_resolve` on Accept or Drop. Unset (Quick Chat, a subagent's panel): no section.
+  readCarried?: ReadCarried;
+  onResolveCarried?: ResolveCarried;
   /// Sends the chat's agent its `/compact`: Context's Compact session (ContextSection), live while a
   /// turn runs (the /compact queues behind it), and Usage's next step for its context (UsageSection.tsx).
   onCompact?: () => void;
@@ -548,8 +544,6 @@ export function SessionInfo({
   const imessage = imessageFixture || liveIMessage;
   const language = usePaneLanguage();
   const sessionInfoState = useSessionInfoState();
-  // The sections the person turned off in Settings (shownSections.ts): never drawn.
-  const hiddenSections = useSessionInfoHiddenSections();
   const showMore = more ?? sessionInfoState.more;
   const setMore = onMore ?? setSessionInfoMore;
   const stored = sessionInfoState.sections;
@@ -756,6 +750,32 @@ export function SessionInfo({
       <ConnectorsSection servers={mcp} onReconnect={onReconnectMcp} imessage={imessage} />
     </SessionInfoSection>
   );
+  // Carried memory: only in the chat's own panel, read while it is open (and once for its header
+  // value as it is drawn, so the folded line says what waits).
+  const carriedRead = useCarried(readCarried, Boolean(readCarried), chatId ?? "");
+  const carriedHome = carriedRead.home;
+  const carriedValue = carriedSummary(t, carriedHome, carriedRead.failed);
+  const carriedOpens = Boolean(carriedHome?.configured || carriedRead.failed);
+  const carried = readCarried && (
+    <SessionInfoSection
+      id="carried"
+      title={t("rail.carried")}
+      open={carriedOpens && state.carried}
+      onOpenChange={carriedOpens ? fold("carried") : undefined}
+      meta={carriedValue ? value(carriedValue) : undefined}
+    >
+      <CarriedSection
+        home={carriedHome}
+        failed={carriedRead.failed}
+        onResolve={onResolveCarried}
+        onSettled={(resolution) => {
+          carriedRead.settle(resolution);
+          carriedRead.reload();
+        }}
+        locale={language}
+      />
+    </SessionInfoSection>
+  );
   const changes = pullRequests.length > 0 && (
     <SessionInfoSection
       id="changes"
@@ -782,7 +802,6 @@ export function SessionInfo({
         folders={folders}
         cwd={summary?.cwd}
         onOpenFile={onOpenSourceFile}
-        onRemoveFolder={onRemoveFolder}
         onOpenBeside={onOpenUrl}
         onOpenImage={onOpenImage}
         readImage={readPromptImage}
@@ -913,7 +932,7 @@ export function SessionInfo({
         chatId={chatId}
         onOpen={onOpenChat}
         onCompact={onCompact}
-        onShowSubagents={subagentsSection && !hiddenSections.includes("subagents") ? showSubagents : undefined}
+        onShowSubagents={subagentsSection ? showSubagents : undefined}
         locale={language}
         ownRowLayout={usageOwnRowLayout}
         cacheLayout={usageCacheLayout}
@@ -930,21 +949,19 @@ export function SessionInfo({
         look={compactLook}
         more={compactLook !== "more" || showMore}
         onMoreChange={compactLook === "more" ? setMore : undefined}
-        sections={withoutHiddenSections(
-          {
-            environment,
-            context,
-            usage: usageSection,
-            connectors,
-            changes,
-            sources: sourcesSection,
-            outputs: outputsSection,
-            subagents: subagentsSection,
-            tasks,
-            ...appNodes,
-          },
-          hiddenSections,
-        )}
+        sections={{
+          environment,
+          context,
+          usage: usageSection,
+          connectors,
+          carried,
+          changes,
+          sources: sourcesSection,
+          outputs: outputsSection,
+          subagents: subagentsSection,
+          tasks,
+          ...appNodes,
+        }}
       />
       {gallery && (
         <GalleryDialog

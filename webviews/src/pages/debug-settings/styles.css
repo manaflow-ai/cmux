@@ -44,7 +44,7 @@
   width: 100%;
   box-sizing: border-box;
   padding: 5px 8px;
-  border-radius: var(--ds-radius-md);
+  border-radius: 6px;
   border: 1px solid var(--page-separator);
   background: var(--page-hover);
   color: inherit;
@@ -64,7 +64,7 @@
   min-height: 26px;
   padding: 0 8px;
   border: 0;
-  border-radius: var(--ds-radius-md);
+  border-radius: 6px;
   background: transparent;
   color: var(--page-text-2);
   font: inherit;
@@ -211,7 +211,7 @@
 
 .ds-card-body {
   border: 1px solid var(--page-separator);
-  border-radius: var(--ds-radius-lg);
+  border-radius: 8px;
   background: var(--page-elevated);
 }
 

@@ -57,26 +57,7 @@ pub(super) fn hold() -> Duration {
 
 // ---------------------------------------------------------------------------------------------
 // CPU.
-//
-// Pinning and SCHED_IDLE are Linux only; elsewhere the leg is refused (`host_os::refuses`) and
-// these answer nothing so the file still builds.
 
-#[cfg(not(target_os = "linux"))]
-fn allowed_cpus(_pid: i32) -> Vec<usize> {
-    vec![]
-}
-
-#[cfg(not(target_os = "linux"))]
-fn set_affinity(_tid: i32, _cpus: &[usize]) -> Result<(), String> {
-    Err("CPU pinning is Linux only".into())
-}
-
-#[cfg(not(target_os = "linux"))]
-fn set_idle(_tid: i32) -> Result<(), String> {
-    Err("SCHED_IDLE is Linux only".into())
-}
-
-#[cfg(target_os = "linux")]
 fn allowed_cpus(pid: i32) -> Vec<usize> {
     // SAFETY: a zeroed cpu_set_t is a valid empty set; the kernel fills it.
     let mut set: libc::cpu_set_t = unsafe { std::mem::zeroed() };
@@ -86,7 +67,6 @@ fn allowed_cpus(pid: i32) -> Vec<usize> {
     (0..libc::CPU_SETSIZE as usize).filter(|c| ok && unsafe { libc::CPU_ISSET(*c, &set) }).collect()
 }
 
-#[cfg(target_os = "linux")]
 fn set_affinity(tid: i32, cpus: &[usize]) -> Result<(), String> {
     // SAFETY: as in `allowed_cpus`.
     let mut set: libc::cpu_set_t = unsafe { std::mem::zeroed() };
@@ -102,7 +82,6 @@ fn set_affinity(tid: i32, cpus: &[usize]) -> Result<(), String> {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn set_idle(tid: i32) -> Result<(), String> {
     let param = libc::sched_param { sched_priority: 0 };
     // SAFETY: `param` is a live sched_param; SCHED_IDLE takes priority 0.
@@ -131,7 +110,7 @@ fn tasks(pid: u32) -> Vec<i32> {
 
 /// Nanoseconds the threads of `pid` (and its children) waited on a run queue, summed. Threads
 /// that ended took theirs with them: a lower bound.
-pub(super) fn runqueue_wait_ns(pid: u32) -> u64 {
+fn runqueue_wait_ns(pid: u32) -> u64 {
     tasks(pid)
         .iter()
         .filter_map(|t| {

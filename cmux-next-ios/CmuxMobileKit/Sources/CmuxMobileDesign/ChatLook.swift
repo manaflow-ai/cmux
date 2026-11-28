@@ -96,7 +96,6 @@ public struct CmuxMobileChatBackdrop: View {
             }
         } else {
             Color.cmuxMobileBackground
-                .ignoresSafeArea()
         }
     }
 }

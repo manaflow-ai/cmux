@@ -7,10 +7,7 @@
 //   so an agent's permission-type card can default to doing the thing and still let the person ask.
 // - `error`: something failed; Retry leads, always first and the one filled button. Never red slabs:
 //   the kind shows in a small mark and the title, the card stays quiet glass (Leo 2026-10-29 on
-//   recovery cards). retry-prompt-ok: `retry` is only for a retry with a cost or side effect the person
-//   chooses (a session start, a re-sent message); a read that asking again clears gets no Retry, it asks
-//   again on its own (agent-session/acpmux/autoRetry.ts; Leo 2026-11-22: "vacuous decisions like that
-//   should be just done").
+//   recovery cards).
 //
 // A notice opens in one frame and may fade out (menus and popovers have no fade-in; rulings.md). It
 // never moves the caret: it takes focus only when the person tabs into it. Escape inside it dismisses
@@ -67,7 +64,7 @@ export interface NoticeProps {
   message?: ReactNode;
   /** Before the text: the kind's mark by default; a spinner while working. */
   leading?: ReactNode;
-  /** An error's Retry: always the first button and the filled one. retry-prompt-ok: only for a costly retry. */
+  /** An error's Retry: always the first button and the filled one. */
   retry?: { label: string; onRetry(): void; disabled?: boolean; hint?: string };
   actions?: readonly NoticeAction[];
   check?: NoticeCheck;
@@ -83,13 +80,11 @@ export interface NoticeProps {
   count?: number;
   /** Work it tracks: the lead is a spinner while working, then a check or the error's mark. */
   state?: NoticeState;
-  /** The toasts-v2 experiment's arm (toastsV2.experiment.ts); `off` draws today's card.
-   * @status experimental */
+  /** The toasts-v2 experiment's arm (toastsV2.experiment.ts); `off` draws today's card. */
   look?: ToastLook;
   /** A stack toast's glass is the App's own toast glass under the page (glass/hostGlass.ts), as its
    * native toasts are drawn; false (the default) keeps the page's floating material. NoticeStack
-   * passes the toast-glass experiment's arm (`experiments.toastGlass`, off by default).
-   * @status experimental */
+   * passes the toast-glass experiment's arm (`experiments.toastGlass`, off by default). */
   hostGlass?: boolean;
 }
 

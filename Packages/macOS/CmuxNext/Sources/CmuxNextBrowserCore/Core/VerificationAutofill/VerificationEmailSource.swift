@@ -4,7 +4,7 @@ public import Foundation
 /// ``VerificationAutofillCoordinator`` reads it only while the feature is on and a page waits,
 /// only for messages received since the wait started, and only for the accounts the person
 /// opted in (plans/cmux-next/email-verification-autofill/DESIGN.md "Email sources").
-public nonisolated protocol VerificationEmailSource: Sendable {
+public protocol VerificationEmailSource: Sendable {
     /// The emails received since `since` in the opted-in `accounts`, read once per call. A source
     /// keeps nothing.
     /// - Parameters:

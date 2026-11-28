@@ -24,9 +24,6 @@ use crate::pty_input::{
 };
 use crate::session::TreeView;
 
-/// The spacing of background tree refreshes after the fast ones failed.
-pub(super) const BACKGROUND_REFRESH_SLOW_RETRY: Duration = Duration::from_secs(30);
-
 impl App {
     pub(super) fn apply_session_completion(&mut self, completion: SessionCompletion) {
         if self.surface_only.is_some() {
@@ -572,23 +569,16 @@ impl App {
         true
     }
 
-    /// Schedules the next background tree refresh. The first
-    /// [`BACKGROUND_REFRESH_RETRIES`] come 1 s, 2 s, 4 s... apart (true);
-    /// after them the refresh keeps going every
-    /// [`BACKGROUND_REFRESH_SLOW_RETRY`] (false), so a tree that could not
-    /// refresh comes back once the session answers, with no reconnect by hand.
     pub(super) fn schedule_background_refresh_retry(&mut self) -> bool {
-        let fast = self.background_refresh_attempts < BACKGROUND_REFRESH_RETRIES;
-        let delay = if fast {
-            self.background_refresh_attempts += 1;
-            let delay_seconds =
-                1_u64 << u32::from(self.background_refresh_attempts.saturating_sub(1));
-            Duration::from_secs(delay_seconds).min(BACKGROUND_REFRESH_SLOW_RETRY)
-        } else {
-            BACKGROUND_REFRESH_SLOW_RETRY
-        };
-        self.background_refresh_retry_at = Some(Instant::now() + delay);
-        fast
+        if self.background_refresh_attempts >= BACKGROUND_REFRESH_RETRIES {
+            self.background_refresh_retry_at = None;
+            return false;
+        }
+        self.background_refresh_attempts += 1;
+        let delay_seconds = 1_u64 << u32::from(self.background_refresh_attempts.saturating_sub(1));
+        self.background_refresh_retry_at =
+            Some(Instant::now() + Duration::from_secs(delay_seconds.min(30)));
+        true
     }
 
     pub(super) fn retry_background_refresh_if_due(&mut self) {

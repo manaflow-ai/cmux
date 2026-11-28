@@ -37,7 +37,6 @@ extension AgentPaneView {
     }
 
     private func projectPaletteScript(_ payload: JSONValue) -> String {
-        // main-actor-ok: one palette event: a session id, a page name and an id or the typed query.
         guard let data = try? JSONEncoder().encode(payload) else { return "" }
         let json = String(decoding: data, as: UTF8.self)
         return "window.dispatchEvent(new CustomEvent('cmux-project-palette', {detail: \(json)}))"

@@ -213,9 +213,7 @@ the agent's words.
   person uses the mouse or keyboard, and fails with `person_in_control` if they
   keep on.
 - `computerUse.allowForeground` (default off; on for cloud VMs): whether
-  `delivery: "foreground"` may raise a window and use system-wide input. On
-  macOS pointer gestures still go to the raised app's process, so the person's
-  pointer never moves; only keys use the system-wide queue.
+  `delivery: "foreground"` may raise a window and use system-wide input.
 
 - `computerUse.alerts` (default off, also on cloud VMs): see System alerts below.
 
@@ -301,14 +299,9 @@ grant, lock screen, mode, displays) with a fix line for each failure. It exits 0
 only when capture and input would work. It never shows an OS prompt (grants are
 the preflight reads `status` already does) and needs no app window. `helper`
 names the worker's executable (`status.worker.executable`); on macOS a
-`cmux-screen-sharing` outside the one fixed helper folder
-(`~/Library/Application Support/cmux-next/helper/<bundle id>/`, every build's
-staged copy) fails, and so does an older daemon's copy under the per-build
-`cmux-next/screen-sharing/` layout. For a local worker the doctor also checks
-the folder's `.verified` marker against the copy's own content digest. The fix
-is to turn Computer Use off and on (the worker starts again from the staged
-copy); restarting the app alone does not, because the daemon and its worker
-outlive it.
+`cmux-screen-sharing` outside the staging root
+(`~/Library/Application Support/cmux-next/screen-sharing/<bundle id>/computer-use/`)
+fails with the staging fix.
 
 ## Hot upgrade
 
@@ -470,10 +463,7 @@ audit log: `{"kept": true}`, `{"kept": true, "restored_from": "<id>"}`,
 The takeover tap's count of the person's own inputs decides who moved it; any
 input of theirs during the call leaves focus alone. Without the tap, only a
 change to the target app or to cmux Remote is put back. Foreground delivery is
-not guarded: it raises the window because it was asked to. It still never
-moves the person's pointer on macOS: after the raise, clicks, drags, scrolls and
-hovers are posted to the now-front app's process, addressed to its window, never
-at the HID tap.
+not guarded: it raises the window because it was asked to.
 
 ## Platforms and display servers
 

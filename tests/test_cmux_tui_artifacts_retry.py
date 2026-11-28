@@ -142,15 +142,5 @@ class RetryPolicyTests(unittest.TestCase):
         self.assertEqual(retry.decide(run(run_attempt=2), tree_jobs(verify), {8: []}).action, "rerun-failed-jobs")
 
 
-class RateLimitWaitTests(unittest.TestCase):
-    # Run 46120896444: GET actions/runs answered a bare 403 and the failed publish stayed unretried.
-    def test_rate_limit_403_waits_and_a_permission_403_does_not(self):
-        self.assertEqual(retry._rate_limit_wait(403, {"Retry-After": "20"}, ""), 20)
-        self.assertEqual(retry._rate_limit_wait(429, {}, "API rate limit exceeded"), 30)
-        self.assertIsNone(retry._rate_limit_wait(403, {}, "Resource not accessible by integration"))
-        self.assertIsNone(retry._rate_limit_wait(403, {"Retry-After": "3600"}, ""))
-        self.assertIsNone(retry._rate_limit_wait(404, {"Retry-After": "5"}, ""))
-
-
 if __name__ == "__main__":
     unittest.main(verbosity=2)

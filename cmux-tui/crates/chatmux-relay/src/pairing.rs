@@ -102,18 +102,6 @@ pub fn websocket_url(value: &str) -> String {
     }
 }
 
-/// How long a pairing start waits out the server's rate limit before it stops.
-const PAIRING_RATE_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
-
-/// The wait a 429 names (`Retry-After` seconds), else 30 s; at least 1 s.
-fn rate_wait(retry_after: Option<&reqwest::header::HeaderValue>) -> std::time::Duration {
-    let secs = retry_after
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.trim().parse::<u64>().ok())
-        .unwrap_or(30);
-    std::time::Duration::from_secs(secs.clamp(1, 120))
-}
-
 /// `POST /v2/pairing/start`; verifies the server derived OUR cute code.
 pub async fn start_pairing(
     client: &reqwest::Client,
@@ -125,46 +113,25 @@ pub async fn start_pairing(
     let secret = random_secret()?;
     let relay_public_key = mint_relay_public_key()?;
     let cute_code = derive_cute_code(&relay_public_key);
-    let body = serde_json::json!({
-        "version": PAIRING_WIRE_VERSION,
-        "pairId": pair_id,
-        "secretHash": hash_base64url(&secret),
-        "relayPublicKey": relay_public_key,
-        "relayName": name,
-        "platform": platform,
-    });
-    // A 429 refused the start (nothing was made), so the same start is sent
-    // again after the server's wait, within PAIRING_RATE_WAIT; the person
-    // only sees one line saying it waits.
-    let deadline = tokio::time::Instant::now() + PAIRING_RATE_WAIT;
-    let mut told = false;
-    let response = loop {
-        let response = client
-            .post(format!("{backend}/v2/pairing/start"))
-            .json(&body)
-            .send()
-            .await
-            .map_err(|error| RelayError::transient(format!("pairing start failed: {error}")))?;
-        if response.status() != reqwest::StatusCode::TOO_MANY_REQUESTS {
-            break response;
-        }
-        let wait = rate_wait(response.headers().get(reqwest::header::RETRY_AFTER));
-        if tokio::time::Instant::now() + wait > deadline {
-            return Err(RelayError::fatal(
-                // retry-prompt-ok: a rate limit the person must wait out, already waited for 2 minutes here.
-                "The server is rate-limiting pairing attempts from this network for longer than \
-                 the relay waits (2 minutes). Wait a few minutes, then re-run npx cmux-relay.",
-            ));
-        }
-        if !told {
-            told = true;
-            eprintln!(
-                "The server is rate-limiting pairing attempts from this network; waiting {} s\u{2026}",
-                wait.as_secs()
-            );
-        }
-        tokio::time::sleep(wait).await;
-    };
+    let response = client
+        .post(format!("{backend}/v2/pairing/start"))
+        .json(&serde_json::json!({
+            "version": PAIRING_WIRE_VERSION,
+            "pairId": pair_id,
+            "secretHash": hash_base64url(&secret),
+            "relayPublicKey": relay_public_key,
+            "relayName": name,
+            "platform": platform,
+        }))
+        .send()
+        .await
+        .map_err(|error| RelayError::transient(format!("pairing start failed: {error}")))?;
+    if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        return Err(RelayError::fatal(
+            "The server is rate-limiting pairing attempts from this network. \
+             Wait a minute, then re-run npx cmux-relay.",
+        ));
+    }
     let status = response.status();
     if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
@@ -181,7 +148,7 @@ pub async fn start_pairing(
         // or something between us altered the key. Do not continue.
         return Err(RelayError::fatal(
             "Verification-code mismatch between this terminal and the server. \
-             Aborting pairing; pair again from a network you trust.",
+             Aborting pairing; try again on a network you trust.",
         ));
     }
     Ok(StartedPairing {
@@ -336,21 +303,5 @@ pub async fn await_ceremony(
             }
             _ => {}
         }
-    }
-}
-
-#[cfg(test)]
-mod rate_wait_tests {
-    use super::rate_wait;
-    use reqwest::header::HeaderValue;
-    use std::time::Duration;
-
-    #[test]
-    fn a_429_waits_what_the_server_names_within_bounds() {
-        assert_eq!(rate_wait(Some(&HeaderValue::from_static("7"))), Duration::from_secs(7));
-        assert_eq!(rate_wait(Some(&HeaderValue::from_static("0"))), Duration::from_secs(1));
-        assert_eq!(rate_wait(Some(&HeaderValue::from_static("9999"))), Duration::from_secs(120));
-        assert_eq!(rate_wait(Some(&HeaderValue::from_static("soon"))), Duration::from_secs(30));
-        assert_eq!(rate_wait(None), Duration::from_secs(30));
     }
 }

@@ -103,30 +103,14 @@ const HttpsUrl = Schema.String.check(Schema.isMaxLength(500), isPattern(/^https:
  * Slice 2c-2: OIDC. The client secret is never part of this record, an op's
  * params, an event or a snapshot: sso.connection.set_secret seals it into a
  * TeamDO side table and only `secret_set` is visible.
- * RFD 0211: SAML 2.0 (SP-initiated, HTTP-Redirect AuthnRequest, HTTP-POST
- * response, signed assertion). A SAML connection has `saml` instead of
- * `oidc`, holds only public IdP certificates, and needs no secret.
  */
-const PemCertificate = Schema.String.check(Schema.isMinLength(100), Schema.isMaxLength(8192)).annotate({
-  identifier: "PemCertificate",
-  description: "An X.509 signing certificate of the IdP, PEM or base64 DER."
-})
-export const SamlSettings = Schema.Struct({
-  /** The IdP's entity id: the Issuer of its assertions. */
-  idp_entity_id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(500)),
-  /** The IdP's single sign-on URL (HTTP-Redirect binding). */
-  sso_url: HttpsUrl,
-  /** One certificate, or two while the IdP rotates its key. */
-  certificates: Schema.Array(PemCertificate).check(Schema.isMinLength(1), Schema.isMaxLength(2))
-}).annotate({ identifier: "SamlSettings" })
-
 export const SsoConnection = Schema.Struct({
   id: ConnectionId,
-  kind: Schema.Literals(["oidc", "saml"]),
+  kind: Schema.Literal("oidc"),
   state: Schema.Literals(["draft", "active", "disabled"]),
   /** Verified domains of the team this connection serves (sign-in discovery). */
   domains: Schema.Array(EmailDomain),
-  oidc: Schema.optionalKey(Schema.Struct({
+  oidc: Schema.Struct({
     issuer: HttpsUrl,
     client_id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
     scopes: Schema.Array(Schema.String.check(Schema.isMaxLength(64))),
@@ -134,9 +118,7 @@ export const SsoConnection = Schema.Struct({
     authorization_endpoint: Schema.NullOr(HttpsUrl),
     token_endpoint: Schema.NullOr(HttpsUrl),
     jwks_uri: Schema.NullOr(HttpsUrl)
-  })),
-  /** Set when kind is saml. */
-  saml: Schema.optionalKey(SamlSettings),
+  }),
   secret_set: Schema.Boolean,
   /** Generation of the sealed secret this record accepts (an older sealed row is never used). */
   secret_generation: Schema.optionalKey(Schema.Int),
@@ -166,27 +148,6 @@ export const SsoConnectionCreate = def({
   mcp: { expose: "never", group: "team" }
 })
 
-export const SsoConnectionCreateSaml = def({
-  name: "sso.connection.create_saml",
-  owner: "cloud:TeamDO",
-  class: "mutation",
-  risk: "mutate-shared",
-  target: "team",
-  principals: ["session"],
-  params: Schema.Struct({
-    idp_entity_id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(500)),
-    sso_url: HttpsUrl,
-    certificates: Schema.Array(PemCertificate).check(Schema.isMinLength(1), Schema.isMaxLength(2)),
-    domains: Schema.Array(EmailDomain).check(Schema.isMinLength(1), Schema.isMaxLength(20)),
-    jit: Schema.optionalKey(Schema.Struct({ enabled: Schema.Boolean, default_role: Schema.Literals(["member", "admin"]) }))
-  }),
-  result: SsoConnection,
-  errors: [...mutationErrors, "policy.invalid"],
-  docs: "Create a SAML 2.0 connection in draft (owners and admins) from the IdP's entity id, sign-on URL and signing certificate. Give the IdP the SP metadata at /v1/sso/saml/metadata/{team}/{connection}, then activate it.",
-  cli: { path: "team sso create-saml", visible: true },
-  mcp: { expose: "never", group: "team" }
-})
-
 export const SsoConnectionSetSecret = def({
   name: "sso.connection.set_secret",
   owner: "cloud:TeamDO",
@@ -212,7 +173,7 @@ export const SsoConnectionActivate = def({
   params: Schema.Struct({ connection: ConnectionId }),
   result: SsoConnection,
   errors: [...mutationErrors, "selector.not_found", "policy.invalid", "sso.discovery_failed"],
-  docs: "Activate the connection (owners and admins). OIDC: fetches the issuer's discovery document and needs the secret. SAML: needs a valid IdP certificate. Both need every domain verified by this team.",
+  docs: "Fetch the issuer's OpenID discovery document and activate the connection (owners and admins). Needs the secret and every domain verified by this team.",
   cli: { path: "team sso activate", visible: true },
   mcp: { expose: "never", group: "team" }
 })
@@ -247,4 +208,4 @@ export const SsoConnectionList = def({
   mcp: { expose: "never", group: "team" }
 })
 
-export const ssoOps = [DomainClaim, DomainVerify, DomainRelease, DomainList, SsoConnectionCreate, SsoConnectionCreateSaml, SsoConnectionSetSecret, SsoConnectionActivate, SsoConnectionDisable, SsoConnectionList] as const
+export const ssoOps = [DomainClaim, DomainVerify, DomainRelease, DomainList, SsoConnectionCreate, SsoConnectionSetSecret, SsoConnectionActivate, SsoConnectionDisable, SsoConnectionList] as const

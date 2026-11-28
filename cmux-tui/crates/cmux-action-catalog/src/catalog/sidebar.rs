@@ -31,9 +31,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "slider.horizontal.3",
         surfaces: PALETTE | KEYBOARD | MENU,
-        // The sidebar background menu's one door to Settings > Sidebar: its Customize… row
-        // (`customize.open`) is an agent chat and hidden from right-click menus by default.
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 103)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         cli_name: "sidebar customize",
         ..Action::DEFAULT
     },
@@ -272,7 +270,6 @@ pub static ACTIONS: &[Action] = &[
         surfaces: CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("liveInput")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
         cli_name: "sidebar resume-session-in-new-workspace",
-        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -297,7 +294,6 @@ pub static ACTIONS: &[Action] = &[
         surfaces: CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("liveInput")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
         cli_name: "sidebar open-session-pull-request",
-        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {

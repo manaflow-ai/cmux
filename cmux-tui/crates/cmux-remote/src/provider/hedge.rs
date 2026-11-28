@@ -15,14 +15,10 @@
 //! others are dropped, which closes their sockets. Only the connect is hedged:
 //! nothing has been written on any of them yet.
 //!
-//! The last attempt gets the longer [`HedgePolicy::last_attempt_timeout`]: on a
-//! saturated uplink where every connect takes longer than
-//! [`HedgePolicy::attempt_timeout`], it still connects slowly instead of failing
-//! where a plain connect used to succeed. It is still bounded, because a caller
-//! with no budget of its own (the direct `OsTcpDialer`) would otherwise wait
-//! out the operating system's connect timeout, over a minute, on a black-holed
-//! address. A caller with a shorter budget (the relay's 10 s connect) ends the
-//! connect first.
+//! The last attempt has no timeout of its own: on a saturated uplink where every
+//! connect takes longer than [`HedgePolicy::attempt_timeout`], it still connects
+//! slowly inside the caller's own budget (the relay's 10 s connect) instead of
+//! failing where a plain connect used to succeed.
 
 use std::future::Future;
 use std::io;
@@ -54,8 +50,7 @@ pub fn v6_first_after_prefix(addresses: &[SocketAddr], preferred_len: usize) -> 
 /// Connects to one of `targets` through `connect`, hedged by `policy`
 /// (module docs). Attempt `n` dials `targets[n % targets.len()]`. The error
 /// is the last attempt's (an attempt that ran out of time is `TimedOut`). The
-/// final attempt gets [`HedgePolicy::last_attempt_timeout`] instead of
-/// [`HedgePolicy::attempt_timeout`].
+/// final attempt is not timed out here: the caller bounds the whole connect.
 pub async fn connect<A, T, F, Fut>(targets: &[A], policy: HedgePolicy, connect: F) -> io::Result<T>
 where
     A: Clone,
@@ -67,8 +62,7 @@ where
 
 /// The address that last connected per `(host, port)`, for the whole process (Braid's
 /// last-good route, RFD 0164 slice B1). `CMUX_BRAID_LAST_GOOD=0` turns it off.
-static LAST_GOOD: LazyLock<LastGood<(String, u16), SocketAddr>> =
-    LazyLock::new(|| LastGood::from_env().named("cmux-remote.tcp"));
+static LAST_GOOD: LazyLock<LastGood<(String, u16), SocketAddr>> = LazyLock::new(LastGood::from_env);
 
 /// A race's losers that connected after the winner, one per `(host, port)` and address family,
 /// for the whole process (Braid's standby pool, RFD 0164 slice B3). `CMUX_BRAID_STANDBY=0`

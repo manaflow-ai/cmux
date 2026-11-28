@@ -201,12 +201,8 @@ confirmed ownership row repairs an uncertain completion, including a tombstone:
 retrying a deleted allocation cannot create another VM.
 A provider 4xx create answer other than 408 or 409, confirmed by a 404 at the
 exact slug, frees the slot at once; the same key may retry under quota. A send
-whose outcome is unknown (5xx, timeout, transport) is resent only after 150
-seconds (`CREATE_RESEND_AFTER_MS`: the 120-second create timeout plus 30) and
-another empty exact-slug lookup, under the same slug: the provider refuses a
-second VM at a slug with 409, and the read after that 409 adopts the first
-send's VM, so a resend never makes a second VM. Its cancellation settles only
-after the 10-minute grace window (`CREATE_SEND_GRACE_MS`) and another empty
+whose outcome is unknown (5xx, timeout, transport) is resent, or its
+cancellation settles, only after a 10-minute grace window and another empty
 exact-slug lookup.
 
 Unresolved allocation intents do not expire at the ordinary 24-hour key or
@@ -453,8 +449,8 @@ ids), remove all but the create for those services. Unset, nothing changes.
   408 or 409, then 404 at the exact slug) marks the send rejected and frees
   the slot, and a retry sends at once; a 5xx, a timeout or a VM booted from
   another snapshot leaves the send uncertain, and retries under that key
-  answer 503 without sending until 150 seconds have passed
-  (`CREATE_RESEND_AFTER_MS`), each later round that boots another snapshot
+  answer 503 without sending until the 10 minute send grace has passed
+  (`CREATE_SEND_GRACE_MS`), each later round that boots another snapshot
   making and deleting one VM. What the provider answers for a snapshot it no
   longer has is not confirmed; confirm it before listing production. A mismatched VM whose delete fails runs
   unrecorded until the orphan sweep; it is logged as
@@ -463,7 +459,7 @@ ids), remove all but the create for those services. Unset, nothing changes.
 
 The staging Worker lists `cloud-platform-dev` and `cloud-platform-staging` in
 both; production lists none. Staging takes the unconfirmed missing-snapshot
-case above: at worst a staging create answers 503 for 150 seconds. The
+case above: at worst a staging create answers 503 for the send grace. The
 `vm_create` line (Operations) says what each create did: `imageVariant`, and
 null `recoverMs`, `verifyImageMs` and `resizeMs` for a call that was not made.
 

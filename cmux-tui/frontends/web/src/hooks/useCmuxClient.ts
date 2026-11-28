@@ -28,7 +28,7 @@ export interface ConnectionConfig {
 
 export interface Toast extends NotificationEvent {}
 
-type ConnectionStatus = "idle" | "connecting" | "pairing" | "connected" | "reconnecting" | "reconnect-failed" | "error";
+type ConnectionStatus = "idle" | "connecting" | "pairing" | "connected" | "reconnecting" | "error";
 
 interface ConnectionState {
   status: ConnectionStatus;
@@ -62,12 +62,9 @@ export function useCmuxClient() {
   const clientsRefreshRef = useRef<(() => void) | null>(null);
   const localToastId = useRef(-1n);
   const pairingCredential = useRef<string | undefined>(undefined);
-  const retryRequested = useRef(false);
 
   useEffect(() => {
     if (!config) return;
-    const isManualRetry = retryRequested.current;
-    retryRequested.current = false;
     let cancelled = false;
     let activeClient: CmuxClient | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -158,7 +155,6 @@ export function useCmuxClient() {
       clientPresenceGeneration += 1;
       let dropHandled = false;
       let canReconnect = false;
-      let nonRetryableFailure = false;
       const transport = new WebSocketTransport(config.url, {
         authToken: config.token ?? pairingCredential.current,
         maxInboundMessageBytes: RENDER_ATTACH_MAX_ENCODED_CHARS,
@@ -171,11 +167,7 @@ export function useCmuxClient() {
           pairingCredential.current = credential;
         },
         onAuthenticationRejected: () => {
-          // A rejected pairing credential is dropped, so the next attempt
-          // pairs again. A configured token is the same on every attempt: a
-          // revoked or invalid one can never succeed, so stop retrying.
-          if (config.token) nonRetryableFailure = true;
-          else pairingCredential.current = undefined;
+          if (!config.token) pairingCredential.current = undefined;
         },
       });
       const client = new CmuxClient({ transport });
@@ -192,7 +184,7 @@ export function useCmuxClient() {
         setState((current) => ({
           ...current,
           status: "reconnecting",
-          // Retain the last renderer; terminal input and mutations are disabled.
+          client: null,
           error: null,
           reconnect: step,
           pairing: null,
@@ -205,12 +197,8 @@ export function useCmuxClient() {
 
       try {
         const info = await client.identify();
-        if (info.app !== "cmux-tui") {
-          nonRetryableFailure = true;
-          throw new Error(t("wrongApp", { app: info.app }));
-        }
+        if (info.app !== "cmux-tui") throw new Error(t("wrongApp", { app: info.app }));
         if (!supportsProtocol(info.protocol)) {
-          nonRetryableFailure = true;
           throw new Error(
             t("wrongProtocol", {
               required: SUPPORTED_PROTOCOL,
@@ -314,16 +302,7 @@ export function useCmuxClient() {
         if (client === activeClient) activeClient = null;
         if (cancelled) return;
         if (reconnecting) {
-          if (nonRetryableFailure) {
-            setState((current) => ({
-              ...current,
-              status: "reconnect-failed",
-              error: error instanceof Error ? error.message : String(error),
-              pairing: null,
-            }));
-          } else {
-            scheduleRetry();
-          }
+          scheduleRetry();
         } else {
           setState({
             status: "error",
@@ -346,7 +325,7 @@ export function useCmuxClient() {
       reconnect: null,
       pairing: null,
     }));
-    void start(isManualRetry);
+    void start(false);
     return () => {
       cancelled = true;
       if (retryTimer !== undefined) clearTimeout(retryTimer);
@@ -361,22 +340,14 @@ export function useCmuxClient() {
   }, [config]);
 
   const connect = useCallback((next: ConnectionConfig) => {
-    // This is an explicit session switch, not a reconnect. Never carry a
-    // renderer's cached frame into a different server with reused surface IDs.
-    setState(initialState);
     dispatchSelection({ type: "reset" });
     pairingCredential.current = undefined;
     setConfig({ ...next, token: next.token || undefined });
   }, []);
 
-  const retryConnection = useCallback(() => {
-    retryRequested.current = true;
-    setConfig((current) => (current ? { ...current } : current));
-  }, []);
-
   const runMutation = useCallback(
     async (mutation: (client: CmuxClient) => Promise<unknown>) => {
-      if (!state.client || state.status !== "connected") return false;
+      if (!state.client) return false;
       try {
         await mutation(state.client);
         return true;
@@ -393,7 +364,7 @@ export function useCmuxClient() {
         return false;
       }
     },
-    [state.client, state.status],
+    [state.client],
   );
 
   const selectScreen = useCallback((workspaceId: Id, screenId: Id, surface: Id | null) => {
@@ -435,11 +406,7 @@ export function useCmuxClient() {
         if (!tree) return;
         const target = locateSurface(tree, created.surface);
         if (target) {
-          dispatchSelection({
-            type: "navigate",
-            workspaceId: target.workspaceId,
-            screenId: target.screenId,
-          });
+          dispatchSelection({ type: "navigate", workspaceId: target.workspaceId, screenId: target.screenId });
         }
       }),
     [runMutation],
@@ -507,7 +474,6 @@ export function useCmuxClient() {
     active: activeScreen(view),
     toasts,
     connect,
-    retryConnection,
     selectScreen,
     selectPane,
     selectTab,

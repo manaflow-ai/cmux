@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextNotifications
@@ -88,9 +87,6 @@ enum NotificationHandlers {
         })
         NotificationSettingsHandlers.bind(into: registry, context: context)
         AgentChatMuteHandlers.bind(into: registry, context: context)
-        registry.bindEffect(AgentChatRename.action) { // Rename Agent Session…
-            AgentChatRename.effect(registry, $0, environment: QuitAgents.environment(context.services), chat: context.daemonTab($0)?.tab.agentSession)
-        }
         SubagentLimitHandlers.bind(into: registry, context: context)
         AgentChatIdentifierHandlers.bind(into: registry, context: context)
         // View Chat Only (`cmux agent view <chat>`, the palette): the All chats row's View Only opener.

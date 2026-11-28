@@ -738,19 +738,12 @@ impl Store for JournalStore {
     }
     /// A `meta` record and the overlay; the checkpoint writes `session.json` ([`meta`]).
     fn save(&self, meta: &SessionMeta) -> Result<()> {
-        self.inner.save_meta(meta, ShowAfter::Durable).map(drop)
+        self.inner.save_meta(meta, ShowAfter::Durable)
     }
     /// A `Stream` `meta` record: written in the journal's next batch, synced after
     /// ([`super::durability`]).
     fn save_kept(&self, meta: &SessionMeta) -> Result<()> {
-        self.inner.save_meta(meta, ShowAfter::Written).map(drop)
-    }
-    /// The digest of the image's fields, from the hashes the save makes for its patch anyway.
-    fn save_digest(&self, meta: &SessionMeta, keep: ShowAfter) -> Result<Option<MetaDigest>> {
-        self.inner.save_meta(meta, keep).map(Some)
-    }
-    fn digest(&self, meta: &SessionMeta) -> Option<MetaDigest> {
-        self.inner.meta_digest(meta).ok()
+        self.inner.save_meta(meta, ShowAfter::Written)
     }
     /// The line to the log first, then its record ([module docs](self)). Under the chat's
     /// stripe lock, not a store-wide one: the journal's room is reserved first (so the record
@@ -936,19 +929,6 @@ impl Store for JournalStore {
         self.inner
             .fenced(id, || Store::scan_back(&self.inner.local, id, after, before, skip, visit))
     }
-    fn scan_back_matching(
-        &self,
-        id: &str,
-        after: u64,
-        before: u64,
-        skip: &dyn Fn(&[u8], &[u8]) -> bool,
-        may_match: &dyn Fn(&[u8], &[u8], &[u8]) -> bool,
-        visit: &mut dyn FnMut(EventRecord) -> bool,
-    ) -> Result<()> {
-        self.inner.fenced(id, || {
-            Store::scan_back_matching(&self.inner.local, id, after, before, skip, may_match, visit)
-        })
-    }
     fn scan_back_indexed(
         &self,
         id: &str,
@@ -972,12 +952,6 @@ impl Store for JournalStore {
     }
     fn save_restore_point(&self, id: &str, bytes: &[u8]) -> Result<()> {
         Store::save_restore_point(&self.inner.local, id, bytes)
-    }
-    fn inbox_point(&self, id: &str) -> Option<Vec<u8>> {
-        Store::inbox_point(&self.inner.local, id)
-    }
-    fn save_inbox_point(&self, id: &str, bytes: &[u8]) -> Result<()> {
-        Store::save_inbox_point(&self.inner.local, id, bytes)
     }
     fn scan_kinds(
         &self,
@@ -1250,12 +1224,6 @@ impl Store for JournalStore {
     fn register_cloud_root(&self) -> Result<Option<usize>> {
         Store::register_cloud_root(&self.inner.local)
     }
-    fn cloud_configured(&self) -> bool {
-        Store::cloud_configured(&self.inner.local)
-    }
-    fn offloaded(&self, id: &str) -> bool {
-        Store::offloaded(&self.inner.local, id)
-    }
     fn on_rehydrate(&self, hook: RehydrateHook) {
         Store::on_rehydrate(&self.inner.local, hook)
     }
@@ -1406,9 +1374,6 @@ impl Store for JournalStore {
     }
     fn audit_dir(&self) -> Option<PathBuf> {
         Store::audit_dir(&self.inner.local)
-    }
-    fn usage_tracker_dir(&self) -> Option<PathBuf> {
-        Store::usage_tracker_dir(&self.inner.local)
     }
 }
 

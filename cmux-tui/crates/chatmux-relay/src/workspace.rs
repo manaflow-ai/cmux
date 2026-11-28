@@ -1624,9 +1624,7 @@ impl Connection {
         let permit = match self.admission.clone().try_acquire_owned() {
             Ok(permit) => permit,
             Err(_) => {
-                let refusal = Refusal::failed(format!(
-                    "workspace request limit reached ({MAX_IN_FLIGHT_WORKSPACE_REQUESTS} running), so this request was not started"
-                ));
+                let refusal = Refusal::failed("workspace request limit reached; retry later");
                 self.send_critical(error_frame(&request.request_id, &refusal));
                 return;
             }

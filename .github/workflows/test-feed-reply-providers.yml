@@ -33,7 +33,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           ref: ${{ inputs.test_ref || github.sha }}
           submodules: recursive
@@ -56,7 +56,7 @@ jobs:
       BUILD_TAG: ${{ inputs.tag }}
       BUILD_RUN: ${{ inputs.build_run }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 

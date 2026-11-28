@@ -12,7 +12,6 @@
 //     transcript view is not a look, and the popover is three clicks away.
 import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
-import { KeyHint } from "../../../ui/KeyHint";
 
 type Layout = "submenu" | "inline" | "popover";
 
@@ -68,7 +67,7 @@ function Layouts({ layout }: { layout: Layout }) {
           <div style={rule} />
           <div style={item}>
             <span>Archive</span>
-            <KeyHint keys="A" />
+            <kbd>A</kbd>
           </div>
         </Menu>
         <div className="text-body" style={surface}>

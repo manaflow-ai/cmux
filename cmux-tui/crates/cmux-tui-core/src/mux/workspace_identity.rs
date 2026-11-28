@@ -31,17 +31,11 @@ impl Mux {
 
     pub(super) fn new_workspace_key() -> anyhow::Result<String> {
         let mut bytes = [0u8; 16];
-        // The OS random source failing is transient when it fails at all:
-        // try it again briefly here rather than asking the person to.
-        crate::retry::Patience::new("the system random source", Duration::from_secs(1))
-            .quiet()
-            .spaced(Duration::from_millis(10), Duration::from_millis(200))
-            .run(|| getrandom::fill(&mut bytes).map_err(crate::retry::Attempt::Retry))
-            .map_err(|_| {
-                anyhow::anyhow!(
-                    "could not create workspace identity: the system random source kept failing; restart cmux"
-                )
-            })?;
+        getrandom::fill(&mut bytes).map_err(|_| {
+            anyhow::anyhow!(
+                "could not create workspace identity; retry, then restart cmux if the problem continues"
+            )
+        })?;
         // RFC 9562 UUIDv4 version and variant bits. Keeping the formatter
         // local avoids making stable workspace identity depend on a UUID
         // library at the protocol boundary.

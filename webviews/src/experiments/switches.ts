@@ -28,12 +28,6 @@ export function setExperimentSwitches(value: unknown): void {
   for (const listener of listeners) listener();
 }
 
-/// The switches object as it is now. A change swaps in a new object (never mutates this one), so a
-/// caller can cache what it derives from it against its identity (hostSettings.ts's settingArms).
-export function experimentSwitches(): ExperimentSwitches {
-  return current;
-}
-
 /// Whether switch `name` (`glassToolbarGroups` for `experiments.glassToolbarGroups`) is on now.
 export function experimentSwitchOn(name: string): boolean {
   return current[name] === true;

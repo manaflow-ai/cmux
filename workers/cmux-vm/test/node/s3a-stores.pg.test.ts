@@ -4,7 +4,6 @@ import agentKeys from "../../migrations/0016_cmux_vm_agent_keys.sql?raw";
  * on an in-process Postgres (PGlite). No network database is involved.
  */
 import { PGlite } from "@electric-sql/pglite";
-import { freshPg } from "./fresh-pglite.ts";
 import { Effect, Layer, Option } from "effect";
 import { beforeEach, describe, expect, it } from "vitest";
 import ownership from "../../migrations/0001_cmux_vm_ownership.sql?raw";
@@ -28,7 +27,7 @@ const TENANT_A = TenantId.make("team_alpha");
 const TENANT_B = TenantId.make("team_bravo");
 
 beforeEach(async () => {
-  pg = await freshPg();
+  pg = new PGlite();
   await pg.exec(ownership);
   await pg.exec(s2);
   await pg.exec(snapshots);

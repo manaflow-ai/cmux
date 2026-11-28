@@ -6,11 +6,9 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { manySessions, noChat } from "../src/gallery/fixtures/acpmux";
+import { newTabHost } from "../src/agent-session/acpmux/newTabModel";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { manySessions, noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
-const { newTabHost } = await importWithDom(() => import("../src/agent-session/acpmux/newTabModel"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

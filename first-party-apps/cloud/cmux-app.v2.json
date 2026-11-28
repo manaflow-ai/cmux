@@ -58,7 +58,6 @@
   },
   "serves": {
     "ops": [
-      "cloud.allotment.get",
       "cloud.billing.checkout",
       "cloud.environment.boot",
       "cloud.environment.build",

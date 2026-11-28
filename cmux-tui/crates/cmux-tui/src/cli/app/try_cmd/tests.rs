@@ -7,13 +7,13 @@ use base64::Engine as _;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
-use super::copy::{self, Action as CopyAction, Source as CopySource};
+use super::copy::{self, Action as CopyAction};
 use super::helper::{self, Signing};
 use super::live::{self, Daemon, Phases, Store};
 use super::resolve::{self, Spec, Unresolved};
 use super::{
     ChannelApply, Command, Live, Plan, Scope, app_build, apply_channel, choose, finish, nearest,
-    parse, plan_human, plan_json, pull_copy, try_live, try_live_checked, undo_live,
+    parse, plan_human, plan_json, try_live, try_live_checked, undo_live,
 };
 
 const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -362,103 +362,7 @@ fn nightly_live_channel_takes_daemon_from_past_the_whole_app_floor() {
 }
 
 fn copy_of(tree: &str, from: Option<&str>, action: CopyAction, dry_run: bool) -> Command {
-    let source = CopySource::Tree(tree.into());
-    Command::Copy { source, from: from.map(PathBuf::from), action, dry_run }
-}
-
-fn pull_copy_of(number: u64, from: Option<&str>, action: CopyAction, dry_run: bool) -> Command {
-    let source = CopySource::Pull(number);
-    Command::Copy { source, from: from.map(PathBuf::from), action, dry_run }
-}
-
-#[test]
-fn app_try_pr_with_a_copy_flag_is_the_pr_in_a_copy() {
-    // A bare PR stays a try: its build first, the copy only when there is none (run_try).
-    assert_eq!(
-        parse(&words(&["43455"])).unwrap(),
-        Command::Try { target: "43455".into(), dry_run: false, app: None }
-    );
-    assert_eq!(
-        parse(&words(&["43455", "--stop"])).unwrap(),
-        pull_copy_of(43455, None, CopyAction::Stop, false)
-    );
-    assert_eq!(
-        parse(&words(&["#43455", "--extract"])).unwrap(),
-        pull_copy_of(43455, None, CopyAction::Extract, false)
-    );
-    assert_eq!(
-        parse(&words(&["43455", "--from", "/A.app", "--dry-run"])).unwrap(),
-        pull_copy_of(43455, Some("/A.app"), CopyAction::Run, true)
-    );
-    assert_eq!(
-        parse(&words(&["https://github.com/manaflow-ai/cmux/pull/43455", "--delete"])).unwrap(),
-        pull_copy_of(43455, None, CopyAction::Stop, false)
-    );
-    assert!(parse(&words(&["43455", "--stop", "--dry-run"])).is_err());
-    assert!(parse(&words(&["43455", "--stop", "--extract"])).is_err());
-}
-
-#[test]
-fn app_try_falls_to_a_copy_only_for_a_pr_with_no_build() {
-    let none = Plan::None { why: vec!["the nightly feed has no build".into()] };
-    let full = Plan::Full { build: json!({ "build": "500" }), from: "400".into(), nearest: false };
-    assert_eq!(pull_copy(&Spec::Pull(47198), &none), Some(47198));
-    assert_eq!(pull_copy(&Spec::Pull(47198), &full), None);
-    assert_eq!(pull_copy(&Spec::Branch("lane/x".into()), &none), None);
-    assert_eq!(pull_copy(&Spec::Commit(COMMIT.into()), &none), None);
-}
-
-#[test]
-fn app_try_pr_copy_fetches_the_pr_with_git_into_side_pr_n() {
-    let job = copy::Job::pull(47198, Path::new("/src/cmux"));
-    let from = Path::new("/Applications/cmux NIGHTLY.app");
-    let argv = |action, dry_run| -> Vec<String> {
-        copy::engine_args(action, &job, from, dry_run, false)
-            .iter()
-            .map(|word| word.to_string_lossy().into_owned())
-            .collect()
-    };
-    let engine = "/src/cmux/scripts/cmux-next/hot-verify.py";
-    assert_eq!(
-        argv(CopyAction::Run, false),
-        [
-            engine,
-            "run",
-            "--source",
-            "pr:47198",
-            "--app",
-            "/Applications/cmux NIGHTLY.app",
-            "--repo",
-            "/src/cmux",
-            "--side",
-            "pr-47198",
-            "--label",
-            "cmux PR #47198",
-        ]
-    );
-    assert_eq!(
-        argv(CopyAction::Run, true),
-        [
-            engine,
-            "plan",
-            "--source",
-            "pr:47198",
-            "--app",
-            "/Applications/cmux NIGHTLY.app",
-            "--repo",
-            "/src/cmux"
-        ]
-    );
-    assert_eq!(argv(CopyAction::Stop, false), [engine, "stop", "--side", "pr-47198", "--remove"]);
-    // The way back out names the PR, not a path.
-    let result = json!({ "copy": "/side/cmux PR #47198.app", "socket": "/tmp/s", "applied": {} });
-    let text = copy::running(&result, from, &job.arg);
-    assert!(text.contains("cmux app try 47198 --stop"), "{text}");
-    let needs = json!({ "plan": { "head": COMMIT, "build": { "Swift": ["a.swift"] } } });
-    let text = copy::needs_build_text(&needs, COMMIT, &job.side, "#47198");
-    assert!(text.contains("#47198 needs a build"), "{text}");
-    assert!(text.contains(&format!("--ref {COMMIT} --tag pr-47198")), "{text}");
-    assert_eq!(copy::REPO_ENV, "CMUX_APP_TRY_REPO");
+    Command::Copy { tree: tree.into(), from: from.map(PathBuf::from), action, dry_run }
 }
 
 #[test]
@@ -490,9 +394,9 @@ fn app_try_dot_is_the_working_tree_in_a_copy() {
 
 #[test]
 fn app_try_copy_flags_are_refused_where_they_mean_nothing() {
-    // A branch or commit keeps its own behavior: the copy's flags are not its (a PR's: above).
+    // A PR, branch or commit keeps its own behavior: the copy's flags are not its.
+    assert!(parse(&words(&["43455", "--stop"])).is_err());
     assert!(parse(&words(&["main", "--extract"])).is_err());
-    assert!(parse(&words(&["abc1234", "--stop"])).is_err());
     assert!(parse(&words(&["main", "--from", "/A.app"])).is_err());
     assert!(parse(&words(&[".", "--stop", "--extract"])).is_err());
     assert!(parse(&words(&[".", "--stop", "--dry-run"])).is_err());
@@ -546,13 +450,10 @@ fn app_try_copy_names_a_stable_side_per_checkout() {
 
 #[test]
 fn app_try_copy_routes_each_action_to_the_checkout_s_engine() {
-    let mut job = copy::Job::tree(Path::new("/src/cmux"));
-    assert!(job.side.starts_with("try-cmux-"), "{}", job.side);
-    job.side = "try-cmux-abc123".into();
-    job.label = "cmux try-cmux-abc123".into();
+    let tree = Path::new("/src/cmux");
     let from = Path::new("/Applications/cmux NIGHTLY.app");
     let argv = |action, dry_run| -> Vec<String> {
-        copy::engine_args(action, &job, from, dry_run, false)
+        copy::engine_args(action, tree, from, "try-cmux-abc123", dry_run, false)
             .iter()
             .map(|word| word.to_string_lossy().into_owned())
             .collect()
@@ -598,10 +499,10 @@ fn app_try_copy_routes_each_action_to_the_checkout_s_engine() {
 
 #[test]
 fn app_try_copy_with_no_from_lets_the_engine_pick_a_closer_golden_copy() {
-    let job = copy::Job::tree(Path::new("/src/cmux"));
+    let tree = Path::new("/src/cmux");
     let from = Path::new("/Applications/cmux NIGHTLY.app");
     let argv = |dry_run| -> Vec<String> {
-        copy::engine_args(CopyAction::Run, &job, from, dry_run, true)
+        copy::engine_args(CopyAction::Run, tree, from, "try-cmux-abc123", dry_run, true)
             .iter()
             .map(|word| word.to_string_lossy().into_owned())
             .collect()
@@ -1146,12 +1047,12 @@ fn app_try_takes_the_nearest_build_that_contains_the_commit() {
         panic!("expected the nearest full build, got {plan:?}")
     };
     assert_eq!((picked["build"].as_str(), from.as_str()), (Some("500"), "400"));
-    let text = plan_human(&plan, C0, Path::new("/A.app"), None);
+    let text = super::plan_human(&plan, C0, Path::new("/A.app"), None);
     assert!(text.contains("500") && text.contains(&C1[..10]) && text.contains(&C0[..12]), "{text}");
-    assert_eq!(plan_json(&plan, C0, Path::new("/A.app"), None)["nearest"], true);
+    assert_eq!(super::plan_json(&plan, C0, Path::new("/A.app"), None)["nearest"], true);
 
     // A pulled build is passed over for the next one.
-    let mut pulled = listing;
+    let mut pulled = listing.clone();
     pulled["builds"][2] = build("500", C1, false, "pulled");
     let Plan::Full { build: picked, .. } = nearest(C0, &pulled, Ok(&descent), vec![]) else {
         panic!("expected full")

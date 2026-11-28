@@ -2,8 +2,7 @@
 // A tab's chat that the daemon does not list (`sessionMustExist`): the pane says which case it is
 // (Leo 2026-10-21: "second pic is weird has "this chat isn't available""), centered where the chat
 // would be and in the pane's own type. Deleted: "This chat was deleted" and Remove from Sidebar.
-// Its machine is not connected: a calm "<machine> isn't connected" (Leo, #26115; no "Reconnecting…"
-// line, Leo 2026-11-16), when it was last seen, and
+// Its machine is not connected: a neutral "Reconnecting…" (Leo, #26115), when it was last seen, and
 // Reconnect. A chat that is only loading (its attach in flight, or its machine still connecting)
 // never reads as unavailable,
 // and a chat on another machine whose tab names it by another id than acpmux's opens.
@@ -320,7 +319,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     await page.close();
   });
 
-  test("a tab whose machine is down shows its kept rows under one offline line with every action", async () => {
+  test("a tab whose machine is down shows its kept rows under one Reconnecting line with every action", async () => {
     scenario = {
       sessions: [summary("chat-other")],
       peers: [
@@ -339,8 +338,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     await line.waitFor({ timeout: 25_000 });
     // One state: the line over the rows, never the centered state as well.
     expect(await page.locator("[data-unavailable]").count()).toBe(1);
-    expect(await line.innerText()).toContain("build-box isn't connected");
-    expect(await line.innerText()).not.toContain("Reconnecting");
+    expect(await line.innerText()).toContain("Reconnecting…");
     expect((await state(page)).isWorking).toBe(false);
     for (const action of ["reconnect", "resume", "close"])
       expect(await line.locator(`[data-action="${action}"]`).count()).toBe(1);
@@ -475,7 +473,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     await page.close();
   });
 
-  test("a chat whose machine goes offline says it isn't connected, when it was last seen, and Reconnect opens it", async () => {
+  test("a chat whose machine goes offline says it is reconnecting, when it was last seen, and Reconnect opens it", async () => {
     scenario = {
       sessions: [summary("chat-kept"), summary("chat-on-box", { peer: "build-box" })],
       peers: [{ name: "build-box", transport: "ssh", connected: true, state: "connected", lastSeen: Date.now() }],
@@ -492,12 +490,18 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     notify("_acpmux/lagged", { watch: true, dropped: 1 });
     const shown = page.locator('[data-unavailable="offline"]');
     await shown.waitFor({ timeout: 60_000 });
-    // A calm status, with no "Reconnecting…" line or spinner (Leo, 2026-11-16: "pls no messages like
-    // this"): the machine, when it was last seen, and Reconnect.
-    expect(await shown.locator("h2").innerText()).toBe("build-box isn't connected");
+    // Neutral, as connecting (86ebb89edfcf, #26115): "Reconnecting…", when it was last seen, and Reconnect.
+    expect(await shown.locator("h2").innerText()).toBe("Reconnecting…");
     expect(await shown.getAttribute("role")).toBe("status");
-    expect(await shown.locator(".cv-spinner").count()).toBe(0);
-    expect(await shown.innerText()).not.toContain("Reconnecting");
+    const offlineSpinnerColors = await shown.locator(".acpmux-unavailable-spinner").evaluate((node) => {
+      const probe = document.createElement("span");
+      probe.style.color = "var(--acpmux-composer-placeholder)";
+      node.parentElement?.append(probe);
+      const colors = { spinner: getComputedStyle(node).color, placeholder: getComputedStyle(probe).color };
+      probe.remove();
+      return colors;
+    });
+    expect(offlineSpinnerColors.spinner).toBe(offlineSpinnerColors.placeholder);
     await page.waitForFunction(() => document.body.innerText.includes("Last seen 5 minutes ago."));
     expect(await page.getByText(/isn't available|was deleted/).count()).toBe(0);
     const reconnect = shown.getByRole("button", { name: "Reconnect" });

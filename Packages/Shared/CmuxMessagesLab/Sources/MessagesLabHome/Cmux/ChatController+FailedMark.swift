@@ -9,7 +9,6 @@ extension ChatController {
         guard let hit = demo?.failedMarkHit(p), let intents, intents.canRetrySend(hit.row.ref.messageId) else { return nil }
         let id = hit.row.ref.messageId
         let menu = NSMenu()
-        // retry-prompt-ok: re-sends the person's message to the model (a paid turn)
         menu.addItem(MenuAction(title: CmuxStrings.tryAgain, symbol: "arrow.clockwise") { [weak self] in self?.intents?.retrySend(id) })
         menu.addItem(MenuAction(title: CmuxStrings.deleteFailed, symbol: "trash") { [weak self] in self?.intents?.deleteFailedSend(id) })
         return menu

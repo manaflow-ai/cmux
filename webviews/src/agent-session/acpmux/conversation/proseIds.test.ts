@@ -14,10 +14,10 @@ test("the screenshot's sentence links its build", () => {
 });
 
 test("a run takes the repository of the reference before it, else the chat's", () => {
-  expect(ids("cmux#12 failed in run 42709495104; run 42709495105 too", "o/r").map((id) => id.href)).toEqual([
-    "https://github.com/manaflow-ai/cmux/pull/12",
-    "https://github.com/manaflow-ai/cmux/actions/runs/42709495104",
-    "https://github.com/manaflow-ai/cmux/actions/runs/42709495105",
+  expect(ids("hq#12 failed in run 42709495104; run 42709495105 too", "o/r").map((id) => id.href)).toEqual([
+    "https://github.com/manaflow-ai/cmuxterm-hq/pull/12",
+    "https://github.com/manaflow-ai/cmuxterm-hq/actions/runs/42709495104",
+    "https://github.com/manaflow-ai/cmuxterm-hq/actions/runs/42709495105",
   ]);
   expect(ids("run 42709495104 failed", "o/r").map((id) => id.href)).toEqual([
     "https://github.com/o/r/actions/runs/42709495104",

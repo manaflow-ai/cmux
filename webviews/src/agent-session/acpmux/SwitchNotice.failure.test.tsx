@@ -215,28 +215,6 @@ test("another machine with no sign-in for the agent says where to sign in, and r
   );
 });
 
-test("a start that only lost the line to acpmux is one quiet line with no Retry (Leo, 2026-11-22)", async () => {
-  const container = installDom();
-  await act(async () => {
-    root ??= createRoot(container);
-    root.render(
-      <SwitchNotice
-        switching={{
-          harness: "claude",
-          name: "Claude Code",
-          phase: "failed",
-          error: "closed",
-          code: "transport.closed",
-        }}
-        stillTrying
-        onRetry={() => undefined}
-      />,
-    );
-  });
-  expect(buttons(container)).toEqual([]);
-  expect(container.textContent).toBe("Still trying to start Claude Code…");
-});
-
 test("an agent not signed in on this Mac whose daemon runs its login leads with the card, not a terminal", async () => {
   // Logins done right (Leo, 2026-11-22: "this is simply logins, done righr."): localAgentLogin.
   const container = installDom();

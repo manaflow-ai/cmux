@@ -70,12 +70,6 @@ public protocol CloudPlaceHost: AnyObject {
     func placeIdentity() -> CloudPlaceIdentity?
     /// What a bulk run's chats that never started say when the Cloud account or team changed under it.
     func placeIdentityChangedReason() -> String
-    /// The daemon's host budget verdict (`_acpmux/status` `host_pressure`, raw JSON), the one source of memory pressure
-    /// and battery for Auto; nil when no daemon answered. A pass runs every 30 s at most, so a daemon that does not answer
-    /// in 5 s leaves memory and battery unknown that pass.
-    func placeVerdict() async -> Data?
-    /// Appends one line to this build's `auto-shadow.jsonl`: what Auto would do for the verdict alone.
-    func placeShadow(_ line: String)
 }
 
 /// The chat place controls' runs and Auto: Swift draws and calls, Rust decides (`cloud_move_place_*`).
@@ -90,9 +84,6 @@ public final class CloudPlaceDriver {
     private var turnEnded: [String: UInt64] = [:]
     /// Sessions whose move this driver started and that has not ended (a person's, Auto's or Evacuate's).
     private var running: Set<String> = []
-    /// A pass is waiting on the daemon's verdict; a wake meanwhile asks for one more pass after it.
-    private var evaluating = false
-    private var again = false
 
     /// How often Auto reads again with no change to wake it.
     static let interval: TimeInterval = 30
@@ -309,29 +300,14 @@ public final class CloudPlaceDriver {
     /// The system is about to sleep (true) or woke (false): told by the app's sleep/wake adapter.
     public func slept(_ asleep: Bool) { signals?.post(.asleep(asleep)) }
 
-    /// Reads the daemon's verdict, then asks Rust what to do with each Auto chat and runs the moves it names.
+    /// Asks Rust what to do with each Auto chat now, and runs the moves it names.
     public func evaluate() {
-        guard signals != nil, let host else { return }
-        // A chat kept on Auto whose tab is not listed yet (a relaunch, before its daemon answers) is read at the next tick.
-        guard host.placeChats().contains(where: { place.mode(of: $0.session) == "auto" }) || place.modes.values.contains("auto") else { tick.cancel(); return }
-        tick.schedule(after: .seconds(Self.interval)) { @MainActor [weak self] in self?.evaluate() }
-        guard !evaluating else { again = true; return }
-        evaluating = true
-        // task-owner: one Auto pass; it awaits the daemon's verdict (bounded by the daemon client's timeout), decides, ends.
-        Task { @MainActor [weak self] in
-            let verdict = await host.placeVerdict()
-            guard let self else { return }
-            decide(verdict: verdict)
-            evaluating = false
-            if again { again = false; evaluate() }
-        }
-    }
-
-    /// One pass on `verdict`: the chats are read again, as they are after the wait.
-    func decide(verdict: Data?) {
         guard let signals, let host else { return }
         let autos = host.placeChats().filter { place.mode(of: $0.session) == "auto" }
-        let own = signals.own()
+        // A chat kept on Auto whose tab is not listed yet (a relaunch, before its daemon answers) is read at the next tick.
+        guard !autos.isEmpty || place.modes.values.contains("auto") else { tick.cancel(); return }
+        tick.schedule(after: .seconds(Self.interval)) { @MainActor [weak self] in self?.evaluate() }
+        let now = signals.signals()
         let nowMs = place.nowMs
         for chat in autos {
             // A move that failed or was cancelled waits for the person (Retry), never an Auto loop.
@@ -340,10 +316,9 @@ public final class CloudPlaceDriver {
             let ended = turnEnded[chat.session]
             let ask = CloudAutoSignals.Chat(at: chat.onCloud ? "cloud" : "local", movedByAuto: place.autoMoved.contains(chat.session),
                                             turnRunning: chat.turnRunning, turnMs: turnMs, queued: chat.queued,
-                                            idleMs: chat.turnRunning ? 0 : ended.map { nowMs &- $0 } ?? own.idleMs ?? 0,
+                                            idleMs: chat.turnRunning ? 0 : ended.map { nowMs &- $0 } ?? now.idleMs ?? 0,
                                             moving: chat.moving || place.isMoving(chat.session))
-            guard let answer = signals.decide(ask, session: chat.session, nowMs: nowMs, own: own, verdict: verdict) else { continue }
-            if let line = answer.shadowLine { host.placeShadow(line) }
+            guard let answer = signals.decide(ask, signals: now) else { continue }
             switch answer.action {
             case "toCloud": move(chat, toCloud: true, trigger: .auto(answer.reason ?? "away"))
             case "back": move(chat, toCloud: false, trigger: .auto("back"))

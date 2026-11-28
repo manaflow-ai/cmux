@@ -297,13 +297,11 @@ impl Inner {
     /// browser's sign-in prompt in a tab the agent drives, and cmux never
     /// types a password for an agent (browser-host.md section 4), so the
     /// message says so and names the realm (from the 401's
-    /// `WWW-Authenticate`; its network event can arrive after `Page.navigate`
-    /// answers, so it is waited for, up to 2 s: on a loaded runner it came
-    /// later than the 500 ms this waited before, and the realm was dropped
-    /// (runs 44974954089 and 45252519852). A present event ends the wait.
+    /// `WWW-Authenticate`; its network event can arrive just after
+    /// `Page.navigate` answers, so it is waited for briefly).
     fn sign_in_error(&self, target_id: &str, url: &str, deadline: Instant) -> DriverError {
         let base = url.split(['?', '#']).next().unwrap_or(url);
-        let wait = (Instant::now() + Duration::from_secs(2)).min(deadline);
+        let wait = (Instant::now() + Duration::from_millis(500)).min(deadline);
         let realm = self
             .wait_for(target_id, wait, "the sign-in challenge", |tab| {
                 tab.auth_challenges

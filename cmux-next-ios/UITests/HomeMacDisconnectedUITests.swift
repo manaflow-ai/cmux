@@ -2,8 +2,8 @@ import XCTest
 
 /// CMUX-489, reworked 2026-11-13: Home says its Mac's list is not live the way the Workspaces
 /// tab does: kept rows show exactly as normal; a link that only redials says nothing (Leo's item 3,
-/// 2026-11-24), and a failed read shows "Couldn't refresh" (Home reads again on its own: no Retry to tap, Leo, 2026-11-22: "vacuous decisions like that should be just done"), which takes its own room and covers no row; with nothing kept, Workspaces' empty state for that Mac shows
-/// ("Can't connect to …", or "… is offline"). A kept row opens the conversation
+/// 2026-11-24), and a failed read shows "Couldn't refresh" with Retry, which takes its own room and covers no row; with nothing kept, Workspaces' empty state for that Mac shows
+/// ("Can't connect to …" with Retry, or "… is offline"). A kept row opens the conversation
 /// under its own "Not connected" bar, never a full-screen error.
 final class HomeMacDisconnectedUITests: XCTestCase {
     override func setUp() {
@@ -72,11 +72,11 @@ final class HomeMacDisconnectedUITests: XCTestCase {
     }
 
     @MainActor
-    func testNothingKeptShowsWorkspacesEmptyStateWithoutRetry() throws {
+    func testNothingKeptShowsWorkspacesEmptyStateWithRetry() throws {
         let app = launch("retry-home-unreachable-empty")
         let title = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Can't connect to Demo Mac 1")).firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 30), "Workspaces' empty state\n\(app.debugDescription)")
-        XCTAssertFalse(app.buttons["Retry"].exists, "it retries on its own\n\(app.debugDescription)")
+        XCTAssertTrue(app.buttons["Retry"].exists, "Retry\n\(app.debugDescription)")
         XCTAssertFalse(app.staticTexts["No Conversations"].exists, "one empty state, not two")
         attach(app, "4-home-unreachable-empty")
     }
@@ -90,13 +90,13 @@ final class HomeMacDisconnectedUITests: XCTestCase {
         attach(app, "5-home-asleep-empty")
     }
 
-    /// Workspaces' connection toast: its words, no Retry, above the rows (never over them).
+    /// Workspaces' connection toast: its words and Retry, above the rows (never over them).
     @MainActor
     private func expectToast(_ app: XCUIApplication, saying text: String, above row: XCUIElement) throws {
         let toast = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", text)).firstMatch
         // A link chip waits the 10 s quiet bound before it shows.
         XCTAssertTrue(toast.waitForExistence(timeout: 25), "the connection toast\n\(app.debugDescription)")
-        XCTAssertFalse(retryControl(app).exists, "no Retry on the toast\n\(app.debugDescription)")
+        XCTAssertTrue(retryControl(app).exists, "Retry on the toast\n\(app.debugDescription)")
         // A link state is a chip a few words wide floating over the rows, not a full-width
         // row that pushes them down (Leo, 2026-11-21: "stop layout shifting").
         XCTAssertLessThan(toast.frame.width, app.frame.width / 2, "the toast is a chip, not a sentence")
@@ -119,7 +119,7 @@ final class HomeMacDisconnectedUITests: XCTestCase {
         print("HomeMacDisconnected: no chip and no Retry at \(elapsed) s")
     }
 
-    /// A Retry on the toast, if one ever shows: the banner's "Retry" button, or a link chip that is its own Retry.
+    /// The toast's Retry: the banner's "Retry" button, or the link chip that is its own Retry.
     @MainActor
     private func retryControl(_ app: XCUIApplication) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "label == %@ OR identifier == %@", "Retry", "connection.chip.retry")).firstMatch

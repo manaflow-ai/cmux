@@ -113,9 +113,9 @@ status=0
 CMUX_BENCH_LAUNCH=direct python3 scripts/measure/graceful-swap-fleet.py --app "$app" --tree "$tree" --out "$out/gsw" \
   ${film_args[@]+"${film_args[@]}"} || status=$?
 # The artifact: the trigger films and the first two of each latency series (with their frame times), every run's
-# run.json, marks and transient frames, the latency receipts, the summary and diagnostics/dev-server.log. The other latency films stay behind.
+# run.json, marks and transient frames, the latency receipts and the summary. The other latency films stay behind.
 root="$PWD"
-(cd "$out/gsw" && find . \( -path ./scratch -prune \) -o -type f \( -path './runs/*' -o -path './latency/*' -o -path './diagnostics/*' -o -name summary.json \
+(cd "$out/gsw" && find . \( -path ./scratch -prune \) -o -type f \( -path './runs/*' -o -path './latency/*' -o -name summary.json \
     -o \( -path './films/*' ! -name '*-[0-9][0-9].mov*' \) -o -path './films/*-0[01].mov*' \) -print0 \
   | tar -cf "$root/graceful-swap-fleet.tar" --null -T -) || true
 echo "graceful-swap-fleet: artifact $(du -h graceful-swap-fleet.tar 2>/dev/null | cut -f1)"

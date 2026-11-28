@@ -1,5 +1,5 @@
 // l10n-allow-file: experiment descriptions are gallery (developer tool) text, never shown in the pane.
-import { defineExperiment } from "../../../experiments/experiment";
+import { defineExperiment, experimentArm } from "../../../experiments/experiment";
 
 /// The agent dot grid (AgentDotGrid.tsx) on the new chat's home: off by default. To dogfood in the
 /// app, set `cmux.experiments` to `{"agent-dot-grid":"on"}` (or `"compact"`) in the pane's web
@@ -18,3 +18,5 @@ export const agentDotGrid = defineExperiment({
 });
 
 export type AgentDotGridArm = keyof typeof agentDotGrid.arms;
+
+export const agentDotGridArm = (): AgentDotGridArm => experimentArm(agentDotGrid);

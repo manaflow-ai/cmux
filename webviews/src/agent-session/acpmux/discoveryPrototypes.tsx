@@ -5,7 +5,6 @@
 // be compared beside it: a quiet hint line under the empty prompt, the composer's keys over the box
 // while the modifier is held, and a "?" in the toolbar that opens `/help`.
 import { createRoot } from "react-dom/client";
-import { KeyHint } from "../../ui/KeyHint";
 import { COMPOSER_KEYS } from "./composerHelp";
 import { translate } from "./i18n";
 
@@ -20,7 +19,7 @@ function Keys({ keys }: { keys: string }) {
   return (
     <span className="acpmux-help-keys">
       {keys.split(" ").map((key, n) => (
-        <KeyHint key={n} keys={key} />
+        <kbd key={n}>{key}</kbd>
       ))}
     </span>
   );

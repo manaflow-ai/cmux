@@ -9,8 +9,7 @@
 //   - `words`: the dot and the state's word. Says what happens, not to which machine; a pane beside
 //     another machine's chat reads the same.
 //   - `named` (shipped): the dot, the machine and the state's word, the sidebar header's same word,
-//     and no Reconnect when it is down: the row redials on its own (Leo, 2026-11-22). The words
-//     fold out of the dot, so the model chip and the
+//     with Reconnect when it is down. The words fold out of the dot, so the model chip and the
 //     ring never move; connected folds back to the dot.
 //
 // References: claude/live/sidebar-project-groups-status-dots (a status dot per remote group, words
@@ -81,12 +80,12 @@ variants["named-long-name"] = {
   props: { link: longName },
 };
 
-// Automatic connecting/reconnecting stays quiet at any duration. Under LINK_DOWN_SAID_MS (afterDelay.ts) a link acpmux brings back on its own is not said (Leo,
+// Under LINK_DOWN_SAID_MS (afterDelay.ts) a link acpmux brings back on its own is not said (Leo,
 // 2026-11-14: "i also want all our connectivity stuff to shut the fuck up"): the plain dot, no spinner,
 // no words, in every state that heals by itself.
 for (const [state, link] of Object.entries({ connecting, reconnecting, offline }))
   variants[`quiet-${state}`] = {
-    note: `${state}, down for less than 10 s: the plain dot; no progress line.`,
+    note: `${state}, down for less than 10 s: the plain dot; nothing is said yet.`,
     props: { link, quietMs: 3_600_000 },
   };
 

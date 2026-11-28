@@ -13,7 +13,6 @@
 //
 // Variants: Liquid Glass on (the gallery's base theme keeps glass on), Liquid Glass off
 // (data-glass="off", the shipped default since cmux#46104) and Reduce Transparency.
-import { KeyHint } from "../KeyHint";
 import { type CSSProperties, useEffect } from "react";
 import { componentEntry } from "../../gallery/format";
 
@@ -177,7 +176,6 @@ function GlassSystemGallery({ mode, scene = "levels" }: Props) {
           whiteSpace: "nowrap",
         }}
       >
-        {/* key-hint-allow: a sample label naming the glass level, not a drawn shortcut. */}
         chip · a tooltip ⌘K
       </div>
     </div>
@@ -201,7 +199,7 @@ function HoverInputScene() {
         style={{ ...box(32, 24, 0, 0), width: "auto", height: "auto", whiteSpace: "nowrap" }}
       >
         <span className="ui-tooltip-text">Fork Conversation</span>
-        <KeyHint keys="⌘⇧D" className="ui-tooltip-hint" />
+        <span className="ui-tooltip-hint">⌘⇧D</span>
       </div>
       <div
         className="ui-title-tooltip ui-glass"

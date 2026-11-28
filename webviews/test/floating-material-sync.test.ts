@@ -35,12 +35,7 @@ test("the native menu radius is the popup radius, and the native default outer r
 test("the native menu row is the row control", () => {
   expect(swift).toContain("public static let rowHeight: CGFloat = DesignTokens.controlRow");
   const tokens = repo("Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/DesignTokens.swift");
-  // DesignTokens forwards to the build-generated DesignScale (gen-design-scale-swift.py), which reads
-  // the JSON's controls, so the native row is the JSON's row with no copy to drift.
-  expect(tokens).toContain("static let controlRow: CGFloat = DesignScale.controlRow");
-  const generator = repo("scripts/cmux-next/gen-design-scale-swift.py");
-  expect(generator).toContain('ident("control", item["name"])');
-  expect(control("row").px).toBe(28);
+  expect(tokens).toContain(`static let controlRow: CGFloat = ${control("row").px}`);
 });
 
 test("the native menu is the menu glass level", () => {

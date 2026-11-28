@@ -1,5 +1,4 @@
 public import CmuxHomeRender
-import CmuxNextPages
 public import CoreGraphics
 public import Foundation
 import JavaScriptCore
@@ -66,9 +65,8 @@ public nonisolated final class OndineMermaidRenderer: HomeDiagramRendering, Send
 
     /// The renderer over the app bundle's `markdown-viewer/ondine.min.js`, or nil when the bundle has none.
     public static func bundled(appResources: URL? = Bundle.main.resourceURL) -> OndineMermaidRenderer? {
-        // The app stores it packed (`ondine.min.js.xz`) and unpacks it on first use (PackedResource).
         guard let script = appResources?.appending(path: "markdown-viewer/ondine.min.js"),
-              PackedResource.app.exists(script) else { return nil }
+              FileManager.default.fileExists(atPath: script.path) else { return nil }
         return OndineMermaidRenderer(script: script)
     }
 
@@ -135,8 +133,7 @@ public nonisolated final class OndineMermaidRenderer: HomeDiagramRendering, Send
 
     /// A context with the shims, Ondine and the render function; nil when the script fails.
     private static func load(_ script: URL) -> JSValue? {
-        guard let bytes = PackedResource.app.data(script), let code = String(data: bytes, encoding: .utf8),
-              let context = JSContext() else { return nil }
+        guard let code = try? String(contentsOf: script, encoding: .utf8), let context = JSContext() else { return nil }
         context.evaluateScript(ondineHostShims)
         context.evaluateScript(code, withSourceURL: script)
         let render = context.evaluateScript("""

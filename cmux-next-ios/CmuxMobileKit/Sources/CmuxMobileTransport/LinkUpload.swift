@@ -1,7 +1,4 @@
 import Foundation
-#if canImport(CmuxMobileLinkFFI)
-import CmuxMobileLinkFFI
-#endif
 
 /// Sends a file to the Mac over the link's `upload` service (PROTOCOL.md):
 /// one channel per file, opened with `{name, size, cwd?}`, the bytes as data
@@ -47,13 +44,6 @@ public enum LinkUpload {
     /// Nonisolated async: the file reads run off the caller's actor.
     public static func upload(_ payload: Payload, name: String, cwd: String?, over link: any MacLink,
                               scope: any SecurityScope = SystemSecurityScope()) async throws -> String {
-        #if canImport(CmuxMobileLinkFFI)
-        // A live link goes through the app's one upload engine (bounded,
-        // resumable, cancellable: design/attachment-upload.md).
-        if let handle = link.ffiLinkHandle as? LinkHandle {
-            return try await AttachmentUploadClient.shared.upload(payload, name: name, cwd: cwd, over: handle)
-        }
-        #endif
         switch payload {
         case .data(let data):
             return try await send(name: name, size: data.count, cwd: cwd, over: link) { offset, count in

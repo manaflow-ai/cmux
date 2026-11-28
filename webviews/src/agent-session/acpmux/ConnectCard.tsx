@@ -18,8 +18,7 @@ import { useId, useState, type FormEvent, type ReactNode } from "react";
 import { AgentMark } from "../shared/AgentMark";
 import { normalizeClaudeToken } from "../shared/claudeSetupToken";
 import { checkToken, connectRequest, refusalText, type ConnectPhase, type ConnectProgress } from "./claudeConnect";
-import { Check } from "./conversation/icons";
-import { WaitSpinner } from "./conversation/WaitSpinner";
+import { Check, Spinner } from "./conversation/icons";
 import { useT } from "./i18n";
 import "./claudeConnect.css";
 
@@ -114,7 +113,7 @@ export function ConnectCard({
     </output>
   ) : running && shownPhase ? (
     <output className="acpmux-connect-card__status" data-state="running" aria-busy="true">
-      <WaitSpinner size={12} loading />
+      <Spinner size={12} loading />
       <span>{t(PHASE[family ?? "claude"][shownPhase])}</span>
     </output>
   ) : error ? (

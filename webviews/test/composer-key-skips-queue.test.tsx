@@ -8,13 +8,11 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, createRef } from "react";
 import type { Root } from "react-dom/client";
+import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
+import { acpmuxPerf } from "../src/agent-session/acpmux/perf";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
-const { acpmuxPerf } = await importWithDom(() => import("../src/agent-session/acpmux/perf"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

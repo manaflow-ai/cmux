@@ -136,7 +136,7 @@ async fn queueless_peer() -> u16 {
     let port = l.local_addr().unwrap().port();
     tokio::spawn(async move {
         while let Ok((tcp, _)) = l.accept().await {
-            let Ok(ws) = acpmux::server::accept_ws(tcp).await else { continue };
+            let Ok(ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
             tokio::spawn(async move {
                 let (mut sink, mut source) = ws.split();
                 while let Some(Ok(Ws::Text(text))) = source.next().await {

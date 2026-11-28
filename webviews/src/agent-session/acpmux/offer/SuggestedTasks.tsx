@@ -316,8 +316,7 @@ function childState(offer: AcpmuxSessionOffer): "running" | "waiting" | "failed"
 
 function subtitle(t: Translate, offer: AcpmuxSessionOffer): string {
   const state = childState(offer);
-  // Running is the row's dot, no word (Leo, 2026-11-23: "\"running\" doesn't need text").
-  if (state === "running") return offer.activity ?? "";
+  if (state === "running") return offer.activity ?? t("subagents.state.running");
   if (state === "waiting") return t("home.needsInput");
   if (state === "failed") return t("subagents.state.failed");
   if (state === "done") return t("subagents.state.completed");

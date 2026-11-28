@@ -36,7 +36,7 @@ test("an interim end leaves the agent waiting on its own work, until a final rep
   expect(awaitsOwnWork({ ...waiting, reaction: { turn: "bg-2", weight: "result" } })).toBe(false);
   expect(awaitsOwnWork({ ...waiting, state: "failed" })).toBe(false);
   expect(subagentStatus(waiting, new Set())).toBe("idle");
-  expect(subagentStateText(t, waiting, new Set(), () => true)).toBe("Waiting on its background work");
+  expect(subagentStateText(t, waiting, new Set())).toBe("Waiting on its background work");
   // Its clock keeps going.
   expect(elapsed(waiting, 65_000)).toBe(64_000);
   expect(elapsed({ ...waiting, reaction: undefined }, 65_000)).toBe(4_000);

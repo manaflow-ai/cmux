@@ -95,7 +95,7 @@ public nonisolated protocol TerminalIO: Sendable {
 public extension TerminalIO {
     nonisolated var uploadsPasteboardFiles: Bool { false }
     nonisolated func pasteFiles(_ pasteboard: TerminalFilePaste) async throws { throw CocoaError(.featureUnsupported) }
-    nonisolated var answersTerminalQueries: Bool { true }
+    var answersTerminalQueries: Bool { true }
     @MainActor func appliesViewGrid(reporting: Bool) -> Bool { false }
     @MainActor var linkGrids: TerminalLinkGrids? { nil }
     @MainActor func resizeOnMain(cols: Int, rows: Int, window: NSWindow?) -> Bool { false }
@@ -104,7 +104,7 @@ public extension TerminalIO {
     func reconnectRequested() async {}
     func resyncRequested() async {}
     nonisolated var typingProbeSource: TypingLatencyProbe.Source? { nil }
-    nonisolated var predictsEcho: Bool { false }
+    var predictsEcho: Bool { false }
 }
 
 /// One event from a ``TerminalIO``.

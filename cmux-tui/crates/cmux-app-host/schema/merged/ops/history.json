@@ -14,7 +14,7 @@
     "history.entries.list": {
       "source": "local",
       "class": "read",
-      "digest": "707fb57ba913dc29"
+      "digest": "e30081ed637b04de"
     },
     "history.entries.remove": {
       "source": "local",
@@ -44,7 +44,7 @@
     "history.visit.record": {
       "source": "local",
       "class": "mutation",
-      "digest": "493fda1e4c992acf"
+      "digest": "8de9810b32366764"
     },
     "history.visit.remove": {
       "source": "local",

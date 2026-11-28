@@ -49,11 +49,9 @@ printf 'Running %s DB behavior test file(s) with CMUX_DB_TEST=1\n' "${#test_file
 failed_files=()
 zero_test_files=()
 skipped_test_files=()
-temp_root="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
-mkdir -p "$temp_root"
 for test_file in "${test_files[@]}"; do
   printf '\n==> bun test %s\n' "$test_file"
-  output_file="$(mktemp "$temp_root/cmux-db-behavior-test.XXXXXX")"
+  output_file="$(mktemp /tmp/cmux-db-behavior-test.XXXXXX)"
   set +e
   # DB behavior files share one database and may also mutate process-wide
   # environment controls (for example VM plan limits). Bun's default

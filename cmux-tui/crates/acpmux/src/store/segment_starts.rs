@@ -98,7 +98,7 @@ impl SegmentStarts {
         let (mut lo, mut hi) = (1usize, segments.len());
         while lo < hi {
             let mid = lo + (hi - lo) / 2;
-            let Some((index, path)) = segments.get(mid) else { return Ok(0) };
+            let (index, path) = &segments[mid];
             if self.first_seq(id, *index, path)?.is_some_and(|first| first <= bound) {
                 lo = mid + 1;
             } else {
@@ -118,7 +118,7 @@ impl SegmentStarts {
         let (mut lo, mut hi) = (0, segments.len());
         while lo < hi {
             let mid = lo + (hi - lo) / 2;
-            let Some((index, path)) = segments.get(mid) else { return Ok(segments.len()) };
+            let (index, path) = &segments[mid];
             let Some(first) = self.first_seq(id, *index, path)? else {
                 return Ok(segments.len());
             };

@@ -64,11 +64,7 @@ final class TabCell {
     /// came while hidden runs when the strip shows again.
     var isStripShown = true {
         didSet {
-            if isStripShown, !oldValue, owesIndicatorResync {
-                statusIndicatorResync()
-            } else if isStripShown != oldValue, item.isBusy {
-                updateSpinner()
-            }
+            if isStripShown, !oldValue, owesIndicatorResync { statusIndicatorResync() }
             if isStripShown != oldValue { updateNeedsYouGlowMotion() }
         }
     }
@@ -236,10 +232,9 @@ final class TabCell {
         backgroundLayer.cornerCurve = .circular // Helium's tab: a circular-arc SkRRect, not a squircle
         iconLayer.contentsGravity = .resizeAspect
         titleLayer.font = titleFont
-        // Titles are clipped by TitleFade, never Core Text truncation. Starting with a
-        // truncation mode leaves a new cell drawing a stale partial glyph before its first
-        // layout decides the visible width.
-        titleLayer.truncation = nil
+        // Keep a tab's distinguishing suffix visible when its chip is narrow (for example,
+        // "Helper 1" and "Helper 2"). The hover marquee still expands to the full title.
+        titleLayer.truncation = .middle
         for sublayer in [backgroundLayer, separatorLayer, iconLayer, titleLayer] {
             sublayer.actions = Self.noActions
             root.addSublayer(sublayer)
@@ -481,9 +476,7 @@ final class TabCell {
     /// (`retimeInner`): no part is removed (it hides), nothing fades, and the title's geometry is
     /// recorded in `pathTitle` instead of applied. `form`: the path's form at this sample
     /// (`TabChromeVisibility.path`); nil lays out the rest form of the width.
-    /// `yielding`: the second pass for a title the marks squeezed below its minimum, where `metrics.crowdedMarks`
-    /// gives the title their room.
-    func layoutParts(slotWidth: CGFloat, onPath: Bool, form: TabChromeVisibility? = nil, yielding: Bool = false) {
+    func layoutParts(slotWidth: CGFloat, onPath: Bool, form: TabChromeVisibility? = nil) {
         let slot = CGRect(x: 0, y: 0, width: slotWidth, height: layer.bounds.height)
         let m = metrics
         // The pill leaves the gap to the next tab at its trailing side (the
@@ -545,7 +538,7 @@ final class TabCell {
         // slot; the unread or status mark, the loading indicator and the other marks draw in the
         // trailing cluster (TabCell+TrailingMarks). A tab too narrow for its title has no
         // trailing room, so there they keep the icon's corner as before.
-        let marksOnIcon = !visibility.showsTitle || (yielding && m.crowdedMarks == .onIcon)
+        let marksOnIcon = !visibility.showsTitle
         // Agent identity can be a custom image or symbol as well as a brand mark. Working keeps
         // that artwork under a small spinner badge; browser loading still replaces its favicon.
         let spinnerOnIcon = marksOnIcon && spinnerLayer != nil
@@ -586,19 +579,12 @@ final class TabCell {
         if let closeRect {
             let appearing = !hasCloseLayers
             let (closeBackgroundLayer, closeGlyphLayer) = makeCloseLayers()
-            // Helium's plate, centered on the x's square (tab_close_button.cc's highlight around its contents or its
-            // whole button): 14 pt on a tab under 32 pt, 24 pt from 32 pt, with its 4 pt corner. It stays inside the
-            // pill and a point clear of a favicon shown before it, so a narrow tab shrinks it, centered still.
-            var plateSide = min(m.closePlateSide, bounds.height, 2 * (bounds.width - closeRect.midX))
-            if visibility.showsIcon, iconFrame.maxX <= closeRect.minX { plateSide = min(plateSide, 2 * (closeRect.midX - iconFrame.maxX - 1)) }
-            plateSide = max(closeRect.width, plateSide)
-            let plate = CGRect(x: pixel(closeRect.midX - plateSide / 2), y: pixel(midY - plateSide / 2), width: plateSide, height: plateSide)
-            closeBackgroundLayer.frame = plate
-            closeBackgroundLayer.cornerRadius = min(m.closeCornerRadius, plateSide / 2)
+            closeBackgroundLayer.frame = closeRect
+            // Helium's own corner on its x square (not nested in the pill), and its stroke, at every density.
+            closeBackgroundLayer.cornerRadius = m.closeCornerRadius
             closeGlyphLayer.lineWidth = m.closeGlyphLineWidth
-            let ink = m.closeGlyphInk, inset = m.closeGlyphPathInset
-            let glyph = CGRect(x: pixel(plate.midX - ink / 2), y: pixel(plate.midY - ink / 2), width: ink, height: ink)
-                .insetBy(dx: inset, dy: inset)
+            let inset = (closeRect.width - m.closeGlyphInk) / 2 + m.closeGlyphPathInset
+            let glyph = closeRect.insetBy(dx: inset, dy: inset)
             // The glyph's layer is its own rect, so a strip move animates where it is, not its path.
             closeGlyphLayer.frame = glyph
             closeGlyphLayer.path = Self.closeGlyphPath(in: CGRect(origin: .zero, size: glyph.size))
@@ -633,17 +619,9 @@ final class TabCell {
             // rest (a narrow selected tab) keeps the status beside it.
             let statusSlot = hasStatusMark && item.isClosable && (closeRect == nil || visibility.closeReplacesStatus)
                 ? statusSlotRect(pillWidth: bounds.width, midY: midY) : nil
-            let visibleEnd: CGFloat
-            if yielding, m.crowdedMarks == .onIcon {
-                // The marks drew on the icon above; the trailing badges give the title their room.
-                hideTrailingBadges()
-                visibleEnd = titleEnd
-            } else {
-                visibleEnd = layoutTrailingMarks(titleX: titleX, titleEnd: titleEnd, midY: midY, onPath: onPath, statusSlot: statusSlot,
+            let visibleEnd = layoutTrailingMarks(titleX: titleX, titleEnd: titleEnd, midY: midY, onPath: onPath, statusSlot: statusSlot,
                                                  statusHidden: visibility.closeReplacesStatus,
-                                                 animated: animatesCloseChange && !onPath && m.hoverCloseSwap != .instant,
-                                                 statusOnly: yielding && m.crowdedMarks == .dropBadges)
-            }
+                                                 animated: animatesCloseChange && !onPath && m.hoverCloseSwap != .instant)
             // The marquee fades glyphs out across the icon-title gap.
             let textWidth = titleWidth()
             let visibleWidth = visibleEnd - titleX
@@ -658,9 +636,7 @@ final class TabCell {
                 // the rest width above keeps the suffix inside that visible
                 // area before the close button or badge.
                 fadeWidth: m.titleFadeWidth,
-                restWidth: restWidth,
-                // The fade never ends on a fragment of a word's first glyph ("New Tab" read "New" and a tick).
-                wordStarts: titleLayer.wordStarts
+                restWidth: restWidth
             )
             // A density's `tabTitleDrop` (Chrome's 1 pt: it centers the title over the shape and the toolbar's 1 pt
             // overlap, so its baseline sits 19 pt under a 28 pt shape's top, Helium's 18).
@@ -675,39 +651,19 @@ final class TabCell {
             } else {
                 titleFade.apply(geometry, frame: frame, animated: animatesCloseChange)
             }
-            // Leo 2026-11-23: "what the hell? you guys still didnt merge stuff for fixing this..." (a 1-2 px sliver of a
-            // clipped title beside the icon). Marks that leave the title less than ~3 characters hide it: the icon
-            // alone, never a sliver. A title shorter than that (an "A") still shows.
-            //
-            // Leo 2026-11-27: "ok why dont your tabs have any names/letters showing up? that intentional?". A crowded
-            // agent tab's status, machine and presence marks took all of its title room, so the title hid. The marks
-            // give way first (`metrics.crowdedMarks`, by default onto the icon) when that leaves the title its minimum.
-            let minTitle = min(textWidth, max(m.titleMinVisibleWidth, ceil(titleFont.pointSize * 0.55 * m.titleMinCharacters)))
-            if visibleWidth < minTitle {
-                if !yielding, m.crowdedMarks != .trailing, visibleEnd < titleEnd - 0.5, titleEnd - titleX >= minTitle {
-                    layoutParts(slotWidth: slotWidth, onPath: onPath, form: form, yielding: true)
-                    return
-                }
-                titleLayer.opacity = 0
-            }
         } else {
             titleLayer.opacity = 0
-            hideTrailingBadges()
+            for badge in [machineLayer, machineIconLayer, profileLayer, presenceLayer, audioLayer, audioBackgroundLayer] { badge?.opacity = 0 }
+            if let countPillLayer {
+                countPillLayer.removeAnimation(forKey: "opacity")
+                countPillLayer.opacity = 0
+            }
             if onPath {
                 pathTitle = nil
             } else {
                 titleFade.stopMarquee(animated: false)
                 titleLayer.mask = nil
             }
-        }
-    }
-
-    /// Hides the badges a titled tab draws beside its title (they have no place on the icon).
-    func hideTrailingBadges() {
-        for badge in [machineLayer, machineIconLayer, profileLayer, presenceLayer, audioLayer, audioBackgroundLayer] { badge?.opacity = 0 }
-        if let countPillLayer {
-            countPillLayer.removeAnimation(forKey: "opacity")
-            countPillLayer.opacity = 0
         }
     }
 

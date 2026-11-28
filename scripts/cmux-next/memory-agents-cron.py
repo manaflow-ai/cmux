@@ -259,42 +259,6 @@ def breakdown_from(report: dict, phase: str = "idle") -> tuple[dict, list[dict]]
     return out, rows
 
 
-# The features goal memory-per-chat's rows depend on, and how the app resolves each (it must match the app's own read:
-# CEFChatRendererRecycle.isEnabled, on unless the variable is "0"). A run with one off writes no rows unless
-# --allow-gate-off says it is meant to (an A/B), so a number measured with the feature off is never recorded as the
-# feature's number (memory-per-chat, 2026-11-28: the gate read == "1" while its doc said on by default, and the
-# bench recorded 1.357x with recycling off).
-GATES = {"CMUX_NEXT_CHAT_RENDERER_RECYCLE": lambda value: value != "0"}
-
-
-def gate_states(values: dict) -> dict[str, bool]:
-    """Each gate on or off for these environment values (pure; None is unset)."""
-    return {name: rule(values.get(name)) for name, rule in GATES.items()}
-
-
-def gate_line(where: str, values: dict) -> str:
-    """The run's gate line (pure), e.g. `memory-agents: gates (launch) CMUX_NEXT_CHAT_RENDERER_RECYCLE=unset -> on`."""
-    states = gate_states(values)
-    return f"memory-agents: gates ({where}) " + ", ".join(
-        f"{name}={'unset' if values.get(name) is None else values[name]} -> {'on' if on else 'off'}"
-        for name, on in states.items())
-
-
-def launch_gates(env_args: list[str]) -> dict:
-    """The gates' values the app will launch with: this run's --env, else launchd's (`open` merges them in)."""
-    given = dict(pair.split("=", 1) for pair in env_args if "=" in pair)
-    values = {}
-    for name in GATES:
-        value = given.get(name)
-        if value is None and sys.platform == "darwin":
-            try:  # check_output, not run: main's bench call is the one `run`
-                value = subprocess.check_output(["launchctl", "getenv", name], text=True).strip() or None
-            except (OSError, subprocess.CalledProcessError):
-                value = None
-        values[name] = value
-    return values
-
-
 def bench_cmd(args: argparse.Namespace, raw: str) -> list[str]:
     """bench_memory.py's command for this part (pure). The empty app process's own split (--app-vm) is on unless
     --no-app-vm: the app process is the largest kind of the empty app (ram-baseline, CMUX-571), and only a stored
@@ -308,26 +272,7 @@ def bench_cmd(args: argparse.Namespace, raw: str) -> list[str]:
         cmd.append("--app-vm")
     if args.app_vm_stacks:
         cmd += ["--app-vm-stacks", args.app_vm_stacks]
-    for pair in getattr(args, "env", None) or []:
-        cmd += ["--env", pair]
     return cmd
-
-
-def chat_counts(report: dict, agents: str, phase: str = "idle") -> list[dict]:
-    """How many chat workspaces each asked count opened (pure): {"expected", "opened", "pane_failures"} per count in
-    --agents. `opened` is the idle-N sample's workspaces (the launch workspace counts in N, as in rows_from); with no
-    idle-N sample, the most workspaces any sample of the phase saw (the run stopped before N), else 0. The part prints
-    and stores it every run, so "not every chat opened" names how many did (memory-per-chat, 2026-11-26: the row went
-    without a value for days and the report said only that the count was missing)."""
-    samples = [s for s in report.get("samples") or [] if isinstance(s, dict)
-               and str(s.get("label") or "").startswith(f"{phase}-")]
-    counts = []
-    for n in sorted({int(x) for x in agents.split(",") if x.strip().isdigit()}):
-        at_n = next((s for s in samples if s.get("label") == f"{phase}-{n}"), None)
-        seen = [s.get("workspaces") for s in ([at_n] if at_n else samples) if isinstance(s.get("workspaces"), int)]
-        failures = [s.get("pane_failures") for s in samples if isinstance(s.get("pane_failures"), int)]
-        counts.append({"expected": n, "opened": max(seen) if seen else 0, "pane_failures": max(failures or [0])})
-    return counts
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -344,23 +289,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="skip bench_memory --app-vm (by default every run stores the empty app process's vmmap "
                              "summary, footprint and heap in report.json app_vm)")
     parser.add_argument("--app-vm-stacks", metavar="PATTERN", help="bench_memory --app-vm-stacks (a diagnostic run)")
-    parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
-                        help="an environment variable for the app (bench_memory --env), e.g. "
-                             "CMUX_NEXT_CHAT_RENDERER_RECYCLE=0 with --allow-gate-off for an A/B")
-    parser.add_argument("--allow-gate-off", action="store_true",
-                        help="keep the rows when a gate in GATES is off (an A/B run); by default such a run writes none")
     args, _rest = parser.parse_known_args(argv)  # split-spring's own args (--tag) are not this suite's
     out_dir = args.out or os.path.dirname(os.path.abspath(args.json))
     os.makedirs(out_dir, exist_ok=True)
-    launch_values = launch_gates(args.env)
-    print(gate_line("launch", launch_values), flush=True)  # the run's first line
-    off = [name for name, on in gate_states(launch_values).items() if not on]
-    if off and not args.allow_gate_off:
-        why = f"gate off at launch: {', '.join(off)} (--allow-gate-off for an A/B run): no rows"
-        with open(args.json, "w") as f:
-            json.dump({"rows": [], "agents": args.agents, "gates": {"launch": launch_values}, "incomplete": [why]}, f, indent=1)
-        print("memory-agents: FAILED: " + why, file=sys.stderr)
-        return 2
     raw = os.path.join(out_dir, "memory-agents.json")
     cmd = bench_cmd(args, raw)
     status = subprocess.run(cmd, cwd=ROOT).returncode
@@ -369,22 +300,13 @@ def main(argv: list[str] | None = None) -> int:
             report = json.load(f)
     except (OSError, ValueError):
         report = {}
-    app_read = report.get("app_gates") or {}
-    app_values = app_read.get("values") if isinstance(app_read.get("values"), dict) else None
-    if app_values is not None:
-        print(gate_line(f"app, {app_read.get('source', '?')}", app_values), flush=True)
-        off = [name for name, on in gate_states(app_values).items() if not on]
-        if off and not args.allow_gate_off:
-            report = {"app_gates": app_read}  # no samples: no rows from a run with the feature off
-            print(f"memory-agents: FAILED: gate off in the app: {', '.join(off)}: rows dropped", file=sys.stderr)
-            status = status or 2
     rows = rows_from(report)
     breakdown, breakdown_rows = breakdown_from(report)
     settled_rows = rows_from(report, "settled")
     settled, settled_breakdown_rows = breakdown_from(report, "settled")
     rows += idle_rows(report)
     out = {"rows": rows + breakdown_rows + settled_rows + settled_breakdown_rows, "agents": args.agents,
-           "bench_status": status, "gates": {"launch": launch_values, "app": app_read or None}}
+           "bench_status": status}
     if report.get("gpu_no_app"):
         out["gpu_no_app"] = report["gpu_no_app"]
     if breakdown:
@@ -397,13 +319,9 @@ def main(argv: list[str] | None = None) -> int:
     # perf-cron.py: an incomplete report keeps its rows for diagnostics but is no done part (incomplete_why names it).
     missing = [] if any(r["name"].endswith(".empty.total_footprint_mb") for r in rows) else \
         [f"no empty-app sample (bench_memory.py exit {status})"]
-    out["chats"] = chat_counts(report, args.agents)
-    for c in out["chats"]:
-        n = c["expected"]
-        print(f"memory-agents: chats opened {c['opened']} of {n} expected (pane failures {c['pane_failures']})")
+    for n in sorted({int(x) for x in args.agents.split(",") if x.strip().isdigit()}):
         if not any(r["name"] == f"memory.app_agents.{n}.total_footprint_mb" for r in rows):
-            missing.append(f"agents {n}: opened {c['opened']} of {n} chat workspaces, pane failures "
-                           f"{c['pane_failures']} (bench_memory.py exit {status}): no memory.app_agents.ratio_vs_empty")
+            missing.append(f"agents {n}: not every chat opened (or no sample)")
     if missing:
         out["incomplete"] = missing
     with open(args.json, "w") as f:
@@ -415,8 +333,6 @@ def main(argv: list[str] | None = None) -> int:
         if per_chat:
             print(f"memory-agents: {name}per chat workspace ({per_chat['chats']} chats) {per_chat['total_mb']} MB: "
                   + ", ".join(f"{k} {v}" for k, v in per_chat["kinds"].items()))
-    if missing:
-        print("memory-agents: FAILED: " + "; ".join(missing), file=sys.stderr)
     return status or (1 if missing else 0)
 
 

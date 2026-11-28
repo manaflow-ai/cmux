@@ -180,16 +180,6 @@ pub const NOFILE_SOFT_ENV: &str = "CMUX_TUI_HOST_NOFILE_SOFT";
 /// older holder that does not know it still starts.
 pub const ORPHAN_GRACE_ENV: &str = "CMUX_HOLDER_ORPHAN_GRACE_MS";
 
-/// The environment variable that names the session's `holder.token` file
-/// (`<host root>/holder.token`). An orphaned holder whose file is gone or
-/// names another token can never be linked again: it ends its terminals
-/// after [`holder::UNADOPTABLE_GRACE`]. An environment variable, so an older
-/// holder that does not know it still starts.
-pub const TOKEN_FILE_ENV: &str = "CMUX_HOLDER_TOKEN_FILE";
-
-/// A shorter [`holder::UNADOPTABLE_GRACE`] in milliseconds, for tests.
-pub const UNADOPTABLE_GRACE_ENV: &str = "CMUX_HOLDER_UNADOPTABLE_GRACE_MS";
-
 /// How long a holder or terminal host goes with no daemon before it ends its
 /// terminals in every build, normal installs included: no cmux has shown
 /// them for a week, so no daemon will adopt them again (a renamed tag's or
@@ -276,8 +266,6 @@ pub fn serve(args: &[String]) -> io::Result<()> {
     let child_open_file_limit =
         std::env::var(NOFILE_SOFT_ENV).ok().and_then(|value| value.parse::<u64>().ok());
     let orphan_grace = orphan_grace_from(std::env::var(ORPHAN_GRACE_ENV).ok().as_deref());
-    let token_file =
-        std::env::var_os(TOKEN_FILE_ENV).filter(|value| !value.is_empty()).map(PathBuf::from);
     let socket = socket.ok_or_else(|| invalid("--socket PATH is required"))?;
     let mut line = String::new();
     io::stdin().lock().read_line(&mut line)?;
@@ -303,12 +291,6 @@ pub fn serve(args: &[String]) -> io::Result<()> {
     let mut holder = holder::Holder::new(listener, token)?;
     holder.set_child_open_file_limit(child_open_file_limit);
     holder.set_orphan_grace(Some(orphan_grace));
-    holder.set_token_file(token_file);
-    if let Some(millis) =
-        std::env::var(UNADOPTABLE_GRACE_ENV).ok().and_then(|value| value.trim().parse::<u64>().ok())
-    {
-        holder.set_unadoptable_grace(std::time::Duration::from_millis(millis));
-    }
     if let Some(idle_exit) = idle_exit {
         holder.set_idle_exit(idle_exit);
     }
@@ -355,7 +337,7 @@ fn hold_copy_in_use() {
     }
 }
 
-pub(crate) fn parse_token(hex: &str) -> Option<[u8; 32]> {
+fn parse_token(hex: &str) -> Option<[u8; 32]> {
     if hex.len() != 64 {
         return None;
     }

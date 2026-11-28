@@ -82,11 +82,10 @@
   outline: 2px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
   outline-offset: 1px;
 }
-/* The question card's 4 px between rows (questionCard.css .acpmux-question-rows). */
 .acpmux-next-step__answers {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-1);
+  gap: var(--grid-half-step);
 }
 .acpmux-next-step__answer {
   display: flex;
@@ -160,13 +159,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* The typed answer: the question card's last row (questionCard.css .acpmux-question-footer), with its
-   2 px of caret room at the sides. */
+/* The typed answer: the question card's last row (questionCard.css .acpmux-question-footer). */
 .acpmux-next-step__other input {
   flex: 1;
   min-width: 0;
-  margin: 0 calc(-1 * var(--grid-half-step));
-  padding: 0 var(--grid-half-step);
+  margin: 0;
+  padding: 0;
   border: 0;
   outline: none;
   background: transparent;

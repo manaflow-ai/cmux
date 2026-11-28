@@ -74,20 +74,10 @@ fn decode(png: &[u8]) -> Result<Rgba, String> {
     let data = buf.get(..info.buffer_size()).unwrap_or_default();
     let pixels: Vec<u8> = match info.color_type {
         png::ColorType::Rgba => data.to_vec(),
-        png::ColorType::Rgb => data
-            .chunks_exact(3)
-            .flat_map(|p| match *p {
-                [r, g, b] => [r, g, b, 255],
-                _ => [0, 0, 0, 255],
-            })
-            .collect(),
-        png::ColorType::GrayscaleAlpha => data
-            .chunks_exact(2)
-            .flat_map(|p| match *p {
-                [g, a] => [g, g, g, a],
-                _ => [0, 0, 0, 255],
-            })
-            .collect(),
+        png::ColorType::Rgb => data.chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 255]).collect(),
+        png::ColorType::GrayscaleAlpha => {
+            data.chunks_exact(2).flat_map(|p| [p[0], p[0], p[0], p[1]]).collect()
+        }
         png::ColorType::Grayscale => data.iter().flat_map(|&g| [g, g, g, 255]).collect(),
         png::ColorType::Indexed => return Err("the capture's PNG kept its palette".to_owned()),
     };
@@ -118,10 +108,10 @@ impl Rgba {
 
     /// A PNG at the best compression; RGB when every pixel is opaque.
     pub fn encode(&self) -> Result<Vec<u8>, String> {
-        let opaque = self.pixels.chunks_exact(4).all(|p| p.get(3) == Some(&255));
+        let opaque = self.pixels.chunks_exact(4).all(|p| p[3] == 255);
         let (color, data) = if opaque {
             let rgb: Vec<u8> =
-                self.pixels.chunks_exact(4).flat_map(|p| p.iter().take(3).copied()).collect();
+                self.pixels.chunks_exact(4).flat_map(|p| [p[0], p[1], p[2]]).collect();
             (png::ColorType::Rgb, rgb)
         } else {
             (png::ColorType::Rgba, self.pixels.clone())

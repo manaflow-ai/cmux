@@ -611,8 +611,7 @@ final class MacToolbarTitleView: MacFlippedView {
             .font: NSFont.systemFont(ofSize: 16, weight: .bold), .foregroundColor: NSColor.tertiaryLabelColor, .paragraphStyle: centered, .baselineOffset: -1,
         ]))
         nameLabel.attributedStringValue = title
-        // The conversation reconnects on its own: no "Connecting…" (Leo, 2026-11-22).
-        nameLabel.toolTip = nil
+        nameLabel.toolTip = connected ? nil : String(localized: "conversation.header.connecting", defaultValue: "Connecting…", bundle: .module)
         needsLayout = true
     }
 

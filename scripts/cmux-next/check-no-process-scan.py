@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-# Reads (scripts/ci/guard_step_inputs.py; check_pool_affected.py --verify --match check-no-process-scan.py holds it):
-# guard-inputs: cmux-tui/crates/**/*.rs Packages/macOS/**/*.swift cmux-tui/**/Cargo.toml
 """NO-PROCESS-SCAN ratchet (plans/cmux-next/pty-holder.md, section 4).
 
 cmux-next never finds terminals, agents or their state by scanning

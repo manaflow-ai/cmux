@@ -28,9 +28,7 @@ use optchat_host::{Appended, NewMessage};
 /// did not answer under load, a 5xx, an exhausted route) is a quiet wait,
 /// logged and retried by the host: no notice. It said "a request error"
 /// for such timeouts (https://github.com/manaflow-ai/cmux/issues/36026).
-/// `turn_harness` is the harness the Chief's turns run on: a line stuck
-/// because that one is not installed is the Set Up card's to show.
-pub fn stuck_notice(status: &optchat_host::Status, turn_harness: &str) -> Option<String> {
+pub fn stuck_notice(status: &optchat_host::Status) -> Option<String> {
     let error = |node: &optchat_core::NodeId| {
         status
             .failures
@@ -38,11 +36,9 @@ pub fn stuck_notice(status: &optchat_host::Status, turn_harness: &str) -> Option
             .find(|f| f.node == *node)
             .map(|f| f.error.as_str())
     };
-    // The turns' own agent not installed is the Set Up card's to say, not a memory notice.
     let lasting = |e: &str| {
-        !crate::harness_gate::turn_agent_missing(e, turn_harness)
-            && (e.starts_with(optchat_host::SETUP_ERROR)
-                || optchat_host::error_class(e).is_some_and(|c| c.permanent()))
+        e.starts_with(optchat_host::SETUP_ERROR)
+            || optchat_host::error_class(e).is_some_and(|c| c.permanent())
     };
     let node = status
         .stuck
@@ -116,11 +112,10 @@ impl Brain {
             self.interrupt.clone(),
             self.marker_refused.clone(),
         );
-        let (ttl_refused, ttl_stale, session_dir, turn_harness) = (
+        let (ttl_refused, ttl_stale, session_dir) = (
             self.ttl_refused.clone(),
             self.ttl_stale.clone(),
             self.settings.session_dir.clone(),
-            self.turn_harness().to_owned(),
         );
         let spawned = std::thread::Builder::new()
             .name("turn".into())
@@ -175,7 +170,7 @@ impl Brain {
                     // retracted once no such line is left, even while
                     // another line waits out timeouts (issue 36026).
                     let status = chat.status();
-                    let notice = stuck_notice(&status, &turn_harness);
+                    let notice = stuck_notice(&status);
                     let cleared = notice.is_none();
                     let _ = tx.send(Input::CompactorStuck(notice));
                     // Every stuck node built: the compactor works, which
@@ -1388,13 +1383,11 @@ impl Brain {
         // Who ended a cancelled turn: the Chief itself (`stop`, `sleep`, after
         // it replied by send), the owner, or neither (a lost session).
         let by_chief = self.tool_stopped || self.denial_stopped.is_some();
-        // An accepted tool stop owns the outcome even if the harness's
-        // normal completion wins the race with the cancellation request.
         let status = if superseded {
             "superseded"
         } else if outcome.refused && outcome.reply.is_none() {
             "refused"
-        } else if by_chief {
+        } else if outcome.cancelled && by_chief {
             "stopped"
         } else if outcome.cancelled && self.owner_stopped {
             "owner_stopped"

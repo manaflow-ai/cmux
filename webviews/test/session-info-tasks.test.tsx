@@ -9,16 +9,9 @@ import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import type { SessionInfoProcess, ProcessSource } from "../src/agent-session/acpmux/session-info/processes";
-import type { SummaryBackgroundTask } from "../src/agent-session/acpmux/summary/sessionSummary";
-import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { SessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/SessionInfo"));
-const { resetSessionInfoState } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/sessionInfoState"),
-);
-const {
+import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import {
   backgroundCommands,
   mergeProcess,
   processesOf,
@@ -26,7 +19,11 @@ const {
   serverOf,
   splitServers,
   useSessionInfoProcesses,
-} = await importWithDom(() => import("../src/agent-session/acpmux/session-info/processes"));
+  type SessionInfoProcess,
+  type ProcessSource,
+} from "../src/agent-session/acpmux/session-info/processes";
+import type { SummaryBackgroundTask } from "../src/agent-session/acpmux/summary/sessionSummary";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -177,14 +174,8 @@ test("no section before the first background process; then running ones with ela
   ]);
   expect(rows().map((row) => row.querySelector(".acpmux-session-info-task__time")?.textContent)).toEqual([
     "1m 16s",
-    "1h 2m",
+    "1h 2m 3s",
   ]);
-  // Past an hour the time is to the minute and its box is its own digits, never "00h 00m 00s"
-  // (TaskRowReason.gallery.tsx: that reserve cut the command at 420 px).
-  const sizes = rows().map(
-    (row) => row.querySelector<HTMLElement>(".acpmux-session-info-task__time")?.dataset.clockSize,
-  );
-  expect(sizes).toEqual(["00m 00s", "0h 0m"]);
   expect(tasks.querySelector(".acpmux-session-info-section__meta")?.textContent).toBe("2");
 
   // The finished ones fold behind their count; open, each with how long it ran and how it ended.

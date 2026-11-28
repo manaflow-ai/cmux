@@ -86,7 +86,6 @@ fn sync_event(
         animated: false,
         reveals: true,
         anchor: None,
-        keeps_view: false,
     }
 }
 

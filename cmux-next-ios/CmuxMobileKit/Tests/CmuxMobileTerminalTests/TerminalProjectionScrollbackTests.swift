@@ -1,7 +1,6 @@
 // The projection (TerminalProjectingSession) and its FFI are iOS only, so
 // these run on the kit job's iOS simulator leg, not under macOS swift test.
 #if os(iOS)
-import CmuxMobileDesign
 import Foundation
 import Testing
 @testable import CmuxMobileTerminal
@@ -46,15 +45,9 @@ import Testing
         "line \(String(format: "%04d", i)) " + String(repeating: "pad ", count: i % 40)
     }
 
-    private func projectionDefaults() -> UserDefaults {
-        let defaults = UserDefaults(suiteName: UUID().uuidString)!
-        defaults.set(true, forKey: CmuxMobilePreferences.Key.terminalPhoneProjection)
-        return defaults
-    }
-
     @Test func scrollingUpReachesLineOne() async {
         let mac = MacPaneMockSession(columns: 120, rows: 24, transcript: Self.lines)
-        let session = TerminalSessionChoice.session(live: mac, mockDataEnabled: false, macName: "Mac", programName: "zsh", defaults: projectionDefaults())
+        let session = TerminalSessionChoice.session(live: mac, mockDataEnabled: false, macName: "Mac", programName: "zsh")
         #expect(session is TerminalProjectingSession)
         let page = Page()
         session.resize(columns: 54, rows: 38)

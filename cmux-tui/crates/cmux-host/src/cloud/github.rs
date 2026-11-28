@@ -10,7 +10,6 @@
 //! caches and audits each mint.
 
 use crate::json::JsonField;
-use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 use super::sender::Answer;
@@ -157,32 +156,6 @@ pub const DENY_REASONS: [&str; 6] = [
 /// A refusal reply (`ok: false`) with the API's error code and message.
 pub fn refusal(code: &str, message: &str) -> Value {
     json!({ "ok": false, "error": { "code": code, "message": message } })
-}
-
-/// A refusal a later ask can pass with nothing changed (the agent busy, the platform out of
-/// reach or failing after the machine already waited it out): `error.retryable` tells the
-/// caller to ask again itself rather than show it.
-pub fn transient_refusal(code: &str, message: &str) -> Value {
-    json!({ "ok": false, "error": { "code": code, "message": message, "retryable": true } })
-}
-
-/// Preserve the platform's reset time, in seconds, when its response includes one.
-pub fn rate_limited(service: &str, retry_after: Option<u64>) -> Value {
-    let message = match retry_after {
-        // retry-prompt-ok: a rate-limit window the person must wait out, with its reset named.
-        Some(secs) => format!("{service} is rate limited; it accepts requests again in {secs} s."),
-        None => format!("{service} is rate limited. The platform did not provide a reset time."),
-    };
-    let mut reply = transient_refusal("rate_limited", &message);
-    if let Some(secs) = retry_after {
-        reply.set("retry_after", json!(secs));
-    }
-    reply
-}
-
-/// The `retry_after` seconds of a platform error body (top level or under `error`).
-pub fn retry_after_of(body: &Value) -> Option<u64> {
-    body.field("retry_after").as_u64().or(body.field("error").field("retry_after").as_u64())
 }
 
 /// The reply line for the API's answer to `ask`: the token and its expiry,

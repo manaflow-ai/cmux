@@ -23,7 +23,6 @@
     "chat.attach.source": "chat.attach.source",
     "chat.attention.open": "chat.attention.open",
     "chat.btw.inline": "chat.btw.inline",
-    "chat.cloudStartQueue": "chat.cloudStartQueue",
     "chat.computerUsePreview": "chat.computerUsePreview",
     "chat.draftAttachments": "chat.draftAttachments",
     "chat.draftAttachments.get": "chat.draftAttachments.get",
@@ -69,13 +68,11 @@
     "chats.watch": "chats.watch",
     "chief.face": "chief.face",
     "cloud.answerStart": "cloud.answerStart",
-    "cloud.connect": "cloud.connect",
     "cloud.environment.create": "cloud.environment.create",
     "cloud.environment.derive": "cloud.environment.derive",
     "cloud.environment.get": "cloud.environment.get",
     "cloud.environment.list": "cloud.environment.list",
     "cloud.environment.update": "cloud.environment.update",
-    "cloud.forkFirst": "cloud.forkFirst",
     "cloud.handoffTurn": "cloud.handoffTurn",
     "cloud.plan.subscribe": "cloud.plan.subscribe",
     "cloud.preview.open": "cloud.preview.open",
@@ -89,8 +86,6 @@
     "cloud.repo.wait_github": "cloud.repo.wait_github",
     "cloud.reserve": "cloud.reserve",
     "cloud.setUp": "cloud.setUp",
-    "cloud.setup.state": "cloud.setup.state",
-    "cloud.setupState": "cloud.setupState",
     "cloud.signIn": "cloud.signIn",
     "cloud.signInCancel": "cloud.signInCancel",
     "cloud.startChat": "cloud.startChat",
@@ -105,11 +100,6 @@
     "cloudMachine.wakeHint": "cloudMachine.wakeHint",
     "composer.capture": "composer.capture",
     "composer.copy": "composer.copy",
-    "composer.copy.begin": "composer.copy.begin",
-    "composer.copy.cancel": "composer.copy.cancel",
-    "composer.copy.chunk": "composer.copy.chunk",
-    "composer.copy.finish": "composer.copy.finish",
-    "composer.copy.staged": "composer.copy.staged",
     "customizations.menu": "customizations.menu",
     "designSelection.released": "designSelection.released",
     "diag.flicker": "diag.flicker",
@@ -123,7 +113,6 @@
     "dictation.start": "dictation.start",
     "dictation.stop": "dictation.stop",
     "dictation.toggle": "dictation.toggle",
-    "editors.list": "editors.list",
     "environment.list": "environment.list",
     "environment.remove": "environment.remove",
     "environment.save": "environment.save",
@@ -175,7 +164,6 @@
     "link.preview": "link.preview",
     "machine.share.self": "machine.share.self",
     "media.load": "media.load",
-    "newTab.cloudPick": "newTab.cloudPick",
     "newTab.context": "newTab.context",
     "newTab.inputReady": "newTab.inputReady",
     "newTab.remember": "newTab.remember",
@@ -187,7 +175,6 @@
     "pane.checkpointAvailability": "pane.checkpointAvailability",
     "pane.clientReady": "pane.clientReady",
     "pane.commandAvailability": "pane.commandAvailability",
-    "pane.composerFilled": "pane.composerFilled",
     "pane.copyText": "pane.copyText",
     "pane.edit": "pane.edit",
     "pane.finishSound": "pane.finishSound",
@@ -198,7 +185,6 @@
     "pane.moveToMachine": "pane.moveToMachine",
     "pane.noticeAction": "pane.noticeAction",
     "pane.painted": "pane.painted",
-    "pane.renderFailed": "pane.renderFailed",
     "pane.renderRate": "pane.renderRate",
     "pane.saveFile": "pane.saveFile",
     "pane.saveLog": "pane.saveLog",
@@ -252,7 +238,6 @@
     "tab.open": "tab.open",
     "tab.typeAhead": "tab.typeAhead",
     "tips.state": "tips.state",
-    "transport.ack": "transport.ack",
     "transport.close": "transport.close",
     "transport.gesture": "transport.gesture",
     "transport.gesture.release": "transport.gesture.release",
@@ -276,28 +261,6 @@
     ],
     "composer.copy": [
       "items",
-      "text"
-    ],
-    "composer.copy.begin": [
-      "batch",
-      "batchToken",
-      "name",
-      "size"
-    ],
-    "composer.copy.cancel": [
-      "token"
-    ],
-    "composer.copy.chunk": [
-      "data",
-      "offset",
-      "token"
-    ],
-    "composer.copy.finish": [
-      "token"
-    ],
-    "composer.copy.staged": [
-      "items",
-      "order",
       "text"
     ],
     "environment.list": [],
@@ -344,7 +307,6 @@
       "urls"
     ],
     "link.openPath": [
-      "line",
       "path"
     ],
     "link.preview": [

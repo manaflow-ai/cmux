@@ -8,17 +8,11 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { DiffSource } from "../src/diff/generated/protocol";
 import type { DiffTransport } from "../src/diff/transport";
+import { diffSessionRequest, HIDE_WHITESPACE_CAPABILITY, hideWhitespaceAvailable } from "../src/diff-viewer/session";
+import { NO_HOST_CAPABILITIES, overflowMenuItems } from "../src/toolbar-model";
+import { blobFingerprint, patchFingerprint, toggleViewedItem, viewedStateOfItem } from "../src/viewed-files";
+import { sanitizeViewerPrefs } from "../src/viewer-prefs";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { diffSessionRequest, HIDE_WHITESPACE_CAPABILITY, hideWhitespaceAvailable } = await importWithDom(
-  () => import("../src/diff-viewer/session"),
-);
-const { NO_HOST_CAPABILITIES, overflowMenuItems } = await importWithDom(() => import("../src/toolbar-model"));
-const { blobFingerprint, patchFingerprint, toggleViewedItem, viewedStateOfItem } = await importWithDom(
-  () => import("../src/viewed-files"),
-);
-const { sanitizeViewerPrefs } = await importWithDom(() => import("../src/viewer-prefs"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

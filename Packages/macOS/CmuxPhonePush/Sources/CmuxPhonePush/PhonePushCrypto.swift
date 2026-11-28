@@ -1,13 +1,6 @@
-#if canImport(CryptoKit)
 public import CryptoKit
-#else
-// Linux: swift-crypto serves the same API (Package.swift adds it under CMUX_SWIFTPM_TARGET_LINUX).
-@preconcurrency public import Crypto // swift-crypto marks its key types Sendable only on Apple platforms
-#endif
 public import Foundation
-#if canImport(Security)
 public import Security
-#endif
 
 /// The identity boundary authenticated by a phone-push envelope. Optional
 /// fields are omitted from the canonical form so a relay never needs account
@@ -96,9 +89,7 @@ public enum PhonePushCryptoError: Error, Sendable {
     case invalidKey
     case invalidEnvelope
     case authenticationFailed
-    #if canImport(Security)
     case keychain(OSStatus)
-    #endif
 }
 
 public struct PhonePushReplyFreshness: Sendable {
@@ -240,7 +231,6 @@ public struct PhonePushKeyMaterial: Sendable {
     }
 }
 
-#if canImport(Security)
 extension PhonePushKeyMaterial {
     static let keychainAccessibility = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String
 
@@ -332,7 +322,6 @@ extension PhonePushKeyMaterial {
         static func decode(_ data: Data) throws -> Self { try JSONDecoder().decode(Self.self, from: data) }
     }
 }
-#endif
 
 public struct PhonePushPeerKeyStore {
     private static let prefix = "cmux.phone-push.peer.v2."

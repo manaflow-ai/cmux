@@ -20,10 +20,7 @@ test("the chat-open-elsewhere line drops in from the top", () => {
   expect(enters(html)).toBe(true);
 });
 
-test("Settings' failed-read banner drops in from the top; a lost link is a corner mark that does not", () => {
+test("Settings' read-only banner drops in from the top", () => {
+  expect(enters(renderToStaticMarkup(<ReadOnlyBanner />))).toBe(true);
   expect(enters(renderToStaticMarkup(<ReadOnlyBanner reason="loadFailed" />))).toBe(true);
-  // A lost link takes no room, so the rows never move (ReadOnlyBanner.tsx, ui/ConnectionChip.tsx).
-  const lost = renderToStaticMarkup(<ReadOnlyBanner />);
-  expect(lost).toContain('data-read-only="disconnected"');
-  expect(enters(lost)).toBe(false);
 });

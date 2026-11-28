@@ -239,7 +239,6 @@ fn stage_failure(
             .to_owned();
         failure.failure.error.set(
             "message",
-            // retry-prompt-ok: the write may already have applied; only the idempotency key makes a repeat safe
             json!(format!(
                 "{original}; {phase} may have applied in {terminal}; retry that exact terminal id with --idempotency-key {send_id}"
             )),

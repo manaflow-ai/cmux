@@ -8,8 +8,6 @@ public import CmuxNextActions
 public protocol MenuBarExtraHost: AnyObject {
     /// The signed-in cmux account, nil when signed out.
     var menuBarAccount: MenuBarMenuState.Account? { get }
-    /// What Sign In signs in to ("Signs in to cmux.com"), the line under it while signed out; nil shows none.
-    var menuBarSignInBackend: String? { get }
     /// The signed-in account's picture at menu row size, nil without one.
     var menuBarAvatar: NSImage? { get }
     /// This Mac's tabs whose agent runs a turn.

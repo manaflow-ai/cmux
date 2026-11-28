@@ -8,16 +8,12 @@ public nonisolated struct HistoryQuery: Hashable, Sendable {
     public var kinds: Set<HistoryEntry.Kind>
     public var range: HistoryRange
     public var limit: Int?
-    /// Page visits by who drove them (RFD 0125 D5); the daemon narrows page rows only.
-    public var actor: HistoryActorFilter
 
-    public init(text: String = "", kinds: Set<HistoryEntry.Kind> = [], range: HistoryRange = .all, limit: Int? = nil,
-                actor: HistoryActorFilter = .mine) {
+    public init(text: String = "", kinds: Set<HistoryEntry.Kind> = [], range: HistoryRange = .all, limit: Int? = nil) {
         self.text = text
         self.kinds = kinds
         self.range = range
         self.limit = limit
-        self.actor = actor
     }
 
     /// Entries that match, newest first. Every whitespace-separated token
@@ -83,11 +79,6 @@ public nonisolated struct HistoryQuery: Hashable, Sendable {
             return true
         }
     }
-}
-
-/// Whose page visits a history read shows (RFD 0125 D5): the person's (the default), agents', or both.
-public nonisolated enum HistoryActorFilter: String, CaseIterable, Hashable, Sendable, Codable {
-    case mine, agents, all
 }
 
 /// A time range for filtering and clearing history.

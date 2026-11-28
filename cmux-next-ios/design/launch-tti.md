@@ -15,7 +15,7 @@ log line. Every build has them; their cost is a fixed set of names taken once.
 | `shell_frame` | the signed-in shell's first frame was presented |
 | `workspaces_list_frame` | the Workspaces list's first frame with a row was presented (with the list rig, a seeded `ws-sN` row) |
 | `workspace_row_tap` | a workspace row was tapped |
-| `chat_composer_ready` | the first frame with an agent chat's composer, or the permission bar or sudo card in its place, shown was presented (not a chat face parked behind a terminal) |
+| `chat_composer_ready` | the first frame with an agent chat's composer shown was presented (not a chat face parked behind a terminal) |
 | `chat_first_row_frame` | the first frame with a readable transcript row in the agent chat was presented |
 | `terminal_ready` | a terminal attached to its session presented a frame |
 | `terminal_first_row_frame` | the first frame with non-empty real terminal output was presented |

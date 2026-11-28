@@ -344,50 +344,23 @@ allowance() { # kind key -> "lines fns" from the baseline, else the budget
   elif [[ "$2" =~ /(tests|benches|examples)/ || "$2" =~ (^|/|_)tests\.rs$ ]]; then echo "$rust_test_file_limit $rust_test_fn_limit"
   else echo "$rust_file_limit $rust_fn_limit"; fi
 }
-blob_counts() { # stdin: one REV:PATH per line -> one "lines fns" per line, "0 0" for a missing blob
-  # One git cat-file stream for every revision. Before, each revision cost two git show
-  # processes plus wc and grep, about 7 min on feat-cmux-next's ~200 over-ceiling Rust
-  # files (job 140329138064, 2026-11-27). lines is wc -l's count, fns grep -cE's.
-  git -C "$repo" cat-file --batch | GODFILES_FN_RE="$rust_fn_re" LC_ALL=C awk '
-    BEGIN { re = ENVIRON["GODFILES_FN_RE"] }
-    function done_blob() { print lines, fns; inblob = 0 }
-    !inblob {
-      if (skip && $0 == "") { skip = 0; next }
-      skip = 0
-      if ($NF == "missing" || $NF == "ambiguous") { print "0 0"; next }
-      left = $3 + 0; lines = 0; fns = 0
-      if (left == 0) { print "0 0"; skip = 1; next }
-      inblob = 1; next
-    }
-    {
-      n = length($0) + 1
-      if ($0 ~ re) fns++
-      if (n <= left) { lines++; left -= n; if (left == 0) { done_blob(); skip = 1 } }
-      else done_blob()
-    }'
-}
 grower() { # key allowed_lines allowed_fns
-  local key="$1" allow_lines="$2" allow_fns="$3" commit culprit="" i
-  local -a commits=() counts=()
+  local key="$1" allow_lines="$2" allow_fns="$3" commit lines fns culprit=""
   if [[ "$(git -C "$repo" rev-parse --is-shallow-repository 2>/dev/null)" == true ]]; then
     echo "unknown in a shallow checkout; run the check in a full clone"
     return
   fi
-  # bash 3.2 (macOS /bin/bash) has no mapfile or associative arrays.
-  while IFS= read -r commit; do commits+=("$commit"); done < <(awk -F'\t' -v k="$key" '$1 == k { print $2 }' <<<"$history")
-  while IFS= read -r commit; do counts+=("$commit"); done < <({
-    printf 'HEAD:%s\n' "$key"
-    for commit in ${commits[@]+"${commits[@]}"}; do printf '%s:%s\n' "$commit" "$key"; done
-  } | blob_counts)
-  read -r lines fns <<<"${counts[0]:-0 0}"
+  lines=$(git -C "$repo" show "HEAD:$key" 2>/dev/null | wc -l | tr -d ' ')
+  fns=$(git -C "$repo" show "HEAD:$key" 2>/dev/null | grep -cE "$rust_fn_re" || true)
   if (( lines <= allow_lines && fns <= allow_fns )); then
     echo "uncommitted changes in this checkout"
     return
   fi
-  for (( i = 0; i < ${#commits[@]}; i++ )); do
-    read -r lines fns <<<"${counts[i + 1]:-0 0}"
-    if (( lines > allow_lines || fns > allow_fns )); then culprit="${commits[i]}"; else break; fi
-  done
+  while IFS= read -r commit; do
+    lines=$(git -C "$repo" show "$commit:$key" 2>/dev/null | wc -l | tr -d ' ')
+    fns=$(git -C "$repo" show "$commit:$key" 2>/dev/null | grep -cE "$rust_fn_re" || true)
+    if (( lines > allow_lines || fns > allow_fns )); then culprit="$commit"; else break; fi
+  done < <(git -C "$repo" log --format=%H -n 40 HEAD -- "$key")
   if [[ -n "$culprit" ]]; then
     git -C "$repo" log -1 --format='%h %an %ad: %s' --date=short "$culprit"
   else
@@ -398,23 +371,9 @@ grower() { # key allowed_lines allowed_fns
 while IFS=$'\t' read -r _ _ _ message; do
   echo "::warning title=ratchet debt::$message"
 done < <(grep '^WARN' <<<"$report" || true)
-history="" # "key<TAB>commit" rows: each over-ceiling Rust file's last 40 commits, newest first
-blame_keys=()
-if [[ "${GODFILES_NO_BLAME:-0}" != 1 ]]; then
-  while IFS= read -r key; do blame_keys+=("$key"); done < <(awk -F'\t' '$1 == "FAIL" && $2 == "rust-file" { print $3 }' <<<"$report")
-fi
-if (( ${#blame_keys[@]} )); then
-  # One path-limited walk for every key, not one git log -n 40 per key (~0.6 s each on feat-cmux-next).
-  # --cc lists a merge's file only when it differs from every parent, as git log -- FILE keeps it.
-  history="$(git -C "$repo" log --format='@%H' --name-only --cc --no-renames HEAD -- "${blame_keys[@]}" 2>/dev/null |
-    awk -v keys="$(printf '%s\n' "${blame_keys[@]}")" '
-      BEGIN { n = split(keys, k, "\n"); for (i = 1; i <= n; i++) if (k[i] != "") want[k[i]] = 1 }
-      /^@/ { commit = substr($0, 2); next }
-      ($0 in want) && seen[$0]++ < 40 { print $0 "\t" commit }')"
-fi
 if grep -q '^FAIL' <<<"$report"; then
   while IFS=$'\t' read -r _ kind key message; do
-    # GODFILES_NO_BLAME=1 (the post-edit hook) skips the history walk above and the blob reads.
+    # GODFILES_NO_BLAME=1 (the post-edit hook) skips the history walk, which costs a git show per commit.
     if [[ "$kind" == rust-file && "${GODFILES_NO_BLAME:-0}" != 1 ]]; then
       read -r allow_lines allow_fns <<<"$(allowance "$kind" "$key")"
       echo "$message [grown past it by: $(grower "$key" "$allow_lines" "$allow_fns")]"

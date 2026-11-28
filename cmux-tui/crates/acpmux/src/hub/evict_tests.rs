@@ -109,7 +109,7 @@ async fn a_held_chat_stays_in_memory() {
 }
 
 #[tokio::test]
-async fn eviction_set_off_evicts_nothing_and_spares_an_attached_chat() {
+async fn eviction_is_off_by_default_and_spares_an_attached_chat() {
     let hub = hub_with(2);
     hub.evicted.set_after(None);
     assert_eq!(hub.evict_idle_chats(), 0);
@@ -278,119 +278,4 @@ async fn an_evicted_row_holds_a_fraction_of_its_rows_and_reads_back_whole() {
         let whole = list.len() + full.len();
         assert!(row.rows_held() * 4 < whole, "s{i} holds {} of {whole} bytes", row.rows_held());
     }
-}
-
-/// The cap alone (no idle period): `hub_with` made the chats, then eviction by idle time is off.
-fn capped(n: usize, cap: usize) -> Arc<Hub> {
-    let hub = hub_with(n);
-    hub.evicted.set_after(None);
-    hub.evicted.set_cap(Some(cap));
-    hub
-}
-
-fn resident(hub: &Hub) -> usize {
-    hub.sessions.lock().unwrap().len()
-}
-
-#[tokio::test]
-async fn a_cap_of_10_with_50_idle_chats_leaves_10_resident() {
-    let hub = capped(50, 10);
-    assert_eq!(hub.evict_idle_chats(), 0, "no idle period: that pass leaves them");
-    assert_eq!(hub.evict_over_cap(), 40);
-    assert_eq!(resident(&hub), 10);
-    assert_eq!(hub.eviction_counts().0, 40);
-    assert_eq!(hub.evict_over_cap(), 0, "at the cap nothing more leaves");
-    // Off by default: with no cap nothing leaves.
-    hub.evicted.set_cap(None);
-    assert_eq!(hub.evict_over_cap(), 0);
-}
-
-#[tokio::test]
-async fn the_cap_takes_the_least_recently_used_first() {
-    let hub = capped(12, 10);
-    // s0 and s1 were used last.
-    let now = hub.clock_now();
-    for id in ["s0", "s1"] {
-        hub.session_get(id).unwrap().last_active.store(now + 1_000_000_000, Ordering::SeqCst);
-    }
-    assert_eq!(hub.evict_over_cap(), 2);
-    assert!(in_map(&hub, "s0") && in_map(&hub, "s1"));
-    assert_eq!(resident(&hub), 10);
-}
-
-#[tokio::test]
-async fn a_busy_chat_is_never_evicted_for_the_cap() {
-    let hub = capped(20, 5);
-    // Ten chats a client is attached to: the oldest, so the first the cap would take.
-    let held: Vec<_> = (0..10).map(|i| format!("s{i}")).collect();
-    for id in &held {
-        hub.session_get(id).unwrap().attached.fetch_add(1, Ordering::SeqCst);
-    }
-    hub.evict_over_cap();
-    for id in &held {
-        assert!(in_map(&hub, id), "{id} is attached and stays");
-    }
-    assert_eq!(resident(&hub), 10, "over the cap while ten are held; the rest left");
-    assert_eq!(hub.evict_over_cap(), 0);
-}
-
-#[tokio::test]
-async fn a_chat_evicted_for_the_cap_and_touched_comes_back_whole() {
-    let hub = capped(5, 1);
-    let before: Vec<_> = (0..5)
-        .map(|i| {
-            let s = hub.session_get(&format!("s{i}")).unwrap();
-            (hub.own_row_text(&s, false), hub.own_row_text(&s, true))
-        })
-        .collect();
-    assert_eq!(hub.evict_over_cap(), 4);
-    let gone = (0..5).map(|i| format!("s{i}")).find(|id| !in_map(&hub, id)).unwrap();
-    let i: usize = gone[1..].parse().unwrap();
-    let session = hub.session_get(&gone).expect("rehydrates");
-    assert_eq!(session.read_meta(|m| m.name.clone()), format!("chat-{i}"));
-    assert_eq!(hub.own_row_text(&session, false), before[i].0);
-    assert_eq!(hub.own_row_text(&session, true), before[i].1);
-    let (samples, p50, p99) = hub.evicted.rehydrate_quantiles();
-    assert_eq!(samples, 1, "its rehydrate was timed");
-    assert!(p50 > 0 && p99 >= p50);
-}
-
-/// Unset, eviction runs at its default period; 0 turns it off; a number sets the period.
-#[test]
-fn eviction_is_on_by_default_and_0_turns_it_off() {
-    assert_eq!(evict::evict_idle_secs(None), evict::DEFAULT_EVICT_IDLE_SECS);
-    assert_eq!(evict::DEFAULT_EVICT_IDLE_SECS, 600);
-    assert_eq!(evict::evict_idle_secs(Some("0")), 0);
-    assert_eq!(evict::evict_idle_secs(Some(" 30 ")), 30);
-    assert_eq!(evict::evict_idle_secs(Some("soon")), evict::DEFAULT_EVICT_IDLE_SECS);
-    assert_eq!(evict::evict_idle_secs(Some("")), evict::DEFAULT_EVICT_IDLE_SECS);
-}
-
-/// A chat in a turn, with an agent awake, or used within the period never leaves memory; the
-/// rest leave and come back whole.
-#[tokio::test]
-async fn a_chat_in_a_turn_awake_or_recent_stays() {
-    let hub = hub_with(3);
-    let s0 = hub.session_get("s0").unwrap();
-    s0.harness_turn.store(true, Ordering::SeqCst);
-    drop(s0);
-    std::thread::sleep(std::time::Duration::from_millis(2));
-    assert_eq!(hub.kept_for_test("s0"), Some("harness turn"));
-    // A ready chat: its agent up, not hibernated.
-    let mut ready = meta("r0", "ready-0", 50);
-    ready.status = SessionStatus::Ready;
-    hub.store.save(&ready).unwrap();
-    drop(hub.insert_test_session(ready));
-    std::thread::sleep(std::time::Duration::from_millis(2));
-    assert_eq!(hub.kept_for_test("r0"), Some("awake"), "a ready chat has an agent");
-    hub.evicted.set_after(Some(std::time::Duration::from_secs(600)));
-    hub.touch(&hub.session_get("s2").unwrap());
-    assert_eq!(hub.kept_for_test("s2"), Some("recently active"));
-    hub.evicted.set_after(Some(std::time::Duration::from_nanos(1)));
-    std::thread::sleep(std::time::Duration::from_millis(2));
-    assert_eq!(hub.evict_idle_chats(), 2, "s1 and s2 leave");
-    assert!(in_map(&hub, "s0") && in_map(&hub, "r0"));
-    assert!(!in_map(&hub, "s1") && !in_map(&hub, "s2"));
-    let back = hub.session_get("s2").expect("rehydrated");
-    assert_eq!(back.meta().name, "chat-2", "it comes back whole");
 }

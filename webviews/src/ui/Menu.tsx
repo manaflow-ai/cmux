@@ -23,7 +23,6 @@ import { useEscapingPopup, type AnchorBox } from "./popupHost";
 import { useNativePopup, type NativePopupDescription, type NativePopupEvent } from "./nativePopup";
 import { popupAction } from "./popupDescriptors";
 import { cx } from "./cx";
-import { KeyHint } from "./KeyHint";
 import { MenuCheckGlyph } from "./MenuCheckGlyph";
 import { useScrollEdges } from "./scrollEdges";
 import { usePointerMenuPosition } from "./pointerMenuPosition";
@@ -34,7 +33,6 @@ import { isMousePress, trackPressRelease } from "./pressRelease";
 import { focusAfterEscape } from "./escapeFocus";
 import { focusWithRing } from "./focusWithRing";
 import { useNativeFinalFocus } from "./useNativeFinalFocus";
-import { markPopupWithin } from "./popupWithin";
 import { usePopupSettle } from "./popupSettle";
 import { useExperimentArm } from "../experiments/useExperimentArm";
 import { MENU_V2_INSET, menuStyleV2, type MenuStyleArm } from "./menuStyleV2.experiment";
@@ -58,16 +56,6 @@ export interface MenuProps {
 
 const POINTER_SLOP = 4;
 type PointerSession = { pointerId: number; x: number; y: number; moved: boolean; handled: boolean };
-/** What a row asks of its menu: one object for the menu's life (MenuRowContext), so a menu that draws
- * again does not draw every mounted row again; only a row whose own props changed does. */
-interface MenuRowActions {
-  movePointer(event: PointerEvent<HTMLElement>): void;
-  /** `keepOpen`: the row shows or hides rows of its own menu (`MenuItem` `closeOnClick={false}`). */
-  activatePointer(event: PointerEvent<HTMLElement>, activate: () => void, keepOpen?: boolean): boolean;
-  endPointer(): void;
-  /** Closes the menu (an async row whose work settled, menu-row-states). */
-  close(): void;
-}
 interface MenuContextValue {
   isOpen: boolean;
   nativeAvailable: boolean;
@@ -80,9 +68,14 @@ interface MenuContextValue {
   beginPointer(event: PointerEvent<HTMLElement>): void;
   /** Whether a mouse press already opened or closed the menu on its pointerdown (once per press). */
   takePress(): boolean;
+  movePointer(event: PointerEvent<HTMLElement>): void;
+  /** `keepOpen`: the row shows or hides rows of its own menu (`MenuItem` `closeOnClick={false}`). */
+  activatePointer(event: PointerEvent<HTMLElement>, activate: () => void, keepOpen?: boolean): boolean;
+  endPointer(): void;
+  /** Closes the menu (an async row whose work settled, menu-row-states). */
+  close(): void;
 }
 const MenuContext = createContext<MenuContextValue | null>(null);
-const MenuRowContext = createContext<MenuRowActions | null>(null);
 
 /** A menu: a `MenuButton` and a `MenuPopup`. Non-modal, so the page keeps scrolling. */
 export function Menu({ open, onOpenChange, onOpenChangeComplete, native, children }: MenuProps) {
@@ -123,35 +116,6 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, native, childre
     onOpenChange?.(next);
   };
   const nativeAvailable = native !== undefined && nativePopup.available;
-  // The rows' actions close through this render's setMenuOpen, read when a row is picked.
-  const closeMenu = useRef(() => {});
-  useLayoutEffect(() => {
-    closeMenu.current = () => setMenuOpen(false);
-  });
-  const [rowActions] = useState<MenuRowActions>(() => ({
-    movePointer(event) {
-      const current = session.current;
-      if (!current || current.pointerId !== event.pointerId) return;
-      if (!current.moved)
-        current.moved = Math.hypot(event.clientX - current.x, event.clientY - current.y) >= POINTER_SLOP;
-    },
-    activatePointer(event, activate, keepOpen) {
-      const current = session.current;
-      if (!current || current.pointerId !== event.pointerId || !current.moved) return false;
-      if (current.handled) return true;
-      current.handled = true;
-      activate();
-      if (!keepOpen) closeMenu.current();
-      return true;
-    },
-    endPointer() {
-      // Pointerup is handled by the press session's document listener (pressRelease.ts) so the row
-      // remains selectable while the original trigger still owns pointer capture.
-    },
-    close() {
-      closeMenu.current();
-    },
-  }));
   const context: MenuContextValue = {
     isOpen,
     nativeAvailable,
@@ -222,6 +186,28 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, native, childre
       pressed.current = false;
       return taken;
     },
+    movePointer(event) {
+      const current = session.current;
+      if (!current || current.pointerId !== event.pointerId) return;
+      if (!current.moved)
+        current.moved = Math.hypot(event.clientX - current.x, event.clientY - current.y) >= POINTER_SLOP;
+    },
+    activatePointer(event, activate, keepOpen) {
+      const current = session.current;
+      if (!current || current.pointerId !== event.pointerId || !current.moved) return false;
+      if (current.handled) return true;
+      current.handled = true;
+      activate();
+      if (!keepOpen) setMenuOpen(false);
+      return true;
+    },
+    endPointer() {
+      // Pointerup is handled by the press session's document listener (pressRelease.ts) so the row
+      // remains selectable while the original trigger still owns pointer capture.
+    },
+    close() {
+      setMenuOpen(false);
+    },
   };
   // A menu opened through `open` (automation, a parent's state) skips setMenuOpen: record what has
   // focus now, unless the popup already took it, so a close never returns to a past session's opener.
@@ -238,16 +224,9 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, native, childre
   }, [isOpen]);
   return (
     <MenuContext value={context}>
-      <MenuRowContext value={rowActions}>
-        <BaseMenu.Root
-          modal={false}
-          open={isOpen}
-          onOpenChange={setMenuOpen}
-          onOpenChangeComplete={onOpenChangeComplete}
-        >
-          {children}
-        </BaseMenu.Root>
-      </MenuRowContext>
+      <BaseMenu.Root modal={false} open={isOpen} onOpenChange={setMenuOpen} onOpenChangeComplete={onOpenChangeComplete}>
+        {children}
+      </BaseMenu.Root>
     </MenuContext>
   );
 }
@@ -259,7 +238,6 @@ export interface MenuButtonProps {
   /** The hover tooltip (the page's title tooltips show it). */
   title?: string;
   disabled?: boolean;
-  "aria-disabled"?: boolean;
   "aria-haspopup"?: "menu" | "listbox" | "dialog";
   "aria-labelledby"?: string;
   /** The name automation finds the menu by (`button[data-menu]`), whatever the UI language. */
@@ -282,7 +260,6 @@ export function MenuButton({
   label,
   title,
   disabled,
-  "aria-disabled": ariaDisabled,
   "aria-haspopup": ariaHasPopup,
   "aria-labelledby": ariaLabelledBy,
   "data-menu": dataMenu,
@@ -294,17 +271,11 @@ export function MenuButton({
   children,
 }: MenuButtonProps) {
   const context = use(MenuContext);
-  const self = useRef<HTMLButtonElement | null>(null);
-  const isOpen = !!context?.isOpen;
-  // While open, its row keeps its actions shown (ui/popupWithin.ts), in the frame its
-  // `data-popup-open` lands; cleared on close and on unmount.
-  useLayoutEffect(() => (isOpen ? markPopupWithin(self.current) : undefined), [isOpen]);
   // menu-row-states "on": the open trigger takes the panel's fill (popupSurface.css).
   const joined = useExperimentArm(menuRowStates) === "on";
   return (
     <BaseMenu.Trigger
       ref={(node: HTMLButtonElement | null) => {
-        self.current = node;
         if (context) context.trigger.current = node;
         if (buttonRef) buttonRef.current = node;
       }}
@@ -312,7 +283,6 @@ export function MenuButton({
       aria-label={label}
       title={title}
       aria-labelledby={ariaLabelledBy}
-      aria-disabled={ariaDisabled}
       aria-haspopup={ariaHasPopup}
       data-menu={dataMenu}
       data-tooltip-shortcut={tooltipShortcut || undefined}
@@ -643,13 +613,9 @@ export interface MenuItemProps {
   "data-value"?: string;
   disabled?: boolean;
   /** Why a disabled row is disabled, one amber line under its label ("Needs sign-in"); drawn under
-   *  the menu-row-states experiment.
-   * @status experimental */
+   *  the menu-row-states experiment. */
   reason?: string;
-  /** The row's keyboard shortcut ("⌘C", "↩"), drawn with the one key hint (ui/KeyHint). */
-  shortcut?: string | undefined;
-  /** Text in the shortcut's column that is not a key (a count). */
-  trailing?: ReactNode;
+  shortcut?: ReactNode;
   /** A second, quieter line under the row's title (`children`, the title's text). */
   subtitle?: ReactNode;
   onPointerMove?(event: PointerEvent<HTMLElement>): void;
@@ -685,7 +651,6 @@ export function MenuItem({
   disabled,
   reason,
   shortcut,
-  trailing,
   subtitle,
   onPointerMove,
   onPointerEnter,
@@ -718,7 +683,7 @@ export function MenuItem({
    */
   async?: boolean;
 }) {
-  const context = use(MenuRowContext);
+  const context = use(MenuContext);
   const arms = use(MenuArms);
   const handledClick = useRef(false);
   const waits = Boolean(isAsync && arms && arms.states !== "off");
@@ -797,9 +762,7 @@ export function MenuItem({
           children
         )}
       </RowLabel>
-      {shortcut || trailing != null ? (
-        <span className="ui-menu-shortcut">{shortcut ? <KeyHint keys={shortcut} /> : trailing}</span>
-      ) : null}
+      {shortcut ? <span className="ui-menu-shortcut">{shortcut}</span> : null}
       {/* The async row's trailing slot, reserved from the start so its spinner moves nothing. */}
       {waits ? (
         <span className="ui-menu-async" aria-hidden="true">
@@ -823,7 +786,7 @@ export function MenuCheckboxItem({
   onCheckedChange,
   children,
 }: MenuCheckboxItemProps) {
-  const context = use(MenuRowContext);
+  const context = use(MenuContext);
   const handledClick = useRef(false);
   return (
     <BaseMenu.CheckboxItem
@@ -879,7 +842,6 @@ export function MenuRadioItem({
   disabled,
   reason,
   shortcut,
-  trailing,
   closeOnClick,
   label,
   title,
@@ -895,7 +857,7 @@ export function MenuRadioItem({
   /** The row's tooltip. */
   title?: string;
 } & Omit<MenuItemProps, "onSelect">) {
-  const context = use(MenuRowContext);
+  const context = use(MenuContext);
   return (
     <BaseMenu.RadioItem
       className={cx("ui-menu-item", className)}
@@ -920,9 +882,7 @@ export function MenuRadioItem({
       <RowLabel disabled={disabled} reason={reason}>
         {children}
       </RowLabel>
-      {shortcut || trailing != null ? (
-        <span className="ui-menu-shortcut">{shortcut ? <KeyHint keys={shortcut} /> : trailing}</span>
-      ) : null}
+      {shortcut ? <span className="ui-menu-shortcut">{shortcut}</span> : null}
     </BaseMenu.RadioItem>
   );
 }

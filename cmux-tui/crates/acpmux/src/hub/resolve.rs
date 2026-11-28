@@ -351,11 +351,6 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         harness: d.agent.into(),
         harness_argv: d.profile.argv.clone(),
         spawn_argv: None,
-        credential_connection: None,
-        credential_withdrawn: false,
-        credential_model: None,
-        claude_token_recovery: None,
-        claude_login_restart_pending: None,
         launch_digest: None,
         family: Some(d.family.to_owned()),
         preset: d.preset,
@@ -430,7 +425,6 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         wait_start: false,
         throwaway: false,
         create_key: None,
-        placed_by: None,
         agent_behind_seq: None,
         hibernated_ms: 0,
         close: None,
@@ -481,7 +475,6 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         fork_of_subagent: None,
         // A new chat starts on Auto; a pick is the chat's own and never a default.
         place_mode: None,
-        manifest: None,
     }
 }
 

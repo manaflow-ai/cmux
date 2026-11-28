@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "4fec002cc50074d54cc2ceb3cce0c5793558740f152e0e38234067f26eb505bf";
+inline constexpr std::string_view kProtocolIrSha256 = "06b04f371f590cf85e5a742859b460ba88ba4a337c754058e101b84d90e89315";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -51,10 +51,6 @@ enum class CloseReason;
 struct CloseTerminalResult;
 struct CloudConversationPresenceParticipant;
 struct ColorHex;
-struct ColumnDock;
-enum class ColumnDockEdge;
-enum class ColumnDockMode;
-enum class ColumnDockRole;
 enum class ColumnMoveDirection;
 struct ColumnPin;
 enum class ColumnSide;
@@ -84,7 +80,6 @@ enum class DetachReason;
 struct EmptyResult;
 struct ExportLayoutResult;
 struct ExportedPane;
-struct FloatingPane;
 struct FocusDirectionResult;
 enum class FrontendFocusTarget;
 struct FrontendJournalEvent;
@@ -106,15 +101,12 @@ struct HostSizePolicy;
 struct HostSizePolicyRequest;
 struct Id;
 struct IdMapping;
-struct IdentifyRestore;
 struct IdentifyResult;
 struct IdsResult;
 struct JsonValue;
 struct KittyGraphicsState;
 struct KittyImageAlias;
 struct Layout;
-struct LayoutColumnNode;
-struct LayoutRowNode;
 struct LayoutSizePaneWidth;
 struct LayoutSizeSplitRatio;
 struct LayoutSizeValue;
@@ -145,7 +137,6 @@ enum class PaneKind;
 struct PaneNeighborResult;
 struct PaneRef;
 struct PaneSurfaceResult;
-struct PhoneLinkOfferResult;
 struct PingResult;
 struct ProcessInfoResult;
 enum class ProgramStatusState;
@@ -175,7 +166,6 @@ struct RunResult;
 struct SavedTabGroupMember;
 struct SavedTabGroupRecord;
 struct Screen;
-struct ScreenGroupRun;
 struct SelectionPane;
 struct SelectionScreen;
 struct SendExpectAgent;
@@ -184,7 +174,6 @@ struct ServerStatsCommandRow;
 struct ServerStatsCommands;
 struct ServerStatsConnections;
 struct ServerStatsDisk;
-struct ServerStatsDiskCheckpoints;
 struct ServerStatsDiskFile;
 struct ServerStatsDiskJournal;
 struct ServerStatsDiskJournalKind;
@@ -233,7 +222,6 @@ enum class SplitDirection;
 struct SplitRespawn;
 struct SurfaceResult;
 struct Tab;
-struct TabAttention;
 struct TabGroupEndedTerminal;
 struct TabGroupOutcome;
 struct TabGroupRecord;
@@ -280,12 +268,10 @@ struct TerminalResumeCommandResult;
 struct Tree;
 enum class ViewAttachmentOutcome;
 struct ViewportPaneWidthResult;
-struct ViewportSplitWidth;
 struct VtStateResult;
 struct WaitForResult;
 struct Workspace;
 struct WorkspaceFirstTab;
-struct WorkspaceGroup;
 struct WorkspaceMutationResult;
 struct ZoomPaneResult;
 struct AckTabNotificationsRequest;
@@ -520,7 +506,6 @@ struct NewTabRequest;
 struct NewWorkspaceRequest;
 struct NoteSizeActivityRequest;
 struct NotifyRequest;
-struct OfferLinkToPhoneRequest;
 struct PageCredentialRequest;
 struct PairingResponseRequest;
 struct PaneNeighborRequest;
@@ -662,7 +647,6 @@ struct AgentInventoryChangedEvent;
 struct AgentInventoryWatchEndedEvent;
 struct AgentPresenceChangedEvent;
 struct AgentSessionShareChangedEvent;
-struct AppsCloudMachineEvent;
 struct BellEvent;
 struct BookmarksChangedEvent;
 struct BrowserStateEvent;
@@ -670,7 +654,6 @@ struct ChiefChangedEvent;
 struct ClientAttachedEvent;
 struct ClientChangedEvent;
 struct ClientDetachedEvent;
-struct ClientDisconnectedByEvent;
 struct ClientListInvalidatedEvent;
 struct CloudConversationChangedEvent;
 struct CloudConversationLiveEvent;
@@ -716,7 +699,6 @@ struct PaneAddedEvent;
 struct PaneClosedEvent;
 struct ParticipantAvatarChangedEvent;
 struct PersonalChangedEvent;
-struct PhoneOpenLinkEvent;
 struct ProgramStatusChangedEvent;
 struct RenderDeltaEvent;
 struct RenderStateEvent;
@@ -770,14 +752,12 @@ struct LayoutLeaf;
 struct LayoutSplit;
 struct LayoutStack;
 enum class SnapshotRequestResultStatus;
-enum class TabBrowserRenderer;
 enum class TabBrowserSource;
 enum class TabBrowserStatus;
 enum class TabKind;
 struct TerminalExitOutcomeExit;
 struct TerminalExitOutcomeSignal;
 struct TerminalExitOutcomeUnknown;
-enum class WorkspaceKind;
 struct WorkspaceFirstTabBrowser;
 enum class AttachSurfaceRequestMode;
 enum class BrowserKeyRequestKind;
@@ -789,7 +769,6 @@ enum class CopyRequestMode;
 enum class IdsRequestKind;
 enum class SubscribeRequestTreeEvents;
 enum class ZoomPaneRequestMode;
-enum class AppsCloudMachineEventKind;
 enum class BrowserStateEventStatus;
 enum class ChiefChangedEventChange;
 enum class ClientAttachedEventTransport;
@@ -1024,24 +1003,6 @@ struct ApplyLayoutResult {
     std::vector<AppliedPane> panes{};
     Id screen{};
     friend bool operator==(const ApplyLayoutResult&, const ApplyLayoutResult&) = default;
-};
-
-enum class AppsCloudMachineEventKind {
-    record,
-    live,
-    lost,
-};
-
-struct JsonValue {
-    Json value{};
-    friend bool operator==(const JsonValue&, const JsonValue&) = default;
-};
-
-struct AppsCloudMachineEvent {
-    AppsCloudMachineEventKind kind{};
-    std::string machine{};
-    std::optional<JsonValue> record{};
-    friend bool operator==(const AppsCloudMachineEvent&, const AppsCloudMachineEvent&) = default;
 };
 
 enum class AttachSurfaceRequestMode {
@@ -1397,6 +1358,11 @@ struct ChiefInspectRequest {
     friend bool operator==(const ChiefInspectRequest&, const ChiefInspectRequest&) = default;
 };
 
+struct JsonValue {
+    Json value{};
+    friend bool operator==(const JsonValue&, const JsonValue&) = default;
+};
+
 struct ChiefInspectResult {
     Field<JsonValue> body{};
     Field<std::string> error{};
@@ -1635,18 +1601,6 @@ struct ClientDetachedEvent {
     friend bool operator==(const ClientDetachedEvent&, const ClientDetachedEvent&) = default;
 };
 
-struct SizeDetachActor {
-    Field<std::string> device_name{};
-    Field<std::string> display_name{};
-    Field<std::string> user_id{};
-    friend bool operator==(const SizeDetachActor&, const SizeDetachActor&) = default;
-};
-
-struct ClientDisconnectedByEvent {
-    std::optional<SizeDetachActor> by{};
-    friend bool operator==(const ClientDisconnectedByEvent&, const ClientDisconnectedByEvent&) = default;
-};
-
 struct ClientFocusRequest {
     std::string client_id{};
     friend bool operator==(const ClientFocusRequest&, const ClientFocusRequest&) = default;
@@ -1674,7 +1628,6 @@ enum class ClientTransport {
 
 struct ClientInfo {
     std::vector<Id> attached{};
-    std::optional<std::vector<std::string>> capabilities{};
     std::uint64_t client{};
     std::uint64_t connected_seconds{};
     std::optional<std::string> kind{};
@@ -2174,33 +2127,6 @@ struct ColorsChangedEvent {
     std::optional<ColorHex> selection_fg{};
     std::optional<Id> surface{};
     friend bool operator==(const ColorsChangedEvent&, const ColorsChangedEvent&) = default;
-};
-
-enum class ColumnDockEdge {
-    left,
-    right,
-    top,
-    bottom,
-};
-
-enum class ColumnDockMode {
-    docked,
-    overlay,
-};
-
-enum class ColumnDockRole {
-    agent_chat,
-};
-
-struct ColumnDock {
-    std::optional<bool> allow_tabs{};
-    ColumnDockEdge edge{};
-    ColumnDockMode mode{};
-    std::optional<bool> permanent{};
-    std::optional<bool> pinned{};
-    std::optional<ColumnDockRole> role{};
-    Json::Object additional_properties{};
-    friend bool operator==(const ColumnDock&, const ColumnDock&) = default;
 };
 
 enum class ColumnMoveDirection {
@@ -3081,6 +3007,13 @@ struct DetachClientTarget {
     friend bool operator==(const DetachClientTarget&, const DetachClientTarget&) = default;
 };
 
+struct SizeDetachActor {
+    Field<std::string> device_name{};
+    Field<std::string> display_name{};
+    Field<std::string> user_id{};
+    friend bool operator==(const SizeDetachActor&, const SizeDetachActor&) = default;
+};
+
 struct DetachClientRequest {
     Field<SizeDetachActor> by{};
     DetachClientTarget client{};
@@ -3221,15 +3154,6 @@ struct FloatPaneRequest {
     Field<double> x{};
     Field<double> y{};
     friend bool operator==(const FloatPaneRequest&, const FloatPaneRequest&) = default;
-};
-
-struct FloatingPane {
-    double h{};
-    Id pane{};
-    double w{};
-    double x{};
-    double y{};
-    friend bool operator==(const FloatingPane&, const FloatingPane&) = default;
 };
 
 struct FlushLaunchSnapshotRequest {
@@ -3637,18 +3561,8 @@ struct IdMapping {
 
 struct IdentifyRequest {
     std::optional<bool> machine_metadata{};
-    std::optional<bool> restore_progress{};
     std::optional<bool> revisions{};
     friend bool operator==(const IdentifyRequest&, const IdentifyRequest&) = default;
-};
-
-struct IdentifyRestore {
-    std::optional<std::uint64_t> done{};
-    std::uint64_t elapsed_ms{};
-    std::uint64_t last_advance_ms{};
-    std::string phase{};
-    std::optional<std::uint64_t> total{};
-    friend bool operator==(const IdentifyRestore&, const IdentifyRestore&) = default;
 };
 
 struct MachinePlatform {
@@ -3682,7 +3596,6 @@ struct IdentifyResult {
     std::uint32_t pid{};
     std::uint32_t protocol{};
     std::string registry_id{};
-    std::optional<IdentifyRestore> restore{};
     Field<std::string> screen_device_id{};
     std::string session{};
     std::optional<std::string> session_id{};
@@ -3789,22 +3702,6 @@ struct LayoutChangedEvent {
     std::optional<Id> workspace{};
     Field<Id> zoomed_pane{};
     friend bool operator==(const LayoutChangedEvent&, const LayoutChangedEvent&) = default;
-};
-
-struct LayoutRowNode {
-    std::uint64_t height{};
-    Id id{};
-    Layout layout{};
-    friend bool operator==(const LayoutRowNode&, const LayoutRowNode&) = default;
-};
-
-struct LayoutColumnNode {
-    std::optional<ColumnDock> dock{};
-    Id id{};
-    Layout layout{};
-    std::optional<std::vector<LayoutRowNode>> rows{};
-    double width{};
-    friend bool operator==(const LayoutColumnNode&, const LayoutColumnNode&) = default;
 };
 
 struct LayoutSizePaneWidth {
@@ -3932,7 +3829,6 @@ struct TabGroupRun {
     bool collapsed{};
     std::string color{};
     std::uint64_t count{};
-    Field<std::string> icon{};
     std::string id{};
     std::string name{};
     std::optional<Id> pane{};
@@ -4075,17 +3971,6 @@ struct ShownProgramStatus {
     friend bool operator==(const ShownProgramStatus&, const ShownProgramStatus&) = default;
 };
 
-struct TabAttention {
-    std::uint64_t at_ms{};
-    std::string reason{};
-    friend bool operator==(const TabAttention&, const TabAttention&) = default;
-};
-
-enum class TabBrowserRenderer {
-    daemon,
-    frontend,
-};
-
 enum class TabBrowserSource {
     external,
     launched,
@@ -4101,52 +3986,29 @@ enum class TabKind {
     pty,
     browser,
     conversation,
-    remote_terminal,
 };
 
 struct Tab {
-    std::optional<JsonValue> app{};
-    Field<TabAttention> attention{};
-    Field<std::string> browser_engine{};
     Field<std::string> browser_error{};
     Field<bool> browser_frames_stalled{};
-    Field<std::string> browser_owner{};
-    Field<std::string> browser_profile_id{};
-    Field<TabBrowserRenderer> browser_renderer{};
     std::optional<TabBrowserSource> browser_source{};
     Field<TabBrowserStatus> browser_status{};
-    Field<std::string> content_resource_id{};
-    Field<ConversationTabRecord> conversation{};
-    Field<std::string> cwd{};
     bool dead{};
-    Field<JsonValue> end{};
-    Field<std::string> favicon_url{};
-    Field<std::string> git_branch{};
-    std::optional<bool> git_detached{};
-    Field<std::string> group{};
-    Field<std::uint64_t> host_record_version{};
     TabKind kind{};
     std::optional<std::string> name{};
     Field<NotificationMarker> notification{};
-    std::optional<bool> pinned{};
-    Field<std::string> pinned_url{};
     Field<ShownProgramStatus> program_status{};
-    Field<JsonValue> relaunch{};
-    std::optional<JsonValue> remote{};
     std::optional<std::string> short_id{};
     std::optional<Size> size{};
     std::optional<bool> supports_clear_history_key_fallback{};
     Id surface{};
-    Field<std::string> tab_resource_id{};
     Field<std::string> terminal_host_fallback{};
     Field<std::string> terminal_id{};
     Field<std::string> terminal_incarnation{};
     Field<std::string> terminal_resource_id{};
-    Field<std::string> terminal_state{};
     std::string title{};
     Field<std::string> title_activity{};
     std::optional<std::string> title_text{};
-    Field<std::string> url{};
     friend bool operator==(const Tab&, const Tab&) = default;
 };
 
@@ -4155,9 +4017,7 @@ struct LivePane {
     std::optional<std::uint64_t> focused_at{};
     Id id{};
     std::optional<std::string> name{};
-    Field<std::string> resource_id{};
     std::optional<std::string> short_id{};
-    std::optional<std::vector<TabGroupRun>> tab_groups{};
     std::vector<Tab> tabs{};
     friend bool operator==(const LivePane&, const LivePane&) = default;
 };
@@ -4654,12 +4514,6 @@ struct NotifyResult {
     friend bool operator==(const NotifyResult&, const NotifyResult&) = default;
 };
 
-struct OfferLinkToPhoneRequest {
-    std::string terminal_id{};
-    std::string url{};
-    friend bool operator==(const OfferLinkToPhoneRequest&, const OfferLinkToPhoneRequest&) = default;
-};
-
 struct TerminalColors {
     std::optional<ColorHex> bg{};
     Field<ColorHex> cursor{};
@@ -4792,17 +4646,6 @@ struct PasteImageResult {
 struct PersonalChangedEvent {
     std::uint64_t personal_revision{};
     friend bool operator==(const PersonalChangedEvent&, const PersonalChangedEvent&) = default;
-};
-
-struct PhoneLinkOfferResult {
-    bool offered{};
-    friend bool operator==(const PhoneLinkOfferResult&, const PhoneLinkOfferResult&) = default;
-};
-
-struct PhoneOpenLinkEvent {
-    std::string terminal_id{};
-    std::string url{};
-    friend bool operator==(const PhoneOpenLinkEvent&, const PhoneOpenLinkEvent&) = default;
 };
 
 struct PinWorkspaceRequest {
@@ -5359,31 +5202,14 @@ struct SaveTabGroupResult {
     friend bool operator==(const SaveTabGroupResult&, const SaveTabGroupResult&) = default;
 };
 
-struct ViewportSplitWidth {
-    Id split{};
-    double width{};
-    friend bool operator==(const ViewportSplitWidth&, const ViewportSplitWidth&) = default;
-};
-
 struct Screen {
     bool active{};
     Id active_pane{};
-    Field<std::string> color{};
-    std::optional<std::vector<LayoutColumnNode>> columns{};
-    std::optional<std::vector<FloatingPane>> floating{};
-    Field<std::string> group{};
-    std::optional<std::vector<Id>> hidden_dividers{};
-    Field<std::string> icon{};
     Id id{};
     Layout layout{};
     std::optional<std::string> name{};
     std::vector<Pane> panes{};
-    std::optional<bool> pinned{};
-    std::optional<JsonValue> quick_terminal{};
-    Field<std::string> resource_id{};
     std::optional<std::string> short_id{};
-    std::optional<double> viewport_base_width{};
-    std::optional<std::vector<ViewportSplitWidth>> viewport_splits{};
     std::optional<Id> zoomed_pane{};
     friend bool operator==(const Screen&, const Screen&) = default;
 };
@@ -5415,19 +5241,6 @@ struct ScreenClosedEvent {
 struct ScreenDeviceChangedEvent {
     std::optional<std::string> screen_device_id{};
     friend bool operator==(const ScreenDeviceChangedEvent&, const ScreenDeviceChangedEvent&) = default;
-};
-
-struct ScreenGroupRun {
-    bool collapsed{};
-    std::string color{};
-    std::uint64_t count{};
-    Field<std::string> icon{};
-    std::string id{};
-    std::string name{};
-    std::optional<std::string> saved_id{};
-    std::vector<Id> screens{};
-    std::uint64_t start{};
-    friend bool operator==(const ScreenGroupRun&, const ScreenGroupRun&) = default;
 };
 
 struct ScreenRenamedEvent {
@@ -5557,15 +5370,6 @@ struct ServerStatsConnections {
     friend bool operator==(const ServerStatsConnections&, const ServerStatsConnections&) = default;
 };
 
-struct ServerStatsDiskCheckpoints {
-    std::uint64_t budget_bytes{};
-    std::uint64_t bytes{};
-    std::uint64_t checkpoints{};
-    std::uint64_t largest_bytes{};
-    bool over_budget{};
-    friend bool operator==(const ServerStatsDiskCheckpoints&, const ServerStatsDiskCheckpoints&) = default;
-};
-
 struct ServerStatsDiskFile {
     std::uint64_t bytes{};
     std::uint64_t files{};
@@ -5621,7 +5425,6 @@ struct ServerStatsDiskSegments {
 };
 
 struct ServerStatsDisk {
-    Field<ServerStatsDiskCheckpoints> checkpoints{};
     std::optional<std::string> error{};
     std::vector<ServerStatsDiskFile> files{};
     bool files_truncated{};
@@ -5765,7 +5568,6 @@ struct ServerStatsRegistryLock {
 
 struct ServerStatsRequest {
     Field<std::vector<std::string>> include{};
-    std::optional<bool> restore_progress{};
     friend bool operator==(const ServerStatsRequest&, const ServerStatsRequest&) = default;
 };
 
@@ -6091,7 +5893,6 @@ struct SetWorkspaceMetadataRequest {
     Field<std::string> expected_generation{};
     Field<std::uint64_t> expected_revision{};
     Field<std::string> icon{};
-    Field<bool> keep_awake{};
     Field<std::string> key{};
     Field<bool> marked_unread{};
     Field<std::string> mutation_id{};
@@ -6693,44 +6494,16 @@ struct TitleChangedEvent {
     friend bool operator==(const TitleChangedEvent&, const TitleChangedEvent&) = default;
 };
 
-enum class WorkspaceKind {
-    normal,
-    home,
-    app,
-};
-
 struct Workspace {
     bool active{};
-    Field<std::string> app{};
-    Field<std::string> color{};
-    Field<std::string> group{};
-    Field<std::string> icon{};
     Id id{};
-    std::optional<bool> keep_awake{};
     std::optional<std::string> key{};
-    std::optional<WorkspaceKind> kind{};
-    std::optional<bool> marked_unread{};
     std::string name{};
     std::optional<std::string> name_revision{};
     std::optional<NameSource> name_source{};
-    std::optional<bool> pinned{};
-    std::optional<bool> recovered{};
-    Field<std::string> resource_id{};
-    std::optional<std::vector<ScreenGroupRun>> screen_groups{};
     std::vector<Screen> screens{};
     std::optional<std::string> short_id{};
-    Field<std::string> title{};
-    std::optional<std::uint64_t> unread_count{};
     friend bool operator==(const Workspace&, const Workspace&) = default;
-};
-
-struct WorkspaceGroup {
-    bool collapsed{};
-    std::optional<std::string> color{};
-    std::string id{};
-    std::uint64_t index{};
-    std::string name{};
-    friend bool operator==(const WorkspaceGroup&, const WorkspaceGroup&) = default;
 };
 
 struct Tree {
@@ -6738,8 +6511,6 @@ struct Tree {
     std::optional<bool> delta{};
     std::optional<std::string> epoch{};
     std::optional<std::string> generation{};
-    std::optional<std::vector<WorkspaceGroup>> groups{};
-    std::optional<std::uint64_t> lines_written_before_read{};
     std::optional<std::uint64_t> next{};
     std::optional<std::vector<Id>> order{};
     std::optional<std::uint64_t> pane_revision{};
@@ -7290,30 +7061,6 @@ struct Codec<ColorHex> {
 };
 
 template <>
-struct Codec<ColumnDock> {
-    static Result<Json> encode(const ColumnDock& value);
-    static Result<ColumnDock> decode(const Json& value);
-};
-
-template <>
-struct Codec<ColumnDockEdge> {
-    static Result<Json> encode(const ColumnDockEdge& value);
-    static Result<ColumnDockEdge> decode(const Json& value);
-};
-
-template <>
-struct Codec<ColumnDockMode> {
-    static Result<Json> encode(const ColumnDockMode& value);
-    static Result<ColumnDockMode> decode(const Json& value);
-};
-
-template <>
-struct Codec<ColumnDockRole> {
-    static Result<Json> encode(const ColumnDockRole& value);
-    static Result<ColumnDockRole> decode(const Json& value);
-};
-
-template <>
 struct Codec<ColumnMoveDirection> {
     static Result<Json> encode(const ColumnMoveDirection& value);
     static Result<ColumnMoveDirection> decode(const Json& value);
@@ -7488,12 +7235,6 @@ struct Codec<ExportedPane> {
 };
 
 template <>
-struct Codec<FloatingPane> {
-    static Result<Json> encode(const FloatingPane& value);
-    static Result<FloatingPane> decode(const Json& value);
-};
-
-template <>
 struct Codec<FocusDirectionResult> {
     static Result<Json> encode(const FocusDirectionResult& value);
     static Result<FocusDirectionResult> decode(const Json& value);
@@ -7620,12 +7361,6 @@ struct Codec<IdMapping> {
 };
 
 template <>
-struct Codec<IdentifyRestore> {
-    static Result<Json> encode(const IdentifyRestore& value);
-    static Result<IdentifyRestore> decode(const Json& value);
-};
-
-template <>
 struct Codec<IdentifyResult> {
     static Result<Json> encode(const IdentifyResult& value);
     static Result<IdentifyResult> decode(const Json& value);
@@ -7659,18 +7394,6 @@ template <>
 struct Codec<Layout> {
     static Result<Json> encode(const Layout& value);
     static Result<Layout> decode(const Json& value);
-};
-
-template <>
-struct Codec<LayoutColumnNode> {
-    static Result<Json> encode(const LayoutColumnNode& value);
-    static Result<LayoutColumnNode> decode(const Json& value);
-};
-
-template <>
-struct Codec<LayoutRowNode> {
-    static Result<Json> encode(const LayoutRowNode& value);
-    static Result<LayoutRowNode> decode(const Json& value);
 };
 
 template <>
@@ -7854,12 +7577,6 @@ struct Codec<PaneSurfaceResult> {
 };
 
 template <>
-struct Codec<PhoneLinkOfferResult> {
-    static Result<Json> encode(const PhoneLinkOfferResult& value);
-    static Result<PhoneLinkOfferResult> decode(const Json& value);
-};
-
-template <>
 struct Codec<PingResult> {
     static Result<Json> encode(const PingResult& value);
     static Result<PingResult> decode(const Json& value);
@@ -8034,12 +7751,6 @@ struct Codec<Screen> {
 };
 
 template <>
-struct Codec<ScreenGroupRun> {
-    static Result<Json> encode(const ScreenGroupRun& value);
-    static Result<ScreenGroupRun> decode(const Json& value);
-};
-
-template <>
 struct Codec<SelectionPane> {
     static Result<Json> encode(const SelectionPane& value);
     static Result<SelectionPane> decode(const Json& value);
@@ -8085,12 +7796,6 @@ template <>
 struct Codec<ServerStatsDisk> {
     static Result<Json> encode(const ServerStatsDisk& value);
     static Result<ServerStatsDisk> decode(const Json& value);
-};
-
-template <>
-struct Codec<ServerStatsDiskCheckpoints> {
-    static Result<Json> encode(const ServerStatsDiskCheckpoints& value);
-    static Result<ServerStatsDiskCheckpoints> decode(const Json& value);
 };
 
 template <>
@@ -8382,12 +8087,6 @@ struct Codec<Tab> {
 };
 
 template <>
-struct Codec<TabAttention> {
-    static Result<Json> encode(const TabAttention& value);
-    static Result<TabAttention> decode(const Json& value);
-};
-
-template <>
 struct Codec<TabGroupEndedTerminal> {
     static Result<Json> encode(const TabGroupEndedTerminal& value);
     static Result<TabGroupEndedTerminal> decode(const Json& value);
@@ -8664,12 +8363,6 @@ struct Codec<ViewportPaneWidthResult> {
 };
 
 template <>
-struct Codec<ViewportSplitWidth> {
-    static Result<Json> encode(const ViewportSplitWidth& value);
-    static Result<ViewportSplitWidth> decode(const Json& value);
-};
-
-template <>
 struct Codec<VtStateResult> {
     static Result<Json> encode(const VtStateResult& value);
     static Result<VtStateResult> decode(const Json& value);
@@ -8691,12 +8384,6 @@ template <>
 struct Codec<WorkspaceFirstTab> {
     static Result<Json> encode(const WorkspaceFirstTab& value);
     static Result<WorkspaceFirstTab> decode(const Json& value);
-};
-
-template <>
-struct Codec<WorkspaceGroup> {
-    static Result<Json> encode(const WorkspaceGroup& value);
-    static Result<WorkspaceGroup> decode(const Json& value);
 };
 
 template <>
@@ -10104,12 +9791,6 @@ struct Codec<NotifyRequest> {
 };
 
 template <>
-struct Codec<OfferLinkToPhoneRequest> {
-    static Result<Json> encode(const OfferLinkToPhoneRequest& value);
-    static Result<OfferLinkToPhoneRequest> decode(const Json& value);
-};
-
-template <>
 struct Codec<PageCredentialRequest> {
     static Result<Json> encode(const PageCredentialRequest& value);
     static Result<PageCredentialRequest> decode(const Json& value);
@@ -10956,12 +10637,6 @@ struct Codec<AgentSessionShareChangedEvent> {
 };
 
 template <>
-struct Codec<AppsCloudMachineEvent> {
-    static Result<Json> encode(const AppsCloudMachineEvent& value);
-    static Result<AppsCloudMachineEvent> decode(const Json& value);
-};
-
-template <>
 struct Codec<BellEvent> {
     static Result<Json> encode(const BellEvent& value);
     static Result<BellEvent> decode(const Json& value);
@@ -11001,12 +10676,6 @@ template <>
 struct Codec<ClientDetachedEvent> {
     static Result<Json> encode(const ClientDetachedEvent& value);
     static Result<ClientDetachedEvent> decode(const Json& value);
-};
-
-template <>
-struct Codec<ClientDisconnectedByEvent> {
-    static Result<Json> encode(const ClientDisconnectedByEvent& value);
-    static Result<ClientDisconnectedByEvent> decode(const Json& value);
 };
 
 template <>
@@ -11277,12 +10946,6 @@ template <>
 struct Codec<PersonalChangedEvent> {
     static Result<Json> encode(const PersonalChangedEvent& value);
     static Result<PersonalChangedEvent> decode(const Json& value);
-};
-
-template <>
-struct Codec<PhoneOpenLinkEvent> {
-    static Result<Json> encode(const PhoneOpenLinkEvent& value);
-    static Result<PhoneOpenLinkEvent> decode(const Json& value);
 };
 
 template <>
@@ -11604,12 +11267,6 @@ struct Codec<SnapshotRequestResultStatus> {
 };
 
 template <>
-struct Codec<TabBrowserRenderer> {
-    static Result<Json> encode(const TabBrowserRenderer& value);
-    static Result<TabBrowserRenderer> decode(const Json& value);
-};
-
-template <>
 struct Codec<TabBrowserSource> {
     static Result<Json> encode(const TabBrowserSource& value);
     static Result<TabBrowserSource> decode(const Json& value);
@@ -11643,12 +11300,6 @@ template <>
 struct Codec<TerminalExitOutcomeUnknown> {
     static Result<Json> encode(const TerminalExitOutcomeUnknown& value);
     static Result<TerminalExitOutcomeUnknown> decode(const Json& value);
-};
-
-template <>
-struct Codec<WorkspaceKind> {
-    static Result<Json> encode(const WorkspaceKind& value);
-    static Result<WorkspaceKind> decode(const Json& value);
 };
 
 template <>
@@ -11715,12 +11366,6 @@ template <>
 struct Codec<ZoomPaneRequestMode> {
     static Result<Json> encode(const ZoomPaneRequestMode& value);
     static Result<ZoomPaneRequestMode> decode(const Json& value);
-};
-
-template <>
-struct Codec<AppsCloudMachineEventKind> {
-    static Result<Json> encode(const AppsCloudMachineEventKind& value);
-    static Result<AppsCloudMachineEventKind> decode(const Json& value);
 };
 
 template <>

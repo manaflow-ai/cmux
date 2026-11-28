@@ -88,7 +88,6 @@ impl ViewContext<'_> {
     }
 
     /// The whole view.
-    // perf-hot: 12ms feed-view-read (the page's read on open and on every feed change)
     pub fn view(&self, request: &ViewRequest) -> Value {
         let matcher = Matcher::new(request.filter.clone().unwrap_or_default());
         let limit = request.limit.unwrap_or(MAX_VIEW_ENTRIES).min(MAX_VIEW_ENTRIES);
@@ -142,7 +141,7 @@ impl ViewContext<'_> {
                 left = left.saturating_sub(shown);
                 let entries: Vec<Value> =
                     entries.iter().take(shown).map(|entry| entry.to_value(self)).collect();
-                object([("id", json!(id)), ("entries", Value::Array(entries))])
+                json!({"id": id, "entries": entries})
             })
             .collect();
         let counts = self.mirror.counts();
@@ -151,7 +150,7 @@ impl ViewContext<'_> {
             Some(reason) => json!({"state": connection.state(), "reason": reason}),
             None => json!({"state": connection.state()}),
         };
-        let mut view = json!({
+        json!({
             "revision": self.mirror.revision(),
             "loaded": self.mirror.loaded(),
             "account": self.account.map(|account| json!({"id": account.id, "user": account.user})),
@@ -164,14 +163,9 @@ impl ViewContext<'_> {
             },
             "github": {"enabled": self.github_enabled},
             "reports": {"available": self.reports_available},
+            "groups": groups,
             "total": total,
-        });
-        // Moved in, not through `json!`: it serializes an embedded `Value`
-        // again, which deep-copied every entry (three times per item).
-        if let Value::Object(members) = &mut view {
-            members.insert("groups".to_owned(), Value::Array(groups));
-        }
-        view
+        })
     }
 }
 
@@ -197,16 +191,12 @@ impl<'a> Entry<'a> {
             None => head.id.clone(),
         };
         let members: Vec<Value> = self.members.iter().map(|item| context.item(item)).collect();
-        let unread = std::iter::once(head)
-            .chain(self.members.iter().copied())
-            .filter(|item| item.is_unread())
-            .count();
-        object([
-            ("id", json!(id)),
-            ("item", context.item(head)),
-            ("members", Value::Array(members)),
-            ("unread", json!(unread)),
-        ])
+        json!({
+            "id": id,
+            "item": context.item(head),
+            "members": members,
+            "unread": std::iter::once(head).chain(self.members.iter().copied()).filter(|item| item.is_unread()).count(),
+        })
     }
 }
 
@@ -238,10 +228,4 @@ fn threads(items: Vec<&FeedItem>) -> Vec<Entry<'_>> {
 fn whole<'a>(id: &'a str, entries: Vec<Entry<'a>>) -> (&'a str, Vec<Entry<'a>>, usize) {
     let len = entries.len();
     (id, entries, len)
-}
-
-/// A JSON object of values already built, moved in. `json!` would copy each
-/// one: it serializes an embedded `Value` into a new tree.
-fn object<const N: usize>(members: [(&str, Value); N]) -> Value {
-    Value::Object(members.into_iter().map(|(key, value)| (key.to_owned(), value)).collect())
 }

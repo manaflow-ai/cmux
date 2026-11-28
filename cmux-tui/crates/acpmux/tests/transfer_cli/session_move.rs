@@ -24,9 +24,6 @@ home = {home}
 socket = {socket}
 link = {link}
 args = sys.argv[1:]
-# session_move.rs PLAIN_SCRIPT, the folder a move makes on the target, by its exact text:
-# other scripts (the carry's APPLY_SCRIPT) also read `d` and `mkdir -p`.
-PLAIN = 'read -r d || exit 2; mkdir -p -- "$d"'
 if '-W' in args and link:
     import queue, socket as net, threading, time
     port, delay = link[0], link[1] / 1000
@@ -141,7 +138,7 @@ elif 'cat ~/.acpmux/config.json' in command:
     token = pathlib.Path(home, 'run', 'peer.token')
     if token.exists():
         sys.stdout.buffer.write(token.read_bytes())
-elif PLAIN in command:
+elif 'mkdir -p' in command and 'read -r d' in command:
     folder = pathlib.Path(sys.stdin.readline().strip())
     assert str(folder).startswith(home + '/')
     folder.mkdir(parents=True, exist_ok=True)

@@ -489,22 +489,10 @@ fn a_loopback_url_that_is_not_a_gateway_route_is_not_read_as_a_port() {
 async fn a_gateway_with_no_record_takes_the_port_its_home_derives() {
     let home = tempfile::tempdir().unwrap();
     let g = gateway_waiting(home.path(), Duration::ZERO).await;
-    // The derived port sits in Linux's ephemeral range, so a parallel test's port-0 bind can hold
-    // it: `bind_derived` then steps upward through its tries, which is still the home's own port
-    // window and not a fresh ephemeral one. Exact equality failed whenever that happened.
-    let first = derived_port(home.path());
-    let window: Vec<u16> = (0..DERIVED_PORT_TRIES)
-        .map(|step| {
-            let within = (u64::from(first.saturating_sub(DERIVED_PORT_BASE))
-                .saturating_add(u64::from(step)))
-                & DERIVED_PORT_MASK;
-            DERIVED_PORT_BASE.saturating_add(u16::try_from(within).unwrap())
-        })
-        .collect();
-    assert!(
-        window.contains(&g.port()),
-        "the home's derived port window {window:?}, instead of a fresh ephemeral one no config names: {}",
-        g.port()
+    assert_eq!(
+        g.port(),
+        derived_port(home.path()),
+        "the same port again, instead of a fresh ephemeral one no config names"
     );
     assert_eq!(read_record(home.path()).port, g.port());
 }

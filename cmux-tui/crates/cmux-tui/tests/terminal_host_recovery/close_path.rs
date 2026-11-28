@@ -91,65 +91,6 @@ fn batch_close_ends_hosts_without_waiting_for_termination_receipts() {
     );
 }
 
-/// Cleanup of a discovered host after termination signaling fails must not
-/// consume one of the bounded signaling workers. Eight wedged cleanups must
-/// leave a ninth healthy close able to signal and reap its host immediately.
-#[test]
-fn failed_host_cleanup_does_not_starve_later_close_signals() {
-    const WEDGED: usize = 8;
-    let mut harness = RecoveryHarness::start_unstarted("close-cleanup-off-signal-workers");
-    harness.extra_env =
-        vec![("CMUX_TUI_TEST_DISCOVERED_HOST_CLEANUP_DELAY_MS".into(), "2000".into())];
-    harness.restart();
-
-    let mut wedged = Vec::with_capacity(WEDGED);
-    for index in 0..WEDGED {
-        let (terminal_id, incarnation) =
-            run_cat_workspace(&harness.socket, index + 1, &format!("wedged-{index}"));
-        wedged.push((terminal_id, incarnation));
-    }
-    let records = wait_for_host_records(&harness.host_root(), WEDGED);
-    for (_, record) in records {
-        // SAFETY: every PID is a host created by this test harness.
-        unsafe { libc::killpg(record.host_pid as libc::pid_t, libc::SIGKILL) };
-    }
-
-    for (index, (terminal_id, incarnation)) in wedged.iter().enumerate() {
-        request(
-            &harness.socket,
-            serde_json::json!({
-                "id": 10_000 + index,
-                "cmd": "close-terminal",
-                "terminal_id": terminal_id,
-                "terminal_incarnation": incarnation,
-            }),
-        );
-    }
-
-    let (healthy_terminal_id, healthy_incarnation) =
-        run_cat_workspace(&harness.socket, 100, "healthy-after-wedged-cleanup");
-    wait_for_host_records(&harness.host_root(), 1);
-    request(
-        &harness.socket,
-        serde_json::json!({
-            "id": 20_000,
-            "cmd": "close-terminal",
-            "terminal_id": &healthy_terminal_id,
-            "terminal_incarnation": &healthy_incarnation,
-        }),
-    );
-
-    let deadline = Instant::now() + test_timeout(Duration::from_secs(1));
-    loop {
-        let records = load_terminal_host_records(&harness.host_root()).unwrap();
-        if records.iter().all(|(_, record)| record.terminal_id != healthy_terminal_id) {
-            return;
-        }
-        assert!(Instant::now() < deadline, "healthy host close was starved by cleanup workers");
-        std::thread::sleep(Duration::from_millis(10));
-    }
-}
-
 /// Upper bound for ending 100 terminal hosts at once, in seconds. Each host
 /// fsyncs its exit receipt and its record directory, and the owner fsyncs
 /// the record directory when it acknowledges the receipt: about 400 fsyncs.

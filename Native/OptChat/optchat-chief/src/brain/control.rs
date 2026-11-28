@@ -407,26 +407,8 @@ impl Brain {
         });
     }
 
-    fn status_all(&mut self) -> String {
-        // The same heartbeats as a per-id status: each running subagent's
-        // events since its last read are folded in first. Without this the
-        // summary read every watch as the last per-id read or tick left it,
-        // and called all 10 live subagents [stalled] while each per-id status
-        // said running-tool, a heartbeat under 30 s ago (2026-11-27).
-        // Only those state_of reads a watch for (running or quiet): a cancelled,
-        // paused or permission-waiting one costs no events read.
+    fn status_all(&self) -> String {
         let now = self.now();
-        let running: Vec<String> = self
-            .state
-            .spawns
-            .values()
-            .flat_map(|r| r.subs.iter())
-            .filter(|s| s.session_id.is_some() && matches!(state_name(s, now), "running" | "quiet"))
-            .map(|s| s.id.clone())
-            .collect();
-        for id in &running {
-            self.refresh_watch(id);
-        }
         let mut subs: Vec<&SubRecord> = self
             .state
             .spawns

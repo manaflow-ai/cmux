@@ -25,7 +25,7 @@ echo reducer > "$src/scripts/cmux-next/build-layout-reducer-ffi.sh"
 echo '[package]' > "$src/cmux-tui/crates/cmux-app-host/Cargo.toml"
 echo '[package]' > "$src/cmux-tui/crates/cmux-holder/Cargo.toml"
 echo '[package]' > "$src/$detector/Cargo.toml"
-printf '#!/bin/sh\n# installs cmux-app-host, cmux-holder, cmux-agent-screen-detection and cmux-launch-preread beside cmux\n' > "$src/scripts/cmux-next/bundle-cmux-tui.sh"
+printf '#!/bin/sh\n# installs cmux-app-host, cmux-holder and cmux-agent-screen-detection beside cmux\n' > "$src/scripts/cmux-next/bundle-cmux-tui.sh"
 echo one > "$src/cmux-tui/a"
 git_q -C "$src" add -A
 git_q -C "$src" commit -m one
@@ -43,13 +43,6 @@ for name in "${names[@]}"; do
   chmod 755 "$CARGO_TARGET_DIR/release/$name"
 done
 echo "${names[0]} $PWD" >> "$FAKE_CARGO_LOG"
-# Cargo's freshness: a workspace crate recompiles only when a source file is
-# newer than its last build in this target, whichever checkout that was from.
-stamp="$CARGO_TARGET_DIR/.fake-stamp-${names[0]}"
-if [[ ! -e "$stamp" || -n "$(find "$PWD" -path "$PWD/target" -prune -o -type f -newer "$stamp" -print | head -1)" ]]; then
-  echo "$PWD" > "$CARGO_TARGET_DIR/release/${names[0]}.compiled-from"
-  touch "$stamp"
-fi
 EOF
 chmod 755 "$TMP/bin/cargo"
 run() { (cd "$src" && env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" TMPDIR="$TMP" FAKE_CARGO_LOG="$TMP/cargo.log" "$@"); }
@@ -87,54 +80,4 @@ run CMUX_CI_PHASE_FILE="$TMP/phases.jsonl" CI_SHARED_CACHE_DIR="$TMP/shared" bas
   || fail "a fleet step did not build: $(cat "$TMP/err")"
 [[ "$(builds)" == 9 ]] || fail "a fleet step did not build the set once: $(cat "$TMP/cargo.log")"
 [[ -x "$TMP/shared/cmux-tui-client-target/release/cmux-tui" ]] || fail "a fleet step did not build in the shared cache"
-# The optional reader can land after the bundle scripts. Absent source must
-# not leak a leftover shared-target binary into the newly staged set.
-[[ ! -e "$(dirname "$path")/cmux-launch-preread" ]] || fail "missing source bundled preread"
-mkdir -p "$src/cmux-tui/crates/cmux-launch-preread"
-echo '[package]' > "$src/cmux-tui/crates/cmux-launch-preread/Cargo.toml"
-path=$(run NX_JOB_ID=job CI_SHARED_CACHE_DIR="$TMP/shared" bash scripts/cmux-next/build-cmux-tui-client.sh --print-path 2>"$TMP/err") \
-  || fail "reader source did not build: $(cat "$TMP/err")"
-[[ -x "$(dirname "$path")/cmux-launch-preread" ]] || fail "reader missing from client set"
-[[ "$(builds)" == 13 ]] || fail "reader did not build in its own invocation: $(cat "$TMP/cargo.log")"
-grep -qx "cmux-launch-preread $src/cmux-tui" "$TMP/cargo.log" || fail "reader not built in workspace"
-rm "$src/cmux-tui/crates/cmux-launch-preread/Cargo.toml"
-echo dirty >> "$src/cmux-tui/a"
-path=$(run NX_JOB_ID=job CI_SHARED_CACHE_DIR="$TMP/shared" bash scripts/cmux-next/build-cmux-tui-client.sh --print-path 2>"$TMP/err") \
-  || fail "missing reader source failed: $(cat "$TMP/err")"
-[[ -f "$TMP/shared/cmux-tui-client-target/release/cmux-launch-preread" ]] || fail "stale fixture missing"
-[[ ! -e "$(dirname "$path")/cmux-launch-preread" ]] || fail "stale target reader bundled without source"
-# Two checkouts share one target (fleet warm slots and step checkouts do). Tree
-# A was checked out before tree B built: A's sources are older than B's build,
-# so Cargo would hand A B's artifacts, build scripts included (step 76c434d3:
-# cmux-wallpaper's build script from a deleted checkout, "engine.wgsl: missing").
-# The script makes Cargo rebuild A's own crates.
-git_q clone -q "$src" "$TMP/treeA"
-git_q clone -q "$src" "$TMP/treeB"
-(cd "$TMP/treeA" && git ls-files -z | xargs -0 touch -t 202001010000)
-both() { (cd "$1" && env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" TMPDIR="$TMP" FAKE_CARGO_LOG="$TMP/cargo.log" \
-  CMUX_CI_PHASE_FILE="$TMP/phases.jsonl" CI_SHARED_CACHE_DIR="$TMP/shared2" bash scripts/cmux-next/build-cmux-tui-client.sh >/dev/null 2>"$TMP/err") \
-  || fail "$1 did not build: $(cat "$TMP/err")"; }
-both "$TMP/treeB"
-from="$TMP/shared2/cmux-tui-client-target/release/cmux-tui.compiled-from"
-[[ "$(cat "$from")" == "$TMP/treeB/cmux-tui" ]] || fail "tree B did not compile: $(cat "$from")"
-sleep 1
-both "$TMP/treeA"
-[[ "$(cat "$from")" == "$TMP/treeA/cmux-tui" ]] || fail "tree A got tree B's artifacts from the shared target: compiled from $(cat "$from")"
-[[ "$(cat "$TMP/shared2/cmux-tui-client-target/.cmux-last-root")" == "$TMP/treeA" ]] || fail "the target does not record tree A as its last checkout"
-# The same checkout again keeps Cargo's incremental reuse: nothing touched.
-sleep 1
-both "$TMP/treeA"
-[[ "$TMP/treeA/cmux-tui/a" -ot "$TMP/shared2/cmux-tui-client-target/.fake-stamp-cmux-tui" ]] || fail "a rebuild from the same checkout touched its sources"
-# Every path dependency the built crates reach outside their roots is under a
-# root the script touches: a crate outside them would stay stale.
-roots=$(sed -n 's/^rust_roots=(\(.*\))$/\1/p' "$ROOT/scripts/cmux-next/build-cmux-tui-client.sh")
-[[ -n "$roots" ]] || fail "no rust_roots in build-cmux-tui-client.sh"
-while IFS= read -r manifest; do
-  while IFS= read -r rel; do
-    dep=$(cd "$(dirname "$ROOT/$manifest")" && cd "$rel" 2>/dev/null && pwd) || continue
-    inside=0
-    for r in $roots; do [[ "$dep" == "$ROOT/$r" || "$dep" == "$ROOT/$r/"* ]] && inside=1; done
-    [[ "$inside" == 1 ]] || fail "$manifest depends on $rel, outside rust_roots ($roots)"
-  done < <(grep -oE 'path *= *"[^"]+"' "$ROOT/$manifest" | sed 's/.*"\(.*\)"/\1/')
-done < <(cd "$ROOT" && for r in $roots; do git ls-files -- ":(glob)$r/**/Cargo.toml"; done)
 echo "build-cmux-tui-client: ok"

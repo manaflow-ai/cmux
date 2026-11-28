@@ -10,10 +10,10 @@ import { AttachmentService, messageGroups } from "./attachmentService";
 import { INLINE_TEXT_BYTES } from "./textUpload";
 import { AvatarService } from "./avatars";
 import { DraftBook, type HomeDraft } from "./drafts";
-import { hashLink, keepUnchanged, mergeMessages, parseConversationLink, threadOf } from "./model";
+import { hashLink, mergeMessages, parseConversationLink, threadOf } from "./model";
 import { conversationHash, hashConversation, setHash } from "./panes";
 import { LiveBook } from "./live";
-import { readDetail } from "./presentation";
+import { readPresentation } from "./presentation";
 import { RunBook } from "./runs";
 import { ScheduledBook } from "./scheduled";
 import { HomeSheets } from "./sheets";
@@ -516,9 +516,7 @@ export class HomeChannelsStore {
     if (!this.client) return;
     try {
       const inbox = await this.client.call<HomeInbox>(HomeOps.inbox, {});
-      // The conversations the reply did not change stay the objects the list holds (their rows keep).
-      const listed = keepUnchanged(this.snapshot.conversations, inbox.conversations);
-      const conversations = new Map(listed.map((c) => [c.id, c]));
+      const conversations = new Map(inbox.conversations.map((c) => [c.id, c]));
       const selected =
         this.snapshot.selected && conversations.has(this.snapshot.selected)
           ? this.snapshot.selected
@@ -1356,10 +1354,10 @@ export class HomeChannelsStore {
     return frame.author ? frame : { ...frame, author: this.runAuthor(frame.conversation, frame.run) };
   }
 
-  /** The author of the one running run with that id (an owner that stamps no author). Two
-   * Chiefs running the same run id answer nothing, so their text is never misattributed. */
+  /** Best effort: the first running run with that id (an owner that stamps no author; two Cloud
+   * Chiefs with the same run id could be confused there). */
   private runAuthor(conversation: string, run: string): string | undefined {
-    return this.runs.soleRunningAuthor(conversation, run);
+    return this.runs.running(conversation).find((candidate) => candidate.id === run)?.author;
   }
 
   /** The owner's `run.live` snapshot of a conversation (open, reconnect, gap). A Cloud owner
@@ -1479,7 +1477,7 @@ export class HomeChannelsStore {
           // Cloud has no increasing revision to unlock a failed read. Each fresh lookup is a
           // retry boundary; mounted cards alone must not retry failures in a loop.
           if (run.rev === 0) this.failedRuns.delete(`${run.conversation}\0${run.author}\0${run.id}`);
-          if (readDetail(conversation) === "messages") await this.loadRunSteps(run);
+          if (readPresentation(conversation) !== "transcript") await this.loadRunSteps(run);
         }
       }
     };

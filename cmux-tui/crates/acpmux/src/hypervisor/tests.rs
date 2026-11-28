@@ -142,7 +142,7 @@ fn domstate_reasons_map_to_slot_states() {
 fn create_makes_an_overlay_defines_and_starts_once() {
     let dir = tempfile::tempdir().unwrap();
     let (d, fake) = driver(dir.path());
-    let spec = SlotSpec { vcpus: 4, memory_mib: 8192, disk_gib: 40, join: None };
+    let spec = SlotSpec { vcpus: 4, memory_mib: 8192, disk_gib: 40 };
     assert_eq!(d.create(&slot("a1"), &spec).unwrap(), SlotState::Running);
     let calls = fake.calls();
     let overlay = dir.path().join("images/cmux-a1.qcow2");

@@ -5,12 +5,8 @@ import { afterAll, afterEach, beforeAll, expect, mock, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { WatchedWorker } from "../src/agent-session/acpmux/conversation/highlightWatchdog";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { WatchedWorker } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/highlightWatchdog"),
-);
 
 let creates = 0;
 let renders = 0;

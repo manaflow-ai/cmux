@@ -131,28 +131,24 @@ extension AgentPaneView {
         let dropped: @MainActor ([URL]) -> Void = { [weak self] urls in
             guard let self else { return }
             model.hostTouch.mark("drop") // a posted drop too: the page has the files
-            // Record every native drop before checking gesture credit. Finder invokes
-            // `performDragOperation` without posting a person input event, but the page still
-            // needs these paths to link a recording in place instead of uploading its bytes.
+            // WebKit: the drop's event is in dispatch. Chromium: the page host reports only the
+            // page's drop right after the pane's native drop (`PageWebView.onFilesDropped`), and
+            // keeps the event that was in dispatch then (`droppedEvent`): the same check of it, against the
+            // pane's table of posting processes (no system call).
+            if page?.droppedOnPageWindow == true {
+                // Chromium's own page window took the drop: no event to check, so no gesture, but the
+                // chat still links the files where they are instead of streaming them (``PageWebView/droppedOnPageWindow``).
+            } else {
+                let event = page?.chromiumPage != nil ? page?.droppedEvent : NSApp.currentEvent
+                guard let event, AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
+                model.transport.gestures.record(click: false)
+            }
             model.droppedPaths.stash(urls, kind: .drop, madeAt: page?.droppedEnteredAt?.timeIntervalSince1970)
             let drag = NSPasteboard(name: .drag)
             // A Chromium drop is dated by its drag's entry, before the page took it (the ask's rule).
             model.droppedPaths.stashSource(
                 urls, items: drag.pasteboardItems?.count ?? 0, claimed: AttachmentSource.claimed(on: drag), kind: .drop,
                 madeAt: page?.droppedEnteredAt?.timeIntervalSince1970)
-            // Finder may invoke this callback without a current person-input event. A local chat
-            // still needs the path payload to arrive with the drop so it can link the file in place.
-            if model.dropsGoAsLocalPaths { pushDroppedPaths() }
-            // WebKit: the drop's event is in dispatch. Chromium: the page host keeps the event from
-            // the native drop (`droppedEvent`). A page-window drop has no event and earns no gesture,
-            // while its paths remain linkable from the record above.
-            guard page?.droppedOnPageWindow != true else { return }
-            let event = page?.chromiumPage != nil ? page?.droppedEvent : NSApp.currentEvent
-            guard let event, AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
-            model.transport.gestures.record(click: false)
-            // Push a remote drop with the gesture. Its one-shot tokens let the host put each file
-            // from this Mac without exposing its bytes to the page.
-            if model.remoteChat { pushDroppedPaths() }
         }
         // Read as the paste goes to WebKit: the pasteboard WebKit hands the page. As for a drop, only
         // the person's paste (a posted Cmd-V records nothing).
@@ -380,17 +376,5 @@ extension AgentPaneView {
         } else {
             runMessageAction("chat.fork", ["throughSeq": String(seq)])
         }
-    }
-}
-
-extension AgentPaneView {
-    /// Gives a native drop's paths to the page immediately. Local chats link them in place; remote
-    /// chats receive one-use put tokens so their host can put each file from this Mac.
-    func pushDroppedPaths() {
-        let local = model.dropsGoAsLocalPaths
-        guard model.remoteChat || local,
-              let payload = model.droppedPaths.pushed(local: local),
-              let script = AgentPaneDroppedPaths.pushScript(payload) else { return }
-        evaluateScript(script)
     }
 }

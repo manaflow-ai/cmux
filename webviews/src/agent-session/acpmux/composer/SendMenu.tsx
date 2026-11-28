@@ -3,6 +3,7 @@
 // prompt (sendMenuModel.ts). It is the house context menu (ui/ContextMenu), so in the app the host
 // draws it natively with the same rows and shortcut text, and Shift-F10 or the context-menu key on
 // a focused Send opens it too. Only Send has the menu: Stop has none.
+import { keycapLegend } from "../../../ui/keycapLegend";
 import {
   cloneElement,
   useEffect,
@@ -12,7 +13,6 @@ import {
   type ReactElement,
 } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
-import { KeyHint } from "../../../ui/KeyHint";
 import { contextDescription } from "../../../ui/popupDescriptors";
 import { experimentArm } from "../../../experiments/experiment";
 import { Icon } from "../icons/Icon";
@@ -47,7 +47,7 @@ export function SendMenu({
   useEffect(() => stopTimer, []);
   const items: ContextMenuItem[] = choices.map((choice) => {
     const label = t(SEND_LABELS[choice]);
-    const glyphs = SEND_KEYS[choice]?.glyphs;
+    const { glyphs } = SEND_KEYS[choice];
     return {
       id: choice,
       ariaLabel: label,
@@ -55,14 +55,19 @@ export function SendMenu({
       label: (
         <>
           <span className="ui-menu-label">{label}</span>
-          {glyphs &&
-            (look === "caps" ? (
-              <KeyHint keys={glyphs.join("")} className="ui-menu-shortcut acpmux-send-menu-caps" aria-hidden="true" />
-            ) : (
-              <span className="ui-menu-shortcut" aria-hidden="true">
-                <KeyHint keys={glyphs.join("")} />
-              </span>
-            ))}
+          {look === "caps" ? (
+            <span className="ui-menu-shortcut acpmux-send-menu-caps" aria-hidden="true">
+              {glyphs.map((glyph) => (
+                <kbd key={glyph} className="acpmux-keycap">
+                  {keycapLegend(glyph)}
+                </kbd>
+              ))}
+            </span>
+          ) : (
+            <span className="ui-menu-shortcut" aria-hidden="true">
+              {glyphs.join("")}
+            </span>
+          )}
         </>
       ),
       onSelect: () => onChoose(choice),
@@ -72,7 +77,7 @@ export function SendMenu({
     choices.map((choice) => ({
       id: choice,
       label: t(SEND_LABELS[choice]),
-      shortcut: SEND_KEYS[choice]?.glyphs.join(""),
+      shortcut: SEND_KEYS[choice].glyphs.join(""),
       ...(look === "icons" ? { icon: SEND_ICONS[choice] } : {}),
     })),
   );

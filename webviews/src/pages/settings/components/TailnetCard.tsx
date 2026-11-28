@@ -10,7 +10,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { Dialog, DialogDescription, DialogTitle } from "../../../ui/Dialog";
-import { useStore, useSettingsState, useRowState } from "../context";
+import { useSettingsState, useRowState, useStore } from "../context";
 import type { TailnetVMReply } from "../ops";
 import { TAILNET_KEY, tailnetQuery } from "../sectionQueries";
 import "../tailnetJoin.css";
@@ -80,7 +80,6 @@ function parts(view: TailnetView, busy: boolean, onStep: (verb: TailnetVerb) => 
       return {
         title: t("settingsPage.tailnet.error"),
         help: view.message,
-        // retry-prompt-ok: starting the tailnet again begins its sign-in, which joins this Mac to a network.
         actions: [action("start", t("settingsPage.tailnet.tryAgain"))],
       };
   }

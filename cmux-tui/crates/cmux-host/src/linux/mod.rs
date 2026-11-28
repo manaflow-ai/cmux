@@ -11,8 +11,7 @@
 //! thread looks at the boot clock every [`PAUSE_TICK`] and reports a sleep
 //! that ended more than [`crate::agent::PAUSE_GAP`] late
 //! ([`crate::agent::paused_for`]). [`ResumeOnce`] keeps a resume both see
-//! to one `Resumed`. A shorter stop ([`crate::agent::stopped_for`]) is only
-//! counted for the updater's resume hold.
+//! to one `Resumed`.
 
 pub mod fds;
 pub mod identity;
@@ -30,9 +29,7 @@ use std::process::Child;
 use std::sync::{Arc, Weak};
 use std::time::Instant;
 
-use crate::agent::{
-    Exit, PAUSE_TICK, Platform, ResumeOnce, ResumeSource, Wake, paused_for, stopped_for,
-};
+use crate::agent::{Exit, PAUSE_TICK, Platform, ResumeOnce, ResumeSource, Wake, paused_for};
 use crate::announce::{arping_args, is_announce_target, is_global_address};
 use crate::config::{
     AGENT_DIR, BAKE_FILE_NAME, BAKE_INSTANCE_FILE, BOUND_INSTANCE_FILE, Config, DAEMON_PID_FILE,
@@ -590,8 +587,7 @@ pub(crate) fn realtime_minus_boottime_ns() -> i128 {
 
 /// The pause watch: a thread that sleeps [`PAUSE_TICK`] at a time and sends
 /// `tx` the stopped milliseconds of every sleep the boot clock says ended
-/// far past its tick ([`paused_for`]), and counts every shorter stop
-/// ([`stopped_for`]) in [`crate::agent::PAUSES`]. It never wakes the agent otherwise, and ends within a
+/// far past its tick. It never wakes the agent otherwise, and ends within a
 /// tick of `alive`'s platform being dropped, or when `tx`'s peer is gone. It
 /// sleeps on its own thread so a busy agent thread (a metadata read, a
 /// role's stop) never looks like a pause.
@@ -605,9 +601,8 @@ fn spawn_pause_watch(alive: Weak<()>, tx: UnixDatagram) -> io::Result<()> {
             }
             let after = clock_ns(libc::CLOCK_BOOTTIME);
             let found = paused_for(before, after);
-            // Before the report: a flip that looks now already sees it. A
-            // stop too short to be a resume still holds the updater's flip.
-            crate::agent::PAUSES.looked(after, stopped_for(before, after).is_some());
+            // Before the report: a flip that looks now already sees it.
+            crate::agent::PAUSES.looked(after, found.is_some());
             if let Some(stopped) = found {
                 let ms = u64::try_from(stopped.as_millis()).unwrap_or(u64::MAX);
                 if tx.send(&ms.to_le_bytes()).is_err() {

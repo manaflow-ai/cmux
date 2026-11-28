@@ -99,45 +99,24 @@ extension SidebarIntent {
     /// (rename, color, ungroup, pin, icon, close, reorder) are dropped (nil). Other intents come back as is.
     /// `end` counts a machine section's top-level rows as the document holds them (a drop's last slot).
     public func resolvingHostGroup(end: (MachineID) -> Int) -> SidebarIntent? {
-        typealias Op = RustSidebarDocTarget
-        // The op's intent (`sidebar_doc_target` op `resolving_host_group`); an intent it only passes back comes back as is.
-        var ends: [String: Int] = [:]
-        let intent: Op.Intent
+        func host(_ id: GroupID?) -> MachineID? { id.flatMap(SidebarGroup.hostMachine) }
         switch self {
         case let .toggleCollapse(.group(id)):
-            intent = Op.Intent(kind: "toggle_collapse_group", group: id.rawValue)
+            guard let machine = host(id) else { return self }
+            return .toggleCollapse(.section(.machine(machine)))
         case let .newWorkspace(machine, group):
-            intent = Op.Intent(kind: "new_workspace", group: group?.rawValue, machine: machine?.rawValue)
+            guard let owner = host(group) else { return self }
+            return .newWorkspace(machine: machine ?? owner, group: nil)
         case let .move(ids, toGroup: id):
-            if let machine = SidebarGroup.hostMachine(id) { ends[machine.rawValue] = end(machine) }
-            intent = Op.Intent(kind: "move", group: id.rawValue, ids: ids.map(\.rawValue))
+            guard let machine = host(id) else { return self }
+            return .reorder(ids, to: DropPosition(section: .machine(machine), group: nil, index: end(machine)))
         case let .reorder(ids, to: position):
-            intent = Op.Intent(kind: "reorder", ids: ids.map(\.rawValue),
-                               to: Op.Intent.Position(section: nil, group: position.group?.rawValue, index: position.index))
+            guard host(position.group) != nil else { return self }
+            return .reorder(ids, to: DropPosition(section: position.section, group: nil, index: position.index))
         case let .renameGroup(id, _), let .groupEditorEnded(id), let .setGroupColor(id, _), let .ungroup(id),
              let .setGroupPinned(id, _), let .setGroupIcon(id, _), let .closeGroup(id), let .openGroup(id),
              let .reorderGroup(id, _):
-            intent = Op.Intent(kind: "group_edit", group: id.rawValue)
-        default:
-            return self
-        }
-        // When the op does not answer, the intent as is (the daemon refuses a remote group's id).
-        guard let reply = RustSidebarClient.call(Op.op, Op.ResolvingRequest(intent: intent, ends: ends), as: Op.ResolvingReply.self)
-        else { return self }
-        guard let resolved = reply.intent else { return nil }
-        switch resolved.kind {
-        case "toggle_collapse_section":
-            guard let machine = resolved.section?.machine else { return self }
-            return .toggleCollapse(.section(.machine(MachineID(machine))))
-        case "new_workspace":
-            return .newWorkspace(machine: resolved.machine.map(MachineID.init), group: resolved.group.map(GroupID.init))
-        case "reorder":
-            guard let to = resolved.to else { return self }
-            let ids = (resolved.ids ?? []).map(WorkspaceID.init)
-            // A move into a remote group names its machine's section; a reorder keeps its own.
-            let section: SectionID = if let machine = to.section?.machine { .machine(MachineID(machine)) }
-                else if case let .reorder(_, position) = self { position.section } else { .machine(.local) }
-            return .reorder(ids, to: DropPosition(section: section, group: to.group.map(GroupID.init), index: to.index))
+            return host(id) == nil ? self : nil
         default:
             return self
         }
@@ -147,13 +126,10 @@ extension SidebarIntent {
 extension SidebarSection {
     /// A wrapped remote group's top-level rows as the document holds them: its loose members and its groups.
     var documentNodeCount: Int {
-        typealias Op = RustSidebarDocTarget
-        let nodes: [Op.NodeCountRequest.Node] = self.nodes.map { node in
-            guard case let .group(group) = node else { return .row }
-            return .group(host: group.machine != nil, parent: group.parent?.rawValue, members: group.members.count)
+        guard drawsAsGroup else { return nodes.count }
+        return nodes.reduce(0) { count, node in
+            guard case let .group(group) = node else { return count + 1 }
+            return count + (group.machine != nil ? group.members.count : group.parent.flatMap(SidebarGroup.hostMachine) != nil ? 1 : 0)
         }
-        // `sidebar_doc_target` op `document_node_count`; when it does not answer, every node counts.
-        return RustSidebarClient.call(Op.op, Op.NodeCountRequest(draws_as_group: drawsAsGroup, nodes: nodes), as: Op.NodeCountReply.self)?.count
-            ?? nodes.count
     }
 }

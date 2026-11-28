@@ -67,9 +67,8 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
       await card.waitFor({ state: "visible" });
       expect(await card.locator("strong").textContent()).toBe("Ready to ship");
       expect(await card.locator(".acpmux-minimap__prompt").textContent()).toContain("\n");
-      // The full token shows in its own span, so it has no tooltip (c0ecbb88f123, tooltip cuts).
-      const token = card.locator("code > span").filter({ has: page.locator(".acpmux-minimap__full-token") });
-      expect(await token.getAttribute("title")).toBeNull();
+      const token = card.locator("code [title]");
+      expect(await token.getAttribute("title")).toBe("0123456789abcdef".repeat(4));
       expect(await token.locator("[aria-hidden]").textContent()).toBe("0123456789abcdef0…f0123456789abcdef");
       expect(await token.locator(".acpmux-minimap__full-token").textContent()).toBe("0123456789abcdef".repeat(4));
       expect(await card.locator(".acpmux-minimap__item").count()).toBeGreaterThan(0);

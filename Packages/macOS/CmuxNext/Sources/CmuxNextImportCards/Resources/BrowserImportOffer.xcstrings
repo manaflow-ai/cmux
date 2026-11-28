@@ -8,127 +8,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stopped syncing cookies with %@: cmux could not read them. Import again."
+            "value": "Stopped keeping cookies in sync with %@: cmux could not read them. Import again to turn it back on."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "توقفت مزامنة ملفات تعريف الارتباط مع %@: تعذّر على cmux قراءتها. استورد مجددًا."
+            "value": "توقّف إبقاء ملفات تعريف الارتباط متزامنة مع %@: تعذّر على cmux قراءتها. استورد مرة أخرى لإعادة تشغيله."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sinhronizacija kolačića s %@ je zaustavljena: cmux ih nije mogao pročitati. Uvezi ponovo."
+            "value": "Usklađivanje kolačića s %@ je zaustavljeno: cmux ih nije mogao pročitati. Uvezite ponovo da ga ponovo uključite."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stoppede synkronisering af cookies med %@: cmux kunne ikke læse dem. Importér igen."
+            "value": "Holder ikke længere cookies synkroniseret med %@: cmux kunne ikke læse dem. Importér igen for at slå det til igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cookie-Sync mit %@ gestoppt: cmux konnte sie nicht lesen. Importiere erneut."
+            "value": "Cookies werden nicht mehr mit %@ synchron gehalten: cmux konnte sie nicht lesen. Importiere erneut, um es wieder einzuschalten."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se dejaron de sincronizar las cookies con %@: cmux no pudo leerlas. Importa de nuevo."
+            "value": "Se dejó de sincronizar las cookies con %@: cmux no pudo leerlas. Vuelve a importar para activarlo de nuevo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Synchronisation des cookies avec %@ arrêtée : cmux n’a pas pu les lire. Importez à nouveau."
+            "value": "Les cookies ne sont plus synchronisés avec %@ : cmux n’a pas pu les lire. Importez à nouveau pour le réactiver."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sincronizzazione dei cookie con %@ interrotta: cmux non è riuscito a leggerli. Importa di nuovo."
+            "value": "Sincronizzazione dei cookie con %@ interrotta: cmux non è riuscito a leggerli. Importa di nuovo per riattivarla."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ との Cookie の同期を停止しました：cmux が読み取れませんでした。もう一度インポートしてください。"
+            "value": "%@ との Cookie の同期を停止しました：cmux が読み取れませんでした。もう一度インポートすると再開します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បានបញ្ឈប់ការធ្វើសមកាលកម្មខូគីជាមួយ %@៖ cmux មិនអាចអានវាបានទេ។ នាំចូលម្ដងទៀត។"
+            "value": "បានឈប់ធ្វើសមកាលកម្មខូគីជាមួយ %@៖ cmux មិនអាចអានវាបានទេ។ នាំចូលម្ដងទៀតដើម្បីបើកវាឡើងវិញ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@와(과)의 쿠키 동기화를 중지했습니다. cmux가 읽을 수 없었습니다. 다시 가져오세요."
+            "value": "%@와(과)의 쿠키 동기화를 중지했습니다. cmux가 쿠키를 읽을 수 없습니다. 다시 켜려면 다시 가져오세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sluttet å synkronisere informasjonskapsler med %@: cmux kunne ikke lese dem. Importer på nytt."
+            "value": "Slutter å holde informasjonskapsler synkronisert med %@: cmux kunne ikke lese dem. Importer på nytt for å slå det på igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zatrzymano synchronizację plików cookie z %@: cmux nie mógł ich odczytać. Zaimportuj ponownie."
+            "value": "Zatrzymano synchronizację plików cookie z %@: cmux nie mógł ich odczytać. Zaimportuj ponownie, aby ją włączyć."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A sincronização de cookies com %@ parou: o cmux não conseguiu lê-los. Importe de novo."
+            "value": "A sincronização de cookies com %@ parou: o cmux não conseguiu lê-los. Importe novamente para reativá-la."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Синхронизация cookie с %@ остановлена: cmux не смог их прочитать. Импортируйте снова."
+            "value": "Синхронизация файлов cookie с %@ остановлена: cmux не смог их прочитать. Импортируйте снова, чтобы включить её."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "หยุดซิงค์คุกกี้กับ %@ แล้ว: cmux อ่านไม่ได้ นำเข้าอีกครั้ง"
+            "value": "หยุดซิงค์คุกกี้กับ %@ แล้ว: cmux อ่านคุกกี้ไม่ได้ นำเข้าอีกครั้งเพื่อเปิดใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ ile çerez eşitlemesi durduruldu: cmux bunları okuyamadı. Yeniden içe aktarın."
+            "value": "Çerezler artık %@ ile eşitlenmiyor: cmux onları okuyamadı. Yeniden açmak için tekrar içe aktarın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Синхронізацію cookie з %@ зупинено: cmux не зміг їх прочитати. Імпортуйте знову."
+            "value": "Синхронізацію файлів cookie з %@ зупинено: cmux не зміг їх прочитати. Імпортуйте знову, щоб увімкнути її."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đã ngừng đồng bộ cookie với %@: cmux không đọc được chúng. Hãy nhập lại."
+            "value": "Đã ngừng đồng bộ cookie với %@: cmux không đọc được chúng. Hãy nhập lại để bật lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已停止与 %@ 同步 Cookie：cmux 无法读取它们。请重新导入。"
+            "value": "已停止与 %@ 同步 Cookie：cmux 无法读取它们。再次导入即可重新开启。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "已停止與 %@ 同步 Cookie：cmux 無法讀取它們。請重新匯入。"
+            "value": "已停止與 %@ 同步 Cookie：cmux 無法讀取它們。再次匯入即可重新開啟。"
           }
         }
       }

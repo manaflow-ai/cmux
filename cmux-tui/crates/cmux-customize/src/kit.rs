@@ -121,7 +121,7 @@ pub fn family(name: &str) -> Option<(Vec<Step>, &'static str, &'static str)> {
     let [_, design, type_scale, _, _, motion] = sources();
     let (mut list, unit, source) = match name {
         "spacing" => (
-            steps(design.get("spacing").and_then(|s| s.get("steps")).unwrap_or(&Value::Null), "px"),
+            steps(&design["spacing"]["steps"], "px"),
             "px",
             "schemas/design-scale/design-scale.json spacing.steps",
         ),
@@ -194,10 +194,7 @@ fn token_rows() -> Vec<Value> {
             }
             if let Some(now) = today {
                 row.insert("today".into(), now.clone());
-                row.insert(
-                    "source".into(),
-                    token.get("today").and_then(|t| t.get("file")).cloned().unwrap_or(Value::Null),
-                );
+                row.insert("source".into(), token["today"]["file"].clone());
             }
             if wanted.is_some() {
                 row.insert("css".into(), json!(format!("--instrument-{}", name.replace('.', "-"))));
@@ -312,11 +309,11 @@ pub fn tokens(request: &Request) -> Result<Answer, String> {
 fn scale_answer(scale: Value) -> Answer {
     let mut human = format!(
         "{} ({}, from {}):\n",
-        number(scale.get("family").unwrap_or(&Value::Null)),
-        number(scale.get("unit").unwrap_or(&Value::Null)),
-        number(scale.get("source").unwrap_or(&Value::Null))
+        number(&scale["family"]),
+        number(&scale["unit"]),
+        number(&scale["source"])
     );
-    for step in scale.get("steps").and_then(Value::as_array).into_iter().flatten() {
+    for step in scale["steps"].as_array().into_iter().flatten() {
         human.push_str(&format!(
             "  {:<10} {:>6}  {}\n",
             number(&step["name"]),

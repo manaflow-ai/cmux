@@ -147,17 +147,13 @@ def expected_features(root: Path, triple: str) -> str:
 class MacLegsRunCargoAtOnce(unittest.TestCase):
     def run_step(self, name: str, triple: str, memsize: int | None = 48 * GIB,
                  sleep: float = SLEEP, ncpu: int | None = 12,
-                 budget: str | None = None, preread: bool = False) -> tuple[float, Path, str, str]:
+                 budget: str | None = None) -> tuple[float, Path, str, str]:
         script = str(step(name)["run"]).replace("${{ matrix.build_target }}", triple)
         self.assertNotIn("${{", script, "the step reads an expression this test does not fill")
         tmp = Path(tempfile.mkdtemp(prefix="mac-legs-"))
         self.addCleanup(shutil.rmtree, tmp, True)
         root = tmp / "repo"
         make_repo(root)
-        if preread:
-            manifest = root / "cmux-tui/crates/cmux-launch-preread/Cargo.toml"
-            manifest.parent.mkdir(parents=True)
-            manifest.write_text('[package]\nname = "cmux-launch-preread"\n')
         bindir = tmp / "bin"
         bindir.mkdir()
         (bindir / "cargo").write_text(FAKE_CARGO)
@@ -226,44 +222,6 @@ class MacLegsRunCargoAtOnce(unittest.TestCase):
         self.assertTrue(acpmux.startswith("acpmux-standalone "), acpmux)
         self.assertIn(f"features={features}", acpmux)
         self.assertNotIn("commit=\n", acpmux, "CMUX_TUI_BUILD_COMMIT did not reach cargo")
-
-    def test_preread_is_its_own_group_on_native_and_cross_macos_legs(self) -> None:
-        for name, triple in (("Build cmux-tui (native)", "aarch64-apple-darwin"),
-                             ("Build cmux-tui (macOS cross)", "x86_64-apple-darwin")):
-            for mem in (16 * GIB, 48 * GIB):
-                with self.subTest(name=name, mem=mem):
-                    _, release, log, _ = self.run_step(name, triple, mem, sleep=0, preread=True)
-                    self.assertEqual(log.count(" start"), CALLS + 1)
-                    self.assertIn("cmux-launch-preread ", log)
-                    self.assertTrue((release / "cmux-launch-preread").is_file())
-
-    def test_preread_staging_clears_stale_files_and_requires_present_crate_output(self) -> None:
-        script = str(step("Stage binary")["run"])
-        script = script[script.index('rm -f "dist/cmux-tui-launch-preread-'):
-                        script.index("# The bundled agent screen detector")]
-        for triple in ("aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-musl"):
-            for crate, binary in ((False, False), (False, True), (True, False), (True, True)):
-                with self.subTest(triple=triple, crate=crate, binary=binary), tempfile.TemporaryDirectory() as temp:
-                    root = Path(temp)
-                    output = root / f"dist/cmux-tui-launch-preread-{triple}"
-                    output.parent.mkdir()
-                    output.write_text("stale")
-                    if crate:
-                        manifest = root / "cmux-tui/crates/cmux-launch-preread/Cargo.toml"
-                        manifest.parent.mkdir(parents=True)
-                        manifest.touch()
-                    if binary:
-                        built = root / f"cmux-tui/target/{triple}/release/cmux-launch-preread"
-                        built.parent.mkdir(parents=True)
-                        built.write_text("new")
-                    done = subprocess.run(["bash", "-euc", script.replace("${{ matrix.target }}", triple)],
-                                          cwd=root, env={**os.environ, "STAGE_TARGET": triple},
-                                          capture_output=True, text=True)
-                    wanted = crate and triple.endswith("-apple-darwin")
-                    self.assertEqual(done.returncode == 0, not wanted or binary, done.stderr)
-                    self.assertEqual(output.exists(), wanted and binary)
-                    if output.exists():
-                        self.assertEqual(output.read_text(), "new")
 
     def test_native_leg_runs_its_cargo_builds_at_once(self) -> None:
         self.check("Build cmux-tui (native)", "aarch64-apple-darwin")

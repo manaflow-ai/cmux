@@ -25,9 +25,7 @@ async fn chat() -> (Arc<Hub>, Arc<Session>) {
 }
 
 /// Session `from`'s plain send of `text` (`session/prompt` as an agent's `acpmux send` makes
-/// it), of `class`, waiting for the reply when `wake_or_fail`: then its caller reads the reply
-/// and stays connected until the send ends, as the server binds one (`server/requests.rs`).
-/// `accepted` hears its acceptance.
+/// it), of `class`, waiting for the reply when `wake_or_fail`. `accepted` hears its acceptance.
 fn send(
     hub: &Arc<Hub>,
     to: &Arc<Session>,
@@ -37,23 +35,9 @@ fn send(
     class: PromptClass,
     wake_or_fail: bool,
 ) -> (tokio::task::JoinHandle<Result<Value, RpcError>>, tokio::sync::oneshot::Receiver<Value>) {
-    send_observing_acceptance(hub, to, from, prompt_id, text, (class, wake_or_fail), || {})
-}
-
-/// Observe acceptance synchronously, before inbox review can start the notice's turn.
-fn send_observing_acceptance(
-    hub: &Arc<Hub>,
-    to: &Arc<Session>,
-    from: &str,
-    prompt_id: &str,
-    text: &str,
-    (class, wake_or_fail): (PromptClass, bool),
-    on_accepted: impl FnOnce() + Send + 'static,
-) -> (tokio::task::JoinHandle<Result<Value, RpcError>>, tokio::sync::oneshot::Receiver<Value>) {
     let provenance = json!({"kind": "session_message", "from": format!("acp:{from}"),
                             "fromName": from, "to": format!("acp:{}", to.id), "verified": true});
     let (tx, accepted) = tokio::sync::oneshot::channel();
-    let (connected, reader) = tokio::sync::watch::channel(false);
     let opts = PromptOptions {
         prompt_id: Some(prompt_id.to_owned()),
         provenance: Some(provenance),
@@ -61,21 +45,14 @@ fn send_observing_acceptance(
         class: Some(class),
         inbox: true,
         wake_or_fail,
-        reply_reader: wake_or_fail.then_some(reader),
         on_accepted: Some(Box::new(move |v| {
-            on_accepted();
             let _ = tx.send(v);
         })),
         ..PromptOptions::default()
     };
     let blocks = vec![json!({"type": "text", "text": text})];
     let (hub, to) = (hub.clone(), to.clone());
-    let run = async move {
-        let answer = hub.prompt_with(&to, blocks, "test", false, opts).await;
-        drop(connected);
-        answer
-    };
-    (tokio::spawn(run), accepted)
+    (tokio::spawn(async move { hub.prompt_with(&to, blocks, "test", false, opts).await }), accepted)
 }
 
 /// The prompt ids of the chat's turns, in order.
@@ -123,9 +100,8 @@ fn send_with(
 /// as before.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_message_that_waited_for_the_machine_wakes_the_idle_chat() {
-    // A turn after the `before` ones ran and the chat is idle again.
-    let turn_ran = |hub: Arc<Hub>, s: Arc<Session>, before: usize| async move {
-        while turns(&hub, &s).len() <= before || hub.work_coming(&s.id) {
+    let wait_for_turn = |hub: Arc<Hub>, s: Arc<Session>| async move {
+        while hub.work_coming(&s.id) {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     };
@@ -139,25 +115,19 @@ async fn a_message_that_waited_for_the_machine_wakes_the_idle_chat() {
     // After, by the link: a peer's outbox sent it again once the machine was back
     // (`_meta.acpmux.resend` on a peer link, which `requests.rs` stamps): it wakes the chat, and
     // the held one goes in with it.
-    let before = turns(&hub, &s).len();
     let resent = json!({crate::prompt_provenance::WAITED: true});
     let (again, accepted) = send_with(&hub, &s, "s-other", "p-resent", resent);
     let accepted = tokio::time::timeout(WAIT, accepted).await.unwrap().unwrap();
     assert_eq!(accepted["inbox"], true, "{accepted}");
     assert!(accepted.get(crate::cli::output::HELD_IN_INBOX).is_none(), "{accepted}");
-    // Neither caller reads the reply, so each send ends once delivered (`inbox.rs`); the turn
-    // that carries them is read from the chat.
     let done = tokio::time::timeout(WAIT, again).await.unwrap().unwrap().unwrap();
-    assert_eq!(done["_meta"]["acpmux"]["status"], "delivered", "{done}");
+    assert_eq!(done["stopReason"], "end_turn", "its turn ran: {done}");
     let done = tokio::time::timeout(WAIT, held).await.unwrap().unwrap().unwrap();
-    assert_eq!(done["_meta"]["acpmux"]["status"], "delivered", "{done}");
-    tokio::time::timeout(WAIT, turn_ran(hub.clone(), s.clone(), before))
-        .await
-        .expect("the resent message woke the chat, and the held one went in with it");
+    assert_eq!(done["stopReason"], "end_turn", "the held one went in with it: {done}");
+    tokio::time::timeout(WAIT, wait_for_turn(hub.clone(), s.clone())).await.unwrap();
 
     // After, by the ssh carry: the far daemon's relay record names the carry
     // (`prompt_provenance::SSH_CARRY_RELAY`), and the message wakes the chat as it comes in.
-    let before = turns(&hub, &s).len();
     let carried = json!({crate::prompt_provenance::FROM_RELAY: {
         "by": crate::prompt_provenance::SSH_CARRY_RELAY, "machine": "vm-1", "session": "s-other"}});
     let (sent, accepted) = send_with(&hub, &s, "s-other", "p-carried", carried);
@@ -165,10 +135,8 @@ async fn a_message_that_waited_for_the_machine_wakes_the_idle_chat() {
     assert_eq!(accepted["inbox"], true, "{accepted}");
     assert!(accepted.get(crate::cli::output::HELD_IN_INBOX).is_none(), "{accepted}");
     let done = tokio::time::timeout(WAIT, sent).await.unwrap().unwrap().unwrap();
-    assert_eq!(done["_meta"]["acpmux"]["status"], "delivered", "{done}");
-    tokio::time::timeout(WAIT, turn_ran(hub.clone(), s.clone(), before))
-        .await
-        .expect("the carried message woke the chat");
+    assert_eq!(done["stopReason"], "end_turn", "its turn ran: {done}");
+    tokio::time::timeout(WAIT, wait_for_turn(hub.clone(), s.clone())).await.unwrap();
 
     // Another relay's message (the lane-gh broker's) did not wait: held as before.
     let broker = json!({crate::prompt_provenance::FROM_RELAY: {
@@ -248,20 +216,11 @@ async fn a_waiting_send_that_cannot_wake_an_idle_chat_is_refused_at_once() {
     held.abort();
 
     // A question wakes it: never refused, and a turn comes until its notice ran.
-    let (observed_hub, observed_id) = (hub.clone(), s.id.clone());
-    let (question, accepted) = send_observing_acceptance(
-        &hub,
-        &s,
-        "s-other",
-        "p-q",
-        "which branch?",
-        (PromptClass::Question, true),
-        move || {
-            assert!(observed_hub.work_coming(&observed_id), "its notice's turn is still coming")
-        },
-    );
+    let (question, accepted) =
+        send(&hub, &s, "s-other", "p-q", "which branch?", PromptClass::Question, true);
     let accepted = tokio::time::timeout(WAIT, accepted).await.unwrap().unwrap();
     assert!(accepted.get(crate::cli::output::HELD_IN_INBOX).is_none(), "{accepted}");
+    assert!(hub.work_coming(&s.id), "its notice's turn is still coming");
     let answered = tokio::time::timeout(WAIT, question).await.unwrap().unwrap().unwrap();
     assert_eq!(answered["stopReason"], "end_turn", "{answered}");
     let settled = async {

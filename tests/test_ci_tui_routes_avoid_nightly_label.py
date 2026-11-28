@@ -199,12 +199,8 @@ def test_daemon_tests_never_take_a_mac() -> None:
             label = route(runs_on, context)
             where = (context["github.repository_owner"], context["github.event_name"],
                      context["github.ref"], context["github.run_attempt"], owned)
-            nightly = context["github.event_name"] == "workflow_dispatch" or context["github.ref"] in (
-                "refs/heads/nightly-next", "refs/heads/feat-cmux-next")
             if context["github.repository_owner"] != "manaflow-ai":
                 assert label == "ubuntu-24.04", where
-            elif int(context["github.run_attempt"]) > 1 and nightly:  # a nightly rerun leaves the pool that failed it
-                assert label == "cmux-gcp-nightly-x64", (where, label)
             else:
                 assert label == "cmux-linux", (where, label)
 

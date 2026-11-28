@@ -6,32 +6,17 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import type { DoneReportLook } from "../src/agent-session/acpmux/subagents/doneReport.experiment";
+import { GuestActionsBoundary } from "../src/agent-session/acpmux/conversation/GuestActionsBoundary";
+import { SubagentDoneLine } from "../src/agent-session/acpmux/subagents/SubagentDoneLine";
+import { doneReport, DoneReportLookContext } from "../src/agent-session/acpmux/subagents/subagentDoneLineModel";
+import { doneReportLook, type DoneReportLook } from "../src/agent-session/acpmux/subagents/doneReport.experiment";
+import { experimentArm } from "../src/experiments/experiment";
+import { SubagentNavContext } from "../src/agent-session/acpmux/subagents/subagentGroupModel";
+import { TurnActionsContext } from "../src/agent-session/acpmux/conversation/turnActions";
+import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { GuestActionsBoundary } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/GuestActionsBoundary"),
-);
-const { SubagentDoneLine } = await importWithDom(
-  () => import("../src/agent-session/acpmux/subagents/SubagentDoneLine"),
-);
-const { doneReport, DoneReportLookContext } = await importWithDom(
-  () => import("../src/agent-session/acpmux/subagents/subagentDoneLineModel"),
-);
-const { doneReportLook } = await importWithDom(
-  () => import("../src/agent-session/acpmux/subagents/doneReport.experiment"),
-);
-const { experimentArm } = await importWithDom(() => import("../src/experiments/experiment"));
-const { SubagentNavContext } = await importWithDom(
-  () => import("../src/agent-session/acpmux/subagents/subagentGroupModel"),
-);
-const { TurnActionsContext } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/turnActions"),
-);
-const { SUBAGENT_DONE } = await importWithDom(() => import("../src/agent-session/acpmux/subagents/subagentRows"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

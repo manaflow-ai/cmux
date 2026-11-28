@@ -101,22 +101,3 @@ fn the_panic_log_is_read_as_a_state_file() {
     assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
     assert_eq!(recent_panic(&fifo, NOW, Some(PID)), None);
 }
-
-/// A second `notifications()` while the first receiver is held is refused, never a silent swap
-/// that leaves the first holder waiting on a stream nothing feeds; once it is dropped, the next
-/// call gets a fresh stream that receives.
-#[tokio::test]
-async fn a_second_notification_stream_is_refused_while_the_first_is_held() {
-    let (out, _requests) = mpsc::channel(8);
-    let (lines_tx, mut lines_rx) = mpsc::channel::<String>(8);
-    let lines = futures::stream::poll_fn(move |cx| lines_rx.poll_recv(cx));
-    let client = Client::from_lines(Path::new("/nonexistent/acpmux.sock"), out, lines);
-    let first = client.notifications().await.expect("the first stream");
-    assert!(client.notifications().await.is_none(), "a held stream was replaced");
-    drop(first);
-    let mut second = client.notifications().await.expect("a fresh stream once the first is gone");
-    let note = Message::notification("_acpmux/test", json!({"n": 1})).to_line();
-    lines_tx.send(note).await.unwrap();
-    let got = tokio::time::timeout(std::time::Duration::from_secs(5), second.recv()).await;
-    assert!(matches!(got, Ok(Some(Message::Notification { .. }))), "{got:?}");
-}

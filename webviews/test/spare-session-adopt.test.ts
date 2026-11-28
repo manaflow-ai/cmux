@@ -16,14 +16,11 @@
 //     (the pane says why, chatUnavailable.ts), never an empty chat.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+import { sessionAdoption } from "../src/agent-session/acpmux/newtab/adoption";
+import { resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-type AcpmuxDirectClient = import("../src/agent-session/acpmux/direct").AcpmuxDirectClient;
-const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
-const { sessionAdoption } = await importWithDom(() => import("../src/agent-session/acpmux/newtab/adoption"));
-const { resetKeptTailsForTests } = await importWithDom(() => import("../src/agent-session/acpmux/tailCache"));
 
 const START = Date.UTC(2026, 9, 29, 9, 0, 0);
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });

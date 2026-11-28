@@ -14,9 +14,9 @@ terminal."
 - **Restoring (launch).** The pane shows the terminal's last frame until its first live frame
   (`TerminalLaunchFrames`). A frame with clear pixels (a see-through window) is saved as a PNG
   and keeps them, so the glass shows through it. An opaque frame is a JPEG.
-- **Restoring, Reconnecting (automatic).** Keep the last frame with no label, loading mark or
-  VoiceOver announcement. The app owns recovery; elapsed time alone does not make it actionable.
-  A user-created pane can retain its delayed Starting mark until its first frame.
+- **Restoring, Reconnecting (transient).** These states wait out a reveal delay and usually clear
+  first. When one lasts, it shows the shared loading mark: 14 pt, 40% opacity, centered 12 pt
+  above the bottom. It has no fill and no edge. Its words are its VoiceOver label only.
 - **Lasting states** (Disconnected, Process exited, Terminal lost, a stalled shell). They show
   their words on the small raised label, because the person has to read and act on them.
 

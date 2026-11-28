@@ -17,7 +17,6 @@ struct AgentPaneAttachExternalTests {
 
     private static func model() -> AgentPaneModel {
         let model = AgentPaneModel(host: NoHost())
-        model.hasHandshake = true
         model.onLocalPaths = { true }
         return model
     }
@@ -153,28 +152,17 @@ struct AgentPaneAttachExternalTests {
         #expect(try Data(contentsOf: saved) == Data([3]))
     }
 
-    /// The push for held files waits for the page's client, and goes again each time the client is
-    /// ready while the files are still held: a command sent to a page whose connection then restarts
-    /// is lost, and the opened image waited for the next file sent (screenshot-into-chat probe, open
-    /// door). Once the page takes them, a later reconnect sends nothing.
-    @Test func heldFilesAreSentAgainOnEachReadyClientUntilTaken() async {
+    /// A push that waits for the page's client runs once, when the page says its client is ready, and
+    /// not when it says it is not.
+    @Test func aPushForAPageStillLoadingWaitsForItsClient() async {
         let model = Self.model()
         var ran = 0
-        model.sendHeldExternal = { ran += 1 }
-        _ = await Self.ask(model, "pane.clientReady", ["ready": true])
-        #expect(ran == 0)
-        model.droppedPaths.hold(external: [URL(fileURLWithPath: "/tmp/a.png")], claimed: nil)
+        model.whenClientReady = { ran += 1 }
         _ = await Self.ask(model, "pane.clientReady", ["ready": false])
         #expect(ran == 0)
         _ = await Self.ask(model, "pane.clientReady", ["ready": true])
-        #expect(ran == 1)
-        _ = await Self.ask(model, "pane.clientReady", ["ready": false])
         _ = await Self.ask(model, "pane.clientReady", ["ready": true])
-        #expect(ran == 2)
-        _ = await Self.ask(model, "chat.attach.external")
-        #expect(!model.droppedPaths.holdsExternal)
-        _ = await Self.ask(model, "pane.clientReady", ["ready": true])
-        #expect(ran == 2)
+        #expect(ran == 1 && model.whenClientReady == nil)
     }
 
     /// Whether this process reaches a pasteboard server: a fleet test step often does not, and there
@@ -228,19 +216,6 @@ struct AgentPaneAttachExternalTests {
         #expect(!refused.waitsForChat)
     }
 
-    @Test func aCaptureHasNoStaleSessionButComposerHistoryRemains() throws {
-        let old = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "old-session"),
-                                             source: .bundled(URL(filePath: "/dev/null"))))
-        let route = AgentPaneExternalAttach()
-        route.attach([URL(fileURLWithPath: "/tmp/old.png")], claimed: nil, target: old, openChat: { _ in false }, show: { _ in })
-
-        let newFile = URL(fileURLWithPath: "/tmp/new.png")
-        route.attach([newFile], claimed: nil, target: nil, openChat: { _ in false }, show: { _ in })
-        #expect(route.waitingFiles == [newFile])
-        #expect(route.session(for: newFile) == nil)
-        #expect(route.session(for: URL(fileURLWithPath: "/tmp/old.png")) == "old-session")
-    }
-
     /// Files whose chat never came, or was not made, are not lost: they go with the next files (the
     /// open door's image after a cold launch, then the service's). A chat opened for files that have
     /// since gone with a later one takes none.
@@ -268,24 +243,5 @@ struct AgentPaneAttachExternalTests {
         let refused = AgentPaneExternalAttach()
         refused.attach([a], claimed: nil, target: nil, openChat: { _ in false }, show: { _ in })
         #expect(!refused.waitsForChat && refused.waitingFiles == [a])
-    }
-    /// A file that has not reached a composer reads back where it waits: parked in the App before
-    /// this route (and why), in a new chat whose tab has not answered (and for how long), or stranded.
-    @Test func theReadbackSaysWhereAFileWaits() async {
-        var clock = ContinuousClock.now
-        let route = AgentPaneExternalAttach(now: { clock })
-        let idle = await route.composerState(focused: nil)
-        #expect(idle.objectValue?["waiting"] == .object(["parked": .number(0), "parked_why": .null, "opening": .number(0),
-                                                         "opening_ms": .null, "stranded": .number(0)]))
-        route.parked(files: 1, why: "home shown")
-        route.parked(files: 0, why: "no pane")
-        route.attach([URL(fileURLWithPath: "/tmp/shot-open.png")], claimed: nil, target: nil, openChat: { _ in true }, show: { _ in })
-        clock += .milliseconds(2500)
-        let waiting = await route.composerState(focused: nil).objectValue?["waiting"]?.objectValue
-        #expect(waiting?["parked"] == .number(1) && waiting?["parked_why"] == .string("home shown"))
-        #expect(waiting?["opening"] == .number(1) && waiting?["opening_ms"] == .number(2500))
-        #expect(AgentPaneExternalAttach.with(.null, waiting: .object([:])) == .null)
-        route.parked(files: nil)
-        #expect(route.waiting.objectValue?["parked"] == .number(0) && route.waiting.objectValue?["parked_why"] == .null)
     }
 }

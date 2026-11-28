@@ -20,16 +20,7 @@ afterEach(() => {
 
 const card = (page: Rendered) => page.container.querySelector<HTMLElement>('[data-card="theme"]')!;
 const themeRow = (page: Rendered, kind: string) => card(page).querySelector<HTMLElement>(`[data-theme-row="${kind}"]`);
-const STUDIO_KEYS = [
-  "appearance.theme",
-  "appearance.appTheme",
-  "appearance.accent",
-  "appearance.selection",
-  "appearance.themeFile",
-];
-
-/** The keys the page wrote (`cmux.settings.set`), in order. */
-const setKeys = (page: Rendered) => ops(page.provider, "cmux.settings.set").map((op) => (op as { key: string }).key);
+const STUDIO_KEYS = ["appearance.theme", "appearance.appTheme", "appearance.accent", "appearance.themeFile"];
 
 test("the Theme page draws each theme key once, in one card, with no second App Theme group", async () => {
   page = await renderPage({ path: "/settings/theme" });
@@ -42,9 +33,9 @@ test("the Theme page draws each theme key once, in one card, with no second App 
   }
   // The theme card has no plain "Filter" list; Appearance's other cards may draw one.
   expect(card(page).querySelector(".domain-button")).toBeNull();
-  // One Match System Appearance, the terminal theme, then the app theme, then the accent, then Open Theme File.
+  // Terminal theme, then the app theme, each with its own Match System Appearance, then the accent, then Open Theme File.
   expect([...card(page).querySelectorAll("[data-theme-row]")].map((row) => row.getAttribute("data-theme-row"))).toEqual(
-    ["match", "single", "app", "accent", "themeFileOpen"],
+    ["match", "single", "app-match", "app", "accent", "themeFileOpen"],
   );
 });
 
@@ -93,36 +84,27 @@ test("the accent is a swatch popup: each choice has its swatch, the check is on 
   expect(button.textContent).toContain(t("settings.choice.accent.blue"));
 });
 
-test("one Match System Appearance drives both themes; an app theme that follows the terminal's has no pair to set", async () => {
+test("the app theme's Match System Appearance follows the terminal's until the app theme has its own pick", async () => {
   page = await renderPage({ path: "/settings/theme" });
-  const matchSwitch = () => themeRow(page!, "match")!.querySelector<HTMLButtonElement>("[role=switch]")!;
-  expect(document.body.textContent).not.toContain(t("settingsPage.theme.appFollowsTerminal"));
-  expect(page.container.textContent!.split(t("settingsPage.theme.matchSystem")).length).toBe(2);
-  // The app theme follows the terminal theme: the switch writes the terminal pair only.
-  await click(matchSwitch());
-  expect(setKeys(page)).toEqual(["appearance.theme"]);
-  expect(themeRow(page, "app")).not.toBeNull();
-});
-
-test("Match System Appearance on sets both pairs; it reads on when either is a pair and off clears both", async () => {
-  page = await renderPage({
-    path: "/settings/theme",
-    mock: { values: { "appearance.theme": "Dracula", "appearance.appTheme": "Gruvbox Dark" } },
+  const appSwitch = () => themeRow(page!, "app-match")!.querySelector<HTMLButtonElement>("[role=switch]")!;
+  expect(appSwitch().disabled).toBe(true);
+  expect(themeRow(page, "app-match")!.textContent).toContain(t("settingsPage.theme.appFollowsTerminal"));
+  await run(() => page!.store.set("appearance.appTheme", "Gruvbox Dark"));
+  expect(appSwitch().disabled).toBe(false);
+  await click(appSwitch());
+  expect(ops(page.provider, "cmux.settings.set").at(-1)).toEqual({
+    key: "appearance.appTheme",
+    value: expect.stringMatching(/^light:.+,dark:.+$/),
   });
-  const matchSwitch = () => themeRow(page!, "match")!.querySelector<HTMLButtonElement>("[role=switch]")!;
-  expect(matchSwitch().getAttribute("aria-checked")).toBe("false");
-  await click(matchSwitch());
-  expect([...setKeys(page)].sort((x, y) => x.localeCompare(y))).toEqual(["appearance.appTheme", "appearance.theme"]);
-  expect(themeRow(page, "light")).not.toBeNull();
+  expect(themeRow(page, "app")).toBeNull();
   expect(themeRow(page, "app-light")).not.toBeNull();
-  // Only the app theme a pair: the switch reads on; Off sets the app theme to one theme and leaves the terminal's.
-  await run(() => page!.store.set("appearance.theme", "Dracula"));
-  expect(matchSwitch().getAttribute("aria-checked")).toBe("true");
-  const before = ops(page.provider, "cmux.settings.set").length;
-  await click(matchSwitch());
-  expect(ops(page.provider, "cmux.settings.set").slice(before)).toEqual([
-    { key: "appearance.appTheme", value: expect.not.stringContaining(":") },
-  ]);
+  expect(themeRow(page, "app-dark")).not.toBeNull();
+  // A side of the pair is always a theme: its list has no Match Terminal Theme row.
+  await click(themeRow(page, "app-light")!.querySelector("[data-theme-picker]")!);
+  expect([...document.querySelectorAll(".theme-option")].map((option) => option.textContent)).not.toContain(
+    t("settings.default.followTerminal"),
+  );
+  expect(document.querySelectorAll("[data-theme-option]").length).toBeGreaterThan(0);
 });
 
 test("a theme row in search results is the Theme section's picker, not a plain list", async () => {
@@ -178,7 +160,7 @@ test("a pick on one side of the app pair keeps the other side; Match off goes ba
     key: "appearance.appTheme",
     value: "light:Solarized Light,dark:Dracula",
   });
-  await click(themeRow(page, "match")!.querySelector("[role=switch]")!);
+  await click(themeRow(page, "app-match")!.querySelector("[role=switch]")!);
   expect(ops(page.provider, "cmux.settings.set").at(-1)).toEqual({
     key: "appearance.appTheme",
     value: expect.not.stringContaining(":"),
@@ -199,11 +181,9 @@ test("a managed app theme pair says why its controls are off", async () => {
       },
     },
   });
-  // A pair draws no single app row: the Light row carries the key's managed reason, and both sides are off.
-  expect(themeRow(page, "app")).toBeNull();
-  expect(themeRow(page, "app-light")!.querySelector("[data-managed-reason]")).not.toBeNull();
+  expect(themeRow(page, "app-match")!.querySelector("[data-managed-reason]")).not.toBeNull();
+  expect(themeRow(page, "app-match")!.querySelector<HTMLButtonElement>("[role=switch]")!.disabled).toBe(true);
   expect(themeRow(page, "app-light")!.querySelector<HTMLButtonElement>("[data-theme-picker]")!.disabled).toBe(true);
-  expect(themeRow(page, "app-dark")!.querySelector<HTMLButtonElement>("[data-theme-picker]")!.disabled).toBe(true);
 });
 
 test("the Reset command on a focused studio row resets its key", async () => {
@@ -238,8 +218,8 @@ test("the card's rows show the key's notice, managed reason and refused write", 
   });
   expect(themeRow(page, "match")!.querySelector("[data-notice]")?.textContent).toContain("theme must be a string");
   expect(themeRow(page, "single")!.querySelector("[data-notice]")).toBeNull();
-  expect(themeRow(page, "app")!.querySelector("[data-managed-reason]")).not.toBeNull();
-  expect(themeRow(page, "app")!.hasAttribute("data-managed")).toBe(true);
+  expect(themeRow(page, "app-match")!.querySelector("[data-managed-reason]")).not.toBeNull();
+  expect(themeRow(page, "app-match")!.hasAttribute("data-managed")).toBe(true);
   await run(() => page!.store.set("appearance.accent", "not-an-accent"));
   expect(themeRow(page, "accent")!.querySelector(".row-error")).not.toBeNull();
 });

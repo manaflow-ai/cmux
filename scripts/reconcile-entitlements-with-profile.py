@@ -26,11 +26,7 @@ carry the tunnel feature set.
 Prints a JSON summary on stdout with `--json`:
   {"tunnel_supported": bool, "dropped": [keys],
    "dropped_for_system_extension": [keys], "missing_restricted": [keys],
-   "missing_keychain_groups": [groups], "profile_app_id": str|null}
-
-A keychain access group the profile does not grant (exactly, or by a `TEAM.*`
-wildcard) is reported in `missing_keychain_groups`, like a missing restricted
-key: macOS refuses to launch the signed app.
+   "profile_app_id": str|null}
 
 Exit codes: 0 reconciled; 1 the profile could not be read; 2 usage error.
 """
@@ -103,29 +99,6 @@ def profile_grants_tunnel(profile_entitlements: dict | None) -> bool:
     return profile_entitlements.get(SYSTEM_EXTENSION_INSTALL_KEY) is True
 
 
-KEYCHAIN_GROUPS_KEY = "keychain-access-groups"
-
-
-def keychain_group_granted(group: str, granted: list) -> bool:
-    """Whether a profile's keychain-access-groups grant `group`: exactly, or by a `PREFIX*` wildcard."""
-    for entry in granted:
-        if not isinstance(entry, str):
-            continue
-        if entry == group or (entry.endswith("*") and group.startswith(entry[:-1])):
-            return True
-    return False
-
-
-def missing_keychain_groups(entitlements: dict, profile_entitlements: dict | None) -> list[str]:
-    if profile_entitlements is None:
-        return []
-    granted = profile_entitlements.get(KEYCHAIN_GROUPS_KEY) or []
-    if isinstance(granted, str):
-        granted = [granted]
-    wanted = entitlements.get(KEYCHAIN_GROUPS_KEY) or []
-    return [group for group in wanted if isinstance(group, str) and not keychain_group_granted(group, granted)]
-
-
 def reconcile(entitlements: dict, profile_entitlements: dict | None) -> tuple[dict, dict]:
     """Return (effective entitlements, summary)."""
     wants_tunnel = NETWORK_EXTENSION_KEY in entitlements or SYSTEM_EXTENSION_INSTALL_KEY in entitlements
@@ -155,7 +128,6 @@ def reconcile(entitlements: dict, profile_entitlements: dict | None) -> tuple[di
         "dropped": dropped,
         "dropped_for_system_extension": dropped_for_system_extension,
         "missing_restricted": sorted(missing_restricted),
-        "missing_keychain_groups": missing_keychain_groups(effective, profile_entitlements),
     }
     return effective, summary
 
@@ -212,8 +184,6 @@ def main(argv: list[str]) -> int:
             )
     for key in summary["missing_restricted"]:
         print(f"::warning::restricted entitlement {key} is not granted by the provisioning profile; the signed app may not launch", file=sys.stderr)
-    for group in summary["missing_keychain_groups"]:
-        print(f"::warning::keychain access group {group} is not granted by the provisioning profile; the signed app may not launch", file=sys.stderr)
     if args.json:
         print(json.dumps(summary, sort_keys=True))
     return 0

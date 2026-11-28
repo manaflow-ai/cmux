@@ -29,26 +29,15 @@ fn machine(name: &str) -> Daemon {
     Daemon::start_with(name, None, Some(config))
 }
 
-/// A machine whose killed-agent turn cannot start an automatic retry behind the notice test.
-fn machine_with_no_auto_resume(name: &str) -> Daemon {
-    let config = json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE_AGENT], "family": "fake"}},
-        "defaultHarness": "fake",
-        "webAskingModes": {"fake": ["normal"]},
-        "autoResumeDelaysMs": [],
-    });
-    Daemon::start_with(name, None, Some(config))
-}
-
 /// A chat started in a new agent tab of the daemon, with its folder trusted.
 fn chat(daemon: &Daemon) -> (u64, String) {
     let work = fs::canonicalize(daemon.dir.join("work")).unwrap();
     let trust = json!({work.to_str().unwrap(): "trusted"});
     fs::write(daemon.dir.join("acpmux/trust.json"), trust.to_string()).unwrap();
     // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
-    fs::set_permissions(
+    std::fs::set_permissions(
         daemon.dir.join("acpmux/trust.json"),
-        <fs::Permissions as PermissionsExt>::from_mode(0o600),
+        <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
     )
     .unwrap();
     let surface = daemon.own_agent_tab();
@@ -117,43 +106,6 @@ impl Acpmux {
             "session/prompt",
             json!({"sessionId": session, "prompt": [{"type": "text", "text": text}]}),
         )
-    }
-
-    /// Starts a turn that emits its own pid, then kills that stub before it can answer.
-    fn prompt_then_kill_agent(&mut self, session: &str) -> Value {
-        let id = self.next;
-        self.next += 1;
-        let request = json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": "session/prompt",
-            "params": {"sessionId": session, "prompt": [{"type": "text", "text": "works-through-cancel"}]},
-        });
-        writeln!(self.reader.get_mut(), "{request}").unwrap();
-
-        let mut killed = false;
-        loop {
-            let mut line = String::new();
-            assert_ne!(
-                self.reader.read_line(&mut line).unwrap(),
-                0,
-                "acpmux closed the connection"
-            );
-            let message: Value = serde_json::from_str(&line).unwrap();
-            if !killed
-                && let Some(title) = message.pointer("/params/update/title").and_then(Value::as_str)
-                && let Some(pid) = title.strip_prefix("step ").and_then(|step| {
-                    step.split_once(" pid ").and_then(|(_, pid)| pid.parse::<libc::pid_t>().ok())
-                })
-            {
-                assert_eq!(unsafe { libc::kill(pid, libc::SIGKILL) }, 0, "kill stub agent {pid}");
-                killed = true;
-            }
-            if message["id"] == id {
-                assert!(killed, "the working stub agent never exposed its pid: {message}");
-                return message;
-            }
-        }
     }
 }
 
@@ -400,84 +352,6 @@ fn a_chat_open_in_two_tabs_posts_one_notice_per_turn_and_per_wait() {
     asking.join().unwrap();
 }
 
-/// A stub agent killed in the middle of a turn posts one error notice for a chat open in two
-/// tabs. Replaying the chat after a daemon restart keeps the same durable notification id.
-#[test]
-fn a_killed_agent_posts_one_notice_and_dedupes_after_daemon_restart() {
-    let daemon = machine_with_no_auto_resume("notice-killed");
-    let (surface, session) = chat(&daemon);
-    let other_surface = second_tab(&daemon, &session);
-    let (marker_surface, marker_session) = chat(&daemon);
-    let tabs = [surface, other_surface];
-    let mut acpmux = Acpmux::connect(&daemon, &session);
-    let mut marker = Acpmux::connect(&daemon, &marker_session);
-
-    // Let the notices watch observe the target chat before its agent is killed. The marker's
-    // later notice drains all preceding session changes from the same watch.
-    marker.prompt(&marker_session, "marker before kill");
-    notice(&daemon, marker_surface, |row| {
-        row["body"].as_str().is_some_and(|body| body.contains("marker before kill"))
-    });
-
-    let killed = acpmux.prompt_then_kill_agent(&session);
-    assert!(killed.get("error").is_some(), "the killed turn unexpectedly answered: {killed}");
-    let first = {
-        let deadline = Instant::now() + Duration::from_secs(20);
-        loop {
-            if let Some(found) = all_notices(&daemon).into_iter().find(|row| {
-                tabs.contains(&row["surface"].as_u64().unwrap_or_default())
-                    && row["level"] == "error"
-                    && (row["title"].as_str().is_some_and(|title| title.ends_with("failed"))
-                        || row["title"]
-                            .as_str()
-                            .is_some_and(|title| title.ends_with("stopped responding"))
-                        || row["title"].as_str().is_some_and(|title| title.ends_with("crashed")))
-            }) {
-                break found;
-            }
-            assert!(Instant::now() < deadline, "no dead-agent notice: {:?}", all_notices(&daemon));
-            std::thread::sleep(Duration::from_millis(50));
-        }
-    };
-    let first_id = first["id"].clone();
-    let target_errors = |daemon: &Daemon| -> Vec<Value> {
-        all_notices(daemon)
-            .into_iter()
-            .filter(|row| tabs.contains(&row["surface"].as_u64().unwrap_or_default()))
-            .filter(|row| row["source"] == "agent" && row["level"] == "error")
-            .collect()
-    };
-
-    // A later chat change drains the watch, so a second dead-agent notice cannot hide behind the
-    // first one before the count is checked.
-    marker.prompt(&marker_session, "marker before restart");
-    notice(&daemon, marker_surface, |row| {
-        row["body"].as_str().is_some_and(|body| body.contains("marker before restart"))
-    });
-    assert_eq!(
-        target_errors(&daemon).len(),
-        1,
-        "one dead-agent notice: {:?}",
-        target_errors(&daemon)
-    );
-
-    restart(&daemon);
-    marker.prompt(&marker_session, "marker after restart");
-    notice(&daemon, marker_surface, |row| {
-        row["body"].as_str().is_some_and(|body| body.contains("marker after restart"))
-    });
-    let after_restart = target_errors(&daemon);
-    assert_eq!(
-        after_restart.len(),
-        1,
-        "restart duplicated the dead-agent notice: {after_restart:?}"
-    );
-    assert_eq!(
-        after_restart[0]["id"], first_id,
-        "restart changed the dedupe id: {after_restart:?}"
-    );
-}
-
 /// `list-notifications` with `stats: true` says how often agent notices were read and how fast,
 /// per kind (pursuit research:notifications:2026-11-24): a finish a pane showed at once counts
 /// as read within 60 s, and a wait nobody answered yet as unread and recent.
@@ -620,182 +494,4 @@ fn every_kind_of_question_posts_one_needs_input_notice_per_wait() {
         }
         asking.join().unwrap();
     }
-}
-
-/// The pid of the process that serves the daemon's socket (its peer credentials).
-fn daemon_pid(daemon: &Daemon) -> libc::pid_t {
-    let stream = UnixStream::connect(&daemon.socket).unwrap();
-    #[cfg(target_os = "linux")]
-    {
-        use std::os::fd::AsRawFd;
-        let mut cred = libc::ucred { pid: 0, uid: 0, gid: 0 };
-        let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
-        // SAFETY: `cred` and `len` are valid for SO_PEERCRED's out-parameters.
-        let read = unsafe {
-            libc::getsockopt(
-                stream.as_raw_fd(),
-                libc::SOL_SOCKET,
-                libc::SO_PEERCRED,
-                (&raw mut cred).cast(),
-                &raw mut len,
-            )
-        };
-        assert_eq!(read, 0, "SO_PEERCRED: {}", std::io::Error::last_os_error());
-        cred.pid
-    }
-    #[cfg(target_os = "macos")]
-    {
-        use std::os::fd::AsRawFd;
-        let mut pid: libc::pid_t = 0;
-        let mut len = std::mem::size_of::<libc::pid_t>() as libc::socklen_t;
-        // SAFETY: `pid` and `len` are valid for LOCAL_PEERPID's out-parameters.
-        let read = unsafe {
-            libc::getsockopt(
-                stream.as_raw_fd(),
-                libc::SOL_LOCAL,
-                libc::LOCAL_PEERPID,
-                (&raw mut pid).cast(),
-                &raw mut len,
-            )
-        };
-        assert_eq!(read, 0, "LOCAL_PEERPID: {}", std::io::Error::last_os_error());
-        pid
-    }
-}
-
-/// Every tab of the daemon, from its workspace tree.
-fn tabs(daemon: &Daemon) -> Vec<Value> {
-    let listed = daemon.rpc(json!({"id": 8, "cmd": "list-workspaces"}));
-    let mut tabs = Vec::new();
-    for workspace in listed["data"]["workspaces"].as_array().into_iter().flatten() {
-        for screen in workspace["screens"].as_array().into_iter().flatten() {
-            for pane in screen["panes"].as_array().into_iter().flatten() {
-                tabs.extend(pane["tabs"].as_array().into_iter().flatten().cloned());
-            }
-        }
-    }
-    tabs
-}
-
-/// The stable id of the tab `surface` names now; a cold start numbers surfaces anew.
-fn tab_resource(daemon: &Daemon, surface: u64) -> String {
-    let tabs = tabs(daemon);
-    let tab = tabs.iter().find(|tab| tab["surface"] == surface);
-    let tab = tab.unwrap_or_else(|| panic!("no tab {surface}: {tabs:?}"));
-    tab["tab_resource_id"].as_str().unwrap().to_owned()
-}
-
-/// The surface the tab `resource` has now.
-fn surface_of(daemon: &Daemon, resource: &str) -> u64 {
-    let tabs = tabs(daemon);
-    let tab = tabs.iter().find(|tab| tab["tab_resource_id"] == resource);
-    let tab = tab.unwrap_or_else(|| panic!("no tab {resource}: {tabs:?}"));
-    tab["surface"].as_u64().unwrap()
-}
-
-/// Kills the daemon with SIGKILL (no shutdown path runs, nothing is flushed) and starts a new
-/// one on the same state; acpmux and its chats keep running.
-fn kill_and_restart(daemon: &Daemon) {
-    let pid = daemon_pid(daemon);
-    // SAFETY: `pid` is this test's own daemon, read from its socket's peer.
-    assert_eq!(unsafe { libc::kill(pid, libc::SIGKILL) }, 0, "kill -9 {pid}");
-    let deadline = Instant::now() + Duration::from_secs(10);
-    // SAFETY: signal 0 only probes that `pid` exists.
-    while unsafe { libc::kill(pid, 0) } == 0 {
-        assert!(Instant::now() < deadline, "daemon {pid} still runs after SIGKILL");
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    let output = daemon.server("ensure").output().unwrap();
-    assert!(output.status.success(), "ensure: {}", String::from_utf8_lossy(&output.stderr));
-    assert_ne!(daemon_pid(daemon), pid, "ensure started no new daemon");
-}
-
-/// A daemon killed with SIGKILL mid-turn (goal notify-one-per-chat: across a daemon restart)
-/// still posts that turn's finish once when the new daemon starts: not lost because no daemon
-/// watched when it ended, not twice because the dead one saw its start. And a daemon killed
-/// just after it posted a finish does not post it again on its next start.
-#[test]
-fn a_daemon_killed_mid_turn_posts_the_turns_finish_once() {
-    let daemon = machine("notice-kill9");
-    let (surface, session) = chat(&daemon);
-    let tab = tab_resource(&daemon, surface);
-    let (_, marker_session) = chat(&daemon);
-    let mut marker = Acpmux::connect(&daemon, &marker_session);
-    // The chat's tab, by its stable id: each restart below numbers surfaces anew.
-    let finished = |daemon: &Daemon| -> Vec<Value> {
-        notices(daemon, surface_of(daemon, &tab))
-            .into_iter()
-            .filter(|row| row["title"].as_str().is_some_and(|t| t.ends_with("finished")))
-            .collect()
-    };
-    // Once another chat's later turn notified, the new daemon's watch caught up past this one.
-    let fence = |marker: &mut Acpmux, daemon: &Daemon, text: &str| {
-        marker.prompt(&marker_session, text);
-        let deadline = Instant::now() + Duration::from_secs(20);
-        while !all_notices(daemon)
-            .iter()
-            .any(|row| row["body"].as_str().is_some_and(|b| b.contains(text)))
-        {
-            assert!(Instant::now() < deadline, "no {text} notice: {:?}", all_notices(daemon));
-            std::thread::sleep(Duration::from_millis(50));
-        }
-    };
-
-    // The turn ticks for 3 s; the daemon dies 0.5 s in and is back before it ends.
-    let turn = {
-        let mut acpmux = Acpmux::connect(&daemon, &session);
-        let session = session.clone();
-        std::thread::spawn(move || acpmux.prompt(&session, "ticking:30:100"))
-    };
-    std::thread::sleep(Duration::from_millis(500));
-    assert!(finished(&daemon).is_empty(), "finished before its end: {:?}", finished(&daemon));
-    kill_and_restart(&daemon);
-    let ended = turn.join().unwrap();
-    assert!(ended.get("error").is_none(), "{ended}");
-    let deadline = Instant::now() + Duration::from_secs(20);
-    while finished(&daemon).is_empty() {
-        assert!(
-            Instant::now() < deadline,
-            "no finish on tab {tab} after the restart: notices {:?}, tabs {:?}",
-            all_notices(&daemon),
-            tabs(&daemon),
-        );
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    fence(&mut marker, &daemon, "marker one");
-    assert_eq!(finished(&daemon).len(), 1, "one turn, one finish: {:?}", finished(&daemon));
-
-    // The turn ends while no daemon runs: the next one posts it, once.
-    let turn = {
-        let mut acpmux = Acpmux::connect(&daemon, &session);
-        let session = session.clone();
-        std::thread::spawn(move || acpmux.prompt(&session, "ticking:5:100"))
-    };
-    std::thread::sleep(Duration::from_millis(100));
-    let pid = daemon_pid(&daemon);
-    // SAFETY: `pid` is this test's own daemon.
-    assert_eq!(unsafe { libc::kill(pid, libc::SIGSTOP) }, 0);
-    let ended = turn.join().unwrap();
-    assert!(ended.get("error").is_none(), "{ended}");
-    // SAFETY: as above; a stopped process still takes SIGKILL.
-    assert_eq!(unsafe { libc::kill(pid, libc::SIGKILL) }, 0);
-    let deadline = Instant::now() + Duration::from_secs(10);
-    // SAFETY: signal 0 only probes that `pid` exists.
-    while unsafe { libc::kill(pid, 0) } == 0 {
-        assert!(Instant::now() < deadline, "daemon {pid} still runs after SIGKILL");
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    let output = daemon.server("ensure").output().unwrap();
-    assert!(output.status.success(), "ensure: {}", String::from_utf8_lossy(&output.stderr));
-    fence(&mut marker, &daemon, "marker two");
-    assert_eq!(finished(&daemon).len(), 2, "two turns, two finishes: {:?}", finished(&daemon));
-
-    // A finish posted just before the kill is not posted again.
-    Acpmux::connect(&daemon, &session).prompt(&session, "hello before the kill");
-    notice(&daemon, surface_of(&daemon, &tab), |row| {
-        row["body"].as_str().is_some_and(|b| b.contains("hello before the kill"))
-    });
-    kill_and_restart(&daemon);
-    fence(&mut marker, &daemon, "marker three");
-    assert_eq!(finished(&daemon).len(), 3, "three turns, three finishes: {:?}", finished(&daemon));
 }

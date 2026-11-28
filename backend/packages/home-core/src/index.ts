@@ -5,10 +5,8 @@
  * owner, including the Rust `cmux-conversation`, on one protocol.
  *
  * Owners: conversation -> ConversationDO, inbox -> UserDO stream `inbox:`,
- * mux -> MuxDO, address -> AddressDO, appkv (synced app storage) -> UserDO
- * stream `appkv:`. Each is also a package subpath.
+ * mux -> MuxDO, address -> AddressDO. Each is also a package subpath.
  */
-export * as appkv from "./appkv/index.ts"
 export * as conversation from "./conversation/index.ts"
 export * as inbox from "./inbox/index.ts"
 export * as mux from "./mux/index.ts"

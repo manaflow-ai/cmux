@@ -18,12 +18,10 @@ iroh-transport = ["dep:iroh"]
 wireguard-transport = ["dep:cmux-wg"]
 
 [dependencies]
-cmux-braid-carrier.workspace = true
 cmux-braid-path.workspace = true
 cmux-json.workspace = true
 cmux-braid-session.workspace = true
 cmux-deadline = { workspace = true, features = ["tokio"] }
-cmux-process.workspace = true
 async-trait.workspace = true
 axum.workspace = true
 base64.workspace = true
@@ -31,9 +29,6 @@ bytes.workspace = true
 cmux-pty.workspace = true
 cmux-link.workspace = true
 cmux-netwatch.workspace = true
-# The system proxy (PAC on macOS, the environment elsewhere) for the relay and `wss` routes, and the
-# inspected-TLS mark (src/provider/proxied.rs).
-cmux-proxy.workspace = true
 cmux-remote-protocol.workspace = true
 # The signed Linux release file an unbundled build's pin comes from (ssh_artifacts).
 cmux-signed-envelope.workspace = true
@@ -62,8 +57,6 @@ libc.workspace = true
 rand_core = { version = "0.9", default-features = false }
 # The relay's own TLS trust (RelayTls); already in the graph through tokio-tungstenite.
 rustls.workspace = true
-# The platform's roots for a relay with no trust of its own, read once (`websocket::native_tls`).
-rustls-native-certs = "0.8"
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

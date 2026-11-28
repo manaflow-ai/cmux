@@ -207,14 +207,6 @@ fn hyprland_clients_parse() {
 }
 
 #[test]
-fn hyprland_cursorpos_parses() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"x": 1280, "y": 412.5}"#).unwrap();
-    assert_eq!(wlroots::ipc::hypr_cursor(&v), Some((1280.0, 412.5)));
-    let bad: serde_json::Value = serde_json::from_str(r#"{"x": 1}"#).unwrap();
-    assert_eq!(wlroots::ipc::hypr_cursor(&bad), None);
-}
-
-#[test]
 fn atspi_ids_parse_and_frames_pick() {
     let o = atspi::Obj::parse(":1.42|/org/a11y/atspi/accessible/7").unwrap();
     assert_eq!(o.id(), ":1.42|/org/a11y/atspi/accessible/7");

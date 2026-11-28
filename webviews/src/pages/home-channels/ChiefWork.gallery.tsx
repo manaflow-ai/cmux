@@ -6,7 +6,7 @@ import table from "./generated/strings.json";
 import { ChiefWorkPanel, type ChiefWorkPanelProps } from "./ChiefWorkPanel";
 import type { HomeChiefWork } from "./chiefWorkTypes";
 
-type Props = Pick<ChiefWorkPanelProps, "snapshot" | "loading" | "stillTrying" | "plans">;
+type Props = Pick<ChiefWorkPanelProps, "snapshot" | "loading" | "error">;
 function WorkGallery(props: Props) {
   const [strings] = useState(() => createStrings(table));
   return (
@@ -109,25 +109,27 @@ export default componentEntry<Props>({
     },
     "plans-inline": {
       note: "Plans, inline arm: count and the step in progress under each subagent.",
-      // The component host pins no experiments: the arm goes in as the panel's own `plans` prop.
-      props: { snapshot: planned, loading: false, plans: "inline" },
+      props: { snapshot: planned, loading: false },
+      experiments: { "chief-plans": "inline" },
     },
     "plans-steps": {
       note: "Plans, steps arm: a progress bar, the step in progress and the next one.",
-      props: { snapshot: planned, loading: false, plans: "steps" },
+      props: { snapshot: planned, loading: false },
+      experiments: { "chief-plans": "steps" },
     },
     "plans-section": {
       note: "Plans, plans-first arm: the Chief's plan and each subagent's in one section on top.",
-      props: { snapshot: planned, loading: false, plans: "section" },
+      props: { snapshot: planned, loading: false },
+      experiments: { "chief-plans": "section" },
     },
     "plans-off": {
       note: "Plans off (the default): the same snapshot as before plans.",
-      props: { snapshot: planned, loading: false, plans: "off" },
+      props: { snapshot: planned, loading: false },
+      experiments: { "chief-plans": "off" },
     },
     empty: { props: { snapshot: { agents: [], tasks: [], truncated: false }, loading: false } },
     loading: { props: { loading: true } },
-    // A read that kept failing past the deadline: one quiet line, no button (it is asked again on its own).
-    "still-loading": { props: { loading: false, stillTrying: true } },
+    error: { props: { loading: false, error: "chief.work_unavailable" } },
     refreshing: { props: { snapshot: active, loading: true } },
     partial: { props: { snapshot: { ...active, truncated: true }, loading: false } },
     failed: {

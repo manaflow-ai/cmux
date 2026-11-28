@@ -131,7 +131,7 @@ fn parse_frontmatter(text: &str, id: &str) -> (String, String, String) {
         for line in lines {
             offset += line.len();
             if line.trim() == "---" {
-                body = text.get(offset..).unwrap_or_default();
+                body = &text[offset..];
                 break;
             }
             let raw = line.trim();
@@ -162,26 +162,23 @@ fn references(text: &str, prefix: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut i = 0;
     let mut code = false;
-    while let Some(&ch) = chars.get(i) {
-        if ch == '`' {
+    while i < chars.len() {
+        if chars[i] == '`' {
             code = !code;
             i += 1;
             continue;
         }
-        let boundary = i
-            .checked_sub(1)
-            .and_then(|p| chars.get(p))
-            .is_none_or(|c| c.is_whitespace() || matches!(c, '(' | '[' | '{'));
-        if !code && boundary && ch == trigger {
+        let boundary =
+            i == 0 || chars[i - 1].is_whitespace() || matches!(chars[i - 1], '(' | '[' | '{');
+        if !code && boundary && chars[i] == trigger {
             let start = i + 1;
             let mut end = start;
-            while chars
-                .get(end)
-                .is_some_and(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+            while end < chars.len()
+                && (chars[end].is_ascii_alphanumeric() || matches!(chars[end], '-' | '_' | '.'))
             {
                 end += 1;
             }
-            let id: String = chars.iter().skip(start).take(end - start).collect();
+            let id: String = chars[start..end].iter().collect();
             let id = id.trim_end_matches('.').to_owned();
             // Shell variables and path references remain literal.
             if !id.is_empty()
@@ -208,8 +205,7 @@ pub fn expand(text: &str, skills: &[Skill], prefix: &str) -> Result<String> {
         let content = fs::read_to_string(&s.path)?;
         anyhow::ensure!(content.len() as u64 <= MAX_BYTES, "Skill {id} is too large");
         let (_, _, body) = parse_frontmatter(&content, &id);
-        let base = s.path.parent().unwrap_or_else(|| std::path::Path::new("."));
-        out.push_str(&format!("\n\n<skill name=\"{}\">\nSource: {}\nBase directory: {}\nResolve relative scripts and references against this base directory.\n\n{}\n</skill>", id, s.path.display(), base.display(), body));
+        out.push_str(&format!("\n\n<skill name=\"{}\">\nSource: {}\nBase directory: {}\nResolve relative scripts and references against this base directory.\n\n{}\n</skill>", id, s.path.display(), s.path.parent().unwrap().display(), body));
     }
     Ok(out)
 }

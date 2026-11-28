@@ -21,11 +21,11 @@ func debugCEFPagesReport(_ services: AppServices) -> JSONValue {
 }
 
 /// `debug.cef_page_devtools {browser, method, params}`: a DevTools method on one of cmux's own Chromium pages by browser
-/// id (`debug.cef_pages`), its JSON reply (``CEFEngine/cmuxPageDevTools(browser:method:params:timeoutMS:)``).
+/// id (`debug.cef_pages`), its JSON reply (``CEFEngine/cmuxPageDevTools(browser:method:params:)``).
 @MainActor
 func debugCEFPageDevTools(_ params: [String: JSONValue], _ services: AppServices) async -> JSONValue {
     let answer = await services.cache.cef.cmuxPageDevTools(browser: params["browser"]?.intValue, method: params["method"]?.stringValue,
-                                                           params: (params["params"]?.objectValue ?? [:]).mapValues(debugDevToolsValue), timeoutMS: params["timeout_ms"]?.intValue)
+                                                           params: (params["params"]?.objectValue ?? [:]).mapValues(debugDevToolsValue))
     return .object([answer.error == nil ? "result" : "error": .string(answer.error ?? answer.result ?? "")])
 }
 

@@ -120,37 +120,4 @@ for f in "$agent" "$plist" "$TMP/build/app.app/Contents/Resources/libexec/cmux-s
   [[ ! -e "$f" ]] || { echo "stable bundle keeps $f" >&2; exit 1; }
 done
 [[ ! -d "$TMP/build/app.app/Contents/Library/LaunchAgents" ]] || { echo "stable bundle keeps an empty LaunchAgents" >&2; exit 1; }
-
-# The login-time pre-read (app.backgroundReady = warmAtLogin): a plist only
-# when the reader is bundled, in every channel (it is opt-in), with its own
-# label per bundle id; run once at load, never kept alive, background priority.
-preread="$TMP/build/app.app/Contents/Library/LaunchAgents/com.cmux.launch-preread.plist"
-stamp
-[[ ! -e "$preread" ]] || { echo "pre-read plist without a bundled reader" >&2; exit 1; }
-printf '#!/bin/sh\nexit 0\n' > "$TMP/build/app.app/Contents/Resources/bin/cmux-launch-preread"
-chmod +x "$TMP/build/app.app/Contents/Resources/bin/cmux-launch-preread"
-check_preread() { # <bundle id>
-  [[ -f "$preread" ]] || { echo "no pre-read plist for $1" >&2; exit 1; }
-  plutil -lint "$preread" >/dev/null
-  expect "$preread" Label "$1.launch-preread"
-  expect "$preread" BundleProgram "Contents/Resources/bin/cmux-launch-preread"
-  expect "$preread" ProgramArguments:0 "Contents/Resources/bin/cmux-launch-preread"
-  if pb ProgramArguments:1 "$preread" >/dev/null; then echo "extra pre-read ProgramArguments" >&2; exit 1; fi
-  expect "$preread" RunAtLoad true
-  expect "$preread" ProcessType Background
-  expect "$preread" LowPriorityIO true
-  expect "$preread" Nice 10
-  expect "$preread" AssociatedBundleIdentifiers:0 "$1"
-  for key in KeepAlive EnvironmentVariables StandardOutPath StandardErrorPath UserName MachServices; do
-    if pb "$key" "$preread" >/dev/null; then echo "pre-read plist carries $key" >&2; exit 1; fi
-  done
-}
-stamp
-check_preread com.cmuxterm.app
-/usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier com.cmuxterm.app.nightly' "$TMP/build/app.app/Contents/Info.plist" >/dev/null
-stamp
-check_preread com.cmuxterm.app.nightly
-rm "$TMP/build/app.app/Contents/Resources/bin/cmux-launch-preread"
-stamp
-[[ ! -e "$preread" ]] || { echo "pre-read plist kept after the reader left" >&2; exit 1; }
 printf 'bundle-server-helper tests: ok\n'

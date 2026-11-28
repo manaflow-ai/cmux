@@ -17,8 +17,6 @@
 
 pub mod export;
 pub mod import;
-// The laptop transport rides cmux-cloud-api, a unix-only crate.
-#[cfg(unix)]
 pub mod laptop;
 pub mod machine;
 pub mod record;

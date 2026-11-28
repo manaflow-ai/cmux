@@ -39,10 +39,10 @@ impl Mux {
                 continue;
             };
             let Some(member) = entry.members.get(id) else { continue };
-            if self.control_clients.supports_capability(
-                member.client,
-                crate::server_protocol::HOST_GRID_VIEW_CAPABILITY,
-            ) {
+            if self
+                .control_clients
+                .supports_capability(member.client, crate::server::HOST_GRID_VIEW_CAPABILITY)
+            {
                 continue;
             }
             capped = (capped.0.min(viewport.cols), capped.1.min(viewport.rows));

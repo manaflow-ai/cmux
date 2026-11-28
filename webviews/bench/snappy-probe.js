@@ -17,7 +17,7 @@
 //     reservedJumpPx     how far the reserved turn's bottom moved between its first frame and the first token's
 //                        (a reserve that does not hold the reply's first line shifts what is under it)
 //     rows               transcript rows at the keydown
-//   switchArm()      / switchStatus() / switchResult(): from the page turning visible (visibilitychange's timeStamp) to the
+//   switchArm()      / switchStatus() / switchResult(): from the page turning visible (visibilitychange) to the
 //                    first frame with transcript rows: { visibleToPaintMs, rows }
 //   watchArm(kind)   / watchResult(): every layout shift (no recent input) of one other turn transition, from now to
 //                    watchResult(): "mid-turn" (Enter while a turn runs: a steer, or the queued prompt and its
@@ -175,12 +175,9 @@
     },
     switchArm() {
       switching = { armed: true };
-      // On window in the capture phase, so it runs before the page's own document listeners (the rows' flushSync
-      // mount in VirtualTranscript), and from the event's own timeStamp: the clock started after those listeners
-      // before, so the show's synchronous work was never counted.
-      const seen = (event) => {
+      const seen = () => {
         if (document.visibilityState !== "visible" || !switching || switching.visible !== undefined) return;
-        switching.visible = event.timeStamp;
+        switching.visible = performance.now();
         const tick = (time) => {
           if (document.querySelectorAll(ROW).length) {
             switching.painted = time;
@@ -189,8 +186,8 @@
         };
         requestAnimationFrame(tick);
       };
-      window.addEventListener("visibilitychange", seen, true);
-      switching.off = () => window.removeEventListener("visibilitychange", seen, true);
+      document.addEventListener("visibilitychange", seen, { once: false });
+      switching.off = () => document.removeEventListener("visibilitychange", seen);
       return true;
     },
     switchStatus() {

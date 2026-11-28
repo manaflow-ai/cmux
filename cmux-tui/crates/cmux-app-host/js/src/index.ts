@@ -2,20 +2,7 @@
 // Load order: this file, then the app's `main` (an IIFE that sets
 // `__cmuxAppExports`), then the host calls `__cmuxAppInit`. ABI: ../ABI.md.
 
-import {
-  cmux,
-  CmuxError,
-  createCmux,
-  deliverEvent,
-  fireTimer,
-  log,
-  resolveCall,
-  seedKeptState,
-  sharedMembers,
-  state,
-  type Native,
-  call,
-} from "./cmux.ts";
+import { call, cmux, CmuxError, createCmux, deliverEvent, fireTimer, log, resolveCall, sharedMembers, state, type Native } from "./cmux.ts"
 import { installCompat } from "./compat-sidebar-data.ts"
 import { menuHandler, mount, mountExists, nodeRecord, sendPendingOps, setSceneSink, unmount } from "./materialize.ts"
 import { act, palette, paletteCancel, paletteDetail, paletteOpen, setPaletteScopes } from "./palette.ts"
@@ -123,7 +110,6 @@ function install() {
         locale?: string
         strings?: Record<string, string>
         paletteScopes?: unknown[]
-        state?: Record<string, unknown>
       }
       if (init.app) state.app = init.app
       if (init.apiVersion) state.apiVersion = init.apiVersion
@@ -132,7 +118,6 @@ function install() {
       state.locale = init.locale ?? "en"
       state.strings = init.strings ?? {}
       setPaletteScopes(init.paletteScopes)
-      seedKeptState(init.state)
       state.settings[1](init.settings ?? {})
       return ""
     }, "init failed")

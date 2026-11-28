@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState, useContext } from "react";
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { focusAfterEscape } from "../../ui/escapeFocus";
 import { focusWithRing } from "../../ui/focusWithRing";
 import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
@@ -8,13 +8,12 @@ import { usePopupSettle } from "../../ui/popupSettle";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { isMousePress } from "../../ui/pressRelease";
 import { useListKeys } from "../../ui/useListKeys";
-import { registerPicker, ChatViewParked } from "./pickerOpeners";
-import { KeyHint } from "../../ui/KeyHint";
-import { hintIsKey } from "./composerPickerModel";
+import { registerPicker } from "./pickerOpeners";
 
 import { useT } from "./i18n";
 import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
 import { useScrollEdges } from "./summary/scrollEdges";
+import { Keycap } from "./Keycap";
 import {
   type PaletteSection,
   filterPaletteSections,
@@ -136,8 +135,7 @@ export function PaletteMenu({
     if (!open || !rows.length) return;
     scrollActiveMenuRow(menu.current, `${menuId}-${selected}`);
   }, [open, rows.length, menuId, selected]);
-  const parked = useContext(ChatViewParked);
-  useEffect(() => (parked ? undefined : registerPicker(label, openMenu)), [label, openMenu, parked]);
+  useEffect(() => registerPicker(label, openMenu), [label, openMenu]);
   const pick = async (index: number) => {
     const row = rows[index];
     if (!row) return;
@@ -342,16 +340,11 @@ export function PaletteMenu({
                           <span className="acpmux-menu-label">{choice.name}</span>
                           {description && <span className="acpmux-menu-description">{description}</span>}
                         </span>
-                        {choice.hint &&
-                          (hintIsKey(choice.hint) ? (
-                            <KeyHint keys={choice.hint} className="acpmux-menu-hint" />
-                          ) : (
-                            <span className="acpmux-menu-hint acpmux-menu-arg">{choice.hint}</span>
-                          ))}
+                        {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
                         {returnLook !== "none" && at === selected && (
                           <span className="acpmux-palette-return" aria-hidden="true">
                             {verb && <span className="acpmux-palette-return-verb">{verb}</span>}
-                            <KeyHint keys="↩" />
+                            <Keycap>↩</Keycap>
                           </span>
                         )}
                       </div>
@@ -364,7 +357,7 @@ export function PaletteMenu({
           </div>
           {outcome && (
             <div id={outcomeId} className="acpmux-palette-outcome">
-              <KeyHint keys="↩" />
+              <Keycap>↩</Keycap>
               <span className="acpmux-palette-outcome-text">{outcome}</span>
             </div>
           )}

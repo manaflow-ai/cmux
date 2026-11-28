@@ -4,7 +4,7 @@
 set -euo pipefail
 cd nightly-out
 ls -l
-if [ "$NIGHTLY_TRACK" != rc ]; then
+if [ "$NIGHTLY_TRACK" = nightly-next ]; then
   # arm64 only (decide): no Intel or universal names to assemble.
   [ -f "${CHANNEL_DMG_PREFIX}-arm64.dmg" ] || { echo "missing ${CHANNEL_DMG_PREFIX}-arm64.dmg" >&2; exit 1; }
   [ -f appcast-arm64.xml ] || { echo "missing appcast-arm64.xml" >&2; exit 1; }

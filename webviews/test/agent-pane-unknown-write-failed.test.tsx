@@ -11,10 +11,18 @@
 // Before: the failed Write dropped off the card ("Edited 0 files" with no row), and an Edit after
 // it to the same file lost its counts.
 import { expect, test } from "bun:test";
-import { importWithDom } from "./support/importWithDom";
-
-const { FOLDER, NOTES, PLAN, activity, checkpoint, editWithDiff, editedCard, toolCall, translatorWrite, useDom } =
-  await importWithDom(() => import("./support/unknownWrite"));
+import {
+  FOLDER,
+  NOTES,
+  PLAN,
+  activity,
+  checkpoint,
+  editWithDiff,
+  editedCard,
+  toolCall,
+  translatorWrite,
+  useDom,
+} from "./support/unknownWrite";
 
 const dom = useDom();
 

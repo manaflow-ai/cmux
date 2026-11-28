@@ -53,6 +53,7 @@ extension CloudStrings {
         return String(format: text("cloud.progress.elapsed", "%@ elapsed"), clock)
     }
 
+    static var retry: String { text("cloud.button.retry", "Retry") }
     static var resume: String { text("cloud.button.resume", "Resume") }
     static var copyError: String { text("cloud.button.copyError", "Copy Error") }
     static var dismiss: String { text("cloud.button.dismiss", "Dismiss") }

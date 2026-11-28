@@ -6,7 +6,6 @@ import { loadedImageSrc } from "../chips/replyImageModel";
 import { mediaKind } from "../chips/mediaKind";
 import type { AcpmuxRow } from "../model";
 import { PrefixFold } from "../conversation/prefixFlatMap";
-import { RowMemo } from "../../shared/rowMemo";
 
 export type GalleryItem =
   | { kind: "image"; key: string; src: string; alt: string }
@@ -16,7 +15,7 @@ export type GalleryFilter = "all" | GalleryItem["kind"];
 
 /// Each reply's images, kept while the row is the same object: a live turn's updates leave the
 /// earlier rows alone, so an open gallery parses only the reply that changed.
-const rowImages = new RowMemo<AcpmuxRow, ChatImage[]>();
+const rowImages = new WeakMap<AcpmuxRow, ChatImage[]>();
 const imagesOf = (row: AcpmuxRow): ChatImage[] => {
   let images = rowImages.get(row);
   if (!images) rowImages.set(row, (images = chatImages([row])));
@@ -24,7 +23,7 @@ const imagesOf = (row: AcpmuxRow): ChatImage[] => {
 };
 
 /// Discovery only: local files still load through the host when their gallery tile is mounted.
-const rowTools = new RowMemo<AcpmuxRow, GalleryItem[]>();
+const rowTools = new WeakMap<AcpmuxRow, GalleryItem[]>();
 const toolsOf = (row: AcpmuxRow): GalleryItem[] => {
   let items = rowTools.get(row);
   if (!items) {

@@ -15,7 +15,6 @@ import {
   computed,
   HStack,
   Icon,
-  linearGradient,
   signal,
   Spacer,
   Text,
@@ -36,7 +35,7 @@ import {
   placeFromGeocode,
   placeFromGeoJS,
   shown,
-  SKY_GRADIENTS,
+  SKY_COLORS,
   skyFor,
   symbolColor,
   toForecast,
@@ -158,8 +157,7 @@ const degrees = (celsius: number, look: Look) => `${shown(celsius, look.units)}Â
 
 function symbol(name: string, size: number, look: Look): View {
   const color = symbolColor(name)
-  const icon = Icon(name).size(size).font(size).color(look.sky || color !== "#FFFFFF" ? color : look.text)
-  return look.sky ? icon.symbolRendering("multicolor") : icon
+  return Icon(name).size(size).font(size).color(look.sky || color !== "#FFFFFF" ? color : look.text)
 }
 
 function header(r: Reading, look: Look, big: number): View {
@@ -288,15 +286,15 @@ const drawWeather = widget((ctx: Partial<WidgetContext> = {}): View => {
   )
   const look = computed<Look>(() => {
     const s = settings()
-    const units = unitsFor(ctx.locale || cmux.app.locale || "en", s.units, shownReading()?.place.country ?? "")
+    const units = unitsFor(cmux.app.locale || "en", s.units, shownReading()?.place.country ?? "")
     return s.look === "plain"
       ? { sky: false, text: cmux.theme.text.primary, secondary: cmux.theme.text.secondary, units }
-      : { sky: true, text: "#FFFFFF", secondary: "#FFFFFF", units }
+      : { sky: true, text: "#FFFFFF", secondary: "#FFFFFFB3", units }
   })
   const sky = computed(() => {
     if (!look().sky) return null
     const r = shownReading()
-    return linearGradient(SKY_GRADIENTS[r ? skyFor(r.forecast.code, r.forecast.day) : "clear-day"], 180)
+    return r ? SKY_COLORS[skyFor(r.forecast.code, r.forecast.day)] : SKY_COLORS["clear-day"]
   })
   return VStack({ spacing: 0 }, [
     watchKey,

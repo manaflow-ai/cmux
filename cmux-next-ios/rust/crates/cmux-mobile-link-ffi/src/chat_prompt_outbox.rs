@@ -277,13 +277,7 @@ impl ChatPromptOutbox {
     ) -> bool {
         let mut inner = self.inner();
         let (tapped, now) = (inner.at(tapped_ms), inner.at(now_ms));
-        if upload_ids.is_empty() {
-            // On the phone this is the prepared payload, handed off after all uploads or the
-            // preceding prompt completed. The tap still orders it among the other prompts.
-            inner.outbox.push_prepared(prompt_id, text, resend, tapped, now)
-        } else {
-            inner.outbox.push(prompt_id, text, upload_ids, resend, tapped, now)
-        }
+        inner.outbox.push(prompt_id, text, upload_ids, resend, tapped, now)
     }
 
     /// The link made progress at `now_ms` (bytes heard from the Mac, a channel bound, a write

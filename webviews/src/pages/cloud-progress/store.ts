@@ -64,10 +64,7 @@ export class CloudProgressStore {
     }
   }
 
-  /**
-   * Retry (Resume), Dismiss or Copy Error; the host takes them only from the person's own click or key
-   * (retry-prompt-ok: Retry starts a Cloud machine again, a paid start).
-   */
+  /** Retry (Resume), Dismiss or Copy Error; the host takes them only from the person's own click or key. */
   async run(action: CloudProgressAction): Promise<void> {
     if (!this.client) return;
     try {

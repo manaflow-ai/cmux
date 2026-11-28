@@ -9,7 +9,6 @@ extension BrowserChromeView {
     /// Accessibility identifiers of the toolbar (UI automation, e2e suites).
     public static let backIdentifier = "browser.toolbar.back"
     public static let forwardIdentifier = "browser.toolbar.forward"
-    // retry-prompt-ok: the toolbar's Reload command, not a retry prompt
     public static let reloadIdentifier = "browser.toolbar.reload"
     public static let omnibarIdentifier = "browser.toolbar.omnibar"
     public static let pageGoneIdentifier = "browser.page.gone"

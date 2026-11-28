@@ -11,7 +11,6 @@
 //           ellipsizes inside its own box, and a max size bounds the frame to the window.
 import type { CSSProperties, ReactNode } from "react";
 import { componentEntry } from "../gallery/format";
-import { KeyHint } from "./KeyHint";
 
 type Scheme = "dark" | "light";
 type Look = "before" | "width" | "ships";
@@ -144,7 +143,9 @@ function TextSizeFollowGallery({ look, scheme, size }: Props) {
             }}
           >
             <span style={{ fontWeight: 600, fontSize: "var(--tsf-caption)", ...clip(look) }}>Split Right Browser</span>
-            <KeyHint keys="⇧⌘B" style={{ fontSize: "var(--tsf-caption)", color: "var(--tsf-muted)" }} />
+            <kbd style={{ font: "inherit", fontSize: "var(--tsf-caption)", color: "var(--tsf-muted)", flex: "none" }}>
+              ⌘⇧B
+            </kbd>
           </div>
           <div
             style={{

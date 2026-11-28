@@ -86,7 +86,7 @@ DARWIN_STEPS = ("Set up job", "Checkout caller or requested ref",
                 "Install the macOS cross toolchain", DARWIN_BUILD_STEP, "Stage binary")
 
 
-def leg(target: str, conclusion: str | None, failed_step: str | None = None, job_id: int = 1) -> dict:
+def leg(target: str, conclusion: str, failed_step: str | None = None, job_id: int = 1) -> dict:
     steps = [{"name": "Set up job", "conclusion": "success", "number": 1}]
     if target.endswith("-apple-darwin"):
         steps = []
@@ -105,7 +105,7 @@ def leg(target: str, conclusion: str | None, failed_step: str | None = None, job
 
 @unittest.skipIf(shutil.which("jq") is None, "jq runs the step's --jq filters (GitHub's runners have it)")
 class FallbackIgnoresALostLinuxLeg(unittest.TestCase):
-    def run_plan(self, built, jobs=None, build_result="failure", logs=None, attempt="1", base_stubs=None) -> tuple[dict, str, str]:
+    def run_plan(self, built, jobs=None, build_result="failure", logs=None, attempt="1") -> tuple[dict, str, str]:
         step = plan_step()
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
@@ -119,9 +119,6 @@ class FallbackIgnoresALostLinuxLeg(unittest.TestCase):
                 routes[f"repos/{REPO}/actions/runs/100/attempts/{attempt}/jobs"] = {"total_count": len(jobs), "jobs": jobs}
             for job_id, text in (logs or {}).items():
                 routes[f"repos/{REPO}/actions/jobs/{job_id}/logs"] = text
-            if base_stubs is not None:
-                routes[f"repos/{REPO}/commits/feat-cmux-next"] = {"sha": "b" * 40}
-                routes[f"repos/{REPO}/contents/scripts/ci"] = [{"name": "macos-stubs", "sha": base_stubs}]
             (temp_path / "routes.json").write_text(json.dumps(routes), encoding="utf-8")
             output = temp_path / "output"
             output.touch()
@@ -147,7 +144,7 @@ class FallbackIgnoresALostLinuxLeg(unittest.TestCase):
             }
             for name in step["env"]:
                 self.assertIn(name, env, f"the test sets the plan step's env {name}")
-            result = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True, text=True, timeout=60, cwd=ROOT)
+            result = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True, text=True, timeout=60)
             self.assertEqual(result.returncode, 0, result.stderr)
             values = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
             return values, result.stdout, log.read_text()
@@ -197,17 +194,6 @@ class FallbackIgnoresALostLinuxLeg(unittest.TestCase):
             self.assertEqual(values.get("target_set"), "", f"{why}: {out}")
             self.assertIn("the x86_64-unknown-linux-musl build failed too", out, why)
 
-    def test_a_linux_leg_still_building_does_not_hold_the_fallback(self) -> None:
-        # FALLBACK_STARTS_WHEN_BUILD_FAILS: the plan no longer waits on build-linux (run 46095639867:
-        # the macOS leg failed at 02:18Z, the plan started at 02:26Z). A leg with no conclusion yet
-        # is still building, not failed.
-        values, out, _ = self.run_plan(["aarch64-unknown-linux-musl"], [
-            leg("x86_64-unknown-linux-musl", None),
-            leg("aarch64-unknown-linux-musl", "success"),
-        ])
-        self.assertEqual(values.get("target_set"), "macos-arm64", out)
-        self.assertIn("the x86_64-unknown-linux-musl leg is still building", out)
-
     def test_a_same_named_leg_of_another_caller_is_not_read(self) -> None:
         # Only build-linux's leg of a Linux target counts (#51895), not a leg of that name in build.
         values, out, _ = self.run_plan(["aarch64-unknown-linux-musl"], [
@@ -250,26 +236,9 @@ class FallbackIgnoresALostLinuxLeg(unittest.TestCase):
         values, out = self.darwin_plan(DARWIN_BUILD_STEP, logs={7: "...\n##[error]The runner has received a shutdown signal. This can"})
         self.assertEqual(values.get("builder"), "linux", out)
 
-    def test_a_failed_link_on_older_stubs_relinks_on_linux_with_the_bases(self) -> None:
-        # 2026-11-24: heads from before #53037 failed on kSecGuestAttributePid and went to a Mac.
-        values, out = self.darwin_plan(DARWIN_BUILD_STEP, base_stubs="c" * 40,
-                                       logs={7: "ld64.lld: error: undefined symbol: kSecGuestAttributePid"})
-        self.assertEqual(values.get("builder"), "linux", out)
-        self.assertEqual(values.get("stubs_ref"), "b" * 40)
-        self.assertNotIn("cross_failed", values)
-
-    def test_a_plain_compile_error_has_no_fallback(self) -> None:
-        values, out, _ = self.run_plan(list(LINUX), [
-            leg("aarch64-apple-darwin", "failure", DARWIN_BUILD_STEP, job_id=7),
-        ], logs={7: "error[E0432]: unresolved import\nerror: could not compile `cmux-tui`"})
-        self.assertEqual(values.get("target_set"), "", out)
-        self.assertIn("::error title=no macOS fallback", out)
-
     def test_a_failed_link_still_rebuilds_on_a_mac(self) -> None:
-        head_tree = subprocess.run(["git", "rev-parse", "HEAD:scripts/ci/macos-stubs"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
-        # Same stubs as the base's (or an unreadable base): a Mac is the fallback.
-        for logs, base in (({7: "ld64.lld: error: undefined symbol: kSecGuestAttributePid"}, head_tree), (None, None)):
-            values, out = self.darwin_plan(DARWIN_BUILD_STEP, logs=logs, base_stubs=base)
+        for logs in ({7: "ld64.lld: error: undefined symbol: kSecGuestAttributePid"}, None):
+            values, out = self.darwin_plan(DARWIN_BUILD_STEP, logs=logs)
             self.assertEqual(values.get("builder"), "mac", out)
             self.assertEqual(values.get("cross_failed"), "true")
         values, out = self.darwin_plan("Stage binary")
@@ -295,7 +264,6 @@ class FallbackIgnoresALostLinuxLeg(unittest.TestCase):
         call = document["jobs"]["build-darwin-fallback"]["with"]
         self.assertEqual(call["darwin_builder"], "${{ needs.darwin-fallback-plan.outputs.builder }}")
         self.assertEqual(call["linux_runner"], "cmux-linux")
-        self.assertEqual(call["macos_stubs_ref"], "${{ needs.darwin-fallback-plan.outputs.stubs_ref }}")
         self.assertEqual(document["jobs"]["darwin-fallback-plan"]["outputs"]["builder"],
                          "${{ steps.plan.outputs.builder || 'mac' }}")
 

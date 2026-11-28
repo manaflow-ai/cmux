@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
-import CmuxNextHostPressureTunables
+import CmuxNextHostPressure
 
 /// The window's host pressure indicator in the top row, after the toolbar band
 /// and the incognito badge (`WindowRootView.hostPressureIndicator`; never the

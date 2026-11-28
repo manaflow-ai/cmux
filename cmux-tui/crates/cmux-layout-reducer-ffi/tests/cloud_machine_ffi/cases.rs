@@ -97,40 +97,6 @@ fn the_overlay_round_trips_its_state() {
 }
 
 #[test]
-fn the_read_order_round_trips_its_state() {
-    let (code, list) = call(c"cloud_machine_reads_begin", &json!({}));
-    assert_eq!(code, OK);
-    assert_eq!(list["read"], 1);
-    let (_, status) =
-        call(c"cloud_machine_reads_begin", &json!({"state": list["state"], "machine": "vm_a"}));
-    assert_eq!(status["read"], 2);
-    let (_, omitted) = call(
-        c"cloud_machine_reads_listed",
-        &json!({"state": status["state"], "machines": ["vm_c"], "held": ["vm_a"], "read": 1}),
-    );
-    assert_eq!(omitted["add"], json!(["vm_c"]));
-    assert_eq!(omitted["removals"], json!([]), "a newer read of vm_a holds the removal");
-    assert_eq!(omitted["state"]["deferred"], json!({"vm_a": 1}));
-    let (_, stale) = call(
-        c"cloud_machine_reads_admit",
-        &json!({"state": omitted["state"], "machine": "vm_b", "read": 1}),
-    );
-    assert_eq!(stale["admitted"], true);
-    let (_, finished) =
-        call(c"cloud_machine_reads_finish", &json!({"state": stale["state"], "read": 2}));
-    assert_eq!(finished["removals"], json!(["vm_a"]), "the failed read released it");
-    assert_eq!(finished["idle"], true);
-    let (_, again) = call(
-        c"cloud_machine_reads_admit",
-        &json!({"state": finished["state"], "machine": "vm_a", "read": 1}),
-    );
-    assert_eq!(again["admitted"], false, "the omission's list is vm_a's read now");
-    let (_, removed) =
-        call(c"cloud_machine_reads_removed", &json!({"state": again["state"], "machine": "vm_a"}));
-    assert_eq!(removed["state"]["deferred"], json!({}));
-}
-
-#[test]
 fn a_push_frame_says_what_to_show() {
     let id = "vm_aaaaaaaaaaaaaaaaaaaa";
     let text = json!({"t": "state", "machine": id, "state": {"record": {"id": id, "status": "paused", "revision": "4"}}}).to_string();
@@ -211,64 +177,4 @@ fn a_preview_url_with_no_path_opens_the_root() {
     let (code, deep) = call(c"cloud_model_preview_url", &json!({"url": url, "path": "/x"}));
     assert_eq!(code, OK);
     assert_eq!(deep["url"], "https://p.invalid?return_to=/x");
-}
-
-#[test]
-fn github_setup_checks_the_identity_builds_the_script_and_reads_the_answer() {
-    let (code, body) =
-        call(c"cloud_model_github_setup_validate", &json!({"name": "Ann Lee\n", "email": "\n"}));
-    assert_eq!(code, OK);
-    assert_eq!(body, json!({"identity": {"name": "Ann Lee"}}));
-    let (_, body) = call(c"cloud_model_github_setup_validate", &json!({"name": "Ann\u{1B}[31m"}));
-    assert_eq!(body, json!({"refused": "unsafe"}));
-    let (_, body) = call(c"cloud_model_github_setup_validate", &json!({}));
-    assert_eq!(body, json!({"identity": {}}));
-
-    let (code, body) = call(
-        c"cloud_model_github_setup_command",
-        &json!({"identity": {"name": "O'Brien"}, "app": true}),
-    );
-    assert_eq!(code, OK);
-    assert_eq!(body["timeoutMs"], 25_000);
-    let command = body["command"].as_str().unwrap();
-    assert!(command.contains(r"git config --global user.name 'O'\''Brien'"));
-    assert!(command.contains("cmux github setup"));
-    let (_, plain) = call(c"cloud_model_github_setup_command", &json!({}));
-    assert!(!plain["command"].as_str().unwrap().contains("cmux github setup"));
-    assert!(plain["command"].as_str().unwrap().contains("echo 'cmux-git: skipped'"));
-
-    let (code, body) = call(
-        c"cloud_model_github_setup_read",
-        &json!({"exitCode": 0, "stdout": "cmux-git: set\ncmux-app: unavailable\ncmux-gh: pending AB12-CD34\n",
-                "app": "ready", "identity": {"name": "Ann"}}),
-    );
-    assert_eq!(code, OK);
-    assert_eq!(
-        body,
-        json!({
-            "outcome": {"identity": "set", "gitHub": "pending", "deviceCode": "AB12-CD34", "appNotOnMachine": true},
-            "ok": true,
-            "fallback": "not_on_machine",
-            "fields": {"ok": true, "method": "device", "gh_status": "pending", "fallback_reason": "not_on_machine",
-                       "user_name": "Ann", "device_code": "AB12-CD34",
-                       "verification_uri": "https://github.com/login/device"},
-        })
-    );
-    let (_, body) = call(
-        c"cloud_model_github_setup_read",
-        &json!({"exitCode": 0, "stdout": "cmux-git: skipped\ncmux-gh: app\n", "app": "ready"}),
-    );
-    assert_eq!(body["fallback"], Value::Null);
-    assert_eq!(body["fields"], json!({"ok": true, "method": "app", "gh_status": "app"}));
-    let (_, body) =
-        call(c"cloud_model_github_setup_read", &json!({"exitCode": 124, "app": "needs_reauth"}));
-    assert_eq!(
-        body["outcome"],
-        json!({"identity": "failed", "gitHub": "failed", "appNotOnMachine": false})
-    );
-    assert_eq!(body["fallback"], "not_connected");
-    assert_eq!(
-        call(c"cloud_model_github_setup_read", &json!({"exitCode": 0, "app": "bogus"})).0,
-        ERR_INVALID
-    );
 }

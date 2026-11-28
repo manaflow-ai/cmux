@@ -27,7 +27,6 @@ import { enrollmentOps } from "./enrollment-ops.ts"
 import { ssoOps } from "./sso-ops.ts"
 import { policyOps } from "./policy-ops.ts"
 import { homeOps } from "./ops-home.ts"
-import { appKvOps } from "./ops-appkv.ts"
 import { networkOps } from "./network-ops.ts"
 import { serverOps } from "./server-ops.ts"
 import { hostNetworkOps } from "./host-network-ops.ts"
@@ -285,8 +284,7 @@ export const cloudOps = [
   ...cloudMachineOps,
   ...cloudEnvironmentOps,
   ...cloudVmOps,
-  ...homeOps,
-  ...appKvOps
+  ...homeOps
 ] as const
 
 export type CloudOpName = (typeof cloudOps)[number]["name"]

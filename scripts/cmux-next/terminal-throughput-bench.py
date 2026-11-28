@@ -539,40 +539,6 @@ def wait_result_file(path, timeout, alive=lambda: True):
     return os.path.exists(path)
 
 
-def wait_first_window(app, label):
-    """The first window settles before the first burst: its panes and frames hold still."""
-    def first_window():
-        surfaces = app.rpc("debug.surfaces") or {}
-        return json.dumps([(w.get("frame"), [(p.get("pane"), p.get("kind"), p.get("focused"), p.get("frame"))
-                                             for p in w.get("panes") or []])
-                           for w in surfaces.get("windows") or [] if isinstance(w, dict)], sort_keys=True)
-    try:
-        wait_stable(first_window, "the first window", timeout=15, interval=0.1, reads=5)
-    except StateWaitTimeout as error:
-        print(f"{label}: {error}", flush=True)
-
-
-def next_burst(opts, app, writer, payload, scratch, label, i, limit, out):
-    """One burst in a new focused tab of the running `app`: the writer's result, None when it gave none, or False
-    when the tab did not open (out["error"] says why). A traced or broken-down burst adds to `out`."""
-    result = os.path.join(scratch, f"{label}-{i}.json")
-    cmd = " ".join(shlex.quote(a) for a in ["/usr/bin/python3", "-I", writer, payload, result, str(limit)])
-    tracer = start_trace(opts, i, "next") if label == "next" else None
-    probe = (Breakdown(lambda c: opts.app in c or "cmux-tui" in c or "acpmux" in c or writer in c, opts.out,
-                       f"{label}-{i}", writer) if opts.breakdown and i != "warmup" and not tracer else None)
-    tab = f"throughput-{i}" if label == "next" else f"throughput-{label}-{i}"
-    reply = app.rpc("action.run", {"action": "newTab", "args": {"name": tab, "focus": True, "command": cmd}})
-    if isinstance(reply, dict) and reply.get("error"):
-        out["error"] = f"newTab: {reply['error']}"
-        return False
-    res = wait_result(result, opts.timeout, alive=lambda: app.process.poll() is None)
-    if tracer:
-        out["trace"] = finish_trace(tracer, "next", lambda name: "cmux" in name or is_python(name))
-    if probe:
-        out.setdefault("breakdown", []).append(probe.finish((res or {}).get("seconds")))
-    return res
-
-
 def measure_next(opts, writer, payload, scratch, label="next", env=None):
     """NEXT's bursts in one launch of the app; `env` adds to its launch environment (an --next-arm), `label` names
     the rows."""
@@ -581,12 +547,33 @@ def measure_next(opts, writer, payload, scratch, label="next", env=None):
     app = opts.side or BenchApp(opts.app, out=os.path.join(opts.out, label), env=env)
     try:
         app.launch()
-        wait_first_window(app, label)
+        # The first window settles before the first burst: its panes and frames hold still.
+        def first_window():
+            surfaces = app.rpc("debug.surfaces") or {}
+            return json.dumps([(w.get("frame"), [(p.get("pane"), p.get("kind"), p.get("focused"), p.get("frame"))
+                                                 for p in w.get("panes") or []])
+                               for w in surfaces.get("windows") or [] if isinstance(w, dict)], sort_keys=True)
+        try:
+            wait_stable(first_window, "the first window", timeout=15, interval=0.1, reads=5)
+        except StateWaitTimeout as error:
+            print(f"{label}: {error}", flush=True)
         plan = [("warmup", opts.warmup_mb * MB)] + [(i, 0) for i in range(1, opts.runs + 1)]
         for i, limit in plan:
-            res = next_burst(opts, app, writer, payload, scratch, label, i, limit, out)
-            if res is False:
+            result = os.path.join(scratch, f"{label}-{i}.json")
+            cmd = " ".join(shlex.quote(a) for a in ["/usr/bin/python3", "-I", writer, payload, result, str(limit)])
+            tracer = start_trace(opts, i, "next") if label == "next" else None
+            probe = (Breakdown(lambda c: opts.app in c or "cmux-tui" in c or "acpmux" in c or writer in c, opts.out,
+                               f"{label}-{i}", writer) if opts.breakdown and i != "warmup" and not tracer else None)
+            tab = f"throughput-{i}" if label == "next" else f"throughput-{label}-{i}"
+            reply = app.rpc("action.run", {"action": "newTab", "args": {"name": tab, "focus": True, "command": cmd}})
+            if isinstance(reply, dict) and reply.get("error"):
+                out["error"] = f"newTab: {reply['error']}"
                 break
+            res = wait_result(result, opts.timeout, alive=lambda: app.process.poll() is None)
+            if tracer:
+                out["trace"] = finish_trace(tracer, "next", lambda name: "cmux" in name or is_python(name))
+            if probe:
+                out.setdefault("breakdown", []).append(probe.finish((res or {}).get("seconds")))
             if i == "warmup":
                 out["warmup"] = run_record(f"{label}-warmup", 0, res)
                 continue
@@ -647,107 +634,6 @@ def ghostty_app(opts, scratch):
     return app, GHOSTTY_VERSION
 
 
-def ghostty_burst(opts, app, grid, writer, payload, scratch, i, limit, out):
-    """One burst in a new launch of Ghostty `app` at `grid` (cols, rows), which quits when the writer ends: the
-    writer's result or None. A traced or broken-down burst adds to `out`."""
-    binary = os.path.join(app, "Contents", "MacOS", "ghostty")
-    env = dict(os.environ, XDG_CONFIG_HOME=os.path.join(scratch, "xdg"))
-    cols, rows = grid
-    result = os.path.join(scratch, f"ghostty-{i}.json")
-    cmd = " ".join(shlex.quote(a) for a in ["/usr/bin/python3", "-I", writer, payload, result, str(limit)])
-    argv = [binary, "--config-default-files=false", f"--command={cmd}", "--wait-after-command=false",
-            "--quit-after-last-window-closed=true", "--confirm-close-surface=false", "--window-save-state=never",
-            "--auto-update=off", f"--window-width={cols}", f"--window-height={rows}"]
-    log = open(os.path.join(opts.out, f"ghostty-{i}.log"), "w")
-    tracer = start_trace(opts, i, "ghostty")
-    probe = (Breakdown(lambda c: app in c or writer in c, opts.out, f"ghostty-{i}", writer)
-             if opts.breakdown and i != "warmup" and not tracer else None)
-    proc = subprocess.Popen(argv, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-    try:
-        res = wait_result(result, opts.timeout, alive=lambda: proc.poll() is None)
-        if tracer:
-            out["trace"] = finish_trace(tracer, "ghostty", lambda name: "ghostty" in name.lower() or is_python(name))
-        if probe:
-            out.setdefault("breakdown", []).append(probe.finish((res or {}).get("seconds")))
-    finally:
-        try:
-            proc.wait(15)  # it quits once its last window closes
-        except subprocess.TimeoutExpired:
-            proc.terminate()  # the PID this script started
-            try:
-                proc.wait(10)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-        log.close()
-    return res
-
-
-def measure_paired(opts, writer, payload, scratch):
-    """--paired: NEXT's and Ghostty's bursts interleaved on one host, A B A B: NEXT stays launched, and per pair i
-    one NEXT burst (a new tab) then one Ghostty burst (a new launch, gone before the next pair), after one warm-up
-    each. Load that comes and goes on the host (other steps on a shared worker) hits both bursts of a pair alike, so
-    the per-pair ratio cancels it and pair_stats' median and spread need no quiet host. Returns (next, ghostty), each
-    as measure_next and measure_ghostty return."""
-    from bench_launch import BenchApp
-    nxt, gh = {"runs": []}, {"runs": []}
-    gapp, version = ghostty_app(opts, scratch)
-    if gapp:
-        gh["app"], gh["version"] = gapp, version
-    else:
-        gh["error"] = version
-    if opts.no_ghostty:
-        gapp, gh["error"] = None, "--no-ghostty"
-    app = opts.side or BenchApp(opts.app, out=os.path.join(opts.out, "next"))
-    try:
-        app.launch()
-        wait_first_window(app, "next")
-        res = next_burst(opts, app, writer, payload, scratch, "next", "warmup", opts.warmup_mb * MB, nxt)
-        if res is False:
-            return nxt, gh
-        nxt["warmup"] = run_record("next-warmup", 0, res)
-        grid = ((res or {}).get("cols"), (res or {}).get("rows"))
-        grid = grid if all(grid) else (120, 40)
-        gh["grid_requested"] = list(grid)
-        if gapp:
-            gh["warmup"] = run_record("ghostty-warmup", 0, ghostty_burst(opts, gapp, grid, writer, payload, scratch,
-                                                                         "warmup", opts.warmup_mb * MB, gh))
-        for i in range(1, opts.runs + 1):
-            res = next_burst(opts, app, writer, payload, scratch, "next", i, 0, nxt)
-            if res is False:
-                break
-            nxt["runs"].append(run_record("next", i, res))
-            if gapp:
-                gh["runs"].append(run_record("ghostty", i, ghostty_burst(opts, gapp, grid, writer, payload, scratch,
-                                                                         i, 0, gh)))
-        if opts.interrupt_runs > 0 and "error" not in nxt:
-            flooder = os.path.join(scratch, "flooder.py")
-            with open(flooder, "w") as f:
-                f.write(FLOODER)
-            nxt["interrupts"] = measure_interrupts(opts, app, flooder, payload, scratch)
-    except Exception as e:  # a failed launch (LaunchError printed its report) or a dead socket
-        nxt["error"] = f"{type(e).__name__}: {e}"[:400]
-    finally:
-        app.stop()
-    return nxt, gh
-
-
-def pair_stats(next_runs, ghostty_runs, traced=False):
-    """Per pair (the same run number in both): NEXT MB/s over Ghostty MB/s, then their median, spread (max - min over
-    the median, %), min, max and n (pure). With `traced`, pair 1 ran under Instruments and is listed but left out of
-    the median while two other pairs remain. None without a pair that has both rates."""
-    rate = lambda runs: {r["run"]: r["mb_s"] for r in runs or [] if isinstance(r.get("mb_s"), (int, float)) and r["mb_s"]}
-    a, b = rate(next_runs), rate(ghostty_runs)
-    pairs = [{"run": i, "ratio": round(a[i] / b[i], 3), "traced": bool(traced and i == 1)} for i in sorted(a) if i in b]
-    counted = [p["ratio"] for p in pairs if not p["traced"]]
-    if len(counted) < 2:
-        counted = [p["ratio"] for p in pairs]
-    if not counted:
-        return None
-    median = statistics.median(counted)
-    return {"pairs": pairs, "median": round(median, 3), "spread_pct": round((max(counted) - min(counted)) / median * 100, 1),
-            "min": min(counted), "max": max(counted), "n": len(counted)}
-
-
 def measure_ghostty(opts, writer, payload, scratch, grid):
     out = {"runs": []}
     app, version = ghostty_app(opts, scratch)
@@ -755,11 +641,38 @@ def measure_ghostty(opts, writer, payload, scratch, grid):
         out["error"] = version
         return out
     out["app"], out["version"] = app, version
+    binary = os.path.join(app, "Contents", "MacOS", "ghostty")
+    env = dict(os.environ, XDG_CONFIG_HOME=os.path.join(scratch, "xdg"))
     cols, rows = grid if grid and all(grid) else (120, 40)
     out["grid_requested"] = [cols, rows]
     plan = [("warmup", opts.warmup_mb * MB)] + [(i, 0) for i in range(1, opts.runs + 1)]
     for i, limit in plan:
-        res = ghostty_burst(opts, app, (cols, rows), writer, payload, scratch, i, limit, out)
+        result = os.path.join(scratch, f"ghostty-{i}.json")
+        cmd = " ".join(shlex.quote(a) for a in ["/usr/bin/python3", "-I", writer, payload, result, str(limit)])
+        argv = [binary, "--config-default-files=false", f"--command={cmd}", "--wait-after-command=false",
+                "--quit-after-last-window-closed=true", "--confirm-close-surface=false", "--window-save-state=never",
+                "--auto-update=off", f"--window-width={cols}", f"--window-height={rows}"]
+        log = open(os.path.join(opts.out, f"ghostty-{i}.log"), "w")
+        tracer = start_trace(opts, i, "ghostty")
+        probe = (Breakdown(lambda c: app in c or writer in c, opts.out, f"ghostty-{i}", writer)
+                 if opts.breakdown and i != "warmup" and not tracer else None)
+        proc = subprocess.Popen(argv, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        try:
+            res = wait_result(result, opts.timeout, alive=lambda: proc.poll() is None)
+            if tracer:
+                out["trace"] = finish_trace(tracer, "ghostty", lambda name: "ghostty" in name.lower() or is_python(name))
+            if probe:
+                out.setdefault("breakdown", []).append(probe.finish((res or {}).get("seconds")))
+        finally:
+            try:
+                proc.wait(15)  # it quits once its last window closes
+            except subprocess.TimeoutExpired:
+                proc.terminate()  # the PID this script started
+                try:
+                    proc.wait(10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+            log.close()
         if i == "warmup":
             out["warmup"] = run_record("ghostty-warmup", 0, res)
             continue
@@ -778,20 +691,14 @@ def interrupt_rows(runs):
     return rows
 
 
-def report_rows(next_mb_s, ghostty_mb_s, interrupts=None, prefix="terminal.throughput", pairs=None):
-    """The report's rows (pure): each MB/s median and their ratio, when both are known, and the ^C rows. With
-    `pairs` (pair_stats, --paired) the ratio is the median of the per-pair ratios and a pair_spread_pct row follows."""
+def report_rows(next_mb_s, ghostty_mb_s, interrupts=None, prefix="terminal.throughput"):
+    """The report's rows (pure): each MB/s median and their ratio, when both are known, and the ^C rows."""
     rows = interrupt_rows(interrupts)
     for name, v, unit in ((f"{prefix}.next_mb_s", next_mb_s, "MB/s"),
                           (f"{prefix}.ghostty_mb_s", ghostty_mb_s, "MB/s")):
         if v is not None:
             rows.append({"name": name, "p50": v, "p95": v, "unit": unit, "budget": None, "floor": round(0.1 * v, 1)})
-    if pairs:
-        rows.append({"name": f"{prefix}.ratio", "p50": pairs["median"], "p95": pairs["min"], "unit": "x",
-                     "budget": None, "floor": 0.1, "n": pairs["n"]})
-        rows.append({"name": f"{prefix}.pair_spread_pct", "p50": pairs["spread_pct"], "p95": pairs["spread_pct"],
-                     "unit": "%", "budget": None, "floor": 1.0, "n": pairs["n"]})
-    elif next_mb_s and ghostty_mb_s:
+    if next_mb_s and ghostty_mb_s:
         ratio = round(next_mb_s / ghostty_mb_s, 3)
         rows.append({"name": f"{prefix}.ratio", "p50": ratio, "p95": ratio, "unit": "x", "budget": None,
                      "floor": 0.1})
@@ -824,16 +731,11 @@ def main(argv=None):
     parser.add_argument("--interrupt-runs", type=int, default=3,
                         help="after NEXT's bursts, this many ^C-under-a-flood runs (TERMINAL-THROUGHPUT-INTERRUPT); 0 skips")
     parser.add_argument("--interrupt-flood-s", type=float, default=2.0, help="seconds of flood before each ^C")
-    parser.add_argument("--paired", action="store_true",
-                        help="interleave the terminals, NEXT then Ghostty per pair (measure_paired); the ratio is the "
-                             "median of the per-pair ratios and a pair spread row follows (TERMINAL-THROUGHPUT-PAIRS)")
     parser.add_argument("--next-arm", action="append", default=[], metavar="LABEL:NAME=VALUE[,NAME=VALUE]",
                         help="before NEXT's own bursts, the same bursts in another launch of the same app with these "
                              "launch variables (a daemon knob's off value): a same-Mac A/B in one step "
                              "(TERMINAL-THROUGHPUT-ARM, report next_arms)")
     opts = parser.parse_args(argv)
-    if opts.paired and opts.next_arm:
-        parser.error("--paired takes no --next-arm (the pairs are NEXT and Ghostty)")
     if opts.installed and opts.next_arm:
         parser.error("--next-arm needs --app: a side copy's launch takes no added variables")
     if opts.installed and not os.path.isfile(os.path.join(opts.installed, "Contents", "Info.plist")):
@@ -853,16 +755,12 @@ def main(argv=None):
         prefix = ROW_PREFIX[opts.payload]
         report = {"suite": "terminal-throughput", "next_app": opts.installed or opts.app, "payload": opts.payload, "payload_bytes": size, "runs_per_terminal": opts.runs,
                   "host": platform.node(), "missing": []}
-        report["paired"] = opts.paired
         arms = [parse_arm(a) for a in opts.next_arm]
         for arm, env in arms:
             got = measure_next(opts, writer, payload, scratch, label=f"next-{arm}", env=env)
             got["env"], got["median_mb_s"] = env, summarize(got["runs"])
             report.setdefault("next_arms", {})[arm] = got
-        if opts.paired:
-            report["next"], report["ghostty"] = measure_paired(opts, writer, payload, scratch)
-        else:
-            report["next"] = measure_next(opts, writer, payload, scratch)
+        report["next"] = measure_next(opts, writer, payload, scratch)
         if arms:
             head = summarize(report["next"]["runs"])
             for arm, got in report["next_arms"].items():
@@ -873,23 +771,17 @@ def main(argv=None):
                     if head and got["median_mb_s"] else None}), flush=True)
         first = next((r for r in report["next"]["runs"] if r.get("cols")), report["next"].get("warmup") or {})
         grid = (first.get("cols"), first.get("rows"))
-        if opts.paired:
-            pass  # measured with NEXT, pair by pair
-        elif opts.no_ghostty:
+        if opts.no_ghostty:
             report["ghostty"] = {"runs": [], "error": "--no-ghostty"}
         else:
             report["ghostty"] = measure_ghostty(opts, writer, payload, scratch, grid)
-        pairs = pair_stats(report["next"]["runs"], report["ghostty"]["runs"], opts.trace) if opts.paired else None
-        if pairs:
-            report["pairs"] = pairs
-            print("TERMINAL-THROUGHPUT-PAIRS " + json.dumps(pairs), flush=True)
         next_mb_s, ghostty_mb_s = summarize(report["next"]["runs"]), summarize(report["ghostty"]["runs"])
         report["next"]["median_mb_s"], report["ghostty"]["median_mb_s"] = next_mb_s, ghostty_mb_s
         for label, v in (("next", next_mb_s), ("ghostty", ghostty_mb_s)):
             if v is None:
                 report["missing"].append({"name": f"{prefix}.{label}_mb_s",
                                              "reason": report[label].get("error") or "no timed burst"})
-        report["rows"] = report_rows(next_mb_s, ghostty_mb_s, report["next"].get("interrupts"), prefix, pairs)
+        report["rows"] = report_rows(next_mb_s, ghostty_mb_s, report["next"].get("interrupts"), prefix)
         if opts.interrupt_runs > 0 and not any(r["name"].startswith("terminal.interrupt.") for r in report["rows"]):
             report["missing"].append({"name": "terminal.interrupt.key_to_signal_ms",
                                       "reason": report["next"].get("error") or "no ^C run gave a result"})
@@ -900,7 +792,6 @@ def main(argv=None):
         print("TERMINAL-THROUGHPUT-SUMMARY " + json.dumps({"next_mb_s": next_mb_s, "ghostty_mb_s": ghostty_mb_s,
                                                            "ratio": next((r["p50"] for r in report["rows"]
                                                                           if r["name"].endswith(".ratio")), None),
-                                                           "pair_spread_pct": (pairs or {}).get("spread_pct"),
                                                            "host": report["host"], "payload_mb": opts.mb,
                                                            "payload": opts.payload}), flush=True)
         if opts.json:

@@ -28,15 +28,12 @@ const INFO_LABEL: &[u8] = b"cmux secrets-v1";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Purpose {
     Secret,
-    /// The person's own token for one git host (`git-host-tokens-v1`).
-    GitHost,
 }
 
 impl Purpose {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Secret => "secret",
-            Self::GitHost => "git-host",
         }
     }
 }

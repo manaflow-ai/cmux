@@ -19,7 +19,7 @@ export interface SelectOption {
   value: string;
   label: ReactNode;
   disabled?: boolean;
-  shortcut?: string;
+  shortcut?: ReactNode;
 }
 
 /** Props for a select backed by the shared Menu primitive. */

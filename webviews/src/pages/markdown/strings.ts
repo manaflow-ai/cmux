@@ -7,7 +7,7 @@ export const L = {
   loading: "page.loading",
   failed: "page.failed",
   disconnected: "page.disconnected",
-  stillOpening: "page.stillOpening",
+  retry: "page.retry",
   modeLabel: "mode.label",
   edit: "edit.button",
   rich: "mode.rich",

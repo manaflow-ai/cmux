@@ -5,9 +5,7 @@ import Testing
 // Calls pass `params: [:]` and `resources: []` explicitly: Swift 6.2's region checker rejects a
 // defaulted non-Sendable argument ([String: Any]) sent into the actor (#SendingRisksDataRace).
 @Suite struct DaemonClientTests {
-    /// The batch deadline covers every reply in it, the answered one too: 20 ms failed the
-    /// answered ping on a loaded Linux runner (run 45819272661). 2 s still cuts the dropped one.
-    @Test(.timeLimit(.minutes(1))) func orderedRepliesKeepEventPositionsAndMissingRepliesExpire() async throws {
+    @Test func orderedRepliesKeepEventPositionsAndMissingRepliesExpire() async throws {
         let link = MockMacLink { _, bytes in
             var result = [Data]()
             for line in bytes.split(separator: 0x0A) {
@@ -19,7 +17,7 @@ import Testing
             return result
         }
         let client = DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]), orderedEvents: true)
-        let replies = await client.requestsOrdered([("drop", [:]), ("ping", [:])], resources: [], deadline: .seconds(2))
+        let replies = await client.requestsOrdered([("drop", [:]), ("ping", [:])], resources: [], deadline: .milliseconds(20))
         if case .failure(let error) = replies[0] {
             #expect((error as? LinkError)?.code == DaemonClient.replyTimeout)
         } else { Issue.record("Missing ordered reply succeeded") }
@@ -113,9 +111,7 @@ import Testing
         await client.close()
     }
 
-    /// The batch deadline covers every reply in it, the answered one too: 20 ms failed the
-    /// answered ping on a loaded Linux runner (run 45819272661). 2 s still cuts the dropped one.
-    @Test(.timeLimit(.minutes(1))) func oneMissingBatchReplyDoesNotLoseOtherReplies() async throws {
+    @Test func oneMissingBatchReplyDoesNotLoseOtherReplies() async throws {
         let link = MockMacLink { _, bytes in
             bytes.split(separator: 0x0A).compactMap { line in
                 let object = try! JSONSerialization.jsonObject(with: Data(line)) as! [String: Any]
@@ -124,7 +120,7 @@ import Testing
             }
         }
         let client = DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
-        let replies = await client.requests([("drop", [:]), ("ping", [:])], deadline: .seconds(2))
+        let replies = await client.requests([("drop", [:]), ("ping", [:])], deadline: .milliseconds(20))
         if case .failure(let error) = replies[0] {
             #expect((error as? LinkError)?.code == DaemonClient.replyTimeout)
         } else { Issue.record("Missing reply succeeded") }

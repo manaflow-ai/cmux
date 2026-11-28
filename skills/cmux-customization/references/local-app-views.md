@@ -1,8 +1,7 @@
 # Local app views
 
 A complete example for the request "a view of the PRs from the last 24h". It
-writes the customize app (id `local/customize`) in the `views` folder printed by
-`cmux customize paths`. That folder contains both files below. The app adds a
+writes the customize app (`~/.config/cmux/customize`, id `local/customize`): a
 sidebar section in the band under the workspace list, and a Session Info section
 that lists the chat branch's pull requests. cmux watches the folder: each save
 reloads the app, and the first save installs it. There is no restart and no
@@ -16,7 +15,7 @@ Session Info section (`cmux.session.info.section/1`).
 
 ## The manifest
 
-`cmux-app.json`:
+`~/.config/cmux/customize/cmux-app.json`:
 
 ```json
 {
@@ -60,7 +59,7 @@ scope; tell the person which one to turn on and why.
 
 ## The script
 
-`main.js` is a plain classic script, not a module: no
+`~/.config/cmux/customize/main.js` is a plain classic script, not a module: no
 `import` or `export`. The scene globals (`VStack`, `Row`, `ForEach`,
 `EmptyState`, `signal`, `computed`, `cmux`, ...) are already defined, and the
 script hands its render functions to cmux through `globalThis.__cmuxAppExports`.
@@ -176,7 +175,7 @@ pane that ...". `customize_example.rs` validates them too.
 
 #### Focus timer manifest
 
-`cmux-app.json`:
+`~/.config/cmux/customize/cmux-app.json`:
 
 ```json
 {
@@ -201,7 +200,7 @@ pane that ...". `customize_example.rs` validates them too.
 
 #### Focus timer script
 
-`main.js`:
+`~/.config/cmux/customize/main.js`:
 
 ```js
 const [minutes, setMinutes] = signal(25)

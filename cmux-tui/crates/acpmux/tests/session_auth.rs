@@ -726,7 +726,7 @@ async fn fake_peer(features: Value, session: &'static str, close_after: usize) -
     let port = l.local_addr().unwrap().port();
     tokio::spawn(async move {
         let Ok((tcp, _)) = l.accept().await else { return };
-        let Ok(mut ws) = acpmux::server::accept_ws(tcp).await else { return };
+        let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { return };
         let mut asked = 0;
         // Non-text frames (the client's pings, #38015) are not requests: skip them.
         while let Some(Ok(frame)) = ws.next().await {

@@ -119,7 +119,6 @@ type Chat = {
   events: Fixture["events"];
   session: Fixture["session"];
   latest: string;
-  latestRow: string;
   perfRow: (row: PerfRow) => void;
   attachBytes: number;
   attachEvents: number;
@@ -130,27 +129,16 @@ const chatAt = (scale: Scale): Chat => {
       ? godChat(PAPERCUT_CHAT, remoteFields)
       : papercutEvents({ turns: TURNS, running: false, session: remoteFields });
   const latest = scale === "god" ? LATEST_TEXT : `Answer ${TURNS}:`;
-  const latestEvent = [...events].reverse().find((event) => event.kind === "agent_message_chunk");
-  if (!latestEvent) throw new Error(`${scale} fixture has no final assistant message`);
-  return {
-    scale,
-    events,
-    session,
-    latest,
-    latestRow: `assistant-${latestEvent.seq}`,
-    perfRow: scaledPerfRow(printRow, scale),
-    attachBytes: 0,
-    attachEvents: 0,
-  };
+  return { scale, events, session, latest, perfRow: scaledPerfRow(printRow, scale), attachBytes: 0, attachEvents: 0 };
 };
 /// The chats this run opens: FIXTURE's, or with PAIRED=1 the small chat and the god one. The stand-in serves `current`,
 /// one load at a time, so both share its port and the page's URL.
 const chats = ((PAIRED ? ["small", "god"] : [FIXTURE]) as Scale[]).map(chatAt);
 let current = chats.at(-1)!;
-let { events, session, latest: LATEST, latestRow: LATEST_ROW } = current;
+let { events, session, latest: LATEST } = current;
 const use = (chat: Chat) => {
   current = chat;
-  ({ events, session, latest: LATEST, latestRow: LATEST_ROW } = chat);
+  ({ events, session, latest: LATEST } = chat);
 };
 if (REVEAL) {
   const event = events.find((event) => event.seq === (REVEAL_TURN - 1) * 4 + 3)!;
@@ -364,13 +352,6 @@ try {
       viewport: { width: 1200, height: 800 },
       deviceScaleFactor: REVEAL ? 2 : 1,
     });
-    const pageErrors: string[] = [];
-    page.on("pageerror", (error) => pageErrors.push(error.message));
-    const consoleErrors: string[] = [];
-    page.on("console", (message) => {
-      if ((message.type() === "error" || message.type() === "warning") && consoleErrors.length < 30)
-        consoleErrors.push(message.text().slice(0, 1000));
-    });
     await page.addInitScript((rail) => {
       localStorage.setItem("cmux.experiments", JSON.stringify({ "thread-minimap-layout": rail }));
     }, rail);
@@ -396,7 +377,7 @@ try {
         [COMPOSER_FIELD, COMPOSER_KEY] as const,
       );
     await page.addInitScript(
-      ([latestRow, instrument, hostLatency, remoteTail, diskSnapshot]) => {
+      ([latestText, instrument, hostLatency, remoteTail, diskSnapshot]) => {
         if (hostLatency > 0)
           (window as unknown as { cmuxAcpmuxActions: Record<string, () => Promise<unknown>> }).cmuxAcpmuxActions = {
             // fixed-wait: the stand-in host's answer latency is what this run measures.
@@ -660,7 +641,7 @@ try {
           const now = performance.now();
           if (!state.firstRow && document.querySelector("[data-row-id]"))
             nextFrame(() => (state.firstRow ||= performance.now()));
-          if (!state.latest && document.querySelector(`[data-row-id="${CSS.escape(latestRow)}"]`)) {
+          if (!state.latest && document.body.textContent?.includes(latestText)) {
             // TRACE=1: how much the first frame with the newest message drew.
             if (instrument === "trace") {
               const count = (selector: string) => document.querySelectorAll(selector).length;
@@ -687,7 +668,7 @@ try {
               !remote.reconciled &&
               remote.attachReceived &&
               !document.querySelector(".acpmux-peer-copy") &&
-              document.querySelector(`[data-row-id="${CSS.escape(latestRow)}"]`)
+              document.body.textContent?.includes(latestText)
             )
               afterPaint(() => (remote.reconciled ||= performance.now()));
           }
@@ -702,7 +683,7 @@ try {
         requestAnimationFrame(tick);
       },
       [
-        LATEST_ROW,
+        LATEST,
         process.env.TRACE === "1" ? "trace" : process.env.INSTRUMENT === "1",
         HOST_LATENCY,
         REMOTE_TAIL,
@@ -727,55 +708,20 @@ try {
           );
         })
       : page.goto(url);
-    try {
-      await typed;
-      await page.waitForFunction(
-        (remoteTail) => {
-          const state = (window as unknown as { __open: { latest: number; activity: number } }).__open;
-          const remote = (window as unknown as { __remoteTail: { reconciled: number } }).__remoteTail;
-          return (
-            state.latest > 0 &&
-            (!remoteTail || remote.reconciled > 0) &&
-            performance.now() - Math.max(state.latest, state.activity, remote.reconciled) > 400
-          );
-        },
-        REMOTE_TAIL,
-        { timeout: 120_000, polling: 100 },
-      );
-    } catch (error) {
-      const diagnostic = await page
-        .evaluate((expectedRow) => {
-          const state = window as unknown as {
-            __open?: { latest: number; activity: number };
-            __remoteTail?: { reconciled: number };
-            __composer?: unknown;
-            webkit?: { messageHandlers?: Record<string, unknown> };
-          };
-          const scroll = document.querySelector(".acpmux-scroll");
-          return {
-            expectedRow,
-            url: location.href,
-            body: document.body.innerText.slice(0, 3000),
-            hostHandlers: Object.keys(state.webkit?.messageHandlers ?? {}),
-            parked: (window as unknown as { __cmuxPageParked?: unknown }).__cmuxPageParked,
-            now: performance.now(),
-            open: state.__open,
-            remote: state.__remoteTail,
-            composer: state.__composer,
-            rows: [...document.querySelectorAll("[data-row-id]")].map((row) => ({
-              id: row.getAttribute("data-row-id"),
-              text: row.textContent?.slice(0, 160),
-            })),
-            scroll: scroll && { top: scroll.scrollTop, height: scroll.scrollHeight, client: scroll.clientHeight },
-          };
-        }, LATEST_ROW)
-        .catch((cause) => ({ evaluationError: String(cause) }));
-      console.error(
-        "chat-open failed",
-        JSON.stringify({ diagnostic, pageErrors, consoleErrors, socketOpenedAt, calls }),
-      );
-      throw error;
-    }
+    await typed;
+    await page.waitForFunction(
+      (remoteTail) => {
+        const state = (window as unknown as { __open: { latest: number; activity: number } }).__open;
+        const remote = (window as unknown as { __remoteTail: { reconciled: number } }).__remoteTail;
+        return (
+          state.latest > 0 &&
+          (!remoteTail || remote.reconciled > 0) &&
+          performance.now() - Math.max(state.latest, state.activity, remote.reconciled) > 400
+        );
+      },
+      REMOTE_TAIL,
+      { timeout: 120_000, polling: 100 },
+    );
     const got = await page.evaluate(() => {
       const state = (
         window as unknown as {
@@ -944,14 +890,14 @@ try {
     await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
     // When the newest message was first in the page (epoch ms), so the profile can be cut to the stretch
     // between the attach's answer and it: the page's own parse, replay and first render.
-    await page.addInitScript((latestRow) => {
+    await page.addInitScript((latestText) => {
       const tick = () => {
-        if (document.querySelector(`[data-row-id="${CSS.escape(latestRow)}"]`))
+        if (document.body?.textContent?.includes(latestText))
           (window as unknown as { __latestAt: number }).__latestAt = performance.timeOrigin + performance.now();
         else requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
-    }, LATEST_ROW);
+    }, LATEST);
     attachedAt = 0;
     await cdp.send("Profiler.start");
     const profileStart = Date.now();

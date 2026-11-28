@@ -2,21 +2,14 @@
 // Settings > Team > Compute: who on the team uses what Cloud compute, and the team's monthly
 // allotment scaled down, held or up in one click. The card renders `computeModel` (../computeAllotment.ts)
 // and nothing else: the sentence, the dial's figures, the rows and their notes are derived there.
-// Three layouts are on trial in the gallery (ledger, meter, inbox); Settings > Cloud mounts the ledger,
-// read-only, behind Labs labs.teamCompute (CloudComputeCard.tsx). It reads once when it mounts and
-// after each click; it never polls.
+// Three layouts are on trial in the gallery (ledger, meter, inbox); the card is in no Settings
+// category yet. It reads once when it mounts and after each click; it never polls.
 import { useQuery } from "@tanstack/react-query";
 import { useId, useState, type ReactNode } from "react";
 import { Button } from "../../../ui/Button";
 import { Disclosure } from "../../../ui/Disclosure";
 import { Switch } from "../../../ui/Switch";
-import {
-  computeModel,
-  HOLD_SWITCH_SECONDS,
-  type ComputeModel,
-  type DialOption,
-  type MemberRow,
-} from "../computeAllotment";
+import { computeModel, type ComputeModel, type DialOption, type MemberRow } from "../computeAllotment";
 import { useStore } from "../context";
 import type { AllotmentPosition, AllotmentSet, AllotmentView } from "../ops";
 import { settingsKeys } from "../queries";
@@ -24,36 +17,18 @@ import { locale } from "../strings";
 
 export type ComputeLayout = "ledger" | "meter" | "inbox";
 
-/** How the team's hold for its people is offered, on trial in the gallery: every choice in a row,
- * one switch, or the choices tucked under Advanced. Absent: the card draws no hold control. */
-export type HoldControl = "choices" | "switch" | "advanced";
-
 export type ComputeCardViewProps = {
   model: ComputeModel;
   layout: ComputeLayout;
   busy?: boolean;
   error?: string | null;
-  /** The host serves only the read: no dial buttons, no Auto switch, nothing that cannot work. */
-  readOnly?: boolean;
-  /** Gallery only for now: the app's card passes none, so nothing is drawn there. */
-  holdControl?: HoldControl;
   onSet(run: AllotmentSet): void;
 };
 
 const ALLOTMENT_KEY = [...settingsKeys.all, "allotment"] as const;
 
-/** The card on the settings store: one read on mount, the view a click answers replaces it.
- * `readOnly`: the host serves no `cmux.settings.cloud.allotment.set`, so nothing is offered to click.
- * `explainUnavailable`: a read that answered nothing draws one plain line instead of nothing. */
-export function ComputeCard({
-  layout = "ledger",
-  readOnly = false,
-  explainUnavailable = false,
-}: {
-  layout?: ComputeLayout;
-  readOnly?: boolean;
-  explainUnavailable?: boolean;
-}) {
+/** The card on the settings store: one read on mount, the view a click answers replaces it. */
+export function ComputeCard({ layout = "ledger" }: { layout?: ComputeLayout }) {
   const store = useStore();
   const query = useQuery(
     { queryKey: ALLOTMENT_KEY, queryFn: () => store.allotment(), staleTime: Infinity },
@@ -62,7 +37,7 @@ export function ComputeCard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const view = query.data;
-  if (!view) return explainUnavailable && query.isFetched ? <ComputeUnavailable /> : null;
+  if (!view) return null;
   const onSet = async (run: AllotmentSet) => {
     setBusy(true);
     try {
@@ -79,7 +54,6 @@ export function ComputeCard({
       layout={layout}
       busy={busy}
       error={error}
-      readOnly={readOnly}
       onSet={(run) => void onSet(run)}
     />
   );
@@ -89,12 +63,10 @@ export function ComputeCard({
 export function ComputeCardDemo({
   view,
   layout,
-  holdControl,
   answer,
 }: {
   view: AllotmentView;
   layout: ComputeLayout;
-  holdControl?: HoldControl;
   answer(view: AllotmentView, run: AllotmentSet): AllotmentView;
 }) {
   const [current, setCurrent] = useState(view);
@@ -102,51 +74,19 @@ export function ComputeCardDemo({
     <ComputeCardView
       model={computeModel(current, "en")}
       layout={layout}
-      holdControl={holdControl}
       onSet={(run) => setCurrent((before) => answer(before, run))}
     />
   );
 }
 
-/** The read answered no view: allotments are off for the team, Cloud is signed out, or the read failed. */
-function ComputeUnavailable() {
-  return (
-    <section className="group" data-card="compute" data-compute-unavailable="">
-      <h3 className="group-title">Compute</h3>
-      <div className="rows">
-        <div className="row">
-          <p className="row-help m-0" style={{ whiteSpace: "normal" }}>
-            Your team's compute allotment isn't available. Sign in to Cloud, or check again later.
-          </p>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 /** The card itself: a dumb renderer of `model`. */
-export function ComputeCardView({
-  model,
-  layout,
-  busy = false,
-  error = null,
-  readOnly = false,
-  holdControl,
-  onSet,
-}: ComputeCardViewProps) {
-  const hold = readOnly ? undefined : holdControl;
+export function ComputeCardView({ model, layout, busy = false, error = null, onSet }: ComputeCardViewProps) {
   return (
-    <section
-      className="group"
-      data-card="compute"
-      data-compute-layout={layout}
-      data-compute-read-only={readOnly ? "" : undefined}
-      aria-busy={busy}
-    >
+    <section className="group" data-card="compute" data-compute-layout={layout} aria-busy={busy}>
       <h3 className="group-title">Compute</h3>
       <div className="rows">
         {layout === "inbox" ? (
-          <Inbox model={model} busy={busy} readOnly={readOnly} onSet={onSet} />
+          <Inbox model={model} busy={busy} onSet={onSet} />
         ) : (
           <>
             <div className="row">
@@ -155,13 +95,7 @@ export function ComputeCardView({
               </p>
             </div>
             {layout === "meter" ? (
-              <Meter model={model} busy={busy} readOnly={readOnly} onSet={onSet} />
-            ) : readOnly ? (
-              <div className="row">
-                <p className="row-help m-0" data-compute-allotment="">
-                  {model.meter.allotLabel} a month
-                </p>
-              </div>
+              <Meter model={model} busy={busy} onSet={onSet} />
             ) : (
               <div className="row flex flex-wrap items-start justify-between gap-4">
                 <Dial model={model} busy={busy} onSet={onSet} />
@@ -170,21 +104,6 @@ export function ComputeCardView({
             )}
             {!model.empty && <MemberTable model={model} />}
           </>
-        )}
-        {hold === "choices" && (
-          <div className="row flex flex-col gap-2" data-compute-hold="choices">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <span>Keep people's machines ready</span>
-              <HoldChoices model={model} busy={busy} onSet={onSet} />
-            </div>
-            <HoldLine model={model} />
-          </div>
-        )}
-        {hold === "switch" && (
-          <div className="row flex flex-col gap-2" data-compute-hold="switch">
-            <HoldSwitch model={model} busy={busy} onSet={onSet} />
-            <HoldLine model={model} />
-          </div>
         )}
         {error && (
           <div className="row">
@@ -198,15 +117,6 @@ export function ComputeCardView({
             <p className="row-help m-0 pt-2" data-compute-hard-cap="">
               {model.hardCap}
             </p>
-            {hold === "advanced" && (
-              <div className="flex flex-col gap-2 pt-3" data-compute-hold="advanced">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <span>Keep people's machines ready</span>
-                  <HoldChoices model={model} busy={busy} onSet={onSet} />
-                </div>
-                <HoldLine model={model} />
-              </div>
-            )}
           </Disclosure>
         </div>
       </div>
@@ -214,7 +124,7 @@ export function ComputeCardView({
   );
 }
 
-type PartProps = { model: ComputeModel; busy: boolean; readOnly?: boolean; onSet(run: AllotmentSet): void };
+type PartProps = { model: ComputeModel; busy: boolean; onSet(run: AllotmentSet): void };
 
 // Equal columns, each as wide as the widest figure, so every figure sits centred under its own button.
 function Dial({ model, busy, onSet }: PartProps) {
@@ -277,52 +187,6 @@ function AutoSwitch({ model, busy, onSet }: PartProps) {
 /** `.row-help` is one clipped line on this page (unlayered sheet, so a utility class loses): table text wraps instead. */
 const WRAP = { whiteSpace: "normal" } as const;
 
-/** What the chosen hold does, in one line that wraps. */
-function HoldLine({ model }: { model: ComputeModel }) {
-  return (
-    <p className="row-help m-0" style={WRAP} data-compute-ready-line="">
-      {model.hold.line}
-    </p>
-  );
-}
-
-/** Every hold in a row; the chosen one is solid. One click sends one set. */
-function HoldChoices({ model, busy, onSet }: PartProps) {
-  return (
-    <fieldset aria-label="Keep people's machines ready" className="m-0 flex gap-1 border-0 p-0">
-      {model.hold.options.map((option) => (
-        <Button
-          key={option.seconds ?? "off"}
-          size="sm"
-          variant={option.selected ? "solid" : "subtle"}
-          aria-pressed={option.selected}
-          disabled={busy}
-          data-compute-hold-option={option.seconds ?? "off"}
-          onClick={() => onSet({ person_hold_seconds: option.seconds })}
-        >
-          {option.label}
-        </Button>
-      ))}
-    </fieldset>
-  );
-}
-
-/** One switch: on holds for the longest choice, off clears the hold. */
-function HoldSwitch({ model, busy, onSet }: PartProps) {
-  const label = useId();
-  return (
-    <span className="flex items-center justify-between gap-4">
-      <span id={label}>Keep people's machines ready</span>
-      <Switch
-        aria-labelledby={label}
-        checked={model.hold.seconds !== null}
-        disabled={busy}
-        onCheckedChange={(on) => onSet({ person_hold_seconds: on ? HOLD_SWITCH_SECONDS : null })}
-      />
-    </span>
-  );
-}
-
 function MemberTable({ model }: { model: ComputeModel }) {
   const cell = "py-1 pr-4 text-left align-top";
   return (
@@ -377,7 +241,7 @@ function MemberLine({ row, cell }: { row: MemberRow; cell: string }) {
   return (
     <tr data-compute-member={row.member}>
       <td className={cell}>
-        <div>{row.name}</div>
+        <div>{row.member}</div>
         <div className="row-help" style={WRAP}>
           {row.detail}
         </div>
@@ -394,7 +258,7 @@ function MemberLine({ row, cell }: { row: MemberRow; cell: string }) {
 /** The accent at falling strengths, one per member in the bar and its legend. */
 const strength = (index: number) => Math.max(0.3, 1 - index * 0.12);
 
-function Meter({ model, busy, readOnly = false, onSet }: PartProps) {
+function Meter({ model, busy, onSet }: PartProps) {
   const { meter } = model;
   const option = (position: AllotmentPosition) => model.options.find((candidate) => candidate.position === position)!;
   const step = (position: "down" | "up", label: string, name: string) => {
@@ -435,10 +299,10 @@ function Meter({ model, busy, readOnly = false, onSet }: PartProps) {
           style={{ left: `${Math.min(meter.allot, 0.85) * 100}%` }}
           data-compute-dial=""
         >
-          {!readOnly && step("down", "-", "Scale down")}
+          {step("down", "-", "Scale down")}
           <span className="row-help whitespace-nowrap">{meter.allotLabel}</span>
-          {!readOnly && step("up", "+", "Scale up")}
-          {!readOnly && !option("hold").proposed && (
+          {step("up", "+", "Scale up")}
+          {!option("hold").proposed && (
             <Button
               size="sm"
               disabled={busy || model.locked || option("hold").disabled}
@@ -467,7 +331,7 @@ function Meter({ model, busy, readOnly = false, onSet }: PartProps) {
                 style={{ opacity: strength(index) }}
                 aria-hidden="true"
               />
-              <span>{row.name}</span>
+              <span>{row.member}</span>
               <span className="row-help">{row.month}</span>
             </li>
           ))}
@@ -478,7 +342,7 @@ function Meter({ model, busy, readOnly = false, onSet }: PartProps) {
             </span>
           </li>
         </ul>
-        {!readOnly && <AutoSwitch model={model} busy={busy} onSet={onSet} />}
+        <AutoSwitch model={model} busy={busy} onSet={onSet} />
       </div>
     </div>
   );
@@ -488,7 +352,7 @@ function Tick({ at }: { at: number }) {
   return <div className="absolute -top-1 -bottom-1 w-px bg-fg" style={{ left: `${Math.min(at, 1) * 100}%` }} />;
 }
 
-function Inbox({ model, busy, readOnly = false, onSet }: PartProps) {
+function Inbox({ model, busy, onSet }: PartProps) {
   const cards: ReactNode =
     model.reasons.length === 0 ? (
       <div className="row">
@@ -500,24 +364,22 @@ function Inbox({ model, busy, readOnly = false, onSet }: PartProps) {
       model.reasons.map((reason) => (
         <div key={reason.key} className="row flex items-start justify-between gap-4" data-compute-reason={reason.key}>
           <p className="m-0">{reason.text}</p>
-          {!readOnly && (
-            <div className="flex shrink-0 gap-2">
-              {reason.accept && (
-                <Button
-                  size="sm"
-                  variant="solid"
-                  disabled={busy}
-                  data-compute-accept={reason.accept}
-                  onClick={() => onSet({ action: reason.accept! })}
-                >
-                  Accept
-                </Button>
-              )}
-              <Button size="sm" disabled={busy} data-compute-not-now="" onClick={() => onSet({ action: "hold" })}>
-                Not now
+          <div className="flex shrink-0 gap-2">
+            {reason.accept && (
+              <Button
+                size="sm"
+                variant="solid"
+                disabled={busy}
+                data-compute-accept={reason.accept}
+                onClick={() => onSet({ action: reason.accept! })}
+              >
+                Accept
               </Button>
-            </div>
-          )}
+            )}
+            <Button size="sm" disabled={busy} data-compute-not-now="" onClick={() => onSet({ action: "hold" })}>
+              Not now
+            </Button>
+          </div>
         </div>
       ))
     );
@@ -526,7 +388,7 @@ function Inbox({ model, busy, readOnly = false, onSet }: PartProps) {
       {cards}
       <div className="row flex items-center justify-between gap-4">
         <span data-compute-hold-line="">{model.holdLine}</span>
-        {!readOnly && <AutoSwitch model={model} busy={busy} onSet={onSet} />}
+        <AutoSwitch model={model} busy={busy} onSet={onSet} />
       </div>
       {!model.empty && (
         <div className="row">

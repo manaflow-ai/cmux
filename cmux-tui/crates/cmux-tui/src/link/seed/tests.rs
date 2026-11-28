@@ -376,19 +376,6 @@ fn a_linked_worktree_is_planned_from_its_own_state() {
 }
 
 #[test]
-fn current_matches_planned_commits_after_removing_the_remote() {
-    let fixture = Fixture::new();
-    write(&fixture.work.join("src/lib.rs"), "local work\n");
-    let planned = plan(&fixture.work, &fixture.path("seed.bundle")).unwrap();
-    git(&fixture.work, &["remote", "remove", "origin"]);
-    let current = super::plan::current(&fixture.work).unwrap();
-    assert_eq!(current.head_ref, planned.params.head_ref);
-    assert_eq!(current.head, planned.params.head);
-    assert_eq!(current.index, planned.params.index);
-    assert_eq!(current.work, planned.params.work);
-}
-
-#[test]
 fn sparse_patterns_are_sent() {
     let f = Fixture::new();
     git(&f.work, &["sparse-checkout", "set", "--no-cone", "/README.md", "/src/"]);
@@ -414,43 +401,6 @@ fn sparse_patterns_are_sent() {
         "sparse seed wrote an excluded secret blob into local Git"
     );
     assert_eq!(snapshot(&f.work), before);
-}
-
-/// What the plan reads in one git each (one rev-parse, one config, one cat-file, the listings it
-/// already makes) comes out as the separate calls read it: the stash and bases from the refs, a
-/// URL that only names GitHub once rewritten, `core.sparseCheckout` spelled `0x10`, and the
-/// `.gitattributes` files untracked first, as one `ls-files --cached --others` listed them.
-#[test]
-fn what_the_plan_reads_together_comes_out_as_read_apart() {
-    let f = Fixture::new();
-    write(&f.work.join("a/.gitattributes"), "*.psd filter=lfs\n");
-    git(&f.work, &["add", "a/.gitattributes"]);
-    git(&f.work, &["commit", "-q", "-m", "attributes"]);
-    git(&f.work, &["push", "-q", "origin", "HEAD:main"]);
-    let head = git(&f.work, &["rev-parse", "HEAD"]);
-    write(&f.work.join("z/.gitattributes"), "*.png filter=lfs\n");
-    write(&f.work.join("README.md"), "stashed change\n");
-    git(&f.work, &["stash", "push", "-q"]);
-    let stash = git(&f.work, &["rev-parse", "refs/stash"]);
-    git(&f.work, &["remote", "set-url", "origin", "gh:acme/widget"]);
-    git(&f.work, &["config", "url.https://github.com/.insteadOf", "gh:"]);
-    git(&f.work, &["config", "core.sparseCheckout", "0x10"]);
-    let info = PathBuf::from(git(&f.work, &["rev-parse", "--git-path", "info"]));
-    write(&f.work.join(info).join("sparse-checkout"), "/*\n");
-
-    let planned = plan(&f.work, &f.path("seed.bundle")).unwrap();
-    assert_eq!(planned.params.repo, "acme/widget");
-    assert_eq!(planned.params.head, head);
-    assert_eq!(planned.params.head_ref.as_deref(), Some("refs/heads/main"));
-    // HEAD is pushed and tracked: every base is HEAD, named once.
-    assert_eq!(planned.bases, vec![head.clone()]);
-    assert_eq!(planned.params.stash.as_deref(), Some(stash.as_str()));
-    assert_eq!(planned.params.sparse.as_deref(), Some("/*\n"));
-    assert_eq!(planned.lfs_attributes, ["z/.gitattributes", "a/.gitattributes"]);
-    let machine = f.machine(&planned, &f.path("seed.bundle"), "machine");
-    assert_eq!(git(&machine, &["rev-parse", "refs/cmux-seed/stash"]), stash);
-    // HEAD is the base, so git leaves its ref out; WORK still sits on it.
-    assert_eq!(git(&machine, &["rev-parse", "refs/cmux-seed/work^^"]), head);
 }
 
 #[test]

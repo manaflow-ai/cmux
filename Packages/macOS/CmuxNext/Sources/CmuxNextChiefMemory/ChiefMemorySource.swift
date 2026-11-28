@@ -13,7 +13,7 @@ public import Foundation
 /// let model = ChiefMemoryInspectorModel(source: FakeMemorySource())
 /// await model.reload()
 /// ```
-public nonisolated protocol ChiefMemorySource: Sendable {
+public protocol ChiefMemorySource: Sendable {
     /// Calls one inspector API path with its query and returns the JSON body.
     ///
     /// - Parameters:

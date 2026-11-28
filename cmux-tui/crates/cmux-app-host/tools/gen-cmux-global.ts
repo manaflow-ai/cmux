@@ -60,31 +60,23 @@ const NEVER = /(^settings\.(set|reset|reset_all|edit|undo|restore|reset_group)$|
 
 /** The daemon's Cloud API calls carry the person's own access token in their params; the app's own Cloud code only. */
 const CLOUD_API_CALLS = [
-  "cloud.artifacts.read",
   "cloud.machine.chat_access",
   "cloud.machine.io",
   "cloud.machine.share_chat",
   "cloud.machine.chief_start",
   "cloud.machine.chief_resize",
-  "cloud.machine.setup_desktop",
   "cloud.machine.fork",
   "cloud.owner.acpmux_keyed_start",
   "cloud.owner.acpmux_person_holds",
   "cloud.owner.fork_run",
   "cloud.owner.github_app",
   "cloud.owner.github_connect",
-  "cloud.owner.github_complete",
-  "cloud.owner.github_list",
-  "cloud.owner.github_clone_token",
   "cloud.owner.github_repos",
   "cloud.owner.handoff_begin_turn",
   "cloud.owner.handoff_open",
   "cloud.owner.handoff_wait",
   "cloud.owner.handoffs",
   "cloud.owner.harness_login_copy",
-  "cloud.owner.slack",
-  "cloud.owner.slack_awake",
-  "cloud.owner.op",
   "cloud.owner.turn_checkpoint",
   "cloud.owner.turn_rewind",
   "cloud.owner.turns",
@@ -106,7 +98,6 @@ const CLOUD_API_CALLS = [
   "cloud.vm.publication_api_keys",
   "cloud.vm.publications",
   "cloud.vm.revoke_publication_api_key",
-  "cloud.vm.agent_key_create",
   "cloud.vm.scp_endpoint",
   "cloud.vm.tunnel_attach",
   "cloud.vm.tunnel_detach",
@@ -304,8 +295,7 @@ export function loadEvents(scopes: Record<string, { scope: string; class: string
   const out: Record<string, { docs: string; reads: string; scope: string }> = {}
   for (const name of Object.keys(file.events).sort()) {
     const { docs, reads, readsParams, scope } = file.events[name]!
-    // A family may be dotted (`app.storage.changed`, the app's own storage).
-    const family = name.match(/^([a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*)\.changed$/)?.[1]
+    const family = name.match(/^([a-z][a-z0-9_]*)\.changed$/)?.[1]
     if (!family) throw new Error(`events.json: ${name} is not <family>.changed`)
     const known = scopes[reads]
     if (!known) throw new Error(`events.json: ${name} reads ${reads}, which apps cannot call`)
@@ -323,8 +313,7 @@ export function loadEvents(scopes: Record<string, { scope: string; class: string
 export function generate(): Record<string, string> {
   const { ops, types, generics, actions } = loadCatalog()
   const names = Object.keys(ops).sort()
-  // `alsoScopes`: other grants that allow the op too (`storage:synced` serves app.storage.* from the synced replica).
-  const scopes: Record<string, { scope: string; class: string; alsoScopes?: string[] }> = {}
+  const scopes: Record<string, { scope: string; class: string }> = {}
   const never: string[] = []
   for (const name of names) {
     const s = scopeFor(name, ops[name]!)
@@ -332,13 +321,13 @@ export function generate(): Record<string, string> {
     else never.push(name)
   }
   // Host-provided ops that are not in the catalogs yet.
-  const hostOps: Record<string, { scope: string; class: string; alsoScopes?: string[] }> = {
+  const hostOps: Record<string, { scope: string; class: string }> = {
     "action.run": { scope: "actions:run", class: "mutation" },
     "action.list": { scope: "actions:run", class: "read" },
-    "app.storage.get": { scope: "storage:local", class: "read", alsoScopes: ["storage:synced"] },
-    "app.storage.set": { scope: "storage:local", class: "mutation", alsoScopes: ["storage:synced"] },
-    "app.storage.delete": { scope: "storage:local", class: "mutation", alsoScopes: ["storage:synced"] },
-    "app.storage.keys": { scope: "storage:local", class: "read", alsoScopes: ["storage:synced"] },
+    "app.storage.get": { scope: "storage:local", class: "read" },
+    "app.storage.set": { scope: "storage:local", class: "mutation" },
+    "app.storage.delete": { scope: "storage:local", class: "mutation" },
+    "app.storage.keys": { scope: "storage:local", class: "read" },
     "net.fetch": { scope: "net:<host>", class: "runtime" },
     "clipboard.write": { scope: "clipboard:write", class: "mutation" },
     // A notice in the app's own toast presenter, one slot per app (ToastAppOps in CmuxNextApps). Local and
@@ -483,8 +472,6 @@ ${render(root, "  ")}
   timer: { after(ms: number, fn: () => void): number; every(ms: number, fn: () => void): number; clear(id: number): void }
   /** Time zones. The sandbox has no Intl and \`toLocaleString\` ignores \`timeZone\`: \`zone(name, at?)\` gives an IANA zone's offset (minutes east of UTC) and short name at \`at\` (epoch ms, default now). An unknown name throws CmuxError \`zone.unknown\`. Local time is \`new Date(utcMs + offsetMinutes * 60000)\` read with the getUTC* methods. */
   time: { zone(name: string, at?: number): { zone: string; offsetMinutes: number; abbreviation: string } }
-  /** Scene state that survives a hot reload: a signal (same key, same signal) whose value cmux keeps while the app's host restarts for \`cmux ext dev\`, a local reload or a regrant, so scroll offsets, the focused field, expanded rows and small values come back. Starts at the kept value, else \`initial\`. Values must be JSON; at most 256 keys and 64 KiB in all (over that, a warn log and the last kept values stay). Memory only: a crash, an uninstall, an idle stop or a daemon restart drops it. Use \`cmux.storage\` for what must outlive those. */
-  state<T>(key: string, initial: T): [CmuxSignal<T>, (next: T | ((prev: T) => T)) => void]
   app: { readonly id: string; readonly version: string; readonly apiVersion: string; readonly locale: string; settings: { (): Record<string, unknown>; set(values: Record<string, unknown>): Promise<unknown> }; context(): CmuxAppContext; openPane<T = unknown>(args?: Record<string, unknown>, options?: CmuxCallOptions): Promise<CmuxPaneResult<T>> }
   /** The current user-gesture token, else null. On a command's ctx.cmux: the invocation's token while the command runs. On the global: the event token, only inside a user event handler before its first await; pass it as options.gesture later. */
   gesture(): string | null

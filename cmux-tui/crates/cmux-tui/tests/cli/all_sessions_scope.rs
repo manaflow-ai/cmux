@@ -33,9 +33,6 @@ struct BaseDir(PathBuf);
 
 impl Drop for BaseDir {
     fn drop(&mut self) {
-        // The sessions' servers and their owners' homes live under this base;
-        // a failed stop leaves them running once it is gone (cmux#64121).
-        end_processes_of_home(&self.0);
         let _ = fs::remove_dir_all(&self.0);
     }
 }

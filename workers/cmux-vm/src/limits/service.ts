@@ -17,7 +17,6 @@ import {
   memoryLedgerStorage,
   RateDecision,
   ReserveDecision,
-  RetainedCreationSlot,
   TenantLedger,
   type IdempotencyProgress,
   type LedgerStorage,
@@ -34,8 +33,6 @@ export interface TenantLimitsService {
   readonly snapshotCapture: (tenantId: TenantId, command: SnapshotCaptureCommand) => Effect.Effect<SnapshotCaptureResult, LimitsUnavailable>;
   readonly beginCreateSend: (tenantId: TenantId, key: string, vmId: string, token: string) => Effect.Effect<boolean, LimitsUnavailable>;
   readonly settleAbsentCancellation: (tenantId: TenantId, key: string, vmId: string) => Effect.Effect<boolean, LimitsUnavailable>;
-  /** Unfinished creates by `createdBy` that still hold a retained VM slot, oldest first (ledger.retainedCreations). */
-  readonly retainedCreations: (tenantId: TenantId, createdBy: string, limit: number) => Effect.Effect<ReadonlyArray<RetainedCreationSlot>, LimitsUnavailable>;
   readonly readmitCreation: (tenantId: TenantId, key: string, vmId: string, limit: number, liveCount: number) => Effect.Effect<"readmitted" | "over_quota" | "none", LimitsUnavailable>;
   readonly rejectCreateSend: (tenantId: TenantId, key: string, vmId: string, token: string) => Effect.Effect<void, LimitsUnavailable>;
   readonly creationActive: (tenantId: TenantId, key: string, vmId: string) => Effect.Effect<boolean, LimitsUnavailable>;
@@ -48,9 +45,7 @@ export interface TenantLimitsService {
   readonly reserve: (tenantId: TenantId, kind: string, limit: number, liveCount: number) => Effect.Effect<ReserveDecision, LimitsUnavailable>;
   readonly release: (tenantId: TenantId, reservationId: string) => Effect.Effect<void>;
   /** An agent key's live-VM budget, admitted atomically (agent-slots.ts): false at `limit`. */
-  readonly admitAgentSlot: (tenantId: TenantId, agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, slotId: string, heldBoundMs?: number) => Effect.Effect<boolean, LimitsUnavailable>;
-  /** Read only: one line per VM or slot filling an agent key's budget, for the cap refusal (agent-slots.ts). */
-  readonly describeAgentSlots: (tenantId: TenantId, agent: string, ownedVmIds: ReadonlyArray<string>) => Effect.Effect<ReadonlyArray<string>, LimitsUnavailable>;
+  readonly admitAgentSlot: (tenantId: TenantId, agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, slotId: string) => Effect.Effect<boolean, LimitsUnavailable>;
   readonly settleAgentSlot: (tenantId: TenantId, agent: string, slotId: string, outcome: AgentSlotOutcome) => Effect.Effect<void, LimitsUnavailable>;
   readonly bindAgentCreation: (tenantId: TenantId, agent: string, creationKey: string, vmId: string) => Effect.Effect<void, LimitsUnavailable>;
   readonly forgetAgentVm: (tenantId: TenantId, vmId: string, creationKey: string | null) => Effect.Effect<void, LimitsUnavailable>;
@@ -58,8 +53,6 @@ export interface TenantLimitsService {
   readonly begin: (tenantId: TenantId, key: string, fingerprint: string, clientFingerprint?: string, generated?: GeneratedCreation) => Effect.Effect<IdempotencyBegin, LimitsUnavailable>;
   readonly advance: (tenantId: TenantId, key: string, progress: IdempotencyProgress) => Effect.Effect<void, LimitsUnavailable>;
   readonly abandon: (tenantId: TenantId, key: string) => Effect.Effect<void>;
-  /** Heartbeat: keeps this request's claim on `key` alive; a request that dies stops renewing and the claim lapses. */
-  readonly renew: (tenantId: TenantId, key: string) => Effect.Effect<void>;
   /** Takes the tenant-scoped lock `key` for `holder` for `leaseMs`; false while another holder has it. */
   readonly lock: (tenantId: TenantId, key: string, holder: string, leaseMs: number) => Effect.Effect<boolean, LimitsUnavailable>;
   /** Releases the lock if `holder` holds it; best effort (the lease ends it otherwise). */
@@ -85,7 +78,6 @@ interface LedgerHandle {
   snapshotCapture(command: SnapshotCaptureCommand, nowMs: number): Promise<SnapshotCaptureResult>;
   beginCreateSend(key: string, vmId: string, token: string, nowMs: number): Promise<boolean>;
   settleAbsentCancellation(key: string, vmId: string, nowMs: number): Promise<boolean>;
-  retainedCreations(createdBy: string, limit: number): Promise<ReadonlyArray<RetainedCreationSlot>>;
   readmitCreation(key: string, vmId: string, limit: number, liveCount: number, nowMs: number): Promise<"readmitted" | "over_quota" | "none">;
   rejectCreateSend(key: string, vmId: string, token: string): Promise<boolean>;
   creationActive(key: string, vmId: string): Promise<boolean>;
@@ -97,15 +89,13 @@ interface LedgerHandle {
   rate(rateClass: RateClass, rule: RateRule, nowMs: number): Promise<RateDecision>;
   reserve(kind: string, limit: number, liveCount: number, nowMs: number, reservationId: string): Promise<ReserveDecision>;
   release(reservationId: string): Promise<void>;
-  admitAgentSlot(agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string, heldBoundMs?: number): Promise<boolean>;
-  describeAgentSlots(agent: string, ownedVmIds: ReadonlyArray<string>, nowMs: number): Promise<ReadonlyArray<string>>;
+  admitAgentSlot(agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string): Promise<boolean>;
   settleAgentSlot(agent: string, slotId: string, outcome: AgentSlotOutcome, nowMs: number): Promise<void>;
   bindAgentCreation(agent: string, creationKey: string, vmId: string, nowMs: number): Promise<void>;
   forgetAgentVm(vmId: string, creationKey: string | null): Promise<void>;
   listGenerated(scope: string, cursor: string | undefined, limit: number, pending?: boolean): Promise<GeneratedCreationPage>;
   begin(key: string, fingerprint: string, nowMs: number, clientFingerprint?: string, generated?: GeneratedCreation): Promise<IdempotencyBegin>;
   advance(key: string, progress: IdempotencyProgress, nowMs: number): Promise<void>;
-  renew(key: string, nowMs: number): Promise<void>;
   abandon(key: string, nowMs: number): Promise<void>;
   lock(key: string, holder: string, leaseMs: number, nowMs: number): Promise<boolean>;
   unlock(key: string, holder: string): Promise<void>;
@@ -129,7 +119,6 @@ const makeService = (ledgerFor: (tenantId: TenantId) => LedgerHandle): TenantLim
     snapshotCapture: (tenantId, command) => call((ledger, now) => ledger.snapshotCapture(command, now))(tenantId),
     beginCreateSend: (tenantId, key, vmId, token) => call((ledger, now) => ledger.beginCreateSend(key, vmId, token, now))(tenantId),
     settleAbsentCancellation: (tenantId, key, vmId) => call((ledger, now) => ledger.settleAbsentCancellation(key, vmId, now))(tenantId),
-    retainedCreations: (tenantId, createdBy, limit) => call((ledger) => ledger.retainedCreations(createdBy, limit))(tenantId),
     readmitCreation: (tenantId, key, vmId, limit, liveCount) => call((ledger, now) => ledger.readmitCreation(key, vmId, limit, liveCount, now))(tenantId),
     rejectCreateSend: (tenantId, key, vmId, token) => call((ledger) => ledger.rejectCreateSend(key, vmId, token))(tenantId).pipe(Effect.flatMap(confirmed)),
     creationActive: (tenantId, key, vmId) => call((ledger) => ledger.creationActive(key, vmId))(tenantId),
@@ -143,15 +132,13 @@ const makeService = (ledgerFor: (tenantId: TenantId) => LedgerHandle): TenantLim
       call((ledger, now) => ledger.reserve(kind, limit, liveCount, now, crypto.randomUUID()))(tenantId),
     // Releases are best effort: an unreleased reservation lapses on its own.
     release: (tenantId, reservationId) => call((ledger) => ledger.release(reservationId))(tenantId).pipe(Effect.ignore),
-    admitAgentSlot: (tenantId, agent, limit, ownedVmIds, slotId, heldBoundMs) => call((ledger, now) => ledger.admitAgentSlot(agent, limit, ownedVmIds, now, slotId, heldBoundMs))(tenantId),
-    describeAgentSlots: (tenantId, agent, ownedVmIds) => call((ledger, now) => ledger.describeAgentSlots(agent, ownedVmIds, now))(tenantId),
+    admitAgentSlot: (tenantId, agent, limit, ownedVmIds, slotId) => call((ledger, now) => ledger.admitAgentSlot(agent, limit, ownedVmIds, now, slotId))(tenantId),
     settleAgentSlot: (tenantId, agent, slotId, outcome) => call((ledger, now) => ledger.settleAgentSlot(agent, slotId, outcome, now))(tenantId),
     bindAgentCreation: (tenantId, agent, creationKey, vmId) => call((ledger, now) => ledger.bindAgentCreation(agent, creationKey, vmId, now))(tenantId),
     forgetAgentVm: (tenantId, vmId, creationKey) => call((ledger) => ledger.forgetAgentVm(vmId, creationKey))(tenantId),
     listGenerated: (tenantId, scope, cursor, limit, pending) => call((ledger) => ledger.listGenerated(scope, cursor, limit, pending))(tenantId),
     begin: (tenantId, key, fingerprint, clientFingerprint, generated) => call((ledger, now) => ledger.begin(key, fingerprint, now, clientFingerprint, generated))(tenantId),
     advance: (tenantId, key, progress) => call((ledger, now) => ledger.advance(key, progress, now))(tenantId),
-    renew: (tenantId, key) => call((ledger, now) => ledger.renew(key, now))(tenantId).pipe(Effect.ignore),
     // An unabandoned claim lapses after its lease.
     abandon: (tenantId, key) => call((ledger, now) => ledger.abandon(key, now))(tenantId).pipe(Effect.ignore),
     lock: (tenantId, key, holder, leaseMs) => call((ledger, now) => ledger.lock(key, holder, leaseMs, now))(tenantId),
@@ -182,7 +169,6 @@ export const durableObjectLimitsLayer = (namespace: DurableObjectNamespace<Tenan
         snapshotCapture: (command, nowMs) => decoded(SnapshotCaptureResult)(stub.snapshotCapture(command, nowMs)),
         beginCreateSend: (key, vmId, token, nowMs) => decoded(Schema.Boolean)(stub.beginCreateSend(key, vmId, token, nowMs)),
         settleAbsentCancellation: (key, vmId, nowMs) => decoded(Schema.Boolean)(stub.settleAbsentCancellation(key, vmId, nowMs)),
-        retainedCreations: (createdBy, limit) => decoded(Schema.Array(RetainedCreationSlot))(stub.retainedCreations(createdBy, limit)),
         readmitCreation: (key, vmId, limit, liveCount, nowMs) => decoded(Schema.Literal("readmitted", "over_quota", "none"))(stub.readmitCreation(key, vmId, limit, liveCount, nowMs)),
         rejectCreateSend: (key, vmId, token) => decoded(Schema.Boolean)(stub.rejectCreateSend(key, vmId, token)),
         creationActive: (key, vmId) => decoded(Schema.Boolean)(stub.creationActive(key, vmId)),
@@ -199,8 +185,7 @@ export const durableObjectLimitsLayer = (namespace: DurableObjectNamespace<Tenan
         release: async (reservationId) => {
           await stub.release(reservationId);
         },
-        admitAgentSlot: (agent, limit, ownedVmIds, nowMs, slotId, heldBoundMs) => decoded(Schema.Boolean)(stub.admitAgentSlot(agent, limit, [...ownedVmIds], nowMs, slotId, heldBoundMs)),
-        describeAgentSlots: (agent, ownedVmIds, nowMs) => decoded(Schema.Array(Schema.String))(stub.describeAgentSlots(agent, [...ownedVmIds], nowMs)),
+        admitAgentSlot: (agent, limit, ownedVmIds, nowMs, slotId) => decoded(Schema.Boolean)(stub.admitAgentSlot(agent, limit, [...ownedVmIds], nowMs, slotId)),
         settleAgentSlot: async (agent, slotId, outcome, nowMs) => {
           await stub.settleAgentSlot(agent, slotId, outcome, nowMs);
         },
@@ -213,11 +198,8 @@ export const durableObjectLimitsLayer = (namespace: DurableObjectNamespace<Tenan
         listGenerated: (scope, cursor, limit, pending) => decoded(GeneratedCreationPage)(stub.listGenerated(scope, cursor, limit, pending)),
         begin: (key, fingerprint, nowMs, clientFingerprint, generated) => decoded(IdempotencyBegin)(stub.begin(key, fingerprint, nowMs, clientFingerprint, generated)),
         advance: async (key, progress, nowMs) => {
-          const confirmed = await decoded(Schema.Union(Schema.Boolean, Schema.String))(stub.advance(key, progress, nowMs));
-          if (confirmed !== true) throw new Error(confirmed === false ? "allocation journal write was not confirmed" : confirmed);
-        },
-        renew: async (key, nowMs) => {
-          await stub.renew(key, nowMs);
+          const confirmed = await decoded(Schema.Boolean)(stub.advance(key, progress, nowMs));
+          if (!confirmed) throw new Error("allocation journal write was not confirmed");
         },
         abandon: async (key, nowMs) => {
           await stub.abandon(key, nowMs);

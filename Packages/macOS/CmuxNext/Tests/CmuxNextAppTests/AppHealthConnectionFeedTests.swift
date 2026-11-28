@@ -27,14 +27,4 @@ import Testing
         #expect(health.headline == nil)
         #expect(!health.holdsReplace, "nothing to protect from a replace")
     }
-
-    /// A disconnect that the model repairs immediately clears once the connection is back. App health
-    /// draws no line for any part (#55468), so the short reconnect stays quiet by construction.
-    @Test(.enabled(if: linked)) func aShortReconnectRendersNoLine() {
-        let health = AppHealth(clock: ManualClock())
-        health.register(AppHealth.acpmuxID, kind: .acpmux, label: "Connection to the session service")
-        health.event(AppHealth.acpmuxID, .disconnected)
-        health.event(AppHealth.acpmuxID, .connected)
-        #expect(health.headline == nil)
-    }
 }

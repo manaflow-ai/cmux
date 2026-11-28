@@ -8,27 +8,12 @@ import type { Play } from "../../../gallery/play";
 import { GitToolbarButtons, GitWriteBar } from "./GitActions";
 import type { GitWrite, GitWriteState } from "./useGitWrite";
 
-type Props = {
-  formOpen: boolean;
-  state?: GitWriteState;
-  statusFailed?: boolean;
-  manyNewFiles?: boolean;
-  inProgress?: string;
-};
+type Props = { formOpen: boolean; state?: GitWriteState; statusFailed?: boolean; manyNewFiles?: boolean };
 
-const fakeGit = (state?: GitWriteState, statusFailed = false, manyNewFiles = false, inProgress?: string): GitWrite => ({
+const fakeGit = (state?: GitWriteState, statusFailed = false, manyNewFiles = false): GitWrite => ({
   available: true,
-  status: {
-    branch: "feat/commit-push",
-    upstream: "origin/feat/commit-push",
-    detached: false,
-    ahead: 2,
-    behind: 0,
-    inProgress,
-  },
+  status: { branch: "feat/commit-push", upstream: "origin/feat/commit-push", detached: false, ahead: 2, behind: 0 },
   statusFailed,
-  // A failed status read is read again on its own; the gallery shows the quiet line it ends in.
-  statusStillTrying: statusFailed,
   state,
   commit: async () => true,
   listNewFiles: async () => ({
@@ -44,9 +29,9 @@ const fakeGit = (state?: GitWriteState, statusFailed = false, manyNewFiles = fal
   dismiss: () => undefined,
 });
 
-function GitActionsGallery({ formOpen: initiallyOpen, state, statusFailed, manyNewFiles, inProgress }: Props) {
+function GitActionsGallery({ formOpen: initiallyOpen, state, statusFailed, manyNewFiles }: Props) {
   const [formOpen, setFormOpen] = useState(initiallyOpen);
-  const git = fakeGit(state, statusFailed, manyNewFiles, inProgress);
+  const git = fakeGit(state, statusFailed, manyNewFiles);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 12 }}>
       <div style={{ display: "flex", gap: 6 }}>
@@ -103,10 +88,6 @@ export default componentEntry<Props>({
       note: "The form closed: Commit, and Push with the branch two commits ahead.",
       props: { formOpen: false },
     },
-    "merge-in-progress": {
-      note: "A rebase stopped partway: Commit is off with no message; Push still pushes what is ahead.",
-      props: { formOpen: false, inProgress: "rebase" },
-    },
     "commit-form": { note: "The open form: a message, Staged or All, Cancel and Commit.", props: { formOpen: true } },
     "include-new": {
       note: "All with Include new files lists the new files before Commit is offered.",
@@ -134,12 +115,7 @@ export default componentEntry<Props>({
       note: "A commit in flight: the form and buttons wait.",
       props: { formOpen: true, state: { phase: "busy", op: "commit" } },
     },
-    "status-still-reading": {
-      note: "A branch status read that keeps failing is read again on its own: one quiet Still reading line, no Refresh button.",
-      props: { formOpen: false, statusFailed: true },
-    },
     "push-refused": {
-      // retry-prompt-ok: Retry runs the push again (a write); Refresh re-reads before the person's next write.
       note: "A refused push with git's output, Retry and Refresh.",
       props: {
         formOpen: false,

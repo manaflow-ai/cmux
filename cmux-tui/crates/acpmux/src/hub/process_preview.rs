@@ -148,15 +148,11 @@ impl Hub {
         }
     }
 
-    /// An adopted host's processes, read again from the log (`rebuild_processes_from`), with a
+    /// An adopted host's processes, read again from the log (`rebuild_processes`), with a
     /// watch for each still running one that has no preview: a server whose watch ended with
     /// the daemon before it found one is read again (`hosts.rs` `recover_work`).
-    pub(crate) fn recover_processes(
-        self: &Arc<Self>,
-        session: &Arc<Session>,
-        saved: Option<super::SavedProcesses>,
-    ) {
-        self.rebuild_processes_from(session, saved);
+    pub(crate) fn recover_processes(self: &Arc<Self>, session: &Arc<Session>) {
+        self.rebuild_processes(session);
         self.watch_previews(session);
     }
 
@@ -168,33 +164,17 @@ impl Hub {
     /// Records the preview of the process `id`, if it still runs and has
     /// none, as one logged `process_update` (the path `note_process` takes).
     fn set_preview(&self, session: &Session, id: &str, preview: ProcessPreview) {
-        let (process, port) = {
+        let process = {
             let mut table = self.process_table(session);
             let Some(at) = table.by_id.get(id).copied() else { return };
             let Some(p) = table.processes.get_mut(at) else { return };
             if p.state != ProcessState::Running || p.preview.is_some() {
                 return;
             }
-            let port = preview.port;
             p.preview = Some(preview);
             p.logged = false;
-            (table.log(at), port)
+            table.log(at)
         };
         self.append(session, "mux", "process_update", json!({"process": process}));
-        // The session's namespace keeps the port, so a later start on another machine can
-        // tell it is taken there (`session_manifest.rs`, RFD 0181 B7).
-        let kept = {
-            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            let cwd = std::path::PathBuf::from(&m.cwd);
-            crate::session_manifest::keep_port(
-                crate::session_manifest::on(),
-                &mut m.manifest,
-                &cwd,
-                port,
-            )
-        };
-        if kept {
-            self.save_meta(session);
-        }
     }
 }

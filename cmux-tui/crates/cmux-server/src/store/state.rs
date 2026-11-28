@@ -7,10 +7,8 @@
 
 use std::fs::{OpenOptions, TryLockError};
 use std::path::Path;
-use std::time::Duration;
 
 use cmux_server_core::manifest::Applied;
-use cmux_tui_util::retry::{Attempt, Patience};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, IoContext, Result};
@@ -60,10 +58,6 @@ pub fn save_applied(path: &Path, applied: Applied) -> Result<()> {
     fsx::atomic_write(path, &bytes, 0o600)
 }
 
-/// How long a verb waits for another apply's store lock before it reports
-/// that apply as still running.
-pub const APPLY_LOCK_WAIT: Duration = Duration::from_secs(30);
-
 /// An exclusive lock on the store root, released on drop.
 #[derive(Debug)]
 pub struct StoreLock {
@@ -71,85 +65,38 @@ pub struct StoreLock {
 }
 
 impl StoreLock {
-    /// Takes the lock, waiting up to [`APPLY_LOCK_WAIT`] for another apply
-    /// to end. A holder still there then is `ExitKind::Unreachable`
-    /// ("another apply is running").
+    /// Takes the lock without waiting. Another holder is
+    /// `ExitKind::Unreachable` ("another apply is running").
     ///
     /// It never changes the mode of `root`: the root's owner and mode come
     /// from `cmux_server_core::access` (`/opt/cmux` stays root 0755 in
     /// system mode). A missing root is created with the default mode only.
     pub fn acquire(root: &Path) -> Result<StoreLock> {
-        StoreLock::acquire_within(root, APPLY_LOCK_WAIT)
-    }
-
-    /// [`StoreLock::acquire`] with its own wait for another holder.
-    pub(crate) fn acquire_within(root: &Path, wait: Duration) -> Result<StoreLock> {
         std::fs::create_dir_all(root).ctx(root.display())?;
-        StoreLock::acquire_existing_within(root, wait)
+        StoreLock::acquire_existing(root)
     }
 
     /// Like [`StoreLock::acquire`] for verbs that need an install
     /// (rollback, switch, GC): a missing root is "nothing is installed"
     /// and is not created.
     pub fn acquire_existing(root: &Path) -> Result<StoreLock> {
-        StoreLock::acquire_existing_within(root, APPLY_LOCK_WAIT)
-    }
-
-    fn acquire_existing_within(root: &Path, wait: Duration) -> Result<StoreLock> {
         if !root.is_dir() {
             return Err(Error::not_found(format!("nothing is installed at {}", root.display())));
         }
         let path = root.join(".lock");
-        // Another apply holding the lock ends on its own, so wait for it
-        // (bounded) instead of asking the person to run the command again.
-        Patience::new("another cmux server apply to finish", wait).run(|| {
-            let file = OpenOptions::new()
-                .create(true)
-                .truncate(false)
-                .write(true)
-                .open(&path)
-                .ctx(path.display())
-                .map_err(Attempt::Fail)?;
-            match fsx::FileLock::try_acquire(file) {
-                Ok(lock) => Ok(StoreLock { _file: lock }),
-                Err(TryLockError::WouldBlock) => Err(Attempt::Retry(Error::unreachable(format!(
-                    "another cmux server apply still holds {} after {} s; let it finish, or stop that cmux server process",
-                    path.display(),
-                    wait.as_secs()
-                )))),
-                Err(TryLockError::Error(e)) => Err(Attempt::Fail(Error::io(path.display(), e))),
-            }
-        })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::Instant;
-
-    #[test]
-    fn a_second_apply_waits_for_the_first_to_end_instead_of_failing() {
-        let dir = tempfile::tempdir().unwrap();
-        let first = StoreLock::acquire(dir.path()).unwrap();
-        let release = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(300));
-            drop(first);
-        });
-        let started = Instant::now();
-        let second = StoreLock::acquire_within(dir.path(), Duration::from_secs(10));
-        release.join().unwrap();
-        assert!(second.is_ok(), "the second apply should get the lock once the first ends");
-        assert!(started.elapsed() >= Duration::from_millis(250));
-    }
-
-    #[test]
-    fn a_lock_still_held_at_the_deadline_names_the_other_apply() {
-        let dir = tempfile::tempdir().unwrap();
-        let _first = StoreLock::acquire(dir.path()).unwrap();
-        let err = StoreLock::acquire_within(dir.path(), Duration::from_millis(200)).unwrap_err();
-        let text = err.to_string();
-        assert!(text.contains("another cmux server apply still holds"), "{text}");
-        assert!(!text.contains("try again"), "{text}");
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&path)
+            .ctx(path.display())?;
+        match fsx::FileLock::try_acquire(file) {
+            Ok(lock) => Ok(StoreLock { _file: lock }),
+            Err(TryLockError::WouldBlock) => Err(Error::unreachable(format!(
+                "another cmux server apply holds {}; try again when it ends",
+                path.display()
+            ))),
+            Err(TryLockError::Error(e)) => Err(Error::io(path.display(), e)),
+        }
     }
 }

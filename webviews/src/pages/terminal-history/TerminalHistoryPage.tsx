@@ -1,7 +1,6 @@
 import { lazy, memo, Suspense, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { isPromptMarkdown } from "../../agent-session/acpmux/conversation/promptMarkdown";
 import { afterPaint } from "../../protocol/intents/schedule";
-import { KeyHint } from "../../ui/KeyHint";
 import type { Strings } from "../shared/i18n";
 import { RawRecord } from "./RawRecord";
 import type { TerminalHistoryStore } from "./store";
@@ -75,7 +74,7 @@ export function TerminalHistoryPage({ store, strings, fixture }: TerminalHistory
                 void store.find(event.target.value);
               }}
             />
-            <KeyHint keys="⌘F" className="terminal-history-search-key" aria-hidden="true" />
+            <kbd aria-hidden="true">⌘F</kbd>
           </label>
         </header>
         {query && !fixture && (

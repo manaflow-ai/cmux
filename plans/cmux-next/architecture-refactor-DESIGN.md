@@ -139,7 +139,7 @@ Columns: lines, App types it names outside itself (from a type cross-reference s
 |---|---|---|---|
 | TextBox | 384 | 0 | CmuxNextTerminal (ui) |
 | Hibernation | 1,100 | 2 | CmuxNextHibernation (domain: the planner, probe answers, the benefit of the doubt, neighbor tabs; moved 2026-10-24); the BrowserHibernation coordinator, snapshots and wakes follow TabContentCache (Workbench) |
-| SleepyMode | 328 | 0 | CmuxNextFloating (ui: its overlay windows), its keep-awake hold behind a KeepAwake protocol (2026-11-27: the controller and its presenter protocol in CmuxNextKeepAwake, the window and Mac lock in CmuxNextFloating; the scene and its strings stay, see B1) |
+| SleepyMode | 328 | 0 | CmuxNextFloating (ui: its overlay windows), its keep-awake hold behind a KeepAwake protocol |
 | IconAssets | 291 | 0 | CmuxNextIcons (ui) |
 | ServerUpdates | 159 | 0 | CmuxNextDaemonService (presenter seam) |
 | LinkHints, Refusals | 190 | 0 | CmuxNextBrowser UI / FocusUI |

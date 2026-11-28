@@ -1,5 +1,4 @@
 import CmuxAgentQuestion
-import CmuxConnectivityTelemetry
 import CmuxMobileAgentChat
 import CmuxMobileFeed
 import CmuxMobileModel
@@ -375,55 +374,6 @@ struct MockDialer: MacLinkDialer {
     }
 }
 
-/// A dialer whose roams wait until the test releases them, counting how many run at once.
-final class RoamGate: MacLinkDialer, @unchecked Sendable {
-    private let lock = NSLock()
-    private var running = 0
-    private var waiters: [(index: Int, continuation: CheckedContinuation<Void, Never>)] = []
-    private var released = 0
-    private(set) var startedCount = 0
-    private(set) var maxConcurrentCount = 0
-    private var finishedCount = 0
-    var started: Int { lock.withLock { startedCount } }
-    var maxConcurrent: Int { lock.withLock { maxConcurrentCount } }
-    /// Roams that returned to the controller.
-    var finished: Int { lock.withLock { finishedCount } }
-
-    func dial(_ endpoint: LinkEndpoint, transport: CmuxMobileTransport.TransportKind, accessToken: String) async throws -> any MacLink {
-        MockMacLink(transport: transport)
-    }
-
-    func networkChanged(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] {
-        let index: Int = lock.withLock {
-            startedCount += 1
-            running += 1
-            maxConcurrentCount = max(maxConcurrentCount, running)
-            return startedCount
-        }
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let go = lock.withLock { () -> Bool in
-                if released >= index { return true }
-                waiters.append((index, continuation))
-                return false
-            }
-            if go { continuation.resume() }
-        }
-        lock.withLock { running -= 1; finishedCount += 1 }
-        return [("roam_direct", 1)]
-    }
-
-    func release() {
-        // Lets the next roam (by start order) finish.
-        let woken: [CheckedContinuation<Void, Never>] = lock.withLock {
-            released += 1
-            let go = waiters.filter { $0.index <= released }.map(\.continuation)
-            waiters.removeAll { $0.index <= released }
-            return go
-        }
-        for continuation in woken { continuation.resume() }
-    }
-}
-
 @MainActor
 @Suite struct LinkControllerTests {
     @Test func connectsThroughDialerAndHandsOutLink() async throws {
@@ -452,121 +402,22 @@ final class RoamGate: MacLinkDialer, @unchecked Sendable {
     /// A network change roams the live link in place: the dialer is told
     /// once (a burst of path updates settles first) and nothing redials.
     @Test func networkChangeRoamsWithoutRedialing() async throws {
-        let clock = LinkTestClock()
         let dials = Seen()
         let roams = Seen()
-        let completed = Seen()
-        let telemetry = ConnectivityTelemetry()
-        telemetry.setAudience(.team)
-        telemetry.addSink { record in
-            if record.key == "network.roamed" { completed.append(record.outcome == .success) }
-        }
         let dialer = MockDialer(fail: false, dialed: { _ in dials.append(true) }, roamed: { _ in roams.append(true) })
-        let controller = LinkController(transport: .wireGuard, dialer: dialer, clock: clock,
-                                        telemetry: telemetry, accessToken: { _ in "t" })
-        defer { controller.send(.target(nil)); clock.stop() }
+        let controller = LinkController(transport: .wireGuard, dialer: dialer, accessToken: { _ in "t" })
         controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://x")!, teamID: "t", deviceID: "d", macDeviceID: $0) }
         controller.send(.target(LinkMachine.Target(macID: "m", name: "Mac", isOnline: true)))
-        try await pollUntil { controller.phase.isConnected }
-
+        for _ in 0..<200 where !controller.phase.isConnected { await Task.yield() }
         let url = URL(string: "https://x")!
-        let settle = LinkController.networkSettle
-        let first = clock.now.advanced(by: settle)
         controller.networkChanged(baseURL: url, teamID: "t", deviceID: "d")
-        try await pollUntil { clock.isSleeping(until: first) }
-
-        clock.advance(by: settle / 2)
-        let replacement = clock.now.advanced(by: settle)
         controller.networkChanged(baseURL: url, teamID: "t", deviceID: "d")
-        try await pollUntil { clock.isSleeping(until: replacement) }
-        try #require(!clock.isSleeping(until: first))
-        clock.advance(by: clock.now.duration(to: first))
-        #expect(roams.values.isEmpty)
-
-        clock.advance(by: clock.now.duration(to: replacement))
-        // The controller consumes the dialer's result on the main actor before these assertions.
-        try await pollUntil { !completed.values.isEmpty }
-        #expect(completed.values == [true])
+        let deadline = ContinuousClock.now + .seconds(5)
+        while roams.values.isEmpty, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        try await Task.sleep(for: .milliseconds(300))
         #expect(roams.values.count == 1)
         #expect(dials.values.count == 1)
         #expect(controller.phase.isConnected)
-    }
-
-    /// Changes that come while a roam runs never start a second one beside it: one roam at a time,
-    /// then one more onto the latest network, however many changes came (a153's phone ran four
-    /// within 0.7 s, each moving the path to none and back).
-    @Test func changesDuringARoamWaitForItAndRoamOnceMore() async throws {
-        // The link test clock moves the settle, so a busy main actor (a loaded simulator) cannot reorder it:
-        // on ContinuousClock this test failed every attempt of kit runs 11-28 (jobs 140846163318,
-        // 140872862203, 140932566951), and showed a real race: a settle cancelled after its sleep ended still roamed.
-        let clock = LinkTestClock()
-        let gate = RoamGate()
-        let controller = LinkController(transport: .wireGuard, dialer: gate, clock: clock, accessToken: { _ in "t" })
-        defer { controller.send(.target(nil)); clock.stop() }
-        controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://x")!, teamID: "t", deviceID: "d", macDeviceID: $0) }
-        controller.send(.target(LinkMachine.Target(macID: "m", name: "Mac", isOnline: true)))
-        try await pollUntil { controller.phase.isConnected }
-        let url = URL(string: "https://x")!
-        let settle = LinkController.networkSettle
-        let first = clock.now.advanced(by: settle)
-        controller.networkChanged(baseURL: url, teamID: "t", deviceID: "d")
-        try await pollUntil { clock.isSleeping(until: first) }
-        clock.advance(by: settle)
-        try await pollUntil { gate.started == 1 }
-        // A burst while the first roam runs, with time passing past each settle.
-        for _ in 0..<20 {
-            controller.networkChanged(baseURL: url, teamID: "t", deviceID: "d")
-            clock.advance(by: settle)
-            for _ in 0..<5 { await Task.yield() }
-        }
-        #expect(gate.started == 1)
-        gate.release()
-        // Once more onto the latest network, after its own settle.
-        try await pollUntil { gate.finished == 1 }
-        let again = clock.now.advanced(by: settle)
-        try await pollUntil { clock.isSleeping(until: again) }
-        #expect(gate.started == 1)
-        clock.advance(by: settle)
-        try await pollUntil { gate.started == 2 }
-        gate.release()
-        try await pollUntil { gate.finished == 2 }
-        clock.advance(by: settle * 4)
-        for _ in 0..<20 { await Task.yield() }
-        #expect(gate.started == 2)
-        #expect(gate.maxConcurrent == 1)
-        #expect(controller.phase.isConnected)
-    }
-
-    /// A settle that already slept but had not yet reached the main actor when a newer change cancelled it
-    /// starts no roam of its own: only the newer change's settle roams.
-    @Test func aSettleCancelledAfterItsSleepStartsNoRoam() async throws {
-        let clock = LinkTestClock()
-        let gate = RoamGate()
-        let controller = LinkController(transport: .wireGuard, dialer: gate, clock: clock, accessToken: { _ in "t" })
-        defer { controller.send(.target(nil)); clock.stop() }
-        controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://x")!, teamID: "t", deviceID: "d", macDeviceID: $0) }
-        controller.send(.target(LinkMachine.Target(macID: "m", name: "Mac", isOnline: true)))
-        try await pollUntil { controller.phase.isConnected }
-        let url = URL(string: "https://x")!
-        let settle = LinkController.networkSettle
-        let first = clock.now.advanced(by: settle)
-        controller.networkChanged(baseURL: url, teamID: "t", deviceID: "d")
-        try await pollUntil { clock.isSleeping(until: first) }
-        // The first settle's sleep ends, and a second change lands before it runs on the main actor (this test
-        // holds the main actor across both lines).
-        clock.advance(by: settle)
-        controller.networkChanged(baseURL: url, teamID: "t", deviceID: "d")
-        let second = clock.now.advanced(by: settle)
-        try await pollUntil { clock.isSleeping(until: second) }
-        for _ in 0..<20 { await Task.yield() }
-        #expect(gate.started == 0)
-        clock.advance(by: settle)
-        try await pollUntil { gate.started == 1 }
-        gate.release()
-        try await pollUntil { gate.finished == 1 }
-        for _ in 0..<20 { await Task.yield() }
-        #expect(gate.started == 1)
-        #expect(gate.maxConcurrent == 1)
     }
 
     @Test func dialFailureWaitsWithReadableReason() async throws {

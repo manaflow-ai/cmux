@@ -7,7 +7,6 @@ import { useRef, useState, type CSSProperties } from "react";
 import { trayItems } from "../../agent-session/acpmux/subagents/runningTray";
 import { SubagentTray } from "../../agent-session/acpmux/subagents/SubagentTray";
 import type { Subagent } from "../../agent-session/acpmux/subagents/subagentFold";
-import type { TrayFoldHeadArm } from "../../agent-session/acpmux/subagents/trayFoldHead.experiment";
 import "./trayMotionArms.css";
 
 const NAMES = ["Explore update code", "Check the docs agree", "Review the diff", "Run the red/green tests"];
@@ -16,10 +15,10 @@ const shown = { current: "gallery-chat" as string | undefined };
 
 type Message = { id: number; text: string; live: boolean };
 
-export function SubagentTrayMotionStage({ start = 0, foldHead }: { start?: number; foldHead?: TrayFoldHeadArm }) {
+export function SubagentTrayMotionStage({ start = 0 }: { start?: number }) {
   const clock = useRef(Date.now());
   const [agents, setAgents] = useState<Subagent[]>(() =>
-    Array.from({ length: start }, (_, index) => agent(NAMES[index % NAMES.length]!, index, clock.current - 60_000)),
+    NAMES.slice(0, start).map((name, index) => agent(name, index, clock.current - 60_000)),
   );
   const [messages, setMessages] = useState<Message[]>([
     { id: 0, text: "Find out how the daemon updates itself, and check the docs agree.", live: false },
@@ -89,7 +88,6 @@ export function SubagentTrayMotionStage({ start = 0, foldHead }: { start?: numbe
               onOpen={() => undefined}
               shown={shown}
               enters={enters}
-              foldHeadLook={foldHead}
             />
           )}
           <div className="acpmux-composer">

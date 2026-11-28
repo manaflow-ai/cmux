@@ -29,10 +29,6 @@ public enum TerminalSessionEvent: Sendable, Equatable {
     /// The device that sets the Mac's grid changed (its name, or nil when it
     /// is this phone or unknown), for the letterbox note.
     case hostGridOwner(String?)
-    /// A program in the terminal asked a browser for this public page while this phone drove
-    /// the terminal (`gh auth login`, `open URL`): the Mac's daemon sent it here instead of
-    /// opening it on the Mac (`phone-open-link`), so it opens on this phone.
-    case openLink(URL)
     /// The Mac stamped the redraw whose bytes the session just gave (`pseq`), and its line
     /// arrived at `receivedMs` (epoch ms): the screen reports when it painted it
     /// (``TerminalPaintTally``, `phone-frames` `paint`).
@@ -70,15 +66,14 @@ public enum TerminalConnectionState: Sendable, Equatable {
         }
     }
 
-    /// The Mac's name for status lines, "your Mac" when it has none.
-    private static func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac" }
-
     /// The quiet line by the composer once an outage has lasted
-    /// `QuietStatusGate.threshold`. Connecting and reattaching stay silent;
-    /// offline and failed states use plain words, never transport errors.
+    /// `QuietStatusGate.threshold` (nil: attached). Plain words, never a
+    /// transport error ("daemon channel closed").
     public var quietLine: String? {
+        func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac" }
         switch self {
-        case .connecting, .reattaching: return nil
+        case .connecting(let mac): return "Connecting to \(named(mac))…"
+        case .reattaching(let mac): return "Reconnecting to \(named(mac))…"
         case .offline(let mac): return mac.flatMap { $0.isEmpty ? nil : "\($0) is offline" } ?? "Your Mac is offline"
         case .failed: return "Can't reach this terminal"
         case .attached: return nil
@@ -125,9 +120,10 @@ public enum TerminalConnectionState: Sendable, Equatable {
     /// once the terminal is back, or comes back to the composer if it never
     /// comes (``TerminalSessionEvent/inputNotSent(bytes:)``).
     public var composerNotSentNotice: String? {
+        func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac" }
         switch self {
         case .attached: return nil
-        case .offline(let mac): return "Not sent: \(Self.named(mac)) is offline. Send again when it's back."
+        case .offline(let mac): return "Not sent: \(named(mac)) is offline. Send again when it's back."
         case .failed(let message): return message
         // A first attach usually lands within a few hundred ms: the send
         // goes to the session, which holds it that long and says so if the
@@ -137,11 +133,12 @@ public enum TerminalConnectionState: Sendable, Equatable {
         }
     }
 
+    /// Said once keys typed during an outage were dropped (``TerminalSessionEvent/inputNotSent(bytes:)``).
+    public static let inputNotSentNotice = "Keys typed while your Mac was unreachable were not sent."
     /// Said while keys typed before the attach wait for it (``TerminalSessionEvent/inputHeld(bytes:)``),
     /// beside Discard.
     public static let inputHeldNotice = "Keys you typed go when the terminal reconnects."
-    /// Said only when voice mode's prompt did not reach the Mac's terminal: its words are not in the
-    /// composer to come back. A composer send that did not go says nothing (its draft comes back).
+    /// Said when the composer's message did not reach the Mac's terminal (its text is back in the composer).
     public static let composerSendNotSentNotice = "Your message was not sent."
     /// Said when the composer's message may have reached the Mac's terminal but its answer never
     /// came (the link failed after it went out): its text stays out of the composer, so a second
@@ -270,9 +267,6 @@ public protocol TerminalSession: AnyObject {
     /// Mac's own grid back from the screen while the primary screen shows.
     /// Sessions without a Mac ignore it.
     func setProjectsLocally(_ projects: Bool)
-    /// Render the host grid unchanged, without claiming the phone's dimensions.
-    var preservesHostGrid: Bool { get }
-    func setPreservesHostGrid(_ preserves: Bool)
     /// Where the reader is, in the page's rows: from the document's end to
     /// the top of the screen they read (the screen's height at the bottom).
     /// A projection keeps those lines when it re-wraps at a new width.
@@ -311,12 +305,6 @@ public protocol TerminalSession: AnyObject {
     /// Drops the keys held for the attach (``TerminalSessionEvent/inputHeld(bytes:)``), at the
     /// person's word: none is sent. Sessions that hold no keys ignore it.
     func discardHeldInput()
-    /// Keeps the terminal submission waiting for attachment bytes subject to the same
-    /// disconnect hold as typed input. Expiry does not cancel the file transfer.
-    func beginAttachmentSubmission(onExpire: @escaping @MainActor () -> Void) -> UUID
-    /// Rechecks the hold synchronously before submission, then releases its registration.
-    /// False means the submission expired; the caller must keep the draft unsent.
-    @discardableResult func endAttachmentSubmission(_ id: UUID) -> Bool
 }
 
 /// A full-screen app's transcript (Leo, 2026-11-24: "where's us simply
@@ -340,9 +328,6 @@ public struct TerminalTUITranscript: Equatable, Sendable {
 }
 
 extension TerminalSession {
-    public func beginAttachmentSubmission(onExpire: @escaping @MainActor () -> Void) -> UUID { UUID() }
-    @discardableResult public func endAttachmentSubmission(_ id: UUID) -> Bool { true }
-
     /// Sessions that never hold keys send a reply as they send keys.
     public func sendReply(_ bytes: Data) { send(bytes) }
 
@@ -390,8 +375,6 @@ extension TerminalSession {
     public func loadHistory(aroundDaemonRow daemonRow: Int, rowsFromBottom: Int) -> Bool { false }
 
     public func setProjectsLocally(_ projects: Bool) {}
-    public var preservesHostGrid: Bool { false }
-    public func setPreservesHostGrid(_ preserves: Bool) {}
 
     public func noteReaderRowsFromEnd(_ rows: Int) {}
 

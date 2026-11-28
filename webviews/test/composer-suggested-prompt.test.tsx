@@ -7,12 +7,10 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { noChat, session, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { AcpmuxSessionEntry, SessionPullRequest } from "../src/agent-session/acpmux/sessionList";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { noChat, session, user } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -121,7 +119,7 @@ const shown = () => host.querySelector(".acpmux-md-placeholder")?.textContent;
 const menuDocument = () => dom.window.document;
 /** The empty composer's own placeholder (#22667, as Claude's): shown when nothing is suggested. */
 const IDLE = "Type / for commands";
-const key = () => host.querySelector(".acpmux-md-placeholder .ui-key-hint")?.textContent;
+const key = () => host.querySelector(".acpmux-md-placeholder-key")?.textContent;
 const field = () => host.querySelector<HTMLElement>(".acpmux-md")!;
 const press = (name: string, init: KeyboardEventInit = {}) =>
   act(async () => {
@@ -151,8 +149,8 @@ const fresh = (sessions: AcpmuxSessionEntry[]) => noChat(sessions, { summary: { 
 
 test("an open PR from another chat here is suggested, with a Tab keycap", async () => {
   await render(fresh([prChat()]));
-  expect(shown()).toBe("Continue PR #123: Retry failed uploadstab");
-  expect(key()).toBe("tab");
+  expect(shown()).toBe("Continue PR #123: Retry failed uploadsTab");
+  expect(key()).toBe("Tab");
 });
 
 test("failing checks and drafts get their own wording", async () => {
@@ -565,8 +563,8 @@ const typeText = (text: string) =>
 
 test("an existing chat's agent suggestion shows as the empty prompt's ghost text with the Tab keycap", async () => {
   await render(afterTurn());
-  expect(shown()).toBe(`${AGENT_SUGGESTION}tab`);
-  expect(key()).toBe("tab");
+  expect(shown()).toBe(`${AGENT_SUGGESTION}Tab`);
+  expect(key()).toBe("Tab");
 });
 
 test("an older acpmux that sends none, or a turn running, shows the plain placeholder", async () => {
@@ -609,7 +607,7 @@ test("typing spends the agent suggestion: emptying the field again does not brin
   expect(field().textContent).toBe("");
   // The next turn's suggestion (a newer record) shows again.
   await render(afterTurn({ promptSuggestion: { text: "Open a PR", seq: 20 } }));
-  expect(shown()).toBe("Open a PRtab");
+  expect(shown()).toBe("Open a PRTab");
 });
 
 test("a suggestion that arrives over a draft is not shown, and keys over the draft keep their behaviour", async () => {

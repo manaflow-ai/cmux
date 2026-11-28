@@ -26,120 +26,32 @@ pub(crate) const OWNER_EXIT_GRACE: Duration = Duration::from_secs(2);
 /// again. A turn that ends after the quit stops the daemon within this time.
 pub(crate) const OWNER_KEPT_RECHECK: Duration = Duration::from_secs(60);
 
-/// The owner app's installed executable, as its launcher saw it. A successor daemon
-/// (`exe_swap.rs`) gets it with the owner's pid, so it can know the relaunched app even when the
-/// pid it inherits is gone already.
-pub(crate) const OWNER_APP_EXE_ENV: &str = "ACPMUX_OWNER_APP_EXE";
-
-/// The owner this daemon follows now: the app that started it, or the same app relaunched (an
-/// update, `owner_relaunch.rs`), adopted when it connects ([`adopt_if_relaunched`]).
-struct Owner {
-    pid: u32,
-    /// The owner's executable; the same executable connecting after the owner exited is the app
-    /// back again. None when it could not be read: such an owner is never re-adopted.
-    exe: Option<std::path::PathBuf>,
-    /// Bumped at each adoption, so a watch of an earlier owner's pid cannot mark the new one gone.
-    generation: u64,
-}
-
-static OWNER: std::sync::Mutex<Option<Owner>> = std::sync::Mutex::new(None);
-
-/// True once the owner followed now has exited; false again once a relaunched owner is adopted.
-static GONE: std::sync::LazyLock<watch::Sender<bool>> =
-    std::sync::LazyLock::new(|| watch::Sender::new(false));
-
-fn owner() -> std::sync::MutexGuard<'static, Option<Owner>> {
-    OWNER.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
 /// The owner app named in the environment, if any: its pid and a receiver that turns true once it
-/// has exited (and false again once the app relaunched for an update is adopted). A pid that does
-/// not parse, is 0 or 1, or is this process names no owner.
+/// has exited. A pid that does not parse, is 0 or 1, or is this process names no owner.
 pub(super) fn follow() -> Option<(u32, watch::Receiver<bool>)> {
     let pid = owner_pid(std::env::var(OWNER_APP_PID_ENV).ok().as_deref())?;
-    let exe = std::env::var_os(OWNER_APP_EXE_ENV)
-        .filter(|exe| !exe.is_empty())
-        .map(std::path::PathBuf::from)
-        .or_else(|| crate::agent_host::tree::exe(pid));
-    *owner() = Some(Owner { pid, exe, generation: 0 });
-    watch_owner(pid, 0).then(|| (pid, GONE.subscribe()))
-}
-
-/// The pid of the owner followed now, if any.
-pub(crate) fn current_pid() -> Option<u32> {
-    owner().as_ref().map(|owner| owner.pid)
-}
-
-/// The owner's executable, if known.
-pub(crate) fn current_exe() -> Option<std::path::PathBuf> {
-    owner().as_ref().and_then(|owner| owner.exe.clone())
-}
-
-/// Whether the owner followed now has exited.
-pub(crate) fn owner_gone() -> bool {
-    *GONE.borrow()
-}
-
-/// Starts the thread that marks `GONE` once `pid` exits, unless a later owner was adopted by then.
-fn watch_owner(pid: u32, generation: u64) -> bool {
+    let (gone, receiver) = watch::channel(false);
     let spawned = std::thread::Builder::new().name("acpmux-owner-watch".into()).spawn(move || {
         match imp::wait_exit(pid, || true) {
             Ok(()) => {
-                let owner = owner();
-                if owner.as_ref().is_some_and(|owner| owner.generation == generation) {
-                    tracing::info!(pid, "the owner app exited");
-                    GONE.send_replace(true);
-                }
+                tracing::info!(pid, "the owner app exited");
+                let _ = gone.send(true);
             }
             // No exit event: the daemon keeps its grace, as without an owner.
             Err(error) => {
                 tracing::warn!(pid, %error, "cannot watch the owner app; it is not followed");
+                // Keep the sender alive so the receiver never reads a close as an exit.
+                std::mem::forget(gone);
             }
         }
     });
     match spawned {
-        Ok(_) => true,
+        Ok(_) => Some((pid, receiver)),
         Err(error) => {
             tracing::warn!(pid, %error, "cannot start the owner app watch; it is not followed");
-            false
+            None
         }
     }
-}
-
-/// A unix socket peer `pid` connected. When the owner app has exited and `pid` runs the owner's
-/// executable, it is the same app relaunched (an update, a relaunch, a quit and reopen): the daemon
-/// follows it from now on, so it stops with it again rather than 2 s after any later blip with
-/// no client, and clears a relaunch marker (`owner_relaunch.rs`). Returns whether it adopted.
-pub(crate) fn adopt_if_relaunched(pid: u32) -> bool {
-    if !owner_gone() || owner_pid(Some(&pid.to_string())).is_none() {
-        return false;
-    }
-    let Some(peer_exe) = crate::agent_host::tree::exe(pid) else { return false };
-    let generation = {
-        let mut owner = owner();
-        let Some(current) = owner.as_mut() else { return false };
-        if current.pid == pid || !same_exe(current.exe.as_deref(), &peer_exe) {
-            return false;
-        }
-        current.pid = pid;
-        current.generation += 1;
-        current.generation
-    };
-    // Warn level: once per update, and the hand-off tests read it at `--log warn`.
-    tracing::warn!(pid, exe = %peer_exe.display(), "the owner app is back (relaunched); following it");
-    crate::daemon::owner_relaunch::arrived();
-    GONE.send_replace(false);
-    watch_owner(pid, generation);
-    true
-}
-
-/// Whether `peer` is the owner's executable `owner`. The bundle an update installs sits at the
-/// same path; both are compared as resolved paths.
-fn same_exe(owner: Option<&std::path::Path>, peer: &std::path::Path) -> bool {
-    let Some(owner) = owner else { return false };
-    let canon =
-        |path: &std::path::Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    owner == peer || canon(owner) == canon(peer)
 }
 
 /// Debug builds only: the test process that started this daemon or agent host, as
@@ -370,5 +282,77 @@ mod imp {
 }
 
 #[cfg(test)]
-#[path = "owner_exit_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quit_helpers_only_another_real_pid_names_an_owner() {
+        assert_eq!(owner_pid(Some("4242")), Some(4242));
+        assert_eq!(owner_pid(Some(" 4242\n")), Some(4242));
+        assert_eq!(owner_pid(None), None);
+        assert_eq!(owner_pid(Some("")), None);
+        assert_eq!(owner_pid(Some("app")), None);
+        assert_eq!(owner_pid(Some("0")), None);
+        assert_eq!(owner_pid(Some("1")), None);
+        assert_eq!(owner_pid(Some(&std::process::id().to_string())), None);
+        assert_eq!(owner_pid(Some("4294967295")), None);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn a_test_owner_names_its_pid_and_start_time() {
+        assert_eq!(test_owner(Some("4242:917")), Some((4242, Some(917))));
+        assert_eq!(test_owner(Some(" 4242\n")), Some((4242, None)));
+        assert_eq!(test_owner(Some("4242:x")), None);
+        assert_eq!(test_owner(Some("1:917")), None);
+        assert_eq!(test_owner(None), None);
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn a_process_keeps_its_start_time_and_a_gone_one_has_none() {
+        let mut child = std::process::Command::new("sleep").arg("30").spawn().unwrap();
+        let start = process_start(child.id());
+        assert!(start.is_some());
+        assert_eq!(process_start(child.id()), start);
+        assert!(process_start(std::process::id()).is_some_and(|own| Some(own) <= start));
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert_eq!(process_start(child.id()), None);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn quit_helpers_the_watch_returns_when_the_process_exits() {
+        let mut child = std::process::Command::new("sleep").arg("600").spawn().expect("sleep");
+        let pid = child.id();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(imp::wait_exit(pid, || true).is_ok());
+        });
+        assert!(rx.recv_timeout(Duration::from_millis(300)).is_err(), "returned while it runs");
+        let _ = child.kill();
+        let _ = child.wait();
+        assert_eq!(rx.recv_timeout(Duration::from_secs(5)), Ok(true));
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn quit_helpers_the_watch_returns_at_once_for_a_process_already_gone() {
+        let mut child = std::process::Command::new("true").spawn().expect("true");
+        let pid = child.id();
+        let _ = child.wait();
+        assert!(imp::wait_exit(pid, || true).is_ok());
+    }
+
+    /// A pid that names another process once the watch holds it counts as an exit at once.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn a_watch_whose_process_is_not_ours_returns_at_once() {
+        let mut child = std::process::Command::new("sleep").arg("600").spawn().expect("sleep");
+        let returned = imp::wait_exit(child.id(), || false).is_ok();
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(returned);
+    }
+}

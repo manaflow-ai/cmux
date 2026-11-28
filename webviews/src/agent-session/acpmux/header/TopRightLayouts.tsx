@@ -26,7 +26,6 @@ import {
 import { useT } from "../i18n";
 import { tooltipProps } from "../shortcuts";
 import { focusRoute } from "../../../ui/focusRoute";
-import { KeyHint } from "../../../ui/KeyHint";
 import { Menu, MenuButton, MenuGroup, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { motionMode } from "../../../ui/motion/motionMode";
 import { HeaderIcon } from "./HeaderIcon";
@@ -351,7 +350,7 @@ function DockButton({
           <HeaderIcon name={tool.icon} size={14} lit={tool.pressed === true} />
         </span>
         <span className="acpmux-chat-menu-label">{tool.title ?? tool.label}</span>
-        {shortcuts[tool.id] && <KeyHint keys={shortcuts[tool.id]!} className="acpmux-chat-menu-key" />}
+        {shortcuts[tool.id] && <kbd className="acpmux-chat-menu-key">{shortcuts[tool.id]}</kbd>}
       </MenuItem>
     ));
   return (

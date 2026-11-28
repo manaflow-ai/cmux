@@ -5,7 +5,6 @@ import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
-import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSidebar
 import Foundation
@@ -49,12 +48,8 @@ enum TopPages {
     /// Leaves the active window's top page for its workspace at once (a
     /// History or Bookmarks row opens there). True when a page was left.
     @discardableResult
-    static func leave(_ services: AppServices) -> Bool { services.windows.active?.leaveTopPage() ?? false }
-
-    private static func registerFlagged(_ provider: WebPageTab, action: ActionID, services: AppServices, reason: String, shows: @escaping (CmuxConfigSnapshot) -> Bool) {
-        services.pages.register(provider)
-        services.registry.addSettingOffReason([action]) { [weak services] in services?.settings.map { shows($0.snapshot) } == true ? nil : reason }
-        _ = services.registry.bindEffect(action, effect: { [weak services, page = provider.page] _ in _ = services.map { TopPages.show(.page(page), services: $0) }; return .done })
+    static func leave(_ services: AppServices) -> Bool {
+        services.windows.active?.leaveTopPage() ?? false
     }
 
     /// The pages History and Bookmarks show on top (Q3).
@@ -62,19 +57,23 @@ enum TopPages {
         services.pages.register(HistoryTopPage(services: services))
         services.pages.register(BookmarksTopPage(services: services))
         services.pages.register(StashTopPage(services: services))
-        // Forum and Feed (experiments.forum, experiments.feed, off by default; the Feed: every update, ask c-9f58e14079): `action` opens it, hidden and refused with `reason` while `shows` is false.
-        registerFlagged(WebPageTab(.forum, symbol: SidebarBuiltIn.forum.symbol, icon: SidebarBuiltIn.forum.icon, title: SidebarBuiltIn.forum.title) { [weak services] in services.flatMap { s in
-            PageWebView(descriptor: .forum, routes: [PageRoute(prefix: "cmux.forum.", provider: DaemonPageRelay(services: s))], route: nil).map { page -> PageWebView in PageConnectionWatch(page: page, store: s.machines.local.store).start(); return page } } }, action: "forum.show", services: services, reason: CmuxConfigSnapshot.forumHiddenReason) { $0.showsForum }
-        registerFlagged(WebPageTab(.feed, symbol: SidebarBuiltIn.feed.symbol, title: SidebarBuiltIn.feed.title) { [weak services] in services.flatMap { PageFactory(services: $0).feedWebPage(route: "#/inbox") } }, action: "feed.show", services: services, reason: CmuxConfigSnapshot.feedHiddenReason) { $0.showsFeed }
+        // Forum (experiments.forum, off by default): hidden in the sidebar and refused while off.
+        services.pages.register(ForumTopPage(services: services))
+        services.registry.addSettingOffReason(["forum.show"]) { [weak services] in
+            services?.settings?.snapshot.showsForum == true ? nil : CmuxConfigSnapshot.forumHiddenReason
+        }
+        _ = services.registry.bindEffect("forum.show", effect: { [weak services] _ in _ = services.map { TopPages.show(.page(.forum), services: $0) }; return .done })
         // Automations (docs/automations-platonic-ideal.md section 8): this Mac's store through the bundled CLI, Cloud through cloud.automation.
         let automations = AutomationsPageHost(bundled: services.bundledCLI, cloud: { [forward = CloudCLICall(cli: services.bundledCLI).automationRelay(signedIn: services.cloud.auth)] in
             try AutomationsPageHost.cloudValue(await forward(Data(#"{"op":"automation.list","params":{"limit":100}}"#.utf8))) })
         automations.openChat = { [weak services] session, title in // a prompt run's chat, found by its name
             _ = services?.registry.perform("agent.openSessionWorkspace", invocation: .init(arguments: ["session": .string(session), "name": .string(title)], origin: .user))
         }
-        // Signed out, the page's Cloud line offers the app's one cmux sign-in (msg 3790), saying what it signs in to.
-        automations.signIn = { [weak services] in services.map { app in CmuxSignInOffer(registry: app.registry, isSignedIn: { app.cloud.isSignedIn }).signIn() } }
-        automations.signInBackend = services.cloud.configuration.signInBackendLine
+        // Signed out, the page's Cloud line offers the app's one cmux sign-in (msg 3790).
+        automations.signIn = { [weak services] in
+            guard let services else { return }
+            CmuxSignInOffer(registry: services.registry, isSignedIn: { services.cloud.isSignedIn }).signIn()
+        }
         services.pages.register(WebPageTab(.automations, symbol: "clock.badge.checkmark", icon: .automation, title: SidebarBuiltIn.automations.title,
                                            view: { [weak services] _ in let scope = services?.windows.active?.themeScope ?? .app; return automations.makeView(tokens: { [weak scope] in scope?.tokens ?? ThemeScope.app.tokens }) }))
         _ = services.registry.bindEffect("automations.show", effect: { [weak services] i in _ = services.map { TopPages.show(.page(.automations), services: $0) }; automations.show(named: i.arguments["name"]?.stringValue); return .done })

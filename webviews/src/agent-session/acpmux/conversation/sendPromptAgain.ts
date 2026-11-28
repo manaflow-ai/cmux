@@ -68,7 +68,6 @@ export function sendPromptAgainMenu(state: SendPromptAgainState, t: Translate): 
   return {
     sessionId: target.sessionId,
     rowId: target.footerId,
-    // retry-prompt-ok: sends the prompt again, a paid model request.
     label: t("turn.retryLabel"),
     modelsLabel: t("turn.retryWith"),
     moreModelsLabel: t("picker.moreModels"),

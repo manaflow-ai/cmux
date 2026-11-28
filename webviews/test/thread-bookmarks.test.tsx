@@ -6,7 +6,6 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow, ConversationLayout } from "../src/agent-session/acpmux/model";
 import { teardownDom } from "./support/domTeardown";
-import { railFrame } from "./support/railFrame";
 // These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
@@ -105,7 +104,6 @@ test("prompt action bookmarks share the rail's persisted mark and toggle immedia
         ]),
       ),
     );
-    await railFrame();
     await settle();
     const buttons = () => [...host.querySelectorAll<HTMLButtonElement>(".cv-user__actions button[aria-pressed]")];
     expect(buttons()).toHaveLength(2);
@@ -151,7 +149,6 @@ async function mount() {
       }),
     ),
   );
-  await railFrame();
   await settle();
   return { host, root };
 }

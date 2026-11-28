@@ -212,7 +212,7 @@ impl Store {
         keep_in_cloud: bool,
     ) -> CloudResult<SessionView> {
         named(id)?;
-        self.mover(caller, id)?;
+        self.owner_only(caller)?;
         self.apply(id, |chat, _| rules::keep(&chat.rec, keep_in_cloud)).map(|((), view)| view)
     }
 
@@ -225,7 +225,7 @@ impl Store {
         request: &MoveRequest,
     ) -> CloudResult<SessionView> {
         named(id)?;
-        self.mover(caller, id)?;
+        self.owner_only(caller)?;
         let device = request.device.as_ref();
         if device.is_some_and(|device| !device.is_device() || !check::writer(device)) {
             return Err(invalid("device: the laptop to move the chat to, as device:<id>"));

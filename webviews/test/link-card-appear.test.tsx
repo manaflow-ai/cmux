@@ -132,8 +132,8 @@ test("while the host reads, placeholder rows hold the card at its full size; the
   try {
     const card = opened.card()!;
     const rows = [...card.querySelectorAll<HTMLElement>("[data-placeholder]")].map((row) => row.dataset.placeholder);
-    // The rows the answer brings: its author, its checks/status, its change summary and its branches.
-    expect(rows).toEqual(["who", "status", "changes", "branches"]);
+    // The rows the answer brings: its state, its author, its two change lines and its branches.
+    expect(rows).toEqual(["status", "who", "changes", "branches"]);
     for (const row of card.querySelectorAll("[data-placeholder]")) expect(row.getAttribute("aria-hidden")).toBe("true");
     // What the chat already knows still shows.
     expect(card.textContent).toContain("manaflow-ai/cmux#37155");
@@ -154,6 +154,7 @@ test("while the host reads, placeholder rows hold the card at its full size; the
       slot.lastElementChild?.hasAttribute("data-placeholder"),
     );
     expect(slots.map((slot) => slot.lastElementChild?.getAttribute("data-placeholder"))).toEqual([
+      "status",
       "who",
       "changes",
       "branches",
@@ -170,10 +171,10 @@ test("while the host reads, placeholder rows hold the card at its full size; the
       });
     await end("who");
     expect([...card.querySelectorAll<HTMLElement>("[data-placeholder]")].map((row) => row.dataset.placeholder)).toEqual(
-      ["changes", "branches"],
+      ["status", "changes", "branches"],
     );
     expect(card.querySelector(".acpmux-pr-card__who:not([data-placeholder])")).toBe(who);
-    for (const row of ["changes", "branches"]) await end(row);
+    for (const row of ["status", "changes", "branches"]) await end(row);
     expect(card.querySelector("[data-placeholder]")).toBeNull();
     expect(card.querySelector(".acpmux-pr-card__who:not([data-placeholder])")).toBe(who);
     expect(card.querySelector(".acpmux-pr-card__who")?.textContent).toContain("teamleaderleo");
