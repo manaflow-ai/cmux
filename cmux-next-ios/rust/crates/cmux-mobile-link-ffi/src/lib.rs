@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use cmux_mobile_link::api::ApiClient;
 use cmux_mobile_link::api::{HttpClient, IceCache, IceServer};
-use cmux_mobile_link::link::{ChannelReceiver, ChannelSender};
+use cmux_mobile_link::link::ChannelSender;
 use cmux_mobile_link::signaling::{AfterNetworkChange, after_network_change};
 use cmux_mobile_link::viewport::{PhoneViewport, ViewportReceiver};
 use cmux_mobile_link::{
@@ -30,6 +30,7 @@ mod cmux_link;
 mod composer_outbox;
 mod feed_list_edit;
 mod follow_camera;
+mod harness_tuck;
 mod lan;
 mod last_place;
 mod link_progress;
@@ -52,6 +53,7 @@ mod terminal_chat;
 mod terminal_fit;
 mod terminal_prediction;
 mod terminal_projection;
+mod terminal_sizing_view;
 mod vault;
 mod vnc;
 mod window_layout;
@@ -60,6 +62,7 @@ mod workspace_creation;
 mod workspace_groups;
 mod workspace_moves;
 mod workspace_row_actions;
+mod zstd_stream;
 
 pub use attachment_upload::{
     AttachmentUploads, ImagePlan, Timings, UploadObserver, UploadProgress, UploadSpec, UploadStage,
@@ -137,6 +140,7 @@ pub use workspace_row_actions::{
     WorkspaceRowFacts, WorkspaceRowPlacement, workspace_merge_targets, workspace_new_row_anchor,
     workspace_row_placements,
 };
+pub use zstd_stream::ZstdStreamDecoder;
 
 uniffi::setup_scaffolding!();
 

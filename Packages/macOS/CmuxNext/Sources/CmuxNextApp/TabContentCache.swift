@@ -243,7 +243,7 @@ final class TabContentCache {
     private func newIO(for tab: TabModel, daemon: DaemonService, visible: Bool, gate: TerminalTargetGate?) -> DaemonTerminalIO { // the daemon attachment of `tab`'s view: its making starts the attach
         DaemonTerminalIO(target: DaemonTerminalIO.Target(attachment: TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID, generation: daemon.store.generation), initialSize: tab.size ?? CellSize(cols: 80, rows: 24), cursorDefault: .user),
                          resizes: resizes, visible: visible, gate: gate, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } }, remoteShell: !daemon.isLocal, uploadsPasteboardFiles: daemon.machineID != "local",
-                         burstTrace: pageRequests.services?.burstTrace, policyBlocked: daemon.policyBlock.check, endpoint: { try await daemon.endpoint() })
+                         burstTrace: pageRequests.services?.burstTrace, policyBlocked: daemon.policyBlock.check, endpoint: { try await daemon.attachEndpoint() })
     }
     /// Tab ids whose Ghostty surface has focus (first responder in the key
     /// window), for `debug.focus`.
@@ -463,7 +463,7 @@ final class TabContentCache {
             entry.extensionMenuHandler = handler
             entry.state.extensionMenuHandler = handler
         }
-        if agentDrivenTabs.contains(key) { page.markAgentDriven() } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
+        if agentDrivenTabs.contains(key) { page.markAgent(reading: false, session: agentMarks.sessions[key]) } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
         pageRequests.proxiedTabs.adopt(store: (page as? CEFTab)?.machineStore, key: key)
         pageRequests.siteEngines.follow(entry.state, page: page) // browser.siteEngines for the pages it reaches (#45018)
         browsers[key] = entry

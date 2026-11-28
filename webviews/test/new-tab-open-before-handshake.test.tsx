@@ -7,12 +7,14 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
-import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
-import { classicField } from "./support/classicNewTabField";
 import { until } from "./support/until";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { proseMirrorGlobals } = await importWithDom(() => import("../src/agent-session/acpmux/promptFieldTesting"));
+const { classicField } = await importWithDom(() => import("./support/classicNewTabField"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

@@ -123,6 +123,9 @@ pub(super) async fn route(
     let params = super::pairing::gate(conn, m, params)?;
     // So does a teammate through the Cloud carrier, to its verbs (`carrier.rs`).
     let params = super::carrier::gate(hub, conn, m, params)?;
+    if m == crate::rpc::method::MUX_SHUTDOWN {
+        tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: routed");
+    }
     // The app's and webviews' own spans of one user action, into this daemon's Perfetto trace
     // (`perf_trace.rs`): no store, no peer.
     if m == crate::perf_trace::METHOD_SPANS {
@@ -134,6 +137,9 @@ pub(super) async fn route(
         );
     }
     hub.prepare_store_request(m, &params).await;
+    if m == crate::rpc::method::MUX_SHUTDOWN {
+        tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: store gate passed");
+    }
     // The owner's phone a peer daemon vouches for on this request, before any rule reads it.
     super::remote_guard::note_vouched_phone(hub, conn, &params);
     if m == crate::rpc::method::MUX_OWNER_PHONE_CHANGED {
@@ -216,6 +222,9 @@ pub(super) async fn route(
     if let Some(reply) = heap(|| super::bg_tasks::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
+    if let Some(reply) = super::parked_waits::dispatch(hub, conn, m, &params) {
+        return reply;
+    }
     if let Some(reply) = heap(|| super::run_elsewhere::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
@@ -245,6 +254,10 @@ pub(super) async fn route(
     if let Some(reply) = heap(|| super::prompt_coach::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
+    if let Some(reply) = heap(|| super::pull_request_actions::dispatch(hub, conn, m, &params)).await
+    {
+        return reply;
+    }
     if let Some(reply) = heap(|| super::workflow_runs::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
@@ -265,7 +278,17 @@ pub(super) async fn route(
         if params.get(crate::agent_credentials::FIELD).is_some() {
             crate::agent_credentials::admit(true, conn.caller())?;
         }
-        return heap(|| hub.transfer_request(m, &params)).await;
+        let reply = heap(|| hub.transfer_request(m, &params)).await;
+        // The move this connection began ends soon after the connection does, unless its
+        // client came back (`transfer_watch.rs`, `watch_move_client`).
+        if m == "_acpmux/transfer_begin"
+            && let Ok(begun) = &reply
+            && let (Some(session), Some(transfer)) =
+                (begun["sessionId"].as_str(), begun["transferId"].as_str())
+        {
+            hub.watch_move_client(session, transfer, conn.ended.subscribe());
+        }
+        return reply;
     }
     // An incognito workspace's chats, ended and deleted (`workspace_purge.rs`): local only.
     if m == workspace_purge::METHOD {

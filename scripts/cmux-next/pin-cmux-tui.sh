@@ -131,10 +131,10 @@
 #          commit has tree <key>; nothing when none; "unknown" when the runs cannot all be read;
 #          CMUX_TUI_TREE_SKIP_PUBLISHERS, space-separated commits, are passed over)
 #        | run-progress <commit> (its active cmux-tui artifacts runs, from their jobs:
-#          building, "failed <job>: <url>", "stalled <what>", none or unknown)
+#          building, rebuilding, "failed <job>: <url>", "stalled <what>", none or unknown)
 #        | tree-publisher <key> <candidate>... (who will publish tree <key>, the nightly's one
 #          reading for resolve-tree-pending.sh and await-tree-client.sh: "building <commit>",
-#          "stuck <why>", ended, none or unknown; see tree_publisher)
+#          "rebuilding <commit>", "stuck <why>", ended, none or unknown; see tree_publisher)
 #        | verify-key <key> (commit=<publishing commit> when tree <key> is published and its
 #          manifest sha256 verifies; exit 1 not published (a 404), 3 a read failure or unverifiable)
 #        | wait (wait for the tree; superseded=true output for a superseded commit)
@@ -411,9 +411,15 @@ print(max(1, wait))
 # github_get <url>: one GitHub REST GET (with GH_TOKEN when set), the body on
 # stdout. Exit 0 read; 1 any other failure, as a plain `curl -f` read; 4 still
 # refused for the rate limit because its reset is past rate_limit_deadline.
+# RATE_LIMIT_MOVES_TO_A_SPARE: a rate-limited read goes out again at once on the
+# next token of GH_TOKEN_SPARES (space-separated; the CI pool's tokens) before it
+# waits. Nightly 46095639816 read the runs on github.token alone; the installation's
+# hour was spent ("API rate limit exceeded for installation", 02:35Z), so every
+# check for 25 min answered unknown while the tree's run was building.
 github_get() {
-  local url="$1" headers body rc status wait auth=()
+  local url="$1" headers body rc status wait auth=() spares=() spare_at=0
   [[ -n "${GH_TOKEN:-}" ]] && auth=(-H "Authorization: Bearer $GH_TOKEN")
+  read -r -a spares <<<"${GH_TOKEN_SPARES:-}" || true
   headers="$(mktemp "${TMPDIR:-/tmp}/cmux-tui-api.XXXXXX")" || return 1
   while :; do
     : > "$headers"
@@ -428,6 +434,15 @@ github_get() {
     fi
     if (( rc != 0 )) || ! wait="$(rate_limit_wait "$status" "$headers" <<<"$body")"; then
       rm -f "$headers"; return 1
+    fi
+    while (( spare_at < ${#spares[@]} )) && [[ -z "${spares[$spare_at]}" || "${spares[$spare_at]}" == "${GH_TOKEN:-}" ]]; do
+      spare_at=$(( spare_at + 1 ))
+    done
+    if (( spare_at < ${#spares[@]} )); then
+      echo "note: GitHub API rate limit (HTTP $status) on ${url%%\?*}; reading again on spare token $(( spare_at + 1 )) of ${#spares[@]}" >&2
+      auth=(-H "Authorization: Bearer ${spares[$spare_at]}")
+      spare_at=$(( spare_at + 1 ))
+      continue
     fi
     if (( $(date +%s) + wait > rate_limit_deadline )); then
       echo "note: GitHub API rate limit (HTTP $status) on ${url%%\?*}: it resets in ${wait}s, past this check's rate-limit wait (CMUX_TUI_TREE_RATE_LIMIT_WAIT_SECONDS=$rate_limit_budget)" >&2
@@ -480,8 +495,12 @@ else:
 # Prints how cmux-tui artifacts runs of commit <sha> are doing, one line,
 # from their jobs, so a waiter follows the run's live state instead of only "active":
 #   building             a run is making progress: nothing below holds for it
+#   rebuilding           as building, but its primary macOS leg failed (a runner shutdown, mostly)
+#                        and build-darwin-fallback is rebuilding it, so the tree lands about
+#                        30 min later than a clean run's; await-tree-client.sh waits for it
 #   failed <job>: <url>  every active run has a failed preflight, build or publish job on its last
-#                        retry attempt, so none publishes the tree
+#                        retry attempt, so none publishes the tree; "<job> (the last attempt): <url>"
+#                        when that run is on attempt MAX_ATTEMPTS, so no retry follows either
 #   stalled <what>       every active run is stuck: a job (or the run itself, with no
 #                        jobs yet) has waited for a runner longer than
 #                        CMUX_TUI_TREE_RUNNER_STALL_SECONDS (default 900)
@@ -544,7 +563,9 @@ for run_id in sorted(os.listdir(os.path.join(jobs_dir, "jobs"))):
     bad = [j for j in jobs if j.get("conclusion") in ("failure", "timed_out", "cancelled")
            and REQUIRED.match(j.get("name", "")) and not DARWIN_PRIMARY.match(j.get("name", ""))]
     if bad and (run.get("status") == "completed" or int(run.get("run_attempt") or 1) >= MAX_ATTEMPTS):
-        failed.append(f"{bad[0]['name']}: {url}")
+        # "the last attempt": no retry follows, so await-tree-client.sh ends at this check.
+        last = " (the last attempt)" if int(run.get("run_attempt") or 1) >= MAX_ATTEMPTS else ""
+        failed.append(f"{bad[0]['name']}{last}: {url}")
         continue
     if run.get("status") == "completed":
         continue
@@ -560,6 +581,12 @@ for run_id in sorted(os.listdir(os.path.join(jobs_dir, "jobs"))):
     if not jobs and age(run.get("created_at")) >= stall:
         stalled.append(f"run pending {age(run.get('created_at')) // 60} min with no job started: {url}")
         continue
+    # 2026-11-27: the primary macOS leg of run 46057516735 (tree 8ddb82e1, 03fefcf7) got a runner
+    # shutdown 28 min in; build-darwin-fallback published the tree 38 min later, 13 min after
+    # NIGHTLY 46057516701 stopped waiting and bundled the older tree of 2bfbcf5a.
+    if any(DARWIN_PRIMARY.match(j.get("name", "")) and j.get("conclusion") in ("failure", "timed_out", "cancelled")
+           for j in jobs):
+        print("rebuilding"); sys.exit(0)
     print("building"); sys.exit(0)
 print(("failed " + failed[0]) if failed else ("stalled " + stalled[0]) if stalled else "none")
 PY
@@ -570,6 +597,7 @@ PY
 # artifacts runs build it, oldest first), one line:
 #   building <commit>  an active run of <commit> (a candidate's first, then any
 #                      same-key run) is making progress (artifacts_run_progress)
+#   rebuilding <commit> as building, while that run rebuilds its failed primary macOS leg
 #   stuck <why>        active runs exist, and none of them is making progress: a
 #                      build failed on its last retry attempt, or waits for a runner
 #                      past CMUX_TUI_TREE_RUNNER_STALL_SECONDS
@@ -590,7 +618,7 @@ tree_publisher() {
         [[ "$state" == active ]] || ended=true
         progress="$(artifacts_run_progress "$candidate")"
         case "$progress" in
-          building) echo "building $candidate"; return 0 ;;
+          building|rebuilding) echo "$progress $candidate"; return 0 ;;
           unknown) unknown=true ;;
           # The first read observed an active run; preserve it across list lag.
           none) [[ "$state" != active ]] || { echo "building $candidate"; return 0; } ;;
@@ -610,6 +638,7 @@ tree_publisher() {
       *)
         progress="$(artifacts_run_progress "$found")"
         case "$progress" in
+          rebuilding) echo "rebuilding $found"; return 0 ;;
           building|none) echo "building $found"; return 0 ;;
           unknown) echo unknown; return 0 ;;
           *) stuck="the run of ${found:0:12} is $progress"; skip="$skip $found" ;;
@@ -1786,6 +1815,56 @@ probe_cache_put() { # <key> good <commit> | <key> absent
   printf '%s\t%s\t%s\t%s\n' "$1" "$2" "${3:-}" "$(date +%s)" >> "$file" 2>/dev/null || true
 }
 
+# resolve_channel_tree <tip> <tip_time> <tip_key> <max_age_hours> <temp_dir>: the last look after a
+# window miss (CMUX_TUI_TREE_CHANNEL_LOOK=1). The commit window counts commits, not hours: at about
+# 60 merges an hour, 300 commits are 5 h. Nightly 46157002388 (2026-11-28, tip 1708b0ea) found no
+# fallback when cmux-tui-artifacts builds had failed for 8 h: the newest published tree, c6cd14b5's,
+# was 384 commits back, under the 24 h bound, and the nightly failed at "Bundle the cmux-tui client"
+# after its 45 min wait. The channel pointer (channels/$CMUX_TUI_TREE_CHANNEL.json, default
+# feat-cmux-next, moved by scripts/ci/cmux_tui_channel_keeper.py only to a published, daemon-tested
+# tree) names one such tree at one read. It is used when its commit is in the tip's history (when the
+# checkout has that history), within the age bound, and its tree verifies against the commit's
+# manifest like every other candidate. Prints the same lines as the window search.
+resolve_channel_tree() {
+  local tip="$1" tip_time="$2" tip_key="$3" max_age="$4" dir="$5" channel commit key rev_time behind_hours behind
+  channel="${CMUX_TUI_TREE_CHANNEL:-feat-cmux-next}"
+  download "$BASE/channels/$channel.json?t=$(date +%s)" "$dir/channel.json" 2>/dev/null \
+    || { echo "channel $channel: unreadable; no channel fallback" >&2; return 1; }
+  read -r commit key < <(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("commit") or "-", d.get("key") or "-")' "$dir/channel.json" 2>/dev/null) || true
+  [[ "${commit:-}" =~ ^[0-9a-f]{40}$ && "${key:-}" =~ ^[0-9a-f]{40}$ ]] \
+    || { echo "channel $channel: no commit and key; no channel fallback" >&2; return 1; }
+  if ! git cat-file -e "$commit^{commit}" 2>/dev/null; then
+    git fetch -q --no-tags --depth=1 origin "$commit" 2>/dev/null || true
+  fi
+  rev_time="$(git log -1 --format=%ct "$commit" 2>/dev/null)" \
+    || { echo "channel $channel: commit ${commit:0:12} is not readable here; no channel fallback" >&2; return 1; }
+  if [[ "$(git rev-parse --is-shallow-repository)" != true ]] && ! git merge-base --is-ancestor "$commit" "$tip" 2>/dev/null; then
+    echo "channel $channel: commit ${commit:0:12} is not in the history of the tip ${tip:0:12}; no channel fallback" >&2
+    return 1
+  fi
+  behind_hours=$(( (tip_time - rev_time) / 3600 ))
+  (( behind_hours < 0 )) && behind_hours=0
+  if (( tip_time - rev_time > max_age * 3600 )); then
+    echo "channel $channel: tree $key of ${commit:0:12} is ${behind_hours} h behind the tip (bound ${max_age} h); no channel fallback" >&2
+    return 1
+  fi
+  if ! verify_published_key "$key" "$dir"; then
+    echo "channel $channel: tree $key does not verify (manifest of ${verified_commit:-none}); no channel fallback" >&2
+    return 1
+  fi
+  behind="$(git rev-list --count "$commit..$tip" 2>/dev/null || echo 0)"
+  echo "resolved cmux-tui tree $key from the $channel channel (${commit:0:12}, $behind commits and $behind_hours h behind the tip ${tip:0:12}, tip tree ${tip_key:-unknown}); published by $verified_commit" >&2
+  printf 'commit=%s\nkey=%s\nsource_commit=%s\ntip_key=%s\nbehind=%s\nbehind_hours=%s\n' "$verified_commit" "$key" "$commit" "$tip_key" "$behind" "$behind_hours"
+  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+    {
+      echo "### cmux-tui client"
+      echo "- tree: \`$key\` from the \`$channel\` channel (tip tree \`${tip_key:-unknown}\`)"
+      echo "- build commit (app and daemon): \`$commit\` ($behind commits and $behind_hours h behind the tip \`$tip\`)"
+      echo "- publishing commit (manifest sha256 verified): \`$verified_commit\`"
+    } >> "$GITHUB_STEP_SUMMARY"
+  fi
+}
+
 resolve_newest_published_tree() {
   local limit max_age temp_dir rev rev_time tip_time behind_hours key candidate commit vrc tip tip_key behind=0 checked=0 distinct=0
   local bad_keys=" " good_keys=" " skips=""
@@ -1905,6 +1984,9 @@ resolve_newest_published_tree() {
     fi
     return 0
   done < <(git rev-list --date-order --max-count="$limit" HEAD)
+  if [[ "${CMUX_TUI_TREE_CHANNEL_LOOK:-}" == 1 ]] && resolve_channel_tree "$tip" "$tip_time" "$tip_key" "$max_age" "$temp_dir"; then
+    return 0
+  fi
   echo "error: no published cmux-tui tree in the last $limit commits of ${tip:0:12} ($checked checked, $distinct distinct trees, $skipped_skew skipped because ${CMUX_TUI_TREE_SAME_PATHS:-no path} differs from the tip): no commit there has a tree under $BASE/tree/<key>/ whose publishing commit's manifest sha256 matches. Publish one (pin-cmux-tui.sh --help) or raise CMUX_TUI_TREE_SEARCH_COMMITS." >&2
   [[ -z "$skips" ]] || printf 'skipped commits, newest first:\n%s' "$skips" >&2
   exit 1

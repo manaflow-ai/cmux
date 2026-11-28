@@ -259,6 +259,35 @@ async fn a_move_ends_as_soon_as_the_source_lists_the_chat_on_the_target() {
     );
 }
 
+/// A last-reply read through the original id follows the moved chat. The source's local
+/// transcript ends before the new reply, so reading its tombstone would return stale text.
+#[tokio::test]
+async fn last_reply_through_the_original_id_reads_the_moved_destination() {
+    let (target, source, mut src) = linked("mrlast").await;
+    let (id, to) = chat(&source, &target, &mut src).await;
+    let before = src.call("_acpmux/last", json!({"sessionId": id, "count": 1})).await;
+    assert_eq!(before["replies"], json!(["echo: hi"]), "{before}");
+
+    let out =
+        tokio::time::timeout(Duration::from_secs(45), move_command(&source, &id, &to).output())
+            .await
+            .expect("session move completed")
+            .expect("run session move");
+    assert!(out.status.success(), "stderr={}", String::from_utf8_lossy(&out.stderr));
+    committed(&mut src, &id).await;
+
+    // Write on the destination directly: the source's old transcript cannot contain it.
+    let mut dst = Rpc::connect(&target.socket).await;
+    dst.call("session/prompt", text_prompt(&id, "p-after-move", "only on the destination")).await;
+    let expected = dst.call("_acpmux/last", json!({"sessionId": id, "count": 1})).await;
+    assert_eq!(expected["replies"], json!(["echo: only on the destination"]), "{expected}");
+
+    let forwarded = src.call("_acpmux/last", json!({"sessionId": id, "count": 1})).await;
+    assert_eq!(forwarded["replies"], expected["replies"], "{forwarded}");
+    assert_eq!(forwarded["peer"], "target", "the read must reach the peer: {forwarded}");
+    assert_eq!(forwarded["truncated"], false, "{forwarded}");
+}
+
 /// A prompt sent through the source the moment the move commits starts a turn on the target:
 /// by the peer's row key over the daemon's link, and by the CLI, with no "queued here" detour.
 #[tokio::test]

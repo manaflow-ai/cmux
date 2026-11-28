@@ -436,6 +436,21 @@ impl Translator {
                             "request": {"subtype": "side_question", "question": RECAP_PROMPT},
                         })])
                     }
+                    WARM => {
+                        // Only on an idle process: a pooled agent no chat has taken yet.
+                        if self.in_turn.load(Ordering::SeqCst) {
+                            return Outbound::Reply(Message::err(
+                                id.clone(),
+                                RpcError::invalid_params("a turn is running"),
+                            ));
+                        }
+                        self.pending.lock().await.insert(id.to_string(), Pending::SideQuestion);
+                        Outbound::Lines(vec![json!({
+                            "type": "control_request",
+                            "request_id": format!("side-{}", id),
+                            "request": {"subtype": "side_question", "question": WARM_QUESTION},
+                        })])
+                    }
                     RENAME => self.rename(id, &p).await,
                     method::MUX_SUBAGENT_STOP => self.subagent_stop(id, &p).await,
                     method::MUX_STEER_WITHDRAW => self.withdraw_steer(id, &p).await,

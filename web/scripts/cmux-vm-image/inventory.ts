@@ -12,6 +12,7 @@ import path from "node:path";
 import { collectInventory } from "./bake";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, StepLog, type Vm, wakeVm } from "./guest";
 import { SELF_UPDATE_OFF } from "./host-agent";
+import { guestShape, type GuestShape } from "./large-image";
 import { DEFAULT_LOCK_PATH, readInputsLock } from "./lock";
 
 /** Tries of the whole collect: a connection the provider cut (run 42410303540: ECONNRESET on the file manifest's
@@ -29,6 +30,36 @@ export function retriesInventory(error: unknown, attempt: number): boolean {
   // verdict; the steps are detached (StepLog.detachedStep), so only a short start, poll or download can time out.
   if ((error as { name?: unknown } | null)?.name === "TimeoutError" || /\bTimeoutError\b/.test(text)) return true;
   return /ECONNRESET|socket connection was closed|socket hang up|ETIMEDOUT|EPIPE|ECONNREFUSED|fetch failed|UND_ERR|\b50[234]\b/i.test(text);
+}
+
+/**
+ * The shape the SBOM scan and file manifest run at. The builder is left at the base size (2 vCPU, 3.9 GiB) the image
+ * boots at, and both read the whole tree at once beside the cmux daemon: the scan took 442 s of its 600 s budget in
+ * roll 46085354594 and ran past it in roll 46090412457 (file manifest 153 s, then 253 s), on a tree of the same size
+ * (33179 components). syft 1.52.0 peaked at 680 MB for 1530 packages on a lane VM, so the image's 33179 want GiB, not
+ * MB, of a 3.9 GiB guest; on 2 CPUs with a hasher beside it the scan took 10.4/9.9 s, on 4 CPUs 8.1/7.9 s. The snapshot
+ * is already taken and the builder is deleted after this, so growing it changes no image. vCPU and memory only (one
+ * provider call, 114 ms in the smoke's resize-sm-to-md): the scan writes only its outputs under /tmp.
+ */
+export const INVENTORY_SHAPE = { cpu: 4, memoryMb: 8192 } as const;
+
+/** Grows the inventory target to INVENTORY_SHAPE unless it is already that size (a large-image bake leaves its builder
+ * grown, and resize only grows). A refused or failed resize is logged and the scan runs as it is. */
+export async function growForInventory(vm: Vm, log: (line: string) => void, shape: (vm: Vm) => Promise<GuestShape> = guestShape): Promise<void> {
+  const t0 = Date.now();
+  try {
+    const before = await shape(vm);
+    // The guest sees a little less memory than it was given (3915 MB of 4096 at base size).
+    if (before.cpu >= INVENTORY_SHAPE.cpu && before.memoryMb >= INVENTORY_SHAPE.memoryMb * 0.85) {
+      log(`INVENTORY shape ${JSON.stringify(before)} kept`);
+      return;
+    }
+    await vm.resize({ cpu: Math.max(before.cpu, INVENTORY_SHAPE.cpu), memory: Math.max(Math.ceil(before.memoryMb / 1024) * 1024, INVENTORY_SHAPE.memoryMb) });
+    const after = await shape(vm).catch(() => "unread");
+    log(`INVENTORY shape ${JSON.stringify(before)} -> ${JSON.stringify(after)} in ${Date.now() - t0} ms`);
+  } catch (error) {
+    log(`WARN inventory resize to ${INVENTORY_SHAPE.cpu} vCPU / ${INVENTORY_SHAPE.memoryMb} MB failed, scanning as it is: ${String(error)}`);
+  }
 }
 
 /** How long a retry waits for the builder to answer a trivial exec before it moves to a clone of the snapshot. */
@@ -100,6 +131,7 @@ export async function main(argv = process.argv): Promise<number> {
         // #63475: the provider pauses an idle builder; read its state and start it before each try and on failed polls.
         const wakeTarget = () => wakeVm(target, (line) => L.log(line), target === vm ? `${record.name} (inventory)` : `${record.name} (inventory clone)`);
         await wakeTarget().catch((error: unknown) => L.log(`WARN inventory wake before try ${attempt}: ${String(error)}`));
+        await growForInventory(target, (line) => L.log(line));
         await collectInventory(target, L, { devTree: false, outDir }, lock, inventory, record.name, attempt === 1 ? undefined : `/tmp/cmux-out-${attempt}`, wakeTarget);
       },
       // Woken first (#63475), so a paused builder is started, not replaced; only one that still does not answer is.

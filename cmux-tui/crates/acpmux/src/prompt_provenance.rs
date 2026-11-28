@@ -650,6 +650,19 @@ pub fn cli_host(params: &Value) -> Option<&str> {
     fits.then_some(host)
 }
 
+/// Whether a `user_message` record is a prompt the person typed. [`marked`] gives every prompt the
+/// daemon cannot attribute to the proven person a `_meta.provenance` (another agent's message, a
+/// notice, a task's result, a trigger, `unverified`), so one with a provenance is someone else's;
+/// so is a line Claude Code queued by itself (`adopt_replay.rs` `harness_queued`) that an adopted
+/// chat recorded without one.
+pub fn persons_prompt_record(msg: &Value) -> bool {
+    if msg.pointer("/_meta/provenance").is_some_and(|p| !p.is_null()) {
+        return false;
+    }
+    let text = msg.get("text").and_then(Value::as_str).unwrap_or_default();
+    !crate::adopt_replay::harness_queued(text)
+}
+
 /// The durable copy of a session-to-session message a prompt's in-memory provenance carries
 /// (`hub/message_events.rs`). A record keeps it as `_meta._acpmuxMessage`, beside
 /// `_meta.provenance` and never inside it, so the provenance a client reads stays the sender's.

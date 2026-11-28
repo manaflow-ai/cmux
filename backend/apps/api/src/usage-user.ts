@@ -1,4 +1,4 @@
-import { billedMetersSql, COST_USD_PER_UNIT, MONEY_METERS } from "./domains/usage.ts"
+import { billedMetersSql, COST_USD_PER_UNIT, MONEY_METERS, type AdminCap } from "./domains/usage.ts"
 import type { Meter } from "@cmux/protocol"
 import { lastSeenSeats, teamModeAt } from "./usage-billing-store.ts"
 import type { IncludedMode, UsagePriceSet } from "./billing-catalog.ts"
@@ -49,7 +49,7 @@ export type UserReserve = { readonly ok: true } | { readonly ok: false; readonly
 export interface ReserveTeamCap {
   readonly set: UsagePriceSet
   /** The admin's cap (UsageMeterDO state, usage.cap.set), or null for the set's default. */
-  readonly admin_cap_usd: number | null
+  readonly admin_cap_usd: AdminCap
   /** The raise lock's limit in pools (billing-catalog.ts teamCapUnpaidMaxPools); absent = the default. */
   readonly unpaid_max_pools?: number
 }

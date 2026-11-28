@@ -917,6 +917,9 @@ impl Store for JournalStore {
         self.inner
             .fenced(id, || Store::scan_matching(&self.inner.local, id, after, may_match, visit))
     }
+    fn scan_raw(&self, id: &str, after: u64, visit: &mut dyn FnMut(&[u8]) -> bool) -> Result<()> {
+        self.inner.fenced(id, || Store::scan_raw(&self.inner.local, id, after, visit))
+    }
     fn scan_strict(
         &self,
         id: &str,
@@ -935,6 +938,19 @@ impl Store for JournalStore {
     ) -> Result<()> {
         self.inner
             .fenced(id, || Store::scan_back(&self.inner.local, id, after, before, skip, visit))
+    }
+    fn scan_back_matching(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        may_match: &dyn Fn(&[u8], &[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.inner.fenced(id, || {
+            Store::scan_back_matching(&self.inner.local, id, after, before, skip, may_match, visit)
+        })
     }
     fn scan_back_indexed(
         &self,
@@ -1393,6 +1409,9 @@ impl Store for JournalStore {
     }
     fn audit_dir(&self) -> Option<PathBuf> {
         Store::audit_dir(&self.inner.local)
+    }
+    fn usage_tracker_dir(&self) -> Option<PathBuf> {
+        Store::usage_tracker_dir(&self.inner.local)
     }
 }
 

@@ -7,7 +7,7 @@
 # processed Info.plist yet, the same phase again over the bundled helper, a previous build's Info.plist
 # (another name and id) left in the app, --app with no Info.plist, and --stamp refusing a name that is
 # not one, and an app built before the rename (a legacy "<name> Screen Sharing.app") migrating on a rebuild and
-# on --stamp while another app's " Helper.app" stays, and the app's icon copied into the helper. Each run must leave exactly one helper, named from this build, and no staging directory.
+# on --stamp while another app's " Helper.app" stays, and Computer Use's icon (else the app's) copied into the helper. Each run must leave exactly one helper, named from this build, and no staging directory.
 # Runs on Linux and macOS (python3 and file(1)).
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -61,6 +61,7 @@ run() { # [args...] -> out, rc; the Xcode phase's settings unless --app/--stamp
     CMUX_PLISTBUDDY="$TMP/PlistBuddy" CMUX_CODESIGN_TOOL="$TMP/codesign" \
     CMUX_NEXT_SCREEN_HELPER_BIN="$TMP/cmux-screen-sharing" ${settings[@]+"${settings[@]}"} \
     ${ICON_SETTING:+ASSETCATALOG_COMPILER_APPICON_NAME="$ICON_SETTING"} \
+    CMUX_NEXT_COMPUTER_USE_ICON="${CU_ICON-}" \
     /bin/bash "$SCRIPT" "$@" 2>&1)
   rc=$?
   set -e
@@ -181,5 +182,22 @@ expect_icon "--app" stable-icon
 rm -f "$app/Contents/Resources/AppIcon-Stable.icns"
 run --stamp "$app"
 expect_no_icon "--stamp, the app's icns gone"
+
+# 11. Computer Use's own icon wins over the app's: the drag row and System Settings show the cursor icon "cmux
+# Computer Use.app" ships, in the Xcode phase, --app and --stamp; a missing one falls back to the app's.
+printf 'cu-icon' > "$TMP/ComputerUseIcon.icns"
+printf 'stable-icon' > "$app/Contents/Resources/AppIcon-Stable.icns"
+rm -f "$build/tmp/bundle-screen-sharing-helper.stamp"
+CU_ICON="$TMP/ComputerUseIcon.icns" ICON_SETTING=AppIcon-Stable run
+expect_icon "Xcode phase, Computer Use's icon" cu-icon
+CU_ICON="$TMP/ComputerUseIcon.icns" run --stamp "$app"
+expect_icon "--stamp, Computer Use's icon" cu-icon
+CU_ICON="$TMP/ComputerUseIcon.icns" run --app "$app"
+expect_icon "--app, Computer Use's icon" cu-icon
+CU_ICON="$TMP/missing.icns" run --stamp "$app"
+expect_icon "--stamp, Computer Use's icon missing" stable-icon
+# The checked-in icon is a real icns (its magic), where the script finds it by default.
+[[ "$(head -c 4 "$ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/ComputerUseIcon.icns")" == icns ]] \
+  || fail "the checked-in ComputerUseIcon.icns is not an icns"
 
 echo "PASS: bundle-screen-sharing-helper.sh reruns over the same app"

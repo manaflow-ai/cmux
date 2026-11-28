@@ -71,7 +71,6 @@ export function rememberCloudPick(
   const kept = parse(pick);
   if (!kept) return;
   const before = read().pick;
-  // A pick naming no model keeps the model last picked on the same agent.
   // A pick naming no model keeps the model (and a pick naming no level, the level) last picked on the
   // same agent.
   const same = before?.harness === kept.harness ? before : undefined;

@@ -18,7 +18,7 @@ struct Machine {
 }
 
 impl Machine {
-    async fn drive(&self, source: &str, target: &str, flag: &str, id: &str) {
+    async fn drive(&self, source: &str, target: &str, flag: &str, id: &str) -> Value {
         let dir = tempfile::tempdir().unwrap();
         let socket = dir.path().join("cli.sock");
         let listener = acpmux::server::bind_unix(&socket).await.unwrap();
@@ -59,6 +59,7 @@ impl Machine {
             ms(field);
         }
         eprintln!("{} drove {source} -> {target}: {t}", self.name);
+        t.clone()
     }
 }
 
@@ -320,4 +321,73 @@ async fn a_third_machine_moves_the_chat_and_its_queue_over_the_relay() {
     // The original holder-driven CLI reports the very same timing fields.
     a.drive(id, "machine-b", "--after-turn", id).await;
     assert_eq!(user_texts(&all_events(&mut cb, id).await), expected);
+}
+
+/// Round the ring the probe runs (`super-highway-moves`, ring-continuous): one chat goes
+/// A -> B -> C -> A ..., a few turns on each holder, so each machine takes it back over the copy
+/// it moved away from, with a longer history every lap. The target's import (`finishMs`) must
+/// not grow with the laps: the 2026-11-28 12:25Z window read finish p95 629 ms, 13:10Z 1193 ms.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_chat_round_the_ring_imports_in_flat_time() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("acpmux::move_steps=debug")
+        .with_writer(std::io::stderr)
+        .try_init();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let relay =
+        cmux_relay::Relay::new(cmux_relay::RelayConfig { allow_open: true, ..Default::default() })
+            .unwrap();
+    let (listener, router) = relay.server_parts(listener);
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    let proxy = Proxy::start(address).await;
+    let dir =
+        tempfile::Builder::new().prefix("ring-").tempdir_in(dirs::home_dir().unwrap()).unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    std::fs::write(root.join(".git"), "gitdir: ./absent\n").unwrap();
+    let state = tempfile::tempdir().unwrap();
+    let machines = machines(&format!("relay+ws://127.0.0.1:{}", proxy.port), &root, state.path());
+    let mut ca = client(machines[0].hub.clone()).await;
+    let made = ca
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd":root, "mcpServers":[], "_meta":{"acpmux":{"name":"ring"}}}),
+        )
+        .await;
+    let id = made["sessionId"].as_str().unwrap().to_owned();
+    // The harness's durable files, as in the relay move above; they travel with each move.
+    let agent = "fake-session-1";
+    let sessions = state.path().join(machines[0].name).join("store/sessions");
+    std::fs::create_dir_all(sessions.join(agent)).unwrap();
+    std::fs::write(sessions.join(agent).join("journal.ndjson"), b"{\"turn\":1}\n").unwrap();
+    let header = json!({"type":"session", "id":agent, "cwd":root});
+    std::fs::write(sessions.join("ring.jsonl"), format!("{header}\n")).unwrap();
+    let laps: usize = std::env::var("RING_LAPS").ok().and_then(|v| v.parse().ok()).unwrap_or(4);
+    let turns: usize = std::env::var("RING_TURNS").ok().and_then(|v| v.parse().ok()).unwrap_or(6);
+    let mut finish = Vec::new();
+    let mut holder = 0usize;
+    for n in 0..laps * 3 {
+        let mut c = client(machines[holder].hub.clone()).await;
+        for t in 0..turns {
+            let text = format!("lap {n} turn {t} {}", "x".repeat(2000));
+            let prompt = json!({"sessionId":id, "prompt":[{"type":"text","text":text}],
+                "_meta":{"acpmux":{"promptId":format!("p{n}-{t}")}}});
+            c.call(method::SESSION_PROMPT, prompt).await;
+        }
+        let next = (holder + 1) % 3;
+        // The third machine drives, by name, as the probe's mover does.
+        let driver = &machines[(holder + 2) % 3];
+        let source = format!("{}/{id}", machines[holder].name);
+        let t = driver.drive(&source, machines[next].name, "--after-turn", &id).await;
+        finish.push(t["finishMs"].as_u64().unwrap());
+        holder = next;
+    }
+    eprintln!("RING finishMs per move: {finish:?}");
+    // The first lap lands on machines that never held the chat; every later one replaces a copy.
+    let first = finish[..3].iter().copied().max().unwrap();
+    let last_lap = finish[finish.len() - 3..].iter().copied().max().unwrap();
+    assert!(
+        last_lap <= first.max(50) * 3,
+        "the import grew round the ring: first lap max {first} ms, last lap max {last_lap} ms: {finish:?}"
+    );
 }

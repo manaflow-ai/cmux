@@ -59,7 +59,7 @@ struct ChromiumOwnerKeyReapplyTests {
 
     /// MockBrowserTab is intentionally in-view. Forward its engine behavior but present this
     /// page as a child window, so the regression goes through FocusEffectApplier's Chromium arm.
-    @Observable @MainActor private final class ChildWindowPage: BrowserTab {
+    @Observable @MainActor fileprivate final class ChildWindowPage: BrowserTab {
         private let backing: MockBrowserTab
         @ObservationIgnored var onGrant: (() -> Void)?
         @ObservationIgnored private(set) var focusGrants = 0
