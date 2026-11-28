@@ -7,8 +7,9 @@ import { threadMinimapIncoming } from "./incoming.experiment";
 
 // Runs of messages from other chats on the compact rail, compared arm by arm (incoming.experiment.ts;
 // Leo, 2026-11-03: "i've always been on the fence about messages from other chats showing up in that
-// prompt jump scroll rail individual elements"). Every arm keeps them on the rail in the one column
-// every tick shares at rest (cmux#32637). The compare view renders each arm beside the others.
+// prompt jump scroll rail individual elements"). Since Leo, 2026-11-27 ("non-user messages shouldnt
+// appear in the scroll rail anymore") the default rail draws none of them in any arm (model.ts
+// `isPersonPrompt`); Show Only Agent Messages lists them. The compare view renders each arm beside the others.
 // Synthetic prompts and senders only.
 const message = (seq: number, sender: string, minutes: number, text: string) => {
   const incoming = incomingPrompt(text, {
@@ -50,7 +51,7 @@ const rows = PLAN.flatMap((step, index) => {
   return [head, ...answered(seq, minutes)];
 });
 
-/// The first message of the first run: tick 3 in every arm.
+/// The fourth tick, the person's fourth prompt (other chats' messages draw no tick).
 const FIRST_RUN = '[data-tick="3"]';
 const ready = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(FIRST_RUN));
@@ -74,12 +75,12 @@ export default agentPaneEntry({
   },
   variants: {
     rest: {
-      note: "At rest: the person's prompts, a run of three messages from one chat, a single message, and a run of two from two chats. The default folds each run into one tick and draws it at the person's weight, in the same column, so the ticks read evenly spaced; the compare view shows the dimming arms beside it.",
+      note: "At rest: a chat with the person's prompts, a run of three messages from one chat, a single message, and a run of two from two chats. The rail draws only the person's eight prompts, evenly spaced in one column; other chats' messages have no tick.",
       snapshot: chat(rows, { title: "Runs of messages from other chats" }),
       play: ready,
     },
     "run-hovered": {
-      note: 'The pointer on the first run: the folded tick\'s card reads "Received 3 messages" from ux-owner, with its bookmark.',
+      note: "The pointer on the fourth tick: the card reads the person's fourth prompt.",
       snapshot: chat(rows, { title: "A hovered run of messages" }),
       play: async (ctx) => {
         await ready(ctx);
