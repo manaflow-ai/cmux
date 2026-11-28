@@ -3972,6 +3972,18 @@ body {
     animation-name: cmux-continuous-shimmer-lit-wide;
   }
 }
+/* SHIMMER-SHEDS-UNDER-LOAD: the chat's minimal motion (frameBudget.ts, MINIMAL-MOTION in
+   composerStates.css) holds the sweep too. In WebKit the masked band and its lit copy are not
+   composited: each frame of a pass restyles and repaints the line, and under a streaming 100k-row
+   chat that pushed the typed key's paint p99 past its budget (composer-typing L3 WebKit on a pool
+   host: 47 to 75 ms against 38.67). The band rests hidden, as it does between passes; the words keep
+   their dim tone and the next pass after the chat is back in budget sweeps as before. */
+[data-chat-motion="minimal"] :is(.cv-shimmer__band, .cv-shimmer__lit, .cv-row-shimmer__band, .cv-row-shimmer__lit) {
+  animation: none !important;
+}
+[data-chat-motion="minimal"] :is(.cv-shimmer__band, .cv-row-shimmer__band) {
+  visibility: hidden !important;
+}
 /* A look's band width (agentPane.display.thinking.shimmerBand, px; 0 keeps the band half the line): the
    lit window is that wide on any line, short or long, as Claude's two or three words are. The band layer
    starts one band width before the words and ends where they end, and its mask is the window at the
