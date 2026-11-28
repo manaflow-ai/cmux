@@ -84,7 +84,7 @@ export interface Options {
 const NOT_BUILT = /unknown (verb|option|command|action|scope)|unrecognized|unsupported|not supported|no workspace|workspaces need a link|not built|no such (verb|command)|usage:/i
 const TERMINAL = /\bin a terminal\b|\bssh [-\w@.]+|cmux (machine add|pair)\b|curl [^|]*\|\s*(ba)?sh|run .* (in|on) the (other|new) machine/i
 export const classify = (r: Exec): { kind: "ok" | "not-built" | "terminal" | "error"; text: string } => {
-  const text = `${r.stdout}\n${r.stderr}`.trim().replace(/\s+/g, " ").slice(0, 200)
+  const text = `${r.stdout}\n${r.stderr}`.trim().replace(/\s+/g, " ").slice(0, r.code === 0 ? 200 : 1200)
   if (TERMINAL.test(r.stderr) || (r.code !== 0 && TERMINAL.test(r.stdout))) return { kind: "terminal", text }
   if (r.code !== 0 && NOT_BUILT.test(`${r.stdout}\n${r.stderr}`)) return { kind: "not-built", text }
   return r.code === 0 ? { kind: "ok", text } : { kind: "error", text }
@@ -146,9 +146,10 @@ export async function runOnce(o: Options, d: Deps, run: number): Promise<RunResu
   try {
     await step("join", async (c) => {
       const deadline = d.now() + 60_000
-      for (;;) {
+      // Every fifth read asks the hub again (the Machines section reads its joined list on a trigger, not a timer).
+      for (let i = 0; ; i++) {
         c()
-        const m = await d.exec(cmux(o.aSocket, "app", "machines", "--json", "--no-refresh"), 15_000)
+        const m = await d.exec(cmux(o.aSocket, "app", "machines", "--json", ...(i % 5 ? ["--no-refresh"] : [])), 15_000)
         if (m.code === 0 && machineUp(m.stdout, o.bName)) return { status: "pass", detail: `${o.bName} connected on A` }
         if (d.now() > deadline) return { status: "fail", detail: `${o.bName} not connected on A in 60 s: ${classify(m).text}` }
         await d.sleep(1_000)
