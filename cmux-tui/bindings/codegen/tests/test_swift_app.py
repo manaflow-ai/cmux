@@ -267,6 +267,15 @@ class RenderTests(unittest.TestCase):
 
 
 class BindingErrorTests(unittest.TestCase):
+    def test_a_bindings_file_with_a_duplicate_key_is_refused(self) -> None:
+        # json.loads keeps the last of two equal keys; a family with two "enums" blocks lost ColumnSide that way.
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "bindings.json"
+            path.write_text('{"families": {"Creation": {"enums": {"A": {}}, "enums": {"B": {}}}}}', encoding="utf-8")
+            with self.assertRaises(BindingError) as raised:
+                generate.load_bindings(path)
+        self.assertIn("duplicate key 'enums'", str(raised.exception))
+
     def assert_refused(self, message: str, document: dict[str, Any] | None = None,
                        bindings: dict[str, Any] | None = None) -> None:
         with self.assertRaises(BindingError) as raised:

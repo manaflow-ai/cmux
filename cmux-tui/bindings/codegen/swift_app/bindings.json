@@ -4351,18 +4351,6 @@
     },
     "Creation": {
       "$comment": "SpawnOptions, the responses and the DaemonCreatingRequest conformances stay hand-written in Requests/Creation; new-screen's ScreenSpec form and create-terminal's detached form stay hand-written too (a second Swift type on one command).",
-      "enums": {
-        "ColumnSide": {
-          "doc": [
-            "The side of the pane's column a new viewport column opens on (`new-pane-right`)."
-          ]
-        },
-        "PaneKind": {
-          "doc": [
-            "What a new pane holds: a terminal or a browser (`pane-browser-kind-v1`)."
-          ]
-        }
-      },
       "requests": {
         "create-terminal": {
           "allow_unadvertised_capability": "workspace-registry-v1",
@@ -4589,6 +4577,16 @@
         "ColumnDockRole": {
           "doc": [
             "What the column is for (`dock-column-role-v1`): the agent chat column."
+          ]
+        },
+        "ColumnSide": {
+          "doc": [
+            "The side of the pane's column a new viewport column opens on (`new-pane-right`)."
+          ]
+        },
+        "PaneKind": {
+          "doc": [
+            "What a new pane holds: a terminal or a browser (`pane-browser-kind-v1`)."
           ]
         }
       }

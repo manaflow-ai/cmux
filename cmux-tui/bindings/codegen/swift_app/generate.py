@@ -47,9 +47,21 @@ _DECLARATION = re.compile(
 )
 
 
+def _refuse_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    # json.loads keeps the last of two equal keys, so a merge that leaves a family two "enums" blocks drops the
+    # first block's types without a word (feat-cmux-next, 2026-11-28: ColumnSide vanished and CmuxNext stopped
+    # compiling). Refuse it here, naming the key.
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise BindingError(f"duplicate key {key!r} in one object; merge its two blocks into one")
+        value[key] = item
+    return value
+
+
 def load_bindings(path: Path) -> dict[str, Any]:
     try:
-        value = json.loads(Path(path).read_text(encoding="utf-8"))
+        value = json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=_refuse_duplicate_keys)
     except (OSError, json.JSONDecodeError) as error:
         raise BindingError(f"cannot read {path}: {error}") from error
     if not isinstance(value, dict):
