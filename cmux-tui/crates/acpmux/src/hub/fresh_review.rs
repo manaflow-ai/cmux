@@ -91,7 +91,7 @@ pub(crate) fn command_with(doc: Option<&Value>) -> Vec<String> {
         .and_then(|v| v.as_array().cloned())
         .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect());
     match named {
-        Some(argv) if !argv.is_empty() && !argv[0].trim().is_empty() => argv,
+        Some(argv) if argv.first().is_some_and(|a| !a.trim().is_empty()) => argv,
         _ => vec!["claude".into(), "-p".into(), "--output-format".into(), "text".into()],
     }
 }
@@ -100,7 +100,7 @@ pub(crate) fn command_with(doc: Option<&Value>) -> Vec<String> {
 pub(crate) fn cap(s: &str, max: usize) -> String {
     match s.char_indices().nth(max) {
         None => s.to_owned(),
-        Some((at, _)) => format!("{}\n[... cut at {max} characters]", &s[..at]),
+        Some((at, _)) => format!("{}\n[... cut at {max} characters]", s.get(..at).unwrap_or(s)),
     }
 }
 
@@ -132,7 +132,7 @@ pub(crate) fn findings(output: &str) -> Option<Vec<String>> {
         // not part of the finding.
         let marked = upper.strip_prefix("BLOCKING").and_then(|after| {
             let after = after.trim_start_matches(['*', '_', '`']);
-            after.strip_prefix(':').map(|_| &t[t.len() - after.len() + 1..])
+            after.strip_prefix(':').and_then(|_| t.get(t.len() - after.len() + 1..))
         });
         if let Some(rest) = marked {
             let rest = rest.trim().trim_matches(['*', '_', '`']).trim();
