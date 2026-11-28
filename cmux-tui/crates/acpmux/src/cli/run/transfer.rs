@@ -39,12 +39,14 @@ pub(super) async fn run(
     let to_meta = json!({"socket": socket});
     let watch = json!({"socket": socket});
     let running = (interrupt, after_turn);
+    // A folder `--cwd` names is whatever it is there, never the chat's own.
+    let there = cwd.map(|cwd| There { cwd, same_folder: false });
     let reach = (
         Some(Reach::Socket { path: std::path::absolute(crate::config::socket_path())? }),
         Some(Reach::Socket { path: socket.clone() }),
     );
     let moved =
-        move_chat(&src, &dst, &dst_init, &id, Some(watch), cwd, name, running, to_meta, reach)
+        move_chat(&src, &dst, &dst_init, &id, Some(watch), there, name, running, to_meta, reach)
             .await?;
     if json_out {
         print_json(&moved);
@@ -239,6 +241,16 @@ pub(super) async fn abort_move(src: &mut MoveEnd<'_>, id: &str, begun: &Begun) {
     }
 }
 
+/// The chat's folder on the target, as a move's finish names it, and whether the move made it
+/// the chat's own folder there (`session_move_plan::same_folder`): the same checkout with
+/// nothing left behind, or its files carried. Only then does the chat's namespace manifest
+/// (`session_manifest.rs`) hold there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct There {
+    pub cwd: String,
+    pub same_folder: bool,
+}
+
 /// Moves the chat `id` from `src` to `dst`, both clients of the daemons' local sockets, and
 /// commits it on `src` with `to_meta` (plus the chat's id there) as where it went.
 #[allow(clippy::too_many_arguments)]
@@ -248,7 +260,7 @@ pub(super) async fn move_chat(
     dst_init: &Value,
     id: &str,
     watch: Option<Value>,
-    cwd: Option<String>,
+    cwd: Option<There>,
     name: Option<String>,
     running: (bool, bool),
     to_meta: Value,
@@ -467,7 +479,7 @@ pub(super) async fn finish_move(
     dst_init: &Value,
     id: &str,
     begun: &Begun,
-    cwd: Option<String>,
+    cwd: Option<There>,
     name: Option<String>,
     to_meta: Value,
 ) -> Result<Value> {
@@ -484,7 +496,7 @@ pub(super) async fn finish_journaled(
     dst_init: &Value,
     id: &str,
     begun: &Begun,
-    cwd: Option<String>,
+    cwd: Option<There>,
     name: Option<String>,
     (dir, to_meta): (&std::path::Path, Value),
 ) -> Result<Value> {
@@ -531,7 +543,7 @@ async fn finish_noted(
     dst_init: &Value,
     id: &str,
     begun: &Begun,
-    cwd: Option<String>,
+    cwd: Option<There>,
     name: Option<String>,
     to_meta: Value,
 ) -> Result<Value, Failed> {
@@ -723,7 +735,7 @@ async fn copy(
     begin: &Value,
     receive_id: &Value,
     epoch: u64,
-    cwd: Option<String>,
+    cwd: Option<There>,
     name: Option<String>,
 ) -> Result<Value> {
     let id = field(begin, "sessionId").as_str().unwrap_or_default();
@@ -738,8 +750,13 @@ async fn copy(
     paged?;
     let mut finish =
         json!({"receiveId": receive_id, "from": {"sessionId": begin["sessionId"]}, "epoch": epoch});
-    if let Some(cwd) = cwd {
+    if let Some(There { cwd, same_folder }) = cwd {
         finish.set("cwd", json!(cwd));
+        // The target rebinds the chat's namespace manifest only to its own folder
+        // (`hub/transfer_in.rs`); absent, as from an older client, it records one anew.
+        if same_folder {
+            finish.set("sameFolder", json!(true));
+        }
     }
     if let Some(name) = name {
         finish.set("name", json!(name));

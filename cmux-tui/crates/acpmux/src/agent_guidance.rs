@@ -523,10 +523,10 @@ mod tests {
             dir: PathBuf::from(root).join(name),
         };
         let root = "/state/agent-tools/abc/skills";
-        let text = cmux_skills_text(&[skill("cmux-browser", root), skill("acpmux", root)]).unwrap();
+        let text = cmux_skills_text(&[skill("cmux-browser", root), skill("agents", root)]).unwrap();
         assert_eq!(
             text,
-            "cmux skills, each at /state/agent-tools/abc/skills/<name>/SKILL.md. When one's description matches the task, read its SKILL.md first and follow it:\n- cmux-browser: About cmux-browser.\n- acpmux: About acpmux."
+            "cmux skills, each at /state/agent-tools/abc/skills/<name>/SKILL.md. When one's description matches the task, read its SKILL.md first and follow it:\n- cmux-browser: About cmux-browser.\n- agents: About agents."
         );
         let mixed = cmux_skills_text(&[skill("a", root), skill("b", "/elsewhere")]).unwrap();
         assert!(mixed.ends_with("- b: About b. (/elsewhere/b/SKILL.md)"), "{mixed}");
