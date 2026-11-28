@@ -444,8 +444,8 @@ PREFLIGHT_CALLEE = "cmux-next-compile-preflight.yml"
 
 def preflight_web(event: dict, callees: dict, files: list[str] | None, start: list[str] | None = None,
                   exact=None) -> tuple[bool, str]:
-    """(whether the compile preflight's web job runs at this head, why). START: the callees this head starts (None:
-    assume the preflight does). EXACT: compile_preflight.router_web (tests pass a fake)."""
+    """(whether the compile preflight's web job runs at this head, why). START: the callees this head starts (kept for
+    callers; the answer no longer depends on it). EXACT: compile_preflight.router_web (tests pass a fake)."""
     config = callees.get(PREFLIGHT_CALLEE)
     if config is None:
         return True, "no compile preflight in pr_router.json: runs"
@@ -457,8 +457,10 @@ def preflight_web(event: dict, callees: dict, files: list[str] | None, start: li
         return True, "no changed file listed: runs"
     if "paths-ignore" in config and not matches_filter({"paths-ignore": config["paths-ignore"]}, files):
         return False, "every changed file is one no web bundle reads (pr_router.json paths-ignore): skips"
-    if start is not None and PREFLIGHT_CALLEE not in start:
-        return True, "the compile preflight does not start at this head"
+    # A head the preflight does not start at (tier none, a carried or same-head pass, no `affects` path) still runs the
+    # callee (pr-router.yml has no start gate on it), so the same exact answer decides: its first step would build
+    # nothing either. Before, this answered "runs": 20 of 27 sampled no-build web jobs (pr-router runs 2026-11-28 20Z),
+    # ~55 s of runner each, for a ~3 s check here.
     if os.environ.get("CI_ROUTER_WEB_EXACT", "1") == "0":
         return True, "a changed file may reach a web bundle: runs (CI_ROUTER_WEB_EXACT=0; its first step decides)"
     # The job's own first step (compile_preflight.py web-touched), answered here; anything unread runs the job.

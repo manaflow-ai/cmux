@@ -153,7 +153,11 @@ class PreflightWeb(unittest.TestCase):
         full = {"pull_request": {"labels": [{"name": pr_router.FULL_CI}]}}
         self.assertTrue(self.answer(never, event=full)[0])
         self.assertTrue(self.answer(never, env={"CI_ROUTER_WEB_EXACT": "0"})[0])
-        self.assertTrue(self.answer(never, start=["pr-pipeline.yml"])[0], "no checkout when the callee does not start")
+
+    def test_a_head_the_preflight_does_not_start_at_gets_the_exact_answer(self) -> None:
+        # The callee runs with no start gate, so its web job's own answer decides here too.
+        self.assertFalse(self.answer(lambda root, files: (False, "none"), start=["pr-pipeline.yml"])[0])
+        self.assertTrue(self.answer(lambda root, files: (True, "one"), start=["pr-pipeline.yml"])[0])
 
 
 class Workflow(unittest.TestCase):
