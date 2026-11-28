@@ -1048,6 +1048,54 @@ fn the_hosts_install_step_refuses_a_push_inside_the_restart_window() {
     exempt("window-off", &|p: &FakePeer| p.write(".acpmux/update.restart-window", "0\n"));
 }
 
+/// A daemon that runs but does not answer yet (still loading its sessions:
+/// a fleet lane VM, 2026-11-28, ~270 sessions took 8+ min, and every timer
+/// pass restarted it again) is held by the window like one that answers: its
+/// `daemon.lock` names a live pid. A lock whose pid is gone holds nothing.
+#[test]
+#[cfg(unix)]
+fn the_restart_window_holds_a_daemon_that_is_still_starting() {
+    let opts = |peer: &FakePeer| UpdateOptions {
+        binary_dir: Some(peer.home.join("binaries")),
+        if_idle: false,
+        keep_newer: false,
+        allow_downgrade: false,
+        caller: None,
+        now: false,
+    };
+    let peer = FakePeer::new("window-starting");
+    restarted_ago(&peer, 5 * 60);
+    peer.offer(NEW, Some(NEW));
+    let _ = std::fs::remove_file(peer.home.join("daemon"));
+    peer.write(".acpmux/daemon.lock", &format!("{}\n", std::process::id()));
+    let installed = peer.read(".local/bin/acpmux");
+    let up = update_peer(&peer, &opts(&peer));
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Busy, Some("restartWindow")),
+        "{up:?}"
+    );
+    assert!(up.line().contains("is still starting"), "{}", up.line());
+    assert_eq!(peer.read(".local/bin/acpmux"), installed);
+    // The host's install step refuses it too, for a pusher that never asks.
+    let binary = peer.home.join(format!("binaries/acpmux-{TARGET}"));
+    let e = push_update(&peer, &binary, None, false, false).expect_err("refused while starting");
+    assert!(e.is::<RestartWindow>(), "{e:#}");
+    assert_eq!(peer.read(".local/bin/acpmux"), installed);
+
+    // A lock left by a daemon that is gone: nothing to wake, the update goes on.
+    let peer = FakePeer::new("window-stale-lock");
+    restarted_ago(&peer, 5 * 60);
+    peer.offer(NEW, Some(NEW));
+    let _ = std::fs::remove_file(peer.home.join("daemon"));
+    let mut child = std::process::Command::new("true").spawn().expect("spawn true");
+    let gone = child.id();
+    child.wait().expect("wait true");
+    peer.write(".acpmux/daemon.lock", &format!("{gone}\n"));
+    let up = update_peer(&peer, &opts(&peer));
+    assert_ne!(up.reason.as_deref(), Some("restartWindow"), "{up:?}");
+}
+
 /// The window's length comes from the host: its file, else the daemon
 /// unit's `ACPMUX_UPDATE_RESTART_WINDOW_SECS`; the pusher's own environment
 /// has no say.

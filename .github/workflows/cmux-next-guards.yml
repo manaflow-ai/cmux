@@ -1673,6 +1673,7 @@ jobs:
             /.github/
             /scripts/ci/install-actionlint.sh
             /scripts/ci/workflow_start_lint.py
+            /.gitmodules
             /scripts/ci/spec_checks.py
 
       - name: Does this change touch a workflow or the lint

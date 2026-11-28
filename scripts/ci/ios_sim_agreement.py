@@ -190,12 +190,13 @@ def fetch_run(cache: Path, run_id: int, notes: list[str]) -> None:
             (d / "mac.log").write_text("\n".join(step_lines(log)) + "\n")
         if not (d / "linux").exists() and any(s["name"] == "Upload the fleet pool result" and s.get("conclusion") == "success"
                                               for j in jobs for s in j.get("steps", [])):
-            # One bounded page per call (scripts/ci/gh_pages.py), not gh api's paginate flag: the gh quota
-            # wrapper refuses that unbounded call.
-            sys.path.insert(0, str(Path(__file__).resolve().parent))
-            import gh_pages
-            listing = [a["name"] for a in gh_pages.items(gh_pages.gh_json, f"repos/{REPO}/actions/runs/{run_id}/artifacts")
-                       if not a.get("expired")]
+            listing = []
+            for page in range(1, 11):  # one bounded page per call, never gh's own paginate flag
+                got = json.loads(gh(["api", f"repos/{REPO}/actions/runs/{run_id}/artifacts?per_page=100&page={page}"]) or "{}")
+                arts = got.get("artifacts") or []
+                listing += [x["name"] for x in arts if not x.get("expired")]
+                if len(arts) < 100:
+                    break
             names = [n for n in listing if n.startswith("kit-sim-linux-result-")]
             (d / "linux").mkdir()
             if names:
