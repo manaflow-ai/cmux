@@ -33,10 +33,11 @@ in the window is excluded. Missing/refused actions, wrong geometry, short captur
 or changing endpoints and unequal capture scales fail. The script does not OCR the content;
 review the video and endpoint to establish that the visible content is the intended composer.
 
-Detector-only checks:
+Detector-only checks (the acceptance test is registered in the `linux-guard` fast lane;
+changes to the detector select it through the focused test planner):
 
 ```sh
-python3 scripts/cmux-next/test_new_tab_split_acceptance.py
+python3 tests/test_new_tab_split_acceptance.py
 python3 scripts/cmux-next/test_split_scale_metrics.py
 ```
 

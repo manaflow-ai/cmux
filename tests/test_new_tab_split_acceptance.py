@@ -3,15 +3,19 @@
 import copy
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 
 from PIL import Image, ImageDraw
 
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts/cmux-next/new_tab_split_acceptance.py"
+sys.path.insert(0, str(SCRIPT.parent))
 import new_tab_split_acceptance as acceptance
 
 
-FIXTURE = Path(__file__).with_name("fixtures") / "new-tab-split-baseline"
+FIXTURE = SCRIPT.parent / "fixtures" / "new-tab-split-baseline"
 
 
 class NativeFixtureTests(unittest.TestCase):
