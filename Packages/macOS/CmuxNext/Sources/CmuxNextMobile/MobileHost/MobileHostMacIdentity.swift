@@ -134,7 +134,15 @@ public struct MobileHostMacIdentityStore: Sendable {
                     return stored
                 }
             case .notFound:
-                break
+                // The item is gone (a reset Keychain, or a cleanup that removed it) but this DEV build kept
+                // its copy: that is the key the phones pinned, so prove it and store it again rather than
+                // mint a new one (2026-11-24, paged-horizontal-tabs: the item was gone, the next launch made
+                // a new key, and the phone refused the Mac as `mac_identity_changed` from then on).
+                if let copied = keychainCopy() {
+                    Self.logger.notice("iPhone host identity: Keychain item missing; proving this DEV build's copy of its key")
+                    _ = keychainAdd(copied.privateKey)
+                    return copied
+                }
             case .refused(let status):
                 refused = status
                 if let copied = keychainCopy() {
