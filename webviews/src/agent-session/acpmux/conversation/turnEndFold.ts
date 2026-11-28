@@ -1639,6 +1639,13 @@ export function playTurnEnd(
       const drawn = drawnTop.get(node);
       return (drawn === undefined || bandSeen(drawn, height)) && startSeen(from, height);
     };
+    // Rows excluded from motion are already at their final places. Moving rows still need to
+    // stay outside those boxes, just as ghosts do; the captured positions no longer bound them.
+    const atRest = nodes.flatMap((node, index) => {
+      const before = was.get(node.dataset.rowId!);
+      if (!before || moving.has(node) || startsInView(node, startTop(node, before.top), heights[index]!)) return [];
+      return [{ from: tops[index]!, to: tops[index]!, height: heights[index]!, padTop: 0, padBottom: 0 }];
+    });
     const restart = (
       node: HTMLElement,
       store: Map<HTMLElement, Moving>,
@@ -1678,12 +1685,18 @@ export function playTurnEnd(
       /// still lays the page out once (never a rect per row between `animate()` writes:
       /// chat-render-pipeline R2).
       if (!startsInView(node, band.from, band.height)) return;
+      const cover =
+        store === moving && was.has(node.dataset.rowId!) && Math.abs(next.delta) >= 0.5
+          ? coverClip({ ...band, padTop: 0, padBottom: 0 }, atRest, Math.max(0, next.clip ?? 0), 0)
+          : undefined;
+      next.covered = cover ? JSON.stringify(cover) : undefined;
       const last = store.get(node);
       if (
         !grew &&
         last &&
         Math.abs(last.delta - next.delta) < 0.5 &&
         last.fades === next.fades &&
+        last.covered === next.covered &&
         Math.abs((last.clip ?? 0) - (next.clip ?? 0)) < 0.5 &&
         Math.abs((last.hold ?? 0) - (next.hold ?? 0)) < FRAME_MS
       )
@@ -1692,7 +1705,14 @@ export function playTurnEnd(
         animation.cancel();
         fold.animations.delete(animation);
       }
-      next.animations = keyframes().map((frames) => play(node, frames, timing));
+      const frames = keyframes();
+      // One clip combines the existing bottom reveal with the stationary row cover. Separate
+      // clip animations replace one another, which would reopen the bottom while it moves.
+      if (cover) {
+        for (const sequence of frames) for (const frame of sequence) delete frame.clipPath;
+        frames.push(cover);
+      }
+      next.animations = frames.map((sequence) => play(node, sequence, timing));
       store.set(node, next);
     };
     /// The rows that start clipped this pass: where each starts, the bottom it draws, its bottom at rest.

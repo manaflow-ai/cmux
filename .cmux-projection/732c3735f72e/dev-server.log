@@ -1,0 +1,16 @@
+$ bun run protocol:codegen && vp dev
+$ bun scripts/pane-protocol-codegen.ts && bun scripts/acpmux-protocol-codegen.ts
+pane protocol: 0 of 4 files written to src/protocol/generated from webviews/src/protocol/ir/pane-protocol.json
+acpmux protocol: 0 of 2 files written to src/agent-session/acpmux/protocol/generated from cmux-tui/crates/acpmux/spec/acpmux-protocol.json
+
+  VITE+ v1.3.0  ready in 927 ms
+
+  ➜  Local:   http://127.0.0.1:4321/
+11:55:26 PM [vite+] (client) [optimizer] scanning dependencies...
+11:55:33 PM [vite+] (client) [optimizer] bundling dependencies...
+[cmux perf lint] src/agent-session/acpmux/conversation/turnEndFold.ts:1001 cmux-perf/layout-read-after-write: Layout read after a DOM or style write in the same turn forces a synchronous layout. Read before you write, or read in the next frame (#34711).
+[cmux perf lint] src/agent-session/acpmux/conversation/turnEndFold.ts:1464 cmux-perf/layout-read-after-write: Layout read after a DOM or style write in the same turn forces a synchronous layout. Read before you write, or read in the next frame (#34711).
+[cmux perf lint] src/agent-session/acpmux/conversation/turnEndFold.ts:1001 cmux-perf/layout-read-after-write: Layout read after a DOM or style write in the same turn forces a synchronous layout. Read before you write, or read in the next frame (#34711).
+[cmux perf lint] src/agent-session/acpmux/conversation/turnEndFold.ts:1464 cmux-perf/layout-read-after-write: Layout read after a DOM or style write in the same turn forces a synchronous layout. Read before you write, or read in the next frame (#34711).
+[cmux perf lint] src/agent-session/acpmux/conversation/turnEndFold.ts:1001 cmux-perf/layout-read-after-write: Layout read after a DOM or style write in the same turn forces a synchronous layout. Read before you write, or read in the next frame (#34711).
+[cmux perf lint] src/agent-session/acpmux/conversation/turnEndFold.ts:1464 cmux-perf/layout-read-after-write: Layout read after a DOM or style write in the same turn forces a synchronous layout. Read before you write, or read in the next frame (#34711).

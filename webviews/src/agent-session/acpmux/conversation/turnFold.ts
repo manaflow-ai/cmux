@@ -194,9 +194,14 @@ export function clippedBottomOf(copy: HTMLElement): number {
 /// so each overlap is linear in it too, and the clip at the first and the last frame, played on the
 /// same clock, covers every frame between (the largest of lines, read at both ends, is never under
 /// any of them). O(mounted rows) per copy, from what the pass already read.
-export function coverClip(copy: CoverPath, rows: readonly CoverPath[], own: number): [Keyframe, Keyframe] | undefined {
+export function coverClip(
+  copy: CoverPath,
+  rows: readonly CoverPath[],
+  own: number,
+  ownEnd = own,
+): [Keyframe, Keyframe] | undefined {
   let bottomFrom = own;
-  let bottomTo = own;
+  let bottomTo = ownEnd;
   let topFrom = 0;
   let topTo = 0;
   for (const row of rows) {

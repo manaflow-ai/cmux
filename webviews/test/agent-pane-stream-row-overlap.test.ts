@@ -502,6 +502,16 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
           if (top === 30) expect(report.rest).toEqual([]);
           else expect(report.rest[0]!.ink).toBeGreaterThan(10);
         }
+        // Box ordering can put unrelated or completely clipped ink between two colliding rows.
+        for (const middle of ["", "clip-path:inset(30px 0 0)"]) {
+          const report = await readFixture(`
+            <div class="acpmux-row" style="top:0;height:100px;clip-path:inset(80px 0 0)">
+              <span style="display:block;padding-top:80px">Lower words</span>
+            </div>
+            <div class="acpmux-row" style="top:30px;height:24px;${middle}">Middle words</div>
+            <div class="acpmux-row" style="top:84px;height:24px">Other words</div>`);
+          expect(report.rest.some((pair) => pair.ink > 10 && pair.upper.includes("Lower words") && pair.lower.includes("Other words"))).toBe(true);
+        }
       } finally {
         await page.close();
       }
