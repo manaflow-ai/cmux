@@ -1189,6 +1189,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/lifecycle",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/transcript_offload",
       "params": true,
       "result": true
@@ -7667,6 +7673,9 @@
         },
         "snapshot": {
           "type": "boolean"
+        },
+        "strip": {
+          "description": "The room's avatar strip after this note, for this subscriber (`cmux_presence::strip`):\n`{faces, more, line?}`, the subscriber's own face left out. A client draws it as is."
         }
       },
       "required": [
@@ -7678,6 +7687,17 @@
     "RoomsParams": {
       "description": "`_acpmux/rooms` (RFD 0141 phase 2): every room the client shows now, replacing the set it\nnamed before; both empty unsubscribes. A chat must be attached on this connection.",
       "properties": {
+        "_meta": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorMeta"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The person the client draws for (`_meta.acpmux.author`; none: the owner): their face\nstays out of every `strip` this connection hears."
+        },
         "chats": {
           "default": [],
           "items": {
