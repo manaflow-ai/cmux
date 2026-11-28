@@ -28,6 +28,10 @@
 //! `gh pr view --json` gives, so `pr_state`'s parse (`acpmux_mcp_pr.rs`) reads either.
 //! `gh` runs with this daemon's own login, every GitHub token removed from its env
 //! (`github_broker::login_env`); a chat whose own `gh` sees more falls back to it in the tool.
+//!
+//! **Any repository read, too** (`get`, `_acpmux/github/read`, `acpmux gh-read`): one GET of a
+//! `repos/OWNER/REPO/...` path (a run, its jobs, an issue, a file's contents) gets the same
+//! entry, lock, ETag, budget and stale-while-spent answer a pull request gets, keyed by its path.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -44,6 +48,10 @@ pub const FRESH: Duration = Duration::from_secs(15);
 pub const MAX_WAIT: Duration = Duration::from_secs(3600);
 /// The most pull requests kept at once; past it the least recently read idle one goes.
 pub const MAX_ENTRIES: usize = 256;
+/// The longest a [`Poller::get`] caller may let its kept answer be; more is held to this.
+pub const READ_MAX_FRESH: Duration = Duration::from_secs(3600);
+/// The longest path a [`Poller::get`] takes.
+const READ_PATH_MAX: usize = 1024;
 /// Pages of check runs read (100 a page).
 const CHECK_PAGES: u32 = 3;
 /// The `gh pr view` fields, as `pr_state` reads them.
@@ -202,6 +210,8 @@ pub struct Poller<F> {
     fetch: F,
     cfg: Config,
     entries: Mutex<HashMap<Key, Slot>>,
+    /// [`Poller::get`]'s entries, keyed by path; the body is kept in `Entry::pr`.
+    reads: Mutex<HashMap<String, Slot>>,
     budget: Mutex<Budget>,
     counters: Mutex<Counters>,
 }
@@ -231,6 +241,7 @@ impl<F: Fetch> Poller<F> {
             fetch,
             cfg,
             entries: Mutex::new(HashMap::new()),
+            reads: Mutex::new(HashMap::new()),
             budget: Mutex::new(budget),
             counters: Mutex::new(Counters::default()),
         }
@@ -251,6 +262,7 @@ impl<F: Fetch> Poller<F> {
             "refillPerHour": self.cfg.refill_per_hour,
             "heldForSecs": held.filter(|s| *s > 0),
             "watched": lock(&self.entries).len(),
+            "readsKept": lock(&self.reads).len(),
         })
     }
 
@@ -314,25 +326,7 @@ impl<F: Fetch> Poller<F> {
     }
 
     fn entry(&self, key: &Key) -> Arc<tokio::sync::Mutex<Entry>> {
-        let mut entries = lock(&self.entries);
-        let now = Instant::now();
-        if let Some(slot) = entries.get_mut(key) {
-            slot.used = now;
-            return slot.entry.clone();
-        }
-        if entries.len() >= MAX_ENTRIES {
-            let idle = entries
-                .iter()
-                .filter(|(_, s)| Arc::strong_count(&s.entry) == 1)
-                .min_by_key(|(_, s)| s.used)
-                .map(|(k, _)| k.clone());
-            if let Some(k) = idle {
-                entries.remove(&k);
-            }
-        }
-        let entry = Arc::new(tokio::sync::Mutex::new(Entry::default()));
-        entries.insert(key.clone(), Slot { entry: entry.clone(), used: now });
-        entry
+        slot_in(&self.entries, key)
     }
 
     /// The pull request's state, no older than `fresh` when the budget allows.
@@ -383,6 +377,74 @@ impl<F: Fetch> Poller<F> {
                     note: Some(why),
                 }),
                 _ => Err(Refusal { message: why, retry_after: None }),
+            },
+        }
+    }
+
+    /// One GET of a `repos/OWNER/REPO/...` path (`read_path` says which it takes), no older than
+    /// `fresh` (at most [`READ_MAX_FRESH`]) when the budget allows: the kept body when it is
+    /// young enough, a conditional read otherwise (a 304 is not charged), the kept body marked
+    /// stale when the budget is spent or GitHub failed. A 4xx is GitHub's answer, not a failure
+    /// to read: the kept body goes and the caller gets the refusal, with no retry time.
+    pub async fn get(&self, path: &str, fresh: Duration) -> Result<Answer, Refusal> {
+        let path = read_path(path).map_err(|message| Refusal { message, retry_after: None })?;
+        let fresh = fresh.min(READ_MAX_FRESH);
+        let entry = slot_in(&self.reads, &path);
+        let mut e = entry.lock().await;
+        if let (Some(body), Some(at)) = (&e.pr, e.at)
+            && at.elapsed() < fresh
+        {
+            lock(&self.counters).cache_hits += 1;
+            return Ok(Answer {
+                pr: body.clone(),
+                source: Source::Cache,
+                age: at.elapsed(),
+                note: None,
+            });
+        }
+        if let Err(after) = self.admit() {
+            let note = format!(
+                "this machine's GitHub budget is spent; the next read in {}s",
+                after.as_secs()
+            );
+            return match (&e.pr, e.at) {
+                (Some(body), Some(at)) => {
+                    lock(&self.counters).cache_hits += 1;
+                    Ok(Answer {
+                        pr: body.clone(),
+                        source: Source::Stale,
+                        age: at.elapsed(),
+                        note: Some(note),
+                    })
+                }
+                _ => Err(Refusal { message: note, retry_after: Some(after) }),
+            };
+        }
+        lock(&self.counters).refreshes += 1;
+        let mut used = Vec::new();
+        match self.read(&mut e, &mut used, path.clone()).await {
+            Ok((body, _)) => {
+                e.pr = Some(body.clone());
+                e.at = Some(Instant::now());
+                Ok(Answer { pr: body, source: Source::Fetched, age: Duration::ZERO, note: None })
+            }
+            Err(ReadError::Http(status)) if (400..500).contains(&status) && status != 429 => {
+                e.pr = None;
+                e.at = None;
+                e.pages.clear();
+                Err(Refusal {
+                    message: format!("GitHub answered HTTP {status} for {path}"),
+                    retry_after: None,
+                })
+            }
+            Err(why) => match (&e.pr, e.at) {
+                (Some(body), Some(at)) => Ok(Answer {
+                    pr: body.clone(),
+                    source: Source::Stale,
+                    age: at.elapsed(),
+                    note: Some(why.text()),
+                }),
+                _ => Err(Refusal { message: why.text(), retry_after: None }),
             },
         }
     }
@@ -541,6 +603,74 @@ impl<F: Fetch> Poller<F> {
             .collect();
         Ok(view_shape(&pull, rollup, comments))
     }
+}
+
+/// `map`'s entry for `key`, made when there is none; past [`MAX_ENTRIES`] the least recently
+/// read idle one goes.
+fn slot_in<K: Clone + Eq + std::hash::Hash>(
+    map: &Mutex<HashMap<K, Slot>>,
+    key: &K,
+) -> Arc<tokio::sync::Mutex<Entry>> {
+    let mut entries = lock(map);
+    let now = Instant::now();
+    if let Some(slot) = entries.get_mut(key) {
+        slot.used = now;
+        return slot.entry.clone();
+    }
+    if entries.len() >= MAX_ENTRIES {
+        let idle = entries
+            .iter()
+            .filter(|(_, s)| Arc::strong_count(&s.entry) == 1)
+            .min_by_key(|(_, s)| s.used)
+            .map(|(k, _)| k.clone());
+        if let Some(k) = idle {
+            entries.remove(&k);
+        }
+    }
+    let entry = Arc::new(tokio::sync::Mutex::new(Entry::default()));
+    entries.insert(key.clone(), Slot { entry: entry.clone(), used: now });
+    entry
+}
+
+/// The path a [`Poller::get`] reads: `repos/OWNER/REPO/REST[?QUERY]`, a leading `/` or
+/// `https://api.github.com/` dropped, OWNER and REPO lowercased (the cache key: GitHub matches
+/// them either way). Only repository paths: the broker a lane VM reads through takes no other,
+/// and a path that is not a read of one repository (`search/`, `graphql`, `user`) is not one
+/// this cache can share.
+pub fn read_path(path: &str) -> Result<String, String> {
+    let path = path.trim();
+    let path = path.strip_prefix("https://api.github.com/").unwrap_or(path);
+    let path = path.trim_start_matches('/');
+    let refuse = |why: &str| Err(format!("{why}: give a repos/OWNER/REPO/... path, not {path:?}"));
+    if path.is_empty() || path.len() > READ_PATH_MAX {
+        return refuse("the path is empty or too long");
+    }
+    if path.bytes().any(|b| b.is_ascii_whitespace() || b.is_ascii_control() || b == b'#') {
+        return refuse("the path has a space, a control character or a #");
+    }
+    let (route, query) = path.split_once('?').map_or((path, None), |(r, q)| (r, Some(q)));
+    let mut parts = route.splitn(4, '/');
+    let (Some("repos"), Some(owner), Some(repo), Some(rest)) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return refuse("not a repository read");
+    };
+    let name = |p: &str| {
+        !p.is_empty()
+            && p != "."
+            && p != ".."
+            && p.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
+    };
+    if !name(owner) || !name(repo) || rest.is_empty() || rest.split('/').any(|s| s == "..") {
+        return refuse("not a repository read");
+    }
+    let mut out =
+        format!("repos/{}/{}/{rest}", owner.to_ascii_lowercase(), repo.to_ascii_lowercase());
+    if let Some(q) = query.filter(|q| !q.is_empty()) {
+        out.push('?');
+        out.push_str(q);
+    }
+    Ok(out)
 }
 
 /// A REST pull request, its rollup and comments, in `gh pr view --json VIEW_FIELDS` shape.

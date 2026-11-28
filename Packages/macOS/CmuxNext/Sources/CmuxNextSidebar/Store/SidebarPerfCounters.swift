@@ -15,6 +15,7 @@ import Foundation
 /// - `scroll_realizes`: realize passes after a scroll.
 /// - `ffi_calls`: calls into the Rust sidebar reducer (drag resolve, drop plan).
 /// - `band_updates`: top/footer band content recomputes.
+/// - `block_patches`: list blocks drawn again in place with every height kept (a pinned workspace's status or progress).
 /// - `main_ns`: main-thread time spent in the measured paths, nanoseconds.
 /// - `order_builds`: `SidebarModel.workspaceOrder` builds (one per structural change at most, never per query).
 /// - `mirror_ns`: main-thread time in `SidebarMirror` calls (request encode, the Rust call, reading the reply), nanoseconds.
@@ -53,6 +54,9 @@ nonisolated enum SidebarPerfCounters {
         case listReloads = "list_reloads"
         /// A group's fold drawn by splicing its rows (`SidebarListView.foldGroup`), no list reload.
         case groupFolds = "group_folds"
+        /// Blocks drawn again in place, every height kept (`SidebarListView.patchBlocks`: a pinned workspace's status or
+        /// progress), no list reload.
+        case blockPatches = "block_patches"
         case rowPatches = "row_patches"
         case rowConfigures = "row_configures"
         case selectionPatches = "selection_patches"

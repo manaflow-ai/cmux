@@ -251,7 +251,7 @@ pub async fn stamp(prompt: &mut Value, peer_pid: Option<u32>, carried: bool, unp
         mux.remove(KEY);
     }
     let (Some(pid), true) = (peer_pid, unproven) else { return };
-    let Some(program) = tokio::task::spawn_blocking(move || {
+    let walk = move || {
         find(lookup, pid).map(|mut program| {
             // The machine whose kernel was read: this daemon's own name, never the send's
             // `cliHost` claim, so a peer's receiver can say where the program ran.
@@ -261,10 +261,8 @@ pub async fn stamp(prompt: &mut Value, peer_pid: Option<u32>, carried: bool, unp
             }
             program
         })
-    })
-    .await
-    .ok()
-    .flatten() else {
+    };
+    let Some(program) = WALKS.get(pid, walk).await else {
         return;
     };
     let Some(fields) = prompt.as_object_mut() else { return };
@@ -273,6 +271,57 @@ pub async fn stamp(prompt: &mut Value, peer_pid: Option<u32>, carried: bool, unp
     let mux = meta.entry("acpmux").or_insert_with(|| json!({}));
     if let Some(mux) = mux.as_object_mut() {
         mux.insert(KEY.into(), program);
+    }
+}
+
+/// How long one walk of a pid's parents answers for that pid. A connection's peer pid is fixed
+/// for its life, and a script's sends come in bursts: a fan-out of 2000 prompts on one socket
+/// walked the same chain 2000 times, each through the blocking pool, whose one lock every walk
+/// took to start a thread (a round's prompts went out one at a time behind it, cmux#60107). A
+/// second bounds how stale the name can be after the sender execs.
+const WALK_FRESH: std::time::Duration = std::time::Duration::from_secs(1);
+/// Most pids remembered; past it the ones no send is waiting on are forgotten.
+const WALKS_KEPT: usize = 256;
+
+static WALKS: Walks = Walks::new();
+
+/// The last walk per pid, and one walk at a time per pid: sends that arrive while it runs take
+/// its answer rather than starting their own.
+pub(crate) struct Walks {
+    slots: std::sync::Mutex<Option<std::collections::HashMap<u32, WalkSlot>>>,
+}
+
+type WalkSlot = std::sync::Arc<tokio::sync::Mutex<Option<(tokio::time::Instant, Option<Value>)>>>;
+
+impl Walks {
+    pub(crate) const fn new() -> Self {
+        Self { slots: std::sync::Mutex::new(None) }
+    }
+
+    /// `walk`'s answer for `pid`, run off the async workers, or the one a walk gave in the last
+    /// [`WALK_FRESH`].
+    pub(crate) async fn get(
+        &self,
+        pid: u32,
+        walk: impl FnOnce() -> Option<Value> + Send + 'static,
+    ) -> Option<Value> {
+        let slot = {
+            let mut slots = self.slots.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let slots = slots.get_or_insert_with(Default::default);
+            if slots.len() >= WALKS_KEPT && !slots.contains_key(&pid) {
+                slots.retain(|_, slot| std::sync::Arc::strong_count(slot) > 1);
+            }
+            std::sync::Arc::clone(slots.entry(pid).or_default())
+        };
+        let mut last = slot.lock().await;
+        if let Some((at, found)) = last.as_ref()
+            && at.elapsed() < WALK_FRESH
+        {
+            return found.clone();
+        }
+        let found = tokio::task::spawn_blocking(walk).await.ok().flatten();
+        *last = Some((tokio::time::Instant::now(), found.clone()));
+        found
     }
 }
 

@@ -1,3 +1,4 @@
 # The number of Swift targets that build on Linux: the rows of scripts/ci/swift-linux-targets.txt.
 # It only goes up (scripts/ci/swift_linux_targets.py --write-list raises it); ci-guards fails below it.
-108
+# 108 -> 104: #60065 deleted CmuxIrohTransport and CmuxIrxTransport (4 targets); no Linux target was dropped.
+104

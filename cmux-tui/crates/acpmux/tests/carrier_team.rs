@@ -1,9 +1,11 @@
 //! A teammate through the Cloud carrier, end to end (`server/carrier.rs`, `docs/carrier-roles.md`):
 //! a real hub running a stand-in Claude agent, the real carrier socket (`carrier::bind` and
 //! `carrier::serve`), and a WebSocket over it whose upgrade carries the attested
-//! `x-acpmux-carrier` header. The owner, through the same socket, starts two chats, A and B; the
-//! teammate's header grants A only.
+//! `x-acpmux-carrier` header. The owner, through the same socket, starts chats A and B from its
+//! Cloud client and chat L as its own daemon; the teammate's header grants A and L.
 //!
+//! - A prompt on L is refused with `remote.local_claude_session`: L is this machine's own Claude
+//!   chat (D13), granted or not.
 //! - A prompt, a page of events and a cancel on A go through, and the prompt runs under the
 //!   header's author whatever author the request named.
 //! - The same verbs on B, and every verb outside the teammate's allowlist (a session start, a
@@ -201,15 +203,23 @@ async fn a_teammate_granted_chat_a_works_a_and_is_refused_b_and_every_other_verb
     let listener = carrier::bind(&socket).await.unwrap();
     tokio::spawn(carrier::serve(hub.clone(), listener));
 
-    // The owner, through the same socket, starts chats A and B in Claude's `default` mode.
+    // The owner, through the same socket, starts chats A and B from its Cloud client (`via:
+    // web`), the chats a teammate is shared, and chat L as its own daemon (no `via`): L is this
+    // machine's own Claude chat (cmux#50026), which D13 keeps from any remote prompt, a
+    // teammate's included (`docs/carrier-roles.md`, "Intended refusals"). All three run in
+    // Claude's `default` mode.
     let mut owner =
         Carrier::connect(&socket, &json!({"vmk": "owner", "sub": "u_owner", "team": "t_1"})).await;
     let mut chats = Vec::new();
-    for name in ["chat-a", "chat-b"] {
+    for (name, via) in [("chat-a", Some("web")), ("chat-b", Some("web")), ("chat-l", None)] {
+        let mut meta = json!({"name": name});
+        if let Some(via) = via {
+            meta["via"] = json!(via);
+        }
         let r = owner
             .call(
                 method::SESSION_NEW,
-                json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": {"name": name}}}),
+                json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": meta}}),
             )
             .await;
         let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
@@ -217,12 +227,15 @@ async fn a_teammate_granted_chat_a_works_a_and_is_refused_b_and_every_other_verb
         assert!(r.get("error").is_none(), "{r}");
         chats.push(id);
     }
-    let (a, b) = (chats[0].clone(), chats[1].clone());
+    let (a, b, l) = (chats[0].clone(), chats[1].clone(), chats[2].clone());
 
-    // The teammate's grant names chat A only.
+    // The teammate's grant names chats A and L, not B.
     let header =
-        json!({"vmk": "team", "sub": "u_mate", "team": "t_1", "chats": [a], "name": "Ada"});
+        json!({"vmk": "team", "sub": "u_mate", "team": "t_1", "chats": [a, l], "name": "Ada"});
     let mut mate = Carrier::connect(&socket, &header).await;
+    // L is granted, but it is the machine's own Claude chat: its prompt is refused by D13.
+    let r = mate.call(method::SESSION_PROMPT, prompt(&l, "hi")).await;
+    assert_eq!(r["error"]["data"]["reason"], "remote.local_claude_session", "prompt on L: {r}");
     // It attaches to A, and hears its turns from here on.
     let r = mate.call("_acpmux/attach", json!({"sessionId": a})).await;
     assert!(r.get("result").is_some(), "a teammate's attach on its chat: {r}");
@@ -321,6 +334,15 @@ async fn a_teammate_granted_chat_a_works_a_and_is_refused_b_and_every_other_verb
     for m in refused {
         let params = json!({"sessionId": a, "cwd": d.join("work"), "mcpServers": []});
         let r = mate.call(m, params).await;
+        // `_acpmux/request_state` is answered by the connection loop for the connection's own
+        // requests only, before any gate (`server/connection_loop.rs`, `in_flight.rs`): a
+        // teammate learns which of its own request ids still run, and nothing of any chat.
+        if m == method::MUX_REQUEST_STATE {
+            assert!(r["result"]["running"].is_array(), "{m}: {r}");
+            assert!(r["result"]["answered"].is_array(), "{m}: {r}");
+            assert_eq!(r["result"].as_object().map(|o| o.len()), Some(2), "{m}: {r}");
+            continue;
+        }
         assert_team_refused(m, &r);
     }
 

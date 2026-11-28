@@ -366,7 +366,6 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/cmux-next-web-bundles.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-tui-sdks.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-tui-spec.yml": _POOL_READ_WHY,
-    ".github/workflows/fleet-test-compile.yml": _POOL_READ_WHY,
     ".github/workflows/gallery-health.yml": _POOL_READ_WHY,
     ".github/workflows/indexnow.yml": _POOL_READ_WHY,
     ".github/workflows/ios-e2e.yml": _POOL_READ_WHY,

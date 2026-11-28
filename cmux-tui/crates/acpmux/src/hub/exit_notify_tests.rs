@@ -90,3 +90,58 @@ async fn a_closed_parent_passes_it_up() {
     assert_eq!(h[0]["class"], "crashed");
     assert_eq!(h[0]["via"], json!([mid.meta().name]));
 }
+
+/// A crash's exit record for `lane`, as the close builds it.
+fn record_of(lane: &Session) -> crate::exit_record::ExitRecord {
+    let close = crate::close_why::CloseRecord {
+        closed_at: 1,
+        actor: CloseActor::new("harness_exit"),
+        reason: "exit 1".into(),
+        outcome: "crashed".into(),
+    };
+    lane.read_meta(|m| crate::exit_record::ExitRecord::new(m, close, vec![]))
+}
+
+#[tokio::test]
+async fn a_supervisor_restart_reopens_the_crashed_chat_once() {
+    let hub = hub();
+    let lane = chat(&hub, None).await;
+    stop(&hub, &lane, CloseActor::new("harness_exit")).await;
+    assert_eq!(lane.status(), SessionStatus::Closed);
+    let record = record_of(&lane);
+    hub.supervisor_restart(&lane, &record).await;
+    let sent = |hub: &Hub| {
+        hub.events(&lane.id, 0, 100_000)
+            .unwrap()
+            .into_iter()
+            .filter(|r| r.kind == "user_message")
+            .map(|r| r.msg["_meta"]["provenance"].clone())
+            .filter(|p| p["kind"] == crate::supervisor::RESTART_KIND)
+            .count()
+    };
+    assert_ne!(lane.status(), SessionStatus::Closed, "the restart reopens it");
+    assert_eq!(sent(&hub), 1);
+    // A chat already open again is left alone: no second restart prompt.
+    hub.supervisor_restart(&lane, &record).await;
+    assert_eq!(sent(&hub), 1);
+}
+
+#[tokio::test]
+async fn an_escalation_tells_the_parent_why() {
+    let hub = hub();
+    let parent = chat(&hub, None).await;
+    let lane = chat(&hub, Some(&parent)).await;
+    stop(&hub, &lane, CloseActor::new("harness_exit")).await;
+    // The close's own delivery (no note) is the first; wait it out, then send the escalation
+    // with a fresh close time so its prompt id is new.
+    let _ = wait_heard(&hub, &parent).await;
+    let mut record = record_of(&lane);
+    record.close.closed_at += 1;
+    let note =
+        crate::supervisor::Decision::Escalate { to: None, why: "3 restarts in 360 min".into() }
+            .parent_note();
+    hub.exit_record_deliver(&record, &parent.id, note.as_deref()).await;
+    let h = heard(&hub, &parent);
+    let up = h.iter().find(|p| p.get("supervisor").is_some()).expect("escalation heard");
+    assert!(up["supervisor"].as_str().unwrap().starts_with("acpmux stopped restarting it"));
+}

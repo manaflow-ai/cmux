@@ -112,6 +112,10 @@ nonisolated extension AcpmuxPaneMethods {
         // A start's model is a spawn parameter (Claude Code's `--model`, `${model}` in a harness's
         // argv or env): one model id, never a flag or anything else.
         if method == "session/new", let model = acpmux["model"], !isModelID(model) { return "_meta.acpmux.model is not a model id" }
+        if method == "session/new", let registry = acpmux["cloudRegistryId"] {
+            guard let id = registry as? String, !id.isEmpty, id.utf8.count <= 128,
+                  let peer = acpmux["peer"] as? String, !peer.isEmpty else { return "_meta.acpmux.cloudRegistryId requires a peer and a registry id" }
+        }
         return nil
     }
 

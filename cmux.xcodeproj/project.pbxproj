@@ -410,6 +410,7 @@
 				"$(SRCROOT)/scripts/cmux-next/cmux-tui-tree-inputs.txt",
 				"$(SRCROOT)/scripts/cmux-next/cmux-tui.pin",
 				"$(SRCROOT)/scripts/cmux-next/write-daemon-capabilities.sh",
+				"$(SRCROOT)/scripts/cmux-next/write-cmux-tui-build-stamp.sh",
 				"$(SRCROOT)/scripts/cmux-next/check-daemon-capabilities.sh",
 				"$(SRCROOT)/cmux-tui",
 				"$(CMUX_NEXT_TUI_BIN)",
@@ -434,6 +435,7 @@
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-tui",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-tui.version",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-tui.version.json",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-app-host",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-cloud",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-browser-host",
@@ -894,7 +896,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# The viewers' lazy chunks stored raw-deflated in the app, inflated in memory when a page asks (CMUX-570).\n# After Resources: Xcode copies webviews-app whole, then this replaces each chunk with <name>.deflate\n# (CEFShim cmux_page_packed.h for Chromium, CmuxNextPages PagePackedFile.swift for WebKit and the live loop).\n/usr/bin/env python3 -I \"${SRCROOT}/scripts/cmux-next/pack-webviews-chunks.py\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/markdown-viewer/webviews-app\"\n# The agent pane's chunks too (KaTeX, emoji data, the editors), loaded when used; its own handler, Chromium's and acpmux's read the packed copy.\nexec /usr/bin/env python3 -I \"${SRCROOT}/scripts/cmux-next/pack-webviews-chunks.py\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/CmuxNext_CmuxNextAgentPane.bundle/Contents/Resources/agent-pane\"\n";
+			shellScript = "set -e\n# The viewers' lazy chunks stored raw-deflated in the app, inflated in memory when a page asks (CMUX-570).\n# After Resources: Xcode copies webviews-app whole, then this replaces each chunk with <name>.deflate\n# (CEFShim cmux_page_packed.h for Chromium, CmuxNextPages PagePackedFile.swift for WebKit and the live loop).\n/usr/bin/env python3 -I \"${SRCROOT}/scripts/cmux-next/pack-webviews-chunks.py\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/markdown-viewer/webviews-app\"\n# The agent pane's chunks too (KaTeX, emoji data, the editors), loaded when used; its own handler, Chromium's and acpmux's read the packed copy.\nexec /usr/bin/env python3 -I \"${SRCROOT}/scripts/cmux-next/pack-webviews-chunks.py\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/CmuxNext_CmuxNextAgentPane.bundle/Contents/Resources/agent-pane\"\n";
 		};
 		CE7A00000000000000000043 /* Bundle MediaRemote adapter */ = {
 			isa = PBXShellScriptBuildPhase;

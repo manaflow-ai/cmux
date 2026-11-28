@@ -128,16 +128,46 @@ pub struct Consent {
     pub signed_in_machines_user: Option<String>,
     #[serde(rename = "grantedAt", skip_serializing_if = "Option::is_none")]
     pub granted_at: Option<String>,
-    /// The person's own setting of [`Self::control`] here (`machine_consent_set`, `acpmux host
-    /// consent grant|revoke --control`, Settings > Devices): None when it was never set. Only
-    /// `Some(false)`, the switch turned off, refuses the person's own machines
-    /// ([`joined_consent_allows`]); never set, they are let in, since joining is the consent. A
-    /// file an older build wrote has none (never set).
+    /// The owner's app on another machine turned [`Self::control`] on with a signed grant
+    /// (`consent_grant.rs`). Cleared by any Off and by any local change of the surface.
+    #[serde(rename = "controlGrantedBy", default, skip_serializing_if = "Option::is_none")]
+    pub control_granted_by: Option<GrantedBy>,
+    /// [`Self::control_granted_by`] for [`Self::screen`].
+    #[serde(rename = "screenGrantedBy", default, skip_serializing_if = "Option::is_none")]
+    pub screen_granted_by: Option<GrantedBy>,
+    /// The person's own setting of [`Self::control`] on this machine (`machine_consent_set`,
+    /// `acpmux host consent grant|revoke --control`, Settings > Devices): it wins over anything
+    /// signed elsewhere. None: never set, the signed grants decide. Only `Some(false)`, the switch
+    /// turned off, refuses the person's own machines ([`joined_consent_allows`]); never set, they
+    /// are let in, since joining is the consent.
     #[serde(rename = "controlLocal", default, skip_serializing_if = "Option::is_none")]
     pub control_local: Option<bool>,
     /// [`Self::control_local`] for [`Self::screen`].
     #[serde(rename = "screenLocal", default, skip_serializing_if = "Option::is_none")]
     pub screen_local: Option<bool>,
+    /// What decided [`Self::control`]: `local`, `machine` (a grant for this machine), `account`
+    /// (the account-wide grant) or `none` (`consent_grant.rs`). None on a file an older build
+    /// wrote, whose `control` is then the person's local setting.
+    #[serde(rename = "controlSource", default, skip_serializing_if = "Option::is_none")]
+    pub control_source: Option<String>,
+    /// [`Self::control_source`] for [`Self::screen`].
+    #[serde(rename = "screenSource", default, skip_serializing_if = "Option::is_none")]
+    pub screen_source: Option<String>,
+    /// Whether this was read from a `consent.json` on disk (never written: only
+    /// `machine_consent::Authority::consent` sets it). A file an older build wrote with no source
+    /// is the person's own record; no file is no record.
+    #[serde(skip)]
+    pub on_disk: bool,
+}
+
+/// Who turned a surface on from elsewhere: the pinned grantor (a Mac approver id), the account
+/// (hub user id) the grant was signed for, and when it was applied here (ms). A grant for another
+/// account than this machine's current one reads as not given (`machine_consent::for_account`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GrantedBy {
+    pub grantor: String,
+    pub account: String,
+    pub at: u64,
 }
 
 /// The consent surface "control for my other machines signed in to this account" (Leo,
@@ -384,7 +414,9 @@ pub(crate) fn consent_status() -> Value {
 }
 
 pub fn require_consent(surface: &str) -> Result<()> {
-    let status = consent_status();
+    // A surface granted from elsewhere for another account than this machine's reads as none.
+    let status =
+        crate::machine_consent::for_account(consent_status(), machine_user_id().as_deref());
     if matches!(surface, "screen" | "control") && status["consent"][surface] == "granted" {
         Ok(())
     } else {

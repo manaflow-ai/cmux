@@ -21,13 +21,16 @@ import Testing
 
     /// The client's refusal code, if any, and the `agent-session-start` frame the daemon got.
     private func start(serving extra: [String], ownerLink: AgentSessionAttachClient.OwnerLink?, harness: String? = nil,
-                       credentials: [String: String]? = nil) async throws
+                       credentials: [String: String]? = nil, credentialConnection: String? = nil) async throws
         -> (refusal: String?, frame: [String: Any]?) {
         let daemon = try PresenceDaemon(capabilities: ["agent-session-attach-v1", "agent-session-start-v1"] + extra)
         defer { daemon.stop() }
         let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
         var refusal: String?
-        do { _ = try await client.start(cwd: "/w", harness: harness, ownerLink: ownerLink, credentials: credentials) } catch let error as AgentSessionAttachError {
+        do {
+            _ = try await client.start(cwd: "/w", harness: harness, ownerLink: ownerLink, credentials: credentials,
+                                       credentialConnection: credentialConnection)
+        } catch let error as AgentSessionAttachError {
             refusal = error.code
         }
         await client.close()
@@ -85,6 +88,149 @@ import Testing
         #expect(plain.frame != nil)
         #expect(AgentSessionAttachClient.credentialsCapability(harness: "codex") == AgentSessionAttachClient.startCodexCredentialsCapability)
         #expect(AgentSessionAttachClient.credentialsCapability(harness: "claude") == AgentSessionAttachClient.startCredentialsCapability)
+    }
+
+    @Test func aSavedClaudeTokenStartsOnGuestsBeforeCredentialReattach() async throws {
+        let vmKind = DaemonCapability.agentSessionStartVMKind.rawValue
+        let credentials = [vmKind, AgentSessionAttachClient.startCredentialsCapability]
+        let legacyName = ["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-fixture"]
+        let token = ["ANTHROPIC_AUTH_TOKEN": "sk-ant-oat01-fixture"]
+        let route = "claude-token-2"
+        let older = try await start(serving: credentials, ownerLink: link(3, 3), harness: "claude",
+                                    credentials: token, credentialConnection: route)
+        let current = try await start(serving: credentials + [AgentSessionAttachClient.startEndpointCredentialsCapability,
+                                      "agent-session-credential-reattach-v1"], ownerLink: link(3, 3), harness: "claude",
+                                      credentials: token, credentialConnection: route)
+        let oldWire = try #require(older.frame?["credentials"] as? [String: Any])
+        let newWire = try #require(current.frame?["credentials"] as? [String: Any])
+        #expect(oldWire["env"] as? [String: String] == legacyName)
+        #expect(oldWire["connection"] == nil)
+        #expect(newWire["env"] as? [String: String] == token)
+        #expect(newWire["connection"] as? String == route)
+
+        let unsupported = try await start(serving: [vmKind], ownerLink: link(3, 3), harness: "claude",
+                                          credentials: token, credentialConnection: route)
+        #expect(unsupported.frame == nil)
+    }
+
+    @Test(arguments: [false, true])
+    func aSavedAPIKeyRequiresWithdrawalAndAReattachBinding(supported: Bool) async throws {
+        let capabilities = [DaemonCapability.agentSessionStartVMKind.rawValue, AgentSessionAttachClient.startCredentialsCapability]
+            + (supported ? [AgentSessionAttachClient.boundCredentialsCapability, "agent-session-credential-reattach-v1"] : [])
+        let daemon = try PresenceDaemon(capabilities: ["agent-session-attach-v1", "agent-session-start-v1"] + capabilities)
+        defer { daemon.stop() }
+        let key = ["ANTHROPIC_API_KEY": "fixture-key"]
+        let binding = "anthropic-key:" + String(repeating: "a", count: 64)
+        for connection in ["anthropic-key", binding] {
+            let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
+            do {
+                _ = try await client.start(cwd: "/w", harness: "claude", ownerLink: link(3, 3), credentials: key, credentialConnection: connection)
+            } catch let error as AgentSessionAttachError {
+                #expect((error.code != AgentSessionAttachClient.endpointCredentialsUnsupported) == (supported && connection == binding))
+            }
+            await client.close()
+        }
+        let prewarm = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
+        #expect(try await !prewarm.prewarm(cwd: "/w", harness: "claude", ownerLink: link(3, 3), credentials: key))
+        await prewarm.close()
+        let starts = daemon.frames.filter { $0["cmd"] as? String == "agent-session-start" }
+        #expect(starts.count == (supported ? 1 : 0))
+        if supported {
+            #expect((starts.first?["credentials"] as? [String: Any])?["connection"] as? String == binding)
+        }
+        #expect(!daemon.frames.contains { $0["cmd"] as? String == "agent-session-prewarm" })
+    }
+
+    @Test(arguments: ["GEMINI_API_KEY", "GOOGLE_API_KEY", "XAI_API_KEY"])
+    func aSavedNativeKeyStartsOnGuestsWithoutEndpointSupport(variable: String) async throws {
+        let capability = AgentSessionAttachClient.boundCredentialsCapability
+        let harness = variable == "XAI_API_KEY" ? "grok" : "gemini"
+        let credentials = [variable: "fixture-key"]
+        let binding = "native-key:" + String(repeating: "a", count: 64)
+        let reply = try await start(serving: [
+            DaemonCapability.agentSessionStartVMKind.rawValue, AgentSessionAttachClient.startCredentialsCapability,
+            capability, "agent-session-credential-reattach-v1",
+        ], ownerLink: link(3, 3), harness: harness, credentials: credentials, credentialConnection: binding)
+        let wire = try #require(reply.frame?["credentials"] as? [String: Any])
+        #expect(wire["env"] as? [String: String] == credentials)
+        #expect(wire["endpoint"] == nil)
+        #expect(AgentSessionAttachClient.credentialsCapability(harness: harness, nativeKey: true) == capability)
+    }
+
+    @Test(arguments: ["GEMINI_API_KEY", "GOOGLE_API_KEY", "XAI_API_KEY"])
+    func aSavedNativeKeyNeverGoesToAnUnboundPrewarm(variable: String) async throws {
+        let daemon = try PresenceDaemon(capabilities: [
+            "agent-session-attach-v1", "agent-session-start-v1", AgentSessionAttachClient.prewarmCapability,
+            DaemonCapability.agentSessionStartVMKind.rawValue, AgentSessionAttachClient.startCredentialsCapability,
+            AgentSessionAttachClient.boundCredentialsCapability, "agent-session-credential-reattach-v1",
+        ])
+        defer { daemon.stop() }
+        let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
+        let harness = variable == "XAI_API_KEY" ? "grok" : "gemini"
+        _ = try await client.prewarm(cwd: "/w", harness: harness, ownerLink: link(3, 3),
+                                     credentials: [variable: "fixture-key"])
+        await client.close()
+        #expect(!daemon.frames.contains { $0["cmd"] as? String == "agent-session-prewarm" })
+    }
+
+    @Test(arguments: [false, true])
+    func credentialWritesRequireTheDurableSessionCapability(supported: Bool) async throws {
+        var capabilities = ["agent-session-attach-v1", AgentSessionAttachClient.startCredentialsCapability]
+        if supported { capabilities.append(AgentSessionAttachClient.boundCredentialsCapability) }
+        let daemon = try PresenceDaemon(capabilities: capabilities)
+        defer { daemon.stop() }
+        for env in [["ANTHROPIC_API_KEY": "fixture-key"], [:]] {
+            let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
+            do {
+                _ = try await client.updateCredentials(env, sessionID: "durable-chat", ownerLink: link(3, 3))
+                #expect(supported)
+            } catch let error as AgentSessionAttachError {
+                #expect(!supported && error.code == AgentSessionAttachClient.startUnsupported)
+            }
+            await client.close()
+        }
+        let writes = daemon.frames.filter { $0["cmd"] as? String == "agent-session-credentials" }
+        #expect(writes.count == (supported ? 2 : 0))
+        #expect(writes.allSatisfy { $0["session"] as? String == "durable-chat" })
+    }
+
+    @Test(arguments: [false, true])
+    func chatGPTRefreshUsesTheGuestWireVersion(supportsBoundCredentials: Bool) async throws {
+        var capabilities = ["agent-session-attach-v1", "agent-session-start-v1",
+                            DaemonCapability.agentSessionStartVMKind.rawValue,
+                            AgentSessionAttachClient.startCredentialsCapability, AgentSessionAttachClient.startCodexCredentialsCapability]
+        if supportsBoundCredentials { capabilities.append(AgentSessionAttachClient.boundCredentialsCapability) }
+        let daemon = try PresenceDaemon(capabilities: capabilities)
+        defer { daemon.stop() }
+        let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
+        let token = ["CMUX_CHATGPT_ACCESS_TOKEN": "fixture"]
+        // The recording daemon acknowledges frames but does not create a real session.
+        _ = try? await client.start(cwd: "/w", harness: "codex", ownerLink: link(3, 3), credentials: token)
+        await client.close()
+        let refresher = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
+        _ = try await refresher.updateCredentials(token, sessionID: "durable-chat", ownerLink: link(3, 3))
+        await refresher.close()
+        let start = try #require(daemon.frames.first { $0["cmd"] as? String == "agent-session-start" })
+        #expect((start["credentials"] as? [String: Any])?["env"] as? [String: String] == token)
+        let refresh = try #require(daemon.frames.first { $0["cmd"] as? String == "agent-session-credentials" })
+        #expect(refresh["env"] as? [String: String] == token)
+        #expect(refresh["vm_kind"] as? String == "owner")
+        #expect(refresh["session"] as? String == (supportsBoundCredentials ? "durable-chat" : nil))
+    }
+
+    @Test(arguments: ["ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"])
+    func aSavedClaudeTokenNeverGoesToAnUnboundPrewarm(variable: String) async throws {
+        let daemon = try PresenceDaemon(capabilities: [
+            "agent-session-attach-v1", "agent-session-start-v1", AgentSessionAttachClient.prewarmCapability,
+            DaemonCapability.agentSessionStartVMKind.rawValue, AgentSessionAttachClient.startCredentialsCapability,
+            AgentSessionAttachClient.boundCredentialsCapability, "agent-session-credential-reattach-v1",
+        ])
+        defer { daemon.stop() }
+        let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
+        #expect(try await !client.prewarm(cwd: "/w", harness: "claude", ownerLink: link(3, 3),
+                                          credentials: [variable: "sk-ant-oat-fixture"]))
+        await client.close()
+        #expect(!daemon.frames.contains { $0["cmd"] as? String == "agent-session-prewarm" })
     }
 
     /// A new Cloud machine's first start (or a down machine that reconnects on use): its link was

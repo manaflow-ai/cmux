@@ -78,6 +78,10 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// against 154 and 478 MB without it (chat-pages-memory, 3 runs a side). Leo, 2026-11-12: a god chat shows
     /// "no perceivable difference" from a small one (within 1.2x).
     static let youngGeneration = "js-flags=--min-semi-space-size=32"
+    /// Chromium's macOS disk-space poll (`SystemMemoryPressureEvaluator::CheckDiskSpace`, 5 s).
+    static let diskSpacePollOff = "disable-features=MacCriticalDiskSpacePressure"
+    /// The PartitionAlloc memory reclaimer's period (Chromium's default is 4 s).
+    static let memoryReclaimerInterval = "enable-features=PartitionAllocMemoryReclaimer:interval/30s"
 
     var arguments: [String] {
         var result: [String] = []
@@ -112,6 +116,13 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // to UMA, which cmux does not upload; in some idle sessions it raised the
         // app's energy with 20 hidden tabs from about 0.24 to 4 mW (msg 2654).
         result.append("disable-stack-profiler")
+        // Two fixed-period Chromium timers woke the app's main thread at idle (its UI thread; each
+        // delayed task there is a pump wake): the macOS disk-space poll every 5 s, with a
+        // thread-pool read and a reply back on the main thread, and the PartitionAlloc memory
+        // reclaimer every 4 s, here and in each renderer. macOS's own memory pressure signal stays
+        // on; an idle app frees almost nothing for the reclaimer to return between passes.
+        result.append(Self.diskSpacePollOff)
+        result.append(Self.memoryReclaimerInterval)
         result.append(Self.youngGeneration)
         // A page draws when it has a frame, not when the display asks (`CEFFramePacing`): off by
         // default, since it also lets an animating page draw frames the display never shows.

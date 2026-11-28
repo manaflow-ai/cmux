@@ -100,6 +100,7 @@ blob schemas/theme/slots.json
 # cmux-config embeds the shipped sidebar looks (sidebar_look::shipped).
 blob Resources/sidebar-looks/claude.json
 blob Resources/sidebar-looks/codex.json
+blob Resources/sidebar-looks/rex.json
 blob Resources/sidebar-looks/studio.json
 blob schemas/chief-home/vectors.json
 blob schemas/defaults/cmux-next.json
@@ -220,3 +221,9 @@ blob examples/looks/leader/keybindings.json
 blob examples/looks/review-desk/cmux-setup.json
 blob examples/looks/review-desk/keybindings.json
 blob examples/looks/workspace-tabs/cmux-setup.json
+# cmux-config embeds the MDM examples and reference (docs/mdm) it checks managed settings against.
+blob docs/mdm/cmux-example.mobileconfig
+blob docs/mdm/com.manaflow.cmux.intune.plist
+blob docs/mdm/com.manaflow.cmux.json
+blob docs/mdm/com.manaflow.cmux.plist
+blob docs/mdm/managed-preferences.md

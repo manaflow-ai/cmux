@@ -180,6 +180,30 @@ async fn calls_reach_github_with_a_one_repo_token_and_none_comes_back() {
     assert!(seen.iter().all(|(auth, _)| auth.ends_with(&TOKEN.to_ascii_lowercase())));
 }
 
+/// A mint the platform answers busy is asked again by the bridge: the call goes through and
+/// the agent never sees the refusal (Leo, 2026-11-22: vacuous "try again"s are just done).
+#[tokio::test]
+async fn a_busy_mint_is_asked_again_and_the_call_goes_through() {
+    let (origin, seen) = github_server().await;
+    let tries = Arc::new(Mutex::new(0u32));
+    let counted = Arc::clone(&tries);
+    let mint: Mint = Arc::new(move |_: &TokenAsk| {
+        let mut n = counted.lock().unwrap();
+        *n += 1;
+        if *n == 1 {
+            Err(github_cli::refused("busy", "the mint is busy"))
+        } else {
+            Ok(TOKEN.to_owned())
+        }
+    });
+    let mut bridge =
+        Bridge::new(loopback_url(&origin).unwrap(), mint, Some("acme/app".into())).unwrap();
+    let read = bridge.handle(&call(2, "list_pull_requests", json!({}))).await.unwrap();
+    assert!(read["result"]["isError"] != true, "{read}");
+    assert_eq!(*tries.lock().unwrap(), 2, "asked once more after busy");
+    assert!(!seen.lock().unwrap().is_empty(), "the call reached GitHub");
+}
+
 #[tokio::test]
 async fn a_call_with_no_connection_is_a_tool_error_with_the_next_step() {
     let (origin, seen) = github_server().await;

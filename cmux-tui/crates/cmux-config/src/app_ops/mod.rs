@@ -29,6 +29,7 @@ pub mod home_table;
 pub mod import;
 pub mod jsonc;
 pub mod keymap;
+pub mod layout;
 pub mod link_rules;
 pub mod looks;
 pub mod managed;
@@ -65,6 +66,7 @@ const AREAS: &[AreaCall] = &[
     home_table::call,
     import::call,
     keymap::call,
+    layout::call,
     link_rules::call,
     looks::call,
     managed::call,

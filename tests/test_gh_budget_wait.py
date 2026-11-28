@@ -213,7 +213,9 @@ class WrapperTests(unittest.TestCase):
         self.assertIn("continue-on-error: true", hand_off)
         wait = int(re.search(r"GH_BUDGET_WAIT_MAX_SECONDS: (\d+)", hand_off).group(1))
         timeout = int(re.search(r"timeout-minutes: (\d+)", hand_off).group(1))
-        self.assertGreaterEqual(wait, 3600, "a reset can be an hour away")
+        # The look is advisory: past 2 minutes of rate limit the head's look is skipped, not waited out on a runner
+        # (about 50 runs slept 1,400 s on 11-24; a merged PR gets its receipt at its merge commit).
+        self.assertLessEqual(wait, 120, "a rate limit past 2 minutes skips this head's look")
         self.assertGreater(timeout * 60, wait, "the job must outlive its longest wait")
 
     def test_a_refused_spare_token_waits_as_before(self) -> None:

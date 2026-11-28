@@ -22,17 +22,18 @@ import os
 /// The phone never resizes the Mac's PTY while it projects (Leo, 2026-11-25:
 /// "do everything at parity on the phone", "why would the Mac on an iPhone
 /// connection ALWAYS be resized down anyways!?"): no claim on attach, on a
-/// full-screen app, or on typing. Settings → Terminal → Fit to Phone off
-/// (``isEnabled``), or the page menu's per program (``isEnabled(for:)``),
-/// uses the Mac's session as it is.
+/// full-screen app, or on typing. Settings → Terminal → Re-wrap on Phone
+/// opts in; Fit to Phone takes precedence when enabled for this program.
 @MainActor
 public final class TerminalProjectingSession: TerminalSession {
-    /// Whether new terminal pages project (Settings → Terminal → Fit to Phone off).
-    public static var isEnabled: Bool { !CmuxMobilePreferences.terminalFitToPhone() }
+    /// Whether new terminal pages opt into phone-side re-wrap.
+    public static var isEnabled: Bool { CmuxMobilePreferences.terminalPhoneProjection() && !CmuxMobilePreferences.terminalFitToPhone() }
 
     /// Whether a new page of `program` projects: its own Fit to Phone choice
     /// (the page menu), else the global setting (`TerminalFitToPhoneMemory`).
-    public static func isEnabled(for program: String) -> Bool { !TerminalFitToPhoneMemory().fitToPhone(for: program) }
+    public static func isEnabled(for program: String, defaults: UserDefaults = .standard) -> Bool {
+        CmuxMobilePreferences.terminalPhoneProjection(defaults) && !TerminalFitToPhoneMemory(defaults: defaults).fitToPhone(for: program)
+    }
 
     /// The Mac's session.
     public let inner: any TerminalSession
@@ -466,7 +467,16 @@ public final class TerminalProjectingSession: TerminalSession {
 
     /// The grid the screen's mirror takes: the phone's on the primary
     /// screen, the Mac's on the alternate screen.
+    ///
+    /// The primary screen's grid is held until the phone has measured its own
+    /// (`resize`): it never falls back to the Mac's. That fallback told the page
+    /// the Mac pane's grid (118x69 on Leo's Mac) whenever a replay or a screen
+    /// switch came in before the first measure, so the page laid the mirror out
+    /// at the Mac's width and panned sideways, then took the phone's grid a
+    /// moment later (Leo, 2026-11-23: "im sometimes seeing these 118x69 load
+    /// ins which are wide... then it properly goes").
     private func showGrid() {
+        if !shownAlternate, phoneGrid == nil { return }
         let grid = shownAlternate ? macGrid : (phoneGrid ?? macGrid)
         if let shown = shownGrid, shown.columns == grid.columns, shown.rows == grid.rows { return }
         shownGrid = grid

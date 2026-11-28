@@ -1166,7 +1166,17 @@ async fn wireguard_link_closes_after_a_60s_blackout() {
     let run = blackout(Duration::from_secs(60), false).await;
     eprintln!("BLACKOUT 60s: {run:?}");
     assert!(cmux_mobile_link::KEEPALIVE_TIMEOUT < Duration::from_secs(60));
-    assert_eq!(run.phone_closed.as_deref(), Some("keepalive timed out"), "{run:?}");
+    // Both keepalives run out about together, and the signaling socket is not
+    // dark: when the Mac's fires first, its `bye` reaches the phone over
+    // signaling, the phone drops the tunnel, and its link reads "peer closed
+    // the link". Either way one side's keepalive ended it.
+    match run.phone_closed.as_deref() {
+        Some("keepalive timed out") => {}
+        Some("peer closed the link") => {
+            assert_eq!(run.mac_closed.as_deref(), Some("keepalive timed out"), "{run:?}");
+        }
+        other => panic!("the phone's link closed with {other:?}: {run:?}"),
+    }
 }
 
 static PHONE_SENDS: std::sync::Mutex<Vec<std::time::Instant>> = std::sync::Mutex::new(Vec::new());

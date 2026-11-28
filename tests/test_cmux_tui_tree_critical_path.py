@@ -360,9 +360,11 @@ def main():
     channel = yaml.safe_load(Path(ROOT, ".github/workflows/cmux-machine-channel.yml").read_text())
     # LINUX_X86_64_FIRST: the x86_64 point waits for the x86_64 leg alone, not the aarch64 one.
     # `plan` (does the channel need this commit) runs before either leg, so it adds no wait.
-    _check(needs(channel["jobs"]["point-x86_64"]) == ["plan", "build-x86_64"],
+    # TWIN_BUILD: twin-x86_64 runs instead of build-x86_64 (a push an earlier push builds), never beside it.
+    _check(needs(channel["jobs"]["point-x86_64"]) == ["plan", "build-x86_64", "twin-x86_64"],
            f"its x86_64 point waits for the thin x86_64 leg only ({needs(channel['jobs']['point-x86_64'])})")
-    _check(needs(channel["jobs"]["point-linux"]) == ["plan", "build-x86_64", "build-aarch64", "point-x86_64"],
+    _check(needs(channel["jobs"]["point-linux"]) == ["plan", "build-x86_64", "build-aarch64", "point-x86_64",
+                                                     "twin-linux"],
            f"its Linux point waits for both thin legs ({needs(channel['jobs']['point-linux'])})")
     # A pull request head (PR_HEAD_FAST_LANE) is superseded by its newer head; a push never cancels.
     _check("coalesce" not in channel["jobs"]

@@ -87,16 +87,36 @@ pub(crate) fn record(name: &str, remote: &str, local: &Path, encoded: &[u8]) -> 
 
 /// The projection recorded for `local` at `remote`, when that folder is projected.
 pub(crate) fn recorded(local: &Path, remote: &str) -> Option<Recorded> {
-    let local = std::fs::canonicalize(local).ok()?;
-    let dir = records_dir().ok()?;
-    std::fs::read_dir(dir).ok()?.filter_map(Result::ok).find_map(|entry| {
-        let name = entry.file_name().into_string().ok()?;
-        name.strip_suffix(".json")?;
-        let bytes = std::fs::read(entry.path()).ok()?;
-        let found: Recorded = serde_json::from_slice(&bytes).ok()?;
-        let same = found.remote.trim_end_matches('/') == remote.trim_end_matches('/');
-        (same && found.local == local).then_some(found)
-    })
+    records_at(local, remote).ok()?.next()
+}
+
+fn records_at(local: &Path, remote: &str) -> anyhow::Result<impl Iterator<Item = Recorded>> {
+    let local = std::fs::canonicalize(local)?;
+    let remote = remote.trim_end_matches('/').to_owned();
+    let entries = std::fs::read_dir(records_dir()?)?;
+    Ok(entries.filter_map(move |entry| {
+        let path = entry.ok()?.path();
+        if path.extension()? != "json" {
+            return None;
+        }
+        let found: Recorded = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+        (found.remote.trim_end_matches('/') == remote && found.local == local).then_some(found)
+    }))
+}
+
+/// A notification recipient is a session ID. A projection is named by its start key or by
+/// the caller of `serve --name`. Only an explicit projection name can disambiguate shared paths.
+fn detach_record(
+    records: impl Iterator<Item = Recorded>,
+    name: Option<&str>,
+) -> anyhow::Result<Recorded> {
+    let mut matches = records.filter(|record| name.is_none_or(|name| name == record.name));
+    let record = matches.next().context("no matching projection record")?;
+    anyhow::ensure!(
+        matches.next().is_none(),
+        "several projections use this folder; pass --name with the projection to detach"
+    );
+    Ok(record)
 }
 
 fn forget(name: &str) {
@@ -172,6 +192,63 @@ pub(crate) fn release_command(args: &[String]) -> anyhow::Result<Value> {
         Err(answer) => Ok(json!({"ok": false, "error": field(&answer, "/error"),
                                  "error_code": field(&answer, "/error_code")})),
     }
+}
+
+/// `cmux link project detach --socket S --at REMOTE [--name NAME] [--chat ID] FOLDER`: the folder was removed
+/// from its chat. The machine seals and unmounts it, keeping its edits (`projection.detach`); this
+/// Mac stops serving it but keeps its record, so Bring Back (`cmux link project back`) or Discard
+/// still finds it.
+pub(crate) fn detach_command(args: &[String]) -> anyhow::Result<Value> {
+    let (mut socket, mut at, mut folder, mut chat, mut name) = (None, None, None, None, None);
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        match word.as_str() {
+            "--socket" => socket = words.next().map(PathBuf::from),
+            "--at" => at = words.next().cloned(),
+            "--name" => {
+                name = Some(words.next().cloned().context("--name needs a projection name")?)
+            }
+            "--chat" => chat = Some(words.next().cloned().context("--chat needs a chat id")?),
+            other if other.starts_with("--") => bail!("unknown flag {other}"),
+            other => folder = Some(PathBuf::from(other)),
+        }
+    }
+    let socket = socket.context("--socket is required")?;
+    let at = at.context("--at is required")?;
+    let folder = folder.context("the folder is required")?;
+    let found = detach_record(records_at(&folder, &at)?, name.as_deref())
+        .with_context(|| format!("selecting the projection of {} at {at}", folder.display()))?;
+    let mut line = json!({"cmd": "projection.detach", "name": found.name});
+    if let Some(chat) = chat {
+        line["chat"] = Value::String(chat);
+    }
+    match dial_answer(&socket, &line)? {
+        Ok(answer) => {
+            // The mount is gone, so nothing reads through the server; the record stays.
+            Ok(detached_answer(&answer, super::project::stop_recorded_server(&socket, &found)))
+        }
+        Err(answer) => Ok(json!({"ok": false, "error": field(&answer, "/error"),
+                                 "error_code": field(&answer, "/error_code")})),
+    }
+}
+
+fn detached_answer(answer: &Value, stopped: anyhow::Result<bool>) -> Value {
+    // Cleanup can fail after the machine detached successfully. Keep that state in the answer
+    // so a caller can retry cleanup without treating the retained edits as still mounted.
+    let mut answer = json!({"ok": true, "detached": true, "mark": field(answer, "/data/mark"),
+                           "was_mounted": field(answer, "/data/was_mounted")});
+    match stopped {
+        Ok(stopped) => answer["server_stopped"] = Value::Bool(stopped),
+        Err(error) => {
+            answer["ok"] = Value::Bool(false);
+            answer["server_stopped"] = Value::Bool(false);
+            answer["error_code"] = Value::String("projection.stop_failed".into());
+            answer["error"] = Value::String(format!(
+                "the folder detached, but its server could not be stopped: {error:#}"
+            ));
+        }
+    }
+    answer
 }
 
 /// Bring Back of the projected folder `found` (module docs). `keep`: leave the projection on the

@@ -114,6 +114,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.AgentChangedEvent, "since_ms");
     try expectExplicitNullRejected(protocol.AgentChangedEvent, "terminal_id");
     try expectExplicitNullRejected(protocol.AppsCloudMachineEvent, "record");
+    try expectExplicitNullRejected(protocol.ClientDisconnectedByEvent, "by");
     try expectExplicitNullRejected(protocol.CloudConversationChangedEvent, "account");
     try expectExplicitNullRejected(protocol.CloudConversationLiveEvent, "account");
     try expectExplicitNullRejected(protocol.CloudConversationPresenceEvent, "account");
@@ -200,6 +201,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "endpoint");
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "hosting");
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "provider_id");
+    try expectExplicitNullRejected(protocol.ClientInfo, "capabilities");
     try expectExplicitNullRejected(protocol.ConversationChange, "conversation");
     try expectExplicitNullRejected(protocol.ConversationChange, "message");
     try expectExplicitNullRejected(protocol.ConversationChange, "participant");

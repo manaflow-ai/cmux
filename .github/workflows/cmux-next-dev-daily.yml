@@ -499,7 +499,7 @@ jobs:
     concurrency:
       group: cmux-next-dev-daily
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # frozen-label: holds signing material
     timeout-minutes: 15
     permissions:
       contents: write

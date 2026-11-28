@@ -35,7 +35,7 @@ REGISTERED = frozenset({
     "cmux-next-web-pieces.yml", "cmux-next-web.yml", "cmux-platform-prod-logs.yml", "cmux-tui-release-cut.yml",
     "cmux-tui-testbox-warmup.yml", "cmux-tui.yml", "fast-checks.yml",
     "first-user-journey-ios.yml", "first-user-journey-web.yml", "fixit-handoff.yml", "fleet-compile-check.yml",
-    "fleet-test-compile.yml", "gallery-health.yml", "ios-app-store.yml", "ios-appstore-upload.yml",
+    "gallery-health.yml", "ios-app-store.yml", "ios-appstore-upload.yml",
     "ios-screenshots.yml", "ios-streamed-validate.yml", "iroh-release-gate.yml", "machine-join-e2e.yml",
     "machine-vault-e2e.yml", "macos-cross-parity.yml", "main-compile-probe.yml", "nightly-next-rollback.yml",
     "nightly-next-train.yml", "nightly-next-verdict.yml", "nightly-tag-permission-probe.yml", "pr-status.yml",
@@ -48,8 +48,8 @@ REGISTERED = frozenset({
 UNREGISTERED = frozenset({
     "classic-migration-staging.yml", "cmux-mobile-link-stats.yml", "cmux-next-fast-tier-batch.yml",
     "cmux-next-pr-pipeline-ios-batch.yml", "cmux-next-pr-pipeline-linux-batch.yml",
-    "cmux-next-pr-pipeline-mac-batch.yml", "cmux-next-stress-bench.yml", "cmux-next-tooling-tests-batch.yml",
-    "cmux-next-web-perf.yml", "cmux-web-layer-fork.yml", "device-hub-logs.yml", "internal-token-staging.yml",
+    "cmux-next-pr-pipeline-mac-batch.yml", "cmux-next-tooling-tests-batch.yml",
+    "cmux-web-layer-fork.yml", "device-hub-logs.yml", "internal-token-staging.yml",
     "ios-asc-subscription-records.yml", "ios-testflight.yml",
 })
 

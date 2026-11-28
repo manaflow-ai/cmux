@@ -219,3 +219,23 @@ fn unpack_refuses_a_path_that_climbs_out() {
     assert!(unpack(&bytes, &dir, &layer).is_err());
     assert!(!dir.exists());
 }
+
+/// A layer fetch is a bare GET of a public file: no credential, cookie or person header rides with it.
+#[test]
+fn seeded_layer_fetch_sends_no_credential() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let http = Http::with_timeout(std::time::Duration::from_secs(30)).unwrap();
+    let url = "https://files.cmux.com/cmux-next-web/seeded-pr-probe/latest.json";
+    assert_eq!(http.get_json(url).unwrap(), Some(serde_json::json!({})));
+    let sent: Vec<_> = cmux_egress::capture::requests_to("files.cmux.com")
+        .into_iter()
+        .filter(|r| r.target == "/cmux-next-web/seeded-pr-probe/latest.json")
+        .collect();
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    let allowed = ["host", "accept", "user-agent", "accept-encoding", "content-length"];
+    for (name, _) in &sent[0].headers {
+        assert!(allowed.contains(&name.to_ascii_lowercase().as_str()), "{name}: {sent:?}");
+    }
+    assert!(sent[0].body.is_empty());
+}

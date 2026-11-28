@@ -170,8 +170,6 @@
     "CmuxAppAttest": {"layer": "service", "package": "Packages/Shared/CmuxAppAttest", "note": "DeviceCheck / App Attest calls"},
     "CmuxAuthRuntime": {"layer": "service", "package": "Packages/Shared/CmuxAuthRuntime", "note": "Stack auth runtime: keychain, SQLite, web sign-in"},
     "StackAuth": {"layer": "service", "package": "vendor/stack-auth-swift-sdk-prerelease", "note": "vendored Stack Auth HTTP SDK"},
-    "CmuxIrohTransport": {"layer": "service", "package": "Packages/Shared/CmuxIrohTransport", "note": "iroh network transport"},
-    "CmuxIrxTransport": {"layer": "service", "package": "Packages/Shared/CmuxIrxTransport", "note": "irx network transport"},
     "CmuxSentryReporting": {"layer": "service", "package": "Packages/Shared/CmuxSentryTelemetry", "note": "sends crash reports to Sentry"},
     "CmuxVNC": {"layer": "service", "package": "Packages/Shared/CmuxVNC", "note": "RFB client"},
     "CmuxVNCDemoServer": {"layer": "service", "package": "Packages/Shared/CmuxVNC", "note": "demo RFB server"},

@@ -28,6 +28,7 @@ final class SettingsPageProvider: PageProvider {
     /// The Accounts part of the page (R82 commit 3): its state, and one gesture; nil in tests
     /// without an app.
     var accountsState: (@MainActor () -> JSONValue)?
+    var loadSignInAccounts: (@MainActor () async -> Void)?
     var accountsRun: (@MainActor (JSONValue) async throws -> JSONValue)?
     /// Settings > Agents (BRING-YOUR-OWN-HARNESS): the harness list and its gestures; nil in tests
     /// without an app.
@@ -218,7 +219,7 @@ final class SettingsPageProvider: PageProvider {
             // On lets that machine take the VM boundary again (its remote chains run without the sandbox): ``widen``.
             let reason = RemoteStrings.vmHostConfirmReason
             return try await widen("vmHost", id, reason: reason, on: on, context, Self.host(setMachineVmHost, "machines")).map { ["error": .string($0)] } ?? .object([:])
-        case "cmux.settings.accounts.state": return try Self.host(accountsState, "accounts")()
+        case "cmux.settings.accounts.state": await loadSignInAccounts?(); return try Self.host(accountsState, "accounts")()
         case "cmux.settings.accounts.run": return try await Self.host(accountsRun, "accounts")(params)
         case "cmux.settings.agents.state": return try Self.host(agents, "agents").pageState
         case "cmux.settings.agents.run": return try await Self.host(agents, "agents").runPage(params)

@@ -39,6 +39,7 @@ fn item(
         class,
         report: false,
         waited: false,
+        gather: false,
         at,
         within: None,
         text: text.to_owned(),
@@ -542,14 +543,12 @@ async fn inbox_accepts_a_new_notice_while_configuration_is_being_written() {
         &mut accept,
     );
     tokio::pin!(prompt);
-    let answer = tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        tokio::select! {
-            result = &mut prompt => panic!("prompt finished before acceptance: {result:?}"),
-            ack = rx.recv() => ack.expect("acceptance"),
-        }
-    })
-    .await
-    .expect("an inbox delivery is accepted while configuration is being written");
+    let answer = tokio::select! {
+        result = &mut prompt => panic!("prompt finished before acceptance: {result:?}"),
+        ack = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv()) => ack
+            .expect("an inbox delivery is accepted while configuration is being written")
+            .expect("acceptance"),
+    };
     assert_eq!(answer["promptId"], "after-restore");
     assert_eq!(answer["inbox"], true);
     assert_eq!(answer["queued"], true);
@@ -852,6 +851,32 @@ async fn results_to_a_running_turn_coalesce_into_one_steer_and_a_blocker_brings_
         let both = Some(vec!["b1".to_owned(), "r1".to_owned()]);
         assert_eq!(carried(&session), both, "the blocker brings it at once ({class:?})");
     }
+}
+
+/// No notice steers into a Codex turn whose model has not answered its prompt yet: codex-acp
+/// takes that steer as a new prompt and cancels the running one, so the chat's task was lost
+/// to an "expired undelivered" FYI three times in one chat (acp-chief-issues 2026-11-27). No
+/// timer polls it: the model's first sign looks again (`model_answered`), and the notice steers
+/// in as before. A Claude chat's turn takes it at once.
+#[tokio::test]
+async fn no_notice_steers_into_a_codex_turn_before_its_model_answers() {
+    let (hub, session) = hub_with_chat("codex-steer");
+    session.meta.lock().unwrap().family = Some("codex".to_owned());
+    running(&session);
+    session.inbox().items.push(item("b1", "t", "lane-b", PromptClass::Block, now_ms(), "stuck"));
+    hub.inbox_review(&session);
+    assert_eq!(carried(&session), None, "held while the model has not answered");
+    assert!(session.inbox().timer.is_none(), "no timer: the model's first sign looks again");
+
+    session.heard.fetch_add(1, Ordering::SeqCst);
+    hub.inbox_review(&session);
+    assert_eq!(carried(&session), Some(vec!["b1".to_owned()]), "steered in once it answered");
+
+    let (hub, claude) = hub_with_chat("claude-steer");
+    running(&claude);
+    claude.inbox().items.push(item("b1", "t", "lane-b", PromptClass::Block, now_ms(), "stuck"));
+    hub.inbox_review(&claude);
+    assert_eq!(carried(&claude), Some(vec!["b1".to_owned()]), "a Claude turn takes it at once");
 }
 
 /// What steers into a running turn at once: blockers, and a result from the chat's parent or
@@ -2060,4 +2085,214 @@ fn only_a_result_that_is_no_next_step_holds() {
     }
     meta.turn_count = 0;
     assert!(!holds_wake(&meta, &report), "a chat's first work");
+}
+
+/// Validation alone missed the bridge's explicit gather bit being lost before admission.
+/// Exercise admission and the journal replay used after restart, without an urgent flush.
+#[tokio::test]
+async fn explicit_gather_fyi_survives_restart_and_delivers_at_the_cold_deadline() {
+    let knobs = super::cold_wake::Knobs {
+        enabled: true,
+        compact: false,
+        compact_above: super::cold_wake::DEFAULT_COMPACT_ABOVE_TOKENS,
+    };
+    super::cold_wake::KNOBS_FOR_TEST.with(|k| k.set(Some(knobs)));
+    let (hub, session) = hub_with_chat("gather-fyi-restart");
+    let now = now_ms();
+    {
+        let mut meta = session.meta.lock().unwrap();
+        meta.usage = Some(json!({"used": 200_000, "size": 1_000_000,
+            "_meta": {"acpmux": {"cacheExpiresAt": now - 40 * 60_000}}}));
+        meta.last_turn = Some(json!({"turnId": "previous", "endedAt": now - 45 * 60_000}));
+    }
+    for (id, sender) in [("gather-slack", "slack-listen"), ("gather-forum", "agent-forum")] {
+        let blocks = [json!({"type": "text", "text": id})];
+        let mut provenance = crate::prompt_provenance::named_sender(sender, &session.id);
+        provenance.set(super::cold_wake::GATHER_META, json!(true));
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut accept = |notice| tx.send(notice).unwrap();
+        let prompt = hub.inbox_accept(
+            &session,
+            &blocks,
+            "test",
+            id,
+            sender,
+            PromptClass::Fyi,
+            None,
+            Some(&provenance),
+            false,
+            false,
+            None,
+            &mut accept,
+        );
+        tokio::pin!(prompt);
+        tokio::select! {
+            result = &mut prompt => panic!("finished before acceptance: {result:?}"),
+            ack = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv()) => {
+                assert_eq!(ack.expect("bounded acceptance").expect("accepted")["promptId"], id);
+            }
+        }
+    }
+    assert_eq!(session.inbox().items.len(), 2);
+    assert!(session.inbox().items.iter().all(|i| i.gather));
+    assert!(!tried(&session));
+    // Discard volatile state, including the old timer, as a daemon restart does.
+    if let Some(timer) = session.inbox().timer.take() {
+        timer.abort();
+    }
+    *session.inbox() = Default::default();
+    *session.cold_batch.lock().unwrap() = None;
+    hub.restore_inbox(&session);
+    assert_eq!(session.inbox().items.len(), 2);
+    assert!(session.inbox().items.iter().all(|i| i.gather), "journal keeps gather");
+    hub.inbox_review(&session);
+    let due = session.cold_batch.lock().unwrap().expect("restored FYIs open a batch").due;
+    assert!(due >= now + super::cold_wake::MAX_WINDOW_MS);
+    assert!(session.inbox().timer.is_some());
+    assert!(!tried(&session), "nothing wakes inside the batch");
+    // The timer invokes inbox_review; move its deadline, without sleeping or an urgent input.
+    session.cold_batch.lock().unwrap().as_mut().unwrap().due = now_ms().saturating_sub(1);
+    hub.inbox_review(&session);
+    assert_eq!(carried(&session), Some(vec!["gather-forum".into(), "gather-slack".into()]));
+    hub.inbox_review(&session);
+    assert_eq!(carried(&session).map(|ids| ids.len()), Some(2), "one notice owns both");
+    super::cold_wake::KNOBS_FOR_TEST.with(|k| k.set(None));
+}
+
+#[tokio::test]
+async fn explicit_gather_fyi_preserves_off_warm_ordinary_and_urgent_handling() {
+    let now = now_ms();
+    for (name, enabled, warm, gather) in [
+        ("gather-off", false, false, true),
+        ("gather-warm", true, true, true),
+        ("ordinary-fyi", true, false, false),
+        ("gather-urgent", true, false, true),
+    ] {
+        super::cold_wake::KNOBS_FOR_TEST.with(|k| {
+            k.set(Some(super::cold_wake::Knobs {
+                enabled,
+                compact: false,
+                compact_above: super::cold_wake::DEFAULT_COMPACT_ABOVE_TOKENS,
+            }))
+        });
+        let (hub, session) = hub_with_chat(name);
+        {
+            let mut meta = session.meta.lock().unwrap();
+            let expires = if warm { now + 60 * 60_000 } else { now - 40 * 60_000 };
+            meta.usage = Some(json!({"used": 200_000,
+                "_meta": {"acpmux": {"cacheExpiresAt": expires}}}));
+            meta.last_turn = Some(json!({"turnId": "previous", "endedAt": expires - 300_000}));
+        }
+        let mut fyi = item("fyi", "bridge", "slack-listen", PromptClass::Fyi, now, "update");
+        fyi.gather = gather;
+        session.inbox().items.push(fyi);
+        hub.inbox_review(&session);
+        assert!(!tried(&session));
+        if name == "gather-urgent" {
+            assert!(session.cold_batch.lock().unwrap().is_some());
+            session.inbox().items.push(item(
+                "urgent",
+                "bridge",
+                "agent-forum",
+                PromptClass::Question,
+                now.saturating_sub(WAKE_DEBOUNCE_MS + 1),
+                "which?",
+            ));
+            hub.inbox_review(&session);
+            assert_eq!(carried(&session), Some(vec!["fyi".into(), "urgent".into()]));
+        } else {
+            assert!(session.cold_batch.lock().unwrap().is_none(), "{name}");
+            assert!(session.inbox().timer.is_some(), "ordinary deadline remains armed: {name}");
+        }
+    }
+    super::cold_wake::KNOBS_FOR_TEST.with(|k| k.set(None));
+}
+
+#[tokio::test]
+async fn gathered_fyi_keeps_open_deadline_after_compaction_warms_metadata() {
+    super::cold_wake::KNOBS_FOR_TEST.with(|k| {
+        k.set(Some(super::cold_wake::Knobs {
+            enabled: true,
+            compact: false,
+            compact_above: super::cold_wake::DEFAULT_COMPACT_ABOVE_TOKENS,
+        }))
+    });
+    let (hub, session) = hub_with_chat("gather-compacted");
+    let now = now_ms();
+    {
+        let mut meta = session.meta.lock().unwrap();
+        meta.usage = Some(json!({"used": 200_000,
+            "_meta": {"acpmux": {"cacheExpiresAt": now - 40 * 60_000}}}));
+        meta.last_turn = Some(json!({"endedAt": now - 45 * 60_000}));
+    }
+    let mut fyi = item("gather", "bridge", "slack-listen", PromptClass::Fyi, now, "update");
+    fyi.gather = true;
+    session.inbox().items.push(fyi);
+    hub.inbox_review(&session);
+    let due = session.cold_batch.lock().unwrap().expect("open batch").due;
+    // Even at the deadline, no notice may steer into the batch's own compaction.
+    let compact_prompt = format!("{}test", super::cold_wake::COMPACT_ID_PREFIX);
+    *session.turn.lock().unwrap() = Some(TurnInfo::prompted(
+        "test",
+        "/compact",
+        "compact-turn",
+        &compact_prompt,
+        Control::Local,
+    ));
+    session.steering.store(true, Ordering::SeqCst);
+    hub.cold_batch_turn_started(&session);
+    session.cold_batch.lock().unwrap().as_mut().unwrap().due = now_ms().saturating_sub(1);
+    hub.inbox_review(&session);
+    assert!(!tried(&session), "the compaction must complete before gathered delivery");
+    assert!(session.cold_batch.lock().unwrap().is_some(), "compaction retains the batch");
+    *session.turn.lock().unwrap() = None;
+    session.cold_batch.lock().unwrap().as_mut().unwrap().due = due;
+    // Completing compaction updates last_turn and makes cache_expires_at warm.
+    session.meta.lock().unwrap().last_turn = Some(json!({"endedAt": now_ms()}));
+    assert!(super::cold_wake::coldness(&session.meta(), now_ms()).is_none());
+    hub.inbox_review(&session);
+    assert_eq!(session.cold_batch.lock().unwrap().unwrap().due, due);
+    assert!(!tried(&session), "compaction cannot flush the pending FYI early");
+    session.cold_batch.lock().unwrap().as_mut().unwrap().due = now_ms().saturating_sub(1);
+    hub.inbox_review(&session);
+    assert_eq!(
+        carried(&session),
+        Some(vec!["gather".into()]),
+        "newly warm metadata cannot strand an open batch at the ordinary FYI deadline"
+    );
+    super::cold_wake::KNOBS_FOR_TEST.with(|k| k.set(None));
+}
+
+#[tokio::test]
+async fn gathered_fyi_keeps_page_and_surge_holds() {
+    super::cold_wake::KNOBS_FOR_TEST.with(|k| {
+        k.set(Some(super::cold_wake::Knobs {
+            enabled: true,
+            compact: false,
+            compact_above: super::cold_wake::DEFAULT_COMPACT_ABOVE_TOKENS,
+        }))
+    });
+    for (name, verdict, surge) in [
+        ("gather-page-hold", Some(page_rule::Verdict::Hold), false),
+        ("gather-page-fold", Some(page_rule::Verdict::Fold), false),
+        ("gather-surge-hold", None, true),
+    ] {
+        let (hub, session) = hub_with_chat(name);
+        let now = now_ms();
+        {
+            let mut meta = session.meta.lock().unwrap();
+            meta.usage = Some(json!({"used": 200_000,
+                "_meta": {"acpmux": {"cacheExpiresAt": now - 40 * 60_000}}}));
+            meta.last_turn = Some(json!({"endedAt": now - 45 * 60_000}));
+        }
+        let mut fyi = item("held", "bridge", "agent-forum", PromptClass::Fyi, now, "update");
+        fyi.gather = true;
+        fyi.verdict = verdict;
+        fyi.surge_held = surge;
+        session.inbox().items.push(fyi);
+        hub.inbox_review(&session);
+        assert!(session.cold_batch.lock().unwrap().is_none(), "{name}");
+        assert!(!tried(&session), "{name}");
+    }
+    super::cold_wake::KNOBS_FOR_TEST.with(|k| k.set(None));
 }

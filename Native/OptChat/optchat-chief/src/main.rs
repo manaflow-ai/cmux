@@ -45,7 +45,7 @@ optchat-chief pack list | status|login|wait|paste|share|logout|token|check|insta
 optchat-chief github status | login | wait [SECONDS] | pat FILE|- | mac | logout [--json] [--mux-home DIR]
                                                            this Chief's GitHub login (default: the Mac's gh): `pack ... github`
 Env: CMUX_DAEMON_SOCKET, MUX_HOME (~/.cmux/mux), MUX_AGENT_TOKEN_FILE,
-     OPTCHAT_CHIEF_HARNESS / MUX_HARNESS (claude-cr when acpmux has a configured CodeRouter route, else claude), OPTCHAT_COMPACTOR_HARNESS (the Chief's),
+     OPTCHAT_CHIEF_HARNESS / MUX_HARNESS (default claude), OPTCHAT_COMPACTOR_HARNESS (the Chief's),
      MUX_POLICY (approve-all), OPTCHAT_CHIEF_MODEL, ACPMUX_SOCKET / ACPMUX_HOME / ACPMUX_BIN,
      CMUX_SOCKET_PATH, OPTCHAT_ANTHROPIC_BASE_URL (compactor; the team subrouter)";
 

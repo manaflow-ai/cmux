@@ -148,27 +148,51 @@ package final class DesktopNotifier: NSObject {
                              approval: approval, category: category, incognito: incognito))
         if posted.count > Self.postedLimit { posted.removeFirst(posted.count - Self.postedLimit) }
         guard let center = resolvedCenter() else { return }
-        let content = UNMutableNotificationContent()
-        content.title = title
-        if let subtitle { content.subtitle = subtitle }
-        content.body = body
-        let attachmentFile: URL? = attachment.flatMap { Self.writeAttachment($0, id: id) }.flatMap { file in
-            guard let item = try? UNNotificationAttachment(identifier: "status", url: file) else {
-                try? FileManager.default.removeItem(at: file)
-                return nil
-            }
-            content.attachments = [item]
-            return file
-        }
-        content.sound = defaultSound ? .default : nil
-        content.interruptionLevel = .active
-        if let workspace { content.threadIdentifier = workspace }
-        content.categoryIdentifier = category
-        var info: [String: Any] = ["notification": id]
-        if let surface { info["surface"] = NSNumber(value: surface) }
-        content.userInfo = info
-        let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
         let logger = logger
+        let banner = Banner(id: id, title: title, subtitle: subtitle, body: body, surface: surface, workspace: workspace,
+                            defaultSound: defaultSound, category: category)
+        guard let attachment else {
+            Self.add(banner.request(attachment: nil), to: center, attachmentFile: nil, logger: logger)
+            return
+        }
+        // The attachment file is written and handed to the center off the main thread (a stalled disk would
+        // stall main); the banner is added after, with or without the badge.
+        Task.detached(priority: .userInitiated) {
+            let file = Self.attachmentItem(attachment, id: id)
+            Self.add(banner.request(attachment: file?.item), to: UNUserNotificationCenter.current(), attachmentFile: file?.url, logger: logger)
+        }
+    }
+
+    /// What a banner shows, as plain values a detached task can build its request from.
+    private nonisolated struct Banner: Sendable {
+        var id: String
+        var title: String
+        var subtitle: String?
+        var body: String
+        var surface: UInt64?
+        var workspace: String?
+        var defaultSound: Bool
+        var category: String
+
+        func request(attachment: UNNotificationAttachment?) -> UNNotificationRequest {
+            let content = UNMutableNotificationContent()
+            content.title = title
+            if let subtitle { content.subtitle = subtitle }
+            content.body = body
+            if let attachment { content.attachments = [attachment] }
+            content.sound = defaultSound ? .default : nil
+            content.interruptionLevel = .active
+            if let workspace { content.threadIdentifier = workspace }
+            content.categoryIdentifier = category
+            var info: [String: Any] = ["notification": id]
+            if let surface { info["surface"] = NSNumber(value: surface) }
+            content.userInfo = info
+            return UNNotificationRequest(identifier: id, content: content, trigger: nil)
+        }
+    }
+
+    private nonisolated static func add(_ request: UNNotificationRequest, to center: UNUserNotificationCenter,
+                                        attachmentFile: URL?, logger: Logger) {
         center.add(request) { error in
             guard let error else { return }
             logger.error("banner failed: \(String(describing: error), privacy: .public)")
@@ -176,8 +200,18 @@ package final class DesktopNotifier: NSObject {
         }
     }
 
+    /// The badge file and its attachment, or nil (the file deleted) when either step fails.
+    private nonisolated static func attachmentItem(_ data: Data, id: String) -> (url: URL, item: UNNotificationAttachment)? {
+        guard let file = writeAttachment(data, id: id) else { return nil }
+        guard let item = try? UNNotificationAttachment(identifier: "status", url: file) else {
+            try? FileManager.default.removeItem(at: file)
+            return nil
+        }
+        return (file, item)
+    }
+
     /// A file for one banner's attachment in the temporary directory.
-    private static func writeAttachment(_ data: Data, id: String) -> URL? {
+    private nonisolated static func writeAttachment(_ data: Data, id: String) -> URL? {
         let folder = FileManager.default.temporaryDirectory.appending(path: "cmux-status-notifications", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let file = folder.appending(path: "\(id)-\(UUID().uuidString).png")

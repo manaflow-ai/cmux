@@ -1475,3 +1475,51 @@ fn kind_index_lookup_bench() {
     kind_heads::BUDGET_FOR.with(|b| b.set(None));
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A page of prompts from a sealed segment whose copy the last page checked reads that copy by
+/// window, as far as the page goes, not whole: each page read and split its segment's whole copy,
+/// so `promptPageUs` rose 1.37x from 1 MB of chat to 100 MB and 1 GB (`chat_size_sweep`, goal
+/// infinite-chats, found by goal-infinite-chats-a-2). The window's page is the whole read's.
+#[test]
+fn a_second_prompt_page_reads_a_checked_copy_by_window() {
+    let root = root();
+    let store = LocalStore::new(root.clone(), 1 << 20).unwrap();
+    for seq in 1..=2_400 {
+        let kind = if seq % 2 == 0 { "user_message" } else { "turn_started" };
+        store.append("c", &rec(seq, kind)).unwrap();
+    }
+    store.flush().unwrap();
+    let segments = store.segments("c").unwrap();
+    assert!(segments.len() >= 3, "{} segments", segments.len());
+    // The page starts before the newest segment, whose copy the appends have not made.
+    let (_, newest) = segments.last().unwrap();
+    let before = super::super::log_line::first_seq(newest).unwrap().unwrap();
+    let page = |store: &LocalStore| {
+        let mut prompts = Vec::new();
+        store
+            .scan_back_indexed("c", 0, before, &|_, kind| kind != b"user_message", &mut |r| {
+                if r.kind == "user_message" {
+                    prompts.push(r.seq);
+                }
+                prompts.len() < 16
+            })
+            .unwrap();
+        prompts
+    };
+    let first = page(&store);
+    assert_eq!(first.len(), 16);
+    let index = segments[segments.len() - 2].0;
+    let copy_len = std::fs::metadata(store.kind_index_path("c", index)).unwrap().len();
+    assert!(copy_len > 512 << 10, "a copy of {copy_len} bytes");
+    kind_index::COPY_BYTES.with(|n| n.set(0));
+    let again = page(&store);
+    let read = kind_index::COPY_BYTES.with(std::cell::Cell::get);
+    assert_eq!(again, first);
+    assert!(read * 10 < copy_len, "the second page read {read} bytes of a {copy_len}-byte copy");
+    // A store of its own checks nothing yet: it reads the copy whole, to the same page.
+    let fresh = LocalStore::new(root.clone(), 1 << 20).unwrap();
+    kind_index::COPY_BYTES.with(|n| n.set(0));
+    assert_eq!(page(&fresh), first);
+    assert!(kind_index::COPY_BYTES.with(std::cell::Cell::get) >= copy_len - 1024);
+    let _ = std::fs::remove_dir_all(&root);
+}

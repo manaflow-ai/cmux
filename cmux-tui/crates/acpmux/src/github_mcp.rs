@@ -122,7 +122,7 @@ pub fn refusal_result(repo: Option<&str>, e: &Refused) -> Value {
     let subject = repo.map_or_else(|| "GitHub".to_owned(), |r| format!("GitHub for {r}"));
     let text = match &next {
         Some(next) => format!("cmux could not get a token for {subject} ({code}). Next: {next}."),
-        None => format!("cmux could not get a token for {subject} ({code}); try again shortly."),
+        None => format!("cmux could not get a token for {subject} ({code})."),
     };
     let mut error = json!({
         "code": if matches!(code.as_str(), "integration.not_found" | "needs_reauth") {
@@ -153,6 +153,19 @@ pub fn refusal_result(repo: Option<&str>, e: &Refused) -> Value {
 /// The reply to request `id` in an MCP answer (JSON, a batch or an event stream).
 pub fn reply_for(content_type: &str, body: &str, id: &Value) -> Option<Value> {
     crate::hosted_mcp::reply_for(content_type, body, id)
+}
+
+/// How long a token mint is asked again while the platform answers a transient refusal.
+const MINT_PATIENCE: Duration = Duration::from_secs(8);
+
+/// One mint's refusal as a try: busy, unavailable or unreachable passes later; anything else
+/// (not connected, denied, a rate limit window) is the answer.
+fn mint_attempt(refused: Refused) -> cmux_tui_util::retry::Attempt<Refused> {
+    use cmux_tui_util::retry::Attempt;
+    match refused.code.as_str() {
+        "busy" | "integration.unavailable" | "vm.agent_unreachable" => Attempt::Retry(refused),
+        _ => Attempt::Fail(refused),
+    }
 }
 
 struct Held {
@@ -224,11 +237,32 @@ impl Bridge {
         let live = self.held.get(&key).is_some_and(|h| Instant::now() < h.until);
         if fresh || !live {
             self.held.remove(&key);
-            let ask = github_cli::gh_ask(repo, write);
-            let mint = Arc::clone(&self.mint);
-            let token = tokio::task::spawn_blocking(move || mint(&ask))
-                .await
-                .map_err(|_| github_cli::refused("vm.agent_unreachable", "the mint stopped"))??;
+            // A mint the platform answers busy, briefly unavailable or unreachable is asked
+            // again here, a few seconds at most; the agent never relays "try again".
+            let token = cmux_tui_util::retry::Patience::new("a GitHub token", MINT_PATIENCE)
+                .quiet()
+                .run_async(
+                    || {
+                        github_cli::refused(
+                            "vm.agent_unreachable",
+                            "the mint did not answer in time",
+                        )
+                    },
+                    || {
+                        let ask = github_cli::gh_ask(repo, write);
+                        let mint = Arc::clone(&self.mint);
+                        async move {
+                            tokio::task::spawn_blocking(move || mint(&ask))
+                                .await
+                                .map_err(|_| {
+                                    github_cli::refused("vm.agent_unreachable", "the mint stopped")
+                                })
+                                .and_then(|minted| minted)
+                                .map_err(mint_attempt)
+                        }
+                    },
+                )
+                .await?;
             self.held.insert(
                 key,
                 Held {
@@ -369,7 +403,10 @@ impl Bridge {
                 }
             }
         }
-        Err(Err("GitHub refused the token cmux minted; try again".into()))
+        Err(Err(format!(
+            "GitHub refused two tokens cmux minted for {repo} (401): the cmux GitHub App may have \
+             lost access to it"
+        )))
     }
 
     fn no_repo() -> String {

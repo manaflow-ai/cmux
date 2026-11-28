@@ -24,6 +24,7 @@ It is built only from public surfaces, so you can copy any part of it.
 | A new, empty chat: the composer in the middle of the pane under its heading | `agentPane.emptyChatComposerPosition: center` |
 | The chat: system font, 14 px type in a 736 px column, no minimap, "Thinking" as the status verb | `agentPane.display.*` |
 | The filled, borderless 16 px prompt bubble, faint cards, muted secondary text, accent links | `agent-pane/theme.css` (`cmux.agentPane.style/1` tokens, every color mixed from the theme's own) |
+| Motion: a prompt you send settles into the thread; popovers and menus enter over 150 ms on a standard ease; panels at fast speed | `agentPane.display.sendPop`, `ui.animationSpeed: fast`, and `agent-pane/theme.css` (`--cmux-motion-micro`, `--cmux-ease-out`) |
 | Colors: black sidebar, near-black chat, white-at-8% hairlines, one bright blue | `themes/studio.json` (default), `themes/studio-light.json`, `themes/studio-ember.json` |
 
 ```sh
@@ -68,8 +69,38 @@ What the look reaches for and the public surface cannot set yet:
 | A tab strip with no tabs: only the breadcrumb title over the chat | The workspace tab strip always draws; no setting hides it for a one-chat workspace |
 | Inline code chips with a hairline and a small file-type badge | Inline code has no paint token; it keeps the chat's own filled chip |
 | The "Worked for" divider line | It has no token |
-| Panel animation duration in ms and a contrast slider | `ui.animationSpeed` offers fast, normal and off only; no contrast setting |
+| A contrast slider | No contrast setting. (Chat motion durations and easings are settable now, through the motion tokens in `agent-pane/theme.css`; the native panels still take only `ui.animationSpeed`.) |
 | Interface font size apart from the chat's | Only `agentPane.display.font.size` and the sidebar's text size presets are settable |
 | The sidebar's row decorations alongside your own `customize/` | A look's `customize/` files replace yours (only `local/customize` may decorate rows) |
+
+## Against the reference: features and motion
+
+The reference's public README and release notes, read on 2026-11-27, checked feature by feature
+against this look, most visible first. Matched: the look draws it. Partial: cmux has it, drawn or
+placed differently. Missing: no public surface for it yet.
+
+| Reference feature | Status | In this look, or the gap |
+| --- | --- | --- |
+| Threads grouped into project folders | matched | `sidebar.groupBy: folder` |
+| Black dark canvas, quiet sidebar rows, color only where it means something | matched | The three theme files and `appearance.selection: neutral` |
+| One grouped composer, effort shown as a word | matched | `agentPane.composerLook: studio` (model, effort and access chips in one row) |
+| A new thread's composer in the middle of the pane | matched | `agentPane.emptyChatComposerPosition: center` |
+| Cmd-B toggles the sidebar | matched | cmux's own default binding |
+| Search threads | matched | The Search row (`sidebar.nav`, `search.chats`) |
+| A sent prompt that settles into place, fast panels | matched | `agentPane.display.sendPop`, `ui.animationSpeed: fast` |
+| A Working section that folds running threads out of the list | partial | Running threads keep their place with a status mark; finished, read ones fold into Settled. No Working fold |
+| Hide projects with no active threads | partial | Settled folds read chats away; an empty project keeps its header |
+| Two-line rows | partial | Rows show the title, then the project, PR and status; the name always leads the first line, so the project cannot sit above the title |
+| Copy Thread ID from the thread's context menu | partial | Copy Session ID is in the Actions menu (Cmd-K), not the sidebar's right-click menu |
+| A worktree per thread, commit, push and open a PR from the thread | partial | cmux has worktrees, the diff viewer and PR rows; the look leaves the per-thread worktree off, so nothing changes where your agents run |
+| Approve the next step from the phone | partial | cmux's iOS app and cloud machines, not the reference's flow |
+| Switch models partway through a thread | partial | The composer's model chip; not checked for every harness |
+| Unsent drafts one click away in the sidebar | missing | A draft stays in its chat's composer; the sidebar does not mark it |
+| Composer switch between rich text and Markdown source | missing | The composer is plain text |
+| Hand-picked project icons | missing | No project badge before the folder line (see "Not yet possible") |
+| Composer resize animation | missing | No motion token covers the composer's height, so a look cannot set it |
+
+Motion the reference has not published as numbers is not invented here: only the send pop, the
+150 ms popover entrance and fast panel speed are set.
 
 How looks like this one are written: [docs/cmux-next/look-addons.md](../../../docs/cmux-next/look-addons.md).
