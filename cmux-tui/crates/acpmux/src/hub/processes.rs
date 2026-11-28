@@ -1540,6 +1540,24 @@ impl Hub {
         self.process_table(session).running.len()
     }
 
+    /// The session's running background processes as a move would interrupt them
+    /// (`move_interrupts.rs`): `(command, description, cwd, started_at, preview port)`.
+    pub(super) fn running_for_move(
+        &self,
+        session: &Session,
+    ) -> Vec<(String, Option<String>, String, u64, Option<u16>)> {
+        let table = self.process_table(session);
+        table
+            .running
+            .iter()
+            .filter_map(|&at| table.processes.get(at))
+            .map(|p| {
+                let port = p.preview.as_ref().map(|v| v.port);
+                (p.command.clone(), p.description.clone(), p.cwd.clone(), p.started_at, port)
+            })
+            .collect()
+    }
+
     /// How many of the session's background processes run, from a table this
     /// daemon has read already: never a log scan (`host_load.rs` asks for every chat).
     pub(super) fn running_processes_read(&self, session: &Session) -> usize {

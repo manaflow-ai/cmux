@@ -2950,6 +2950,33 @@ fn make_room_deletes_the_offered_machine_and_starts_again_once() {
     );
 }
 
+/// The offered machine is already gone (deleted in the meantime, or the fault drill's id no machine has): the room is
+/// made all the same, so the start runs again.
+#[test]
+fn make_room_whose_offered_machine_is_already_gone_starts_again() {
+    let free = json!({"machine": "vm-gone", "name": "web", "reason": "failed_create"});
+    let gone = Ran {
+        code: 1,
+        stderr:
+            json!({"code": "cloud.machine.not_found", "message": "no such machine in this team"})
+                .to_string(),
+        ..Ran::default()
+    };
+    let sent = exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n");
+    let mut fake = Fake::new(vec![
+        three_machines(),
+        held_refusal(free),
+        gone,
+        three_machines(),
+        started(),
+        sent,
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "hi", "--make-room"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["session_id"], "sess-1");
+}
+
 #[test]
 fn make_room_with_nothing_named_archives_the_oldest_paused_machine_and_says_to_ask_again() {
     let mut fake = Fake::new(vec![
