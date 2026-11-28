@@ -35,6 +35,10 @@ on:
         description: Also a Mac host built at this commit or ref (a fix stack under test), column "extra"
         type: string
         default: ""
+    secrets:
+      CMUX_BOT_APP_KEY:
+        description: The bot App's key; its token reads the phone list on the App's own quota
+        required: false
   workflow_dispatch:
     inputs:
       api:
@@ -92,9 +96,24 @@ jobs:
           path: .old-phones-list
           key: mobile-old-phones-list-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: mobile-old-phones-list-
-      - id: resolve
+      # The bot App's token has its own quota, as in ios-internal-nightly-trigger.yml: resolve reads with it first and
+      # switches to the workflow token at once when one is spent. Run 46185856595 died on the workflow token's spent
+      # quota with the cache evicted and the reset 20+ min away. No App or key: the workflow token alone.
+      - name: Mint the phone list reader's own token
+        id: app-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+      - name: Read the last 3 phone builds
+        id: resolve
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
           API: ${{ inputs.api || 'both' }}
         run: |
           python3 -I scripts/ci/mobile_old_phones.py resolve --repo "$GITHUB_REPOSITORY" --count 3 \
