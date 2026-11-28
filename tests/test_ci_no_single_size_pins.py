@@ -64,6 +64,11 @@ SELECTIONS_KEPT_LITERAL = {
         "adds a System keychain trust root as root: it needs a one-job Mac, and no macOS pool is ephemeral_only, so a "
         "pool could name an owned mini where its sudo fails (tests/test_ci_owned_mac_jobs_no_sudo.py)"
     ),
+    ("ci-macos.yml", "jobs.swift-package-tests.runs-on"): (
+        "builds the release Ghostty helper with the SDK 15 Xcode (CMUX_CI_HELPER_XCODE_APP_MACOS_15), which only the "
+        "blacksmith-6vcpu-macos-15 image carries; the macos_15 pool fails over to macOS 26 (cmux#64925), where that "
+        "Xcode does not exist, and no other pool or label has it"
+    ),
     ("machine-vault-e2e.yml", "jobs.e2e.runs-on"): (
         "adds a macOS user as root: it needs a one-job Mac, and no macOS pool is ephemeral_only, so a pool could name "
         "an owned mini where its sudo fails (tests/test_ci_owned_mac_jobs_no_sudo.py)"

@@ -406,8 +406,9 @@ jobs:
     # Blacksmith only: the tailnet join needs an ephemeral host. MACOS_RUNNER_IOS and
     # MACOS_RUNNER_PR now name self-hosted Macs that already run Tailscale, where
     # require-fresh-tailnet-host.sh fails by design. Same selector as
-    # main's (#52293): a Blacksmith RUNNER_POOLS member, else the 6vcpu label.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('["blacksmith-6vcpu-macos-26","blacksmith-12vcpu-macos-26"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_26) && fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}
+    # main's (#52293): a Blacksmith RUNNER_POOLS member, else the macos_26_large pool,
+    # which is ephemeral_only and lists only Blacksmith macOS 26 (.github/runners.json).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('["blacksmith-6vcpu-macos-26","blacksmith-12vcpu-macos-26"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_26) && fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || fromJSON(vars.RUNNER_POOLS).macos_26_large }}
     timeout-minutes: 120
     environment: ios-e2e
     permissions:
