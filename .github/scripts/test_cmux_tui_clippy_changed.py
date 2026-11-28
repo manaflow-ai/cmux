@@ -824,6 +824,16 @@ class ClippyChangedTests(unittest.TestCase):
         untouched = [*strict, "--untouched-is-base", "--diff-base", self.base]
         self.assertEqual(self.ratchet_calls(), [strict, untouched, [*untouched, "--base-clippy-json", str(base_out)]])
 
+    def test_compare_base_keeps_workspace_selection_when_only_one_crate_is_red(self) -> None:
+        self.change("cmux-tui/clippy.toml", "too-many-arguments-threshold = 8\n")
+        out = self.tmp / "out" / "panic-clippy.jsonl"
+        result = self.run_check("--base", self.base, "--panic-ratchet", str(out), "--compare-base",
+                                env_extra={"RATCHET_RC": "1",
+                                           "RATCHET_UNTOUCHED_OUT": "  pkg-a: clippy::unwrap_used 2 > baseline 1\n"})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        lint = ["clippy", "--locked", "--workspace", "--lib", "--bins", "--examples", *PANIC]
+        self.assertEqual(self.calls(), [lint, lint])
+
     def test_compare_base_lints_every_package_when_the_head_run_names_no_features_for_a_red_crate(self) -> None:
         # Without the head's unified features a crate linted alone can count fewer hits than the head; the whole
         # selection at the base unifies them as the head run did.
