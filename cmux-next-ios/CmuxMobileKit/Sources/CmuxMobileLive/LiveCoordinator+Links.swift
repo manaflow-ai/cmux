@@ -142,7 +142,12 @@ extension LiveCoordinator {
             // here on, not only once this bind returns (#46669's follow made that gap a read). A
             // failed bind's "Chats: ..." no longer stands once fresh data arrives (Leo, 2026-11-27:
             // "Stale errors clear on fresh data."); an error a person's action set stays.
-            if hub.isReady, session.chatsErrors.fresh() { self?.phaseChanged(session) }
+            // A whole list is fresh data on its own, even before `isReady` flips (catch-up and
+            // paged lists arrive ahead of the bind's return; gating on `isReady` alone left the
+            // stale "Chats: ..." standing whenever the list beat it).
+            let listArrived: Bool
+            if case .sessionsLoaded = event { listArrived = true } else { listArrived = false }
+            if hub.isReady || listArrived, session.chatsErrors.fresh() { self?.phaseChanged(session) }
             session.feed.handle(event, sessions: hub.sessions)
             // One chat's event updates that chat's entries; only a whole list rebuilds them. Each
             // event used to rebuild both maps over every chat on the main actor (about 30,000
