@@ -207,7 +207,11 @@ pub fn plan(root: &Path, options: &Options) -> Plan {
     } else {
         // The slash makes `dir/` patterns match without git guessing the kind.
         let dirs: Vec<String> = candidates.iter().map(|c| format!("{c}/")).collect();
-        let ignored = git_paths(root, &["check-ignore", "-z"], &dirs).map(|b| nul_set(&b));
+        // `-z` needs `--stdin` here; a name git would quote does not match, so it stays.
+        let ignored = git_paths(root, &["check-ignore"], &dirs).map(|b| {
+            let text = String::from_utf8_lossy(&b).replace('\n', "\0");
+            nul_set(text.as_bytes())
+        });
         // Any tracked file inside a candidate keeps it: that folder is part of the checkout.
         let tracked = git_paths(root, &["ls-files", "-z"], &candidates);
         match (ignored, tracked) {
