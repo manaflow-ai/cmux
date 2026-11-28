@@ -5,18 +5,15 @@
 // `#/issue?url=…` draw the issues view (GitHubIssues.tsx) in the same page.
 import "../shared/desktop";
 import "../shared/transientMaterial";
-import { useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";
 import { holdFirstPaint } from "../shared/paintGate";
 import table from "./generated/strings.json";
-import { GitHubIssues } from "./GitHubIssues";
-import { GitHubPage } from "./GitHubPage";
 import { IssuesStore } from "./issuesStore";
 import { MockGitHubProvider } from "./mockProvider";
+import { GitHubRoot } from "./GitHubRoot";
 import { GitHubStore } from "./store";
-import { issuesRoute } from "./types";
 import "../shared/pageBase.css";
 import "./styles.css";
 
@@ -39,21 +36,6 @@ export function mountGitHubPage(root: HTMLElement, client: PageClient | null = d
     void issues.ask();
   });
   return store;
-}
-
-/** The issues view when the route names one, else the pull request page. */
-function GitHubRoot({
-  store,
-  issues,
-  strings,
-}: {
-  store: GitHubStore;
-  issues: IssuesStore;
-  strings: ReturnType<typeof createStrings>;
-}) {
-  const view = useSyncExternalStore(issues.subscribe, () => issues.getSnapshot().view);
-  if (view) return <GitHubIssues store={issues} strings={strings} />;
-  return <GitHubPage store={store} strings={strings} onIssues={(repo) => (location.hash = issuesRoute(repo))} />;
 }
 
 function defaultClient(): PageClient | null {

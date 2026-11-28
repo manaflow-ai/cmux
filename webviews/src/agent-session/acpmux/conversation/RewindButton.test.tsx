@@ -10,7 +10,7 @@ import { translate } from "../i18n";
 import { TranscriptReadOnly } from "./readOnly";
 import { TurnActionsContext, type TurnActions } from "./turnActions";
 import { UserBubble } from "./UserBubble";
-import { rewindSeconds } from "./MessageActions";
+import { rewindSeconds } from "./rewindSeconds";
 import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;

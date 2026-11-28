@@ -233,7 +233,7 @@ const ENTRANCES: Record<string, { count: number; what: string }> = {
     what: "a prompt coach card arriving under a turn",
   },
   "src/agent-session/acpmux/pane/PaneBody.tsx": { count: 1, what: "the hand-off error line under the header" },
-  "src/agent-session/acpmux/session-info/useSessionInfo.tsx": { count: 1, what: "the Session Info side panel" },
+  "src/agent-session/acpmux/session-info/SessionInfoPresence.tsx": { count: 1, what: "the Session Info side panel" },
   "src/agent-session/acpmux/session-info/TasksSection.tsx": { count: 1, what: "an arriving task row" },
   "src/agent-session/acpmux/summary/SummaryCard.tsx": { count: 1, what: "the summary side panel" },
   "src/agent-session/acpmux/summary/SummaryTasks.tsx": { count: 1, what: "an arriving task row" },
@@ -321,6 +321,10 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
     count: 2,
     what: "the rows under a change in a running turn (the live line, a steer, the footer) glide to their new place, and the row above one that glides down shows its new part as the room opens (a clip on the same clock); transcript rows, never a menu",
   },
+  "src/agent-session/acpmux/conversation/compoundPlay.ts": {
+    count: 1,
+    what: "the compound motion scenarios' composer field eases its height (the gallery and its browser harness); transcript rows, never a menu",
+  },
   "src/agent-session/acpmux/conversation/turnFold.ts": {
     count: 2,
     what: "a turn folds: the rows that stay move, and copies of the rows it took away fade on the lead",
@@ -335,7 +339,7 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
     what: "Session Info Show more / Show less grow and close in place; a scrolled list's first row slides to its place on close",
   },
   "src/agent-session/acpmux/newtab/listMotion.ts": { count: 1, what: "New Tab rows move to their new place" },
-  "src/agent-session/acpmux/subagents/trayMotion.tsx": {
+  "src/agent-session/acpmux/subagents/trayGlide.ts": {
     count: 1,
     what: "the hat's +N more and time gliding to their new place in the row",
   },
