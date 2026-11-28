@@ -311,7 +311,9 @@ pub(crate) async fn send_link_rejection(
 async fn receive_control<T: for<'de> Deserialize<'de>>(
     link: &dyn FrameLink,
 ) -> Result<T, ConnectionError> {
-    let payload = link.receive().await?.ok_or(LinkError::Closed)?;
+    let payload = link.receive().await?.ok_or_else(|| {
+        LinkError::Transport("the daemon closed the link before link-ready".into())
+    })?;
     serde_json::from_slice(&payload).map_err(|error| ConnectionError::Protocol(error.to_string()))
 }
 

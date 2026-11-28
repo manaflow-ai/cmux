@@ -171,3 +171,61 @@ fn a_callers_shorter_connect_timeout_stays() {
     assert_eq!(caller_connect_timeout(&["-oBatchMode=yes".into()]), None);
     assert_eq!(caller_connect_timeout(&["--".into(), "-oConnectTimeout=2".into()]), None);
 }
+
+/// A fake `ssh` that says nothing and exits `code`.
+#[cfg(unix)]
+fn quiet_ssh(directory: &std::path::Path, code: u8) -> String {
+    use std::os::unix::fs::PermissionsExt as _;
+    let script = directory.join(format!("ssh-{code}"));
+    std::fs::write(&script, format!("#!/bin/sh\nexit {code}\n")).unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    script.to_str().unwrap().to_owned()
+}
+
+#[cfg(unix)]
+async fn first_receive(ssh: String) -> Result<Option<Bytes>, LinkError> {
+    let group = group_with(ssh, &[]).await;
+    let link = group
+        .open(LinkRequest { lane: cmux_remote_protocol::Lane::Interactive, generation: 0 })
+        .await
+        .unwrap();
+    let received = link.receive().await;
+    link.close().await.unwrap();
+    received
+}
+
+/// The Nightly's `ssh_link_closed`: a quiet ssh run that failed said
+/// nothing of why. Its exit now names it (255: ssh itself; else the
+/// remote command), and a clean exit 0 stays a plain end.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_quiet_ssh_run_that_failed_names_its_exit() {
+    let directory = tempfile::tempdir().unwrap();
+    for code in [255_u8, 1] {
+        match first_receive(quiet_ssh(directory.path(), code)).await {
+            Err(LinkError::Transport(detail)) => {
+                assert_eq!(detail, format!("the ssh link ended (ssh exit {code})"));
+            }
+            other => panic!("exit {code}: {other:?}"),
+        }
+    }
+    assert!(matches!(first_receive(quiet_ssh(directory.path(), 0)).await, Ok(None)));
+}
+
+/// ssh's stderr keeps its quoted field, now after the run's exit.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_said_ssh_failure_carries_its_exit_before_its_stderr() {
+    let directory = tempfile::tempdir().unwrap();
+    let (ssh, _) = fake_ssh(directory.path(), "kex_exchange_identification: read: reset");
+    match first_receive(ssh).await {
+        Err(LinkError::Transport(detail)) => {
+            assert_eq!(
+                detail,
+                "the ssh link ended (ssh exit 255); ssh stderr: \"kex_exchange_identification: read: reset\""
+            );
+            assert_eq!(ssh_stderr_of(&detail), Some("kex_exchange_identification: read: reset"));
+        }
+        other => panic!("{other:?}"),
+    }
+}

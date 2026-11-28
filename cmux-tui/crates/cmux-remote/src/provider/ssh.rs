@@ -479,23 +479,75 @@ impl SshProcessLink {
         }
     }
 
-    /// An ended link's error, with what ssh said when it was captured.
+    /// An ended link's error, with what ssh said and how it exited when
+    /// it was captured. A quiet run that exited 0 (the remote command
+    /// ended cleanly) keeps the plain end; a quiet run that exited
+    /// otherwise names its exit, so a Nightly row says `ssh_exit_255`
+    /// (ssh itself failed) or `ssh_exit_1` (the remote command failed)
+    /// instead of `ssh_link_closed`.
     async fn with_stderr(&self, error: Option<LinkError>) -> Option<LinkError> {
         let said = match &self.stderr {
             Some(stderr) => stderr.settled().await,
             None => None,
         };
+        let exit = self.exit().await;
+        let ended = match &exit {
+            Some(exit) => format!("the ssh link ended ({exit})"),
+            None => "the ssh link ended".to_owned(),
+        };
         match (said, error) {
+            (None, None | Some(LinkError::Closed)) if exit.as_deref().is_some_and(failed) => {
+                Some(LinkError::Transport(ended))
+            }
             (None, error) => error,
-            (Some(said), None | Some(LinkError::Closed)) => Some(LinkError::Transport(format!(
-                "the ssh link ended; {SSH_STDERR_MARK}\"{said}\""
-            ))),
+            (Some(said), None | Some(LinkError::Closed)) => {
+                Some(LinkError::Transport(format!("{ended}; {SSH_STDERR_MARK}\"{said}\"")))
+            }
             (Some(said), Some(LinkError::Transport(detail))) => {
+                let detail = match &exit {
+                    Some(exit) => format!("{detail} ({exit})"),
+                    None => detail,
+                };
                 Some(LinkError::Transport(format!("{detail}; {SSH_STDERR_MARK}\"{said}\"")))
             }
             (Some(_), Some(error)) => Some(error),
         }
     }
+
+    /// How the ssh run exited (`ssh exit 255`, `ssh signal 9`), waiting at
+    /// most [`STDERR_SETTLE`]; `None` while it still runs or when a close
+    /// holds it.
+    async fn exit(&self) -> Option<String> {
+        let mut child = self.child.try_lock().ok()?;
+        let child = child.as_mut()?;
+        let status = match child.try_wait() {
+            Ok(Some(status)) => status,
+            Ok(None) => tokio::time::timeout(STDERR_SETTLE, child.wait()).await.ok()?.ok()?,
+            Err(_) => return None,
+        };
+        exit_words(status)
+    }
+}
+
+/// An exit status as words a why code is read from: `ssh exit N`, or
+/// `ssh signal N` for a run a signal ended.
+fn exit_words(status: std::process::ExitStatus) -> Option<String> {
+    if let Some(code) = status.code() {
+        return Some(format!("ssh exit {code}"));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt as _;
+        if let Some(signal) = status.signal() {
+            return Some(format!("ssh signal {signal}"));
+        }
+    }
+    None
+}
+
+/// True for an exit that is not a clean `ssh exit 0`.
+fn failed(exit: &str) -> bool {
+    exit != "ssh exit 0"
 }
 
 impl fmt::Debug for SshProcessLink {
