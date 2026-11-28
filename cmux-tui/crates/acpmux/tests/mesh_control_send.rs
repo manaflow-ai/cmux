@@ -171,7 +171,15 @@ async fn a_top_level_session_id_cannot_forward_mesh_enqueue_to_a_peer() {
     hub.mesh.set(mesh.clone());
     // A lease keeps the fake peer out of the user's config and ends explicitly below.
     let (lease, mut settled) = hub
-        .lease_peer("other", &format!("ws://{address}"), "test-token".into(), None, false, &config)
+        .lease_peer(
+            "other",
+            &format!("ws://{address}"),
+            "test-token".into(),
+            None,
+            false,
+            None,
+            &config,
+        )
         .unwrap();
     tokio::time::timeout(Duration::from_secs(10), settled.changed()).await.unwrap().unwrap();
     assert!(hub.resolve_remote("other/remote").is_some());
