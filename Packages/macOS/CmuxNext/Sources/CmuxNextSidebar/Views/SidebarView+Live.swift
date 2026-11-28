@@ -13,7 +13,8 @@ extension SidebarView {
     func applyLive() {
         liveButton.tintOverride = live.isLive ? Palette.litGlyph : Palette.textTertiary
         liveButton.alphaValue = live.isLive ? 1 : 0.7
-        liveButton.themedToolTip = Strings.liveTooltip(isLive: live.isLive, teammatesLive: live.teammatesLive)
+        liveButton.themedToolTip = ([Strings.liveTooltip(isLive: live.isLive, teammatesLive: live.teammatesLive)] + Strings.liveStatus(live.status))
+            .joined(separator: "\n")
         liveButton.setAccessibilityValue(live.isLive ? "1" : "0")
         liveButton.setAccessibilityHelp(liveButton.themedToolTip)
     }
@@ -42,6 +43,8 @@ extension SidebarView {
             item.isEnabled = false
             menu.addItem(item)
         }
+        // RFD 0140: the daemon's sync and presence summary first, as disabled rows (the glyph's look is unchanged).
+        for line in Strings.liveStatus(live.status) { add(line, nil) }
         let agents = liveAgents()
         if !agents.isEmpty {
             header(Strings.liveAgents)
@@ -79,10 +82,12 @@ extension SidebarView {
     /// Wires the Live button to `presence.live` and the team: the state follows the setting (Observation), a click flips
     /// the setting (the daemon reads the same key), a person opens through `open`. `liveIDs` is the seam for the live
     /// feed (`_acpmux/live_list`, RFD 0141 phase 1): empty until it lands, so nobody is marked live yet.
+    /// `status` is the daemon's `_acpmux/here` summary (RFD 0140), read through Observation like the rest; nil while unknown.
     public func bindLive(settings: @escaping @MainActor () -> SettingsController?, team: @escaping @MainActor () -> [(id: String, name: String)],
-                         liveIDs: @escaping @MainActor () -> Set<String> = { [] }, open: @escaping (String) -> Void) {
+                         liveIDs: @escaping @MainActor () -> Set<String> = { [] }, status: @escaping @MainActor () -> SidebarLiveState.Status? = { nil },
+                         open: @escaping (String) -> Void) {
         let state: @MainActor () -> SidebarLiveState = {
-            SidebarLiveState(isLive: settings()?.snapshot.sidebarSections.presenceLive ?? false, team: team(), liveIDs: liveIDs())
+            SidebarLiveState(isLive: settings()?.snapshot.sidebarSections.presenceLive ?? false, team: team(), liveIDs: liveIDs(), status: status())
         }
         live = state()
         onLiveOpenPerson = open

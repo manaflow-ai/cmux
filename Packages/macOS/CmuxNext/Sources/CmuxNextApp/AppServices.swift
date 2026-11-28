@@ -94,6 +94,8 @@ final class AppServices {
     let mainWork: MainWorkScheduler
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
+    /// The sidebar Live button's `_acpmux/here` summary, one reader for every window (SidebarHereStatus, RFD 0140).
+    let sidebarHereStatus = SidebarHereStatus()
     let machines: MachineRegistry
     /// The browser import's reader: `browser_import.read` on the local daemon.
     var browserDataReader: BrowserDataReader { .daemon { @MainActor [machines] in await machines.local.connectionOnceStarted() } }
