@@ -3,15 +3,17 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """THIRD_PARTY_LICENSES.linux.md: the notices of the cmux-browser-host Linux release.
 
-  linux_release_notices.py [--check] [--cache DIR] [--out FILE]
+  linux_release_notices.py --out FILE [--check] [--cache DIR]
 
 The cmux-browser-host-release workflow packs this file as THIRD_PARTY_LICENSES.md
 into both release archives (x86_64- and aarch64-unknown-linux-gnu), beside the
-repository's LICENSE (GPL-3.0-or-later), and runs --check before it builds, so a
-stale file fails the release. Regenerate after a change to cmux-tui/Cargo.lock,
-the crate version, the embedded JavaScript rows or a toolchain text:
+repository's LICENSE (GPL-3.0-or-later). The workflow's version job writes it
+from the tree it builds (on pull requests too, so a notice the generator cannot
+compose is red at the change); no copy is committed, so a change to
+cmux-tui/Cargo.lock, the crate version, the embedded JavaScript rows or a
+toolchain text cannot leave one stale (base run 46195253794). Locally:
 
-  python3 cmux-tui/build-support/notices/browser-host/linux_release_notices.py
+  python3 cmux-tui/build-support/notices/browser-host/linux_release_notices.py --out /tmp/THIRD_PARTY_LICENSES.linux.md
 
 The file names everything that bin/cmux-browser-host contains:
   - the Rust crates of the closure of cmux-browser-host for both Linux targets
@@ -53,7 +55,6 @@ from typing import Callable
 HERE = Path(__file__).resolve().parent
 NOTICES = HERE.parent
 ROOT = HERE.parents[3]
-OUT = HERE / "THIRD_PARTY_LICENSES.linux.md"
 CRATE = ROOT / "cmux-tui/crates/cmux-browser-host"
 PACKAGE_NOTICES = ROOT / "cmux-tui/dist/notices"
 TARGETS = ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu")
@@ -190,7 +191,7 @@ def main(argv: list[str] | None = None, crates: Callable[[Path, str], str] = cra
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--check", action="store_true", help="fail when --out differs from a fresh run")
     parser.add_argument("--cache", type=Path, default=Path(os.environ.get("CMUX_NOTICES_CACHE", Path.home() / ".cache/cmux-notices")))
-    parser.add_argument("--out", type=Path, default=OUT)
+    parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
         args.cache.mkdir(parents=True, exist_ok=True)
@@ -202,8 +203,7 @@ def main(argv: list[str] | None = None, crates: Callable[[Path, str], str] = cra
         current = args.out.read_text(encoding="utf-8") if args.out.is_file() else None
         if current != text:
             print(
-                f"linux_release_notices: error: {args.out} is stale; run "
-                "python3 cmux-tui/build-support/notices/browser-host/linux_release_notices.py and commit it",
+                f"linux_release_notices: error: {args.out} differs from a fresh run",
                 file=sys.stderr,
             )
             return 1

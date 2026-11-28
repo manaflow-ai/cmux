@@ -225,7 +225,6 @@ on:
       - "cmux-tui/bindings/typescript/code-mode/README.md"
       - "cmux-tui/bindings/zig/README.md"
       - "cmux-tui/build-support/notices/REVIEW.md"
-      - "cmux-tui/build-support/notices/browser-host/THIRD_PARTY_LICENSES.linux.md"
       - "cmux-tui/build-support/notices/ghostty/texts/bash-preexec-0.7.0/LICENSE.md"
       - "cmux-tui/build-support/notices/texts/cloudflare-boringtun-051c9d47dc9c/LICENSE.md"
       - "cmux-tui/build-support/notices/texts/madsmtm-objc2-7b1abfd750a2/LICENSE.md"
