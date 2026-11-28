@@ -8,12 +8,19 @@ name: cmux-browser-host release
 # covered by a build-provenance attestation. The entries are unsigned: the
 # channel manifest is signed where the channel is assembled. Each archive holds
 # the binary, LICENSE (GPL-3.0-or-later) and THIRD_PARTY_LICENSES.md, the
-# committed Linux notices that the version job checks; the release notes link
+# Linux notices that the version job generates from this tree (no committed
+# copy, so none can go stale) and hands to each build; the release notes link
 # the source commit.
+#
+# A pull request into feat-cmux-next that touches the same paths runs only the
+# version job (release script tests and the notices generator), so a change the
+# generator cannot compose notices for is red at its own head. Until this, the
+# notices were a committed copy only the base push checked; a Cargo.lock change
+# merged with it stale and every later push failed (base run 46195253794).
 on:
   push:
     branches: [feat-cmux-next]
-    paths:
+    paths: &release-paths
       - "cmux-tui/crates/cmux-browser-host/**"
       - "cmux-tui/Cargo.lock"
       - "cmux-tui/rust-toolchain.toml"
@@ -26,6 +33,9 @@ on:
       - "LICENSE"
     tags:
       - "cmux-browser-host-v*"
+  pull_request:
+    branches: [feat-cmux-next]
+    paths: *release-paths
 
 permissions: {}
 
@@ -95,13 +105,26 @@ jobs:
           key: cmux-browser-host-notices-v1-${{ hashFiles('cmux-tui/Cargo.lock') }}
           restore-keys: cmux-browser-host-notices-v1-
 
-      # The archives ship this file as THIRD_PARTY_LICENSES.md: a stale one fails
-      # the release before anything is built.
-      - name: Linux notices are current
-        run: python3 cmux-tui/build-support/notices/browser-host/linux_release_notices.py --check
+      # The archives ship this file as THIRD_PARTY_LICENSES.md. It is generated here, from the tree being built,
+      # and never committed: a committed copy went stale on every Cargo.lock change nobody regenerated it for.
+      - name: Generate the Linux notices
+        run: |
+          python3 cmux-tui/build-support/notices/browser-host/linux_release_notices.py \
+            --out "$RUNNER_TEMP/notices/THIRD_PARTY_LICENSES.linux.md"
+
+      - name: Hand the notices to the builds
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-browser-host-notices
+          retention-days: 1
+          path: ${{ runner.temp }}/notices/THIRD_PARTY_LICENSES.linux.md
+          if-no-files-found: error
 
   build:
     name: build ${{ matrix.target }}
+    # A pull request checks the notices and the release scripts (version) only; the base push builds.
+    if: github.event_name != 'pull_request'
     needs: version
     strategy:
       fail-fast: false
@@ -168,12 +191,19 @@ jobs:
           echo "newest glibc symbol: $newest (floor $GLIBC_FLOOR)"
           [[ "$(printf '%s\n%s\n' "$newest" "$GLIBC_FLOOR" | sort -V | tail -n 1)" == "$GLIBC_FLOOR" ]]
 
+      - name: The notices the version job generated
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-browser-host-notices
+          path: ${{ runner.temp }}/notices
+
       - name: Package
         shell: bash
         run: |
           python3 scripts/cmux-next/browser-host-release.py package \
             "cmux-tui/target/${{ matrix.target }}/release/cmux-browser-host" \
-            "${{ needs.version.outputs.version }}" "${{ matrix.target }}" dist
+            "${{ needs.version.outputs.version }}" "${{ matrix.target }}" dist \
+            "$RUNNER_TEMP/notices/THIRD_PARTY_LICENSES.linux.md"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

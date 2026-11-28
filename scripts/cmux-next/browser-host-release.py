@@ -12,12 +12,13 @@
       cmux-next version (scripts/cmux-next/check-version-surfaces.sh checks the
       copy the macOS app bundles), so a host-only Linux release takes a revision
       instead of a crate bump.
-  browser-host-release.py package BINARY VERSION TARGET OUTDIR
+  browser-host-release.py package BINARY VERSION TARGET OUTDIR NOTICES
       write OUTDIR/cmux-browser-host-VERSION-TARGET.tar.gz holding
       bin/cmux-browser-host, LICENSE (the repository's GPL-3.0-or-later text)
-      and THIRD_PARTY_LICENSES.md (the committed Linux notices,
-      cmux-tui/build-support/notices/browser-host/THIRD_PARTY_LICENSES.linux.md;
-      linux_release_notices.py --check keeps it current) with fixed owner, mode
+      and THIRD_PARTY_LICENSES.md (NOTICES: the Linux notices the release
+      workflow's version job generates from this tree with
+      cmux-tui/build-support/notices/browser-host/linux_release_notices.py;
+      no copy is committed, so none can go stale) with fixed owner, mode
       and mtime, so the same inputs give the same archive bytes, and print its
       path.
   browser-host-release.py notes VERSION SHA REPOSITORY GLIBC_FLOOR
@@ -49,7 +50,6 @@ SCHEMA = 2
 VERSION_RE = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:-r[0-9]+)?")
 ROOT = Path(__file__).resolve().parents[2]
 LICENSE = ROOT / "LICENSE"
-NOTICES = ROOT / "cmux-tui/build-support/notices/browser-host/THIRD_PARTY_LICENSES.linux.md"
 
 
 def crate_version(cargo_toml: Path) -> str:
@@ -96,13 +96,13 @@ def tag_version(tag: str, cargo_toml: str) -> str:
     return release
 
 
-def package(binary: str, version: str, target: str, outdir: str) -> Path:
+def package(binary: str, version: str, target: str, outdir: str, notices: str) -> Path:
     if not VERSION_RE.fullmatch(version) or target not in TARGETS:
         raise SystemExit(f"bad version {version!r} or target {target!r}")
     data = Path(binary).read_bytes()
     members = (
         ("LICENSE", 0o644, LICENSE.read_bytes()),
-        ("THIRD_PARTY_LICENSES.md", 0o644, NOTICES.read_bytes()),
+        ("THIRD_PARTY_LICENSES.md", 0o644, Path(notices).read_bytes()),
         ("bin", 0o755, None),
         (f"bin/{NAME}", 0o755, data),
     )
@@ -158,7 +158,7 @@ def main(argv: list[str]) -> int:
         print(tag_version(argv[1], argv[2]))
     elif len(argv) == 2 and argv[0] == "crate-version":
         print(release_version(Path(argv[1])))
-    elif len(argv) == 5 and argv[0] == "package":
+    elif len(argv) == 6 and argv[0] == "package":
         print(package(*argv[1:]))
     elif len(argv) == 5 and argv[0] == "notes":
         print(notes(*argv[1:]), end="")

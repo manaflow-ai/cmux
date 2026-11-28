@@ -2,7 +2,7 @@
 """scripts/cmux-next/browser-host-release.py: what a cmux-browser-host release ships.
 
 Every archive must carry, beside bin/cmux-browser-host, the GPL-3.0-or-later
-LICENSE of the repository and the committed third-party notices of the Linux
+LICENSE of the repository and the generated third-party notices of the Linux
 binary; the release notes must link the exact source commit.
 """
 
@@ -18,7 +18,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/cmux-next/browser-host-release.py"
-NOTICES = ROOT / "cmux-tui/build-support/notices/browser-host/THIRD_PARTY_LICENSES.linux.md"
+NOTICES = b"# Third-party notices (fixture)\n"
 SHA = "0123456789abcdef0123456789abcdef01234567"
 
 
@@ -35,13 +35,16 @@ class PackageTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             binary = Path(tmp) / "cmux-browser-host"
             binary.write_bytes(b"\x7fELF fake")
-            archive = release.package(str(binary), "0.1.0", "x86_64-unknown-linux-gnu", str(Path(tmp) / "dist"))
+            notices = Path(tmp) / "THIRD_PARTY_LICENSES.linux.md"
+            notices.write_bytes(NOTICES)
+            archive = release.package(
+                str(binary), "0.1.0", "x86_64-unknown-linux-gnu", str(Path(tmp) / "dist"), str(notices))
             with tarfile.open(archive, "r:gz") as tar:
                 names = sorted(tar.getnames())
                 self.assertEqual(names, ["LICENSE", "THIRD_PARTY_LICENSES.md", "bin", "bin/cmux-browser-host"])
                 self.assertEqual(tar.extractfile("bin/cmux-browser-host").read(), b"\x7fELF fake")
                 self.assertEqual(tar.extractfile("LICENSE").read(), (ROOT / "LICENSE").read_bytes())
-                self.assertEqual(tar.extractfile("THIRD_PARTY_LICENSES.md").read(), NOTICES.read_bytes())
+                self.assertEqual(tar.extractfile("THIRD_PARTY_LICENSES.md").read(), NOTICES)
                 self.assertEqual(tar.getmember("bin/cmux-browser-host").mode, 0o755)
                 self.assertEqual(tar.getmember("LICENSE").mode, 0o644)
 
@@ -50,27 +53,15 @@ class PackageTest(unittest.TestCase):
         self.assertIn("GPL-3.0-or-later", text)
         self.assertIn("GNU GENERAL PUBLIC LICENSE\n                       Version 3, 29 June 2007", text)
 
-    def test_notices_cover_the_linux_binary(self):
-        text = NOTICES.read_text(encoding="utf-8")
-        for needle in (
-            "bin/cmux-browser-host",
-            "x86_64-unknown-linux-gnu",
-            "aarch64-unknown-linux-gnu",
-            "Rust standard library",
-            "compiler_rt",
-            "playwright-core 1.57.0",
-            "acorn 8.16.0",
-            "rquickjs-sys",
-        ):
-            self.assertIn(needle, text)
-
     def test_same_binary_gives_same_archive(self):
         release = load()
         with tempfile.TemporaryDirectory() as tmp:
             binary = Path(tmp) / "cmux-browser-host"
             binary.write_bytes(b"same")
-            a = Path(release.package(str(binary), "0.1.0", "aarch64-unknown-linux-gnu", str(Path(tmp) / "a"))).read_bytes()
-            b = Path(release.package(str(binary), "0.1.0", "aarch64-unknown-linux-gnu", str(Path(tmp) / "b"))).read_bytes()
+            notices = Path(tmp) / "notices.md"
+            notices.write_bytes(NOTICES)
+            a = Path(release.package(str(binary), "0.1.0", "aarch64-unknown-linux-gnu", str(Path(tmp) / "a"), str(notices))).read_bytes()
+            b = Path(release.package(str(binary), "0.1.0", "aarch64-unknown-linux-gnu", str(Path(tmp) / "b"), str(notices))).read_bytes()
             self.assertEqual(a, b)
 
 
@@ -123,7 +114,10 @@ class ReleaseVersionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             binary = Path(tmp) / "cmux-browser-host"
             binary.write_bytes(b"\x7fELF")
-            archives = [str(release.package(str(binary), "1.0.0-r1", target, tmp)) for target in release.TARGETS]
+            notices = Path(tmp) / "notices.md"
+            notices.write_bytes(NOTICES)
+            archives = [str(release.package(str(binary), "1.0.0-r1", target, tmp, str(notices)))
+                        for target in release.TARGETS]
             self.assertTrue(archives[0].endswith("cmux-browser-host-1.0.0-r1-x86_64-unknown-linux-gnu.tar.gz"))
             entries = release.entries("https://example.test/r", "1.0.0-r1", archives)
             self.assertEqual({e["version"] for e in entries["packages"]}, {"1.0.0-r1"})
