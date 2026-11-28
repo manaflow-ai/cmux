@@ -600,6 +600,27 @@ try {
           await growProfiler.send("Profiler.enable");
           await growProfiler.send("Profiler.start");
         }
+        // GROW_ALLOC=DIR: what the shown page allocates while it grows (V8's sampling heap profiler, counting what
+        // the collector already freed, by function) and the renderer work Blink counts over the grow (style recalcs,
+        // layouts, nodes made: Performance.getMetrics), the churn that leaves the native heaps fragmented.
+        const growAlloc = process.env.GROW_ALLOC ? pages.at(-1)!.cdp : undefined;
+        const metricsOf = async (cdp: CDPSession) => {
+          const { metrics } = (await cdp.send("Performance.getMetrics")) as {
+            metrics: { name: string; value: number }[];
+          };
+          return Object.fromEntries(metrics.map((metric) => [metric.name, metric.value]));
+        };
+        let growMetricsBefore: Record<string, number> | undefined;
+        if (growAlloc) {
+          await growAlloc.send("Performance.enable");
+          growMetricsBefore = await metricsOf(growAlloc);
+          await growAlloc.send("HeapProfiler.enable");
+          await growAlloc.send("HeapProfiler.startSampling", {
+            samplingInterval: 65536,
+            includeObjectsCollectedByMajorGC: true,
+            includeObjectsCollectedByMinorGC: true,
+          } as never);
+        }
         for (let turn = 1, batch = 0; turn <= grow; turn++) {
           for (let index = 0; index < count && GROW_OPEN; index++) {
             const id = sessionId(index);
@@ -688,6 +709,36 @@ try {
           );
         } finally {
           if (dropped) console.log(`  ${name}: ${dropped} records dropped on backpressure during the grow`);
+          if (growAlloc) {
+            const after = await metricsOf(growAlloc);
+            const delta = Object.entries(after)
+              .filter(([key]) => /Count$|^Nodes$|^LayoutObjects$|^JSEventListeners$|^Documents$|^Frames$/.test(key))
+              .map(([key, value]) => `${key} +${(value - (growMetricsBefore![key] ?? 0)).toFixed(0)}`);
+            console.log(`  ${name}: grow metrics (shown page): ${delta.join(", ")}`);
+            type SampleNode = {
+              callFrame: { functionName: string; url: string; lineNumber: number; columnNumber: number };
+              selfSize: number;
+              children: SampleNode[];
+            };
+            const { profile: sampled } = (await growAlloc.send("HeapProfiler.stopSampling")) as {
+              profile: { head: SampleNode };
+            };
+            const bySite = new Map<string, number>();
+            const walk = (node: SampleNode) => {
+              const frame = node.callFrame;
+              const where = sources && frame.url ? sources(path.basename(frame.url), frame.lineNumber, frame.columnNumber) : "";
+              const site = `${frame.functionName || "(anonymous)"} ${where || `${path.basename(frame.url)}:${frame.lineNumber + 1}`}`;
+              bySite.set(site, (bySite.get(site) ?? 0) + node.selfSize);
+              for (const child of node.children) walk(child);
+            };
+            walk(sampled.head);
+            const total = [...bySite.values()].reduce((sum, value) => sum + value, 0);
+            console.log(`  ${name}: grow JS allocation ${(total / 1048576).toFixed(1)} MB (freed included), top sites:`);
+            for (const [site, bytes] of [...bySite].sort((a, b) => b[1] - a[1]).slice(0, 25))
+              console.log(`    ${(bytes / 1048576).toFixed(1).padStart(8)} MB  ${site}`);
+            fs.mkdirSync(process.env.GROW_ALLOC!, { recursive: true });
+            fs.writeFileSync(path.join(process.env.GROW_ALLOC!, `${name}-grow.heapprofile`), JSON.stringify(sampled));
+          }
           // A grow that never shows its last turn still writes its profile: what the page was busy with instead.
           if (growProfiler) {
             const { profile: cpu } = (await growProfiler.send("Profiler.stop")) as { profile: CpuProfile };
