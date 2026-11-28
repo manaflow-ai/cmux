@@ -1173,10 +1173,11 @@ final class FileExplorerStore: ObservableObject {
     /// Whether hidden files are shown. Set from FileExplorerState externally.
     var showHiddenFiles: Bool = false
 
-    /// Watches the root directory for filesystem changes (local only).
-    private var directoryWatcher: FileWatcher?
-    private var directoryWatchTask: Task<Void, Never>?
+    /// Watches loaded directory listings, including cached collapsed folders (local only).
+    private var directoryWatchers: [String: FileWatcher] = [:]
+    private var directoryWatchTasks: [String: Task<Void, Never>] = [:]
     private var directoryWatchPath: String?
+    private let directoryChangeScheduler = MainActorDeferredActionScheduler()
 
     /// Paths that are logically expanded (persisted across provider changes)
     private(set) var expandedPaths: Set<String> = []
@@ -1540,22 +1541,34 @@ final class FileExplorerStore: ObservableObject {
 
     private func updateDirectoryWatcher() {
         if provider is LocalFileExplorerProvider, !rootPath.isEmpty {
-            guard directoryWatchPath != rootPath || directoryWatcher == nil else { return }
-            stopDirectoryWatcher()
-            // Preserve the previous 0.3s coalescing as a leading-edge throttle.
-            let watcher = FileWatcher(path: rootPath, throttle: .milliseconds(300))
-            directoryWatcher = watcher
+            if directoryWatchPath != rootPath { stopDirectoryWatcher() }
             directoryWatchPath = rootPath
-            let events = watcher.events
-            directoryWatchTask = Task { @MainActor [weak self] in
-                for await _ in events {
-                    guard let self else { break }
-                    self.reload()
-                    self.refreshGitStatus()
-                }
+            // Reload discards cached listings; loadChildren re-arms only directories that still exist.
+            for path in directoryWatchers.keys where path != rootPath {
+                directoryWatchTasks.removeValue(forKey: path)?.cancel()
+                directoryWatchers.removeValue(forKey: path)
             }
+            watchDirectory(at: rootPath)
         } else {
             stopDirectoryWatcher()
+        }
+    }
+
+    private func watchDirectory(at path: String) {
+        guard provider is LocalFileExplorerProvider, directoryWatchers[path] == nil,
+              Self.path(path, isContainedIn: rootPath) else { return }
+        let watcher = FileWatcher(path: path)
+        directoryWatchers[path] = watcher
+        directoryWatchTasks[path] = Task { @MainActor [weak self] in
+            for await _ in watcher.events {
+                guard !Task.isCancelled, let self, self.directoryWatchers[path] === watcher else { break }
+                // Sibling watchers can observe the same parent event; batch them together.
+                guard !self.directoryChangeScheduler.isScheduled else { continue }
+                self.directoryChangeScheduler.schedule(after: .milliseconds(300)) { [weak self] in
+                    self?.reload()
+                    self?.refreshGitStatus()
+                }
+            }
         }
     }
 
@@ -1611,12 +1624,12 @@ final class FileExplorerStore: ObservableObject {
         return trimmed(lhs) == trimmed(rhs)
     }
 
-    /// Cancels the directory-watch consumer and drops the watcher; the watcher's
-    /// deinit cancels its `DispatchSource`s synchronously.
+    /// Drops the watches and pending refresh when the local root changes.
     private func stopDirectoryWatcher() {
-        directoryWatchTask?.cancel()
-        directoryWatchTask = nil
-        directoryWatcher = nil
+        directoryChangeScheduler.cancel()
+        for task in directoryWatchTasks.values { task.cancel() }
+        directoryWatchTasks.removeAll()
+        directoryWatchers.removeAll()
         directoryWatchPath = nil
     }
 
@@ -1648,6 +1661,7 @@ final class FileExplorerStore: ObservableObject {
         #if DEBUG
         NSLog("[FileExplorer] reload() path=\(rootPath) provider=\(type(of: provider).self)")
         #endif
+        updateDirectoryWatcher()
         contentRevision &+= 1
         cancelAllLoads()
         rootNodes = []
@@ -1760,6 +1774,8 @@ final class FileExplorerStore: ObservableObject {
         // would list the old path through the new transport. Bail before any listing.
         guard !Task.isCancelled else { return }
         guard let provider else { return }
+        // Register before reading so an external edit during the listing is not missed.
+        watchDirectory(at: path)
 
         if !silent {
             loadingPaths.insert(path)
@@ -1865,6 +1881,6 @@ final class FileExplorerStore: ObservableObject {
 
     deinit {
         remoteHomeResolutionTask?.cancel()
-        directoryWatchTask?.cancel()
+        for task in directoryWatchTasks.values { task.cancel() }
     }
 }
