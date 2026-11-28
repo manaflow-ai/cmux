@@ -286,6 +286,17 @@ class StandaloneFilesTests(unittest.TestCase):
                  if not item.get("cone") and not path.startswith("!") and not present(path)]
         self.assertEqual(stale, [], "a set names a file this tree no longer has: drop it here and in the consumer")
 
+    def test_set_names_are_unique_and_list_exact_files(self) -> None:
+        """cmuxterm-hq's cmux-files fetches a named set by reading this file at the ref; it fetches exact paths
+        one by one, so a named set holds plain file paths only (no pattern, no negation, no cone)."""
+        doc = json.loads((ROOT / MANIFEST).read_text(encoding="utf-8"))
+        names = [item["name"] for item in doc["sets"] if "name" in item]
+        self.assertEqual(sorted(set(n for n in names if names.count(n) > 1)), [], "two sets share a name")
+        self.assertIn("stub-agent", names, "the notify-banner-click and sweep probes fetch set stub-agent")
+        bad = [f"{item['name']}: {path}" for item in doc["sets"] if "name" in item for path in item["files"]
+               if item.get("cone") or path.startswith(("!", "/")) or path.endswith("/") or any(c in path for c in "*?[")]
+        self.assertEqual(bad, [], "a named set lists a pattern; cmux-files fetches exact files only")
+
 
 class DetectorSelfTests(unittest.TestCase):
     """The detector catches the #62040 shape: a script that reads a file beside itself at import."""
