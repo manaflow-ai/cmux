@@ -63,7 +63,9 @@ fresh_token() {  # writes a fresh access token to $work/token (0600)
   chmod 600 "$work/token.new"; mv "$work/token.new" "$work/token"
 }
 api_delete() { curl -sS -o /dev/null --max-time 15 -X DELETE -H "authorization: Bearer $(cat "$work/token")" "$base/v1/devices/$1" || true; }
-stop_host() { [[ -n "${host_pid:-}" ]] && { kill "$host_pid" 2>/dev/null || true; wait "$host_pid" 2>/dev/null || true; host_pid=; }; }
+# Returns 0 with no host running: the EXIT trap runs under set -e, and a nonzero return there ends
+# cleanup before the registered phone devices are deleted.
+stop_host() { [[ -n "${host_pid:-}" ]] || return 0; kill "$host_pid" 2>/dev/null || true; wait "$host_pid" 2>/dev/null || true; host_pid=; }
 cleanup() {
   stop_host
   for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done
@@ -98,7 +100,10 @@ for p in "${phones[@]}"; do
   [[ -x "$cache/dial-$sha" ]] && continue
   src="${OLD_PHONES_TREES:-/nonexistent}/$sha"
   if [[ ! -d "$src" ]]; then
-    git -C "$repo" cat-file -e "$sha^{commit}" 2>/dev/null || git -C "$repo" fetch -q --no-tags --depth=1 origin "$sha"
+    # Only a shallow checkout fetches shallow: a full clone must not turn shallow (tests/test_ci_no_shallow_dev_fetch.py).
+    depth=()
+    [[ "$(git -C "$repo" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
+    git -C "$repo" cat-file -e "$sha^{commit}" 2>/dev/null || git -C "$repo" fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin "$sha"
     git -C "$repo" worktree add -q --detach "$work/phone-$sha" "$sha"
     src="$work/phone-$sha"
   fi

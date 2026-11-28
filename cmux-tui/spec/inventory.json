@@ -67,6 +67,7 @@
     "closed.delete",
     "closed.list",
     "closed.reopen",
+    "cloud.artifacts.read",
     "cloud.machine.chat_access",
     "cloud.machine.chief_resize",
     "cloud.machine.chief_start",

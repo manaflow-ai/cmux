@@ -13,10 +13,12 @@ import contextlib
 import io
 import os
 import struct
+import re
 import sys
 import tempfile
 import unittest
 import urllib.error
+import urllib.parse
 import zlib
 from pathlib import Path
 from unittest import mock
@@ -92,6 +94,17 @@ class PathsTest(unittest.TestCase):
 class VerdictTest(unittest.TestCase):
     def v(self, need="app", body="", records=None, ui=(), off=False):
         return u.verdict(need, body, records or {}, list(ui), 7, off=off)
+
+    def test_fix_title_without_new_ui_needs_no_look(self) -> None:
+        # Leo, 2026-11-28 (c-601949839a): "you dont need to be waiting for screenshots in these cases if logically it
+        # shoul go as you expect".
+        for title in ("fix(next): preserve New Tab composer through lazy screen loading", "fix: row gap",
+                      "Fix sidebar caret jump"):
+            self.assertEqual(u.verdict("app", "", {}, [], 7, title=title), ("success", u.FIX_NO_LOOK), title)
+        self.assertEqual(u.verdict("app", "", {}, [], 7, title="Split New Tab: composer pre-rendered")[0], "pending")
+        self.assertEqual(u.verdict("app", "", {}, ["webviews/src/New.tsx"], 7, title="fix: add panel")[0], "pending")
+        failed = {"verdict": "fail", "suite": "gui-flows", "runs": [{"name": "tabs", "result": "fail"}]}
+        self.assertEqual(u.verdict("app", "", {"gui-flows": failed}, [], 7, title="fix: row gap")[0], "failure")
 
     def test_nothing_visual_passes_at_once(self) -> None:
         self.assertEqual(self.v(need="")[0], "success")
@@ -195,6 +208,22 @@ class RecordTest(unittest.TestCase):
             rec = u.build_record(out, repo="o/r", pr=7, head=HEAD)
             self.assertEqual((rec["suite"], rec["verdict"]), ("web-flows", "fail"))
             self.assertFalse(rec["visual"]["diffed"])
+
+    def test_a_look_without_after_light_names_the_missing_file_and_the_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d)
+            (out / "after").mkdir()
+            (out / "after" / "split-open.png").write_bytes(png(2, 2))
+            rec = u.build_record(out, repo="o/r", pr=7, head=HEAD, suite="mac-flows")
+            look = rec["runs"][0]
+            self.assertEqual((look["name"], look["result"], rec["verdict"]), ("look", "fail", "fail"))
+            self.assertIn("missing after/light.png", look["note"])
+            self.assertIn("split-open.png", look["note"])
+            self.assertIn("after/{light,dark}.png", look["note"])
+            (out / "after" / "light.png").write_bytes(png(2, 2))
+            rec = u.build_record(out, repo="o/r", pr=7, head=HEAD, suite="mac-flows")
+            self.assertEqual(rec["runs"][0]["result"], "pass")
+            self.assertNotIn("note", rec["runs"][0])
 
 
     def test_a_look_that_built_the_swift_app_records_mac_flows_the_app_gate_reads(self) -> None:
@@ -398,6 +427,28 @@ class LookFailedTest(unittest.TestCase):
         self.assertLessEqual(len(u.look_failed("x " * 200, 1)[1]), 140)
         self.assertIn("no reason given", u.look_failed("", 1)[1])
 
+    def test_a_look_that_could_not_run_keeps_a_declared_none(self) -> None:
+        # cmux#39287 (2026-11-28): "Visual: none (...)" in the body, a stale look cancelled after 3 h, gate red.
+        state, desc = u.look_failed_unless_declared("x\nVisual: none (deletes dead modules)\n", self.CANCELLED, 39287)
+        self.assertEqual(state, "success")
+        self.assertTrue(desc.startswith("Declared no visual change: deletes dead modules"))
+        self.assertEqual(u.look_failed_unless_declared("no line", self.CANCELLED, 1)[0], "failure")
+        self.assertEqual(u.look_failed_unless_declared(None, self.CANCELLED, 1)[0], "failure")
+
+    def test_look_failed_reads_the_body_through_its_tokens(self) -> None:
+        calls = []
+
+        def api(path, token, *a, **k):
+            calls.append((path, token))
+            if token == "spent":
+                raise RuntimeError("403")
+            return {"body": "Visual: none (copy only)"}
+        with mock.patch.object(u, "api", side_effect=api):
+            self.assertEqual(u.pr_body("o/r", 7, ["spent", "ok"]), "Visual: none (copy only)")
+        self.assertEqual(calls[-1], ("repos/o/r/pulls/7", "ok"))
+        with mock.patch.object(u, "api", side_effect=RuntimeError("down")):
+            self.assertIsNone(u.pr_body("o/r", 7, ["a"]))
+
     def test_look_reason_from_step_outputs(self) -> None:
         self.assertEqual(u.look_reason({"TAR": "false", "REASON": self.CANCELLED}), self.CANCELLED)
         self.assertEqual(u.look_reason({"TAR": "false"}), "the fleet sent no result")
@@ -478,12 +529,70 @@ class LookFailedTest(unittest.TestCase):
         posts = []
         prs = [self.node(61289, "PENDING", "2026-11-27T14:12:00Z"), self.node(2, "PENDING", "2026-11-27T23:00:00Z")]
         with mock.patch.object(u, "open_prs", return_value=prs):
-            stale = u.sweep("manaflow-ai/cmux", ["t"], 6, now=now, post=lambda *a: posts.append(a) or True)
+            stale = u.sweep("manaflow-ai/cmux", ["t"], 6, now=now, post=lambda *a: posts.append(a) or True,
+                            answered=lambda pr, sha: "", rerun=lambda sha: self.fail("no record, no rerun"))
         self.assertEqual(len(posts), 1)
         state, desc, repo, sha = posts[0][:4]
         self.assertEqual((state, repo, sha), ("failure", "manaflow-ai/cmux", f"{61289:040d}"))
         self.assertTrue(desc.startswith(u.LOOK_FAILED + ": no look result within 6 h"))
         self.assertTrue(stale[0]["posted"])
+
+    def test_sweep_regates_a_pending_whose_look_posted_a_record_after_it(self) -> None:
+        # cmux#62379: a passing web-flows record at the head, the gate still pending 12 h on.
+        now = u.dt.datetime(2026, 11, 28, 12, 0, tzinfo=u.dt.timezone.utc)
+        prs = [self.node(62379, "PENDING", "2026-11-27T21:00:00Z"),  # record after: re-gate, no failure
+               self.node(7, "PENDING", "2026-11-28T11:00:00Z"),      # record before the pending: gate read it
+               self.node(8, "PENDING", "2026-11-27T20:00:00Z")]      # no record, past 6 h: failure
+        records = {62379: "2026-11-27T22:16:00Z", 7: "2026-11-28T10:00:00Z", 8: ""}
+        posts, reruns = [], []
+        with mock.patch.object(u, "open_prs", return_value=prs):
+            out = u.sweep("manaflow-ai/cmux", ["t"], 6, now=now, post=lambda *a: posts.append(a) or True,
+                          answered=lambda pr, sha: records[pr], rerun=lambda sha: reruns.append(sha) or "reran")
+        self.assertEqual(reruns, [f"{62379:040d}"])
+        self.assertEqual([p[3] for p in posts], [f"{8:040d}"])
+        self.assertEqual([(s["pr"], "rerun" in s) for s in out], [(62379, True), (8, False)])
+
+    def test_sweep_regates_a_look_failure_answered_by_a_later_record(self) -> None:
+        # cmux#63752: the sweep's failure at 11:25Z, a passing record at 11:37Z, and no gate rerun after it.
+        now = u.dt.datetime(2026, 11, 28, 12, 0, tzinfo=u.dt.timezone.utc)
+        failed = u.look_failed("no look result within 6 h of the pending post", 63752)[1]
+        prs = [self.node(63752, "FAILURE", "2026-11-28T11:25:56Z", failed),  # record after: re-gate
+               self.node(7, "FAILURE", "2026-11-28T11:00:00Z", failed),      # record before: the gate read it
+               self.node(8, "FAILURE", "2026-11-28T11:00:00Z", "UI proof at this head failed: x"),  # not a look's
+               self.node(9, "FAILURE", "2026-11-28T11:00:00Z", failed)]      # no record: stands
+        records = {63752: "2026-11-28T11:37:05Z", 7: "2026-11-28T10:00:00Z", 8: "2026-11-28T11:30:00Z", 9: ""}
+        posts, reruns = [], []
+        with mock.patch.object(u, "open_prs", return_value=prs):
+            out = u.sweep("manaflow-ai/cmux", ["t"], 6, now=now, post=lambda *a: posts.append(a) or True,
+                          answered=lambda pr, sha: records[pr],
+                          rerun=lambda sha, after="": reruns.append((sha, after)) or "reran")
+        self.assertEqual(reruns, [(f"{63752:040d}", "2026-11-28T11:37:05Z")])
+        self.assertEqual(posts, [])
+        self.assertEqual([s["pr"] for s in out], [63752])
+
+    def test_rerun_gate_rest_skips_a_gate_that_already_read_the_record(self) -> None:
+        def api(path, token, *a):
+            if "workflows/pr-router.yml/runs" in path:
+                return {"workflow_runs": [{"id": 1}]}
+            if path.endswith("/jobs?per_page=100"):
+                return {"jobs": [{"id": 5, "name": u.GATE_JOB, "status": "completed", "conclusion": "failure",
+                                  "completed_at": "2026-11-28T11:40:00Z"}]}
+            self.fail(f"no rerun expected: {path}")
+        with mock.patch.object(u, "api", side_effect=api), \
+                mock.patch.object(u.proof_record, "with_tokens", side_effect=lambda f, tokens: f(tokens[0])):
+            self.assertIn("already read", u.rerun_gate_rest("r/r", "s", ["t"], "2026-11-28T11:37:05Z"))
+
+    def test_sweep_reads_the_newest_prs_first(self) -> None:
+        self.assertIn("orderBy: {field: UPDATED_AT, direction: DESC}", u.SWEEP_QUERY)
+
+    def test_record_at_is_the_newest_trusted_record_at_the_head(self) -> None:
+        sha = "a" * 40
+        good = {"html_url": "u1", "created_at": "2026-11-27T22:16:00Z", "body": "r"}
+        with mock.patch.object(proof_record, "pr_comments", return_value=[good]), \
+                mock.patch.object(proof_record, "find", side_effect=lambda c, suite, h, b, can_write=None: (
+                    {"_comment": "u1"} if suite == "web-flows" and h == sha else None)):
+            self.assertEqual(u.record_at("r/r", 1, sha, "t", []), "2026-11-27T22:16:00Z")
+            self.assertEqual(u.record_at("r/r", 1, "b" * 40, "t", []), "")
 
     def test_open_prs_reads_every_page_newest_updated_first(self) -> None:
         # 4859 open PRs on 2026-11-28: a 10-page cap read 1000 of them, so cmux#63752's pending was never swept.
@@ -531,6 +640,56 @@ class LookFailedTest(unittest.TestCase):
             calls.clear()
             self.assertFalse(u.post_status("failure", "x", "o/r", "a" * 40, ["spent"]))
 
+    def test_post_record_falls_through_a_refused_token(self) -> None:
+        calls = []
+
+        def api(path, token, method="GET", body=None):
+            calls.append((path, token, method))
+            if token == "pool":
+                raise urllib.error.HTTPError("u", 403, "Forbidden", {},
+                                             io.BytesIO(b'{"message":"Resource not accessible by integration"}'))
+            return {}
+
+        with mock.patch.object(u, "api", api), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(u.post_record("o/r", 7, "rec", ["pool", "bot"]), (True, ""))
+            self.assertEqual(calls, [("repos/o/r/issues/7/comments", "pool", "POST"),
+                                     ("repos/o/r/issues/7/comments", "bot", "POST")])
+            ok, why = u.post_record("o/r", 7, "rec", ["pool"])
+            self.assertFalse(ok)
+            self.assertIn("Resource not accessible by integration", why)
+
+    def test_refused_record_post_is_a_failure_not_a_silent_pending(self) -> None:
+        posts = []
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "proof-record.md"
+            f.write_text("rec")
+            env = {"REPO": "o/r", "SHA": HEAD, "POST_TOKENS": "pool", "TOKENS": "gh"}
+            out = io.StringIO()
+            with mock.patch.dict(os.environ, env), \
+                    mock.patch.object(u, "post_record", return_value=(False, "HTTPError: addComment refused")), \
+                    mock.patch.object(u, "current_status", return_value=None), \
+                    mock.patch.object(u, "post_status", lambda *a: posts.append(a) or True), \
+                    contextlib.redirect_stdout(out):
+                rc = u.main(["post-record", "--file", str(f), "--pr", "7"])
+        self.assertEqual(rc, 1)
+        self.assertIn("::error", out.getvalue())
+        state, desc, repo, sha, tokens = posts[0][:5]
+        self.assertEqual((state, repo, sha, tokens), ("failure", "o/r", HEAD, ["gh"]))
+        self.assertTrue(desc.startswith(u.POST_REFUSED + ": HTTPError"))
+
+    def test_workflow_posts_the_record_on_trusted_apps_in_turn(self) -> None:
+        import yaml
+        wf = yaml.safe_load((ROOT / ".github/workflows/cmux-next-hot-verify.yml").read_text())
+        step = next(s for s in wf["jobs"]["publish"]["steps"] if s.get("name") == "Post the proof record")
+        # 2026-11-28, cmux#62400: the pool's token alone (pull_requests: read) was refused, and nothing said so.
+        posters = re.findall(r"\$\{\{.*?\}\}", step["env"]["POST_TOKENS"])
+        self.assertEqual(posters[0], "${{ steps.cmux-bot-token.outputs.token }}")
+        self.assertGreater(len(posters), 1)
+        self.assertNotIn("github.token", step["env"]["POST_TOKENS"])  # github-actions[bot]: the gate does not trust it
+        self.assertIn("ui_proof_verdict.py post-record", step["run"])
+        self.assertNotIn("gh pr comment", step["run"])
+        self.assertIn("pipefail", step["run"])
+
     def test_workflows_post_it(self) -> None:
         import yaml
         wf = yaml.safe_load((ROOT / ".github/workflows/cmux-next-hot-verify.yml").read_text())
@@ -555,6 +714,79 @@ class LookFailedTest(unittest.TestCase):
         self.assertEqual(sj["permissions"].get("statuses"), "write")
         self.assertIn("ui_proof_verdict.py sweep", sj["steps"][-1]["run"])
 
+
+
+class BaseMergeCarryTest(unittest.TestCase):
+    """cmux#46235: a look at 0bbdc46b, the train's base merges to cca4e6ce and 4abda3b6, and each head waited 2 h for
+    a new look."""
+    OLD, MID, NEW, B1, B2 = ("1" * 40, "2" * 40, "3" * 40, "c" * 40, "d" * 40)
+    FILES = ["webviews/src/a.tsx", "README.md"]
+
+    def carry(self, chain, blobs=None, files=None):
+        """CHAIN: sha -> parents. BLOBS: ref -> {path: blob} (default: the same blobs at every ref)."""
+        blobs = blobs or {}
+
+        def call(path, token):
+            if "/git/commits/" in path:
+                sha = path.rsplit("/", 1)[1]
+                return {"parents": [{"sha": p} for p in chain.get(sha, [])]}
+            d, ref = path.split("/contents/", 1)[1].split("?ref=")
+            have = blobs.get(ref, {"webviews/src/a.tsx": "x", "README.md": "y"})
+            return [{"path": p, "sha": v} for p, v in have.items() if p.rpartition("/")[0] == urllib.parse.unquote(d)]
+        return u.base_merge_carry("o/r", self.OLD, self.NEW, files or self.FILES, "t", call)
+
+    def test_one_base_merge_carries(self) -> None:
+        self.assertEqual(self.carry({self.NEW: [self.OLD, self.B1]}), "")
+
+    def test_two_base_merges_carry(self) -> None:
+        self.assertEqual(self.carry({self.NEW: [self.MID, self.B2], self.MID: [self.OLD, self.B1]}), "")
+
+    def test_a_push_of_its_own_does_not_carry(self) -> None:
+        self.assertIn("not a merge", self.carry({self.NEW: [self.OLD]}))
+        self.assertIn("not a merge", self.carry({self.NEW: [self.MID, self.B1], self.MID: [self.OLD]}))
+
+    def test_a_changed_pr_file_does_not_carry(self) -> None:
+        moved = {self.NEW: {"webviews/src/a.tsx": "z", "README.md": "y"}}
+        self.assertIn("webviews/src/a.tsx", self.carry({self.NEW: [self.OLD, self.B1]}, moved))
+        gone = {self.OLD: {"README.md": "y"}}  # added by the merge resolution: absent at the look
+        self.assertIn("differ", self.carry({self.NEW: [self.OLD, self.B1]}, gone))
+
+    def test_caps_and_unread_carry_nothing(self) -> None:
+        far = {self.NEW: [self.MID, self.B1], self.MID: [self.MID, self.B2]}  # never reaches OLD
+        self.assertIn("within", self.carry(far))
+        self.assertIn("directories", self.carry({self.NEW: [self.OLD, self.B1]},
+                                                files=[f"d{i}/f" for i in range(u.CARRY_MAX_DIRS + 1)]))
+        self.assertIn("unread", u.base_merge_carry("o/r", self.OLD, self.NEW, [], "t", lambda *a: {}))
+
+    def gate(self, carry_why: str) -> tuple[str, str]:
+        rec = record(suite="web-flows", head=self.OLD)
+        comment = {"body": f"<!-- {proof_record.KIND} web-flows {self.OLD} -->", "html_url": "u"}
+
+        def find(comments, suite, sha, *a):
+            return rec if (sha == self.OLD and suite == "web-flows") else None
+
+        def api(path, token, *a, **k):
+            return {"statuses": []} if "/status" in path else {"body": ""}
+        with mock.patch.dict(os.environ, {"CI_UI_PROOF": ""}), \
+                mock.patch.object(u, "changed_files", return_value=self.FILES), \
+                mock.patch.object(u, "added_files", return_value=[]), \
+                mock.patch.object(u, "api", side_effect=api), \
+                mock.patch.object(u, "base_merge_carry", return_value=carry_why), \
+                mock.patch.object(u.proof_record, "writer_check", return_value=lambda login: True), \
+                mock.patch.object(u.proof_record, "pr_comments", return_value=[comment]), \
+                mock.patch.object(u.proof_record, "find", side_effect=find), \
+                contextlib.redirect_stderr(io.StringIO()):
+            return u.gate_now("manaflow-ai/cmux", "7", self.NEW, "t", [])
+
+    def test_gate_carries_an_older_heads_look(self) -> None:
+        state, desc = self.gate("")
+        self.assertEqual(state, "success")
+        self.assertIn(f"carried from {self.OLD[:12]} (base merges only)", desc)
+
+    def test_gate_without_a_carry_still_waits(self) -> None:
+        state, desc = self.gate("x is not a merge commit")
+        self.assertEqual(state, "pending")
+        self.assertTrue(desc.startswith(u.NO_LOOK))
 
 if __name__ == "__main__":
     unittest.main()

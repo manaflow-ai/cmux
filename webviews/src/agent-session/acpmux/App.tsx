@@ -50,7 +50,7 @@ import {
 } from "./conversation/queuedMessages";
 import { pendingMessagesRow, searchablePendingRows, withWaitingRows } from "./conversation/pendingMessages";
 import { type QueuedMessageActionsValue } from "./conversation/QueuedMessageCard";
-import { AcpmuxDirectClient, type HarnessBlock, isTrustRefusal } from "./direct";
+import { AcpmuxDirectClient, type HarnessBlock, isTrustRefusal, type WarmedChat } from "./direct";
 import { watchRestoredTail } from "./restoredTail";
 import { drawsCopy } from "./conversation/turnEndFold";
 import {
@@ -102,6 +102,7 @@ import {
 } from "./newtab/draftFolder";
 import { cloudModePickFor as cloudModeFor, useCloudModePick } from "./cloudModePick";
 import { cloudAgentPick, holdCloudAgentPick } from "./cloudAgentPick";
+import { cloudLastPick } from "./cloudLastPick";
 import {
   askAppCloudPick,
   cloudPickChoices,
@@ -142,7 +143,7 @@ import {
   type AcpmuxSessionEntry,
 } from "./sessionList";
 import { findSession } from "./sessionIndex";
-import { useSettledToasts } from "./settledToasts";
+import { useHeldChats, useSettledToasts } from "./settledToasts";
 import {
   DRAFT_SETTLE_MS,
   useDraftActionsVersion,
@@ -433,6 +434,7 @@ import { isFindRow, type ChatFind } from "./conversation/chatFind";
 import { revealedSaid, saidRows, type SaidReveal } from "./conversation/saidReveal";
 import { ChatFindScope } from "./conversation/ChatFindScope";
 import {
+  NO_MESSAGE_BREAKS,
   messageRevealTarget,
   openViewTurnFold,
   toggleTurnFold,
@@ -627,7 +629,7 @@ import { ShellRuns } from "./shell/shellRuns";
 import { answerBlock, restartOwner, restartReaches } from "./subagents/restart";
 import { bridgedWatch } from "./watchBannerModel";
 import { type SubagentRows, runningGroups, subagentsIn } from "./subagents/subagentRows";
-import { foldOwnLog, subagentPaneView, useOwnLog, needsOwnLog } from "./subagents/subagentOwnLog";
+import { foldOwnLog, subagentPaneView, useOwnLog, needsOwnLog, type OwnLogRecord } from "./subagents/subagentOwnLog";
 import { lastReply as lastSubagentReply, SubagentReplyContext } from "./subagents/wholeReport";
 import { knownMark } from "../shared/AgentMark";
 import { useSenderIconLook } from "./subagents/senderIconLook";
@@ -794,7 +796,7 @@ import {
 import { postOpenInWindow, quickChatName, postStartInBackground } from "./pane/quickHost";
 import { knownHarnessHealth, knownGithubRepositories, trustSource } from "./pane/trustHost";
 import { readFolderStatus, checkpointDiff } from "./pane/hostBindings";
-import { letGoHeldWorked, turnActionsFrom, turnRowsShownFrom } from "./pane/useTurnActions";
+import { letGoHeldWorked, shapeAhead, turnActionsFrom, turnRowsShownFrom } from "./pane/useTurnActions";
 import { replyElsewhere } from "./homeInboxModel";
 import { quoteInReply } from "./conversation/selectionReplyModel";
 import { answerPrompt, askQuote } from "./conversation/nextStepAsk";
@@ -1351,6 +1353,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   // acpmux's verdict on this Mac's load and swap (host_overload.rs): the composer draws it only when over.
   const readOverload = useCallback(
+    // l10n-allow: a bug message for a caller, never shown
     () => directClient.current?.hostOverload() ?? Promise.reject(new Error("no client")),
     [],
   );
@@ -1504,17 +1507,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     },
     [notices],
   );
-  // The chats this pane has shown: the app's relay holds each in the pane's scope from then on
-  // (AcpmuxPaneSessions, which never drops one), so only these may be unsettled from here.
-  const [shownChats, setShownChats] = useState<ReadonlySet<string>>(() => new Set());
-  useEffect(() => {
-    const shown = snapshot.sessionId;
-    if (shown) setShownChats((held) => (held.has(shown) ? held : new Set(held).add(shown)));
-  }, [snapshot.sessionId]);
-  const holdsChat = useCallback(
-    (entry: AcpmuxSessionEntry) => !entry.peer && shownChats.has(entry.sessionId),
-    [shownChats],
-  );
+  // The chats this pane has shown, the ones it may unsettle (settledToasts.ts `useHeldChats`).
+  const holdsChat = useHeldChats(snapshot.sessionId);
   // The dialog belongs to the chat it opened on: switching chats closes it.
   const [shareChat, setShareChat] = useState(snapshot.sessionId);
   if (shareChat !== snapshot.sessionId) {
@@ -1772,6 +1766,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const showSaid = useRef<(said: SaidReveal) => string | undefined>(() => undefined);
   /// Starts this chat's Ask about this side chat (Needs you's `sideSession`), set where Needs you is.
   const askAboutChat = useRef<(sessionId: string, question: string) => Promise<unknown>>(async () => {
+    // l10n-allow: a bug message for a caller, never shown
     throw new Error("not ready");
   });
   const reveal = (value: string) => {
@@ -2417,6 +2412,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const lastMessageBreaks = useRef<readonly number[]>([]);
   const messageBreaks = useMemo(() => {
     const next = chatShellRuns.map((run) => run.startedAt).sort((a, b) => a - b);
+    // One empty array for every chat with no command: the turns shaped ahead used it (`shapeAhead`).
+    if (next.length === 0) return (lastMessageBreaks.current = NO_MESSAGE_BREAKS);
     const previous = lastMessageBreaks.current;
     if (next.length === previous.length && next.every((at, index) => at === previous[index])) return previous;
     return (lastMessageBreaks.current = next);
@@ -2584,7 +2581,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   const readSubagentLog = useCallback(
     // l10n-allow: internal transport error; the subagent pane renders its own localized state.
-    (id: string) => directClient.current?.readSubagentLog(id) ?? Promise.reject(new Error("Not connected")),
+    (id: string, onNewest?: (records: OwnLogRecord[]) => void) =>
+      directClient.current?.readSubagentLog(id, onNewest) ?? Promise.reject(new Error("Not connected")),
     [],
   );
   // A finished subagent's whole last reply, from its own records, for a report card whose Show more
@@ -2825,6 +2823,29 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const leftChatTurns = useRef(
     new Map<string, { sessionId: string | undefined; turns: TurnView; subagents: SubagentRows }>(),
   );
+  // Each chat folded ahead while the page is idle (direct.ts `warmRows`) is shaped into turns now, so
+  // its first open reuses them as a switch back does (settled-page bench, chat_switch). Normal view
+  // only: the other views fold by an object built at the open.
+  const aheadFolds = useRef(new Map<string, Set<string>>());
+  const shapeAheadFrom = useRef<(warmed: WarmedChat) => void>(() => undefined);
+  shapeAheadFrom.current = (warmed) => {
+    if (chatView !== "normal" || chatPresentation === "messages" || warmed.sessionId === shownSessionId) return;
+    if (chatFolds.has(warmed.sessionId) || leftChatTurns.current.has(warmed.sessionId)) return;
+    const expanded = new Set<string>();
+    shapeAhead(warmed, {
+      expanded,
+      doneLines: doneLines.current,
+      workflowLabsEnabled,
+      splitSilent: !quick,
+      clockOffset: snapshot.clockOffsetMs,
+      pastTurns: leftChatTurns.current,
+    });
+    aheadFolds.current.set(warmed.sessionId, expanded);
+    // ends: each pass deletes the oldest key, so the map holds no more chats than turns kept ahead
+    while (aheadFolds.current.size > 8) aheadFolds.current.delete(aheadFolds.current.keys().next().value!);
+  };
+  const warmingClient = directClient.current;
+  useEffect(() => warmingClient?.onWarmed((warmed) => shapeAheadFrom.current(warmed)), [warmingClient]);
   const supersededReplyIds = useMemo(
     () => (snapshot.supersededRows?.length ? new Set(snapshot.supersededRows) : undefined),
     [snapshot.supersededRows],
@@ -3169,7 +3190,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const kept = shownSessionId === undefined ? undefined : chatFolds.get(shownSessionId);
     if (subagentChat !== undefined)
       setChatFolds(new Map(chatFolds).set(subagentChat, { expanded, opened: openedGroups, viewToggles }));
-    setExpanded(kept?.expanded ?? new Set());
+    // A chat never shown opens with the folds its turns were shaped ahead with (`shapeAhead`), so
+    // turnViewFrom reuses them (it reuses turns only under the same folds object).
+    const ahead = shownSessionId === undefined ? undefined : aheadFolds.current.get(shownSessionId);
+    if (shownSessionId !== undefined) aheadFolds.current.delete(shownSessionId);
+    setExpanded(kept?.expanded ?? ahead ?? new Set());
     setViewToggles(kept?.viewToggles ?? new Map());
     setOpenedGroups(kept?.opened ?? new Set());
   }
@@ -3412,23 +3437,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const reconnectMcp = useCallback(
     (server: string) => directClient.current?.reconnectMcp(server) ?? Promise.reject(new Error()),
     [],
-  );
-  // Session Info's Carried memory (CarriedSection.tsx): the chat's carried files and proposals, and
-  // Accept or Drop, sent on the click with no await before it (acpmux takes it only from the person).
-  const carriedSessionId = snapshot.sessionId;
-  const readCarried = useCallback(
-    () =>
-      carriedSessionId
-        ? (directClient.current?.agentHome(carriedSessionId) ?? Promise.reject(new Error()))
-        : Promise.reject(new Error()),
-    [carriedSessionId],
-  );
-  const resolveCarried = useCallback(
-    (change: { accept: string[]; drop: string[] }) =>
-      carriedSessionId
-        ? (directClient.current?.resolveAgentHome(change, carriedSessionId) ?? Promise.reject(new Error()))
-        : Promise.reject(new Error()),
-    [carriedSessionId],
   );
   // Session Info shows: every listed chat's usage is read now (direct.ts `refreshUsage`).
   const refreshUsage = useCallback(() => directClient.current?.refreshUsage(), []);
@@ -5086,7 +5094,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         const client = directClient.current;
         const { intent, model } = harnessSwitch.view();
         const summary = snapshotRef.current?.summary;
-        const cloudPick = cloudAgentPick();
+        const cloudPick = cloudAgentPick() ?? cloudLastPick();
         return {
           harness: cloudPick?.harness ?? intent?.harness ?? summary?.harness,
           revision: [
@@ -5995,9 +6003,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // Environment's Changes: the header's Changes counts and what it opens (the chat folder's diff
     // beside the chat), only where the header offers it.
     readChanges: quick ? undefined : readChanges,
-    // Carried memory: the chat's own panel, not Quick Chat's (useSessionInfo leaves a subagent's out).
-    readCarried: quick ? undefined : readCarried,
-    onResolveCarried: quick ? undefined : resolveCarried,
     onOpenChanges: quick ? undefined : () => openChangesTab.current(),
     // Active chat panes do not support environment.save; the native handler accepts it only from
     // New Tab. Keep the inspector's optional callback for gallery/host integrations, but do not
@@ -6439,6 +6444,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (!signatureSessionId) return;
     return setAgentSignatureSource({
       sessionId: signatureSessionId,
+      // l10n-allow: a bug message for a caller, never shown
       fetch: (ids) => directClient.current?.signatures(ids) ?? Promise.reject(new Error("no client")),
     });
   }, [signatureSessionId]);

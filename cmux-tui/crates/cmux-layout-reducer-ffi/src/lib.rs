@@ -370,6 +370,14 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&approval_answer::next_remembered(&request))
                     .map_err(|_| ERR_INVALID)?
             }
+            // Settings → Cloud → Spending's overage save: the next session call to make, or the outcome
+            // (cmux-cloud-start-core spending_write; cmux-api `usage.cap.set {overage_usd}`).
+            b"cloud_spending_set_next" => {
+                use cmux_cloud_start_core::spending_write;
+                let request: spending_write::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&spending_write::next(&request)).map_err(|_| ERR_INVALID)?
+            }
             b"cloud_capability_drop" => {
                 cmux_cloud_start_core::capability::forget();
                 b"{}".to_vec()
