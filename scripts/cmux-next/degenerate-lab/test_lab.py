@@ -6,10 +6,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -138,6 +140,19 @@ class Jobs(unittest.TestCase):
         env = lab.cargo_env(lab.argparse.Namespace(target_dir=None, out=tempfile.mkdtemp()))
         self.assertEqual(env["CARGO_PROFILE_RELEASE_LTO"], "off")
         self.assertEqual(env["CARGO_PROFILE_RELEASE_CODEGEN_UNITS"], "16")
+
+    def test_the_chat_build_takes_one_job(self):
+        """Job 141104459292: the acpmux lib test rustc was SIGKILLed at two jobs."""
+        seen = []
+        with tempfile.TemporaryDirectory() as t, mock.patch.object(
+                lab, "run_logged", lambda cmd, env, cwd, out, timeout: (seen.append(env["CARGO_BUILD_JOBS"]), (0, ""))[1]):
+            env = {k: v for k, v in os.environ.items() if k != "CARGO_BUILD_JOBS"}
+            with mock.patch.dict(os.environ, env, clear=True):
+                for part in ("chat", "daemon"):
+                    lab.prebuild(lab.argparse.Namespace(target_dir=None, out=t, build_jobs=0, heap=False,
+                                                        build_timeout=1), part, Path(t))
+        self.assertEqual(seen, ["1", "2"])
+        self.assertIn("largest child", lab.peak_memory())
 
     def test_the_plan_is_one_job_per_part_scale_and_load(self):
         jobs = lab.plan(lab.PRESETS["nightly"])

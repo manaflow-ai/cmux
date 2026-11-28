@@ -271,6 +271,25 @@ def cargo_test(args, part: str) -> list[str]:
     return [*cargo, "--lib", "stress::god_chat"]
 
 
+def peak_memory() -> str:
+    """The build's high-water marks: the largest process this script waited for (rustc, through
+    cargo) and this cgroup's memory.peak, so a build near a slot's MemoryMax shows its margin before
+    the kernel kills it."""
+    import resource
+
+    rss = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / 1024 / 1024
+    parts = [f"largest child {rss:.1f} GiB RSS"]
+    try:
+        rel = Path("/proc/self/cgroup").read_text().strip().rsplit(":", 1)[-1]
+        cg = Path("/sys/fs/cgroup") / rel.lstrip("/")
+        for name in ("memory.peak", "memory.max"):
+            raw = (cg / name).read_text().strip()
+            parts.append(f"cgroup {name} " + (raw if raw == "max" else f"{int(raw) / 2**30:.1f} GiB"))
+    except (OSError, ValueError):
+        pass
+    return ", ".join(parts)
+
+
 def prebuild(args, part: str, out_root: Path) -> dict | None:
     """Builds `part`'s test binary before any load starts and outside its run's timeout. A cold
     release build of acpmux on a loaded runner took most of the hour `--timeout` gives one run, so
@@ -281,15 +300,21 @@ def prebuild(args, part: str, out_root: Path) -> dict | None:
     out = out_root / f"{part}-build"
     out.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
-    # Two jobs: rustc's codegen units and the lib/test crates take jobserver tokens, so this bounds
+    # Few jobs: rustc's codegen units and the lib/test crates take jobserver tokens, so this bounds
     # the build's peak under a pool slot's MemoryMax; with all cores the base-merged acpmux lib was
     # SIGKILLed mid-build on both legs (run 46180367461). Fingerprints ignore the job count, so the
     # timed run still finds this build fresh.
     env = cargo_env(args)
-    env.setdefault("CARGO_BUILD_JOBS", str(args.build_jobs))
+    # One job for the chat part: its target is acpmux's lib test harness, every unit test of the
+    # crate (about 10,500) in one rustc, and at two jobs that rustc alone was SIGKILLed 26 min into
+    # the build even split 16 ways with LTO off (chat-x0.02-idle, job 141104459292), while the
+    # daemon part's plain lib built in the same slot. One token keeps one codegen unit in LLVM at
+    # a time beside the crate's front-end state.
+    jobs = args.build_jobs if args.build_jobs else (1 if part == "chat" else 2)
+    env.setdefault("CARGO_BUILD_JOBS", str(jobs))
     code, text = run_logged([*cargo_test(args, part), "--no-run"], env, TUI, out / "build.log",
                             args.build_timeout)
-    log(f"{part} build: exit {code} in {time.monotonic() - started:.0f}s")
+    log(f"{part} build: exit {code} in {time.monotonic() - started:.0f}s, {jobs} jobs, {peak_memory()}")
     if code == 0:
         return None
     return {"part": part, "scale": 0, "load": "build", "exit": code, "failure": failure_lines(code, text)}
@@ -545,7 +570,8 @@ def main() -> int:
     ap.add_argument("--target-dir", default=os.environ.get("CARGO_TARGET_DIR"))
     ap.add_argument("--timeout", type=int, default=3600, help="seconds any one run may take")
     ap.add_argument("--build-timeout", type=int, default=3600, help="seconds a part's test build may take")
-    ap.add_argument("--build-jobs", type=int, default=2, help="cargo jobs a part's test build may use")
+    ap.add_argument("--build-jobs", type=int, default=0,
+                    help="cargo jobs a part's test build may use; default 1 for chat, 2 for daemon")
     args = ap.parse_intermixed_args()
     # acpmux refuses a state folder under a group- or world-writable one, and tempfile folders take the umask.
     os.umask(0o022)
