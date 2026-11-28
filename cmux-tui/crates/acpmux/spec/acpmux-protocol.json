@@ -1079,6 +1079,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/wait/park",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/wait/unpark",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/bg/rearm",
       "params": true,
       "result": true
@@ -8917,6 +8929,10 @@
           "description": "Tags that have not expired.",
           "type": "object"
         },
+        "taint": {
+          "description": "Its taint letters, sorted (RFD 0179 idea 11, `hub/taint.rs`): `A` it ran an admin merge\n(`gh pr merge --admin`), `O` it overrode a guard (`GUARD_OVERRIDE=`, `LAND_JUDGE_OVERRIDE=`),\n`R` it forced a rerun (`gh run rerun --force`). Kept for the session's life, so a report\nabout it says it ran something unusual; empty, and absent from a peer on an older acpmux,\nwhen it did none.",
+          "type": "string"
+        },
         "timeBreakdown": {
           "anyOf": [
             {
@@ -9896,6 +9912,10 @@
           },
           "description": "Tags that have not expired.",
           "type": "object"
+        },
+        "taint": {
+          "description": "Its taint letters, sorted (RFD 0179 idea 11, `hub/taint.rs`): `A` it ran an admin merge\n(`gh pr merge --admin`), `O` it overrode a guard (`GUARD_OVERRIDE=`, `LAND_JUDGE_OVERRIDE=`),\n`R` it forced a rerun (`gh run rerun --force`). Kept for the session's life, so a report\nabout it says it ran something unusual; empty, and absent from a peer on an older acpmux,\nwhen it did none.",
+          "type": "string"
         },
         "timeBreakdown": {
           "anyOf": [

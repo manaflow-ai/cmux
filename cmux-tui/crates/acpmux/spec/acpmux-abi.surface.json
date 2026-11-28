@@ -1438,6 +1438,9 @@
       "/session/tags/*": {
         "ty": "string"
       },
+      "/session/taint": {
+        "ty": "string"
+      },
       "/session/timeBreakdown": {
         "ty": "object",
         "nullable": true
@@ -30141,6 +30144,18 @@
         "nullable": true
       }
     },
+    "request:_acpmux/wait/park": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/wait/unpark": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/wake": {
       "/*untyped*": {
         "ty": "json",
@@ -35069,6 +35084,9 @@
       "/data/session/tags/*": {
         "ty": "string"
       },
+      "/data/session/taint": {
+        "ty": "string"
+      },
       "/data/session/timeBreakdown": {
         "ty": "object",
         "nullable": true
@@ -38401,6 +38419,9 @@
       "/data/tags/*": {
         "ty": "string"
       },
+      "/data/taint": {
+        "ty": "string"
+      },
       "/data/timeBreakdown": {
         "ty": "object",
         "nullable": true
@@ -40247,6 +40268,9 @@
       "/data/sessions/*/tags/*": {
         "ty": "string"
       },
+      "/data/sessions/*/taint": {
+        "ty": "string"
+      },
       "/data/sessions/*/timeBreakdown": {
         "ty": "object",
         "nullable": true
@@ -41258,6 +41282,18 @@
         "nullable": true
       }
     },
+    "response:_acpmux/wait/park": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/wait/unpark": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/wake": {
       "/data/*untyped*": {
         "ty": "json",
@@ -42248,6 +42284,9 @@
         "required": true
       },
       "/data/sessions/*/tags/*": {
+        "ty": "string"
+      },
+      "/data/sessions/*/taint": {
         "ty": "string"
       },
       "/data/sessions/*/timeBreakdown": {
