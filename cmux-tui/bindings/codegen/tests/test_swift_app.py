@@ -1201,6 +1201,15 @@ class LoadBindingsTests(unittest.TestCase):
 
 
 class RepositoryBindingsTests(unittest.TestCase):
+    def test_a_repeated_key_is_refused_not_dropped(self) -> None:
+        """Two `enums` in one family kept only the second, and ColumnSide stopped generating (#63368)."""
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "bindings.json"
+            path.write_text('{"families": {"Creation": {"enums": {"ColumnSide": {}}, "enums": {"ColumnDockEdge": {}}}}}',
+                            encoding="utf-8")
+            with self.assertRaisesRegex(BindingError, "repeats the key"):
+                generate.load_bindings(path)
+
     def test_the_repository_bindings_render_against_the_repository_schema(self) -> None:
         bindings = generate.load_bindings(generate.DEFAULT_BINDINGS)
         self.assertTrue(generate.sources_root(REPO, bindings).is_dir())
