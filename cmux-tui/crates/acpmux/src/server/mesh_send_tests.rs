@@ -158,3 +158,48 @@ fn a_prompt_id_the_hub_would_refuse_as_a_key_is_digested() {
     assert!(valid_team_address("@member/reviewer:backend"));
     assert!(!valid_team_address("@team"));
 }
+
+/// A chat moved to machine-b and back: the hub's book here still lists it under machine-b
+/// (machine-b unlists it on its next heartbeat, `hub/transfer_out.rs`), and the live session
+/// here has its id. A prompt by its bare id (`acpmux send --wait ID`) runs here, never through
+/// the hub to machine-b, which no longer has it ("no session: machine-b/ID", the offload
+/// round-trip probe's return leg). Its `HOST/ID` under machine-b still goes to the hub. Leo:
+/// "any chat moves Mac↔Cloud and back in one action, keeping its live state".
+#[tokio::test]
+async fn a_bare_id_live_here_is_prompted_here_though_the_hub_still_lists_it_away() {
+    let mut config: crate::config::Config = serde_json::from_value(json!({})).unwrap();
+    config.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(config, store);
+    let id = "01a1acb2-5bb4-75a3-b5eb-a0eeea1d59d6";
+    let book = crate::mesh::AddressBook {
+        daemons: vec![crate::mesh::BookDaemon {
+            daemon_id: "d-b".into(),
+            host: "machine-b".into(),
+            user: "person-1".into(),
+            last_seen_at: 5,
+            ..Default::default()
+        }],
+        sessions: vec![crate::mesh::BookSession {
+            name: "roundtrip".into(),
+            session_id: id.into(),
+            host: "machine-b".into(),
+            daemon_id: "d-b".into(),
+            harness: "claude".into(),
+            state: "idle".into(),
+            handle: Some("Quince".into()),
+            ..Default::default()
+        }],
+    };
+    hub.apply_mesh_book(book, "person-1", Some("d-a"));
+    let read = |key: &str| super::super::mesh_relay::read::hub_prompt_target(&hub, key);
+    assert_eq!(read(id), Some(format!("machine-b/{id}")), "away, the bare id goes to the hub");
+    let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": id, "name": "roundtrip", "harness": "fake",
+        "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2,
+    }))
+    .unwrap();
+    hub.insert_test_session(meta);
+    assert_eq!(read(id), None, "back here, the bare id is prompted here");
+    assert_eq!(read(&format!("machine-b/{id}")), Some(format!("machine-b/{id}")));
+}
