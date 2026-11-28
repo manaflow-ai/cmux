@@ -5,7 +5,7 @@ import { policyKeys } from "@cmux/protocol"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { teamDomain, type TeamState } from "../src/domains/team.ts"
-import { currentPolicy, integrationSlice, POLICY_HISTORY_LIMIT } from "../src/domains/team-policy.ts"
+import { cloudPolicyOf, currentPolicy, integrationSlice, POLICY_HISTORY_LIMIT } from "../src/domains/team-policy.ts"
 import { integrationSyncPending, sliceHash } from "../src/domains/team-integration-sync.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
@@ -103,6 +103,58 @@ describe("team policy reducer (TeamDO single writer)", () => {
   it("refuses a policy larger than 64 KB (review P2-4: TeamDO state is one SQLite row)", () => {
     const big = Object.fromEntries(Array.from({ length: 150 }, (_, i) => [`ui.k${i}`, { value: "x".repeat(600), mode: "enforced" }]))
     expect(run(baseState(), "team.policy.update", { changes: [set("device.settings", big)], expected_version: 0 })).toMatchObject({ ok: false, code: "policy.invalid" })
+  })
+
+  it("stores the RFD 0211 org lockdown keys and hands them to the platform at chat create", () => {
+    const changes = [
+      set("cloud.providers", ["cmux", "byoc:acme-aws"]),
+      set("cloud.regions", ["us-east-1"]),
+      set("agents.harnesses", ["claude", "codex"]),
+      set("agents.models", ["claude-opus-*"]),
+      set("cloud.egress", { mode: "allowlist", presets: ["anthropic", "github"], domains: ["git.acme.dev"] }),
+      set("projection.folders", ["~/work/*"]),
+      set("projection.readOnly", true),
+      set("projection.syncBack", false),
+      set("sandbox.local", "required"),
+      set("cloud.sandboxes", false)
+    ]
+    const r = run(baseState(), "team.policy.update", { changes, expected_version: 0 })
+    if (!r.ok) throw new Error(`refused: ${JSON.stringify(r)}`)
+    expect(cloudPolicyOf(r.state as TeamState)).toMatchObject({
+      providers: ["cmux", "byoc:acme-aws"],
+      regions: ["us-east-1"],
+      harnesses: ["claude", "codex"],
+      models: ["claude-opus-*"],
+      egress: { mode: "allowlist", presets: ["anthropic", "github"], domains: ["git.acme.dev"] },
+      sandboxes: false,
+      projection: { folders: ["~/work/*"], read_only: true, sync_back: false }
+    })
+    expect(run(baseState(), "team.policy.update", { changes: [set("agents.harnesses", ["claude"])], expected_version: 0 }).ok).toBe(true)
+    expect(run(baseState(), "team.policy.update", { changes: [set("cloud.regions", ["us-east-1"])], expected_version: 0 }, ctx(MEMBER))).toMatchObject({ ok: false, code: "auth.forbidden" })
+  })
+
+  it("defaults to no limits, and full egress reads as no team egress limit", () => {
+    expect(cloudPolicyOf(baseState())).toMatchObject({ providers: null, regions: null, harnesses: null, models: null, egress: null, sandboxes: true, projection: { folders: null, read_only: false, sync_back: true } })
+    const full = run(baseState(), "team.policy.update", { changes: [set("cloud.egress", { mode: "full" })], expected_version: 0 })
+    if (!full.ok) throw new Error("full refused")
+    expect(cloudPolicyOf(full.state as TeamState).egress).toBeNull()
+    const none = run(baseState(), "team.policy.update", { changes: [set("cloud.egress", { mode: "none" })], expected_version: 0 })
+    if (!none.ok) throw new Error("none refused")
+    expect(cloudPolicyOf(none.state as TeamState).egress).toMatchObject({ mode: "none" })
+  })
+
+  it.each([
+    ["cloud.egress", { mode: "allowlist", domains: ["10.0.0.1"] }],
+    ["cloud.egress", { mode: "allowlist", presets: ["not-a-preset"] }],
+    ["cloud.egress", { mode: "open" }],
+    ["cloud.providers", []],
+    ["cloud.providers", ["aws"]],
+    ["cloud.regions", ["US East"]],
+    ["agents.models", ["*"]],
+    ["projection.folders", ["relative/path"]],
+    ["sandbox.local", "off"]
+  ])("refuses an invalid %s value", (key, value) => {
+    expect(run(baseState(), "team.policy.update", { changes: [set(key, value)], expected_version: 0 })).toMatchObject({ ok: false, code: "policy.invalid" })
   })
 
 })

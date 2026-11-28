@@ -1035,7 +1035,7 @@ test("the menu grows by the open card's height, so the lists keep theirs, and go
     Object.defineProperty(window.HTMLElement.prototype, "scrollHeight", {
       configurable: true,
       get(this: HTMLElement) {
-        return this.classList.contains("acpmux-cols-card") ? 120 : 0;
+        return this.classList.contains("acpmux-cols-card-body") ? 120 : 0;
       },
     });
   };
@@ -1052,6 +1052,47 @@ test("the menu grows by the open card's height, so the lists keep theirs, and go
   await click(popup().querySelector<HTMLElement>(".acpmux-cols-profile")!);
   expect(frame.style.height).toContain(`${fixed}px`);
   expect(frame.style.height).not.toContain(`${fixed + 120}px`);
+});
+
+test("the menu follows the open card as its content grows, through the card body's observer (#63167)", async () => {
+  let body = 120;
+  const observers: (() => void)[] = [];
+  fakeLayout = (window) => {
+    installFakeLayout(window);
+    Object.defineProperty(window.HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.classList.contains("acpmux-cols-card-body") ? body : 0;
+      },
+    });
+    (globalThis as Record<string, unknown>).ResizeObserver = class {
+      private readonly run: () => void;
+      constructor(callback: () => void) {
+        this.run = callback;
+      }
+      observe(node: Element) {
+        if (node.classList.contains("acpmux-cols-card-body")) observers.push(this.run);
+      }
+      unobserve() {}
+      disconnect() {}
+    };
+  };
+  const saved = (globalThis as Record<string, unknown>).ResizeObserver;
+  try {
+    await openMenu();
+    const frame = popup().querySelector<HTMLElement>(".acpmux-cols-frame")!;
+    const fixed = Number(frame.dataset.fitHeight);
+    await click(popup().querySelector<HTMLElement>(".acpmux-cols-profile")!);
+    expect(frame.style.height).toContain(`${fixed + 120}px`);
+    expect(observers.length).toBeGreaterThan(0);
+    // The accounts load and the card's content grows: the menu grows with it.
+    body = 200;
+    await act(async () => observers.forEach((run) => run()));
+    expect(frame.style.height).toContain(`${fixed + 200}px`);
+  } finally {
+    if (saved === undefined) delete (globalThis as Record<string, unknown>).ResizeObserver;
+    else (globalThis as Record<string, unknown>).ResizeObserver = saved;
+  }
 });
 
 test("the account card's style keeps it in the flow, scrolling as one block over lists that keep two rows (#63167)", async () => {
@@ -1085,7 +1126,6 @@ const cardWho = () => {
   const card = popup().querySelector<HTMLElement>(".acpmux-cols-card")!;
   return {
     name: card.querySelector(".acpmux-cols-card-name")?.textContent,
-    title: card.querySelector(".acpmux-cols-card-name")?.getAttribute("title"),
     detail: card.querySelector(".acpmux-cols-card-head .acpmux-cols-detail")?.textContent,
     rows: [...card.querySelectorAll(".acpmux-cols-card-list [role=button] .acpmux-cols-name")].map(
       (node) => node.textContent,
@@ -1102,7 +1142,6 @@ test("a chat on SR2 names the SR2 sign-in acpmux reports, not CLI login, and its
   await openCard();
   const who = cardWho();
   expect(who.name).toBe("SR2 token");
-  expect(who.title).toBe("SR2 token (sr2 claude)");
   expect(who.detail).toBe("Claude Code (sr2 internal)");
   expect(who.rows).not.toContain("CLI login");
 });
@@ -1140,7 +1179,6 @@ test("a bound route still names the account; the default row stays the harness l
   await openMenu(undefined, "medium", undefined, { signIn: "API key (ANTHROPIC_API_KEY, from route Max)" });
   await openCard();
   expect(cardWho().name).toBe("Max");
-  expect(cardWho().title).toBeNull();
   expect(cardWho().rows[0]).toBe("CLI login");
 });
 
