@@ -34,6 +34,8 @@ public final class LaunchReveal {
     public private(set) var ready: Set<LaunchRegion> = []
     @ObservationIgnored private var held: [LaunchRegion: NSHashTable<NSView>] = [:]
     @ObservationIgnored private var waiters: [LaunchRegion: [@MainActor () -> Void]] = [:]
+    /// Work that waits for a region to show content, saved or live (``whenDrawn(_:_:)``).
+    @ObservationIgnored private var drawnWaiters: [LaunchRegion: [@MainActor () -> Void]] = [:]
     @ObservationIgnored private let deadlineTimer: DemandTimer
     /// The deadlines of regions made after the window (`LaunchRegion.hasOwnDeadline`).
     @ObservationIgnored private var ownDeadlines: [LaunchRegion: DemandTimer] = [:]
@@ -91,9 +93,28 @@ public final class LaunchReveal {
     }
 
     /// Runs `ready` once the sidebar, the tab strips and the panes all show their content: when the
-    /// real launch window may swap in over stage 0 (LaunchShellContent.contentReady).
+    /// real launch window may swap in over stage 0 (LaunchShellContent.contentReady). The panes show it
+    /// once each held one draws its saved frame (``release(_:)``), not only at the first live terminal frame:
+    /// stage 0's image is those saved frames, so the swap lands on the same picture (startup-tti 2026-11-28:
+    /// every visible terminal drew its saved frame ~170 ms before the first live one, and the swap waited out
+    /// its 400 ms bound as a mismatch).
     public func whenContentReady(_ ready: @escaping @MainActor () -> Void) {
-        whenReady(.sidebar) { [weak self] in self?.whenReady(.tabs) { self?.whenReady(.pane) { ready() } } }
+        whenReady(.sidebar) { [weak self] in self?.whenReady(.tabs) { self?.whenDrawn(.pane) { ready() } } }
+    }
+
+    /// Whether `region` shows content: ready, or it held views and each of them has drawn its saved content.
+    public func isDrawn(_ region: LaunchRegion) -> Bool {
+        isReady(region) || held[region].map { $0.allObjects.isEmpty } ?? false
+    }
+
+    /// Runs `work` once `region` shows content, saved or live (``isDrawn(_:)``; at once when it does).
+    public func whenDrawn(_ region: LaunchRegion, _ work: @escaping @MainActor () -> Void) {
+        if isDrawn(region) { work() } else { drawnWaiters[region, default: []].append(work) }
+    }
+
+    private func runDrawn(_ region: LaunchRegion) {
+        guard isDrawn(region) else { return }
+        for work in drawnWaiters.removeValue(forKey: region) ?? [] { work() }
     }
 
     /// Runs `work` once: when `region` is ready, or `wait` from now when it is not by then. A region
@@ -114,6 +135,7 @@ public final class LaunchReveal {
         guard ready.insert(region).inserted else { return }
         held.removeValue(forKey: region)
         for work in waiters.removeValue(forKey: region) ?? [] { work() }
+        runDrawn(region)
     }
 
     /// The deadline passed with `region`'s data still missing: it shows anyway.
@@ -127,6 +149,7 @@ public final class LaunchReveal {
     public func release(_ view: NSView) {
         guard held.values.contains(where: { $0.contains(view) }) else { return }
         for table in held.values { table.remove(view) }
+        for region in drawnWaiters.keys { runDrawn(region) }
     }
 
     /// Every region is ready (or will never be): nothing stays held.
