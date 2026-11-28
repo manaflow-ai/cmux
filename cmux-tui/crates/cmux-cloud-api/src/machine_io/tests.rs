@@ -1227,6 +1227,45 @@ fn a_command_longer_than_the_provider_edge_holds_a_request_runs_as_a_background_
     );
 }
 
+/// Rebake 45960390204 (2026-11-27): Freestyle answered 503 to every poll for 9 min while the
+/// command ran on. Five failed polls in a row lost it; failures now back off and keep polling.
+#[test]
+fn a_provider_overload_is_waited_out_and_the_stored_answer_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let cell = Arc::new(Mutex::new(String::new()));
+    let polls = Arc::new(Mutex::new(0usize));
+    let (c, p) = (Arc::clone(&cell), Arc::clone(&polls));
+    let (origin, seen) = fake(move |s| {
+        if s.is_mint() {
+            minted(&c.lock().unwrap())
+        } else if s.is_exec_await() {
+            (202, json!({ "requestId": "bg-3" }).to_string())
+        } else if s.line.starts_with("GET /v5/background-requests/bg-3 ") {
+            let mut n = p.lock().unwrap();
+            *n += 1;
+            if *n <= 9 {
+                (503, "{}".into())
+            } else {
+                (200, json!({ "statusCode": 0, "stdout": "ran\n", "stderr": "" }).to_string())
+            }
+        } else {
+            proxy_reply()
+        }
+    });
+    *cell.lock().unwrap() = origin.clone();
+    let req = Request {
+        command: Some("sleep 200; echo ran".into()),
+        timeout_ms: Some(290_000),
+        ..request(&origin, dir.path(), Op::Exec)
+    };
+    let (route, mut answer) = go(&req, T0);
+    assert_eq!((route, answer.status), (Route::Direct, 200));
+    let body = wire_body(route, &mut answer);
+    assert_eq!(body["stdout"], json!("ran\n"));
+    assert_eq!(*polls.lock().unwrap(), 10);
+    assert_eq!(count(&seen, Seen::is_proxy), 0, "a command that may have run never goes twice");
+}
+
 #[test]
 fn a_background_exec_whose_answer_never_comes_is_reported_as_maybe_run() {
     let dir = tempfile::tempdir().unwrap();
@@ -1245,8 +1284,9 @@ fn a_background_exec_whose_answer_never_comes_is_reported_as_maybe_run() {
     });
     *cell.lock().unwrap() = origin.clone();
     let req = Request {
+        // The shortest exec: polls past its deadline (1 s + 15 s) only while within the outage window.
         command: Some("touch /tmp/once".into()),
-        timeout_ms: Some(200_000),
+        timeout_ms: Some(1_000),
         ..request(&origin, dir.path(), Op::Exec)
     };
     let (route, answer) = go(&req, T0);
