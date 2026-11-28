@@ -586,6 +586,11 @@ def run(argv: list[str]) -> int:
         # collection and a purge give back (the switches after it start from a collected renderer).
         away = next((entry["workspace"] for entry in made if entry["kind"] == "terminal"), None)
         report["chat_heap_full"] = chat_heap(app, pid, bundle, "full", away=away, back=front)
+        # Closed chat pages whose view is still in memory, read after the retirer's 30 s bound (the settle and the
+        # measure window above): nonzero is a leak that debug.agent_pages' page list hides.
+        pages_report = app.call("debug.agent_pages", timeout=30) or {}
+        report["agent_pages_full"] = {k: pages_report.get(k) for k in ("closed_alive", "made_alive", "violations", "visible_tabless")}
+        print("INFTABS-AGENTPAGES " + " ".join(f"{k}={v}" for k, v in report["agent_pages_full"].items()), flush=True)
         with_pages = [entry for entry in made if entry["pages"]]
         step = max(1, len(with_pages) // max(1, args.wake))
         for entry in with_pages[::step][: args.wake]:
@@ -605,6 +610,8 @@ def run(argv: list[str]) -> int:
         perf_row("wakeups_per_s", summary["wakeups_per_s"], "1/s")
         perf_row("wakeups_empty_per_s", summary["wakeups_empty_per_s"], "1/s")
         perf_row("renderer_mb_per_tab", summary["renderer_mb_per_tab"], "MB")
+        if report["agent_pages_full"].get("closed_alive") is not None:
+            perf_row("agent_pages_closed_alive", report["agent_pages_full"]["closed_alive"], "pages")
         if summary["switch_pictures"]:
             perf_row("switch_picture_ms", summary["switch_picture_p50_ms"], "ms", summary["switch_picture_p95_ms"])
         perf_row("switch_mounted_ms", summary["switch_mounted_p50_ms"], "ms", summary["switch_mounted_p95_ms"])
