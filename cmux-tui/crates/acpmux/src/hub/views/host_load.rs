@@ -75,6 +75,8 @@ impl Hub {
                 obj.insert("mem_stall".into(), json!(stall));
             }
         }
+        // One gauge per pressure read above (RFD 0182 B10), for the app's one gauge component.
+        cmux_host_budget::gauges::with_gauges(&mut v);
         // The agents' own cores and memory (RFD 0072 piece 2), read off the runtime and at most
         // once per `session_usage::MIN_INTERVAL`.
         let agents = tokio::task::spawn_blocking(move || crate::hub::session_usage::sample(roots))

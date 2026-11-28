@@ -165,9 +165,10 @@ final class HostPressureIndicatorView: NSView {
         // task-owner: `levels` (cancelled when it stops sampling and in deinit); event-driven (Observation)
         let store = store
         levels.add(Task { [weak self] in
-            for await (level, verdict, style, bannerOn, spell) in ObservationStream({
+            // The gauges' look only redraws the popover (`show` passes it to `update`).
+            for await (level, verdict, style, bannerOn, spell, _) in ObservationStream({
                 (service.level, service.verdict, HostPressureTunables.style.value(in: store),
-                 HostPressureTunables.banner.value(in: store), service.criticalSpell)
+                 HostPressureTunables.banner.value(in: store), service.criticalSpell, HostPressureTunables.gauges.value(in: store))
             }) {
                 // A value queued before leave() cancelled this shows nothing.
                 guard !Task.isCancelled, let self else { return }
@@ -202,7 +203,8 @@ final class HostPressureIndicatorView: NSView {
             // The popover opens only above normal, so it is made (lazily) and shown only then.
             if wasLevel != .normal { popover.close() }
         } else {
-            popover.content.update(level: level, verdict: verdict, canStop: service?.isForced == false)
+            popover.content.update(level: level, verdict: verdict, canStop: service?.isForced == false,
+                                   gauges: HostPressureTunables.gauges.value(in: store))
         }
         if wasHidden != isHidden || oldWidth != width {
             // The root lays the top row out: without this its layoutSubtreeIfNeeded keeps the old frame
@@ -261,7 +263,8 @@ final class HostPressureIndicatorView: NSView {
 
     func openPopover() {
         guard level != .normal else { return }
-        popover.content.update(level: level, verdict: service?.verdict, canStop: service?.isForced == false)
+        popover.content.update(level: level, verdict: service?.verdict, canStop: service?.isForced == false,
+                                   gauges: HostPressureTunables.gauges.value(in: store))
         popover.show(relativeTo: button)
     }
 

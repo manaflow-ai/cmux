@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextHostPressure
+import CmuxNextHostPressureTunables
 
 /// The host pressure popover under the top-row indicator: what the host is at
 /// against its budget, acpmux's turns and processes, its busiest sessions with
@@ -70,11 +71,18 @@ final class HostPressurePopoverView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// `canStop`: whether its sessions are real (a forced level's samples get no Stop).
-    func update(level: HostPressureLevel, verdict: HostBudgetVerdict?, canStop: Bool = true) {
+    /// `canStop`: whether its sessions are real (a forced level's samples get no Stop). `gauges`: the
+    /// pressure gauges' look (`hostPressure.gauges`; off draws none).
+    func update(level: HostPressureLevel, verdict: HostBudgetVerdict?, canStop: Bool = true, gauges gaugeStyle: HostPressureGaugeStyle = .off) {
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let title = level == .critical ? HostPressureStrings.criticalTitle : HostPressureStrings.warningTitle
         stack.addArrangedSubview(label(title, font: Typography.bodyEmphasized, ink: .primary))
+        // The pressure gauges (RFD 0182 B10), off by default (`hostPressure.gauges`).
+        if gaugeStyle != .off, let gauges = verdict?.gauges, !gauges.isEmpty {
+            let view = HostPressureGaugesView(gauges: gauges, style: gaugeStyle, width: Self.width - 2 * Metrics.space3)
+            stack.addArrangedSubview(view)
+            stack.setCustomSpacing(Metrics.space3, after: view)
+        }
         if let verdict {
             for line in Self.reasons(verdict) { stack.addArrangedSubview(label(line, font: Typography.caption, ink: .secondary)) }
             if let turns = verdict.localTurns, let processes = verdict.backgroundProcesses {

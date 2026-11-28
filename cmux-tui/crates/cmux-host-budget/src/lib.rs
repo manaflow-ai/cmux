@@ -432,5 +432,8 @@ pub mod reserve;
 pub mod ffi;
 pub mod json;
 
+// One gauge per pressure the verdict carries (RFD 0182 B10), for the app's one gauge component.
+pub mod gauges;
+
 #[cfg(test)]
 mod tests;
