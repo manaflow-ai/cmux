@@ -3,7 +3,10 @@
 use std::io;
 use std::time::Duration;
 
-use super::{RacePolicy, STAGGER_FLOOR, race, stagger_after};
+use super::{
+    RacePolicy, STAGGER_CEILING, STAGGER_FLOOR, STAGGER_UNKNOWN, race, stagger_after,
+    stagger_floor, stagger_for,
+};
 
 fn ms(n: u64) -> Duration {
     Duration::from_millis(n)
@@ -111,4 +114,16 @@ async fn a_slow_last_attempt_connects_within_its_own_bound() {
     .unwrap();
     assert_eq!(won.attempt, 5);
     assert_eq!(won.connect, ms(7_000));
+}
+
+/// RFD 0164 A2: one rule for the first connect and the redial. With the bench knobs unset the
+/// floor is [`STAGGER_FLOOR`]; a test process never sets them.
+#[test]
+fn one_stagger_rule_for_every_dial() {
+    assert_eq!(stagger_floor(), STAGGER_FLOOR);
+    assert_eq!(stagger_for(None), STAGGER_UNKNOWN);
+    assert_eq!(stagger_for(Some(ms(20))), STAGGER_FLOOR);
+    assert_eq!(stagger_for(Some(ms(100))), ms(150));
+    assert_eq!(stagger_for(Some(ms(400))), ms(600));
+    assert_eq!(stagger_for(Some(Duration::from_secs(9))), STAGGER_CEILING);
 }

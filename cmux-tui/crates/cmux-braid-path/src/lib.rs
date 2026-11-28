@@ -30,7 +30,7 @@ pub use path_set::{IdPolicy, Path, PathSet, PathSetError, PathStats, earliest};
 pub use probe::{DueProbes, PathWatch, ProbeConfig, WatchStep, silence_window};
 pub use race::{
     Losers, Lost, RacePolicy, Won, race, race_keeping_losers, race_keeping_losers_observed,
-    stagger_after,
+    stagger_after, stagger_floor, stagger_for, stagger_unknown,
 };
 pub use remembered::{race_remembered, race_remembered_keeping_losers, v6_first};
 pub use standby::{Family, Standby};

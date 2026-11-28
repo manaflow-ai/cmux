@@ -510,7 +510,7 @@ async fn a_raced_first_launch_never_waits_out_a_black_holed_route() {
         "route 0 black-holed, budget {budget:?}: first launch serial {before:?}, raced {after:?}"
     );
     assert_eq!(before, budget + Duration::from_millis(30));
-    assert_eq!(after, RouteRace::FLOOR + Duration::from_millis(30));
+    assert_eq!(after, RouteRace::UNKNOWN + Duration::from_millis(30));
     assert!(after <= Duration::from_secs(1));
 }
 
@@ -560,7 +560,8 @@ async fn a_failed_route_starts_the_next_at_once() {
 async fn the_stagger_follows_the_remembered_connect_time() {
     let ms = Duration::from_millis;
     assert_eq!(RouteRace::after(None).stagger, ms(250));
-    assert_eq!(RouteRace::after(Some(ms(20))).stagger, ms(250));
+    assert_eq!(RouteRace::after(Some(ms(20))).stagger, cmux_braid_path::stagger_floor());
+    assert_eq!(RouteRace::after(None).stagger, RouteRace::UNKNOWN);
     assert_eq!(RouteRace::after(Some(ms(400))).stagger, ms(600));
     assert_eq!(RouteRace::after(Some(ms(9_000))).stagger, Duration::from_secs(2));
 
@@ -661,7 +662,7 @@ async fn a_raced_reconnect_never_waits_out_a_black_holed_route() {
         took.push(started.elapsed());
     }
     eprintln!("reconnect, route 1 black-holed: serial {:?}, raced {:?}", took[0], took[1]);
-    assert_eq!(took, [budget + ms(30), RouteRace::FLOOR + ms(30)]);
+    assert_eq!(took, [budget + ms(30), RouteRace::UNKNOWN + ms(30)]);
 }
 
 /// The B2 duress number: a laptop dials its daemon at home (the LAN route wins), then at the
