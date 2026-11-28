@@ -19,6 +19,13 @@
  * the test account itself (another member's machine is never touched, and a shared team is skipped when the account's
  * own user id is unknown). Production is refused.
  *
+ * It also takes the journey-owned leftovers younger than the window, by the journey's own sweep rule
+ * (staleJourneyMachines: a name only a run that deletes its machine gives, past that run's bound, in any state), with
+ * the same creator filter. A journey sweeps them too, but only once a journey gets that far: 2026-11-28 07:12Z the
+ * staging test team held 102 machines, none a day old (this sweep picked 0), its owner object answered
+ * cloud.machine.list "Durable Object exceeded its CPU time limit", and the relay deploy's journey-staging failed twice
+ * on exec 503 vm_unavailable (overloaded) (run 46115218791).
+ *
  * --out DIR gets sweep.json (every scope's counts, each deleted machine and its answer) and summary.md, the table of
  * what it deleted. Secrets are sent only in headers or bodies and scrubbed from every line printed. It fails when a
  * delete is refused (a leftover that cannot go is a red run, not a silent one).
@@ -26,7 +33,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { STACK, STACK_API, listAllMachines, resolveBackend, scrub } from "./cloud-journey.ts";
+import { STACK, STACK_API, listAllMachines, resolveBackend, scrub, staleJourneyMachines } from "./cloud-journey.ts";
 
 type Answer = { status: number; body: any };
 
@@ -63,6 +70,25 @@ export function stalePicks(rows: any[], nowMs: number, minAgeMs: number, creator
     else if (RUNNING_STATUSES.has(status) && last !== null && nowMs - last > minAgeMs) why = `${status} with no activity for ${Math.floor((nowMs - last) / 3_600_000)} h`;
     if (!why) continue;
     out.push({ id, name: String(r.name ?? ""), status, created: iso(r.created_at)!, last_active: iso(last), why });
+  }
+  return out;
+}
+
+/**
+ * stalePicks, then the journey-owned rows staleJourneyMachines takes that stalePicks left (younger than the window),
+ * under the same creator filter, so a journey's leaked machines go within its own bound instead of a day.
+ */
+export function sweepPicks(rows: any[], nowMs: number, minAgeMs: number, creator: string | null = null): SweepPick[] {
+  const out = stalePicks(rows, nowMs, minAgeMs, creator);
+  const have = new Set(out.map((p) => p.id));
+  const mine = rows.filter((r) => r && typeof r === "object" && (creator === null || String(r.creator ?? "") === creator));
+  const byId = new Map(mine.map((r) => [String(r.id ?? r.machine_id ?? ""), r]));
+  for (const m of staleJourneyMachines(mine, nowMs)) {
+    if (have.has(m.id)) continue;
+    const r = byId.get(m.id);
+    const last = typeof r?.last_active_at === "number" && Number.isFinite(r.last_active_at) ? r.last_active_at : null;
+    out.push({ id: m.id, name: m.name, status: m.status, created: m.created, last_active: iso(last), why: `journey-owned ${m.status}, past its run's bound` });
+    have.add(m.id);
   }
   return out;
 }
@@ -167,7 +193,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   let refused = 0;
   for (const { scope, team } of teams) {
     const rows = await listAllMachines((p) => read(team, "cloud.machine.list", p), 40);
-    const picks = stalePicks(rows, now, minAgeMs, team === null ? null : me).slice(0, budget);
+    const picks = sweepPicks(rows, now, minAgeMs, team === null ? null : me).slice(0, budget);
     budget -= picks.length;
     const entry = { scope, before: statusCounts(rows), picks: picks as Array<SweepPick & { ok?: boolean; error?: string | null }> };
     report.scopes.push(entry);

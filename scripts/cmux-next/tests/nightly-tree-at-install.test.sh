@@ -303,6 +303,23 @@ client "$own"
 check '[[ $status == 1 && $took -ge 600 ]] && grep -q "run of ${takeover:0:12} is building tree" "$TMP/err"' "a stuck publisher is passed over for a later same-key run (took $took s)"
 rm -f "$runs_dir/runs-$app" "$runs_dir/runs-$takeover"; rm -rf "$TMP/api/repos/o/r/actions/runs"
 
+# 5h. The runs cannot be read (2026-11-28, NIGHTLY 46105117438: github.token's budget was spent,
+# five "could not all be read" checks held the signing Mac 1568 s for the full limit). With no
+# limit set an unreadable answer keeps waiting; with CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS=2
+# (what the nightly bundle step sets when it has a fallback tree) it fails at the second check.
+reset_cdn; set_runs "not json"; printf 'not json\n' > "$runs_dir/runs-$own"; printf 'not json\n' > "$runs_dir/runs-$app"
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "could not all be read" "$TMP/err"' "unreadable runs keep waiting when no limit is set (took $took s)"
+started=$(date +%s); status=0
+out=$(cd "$TMP/src" && env "${env_common[@]}" CMUX_TUI_TREE_CLIENT_WAIT_SECONDS=600 CMUX_TUI_TREE_CLIENT_POLL_SECONDS=20 \
+  CMUX_TUI_TREE_CLIENT_RUN_CHECK_SECONDS=120 CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS=2 \
+  bash scripts/cmux-next/await-tree-client.sh "$key" "$own" "$app" 2>"$TMP/err") || status=$?
+took=$(( $(date +%s) - started ))
+check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "could not be read 2 checks in a row" "$TMP/err"' "unreadable runs end the wait at the set limit (took $took s)"
+status=0; (cd "$TMP/src" && env "${env_common[@]}" CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS=two bash scripts/cmux-next/await-tree-client.sh "$key" "$own" 2>/dev/null) || status=$?
+check '[[ $status == 2 ]]' "a malformed unreadable-checks limit is a usage error"
+rm -f "$runs_dir/runs-$own" "$runs_dir/runs-$app"; set_runs "$no_runs"
+
 # 6. Bad usage.
 status=0; (cd "$TMP/src" && bash scripts/cmux-next/await-tree-client.sh nope "$own" 2>/dev/null) || status=$?
 check '[[ $status == 2 ]]' "a malformed key is a usage error"

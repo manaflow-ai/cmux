@@ -13,6 +13,8 @@ libSystem and libiconv come from the sysroot (scripts/ci/macos-cross.sh).
   macos_stubs.py install <stub-dir> <sysroot>          place the stubs where the linker looks
   macos_stubs.py merge <stub-dir> <newer-stub-dir>     add the newer dir's symbols (and stubs) to stub-dir
   macos_stubs.py sys-crates <stub-dir> <Cargo.lock>    add every extern the locked Apple -sys crates declare
+  macos_stubs.py lock-scan <stub-dir> <Cargo.lock> [--rescan]
+                                                       the same for every other locked crates.io package
 
 `sys-crates` covers what the Mac binaries do not import yet. The stubs come from
 binaries built before a change, so the first call into a locked binding crate
@@ -217,11 +219,34 @@ def cmd_merge(stub_dir: Path, newer: Path) -> int:
 # system-configuration-sys SystemConfiguration from build.rs).
 SYS_CRATES = {
     "core-foundation-sys": "CoreFoundation",
+    # objc2's runtime FFI (objc2::ffi): the Mac binaries import only the calls they already make, so a
+    # first objc_alloc or class_getName (2026-11-28, every Linux link of cmux-tui) found no stub.
+    "objc2": "libobjc",
+    # netwatch (iroh, #56513) links these two; neither framework had a stub, so every
+    # Linux link of the daemon failed "framework not found for -framework CoreWLAN".
+    "objc2-core-wlan": "CoreWLAN",
+    "objc2-security-foundation": "SecurityFoundation",
     "security-framework-sys": "Security",
     "system-configuration-sys": "SystemConfiguration",
 }
+# Every other objc2 binding crate the lock pins. A crate links its framework (`#[link(kind = "framework")]`)
+# whenever it is built, so a new one fails the Linux link unless its framework has a stub:
+# tests/test_ci_macos_stubs.py fails until a new crate is put in SYS_CRATES or here.
+OBJC2_STUBBED_FROM_BINARIES = {  # the framework's stub comes from our Mac binaries' imports
+    "objc2-encode": "none", "objc2-app-kit": "AppKit",
+    "objc2-core-foundation": "CoreFoundation", "objc2-core-graphics": "CoreGraphics",
+    "objc2-foundation": "Foundation", "objc2-security": "Security",
+    "objc2-system-configuration": "SystemConfiguration",
+}
+OBJC2_NOT_IN_DAEMON_BUILD = {  # locked for a feature or target the daemon family does not build
+    "objc2-cloud-kit", "objc2-core-data", "objc2-core-image", "objc2-core-text",
+    "objc2-core-video", "objc2-io-surface", "objc2-quartz-core",
+}
+NEW_FRAMEWORK_INSTALL = "/System/Library/Frameworks/{0}.framework/Versions/A/{0}"
 SYS_CRATES_FILE = "sys-crates.txt"
-EXTERN_BLOCK = re.compile(r'extern\s+"C"\s*\{')
+# objc2 declares its runtime calls in its own extern_c! and extern_c_unwind! blocks (objc2::ffi), not a bare
+# `extern "C" {`: reading only the bare form found 10 of its externs and left objc_alloc out.
+EXTERN_BLOCK = re.compile(r'(?:extern\s+"C(?:-unwind)?"|\bextern_c(?:_unwind)?!)\s*\{')
 EXTERN_ITEM = re.compile(r"\b(?:static(?:\s+mut)?|fn)\s+([A-Za-z_][A-Za-z0-9_]*)")
 LOCKED = re.compile(r'^\[\[package\]\]\nname = "([^"]+)"\nversion = "([^"]+)"', re.M)
 
@@ -245,7 +270,10 @@ def declared_externs(src: Path) -> set[str]:
             while depth and end < len(text):
                 depth += {"{": 1, "}": -1}.get(text[end], 0)
                 end += 1
-            names |= {f"_{name}" for name in EXTERN_ITEM.findall(text[match.end():end - 1])}
+            # A comment is no declaration: objc2's doc examples ("fn some_external_function") and prose ("static
+            # and", "the linker") made stub symbols of words.
+            body = re.sub(r"//[^\n]*", "", text[match.end():end - 1])
+            names |= {f"_{name}" for name in EXTERN_ITEM.findall(body)}
     return names
 
 
@@ -274,6 +302,9 @@ def cmd_sys_crates(stub_dir: Path, lock: Path, system: Path | None = None) -> in
         for name, versions in sorted(locked_versions(lock.read_text()).items()):
             framework = SYS_CRATES[name]
             path = stub_dir / f"{framework}.tbd"
+            if not path.exists():  # a framework no Mac binary imports yet: start its stub
+                path.write_text(render(NEW_FRAMEWORK_INSTALL.format(framework),
+                                       {"current": "1.0.0", "compat": "1.0.0", "symbols": set()}))
             install, held = read_stub(path)
             text = path.read_text()
             cur = re.search(r"^current-version:\s+(\S+)", text, re.M).group(1)
@@ -292,8 +323,122 @@ def cmd_sys_crates(stub_dir: Path, lock: Path, system: Path | None = None) -> in
     return 0
 
 
+# Every other crates.io package cmux-tui/Cargo.lock pins. Any crate can declare framework externs of its own
+# (`#[link(name = "X", kind = "framework")] extern "C" { ... }`, or `cargo:rustc-link-lib=framework=X` in build.rs),
+# and a first call into one fails the Linux link the way #54956's keychain search did, from a crate no list above
+# names. `lock-scan` reads each locked package once, writes the frameworks and names it declares to lock-scan.txt
+# (one line per crate and framework, `-` for none) and adds the names to the framework's stub; the parity test
+# fails when the lock pins a package the file lacks that declares a framework, or a recorded name is not in its
+# stub. SYS_CRATES and the objc2 crates are covered above and skipped here.
+LOCK_SCAN_FILE = "lock-scan.txt"
+REGISTRY_PACKAGE = re.compile(r'^\[\[package\]\]\nname = "([^"]+)"\nversion = "([^"]+)"\nsource = "registry\+', re.M)
+FRAMEWORK_LINK = re.compile(r'link\(\s*name\s*=\s*"([A-Za-z0-9_]+)"\s*,\s*kind\s*=\s*"framework"[^)]*\)')
+BLOCK_AFTER_LINK = re.compile(r'\)?\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?(?:unsafe\s+)?'
+                              r'extern\s+"C(?:-unwind)?"\s*\{')
+BUILD_FRAMEWORK = re.compile(r"rustc-link-lib=framework=([A-Za-z0-9_]+)")
+
+
+def lock_scan_packages(lock_text: str) -> list[tuple[str, str]]:
+    """The crates.io packages lock-scan covers: every one but SYS_CRATES and the objc2 crates."""
+    return sorted({(name, version) for name, version in REGISTRY_PACKAGE.findall(lock_text)
+                   if name not in SYS_CRATES and not name.startswith("objc2")})
+
+
+def framework_declarations(crate: Path) -> dict[str, set[str]]:
+    """{framework: `_name`s} a crate's source declares: the items of each framework-linked extern block, and a
+    framework its build script links (no names known: an empty set, which still needs the framework's stub)."""
+    out: dict[str, set[str]] = {}
+    for path in sorted(crate.rglob("*.rs")):
+        text = path.read_text(errors="replace")
+        for framework in BUILD_FRAMEWORK.findall(text):
+            out.setdefault(framework, set())
+        for match in FRAMEWORK_LINK.finditer(text):
+            names = out.setdefault(match.group(1), set())
+            block = BLOCK_AFTER_LINK.match(text, match.end())
+            if not block:
+                continue
+            depth, end = 1, block.end()
+            while depth and end < len(text):
+                depth += {"{": 1, "}": -1}.get(text[end], 0)
+                end += 1
+            body = re.sub(r"//[^\n]*", "", text[block.end():end - 1])  # a comment is no declaration (#64246)
+            names |= {f"_{name}" for name in EXTERN_ITEM.findall(body)}
+    return out
+
+
+def read_lock_scan(path: Path) -> dict[tuple[str, str], dict[str, set[str]]]:
+    """lock-scan.txt as {(crate, version): {framework: names}}; a `-` line is a crate that declares none."""
+    record: dict[tuple[str, str], dict[str, set[str]]] = {}
+    if not path.exists():
+        return record
+    for line in path.read_text().splitlines():
+        if not line or line.startswith("#"):
+            continue
+        name, version, framework, *names = line.split()
+        entry = record.setdefault((name, version), {})
+        if framework != "-":
+            entry.setdefault(framework, set()).update(names)
+    return record
+
+
+def scan_packages(packages: list[tuple[str, str]], scratch: Path) -> dict[tuple[str, str], dict[str, set[str]]]:
+    from concurrent.futures import ThreadPoolExecutor
+
+    def one(package: tuple[str, str]) -> tuple[tuple[str, str], dict[str, set[str]]]:
+        folder = scratch / f"{package[0]}-{package[1]}"
+        folder.mkdir()
+        return package, framework_declarations(crate_source(*package, folder))
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        return dict(pool.map(one, packages))
+
+
+def add_to_stub(stub_dir: Path, framework: str, names: set[str]) -> int:
+    """Put NAMES in FRAMEWORK's stub (started when no Mac binary imports the framework yet); how many were new."""
+    path = stub_dir / f"{framework}.tbd"
+    if not path.exists():
+        path.write_text(render(NEW_FRAMEWORK_INSTALL.format(framework),
+                               {"current": "1.0.0", "compat": "1.0.0", "symbols": set()}))
+    install, held = read_stub(path)
+    added = names - held
+    if added:
+        text = path.read_text()
+        cur = re.search(r"^current-version:\s+(\S+)", text, re.M).group(1)
+        compat = re.search(r"^compatibility-version:\s+(\S+)", text, re.M).group(1)
+        path.write_text(render(install, {"current": cur, "compat": compat, "symbols": held | names}))
+    return len(added)
+
+
+def cmd_lock_scan(stub_dir: Path, lock: Path, system: Path | None = None, rescan: bool = False) -> int:
+    import tempfile
+    exported_by_system = tbd_symbols(system)
+    record = read_lock_scan(stub_dir / LOCK_SCAN_FILE)
+    packages = lock_scan_packages(lock.read_text())
+    todo = [package for package in packages if rescan or package not in record]
+    with tempfile.TemporaryDirectory() as scratch:
+        record.update(scan_packages(todo, Path(scratch)))
+    lines = []
+    for package in packages:
+        declared = record[package]
+        for framework, names in sorted(declared.items()):
+            names = names - exported_by_system
+            added = add_to_stub(stub_dir, framework, names)
+            if package in todo:
+                print(f"lock-scan {package[0]} {package[1]}: {framework} {len(names)} declared, +{added}")
+            lines.append(" ".join([*package, framework, *sorted(names)]))
+        if not declared:
+            lines.append(f"{package[0]} {package[1]} -")
+    (stub_dir / LOCK_SCAN_FILE).write_text(
+        "# crate version framework names...: what each locked crates.io package declares against an Apple framework\n"
+        "# (`-`: none). scripts/ci/macos_stubs.py lock-scan scripts/ci/macos-stubs cmux-tui/Cargo.lock\n"
+        + "".join(f"{line}\n" for line in lines))
+    print(f"lock-scan: {len(packages)} packages, {len(todo)} read, "
+          f"{sum(1 for p in packages if record[p])} declare a framework")
+    return 0
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) < 4 or argv[1] not in {"generate", "check", "install", "merge", "sys-crates"}:
+    if len(argv) < 4 or argv[1] not in {"generate", "check", "install", "merge", "sys-crates", "lock-scan"}:
         print(__doc__, file=sys.stderr)
         return 2
     command, stub_dir = argv[1], Path(argv[2])
@@ -304,6 +449,8 @@ def main(argv: list[str]) -> int:
     system = Path(os.environ["MACOS_STUBS_SYSTEM_TBD"]) if os.environ.get("MACOS_STUBS_SYSTEM_TBD") else None
     if command == "sys-crates":
         return cmd_sys_crates(stub_dir, Path(argv[3]), system)
+    if command == "lock-scan":
+        return cmd_lock_scan(stub_dir, Path(argv[3]), system, rescan="--rescan" in argv[4:])
     return (cmd_generate if command == "generate" else cmd_check)(stub_dir, argv[3:], system)
 
 

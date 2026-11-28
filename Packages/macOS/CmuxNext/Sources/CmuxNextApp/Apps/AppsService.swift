@@ -166,7 +166,7 @@ final class AppsService {
 
 // MARK: InternalPageProvider (the App Store as a tab)
 
-extension InternalPageID {
+nonisolated extension InternalPageID {
     static let appStore = InternalPageID(rawValue: "app-store")
 }
 

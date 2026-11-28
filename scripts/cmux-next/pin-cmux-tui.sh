@@ -411,9 +411,15 @@ print(max(1, wait))
 # github_get <url>: one GitHub REST GET (with GH_TOKEN when set), the body on
 # stdout. Exit 0 read; 1 any other failure, as a plain `curl -f` read; 4 still
 # refused for the rate limit because its reset is past rate_limit_deadline.
+# RATE_LIMIT_MOVES_TO_A_SPARE: a rate-limited read goes out again at once on the
+# next token of GH_TOKEN_SPARES (space-separated; the CI pool's tokens) before it
+# waits. Nightly 46095639816 read the runs on github.token alone; the installation's
+# hour was spent ("API rate limit exceeded for installation", 02:35Z), so every
+# check for 25 min answered unknown while the tree's run was building.
 github_get() {
-  local url="$1" headers body rc status wait auth=()
+  local url="$1" headers body rc status wait auth=() spares=() spare_at=0
   [[ -n "${GH_TOKEN:-}" ]] && auth=(-H "Authorization: Bearer $GH_TOKEN")
+  read -r -a spares <<<"${GH_TOKEN_SPARES:-}" || true
   headers="$(mktemp "${TMPDIR:-/tmp}/cmux-tui-api.XXXXXX")" || return 1
   while :; do
     : > "$headers"
@@ -428,6 +434,15 @@ github_get() {
     fi
     if (( rc != 0 )) || ! wait="$(rate_limit_wait "$status" "$headers" <<<"$body")"; then
       rm -f "$headers"; return 1
+    fi
+    while (( spare_at < ${#spares[@]} )) && [[ -z "${spares[$spare_at]}" || "${spares[$spare_at]}" == "${GH_TOKEN:-}" ]]; do
+      spare_at=$(( spare_at + 1 ))
+    done
+    if (( spare_at < ${#spares[@]} )); then
+      echo "note: GitHub API rate limit (HTTP $status) on ${url%%\?*}; reading again on spare token $(( spare_at + 1 )) of ${#spares[@]}" >&2
+      auth=(-H "Authorization: Bearer ${spares[$spare_at]}")
+      spare_at=$(( spare_at + 1 ))
+      continue
     fi
     if (( $(date +%s) + wait > rate_limit_deadline )); then
       echo "note: GitHub API rate limit (HTTP $status) on ${url%%\?*}: it resets in ${wait}s, past this check's rate-limit wait (CMUX_TUI_TREE_RATE_LIMIT_WAIT_SECONDS=$rate_limit_budget)" >&2

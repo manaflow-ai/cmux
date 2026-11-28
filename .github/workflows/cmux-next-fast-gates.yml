@@ -86,6 +86,8 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Five minutes for resolve and the route, three more for the receipt steps (their own bound below).
     timeout-minutes: 8
+    env:
+      GH_HTTP_DEADLINE_S: "420"  # timeout-minutes less 60 s: gh_http never waits past the job (scripts/ci/gh_http.py)
     permissions:
       contents: read
       pull-requests: read
@@ -806,6 +808,8 @@ jobs:
     # 15 (the light jobs' limit): the post may wait up to POST_WAIT_SECONDS (14 min) for a spent budget's reset, only
     # when every token is spent.
     timeout-minutes: 15
+    env:
+      GH_HTTP_DEADLINE_S: "840"  # timeout-minutes less 60 s: gh_http never waits past the job (scripts/ci/gh_http.py)
     permissions:
       statuses: write
     outputs:

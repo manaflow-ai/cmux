@@ -85,6 +85,16 @@ class Verdict(unittest.TestCase):
                                       "build": {"Swift": ["A.swift"], "strings": ["Localizable.xcstrings"]}}))
         self.assertEqual((only["eligible"], only["layers"]), (True, ["app"]))
 
+    def test_bundled_resources_look_with_an_app_build(self) -> None:
+        # cmux#47278: theme files only, Rust and web beside them; the engine's can_build_swift_app builds it.
+        build = {"Swift, resources or manifests": ["Resources/theme-files/sakura.json"]}
+        found = hv.verdict(json.dumps({"layers": ["web", "rust"], "needs_build": True, "build": build}))
+        self.assertEqual((found["eligible"], found["layers"]), (True, ["app", "rust", "web"]))
+        for path in ("Resources/Info.plist", "Resources/bin/cmux"):
+            with self.subTest(path=path):
+                plan = {"layers": ["web"], "needs_build": True, "build": {"Swift, resources or manifests": [path]}}
+                self.assertFalse(hv.verdict(json.dumps(plan))["eligible"])
+
     def test_other_builds_stay_build_required(self) -> None:
         for build in ({"Swift": ["Package.swift"]}, {"Swift": ["A.swift"], "web ABI": ["x"]},
                       {"strings": ["A.swift"]}, {}, {"Swift": []}):

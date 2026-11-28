@@ -224,6 +224,23 @@ inputs = [
 ]
 run = "python3 tests/test_indexnow_notification.py"
 
+# The nightly's static capability check (check-daemon-capabilities.sh --static-only) fails on a capability that
+# identify_capabilities adds at runtime and runtime_only misses. Its test ran only in cmux-next-guards' static checks,
+# which a feat PR runs only with full-ci, so two such capabilities reached the base (hosted#1102, fixed by #63717).
+# This runs it on the pull request that adds one. Python, offline; it reads the crates' .rs files for the consts.
+[step.static-capability-runtime-only]
+job = "linux"
+timeout = 120
+title = "Runtime-added capabilities are runtime_only"
+about = "every capability identify_capabilities adds at runtime and the app lists is in check-daemon-capabilities.sh's runtime_only, so the nightly's static check passes"
+inputs = [
+  "cmux-tui/crates/cmux-tui-core/src/server/capabilities.rs",
+  "plans/cmux-next/daemon-capabilities.json",
+  "scripts/cmux-next/check-daemon-capabilities.sh",
+  "tests/test_cmux_next_static_capability_runtime_only.py",
+]
+run = "python3 tests/test_cmux_next_static_capability_runtime_only.py"
+
 [step.update-replay-diagnostics]
 job = "linux"
 timeout = 60
@@ -443,6 +460,65 @@ python3 -I tests/test_ci_proof_record.py || status=1
 python3 -I tests/test_ci_ui_proof_verdict.py || status=1
 python3 tests/test_ci_routed_jobs_check_needs.py || status=1
 python3 tests/test_cmux_next_pair_e2e_guards.py || status=1
+exit "$status"
+'''
+
+# A workflow on both main and feat-cmux-next (a twin) runs each job on one runner and reads one GITHUB_TOKEN floor
+# in both copies (scripts/ci/workflow_twins.py). cmux#63743 moved main's ui-proof-stale-sweep.yml to the secret JIT
+# label with the floor while feat-cmux-next's copy kept cmux-linux and no floor, and nothing compared them: the
+# ci-guards.yml check (tests/test_ci_owned_pool_sources.py) is in the ci group a feat-cmux-next pull request skips.
+# main's workflows come into a scratch sparse checkout, never a fetch into the shared checkout beside other steps.
+[step.workflow-twins]
+job = "linux"
+timeout = 300
+title = "Workflow twins match main's runner and token floor"
+about = "every workflow both main and feat-cmux-next carry (same job ids and triggers) lands each job on the same runner labels and makes the same job_token_floor.py calls in both copies; the jobs that already differed are scripts/ci/workflow_twins_known_drift.tsv, and a new one fails"
+inputs = [
+  ".github/workflows/**",
+  "scripts/ci/workflow_twins_known_drift.tsv",
+  "scripts/ci/workflow_twins.py",
+  "scripts/ci/owned_pool_sources.py",
+  "tests/test_ci_owned_pool_sources.py",
+]
+run = '''
+python3 -I tests/test_ci_owned_pool_sources.py WorkflowTwins
+repo="$RUNNER_TEMP/workflow-twins-main"
+rm -rf "$repo"
+git init -q "$repo"
+git -C "$repo" remote add origin "${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-manaflow-ai/cmux}.git"
+git -C "$repo" sparse-checkout set --no-cone /.github/workflows/
+timeout 120 git -C "$repo" fetch -q --no-tags --no-recurse-submodules --depth=1 --filter=blob:none origin main
+git -C "$repo" checkout -q FETCH_HEAD
+python3 -I scripts/ci/workflow_twins.py --other-dir "$repo"
+'''
+
+# The ci group's runner-policy guards, which a feat-cmux-next pull request also reached only through
+# ci-guard-group (skipped there, cdn-user-agent above): a workflow change that broke them went red only on the
+# feat-cmux-next push, and the push's reds were left standing (the twin drift cmux#64088 fixes, a sweep job that
+# went red on main's fast guards after the merge). A change to a workflow, the pool rescue or these tests now runs
+# them before the merge: every owned-pool workflow is watched by the rescue, main twins keep their twin's runs-on
+# and token floor (MainTwinsAgree), and stalled CI paths take the runner set. test_ci_fork_runner_routing.py and
+# test_ci_paid_queue_pin.py join this step once they are green on feat-cmux-next (31 base reds on 11-28).
+[step.workflow-runner-guards]
+job = "linux"
+# 22 s on the pool (11-28), the main tip fetched at depth 1.
+timeout = 120
+title = "Workflow runner guards (owned-pool rescue, main twins, runner set)"
+about = "every owned-pool workflow is one the persistent-pool rescue watches or names why not, each main twin keeps its twin's runs-on and token floor, and stalled CI paths take the runner set"
+inputs = [
+  ".github/workflows/**",
+  "scripts/ci/owned_pool_rescue.py",
+  "scripts/ci/owned_pool_sources.py",
+  "scripts/ci/check_runs_on_pools.py",
+  "tests/test_ci_owned_pool_sources.py",
+  "tests/test_ci_runner_set.py",
+  "tests/workflow_jobs.py",
+  "tests/git_fixture_env.py",
+]
+run = '''
+status=0
+python3 tests/test_ci_owned_pool_sources.py || status=1
+python3 tests/test_ci_runner_set.py || status=1
 exit "$status"
 '''
 
@@ -1486,7 +1562,7 @@ exit "$status"
 # feat-cmux-next runs these five steps (the job's tt- steps in its order, split so each stays well under the cap
 # on a slow runner: tt-objc-selectors-step and tt-display-suites took 83 s and 139 s there, so they sit in different steps); the job
 # keeps its push and docs-only fallback runs, and on such a pull request runs only the tt- steps the linux job cannot:
-# tt-webviews-tests-per-file and tt-web-lint-prepush (pytest -n 4), tt-remote-p10k (zsh from apt) and tt-tailnet
+# tt-webviews-tests-per-file and tt-web-lint-prepush (pytest -n 4), tt-remote-p10k and tt-cli-path-folder-access (zsh from apt) and tt-tailnet
 # (cmux-tui's pinned Rust). Each step asks tooling_steps.py which tt- steps the change reaches, as the job's
 # setup-tooling-route step does, and runs those. `inputs` is the job's: no path filter (a docs-only change starts no
 # pipeline; scripts/ci/pr_router.py).
@@ -2636,6 +2712,36 @@ bun run typecheck || rc=1
 exit "$rc"
 '''
 
+# The webviews check:* ratchets (scripts/ci/fast_gate_webviews_checks.py: surface-bypass, catalog-unused,
+# fixed-waits, design-tokens, ...) on a landing head of the affected tier. Before this they ran only in ci-web's
+# react-apps-check, which a cheap-tier head skips (ci.yml's `web` output is false there), while the PR tier of the
+# fast gates defers them to ci-web (cmux_next_fast_gates.PR_TIER_DEFERRED): so nothing ran them before a webviews
+# pull request merged. cmux#57668 (webviews-only, landed 2026-11-28 00:10Z) routed `web`, `web layer` and
+# `pr web pipeline` all skipped, and its new raw buttons and design-token findings first showed as the post-merge
+# batch's react-apps-check (1) red, red on all 60 feat-cmux-next pushes then. land_gate: its whole route on the
+# landing head. --base HEAD^1: only the findings this merge adds fail; a red the base has warns. The type check is
+# webviews-typecheck's (its nightly gate), so --skip typecheck. About 90 s on an idle runner.
+[step.webviews-checks]
+job = "linux"
+tier = "push"
+land_gate = true
+timeout = 600
+title = "Webviews checks (check:*, new findings only)"
+about = "webviews' check:* ratchets (surface-bypass, catalog keys, fixed waits, design tokens, layers, ...) add no finding the base lacks"
+needs = ["bun", "node"]
+# cmux_next_fast_gates.CHECK_INPUTS: webviews/, the string catalogs (check:catalog-keys) and the acpmux protocol spec.
+inputs = [
+  "webviews/**",
+  "**/*.xcstrings",
+  "cmux-tui/crates/acpmux/spec/**",
+  "scripts/ci/fast_gate_webviews_checks.py",
+]
+run = '''
+base="$(git rev-parse HEAD^1)"
+git cat-file -e "$base^{commit}"
+python3 -I scripts/ci/fast_gate_webviews_checks.py --base "$base" --skip typecheck
+'''
+
 # acpmux's hot paths in instructions, not time (Leo: "are we also doing more work on perf while we're here? for the
 # app especially?"): Callgrind counts each case of cmux-tui/crates/acpmux/benches/icount.rs (an MCP connect to the
 # chat's tool servers, the chat pane's client core on v2 chat frames, a JSON-RPC parse and serialize) and the step
@@ -2826,6 +2932,7 @@ inputs = [
   "cmux-tui/crates/acpmux/spec/*",
   "cmux-tui/crates/acpmux/src/*",
   "cmux-tui/crates/acpmux/src/agent/*",
+  "cmux-tui/crates/acpmux/src/agent/command/*",
   "cmux-tui/crates/acpmux/src/agent_host/*",
   "cmux-tui/crates/acpmux/src/agent_host/host/*",
   "cmux-tui/crates/acpmux/src/agent_login/*",
@@ -2847,6 +2954,7 @@ inputs = [
   "cmux-tui/crates/acpmux/src/chats/brand/*",
   "cmux-tui/crates/acpmux/src/claude_stdio/*",
   "cmux-tui/crates/acpmux/src/claude_token/*",
+  "cmux-tui/crates/acpmux/src/claude_token/store/*",
   "cmux-tui/crates/acpmux/src/cli/*",
   "cmux-tui/crates/acpmux/src/cli/cloud_join/*",
   "cmux-tui/crates/acpmux/src/cli/harness/*",
@@ -2859,6 +2967,7 @@ inputs = [
   "cmux-tui/crates/acpmux/src/config/*",
   "cmux-tui/crates/acpmux/src/cpu_class/*",
   "cmux-tui/crates/acpmux/src/daemon/*",
+  "cmux-tui/crates/acpmux/src/daemon/handoff/*",
   "cmux-tui/crates/acpmux/src/daemon/router_owner/*",
   "cmux-tui/crates/acpmux/src/death_route/*",
   "cmux-tui/crates/acpmux/src/deps/*",
@@ -2921,10 +3030,14 @@ inputs = [
   "cmux-tui/crates/acpmux/src/store/*",
   "cmux-tui/crates/acpmux/src/store/journal_store/*",
   "cmux-tui/crates/acpmux/src/stress/*",
+  "cmux-tui/crates/acpmux/src/subscription_store/*",
+  "cmux-tui/crates/acpmux/src/subscriptions/*",
+  "cmux-tui/crates/acpmux/src/subscriptions/openrouter/*",
   "cmux-tui/crates/acpmux/src/tailnet/*",
   "cmux-tui/crates/acpmux/src/test_support/*",
   "cmux-tui/crates/acpmux/src/time_breakdown/*",
   "cmux-tui/crates/acpmux/src/vault/*",
+  "cmux-tui/crates/acpmux/src/vault/store/*",
   "cmux-tui/crates/acpmux/src/workflow_journal/*",
   "cmux-tui/crates/acpmux/src/workflow_reply/*",
   "cmux-tui/crates/acpmux/src/workflow_runs/*",
@@ -2939,6 +3052,12 @@ inputs = [
   "cmux-tui/crates/acpmux/tests/fixtures/*",
   "cmux-tui/crates/acpmux/tests/fixtures/memory_inbox/*",
   "cmux-tui/crates/acpmux/tests/fixtures/prompt_coach/*",
+  "cmux-tui/crates/acpmux/tests/fixtures/scorecard-replay/sessions/compacted-long/*",
+  "cmux-tui/crates/acpmux/tests/fixtures/scorecard-replay/sessions/compacted-long/events/*",
+  "cmux-tui/crates/acpmux/tests/fixtures/scorecard-replay/sessions/compacted-short/*",
+  "cmux-tui/crates/acpmux/tests/fixtures/scorecard-replay/sessions/compacted-short/events/*",
+  "cmux-tui/crates/acpmux/tests/fixtures/scorecard-replay/sessions/plain/*",
+  "cmux-tui/crates/acpmux/tests/fixtures/scorecard-replay/sessions/plain/events/*",
   "cmux-tui/crates/acpmux/tests/god_daemon/*",
   "cmux-tui/crates/acpmux/tests/harness_health/*",
   "cmux-tui/crates/acpmux/tests/hub_carrier/*",
@@ -3292,6 +3411,7 @@ inputs = [
   "cmux-tui/crates/cmux-tui/src/link/sync_cli/remote/*",
   "cmux-tui/crates/cmux-tui/src/local_owner/*",
   "cmux-tui/crates/cmux-tui/src/localization/*",
+  "cmux-tui/crates/cmux-tui/src/localization/app_control/*",
   "cmux-tui/crates/cmux-tui/src/machine_agent/*",
   "cmux-tui/crates/cmux-tui/src/machine_provider_runtime/*",
   "cmux-tui/crates/cmux-tui/src/owner_start/*",
@@ -3789,6 +3909,10 @@ inputs = [
   "cmux-tui/crates/cmux-wg/**",
   "cmux-tui/crates/cmux-transport/**",
   "cmux-tui/vendor/smoltcp/**",
+  # The phone API contract (cmux-mobile-host tests/phone_api_contract.rs) is cut from these.
+  "cmux-tui/spec/sdk-schema.json",
+  "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
+  "cmux-tui/crates/cmux-api-compat/**",
   "scripts/ci/ios_reliability_matrix.py",
 ]
 run = '''
@@ -4200,11 +4324,14 @@ inputs = [
   "cmux-tui/crates/cmux-scope/**",
   "cmux-tui/crates/cmux-share-approval/**",
   "cmux-tui/crates/cmux-tab-snapshots/**",
+  "cmux-tui/crates/cmux-tailnet/**",
+  "cmux-tui/crates/cmux-tailnet-join/**",
   "cmux-tui/crates/cmux-terminal-prediction/**",
   "cmux-tui/crates/cmux-terminal-projection/**",
   "cmux-tui/crates/cmux-terminal-sizing/**",
   "cmux-tui/crates/cmux-transport/**",
   "cmux-tui/crates/cmux-unix-socket/**",
+  "cmux-tui/crates/cmux-vault-e2e/**",
   "cmux-tui/crates/cmux-vnc/**",
   "cmux-tui/crates/cmux-wg/**",
   "cmux-tui/crates/cmux-window-rules/**",

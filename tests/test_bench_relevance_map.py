@@ -122,6 +122,35 @@ budget_s = 20.0
             self.assertEqual((a["run"], a["tests"], a["budget_s"]), (["bun bench/picker.ts"], ["t1", "t2"], 20.0), path)
         self.assertEqual([r["cmd"] for r in rel.runs_for(rel.plan(idx, ["a/search.ts"]))], ["bun bench/picker.ts"])
 
+    def test_a_path_runs_its_narrowest_tests(self):
+        # cmux#63214 (updater): its files took the Update flow area's tests and also the generated unit's
+        # `swift test --filter CmuxNextAppTests`, the whole app test target; a changed test file ran nothing of its own.
+        rules = rel.parse('''
+[[area]]
+name = "update"
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextUpdater"]
+tests = ["update tests"]
+[[unit]]
+name = "swift:CmuxNextUpdater"
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/**"]
+tests = ["whole updater target"]
+[[unit]]
+name = "swift:CmuxNextAppTests"
+paths = ["Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/**"]
+tests = ["whole app test target"]
+[[unit]]
+name = "rust:x"
+paths = ["cmux-tui/crates/x/**"]
+tests = ["cargo x"]
+''')
+        idx = rel.Index(rules)
+        got = rel.plan(idx, ["Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/TipUpdateCheck.swift",
+                             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/TipUpdateCheckTests.swift",
+                             "cmux-tui/crates/x/src/lib.rs"])["tests"]
+        self.assertEqual(got, ["update tests",
+                               "swift test --package-path Packages/macOS/CmuxNext --filter TipUpdateCheckTests",
+                               "cargo x"])
+
     def test_step_ignore_last_match_decides(self):
         rules = rel.parse_steps('''
 [step.s]
@@ -191,12 +220,43 @@ class RelevanceMapFileTest(unittest.TestCase):
         want = {u["name"]: u for u in rel.generate_units(ROOT, tracked())}
         have = {r.name: r for r in rel.parse(text) if r.kind == "unit"}
         drift = set(want) ^ set(have)
-        drift |= {n for n in set(want) & set(have) if tuple(want[n]["paths"]) != have[n].globs}
+        drift |= {n for n in set(want) & set(have)
+                  if tuple(want[n]["paths"]) != have[n].globs or tuple(want[n]["tests"]) != have[n].tests}
         if drift:
             print(f"warning: {len(drift)} generated units drifted ({sorted(drift)[:5]}...): "
                   "run scripts/bench/cmux-bench for-paths --write", file=sys.stderr)
         self.assertLess(len(drift), max(5, len(want) // 20),
                         "the [[unit]] section is stale: run scripts/bench/cmux-bench for-paths --write")
+
+    def test_a_crate_routes_its_direct_dependents_tests(self):
+        # The 20-merge backtest's two misses (ask-5ad71ec59c): a path took only its own folder's unit.
+        # #63799 changed cmux-history's Visit (cmux-tui-core opens VisitStores); #54760 added a cmux-action-catalog
+        # action (cmux-palette-eval and cmux-layout-reducer iterate actions()).
+        index = rel.load()
+        for path, crate, dependents in (
+                ("cmux-tui/crates/cmux-history/src/lib.rs", "cmux-history", {"cmux-tui-core"}),
+                ("cmux-tui/crates/cmux-action-catalog/src/lib.rs", "cmux-action-catalog",
+                 {"cmux-palette-eval", "cmux-layout-reducer"})):
+            if not (ROOT / "cmux-tui/crates" / crate).is_dir():
+                continue
+            tests = " ".join(rel.plan(index, [path])["tests"])
+            self.assertIn(f"-p {crate}", tests)
+            for d in dependents:
+                self.assertIn(f"-p {d}", tests, f"{path}: {d} depends on {crate} and its tests are not routed")
+
+    def test_reverse_dependents_reads_renames_and_targets(self):
+        root = Path(tempfile.mkdtemp())
+        for name, body in (("a", ""), ("b", '[dependencies]\na = { path = "../a" }\n'),
+                           ("c", '[target.\'cfg(unix)\'.dev-dependencies]\nalias = { package = "a", path = "../a" }\n'),
+                           ("d", "[dependencies]\nserde = \"1\"\n")):
+            (root / "w/crates" / name).mkdir(parents=True)
+            (root / "w/crates" / name / "Cargo.toml").write_text(f'[package]\nname = "{name}"\n{body}')
+        got = rel.reverse_dependents(root, [f"w/crates/{n}" for n in "abcd"])
+        self.assertEqual(got, {"a": ["b", "c"], "b": [], "c": [], "d": []})
+
+    def test_top_level_tests_are_mapped(self):
+        hit = rel.load().match("tests/test_bench_relevance_map.py")
+        self.assertTrue(hit.mapped, "a top-level tests/ file took the default:tests area")
 
     @unittest.skipUnless(COVERAGE_MAP.is_file(), "docs/benches/coverage-map.md is not on this branch yet")
     def test_joined_with_the_coverage_map(self):

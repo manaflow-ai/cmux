@@ -180,6 +180,10 @@ struct RecordChiefVoiceNoteIntent: AppIntent {
 }
 """
 
+# copy_sources -> the TemporaryDirectory holding its base fixture (PrePushGateTests.setUp).
+_BASE_FIXTURES = {}
+
+
 class PrePushGateTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="cmux-prepush-gate-")
@@ -199,17 +203,30 @@ class PrePushGateTests(unittest.TestCase):
                         CMUX_PREPUSH_LOAD_FOR_TEST="0")
         git_fixture_env.without_auto_maintenance(self.env)
 
-        git_fixture_env.init_repo(self.origin, "--bare", "--initial-branch=feat-cmux-next", env=self.env)
-        self.repo.mkdir()
-        self.git("init", "--quiet", "--initial-branch=feat-cmux-next")
-        self.git("remote", "add", "origin", str(self.origin))
-        self.copy_sources()
-        self.write(f"{PKG}/Package.swift", PACKAGE)
-        self.write(f"{PKG}/Sources/CmuxNextApp/CmuxNextApp.swift", APP)
-        self.write(f"{PKG}/Sources/CmuxNextKit/Old.swift", OLD)  # base debt: one try! already there
-        self.commit("base")
-        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
-        self.git("fetch", "--quiet", "origin")
+        # The base (repository and origin, before the hook installs) is the same for every test of a class's
+        # copy_sources: made once a process, then copied, since making it is most of a test's git work.
+        base = _BASE_FIXTURES.get(type(self).copy_sources)
+        if base is None:
+            git_fixture_env.init_repo(self.origin, "--bare", "--initial-branch=feat-cmux-next", env=self.env)
+            self.repo.mkdir()
+            self.git("init", "--quiet", "--initial-branch=feat-cmux-next")
+            self.git("remote", "add", "origin", str(self.origin))
+            self.copy_sources()
+            self.write(f"{PKG}/Package.swift", PACKAGE)
+            self.write(f"{PKG}/Sources/CmuxNextApp/CmuxNextApp.swift", APP)
+            self.write(f"{PKG}/Sources/CmuxNextKit/Old.swift", OLD)  # base debt: one try! already there
+            self.commit("base")
+            self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+            self.git("fetch", "--quiet", "origin")
+            base = tempfile.TemporaryDirectory(prefix="cmux-prepush-gate-base-")
+            for name in (self.repo.name, self.origin.name):
+                shutil.copytree(self.root / name, Path(base.name) / name, symlinks=True)
+            _BASE_FIXTURES[type(self).copy_sources] = base
+        else:
+            for name in (self.repo.name, self.origin.name):
+                shutil.copytree(Path(base.name) / name, self.root / name, symlinks=True)
+            self.git("remote", "set-url", "origin", str(self.origin))
+            self.git("fetch", "--quiet", "origin")
         installed = subprocess.run(["bash", INSTALLER], cwd=self.repo, env=self.env, text=True, capture_output=True)
         self.assertEqual(installed.returncode, 0, installed.stderr)
 
