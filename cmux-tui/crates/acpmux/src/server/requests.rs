@@ -21,7 +21,7 @@ mod mailbox;
 pub(super) mod person_stop;
 mod prompt_sender;
 pub(super) use prompt_sender::person_admitted;
-use prompt_sender::{app_pane_unproven, owner_terminal};
+use prompt_sender::{app_pane_unproven, claimed_labels, owner_terminal, transport_of};
 mod presets;
 mod queued;
 mod session_open;
@@ -3927,6 +3927,7 @@ async fn dispatch_method(
                         left_from: 0,
                         stream_sent: 0,
                     },
+                    params.get("visible") == Some(&Value::Bool(true)),
                 );
                 let detail = hub.session_detail(&s);
                 let last = s.meta().last_seq;
@@ -3994,6 +3995,7 @@ async fn dispatch_method(
                     left_from: 0,
                     stream_sent: 0,
                 },
+                params.get("visible") == Some(&Value::Bool(true)),
             );
             let settled_key = match settled {
                 Some((_, Some(view))) => {
@@ -4831,36 +4833,6 @@ async fn queue_text(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
 /// peer daemon said of its own proven caller, else what a relay on this machine's unix socket
 /// said of the machine it relays for (`prompt_provenance::FROM_RELAY`); a client's claim is dropped. A person's prompt and
 /// none are left as they are. Out of `dispatch_request`, whose future must stay small.
-/// How a prompt reached this daemon, as it saw it (`prompt_provenance::TRANSPORT`).
-fn transport_of(conn: &Conn) -> &'static str {
-    if conn.is_trigger() {
-        return "trigger";
-    }
-    match conn.origin {
-        super::Origin::Local => "unix",
-        super::Origin::LocalApp => "app",
-        super::Origin::Web | super::Origin::Peer => super::carrier::transport(conn),
-    }
-}
-
-/// The labels a prompt's sender gave about itself, kept as claims (`prompt_provenance::CLAIMED`),
-/// and the old acpmux CLI its connection is (`cli_caller.rs`), which proves no caller.
-fn claimed_labels(conn: &Conn, params: &Value) -> serde_json::Map<String, Value> {
-    let mut out = serde_json::Map::new();
-    if let Some(client) = conn.declared().and_then(crate::cli_caller::Declared::old_client) {
-        out.insert(crate::cli_caller::CLAIMED_CLIENT.to_owned(), json!(client));
-    }
-    let Some(mux) = params.pointer("/_meta/acpmux") else { return out };
-    for key in ["cliHost", "fromHarness", "via"] {
-        if let Some(value) = mux.get(key).and_then(Value::as_str) {
-            let value = value.trim();
-            if !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control) {
-                out.insert(key.to_owned(), json!(value));
-            }
-        }
-    }
-    out
-}
 
 fn stamp_bound_sender(
     hub: &Arc<Hub>,

@@ -25,10 +25,10 @@
 //   it back. A quiet mark has none.
 //
 // Every shape, colour and motion is a token (unread.css; check-design-tokens.ts TOKEN_ONLY_FILES).
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore, useEffect, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
-import { setUnreadBannerMode, useUnreadBannerMode } from "../chatDisplay";
+import { setUnreadBannerMode, useSessionRecapOn, useUnreadBannerMode } from "../chatDisplay";
 import { useT } from "../i18n";
 import type { AcpmuxSince } from "../model";
 import { RecapNote } from "./RecapNote";
@@ -36,16 +36,16 @@ import { ArrowDown, ChevronLeft, ChevronRight } from "./icons";
 import { pageAttention } from "../attention";
 import {
   bannerShown,
-  dissipateUnread,
   markUnreadRead,
   noteUnreadMounted,
   noteUnreadSide,
   readUnread,
   sinceDone,
   subscribeUnread,
+  type UnreadBannerMode,
+  dissipateUnread,
   type UnreadView,
   unreadShows,
-  type UnreadBannerMode,
 } from "./unreadState";
 import { sinceLook } from "./sinceLook.experiment";
 import { SINCE_COUNT_CAP } from "./sinceNews";
@@ -199,6 +199,9 @@ export function SinceDivider({
   const t = useT();
   const unread = useUnreadView();
   const mode = useUnreadBannerMode();
+  const recapOn = useSessionRecapOn();
+  // Off in Settings (Session Recap), the recap draws nothing unless the chat's own option is on.
+  const recap = since.recap && (recapOn || since.recap.chatOn) ? since.recap : undefined;
   const mine = unread?.mark === since.key ? unread : undefined;
   // Drawn once its observer answered (a line on screen at a return in place is read by then, so it
   // never flashes), while something new is under it and it is not read.
@@ -214,7 +217,7 @@ export function SinceDivider({
       className="cv-since"
       data-look={drawn}
       data-shown={shows ? "" : undefined}
-      data-recap={since.recap ? "" : undefined}
+      data-recap={recap ? "" : undefined}
       ref={useSinceObserver(since.key, since.inPlace === true)}
     >
       <ContextMenu items={unreadMenu(t, since.key, mode)} className="cv-since__menu">
@@ -243,7 +246,7 @@ export function SinceDivider({
           )}
         </p>
       </ContextMenu>
-      {since.recap && <RecapNote recap={since.recap} onDismiss={onDismissRecap} lead={false} />}
+      {recap && <RecapNote recap={recap} onDismiss={onDismissRecap} lead={false} />}
     </div>
   );
 }

@@ -119,3 +119,36 @@ fn claims_a_sender(params: &Value) -> bool {
         .any(|key| mux.get(*key).is_some_and(|v| !v.is_null()))
     })
 }
+
+/// How a prompt reached this daemon, as it saw it (`prompt_provenance::TRANSPORT`).
+pub(super) fn transport_of(conn: &Conn) -> &'static str {
+    if conn.is_trigger() {
+        return "trigger";
+    }
+    match conn.origin {
+        super::super::Origin::Local => "unix",
+        super::super::Origin::LocalApp => "app",
+        super::super::Origin::Web | super::super::Origin::Peer => {
+            super::super::carrier::transport(conn)
+        }
+    }
+}
+
+/// The labels a prompt's sender gave about itself, kept as claims (`prompt_provenance::CLAIMED`),
+/// and the old acpmux CLI its connection is (`cli_caller.rs`), which proves no caller.
+pub(super) fn claimed_labels(conn: &Conn, params: &Value) -> serde_json::Map<String, Value> {
+    let mut out = serde_json::Map::new();
+    if let Some(client) = conn.declared().and_then(crate::cli_caller::Declared::old_client) {
+        out.insert(crate::cli_caller::CLAIMED_CLIENT.to_owned(), serde_json::json!(client));
+    }
+    let Some(mux) = params.pointer("/_meta/acpmux") else { return out };
+    for key in ["cliHost", "fromHarness", "via"] {
+        if let Some(value) = mux.get(key).and_then(Value::as_str) {
+            let value = value.trim();
+            if !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control) {
+                out.insert(key.to_owned(), serde_json::json!(value));
+            }
+        }
+    }
+    out
+}

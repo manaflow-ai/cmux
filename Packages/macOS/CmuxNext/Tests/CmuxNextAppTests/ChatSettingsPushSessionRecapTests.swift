@@ -27,3 +27,13 @@ struct ChatSettingsPushSessionRecapTests {
         #expect(params["sessionRecap"]?.boolValue == false, "\(params)")
     }
 }
+
+/// The chat page follows `agents.chats.sessionRecap` too (`AgentPaneDisplaySetting.followedAppPaths`):
+/// switched off, an open chat hides a recap it already drew, at once (webviews chatDisplay.ts).
+struct ChatPaneFollowsSessionRecapTests {
+    @Test func theDisplayPushCarriesIt() {
+        let off: JSONValue = .object(["agents": .object(["chats": .object(["sessionRecap": .bool(false)])])])
+        #expect(AgentPaneDisplaySetting(fileRoot: off).values["agents.chats.sessionRecap"] == .bool(false))
+        #expect(AgentPaneDisplaySetting(fileRoot: .object([:])).values["agents.chats.sessionRecap"] == nil)
+    }
+}
