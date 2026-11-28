@@ -441,10 +441,15 @@ impl Moving<'_> {
                 let (dest, commit) = tokio::task::spawn_blocking({
                     let (top, dest, lane) =
                         (c.top.clone(), format!("refs/heads/{branch}"), lane.map(str::to_owned));
-                    move || push_or_lane_branch(&dest, |to| push_branch(&top, to, lane.as_deref()))
+                    let prefix = branch_prefix();
+                    move || {
+                        push_or_prefixed(&dest, prefix.as_deref(), |to| {
+                            push_branch(&top, to, lane.as_deref())
+                        })
+                    }
                 })
                 .await??;
-                // A lane VM's git took it only as lane/BRANCH: the target checks that out.
+                // Origin took it only under ACPMUX_MOVE_BRANCH_PREFIX: the target checks that out.
                 if let Some(lane_branch) =
                     dest.strip_prefix("refs/heads/").filter(|b| *b != branch.as_str())
                 {

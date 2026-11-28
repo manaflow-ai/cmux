@@ -79,8 +79,8 @@ mod files;
 #[path = "session_move_lane.rs"]
 mod lane;
 #[cfg(test)]
-use lane::OUTSIDE_LANE;
-pub(crate) use lane::{lane_branch_for, lane_of, push_or_lane_branch, push_refusal};
+use lane::prefixed_branch;
+pub(crate) use lane::{branch_prefix, lane_of, push_or_prefixed, push_refusal};
 #[path = "session_move_snapshot.rs"]
 pub(crate) mod snapshot;
 #[path = "session_move_target_ask.rs"]
@@ -1196,8 +1196,9 @@ async fn prepare(
         let (dest, commit) = tokio::task::spawn_blocking({
             let (top, dest, ssh) = (c.top.clone(), dest.clone(), source.ssh().map(str::to_owned));
             let lane = lane_of(&o.name);
+            let prefix = branch_prefix();
             move || {
-                push_or_lane_branch(&dest, |to| match &ssh {
+                push_or_prefixed(&dest, prefix.as_deref(), |to| match &ssh {
                     None => push_branch(&top, to, lane.as_deref()),
                     Some(ssh) => push_branch_on(ssh, &top, to, lane.as_deref()),
                 })

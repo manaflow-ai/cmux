@@ -1244,30 +1244,29 @@ fn a_moving_chats_lane_is_its_names_last_part() {
 }
 
 #[test]
-fn a_lane_refusal_keeps_every_line_and_others_their_last() {
-    let refusal = "git push: ux-trust is not under lane/ and no PR this lane adopted has it\n\
-                   as its head: name it lane/<name>: git push origin HEAD:lane/ux-trust\n";
-    assert!(push_refusal(refusal).contains(OUTSIDE_LANE));
-    assert!(push_refusal(refusal).ends_with("HEAD:lane/ux-trust"));
-    let other =
-        "To origin\n ! [rejected] feat -> feat (fetch first)\nerror: failed to push some refs\n";
-    assert_eq!(push_refusal(other), "error: failed to push some refs");
+fn a_refused_push_keeps_its_whole_reason() {
+    let refusal = "remote: feat is not allowed here: name it team/<name>\n\
+                   remote: see the server's rules\nerror: failed to push some refs to origin\n";
+    let why = push_refusal(refusal);
+    assert!(why.starts_with("remote: feat is not allowed here"), "{why}");
+    assert!(why.ends_with("failed to push some refs to origin"), "{why}");
+    assert_eq!(push_refusal(&"x".repeat(2000)).chars().count(), 600);
 }
 
 #[test]
-fn a_branch_outside_lane_moves_as_its_lane_branch() {
-    assert_eq!(lane_branch_for("ux-trust").as_deref(), Some("lane/ux-trust"));
-    assert_eq!(lane_branch_for("feat/ux trust").as_deref(), Some("lane/ux-trust"));
-    assert_eq!(lane_branch_for("lane/ux-trust"), None);
-    assert_eq!(lane_branch_for("..."), None);
+fn a_refused_branch_goes_under_the_prefix() {
+    assert_eq!(prefixed_branch("ux-trust", "lane/").as_deref(), Some("lane/ux-trust"));
+    assert_eq!(prefixed_branch("feat/ux trust", "lane/").as_deref(), Some("lane/ux-trust"));
+    assert_eq!(prefixed_branch("lane/ux-trust", "lane/"), None);
+    assert_eq!(prefixed_branch("...", "lane/"), None);
 }
 
-/// A lane VM's git pushes only `lane/` branches: a held lane VM's drain could not move
-/// a chat on `ux-trust` ("ux-trust is not under lane/ ... name it lane/<name>"), so the VM sat
-/// idle "draining for deletion". Origin's pre-receive hook stands in for that git.
+/// An origin that takes only branches under a prefix (its pre-receive hook here) refused a
+/// moving chat's branch, and the move failed. With ACPMUX_MOVE_BRANCH_PREFIX set, the move
+/// pushes it under the prefix; unset (the default), it fails as before.
 #[cfg(unix)]
 #[test]
-fn a_move_refused_outside_lane_pushes_as_lane_branch() {
+fn a_refused_push_goes_under_the_prefix_only_when_set() {
     use std::os::unix::fs::PermissionsExt as _;
     let git = |dir: &Path, args: &[&str]| {
         let out = StdCommand::new("git")
@@ -1295,40 +1294,42 @@ fn a_move_refused_outside_lane_pushes_as_lane_branch() {
     std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
     std::fs::write(
         &hook,
-        "#!/bin/sh
-while read -r old new ref; do case \"$ref\" in refs/heads/lane/*) ;; \
-         *) echo \"git push: ${ref#refs/heads/} is not under lane/ and no PR this lane adopted \
-         has it as its head: name it lane/<name>\" >&2; exit 1;; esac; done\n",
+        "#!/bin/sh\nwhile read -r old new ref; do case \"$ref\" in refs/heads/lane/*) ;; \
+         *) echo \"${ref#refs/heads/} is not allowed here: name it lane/<name>\" >&2; exit 1;; \
+         esac; done\n",
     )
     .unwrap();
     std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
     let on_origin = |r: &str| {
-        StdCommand::new("git")
+        let out = StdCommand::new("git")
             .arg("-C")
             .arg(&origin)
             .args(["rev-parse", "-q", "--verify", r])
             .output()
-            .unwrap()
-            .stdout
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
     };
 
-    // Before: the branch's own push is refused, and the move failed with it.
-    let refused = push_branch(&src, "refs/heads/ux-trust", None).unwrap_err();
-    assert!(format!("{refused:#}").contains(OUTSIDE_LANE), "{refused:#}");
+    // Before, and still with the setting off: the move fails, and its error keeps the reason.
+    let off = push_or_prefixed("refs/heads/ux-trust", None, |to| push_branch(&src, to, None))
+        .unwrap_err();
+    assert!(format!("{off:#}").contains("is not allowed here"), "{off:#}");
+    assert!(on_origin("refs/heads/lane/ux-trust").is_empty());
 
-    // After: the move pushes it as lane/ux-trust, and the target checks that out.
+    // After, with the setting on: the move pushes lane/ux-trust, and the target checks it out.
     let (dest, commit) =
-        push_or_lane_branch("refs/heads/ux-trust", |to| push_branch(&src, to, None)).unwrap();
+        push_or_prefixed("refs/heads/ux-trust", Some("lane/"), |to| push_branch(&src, to, None))
+            .unwrap();
     assert_eq!(dest, "refs/heads/lane/ux-trust");
     assert_eq!(commit, head);
-    assert_eq!(String::from_utf8_lossy(&on_origin("refs/heads/lane/ux-trust")).trim(), head);
+    assert_eq!(on_origin("refs/heads/lane/ux-trust"), head);
     assert!(on_origin("refs/heads/ux-trust").is_empty());
 
-    // Any other refusal stays the move's error, with no second push.
+    // A branch already under the prefix is not pushed twice.
     let tries = std::cell::Cell::new(0);
-    let err = push_or_lane_branch("refs/heads/feat", |_| {
+    let err = push_or_prefixed("refs/heads/lane/feat", Some("lane/"), |_| {
         tries.set(tries.get() + 1);
-        Err(anyhow!("pushing feat to origin failed: rejected (fetch first)"))
+        Err(anyhow!("pushing lane/feat to origin failed: rejected (fetch first)"))
     })
     .unwrap_err();
     assert!(format!("{err:#}").contains("fetch first"));

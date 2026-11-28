@@ -1,5 +1,5 @@
-//! The lane a move's git writes name, and the `lane/` branch a lane VM's git takes a
-//! moving chat's branch as (`session_move.rs`).
+//! The lane a move's git writes name, and the branch a refused push goes to instead
+//! (`session_move.rs`).
 
 use anyhow::{Context as _, Result};
 
@@ -22,54 +22,49 @@ pub(crate) fn lane_of(name: &str) -> Option<String> {
     (!out.is_empty()).then_some(out)
 }
 
-/// What a lane VM's git says when it refuses a push to a branch outside `lane/`
-/// (leo-workspace `tools/lane_gh_vm.py`): it pushes only `lane/` branches and the heads of PRs
-/// the lane adopted.
-pub(crate) const OUTSIDE_LANE: &str = "is not under lane/";
+/// The setting that turns on a move's second push: `ACPMUX_MOVE_BRANCH_PREFIX`, a prefix like
+/// `lane/`. Unset or empty (the default), a refused push fails the move as before.
+pub(crate) const BRANCH_PREFIX_ENV: &str = "ACPMUX_MOVE_BRANCH_PREFIX";
 
-/// The `lane/` branch a push refused as [`OUTSIDE_LANE`] goes to instead: `lane/` and the
-/// branch's last part ([`lane_of`]'s characters), as the refusal itself suggests. `None` for a
-/// branch already under `lane/`, or with nothing left.
-pub(crate) fn lane_branch_for(branch: &str) -> Option<String> {
-    (!branch.starts_with("lane/")).then(|| lane_of(branch)).flatten().map(|n| format!("lane/{n}"))
+/// [`BRANCH_PREFIX_ENV`]'s value, or `None` while it is off.
+pub(crate) fn branch_prefix() -> Option<String> {
+    std::env::var(BRANCH_PREFIX_ENV).ok().filter(|p| !p.trim().is_empty())
 }
 
-/// Pushes HEAD to the full ref `dest` through `push`; when that is `refs/heads/BRANCH` and the
-/// source's git refuses it as [`OUTSIDE_LANE`] (a lane VM's chat on a branch like `ux-trust`),
-/// once more to `refs/heads/lane/BRANCH` ([`lane_branch_for`]), which the target then checks
-/// out. Returns the ref pushed and its commit. Before, the refusal failed the move and held
-/// the VM draining for deletion (a held lane VM, 2026-11-28).
-pub(crate) fn push_or_lane_branch(
+/// The branch a refused push of `branch` goes to instead: `prefix` and the branch's last part
+/// ([`lane_of`]'s characters). `None` for a branch already under `prefix`, or with nothing left.
+pub(crate) fn prefixed_branch(branch: &str, prefix: &str) -> Option<String> {
+    (!branch.starts_with(prefix)).then(|| lane_of(branch)).flatten().map(|n| format!("{prefix}{n}"))
+}
+
+/// Pushes HEAD to the full ref `dest` through `push`. With a [`branch_prefix`] set, when that
+/// is `refs/heads/BRANCH` and the push is refused, once more to `refs/heads/PREFIX BRANCH`
+/// ([`prefixed_branch`]), which the target then checks out: for an origin that takes only
+/// branches under a prefix. Returns the ref pushed and its commit.
+pub(crate) fn push_or_prefixed(
     dest: &str,
+    prefix: Option<&str>,
     push: impl Fn(&str) -> Result<String>,
 ) -> Result<(String, String)> {
     match push(dest) {
         Ok(commit) => Ok((dest.to_owned(), commit)),
         Err(e) => {
-            let lane = dest.strip_prefix("refs/heads/").and_then(lane_branch_for);
-            match lane {
-                Some(lane) if format!("{e:#}").contains(OUTSIDE_LANE) => {
-                    let to = format!("refs/heads/{lane}");
-                    let commit = push(&to)
-                        .with_context(|| format!("{e:#}; then pushing it as {lane} failed too"))?;
-                    Ok((to, commit))
-                }
-                _ => Err(e),
-            }
+            let retry = prefix
+                .zip(dest.strip_prefix("refs/heads/"))
+                .and_then(|(p, b)| prefixed_branch(b, p));
+            let Some(branch) = retry else { return Err(e) };
+            let to = format!("refs/heads/{branch}");
+            let commit = push(&to)
+                .with_context(|| format!("{e:#}; then pushing it as {branch} failed too"))?;
+            Ok((to, commit))
         }
     }
 }
 
-/// What a failed push says, for the move's error: git's last line, or, when the refusal is
-/// [`OUTSIDE_LANE`], every line of it. That refusal wraps over several lines and its last
-/// ("... name it lane/<name>: git push ...") lacks the words [`push_or_lane_branch`] matches,
-/// so with only the last line kept the move never retried and a lane VM's census showed the
-/// refusal cut mid-sentence.
+/// What a failed push says, for the move's error: every non-empty line of git's stderr, joined
+/// and kept to 600 characters. A server's refusal wraps over several lines before git's own
+/// "failed to push some refs"; keeping only the last line lost the reason.
 pub(crate) fn push_refusal(stderr: &str) -> String {
-    let lines = stderr.lines().map(str::trim).filter(|l| !l.is_empty());
-    if stderr.contains(OUTSIDE_LANE) {
-        lines.collect::<Vec<_>>().join(" ")
-    } else {
-        lines.last().unwrap_or_default().to_owned()
-    }
+    let all = stderr.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ");
+    all.chars().take(600).collect()
 }
