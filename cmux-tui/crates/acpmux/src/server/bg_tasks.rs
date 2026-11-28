@@ -87,6 +87,9 @@ async fn handle(hub: &Arc<Hub>, conn: &Conn, m: &str, params: &Value) -> Result<
                 .map_err(RpcError::invalid_params)?;
             // The Claude Code subagent whose MCP call starts it (`subagent_call.rs`), `{id, type}`:
             // a label its commands carry, as its Bash calls do; the session's token is the proof.
+            // Only the person's own start runs outside the chat's local sandbox; the chat's agent
+            // (its caller token) never escapes it through the daemon (cmuxterm-hq#32166).
+            let by_person = conn.is_person() && !own_agent;
             // The Bash call acpmux's hook rewrote into this start (`bg_hook.rs`): the process
             // registry lists the task under it.
             let tool_call = str_param(params, "toolCallId").map(str::to_owned);
@@ -98,6 +101,7 @@ async fn handle(hub: &Arc<Hub>, conn: &Conn, m: &str, params: &Value) -> Result<
                 notify,
                 result_line,
                 subagent,
+                by_person,
                 tool_call,
                 class,
             )
