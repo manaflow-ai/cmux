@@ -232,3 +232,64 @@ async fn a_moved_waits_old_row_gives_up_its_call() {
     hub.bg_moved(&session, &record.id);
     assert_eq!(listed(&hub, &session).len(), 1, "a second move changes nothing");
 }
+
+/// A runner that died without a word (its lock let go, its record never ended) stops counting
+/// as running within `LIVE_FOR` of the last look that found its lock held, and stays lost.
+#[tokio::test]
+async fn a_died_runner_stops_counting_within_live_for_and_stays_lost() {
+    let (hub, session) = hub_with_chat("bg-live-for");
+    let lock = hub.bg_fake_running(&session, false).unwrap();
+    let dir = hub.bg_dir(&session);
+    let id = hub.bg_records(&dir).tasks[0].record.id.clone();
+    assert_eq!(hub.bg_running_count(&session), 1);
+    drop(lock);
+    // A test elsewhere may fork while the lock is open: wait until the kernel freed it.
+    assert!(super::super::bg_tasks::bg_wait_gone(&dir, &id).await);
+    tokio::time::sleep(super::super::bg_folder::LIVE_FOR).await;
+    assert_eq!(hub.bg_running_count(&session), 0, "a free lock read as held past LIVE_FOR");
+    assert_eq!(hub.bg_list(&session)["tasks"][0]["state"], "lost");
+    // Taken again by anyone, a lock once found free still says the runner is gone.
+    let again = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(bg_run::lock_path(&dir, &id))
+        .unwrap();
+    // SAFETY: flock on a descriptor this test owns.
+    assert_eq!(unsafe { libc::flock(std::os::fd::AsRawFd::as_raw_fd(&again), libc::LOCK_EX) }, 0);
+    assert_eq!(hub.bg_running_count(&session), 0);
+}
+
+/// Bench (`cargo test -p acpmux --lib bg_count_bench -- --ignored --nocapture`): one chat with
+/// `RUNNING` tasks whose runners hold their locks and `LOST` whose runners died, counted and
+/// listed as the warm rounds and the GUI's lists do. Prints the time per count and per list.
+#[tokio::test]
+#[ignore]
+async fn bg_count_bench() {
+    const RUNNING: usize = 10;
+    const LOST: usize = 200;
+    const COUNTS: u32 = 2_000;
+    const LISTS: u32 = 200;
+    let (hub, session) = hub_with_chat("bg-count-bench");
+    let held: Vec<_> =
+        (0..RUNNING).map(|_| hub.bg_fake_running(&session, false).unwrap()).collect();
+    for _ in 0..LOST {
+        drop(hub.bg_fake_running(&session, false).unwrap());
+    }
+    // Past the folder's racy window, so its look is reused as a settled folder's is.
+    let dir = hub.bg_dir(&session);
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(10);
+    std::fs::File::open(&dir).unwrap().set_modified(old).unwrap();
+    assert_eq!(hub.bg_running_count(&session), RUNNING);
+    let at = std::time::Instant::now();
+    for _ in 0..COUNTS {
+        assert_eq!(hub.bg_running_count(&session), RUNNING);
+    }
+    let count = at.elapsed() / COUNTS;
+    let at = std::time::Instant::now();
+    for _ in 0..LISTS {
+        assert_eq!(hub.bg_list(&session)["tasks"].as_array().unwrap().len(), RUNNING + LOST);
+    }
+    let list = at.elapsed() / LISTS;
+    eprintln!("bg_count_bench running={RUNNING} lost={LOST}: count {count:?}, list {list:?}");
+    drop(held);
+}

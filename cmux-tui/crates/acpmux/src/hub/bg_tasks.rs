@@ -310,9 +310,7 @@ impl Hub {
         self.bg_records(dir)
             .tasks
             .iter()
-            .filter(|t| {
-                t.record.ended_at.is_none() && want(&t.record) && !t.gone(dir)
-            })
+            .filter(|t| t.record.ended_at.is_none() && want(&t.record) && !t.gone(dir))
             .count()
     }
 

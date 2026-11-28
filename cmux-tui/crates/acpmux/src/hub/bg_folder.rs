@@ -310,4 +310,27 @@ mod tests {
         assert!(folders.look(&dir).tasks.is_empty());
         assert!(folders.0.lock().unwrap().is_empty());
     }
+
+    #[test]
+    fn a_free_lock_is_kept_for_good_and_a_held_one_for_live_for() {
+        use std::os::fd::AsRawFd;
+        let (_root, dir) = folder();
+        bg_run::write_record(&dir, &record("a", "g1", false)).unwrap();
+        let lock = std::fs::File::create(bg_run::lock_path(&dir, "a")).unwrap();
+        // SAFETY: flock on a descriptor this test owns.
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        let folders = BgFolders::default();
+        let look = folders.look(&dir);
+        let task = &look.tasks[0];
+        assert!(!task.gone(&dir));
+        drop(lock);
+        assert!(!task.gone(&dir), "a held lock was probed again within LIVE_FOR");
+        // Past LIVE_FOR.
+        *task.held_at.lock().unwrap() = Some(std::time::Instant::now() - LIVE_FOR);
+        assert!(task.gone(&dir), "a free lock was not seen past LIVE_FOR");
+        let again = std::fs::File::open(bg_run::lock_path(&dir, "a")).unwrap();
+        // SAFETY: as above.
+        assert_eq!(unsafe { libc::flock(again.as_raw_fd(), libc::LOCK_EX) }, 0);
+        assert!(task.gone(&dir), "a lock once free was probed again");
+    }
 }
