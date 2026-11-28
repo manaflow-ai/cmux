@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 public import CmuxNextDevices
+import CmuxNextWakeups
 import Observation
 
 /// What the home page asks of its owner.
@@ -35,8 +36,6 @@ final class MacScreenHomeView: MacScreenThemedView {
     let actions: MacScreenHomeActions
     let systemShortcuts: MacScreenSystemShortcuts?
     let devices: MacScreenHomeDevices?
-    /// This Mac's hub note, held back while registering is young (``MacScreenHomeSnapshot/HubNoteQuiet``).
-    let hubNoteQuiet = MacScreenHomeSnapshot.HubNoteQuiet()
     private let scroll = OverlayScrollView()
     private let document = MacScreenFlippedView()
     private let column = MacScreenStack.make(.vertical, spacing: 28, alignment: .leading)
@@ -50,6 +49,8 @@ final class MacScreenHomeView: MacScreenThemedView {
     var offlineExpanded = false
     /// The snapshot the rows were last built from (the page's own or a test's), for a rebuild after a local toggle.
     private(set) var built: MacScreenHomeSnapshot?
+    /// Holds This Mac's joining note until the join has lasted the quiet bound (`hubNoteShows`).
+    private lazy var hubJoining = MacScreenHomeSnapshot.hubJoiningHold()
     /// `.frame(maxWidth: 620).padding(.horizontal, 32)`: the column's width for the page's.
     private lazy var columnWidth = column.widthAnchor.constraint(equalToConstant: 620)
 
@@ -155,6 +156,15 @@ final class MacScreenHomeView: MacScreenThemedView {
         build(snapshot)
         if snapshot.sharing != nil, !hadSharing, window != nil { Task { [host] in await host.refreshPermissions() } }
         readPermissions(snapshot.deviceIDs)
+    }
+
+    /// Whether This Mac's hub note shows: never once registered; a failure at once; joining only once it has
+    /// lasted the quiet bound, when the hold draws the page again.
+    func hubNoteShows(registered: Bool, status: DeviceHub.Status) -> Bool {
+        var failed = false
+        if case .failed = status { failed = true }
+        hubJoining.update(!registered && !failed) { [weak self] in self?.render() }
+        return !registered && (failed || !hubJoining.held)
     }
 
     /// A switch shows its model's value, not the click: after a press, on the next turn (never

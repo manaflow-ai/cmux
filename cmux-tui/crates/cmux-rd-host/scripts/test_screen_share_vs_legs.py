@@ -330,7 +330,7 @@ class AppleViewer(unittest.TestCase):
 
     def test_the_window_is_the_new_screen_sharing_window_naming_the_host(self):
         self.assertEqual(vs.screen_sharing_window(WINDOWS, "10.0.0.5"),
-                         {"pid": 900, "window": 77, "title": "10.0.0.5"})
+                         {"pid": 900, "window": 77, "title": "10.0.0.5", "matched": "title"})
         # One there before the run is never picked; a tiny one is no viewer window.
         only_old = [w for w in WINDOWS if w["window"] != 77]
         self.assertIsNone(vs.screen_sharing_window(only_old, "10.0.0.5", exclude={41}))
@@ -428,6 +428,20 @@ class AppleViewer(unittest.TestCase):
         # One that ran before is never touched.
         out, killed = self.open_with([], pids_before={500}, pids_after={500})
         self.assertEqual((killed, out["killed"]), ([], []))
+
+    def test_untitled_windows_take_the_one_new_window_of_the_screen_sharing_this_run_started(self):
+        untitled = [{"owner": "Screen Sharing", "pid": 900, "window": 90, "title": "",
+                     "layer": 0, "w": 1600, "h": 1000}]
+        self.assertEqual(vs.screen_sharing_window(untitled, "10.0.0.5", launched={900}),
+                         {"pid": 900, "window": 90, "title": "", "matched": "launched pid"})
+        self.assertIsNone(vs.screen_sharing_window(untitled, "10.0.0.5"))
+        two = untitled + [{**untitled[0], "window": 91}]
+        self.assertIsNone(vs.screen_sharing_window(two, "10.0.0.5", launched={900}))
+        other = untitled + [{**untitled[0], "window": 92, "pid": 901, "title": "other-mac"}]
+        self.assertIsNone(vs.screen_sharing_window(other, "10.0.0.5", launched={900}))
+        out, _ = self.open_with(untitled, pids_before=set(), pids_after={900})
+        self.assertEqual((out.get("window"), out.get("matched")), (90, "launched pid"))
+        self.assertIn("no marker visible through the Screen Sharing window", out["error"])
 
     def test_an_unnamed_window_is_never_picked_and_says_so(self):
         unnamed = [{"owner": "Screen Sharing", "pid": 900, "window": 90, "title": "other-mac",

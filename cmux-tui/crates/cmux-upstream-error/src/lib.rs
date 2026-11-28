@@ -55,11 +55,12 @@ pub fn is_account_limit(message: &str) -> bool {
 /// `"retry_after":30` or `"retry-after":"30"` (a JSON body).
 pub fn retry_after(message: &str) -> Option<Duration> {
     let lower = message.to_ascii_lowercase();
+    // retry-prompt-ok: needles this parser looks for in an upstream's error text; nothing here is shown to a person
     [
         // retry-prompt-ok: the forms of an upstream Retry-After this parses, never shown to anyone
         "retry after ",
         "retry-after: ",
-        "retry-after ",
+        "retry-after ", // retry-prompt-ok: a parse needle, as above
         "\"retry_after\":",
         "\"retry-after\":",
         "\"retry_after_s\":",
