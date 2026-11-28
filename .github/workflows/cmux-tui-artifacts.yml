@@ -716,7 +716,7 @@ jobs:
           # Only defer to a publisher queued on the current daemon-test runner.
           # Both pools the gate can take: cmux-linux, and the nightly spill pool an
           # attempt-2+ rerun on a nightly ref moves to (#64136).
-          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux,cmux-gcp-nightly-x64' }}
+          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux,cmux-gcp-nightly-jit-x64' }}
         run: |
           set -euo pipefail
           superseded=false
@@ -1241,7 +1241,7 @@ jobs:
           # Only defer to a publisher queued on the current daemon-test runner.
           # Both pools the gate can take: cmux-linux, and the nightly spill pool an
           # attempt-2+ rerun on a nightly ref moves to (#64136).
-          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux,cmux-gcp-nightly-x64' }}
+          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux,cmux-gcp-nightly-jit-x64' }}
           # How long a live owner holds its key before a feat-cmux-next push
           # takes it over. On 2026-10-28 a healthy owner published about 20
           # minutes after it started, and owners hung for up to an hour in a Zig
@@ -2243,7 +2243,7 @@ jobs:
     # want no smoke tests"). Leo, 2026-10-26: "I THOUGHT THESE
     # COULD JUST GO ON LINUX". None of the cmux_next_ tests is gated to macOS
     # and cmux-tui.yml's Linux job runs the whole workspace, so every attempt
-    # of every event takes Blacksmith Linux at 32 vCPU: no owned-Mac queue
+    # of every event takes owned Linux: no owned-Mac queue
     # (side-std held these jobs 20+ min on 2026-10-26) and no share of the
     # promote mini the Release compile needs. The tests that need macOS
     # (Keychain, Seatbelt, wakeup counters) run in their own workflow,
@@ -2254,9 +2254,15 @@ jobs:
     # its name's "cmux_next_ daemon tests" prefix, so older runs' names with
     # a runner suffix still count. Leo, 2026-10-27: "ok do NOT label stuff as
     # os=linux...": the name, steps and marker name no runner OS.
-    # A rerun leaves the pool that failed it: 2026-11-28 run 46107444639 failed this job on hetzner-2
-    # (cargo registry EACCES), and with no retry runner a promote waits on that one pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
+    # The nightly path (dispatch, nightly-next, feat-cmux-next) takes the nightly's one-job on-demand JIT label on
+    # every attempt: a whole VM, not a cmux-linux pool slot. The acpmux lib test rustc alone outgrows a slot's 14 GiB
+    # memory.max: job 141082665250 (run 46178446718, 2d0f28f5, 2026-11-28) was SIGKILLed at CARGO_BUILD_JOBS=3, 2
+    # and 1 (one rustc at a time) over 49 min, as were jobs 140997699588 and 141050286394's builds that day, so no
+    # tree after 1708b0ea got its marker and nightly-next stayed there. The retry route waited on a rerun that never
+    # came (none of those runs had an attempt 2). Not cmux-gcp-nightly-x64: spot pool VMs serve it too
+    # (linux_retry_runner above), and a pool slot is the 14 GiB that failed. A rerun leaves the pool that failed it
+    # (run 46107444639, cargo registry EACCES on one cmux-linux box) the same way.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-jit-x64' || 'cmux-linux' }}
     # 60 was the green run's whole length: job 137409209815 (7d439038, 2026-11-23,
     # cmux-runner-pool) took 59:56: setup 11 min (runner 2:20, checkout 2,
     # supersede check 1:40, Zig packages 2:16), the test compile 22:40 on a

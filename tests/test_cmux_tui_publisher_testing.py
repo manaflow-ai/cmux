@@ -117,7 +117,8 @@ class WiringTests(unittest.TestCase):
 
     def test_the_pool_matches_the_daemon_test_job(self):
         # Every label the gate's runs-on can pick is a pool the deferral counts:
-        # #64136 moved attempt-2+ nightly reruns to cmux-gcp-nightly-x64, and a
+        # #64136 moved attempt-2+ nightly reruns off cmux-linux (now every nightly-path attempt takes
+        # cmux-gcp-nightly-jit-x64, a whole VM), and a
         # DAEMON_POOL naming only cmux-linux stopped deferring to them.
         runs_on = gate_runs_on(self.WORKFLOW)
         labels = set(re.findall(r"'([a-z0-9][a-z0-9.-]*)'", runs_on)) - {"manaflow-ai", "refs/heads/nightly-next"}
