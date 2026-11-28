@@ -20,7 +20,7 @@ extension SettingsController {
         func add(_ path: [String]) { if !out.contains(path) { out.append(path) } }
         for path in paths {
             add(path)
-            if let legacy = RenamedSettingKeys.legacyPath(for: path) { add(legacy) }
+            for legacy in RenamedSettingKeys.legacyPaths(for: path) { add(legacy) }
             if path == DensitySetting.configPath { add(CustomDensitySelectionSetting.configPath) }
             if path == WindowBackgroundSetting.opacityPath || path == WindowBackgroundSetting.materialPath {
                 add(WindowBackgroundSetting.opacityPath)

@@ -283,7 +283,7 @@ fn read_mark(home: &Path) -> Option<LeaveMark> {
     std::fs::symlink_metadata(&path).ok()?;
     let mut mark: LeaveMark = crate::config::private_state_file(&path)
         .ok()
-        .and_then(|file| serde_json::from_reader(file).ok())
+        .and_then(|file| serde_json::from_reader(std::io::BufReader::new(file)).ok())
         .unwrap_or_default();
     mark.accounts.retain(|account| safe_id(account).as_deref() == Some(account.as_str()));
     Some(mark)
@@ -381,9 +381,13 @@ async fn record_leave_intent_at(
 ) -> Result<bool> {
     let at = signed_out_at.unwrap_or_else(now_ms);
     let account = safe_id(account.trim()).ok_or_else(|| anyhow!("the user id is malformed"))?;
-    let _lock = wait_for_lock(home)
-        .await
-        .ok_or_else(|| anyhow!("another join or leave holds this machine; try again"))?;
+    let _lock = wait_for_lock(home).await.ok_or_else(|| {
+        anyhow!(
+            "another join or leave has held this machine's join lock for {} s; it may be stuck: \
+                 `acpmux machine status` shows it",
+            LOCK_WAIT.as_secs()
+        )
+    })?;
     if signed_in_since(home, &account, at) {
         tracing::info!("sign-out intent: that account signed in again since; not recorded");
         return Ok(false);

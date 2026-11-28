@@ -45,8 +45,12 @@ import Testing
         var held: [Int] { events.compactMap { if case .inputHeld(let n) = $0 { n } else { nil } } }
     }
 
-    static func waitUntil(attempts: Int = 300, _ condition: @MainActor () -> Bool) async throws {
+    /// Polls `condition` up to 30 s. The kit's tests run in parallel: on 2026-11-25 (job
+    /// 139327571649) the synchronous `onlyAMissingLinkWaits` took 8 s there, and a 3 s bound
+    /// ran out before the reattach sent the held key. A path that never finishes still fails here.
+    static func waitUntil(_ what: String, attempts: Int = 3000, _ condition: @MainActor () -> Bool) async throws {
         for _ in 0..<attempts where !condition() { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(condition(), "\(what) within \(attempts / 100) s")
     }
 
     @Test func anAttachWithNoLinkWaitsForItInsteadOfGivingUp() async throws {
@@ -54,11 +58,11 @@ import Testing
         defer { rig.session.stop() }
         rig.session.reattachBackoff = [0.02, 0.02]
         rig.session.start { [weak rig] in rig?.events.append($0) }
-        try await Self.waitUntil { rig.session.isAttached }
+        try await Self.waitUntil("the first attach") { rig.session.isAttached }
         // Backgrounded: the link goes; the channel ends with it.
         rig.linkUp = false
         await rig.channels.last?.close(code: "link_closed", reason: "link dropped")
-        try await Self.waitUntil { !rig.session.isAttached }
+        try await Self.waitUntil("the channel's end detaches") { !rig.session.isAttached }
         // The channel's own self-reattach (first backoff step) finds no link and stops.
         try await Task.sleep(for: .milliseconds(100)) // test: let the self-reattach settle first
         // In front again: the tab's attach runs while the link still redials.
@@ -77,10 +81,40 @@ import Testing
         // The link is back: its return reattaches the session, and the held key goes.
         rig.linkUp = true
         rig.session.reconnect()
-        try await Self.waitUntil { rig.session.isAttached }
-        try await Self.waitUntil { rig.typed == Data("ls\r".utf8) }
+        try await Self.waitUntil("the reattach") { rig.session.isAttached }
+        try await Self.waitUntil("the held key goes") { rig.typed == Data("ls\r".utf8) }
         #expect(rig.typed == Data("ls\r".utf8))
         #expect(rig.notSent.isEmpty)
+    }
+
+    /// A first attach on a cold launch: the terminal's open reads "no link" just before the link
+    /// is served, and the link's `reconnect()` of every terminal comes while that attach is still
+    /// out. Before, that reconnect was dropped (`attaching`) and the attach then waited for a
+    /// link that had already come: the page's skeleton for good (Aziz's TestFlight, 2026-11-25).
+    @Test func aLinkThatComesDuringTheFirstAttachIsNotMissed() async throws {
+        let daemon = FakeTerminalDaemon()
+        let gate = OpenGate()
+        let flag = LinkFlag()
+        flag.up = false
+        let mac = MockMacLink { service, line in daemon.respond(service, line) }
+        let session = DaemonTerminalSession(surface: 7) {
+            let up = flag.up
+            // The first open read the link (down) and is still on its way back.
+            await gate.passFirst()
+            guard up else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
+            return DaemonClient(channel: try await mac.openChannel(service: "daemon", args: [:]))
+        }
+        defer { session.stop() }
+        session.reattachBackoff = [0.02, 0.02]
+        session.start { _ in }
+        try await Self.waitUntil("the first open is out") { gate.waiting }
+        // The link is served now, and the coordinator reconnects every terminal of the Mac.
+        flag.up = true
+        session.reconnect()
+        // The first open comes back with "no link".
+        gate.open()
+        try await Self.waitUntil("the attach on the link that came") { session.isAttached }
+        #expect(session.connectionState == .attached)
     }
 
     @Test func onlyAMissingLinkWaits() {
@@ -96,5 +130,41 @@ final class LinkFlag: @unchecked Sendable {
     var up: Bool {
         get { lock.withLock { value } }
         set { lock.withLock { value = newValue } }
+    }
+}
+
+/// Holds the session's first open until the test lets it go; later opens pass at once.
+final class OpenGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var first = true
+    private var held: CheckedContinuation<Void, Never>?
+    private var released = false
+
+    /// The first open is held now.
+    var waiting: Bool { lock.withLock { held != nil } }
+
+    func passFirst() async {
+        let hold = lock.withLock { () -> Bool in
+            defer { first = false }
+            return first && !released
+        }
+        guard hold else { return }
+        await withCheckedContinuation { continuation in
+            let resumeNow = lock.withLock { () -> Bool in
+                if released { return true }
+                held = continuation
+                return false
+            }
+            if resumeNow { continuation.resume() }
+        }
+    }
+
+    func open() {
+        let continuation = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            released = true
+            defer { held = nil }
+            return held
+        }
+        continuation?.resume()
     }
 }

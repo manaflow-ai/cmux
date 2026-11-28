@@ -10,7 +10,7 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { devboxWaitForDaemonCommand } from "../devbox-image-common";
+import { devboxWaitForDaemonCommand } from "./machine-commands";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run } from "./guest";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 

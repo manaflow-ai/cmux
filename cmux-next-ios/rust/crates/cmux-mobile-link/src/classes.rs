@@ -36,6 +36,46 @@ pub const CLASSES_LANE: &str = "classes";
 /// today's frames: `classes` datagrams only, or the stream alone.
 pub const SCREEN_LANE: &str = "classes-screen-v1";
 
+/// One side's class lanes: what it lists ([`ClassLanes::lanes`]) and what
+/// two sides agree ([`ClassLanes::agreed`]). Both dial sides use it, so a
+/// phone and a Mac of different builds always agree the same flags: a lane
+/// only when both listed it, and [`SCREEN_LANE`] only with [`CLASSES_LANE`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ClassLanes {
+    /// [`CLASSES_LANE`]: input and state channels also send datagrams.
+    pub classes: bool,
+    /// [`SCREEN_LANE`]: screen channels send screen datagrams.
+    pub screen: bool,
+}
+
+impl ClassLanes {
+    /// This side's offer; `screen` needs `classes`.
+    pub fn offer(classes: bool, screen: bool) -> Self {
+        Self { classes, screen: classes && screen }
+    }
+
+    /// The lanes this side lists, in order (none without `classes`).
+    pub fn lanes(self) -> Vec<String> {
+        let mut lanes = Vec::new();
+        if self.classes {
+            lanes.push(CLASSES_LANE.to_owned());
+            if self.screen {
+                lanes.push(SCREEN_LANE.to_owned());
+            }
+        }
+        lanes
+    }
+
+    /// What both sides agree, from this side's offer and the lanes the peer
+    /// listed. The answerer lists back exactly this, so the dialer, reading
+    /// that list with its own offer, gets the same.
+    pub fn agreed(self, peer_lanes: &[String]) -> Self {
+        let listed = |name: &str| peer_lanes.iter().any(|lane| lane == name);
+        let classes = self.classes && listed(CLASSES_LANE);
+        Self { classes, screen: classes && self.screen && listed(SCREEN_LANE) }
+    }
+}
+
 /// How a channel's messages are delivered when they also travel as datagrams.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

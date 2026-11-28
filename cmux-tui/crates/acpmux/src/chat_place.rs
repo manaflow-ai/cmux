@@ -10,18 +10,28 @@
 //!
 //! | place | `autoSession` row | set |
 //! | --- | --- | --- |
-//! | local | `auto: false` | `{auto: false}` |
-//! | auto (AutoCloud) | `auto: true, keepInCloud: false` | `{auto: true, keepInCloud: false}` |
-//! | cloud | `auto: true, keepInCloud: true` | `{auto: true, keepInCloud: true}` |
+//! | local | `auto: false` | `{mode: "local"}` |
+//! | auto (AutoCloud) | `auto: true, keepInCloud: false` | `{mode: "auto"}` |
+//! | cloud | `auto: true, keepInCloud: true` | `{mode: "cloud"}` |
+//!
+//! The set is by `mode` (`auto_session/surface.rs`), which also moves the chat: `cloud` takes
+//! it to the Cloud machine now, and `local` brings a chat the Cloud has home before Auto goes
+//! off. The set's `auto` and `keepInCloud` are the row the chat ends in.
 //!
 //! Who may ask ([`consent`]):
 //!
 //! - The person (the app's pane, a proven connection, their own terminal): any move.
 //! - A chat's own agent, for its own chat only: off the Mac (to `auto` or `cloud`, or between the
 //!   two) only while the person's `cloud.autoCloud` setting is on, since that setting is their
-//!   standing yes to the Cloud running their chats. Back to `local` always asks the person: it
-//!   writes into their Mac's folder. A move the agent may not make answers `needs_person` with
-//!   the command the person runs, and changes nothing.
+//!   standing yes to the Cloud running their chats. Back to `local` too ("to and from"): only a
+//!   chat with Auto on is anywhere else, and Auto's own return already brings the Cloud's work
+//!   into the Mac's folder. A move the agent may not make answers `needs_person` with the
+//!   command the person runs, and changes nothing.
+//! - On a Cloud machine, the person's `cloud.autoCloud` setting is theirs to read on the Mac:
+//!   a chat there was sent by the person, which is that yes (`Asker::Agent`'s `auto_cloud`). The
+//!   machine moves a chat it runs home to the laptop that stands by, where it runs as `auto`
+//!   (`cmux chat move --on local` there again makes it this Mac only), or between `cloud` and
+//!   `auto` (the store takes `move` and `keep` from the chat's holder).
 //! - Anyone else's agent, for another chat: refused.
 //!
 //! The agent's half has a kill switch: `CMUX_AGENT_CHAT_MOVE=off` (or `0`, `false`) makes every
@@ -64,8 +74,14 @@ impl Place {
         }
     }
 
-    /// The place a chat's `autoSession` row says it is in (`AutoRecord::row`).
+    /// The place a chat's `autoSession` row says it is in (`AutoRecord::row`): its `mode`, which
+    /// reads `local` from the moment a chat is asked home; for a row with no `mode`, the two
+    /// fields a mode stands for.
     pub fn of_row(row: &Value) -> Self {
+        let mode = row["mode"].as_str();
+        if let Some(place) = Self::ALL.into_iter().find(|place| Some(place.as_str()) == mode) {
+            return place;
+        }
         match (row["auto"].as_bool(), row["keepInCloud"].as_bool()) {
             (Some(true), Some(true)) => Self::Cloud,
             (Some(true), _) => Self::Auto,
@@ -73,13 +89,15 @@ impl Place {
         }
     }
 
-    /// The `_acpmux/auto_session/set` params that put a chat here.
+    /// The `_acpmux/auto_session/set` params that put a chat here: its `mode`, which the set
+    /// reads alone, and the row's two fields the mode stands for.
     pub fn set_params(self, session: &str) -> Value {
-        match self {
-            Self::Local => json!({"sessionId": session, "auto": false}),
-            Self::Cloud => json!({"sessionId": session, "auto": true, "keepInCloud": true}),
-            Self::Auto => json!({"sessionId": session, "auto": true, "keepInCloud": false}),
-        }
+        let (auto, keep) = match self {
+            Self::Local => (false, false),
+            Self::Cloud => (true, true),
+            Self::Auto => (true, false),
+        };
+        json!({"sessionId": session, "mode": self.as_str(), "auto": auto, "keepInCloud": keep})
     }
 }
 
@@ -125,9 +143,9 @@ pub fn consent(from: Place, to: Place, asker: Asker) -> Consent {
             } else if !enabled {
                 Consent::NeedsPerson("agent moves are switched off (CMUX_AGENT_CHAT_MOVE=off)")
             } else if to == Place::Local {
-                Consent::NeedsPerson(
-                    "bringing a chat back to the Mac writes into the person's folder",
-                )
+                // Home: the chat has Auto on (it is not local), whose return writes the Cloud's
+                // work into the folder anyway.
+                Consent::Go
             } else if !auto_cloud {
                 Consent::NeedsPerson("AutoCloud is off in the person's settings (cloud.autoCloud)")
             } else {

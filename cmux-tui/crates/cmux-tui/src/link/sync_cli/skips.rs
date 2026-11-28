@@ -10,6 +10,10 @@ use serde_json::{Value, json};
 /// Most skipped paths a summary lists; the counts cover the rest.
 pub(super) const LISTED: usize = 200;
 
+/// Most ignored paths named (they are collapsed to the top folder, but a project can have many);
+/// the `ignored` count covers the rest, so they never crowd out a secret in [`LISTED`].
+pub(super) const IGNORED_LISTED: usize = 50;
+
 /// Why a path was left out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Why {
@@ -39,6 +43,9 @@ pub(super) enum Why {
     NameNotUtf8,
     /// A dependency or build folder the project rebuilds on the machine.
     Heavy,
+    /// A path the folder's `.gitignore` (or git's other ignore rules) names; it
+    /// stays on this Mac.
+    Ignored,
     /// The name of the sync record itself.
     Reserved,
     /// A pull's merge with conflict markers, kept on this Mac.
@@ -61,6 +68,7 @@ impl Why {
             Self::Special => "special",
             Self::NameTooLong | Self::NameControl | Self::NameNotUtf8 => "name",
             Self::Heavy => "heavy",
+            Self::Ignored => "ignored",
             Self::Reserved | Self::ConflictMerge => "reserved",
         }
     }
@@ -83,6 +91,7 @@ impl Why {
             Self::NameControl => "a name Linux can't hold (control character)",
             Self::NameNotUtf8 => "a name Linux can't hold (not UTF-8)",
             Self::Heavy => "a heavy folder rebuilt on the machine",
+            Self::Ignored => "ignored (by .gitignore; stays on this Mac)",
             Self::Reserved => "the name of the sync record",
             Self::ConflictMerge => "a sync conflict's merge, kept on this Mac",
         }
@@ -98,17 +107,31 @@ pub(super) struct Skips {
     total: u64,
     counts: BTreeMap<&'static str, u64>,
     listed: Vec<(String, Why)>,
+    /// How many [`Why::Ignored`] paths were named.
+    ignored_named: usize,
 }
 
 impl Skips {
     pub(super) fn new(top: &Path) -> Self {
-        Self { top: top.to_path_buf(), total: 0, counts: BTreeMap::new(), listed: Vec::new() }
+        Self {
+            top: top.to_path_buf(),
+            total: 0,
+            counts: BTreeMap::new(),
+            listed: Vec::new(),
+            ignored_named: 0,
+        }
     }
 
     /// `path` (relative to the folder; a folder ends in `/`) was left out.
     pub(super) fn note(&mut self, path: &str, why: Why) {
         self.total += 1;
         *self.counts.entry(why.kind()).or_default() += 1;
+        if why == Why::Ignored {
+            if self.ignored_named >= IGNORED_LISTED {
+                return;
+            }
+            self.ignored_named += 1;
+        }
         if self.listed.len() < LISTED {
             self.listed.push((path.to_string(), why));
         }
@@ -275,6 +298,13 @@ pub(crate) fn credential_folder_of(folder: &str) -> Option<&'static str> {
 /// seed's untracked files: the same rule a plain copy leaves files out by ([`credential`]).
 pub(crate) fn credential_text(relative: &str) -> Option<&'static str> {
     credential(relative, false).map(Why::text)
+}
+
+/// Why the file at `relative` (under `top`) stays on this Mac as a secret, in words: the copy's
+/// own rule ([`secret_at`], then [`credential`]), for a snapshot of the folder
+/// (`seed/snapshot.rs`) that must leave out exactly what the copy does.
+pub(crate) fn secret_text(top: &Path, relative: &str) -> Option<&'static str> {
+    secret_at(top, relative).or_else(|| credential(relative, false)).map(Why::text)
 }
 
 /// The first of [`CREDENTIAL_FOLDERS`] under `home` that the canonical `folder` is in or holds, in any case:

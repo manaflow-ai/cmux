@@ -10,7 +10,6 @@
 //! file goes back where it was. No file is deleted that the snapshot does not replace.
 
 use std::collections::HashSet;
-use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 
 use super::folder::{git, git_with};
@@ -35,9 +34,28 @@ pub(super) struct Aside {
     moved: Vec<Moved>,
 }
 
+#[cfg(unix)]
 fn path_of(bytes: &[u8]) -> PathBuf {
     use std::os::unix::ffi::OsStrExt as _;
     PathBuf::from(std::ffi::OsStr::from_bytes(bytes))
+}
+
+/// Git's paths are UTF-8 on Windows (`core.quotepath` aside), so they read as text there.
+#[cfg(not(unix))]
+fn path_of(bytes: &[u8]) -> PathBuf {
+    PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
+}
+
+/// Whether the file's exec bit is set; Windows has none, so a file there is never executable.
+#[cfg(unix)]
+fn executable(meta: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::PermissionsExt as _;
+    meta.permissions().mode() & 0o111 != 0
+}
+
+#[cfg(not(unix))]
+fn executable(_meta: &std::fs::Metadata) -> bool {
+    false
 }
 
 /// The tree of `head` with `patch` applied, in a scratch index: nothing the person sees changes.
@@ -87,7 +105,7 @@ fn same_as(root: &Path, file: &Path, entry: &Entry) -> bool {
     if !meta.is_file() {
         return false;
     }
-    let exec = meta.permissions().mode() & 0o111 != 0;
+    let exec = executable(&meta);
     if exec != (entry.mode == "100755") || entry.mode == "120000" {
         return false;
     }
@@ -108,7 +126,7 @@ impl Aside {
             let moved = to
                 .parent()
                 .map_or(Ok(()), std::fs::create_dir_all)
-                .and_then(|()| std::fs::rename(&file, &to));
+                .and_then(|()| crate::home_fs::rename(&file, &to));
             if let Err(e) = moved {
                 aside.put_back();
                 return Err(format!("keep {} aside: {e}", entry.path.display()));
@@ -124,7 +142,7 @@ impl Aside {
         let mut kept = Vec::new();
         for moved in self.moved {
             if moved.same {
-                let _ = std::fs::remove_file(&moved.aside);
+                let _ = crate::home_fs::remove_file(&moved.aside);
             } else {
                 kept.push(moved.path);
             }
@@ -136,8 +154,8 @@ impl Aside {
     pub fn put_back(&mut self) {
         for moved in self.moved.drain(..) {
             let file = self.root.join(&moved.path);
-            let _ = std::fs::remove_file(&file);
-            let _ = std::fs::rename(&moved.aside, &file);
+            let _ = crate::home_fs::remove_file(&file);
+            let _ = crate::home_fs::rename(&moved.aside, &file);
         }
     }
 }

@@ -127,10 +127,13 @@ public nonisolated enum TabTunables {
     // @intent Lawrence 2026-11-13: "need to match the X icon on helium in terms of hover too (like roundness of it), should
     // be applied to all densities". Helium's x on its 28 pt tab (2x captures of Helium 0.21.3.1): a 14 pt hover square 6 pt
     // inside the pill's end, 8 pt of ink; the same shares of the tab at every density (`HeliumTabCloseButtonTests`).
-    public static let contentTrailingInset = points("contentTrailingInset", "Tab trailing inset", help: "Inset of the close button from a tab's trailing edge. Default: Helium's 6 on a 28 pt tab.") {
-        BrowserChromeTuning.value(.closeTrailing)
+    // Unset, the x's center sits half the tab's height from its end, for the close button actually drawn, so its hover
+    // plate is concentric with the tab (`BrowserChromeTuning.closePlate`).
+    public static let contentTrailingInset = points("contentTrailingInset", "Tab trailing inset", help: "Inset of the close button's slot from a tab's trailing edge. Default: its center half the tab's height in.") {
+        BrowserChromeTuning.override(.closeTrailing) ?? Metrics.densityToken("tabTrailingInset")
+            ?? BrowserChromeTuning.concentricTrailing(row: Metrics.tabHeight, closeSize: closeButtonSize.value)
     }
-    public static let closeButtonSize = points("closeButtonSize", "Close button size", help: "Side of a tab's close button (its hover square). Default: Helium's 14 on a 28 pt tab.") {
+    public static let closeButtonSize = points("closeButtonSize", "Close button size", help: "Side of a tab's close button slot; its hover plate is at least this. Default: Helium's 14 on a 28 pt tab.") {
         BrowserChromeTuning.value(.closeSize)
     }
     public static let closeGlyphSize = points("closeGlyphSize", "Close glyph size", help: "Side of the x's ink inside the close button. Default: Helium's 8 on a 28 pt tab.") {
@@ -254,6 +257,11 @@ public nonisolated enum TabTunables {
         "tabs.trailingButtons", .tabs, "Tab bar buttons",
         help: "How the tab bar's plus, pane-type chevron and More look and show hover.",
         default: .split, code: "TabTunables.trailingButtons")
+    /// The trailing controls' look in use: the tunable's, unless `appearance.toolbarButtonStyle` asks for bare glyphs
+    /// (plain) or for the pane's pill (grouped, glass), where a fill per button would stack on the pill.
+    @MainActor public static var effectiveTrailingButtons: TabTrailingButtons {
+        DesignSettings.shared.toolbarButtonStyle == .standard ? trailingButtons.value : .glyphs
+    }
     // @intent Leo 2026-10-22 (ask-a8b97f1201): one mark for a busy tab with unread output, not the dot and the
     // spinner side by side; the tab bar playground's Busy + Unread page compares the looks.
     public static let busyUnreadMark = Tunable<TabBusyUnreadMark>.choice(
@@ -273,5 +281,6 @@ public nonisolated enum TabTunables {
             + [separators.descriptor, pinnedDivider.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, crowdedControls.descriptor,
                crowdedControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
                hoverPreviews.descriptor, hoverCardEntrance.descriptor, hoverCardRetarget.descriptor, loadingAnimation.descriptor, busyUnreadMark.descriptor, statusMarkPlacement.descriptor, trailingButtons.descriptor, chevronOnHover.descriptor] + VerticalTabTunables.all
+            + GooTunables.all // the gooey tabs' knobs, a section per level (plans/cmux-next/gooey-tabs.md, "Knobs")
     }
 }

@@ -279,3 +279,27 @@ async fn a_connection_that_ends_during_a_restart_closes_with_1012() {
         other => panic!("a restart closed a connection with {other:?}"),
     }
 }
+
+/// A keeper's copy of the web listener keeps admitting after this daemon closes its own
+/// (2026-11-25: the shutdown stopped the shared socket, the next daemon's accept failed EINVAL
+/// and the web port moved). An unkept close still stops admission on Linux.
+#[cfg(unix)]
+#[tokio::test]
+async fn closing_a_kept_listener_leaves_the_keepers_copy_listening() {
+    use std::os::fd::AsFd as _;
+    for kept in [true, false] {
+        let std_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = std_listener.local_addr().unwrap().port();
+        let copy: std::net::TcpListener = std_listener.as_fd().try_clone_to_owned().unwrap().into();
+        std_listener.set_nonblocking(true).unwrap();
+        close_admission_unless_kept(tokio::net::TcpListener::from_std(std_listener).unwrap(), kept);
+        let connected = std::net::TcpStream::connect(("127.0.0.1", port)).is_ok();
+        copy.set_nonblocking(true).unwrap();
+        let accepted = copy.accept().is_ok();
+        if kept {
+            assert!(connected && accepted, "the kept copy admits and accepts");
+        } else if cfg!(target_os = "linux") {
+            assert!(!accepted, "an unkept close stops admission");
+        }
+    }
+}

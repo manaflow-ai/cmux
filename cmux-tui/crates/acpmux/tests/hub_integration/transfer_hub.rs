@@ -314,8 +314,13 @@ async fn a_folder_outside_the_targets_roots_is_refused_and_the_chat_stays_frozen
     assert_eq!(here["moving"], true, "frozen on A: {here}");
     assert_eq!(texts(&mut src, &id, "user_message").await, ["hi", "until-cancel"]);
 
-    // A daemon with no webRoots takes no moved chat at all.
-    b.config.write().await.web_roots.clear();
+    // A daemon with no webRoots that is not a VM host (a Mac, or `vmHost: false`) takes no
+    // moved chat at all.
+    {
+        let mut cfg = b.config.write().await;
+        cfg.web_roots.clear();
+        cfg.vm_host = Some(false);
+    }
     let ack =
         hook(ledger.path(), &["move"]).control(&b, &move_message("m-6", "user-1", &body)).await;
     let ack = ack_json(&ack.unwrap());
@@ -586,4 +591,80 @@ async fn a_manifest_that_fits_still_goes_inline_as_version_1() {
     assert_eq!(sent[0]["version"], 1, "{}", sent[0]);
     assert_eq!(sent[0]["manifest"], begin, "inline");
     assert!(sent[0].get("manifestPull").is_none());
+}
+
+/// B's hub as its relay sees it: it takes heartbeats and keeps the session ids each listed; its
+/// inbox stays empty.
+#[derive(Default)]
+struct Beats {
+    listed: std::sync::Mutex<Vec<Vec<String>>>,
+}
+
+impl MeshHub for Beats {
+    fn send<'a>(&'a self, _: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        unreachable!("B sends nothing here")
+    }
+    fn inbox(&self, wait: Duration, _: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+        Box::pin(async move {
+            tokio::time::sleep(wait).await;
+            Ok(Vec::new())
+        })
+    }
+    fn ack<'a>(&'a self, _: &'a str, _: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+        unreachable!("nothing is delivered here")
+    }
+    fn receipt<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        unreachable!("B sends nothing here")
+    }
+    fn heartbeat<'a>(
+        &'a self,
+        beat: &'a Heartbeat,
+    ) -> BoxFuture<'a, Result<HeartbeatReply, HubError>> {
+        let ids = beat.sessions.iter().map(|r| r.session_id.clone()).collect();
+        self.listed.lock().unwrap().push(ids);
+        Box::pin(async { Ok(HeartbeatReply { daemon_id: "inst_b".into(), ttl_seconds: 90 }) })
+    }
+}
+
+/// The hub routes `HOST/NAME` only to a session a heartbeat listed: a chat moved in through it
+/// is listed before the move answers, so the source addresses it as `HOST/NAME` the moment its
+/// move ends. Before, the listing waited for B's next timed heartbeat (30 s), and the source's
+/// `last`/`send` right after the move found no session (session-move-gcp, 2026-11-26).
+#[tokio::test]
+async fn a_chat_moved_through_the_hub_is_listed_on_the_mesh_before_the_move_answers() {
+    use acpmux::server::mesh_relay::{MeshRelay, RelayOptions};
+    let root = Scratch::home("listed");
+    let ledger = tempfile::tempdir().unwrap();
+    let (_a, mut src, b, _dst) = machines(&root, B_KEY).await;
+    let beats = Arc::new(Beats::default());
+    // B's heartbeat timer is far past the test: only the move's own heartbeat can list the chat.
+    let options = RelayOptions {
+        heartbeat_every: Duration::from_secs(60),
+        inbox_wait: Duration::from_millis(200),
+        min_poll_gap: Duration::from_millis(100),
+        ..RelayOptions::default()
+    };
+    let relay =
+        MeshRelay::start(&b, beats.clone(), Arc::new(hook(ledger.path(), &["move"])), options);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while beats.listed.lock().unwrap().is_empty() {
+        assert!(tokio::time::Instant::now() < deadline, "B never sent its first heartbeat");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let id = busy_chat(&mut src, &[("p-a", "a")]).await;
+    let (_, body) = begin(&mut src, &id, json!({"cwd": root.text()})).await;
+    assert!(
+        !beats.listed.lock().unwrap().iter().flatten().any(|s| *s == id),
+        "B listed the chat before it moved"
+    );
+
+    let ack =
+        hook(ledger.path(), &["move"]).control(&b, &move_message("m-1", "user-1", &body)).await;
+    let ack = ack_json(&ack.expect("an answer within the hook's wait"));
+    assert_eq!(ack["state"], "delivered", "{ack}");
+    let listed = beats.listed.lock().unwrap().last().cloned().unwrap_or_default();
+    assert!(listed.contains(&id), "the moved chat is not in B's last heartbeat: {listed:?}");
+    let moved: Value = serde_json::from_str(ack["result"].as_str().unwrap()).unwrap();
+    assert!(moved["timings"]["listedMs"].is_u64(), "{moved}");
+    relay.stop().await;
 }

@@ -121,3 +121,18 @@ fn a_folder_without_a_file_uses_cmuxs_system_and_a_broken_one_says_so() {
     std::fs::write(dir.path().join(FILE), [0xff, 0xfe, 0x00]).unwrap();
     assert_eq!(System::load(dir.path()).1.map(|f| f.check), Some("system"));
 }
+
+#[test]
+fn cmux_space_is_the_sdk_space_from_the_app_scales() {
+    // scene-scale.json is the SDK's SPACE and the check's alike (gen-type-scale.py writes tokens.ts
+    // from it), so an extension spaced by SPACE passes the check.
+    let space = System::cmux().space;
+    assert_eq!(space, vec![0.0, 2.0, 4.0, 6.0, 8.0, 12.0, 16.0, 20.0, 24.0, 32.0, 48.0]);
+    let tokens = include_str!("../../../../cmux-extension-sdk/typescript/src/tokens.ts");
+    let line = tokens.lines().find(|line| line.starts_with("export const SPACE = ")).unwrap();
+    let values: Vec<f64> = line
+        .split(", ")
+        .filter_map(|pair| pair.rsplit(": ").next()?.trim_end_matches(" } as const").parse().ok())
+        .collect();
+    assert_eq!(values, space, "{line}");
+}

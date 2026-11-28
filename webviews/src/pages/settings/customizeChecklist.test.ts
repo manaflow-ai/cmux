@@ -10,6 +10,7 @@ import {
   settingGroup,
   setupEntryName,
   shortLine,
+  sidebarLookOf,
   stripJsonComments,
   toggleRowsByGroup,
   totals,
@@ -152,6 +153,50 @@ test("one search filters every group by title, line, detail or key; counts stay 
   expect(filterGroups(groups, "nothing like this")).toEqual([]);
 });
 
+test("each sidebar look but the default is one switch in Looks; only the one picked is on", () => {
+  const look = {
+    ...row("sidebar.look", "choice"),
+    title: { text: "Sidebar Look" },
+    help: { text: "Rows, headers and status marks like another app's sidebar. Your own settings still win." },
+    default: "cmux",
+    keywords: ["minimal"],
+    choices: [
+      { value: "cmux", title: { text: "cmux" } },
+      { value: "claude", title: { text: "Claude" } },
+      { value: "rex", title: { text: "Rex" } },
+    ],
+  } as SchemaRow;
+  const picked = (value: unknown) =>
+    checklistGroups(input({ sidebarLook: look, value: (key) => (key === "sidebar.look" ? value : false) }))
+      .find((group) => group.id === "looks")!
+      .items.filter((item) => sidebarLookOf(item) !== null);
+  // The default look (today's sidebar) has no switch and leaves every switch off.
+  expect(picked("cmux").map((item) => [item.id, item.title, item.on])).toEqual([
+    ["sidebar.look=claude", "Sidebar Look: Claude", false],
+    ["sidebar.look=rex", "Sidebar Look: Rex", false],
+  ]);
+  expect(picked(undefined).some((item) => item.on)).toBe(false);
+  expect(picked("rex").map((item) => item.on)).toEqual([false, true]);
+  expect(picked("rex")[1]!.help).toBe("Rows, headers and status marks like another app's sidebar.");
+  expect(sidebarLookOf({ id: "sidebar.look=rex" })).toBe("rex");
+  expect(sidebarLookOf({ id: "look:manaflow-ai/ember-look" })).toBeNull();
+  // Search finds it by its key, its value or the row's keywords; a managed key locks every one.
+  const groups = checklistGroups(
+    input({ sidebarLook: look, locked: (key) => (key === "sidebar.look" ? "Managed" : null) }),
+  );
+  expect(filterGroups(groups, "minimal rex").flatMap((group) => group.items.map((item) => item.id))).toEqual([
+    "sidebar.look=rex",
+  ]);
+  expect(
+    groups
+      .find((group) => group.id === "looks")!
+      .items.filter((item) => sidebarLookOf(item) !== null)
+      .map((item) => item.locked),
+  ).toEqual(["Managed", "Managed"]);
+  // No row (a build whose page hides it) adds nothing.
+  expect(checklistGroups(input()).find((group) => group.id === "looks")!.items).toHaveLength(2);
+});
+
 test("verified looks are every looks/ and recipes/ setup, sorted, but not one the index holds back", () => {
   const looks = verifiedLooks(
     index,
@@ -202,11 +247,26 @@ test("a line under a title fits 60 characters: the words, else their first sente
 test("unmerged code in the build is its own group, one switch each, worded by the standup line", () => {
   const pr: LibraryEntry = {
     ...entry("pr-43496", true),
-    code: { pr: 43496, repo: "manaflow-ai/cmux", title: "Cat icon", note: "in your build" },
+    code: {
+      pr: 43496,
+      repo: "manaflow-ai/cmux",
+      title: "Cat icon",
+      head: "9c1e2f0",
+      base: "36316c1",
+      note: "in your build",
+    },
   };
   const branch: LibraryEntry = {
     ...entry("branch-lane-cat", false),
-    code: { kind: "branch", repo: "manaflow-ai/cmux", source: "lane/cat" },
+    code: {
+      kind: "branch",
+      repo: "manaflow-ai/cmux",
+      source: "lane/cat",
+      pr: 0,
+      title: "",
+      head: "4b7d0aa",
+      base: "36316c1",
+    },
   };
   const groups = checklistGroups(
     input({

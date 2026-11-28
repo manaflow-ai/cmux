@@ -344,6 +344,44 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
       await page.close();
     });
 
+    // Lucas, 2026-11-27: "a weird vertical layout shift on 'Type your answer', when clicking into that".
+    // The field had a 24 px least height around an 18 px line, and a textarea draws its words at the
+    // top of its box, so they rose 3 px when the button turned into the field.
+    test("clicking Type your answer keeps the words on the same line", async () => {
+      const page = await pendingQuestion();
+      const choice = page.locator(".acpmux-question-footer .acpmux-question-other-choice");
+      const label = await choice.locator(".acpmux-question-label").evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        return { top: box.top, left: box.left, height: box.height };
+      });
+      await choice.click();
+      const field = await page.locator(".acpmux-question-footer textarea").evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return {
+          top: box.top + parseFloat(style.paddingTop) + parseFloat(style.borderTopWidth),
+          left: box.left + parseFloat(style.paddingLeft) + parseFloat(style.borderLeftWidth),
+          height: box.height,
+          line: parseFloat(style.lineHeight),
+        };
+      });
+      expect(field.top).toBeCloseTo(label.top, 1);
+      expect(field.left).toBeCloseTo(label.left, 1);
+      expect(field.height).toBeCloseTo(field.line, 1);
+      await page.close();
+    });
+
+    test("option rows keep 4 px between them", async () => {
+      const page = await pendingQuestion();
+      const gaps = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll(".acpmux-question-body .acpmux-question-row")];
+        return rows.slice(1).map((row, i) => row.getBoundingClientRect().top - rows[i]!.getBoundingClientRect().bottom);
+      });
+      expect(gaps.length).toBeGreaterThan(0);
+      for (const gap of gaps) expect(gap).toBeCloseTo(4, 1);
+      await page.close();
+    });
+
     test("Other takes a typed answer, which ⌘↩ sends", async () => {
       const page = await pendingQuestion();
       await page.keyboard.press("4");

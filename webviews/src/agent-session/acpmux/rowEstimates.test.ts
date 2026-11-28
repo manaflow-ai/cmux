@@ -28,7 +28,7 @@ import {
 import { turnView } from "./conversation/turns";
 import { SENT_IMAGE_HEIGHT } from "./conversation/userBubbleModel";
 import { COLLAPSED_PROMPT_LINES, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
-import { currentChatMetrics, chatDisplay, drawnFontSize } from "./chatDisplay";
+import { chatDisplay, currentChatMetrics, drawnFontSize } from "./chatDisplay";
 import { gridLength, TRANSCRIPT_FOOTER_CONTROL, TRANSCRIPT_LINE_ROW } from "./transcriptGrid";
 import { setComposerSettings } from "./composerSettings";
 
@@ -198,12 +198,11 @@ test("a live footer slot keeps short, long, and tool-ending turns at the settled
     const live = turnView(source as never, new Set(), {
       now: 3_000,
       working: true,
-      sessionStatus: true,
     });
     const settled = turnView(
       [...source, { id: "s", version: 1, at: 3_000, kind: "turnSummary", status: "completed", text }] as never,
       new Set(),
-      { now: 4_000, sessionStatus: true },
+      { now: 4_000 },
     );
     expect(live.at(-1)).toMatchObject({ below: true });
     expect(settled.at(-1)).toMatchObject({ kind: "turnSummary" });
@@ -216,7 +215,6 @@ test("a live footer slot keeps short, long, and tool-ending turns at the settled
   const liveSource = [
     { id: "u", version: 1, at: 1_000, kind: "user", text: "Run it" },
     { id: "a", version: 1, at: 2_000, kind: "assistant", text: "The command is ready." },
-    { id: "p", version: 1, at: 3_000, kind: "plan", plan: [{ content: "Run", status: "in_progress" }] },
     {
       id: "t",
       version: 1,
@@ -228,7 +226,6 @@ test("a live footer slot keeps short, long, and tool-ending turns at the settled
   const live = turnView(liveSource as never, new Set(), {
     now: 5_000,
     working: true,
-    sessionStatus: true,
   });
   const settledSource = [
     ...liveSource.slice(0, -1),
@@ -240,9 +237,8 @@ test("a live footer slot keeps short, long, and tool-ending turns at the settled
   ];
   const settled = turnView(settledSource as never, new Set(), {
     now: 6_000,
-    sessionStatus: true,
   });
-  expect(live.at(-1)).toMatchObject({ kind: "activityLine", below: true });
+  expect(live.at(-1)).toMatchObject({ below: true });
   expect(settled.at(-1)).toMatchObject({ kind: "turnSummary" });
   expect(layoutConversation(live, 720).heights.at(-1)).toBe(TRANSCRIPT_FOOTER_CONTROL);
   expect(layoutConversation(settled, 720).heights.at(-1)).toBe(TRANSCRIPT_FOOTER_CONTROL);
@@ -785,11 +781,11 @@ test("the first layout reserves every question option before placing the reply b
   const two = layoutConversation([questionAsk(2), reply("after", "Next")] as AcpmuxRow[], 720);
   const five = layoutConversation([questionAsk(5), reply("after", "Next")] as AcpmuxRow[], 720);
   // The card's 8 px inset, the 28 px "Needs your input" line, the question as a 14/20 title, 36 px
-  // rows 2 px apart, then the 36 px last row under its 8 px gap (question/questionCard.css).
+  // rows 4 px apart, then the 36 px last row under its 8 px gap (question/questionCard.css).
   const title = drawnFontSize(chatDisplay()) * (20 / 14);
-  expect(two.heights[0]).toBeCloseTo(16 + 28 + 2 + title + 8 + (2 * 36 + 2) + 8 + 36);
-  expect(five.heights[0]! - two.heights[0]!).toBe(3 * 38);
-  expect(five.tops[1]! - two.tops[1]!).toBe(3 * 38);
+  expect(two.heights[0]).toBeCloseTo(16 + 28 + 2 + title + 8 + (2 * 36 + 4) + 8 + 36);
+  expect(five.heights[0]! - two.heights[0]!).toBe(3 * 40);
+  expect(five.tops[1]! - two.tops[1]!).toBe(3 * 40);
 });
 
 test("question estimates follow description wrapping at the actual column width", () => {

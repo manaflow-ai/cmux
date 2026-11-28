@@ -130,6 +130,7 @@ class CrashRatchetCompare(unittest.TestCase):
 
 
 RATCHET = os.path.join(HERE, "..", "scripts", "cmux-next", "crash_ratchet.py")
+TEST_MODULES = os.path.join(HERE, "..", "scripts", "cmux-next", "rust_test_modules.py")
 GRANDFATHERED = "Packages/macOS/CmuxNext/Sources/M/A.swift"
 
 
@@ -306,7 +307,8 @@ class FixtureRepo:
         self.tmp = tempfile.mkdtemp()
         self.addCleanup(lambda: subprocess.run(["rm", "-rf", self.tmp]))
         self.repo = os.path.join(self.tmp, "repo")
-        for rel, src in (("scripts/cmux-next/crash_ratchet.py", RATCHET), ("scripts/ci/crash_ratchet_compare.py", COMPARE)):
+        for rel, src in (("scripts/cmux-next/crash_ratchet.py", RATCHET), ("scripts/ci/crash_ratchet_compare.py", COMPARE),
+                         ("scripts/cmux-next/rust_test_modules.py", TEST_MODULES)):
             with open(src) as f:
                 self.write(rel, f.read())
         self.write("cmux-tui/crates/x/src/lib.rs", "pub fn f() {}\n")
@@ -432,6 +434,100 @@ class BaselineOnlyGoesDown(FixtureRepo, unittest.TestCase):
         self.assertEqual(rc, 1, out)
         self.assertIn("swift N: dynamic_dispatch 1 -> 2", out)
         self.assertEqual(self.baseline()["swift"]["dynamic_dispatch"], {"N": 1, "K": 2})
+
+
+LIB = "cmux-tui/crates/x/src/lib.rs"
+# A mid-file inline test module, then product code with one non-test expect (lane/inline-tests-sweep-8, 2026-11-27:
+# the old cut at the first test module hid cmux-tui-core's workspace_registry.rs expect, and the sweep that moved the
+# module out read as adding it).
+MID_FILE = """#[cfg(test)]
+pub(crate) mod seams {
+    fn t() { None::<u8>.expect("test"); }
+    const OPEN: char = '{';
+    const S: &str = "}";
+}
+pub fn live() -> u8 {
+    Some(1).expect("live")
+}
+#[cfg(test)]
+mod tests {
+    fn t() { None::<u8>.expect("test"); }
+}
+"""
+
+
+class MidFileTestModules(FixtureRepo, unittest.TestCase):
+    """Only an inline test module's own block is test code: product code after it counts, and a baseline may record
+    the hits the old cut hid in the base tree (recorded, not added) and nothing more."""
+
+    def setUp(self):
+        self.make_repo()
+
+    def judge_against(self, base_sha):
+        base = os.path.join(self.tmp, "base")
+        os.makedirs(base)
+        archive = subprocess.run(["git", "-C", self.repo, "archive", "--format=tar", base_sha],
+                                 check=True, capture_output=True).stdout
+        subprocess.run(["tar", "-x", "-C", base], input=archive, check=True)
+        return self.run_ratchet("--baseline-against", base)
+
+    def rust_row(self, kind="expect", crate="x"):
+        return self.baseline().get("rust", {}).get(kind, {}).get(crate, 0)
+
+    def test_product_code_after_a_mid_file_test_module_counts(self):
+        self.write(LIB, MID_FILE)
+        self.commit("base", update_baseline=True)
+        self.assertEqual(self.rust_row(), 1)
+        # Moving the test modules out of the file adds nothing.
+        self.write(LIB, "#[cfg(test)]\nmod seams;\npub fn live() -> u8 {\n    Some(1).expect(\"live\")\n}\n")
+        self.write("cmux-tui/crates/x/src/seams.rs", "fn t() { None::<u8>.expect(\"test\"); }\n")
+        rc, out = self.run_ratchet()
+        self.assertEqual(rc, 0, out)
+
+    def old_cut_base(self):
+        """A base whose baseline the old cut wrote: the expect after the mid-file test module was not counted."""
+        self.write(LIB, MID_FILE)
+        self.git("add", "-A")
+        env = {**os.environ, "CRASH_RATCHET_OLD_CUT": "1"}
+        out = subprocess.run([sys.executable, self.ratchet, "--repo", self.repo, "--update-baseline"],
+                             capture_output=True, text=True, env=env)
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertEqual(self.rust_row(), 0)
+        return self.commit("base")
+
+    def test_ci_accepts_a_row_recording_hits_the_old_cut_hid(self):
+        base = self.old_cut_base()
+        data = self.baseline()
+        data.setdefault("rust", {}).setdefault("expect", {})["x"] = 1
+        with open(self.baseline_path, "w") as f:
+            json.dump(data, f, indent=1, sort_keys=True)
+        rc, out = self.judge_against(base)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("recorded: rust x: expect base row 0, head 1", out)
+
+    def test_ci_refuses_a_row_above_what_the_old_cut_hid(self):
+        base = self.old_cut_base()
+        data = self.baseline()
+        data.setdefault("rust", {}).setdefault("expect", {})["x"] = 2
+        with open(self.baseline_path, "w") as f:
+            json.dump(data, f, indent=1, sort_keys=True)
+        rc, out = self.judge_against(base)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("baseline raised: rust x: expect base 0, head 2", out)
+
+    def test_ci_does_not_record_a_hit_the_base_was_red_on(self):
+        # A hit before any test module was counted by the old cut too: a base red on it records nothing.
+        self.write(LIB, "pub fn f() {}\n")
+        self.commit("baseline", update_baseline=True)
+        self.write(LIB, "pub fn f() -> u8 { Some(1).expect(\"red\") }\n")
+        red = self.commit("adds a hit past the baseline")
+        data = self.baseline()
+        data.setdefault("rust", {}).setdefault("expect", {})["x"] = 1
+        with open(self.baseline_path, "w") as f:
+            json.dump(data, f, indent=1, sort_keys=True)
+        rc, out = self.judge_against(red)
+        self.assertEqual(rc, 1, out)
+        self.assertNotIn("recorded:", out)
 
 
 class CrashRatchetCIStepTests(FixtureRepo, unittest.TestCase):

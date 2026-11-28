@@ -154,6 +154,7 @@ async fn route(cloud: &FakeAutoCloud, call: &Call) -> CloudResult<(u16, Vec<u8>)
         Kind::Get => session(cloud.get(id).await?),
         Kind::Lease => json(&cloud.lease(id, &body(call)?).await?),
         Kind::Release => session(cloud.release(id, &body(call)?).await?),
+        Kind::Give => session(cloud.give(id, &body(call)?).await?),
         Kind::EventsAppend => {
             json(&EventsAppended { last_seq: cloud.append_events(id, &body(call)?).await? })
         }
@@ -174,6 +175,11 @@ async fn route(cloud: &FakeAutoCloud, call: &Call) -> CloudResult<(u16, Vec<u8>)
         Kind::Inbox => json(&InboxPage { messages: cloud.inbox(id, call.after).await? }),
         Kind::InboxAck => session(cloud.ack_inbox(id, &body(call)?).await?),
         Kind::AssignmentAck => session(cloud.ack_assignment(id, &body(call)?).await?),
+        Kind::Move => session(cloud.move_(id, &body(call)?).await?),
+        Kind::Keep => {
+            let keep = call.body.as_ref().and_then(|body| body["keepInCloud"].as_bool());
+            session(cloud.keep(id, keep.unwrap_or_default()).await?)
+        }
     }
 }
 

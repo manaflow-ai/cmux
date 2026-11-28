@@ -392,6 +392,46 @@ const PLAN = {
   usage: { active: 2, saved: 3, vm_hours_used: 41.5, period_end: 1792000000000 }
 }
 kase("plan.get", "cloud.plan.get", {}, [readOk("cloud.plan.get", PLAN, "12")])
+// ---- the team's allotment (Settings Compute card)
+const ALLOTMENT: Json = {
+  allotment: { commit_micros: 300_000_000, mode: "ask", auto_max_micros: null, tiers: { user_vec_1: "plus" }, snoozed_until: null, changed_at: 1791000000000, changed_by: "user_vec_1" },
+  decision: {
+    allot_micros: 400_000_000,
+    forecast_micros: 352_000_000,
+    position: "up",
+    to_commit_micros: 350_000_000,
+    reasons: [
+      { kind: "over", member: "user_vec_1", count: 3 },
+      { kind: "unused", members: ["user_vec_2"] }
+    ],
+    members: [
+      { member: "user_vec_1", tier: "plus", month_micros: 96_000_000, usd14_micros: 61_000_000, active_days14: 12, share_micros: 200_000_000, rank: 0.61, over_share14: 3, plan_limit_ms14: 0, spare_micros: 2_000_000 },
+      { member: "user_vec_2", tier: "standard", month_micros: 0, usd14_micros: 0, active_days14: 0, share_micros: 200_000_000, rank: 0, over_share14: 0, plan_limit_ms14: 0, spare_micros: 0 }
+    ],
+    order: ["user_vec_1", "user_vec_2"],
+    apply: false
+  },
+  advice: {
+    position: "hold",
+    seats: 2,
+    to_seats: 2,
+    window_hours: 336,
+    floor: 1,
+    burst: 2,
+    peak: 2,
+    lendable: 1,
+    ceiling_hours7: 0,
+    used_minutes: 4100,
+    seat_minutes: 40320,
+    reason: { kind: "fits" },
+    summary: "2 machines fit the last 14 days",
+    members: [{ member: "user_vec_1", minutes: 4100, seat_percent: 20.3, active_hours: 80, floor: 1, burst: 2 }]
+  },
+  hard_cap_micros: 500_000_000,
+  as_of: 1791500000000,
+  names: { user_vec_1: "Ada", user_vec_2: "Sam" }
+}
+kase("allotment.get", "cloud.allotment.get", {}, [readOk("cloud.allotment.get", ALLOTMENT, "14")])
 // The team's usage this month, priced by the billing owner: 10 vCPU-hours, 20 GiB-hours awake, 30 GiB-days held.
 const USAGE = {
   period: "2026-11",

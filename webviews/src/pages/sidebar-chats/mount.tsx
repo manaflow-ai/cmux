@@ -7,13 +7,21 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { isPageError, type PageClient } from "../shared/pageClient";
 import {
+  answers,
+  blockHeight,
+  drawnBlock,
   NO_BLOCK,
+  type SidebarChatsOpenRows,
+  type SidebarChatsPending,
   parseBlock,
   parseSlice,
   SidebarChatsOps,
   type SidebarChatsBlock,
   type SidebarChatsSlice,
   type SidebarChatsStrings,
+  parseVisibleSlice,
+  SIDEBAR_CHATS_PARTS,
+  sliceSurface,
 } from "./model";
 import { SidebarChats } from "./SidebarChats";
 
@@ -23,6 +31,9 @@ export interface MountedSidebarChats {
   /** Mounts only the rows near `slice` (the host's slice stream calls this). It windows only the block whose
    * revision it names: an older one is dropped, a newer one waits for exactly that block. */
   showSlice(slice: SidebarChatsSlice): void;
+  /** The same from `cmux.page.visibleSlice` for `surface`: only the drawn block's surface windows it, and once one
+   * arrives for a surface, `showSlice` (the old wire) no longer windows that surface's block. */
+  showVisibleSlice(surface: string, slice: SidebarChatsSlice): void;
   /** The block drawn now (null before the first). */
   readonly block: SidebarChatsBlock | null;
   unmount(): void;
@@ -55,28 +66,68 @@ export function mountSidebarChats(
   // The slice the drawn rows were windowed by: measured on the drawn block, or on an earlier drawn block
   // (it holds across blocks until the next one; the host sends one after each push).
   let slice: SidebarChatsSlice | null = null;
-  // A slice naming a block not drawn yet; it windows only a block with exactly its revision, if that comes next.
-  let early: SidebarChatsSlice | null = null;
+  // Slices naming a block not drawn yet, the latest per surface (null: the old wire, which names none); one windows
+  // only a block with exactly its revision, if that comes next, and of its surface. Before its first block the page
+  // hears both surfaces, so one slot for all would let the other surface's slice drop this page's own.
+  const early = new Map<string | null, SidebarChatsSlice>();
+  // The surfaces a `cmux.page.visibleSlice` slice arrived for: the old wire's slices no longer window their block.
+  const generic = new Set<string>();
+  // Whether a slice from `surface` (null: the old wire, which names none) may window a block of `part`.
+  const windows = (surface: string | null, part: SidebarChatsBlock["part"]) =>
+    surface === null ? !generic.has(sliceSurface(part)) : surface === sliceSurface(part);
   let cancelReady: (() => void) | null = null;
+  // The fold or Show More drawn before the host's answer, and what Earlier last listed open (an unfold's rows).
+  let pending: SidebarChatsPending | null = null;
+  let open: SidebarChatsOpenRows | null = null;
 
-  const send = (op: string, params: Record<string, unknown>) => {
+  const send = (op: string, params: Record<string, unknown>, onSettled?: (ok: boolean) => void) => {
     if (!client || !block) return;
-    void client.call(op, { revision: block.revision, ...params }).catch((error: unknown) => {
-      console.error(`sidebar chats: ${op} failed`, error);
+    void client.call(op, { revision: block.revision, ...params }).then(
+      () => onSettled?.(true),
+      (error: unknown) => {
+        console.error(`sidebar chats: ${op} failed`, error);
+        onSettled?.(false);
+      },
+    );
+  };
+
+  /** Draws `next` at once and sends `op`: the host's block replaces it when it answers (`answers`); a refused
+   * call takes it back. */
+  const sendAhead = (op: string, next: SidebarChatsPending) => {
+    if (!client || !block) return;
+    pending = next;
+    flushSync(render);
+    send(op, {}, (ok) => {
+      if (pending !== next) return;
+      if (ok) next.answered = true;
+      else {
+        pending = null;
+        if (block) flushSync(render);
+      }
     });
   };
 
   // Made once: the memoized rows keep them across blocks (`send` reads the block drawn at the click).
   const onOpen = (chat: string) => send(SidebarChatsOps.open, { chat });
-  const onFold = () => send(SidebarChatsOps.fold, {});
-  const onMore = () => send(SidebarChatsOps.more, {});
+  const onFold = () => {
+    if (!block) return;
+    sendAhead(SidebarChatsOps.fold, {
+      kind: "fold",
+      folded: !drawnBlock(block, pending, open).folded,
+      answered: false,
+    });
+  };
+  const onMore = () => {
+    if (!block) return;
+    sendAhead(SidebarChatsOps.more, { kind: "more", rows: block.rows.length, answered: false });
+  };
   const onMenu = (chat: string, point: { x: number; y: number }) => send(SidebarChatsOps.menu, { chat, point });
 
   const render = () => {
     reactRoot.render(
       block ? (
         <SidebarChats
-          block={block}
+          block={drawnBlock(block, pending, open)}
           slice={slice}
           strings={strings}
           onOpen={onOpen}
@@ -97,8 +148,10 @@ export function mountSidebarChats(
     cancelReady = nextFrame(() => {
       cancelReady = null;
       if (!block || block.revision !== revision) return;
+      // While a fold or Show More waits for its answer, the page draws ahead of `revision`: report that
+      // revision's own height, the one the host's layout reserves for it.
       const drawn = root.querySelector<HTMLElement>(".sc-block");
-      const height = drawn ? Math.ceil(drawn.getBoundingClientRect().height) : 0;
+      const height = pending ? blockHeight(block) : drawn ? Math.ceil(drawn.getBoundingClientRect().height) : 0;
       send(SidebarChatsOps.ready, { height });
     });
   };
@@ -107,18 +160,22 @@ export function mountSidebarChats(
     // A block older than the one drawn (a reordered event) changes nothing.
     if (block && next.revision <= block.revision) return;
     block = next;
-    // A slice sent ahead of this block windows it only if it names this block; any other is dropped.
-    if (early?.revision === next.revision) slice = early;
-    early = null;
+    if (pending && answers(pending, next)) pending = null;
+    if (next.part === "earlier" && !next.folded) open = { rows: next.rows, tail: next.tail };
+    // A slice sent ahead of this block windows it only if it names this block and its surface; every other is
+    // dropped. At most one matches: a surface with a generic slice held is in `generic`, so the old wire's does not.
+    for (const [surface, held] of early)
+      if (held.revision === next.revision && windows(surface, next.part)) slice = held;
+    early.clear();
     flushSync(render);
     scheduleReady();
   };
 
-  const showSlice = (next: SidebarChatsSlice) => {
+  const applySlice = (next: SidebarChatsSlice, surface: string | null) => {
     // A slice windows only the block it was measured on. One for a block not drawn yet waits for exactly
     // that block (`show`); one for an older block changes nothing.
     if (!block || next.revision > block.revision) {
-      early = next;
+      early.set(surface, next);
       return;
     }
     if (next.revision < block.revision) return;
@@ -126,6 +183,20 @@ export function mountSidebarChats(
     slice = next;
     // No ready: the slice changes which rows mount, never the block's height.
     flushSync(render);
+  };
+
+  // The old wire (`cmux.sidebarChats.slice`): it goes once the host that sends `cmux.page.visibleSlice` ships.
+  const showSlice = (next: SidebarChatsSlice) => {
+    // Ignored for a surface that has the generic stream; before a block, for any surface that has it.
+    if (block ? generic.has(sliceSurface(block.part)) : generic.size > 0) return;
+    applySlice(next, null);
+  };
+
+  const showVisibleSlice = (surface: string, next: SidebarChatsSlice) => {
+    generic.add(surface);
+    // The other block's surface (each block is its own page) windows nothing here.
+    if (block && surface !== sliceSurface(block.part)) return;
+    applySlice(next, surface);
   };
 
   flushSync(render);
@@ -148,13 +219,34 @@ export function mountSidebarChats(
       })
       .then((stop) => (stopped ? stop() : (unsubscribeSlice = stop)))
       .catch((error: unknown) => {
-        // A host without the slice stream yet: every row stays mounted, as before it.
+        // A host without the slice stream (before it, or one that sends only `cmux.page.visibleSlice`).
         if (isPageError(error) && error.code === "cmux.protocol.unknown_op") return;
         console.error("sidebar chats: no slice stream", error);
       });
+  // The page does not know its part until its first block, so it hears both surfaces; `showVisibleSlice` keeps
+  // only its own block's.
+  const unsubscribeVisible: Array<() => void> = [];
+  if (client)
+    for (const part of SIDEBAR_CHATS_PARTS)
+      void client
+        .subscribe<unknown>(
+          SidebarChatsOps.visibleSlice,
+          (data) => {
+            const parsed = parseVisibleSlice(data);
+            if (!stopped && parsed) showVisibleSlice(parsed.surface, parsed.slice);
+          },
+          { surface: sliceSurface(part) },
+        )
+        .then((stop) => (stopped ? stop() : unsubscribeVisible.push(stop)))
+        .catch((error: unknown) => {
+          // A host before the generic stream: the old wire windows the rows, or none does.
+          if (isPageError(error) && error.code === "cmux.protocol.unknown_op") return;
+          console.error("sidebar chats: no visible-slice stream", error);
+        });
   return {
     show,
     showSlice,
+    showVisibleSlice,
     get block() {
       return block;
     },
@@ -162,6 +254,7 @@ export function mountSidebarChats(
       stopped = true;
       unsubscribe?.();
       unsubscribeSlice?.();
+      unsubscribeVisible.splice(0).forEach((stop) => stop());
       cancelReady?.();
       reactRoot.unmount();
     },

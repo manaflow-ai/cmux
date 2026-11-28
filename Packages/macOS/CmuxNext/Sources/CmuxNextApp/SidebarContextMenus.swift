@@ -34,8 +34,12 @@ enum SidebarContextMenus {
             let menu = registry.makeContextMenu(for: .workspaceRow, target: target, entries: entries, customize: false)
             if let owner { registry.scopeMenuAction(menu, action: "notifications.dismissHighlight", toMachine: owner.machineID) }
             // The name field renames the clicked row only, so a multi-row selection gets just the swatches.
-            // A pinned workspace's tile has no row in the list model; its name comes from the workspace.
-            let title = model.workspace(first)?.title ?? owner?.store.workspace(id: first.rawValue)?.displayName ?? ""
+            // The field starts from the name the row shows (Lawrence 2026-11-27: "name is blank, it should be prefilled"):
+            // the list row's title, else (a pinned tile has no list row) the shown name every rename prompt starts from,
+            // never the daemon's blank or default `displayName`. Trimmed, as the field compares a trimmed name on close.
+            let shown = (model.workspace(first)?.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let title = !shown.isEmpty ? shown : owner?.store.workspace(id: first.rawValue)
+                .map { services.shownWorkspaceName($0).trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
             MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: selection ? nil : title,
                                        rename: "renameWorkspace")
             if !trailing.isEmpty {
@@ -71,8 +75,9 @@ enum SidebarContextMenus {
             return SidebarScreenIntentActions.addShareThisMacRow(to: registry.makeContextMenu(for: .sidebarBackground), registry: registry).themeRows(in: scope)
         case .section(.machine(let machine)):
             return machineMenu(machine.rawValue, header: model.sections.first { $0.machine?.id == machine }?.machine, services: services).themeRows(in: scope)
-        case .section, .background, .newButton: // the + button's menu only makes things (SidebarContextTarget.newButton)
-            return registry.makeContextMenu(for: .sidebarBackground, entries: target == .newButton ? registry.contextMenuEntries(for: .sidebarBackground, only: .create) : nil).themeRows(in: scope)
+        case .section, .background:
+            return registry.makeContextMenu(for: .sidebarBackground).themeRows(in: scope)
+        case .newButton: return registry.makeContextMenu(for: .sidebarNew).themeRows(in: scope) // the + button's short list
         case .footer:
             // Show for each piece hidden from the band (cx-wab7m); with none hidden, the sidebar's menu.
             let band = registry.makeContextMenu(for: .sidebarFooter, customize: false)

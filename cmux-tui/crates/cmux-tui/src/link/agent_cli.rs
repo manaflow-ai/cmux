@@ -288,6 +288,13 @@ impl Failed {
         Self::new("bad_answer", error)
     }
 
+    fn move_connection(code: &'static str) -> Self {
+        Self::new(
+            code,
+            crate::localization::catalog().cli_connection.cloud_move_connection_unavailable,
+        )
+    }
+
     fn state(error: &anyhow::Error) -> Self {
         Self::new("state_unavailable", format!("{error:#}"))
     }
@@ -396,6 +403,8 @@ pub(super) fn run(args: &[String]) -> i32 {
     let env = std::env::var("ACPMUX_MOVE_HISTORY_LATER").ok();
     args.history_later = history_later::turns(args.history_later, env.as_deref());
     let mut clock = Clock::new();
+    // Each daemon's `identify` is read once for the whole move (`machine_gate::Memo`).
+    let _memo = super::machine_gate::Memo::open();
     match move_chat(&args, &mut clock) {
         Ok(moved) => {
             let mut line = json!({"ok": true, "session_id": moved.session_id,
@@ -550,20 +559,24 @@ impl SyncFlags {
 }
 
 fn move_chat(args: &Args, clock: &mut Clock) -> Result<Moved, Failed> {
-    let records = Records::open(args.state_dir.clone(), &args.from, args.surface).map_err(|e| {
-        match e.downcast_ref::<record::Busy>() {
-            Some(busy) => Failed::new("move_in_progress", busy.to_string()),
-            None => Failed::state(&e),
-        }
+    // The record is filed by the tab's public id: a source daemon restart gives the tab a new
+    // surface slot, and a rerun by that slot must still find this chat's move.
+    let tab = slot_tab(&args.from, args.surface);
+    let records = Records::open(args.state_dir.clone(), &args.from, args.surface, tab.as_deref())
+        .map_err(|e| match e.downcast_ref::<record::Busy>() {
+        Some(busy) => Failed::new("move_in_progress", busy.to_string()),
+        None => Failed::state(&e),
     })?;
     let earlier = records.load().map_err(|e| Failed::state(&e))?;
     clock.lap("state");
     // A begin whose answer was lost left only its token: the move it may have begun is this
     // command's own if the source hands that token back.
     let mut token = None;
+    let mut tab = None;
     if let Some(record) = earlier {
         if record.transfer_id.is_empty() {
             token = record.begin_token;
+            tab = record.source_tab;
         } else {
             let resolved = resolve(args, &records, record);
             clock.lap("resolve");
@@ -572,7 +585,7 @@ fn move_chat(args: &Args, clock: &mut Clock) -> Result<Moved, Failed> {
             }
         }
     }
-    fresh(args, &records, clock, token)
+    fresh(args, &records, clock, token, tab)
 }
 
 /// Ends the move an earlier run left: the chat landed there (the source
@@ -619,7 +632,14 @@ fn fresh(
     records: &Records,
     clock: &mut Clock,
     token: Option<String>,
+    earlier_tab: Option<String>,
 ) -> Result<Moved, Failed> {
+    if let Some(tab) = &earlier_tab {
+        // An earlier run's begin may have frozen the chat, and its source may have been killed
+        // since: wait until the daemon is back and has the tab (a restart gives it a new
+        // surface slot, so only the tab's public id names it) before anything asks it anything.
+        let _ = call_source(&args.from, "agent-transfer-source", json!({"tab": tab}));
+    }
     let login = read_login(args, &mut std::io::stdin().lock())?;
     // Before the chat freezes: a daemon too old for the move says so
     // (`machine_outdated`) instead of failing the receive or the begin.
@@ -642,8 +662,9 @@ fn fresh(
             return Err(failed);
         }
     }
-    let vm_kind = target_vm_kind(args)
-        .and_then(|kind| login.as_ref().map_or(Ok(()), |_| login_gate(args)).map(|()| kind));
+    let vm_kind = target_vm_kind(args).and_then(|kind| {
+        login.as_ref().map_or(Ok(()), |(login, _)| login_gate(args, login)).map(|()| kind)
+    });
     clock.lap("gate");
     let vm_kind = vm_kind?;
     // A relay makes its bulk copy before the chat freezes, so the frozen pass below sends only
@@ -663,14 +684,18 @@ fn fresh(
     let mut source = source?;
     // Recorded before the begin: a run whose begin answer is lost knows the move it began by
     // this token, which the source hands back when it refuses a begin as `transfer.moving`.
-    let pinned = if keeps_token { pin_begin(args, records, token) } else { None };
+    let pinned = if keeps_token { pin_begin(args, records, token, earlier_tab) } else { None };
     // Asked for: the chat's last turns are staged there while it still runs here.
     let staged = args.history_later.and_then(|keep| {
         let staged = history_later::stage(args, &mut source, keep, &vm_kind, &mut clock.pages);
         clock.lap("prepare");
         staged
     });
-    let mut params = json!({"surface": args.surface, "interrupt": interrupt});
+    let mut params = match pinned.as_ref().and_then(|pinned| pinned.source_tab.as_ref()) {
+        Some(tab) => json!({"tab": tab, "interrupt": interrupt}),
+        None => json!({"surface": args.surface, "interrupt": interrupt}),
+    };
+    params.set("checks_shares", json!(true));
     if args.ask_first {
         params.set("ask_first", json!(true));
     }
@@ -715,6 +740,9 @@ fn fresh(
     let begun = match begun {
         Ok(begun) => begun,
         Err(CallError::Refused { code, message, details }) => {
+            if message.contains("transfer.account:") {
+                return Err(Failed::move_connection("connections.move_unsupported"));
+            }
             let Some(moving) = details["transfer_id"].as_str().filter(|id| !id.is_empty()) else {
                 return Err(Failed::new(code, message));
             };
@@ -781,7 +809,7 @@ fn fresh(
     let staged = staged.filter(|_| begun["staged"] == json!(true));
     let stage_id = staged.as_ref().map(|staged| staged.stage_id.as_str());
     let owes_history = staged.is_some() && begun["history_later"] == json!(true);
-    let (mut target, bytes) = match up_to_finish(
+    let (mut target, bytes, consent_guard) = match up_to_finish(
         args,
         &mut source,
         records,
@@ -789,7 +817,12 @@ fn fresh(
         (manifest, stage_id),
         &vm_kind,
         clock,
-    ) {
+    )
+    .and_then(|(target, bytes)| {
+        let consent = login.as_ref().and_then(|(_, consent)| consent.as_ref());
+        let guard = consent.map(MoveConsent::recheck).transpose()?;
+        Ok((target, bytes, guard))
+    }) {
         Ok(copied) => copied,
         Err(failed) => {
             // No finish was sent: the target cannot have the chat.
@@ -808,10 +841,11 @@ fn fresh(
         finish.set("vm_kind", json!(kind));
     }
     // Only the finish carries the login; the record and every phase never do.
-    if let Some(login) = &login {
+    if let Some((login, _)) = &login {
         finish.set("credentials", login.wire());
     }
-    let finished = target.call("agent-transfer-finish", finish, FINISH_TIMEOUT);
+    let finished =
+        target.call_with_send_guard("agent-transfer-finish", finish, FINISH_TIMEOUT, consent_guard);
     clock.lap("finish");
     let (landed, finish_error) = match finished {
         Ok(answer) => {
@@ -1033,8 +1067,46 @@ fn new_begin_token() -> Option<String> {
     Some(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
-/// `--login-stdin`'s login, read before the chat freezes; none without the flag.
-fn read_login(args: &Args, stdin: &mut dyn std::io::Read) -> Result<Option<Login>, Failed> {
+/// The saved connection the Mac app selected. Only the local daemon sees this check.
+#[derive(serde::Deserialize)]
+struct MoveConsent {
+    socket: PathBuf,
+    id: String,
+    instance: Option<String>,
+}
+
+impl MoveConsent {
+    fn recheck(&self) -> Result<cmux_file_lock::FileLock, Failed> {
+        let failed = || Failed::move_connection("connections.not_cloud");
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|_| failed())?;
+        let route = runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                let daemon = acpmux::client::Client::connect_without_caller(&self.socket).await?;
+                daemon.request(acpmux::rpc::method::MUX_ROUTE_SHOW, json!({"id": self.id})).await
+            })
+            .await
+        });
+        let route = route.map_err(|_| failed())?.map_err(|_| failed())?;
+        let path = route["path"].as_str().map(std::path::Path::new).ok_or_else(failed)?;
+        acpmux::routes::lock_cloud_move_connection(path, &self.id, self.instance.as_deref())
+            .map_err(|_| failed())
+    }
+}
+
+/// `--login-stdin`'s login and optional saved connection, read before the chat freezes.
+fn read_login(
+    args: &Args,
+    stdin: &mut dyn std::io::Read,
+) -> Result<Option<(Login, Option<MoveConsent>)>, Failed> {
+    #[derive(serde::Deserialize)]
+    struct Selection {
+        consent: Option<MoveConsent>,
+        connection: Option<String>,
+    }
+
     use std::io::Read as _;
     if !args.login_stdin {
         return Ok(None);
@@ -1042,16 +1114,33 @@ fn read_login(args: &Args, stdin: &mut dyn std::io::Read) -> Result<Option<Login
     let mut bytes = Vec::new();
     let limit = u64::try_from(login::MAX_STDIN_BYTES).unwrap_or(u64::MAX).saturating_add(1);
     let read = stdin.take(limit).read_to_end(&mut bytes);
-    let login = read.map_err(|_| login::Refusal::Unreadable).and_then(|_| login::read(&bytes));
-    login.map(Some).map_err(refused_login)
+    let unreadable = || refused_login(login::Refusal::Unreadable);
+    read.map_err(|_| unreadable())?;
+    let login = login::read(&bytes).map_err(refused_login)?;
+    let selection: Selection = serde_json::from_slice(&bytes).map_err(|_| unreadable())?;
+    if let Some(binding) = &selection.connection
+        && !selection.consent.as_ref().is_some_and(|consent| {
+            consent.instance.is_some()
+                && binding.split_once(':').is_some_and(|(id, _)| id == consent.id)
+        })
+    {
+        return Err(unreadable());
+    }
+    Ok(Some((login, selection.consent)))
 }
 
 /// Whether the target takes the login (module docs): the Cloud API said `owner`, and its daemon
 /// serves `agent-transfer-credentials-v1`.
-fn login_gate(args: &Args) -> Result<(), Failed> {
+fn login_gate(args: &Args, login: &Login) -> Result<(), Failed> {
     let identity = super::machine_gate::reach(&args.to).ok();
     let served = identity.as_ref().and_then(super::machine_gate::served);
-    login::gate(args.vm_kind.as_deref(), served.as_deref()).map_err(refused_login)
+    login::gate(args.vm_kind.as_deref(), served.as_deref()).map_err(refused_login)?;
+    if login.is_bound()
+        && !served.is_some_and(|served| served.contains(&login::WITHDRAWAL_CAPABILITY))
+    {
+        return Err(refused_login(login::Refusal::Outdated));
+    }
+    Ok(())
 }
 
 fn refused_login(refusal: login::Refusal) -> Failed {
@@ -1103,6 +1192,22 @@ fn up_to_finish(
         let mut failed = Failed::new("agent_session.host_unverified", error);
         failed.side = Some("target");
         return Err(failed);
+    }
+    use cmux_tui_core::server::agent_transfer::{
+        AGENT_TRANSFER_SHARES_CAPABILITY, SHARE_MANIFEST_FIELD,
+    };
+    if manifest.get(SHARE_MANIFEST_FIELD).is_some() {
+        let identity = target.call("identify", json!({}), CALL_TIMEOUT).map_err(target_failed)?;
+        if !super::machine_gate::served(&identity)
+            .is_some_and(|capabilities| capabilities.contains(&AGENT_TRANSFER_SHARES_CAPABILITY))
+        {
+            let mut failed = Failed::new(
+                "agent_transfer.shares_unsupported",
+                "update the receiving machine to move a shared chat",
+            );
+            failed.side = Some("target");
+            return Err(failed);
+        }
     }
     let manifest = &taken_by_target(args, manifest, &record.transfer_id);
     let mut params = json!({"manifest": manifest, "cwd": args.cwd});
@@ -1276,6 +1381,50 @@ fn drop_receive(record: &Record) {
     }
 }
 
+/// How long a pump waits for a source daemon that is down or restarting (killed, its processes
+/// coming back) before it gives up on a call that must reach it: the chat is frozen there or
+/// already landed on the target, and only the source can unfreeze or close it.
+const SOURCE_RESTART_WAIT: Duration = Duration::from_secs(120);
+
+/// How long "not an agent tab" is waited out: a restarted source restores its tabs a moment
+/// after it answers, but a tab that is really gone (closed by a commit whose answer was lost)
+/// never comes back.
+const SOURCE_TAB_RESTORE_WAIT: Duration = Duration::from_secs(30);
+
+/// Whether `error` is a source daemon that is not back yet: it does not answer (`Lost`), its
+/// acpmux is not up (`agent_transfer.unavailable`), or it does not have the tab yet
+/// (`agent_transfer.unknown_tab`, only for a tab named by its public id, which a restart keeps).
+fn source_restarting(error: &CallError, by_tab: bool) -> Option<Duration> {
+    match error {
+        CallError::Lost(_) => Some(SOURCE_RESTART_WAIT),
+        CallError::Refused { code, .. } if code == "agent_transfer.unavailable" => {
+            Some(SOURCE_RESTART_WAIT)
+        }
+        CallError::Refused { code, .. } if by_tab && code == "agent_transfer.unknown_tab" => {
+            Some(SOURCE_TAB_RESTORE_WAIT)
+        }
+        CallError::Refused { .. } => None,
+    }
+}
+
+/// `call_once` to the source, waiting out a source daemon that is restarting: a kill of the
+/// source mid-move otherwise left the chat frozen there (give back failed), or open there and
+/// on the target (commit failed), and an immediate rerun failed the same way.
+fn call_source(socket: &std::path::Path, cmd: &str, params: Value) -> Result<Value, CallError> {
+    let by_tab = params.get("tab").is_some();
+    let start = Instant::now();
+    loop {
+        let error = match call_once(socket, cmd, params.clone(), CALL_TIMEOUT) {
+            Ok(answer) => return Ok(answer),
+            Err(error) => error,
+        };
+        match source_restarting(&error, by_tab) {
+            Some(wait) if start.elapsed() < wait => std::thread::sleep(FINISHING_PAUSE),
+            _ => return Err(error),
+        }
+    }
+}
+
 /// The source gives the chat back (the target provably lacks it).
 fn give_back(args: &Args, records: &Records, record: &mut Record) -> Result<(), Failed> {
     // Kept for a rerun if the source cannot be told now.
@@ -1283,7 +1432,7 @@ fn give_back(args: &Args, records: &Records, record: &mut Record) -> Result<(), 
     let _ = records.save(record);
     let mut params = source_tab(args, record);
     params.set("transfer_id", json!(record.transfer_id));
-    match call_once(&args.from, "agent-transfer-abort", params, CALL_TIMEOUT) {
+    match call_source(&args.from, "agent-transfer-abort", params) {
         Ok(_) => {}
         // Ended already (the source's own lease aborts an unread move), as
         // long as the tab still shows this move's chat.
@@ -1313,7 +1462,7 @@ fn commit(
     let mut params = source_tab(args, record);
     params.set("transfer_id", json!(record.transfer_id));
     params.set("to", json!({"cwd": record.cwd}));
-    if let Err(error) = call_once(&args.from, "agent-transfer-commit", params, CALL_TIMEOUT) {
+    if let Err(error) = call_source(&args.from, "agent-transfer-commit", params) {
         let error = format!("the chat landed there but did not close here: {}", error.message());
         return Err(unresolved(record, error));
     }
@@ -1366,9 +1515,17 @@ fn commit_landed(
 /// (an earlier lost begin's, else a fresh one) and the chat the tab shows now, which a rerun
 /// ends a move of only while the tab still shows it. None when that is not saved: the begin
 /// then goes without a token, as to a source that keeps none.
-fn pin_begin(args: &Args, records: &Records, token: Option<String>) -> Option<Record> {
-    let params = json!({"surface": args.surface});
-    let answer = call_once(&args.from, "agent-transfer-source", params, CALL_TIMEOUT).ok()?;
+fn pin_begin(
+    args: &Args,
+    records: &Records,
+    token: Option<String>,
+    earlier_tab: Option<String>,
+) -> Option<Record> {
+    let params = match &earlier_tab {
+        Some(tab) => json!({"tab": tab}),
+        None => json!({"surface": args.surface}),
+    };
+    let answer = call_source(&args.from, "agent-transfer-source", params).ok()?;
     let session = answer["session"].as_str().filter(|id| !id.is_empty())?;
     let record = Record {
         source_session_id: Some(session.to_owned()),
@@ -1382,13 +1539,20 @@ fn pin_begin(args: &Args, records: &Records, token: Option<String>) -> Option<Re
     Some(record)
 }
 
+/// The public id of the tab in `surface` of the source (its `agent-transfer-source` read, which
+/// never attaches the chat); None from a source too old to answer one or that cannot be asked.
+fn slot_tab(from: &std::path::Path, surface: u64) -> Option<String> {
+    let answer = call_source(from, "agent-transfer-source", json!({"surface": surface})).ok()?;
+    answer.get("tab").and_then(Value::as_str).filter(|tab| !tab.is_empty()).map(str::to_owned)
+}
+
 /// Whether the tab still shows the chat `record`'s move took (the source's
 /// `agent-transfer-source` read, which never attaches it); false when that
 /// cannot be told.
 fn same_chat(args: &Args, record: &Record) -> bool {
     let Some(pinned) = record.source_session_id.as_deref() else { return false };
     let params = source_tab(args, record);
-    call_once(&args.from, "agent-transfer-source", params, CALL_TIMEOUT)
+    call_source(&args.from, "agent-transfer-source", params)
         .is_ok_and(|answer| answer["session"].as_str() == Some(pinned))
 }
 

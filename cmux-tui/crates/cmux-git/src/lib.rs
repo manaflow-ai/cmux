@@ -6,7 +6,8 @@
 //! repository's top level plus the config overrides every read carries.
 //! `parse` reads git's machine output, `diff` turns a scope into the
 //! revisions to compare, `refs` lists branches and suggests a base, and
-//! `head` reads what HEAD is on without a look at the work tree.
+//! `head` reads what HEAD is on without a look at the work tree, and `home`
+//! keeps every read of the home folder's own repository to its tracked files.
 //!
 //! The crate has no terminal, store or protocol types. Errors are its own
 //! enums; callers map them to their wire errors.
@@ -15,6 +16,7 @@ pub mod diff;
 #[cfg(unix)]
 pub mod harness_head;
 pub mod head;
+pub mod home;
 #[cfg(unix)]
 pub mod native_hook;
 mod own_work_tree;
@@ -30,7 +32,9 @@ pub mod worktree_root;
 pub mod write_run;
 
 pub use own_work_tree::two_folders;
-pub use repository::{OpenError, Repository, filter_overrides, main_root};
+pub use repository::{
+    OpenError, Repository, filter_overrides, in_progress, main_checkout_of, main_root,
+};
 
 /// The output limit for a run whose result is a line or a few names.
 pub const MAX_SMALL_OUTPUT_BYTES: usize = 64 * 1024;

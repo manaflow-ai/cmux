@@ -10,8 +10,8 @@ const approve: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[data-approved="attempt-a"]'));
 };
 
+// The board reconnects and replays on its own: the play only waits for it.
 const replay: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: "Reconnect and replay" });
   await ctx.waitFor(() => ctx.document.querySelector('[data-connection="live"]'));
 };
 
@@ -32,11 +32,11 @@ export default componentEntry<RunBoardProps>({
       props,
     },
     disconnected: {
-      note: "The saved board remains readable. Reconnect replays owner events without restarting the workers.",
-      props: { ...props, disconnected: true },
+      note: "The replay keeps failing past the deadline: the saved board stays readable, it reconnects on its own, and one quiet line says so (no Reconnect button).",
+      props: { snapshot: runBoardFixture, disconnected: true },
     },
     replayed: {
-      note: "One worker finished while disconnected; replay recovers its evidence and keeps the selected workspace.",
+      note: "One worker finished while disconnected; the board's own replay recovers its evidence and keeps the selected workspace.",
       props: { ...props, disconnected: true },
       play: replay,
     },

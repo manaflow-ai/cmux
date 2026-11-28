@@ -3,9 +3,11 @@
 // no timers) plus one ordered log of pending intents (OWNERSHIP-PRINCIPLES "Clients are
 // projections"). Money, destructive and view-changing ops go to the host as native actions (ops.ts
 // NATIVE_ACTIONS). React reads it through `useSyncExternalStore`; tests drive it directly.
-import { isPageError, pageError, type PageClient } from "../shared/pageClient";
+import { isPageError, type PageClient, pageError } from "../shared/pageClient";
+import { subscribePageStreams } from "../shared/pageStreams";
 import { userMessage } from "../shared/userMessage";
 import { AccountReader } from "./account";
+import { SPEND_LIMIT_SET, spendLimitRefusal } from "./pool";
 import { connectionFailure } from "./connectionFailure";
 import { clearCachedMachines, readCachedMachines, writeCachedMachines, type CacheStorage } from "./machineCache";
 import { DetailReader, type MachineDetail } from "./detail";
@@ -23,6 +25,7 @@ import {
   type MachineLayout,
   type MachineRow,
   type PendingIntent,
+  keptMachines,
 } from "./model";
 import {
   ACTION_RUN,
@@ -37,7 +40,6 @@ import {
   type AuthStatus,
   type CloudMachine,
   type CloudPlan,
-  type CloudUsage,
   type CloudSnapshot,
   type CloudTeam,
   type CreateMachineArgs,
@@ -49,13 +51,21 @@ import {
   type RetentionOverrides,
   type SnapshotListResult,
   type CloudSurge,
+  type CloudUsage,
 } from "./ops";
 
 export type Connection = "connecting" | "connected" | "disconnected" | "failed";
 
-/** The first and the longest wait before the store reads auth again after the link refused it. */
+/** The first and the longest wait before the store reads the page again after a failed read. */
 export const CLOUD_RESTART_MIN_MS = 1_000;
 export const CLOUD_RESTART_MAX_MS = 10_000;
+
+/** The machine watch and the first list, as `readList` read them. */
+interface ListRead {
+  unwatch: () => void;
+  /** The listed machines with the events that came meanwhile; later events go live. */
+  take: () => { machines: CloudMachine[]; revision: number; surge?: CloudSurge };
+}
 
 export interface CreateDraft {
   /** One key per sheet: a retry after a failure sends the same key, so the owner creates once. */
@@ -68,8 +78,9 @@ export interface CreateDraft {
   /** The team's snapshots (`cloud.snapshot.list {}`). */
   snapshots?: CloudSnapshot[];
   /**
-   * The snapshot list failed: the sheet says so beside Source and offers Retry, which reads it again
-   * on the same draft (name, size, source and key kept). Base image stays choosable meanwhile.
+   * The snapshot list failed: the sheet reads it again on its own (CreateSheet.tsx, useAutoRetry) on
+   * the same draft (name, size, source and key kept), and says so beside Source only once that lasts.
+   * Base image stays choosable meanwhile. Stays set until a read answers, across the re-reads.
    */
   snapshotsFailed?: boolean;
   submitting: boolean;
@@ -102,7 +113,15 @@ export interface RetentionEdit {
 
 export interface CloudState {
   connection: Connection;
+  /**
+   * The page lost its link or its first read failed, and the store reads it again on its own
+   * (`readAgainLater`); set from that failure until a read succeeds, so the page keeps one quiet
+   * stretch across the attempts instead of flashing between them.
+   */
+  recovering?: true;
   auth?: AuthStatus;
+  /** What Sign In signs in to ("Signs in to cmux.com"), from the app's account stream while signed out. */
+  signInBackend?: string;
   loading: boolean;
   machines: CloudMachine[];
   revision: number;
@@ -110,7 +129,10 @@ export interface CloudState {
   rows: MachineRow[];
   teams: CloudTeam[];
   plan?: CloudPlan;
-  /** The last plan read failed (not "not served"): the storefront says so and offers Retry. */
+  /**
+   * The last plan read failed (not "not served"): the storefront reads it again on its own and,
+   * once that lasts, says it is still trying (Storefront.tsx, useAutoRetry).
+   */
   planFailed?: boolean;
   /** `cloud.migration.status` (contract 4). */
   migration?: MigrationStatus;
@@ -151,6 +173,8 @@ export interface CloudState {
   dismissed: ReadonlySet<string>;
   /** The cleanup settings' last save. */
   retention?: RetentionEdit;
+  /** The spend limit's last save (pool.ts; the host confirms it). */
+  spendLimit?: RetentionEdit;
 }
 
 /** `machines` lists the team's machines; `get` is the storefront. */
@@ -182,6 +206,10 @@ export class CloudStore {
   private unwatch?: () => void;
   /** The account stream (`cmux.cloud.auth.watch`): lives from start to stop, across sessions. */
   private unwatchAuth?: () => void;
+  /** The host's `cmux.page.connection` stream: lives from the first listener to the last. */
+  private unwatchLink?: () => void;
+  /** Bumped when the last listener leaves: a link subscribe that answers after that closes itself. */
+  private linkLifetime = 0;
   /** Bumped by stop: an auth stream that subscribes after it is closed at once. */
   private lifetime = 0;
   /** The lifetime whose account subscribe is in flight, if any. */
@@ -189,16 +217,18 @@ export class CloudStore {
   /** The account stream's last event. */
   private lastAccount?: AccountEvent;
   /**
-   * Bumped by stop, sign-out, team switch and retry. Every async load captures it and drops its
+   * Bumped by stop, sign-out, team switch and a re-read. Every async load captures it and drops its
    * result (and closes its watch) when it changed, so an old account or team never writes state.
    */
   private session = 0;
-  /** Bumped by sign-in, sign-out and team switch (not by Retry): an answer from another account is dropped. */
+  /** Bumped by sign-in, sign-out and team switch (not by a re-read): an answer from another account is dropped. */
   private accountEpoch = 0;
-  /** The next `start` after a first auth read the link refused (`startLater`); cleared by stop. */
+  /** The next `start` after a failed page read (`readAgainLater`); cleared by stop. */
   private restart: ReturnType<typeof setTimeout> | undefined;
-  /** Link refusals of the first auth read in a row: the wait before the next one doubles. */
+  /** Failed page reads in a row: the wait before the next one doubles. */
   private restartAttempts = 0;
+  /** Inside `stop`: the session it ends is not a failure to read again. */
+  private halting = false;
   /**
    * The cached list's account, while the page shows that list and the owner has not answered yet:
    * the first auth read (and the account stream's first event) drop it when they name another.
@@ -286,10 +316,18 @@ export class CloudStore {
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
-    if (this.listeners.size === 1) void this.start();
+    if (this.listeners.size === 1) {
+      void this.followLink();
+      void this.start();
+    }
     return () => {
       this.listeners.delete(listener);
-      if (this.listeners.size === 0) this.stop();
+      if (this.listeners.size === 0) {
+        this.linkLifetime += 1;
+        this.unwatchLink?.();
+        this.unwatchLink = undefined;
+        this.stop();
+      }
     };
   };
 
@@ -298,10 +336,16 @@ export class CloudStore {
     if (!this.client || this.started) return;
     this.started = true;
     const session = ++this.session;
+    // The account was signed in a moment ago (a kept list, or a page that reconnects): the watch and
+    // the list go out with the account read instead of after it, so the owner's list is on screen one
+    // round trip sooner. An answer that is not signed in drops them.
+    const early = this.seeded || this.state.auth?.signedIn ? this.readList(session) : undefined;
+    early?.catch(() => undefined);
     let auth: AuthStatus;
     try {
       auth = await this.client.call<AuthStatus>(CloudOps.authStatus, {});
     } catch (error) {
+      this.dropEarly(early);
       if (session !== this.session) return;
       this.started = false;
       const failed = failure(error);
@@ -309,17 +353,18 @@ export class CloudStore {
       // The account could not be read at all: a kept list it never confirmed leaves the screen (a link
       // that is only down keeps it; the account is read again when the link is back).
       if (connection === "failed" && this.seeded) this.dropSeeded();
+      // Read again on its own (`set` arms `readAgainLater`), whether the link refused it or the
+      // owner answered with an error: auth is a read, asking again changes nothing.
       this.set({ ...failed, loading: false, connection });
-      if (connection === "disconnected") this.startLater();
       return;
     }
-    if (session !== this.session) return;
+    if (session !== this.session) return this.dropEarly(early);
     // The link answers: follow the app's account from here on (each start after a stop subscribes again).
     void this.watchAuth();
-    // Back after `startLater`: the refused read's error goes, and the page loads as on a first
-    // start (Retry does the same before it starts).
+    // Back after `readAgainLater`: the failed read's error goes, and the page loads as on a first
+    // start (as a first start does). The backoff resets only once the whole page
+    // read (auth and, signed in, the machine list) succeeds.
     const recovered = this.restartAttempts > 0;
-    this.restartAttempts = 0;
     // A kept list of another account or team (or a sign-out elsewhere) goes before anything shows it.
     if (this.seeded && (!auth.signedIn || (auth.team ?? null) !== this.seeded.team)) this.dropSeeded();
     this.seeded = undefined;
@@ -328,11 +373,28 @@ export class CloudStore {
       connection: "connected",
       ...(recovered ? { loading: true, error: undefined, errorCode: undefined } : {}),
     });
-    if (auth.signedIn) await this.loadSignedIn(session);
-    else this.set({ loading: false });
+    if (auth.signedIn) await this.loadSignedIn(session, early);
+    else {
+      this.dropEarly(early);
+      this.set({ loading: false });
+    }
+    if (session === this.session && this.state.connection === "connected") this.recovered();
+  }
+
+  /** Closes the watch of a read `start` began early that the account's answer did not use. */
+  private dropEarly(early: Promise<ListRead | undefined> | undefined): void {
+    void early?.then(
+      (read) => {
+        if (!read) return;
+        if (this.unwatch === read.unwatch) this.unwatch = undefined;
+        read.unwatch();
+      },
+      () => undefined,
+    );
   }
 
   stop(): void {
+    this.halting = true;
     this.started = false;
     this.lifetime += 1;
     this.unwatchAuth?.();
@@ -343,38 +405,42 @@ export class CloudStore {
     this.restart = undefined;
     this.restartAttempts = 0;
     this.endSession();
+    this.halting = false;
   }
 
   /**
-   * The link refused the first auth read (on a launch or a daemon restart the daemon or its Cloud
-   * relay is not up yet): read it again on its own, 1 s and then doubling to 10 s, so the page
-   * comes up once the link does. The connection stays "disconnected" meanwhile (the page shows it
-   * only once that lasts, ui/lasting.ts) and Retry still asks at once. Ends with a read that
-   * succeeds or a failure that is not the link's, and with `stop` (the last listener leaving).
+   * The page lost its link or a page read failed (on a launch or a daemon restart the daemon or its
+   * Cloud relay is not up yet; an owner that answered with an error for a moment): read it all again
+   * on its own, 1 s and then doubling to 10 s, so the page comes up once the link and the owner do.
+   * Nobody presses anything: every read here is a read, so asking again is never the person's
+   * decision (Leo, 2026-11-22: "vacuous decisions like that should be just done"). The connection
+   * stays "disconnected" or "failed" meanwhile and `recovering` holds the stretch, which the page
+   * shows only once it lasts, as one quiet line (CloudPage.tsx). Armed by `set` on every change into
+   * those states; ends with a read that succeeds, and with `stop` (the last listener leaving).
    */
-  private startLater(): void {
+  private readAgainLater(): void {
     clearTimeout(this.restart);
     const delay = Math.min(CLOUD_RESTART_MAX_MS, CLOUD_RESTART_MIN_MS * 2 ** this.restartAttempts++);
     this.restart = setTimeout(() => {
       this.restart = undefined;
-      if (this.listeners.size > 0) void this.start();
+      const { connection } = this.state;
+      if (this.listeners.size === 0) return;
+      // Back by another way meanwhile (an event proved the link, a sign-in read it all).
+      if (connection !== "disconnected" && connection !== "failed") return this.recovered();
+      // A fresh session, keeping what the page shows and the backoff.
+      const attempts = this.restartAttempts;
+      this.stop();
+      this.restartAttempts = attempts;
+      void this.start();
     }, delay);
   }
 
-  get canRetry(): boolean {
-    return this.client !== null;
-  }
-
-  /** After a disconnect: drops the old session and starts again (the localized Retry button). */
-  async retry(): Promise<void> {
-    this.stop();
-    this.set({
-      connection: this.client ? "connecting" : "disconnected",
-      loading: true,
-      error: undefined,
-      errorCode: undefined,
-    });
-    await this.start();
+  /** The page read succeeded: the stretch of re-reads ends and the next failure waits 1 s again. */
+  private recovered(): void {
+    this.restartAttempts = 0;
+    clearTimeout(this.restart);
+    this.restart = undefined;
+    if (this.state.recovering) this.set({ recovering: undefined });
   }
 
   /** Sign-in is a native browser flow the host runs as origin user (cloud-app.md section 2). */
@@ -423,7 +489,10 @@ export class CloudStore {
     void this.detail.load(undefined);
     this.set({ ...signedOutState(), loading: true });
     try {
-      await this.client!.call(AccountOps.teamSelect, { team, idempotency_key: this.key() });
+      await this.client!.call(AccountOps.teamSelect, {
+        team,
+        idempotency_key: this.key(),
+      });
     } catch (error) {
       if (session !== this.session) return;
       if (!isUnsupported(error)) return this.set({ loading: false, ...failure(error) });
@@ -472,7 +541,7 @@ export class CloudStore {
     return this.account.manageBilling();
   }
 
-  /** Storefront Retry after a failed plan read. */
+  /** Reads the plan again after a failed read (the storefront asks on its own, useAutoRetry). */
   retryPlan(): Promise<void> {
     return this.account.readPlan(this.session);
   }
@@ -493,16 +562,24 @@ export class CloudStore {
     const allowed = memoryChoices(this.state.plan).some((choice) => choice.mb === memoryMb && choice.allowed);
     const size = allowed ? memoryMb : defaultMemory(this.state.plan);
     this.set({
-      create: { key, name: "", memoryMb: size, submitting: false, ...(openWhenRunning ? { openWhenRunning } : {}) },
+      create: {
+        key,
+        name: "",
+        memoryMb: size,
+        submitting: false,
+        ...(openWhenRunning ? { openWhenRunning } : {}),
+      },
     });
     this.loadSnapshots(key);
   }
 
-  /** The sheet's Retry after the snapshot list failed: reads it again, keeping the draft. */
+  /**
+   * Reads the snapshot list again after it failed (the sheet asks on its own), keeping the draft. The
+   * failure stays on the draft until a read answers, so the sheet's quiet stretch spans the re-reads.
+   */
   retrySnapshots(): void {
     const draft = this.state.create;
     if (!draft?.snapshotsFailed || !this.canChange()) return;
-    this.set({ create: { ...draft, snapshotsFailed: undefined } });
     this.loadSnapshots(draft.key);
   }
 
@@ -530,7 +607,14 @@ export class CloudStore {
     const draft = this.state.create;
     if (draft && !draft.submitting)
       this.set({
-        create: { ...draft, ...patch, error: undefined, refusal: undefined, blocked: undefined, offer: undefined },
+        create: {
+          ...draft,
+          ...patch,
+          error: undefined,
+          refusal: undefined,
+          blocked: undefined,
+          offer: undefined,
+        },
       });
   }
 
@@ -573,12 +657,16 @@ export class CloudStore {
         if (this.state.create?.key === draft.key) this.set({ create: { ...draft, submitting: false } });
         return;
       }
-      // Recorded even after a session restart (stop, retry): the intent and the sheet must not
+      // Recorded even after a session restart (stop, a re-read): the intent and the sheet must not
       // stay pending. A cleared log (sign-out, team switch) makes these no-ops.
-      this.updateIntent(draft.key, { result_id: result?.machine?.id, replied: true, revision: revisionOf(result) });
+      this.updateIntent(draft.key, {
+        result_id: result?.machine?.id,
+        replied: true,
+        revision: revisionOf(result),
+      });
       if (this.state.create?.key === draft.key) this.set({ create: undefined });
       if (session === this.session) this.madeRoom(result?.made_room?.machine);
-      // Kept across a Retry while the sheet was open; dropped when the account or team changed since.
+      // Kept across a re-read while the sheet was open; dropped when the account or team changed since.
       if (
         draft.openWhenRunning &&
         result?.machine?.id &&
@@ -636,7 +724,15 @@ export class CloudStore {
           : CloudOps.machineArchiveDelete;
     const key = this.key();
     this.pushIntent({ key, kind: offer.kind, machine: offer.machine });
-    this.set({ create: { ...draft, submitting: true, refusal: undefined, error: undefined, errorCode: undefined } });
+    this.set({
+      create: {
+        ...draft,
+        submitting: true,
+        refusal: undefined,
+        error: undefined,
+        errorCode: undefined,
+      },
+    });
     const back = (patch: Partial<CreateDraft>) => {
       const now = this.state.create;
       if (now?.key === draft.key) this.set({ create: { ...now, submitting: false, ...patch } });
@@ -662,7 +758,11 @@ export class CloudStore {
         // A pause that failed took nothing: the limit notice and the offer stay for another try, and
         // the sheet says why.
         if (connectionFailure(error) === "disconnected") this.set(failure(error));
-        return back({ refusal: draft.refusal, error: message(error), errorCode: codeOf(error) });
+        return back({
+          refusal: draft.refusal,
+          error: message(error),
+          errorCode: codeOf(error),
+        });
       }
       if (!freed) {
         this.fail(action, error);
@@ -683,7 +783,9 @@ export class CloudStore {
   private createIfRoom(): void {
     const draft = this.state.create;
     if (!draft?.waitingFor || this.state.machines.some((machine) => machine.id === draft.waitingFor)) return;
-    this.set({ create: { ...draft, waitingFor: undefined, submitting: false } });
+    this.set({
+      create: { ...draft, waitingFor: undefined, submitting: false },
+    });
     void this.submitCreate();
   }
 
@@ -725,6 +827,36 @@ export class CloudStore {
     return this.setRetention({ settings });
   }
 
+  /**
+   * The monthly spend limit past the pool (RFD 0081, pool.ts): a money change, so the host confirms it as a native
+   * action and the page reads the plan again. A team admin's; anyone else is told so.
+   */
+  async setSpendLimit(usd: number): Promise<void> {
+    if (!this.canChange() || this.state.spendLimit?.saving) return;
+    const session = this.session;
+    this.set({ spendLimit: { saving: true } });
+    try {
+      // `cloud.plan.spend_limit.set {spend_limit_usd}` answers `{pool}`; the plan is read again for the rest of it.
+      const result = await this.client!.call<ActionRunResult | null>(ACTION_RUN, {
+        action: SPEND_LIMIT_SET,
+        args: { spend_limit_usd: usd },
+      });
+      if (session !== this.session) return;
+      this.set({ spendLimit: undefined });
+      if (result?.confirmed !== false) await this.account.readPlan(session);
+    } catch (error) {
+      if (session !== this.session) return;
+      const refusal = spendLimitRefusal(error);
+      if (isUnsupported(error) || refusal === "off") {
+        this.set({ spendLimit: undefined });
+        return this.markUnavailable(SPEND_LIMIT_SET);
+      }
+      this.set({
+        spendLimit: { saving: false, ...(refusal === "forbidden" ? { forbidden: true } : { error: message(error) }) },
+      });
+    }
+  }
+
   private async setRetention(params: {
     email_heads_up?: boolean;
     settings?: RetentionOverrides | null;
@@ -733,7 +865,10 @@ export class CloudStore {
     const session = this.session;
     this.set({ retention: { saving: true } });
     try {
-      await this.client!.call(CloudOps.retentionSet, { ...params, idempotency_key: this.key() });
+      await this.client!.call(CloudOps.retentionSet, {
+        ...params,
+        idempotency_key: this.key(),
+      });
       if (session !== this.session) return;
       this.set({ retention: undefined });
       await this.account.readPlan(session);
@@ -744,7 +879,12 @@ export class CloudStore {
         return this.markUnavailable(CloudOps.retentionSet);
       }
       const forbidden = isPageError(error) && error.code === "cmux.cloud.forbidden";
-      this.set({ retention: { saving: false, ...(forbidden ? { forbidden } : { error: message(error) }) } });
+      this.set({
+        retention: {
+          saving: false,
+          ...(forbidden ? { forbidden } : { error: message(error) }),
+        },
+      });
     }
   }
 
@@ -818,7 +958,11 @@ export class CloudStore {
       });
       if (result?.confirmed === false) return this.dropIntent(key);
       // Recorded even after a session restart, so the pending create row cannot stay.
-      this.updateIntent(key, { result_id: result?.machine?.id, replied: true, revision: revisionOf(result) });
+      this.updateIntent(key, {
+        result_id: result?.machine?.id,
+        replied: true,
+        revision: revisionOf(result),
+      });
       if (session === this.session) void this.account.readPlan(session);
     } catch (error) {
       this.dropIntent(key);
@@ -872,6 +1016,8 @@ export class CloudStore {
         if (lifetime !== this.lifetime) return;
         const previous = this.lastAccount;
         this.lastAccount = event;
+        const signInBackend = event?.signInBackend ?? undefined;
+        if (signInBackend !== this.state.signInBackend) this.set({ signInBackend });
         // Another signed-in account (a user switch): its auth status may read the same, so it reloads.
         // The first event is checked against the kept list's user, so another user's list never stays.
         const before =
@@ -901,7 +1047,7 @@ export class CloudStore {
    * account (its own Sign In, a team switch it ran, the stream's first event) unless `switched`
    * (another signed-in user); otherwise the old account's state goes and the new one loads, as
    * after the page's own sign-in or sign-out. A read that fails restarts the page the way a
-   * failed first read does (back on its own once the link is, or Retry), so the event is never lost.
+   * failed first read does (back on its own once the link is, `readAgainLater`), so the event is never lost.
    */
   private async accountChanged(switched = false): Promise<void> {
     // Before the first auth read answered, that read is newer than the event.
@@ -916,9 +1062,13 @@ export class CloudStore {
       this.restartSession();
       void this.detail.load(undefined);
       this.started = false;
-      const connection = connectionFailure(error);
-      this.set({ ...signedOutState(), auth: undefined, ...failure(error), connection });
-      if (connection === "disconnected") this.startLater();
+      // `set` arms `readAgainLater`: the page reads auth again on its own.
+      this.set({
+        ...signedOutState(),
+        auth: undefined,
+        ...failure(error),
+        connection: connectionFailure(error),
+      });
       return;
     }
     const shown = this.state.auth;
@@ -946,13 +1096,19 @@ export class CloudStore {
   private restartSession(): number {
     this.accountEpoch += 1;
     this.endSession();
+    // Another account or team starts with its own backoff, not the old one's spent count.
+    this.restartAttempts = 0;
     return this.session;
   }
 
-  /** Watches, then lists every page once; events that arrive during the list are merged by revision. */
-  private async loadSignedIn(session: number): Promise<void> {
+  /**
+   * Watches, then lists every page once. The answer's `take` merges the events that came during the
+   * list (by revision) and sends later ones live; undefined when the session ended first.
+   */
+  private async readList(session: number): Promise<ListRead | undefined> {
     const client = this.client!;
     let buffer: MachineEvent[] | null = [];
+    let watch: (() => void) | undefined;
     try {
       const unwatch = await client.subscribe<MachineEvent>(CloudOps.machineWatch, (event) => {
         if (session !== this.session) return;
@@ -961,36 +1117,66 @@ export class CloudStore {
       });
       if (session !== this.session) {
         unwatch();
-        return;
+        return undefined;
       }
       this.unwatch?.();
       this.unwatch = unwatch;
+      watch = unwatch;
       let page = await client.call<MachineListResult>(CloudOps.machineList, {});
-      let machines = page.machines.map(normalizeMachine);
+      let listed = page.machines.map(normalizeMachine);
       // A listing from the first page to the last also lets the owner drop machines it did not see.
       while (page.next_cursor && session === this.session) {
         page = await client.call<MachineListResult>(CloudOps.machineList, { cursor: page.next_cursor });
-        machines = [...machines, ...page.machines.map(normalizeMachine)];
+        listed = [...listed, ...page.machines.map(normalizeMachine)];
       }
-      if (session !== this.session) return;
-      let revision = page.revision;
-      for (const event of buffer) {
-        // The list holds its own revision; events of that revision are re-applied (idempotent).
-        if (event.revision < revision) continue;
-        machines = applyEvent(machines, event);
-        revision = event.revision;
-      }
+      if (session !== this.session) return undefined;
+      const last = page.revision;
+      const surge = page.surge ?? undefined;
+      const take = () => {
+        let machines = listed;
+        let revision = last;
+        for (const event of buffer ?? []) {
+          // The list holds its own revision; events of that revision are re-applied (idempotent).
+          if (event.revision < revision) continue;
+          machines = applyEvent(machines, event);
+          revision = event.revision;
+        }
+        buffer = null;
+        // A relist (Retry, a recovery) brings every machine as a new object: keep each unchanged one,
+        // so only the machines that changed draw again. Events need none of this (applyEvent keeps
+        // the others).
+        machines = keptMachines(this.state.machines, machines);
+        return { machines, revision, surge };
+      };
+      return { unwatch, take };
+    } catch (error) {
       buffer = null;
+      // A list that failed leaves no watch behind: a quiet re-read or Retry subscribes again, and an
+      // early read a signed-out answer drops has nothing left open.
+      if (watch) {
+        if (this.unwatch === watch) this.unwatch = undefined;
+        watch();
+      }
+      throw error;
+    }
+  }
+
+  /** Watches and lists (or takes the read `start` began early), then shows the owner's list. */
+  private async loadSignedIn(session: number, early?: Promise<ListRead | undefined>): Promise<void> {
+    try {
+      const read = await (early ?? this.readList(session));
+      if (!read || session !== this.session) return;
+      const { machines, revision, surge } = read.take();
       this.setMirror(machines, revision, {
         loading: false,
         connection: "connected",
         error: undefined,
-        surge: page.surge ?? undefined,
+        surge,
       });
       void this.readArchives(session);
     } catch (error) {
-      buffer = null;
-      if (session === this.session) this.set({ loading: false, connection: "failed", ...failure(error) });
+      if (session !== this.session) return;
+      this.set({ loading: false, connection: "failed", ...failure(error) });
       return;
     }
     await this.account.load(session);
@@ -1026,7 +1212,11 @@ export class CloudStore {
     // The team's spending cap marks its machines (a pending pause, a pause) through these events alone
     // (cmux-platform SpendCap.ts): a mark that changed reads the plan again, so the team's banner follows.
     const capChanged = event.type === "upsert" && capMarksChanged(this.state.machines, event.machine);
-    this.setMirror(applyEvent(this.state.machines, event), event.revision, patch);
+    // The first event of a burst draws at once; the rest of its frame only update the mirror, and the
+    // frame draws and keeps the list once for all of them (`eventFrame`).
+    const later = this.eventFrame !== undefined;
+    this.setMirror(applyEvent(this.state.machines, event), event.revision, patch, later);
+    if (!later) this.eventFrame = nextFrameOrSoon(() => this.flushEventFrame());
     if (archived) void this.readArchives(this.session);
     if (capChanged) void this.readPlanForCap();
   }
@@ -1066,12 +1256,41 @@ export class CloudStore {
     // machine the mirror does not hold is never added back by an answer).
     if (!known || Number(known.revision) > Number(paused.revision)) return;
     this.setMirror(
-      applyEvent(this.state.machines, { type: "upsert", revision: this.state.revision, machine: paused }),
+      applyEvent(this.state.machines, {
+        type: "upsert",
+        revision: this.state.revision,
+        machine: paused,
+      }),
       this.state.revision,
     );
   }
 
-  private setMirror(machines: CloudMachine[], revision: number, patch: Partial<CloudState> = {}): void {
+  /**
+   * A burst of watch events (a spending-cap pause marks every running machine at once, one event each;
+   * a pool scale-up starts many) updates the mirror at each event but draws the page and writes the
+   * kept list once a frame, not once an event: before, N events were N renders and N writes of the
+   * whole list to storage (bench/cloud-event-burst.bench.ts). Set while the frame after a burst's
+   * first event is to come.
+   */
+  private eventFrame: (() => void) | undefined;
+  /** What the frame still owes: the listeners (a draw) and the kept list (a write). */
+  private owedDraw = false;
+  private owedKeep = false;
+
+  private flushEventFrame(): void {
+    this.eventFrame = undefined;
+    if (this.owedKeep) {
+      this.owedKeep = false;
+      this.keepList();
+    }
+    if (this.owedDraw) {
+      this.owedDraw = false;
+      for (const listener of this.listeners) listener();
+    }
+  }
+
+  /** `later`: an event inside a burst's frame; the frame draws and keeps the list (`eventFrame`). */
+  private setMirror(machines: CloudMachine[], revision: number, patch: Partial<CloudState> = {}, later = false): void {
     const pending = this.state.pending.filter((intent) => !settled(intent, machines, revision));
     // The machine Get just created stays selected until its first event reaches the mirror.
     const gone =
@@ -1079,17 +1298,24 @@ export class CloudStore {
       this.state.selection !== this.state.openWhenRunning &&
       !machines.some((machine) => machine.id === this.state.selection);
     if (gone) void this.detail.load(undefined);
-    this.set({
-      machines,
-      revision,
-      pending,
-      rows: visibleRows(machines, pending),
-      ...(gone ? { selection: undefined, detail: undefined } : {}),
-      ...patch,
-    });
+    this.set(
+      {
+        machines,
+        revision,
+        pending,
+        rows: visibleRows(machines, pending),
+        ...(gone ? { selection: undefined, detail: undefined } : {}),
+        ...patch,
+      },
+      later,
+    );
     this.openIfRunning();
     this.createIfRoom();
-    this.keepList();
+    if (!later) this.keepList();
+    else {
+      this.ownerListed = true;
+      this.owedKeep = true;
+    }
   }
 
   /** Keeps the list the owner just gave for the next open's first frame (machineCache.ts). */
@@ -1171,13 +1397,21 @@ export class CloudStore {
    * (`CONFIRMED_ACTIONS`) answers them under `value` (PageProviders `runConfirmed`).
    */
   private async runNative(action: string, args: Record<string, unknown>): Promise<MachineActionResult | null> {
-    return confirmedValue(await this.client!.call<NativeAnswer | null>(ACTION_RUN, { action, args }));
+    return confirmedValue(
+      await this.client!.call<NativeAnswer | null>(ACTION_RUN, {
+        action,
+        args,
+      }),
+    );
   }
 
   private async native(action: string, args: Record<string, unknown>): Promise<void> {
     if (!this.canChange()) return;
     try {
-      await this.client!.call<ActionRunResult | null>(ACTION_RUN, { action, args });
+      await this.client!.call<ActionRunResult | null>(ACTION_RUN, {
+        action,
+        args,
+      });
     } catch (error) {
       this.fail(action, error);
     }
@@ -1189,7 +1423,12 @@ export class CloudStore {
    */
   private fail(op: string, error: unknown): void {
     if (this.refused(error)) return;
-    if (noImage(error)) this.set({ blocked: "no_snapshot_configured", refusal: undefined, error: undefined });
+    if (noImage(error))
+      this.set({
+        blocked: "no_snapshot_configured",
+        refusal: undefined,
+        error: undefined,
+      });
     else if (isUnsupported(error)) this.markUnavailable(op);
     else this.set(failure(error));
   }
@@ -1230,13 +1469,63 @@ export class CloudStore {
     return this.options.newKey?.() ?? crypto.randomUUID();
   }
 
-  private set(patch: Partial<CloudState>): void {
+  /** `later`: the listeners hear of it at the event frame (`eventFrame`), not now. */
+  private set(patch: Partial<CloudState>, later = false): void {
     const wasDown = this.state.connection === "disconnected";
     this.state = { ...this.state, ...patch };
+    // Any change into a lost link or a failed page read, from whichever read saw it, is read again
+    // on its own (`readAgainLater`); one timer at a time, and none while `stop` ends the session.
+    const { connection } = this.state;
+    if (
+      (connection === "disconnected" || connection === "failed") &&
+      this.client &&
+      !this.halting &&
+      this.restart === undefined &&
+      this.listeners.size > 0
+    ) {
+      if (!this.state.recovering) this.state = { ...this.state, recovering: true };
+      this.readAgainLater();
+    }
     // A live page whose link dropped under a read or an action reads everything again on its own,
     // keeping what it shows (a first read that failed has its own `startLater`).
     if (!wasDown && this.state.connection === "disconnected" && this.started) this.reconnectLater();
+    if (later) {
+      this.owedDraw = true;
+      return;
+    }
+    this.owedDraw = false;
     for (const listener of this.listeners) listener();
+  }
+
+  /**
+   * Follows the host's word on the owner link (`cmux.page.connection`): the moment it says the link
+   * is up again, a page that is still disconnected reads again at once instead of at its next backoff
+   * step (up to CLOUD_RESTART_MAX_MS later). A host without the stream (an older one, the mock) leaves
+   * the backoff alone.
+   */
+  private async followLink(): Promise<void> {
+    if (!this.client) return;
+    const lifetime = this.linkLifetime;
+    try {
+      const stop = await subscribePageStreams(this.client, {
+        onConnection: (connected) => {
+          if (connected && lifetime === this.linkLifetime) this.relinkNow();
+        },
+      });
+      if (lifetime !== this.linkLifetime) return stop();
+      this.unwatchLink = stop;
+    } catch {
+      // The link is down now: the backoff reads again, and the next first listener subscribes again.
+    }
+  }
+
+  /** The link is back: a disconnected page reads again now, as Retry does, with nothing cleared from the screen. */
+  private relinkNow(): void {
+    if (this.listeners.size === 0 || this.state.connection !== "disconnected") return;
+    clearTimeout(this.restart);
+    this.restart = undefined;
+    if (this.started) this.stop();
+    void this.start();
   }
 
   /**
@@ -1320,7 +1609,12 @@ function codeOf(error: unknown): string | undefined {
  */
 export function failure(error: unknown, withMessage = true): Partial<CloudState> {
   if (connectionFailure(error) === "disconnected") {
-    return { connection: "disconnected", error: message(error), errorCode: codeOf(error), blocked: undefined };
+    return {
+      connection: "disconnected",
+      error: message(error),
+      errorCode: codeOf(error),
+      blocked: undefined,
+    };
   }
   return withMessage ? { error: message(error), errorCode: codeOf(error), blocked: undefined } : {};
 }
@@ -1332,4 +1626,25 @@ function capMarksChanged(machines: readonly CloudMachine[], next: CloudMachine):
     (before?.spend_cap_pause_at ?? null) !== (next.spend_cap_pause_at ?? null) ||
     (before?.paused_by ?? null) !== (next.paused_by ?? null)
   );
+}
+
+/**
+ * Runs `run` once, at the next animation frame or after 50 ms, whichever comes first: a hidden page
+ * gets no frames (WebKit pauses them), and its events still settle. Returns its cancel.
+ */
+function nextFrameOrSoon(run: () => void): () => void {
+  let done = false;
+  const frame = globalThis.requestAnimationFrame?.(() => fire());
+  const timer = setTimeout(() => fire(), 50);
+  const cancel = () => {
+    done = true;
+    if (frame !== undefined) globalThis.cancelAnimationFrame?.(frame);
+    clearTimeout(timer);
+  };
+  function fire(): void {
+    if (done) return;
+    cancel();
+    run();
+  }
+  return cancel;
 }

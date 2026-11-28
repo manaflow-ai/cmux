@@ -200,6 +200,25 @@ fn a_broker_pr_create_tool_counts_the_url_its_answer_names() {
         "rawOutput": {"output": "{\"ok\": true, \"data\": {\"html_url\": \"https://github.com/o/r/pull/8\"}}"}});
     assert_eq!(track(&mut calls, &codex).as_deref(), Some("https://github.com/o/r/pull/8"));
     assert!(calls.is_empty());
+
+    // The repository MCP helper opens the PR itself and returns the same structured URL.
+    let publish = json!({"toolCallId": "p1", "title": "mcp__repo__repo_publish",
+        "rawInput": {"repo": "o/r", "branch": "lane/x"}});
+    let published = json!({"toolCallId": "p1", "status": "completed",
+        "content": [{"type": "text", "text": "o/r lane/x: abc123 pushed through broker\nhttps://api.github.com/repos/o/r/pulls/9"}]});
+    assert_eq!(track(&mut calls, &publish), None);
+    assert_eq!(track(&mut calls, &published).as_deref(), Some("https://github.com/o/r/pull/9"));
+
+    let published_json = json!({"toolCallId": "p2", "title": "repo_publish", "status": "completed",
+        "content": [{"type": "text", "text": "{\"data\":{\"url\":\"https://api.github.com/repos/o/r/pulls/10\"}}"}]});
+    assert_eq!(
+        track(&mut calls, &published_json).as_deref(),
+        Some("https://github.com/o/r/pull/10")
+    );
+
+    let existing = json!({"toolCallId": "p3", "title": "repo_publish", "status": "completed",
+        "content": [{"type": "text", "text": "a pull request already exists:\nhttps://api.github.com/repos/o/r/pulls/11"}]});
+    assert_eq!(track(&mut calls, &existing), None);
 }
 
 #[test]

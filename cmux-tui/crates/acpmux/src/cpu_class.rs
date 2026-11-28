@@ -9,6 +9,12 @@
 //! git children (`cmux-git` `run.rs`): the lowest CPU priority, throttled disk I/O and
 //! background-class new sockets.
 //!
+//! `dynamic` (opt-in) keeps the terminal's class while the Mac is calm and uses
+//! `PRIO_DARWIN_BG` only during measured contention. It returns to the terminal's class after
+//! clear samples, so a temporary CPU peak cannot strand a chat at background priority. A person's
+//! attended turn stays above background class until its first token, thought, or completed
+//! tool result arrives; subsequent work may yield under pressure.
+//!
 //! `background` was the default until 2026-11-24, and it made NEXT agents slower than terminal
 //! agents: every tool a turn ran (git, tests, builds) inherited throttled disk I/O and waited on
 //! the disk whenever the Mac was busy. Over 130 sessions in 21 days on one Mac, tests took 37 s at
@@ -88,12 +94,14 @@
 //! (its `${env:…}` references resolved; one build-heavy profile can opt out), the daemon's env
 //! `ACPMUX_SESSION_CPU_CLASS`, config `session.cpuClass`
 //! (`acpmux config --set session.cpu_class=background`), then [`default_for`] the harness:
-//! `normal` ([`DEFAULT`]), and `normal` for a Claude Code launcher and Codex's `app-server` even
+//! `normal` ([`DEFAULT`]), or `normal` for a Claude Code launcher and Codex's `app-server` even
 //! if [`DEFAULT`] changes. Linux sessions get their
 //! CPU share from their cgroup scope's `CPUWeight` instead (`session_scope.rs`), and other
 //! platforms start harnesses as before: there the class is read and ignored.
 
 use serde::{Deserialize, Serialize};
+
+pub mod pressure;
 
 /// The knob, in a profile's env or the daemon's.
 pub const ENV: &str = "ACPMUX_SESSION_CPU_CLASS";
@@ -105,6 +113,9 @@ pub enum CpuClass {
     /// Its starter's class: acpmux lowers nothing.
     #[default]
     Normal,
+    /// The terminal's class while calm, and background class only while the host is
+    /// contended and nobody waits on its turn (`cpu_class/pressure.rs`).
+    Dynamic,
     /// `PRIO_DARWIN_BG` on macOS, from the end of its start on.
     Background,
 }
@@ -139,12 +150,22 @@ pub fn default_for(kind: crate::config::HarnessKind, argv: &[String]) -> CpuClas
 }
 
 impl CpuClass {
-    /// `normal` or `background` (any case, trimmed); None for anything else.
+    /// `normal`, `dynamic` or `background` (any case, trimmed); None for anything else.
     pub fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
             "normal" => Some(Self::Normal),
+            "dynamic" => Some(Self::Dynamic),
             "background" => Some(Self::Background),
             _ => None,
+        }
+    }
+
+    /// Its name, as `parse` reads it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Normal => "normal",
+            Self::Dynamic => "dynamic",
+            Self::Background => "background",
         }
     }
 
@@ -185,7 +206,9 @@ impl CpuClass {
             let value = value?;
             let class = Self::parse(value);
             if class.is_none() {
-                tracing::warn!("{source} {ENV}={value:?} names no CPU class (normal, background)");
+                tracing::warn!(
+                    "{source} {ENV}={value:?} names no CPU class (normal, dynamic, background)"
+                );
             }
             class
         };
@@ -212,7 +235,7 @@ impl CpuClass {
                 let tier = tier();
                 imp::set_background(pid, true) || tier
             }
-            Self::Normal => cfg!(target_os = "linux") && tier(),
+            Self::Normal | Self::Dynamic => cfg!(target_os = "linux") && tier(),
         }
     }
 }
@@ -258,6 +281,23 @@ pub fn start_at_normal(cmd: &mut tokio::process::Command) {
 /// applies to `pid`. True when the call succeeded.
 pub fn clear_running(pid: u32) -> bool {
     imp::set_background(pid, false)
+}
+
+/// The most processes of one harness's tree a class change reaches. A turn's build can fork
+/// many compilers, and each pass costs a few microseconds per process.
+pub const CLASS_TREE_MAX: usize = 1024;
+
+/// Puts the harness `pid` and every process under it in background class (`on`) or takes them
+/// out (macOS, elsewhere nothing). A class change reaches processes already started, not only
+/// those started next. The descendants are read from the kernel and bounded by
+/// [`CLASS_TREE_MAX`]. Returns the number of processes that accepted the change.
+pub fn set_tree_background(pid: u32, on: bool) -> usize {
+    imp::tree_pids(pid, CLASS_TREE_MAX).into_iter().filter(|p| imp::set_background(*p, on)).count()
+}
+
+/// Whether another process put `pid` in background class. None when it cannot be read.
+pub fn is_background(pid: u32) -> Option<bool> {
+    imp::is_background(pid)
 }
 
 /// A `background` harness `pid` during a person's own turn (`on`) and after it (module docs,
@@ -352,6 +392,20 @@ pub fn harness_state(pid: u32) -> Option<HarnessState> {
 /// its kernel CPU accounting. Platforms without a per-process signal return None.
 pub fn harness_cpu_ticks(pid: u32) -> Option<u64> {
     imp::cpu_ticks(pid)
+}
+
+/// `root` and the processes under it, read the same way as a start's harness tree (only the
+/// descendants of a process acpmux spawned and holds, no process listing; at most 64 on macOS,
+/// 256 on Linux). Elsewhere `root` alone. The host budget's per-session use reads it
+/// (`hub/session_usage.rs`, RFD 0072 piece 2).
+pub fn own_tree(root: u32) -> Vec<u32> {
+    imp::own_tree(root)
+}
+
+/// A Linux process's `/proc/<pid>/stat` fields after the command name (field 3 first).
+#[cfg(target_os = "linux")]
+pub fn stat_fields(pid: u32) -> Option<Vec<String>> {
+    imp::stat(pid)
 }
 
 /// What a start's deadline error can say about its harness.
@@ -491,6 +545,26 @@ mod imp {
         set
     }
 
+    pub(super) fn tree_pids(pid: u32, max: usize) -> Vec<u32> {
+        let Some(root) = libc::c_int::try_from(pid).ok().filter(|p| *p > 0) else {
+            return Vec::new();
+        };
+        tree_bounded(root, max).into_iter().filter_map(|(p, _)| u32::try_from(p).ok()).collect()
+    }
+
+    pub(super) fn is_background(pid: u32) -> Option<bool> {
+        let id: libc::id_t = pid;
+        if id == 0 {
+            return None;
+        }
+        let errno = || unsafe { libc::__error() };
+        unsafe {
+            *errno() = 0;
+            let value = libc::getpriority(libc::PRIO_DARWIN_PROCESS, id);
+            (*errno() == 0).then_some(value != 0)
+        }
+    }
+
     /// `proc_pidinfo(pid, flavor)` into a `T`, or None.
     ///
     /// # Safety
@@ -512,17 +586,23 @@ mod imp {
     /// with the process that started it (`root`'s own is 0). Only the descendants of a harness
     /// acpmux spawned and holds: no other process is listed.
     fn tree(root: libc::c_int) -> Vec<(libc::c_int, libc::c_int)> {
+        tree_bounded(root, TREE_MAX)
+    }
+
+    /// [`tree`] with its bound `max`.
+    fn tree_bounded(root: libc::c_int, max: usize) -> Vec<(libc::c_int, libc::c_int)> {
+        let max = max.max(1);
         let mut all = vec![(root, 0)];
         let mut next = 0;
-        while next < all.len() && all.len() < TREE_MAX {
+        let mut kids = vec![0 as libc::c_int; max];
+        while next < all.len() && all.len() < max {
             let parent = all[next].0;
-            let mut kids = [0 as libc::c_int; TREE_MAX];
-            let bytes = libc::c_int::try_from(std::mem::size_of_val(&kids)).unwrap_or(0);
+            let bytes = libc::c_int::try_from(std::mem::size_of_val(kids.as_slice())).unwrap_or(0);
             // SAFETY: the buffer holds `bytes` bytes of pids, which the kernel fills.
             let n = unsafe { libc::proc_listchildpids(parent, kids.as_mut_ptr().cast(), bytes) };
-            let n = usize::try_from(n).unwrap_or(0).min(TREE_MAX);
+            let n = usize::try_from(n).unwrap_or(0).min(max);
             for kid in kids[..n].iter().copied() {
-                if all.len() == TREE_MAX {
+                if all.len() == max {
                     break;
                 }
                 if kid > 0 && !all.iter().any(|(p, _)| *p == kid) {
@@ -532,6 +612,11 @@ mod imp {
             next += 1;
         }
         all
+    }
+
+    pub(super) fn own_tree(root: u32) -> Vec<u32> {
+        let Ok(root) = libc::c_int::try_from(root) else { return Vec::new() };
+        tree(root).into_iter().filter_map(|(pid, _)| u32::try_from(pid).ok()).collect()
     }
 
     // The Mach timebase's struct and call are deprecated in favour of the `mach2` crate, which
@@ -635,6 +720,14 @@ mod imp {
         false
     }
 
+    pub(super) fn tree_pids(_pid: u32, _max: usize) -> Vec<u32> {
+        Vec::new()
+    }
+
+    pub(super) fn is_background(_pid: u32) -> Option<bool> {
+        None
+    }
+
     /// The harness's process group at [`crate::qos::AGENT_NICE`] ([`super::lower_group`]), and
     /// the session it runs in (its agent host's, which leads one: `agent_host/link.rs`) at the same
     /// nice. Where the scheduler groups processes by session (autogroup, a process outside a CPU
@@ -672,7 +765,7 @@ mod imp {
 
     /// The one process record's fields after the parenthesized command name.
     /// The command may contain spaces, so split only after its final `)`.
-    fn stat(pid: u32) -> Option<Vec<String>> {
+    pub(super) fn stat(pid: u32) -> Option<Vec<String>> {
         let raw = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
         let (_, fields) = raw.rsplit_once(')')?;
         Some(fields.split_whitespace().map(str::to_owned).collect())
@@ -725,6 +818,10 @@ mod imp {
             i += 1;
         }
         out
+    }
+
+    pub(super) fn own_tree(root: u32) -> Vec<u32> {
+        tree(root).into_iter().map(|(pid, _)| pid).collect()
     }
 
     /// How many of `pid`'s threads were on a CPU or ready for one (`R`) when read.
@@ -826,6 +923,14 @@ mod imp {
         false
     }
 
+    pub(super) fn tree_pids(_pid: u32, _max: usize) -> Vec<u32> {
+        Vec::new()
+    }
+
+    pub(super) fn is_background(_pid: u32) -> Option<bool> {
+        None
+    }
+
     pub(super) fn to_agent_tier(_pid: u32) -> bool {
         false
     }
@@ -836,6 +941,10 @@ mod imp {
 
     pub(super) fn cpu_ticks(_pid: u32) -> Option<u64> {
         None
+    }
+
+    pub(super) fn own_tree(root: u32) -> Vec<u32> {
+        vec![root]
     }
 }
 
@@ -880,7 +989,7 @@ mod tests {
                 "-c",
                 "agents.max_depth=16",
                 "-c",
-                "tools.update_plan.enabled=true",
+                "tools.update_plan.enabled=false",
                 "app-server",
             ]),
         ] {

@@ -61,6 +61,7 @@ public nonisolated struct CmuxToastDetailCopy: Equatable, Sendable {
         case "fs.io":
             String(localized: "toast.detail.io", defaultValue: "The machine couldn't read or write the file.", bundle: .localizedModule)
         case "fs.revision_mismatch":
+            // retry-prompt-ok: reloading the file drops the person's unsaved edit
             String(localized: "toast.detail.revisionMismatch",
                    defaultValue: "The file changed on the machine after it was opened. Reload it, then try again.", bundle: .localizedModule)
         default:

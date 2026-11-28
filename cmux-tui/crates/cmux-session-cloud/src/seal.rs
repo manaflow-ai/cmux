@@ -97,40 +97,18 @@ pub fn seal(key: &Key, plain: &[u8]) -> anyhow::Result<Vec<u8>> {
 
 /// Decrypts and decompresses a sealed blob; `plain_len` bounds the decompressed size.
 pub fn open(key: &Key, sealed: &[u8], plain_len: usize) -> anyhow::Result<Vec<u8>> {
-    if sealed.len() < MAGIC.len() + NONCE || &sealed[..MAGIC.len()] != MAGIC {
+    let Some((nonce, ciphertext)) =
+        sealed.strip_prefix(MAGIC).and_then(|rest| rest.split_at_checked(NONCE))
+    else {
         bail!("not a sealed history blob");
-    }
-    let nonce = &sealed[MAGIC.len()..MAGIC.len() + NONCE];
+    };
     let packed = key
         .cipher()
-        .decrypt(
-            XNonce::from_slice(nonce),
-            Payload { msg: &sealed[MAGIC.len() + NONCE..], aad: MAGIC },
-        )
+        .decrypt(XNonce::from_slice(nonce), Payload { msg: ciphertext, aad: MAGIC })
         .map_err(|_| anyhow!("the blob does not open with this history key"))?;
     zstd::bulk::decompress(&packed, plain_len).context("cannot decompress")
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_sealed_blob_opens_with_its_key_only() {
-        let key = Key::generate().unwrap();
-        let plain = b"{\"seq\":1}\n".repeat(1000);
-        let sealed = seal(&key, &plain).unwrap();
-        assert!(sealed.len() < plain.len() / 4, "ndjson compresses");
-        assert_eq!(open(&key, &sealed, plain.len()).unwrap(), plain);
-        assert!(open(&Key::generate().unwrap(), &sealed, plain.len()).is_err());
-        let mut flipped = sealed;
-        *flipped.last_mut().unwrap() ^= 1;
-        assert!(open(&key, &flipped, plain.len()).is_err());
-    }
-
-    #[test]
-    fn the_same_plaintext_seals_differently_each_time() {
-        let key = Key::generate().unwrap();
-        assert_ne!(seal(&key, b"same").unwrap(), seal(&key, b"same").unwrap());
-    }
-}
+#[path = "seal_tests.rs"]
+mod tests;

@@ -1,30 +1,19 @@
-//! A projected repository's `.git` switching from the Mac to the machine's own fetch (RFD 0007,
-//! seed bundles: "a repo with a public remote should still take its objects from the remote
-//! (C) ... The open part is the swap: serving `.git` by projection until the machine's own fetch
-//! lands, then switching to it").
+//! Projected `.git` switches to a repository prepared from the sender's carry pack.
 //!
-//! At session start `.git` is the projection's, its bytes from the Mac on first read. Beside it,
-//! [`prepare`] builds the machine's own repository on its disk (`<state>/git-local`):
-//! 1. a blobless fetch (`--filter=blob:none`) from the repository's public remote of the branches
-//!    the Mac tracks there: history and trees from the remote, blobs on first use, from the remote
-//!    too (a `cmux-seed` promisor remote, so the Mac's own remote settings stay as they are);
-//! 2. a fetch from the projected `.git` itself of every ref (`+refs/*:refs/*`), negotiated against
-//!    what step 1 brought: only what the remote lacks crosses the Mac's link, which is the
-//!    unpushed commits, their trees and blobs, and the stash;
-//! 3. the Mac's `HEAD`, `index`, `config` (with the promisor remote added) and `info/` copied as
-//!    they read through the mount, the remote's refs of step 1 deleted.
+//! [`prepare_carry`] indexes the depth-one commit/tree pack, then fetches refs, HEAD history,
+//! and staged blobs from the projection itself. It never contacts the configured remote.
+//! [`prepare`] retains the older public-remote path for its existing callers and benchmark.
 //!
-//! [`swap`] then puts a link to it at `.git` in the upper layer in one rename
-//! ([`crate::overlay::Overlay::swap_to_link`]) and has the kernel forget the old entry. The two
-//! repositories hold the same refs, HEAD and index, and the new one every object the old one
-//! reached, so a git process that read part of its state before the switch and part after
-//! still sees one repository. The Mac's state is fingerprinted ([`fingerprint`]) before step 2
-//! and again just before the rename; a change between (a commit on the machine meanwhile) runs
-//! steps 2 and 3 again.
+//! [`swap`] installs the prepared repository as one upper-layer symlink rename. Both packed
+//! and loose refs are kept so a Git reader crossing the rename can resolve either layout.
+//! HEAD, refs and index are fingerprinted before preparation and again before the rename.
+//! Busy, shallow, unsupported or failed preparations retain the projected repository. A swap
+//! is opportunistic: after the first admitted overlay mutation, it stays projected for this
+//! mount's lifetime. This includes worktree edits, so an active agent may forgo the optimization.
+//! The final pristine check and rename exclude mutations through the same admission gate.
 //!
-//! A repository is left on projection when its remote cannot be read without credentials
-//! (`GIT_TERMINAL_PROMPT=0`), when it is shallow, has submodules' repositories in
-//! `.git/modules`, or is mid-merge, rebase, cherry-pick or bisect.
+//! Bring Back expands this owned link and includes the local repository in its transfer mark,
+//! so commits and staged work made after the swap return to the Mac before the state is freed.
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -37,8 +26,53 @@ pub const SEED_REMOTE: &str = "cmux-seed";
 const SEED_REFS: &str = "refs/cmux-seed/";
 /// The machine's repository, in the projection's state folder.
 pub const LOCAL_DIR: &str = "git-local";
+/// Present only after a carried repository has been fully copied and is safe to read as the
+/// machine's complete Git state during Bring Back.
+pub const SWAP_MARKER: &str = "cmux-carry.complete";
+/// The swap's owned repository, only while the upper `.git` link names it. Ordinary
+/// user symlinks remain links in Bring Back; they never cause a directory traversal.
+pub(crate) fn swapped_repository(state: &Path) -> std::io::Result<Option<PathBuf>> {
+    let target = state.join(LOCAL_DIR);
+    match std::fs::read_link(state.join("upper/.git")) {
+        Ok(link) if link == target => {
+            let metadata = std::fs::symlink_metadata(&target)?;
+            Ok(metadata.is_dir().then_some(target))
+        }
+        Ok(_) => Ok(None),
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::InvalidInput
+            ) =>
+        {
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// The virtual files a projection server adds for `git-seed-carry-v1`.
+pub const CARRY_PACK: &str = "cmux-carry.pack";
+pub const CARRY_BASE: &str = "cmux-carry.base";
 /// How many times a moving Mac state is copied again before the swap gives up for now.
 const ATTEMPTS: usize = 3;
+const SYNC_RECORD: &str = "cmux-sync.json";
+
+fn sync_record(git_dir: &Path) -> std::io::Result<Option<Vec<u8>>> {
+    match std::fs::read(git_dir.join(SYNC_RECORD)) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+/// Whether projected git carry is enabled. Carry is on by default so projection starts can use
+/// the sender's local objects. Set `CMUX_PROJECTION_GIT_SWAP=off` to disable it for a diagnosis.
+#[must_use]
+pub fn enabled() -> bool {
+    !std::env::var_os("CMUX_PROJECTION_GIT_SWAP")
+        .is_some_and(|value| value.to_string_lossy().eq_ignore_ascii_case("off"))
+}
 /// What in `.git` leaves the repository on projection: git is mid-operation, or the state is one
 /// the copy does not carry.
 const UNSWAPPABLE: [&str; 9] = [
@@ -139,7 +173,8 @@ pub fn seed_remote(git_dir: &Path) -> Option<(String, String)> {
 }
 
 /// What must match between the copy and the swap: HEAD, every ref, and the index's size and
-/// modification time. `None` while git is mid-operation there (a lock file, a merge).
+/// modification time, and Bring Back's sync record. `None` while git is mid-operation there
+/// (a lock file, a merge).
 pub fn fingerprint(git_dir: &Path) -> anyhow::Result<Option<String>> {
     for name in UNSWAPPABLE {
         if std::fs::symlink_metadata(git_dir.join(name)).is_ok() {
@@ -162,7 +197,9 @@ pub fn fingerprint(git_dir: &Path) -> anyhow::Result<Option<String>> {
         }
         Err(_) => "none".to_owned(),
     };
-    Ok(Some(format!("{head}\n{index}\n{refs}")))
+    use sha2::{Digest as _, Sha256};
+    let sync = sync_record(git_dir)?.map(|bytes| format!("{:x}", Sha256::digest(bytes)));
+    Ok(Some(format!("{head}\n{index}\n{refs}\n{sync:?}")))
 }
 
 /// The machine's repository at `local`, made from `projected` (the `.git` as the mount serves
@@ -175,7 +212,8 @@ pub fn prepare(projected: &Path, local: &Path, url: &str) -> anyhow::Result<Stri
         std::fs::remove_dir_all(local)?;
     }
     let mut init = Command::new("git");
-    init.args(["init", "--bare", "--quiet"]).arg(local);
+    init.args(["init", "--bare", "--quiet"]);
+    init.arg(local);
     output(init)?;
     for (key, value) in [
         ("core.repositoryformatversion", "1"),
@@ -191,7 +229,7 @@ pub fn prepare(projected: &Path, local: &Path, url: &str) -> anyhow::Result<Stri
     fetch_remote(projected, local)?;
     let mut fingerprint_now = before;
     for _ in 0..ATTEMPTS {
-        copy_mac_state(projected, local)?;
+        copy_mac_state(projected, local, Some(url))?;
         match fingerprint(projected)? {
             Some(after) if after == fingerprint_now => return Ok(after),
             Some(after) => fingerprint_now = after,
@@ -199,6 +237,97 @@ pub fn prepare(projected: &Path, local: &Path, url: &str) -> anyhow::Result<Stri
         }
     }
     anyhow::bail!("the repository kept changing while it was copied")
+}
+
+/// Builds the machine repository from the carried depth-1 `pack` and `base` supplied by the Mac.
+/// The projected repository is then used only as a local object/ref source. In particular, this
+/// path never asks the repository's configured remote for `ls-remote` or a fetch.
+pub fn prepare_carry(
+    projected: &Path,
+    local: &Path,
+    pack: &Path,
+    base: &str,
+) -> anyhow::Result<String> {
+    anyhow::ensure!(valid_object_name(base), "invalid carry base {base:?}");
+    let Some(before) = fingerprint(projected)? else {
+        anyhow::bail!("git is busy in {} (a lock or an operation in progress)", projected.display())
+    };
+    if local.exists() {
+        std::fs::remove_dir_all(local)?;
+    }
+    let mut init = Command::new("git");
+    init.args(["init", "--bare", "--quiet"]);
+    if base.len() == 64 {
+        init.arg("--object-format=sha256");
+    }
+    init.arg(local);
+    output(init)?;
+    for (key, value) in [
+        ("core.repositoryformatversion", "1"),
+        ("core.bare", "false"),
+        ("core.checkStat", "minimal"),
+        ("core.trustctime", "false"),
+    ] {
+        let mut set = git(local);
+        set.args(["config", key, value]);
+        output(set)?;
+    }
+    write_atomic(&local.join("shallow"), format!("{base}\n").as_bytes())?;
+    index_carry(local, pack)?;
+    // A blobless pack intentionally omits the base tree's blobs. The projected repository is
+    // fetched below to fill those holes; checking reachability here would reject the pack before
+    // that transfer. The base commit itself must be present so the receiver has a stable anchor.
+    let mut commit = git(local);
+    commit.args(["rev-parse", "--verify", &format!("{base}^{{commit}}")]);
+    output(commit)?;
+
+    // The carried pack is intentionally depth one.  Remove that temporary boundary before
+    // asking the projected repository for its refs, otherwise fetch treats the carried tip as
+    // complete and silently drops every parent commit from the machine's visible history.
+    let _ = std::fs::remove_file(local.join("shallow"));
+
+    let mut fingerprint_now = before;
+    for _ in 0..ATTEMPTS {
+        copy_mac_state(projected, local, None)?;
+        match fingerprint(projected)? {
+            Some(after) if after == fingerprint_now => {
+                write_atomic(&local.join(SWAP_MARKER), b"v1\n")?;
+                return Ok(after);
+            }
+            Some(after) => fingerprint_now = after,
+            None => {}
+        }
+    }
+    anyhow::bail!("the repository kept changing while it was copied")
+}
+
+fn valid_object_name(name: &str) -> bool {
+    matches!(name.len(), 40 | 64) && name.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn index_carry(local: &Path, pack: &Path) -> anyhow::Result<()> {
+    let metadata = std::fs::metadata(pack)?;
+    anyhow::ensure!(metadata.is_file() && metadata.len() > 0, "the carry pack is empty");
+    let packs = local.join("objects").join("pack");
+    std::fs::create_dir_all(&packs)?;
+    let incoming = packs.join("tmp_cmux_carry.pack");
+    std::fs::copy(pack, &incoming)?;
+    let mut index = git(local);
+    // Projection carry packs use `blob:none`: the commit and trees are present, while blobs
+    // arrive from the projected repository during `copy_mac_state`. Index the pack's checksum
+    // and object table here without requiring connectivity to those intentionally omitted blobs.
+    index.args(["index-pack"]).arg(&incoming);
+    let name = String::from_utf8_lossy(&output(index)?).trim().to_owned();
+    anyhow::ensure!(valid_object_name(&name), "index-pack answered {name:?}");
+    for extension in ["rev", "idx", "pack"] {
+        let from = packs.join(format!("tmp_cmux_carry.{extension}"));
+        let to = packs.join(format!("pack-{name}.{extension}"));
+        match std::fs::rename(from, to) {
+            Err(error) if extension == "rev" && error.kind() == std::io::ErrorKind::NotFound => {}
+            done => done?,
+        }
+    }
+    Ok(())
 }
 
 /// Step 1: the branches the Mac tracks on the remote (that the remote still has), blobless.
@@ -242,7 +371,7 @@ fn fetch_remote(projected: &Path, local: &Path) -> anyhow::Result<()> {
 
 /// Steps 2 and 3: every ref and the objects the remote lacks from the projected `.git`, then
 /// its HEAD, index, config and info.
-fn copy_mac_state(projected: &Path, local: &Path) -> anyhow::Result<()> {
+fn copy_mac_state(projected: &Path, local: &Path, seed_url: Option<&str>) -> anyhow::Result<()> {
     let mut fetch = git(local);
     fetch.args(["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--update-head-ok"]);
     // No `--prune`: git prunes before it negotiates, which would drop the seed refs and with
@@ -250,8 +379,40 @@ fn copy_mac_state(projected: &Path, local: &Path) -> anyhow::Result<()> {
     fetch.args(["--recurse-submodules=no"]);
     // Negotiation only from what is already here, never a lazy blob fetch to check one.
     fetch.env("GIT_NO_LAZY_FETCH", "1");
-    fetch.arg(projected).arg("+refs/*:refs/*");
+    // A reachable seed remote already owns the ordinary blobs; keep this projected transfer
+    // blobless so the carry path does not retransmit the remote's history. When the remote probe
+    // failed (or there is no remote), copy the blobs from the projection for a self-contained swap.
+    if seed_url.is_some() {
+        fetch.arg("--filter=blob:none");
+    }
+    // HEAD may be detached and unreachable from any named ref. Transfer it alongside refs.
+    fetch.arg(projected).args(["+refs/*:refs/*", "HEAD"]);
     output(fetch)?;
+    // HEAD's tree is already covered by the refs/HEAD transfer (or the legacy seed's
+    // promisor). Only index objects outside that tree need an extra projected transfer.
+    // Fetching every index object would force ordinary promisor blobs over the Mac's link.
+    let mut tree = git(projected);
+    tree.args(["ls-tree", "-r", "-z", "HEAD"]);
+    let committed: std::collections::HashSet<String> = text(tree)?
+        .split('\0')
+        .filter_map(|entry| {
+            let (metadata, _) = entry.split_once('\t')?;
+            metadata.split_whitespace().nth(2).map(str::to_owned)
+        })
+        .collect();
+    // An index can name staged blobs that no ref reaches. Fetch those object IDs explicitly,
+    // including every conflict stage; a gitlink belongs to a separate repository.
+    let mut staged = git(projected);
+    staged.args(["ls-files", "--stage", "-z"]);
+    let staged: std::collections::BTreeSet<String> = staged_objects(&output(staged)?, &committed);
+    if !staged.is_empty() {
+        let mut fetch = git(local);
+        fetch.args(["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--stdin"]);
+        fetch.args(["--recurse-submodules=no"]);
+        fetch.env("GIT_NO_LAZY_FETCH", "1").arg(projected);
+        // The index can contain millions of paths. Never put their object IDs in argv.
+        with_stdin(fetch, &staged.into_iter().collect::<Vec<_>>())?;
+    }
     let mut mac = git(projected);
     mac.args(["for-each-ref", "--format=%(refname)"]);
     let on_mac: std::collections::HashSet<String> = text(mac)?.lines().map(str::to_owned).collect();
@@ -268,14 +429,27 @@ fn copy_mac_state(projected: &Path, local: &Path) -> anyhow::Result<()> {
         update.args(["update-ref", "--stdin"]);
         with_stdin(update, &deletes)?;
     }
+    // A reader may have cached the projected loose-ref directory before the swap and
+    // open packed-refs after it. The sender can keep all its refs packed (git gc), whereas
+    // fetch wrote ours loose. Keep both representations so either lookup order crosses the
+    // swap without losing refs. Do not prune the loose refs: a reader can also have cached
+    // the old packed-refs before it reads the new loose-ref tree.
+    let mut pack_refs = git(local);
+    pack_refs.args(["pack-refs", "--all", "--no-prune"]);
+    output(pack_refs)?;
     let config = std::fs::read_to_string(projected.join("config")).unwrap_or_default();
     let lead = if config.is_empty() || config.ends_with('\n') { "" } else { "\n" };
-    let ours = format!(
-        "{lead}[core]\n\tbare = false\n\trepositoryformatversion = 1\n\tcheckStat = minimal\n\t\
-         trustctime = false\n[extensions]\n\tpartialClone = {SEED_REMOTE}\n[remote \"{SEED_REMOTE}\"]\n\t\
-         url = {url}\n\tpromisor = true\n\tpartialclonefilter = blob:none\n",
-        url = seed_url(local)?,
-    );
+    let ours = match seed_url {
+        Some(url) => format!(
+            "{lead}[core]\n\tbare = false\n\trepositoryformatversion = 1\n\tcheckStat = minimal\n\t\
+             trustctime = false\n[extensions]\n\tpartialClone = {SEED_REMOTE}\n[remote \"{SEED_REMOTE}\"]\n\t\
+             url = {url}\n\tpromisor = true\n\tpartialclonefilter = blob:none\n"
+        ),
+        None => format!(
+            "{lead}[core]\n\tbare = false\n\trepositoryformatversion = 1\n\tcheckStat = minimal\n\t\
+             trustctime = false\n"
+        ),
+    };
     write_atomic(&local.join("config"), format!("{config}{ours}").as_bytes())?;
     let info = projected.join("info");
     if let Ok(entries) = std::fs::read_dir(&info) {
@@ -295,13 +469,46 @@ fn copy_mac_state(projected: &Path, local: &Path) -> anyhow::Result<()> {
         Err(error) => return Err(error.into()),
     }
     write_atomic(&local.join("HEAD"), &std::fs::read(projected.join("HEAD"))?)?;
+    // Bring Back may have advanced its base while this repository was still projected.
+    // The replacement must carry that record as well as Git's own state. fingerprint
+    // detects a change during preparation or before the final swap.
+    match sync_record(projected)? {
+        Some(bytes) => write_atomic(&local.join(SYNC_RECORD), &bytes)?,
+        None => match std::fs::remove_file(local.join(SYNC_RECORD)) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        },
+    }
     Ok(())
 }
 
-fn seed_url(local: &Path) -> anyhow::Result<String> {
-    let mut get = git(local);
-    get.args(["config", "--get", &format!("remote.{SEED_REMOTE}.url")]);
-    Ok(text(get)?.trim().to_owned())
+/// Extracts staged object IDs from Git's NUL-delimited index listing without interpreting the
+/// path bytes. Git permits arbitrary bytes in a filename, so converting the whole listing to
+/// UTF-8 would make a carry fail for an otherwise valid repository.
+fn staged_objects(
+    listing: &[u8],
+    committed: &std::collections::HashSet<String>,
+) -> std::collections::BTreeSet<String> {
+    listing
+        .split(|byte| *byte == 0)
+        .filter_map(|entry| {
+            let tab = entry.iter().position(|byte| *byte == b'\t')?;
+            let mut fields = entry.get(..tab)?.split(|byte| byte.is_ascii_whitespace());
+            let mode = fields.next()?;
+            let object = fields.next()?;
+            // A gitlink belongs to the submodule's object store, not this repository.
+            if mode == b"160000"
+                || !matches!(object.len(), 40 | 64)
+                || !object.iter().all(u8::is_ascii_hexdigit)
+                || object.iter().all(|byte| *byte == b'0')
+            {
+                return None;
+            }
+            let object = std::str::from_utf8(object).ok()?;
+            (!committed.contains(object)).then(|| object.to_owned())
+        })
+        .collect()
 }
 
 fn write_atomic(file: &Path, bytes: &[u8]) -> anyhow::Result<()> {
@@ -341,12 +548,20 @@ pub fn run(
         Ok(meta) if meta.is_dir() => {}
         _ => return Ok(Outcome::NoRepository),
     }
-    let Some((_, url)) = seed_remote(&projected) else { return Ok(Outcome::NoPublicRemote) };
+    let base = match std::fs::read_to_string(projected.join(CARRY_BASE)) {
+        Ok(base) if valid_object_name(base.trim()) => base.trim().to_owned(),
+        _ => return Ok(Outcome::NoPublicRemote),
+    };
     let local = state.join(LOCAL_DIR);
-    let ready = match prepare(&projected, &local, &url) {
+    let ready = match prepare_carry(&projected, &local, &projected.join(CARRY_PACK), &base) {
         Ok(ready) => ready,
-        Err(error) if is_unreachable(&error) => return Ok(Outcome::NoPublicRemote),
-        Err(error) => return Err(error),
+        Err(error) => {
+            eprintln!(
+                "cmux projection: carry preparation failed for {}: {error:#}",
+                projected.display()
+            );
+            return Ok(Outcome::NoPublicRemote);
+        }
     };
     swap(overlay, forget, &projected, &local, &ready)?;
     Ok(Outcome::Swapped(local))
@@ -371,14 +586,6 @@ pub fn swap(
         .map_err(|errno| anyhow::anyhow!("swapping .git: errno {errno}"))?;
     forget()?;
     Ok(())
-}
-
-fn is_unreachable(error: &anyhow::Error) -> bool {
-    let text = format!("{error:#}");
-    text.contains("ls-remote")
-        && ["could not read", "Authentication", "not found", "terminal prompts disabled"]
-            .iter()
-            .any(|needle| text.contains(needle))
 }
 
 #[cfg(all(test, target_os = "linux"))]

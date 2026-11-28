@@ -32,6 +32,13 @@
   will-change: transform;
   animation: acpmux-minimap-in var(--cmux-motion-micro) cubic-bezier(0.23, 1, 0.32, 1);
 }
+/* The prompt rail fades in only when it appears in a chat already drawn without it (ThreadMinimap.tsx
+   `data-arrive`): a chat opened, switched to or drawn again after a restart paints its rail final on
+   the first frame, as it paints its rows (Leo, 2026-11-25: "and then the scroll rail re-rednered").
+   The full-height map (ScrollMap.tsx) keeps its fade. */
+.acpmux-minimap__rail:not(.acpmux-scrollmap):not([data-arrive]) {
+  animation: none;
+}
 /* A selection drag that began in the text (ThreadMinimap.tsx textPress): the rail and its strip take
    no pointer until it ends, so a drag along the pane edge keeps selecting and never reveals, widens or
    captures the rail (Leo, 2026-11-22: "a lot of awkwardness when you try to e.g. copy text along this area"). */
@@ -591,6 +598,16 @@
 .acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__view,
 .acpmux-minimap__rail[data-scrubbing] .acpmux-scrollmap__view {
   background: color-mix(in srgb, var(--acpmux-minimap-text) 9%, transparent);
+}
+/* The marks' list (an item per drawn mark, each naming its place among every prompt) draws no
+   box: each mark is placed on the rail itself. */
+.acpmux-scrollmap__marks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.acpmux-scrollmap__entry {
+  display: block;
 }
 .acpmux-scrollmap__mark.acpmux-minimap__tick {
   position: absolute;

@@ -18,7 +18,8 @@ export function usePullRequestAction(source: ChangesSource | undefined): PullReq
   useEffect(() => {
     const current = ++generation.current;
     inFlight.current = false;
-    setState({ busy: false });
+    // Already at rest (each chat switch's new source): no new object, so no render.
+    setState((held) => (held.busy || held.error !== undefined ? { busy: false } : held));
     return () => {
       if (generation.current === current) generation.current += 1;
       inFlight.current = false;

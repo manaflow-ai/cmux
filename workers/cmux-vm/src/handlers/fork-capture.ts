@@ -1,7 +1,7 @@
 /** A fork's intermediate uses the same durable capture protocol as a saved snapshot. */
 import { name, type Named } from "@gdp-ts/core";
 import { Effect } from "effect";
-import { scopedCreationKey } from "../auth/idempotency-key.ts";
+import { scopedCreationKey, type CreationKey } from "../auth/idempotency-key.ts";
 import type { Principal } from "../domain/principal.ts";
 import { unavailable } from "../errors.ts";
 import type { VmId } from "../lib/ids.ts";
@@ -36,7 +36,7 @@ export const acquireForkSnapshot = <C, V>(caller: Named<C, Principal>, source: N
   );
 
 /** Reconciliation adopts or deletes existing effects only; it never sends a capture or VM create. */
-export const reconcileForkCapture = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, rawKey: string, expectedId?: string) => Effect.gen(function* () {
+export const reconcileForkCapture = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, rawKey: CreationKey, expectedId?: string) => Effect.gen(function* () {
   const limits = yield* TenantLimits, tenant = caller.value.tenantId, key = yield* scopedCreationKey(caller.value, rawKey);
   const record = yield* limits.inspect(tenant, key).pipe(Effect.mapError(unavailable));
   const p = record?.progress;

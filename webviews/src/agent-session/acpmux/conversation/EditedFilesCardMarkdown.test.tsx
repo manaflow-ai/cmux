@@ -173,6 +173,11 @@ test("a Markdown file written twice in a turn is one file with one Open", async 
 });
 
 test("a Markdown Write with no diff opens from its plain line", async () => {
+  const calls: [string, Record<string, unknown>][] = [];
+  setChipHost(async (method, params) => {
+    calls.push([method, params]);
+    return { ok: true };
+  });
   const row = turn([
     {
       kind: "tool",
@@ -190,7 +195,10 @@ test("a Markdown Write with no diff opens from its plain line", async () => {
   const container = await opened(card(row));
   const found = opens(container);
   expect(found).toHaveLength(1);
-  expect(found[0]!.title).toBe(PLAN);
+  // The path is the button's tooltip (ui/Tooltip) and what it opens.
+  expect(found[0]!.getAttribute("aria-label")).toContain("plan.md");
+  await act(async () => found[0]!.click());
+  expect(calls).toEqual([["link.openPath", { path: PLAN }]]);
 });
 
 test("a read-only copy of the chat has no Open: the file is on the owner's machine", async () => {
