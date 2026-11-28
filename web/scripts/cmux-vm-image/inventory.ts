@@ -10,7 +10,7 @@
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { collectInventory } from "./bake";
-import { argValue, deleteVm, freestyleClient, Ledger, StepLog, type Vm } from "./guest";
+import { argValue, deleteVm, freestyleClient, Ledger, StepLog, type Vm, wakeVm } from "./guest";
 import { DEFAULT_LOCK_PATH, readInputsLock } from "./lock";
 
 /** Tries of the whole collect: a connection the provider cut (run 42410303540: ECONNRESET on the file manifest's
@@ -48,10 +48,14 @@ export async function main(argv = process.argv): Promise<number> {
   const vm = freestyleClient().vms.ref(vmId) as unknown as Vm;
   const inventory: Record<string, unknown> = {};
   const t0 = Date.now();
+  // The builder was idle on the network since its snapshot (createVm's idle pause); roll 46078031124 lost it mid-scan
+  // and every retry's first exec timed out. Each try and each run of failed polls reads its state and starts it.
+  const wake = () => wakeVm(vm, (line) => L.log(line), `${record.name} (inventory)`);
   try {
     for (let attempt = 1; ; attempt++) {
       try {
-        await collectInventory(vm, L, { devTree: false, outDir }, lock, inventory, record.name, attempt === 1 ? undefined : `/tmp/cmux-out-${attempt}`);
+        await wake().catch((error: unknown) => L.log(`WARN inventory wake before try ${attempt}: ${String(error)}`));
+        await collectInventory(vm, L, { devTree: false, outDir }, lock, inventory, record.name, attempt === 1 ? undefined : `/tmp/cmux-out-${attempt}`, wake);
         delete inventory.error;
         break;
       } catch (error) {
