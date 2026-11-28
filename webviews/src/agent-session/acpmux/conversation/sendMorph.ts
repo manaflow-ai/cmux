@@ -287,13 +287,6 @@ export function keepSendOrigins(): void {
   flight?.land();
 }
 
-/// Forgets every noted chip and lands any flight (tests).
-export function clearSendOrigins(): void {
-  flight?.land();
-  pending = undefined;
-  chips.clear();
-}
-
 export const mix = (from: number, to: number, progress: number) => from + (to - from) * progress;
 export const mixRect = (from: Rect, to: Rect, progress: number): Rect => ({
   left: mix(from.left, to.left, progress),
