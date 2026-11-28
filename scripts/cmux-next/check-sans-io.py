@@ -13,8 +13,8 @@ module (its `mod x;` files: `foo.rs` owns `foo/`). So `cmux-transport/src/hop.rs
 implementation") covers `hop/leg.rs`, `hop/rx.rs` and the rest. A crate's lib.rs that only mentions a sans-IO
 part further down is not covered.
 
-What is product code: as check-spawn-owner.py has it (rust_test_modules.py, plus nothing after a trailing
-`#[cfg(test)] mod ... {`); a comment is not a line. Tests may read the clock.
+What is product code: as check-spawn-owner.py has it (rust_test_modules.py, plus nothing inside an inline
+`#[cfg(test)] mod ... { }` block); a comment is not a line. Tests may read the clock.
 
 What it refuses there (FORBIDDEN below): `Instant::now()`, `SystemTime::now()` and chrono's `now()`; tokio's
 `sleep`, `sleep_until`, `interval` and `timeout`, and `thread::sleep`; socket types (`UdpSocket`, `TcpStream`,
@@ -40,8 +40,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CRATES = os.path.join("cmux-tui", "crates")
 MARK = re.compile(r"sans[-\s]?io\b", re.IGNORECASE)
 COMMENT = re.compile(r"^\s*(//|/\*|\*(\s|/|$))")
-TEST_TAIL = re.compile(r"^#\[cfg\(test\)\]\s*\n(?:#\[[^\n]*\]\s*\n)*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*\{",
-                       re.MULTILINE)
 FORBIDDEN = [
     ("reads the clock", re.compile(r"\b(?:Instant|SystemTime|Utc|Local)::now\s*\(")),
     ("sleeps or sets a timer", re.compile(
@@ -87,9 +85,16 @@ def module_folder(path: str) -> str:
     return here if name in ("mod.rs", "lib.rs", "main.rs") else os.path.join(here, name[:-3])
 
 
+_TEST_MODULES = None
+
+
 def product_text(text: str) -> str:
-    match = TEST_TAIL.search(text)
-    return text[: match.start()] if match else text
+    """TEXT without its inline `#[cfg(test)] mod name { ... }` blocks (rust_test_modules.product_text: only each
+    block is test code, product code after one still counts)."""
+    global _TEST_MODULES
+    if _TEST_MODULES is None:
+        _TEST_MODULES = load_test_modules()
+    return _TEST_MODULES.product_text(text)
 
 
 def hits(text: str) -> list[tuple[int, str, str]]:
