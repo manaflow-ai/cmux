@@ -48,6 +48,7 @@ GATEWAY_MAC = frozenset({
     "cmux-next-split-table.yml#measure-fleet",
     "cmux-next-tip-test-compile.yml#compile-fleet",
     "nightly-interaction-latency.yml#benches",
+    "rivals-nightly.yml#record-rivals-fleet",
 })
 
 MOVED = {
