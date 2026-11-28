@@ -1,9 +1,9 @@
 // l10n-allow-file: the visible copy the folded card reads.
 // The prompt rail's arms for other chats' messages (incoming.experiment.ts), in Chromium over the
-// gallery's runs of messages (agent-pane.thread-minimap-incoming-fold): in every arm each tick at rest
-// shares one column, one x and one width (cmux#32637; leo-workspace design/session-rail.md "One
-// column at rest"), the folding arms draw a run as one tick whose card reads "Received 3 messages",
-// and the dimming arms draw other chats' resting ticks under the person's.
+// gallery's runs of messages (agent-pane.thread-minimap-incoming-fold): in every arm the default rail
+// draws only the person's prompts (model.ts `isPersonPrompt`; Leo, 2026-11-27: "non-user messages
+// shouldnt appear in the scroll rail anymore"), each tick at rest in one column, one x and one width
+// (cmux#32637; leo-workspace design/session-rail.md "One column at rest").
 //
 // With FAST_CHECKS_OUT set it keeps a still of each arm, at rest and with the first run hovered, and
 // one side-by-side sheet of all of them (thread-rail-other-chats-arms.png).
@@ -105,29 +105,20 @@ await requireBrowserLane("thread-rail-other-chats-arms.test.ts", async () => {
   };
 
   for (const arm of ARMS) {
-    const fold = arm.startsWith("folded");
-    const dim = arm.endsWith("secondary") || arm === "folded-faint";
-    test(`${arm}: every tick at rest shares one x and one width`, async () => {
+    test(`${arm}: the rail draws only the person's prompts, in one column`, async () => {
       const { ticks } = await of(arm);
-      // 14 turns: 8 of the person's and 6 from other chats (a run of three, a single, a run of two).
-      expect(ticks.length).toBe(fold ? 8 + 3 : 14);
+      // 14 turns: 8 of the person's and 6 from other chats. Other chats' messages draw no tick on the
+      // default rail in any arm (Leo, 2026-11-27: "non-user messages shouldnt appear in the scroll rail
+      // anymore"); Show Only Agent Messages lists them.
+      expect(ticks.length).toBe(8);
+      expect(ticks.some((tick) => tick.incoming)).toBe(false);
       expect(new Set(ticks.map((tick) => tick.left)).size).toBe(1);
       expect(new Set(ticks.map((tick) => tick.width)).size).toBe(1);
     });
-    test(`${arm}: ${dim ? "other chats' resting ticks draw under the person's" : "other chats' ticks draw as the person's"}`, async () => {
-      const { ticks } = await of(arm);
-      // The faintest of each: a resting tick (the ones on screen are lit).
-      const faintest = (incoming: boolean) =>
-        Math.min(...ticks.filter((tick) => tick.incoming === incoming).map((tick) => tick.opacity));
-      expect(ticks[3]!.incoming).toBe(true);
-      if (dim) expect(faintest(true)).toBeLessThan(faintest(false));
-      else expect(faintest(true)).toBe(faintest(false));
-    });
-    test(`${arm}: the first run's card`, async () => {
+    test(`${arm}: the fourth tick's card is the person's fourth prompt`, async () => {
       const { card } = await of(arm);
-      expect(card!.from).toBe("lane-box-1/ux-owner · Other session");
-      if (fold) expect(card!.prompt).toBe("Received 3 messages");
-      else expect(card!.prompt).toContain("Status 4");
+      expect(card!.from).toBe("");
+      expect(card!.prompt).toContain("Reply to the review");
     });
   }
 
