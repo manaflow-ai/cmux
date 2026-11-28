@@ -1,0 +1,137 @@
+diff --git a/webviews/src/apps/scene/SceneRenderer.tsx b/webviews/src/apps/scene/SceneRenderer.tsx
+index 2f210a2f27d6..0eeb6df20f98 100644
+--- a/webviews/src/apps/scene/SceneRenderer.tsx
++++ b/webviews/src/apps/scene/SceneRenderer.tsx
+@@ -45,6 +45,7 @@ import {
+ import type { SceneNode, SceneStore } from "./store";
+ import { currentMotionEnv, useSceneMotion, type MotionPart } from "./useSceneMotion";
+ import "./scene.css";
++import { rangeDragEnd } from "../../ui/rangeRelease";
+ 
+ export type SceneDispatch = (node: string, event: string, payload?: unknown) => void;
+ /** The embedding host resolves an app-relative bundle path to a trusted local resource URL.
+@@ -299,15 +300,11 @@ function SceneSlider({ node, dispatch, disabled }: { node: SceneNode; dispatch:
+       value={shown}
+       disabled={!live}
+       aria-label={sceneText(node.props.help) || undefined}
+-      onPointerDown={(event) => {
++      onPointerDown={() => {
++        // No pointer capture (rangeRelease.ts): the thumb holds the mouse for its drag.
+         dragging.current = true;
+-        // A release outside the track still ends the drag here.
+-        event.currentTarget.setPointerCapture?.(event.pointerId);
+       }}
+-      onPointerUp={endDrag}
+-      onPointerCancel={endDrag}
+-      onLostPointerCapture={endDrag}
+-      onBlur={endDrag}
++      {...rangeDragEnd(endDrag)}
+       onChange={(event) => {
+         if (!live) return;
+         const snapped = sliderSnap(Number(event.currentTarget.value), range, step);
+diff --git a/webviews/src/pages/onboarding/MakeItYoursStep.tsx b/webviews/src/pages/onboarding/MakeItYoursStep.tsx
+index e33555599bcd..a6bbc4042d4c 100644
+--- a/webviews/src/pages/onboarding/MakeItYoursStep.tsx
++++ b/webviews/src/pages/onboarding/MakeItYoursStep.tsx
+@@ -60,6 +60,7 @@ import {
+ } from "./walk";
+ import { SHELF_SETUPS, keepSetup, revertSetup, shelfValues, trySetup, type SetupId, type Shelf } from "./setupShelf";
+ import { Faces } from "./walkLook";
++import { rangeDragEnd } from "../../ui/rangeRelease";
+ 
+ /** The looks of the screen (the gallery's variant switch): `preview` ships. */
+ export type MakeItYoursLook = "preview" | "segmented" | "form" | "cards" | "rows";
+@@ -151,10 +152,8 @@ function OpacitySlider({ value, label, disabled }: { value: number; label: strin
+             // A key (or an assistive app's step): its own gesture, written now.
+             send(next);
+           }}
+-          onPointerUp={release}
+-          onPointerCancel={release}
+-          onLostPointerCapture={release}
+-          onBlur={release}
++          // A drag on the thumb ends on its mouseup, with no pointerup (rangeRelease.ts).
++          {...rangeDragEnd(release)}
+         />
+         <span className="onb-make-adjust-value" aria-hidden="true">
+           {percent(shown)}
+diff --git a/webviews/src/pages/settings/components/BackdropScope.tsx b/webviews/src/pages/settings/components/BackdropScope.tsx
+index 087e152dee5b..f96b00cb466a 100644
+--- a/webviews/src/pages/settings/components/BackdropScope.tsx
++++ b/webviews/src/pages/settings/components/BackdropScope.tsx
+@@ -6,6 +6,7 @@ import { useStore } from "../context";
+ import type { WorkspaceBackground } from "../ops";
+ import { t } from "../strings";
+ import { rangeFill } from "../format";
++import { rangeDragEnd } from "../../../ui/rangeRelease";
+ 
+ /** The tile that clears a workspace's own background, so it follows All Workspaces again. */
+ export const FOLLOW_ID = "follow";
+@@ -155,14 +156,11 @@ export function WorkspaceOpacity({
+                 onPointerDown={() => {
+                   dragging.current = true;
+                 }}
+-                onPointerUp={() => {
++                // A drag on the thumb ends on its mouseup, with no pointerup (rangeRelease.ts).
++                {...rangeDragEnd(() => {
+                   dragging.current = false;
+                   release();
+-                }}
+-                onBlur={() => {
+-                  dragging.current = false;
+-                  release();
+-                }}
++                })}
+               />
+               {stored !== null && (
+                 <Button variant="ghost" size="sm" type="button" className="link-button" onClick={() => void save(null)}>
+diff --git a/webviews/src/pages/settings/editors/NumberEditor.tsx b/webviews/src/pages/settings/editors/NumberEditor.tsx
+index a28f0a3940ee..0649e63776aa 100644
+--- a/webviews/src/pages/settings/editors/NumberEditor.tsx
++++ b/webviews/src/pages/settings/editors/NumberEditor.tsx
+@@ -5,6 +5,7 @@ import { text } from "../strings";
+ import { NumberField } from "./NumberField";
+ import type { EditorProps } from "./types";
+ import { rangeFill } from "../format";
++import { rangeDragEnd } from "../../../ui/rangeRelease";
+ 
+ /**
+  * Slider + field. While the slider moves the page sends `preview` (never written); releasing
+@@ -73,13 +74,10 @@ export function NumberEditor({ row, value, disabled, labelId }: EditorProps) {
+           setDrag(next);
+           store.preview(row.key, next);
+         }}
+-        onPointerDown={(event) => {
+-          // The release reaches the slider even when the pointer leaves it mid-drag.
+-          event.currentTarget.setPointerCapture?.(event.pointerId);
+-        }}
+-        onPointerUp={release}
++        // No pointer capture (rangeRelease.ts): the native `change` above is the release wherever
++        // the pointer is; these end it too.
++        {...rangeDragEnd(release)}
+         onKeyUp={release}
+-        onBlur={release}
+       />
+       <NumberField
+         value={drag ?? stored}
+diff --git a/webviews/src/ui/rangeRelease.ts b/webviews/src/ui/rangeRelease.ts
+new file mode 100644
+index 000000000000..d2b5a6561548
+--- /dev/null
++++ b/webviews/src/ui/rangeRelease.ts
+@@ -0,0 +1,16 @@
++// A native range slider's drag, ended on every release WebKit sends it
++// (https://github.com/manaflow-ai/cmux/issues/65781).
++//
++// WebKit's slider thumb holds the mouse itself for its drag and leaves drag mode only when the
++// thumb gets the mouseup. Never call setPointerCapture on a range input (or an ancestor of one): the
++// capture takes that mouseup from the thumb, which then stays in drag mode, sends no `change`, and
++// follows the pointer over it with no button down.
++//
++// Without a capture, a drag that starts on the thumb reaches the input as `mouseup` (then the
++// native `change`) wherever the pointer is released, and sends no `pointerup`; a press on the track
++// sends both. So a slider that tracks its own drag ends it on any of these.
++
++/** The input's handlers that end a range slider's drag: `end` may run more than once per drag. */
++export function rangeDragEnd(end: () => void) {
++  return { onMouseUp: end, onPointerUp: end, onPointerCancel: end, onBlur: end };
++}
