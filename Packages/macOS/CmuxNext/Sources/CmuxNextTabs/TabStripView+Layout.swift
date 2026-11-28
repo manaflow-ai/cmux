@@ -146,8 +146,7 @@ extension TabStripView {
     /// animate, or the window has no screen, where Core Animation would never end it).
     func stripMove(_ token: MotionTween) -> TabStripMove? {
         guard let motion = MotionMove.tween(token, in: Motion.tabs, window: window), Motion.canAnimate(in: self) else { return nil }
-        moveGeneration += 1
-        return TabStripMove(generation: moveGeneration, motion: motion, closing: token == .tabClose ? nil : MotionMove.tween(.tabClose, in: Motion.tabs, window: window))
+        return moveSource.next(motion, closing: token == .tabClose ? nil : MotionMove.tween(.tabClose, in: Motion.tabs, window: window))
     }
 
     /// Runs `work` once no strip move is in flight (at once when none is): a tab's open has ended its motion.
@@ -206,8 +205,7 @@ extension TabStripView {
         scrollOffset = target
         var move: TabStripMove?
         if animated, !reduceMotion, Motion.canAnimate(in: self), let motion = MotionMove.spring(.scroll, in: Motion.tabs, window: window) {
-            moveGeneration += 1
-            move = TabStripMove(generation: moveGeneration, motion: motion, closing: nil, isScroll: true)
+            move = moveSource.next(motion, closing: nil, isScroll: true)
         }
         applyFrames(move: move, scrollFrom: from)
     }
