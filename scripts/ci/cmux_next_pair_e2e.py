@@ -407,6 +407,7 @@ def main():
     # The reconnect leg (flows.json reconnect-after-drop, cmux-next-ios-sim.sh's reconnect-drops=10,60): the Mac's
     # link drops for each of these seconds; the phone must reattach by itself.
     ap.add_argument("--reconnect-drops", default="")
+    ap.add_argument("--flaps", type=int, default=0, help="flip the link N times through a pf anchor (ask-7a463b923d)")
     a = ap.parse_args()
     drops = [int(x) for x in a.reconnect_drops.split(",") if x.strip()]
     proof_path = os.environ.get("CMUX_IOS_CLOUD_PROOF_FILE")
@@ -555,6 +556,7 @@ def main():
              f"(the commit's Connect-Timeline-Runs / -Away / -Away-Runs)")
     ask_ok = restart_ok = not discovery
     reconnect_ok = not drops
+    flaps_ok = not a.flaps
     keychain = RigKeychain(a.mac_app)
     try:
         note(f"- Keychain: {keychain.start()}")
@@ -714,6 +716,13 @@ def main():
                 except Exception as error:  # noqa: BLE001  the leg fails; the restart leg still runs
                     reconnect_ok = False
                     note(f"- reconnect after drop: FAIL ({type(error).__name__}: {redact(str(error))[:300]})")
+            if a.flaps and paired and not connect_runs:
+                try:
+                    flaps_ok = flap_leg(app, a.flaps, simctl, a.udid, a.bundle_id, a.out, status, phone_log,
+                                        phone_shot, note)
+                except Exception as error:  # noqa: BLE001  the leg fails; the restart leg still runs
+                    flaps_ok = False
+                    note(f"- flaps: FAIL ({type(error).__name__}: {redact(str(error))[:300]})")
             if discovery and paired and not connect_runs:  # last: it quits and restarts the Mac
                 app, restart_ok = discovery_restart(app, exe, env, a.out, support, status, phone_log, streams,
                                                     phone_shot, note)
@@ -755,7 +764,7 @@ def main():
     if discovery:
         note(f"- discovery: Allow request {'PASS' if ask_ok else 'FAIL'}, restart with a split identity "
              f"{'PASS' if restart_ok else 'FAIL'}")
-    return 0 if paired and uploaded and attach_ok and theme_ok and cloud_ok and ask_ok and restart_ok and reconnect_ok else 1
+    return 0 if paired and uploaded and attach_ok and theme_ok and cloud_ok and ask_ok and restart_ok and reconnect_ok and flaps_ok else 1
 
 
 # The connect-timeline leg (RFD 0049's connect rows): the paired phone's own ConnectTimeline marks
@@ -1236,6 +1245,222 @@ def reconnect_after_drop(app, drops, simctl, udid, out, status, phone_log, phone
             rec.kill()
     note(f"- reconnect recording: {os.path.basename(video) if os.path.exists(video) else 'none (recordVideo failed)'}")
     return ok_all
+
+
+FLAP_ANCHOR = "com.apple/cmuxflap"  # the stock /etc/pf.conf evaluates anchor "com.apple/*"
+FLAP_DWELL = {"udp": 10, "dark": 8}  # seconds each flip keeps the link blocked
+FLAP_MODES = {"udp": "UDP blocked (Wi-Fi gone, TCP relay up)", "dark": "all blocked (short outage)"}
+
+
+def pf(*args, stdin=None):
+    """`sudo -n pfctl ARGS`: (exit code, stdout + stderr). Never prompts: no sudo is a NOT RUN, not a hang."""
+    try:
+        done = subprocess.run(["/usr/bin/sudo", "-n", "/sbin/pfctl", *args], input=stdin, capture_output=True,
+                              text=True, timeout=30, **({} if stdin is not None else {"stdin": subprocess.DEVNULL}))
+        return done.returncode, (done.stdout + done.stderr).strip()
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return 1, f"{type(error).__name__}: {error}"
+
+
+def phone_pid(simctl, udid, bundle_id):
+    """The simulator app's host pid (simulator processes are host processes), from the sim's launchctl."""
+    rows = subprocess.run(simctl + ["spawn", udid, "launchctl", "list"], capture_output=True, text=True,
+                          stdin=subprocess.DEVNULL, timeout=30).stdout.splitlines()
+    for row in rows:
+        parts = row.split()
+        if len(parts) >= 3 and f"UIKitApplication:{bundle_id}[" in parts[2] and parts[0].isdigit():
+            return int(parts[0])
+    return None
+
+
+def sockets(pids):
+    """lsof's internet sockets of PIDS: [(proto, local "ip:port", remote "ip:port" or "", state)]."""
+    if not pids:
+        return []
+    rows = subprocess.run(["/usr/sbin/lsof", "-nP", "-a", "-p", ",".join(map(str, pids)), "-i"],
+                          capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30).stdout.splitlines()
+    found = []
+    for row in rows[1:]:
+        parts = row.split()
+        if len(parts) < 9 or parts[7] not in ("TCP", "UDP"):
+            continue
+        name = parts[8]
+        local, _, remote = name.partition("->")
+        state = parts[9].strip("()") if len(parts) > 9 else ""
+        found.append((parts[7].lower(), local, remote, state))
+    return found
+
+
+def split_host(addr):
+    host, _, port = addr.rpartition(":")
+    return host.strip("[]"), port
+
+
+def flap_targets(phone, hostd_pids):
+    """What one flip blocks: the phone's remote peers (relay, signaling, LAN; not loopback, not the tailnet,
+    which also carries this Mac's own fleet link) and the ports hostd listens on or sends UDP from (the
+    phone's direct path to the Mac, loopback included)."""
+    peers, ports = set(), set()
+    for proto, local, remote, state in sockets([phone] if phone else []):
+        if remote:
+            host, _ = split_host(remote)
+            first = host.split(".")
+            if host in ("127.0.0.1", "::1") or host.startswith("fe80") or (
+                    len(first) == 4 and first[0] == "100" and 64 <= int(first[1]) < 128):
+                continue
+            peers.add(host)
+    for proto, local, remote, state in sockets(hostd_pids):
+        _, port = split_host(local)
+        if port.isdigit() and (state == "LISTEN" or proto == "udp"):
+            ports.add((proto, int(port)))
+    return sorted(peers), sorted(ports)
+
+
+def flap_rules(mode, peers, ports):
+    """The anchor's rules for MODE: "udp" drops UDP to and from the peers and hostd's ports (DNS stays up),
+    "dark" drops TCP and UDP both."""
+    protos = "udp" if mode == "udp" else "{ tcp udp }"
+    rules = []
+    for host in peers:
+        fam = "inet6" if ":" in host else "inet"
+        rules.append(f"block drop quick {fam} proto {protos} from any to {host} port != 53")
+        rules.append(f"block drop quick {fam} proto {protos} from {host} port != 53 to any")
+    for port in sorted({p for _, p in ports}):
+        rules.append(f"block drop quick proto {protos} from any to any port {port}")
+        rules.append(f"block drop quick proto {protos} from any port {port} to any")
+    return "\n".join(rules) + "\n"
+
+
+def flap_leg(app, flaps, simctl, udid, bundle_id, out, status, phone_log, phone_shot, note):
+    """Leo's flapping Wi-Fi/cellular path, on the real client path (ask-7a463b923d): FLAPS flips, alternating
+    "udp" (UDP to the phone's peers and hostd's ports dropped: Wi-Fi gone, the TCP relay is what is left) and
+    "dark" (TCP and UDP dropped: a short outage), each held FLAP_DWELL s through the pf anchor FLAP_ANCHOR,
+    then lifted. Each row times lift -> the phone attached again, the reconnect leg's test (the Mac lists it
+    connected and any dial begun since the block reached a CONNECT_FRESH mark). The pf drop is real packet
+    loss on this host; the interface change is not (the simulator shares the Mac's network stack and never
+    sees a Wi-Fi -> cellular path change). Writes flaps.json; teardown always flushes the anchor and releases
+    the pf enable token. Without `sudo -n pfctl` it is NOT RUN, never a pass."""
+    report = {"flaps": flaps, "anchor": FLAP_ANCHOR, "fault": "real: pf drops this host's packets; simulated: "
+              "the Wi-Fi -> cellular interface change (none in the simulator)", "rows": []}
+    path = os.path.join(out, "flaps.json")
+
+    def save():
+        with open(path, "w") as f:
+            json.dump(report, f, indent=2)
+
+    code, info = pf("-s", "info")
+    if code != 0:
+        report["not_run"] = f"sudo -n pfctl -s info exited {code}: {info[-300:]}"
+        save()
+        note(f"- flaps: NOT RUN (no root pf on this host: {redact(info)[-200:]})")
+        return False
+    code, main_rules = pf("-s", "rules")
+    if 'anchor "com.apple/*"' not in main_rules:
+        report["not_run"] = "the main pf ruleset does not evaluate com.apple/*: " + main_rules[-300:]
+        save()
+        note("- flaps: NOT RUN (pf's main ruleset has no com.apple/* anchor, a rule there would not apply)")
+        return False
+    code, enabled = pf("-E")
+    token = next((line.split(":", 1)[1].strip() for line in enabled.splitlines() if line.startswith("Token")), None)
+    video = os.path.join(out, "flaps.mp4")
+    rec = subprocess.Popen(simctl + ["io", udid, "recordVideo", "--codec=h264", "--force", video],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(2)
+    note(f"| flip | mode | dwell s | Mac saw phone drop | phone redials (transport) | escaped to | reattach s | result |")
+    note("|---|---|---|---|---|---|---|---|")
+    try:
+        for i in range(flaps):
+            mode = "udp" if i % 2 == 0 else "dark"
+            before = wait_for(lambda: status().get("connectedPhones", 0) >= 1, 30, every=1)
+            time.sleep(3)  # a settled link, not one still finishing the last flip's dial
+            hostd = app_tree(app.pid)[1:]
+            phone = phone_pid(simctl, udid, bundle_id)
+            peers, ports = flap_targets(phone, hostd)
+            rules = flap_rules(mode, peers, ports)
+            row = {"flip": i + 1, "mode": mode, "dwell_s": FLAP_DWELL[mode], "connected_before": bool(before),
+                   "phone_pid": phone, "peers": peers, "hostd_ports": [f"{p}/{n}" for p, n in ports]}
+            if not peers and not ports:
+                row.update(result="NOT RUN", why="no phone peers and no hostd ports to block")
+                report["rows"].append(row)
+                note(f"| {i + 1} | {mode} | - | - | - | - | - | NOT RUN (nothing to block) |")
+                continue
+            code, loaded = pf("-a", FLAP_ANCHOR, "-f", "-", stdin=rules)
+            _, listed = pf("-a", FLAP_ANCHOR, "-s", "rules")
+            if code != 0 or "block drop" not in listed:
+                row.update(result="NOT RUN", why=f"anchor load exited {code}: {loaded[-200:]}")
+                report["rows"].append(row)
+                note(f"| {i + 1} | {mode} | - | - | - | - | - | NOT RUN (anchor did not load) |")
+                continue
+            for host in peers:  # pf keeps established states past a new rule; drop theirs
+                pf("-k", "0.0.0.0/0" if ":" not in host else "::/0", "-k", host)
+                pf("-k", host)
+            if ports:
+                pf("-k", "127.0.0.1", "-k", "127.0.0.1")
+            t_block = time.monotonic()
+            seen_low = False
+            while time.monotonic() - t_block < FLAP_DWELL[mode]:
+                if status().get("connectedPhones", 0) < 1:
+                    seen_low = True
+                time.sleep(0.5)
+            pf("-a", FLAP_ANCHOR, "-F", "all")
+            t_back = time.monotonic()
+
+            def marks(step):
+                return [(m.group(1), m.group(4)) for at, line in zip(list(phone_log.times), list(phone_log.lines))
+                        if at >= t_block and (m := TIMING.search(line.rstrip())) and m.group(2) == step]
+
+            def reattached():
+                if status().get("connectedPhones", 0) < 1:
+                    return False
+                fresh = {a for step in CONNECT_FRESH for a, _ in marks(step)}
+                started = {a for a, _ in marks("dial_start")}
+                return not started or bool(started & fresh)
+
+            back = wait_for(reattached, RECONNECT_BOUND, every=0.25)
+            took = time.monotonic() - t_back
+            dials = marks("dial_start")
+            after_peers, _ = flap_targets(phone_pid(simctl, udid, bundle_id), app_tree(app.pid)[1:])
+            escaped = sorted(set(after_peers) - set(peers))
+            held = not dials and not seen_low
+            ok = bool(back)
+            row.update(mac_saw_drop=seen_low, dials=[f"{a} {d}".strip() for a, d in dials], escaped_to=escaped,
+                       reattach_s=round(took, 2) if ok else None, held=held,
+                       result="PASS" if ok else "FAIL")
+            report["rows"].append(row)
+            save()
+            note(f"| {i + 1} | {mode} | {FLAP_DWELL[mode]} | {'yes' if seen_low else 'no'} | "
+                 f"{'; '.join(f'{a} {d}'.strip()[:60] for a, d in dials) or 'none (link held)'} | "
+                 f"{', '.join(escaped) or '-'} | {'%.2f' % took if ok else '>%d' % RECONNECT_BOUND} | "
+                 f"{'PASS' if ok else 'FAIL'}{' (held)' if held and ok else ''} |")
+    finally:
+        pf("-a", FLAP_ANCHOR, "-F", "all")
+        if token:
+            pf("-X", token)
+        rec.send_signal(signal.SIGINT)
+        try:
+            rec.wait(30)
+        except subprocess.TimeoutExpired:
+            rec.kill()
+        _, left = pf("-a", FLAP_ANCHOR, "-s", "rules")
+        report["teardown"] = {"anchor_rules_left": left, "token_released": bool(token)}
+        save()
+    timed = [r["reattach_s"] for r in report["rows"] if r.get("reattach_s") is not None]
+    ran = [r for r in report["rows"] if r.get("result") in ("PASS", "FAIL")]
+    for scope, rows in (("all", ran), ("udp", [r for r in ran if r["mode"] == "udp"]),
+                        ("dark", [r for r in ran if r["mode"] == "dark"]),
+                        ("redialed", [r for r in ran if not r.get("held")])):
+        vals = [r["reattach_s"] for r in rows if r.get("reattach_s") is not None]
+        if vals:
+            report.setdefault("summary", {})[scope] = {"n": len(vals), "p50": round(percentile(vals, 0.5), 2),
+                                                        "p95": round(percentile(vals, 0.95), 2), "max": round(max(vals), 2),
+                                                        "fails": sum(1 for r in rows if r["result"] == "FAIL")}
+    save()
+    for scope, s in (report.get("summary") or {}).items():
+        note(f"- flaps {scope}: n {s['n']}, reattach p50 {s['p50']} s, p95 {s['p95']} s, max {s['max']} s, "
+             f"fails {s['fails']}")
+    note(f"- flaps: {len(ran)}/{flaps} ran, {len(timed)} reattached; flaps.json, "
+         f"{os.path.basename(video) if os.path.exists(video) else 'no recording'}")
+    return len(ran) == flaps and all(r["result"] == "PASS" for r in ran)
 
 
 def random_file(path, size):

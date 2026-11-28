@@ -188,6 +188,11 @@
 #           reconnect-drops=10,60 (FlowSuite's reconnect-after-drop: the Mac app and
 #           its hostd freeze for each drop; the phone must reattach within 30 s
 #           with no tap; reconnect-after-drop.mp4 records the phone).
+#           flaps=N (1-99: a flapping Wi-Fi/cellular path, ask-7a463b923d; N flips
+#           alternate UDP blocked and all blocked through the pf anchor
+#           com.apple/cmuxflap, `sudo -n pfctl`; one row per flip, time from
+#           unblock to the phone attached again, p50/p95/max, flaps.json; no
+#           root pf is NOT RUN, a failure).
 #   listperf
 #           build, plus the list frame-rate rig (ListStressRig,
 #           verify/listperf/): each case launches the Demo app with
@@ -429,7 +434,11 @@ if [[ "$mode" == pair-e2e && $# -gt 1 ]]; then
         n="${word#reconnect-drops=}"
         [[ "$n" =~ ^[1-9][0-9]{0,2}(,[1-9][0-9]{0,2}){0,3}$ ]] || { echo "cmux-next-ios-sim.sh: reconnect-drops= wants up to 4 comma-separated seconds (1-999), got '$n'" >&2; exit 2; }
         pair_upload+=(--reconnect-drops "$n") ;;
-      *) echo "cmux-next-ios-sim.sh: pair-e2e takes upload-mb=N, upload-wait=S, upload-random, upload-relay, upload-block-udp and reconnect-drops=S,S, got '$word'" >&2; exit 2 ;;
+      flaps=*)
+        n="${word#flaps=}"
+        [[ "$n" =~ ^[1-9][0-9]?$ ]] || { echo "cmux-next-ios-sim.sh: flaps= wants 1-99, got '$n'" >&2; exit 2; }
+        pair_upload+=(--flaps "$n") ;;
+      *) echo "cmux-next-ios-sim.sh: pair-e2e takes upload-mb=N, upload-wait=S, upload-random, upload-relay, upload-block-udp, reconnect-drops=S,S and flaps=N, got '$word'" >&2; exit 2 ;;
     esac
   done
 fi
