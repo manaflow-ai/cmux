@@ -115,6 +115,7 @@ tunable chrome.tabs.compact = false
 tunable chrome.tabs.nativeRowTools = false
 tunable chrome.topRowLine = .concentric
 tunable cloud.machines.layout = .rows
+tunable cloud.openWithoutWake = false
 tunable cloud.updateMachines = true
 tunable cloud.wakeOnIntent = true
 tunable cmuxTUI.restartUnresponsive = true
