@@ -81,7 +81,9 @@ the theme stroke (Palette.separator, CardMaterial's rim, ThemeTokens) or the sha
                    literal, a CGColor(red:|gray:|srgbRed:) literal, CGColor.black/.white, Color.black/.white,
                    Color(red:|white:) or a #colorLiteral. A deliberate one says
                    `// one-material-allow: <reason>` on the line or in the comment block above it; those
-                   are counted against EDGE_ALLOWED_MAX, a shrink-only pin.
+                   are counted against EDGE_ALLOWED_MAX, a shrink-only pin. A marker drawn on the
+                   content, not the surface (a layer named for a pointer, cursor, caret or dot, like
+                   the agent cursor's white rim), is not the surface's edge and passes.
 
 A hit passes when the file and rule are in ALLOWED below (with the reason the surface stays solid),
 or the line, or the comment block right above it, says `// glass-opaque-allow: <reason>`. Reduce
@@ -204,6 +206,9 @@ HARD_EDGE = re.compile(
     + r"|\b\w*(?:rim|Rim|edge|Edge|border|Border|outline|Outline|ring|Ring)\w*\.strokeColor\s*=\s*[^\n]*" + HARD_COLOR
     + r"|\.(?:stroke|strokeBorder|border)\(\s*" + HARD_COLOR
 )
+# A marker on the content (the agent's pointer dot, a cursor, a caret) keeps its own contrast halo, as
+# AgentCursorLayer.rim does: it is not the floating surface's edge, so R6 does not reach it.
+EDGE_MARKER = re.compile(r"\b\w*(?:[Pp]ointer|[Cc]ursor|[Cc]aret|[Dd]ot)\w*\.(?:borderColor|strokeColor)\s*=[^;\n]*")
 EDGE_ESCAPE = re.compile(r"//\s*one-material-allow:\s*\S")
 # The shrink-only count of `one-material-allow:` hard edges on floating surfaces (none today). Lower it when one
 # goes; never raise it.
@@ -616,7 +621,7 @@ def scan(root: str) -> list[str]:
                 if COMMENT.match(line):
                     continue
                 code = line.split("//", 1)[0]
-                if floating and HARD_EDGE.search(code):
+                if floating and HARD_EDGE.search(EDGE_MARKER.sub("", code)):
                     if edge_escaped(lines, index):
                         edge_allowed.append(f"{rel}:{index + 1}")
                     else:
