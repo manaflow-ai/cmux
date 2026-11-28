@@ -1190,17 +1190,16 @@ class SdkGeneratorHookTests(unittest.TestCase):
             self.assertEqual(sdk_generate.main(["--check"]), 1)
 
 
-class LoadBindingsTests(unittest.TestCase):
-    def test_a_duplicate_key_is_refused_not_last_one_wins(self) -> None:
-        """A merge that leaves two "enums" blocks in one family dropped the first block's enums (#63368)."""
+class RepositoryBindingsTests(unittest.TestCase):
+    def test_a_repeated_key_is_refused_not_dropped(self) -> None:
+        """Two `enums` in one family kept only the second, and ColumnSide stopped generating (#63368)."""
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "bindings.json"
-            path.write_text('{"families": {"Creation": {"enums": {"A": {}}, "enums": {"B": {}}}}}', encoding="utf-8")
-            with self.assertRaisesRegex(BindingError, "duplicate key 'enums'"):
+            path.write_text('{"families": {"Creation": {"enums": {"ColumnSide": {}}, "enums": {"ColumnDockEdge": {}}}}}',
+                            encoding="utf-8")
+            with self.assertRaisesRegex(BindingError, "repeats the key"):
                 generate.load_bindings(path)
 
-
-class RepositoryBindingsTests(unittest.TestCase):
     def test_the_repository_bindings_render_against_the_repository_schema(self) -> None:
         bindings = generate.load_bindings(generate.DEFAULT_BINDINGS)
         self.assertTrue(generate.sources_root(REPO, bindings).is_dir())
