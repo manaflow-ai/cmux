@@ -354,15 +354,15 @@ async function render(
   return { sent, asked };
 }
 
-test("one line, one filled Connect GitHub; the tap names the repository; back from GitHub, one Continue", async () => {
+test("one line, one filled Sign in with GitHub; the tap names the repository; back from GitHub, one Continue", async () => {
   const { sent, asked } = await render(async () => undefined);
   expect(card()!.getAttribute("data-github-connect")).toBe("idle");
   expect(card()!.textContent).toContain("GitHub isn't connected for this chat, so it can't reach acme/web");
-  expect(buttons()).toEqual(["Connect GitHub"]);
+  expect(buttons()).toEqual(["Sign in with GitHub"]);
   expect([...card()!.querySelectorAll(".cv-turn-error__primary")].map((element) => element.textContent)).toEqual([
-    "Connect GitHub",
+    "Sign in with GitHub",
   ]);
-  await press("Connect GitHub");
+  await press("Sign in with GitHub");
   expect(asked).toEqual(["acme/web"]);
   expect(card()!.getAttribute("data-github-connect")).toBe("waiting");
   expect(card()!.textContent).toContain("Finish on GitHub");
@@ -395,7 +395,7 @@ test("an org with no installation: one line naming it, one Install GitHub App th
 
 test("the waiting card's Continue is the same step by hand, sent once", async () => {
   const { sent } = await render(async () => undefined);
-  await press("Connect GitHub");
+  await press("Sign in with GitHub");
   await press("Continue");
   await leave();
   await back();
@@ -408,7 +408,7 @@ test("a Connect the app did not run says why, with the button that tries again",
   const { asked } = await render(async () => {
     if (refuse) throw new NativeError({ code: "unavailable", userMessage: reason, details: { reason } });
   });
-  await press("Connect GitHub");
+  await press("Sign in with GitHub");
   expect(card()!.getAttribute("data-github-connect")).toBe("refused");
   expect(card()!.getAttribute("role")).toBe("alert");
   expect(card()!.textContent).toContain(reason);

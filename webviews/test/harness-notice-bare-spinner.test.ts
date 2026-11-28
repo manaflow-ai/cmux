@@ -28,5 +28,6 @@ test("the Harnesses row spinner is the shared Spinner, not a CSS ring of its own
     join(import.meta.dir, "../src/agent-session/acpmux/harnesses/HarnessesScreen.tsx"),
     "utf8",
   );
-  expect(screen).toMatch(/<Spinner[^>]*className="acpmux-harness-spinner"/);
+  // Since #57699 the row draws WaitSpinner: the same shared Spinner, shown only past the wait delay.
+  expect(screen).toMatch(/<(?:Wait)?Spinner[^>]*className="acpmux-harness-spinner"/);
 });
