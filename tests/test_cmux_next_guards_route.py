@@ -261,6 +261,58 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
                 self.assertIn(f"ios_placeholder={want}", lines)
 
 
+    def test_egress_new_sites_runs_on_every_pull_request_head_that_reaches_the_scan(self):
+        # #54956 merged two ungated outbound sites into feat-cmux-next with no cmux-next/fast-gates status: fast-gates
+        # skips a feat pull request under the land tier and runs only when a merger dispatches it, so a hand merge
+        # never ran the check. This job runs it on every pull request head whose diff reaches the scanned roots.
+        import os  # noqa: PLC0415
+        import subprocess  # noqa: PLC0415
+        import tempfile  # noqa: PLC0415
+
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
+        jobs = workflow["jobs"]
+        job = jobs["egress-new-sites"]
+        self.assertIn("workflow-start-lint", job["needs"])
+        self.assertIn("needs.workflow-start-lint.outputs.egress_sites != 'false'", job["if"])
+        self.assertIn("github.event_name == 'pull_request'", job["if"])
+        self.assertNotIn("CI_LAND_TIER", job["if"])
+        self.assertIn("python3 -I scripts/ci/egress_new_sites.py --base HEAD^1 --head HEAD --repo .",
+                      [s.get("run") for s in job["steps"]])
+        checkout = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/checkout@"))
+        self.assertEqual(checkout["with"]["fetch-depth"], 2)
+        lint = jobs["workflow-start-lint"]
+        self.assertEqual(lint["outputs"]["egress_sites"], "${{ steps.touched.outputs.egress_sites }}")
+        step = next(s for s in lint["steps"] if s.get("id") == "touched")
+        cases = [
+            ("pull_request", "cmux-tui/crates/acpmux/src/byo_endpoint.rs", "true"),
+            ("pull_request", "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/ChatShareOpener.swift", "true"),
+            ("pull_request", "Packages/Shared/CmuxEgress/Sources/CmuxEgress/EgressHosts.swift", "true"),
+            ("pull_request", "webviews/src/pages/x.ts", "true"),
+            ("pull_request", "scripts/ci/egress_new_sites.py", "true"),
+            ("pull_request", "tests/test_egress_gate.py", "true"),
+            ("pull_request", ".github/workflows/cmux-next-guards.yml", "true"),
+            ("pull_request", "docs/privacy.md", "false"),
+            ("pull_request", ".github/workflows/ci.yml", "false"),
+            ("push", "docs/privacy.md", "true"),
+        ]
+        for event, changed, want in cases:
+            with self.subTest(event=event, changed=changed), tempfile.TemporaryDirectory() as tmp:
+                git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+                subprocess.run(["git", "init", "-q", tmp], check=True)
+                Path(tmp, "base.txt").write_text("base\n")
+                subprocess.run(git + ["add", "-A"], check=True)
+                subprocess.run(git + ["commit", "-qm", "base"], check=True)
+                Path(tmp, changed).parent.mkdir(parents=True, exist_ok=True)
+                Path(tmp, changed).write_text("change\n")
+                subprocess.run(git + ["add", "-A"], check=True)
+                subprocess.run(git + ["commit", "-qm", "change"], check=True)
+                out = Path(tmp, "github_output")
+                env = {"PATH": os.environ["PATH"], "HOME": tmp, "GITHUB_OUTPUT": str(out), "EVENT_NAME": event}
+                subprocess.run(["bash", "-eo", "pipefail", "-c", step["run"]], cwd=tmp, env=env, check=True,
+                               capture_output=True)
+                self.assertIn(f"egress_sites={want}", out.read_text().splitlines())
+
+
     def test_app_store_shelf_pr_runs_only_where_the_diff_reaches_its_inputs(self):
         # ci-min-per-pr-140 (Leo, 2026-11-21: "whatever we need to cut, we cut."): the shelf job took a runner and a
         # checkout on every pull request head (102 heads in 34 min on 11-27, ~1.9 min each) to find, in its own first

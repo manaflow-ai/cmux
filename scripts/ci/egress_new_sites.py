@@ -11,7 +11,9 @@ forum_hosted, cmux-git-cache, autocloud, mcp_servers, runnable links, machine st
 This check compares the change with its own base, file by file, from git objects only (under a second): a file
 whose count of any ungated form (test_egress_gate.FORMS) is higher on the merge than on the base fails, so a
 red base never excuses a new site. A rename compares the new path with the old one. It runs in cmux-next fast
-gates (scripts/ci/cmux_next_fast_gates.py), on every pull request into feat-cmux-next.
+gates (scripts/ci/cmux_next_fast_gates.py) and in cmux-next-guards.yml's egress-new-sites job, which runs on every
+pull request head into feat-cmux-next: fast-gates skips one under the land tier unless a merger dispatches it, so
+#54956 merged two sites by hand with no fast-gates run.
 
 Run it: python3 scripts/ci/egress_new_sites.py --base BASE_SHA --head MERGE_SHA [--repo DIR]
 """
