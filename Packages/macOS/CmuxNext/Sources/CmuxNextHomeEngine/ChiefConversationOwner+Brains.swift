@@ -20,22 +20,21 @@ extension ChiefConversationOwner {
                                                bundledBinDirectory: bin) else {
             return nil
         }
-        var app: [String: String] = [
-            "user_name": HomeChiefName.localUserName,
-            "chief_title": HomeStrings.chiefName,
-        ]
-        if let bin { app["bin_dir"] = bin.path }
+        struct Request: Encodable {
+            let executable, home, userName, chiefTitle: String
+            let binDir, path, acpmuxBin, bundledCli, harness: String?
+        }
+        struct Reply: Decodable { let value: String }
         // The person's login PATH: a claude outside the fixed tool
         // directories (Homebrew elsewhere, nvm) is found by the brain and
         // its acpmux too.
-        if let path = LoginEnvironment.shared.rememberedPath(), !path.isEmpty { app["path"] = path }
-        if let acpmux = host.acpmux {
-            app["acpmux_bin"] = acpmux.executable.path
-            if let cli = acpmux.childEnvironment["CMUX_BUNDLED_CLI_PATH"] { app["bundled_cli"] = cli }
-        }
-        if let harness = process["MUX_HARNESS"], !harness.isEmpty { app["harness"] = harness }
-        let value: [String: Any] = ["executable": host.executable.path, "home": home.muxHome.path, "app": app]
-        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) else { return nil }
-        return String(decoding: data, as: UTF8.self)
+        let request = Request(executable: host.executable.path, home: home.muxHome.path,
+                              userName: HomeChiefName.localUserName, chiefTitle: HomeStrings.chiefName,
+                              binDir: bin?.path, path: LoginEnvironment.shared.rememberedPath(),
+                              acpmuxBin: host.acpmux?.executable.path,
+                              bundledCli: host.acpmux?.childEnvironment["CMUX_BUNDLED_CLI_PATH"],
+                              harness: process["MUX_HARNESS"])
+        let reply: Reply? = try? ChiefHomeRules().call("owner_brains_value", request)
+        return reply?.value
     }
 }

@@ -184,27 +184,16 @@ public nonisolated enum ChiefMigration {
     /// dated in this Mac's time zone at that message's instant (daylight saving
     /// per date: one rules call per distinct offset).
     private static func memoryLines(plan: ChiefMigrationPlan, sources: [ChiefMigrationSource]) throws -> MemoryLines {
-        struct Request: Encodable { let sources: [ChiefMigrationSource.Wire]; let utcOffsetSeconds: Int }
+        struct Request: Encodable { let sources: [ChiefMigrationSource.Wire]; let utcOffsetSeconds: Int; let unloggedOffsets: [Int] }
         struct TimeRequest: Encodable { let text: String }
         struct TimeReply: Decodable { let seconds: Double }
-        let wire = sources.map(\.wire)
         let offsets = try plan.unlogged.map { item in
             let time: TimeReply = try ChiefHomeRules().call("migration_time", TimeRequest(text: item.message.createdAt))
             return TimeZone.current.secondsFromGMT(for: Date(timeIntervalSince1970: time.seconds))
         }
-        var byOffset: [Int: MemoryLines] = [:]
-        for offset in Set(offsets + [offsets.first ?? TimeZone.current.secondsFromGMT()]) {
-            byOffset[offset] = try ChiefHomeRules().call("migration_memory", Request(sources: wire, utcOffsetSeconds: offset))
-        }
-        guard var lines = byOffset[offsets.first ?? TimeZone.current.secondsFromGMT()] else { return MemoryLines(appends: [], entries: 0) }
-        let base = lines.appends.count - offsets.count
-        guard base >= 0 else { return lines }
-        for (index, offset) in offsets.enumerated() {
-            if let dated = byOffset[offset], dated.appends.indices.contains(base + index) {
-                lines.appends[base + index] = dated.appends[base + index]
-            }
-        }
-        return lines
+        return try ChiefHomeRules().call("migration_memory", Request(
+            sources: sources.map(\.wire), utcOffsetSeconds: offsets.first ?? TimeZone.current.secondsFromGMT(),
+            unloggedOffsets: offsets))
     }
 
     /// `host.json`: bound to the Chief conversation with every message logged.
