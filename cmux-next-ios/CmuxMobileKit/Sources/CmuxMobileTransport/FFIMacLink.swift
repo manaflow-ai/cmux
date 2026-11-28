@@ -38,6 +38,14 @@ public struct FFIMacLinkDialer: MacLinkDialer {
         setLanMemoryDir(dir: dir.path)
     }
 
+    /// Settings → Transport → Tailnet (`CmuxMobilePreferences.Key.tailnetCarrier`, the same
+    /// `UserDefaults` key; this module does not link CmuxMobileDesign): "off", "direct-only" or "on".
+    /// Off when unset; Rust reads anything else as off (`set_tailnet_carrier`, RFD 0164 T5). Called
+    /// at each dial, like the keepalive and Direct on Wi-Fi settings.
+    static func applyTailnetCarrierToCore(_ defaults: UserDefaults = .standard) {
+        setTailnetCarrier(mode: defaults.string(forKey: "cmuxMobile.settings.tailnetCarrier") ?? "off")
+    }
+
     /// Settings → Transport → Ultra mode (`CmuxMobilePreferences.Key.ultra`, the same
     /// `UserDefaults` key; this module does not link CmuxMobileDesign): "off", "auto" or
     /// "always". Rust reads anything else as Auto, and caps Auto on cellular (`set_cellular_path`).
@@ -54,6 +62,7 @@ public struct FFIMacLinkDialer: MacLinkDialer {
         // Settings → Transport → Align Keepalives, read at each dial like Ultra mode.
         KeepaliveBeat.applySettingToCore()
         Self.applyLanDirectToCore()
+        Self.applyTailnetCarrierToCore()
         try applyBuildSpaceToCore()
         do {
             let handle = try await connectWithOptions(
@@ -80,6 +89,7 @@ public struct FFIMacLinkDialer: MacLinkDialer {
         // The signaling socket opened here reads the setting at its ticks.
         KeepaliveBeat.applySettingToCore()
         Self.applyLanDirectToCore()
+        Self.applyTailnetCarrierToCore()
         guard (try? applyBuildSpaceToCore()) != nil else { return [] }
         return await CmuxMobileLinkFFI.prewarm(baseUrl: baseURL.absoluteString, token: accessToken, teamId: teamID, deviceId: deviceID)
             .map { ($0.name, $0.millis) }

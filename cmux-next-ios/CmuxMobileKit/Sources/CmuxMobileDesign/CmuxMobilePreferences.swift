@@ -47,6 +47,9 @@ public enum CmuxMobilePreferences {
         /// Settings → Transport → Direct on Wi-Fi (on by default); read at each dial
         /// (`FFIMacLinkDialer.applyLanDirectToCore`, the same key).
         public static let lanDirect = "cmuxMobile.settings.lanDirect"
+        /// Settings → Transport → Tailnet (off by default): "off", "direct-only" or "on"; read at
+        /// each dial (`FFIMacLinkDialer.applyTailnetCarrierToCore`, the same key; RFD 0164 T5).
+        public static let tailnetCarrier = "cmuxMobile.settings.tailnetCarrier"
         /// Settings → Transport → Agent CLI Screen Changes (off by default): a Claude Code,
         /// Codex or opencode terminal comes as the cells that changed, not its PTY bytes.
         /// Read at each terminal attach (`DaemonTerminalSession.agentCLIHybridDefaultsKey`).
