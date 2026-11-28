@@ -69,7 +69,9 @@ struct UpdateTransferRateTests {
         for (received, expected, shown) in [(UInt64(29), UInt64(50), "58%"), (57, 100, "57%"), (1, 3, "33%"), (49, 50, "98%"),
                                           (UInt64.max - 1, UInt64.max, "99%"), (UInt64.max / 2, UInt64.max, "49%")] {
             let text = UpdateTransfer.downloading(received: received, expected: expected).bytesText ?? ""
-            #expect(text.hasSuffix(shown), "\(received) of \(expected) reads \(text)")
+            // The percent pads after itself with figure spaces to "100%"'s width (the bytes line keeps its width).
+            let shownEnd = text.trimmingCharacters(in: CharacterSet(charactersIn: "\u{2007}"))
+            #expect(shownEnd.hasSuffix(shown), "\(received) of \(expected) reads \(text)")
         }
     }
 

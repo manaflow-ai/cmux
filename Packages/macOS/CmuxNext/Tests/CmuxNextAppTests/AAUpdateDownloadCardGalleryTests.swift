@@ -51,7 +51,17 @@ import Testing
             ("state-4-downloading", downloading(rateSeconds: 3)),
             ("state-5-preparing", notice(.downloading(.preparing(0.6)))),
             ("state-6-installing", notice(.installing)),
+            ("state-0-available", available()),
         ]
+    }
+
+    /// The found update with its changelog (Lawrence 2026-11-26: the bullets' wrap and the empty line under the version).
+    static func available() -> SidebarNoticeCard {
+        var shown = UpdateCard.available(version: "1.0.0 nightly 4594117").presentation(version: "1.0.0", build: "100")
+        shown.detail = "1.0.0 nightly 4594117 · Nov 26, 2026"
+        shown.lines = ["New: Chat composer drops its border for a shadow", "New: New events spring in at the top with a soft tap",
+                       "Fixed: Fix cmux-next Chromium pane resize layout duplication"]
+        return SidebarCardFeed.notice(shown, asked: true)
     }
 
     static func ready() -> SidebarUpdateCard {
