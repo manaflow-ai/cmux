@@ -101,8 +101,9 @@ PINNED: dict[str, tuple[str, set[str]]] = {
      {'write'}),
     'web-complexity-trusted.yml': ('reads untrusted pull_request_target source: hosted ubuntu-24.04 is the one ephemeral Linux label outside the persistent pool',
      {'complexity'}),
-    'nightly.yml': ('NEXT nightly: never moved mid-train here; its runner change is its own PR',
-     {'promote-nightly-next', 'publish-nightly', 'promote-nightly-next-acked'}),
+    'nightly.yml': ('NEXT nightly: never moved mid-train here; its runner change is its own PR. decide-main holds the '
+                    'read App key: the fork-routing secret rule forbids a variable-movable runner',
+     {'promote-nightly-next', 'publish-nightly', 'promote-nightly-next-acked', 'decide-main'}),
     'rcodesign-parity-proof.yml': ('signing parity proof: an ephemeral label the signing rule checks literally',
      {'notarize-dmg', 'notarize-app', 'sparkle', 'prep', 'sign-rcodesign', 'sign-codesign'}),
     'relay-publish-npm.yml': ('GitHub OIDC provenance: moves to fromJSON(vars.RUNNER_POOLS).provenance',

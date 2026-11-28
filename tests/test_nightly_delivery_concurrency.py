@@ -57,6 +57,10 @@ ALLOWED_SHARED: dict[tuple[str, str], str] = {
         "each sees the build the previous one started (the 3-in-flight cap); each decides main HEAD when "
         "it starts, so the newest waiting tick does the work of one it replaced; nothing running is "
         "cancelled, and every other run's decide is keyed by its run id"),
+    ("nightly.yml", "decide-main"): (
+        "main's first-attempt decide with the route App read token; it shares decide's tick slot for the "
+        "same reason (one tick decides at a time, each decides main HEAD when it starts); every other "
+        "run's decide-main is keyed by its run id"),
     ("nightly.yml", "promote-nightly-next"): (
         "a promotion request builds nothing; decideNewest() also decides the newest request GitHub "
         "evicted from this queue"),

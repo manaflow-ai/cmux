@@ -29,6 +29,8 @@ NIGHTLY = "the NEXT nightly train: the calls under the floor are kept for it, so
 NIGHTLY_MAIN = ("the main nightly train (hourly :17 tick since cmux#56246): these jobs run only when decide builds, "
                 "at most once per NIGHTLY_PUSH_MIN_INTERVAL_HOURS, or on a manual dispatch; the floor keeps calls for it")
 EXEMPT = {
+    "nightly.yml:decide-main": ("github.token is only gh_budget_wait's spare client: decide's reads run on the "
+                                "glaeda-route App's own budget and reach GITHUB_TOKEN only once that budget is spent"),
     "nightly.yml:promote-nightly-next": NIGHTLY_MAIN,
     "nightly.yml:pick-nightly-app-runner": NIGHTLY_MAIN,
     "nightly.yml:pick-classic-sign-runner": NIGHTLY_MAIN,
