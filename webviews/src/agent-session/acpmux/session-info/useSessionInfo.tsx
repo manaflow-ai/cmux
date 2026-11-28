@@ -96,6 +96,7 @@ import { useStepAside } from "./stepAside";
 import { usageEntries } from "./usageEntries";
 import { chatPlace } from "../chatMachine";
 import { agentSideRowsOf } from "./agentSide";
+import { sameLink } from "../liveToolOutput";
 
 /// How long after an output click a narrowing counts as that diff's split.
 const SPLIT_SETTLE_MS = 2000;
@@ -832,7 +833,12 @@ function sameButRows(previous: AcpmuxSnapshot, next: AcpmuxSnapshot): boolean {
   const keys = Object.keys(after);
   return (
     keys.length === Object.keys(before).length &&
-    keys.every((key) => key === "rows" || (key in before && Object.is(before[key], after[key])))
+    keys.every(
+      (key) =>
+        key === "rows" ||
+        (key in before &&
+          (Object.is(before[key], after[key]) || (key === "connection" && sameLink(before[key], after[key])))),
+    )
   );
 }
 

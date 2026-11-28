@@ -345,13 +345,25 @@ function sameExcept(previous: object, next: object, except: ReadonlySet<string>)
   return count === 0;
 }
 
-/// The streamed record kinds `connection` names while the link is up (direct.ts `emitInFrame`).
-const STREAMED: ReadonlySet<string> = new Set([
-  "tool_call",
-  "tool_call_update",
-  "agent_thought_chunk",
-  "agent_message_chunk",
-]);
+/// The single-word record kinds a live record can name in `connection` (direct.ts `emitInFrame(event.kind)`);
+/// every other record kind is `snake_case` or dotted (`claude.system.task_progress`). The link states and
+/// the client's own reasons ("connected", "attached", "failed", "session changed", "waiting: daemon") are
+/// neither, so each stays its own value.
+const WORD_RECORD_KINDS: ReadonlySet<string> = new Set(["status", "response", "mode", "plan", "titled", "tools"]);
+const RECORD_KIND = /^[a-z][a-z0-9]*(?:[._][a-z0-9]+)+$/;
+
+/// Whether `connection` names the kind of the live record that moved the snapshot, not a link state.
+export function recordReason(connection: unknown): boolean {
+  return typeof connection === "string" && (RECORD_KIND.test(connection) || WORD_RECORD_KINDS.has(connection));
+}
+
+/// Whether two `connection` values draw the same: equal, or both the kind of a live record. A live
+/// record's kind is why the client emitted, not what the link is, and nothing the pane draws reads it
+/// (model.ts `linkUp`). A subagent's progress, a task note or a status record between two thought chunks
+/// read as a change, so the chunk after it fell through every row-local bypass to a whole-pane draw.
+export function sameLink(before: unknown, after: unknown): boolean {
+  return Object.is(before, after) || (recordReason(before) && recordReason(after));
+}
 
 /// Every field of the two snapshots is the same object, except `rows`.
 export function sameButRows(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot): boolean {
@@ -366,12 +378,9 @@ export function sameButRows(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot): boolea
     // object is new each time, while `lastSeq` and `forkSeqs` remain the same. Treat that
     // value-equivalent projection as unchanged so row-local streams stay on their fast path.
     if (key === "settled" && sameSettled(before[key], after[key])) continue;
-    // `connection` is why the client emitted: the link's state, or the kind of the streamed
-    // record that moved a row (direct.ts `emitInFrame(event.kind)`). A run of calls alternates
-    // "tool_call" and "tool_call_update", so one record to the next it read as a change and every
-    // row-local bypass fell through. Two streamed record kinds are the same link state: only the
-    // link states (model.ts) change what the pane draws.
-    if (key === "connection" && STREAMED.has(before[key] as string) && STREAMED.has(after[key] as string)) continue;
+    // `connection` is why the client emitted: the link's state, or the kind of the record that
+    // moved a row (`sameLink`).
+    if (key === "connection" && sameLink(before[key], after[key])) continue;
     return false;
   }
   return true;
