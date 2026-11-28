@@ -76,6 +76,11 @@ mod preflight;
 use link::SLOW_COPY;
 #[path = "session_move_files.rs"]
 mod files;
+#[path = "session_move_lane.rs"]
+mod lane;
+#[cfg(test)]
+use lane::prefixed_branch;
+pub(crate) use lane::{branch_prefix, lane_of, push_or_prefixed, push_refusal};
 #[path = "session_move_snapshot.rs"]
 pub(crate) mod snapshot;
 #[path = "session_move_target_ask.rs"]
@@ -1128,7 +1133,7 @@ async fn prepare(
     o: &mut Outcome,
 ) -> Result<(Value, bool)> {
     let checkout = checkout_unless_named(cwd, args, source).await?;
-    let folder = plan::plan_folder(
+    let mut folder = plan::plan_folder(
         cwd,
         home,
         checkout.as_ref(),
@@ -1184,19 +1189,28 @@ async fn prepare(
             }
         }
     }
-    if let (Folder::Worktree { branch, dirty, snapshot, .. }, Some(c)) = (&folder, &checkout) {
+    if let (Folder::Worktree { branch, dirty, snapshot, .. }, Some(c)) = (&mut folder, &checkout) {
         // A shared branch (main, master, origin's HEAD) is never pushed: its HEAD goes under a ref
         // of this move's own, and the target checks that commit out detached.
         let dest = if *snapshot { snapshot_ref() } else { format!("refs/heads/{branch}") };
-        let commit = tokio::task::spawn_blocking({
+        let (dest, commit) = tokio::task::spawn_blocking({
             let (top, dest, ssh) = (c.top.clone(), dest.clone(), source.ssh().map(str::to_owned));
             let lane = lane_of(&o.name);
-            move || match ssh {
-                None => push_branch(&top, &dest, lane.as_deref()),
-                Some(ssh) => push_branch_on(&ssh, &top, &dest, lane.as_deref()),
+            let prefix = branch_prefix();
+            move || {
+                push_or_prefixed(&dest, prefix.as_deref(), |to| match &ssh {
+                    None => push_branch(&top, to, lane.as_deref()),
+                    Some(ssh) => push_branch_on(ssh, &top, to, lane.as_deref()),
+                })
             }
         })
         .await??;
+        if let Some(lane_branch) =
+            dest.strip_prefix("refs/heads/").filter(|b| *b != branch.as_str())
+        {
+            record.set("pushedAs", json!(lane_branch));
+            *branch = lane_branch.to_owned();
+        }
         record.set("branch", json!(branch));
         record.set("commit", json!(commit));
         if *snapshot {
@@ -1371,25 +1385,6 @@ fn checkout_on(ssh: &str, cwd: &Path) -> Result<Option<Checkout>> {
     parse_checkout(&out.stdout)
 }
 
-/// The moving chat's lane, as lane-gh's `LANE_GH_LANE` names it: the last part of the chat's
-/// name (`swarm-10/lane-12` -> `lane-12`), kept to `[A-Za-z0-9._-]`. A move is driven from
-/// outside the chat (lane-gh's broker strips its own `ACPMUX_SESSION*`), so the pushes it makes
-/// for the chat name its lane themselves, or lane-gh refuses them as "lease acquisition requires
-/// a lane session". `None` for a name with nothing left: lane-gh's own lookup then applies.
-pub(crate) fn lane_of(name: &str) -> Option<String> {
-    let last = name.rsplit('/').next().unwrap_or(name);
-    let mut out = String::new();
-    for c in last.chars() {
-        if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
-            out.push(c);
-        } else if !out.ends_with('-') {
-            out.push('-');
-        }
-    }
-    let out: String = out.trim_matches(|c| c == '-' || c == '.').chars().take(60).collect();
-    (!out.is_empty()).then_some(out)
-}
-
 /// The move's git writes for the chat name its lane ([`lane_of`]); lane-gh's service identity is
 /// not the lane's, so it is dropped (as `lane_move_rescue.py` does for its push).
 fn named(command: &mut StdCommand, lane: Option<&str>) {
@@ -1449,8 +1444,8 @@ fn push_branch_on(ssh: &str, top: &Path, dest: &str, lane: Option<&str>) -> Resu
     )?;
     let head = out.stdout.lines().last().unwrap_or_default().trim().to_owned();
     if !out.ok || head.len() < 40 {
-        let last = out.stderr.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("").trim();
-        bail!("pushing {branch} to origin on {ssh} failed (it may have moved on there): {last}");
+        let why = push_refusal(&out.stderr);
+        bail!("pushing {branch} to origin on {ssh} failed (it may have moved on there): {why}");
     }
     Ok(head)
 }
@@ -1656,8 +1651,8 @@ fn push_branch(top: &Path, dest: &str, lane: Option<&str>) -> Result<String> {
     let out = push.output().context("git push")?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
-        let last = err.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("").trim();
-        bail!("pushing {branch} to origin failed (it may have moved on there): {last}");
+        let why = push_refusal(&err);
+        bail!("pushing {branch} to origin failed (it may have moved on there): {why}");
     }
     Ok(head)
 }

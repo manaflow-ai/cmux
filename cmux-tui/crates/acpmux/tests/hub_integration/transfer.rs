@@ -479,6 +479,53 @@ async fn a_move_whose_client_goes_away_before_the_bundle_is_read_gives_the_chat_
     assert_eq!(info["transferBlocked"], false, "watchdog abort restores authority: {info}");
 }
 
+/// A mover killed at its timeout (`timeout 120 acpmux session move`) hangs up on the source:
+/// the chat ends its move within seconds and takes prompts again, not after the whole lease.
+#[tokio::test]
+async fn a_move_whose_client_hangs_up_before_the_bundle_is_read_gives_the_chat_back_in_seconds() {
+    let (a, mut src) = setup(PermissionPolicy::ApproveAll).await;
+    let id = busy_chat(&mut src, &[("p-a", "a")]).await;
+    let mut mover = connect(&a).await;
+    let begin = mover
+        .request("_acpmux/transfer_begin", json!({"sessionId": id, "interrupt": true}))
+        .await
+        .unwrap();
+    let path = begin["files"][0]["path"].clone();
+    let read = json!({"transferId": begin["transferId"], "path": path, "offset": 0, "limit": 1, "epoch": begin["epoch"]});
+    mover.request("_acpmux/transfer_read", read).await.unwrap();
+    // The lease stays at its default (minutes): only the hang-up can end the move this soon.
+    drop(mover);
+
+    src.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "echo: a").await;
+    src.request(method::SESSION_PROMPT, prompt(&id, "p-again", "again")).await.unwrap();
+    let aborted = records(&mut src, &id, "transfer_aborted").await;
+    assert_eq!(aborted.len(), 1, "{aborted:?}");
+    assert_eq!(aborted[0]["reason"], "client_gone", "{aborted:?}");
+}
+
+/// A client that hangs up but reads on over a new connection keeps its move.
+#[tokio::test]
+async fn a_move_whose_client_comes_back_on_a_new_connection_goes_on() {
+    let (a, mut src) = setup(PermissionPolicy::ApproveAll).await;
+    let id = busy_chat(&mut src, &[("p-a", "a")]).await;
+    let mut mover = connect(&a).await;
+    let begin = mover
+        .request("_acpmux/transfer_begin", json!({"sessionId": id, "interrupt": true}))
+        .await
+        .unwrap();
+    drop(mover);
+    let path = begin["files"][0]["path"].clone();
+    let read = json!({"transferId": begin["transferId"], "path": path, "offset": 0, "limit": 1, "epoch": begin["epoch"]});
+    // It came back: a read on another connection once the hang-up was seen, then past the
+    // grace (`CLIENT_GONE_GRACE`, 5 s).
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    src.request("_acpmux/transfer_read", read.clone()).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    src.request("_acpmux/transfer_read", read).await.unwrap();
+    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert!(records(&mut src, &id, "transfer_aborted").await.is_empty(), "{info}");
+}
+
 #[tokio::test]
 async fn a_move_whose_client_goes_away_after_the_target_took_the_chat_commits_on_its_own() {
     let (a, mut src) = setup(PermissionPolicy::ApproveAll).await;

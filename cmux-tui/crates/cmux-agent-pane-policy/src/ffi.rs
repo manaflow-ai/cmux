@@ -199,6 +199,9 @@ impl Pane {
 ///   "busy"|"starting"|"down", "restart": bool}`, what the pane's line says
 ///   while it waits and whether it offers Restart agent service (only when
 ///   down) ([`crate::service_wait`]).
+/// - `page_request` `{method, params}`: `{"case": name|"unsupported"|null,
+///   ..fields}`, the request a page message asks the host for, its params
+///   checked ([`crate::page_request`]); null when the host decodes it itself.
 /// - `prompt_*`: the presentation and answer rules shared by the Swift and
 ///   Rust hosts ([`crate::prompt`]); these never grant an option that was not
 ///   offered exactly once.
@@ -243,6 +246,7 @@ pub fn call(op: &str, request: &Value) -> Result<Value, i32> {
             Ok(json!({"json": canonical_json(value)}))
         }
         "service_wait" => crate::service_wait::call(request).ok_or(ERR_INVALID),
+        "page_request" => crate::page_request::call(request).ok_or(ERR_INVALID),
         "prompt_scrub" => {
             let value = request.get("text").and_then(Value::as_str).ok_or(ERR_INVALID)?;
             let prefix = request.get("prefix").and_then(Value::as_bool).unwrap_or(false);
