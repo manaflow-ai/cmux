@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   placement:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
       label: ${{ steps.label.outputs.label }}
