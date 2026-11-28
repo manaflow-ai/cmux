@@ -163,9 +163,9 @@ impl TypeSelect {
             let start = current.map_or(0, |c| c + 1);
             let count = folded.len();
             let prefix = first.to_string();
-            return (start..count)
-                .chain(0..start.min(count))
-                .find(|&i| folded[i].as_deref().is_some_and(|t| t.starts_with(&prefix)));
+            return (start..count).chain(0..start.min(count)).find(|&i| {
+                folded.get(i).and_then(|t| t.as_deref()).is_some_and(|t| t.starts_with(&prefix))
+            });
         }
         folded.iter().position(|t| t.as_deref().is_some_and(|t| t.starts_with(&self.typed)))
     }

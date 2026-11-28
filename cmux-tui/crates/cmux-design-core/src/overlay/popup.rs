@@ -265,7 +265,12 @@ pub fn layout_columns(input: &ColumnsInput) -> ColumnsLayout {
         let column_width = column.width.unwrap_or(rest);
         columns.push(PlacedColumn {
             frame: Rect::new(x, y, column_width, band),
-            document: Rect::new(0.0, 0.0, column_width, band.max(heights[index])),
+            document: Rect::new(
+                0.0,
+                0.0,
+                column_width,
+                band.max(heights.get(index).copied().unwrap_or_default()),
+            ),
             cells,
         });
         x += column_width;
@@ -377,15 +382,20 @@ pub fn column_key(
         } else {
             (0..current).rev().collect()
         };
-        let Some(target) =
-            toward.into_iter().find(|&i| !reachable(&columns[i], accessory).is_empty())
+        let Some(column) = toward
+            .into_iter()
+            .filter_map(|i| columns.get(i))
+            .find(|c| !reachable(c, accessory).is_empty())
         else {
             return ColumnKey::Stays;
         };
-        let rows = reachable(&columns[target], accessory);
+        let rows = reachable(column, accessory);
         rows.iter().find(|r| r.checked).or(rows.first()).map(|r| r.id.clone())
     } else {
-        let rows = reachable(&columns[current], accessory);
+        let Some(column) = columns.get(current) else {
+            return ColumnKey::Stays;
+        };
+        let rows = reachable(column, accessory);
         if rows.is_empty() {
             return ColumnKey::Stays;
         }
@@ -398,7 +408,7 @@ pub fn column_key(
             None if down => 0,
             None => rows.len() - 1,
         };
-        Some(rows[index].id.clone())
+        rows.get(index).map(|r| r.id.clone())
     };
     match next {
         Some(id) if Some(id.as_str()) != selected => ColumnKey::Moves { id },
