@@ -6,7 +6,8 @@ public import AppKit
 /// windows, a device viewing this Mac and both permissions missing, the states AAMacScreenSharingGalleryTests draws.
 /// A push to CmuxNextMacScreen gets its before and after from these, built without the app.
 @MainActor
-public enum MacScreenUiScene {
+public struct MacScreenUiScene {
+    public init() {}
     static let viewing = MacScreenHomeSnapshot.Sharing(
         isSharing: true, busy: false, screenRecordingGranted: true, accessibilityGranted: true,
         session: .init(id: "s1", viewerID: "v1", viewerName: "Studio", scope: .view, connected: true), lastError: nil)

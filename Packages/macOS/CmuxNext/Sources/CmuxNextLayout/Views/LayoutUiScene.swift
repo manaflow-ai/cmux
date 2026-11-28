@@ -6,7 +6,8 @@ public import AppKit
 /// one split, and a docked chat column on the right, each pane a labeled tile. A push to CmuxNextLayout
 /// (geometry, dividers, scroll, drop) gets its before and after from this, built without the app.
 @MainActor
-public enum LayoutUiScene {
+public struct LayoutUiScene {
+    public init() {}
     final class Tiles: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView {
             let tile = NSView()

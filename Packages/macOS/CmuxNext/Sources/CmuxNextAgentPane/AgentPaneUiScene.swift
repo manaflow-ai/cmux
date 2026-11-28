@@ -7,7 +7,8 @@ public import AppKit
 /// window of its own. The chat itself is a web page (the web gallery draws it); a push to CmuxNextAgentPane gets
 /// its before and after of the native parts from these, built without the app.
 @MainActor
-public enum AgentPaneUiScene {
+public struct AgentPaneUiScene {
+    public init() {}
     static let info: [String: Any] = [
         "open": true, "width": 320.0, "top": 28.0, "side": 0.0, "label": "Session Info",
         "sections": [

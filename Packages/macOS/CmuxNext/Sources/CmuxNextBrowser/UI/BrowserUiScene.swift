@@ -7,7 +7,8 @@ public import AppKit
 /// over a WebKit tab, each in a window of its own. A push to CmuxNextBrowser gets its before and after from these,
 /// built without the app (no CEF, no WebKit page).
 @MainActor
-public enum BrowserUiScene {
+public struct BrowserUiScene {
+    public init() {}
     /// Opens the scene's windows (each a new window: the shooter draws every window a scene opens) and returns what
     /// the caller keeps alive for the shot.
     public static func show() -> [AnyObject] {
