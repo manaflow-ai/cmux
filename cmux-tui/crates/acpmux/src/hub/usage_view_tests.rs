@@ -508,3 +508,33 @@ async fn a_codex_review_box_chat_is_read_from_its_own_codex_home() {
     let by_model = stats.tokens_by_model1h.expect("the reviewer's hour is measured");
     assert_eq!(by_model.get("gpt-6-astra"), Some(&1100));
 }
+
+/// The saved trackers sit beside the session store, one per chat by its plain id; a sweep
+/// removes those of chats no pass reads and leaves every other file.
+#[test]
+fn saved_trackers_sit_beside_the_store_and_go_with_their_chats() {
+    let home = tempfile::tempdir().unwrap();
+    let store = crate::store::LocalStore::new(home.path().join("sessions"), 1 << 20).unwrap();
+    let dir = crate::store::Store::usage_tracker_dir(&store).unwrap();
+    assert_eq!(dir, home.path().join("usage-trackers"));
+    assert!(
+        crate::store::Store::usage_tracker_dir(&crate::store::MemoryStore::default()).is_none()
+    );
+    assert_eq!(saved_path(&dir, "chat-1"), Some(dir.join("chat-1.json")));
+    assert_eq!(saved_path(&dir, "../chat-1"), None);
+    assert_eq!(saved_path(&dir, ""), None);
+
+    std::fs::create_dir_all(&dir).unwrap();
+    for name in ["kept.json", "gone.json", "notes.txt", "kept.json.tmp"] {
+        std::fs::write(dir.join(name), b"{}").unwrap();
+    }
+    let listed: HashSet<&str> = ["kept"].into_iter().collect();
+    assert_eq!(sweep_saved(&dir, &listed), 1);
+    let mut left: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    left.sort();
+    assert_eq!(left, ["kept.json", "kept.json.tmp", "notes.txt"]);
+    assert_eq!(sweep_saved(&home.path().join("none"), &listed), 0);
+}

@@ -1815,6 +1815,7 @@ impl Hub {
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let audit = audit_log::AuditLog::open(store.audit_dir());
+        let usage_stats = usage_view::UsageCache::saved_in(store.usage_tracker_dir());
         let page_rule_sessions =
             StdMutex::new(inbox::page_rule::session_names(config.page_rule.as_ref()));
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
@@ -1870,7 +1871,7 @@ impl Hub {
             op_once: Default::default(),
             list_order: Default::default(),
             requests_in_flight: Default::default(),
-            usage_stats: Default::default(),
+            usage_stats,
             usage_answers: Default::default(),
             ledger,
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
