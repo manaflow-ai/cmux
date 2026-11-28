@@ -3,7 +3,7 @@ import Foundation
 
 /// The browser automation's rules answered by the app's Rust library (cmux-tui/crates/cmux-browser-rules,
 /// with their tests) over the app FFI's JSON channel (`cmux_layout_reducer_json`, ops
-/// `browser_rules_automation_*`). Swift reads the facts (a call's params, WebKit's frame tree) and acts
+/// `browser_rules_automation_*` and `browser_rules_input_*`). Swift reads the facts (a call's params, WebKit's frame tree) and acts
 /// on the answer; the rules stay in Rust.
 nonisolated enum BrowserRulesFFI {
     /// Calls automation op `name` with a JSON request; nil when the library does not answer.
@@ -17,6 +17,14 @@ nonisolated enum BrowserRulesFFI {
         guard let reply = callData("browser_rules_automation_" + name, data),
               let object = try? JSONSerialization.jsonObject(with: reply, options: [.fragmentsAllowed]) else { return nil }
         return DriverJSON(foundation: object)
+    }
+
+    /// Calls input op `browser_rules_input_<name>` (cmux-browser-rules `input.rs`) with an encoded
+    /// request and decodes its reply; nil when the library does not answer or the reply does not decode.
+    static func input<Reply: Decodable>(_ name: String, _ request: some Encodable, as _: Reply.Type) -> Reply? {
+        guard let data = try? JSONEncoder().encode(request),
+              let reply = callData("browser_rules_input_" + name, data) else { return nil }
+        return try? JSONDecoder().decode(Reply.self, from: reply)
     }
 
     /// `value` as JSON Foundation can write. JSON has no NaN or infinity: such a number crosses as 0,
