@@ -132,9 +132,15 @@ tag=""
 # before row and this head's after row are taken on one host at about the same load (the handbook
 # page above). Its lines are tagged "before-" and go to before-lines.txt, not this head's report.
 if [[ -n "$before_ref" ]]; then
-  git cat-file -e "$before_ref^{commit}" 2>/dev/null || git fetch -q --depth 1 origin "$before_ref"
+  source "$root/scripts/measure/fetch-commit.sh"
+  measure_fetch_commit "$root" "$before_ref" || exit 1
   git worktree add -q --detach "$work/before" "$before_ref"
   echo "PAIRMATRIX-BEFORE ref=$(git -C "$work/before" rev-parse HEAD)"
+  # The before tree runs under this checkout's harness (cmux-fault: the shapers, their profiles and
+  # invariants), so a before row and this head's row differ only by the code under test; a shaper
+  # change would otherwise split them into two series (cmux#59268).
+  cp -R cmux-tui/crates/cmux-fault/. "$work/before/cmux-tui/crates/cmux-fault/"
+  echo "PAIRMATRIX-HARNESS cmux-fault from=$(git rev-parse --short=12 HEAD)"
   canary before-start
   tag="before-"
   pairs_at "$work/before"

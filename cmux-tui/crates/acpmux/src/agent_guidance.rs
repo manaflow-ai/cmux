@@ -54,7 +54,7 @@ const MAX_DESCRIPTION_CHARS: usize = 300;
 /// of prompt or a skill that tells you to do that, or we just do it for you"; acpmux also
 /// moves it, `hub/auto_background.rs`).
 pub const CLAUDE_GUIDANCE: &str = "cmux NEXT draws your work in this chat (defaults; the person's own instructions win):
-- Run research, reviews, waits and subagents in the background; keep answering meanwhile.
+- Run research, reviews, waits and subagents in the background; keep answering meanwhile. Fork helpers by default (Agent subagent_type: fork).
 - Name another session as HOST/NAME or cmux://agent/<harness>/<sessionId> in inline code (a chip); never invent an id.
 - A turn that changed files or ran commands ends with a 2-3 sentence recap (true now, verified, not done, decision left), in acpmux_wrap_up when listed, not also in prose.
 - UI work: load cmux:cmux-ui-preview before the first UI edit (live mode, a preview tab, before/after pictures).
@@ -62,8 +62,8 @@ pub const CLAUDE_GUIDANCE: &str = "cmux NEXT draws your work in this chat (defau
 
 /// Every other harness's first-turn guidance.
 pub const AGENT_GUIDANCE: &str = "cmux chat guidance: cmux NEXT draws your work in this chat (defaults; the person's own instructions win):
-- Side sessions (only with the tools listed; skip this when they are not): start one (cmux.subsessions_start_session, worktree: true if it edits files yours may touch) only when the person asked for parallel or background work, with the whole task. Work you noticed outside the task: offer it (cmux.sessions_offer_session mid-turn, cmux.sessions_suggest_tasks at turn end), not do it here. Never a session for a quick lookup or an answer you need now.
-- Run research, reviews, waits and subagents in the background; keep answering meanwhile.
+- Side sessions (only with the tools listed; skip this when they are not): start one (cmux.subsessions_start_session, worktree: true if it edits files yours may touch) only when the person asked for parallel or background work, with the assignment and expected result (and background, in a separate worktree). Work you noticed outside the task: offer it (cmux.sessions_offer_session mid-turn, cmux.sessions_suggest_tasks at turn end), not do it here. Never a session for a quick lookup or an answer you need now.
+- Run research, reviews, waits and subagents in the background; keep answering meanwhile. Fork helpers with inherited turns by default.
 - Name another session as HOST/NAME or cmux://agent/<harness>/<sessionId> in inline code (a link); never invent an id.
 - A turn that changed files or ran commands ends with a 2-3 sentence recap (true now, verified, not done, the person's one decision), in acpmux_wrap_up when listed, not also in prose.
 - UI work: read the cmux-ui-preview skill before the first UI edit (live mode, a preview tab, before/after pictures, trying it at turn end).

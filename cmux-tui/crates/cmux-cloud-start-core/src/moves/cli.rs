@@ -78,6 +78,9 @@ pub struct Answer {
     /// `link start-chat plan`'s `seed_refused` for a machine too small for the folder (`machine.too_small`): the
     /// machine's name, for "more than <machine> has room for".
     pub machine_title: Option<String>,
+    /// `link seed push`: how the folder reached the machine (copied, not cloned) and what stayed on
+    /// this Mac, for the done toast; none when it cloned and left nothing ([`super::landed::read`]).
+    pub landed: Option<super::landed::Landed>,
 }
 
 impl Answer {
@@ -178,6 +181,7 @@ pub fn parse(output: &Output) -> (Answer, Option<Map<String, Value>>) {
         left_on_mac: left_on_mac(&object),
         size_locked: object.get("size_locked").filter(|size| size.is_object()).cloned(),
         machine_title: string(&object, "machine_title"),
+        landed: super::landed::read(&object),
     };
     (answer, Some(object))
 }
@@ -296,6 +300,7 @@ pub struct StartChatPlan {
     /// a person's own create direct, since a retry must take the first send's route.
     pub keeps_create_route: bool,
     pub environment_id: Option<String>,
+    pub ensured_environment: Option<String>,
     pub setup: Option<Setup>,
     /// `machine` was made for this send by this plan (the platform's workspace machine it created
     /// now): a start that can't go on after it deletes it, as it deletes one the app made for it.
@@ -323,6 +328,10 @@ pub fn start_chat_plan(
         create_route: string(object, "create_route"),
         keeps_create_route: boolean(object, "create_routes").unwrap_or(false),
         environment_id: info.environment_id,
+        ensured_environment: object
+            .get("ensured")
+            .and_then(Value::as_object)
+            .and_then(|ensured| string(ensured, "selected_environment")),
         setup: info.setup,
         made_for_send: string(object, "machine").is_some()
             && object

@@ -13,7 +13,10 @@ export type AcpmuxLink =
   | "offline"
   | "authFailed"
   | "updateRequired"
-  | "paused";
+  | "paused"
+  /// Not dialed on purpose: unused since the daemon started, or closed after going unused
+  /// (acpmux `peer_demand.rs`). Using the machine connects it.
+  | "idle";
 
 /// Why a link is down (`cause`): this Mac's network, the team hub, the machine, or a refused token.
 export type LinkCause = "localNetwork" | "hubDown" | "peerDown" | "auth";
@@ -50,6 +53,7 @@ export const ACPMUX_LINKS: ReadonlySet<string> = new Set<AcpmuxLink>([
   "authFailed",
   "updateRequired",
   "paused",
+  "idle",
 ]);
 const CAUSES: ReadonlySet<string> = new Set<LinkCause>(["localNetwork", "hubDown", "peerDown", "auth"]);
 const DOWN_REASONS: ReadonlySet<string> = new Set<LinkDownReason>([

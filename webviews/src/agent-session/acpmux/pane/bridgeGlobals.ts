@@ -83,6 +83,11 @@ declare global {
       /// skipped past `until` (ms since 1970): the swap showed the chat without it, so it would jump.
       togglePlace?(): TogglePlace;
       placeToggle?(at: number | null, until?: number): boolean;
+      /// The composer's draft for a swap to the terminal, taken once pasted, and a terminal's draft put in an empty
+      /// composer (toggleDraft.ts); a write past `until` does nothing.
+      toggleDraft?(): string | null;
+      takeToggleDraft?(text: string, until?: number): boolean;
+      putToggleDraft?(text: string, until?: number): boolean;
       /// A dictation change from the host (CmuxNextAgentPane AgentPaneDictation), spliced at the prompt's cursor.
       dictation?(update: DictationUpdate): void;
       /// A design mode highlight from a browser pane (CmuxNextAgentPane AgentPaneDesignSelection):

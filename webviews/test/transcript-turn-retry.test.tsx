@@ -27,7 +27,14 @@ const words = (html: string) =>
 const liveLine = (rows: AcpmuxRow[]) => turnView(rows, new Set(), { working: true }).at(-1)!;
 const drawn = (line: AcpmuxRow, now: number) =>
   renderToStaticMarkup(
-    <Thinking since={line.at} now={() => now} turnTotal={line.turnTotal} retry={line.retry} below />,
+    <Thinking
+      since={line.at}
+      now={() => now}
+      turnTotal={line.turnTotal}
+      retry={line.retry}
+      retryAt={line.retryAt}
+      below
+    />,
   );
 
 const snapshotRows = (name: string) => (retryEntry.variants[name] as { snapshot: { rows: AcpmuxRow[] } }).snapshot.rows;

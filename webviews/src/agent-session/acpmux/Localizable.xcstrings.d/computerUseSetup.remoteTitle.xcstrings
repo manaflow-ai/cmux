@@ -7,128 +7,128 @@
       "localizations" : {
         "ar" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "يعمل استخدام الكمبيوتر في الدردشات على هذا الـ Mac"
+            "state" : "translated",
+            "value" : "استخدام الكمبيوتر يحتاج إلى دردشة محلية"
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Korištenje računara radi u chatovima na ovom Macu"
+            "state" : "translated",
+            "value" : "Upravljanje računarom traži lokalni chat"
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Computerbrug virker i chats på denne Mac"
+            "state" : "translated",
+            "value" : "Computerbrug kræver en lokal chat"
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Computernutzung funktioniert in Chats auf diesem Mac"
+            "state" : "translated",
+            "value" : "Computernutzung braucht einen lokalen Chat"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Computer use works in chats on this Mac"
+            "value" : "Computer use needs a local chat"
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "El uso del ordenador funciona en los chats de este Mac"
+            "state" : "translated",
+            "value" : "El uso del ordenador requiere un chat local"
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "L’utilisation de l’ordinateur fonctionne dans les chats de ce Mac"
+            "state" : "translated",
+            "value" : "L’utilisation de l’ordinateur exige une discussion locale"
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "L’uso del computer funziona nelle chat su questo Mac"
+            "state" : "translated",
+            "value" : "L’uso del computer richiede una chat locale"
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "コンピュータ操作はこの Mac 上のチャットで使えます"
+            "state" : "translated",
+            "value" : "コンピュータ操作にはローカルのチャットが必要です"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ការប្រើកុំព្យូទ័រដំណើរការក្នុងការជជែកនៅលើ Mac នេះ"
+            "state" : "translated",
+            "value" : "ការប្រើកុំព្យូទ័រត្រូវការការជជែកក្នុងម៉ាស៊ីន"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "컴퓨터 사용은 이 Mac의 채팅에서 작동합니다"
+            "state" : "translated",
+            "value" : "컴퓨터 사용에는 로컬 채팅이 필요합니다"
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Datamaskinbruk fungerer i chatter på denne Macen"
+            "state" : "translated",
+            "value" : "Datamaskinbruk krever en lokal chat"
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Obsługa komputera działa w czatach na tym Macu"
+            "state" : "translated",
+            "value" : "Sterowanie komputerem wymaga lokalnego czatu"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "O uso do computador funciona em chats neste Mac"
+            "state" : "translated",
+            "value" : "O uso do computador exige um chat local"
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Управление компьютером работает в чатах на этом Mac"
+            "state" : "translated",
+            "value" : "Управлению компьютером нужен локальный чат"
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "การใช้คอมพิวเตอร์ใช้ได้ในแชตบน Mac เครื่องนี้"
+            "state" : "translated",
+            "value" : "การใช้คอมพิวเตอร์ต้องใช้แชทในเครื่อง"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Bilgisayar kullanımı bu Mac'teki sohbetlerde çalışır"
+            "state" : "translated",
+            "value" : "Bilgisayar kullanımı yerel sohbet gerektirir"
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Керування комп’ютером працює в чатах на цьому Mac"
+            "state" : "translated",
+            "value" : "Керуванню комп’ютером потрібен локальний чат"
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Sử dụng máy tính hoạt động trong các cuộc trò chuyện trên máy Mac này"
+            "state" : "translated",
+            "value" : "Điều khiển máy tính cần trò chuyện cục bộ"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "电脑操作仅适用于这台 Mac 上的聊天"
+            "state" : "translated",
+            "value" : "电脑操作需要本地聊天"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "電腦操作僅適用於這台 Mac 上的聊天"
+            "state" : "translated",
+            "value" : "電腦操作需要本機聊天"
           }
         }
       }

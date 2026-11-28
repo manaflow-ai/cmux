@@ -78,7 +78,7 @@ import Testing
         let sent = SpikeRecorder()
         let reporter = LagSpikeReporter(limiter: LagSpikeRateLimiter(minimumNanos: 250 * Self.ms), isEnabled: { true },
                                         sink: { spike in threads.onMain.withLock { $0.append(Thread.isMainThread) }; sent.add(spike) })
-        #expect(Thread.isMainThread)
+        #expect(pthread_main_np() != 0)
         #expect(reporter.noteStall(duration: .milliseconds(400), cpu: .milliseconds(400), addresses: []))
         _ = await sent.wait(for: 1)
         #expect(threads.onMain.withLock { $0 } == [false])

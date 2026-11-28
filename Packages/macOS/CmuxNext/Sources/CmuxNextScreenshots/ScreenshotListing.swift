@@ -1,9 +1,10 @@
+import CCmuxScreenshots
 public import CmuxNextFileGrid
 import Foundation
 
-/// The files a grid shows, newest first, keyed by path. Pure: scans and
-/// watch events go in, the sorted list comes out, so the order rule is
-/// tested without a disk.
+/// The files a grid shows, newest first, keyed by path. The order and the filter are Rust's
+/// (cmux-screenshots `listing.rs`); this keeps the items it places. Pure: scans and watch events
+/// go in, the sorted list comes out, so the order rule is tested without a disk.
 ///
 /// Order: newer modification date first, then name (case-insensitive,
 /// numeric), then path. A path is in the list at most once.
@@ -15,14 +16,14 @@ import Foundation
 public nonisolated struct ScreenshotListing: Sendable, Equatable {
     /// Every item, newest first.
     public private(set) var items: [FileGridItem] = []
-    private var byPath: [String: FileGridItem] = [:]
+    /// The Rust listing; a struct copy shares it until one of them changes (``makeUnique()``).
+    private var store = Self.newStore()
 
     /// A listing of these items (sorted here; a later duplicate path wins).
     ///
     /// - Parameter items: items in any order.
     public init(_ items: [FileGridItem] = []) {
-        for item in items { byPath[item.id] = item }
-        self.items = byPath.values.sorted(by: Self.precedes)
+        load(items)
     }
 
     /// The number of items.
@@ -31,7 +32,7 @@ public nonisolated struct ScreenshotListing: Sendable, Equatable {
     /// The item at `path`, if listed.
     ///
     /// - Parameter path: the file path.
-    public func item(at path: String) -> FileGridItem? { byPath[path] }
+    public func item(at path: String) -> FileGridItem? { position(of: path).map { items[$0] } }
 
     /// Swaps every item of `source` for `newItems` (a fresh scan of that folder).
     ///
@@ -39,9 +40,7 @@ public nonisolated struct ScreenshotListing: Sendable, Equatable {
     ///   - source: the source id whose items are replaced.
     ///   - newItems: the scan's items; their `sourceID` should be `source`.
     public mutating func replace(source: String, with newItems: [FileGridItem]) {
-        byPath = byPath.filter { $0.value.sourceID != source }
-        for item in newItems { byPath[item.id] = item }
-        items = byPath.values.sorted(by: Self.precedes)
+        load(items.filter { $0.sourceID != source } + newItems)
     }
 
     /// Drops every item of `source` (a folder the grid no longer shows).
@@ -55,20 +54,24 @@ public nonisolated struct ScreenshotListing: Sendable, Equatable {
     ///
     /// - Parameter item: the item as it is on disk now.
     public mutating func upsert(_ item: FileGridItem) {
-        if let old = byPath[item.id] {
-            if old == item { return }
-            if let index = index(of: old) { items.remove(at: index) }
+        if self.item(at: item.id) == item { return }
+        makeUnique()
+        if let old = position(of: item.id) { items.remove(at: old) }
+        ScreenshotsFFI.strings([item.id, item.sourceID]) { text in
+            cmux_screenshots_listing_upsert(store.pointer, text[0].bytes, text[0].count, ScreenshotsFFI.raw(item.kind), item.size,
+                                            item.modified.timeIntervalSince1970, text[1].bytes, text[1].count)
         }
-        byPath[item.id] = item
-        items.insert(item, at: insertionIndex(for: item))
+        if let new = position(of: item.id) { items.insert(item, at: new) }
     }
 
     /// Removes the item at `path` (deleted, renamed away or left the rule).
     ///
     /// - Parameter path: the file path.
     public mutating func remove(path: String) {
-        guard let old = byPath.removeValue(forKey: path), let index = index(of: old) else { return }
+        guard let index = position(of: path) else { return }
+        makeUnique()
         items.remove(at: index)
+        ScreenshotsFFI.bytes(path) { cmux_screenshots_listing_remove(store.pointer, $0, $1) }
     }
 
     /// The items whose name contains `query` (case- and diacritic-insensitive) and whose source is
@@ -78,12 +81,17 @@ public nonisolated struct ScreenshotListing: Sendable, Equatable {
     ///   - query: text to match in the name; empty matches every item.
     ///   - sources: the source ids to keep, or nil for all.
     public func filtered(query: String, sources: Set<String>?) -> [FileGridItem] {
-        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        if needle.isEmpty, sources == nil { return items }
-        return items.filter { item in
-            if let sources, !sources.contains(item.sourceID) { return false }
-            return needle.isEmpty || item.name.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        if sources == nil, query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return items }
+        if sources?.isEmpty == true { return [] }
+        var found = [Int](repeating: 0, count: items.count)
+        let ids = sources.map { $0.sorted().joined(separator: "\n") }
+        let count = ScreenshotsFFI.strings([query, ids ?? ""]) { text in
+            found.withUnsafeMutableBufferPointer {
+                cmux_screenshots_listing_filter(store.pointer, text[0].bytes, text[0].count, ids == nil ? nil : text[1].bytes,
+                                                text[1].count, $0.baseAddress, $0.count)
+            }
         }
+        return found.prefix(count).map { items[$0] }
     }
 
     /// The number of items of each source.
@@ -93,31 +101,37 @@ public nonisolated struct ScreenshotListing: Sendable, Equatable {
         return counts
     }
 
-    /// The grid's order: `lhs` shows before `rhs`.
-    ///
-    /// - Parameters:
-    ///   - lhs: one item.
-    ///   - rhs: another item.
-    /// - Returns: true when `lhs` is newer, or as new and earlier by name, then path.
-    public static func precedes(_ lhs: FileGridItem, _ rhs: FileGridItem) -> Bool {
-        if lhs.modified != rhs.modified { return lhs.modified > rhs.modified }
-        let byName = lhs.name.compare(rhs.name, options: [.caseInsensitive, .numeric])
-        if byName != .orderedSame { return byName == .orderedAscending }
-        return lhs.id < rhs.id
+    private static func newStore() -> RustHandle {
+        RustHandle(cmux_screenshots_listing_new()) { cmux_screenshots_listing_free($0) }
     }
 
-    private func insertionIndex(for item: FileGridItem) -> Int {
-        var low = 0
-        var high = items.count
-        while low < high {
-            let mid = (low + high) / 2
-            if Self.precedes(items[mid], item) { low = mid + 1 } else { high = mid }
+    private func position(of path: String) -> Int? {
+        let index = ScreenshotsFFI.bytes(path) { cmux_screenshots_listing_position(store.pointer, $0, $1) }
+        return index < 0 ? nil : Int(index)
+    }
+
+    /// Gives this copy its own Rust listing before it changes.
+    private mutating func makeUnique() {
+        if !isKnownUniquelyReferenced(&store) { load(items) }
+    }
+
+    /// Lists exactly `all` (a later duplicate path wins) in a new Rust listing, which orders them.
+    private mutating func load(_ all: [FileGridItem]) {
+        store = Self.newStore()
+        let byPath = Dictionary(all.map { ($0.id, $0) }) { _, later in later }
+        for (source, group) in Dictionary(grouping: byPath.values, by: \.sourceID) {
+            ScreenshotsFFI.strings([source] + group.map(\.id)) { text in
+                let raw = zip(group, text.dropFirst()).map { item, path in
+                    CmuxScreenshotsItem(path: path.bytes, path_len: path.count, kind: ScreenshotsFFI.raw(item.kind),
+                                        size: item.size, modified: item.modified.timeIntervalSince1970)
+                }
+                cmux_screenshots_listing_replace(store.pointer, text[0].bytes, text[0].count, raw, raw.count)
+            }
         }
-        return low
-    }
-
-    private func index(of item: FileGridItem) -> Int? {
-        let index = insertionIndex(for: item)
-        return index < items.count && items[index].id == item.id ? index : nil
+        items = (0..<cmux_screenshots_listing_count(store.pointer)).compactMap { index in
+            var length = 0
+            let path = cmux_screenshots_listing_path_at(store.pointer, index, &length)
+            return path.flatMap { byPath[String(decoding: UnsafeBufferPointer(start: $0, count: length), as: UTF8.self)] }
+        }
     }
 }

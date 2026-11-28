@@ -16,6 +16,8 @@ import React, {
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
 import { useClaudeConnectFlow } from "./ClaudeConnectRow";
+import { CLAUDE_CONNECT_BRAND, CODEX_CONNECT_BRAND } from "./claudeConnect";
+import { CloudServedContext } from "./cloudServed";
 import type { QuickMenuExtras } from "./QuickModelMenu";
 import { sessionModels } from "./modelCatalog";
 import { modelChipFallback } from "./agents";
@@ -111,7 +113,7 @@ import {
   MenuSeparator,
 } from "../../ui/Menu";
 import { cx } from "../../ui/cx";
-import { registerPicker } from "./pickerOpeners";
+import { registerPicker, ChatViewParked } from "./pickerOpeners";
 import { MENU_WINDOW_AT, MenuWindowRows, sectionStarts, useMenuWindow } from "../../ui/menuWindow";
 import { PLAN_TOGGLE_OPENER } from "./composerControls";
 import { SHORTCUT_ACTIONS, tooltipProps, useShortcut } from "./shortcuts";
@@ -300,13 +302,16 @@ export function ComposerPickers({
   const sessionId = summary?.sessionId;
   const forks = locked && fork === true && !!sessionId;
   const onCloud = pickerOnCloud(snapshot);
+  const cloudSetup = useContext(CloudServedContext);
+  const cloudServed = cloudSetup?.served;
   const cloudSwitch = onCloud && locked && !forks;
   // On Cloud, never this Mac's list: none of the machine's agents listed yet leaves the picker empty.
-  const pickerEntries = onCloud ? cloudPickerEntries(allEntries) : allEntries;
+  const legacyCloud = onCloud && !cloudServed;
+  const pickerEntries = legacyCloud ? cloudPickerEntries(allEntries) : allEntries;
   // On Cloud, Claude Code and Codex are pickable once a connection serves their family on Cloud; the rest
   // list as signed out with Cloud's set up button (cloudPickerEntries.ts `useCloudFamilies`).
-  const cloudFamilies = useCloudFamilies(onCloud);
-  const cloudSetUpNeeded = onCloud ? cloudSignedOut(pickerEntries, cloudFamilies.families) : undefined;
+  const cloudFamilies = useCloudFamilies(legacyCloud && !cloudSetup);
+  const cloudSetUpNeeded = legacyCloud ? cloudSignedOut(pickerEntries, cloudFamilies.families) : undefined;
   // Installed launch configurations are separate from route-backed accounts in the model menu; a
   // Cloud machine has none of them.
   const profiles = pickerCatalog && !onCloud ? catalogProfiles(snapshot.catalog, pickerCatalog.harnesses) : undefined;
@@ -1024,9 +1029,21 @@ export function ComposerPickers({
   // level there (cloudStartMode): this Mac's answer for the agent the machine runs tells that level,
   // never the mode itself, which is the machine's harness's (cloud-ergo-start-chat).
   const local = fresh && snapshot.origin !== "remote" && snapshot.origin !== "peer" && !snapshot.startsOnCloud;
-  const asksStart = awaiting && local && modes.length === 0;
+  // The access chip waits on the chat's modes, not on its session id: a session acpmux attached
+  // reports its id before its modes (`summary.modes` absent), and dropping the start mode in that
+  // gap blanked the chip between "Bypass permissions" and the reported mode (Leo 2026-11-26: "the
+  // bypass permissions appears then disappears after it loaded in").
+  // Only a harness known to report modes waits: one that reports none never fills the gap.
   const chipCatalogEntry = snapshot.catalog.find((entry) => entry.id === chipHarness);
   const chipFamily = summary?.family ?? chipCatalogEntry?.family;
+  const modesComing =
+    !!summary?.sessionId &&
+    !switching &&
+    !summary.modes &&
+    chipCatalogEntry?.modeless !== true &&
+    (chipCatalogEntry?.reportsModes === true || harnessFamilyMenu(chipFamily, chipHarness) !== undefined);
+  const modesAwaited = modes.length === 0 && (awaiting || modesComing);
+  const asksStart = modesAwaited && local;
   // The agent the Cloud machine starts (cloudStartAgent): the composer's own, except UniiChat (a Mac
   // with no agent CLI shows it), which the send leaves out so the machine starts Claude. Another
   // agent whose Cloud modes cmux does not know keeps the chip's generic label: the machine decides.
@@ -1124,8 +1141,7 @@ export function ComposerPickers({
     harnessFamilyMenu(chipFamily, chipHarness) !== undefined ||
     !!startAnswer?.modeId;
   const modeless =
-    awaiting &&
-    modes.length === 0 &&
+    modesAwaited &&
     ((profileModes?.modeless ?? chipCatalogEntry?.modeless) === true || (chipCatalogEntry !== undefined && !someModes));
   // A harness whose modes acpmux knows only from its harness row (`reported`: its startup probe, or
   // a chat of it this daemon ran, such as Antigravity's) and where acpmux sets no start mode (it has
@@ -1148,7 +1164,7 @@ export function ComposerPickers({
       : (startAnswer ??
         (highest ? { modeId: highest.id, name: highest.name } : undefined) ??
         ownStart ??
-        (awaiting && modes.length === 0 ? MODE_PLACEHOLDER : undefined)));
+        (modesAwaited ? MODE_PLACEHOLDER : undefined)));
   // Another folder's answer (acpmux has not answered for this one yet) only holds the chip's
   // place: this folder's profile or preset may start the chat in another mode, so it names none.
   // The harness's own menu names the start mode as it names the mode once the chat reports it.
@@ -1328,6 +1344,8 @@ export function ComposerPickers({
   const quick: QuickMenuExtras = {
     ...(quickEffort ? { effort: quickEffort } : {}),
     ...(quickAccount ? { account: quickAccount } : {}),
+    // The sign-in the chat's agent really runs on, on this Mac or a Cloud machine (cmux#63167).
+    ...(summary?.authSource ? { signIn: summary.authSource } : {}),
     ...(quickFast ? { fast: quickFast } : {}),
   };
   // The button names the effort after the model ("Opus 5.5  Medium"), and its short name for a
@@ -1391,8 +1409,11 @@ export function ComposerPickers({
   // on no agent (newTabStart): its chip is Add harness, as with none installed.
   const unpickedNewTab = onNewTab && !harness && listedNoDefault(snapshot.catalog);
   const picksModel =
-    !unpickedNewTab &&
-    (snapshot.catalog.length > 0 || Boolean(harness) || Boolean(pickerCatalog?.harnesses.length && !harnessesListed));
+    !!cloudServed ||
+    (!unpickedNewTab &&
+      (snapshot.catalog.length > 0 ||
+        Boolean(harness) ||
+        Boolean(pickerCatalog?.harnesses.length && !harnessesListed)));
   const chips = (
     <div className="acpmux-chips">
       {claudeConnect.card}
@@ -1439,12 +1460,16 @@ export function ComposerPickers({
           {...(cloudSetUpNeeded
             ? {
                 signedOut: pickableSignedOut(cloudSetUpNeeded, summary),
-                onLogIn: (_harness: string, family: string) => cloudFamilies.setUp(family),
+                onLogIn: (_harness: string, family: string) => {
+                  const brand = family === "codex" ? CODEX_CONNECT_BRAND : CLAUDE_CONNECT_BRAND;
+                  if (claudeConnect.row?.brands.includes(brand)) claudeConnect.row.onConnect(brand);
+                  else cloudFamilies.setUp(family);
+                },
               }
             : signIn
               ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn }
               : {})}
-          {...(claudeConnect.row && !onCloud ? { claudeConnect: claudeConnect.row } : {})}
+          {...(claudeConnect.row ? { claudeConnect: claudeConnect.row } : {})}
           {...(fastMode && (!reasoningMenu || (fastOffered && !held && !switching))
             ? { fastMode: { ...fastMode, lastOnValue: fastMode.lastOnValue ?? rememberedFastValue } }
             : {})}
@@ -1646,7 +1671,8 @@ function AccessMenu({
   const newTab = useContext(OnNewTab);
   const [open, setOpen] = useState(false);
   // Right-click and automation open it by its label (pickerOpeners.ts).
-  useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
+  const parked = useContext(ChatViewParked);
+  useEffect(() => (parked ? undefined : registerPicker(label, () => setOpen(true))), [label, parked]);
   const modeShortcut = useShortcut(SHORTCUT_ACTIONS.composerSwitchMode);
   // A pick draws at once, until the session reports a mode: the picked one, or (once the agent
   // answered) any other than the one the pick left, which the agent runs instead (it mapped the
@@ -2017,14 +2043,16 @@ export function ContextRing({
   const arcRadius = ring.radius;
   const meter = useRingMotion(chat, planShown ? "plan" : contextKnown ? "context" : undefined, fraction);
   const counts = meter.motion !== "ease-number-jumps" && meter.motion !== "instant";
+  const parked = useContext(ChatViewParked);
   useEffect(() => {
     // Keep the automation path truthful too: before the first usage report the ring is
     // intentionally inert, so opening it by label must not reveal an empty 0% card.
+    if (parked) return;
     const unregister = registerPicker(t("context.title"), () => {
       if (known) setPinned(true);
     });
     return unregister;
-  }, [known, t]);
+  }, [known, t, parked]);
   useEffect(() => {
     // Usage can disappear when a session resets: no pinned card over a stale reading.
     if (!known) closeCard();
@@ -2344,7 +2372,8 @@ export function Picker({
     },
     [open],
   );
-  useEffect(() => registerPicker(label, open), [label, open]);
+  const parked = useContext(ChatViewParked);
+  useEffect(() => (parked ? undefined : registerPicker(label, open)), [label, open, parked]);
   // Past MENU_WINDOW_AT rows (the host's catalog rows are not bounded) only the rows near the
   // menu's viewport draw (menuWindow.tsx).
   const sizes = sections.map((section) => section.choices.length);
@@ -2827,6 +2856,7 @@ function setupView(setup: HarnessSetup, t: ReturnType<typeof useT>): { strip: Qu
             : t(phase.reasonKey ?? "harnesses.commandFailed"),
           busy: false,
           actions: [
+            // retry-prompt-ok: runs the harness's install (and its sign-in) again, a command with side effects.
             { label: t("picker.tryAgain"), run: retryHarnessSetup },
             ...(docsUrl
               ? [

@@ -133,10 +133,10 @@ extension AgentShareActions {
 
 /// The choices an invite run makes from the chat's shares.
 enum AgentShareInvites {
-    /// `--role`: `talk` when absent, `view` or `talk` (any case); nil for anything else.
+    /// `--role`: `talk` when absent, `view`, `talk` or `drive` (any case); nil for anything else.
     static func role(_ text: String?) -> String? {
         guard let text = text?.trimmingCharacters(in: .whitespaces).lowercased(), !text.isEmpty else { return "talk" }
-        return ["view", "talk"].contains(text) ? text : nil
+        return ["view", "talk", "drive"].contains(text) ? text : nil
     }
 
     static func text(_ value: ActionResultValue?) -> String? {

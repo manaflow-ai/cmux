@@ -96,6 +96,54 @@ describe("image VM delete retries a provider 5xx (run 44112930938: a passing smo
   });
 });
 
+describe("image VM delete retries a delete the client timed out (run 45829777164: smoke failed in vm.delete)", () => {
+  const timeout = () => Object.assign(new Error("The operation timed out."), { name: "TimeoutError" });
+
+  test("a TimeoutError on delete is retried and the VM is deleted", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-guest-delete-timeout-"));
+    const ledger = new Ledger(path.join(dir, "resources.tsv"));
+    const id = "vm-delete-timeout";
+    const name = "cmuxnp-dev-vmimg-t-timeout";
+    let attempts = 0;
+    const vm = {
+      delete: async () => {
+        attempts++;
+        if (attempts === 1) throw timeout();
+      },
+    } as unknown as Vm;
+    ledger.record(id, "vm", name);
+    trackLiveVm({ vm, vmId: id, name, ledger });
+
+    await deleteVm(vm, id, name, ledger, { sleep: async () => {} });
+    expect(attempts).toBe(2);
+    expect(ledger.live()).toEqual([]);
+    expect(await deleteLiveVms()).toEqual([]);
+  });
+
+  test("a delete that times out every try still fails after the bounded retries, and the VM stays tracked", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-guest-delete-timeout-out-"));
+    const ledger = new Ledger(path.join(dir, "resources.tsv"));
+    const id = "vm-delete-timeout-out";
+    const name = "cmuxnp-dev-vmimg-t-timeout-out";
+    let attempts = 0;
+    let down = true;
+    const vm = {
+      delete: async () => {
+        attempts++;
+        if (down) throw timeout();
+      },
+    } as unknown as Vm;
+    ledger.record(id, "vm", name);
+    trackLiveVm({ vm, vmId: id, name, ledger });
+
+    await expect(deleteVm(vm, id, name, ledger, { sleep: async () => {}, delaysMs: [1, 1] })).rejects.toThrow("timed out");
+    expect(attempts).toBe(3);
+    expect(ledger.live()).toEqual([{ id, kind: "vm", name }]);
+    down = false;
+    expect(await deleteLiveVms()).toEqual([id]);
+  });
+});
+
 describe("image VM cleanup when provider deletion fails", () => {
   test("keeps a failed VM tracked and the second exact-id delete succeeds", async () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-guest-delete-retry-"));

@@ -27,6 +27,7 @@
 set -uo pipefail
 role="$1" addr="$2" token_file="$3" out="$4" legs="${5:-}"
 root="$EVAL_ROOT"
+source "$root/scripts/measure/build-progress.sh"
 vs="$root/cmux-tui/crates/cmux-rd-host/scripts/screen-share-vs.py"
 port=4181
 mkdir -p "$out"
@@ -35,7 +36,8 @@ mkdir -p "$out"
 build_app() {
   local tag="stagetable" app
   git -C "$root" submodule update --init --depth 1 ghostty ghostty-next >"$out/app-build-$1.log" 2>&1 || return 1
-  (cd "$root" && CMUX_NEXT_REQUIRE_CEF=0 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag") >>"$out/app-build-$1.log" 2>&1 || return 1
+  measure_quiet "stage-table app build $1" "$out/app-build-$1.log" \
+    bash -c 'cd "$1" && CMUX_NEXT_REQUIRE_CEF=0 CMUX_DEV_BACKEND_MODE=local exec ./scripts/reload.sh --tag "$2"' _ "$root" "$tag" || return 1
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/app-build-$1.log" | tail -n 1)"
   [[ -n "$app" && -d "$app" ]] || return 1
   printf '%s\n' "$app"
@@ -70,10 +72,19 @@ if [[ "$role" == host ]]; then
   echo "SCREEN-STREAM-EVAL-STAGE stage-table host serving $addr:$port"
   mkdir -p "${host_app_file%/*}" && chmod 700 "${host_app_file%/*}"
   rm -f "$host_app_file"
+  # The rig (screen-share-vs.py rig: capture, marker, input) as a direct child, so it holds the launcher's Screen
+  # Recording and Accessibility; the viewer's `run` pings ROOT/state/rig.sock first and ends every leg with "the rig
+  # is not running on the shared Mac" without it (--rig-launch cmux-next needs an installed cmux NEXT, a fleet Mac
+  # has none). It is up before the peer server answers, so the viewer's first ping finds it.
+  python3 -I "$vs" rig --root "$rig_root" >"$out/rig.log" 2>&1 &
+  rig_pid=$!
+  for _ in $(seq 1 50); do [[ -S "$rig_root/state/rig.sock" ]] && break; sleep 0.2; done
+  [[ -S "$rig_root/state/rig.sock" ]] && echo "SCREEN-STREAM-EVAL-STAGE stage-table host: rig up (pid $rig_pid)" \
+    || echo "SCREEN-STREAM-EVAL-STAGE stage-table host: the rig did not start: $(tail -n 3 "$out/rig.log" | tr '\n' ' ' | cut -c1-300)"
   python3 -I "$vs" peer-serve --bind "$addr" --port "$port" --token-file "$token_file" --hold-s 7200 &
   serve=$!
   app_pid="" store=""
-  trap '[[ -n "$app_pid" ]] && kill "$app_pid" 2>/dev/null; [[ -n "$store" ]] && rm -f "$store"; rm -f "$host_app_file"' EXIT
+  trap '[[ -n "$app_pid" ]] && kill "$app_pid" 2>/dev/null; kill "$rig_pid" 2>/dev/null; [[ -n "$store" ]] && rm -f "$store"; rm -f "$host_app_file"' EXIT
   # The sharing app, while the viewer builds its own: a one-word answer in the file either way ("none" = no app).
   host_app="none" why=""
   creds=$(auth_file) || creds=""
@@ -121,13 +132,29 @@ if [[ -z "$login" || ! -f "$login" ]]; then
   # No vnc-login step (the controller has no fleet login source): the fleet password this Mac's login keychain holds
   # (`fleet-sudo --login-keychain HOST` stores it as manaflow-fleet-login; the fleet Macs share one), in a 0600 file
   # under this step's output that is removed when the step ends. Never argv, environment or logs.
-  login=""
-  if pw=$(security find-generic-password -s manaflow-fleet-login -w 2>/dev/null) && [[ -n "$pw" && "$pw" != *$'\n'* ]]; then
+  login="" pw="" kc_why=""
+  # A cmux-ci step runs with a scratch HOME, so the default keychain search list can miss the account's login
+  # keychain: try the default list, then the login keychain in the account's real home (from the directory).
+  real_home=$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | sed -n 's/^NFSHomeDirectory: //p')
+  for kc in "" ${real_home:+"$real_home/Library/Keychains/login.keychain-db"}; do
+    [[ -n "$kc" && ! -f "$kc" ]] && { kc_why+=" $kc: no such file;"; continue; }
+    # Only the exit status and security's own message are kept (never the secret, which goes to $pw alone).
+    errf=$(mktemp "$out/.kc-err.XXXXXX")
+    pw=$(security find-generic-password -s manaflow-fleet-login -w ${kc:+"$kc"} 2>"$errf"); rc=$?
+    err=$(head -n 1 "$errf" | cut -c1-160); rm -f "$errf"
+    [[ $rc == 0 && -n "$pw" && "$pw" != *$'\n'* ]] && break
+    pw=""
+    case $rc in
+      44) kc_why+=" ${kc:-default search list}: no manaflow-fleet-login item;" ;;
+      *) kc_why+=" ${kc:-default search list}: locked or no access (security exit $rc: $err);" ;;
+    esac
+  done
+  if [[ -n "$pw" ]]; then
     login=$(umask 077 && mktemp "$out/.vnc-login.XXXXXX") && login_tmp="$login" && printf '%s\n' "$pw" >"$login" || login=""
-    echo "SCREEN-STREAM-EVAL-STAGE stage-table: vnc login from this Mac's keychain (manaflow-fleet-login)"
+    echo "SCREEN-STREAM-EVAL-STAGE stage-table: vnc login from this Mac's keychain (manaflow-fleet-login${kc:+ in $kc})"
   fi
   unset pw
-  [[ -n "$login" ]] || echo "SCREEN-STREAM-EVAL-STAGE stage-table: no vnc login file (CMUX_CI_VNC_LOGIN_FILE) and no manaflow-fleet-login in this Mac's keychain (fleet-sudo --login-keychain HOST): Apple's legs fail"
+  [[ -n "$login" ]] || echo "SCREEN-STREAM-EVAL-STAGE stage-table: no vnc login file (CMUX_CI_VNC_LOGIN_FILE) and no usable manaflow-fleet-login in this Mac's keychain (fleet-sudo --login-keychain HOST):${kc_why} Apple's legs fail"
 fi
 
 # The tools at this commit, as screen-stream-eval.sh tools-only=1 builds them (screen-share-vs.py --tools).
@@ -195,6 +222,7 @@ echo "SCREEN-STREAM-EVAL-STAGE stage-table $host_name ($addr) -> $viewer_name ($
 python3 -I "$vs" run --host "$host_name" --viewer "$viewer_name" --local-mac "$viewer_name" --via peer \
   --peer-url "$url" --peer-token-file "$token_file" --host-ip "$addr" --viewer-ip "$self_ip" \
   --tools "$tools" --legs "$legs" --apple-viewer ${app_args[@]+"${app_args[@]}"} --vnc-user cmux --vnc-password-file "${login:-/nonexistent}" \
+  --rfb-viewer "$root/scripts/measure/screen-stream-eval/rfb-viewer.py" \
   --root "$rig_root" --out "$out/ledger.jsonl" 2>&1 | tee "$out/run.log"
 status=${PIPESTATUS[0]}
 python3 -I "$vs" table "$out/ledger.jsonl" | tee "$out/table.txt"

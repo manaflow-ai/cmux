@@ -16,8 +16,7 @@ public import Glibc
 /// - Returns: What `read(2)` returns.
 @inlinable
 public func blockingRead(_ descriptor: Int32, _ buffer: UnsafeMutableRawPointer?, _ count: Int, fileID: StaticString = #fileID, line: UInt = #line) -> Int {
-    assertBlockingAllowed(.socketRead, fileID: fileID, line: line)
-    return read(descriptor, buffer, count)
+    return blockingCall(.socketRead, fileID: fileID, line: line) { read(descriptor, buffer, count) }
 }
 
 /// Receives from a socket, like `Darwin.recv`, as a checked blocking call
@@ -33,8 +32,7 @@ public func blockingRead(_ descriptor: Int32, _ buffer: UnsafeMutableRawPointer?
 /// - Returns: What `recv(2)` returns.
 @inlinable
 public func blockingRecv(_ descriptor: Int32, _ buffer: UnsafeMutableRawPointer?, _ count: Int, _ flags: Int32, fileID: StaticString = #fileID, line: UInt = #line) -> Int {
-    assertBlockingAllowed(.socketRead, fileID: fileID, line: line)
-    return recv(descriptor, buffer, count, flags)
+    return blockingCall(.socketRead, fileID: fileID, line: line) { recv(descriptor, buffer, count, flags) }
 }
 
 /// Writes to a file descriptor, like `Darwin.write`, as a checked blocking call
@@ -51,8 +49,7 @@ public func blockingRecv(_ descriptor: Int32, _ buffer: UnsafeMutableRawPointer?
 @inlinable
 public func blockingWrite(_ descriptor: Int32, _ buffer: UnsafeRawPointer?, _ count: Int,
                           fileID: StaticString = #fileID, line: UInt = #line) -> Int {
-    assertBlockingAllowed(.socketWrite, fileID: fileID, line: line)
-    return write(descriptor, buffer, count)
+    return blockingCall(.socketWrite, fileID: fileID, line: line) { write(descriptor, buffer, count) }
 }
 
 /// Sends on a socket, like `Darwin.send`, as a checked blocking call
@@ -69,6 +66,5 @@ public func blockingWrite(_ descriptor: Int32, _ buffer: UnsafeRawPointer?, _ co
 @inlinable
 public func blockingSend(_ descriptor: Int32, _ buffer: UnsafeRawPointer?, _ count: Int, _ flags: Int32,
                          fileID: StaticString = #fileID, line: UInt = #line) -> Int {
-    assertBlockingAllowed(.socketWrite, fileID: fileID, line: line)
-    return send(descriptor, buffer, count, flags)
+    return blockingCall(.socketWrite, fileID: fileID, line: line) { send(descriptor, buffer, count, flags) }
 }

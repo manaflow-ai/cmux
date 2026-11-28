@@ -122,7 +122,7 @@ class Workflow(unittest.TestCase):
     def test_the_scheme_step_runs_exactly_when_the_fleet_app_is_not_taken(self):
         step = next(s for s in self.jobs["cmux-scheme-compile"]["steps"] if s.get("name") == STEP)
         self.assertEqual(step["if"], "${{ inputs.dev_daily != true && env.CMUX_SCHEME_FLEET_JOB == '' }}")
-        self.assertIn("vars.CI_SCHEME_COMPILE_FLEET != '0'", step["env"]["FLEET_GATE_0"])
+        self.assertIn("(vars.CI_SCHEME_COMPILE_FLEET || '1') != '0'", step["env"]["FLEET_GATE_0"])
 
 
 if __name__ == "__main__":

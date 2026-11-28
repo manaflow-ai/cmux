@@ -292,6 +292,7 @@ echo down > "$TMP/precheck/$changed"
 RUN_ID=7 NIGHTLY_NEXT_PRECHECK_DEPTH=0 request --sha "$changed" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$changed" || fail "a confirmed results outage must not block promotion:" "$out" "$(cat "$TMP/gh.log")"
 grep -q "results service did not answer" <<<"$out" || fail "the outage warning must be visible:" "$out"
+grep -q "answered HTTP 000 (curl exit 7)" <<<"$out" || fail "the outage warning must name the HTTP code and curl exit:" "$out"
 
 echo fail > "$TMP/precheck/$changed"
 RUN_ID=8 NIGHTLY_NEXT_PRECHECK=0 request --sha "$changed" --release-compile-green
@@ -418,9 +419,10 @@ branch() { # <commit>: feat-cmux-next's tip (the script's history, fetched or lo
   git_q -C "$src" update-ref refs/heads/feat-cmux-next "$1"
 }
 # No REST read. The one exception is the direct-push quarantine's single GraphQL read (its own budget, kept for the
-# whole tick in GH_TICK_CACHE), made only once a candidate is about to be requested.
+# whole tick in GH_TICK_CACHE), made only once a candidate is about to be requested. The other allowed read is
+# web_matrix_green's one commit-statuses read of the candidate (cmux-next/web-bundle-matrix, added by #61541).
 no_api() {
-  ! grep -v '^api graphql ' "$TMP/gh.log" | grep -q '^api' || fail "--tree-ready must read no GitHub REST API:" "$(cat "$TMP/gh.log")"
+  ! grep -v -e '^api graphql ' -e '^api repos/o/r/commits/[0-9a-f]*/statuses?per_page=100 --jq .*cmux-next/web-bundle-matrix' "$TMP/gh.log" | grep -q '^api' || fail "--tree-ready must read no GitHub REST API:" "$(cat "$TMP/gh.log")"
   (( $(grep -c '^api graphql ' "$TMP/gh.log") <= 1 )) || fail "the quarantine is read once a call:" "$(cat "$TMP/gh.log")"
 }
 branch "$other"
@@ -630,12 +632,12 @@ RUN_ID=11 request --sha "$other" --release-compile-green
 RUN_ID=11 request --sha "$other" --release-compile-green
 ! backfilled && grep -q "already dispatched in this job" <<<"$out" \
   || fail "the backfill must dispatch at most once per job:" "$out" "$(cat "$TMP/gh.log")"
-# At most one backfill an hour: every tick and Release compile calls it from its own job, so the
-# per-job stamp alone let 51 dispatches through in 31 h (ci-min-per-pr-14).
+# At most one backfill per gap (25 min since #59970; an hour before): every tick and Release compile calls
+# it from its own job, so the per-job stamp alone let 51 dispatches through in 31 h (ci-min-per-pr-14).
 date -u -d '-10 minutes' +%Y-%m-%dT%H:%M:%SZ > "$TMP/gh-last-dispatch"
 RUN_ID=13 request --sha "$other" --release-compile-green
-[[ "$status" == 0 ]] && ! backfilled && grep -q "min ago (gap 60 min)" <<<"$out" \
-  || fail "no backfill within an hour of the last dispatch:" "$out" "$(cat "$TMP/gh.log")"
+[[ "$status" == 0 ]] && ! backfilled && grep -q "min ago (gap 25 min)" <<<"$out" \
+  || fail "no backfill within the gap of the last dispatch:" "$out" "$(cat "$TMP/gh.log")"
 date -u -d '-61 minutes' +%Y-%m-%dT%H:%M:%SZ > "$TMP/gh-last-dispatch"
 RUN_ID=14 request --sha "$other" --release-compile-green
 [[ "$status" == 0 ]] && backfilled \
@@ -1101,11 +1103,16 @@ request --sha "$head"
 # making three anonymous ls-remotes of github.com that GitHub held 50-107 s before answering.
 real_git="$(command -v git)"
 mkdir -p "$TMP/gitlog"
+# A wrapper that is itself named git (a lane VM's ~/.local/bin/git guard) takes the first other git
+# on PATH as the real one, which is this stub again: log a call once, on its first pass only.
 cat > "$TMP/gitlog/git" <<STUB
 #!/usr/bin/env bash
-for a in "\$@"; do
-  case "\$a" in ls-remote|fetch) printf '%s\n' "\$a" >> "$TMP/git-network.log"; break ;; esac
-done
+if [[ -z "\${GITLOG_SEEN:-}" ]]; then
+  for a in "\$@"; do
+    case "\$a" in ls-remote|fetch) printf '%s\n' "\$a" >> "$TMP/git-network.log"; break ;; esac
+  done
+fi
+export GITLOG_SEEN=1
 exec "$real_git" "\$@"
 STUB
 chmod +x "$TMP/gitlog/git"
@@ -1147,6 +1154,52 @@ PATH="$TMP/gitlog:$PATH" request --tree-ready "$walk_tip"
 PATH="$TMP/gitlog:$PATH" request --tree-ready "$walk_tip"
 (( $(grep -c '^ls-remote$' "$TMP/git-network.log") == 2 )) || fail "without a tick cache each call reads origin:" "$(cat "$TMP/git-network.log")"
 git_q -C "$src" update-ref -d refs/heads/nightly-next
+
+# The tick's precheck reads do not grow with the commits it walks. Regression: tick 45858069814
+# (2026-11-26) took 14 minutes over 39 commits, each call reading the compile results service for
+# its candidates and the same ancestors again, or waiting out its own 20 s timeout while it was down.
+git_q -C "$src" checkout -q --detach "$walk_tip~5"
+for i in $(seq 1 12); do
+  echo "batch $i" > "$src/NOTES.md"; git_q -C "$src" add -A; git_q -C "$src" commit -m "same tree $i"
+done
+batch_tip=$(git -C "$src" rev-parse HEAD)
+branch "$batch_tip"
+[[ "$(key "$batch_tip")" == "$(key "$walk_tip~5")" ]] || fail "fixture: the batch commits must share the published tree"
+batch_walk() { # <commits> <tick cache> <run id>: the tick's loop over the newest <commits>; prints the precheck reads
+  local c
+  : > "$TMP/precheck.log"
+  for c in $(git -C "$src" rev-list --first-parent -n "$1" "$batch_tip"); do
+    git_q -C "$src" checkout -q --detach "$c"
+    PROMOTE="" RUN_ID="$3" GH_TICK_CACHE="$2" request --tree-ready "$c"
+    [[ "$status" == 0 ]] || fail "a walked commit must not fail (exit $status):" "$out"
+    printf '%s\n' "$out" > "$TMP/batch-out"
+  done
+  grep -c . "$TMP/precheck.log" || true
+}
+# No verdict anywhere: every candidate searches its ancestors and finds none.
+for c in $(git -C "$src" rev-list "$batch_tip"); do echo 404 > "$TMP/precheck/$c"; done
+reads4=$(batch_walk 4 "$TMP/batch-tick-4" 41)
+reads12=$(batch_walk 12 "$TMP/batch-tick-12" 42)
+grep -q "not prechecked yet" "$TMP/batch-out" || fail "a commit with no verdict must be refused as not prechecked:" "$(cat "$TMP/batch-out")"
+distinct=$(sort -u "$TMP/precheck.log" | grep -c .)
+(( reads12 == distinct )) || fail "a walk must read each commit's verdict once, read $reads12 for $distinct commits:" "$(sort "$TMP/precheck.log" | uniq -c | sort -rn | head)"
+(( reads12 - reads4 <= 8 )) || fail "8 more commits walked may cost at most 8 more reads, got $reads4 then $reads12"
+# A long walk does not re-read: by default an answer holds for the whole tick, an hour old or not.
+for f in "$TMP/batch-tick-12/precheck/"*; do read -r _ w < "$f"; echo "$(( $(date +%s) - 3600 )) $w" > "$f"; done
+reads_again=$(batch_walk 12 "$TMP/batch-tick-12" 42)
+(( reads_again == 0 )) || fail "within one tick a commit's answer must not be read again, got $reads_again"
+# Without the tick cache the same walk reads the same ancestors again (what the cache saves).
+reads_uncached=$(batch_walk 12 "" 43)
+(( reads_uncached > 3 * reads12 )) || fail "fixture: without the tick cache the walk must read far more, got $reads_uncached vs $reads12"
+# The service down: one read for the whole walk, every commit still promotable unprechecked.
+for c in $(git -C "$src" rev-list "$batch_tip"); do echo down > "$TMP/precheck/$c"; done
+reads_down=$(batch_walk 12 "$TMP/batch-tick-down" 44)
+(( reads_down == 1 )) || fail "a walk while the results service is down must read it once, got $reads_down"
+grep -q "^promotable " "$TMP/batch-out" || fail "an outage must not block a commit:" "$(cat "$TMP/batch-out")"
+# A window later the service is read again.
+reads_down0=$(CMUX_NIGHTLY_NEXT_PRECHECK_TICK_TTL=0 batch_walk 3 "$TMP/batch-tick-down" 45)
+(( reads_down0 == 3 )) || fail "past its window an outage must be read again, got $reads_down0"
+for c in $(git -C "$src" rev-list "$batch_tip"); do rm -f "$TMP/precheck/$c"; done
 git_q -C "$src" checkout -q --detach "$head"
 : "$other"
 echo "PASS: nightly-next promotion waits for a published tree and a usable fleet Release precheck, not daemon tests"

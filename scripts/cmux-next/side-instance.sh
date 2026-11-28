@@ -9,7 +9,7 @@
 #                                   over 7 days ago; --from takes any build) as NAME; remade
 #                                   from another app, it clears the state of the identity it replaces.
 #                                   --customize: its customize folder is NAME/customize (CMUX_CUSTOMIZE_DIR
-#                                   in its LSEnvironment), not the account's ~/.config/cmux/customize, so a
+#                                   in its LSEnvironment), not the account's ~/.config/cmux-next/customize, so a
 #                                   measurement's extension saves never reach the Mac's own cmux
 #                                   --live-code: a live code build's copy watches live-code/ for
 #                                   Swift patches (docs/cmux-next/live-code.md)
@@ -30,7 +30,8 @@
 #                                             (CMUX_NEXT_NO_ACTIVATE=1, CMUX_NEXT_TEST_WINDOW_SCREEN=its index).
 #                                             Window shots and window recordings still see them. Falls back to
 #                                             --shown, and says so, when the display cannot be made (no clang,
-#                                             no console session)
+#                                             no console session, a headless Mac whose virtual display
+#                                             AppKit never lists: tried once per boot, CMUX_SIDE_PARK_RETRY=1)
 #                                   --shown   on the person's screens, behind their app (`open -g`, as every
 #                                             launch was before parked: measurements and fleet display
 #                                             recordings keep it with CMUX_SIDE_PLACEMENT=shown)
@@ -69,8 +70,7 @@
 #   config/         its cmux-next.json and web-dev.json (CMUX_NEXT_CONFIG_FILE in its LSEnvironment), its
 #                   customize/ folder (CMUX_CUSTOMIZE_DIR: local/customize, the folder its daemon watches), and
 #                   its debug-tunables.json (CMUX_NEXT_DEBUG_TUNABLES_FILE) with Live web reload on, so it
-#                   loads its web overlay. A copy of cmux NEXT DEV cannot: the app reads web-dev.json
-#                   only under DEV's own bundle id (WebDevOverride.isAvailable); a nightly's copy can.
+#                   loads its web overlay (every build reads web-dev.json, under any bundle id).
 #   web-overlay/    its web overlay (CMUX_WEB_OVERLAY_DIR), web-slot/ its dev server state
 #   live-code/      with --live-code, the folder its live code watcher reads (CMUX_LIVE_CODE_DIR)
 # A side instance starts signed out with fresh settings; its own sign-in survives a remake through
@@ -215,19 +215,46 @@ PLIST
   fi
   echo "$out"
 }
+# This boot's id: a park display that failed is not tried again until the Mac restarts. SIDE_INSTANCE_BOOT_ID: tests.
+park_boot_id() {
+  [[ -n "${SIDE_INSTANCE_BOOT_ID:-}" ]] && { echo "$SIDE_INSTANCE_BOOT_ID"; return; }
+  sysctl -n kern.boottime 2>/dev/null | sed -n 's/.*sec = \([0-9]*\).*/\1/p' || true
+}
 # Starts the park display for $name; prints its NSScreen index. Its pid goes to $dir/park.pid.
+# A park display that cannot be made on this Mac (a headless CI Mac whose virtual display AppKit never lists) costs one
+# try per boot and park-display.m source, not every launch: the failure is remembered in $root/.park-display/failed,
+# and a launch waits only while the helper still runs. Before, each launch on such a Mac waited the full 15 s and
+# a measured `cmux app try` side phase went from 8 s to 25.9 s (retry 0.8 s to 17.3 s; cmuxterm-hq
+# goals/team-dev-build-is-swap.md). CMUX_SIDE_PARK_RETRY=1 tries again (a display plugged in since).
 park_start() {
-  local park ready="$dir/park.ready" pid=""
+  local park ready="$dir/park.ready" pid="" memo="$root/.park-display/failed" boot tries
   park="$(park_app)" || return 1
+  boot="$(park_boot_id)"
+  if [[ -z "${CMUX_SIDE_PARK_RETRY:-}" && -n "$boot" && -f "$memo" && "$(cat "$memo")" == "$park $boot" ]]; then
+    echo "side-instance: the park display failed on this Mac since it started (CMUX_SIDE_PARK_RETRY=1 tries again)" >&2
+    return 1
+  fi
   rm -f "$ready" "$dir/park.log"
   open -g -n --stderr "$dir/park.log" "$park" --args --pid-file "$dir/pid" --ready-file "$ready" \
     || { echo "side-instance: open $park failed" >&2; return 1; }
-  for _ in $(seq 1 150); do [[ -s "$ready" ]] && break; /bin/sleep 0.1; done
+  # Up to 15 s for the ready line; after the first second, an exited helper ends the wait (park-display.m gives up
+  # after 10 s and says why in its log).
+  for tries in $(seq 1 150); do
+    [[ -s "$ready" ]] && break
+    if (( tries > 10 )) && ! pgrep -f "$park/Contents/MacOS/park-display --pid-file $dir/pid" >/dev/null 2>&1; then
+      [[ -s "$ready" ]] && break
+      echo "side-instance: the park display exited without a screen after $((tries / 10)) s" >&2
+      break
+    fi
+    /bin/sleep 0.1
+  done
   if [[ ! -s "$ready" ]]; then
-    echo "side-instance: the park display was not ready in 15 s: $(tail -c 300 "$dir/park.log" 2>/dev/null)" >&2
+    echo "side-instance: the park display was not ready: $(tail -c 300 "$dir/park.log" 2>/dev/null)" >&2
     pkill -f "$park/Contents/MacOS/park-display --pid-file $dir/pid" 2>/dev/null || true
+    [[ -n "$boot" ]] && { mkdir -p "$root/.park-display"; echo "$park $boot" >"$memo"; }
     return 1
   fi
+  rm -f "$memo"
   pid="$(pgrep -n -f "$park/Contents/MacOS/park-display --pid-file $dir/pid" || true)"
   [[ -n "$pid" ]] && echo "$pid" >"$dir/park.pid"
   sed -n 's/^ready .*screen=\([0-9][0-9]*\).*/\1/p' "$ready"
@@ -309,7 +336,7 @@ case "$cmd" in
     "$buddy" -c "Print :LSEnvironment" "$plist" >/dev/null 2>&1 || "$buddy" -c "Add :LSEnvironment dict" "$plist"
     plist_set "$plist" LSEnvironment:CMUX_NEXT_CONFIG_FILE "$dir/config/cmux-next.json"
     # Its own customize folder (local/customize: the folder its daemon watches, where `cmux customize`
-    # and `cmux ext` write): without it every copy on the Mac shares ~/.config/cmux/customize, so one
+    # and `cmux ext` write): without it every copy on the Mac shares ~/.config/cmux-next/customize, so one
     # copy's extension shows in another's sidebar and a save reloads both.
     mkdir -p "$dir/config/customize"
     plist_set "$plist" LSEnvironment:CMUX_CUSTOMIZE_DIR "$dir/config/customize"
@@ -460,6 +487,10 @@ PY
         echo "$name: no park display (see above); its windows open behind your app instead (--shown)" >&2
       fi
     fi
+    # A driver's downloads folder (DownloadsFolder: Debug and bench builds read it; Release ignores it): a
+    # copy under test never writes the account's ~/Downloads, whose first write waits on macOS's access
+    # prompt, a prompt nobody answers on a fleet Mac (browser-auth-webkit.sh, as kit_downloads.py).
+    [[ -n "${CMUX_NEXT_DOWNLOADS_DIR:-}" ]] && open_args+=(--env CMUX_NEXT_DOWNLOADS_DIR="$CMUX_NEXT_DOWNLOADS_DIR")
     if ! open "${open_args[@]}" "$app" ${args[@]+--args "${args[@]}"}; then park_stop; die "open $app failed"; fi
     exe="$app/Contents/MacOS/$("$buddy" -c "Print :CFBundleExecutable" "$app/Contents/Info.plist")"
     launched=""
@@ -496,15 +527,29 @@ PY
       # shellcheck disable=SC2086 # one pid per word
       kill -TERM $left 2>/dev/null || true
       for _ in $(seq 1 75); do [[ -z "$(copy_pids)" ]] && break; /bin/sleep 0.2; done
-      if [[ -n "$(copy_pids)" ]]; then die "processes of $name still run: $(copy_pids | tr '\n' ' ')"; fi
+      # A helper that ignores TERM for 15 s gets KILL: copy_pids matches only executables inside this
+      # copy's own bundle, so nothing else can be hit. Before, stop died here and hot-verify marked a
+      # look whose every step passed as failed (cmux#38805, 2 helpers left after TERM).
+      left="$(copy_pids)"
+      if [[ -n "$left" ]]; then
+        echo "side-instance: $name: $(echo $left | wc -w | tr -d ' ') process(es) ignored TERM for 15 s, sending KILL: $(echo $left)" >&2
+        # shellcheck disable=SC2086 # one pid per word
+        kill -KILL $left 2>/dev/null || true
+        for _ in $(seq 1 25); do [[ -z "$(copy_pids)" ]] && break; /bin/sleep 0.2; done
+      fi
+      if [[ -n "$(copy_pids)" ]]; then die "processes of $name still run after KILL: $(copy_pids | tr '\n' ' ')"; fi
     fi
     if command -v mac-budget >/dev/null 2>&1; then mac-budget release --name "$name" || true; fi
     echo "$name stopped"
     ;;
   env)
-    app_of >/dev/null
-    printf 'export CMUX_NEXT_CONFIG_FILE=%q CMUX_CUSTOMIZE_DIR=%q CMUX_WEB_OVERLAY_DIR=%q CMUX_WEB_SLOT_STATE_DIR=%q\n' \
-      "$dir/config/cmux-next.json" "$dir/config/customize" "$dir/web-overlay" "$dir/web-slot"
+    copy="$(app_of)"
+    # CMUX_WEB_OVERLAY_APP: web-overlay.sh checks the overlay's web ABI against this copy, not the
+    # installed NIGHTLY. Without it, hot-verify's look of cmux#62321 (2026-11-27) was refused: the
+    # worker's stale installed NIGHTLY had ABI 7, while the copy, from NIGHTLY 4605751670101, had the
+    # head's ABI 9.
+    printf 'export CMUX_NEXT_CONFIG_FILE=%q CMUX_CUSTOMIZE_DIR=%q CMUX_WEB_OVERLAY_DIR=%q CMUX_WEB_SLOT_STATE_DIR=%q CMUX_WEB_OVERLAY_APP=%q\n' \
+      "$dir/config/cmux-next.json" "$dir/config/customize" "$dir/web-overlay" "$dir/web-slot" "$copy"
     ;;
   socket)
     app_of >/dev/null

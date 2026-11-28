@@ -126,8 +126,8 @@ extension TabCell {
         let m = metrics, side = m.closeButtonSize
         // Point the hidden accessibility child where the close glyph will
         // actually appear on hover, including the centered narrow swap.
-        // A pinned, protected or transition-hidden tab has no close child: a
-        // pinned tab closes from its menu (Lawrence msg 19392).
+        // A protected or transition-hidden tab has no close child; a pinned
+        // tab's x takes its centered icon slot, as a crowded tab's does.
         let hover = TabChromeVisibility.resolve(
             width: layer.bounds.width, isPinned: item.isPinned, isSelected: isSelected,
             isHovered: true, isClosable: item.isClosable, hasStatus: hasStatusMark, style: style, metrics: m)

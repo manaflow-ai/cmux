@@ -2,6 +2,9 @@
 //! BROWSER-MCP-ENTRY, 2026-10-04): `cmux mcp serve`, which cmux.json turns
 //! on; the host binary has no MCP server of its own.
 
+// The binary's command line is unix-only (src/bin: Windows prints "needs a Unix host").
+#![cfg(unix)]
+
 use std::process::{Command, Stdio};
 
 #[test]

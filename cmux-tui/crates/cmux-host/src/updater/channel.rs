@@ -305,9 +305,20 @@ impl Cache {
 
 /// This machine's Rust target, as the published binaries name it.
 pub fn local_target() -> Option<&'static str> {
-    match std::env::consts::ARCH {
-        "x86_64" => Some("x86_64-unknown-linux-musl"),
-        "aarch64" => Some("aarch64-unknown-linux-musl"),
+    target_for(std::env::consts::OS, std::env::consts::ARCH)
+}
+
+/// The published target for an OS and architecture. Only Linux musl builds are published; any
+/// other OS gets none (the updater turns itself off), never a Linux binary it cannot run.
+pub fn target_for(os: &str, arch: &str) -> Option<&'static str> {
+    match (os, arch) {
+        ("linux", "x86_64") => Some("x86_64-unknown-linux-musl"),
+        ("linux", "aarch64") => Some("aarch64-unknown-linux-musl"),
         _ => None,
     }
+}
+
+/// What `local_target` found no build for, as the updater's off line names it.
+pub fn local_platform() -> String {
+    format!("{} {}", std::env::consts::OS, std::env::consts::ARCH)
 }
