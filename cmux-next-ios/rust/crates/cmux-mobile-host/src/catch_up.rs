@@ -43,7 +43,11 @@
 //! reply did not carry. Absent while the feed is off.
 //!
 //! One-shot, as `cloud-directory`: the open's args are the request; one reply frame, then
-//! the channel closes.
+//! the channel closes. With `args.compressions` listing `zstd-stream-v1` (as `acpmux` reads
+//! it, `link_zstd.rs`) the frame is that stream's one envelope (`0x01`, text length, zstd
+//! length, the bytes), about a fifth of the JSON: fewer segments on the radio, so fewer
+//! chances of a lost one holding the reply a retransmission timeout. A phone that does not
+//! list it gets the JSON text.
 
 use std::collections::HashMap;
 
@@ -241,11 +245,20 @@ pub(crate) async fn serve(
     args: &Value,
     sender: &ChannelSender,
 ) -> Result<(), Refusal> {
-    let reply = answer_args(config, peer, args).await?;
-    sender
-        .send(Bytes::from(reply.to_string()))
+    let reply = answer_args(config, peer, args).await?.to_string();
+    let frame = if crate::link_zstd::asked(args) {
+        // A 64 KiB reply is a few dozen segments plain and a handful as zstd: on a lossy radio
+        // each segment is a chance of a retransmission timeout, so fewer is the tail cut.
+        tokio::task::spawn_blocking(move || {
+            cmux_mobile_link::zstd_stream::one_envelope(reply.as_bytes())
+                .unwrap_or_else(|_| reply.into_bytes())
+        })
         .await
-        .map_err(|_| Refusal::new("closed", "phone channel closed"))
+        .map_err(|_| Refusal::new("internal", "catch-up reply encoder ended"))?
+    } else {
+        reply.into_bytes()
+    };
+    sender.send(Bytes::from(frame)).await.map_err(|_| Refusal::new("closed", "phone channel closed"))
 }
 
 /// The reply `catch-up` sends for `args`, as one object (the relay feed reads its own copy of

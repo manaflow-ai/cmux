@@ -138,6 +138,9 @@ fn exposure() -> SessionExposure {
     }
 }
 
+/// When the Mac last accepted a shaped link's connection (the shaped TCP handshake landed).
+static ACCEPTED: Mutex<Option<Instant>> = Mutex::new(None);
+
 /// A phone link through a shaper to a Mac link serving every channel it accepts.
 async fn shaped_link(config: Arc<ServiceConfig>, profile: &str, seed: u64) -> (Link, Arc<Shaper>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -148,6 +151,7 @@ async fn shaped_link(config: Arc<ServiceConfig>, profile: &str, seed: u64) -> (L
     );
     tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        *ACCEPTED.lock().unwrap() = Some(Instant::now());
         stream.set_nodelay(true).unwrap();
         let mac = Link::new(stream, Role::Mac, LinkConfig::default(), None);
         let (_tx, rx) = watch::channel(exposure());
@@ -445,8 +449,13 @@ async fn relay_catch_up<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>
 fn stats(mut samples: Vec<f64>) -> Value {
     samples.sort_by(f64::total_cmp);
     let pick = |q: f64| samples[((samples.len() - 1) as f64 * q).round() as usize];
-    json!({"n": samples.len(), "p50": (pick(0.5) * 10.0).round() / 10.0, "p95": (pick(0.95) * 10.0).round() / 10.0,
-        "samples": samples.iter().map(|s| (s * 10.0).round() / 10.0).collect::<Vec<_>>()})
+    let mut row = json!({"n": samples.len(), "p50": (pick(0.5) * 10.0).round() / 10.0,
+        "p95": (pick(0.95) * 10.0).round() / 10.0, "max": (pick(1.0) * 10.0).round() / 10.0});
+    // A long run's samples are its percentiles; a short one's are worth reading whole.
+    if samples.len() <= 20 {
+        row["samples"] = samples.iter().map(|s| (s * 10.0).round() / 10.0).collect::<Vec<_>>().into();
+    }
+    row
 }
 
 fn loadavg() -> String {
@@ -708,17 +717,45 @@ fn behind(cursors: &Cursors, heads: &MacHeads) -> u64 {
     behind
 }
 
+/// One foreground catch-up's time, split: the shaped TCP handshake (until the Mac accepted; zero
+/// on a link already open), the request up plus the Mac's service plus the first reply byte down,
+/// the rest of the reply, and the phone applying it. Milliseconds.
+#[derive(Clone, Copy, Debug, Default)]
+struct Phases {
+    connect: f64,
+    first_byte: f64,
+    transfer: f64,
+    apply: f64,
+}
+
 /// One wake over `link`: the request the phone's code builds, the reply, the cursors moved.
 /// Returns (ms, reply bytes, events a tail-first page left behind for scroll-back).
 async fn stale_wake(link: &Link, cursors: &mut Cursors, ask: &phone::Ask, at: u64) -> (f64, u64, u64) {
+    let (ms, bytes, skipped, _) = stale_wake_phased(link, cursors, ask, at, None).await;
+    (ms, bytes, skipped)
+}
+
+/// [`stale_wake`], with its [`Phases`]; `opened` is when the link's connect started (a fresh
+/// link), or `None` for a link already open.
+async fn stale_wake_phased(
+    link: &Link,
+    cursors: &mut Cursors,
+    ask: &phone::Ask,
+    at: u64,
+    opened: Option<Instant>,
+) -> (f64, u64, u64, Phases) {
     let args = phone::request(cursors, ask);
     let held: Vec<(String, u64)> = cursors.chats.iter().map(|(id, c)| (id.clone(), c.last_seq)).collect();
-    let start = Instant::now();
+    let start = opened.unwrap_or_else(Instant::now);
     let mut channel = link.open("catch-up", args).await.unwrap();
     let mut reply = Vec::new();
+    let mut first = None;
     loop {
         match channel.recv().await {
-            Some(ChannelEvent::Data(data)) => reply.extend_from_slice(&data),
+            Some(ChannelEvent::Data(data)) => {
+                first.get_or_insert_with(Instant::now);
+                reply.extend_from_slice(&data);
+            }
             Some(ChannelEvent::Closed(info)) => {
                 assert_eq!(info.code, "eof");
                 break;
@@ -726,7 +763,15 @@ async fn stale_wake(link: &Link, cursors: &mut Cursors, ask: &phone::Ask, at: u6
             None => panic!("catch-up ended"),
         }
     }
-    let ms = start.elapsed().as_secs_f64() * 1000.0;
+    let done = Instant::now();
+    let since = |a: Instant, b: Instant| b.saturating_duration_since(a).as_secs_f64() * 1000.0;
+    let accepted = opened.and_then(|_| *ACCEPTED.lock().unwrap()).unwrap_or(start);
+    let first = first.unwrap_or(done);
+    let wire = reply.len();
+    let reply = match cmux_mobile_link::zstd_stream::open_one_envelope(&reply) {
+        Some(text) => text.unwrap(),
+        None => reply,
+    };
     let answer = phone::read(&reply).unwrap();
     let skipped = answer
         .chats
@@ -738,10 +783,79 @@ async fn stale_wake(link: &Link, cursors: &mut Cursors, ask: &phone::Ask, at: u6
         })
         .sum();
     if ask.hour_now.is_some() {
-        cursors.spend_background(at, reply.len() as u64);
+        cursors.spend_background(at, wire as u64);
     }
     cursors.apply_catch_up(&answer, at);
-    (ms, reply.len() as u64, skipped)
+    let applied = Instant::now();
+    let phases = Phases {
+        connect: since(start, accepted),
+        first_byte: since(accepted.max(start), first),
+        transfer: since(first, done),
+        apply: since(done, applied),
+    };
+    (since(start, applied), wire as u64, skipped, phases)
+}
+
+/// `runs` foreground catch-ups from `cursors`, each on a fresh shaped link (seed `31 + run`, so
+/// the two arms draw the same losses), with the zstd reply when `zstd`; then the same request
+/// again on the open link. Times include the phone applying the reply.
+#[allow(clippy::too_many_arguments, reason = "one arm of one row")]
+async fn foreground_arm(
+    config: &Arc<ServiceConfig>,
+    profile: &str,
+    runs: usize,
+    cursors: &Cursors,
+    at_fg: &MacHeads,
+    away: u64,
+    busy: bool,
+    zstd: bool,
+) -> Value {
+    let (mut fg_ms, mut warm_ms, mut behind_after) = (Vec::new(), Vec::new(), Vec::new());
+    let mut phases: [Vec<f64>; 4] = Default::default();
+    let (mut wire_bytes, mut skipped, mut turns, mut down_segments, mut worst) = (0, 0, 0, 0, Value::Null);
+    for run in 0..runs {
+        let mut fg = cursors.clone();
+        let (link, shaper) = shaped_link(Arc::clone(config), profile, 31 + run as u64).await;
+        let opened = Instant::now();
+        let mut ask = phone::Ask::new(Wake::Foreground { chat: Some(chat_id(0)), terminal: None });
+        ask.chats = (0..4).map(|i| (chat_id(i), None)).collect();
+        if zstd {
+            ask.compressions = vec![cmux_mobile_link::zstd_stream::NAME.to_string()];
+        }
+        let (ms, bytes, s, split) =
+            stale_wake_phased(&link, &mut fg, &ask, 1_000_000 + away, Some(opened)).await;
+        let counters = shaper.counters();
+        turns = counters.up_turns;
+        down_segments = counters.down_bytes.div_ceil(cmux_fault::shaper::SEGMENT as u64);
+        for (list, value) in
+            phases.iter_mut().zip([split.connect, split.first_byte, split.transfer, split.apply])
+        {
+            list.push(value);
+        }
+        fg_ms.push(ms);
+        wire_bytes = bytes;
+        skipped = s;
+        // What the busy session added while the catch-up ran (an event every 2 s).
+        let arrived = if busy { (ms / 2000.0) as u64 } else { 0 };
+        let left = behind(&fg, at_fg) + arrived;
+        if ms >= fg_ms.iter().copied().fold(0.0, f64::max) {
+            worst = json!({"run": run, "ms": (ms * 10.0).round() / 10.0, "behind_after": left,
+                "behind_cursor": behind(&fg, at_fg), "connect": split.connect.round(),
+                "first_byte": split.first_byte.round(), "transfer": split.transfer.round(),
+                "apply": split.apply.round()});
+        }
+        behind_after.push(left);
+        let mut again = cursors.clone();
+        let (ms, ..) = stale_wake(&link, &mut again, &ask, 1_000_000 + away).await;
+        warm_ms.push(ms);
+    }
+    let [connect, first_byte, transfer, apply] = phases;
+    json!({"zstd": zstd, "ms": stats(fg_ms), "warm_ms": stats(warm_ms), "wire_bytes": wire_bytes,
+        "skipped": skipped, "up_turns": turns, "down_segments": down_segments,
+        "behind_after_max": behind_after.iter().max(),
+        "behind_after_runs": behind_after.iter().filter(|b| **b > 0).count(),
+        "phases": {"connect": stats(connect), "first_byte": stats(first_byte),
+            "transfer": stats(transfer), "apply": stats(apply)}, "worst": worst})
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -822,23 +936,10 @@ async fn staleness_rows_under_conditions() {
                         })
                         .max()
                         .unwrap_or(0);
-                    let (mut fg_ms, mut fg_bytes, mut fg_skipped, mut behind_after) =
-                        (Vec::new(), 0, 0, Vec::new());
-                    for run in 0..runs {
-                        let mut fg = cursors.clone();
-                        let (link, _shaper) =
-                            shaped_link(Arc::clone(&config), profile, 31 + run as u64).await;
-                        let mut ask =
-                            phone::Ask::new(Wake::Foreground { chat: Some(chat_id(0)), terminal: None });
-                        ask.chats = (0..4).map(|i| (chat_id(i), None)).collect();
-                        let (ms, bytes, s) = stale_wake(&link, &mut fg, &ask, 1_000_000 + away).await;
-                        fg_ms.push(ms);
-                        fg_bytes = bytes;
-                        fg_skipped = s;
-                        // What the busy session added while the catch-up ran (an event every 2 s).
-                        let arrived = if busy { (ms / 2000.0) as u64 } else { 0 };
-                        behind_after.push(behind(&fg, &at_fg) + arrived);
-                    }
+                    let fg =
+                        foreground_arm(&config, profile, runs, &cursors, &at_fg, away, busy, false).await;
+                    let fg_zstd =
+                        foreground_arm(&config, profile, runs, &cursors, &at_fg, away, busy, true).await;
                     let hours = away as f64 / 3600.0;
                     let row = json!({"row": "staleness", "profile": profile, "away_s": away,
                         "mac": if busy { "busy" } else { "idle" }, "variant": variant, "load": load,
@@ -847,9 +948,9 @@ async fn staleness_rows_under_conditions() {
                         "bg_wakes": bg_wakes, "bg_bytes": bg_bytes,
                         "bg_bytes_per_hour": if hours >= 1.0 { (bg_bytes as f64 / hours).round() as u64 } else { bg_bytes },
                         "bg_max_hour_bytes": max_hour, "hour_bound": cmux_mobile_core::catch_up::hour::HOUR_BUDGET_BYTES,
-                        "behind_at_fg": behind_at_fg, "behind_after_fg_max": behind_after.iter().max(),
-                        "fg_ms": stats(fg_ms), "fg_bytes": fg_bytes,
-                        "skipped_bg": skipped, "skipped_fg": fg_skipped});
+                        "behind_at_fg": behind_at_fg, "behind_after_fg_max": fg["behind_after_max"],
+                        "fg_ms": fg["ms"], "fg_bytes": fg["wire_bytes"], "fg": fg, "fg_zstd": fg_zstd,
+                        "skipped_bg": skipped, "skipped_fg": fg_zstd["skipped"]});
                     println!("STALENESS-ROW {row}");
                 }
             }

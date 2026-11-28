@@ -57,6 +57,10 @@ pub struct Ask {
     /// bound has left ([`super::hour`]), and none at all once it is spent (the lists still
     /// go: a few hundred bytes when nothing changed). None: the wake's budget only.
     pub hour_now: Option<u64>,
+    /// Reply encodings the phone reads (`args.compressions`, as the `acpmux` channel lists
+    /// them: `zstd-stream-v1`); empty asks for the JSON text. The caller opens an encoded reply
+    /// before [`read`].
+    pub compressions: Vec<String>,
 }
 
 impl Ask {
@@ -70,6 +74,7 @@ impl Ask {
             chats: Vec::new(),
             chat_kinds: Vec::new(),
             hour_now: None,
+            compressions: Vec::new(),
         }
     }
 }
@@ -158,6 +163,9 @@ pub fn request(cursors: &Cursors, ask: &Ask) -> Value {
     });
     if !ask.chat_kinds.is_empty() {
         args["chatKinds"] = json!(ask.chat_kinds);
+    }
+    if !ask.compressions.is_empty() {
+        args["compressions"] = json!(ask.compressions);
     }
     args
 }

@@ -180,6 +180,23 @@ impl Default for StreamDecoder {
     }
 }
 
+/// `text` as a channel's only envelope: a one-shot reply (`catch-up`) whose channel carries
+/// one frame, so a fresh stream's first envelope is the whole of it.
+pub fn one_envelope(text: &[u8]) -> Result<Vec<u8>, StreamError> {
+    StreamEncoder::new().envelope(text)
+}
+
+/// The text of a channel's only envelope ([`one_envelope`]); `None` when `bytes` is not an
+/// envelope (JSON text from a host that sent it plain).
+pub fn open_one_envelope(bytes: &[u8]) -> Option<Result<Vec<u8>, StreamError>> {
+    let (text_len, zstd_len) = header(bytes)?;
+    let body = &bytes[HEADER_BYTES..];
+    if body.len() != zstd_len {
+        return Some(Err(StreamError::Length { got: body.len(), want: zstd_len }));
+    }
+    Some(StreamDecoder::new().decode(body, text_len))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,6 +207,19 @@ mod tests {
             "update": {"sessionUpdate": "agent_message_chunk",
                 "content": {"type": "text", "text": format!("Step {i}: the tests pass and the change is ready.")}}}})
         .to_string()
+    }
+
+    #[test]
+    fn one_envelope_opens_alone_and_plain_text_is_not_one() {
+        let text: String = (0..50).map(event).collect::<Vec<_>>().join("\n");
+        let envelope = one_envelope(text.as_bytes()).unwrap();
+        assert!(envelope.len() < text.len() / 3, "{} of {}", envelope.len(), text.len());
+        assert_eq!(open_one_envelope(&envelope).unwrap().unwrap(), text.as_bytes());
+        assert!(open_one_envelope(b"{\"v\":1}").is_none());
+        assert!(matches!(
+            open_one_envelope(&envelope[..envelope.len() - 1]),
+            Some(Err(StreamError::Length { .. }))
+        ));
     }
 
     #[test]

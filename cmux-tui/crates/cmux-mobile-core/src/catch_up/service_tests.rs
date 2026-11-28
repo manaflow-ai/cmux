@@ -50,6 +50,14 @@ fn a_foreground_request_carries_every_cursor_the_phone_holds() {
     );
     assert!(args.get("chatKinds").is_none());
     assert!(args.get("terminals").is_none());
+    assert!(args.get("compressions").is_none());
+}
+
+#[test]
+fn a_request_lists_the_reply_encodings_the_phone_reads() {
+    let mut ask = foreground("b");
+    ask.compressions = vec!["zstd-stream-v1".into()];
+    assert_eq!(request(&cursors(), &ask)["compressions"], json!(["zstd-stream-v1"]));
 }
 
 #[test]
