@@ -1,0 +1,189 @@
+import CMUXMobileCore
+import Foundation
+
+/// Who bills the account's personal plan, as reported by the Cloud service.
+public enum BillingSource: String, Sendable, Equatable {
+    /// Billed by cmux through the hosted billing portal.
+    case stripe
+    /// Billed through the App Store.
+    case apple
+    /// Not billed: a free plan or a plan granted by cmux. Named so it can
+    /// never be confused with `Optional.none` (an unknown source).
+    case unbilled = "none"
+}
+
+/// The account-scoped billing entitlement used by Cloud access controls.
+public struct BillingPlanState: Sendable, Equatable {
+    /// The account whose entitlement is known, or `nil` while unknown.
+    public let accountID: String?
+    /// Whether the known account includes Cloud access.
+    public let isPro: Bool
+    /// Whether the known account can manage billing through the hosted portal.
+    public let canManageBilling: Bool
+    /// The selected team whose plan was used for this snapshot, or `nil` for
+    /// the personal scope.
+    public let teamID: String?
+    /// The known account's effective tier, or `nil` while unknown.
+    public let tier: CmuxPlanTier?
+    /// Who bills the known account's personal plan, or `nil` while unknown.
+    public let billingSource: BillingSource?
+
+    /// Creates an entitlement snapshot.
+    ///
+    /// - Parameters:
+    ///   - accountID: The account owning the snapshot, or `nil` when unknown.
+    ///   - isPro: Whether the account includes Cloud access.
+    ///   - canManageBilling: Whether billing can be managed in the hosted portal.
+    ///   - tier: The effective tier. Defaults to Pro or Free from `isPro`
+    ///     for callers that only know the legacy flag.
+    ///   - billingSource: Who bills the personal plan, when known.
+    public init(
+        accountID: String?,
+        isPro: Bool,
+        canManageBilling: Bool,
+        tier: CmuxPlanTier? = nil,
+        teamID: String? = nil,
+        billingSource: BillingSource? = nil
+    ) {
+        self.accountID = accountID
+        self.isPro = isPro
+        self.canManageBilling = canManageBilling
+        self.tier = accountID == nil ? nil : (tier ?? (isPro ? .pro : .free))
+        self.teamID = accountID == nil ? nil : teamID
+        self.billingSource = accountID == nil ? nil : billingSource
+    }
+
+    /// An unknown entitlement that must not be treated as a free plan.
+    public static var unknown: Self { Self(accountID: nil, isPro: false, canManageBilling: false) }
+
+    /// Applies a successful response to the account that requested it.
+    public func applyingSuccess(
+        for accountID: String,
+        isPro: Bool,
+        canManageBilling: Bool,
+        tier: CmuxPlanTier? = nil,
+        teamID: String? = nil,
+        billingSource: BillingSource? = nil
+    ) -> Self {
+        Self(
+            accountID: accountID,
+            isPro: isPro,
+            canManageBilling: canManageBilling,
+            tier: tier,
+            teamID: teamID,
+            billingSource: billingSource
+        )
+    }
+
+    /// Reports whether this snapshot belongs to the requested account and team scope.
+    public func matches(accountID: String, teamID: String?) -> Bool {
+        self.accountID == accountID && self.teamID == teamID
+    }
+
+    /// Retains an existing answer for the requested account and team scope.
+    public func applyingFailure(for accountID: String, teamID: String?) -> Self {
+        matches(accountID: accountID, teamID: teamID) ? self : .unknown
+    }
+}
+
+/// The decoded billing response returned by the Cloud service.
+public struct BillingPlanDetails: Sendable, Equatable {
+    /// Whether the account includes Cloud access.
+    public let isPro: Bool
+    /// Whether the account can manage billing through the hosted portal.
+    public let canManageBilling: Bool
+    /// The effective tier: the higher of the personal and active-team plans.
+    public let tier: CmuxPlanTier
+    /// Who bills the personal plan, or `nil` when an older service omits it or
+    /// sends a value this client does not know.
+    public let billingSource: BillingSource?
+
+    /// Creates decoded billing details.
+    public init(
+        isPro: Bool,
+        canManageBilling: Bool,
+        tier: CmuxPlanTier? = nil,
+        billingSource: BillingSource? = nil
+    ) {
+        self.isPro = isPro
+        self.canManageBilling = canManageBilling
+        self.tier = tier ?? (isPro ? .pro : .free)
+        self.billingSource = billingSource
+    }
+}
+
+/// Fetches a billing entitlement without requiring UI isolation.
+public struct BillingPlanClient: Sendable {
+    /// Creates a client that uses the supplied URL session.
+    public init(session: URLSession = .shared) {
+        self.session = session
+    }
+
+    /// Fetches and decodes the entitlement for an authenticated account.
+    ///
+    /// - Parameters:
+    ///   - url: The billing-plan endpoint.
+    ///   - accessToken: An optional bearer token.
+    ///   - refreshToken: An optional session refresh token.
+    /// - Returns: The decoded entitlement details.
+    /// - Throws: A URL-loading or decoding error when the request fails.
+    public func fetch(from url: URL, accessToken: String?, refreshToken: String? = nil) async throws -> BillingPlanDetails {
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 15
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let accessToken {
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        }
+        if let refreshToken {
+            request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        }
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        let decoded = try JSONDecoder().decode(Response.self, from: data)
+        // The endpoint answers a request it cannot authenticate with a free
+        // plan. That says nothing about the signed-in account's entitlement.
+        if decoded.authenticated == false {
+            throw URLError(.userAuthenticationRequired)
+        }
+        // The default endpoint returns both personal and active-team plans.
+        // A paid team grants Cloud access even when the personal subscription
+        // is free, which is the normal path for team-owned machines.
+        let paidPlanIDs = ["go", "pro", "max", "team", "founders"]
+        let isPro = decoded.isPro == true
+            || paidPlanIDs.contains(decoded.planId?.lowercased() ?? "")
+            || paidPlanIDs.contains(decoded.teamPlanId?.lowercased() ?? "")
+        let canManageBilling = decoded.billingManagement == "stripe"
+            || decoded.teamBillingManagement == "stripe"
+        // `planId` is "pro" for a Max or Go subscriber; the exact personal
+        // plan is in `subscriptionPlanId`. Gating on the tier ordering keeps
+        // Max from being offered the Pro upgrade it already includes.
+        let tier = CmuxPlanTier.resolved(
+            subscriptionPlanID: decoded.subscriptionPlanId,
+            planID: decoded.planId,
+            teamPlanID: decoded.teamPlanId,
+            isPro: decoded.isPro == true
+        )
+        return BillingPlanDetails(
+            isPro: isPro,
+            canManageBilling: canManageBilling,
+            tier: tier,
+            billingSource: decoded.billingSource.flatMap(BillingSource.init(rawValue:))
+        )
+    }
+
+    private let session: URLSession
+
+    private struct Response: Decodable {
+        let authenticated: Bool?
+        let isPro: Bool?
+        let planId: String?
+        let subscriptionPlanId: String?
+        let billingManagement: String?
+        let billingSource: String?
+        let teamPlanId: String?
+        let teamBillingManagement: String?
+    }
+}

@@ -1,0 +1,828 @@
+import Darwin
+import Foundation
+
+extension CMUXCLI {
+    /// `cmux browser repl`: evaluates Playwright-style JavaScript against cmux
+    /// browser panes in a persistent JavaScriptCore session inside the app.
+    func runBrowserRepl(_ arguments: [String], client: SocketClient, jsonOutput: Bool) throws {
+        if let first = arguments.first?.lowercased() {
+            switch first {
+            case "guide":
+                print(Self.browserReplGuideText())
+                return
+            case "list":
+                // The caller's workspace's sessions; `--all-workspaces` lists every one's.
+                let params = try browserReplScopeParams(Array(arguments.dropFirst()), client: client).params
+                let payload = try client.sendV2(method: "browser.repl.list", params: params)
+                if jsonOutput {
+                    print(jsonString(payload))
+                } else {
+                    let everyWorkspace = params["all_workspaces"] as? Bool == true
+                    // Fields come from whoever made the session (a cwd can
+                    // hold escape sequences): they print visibly, as output does.
+                    for session in payload["sessions"] as? [[String: Any]] ?? [] {
+                        let name = Self.browserReplTerminalText(session["session"] as? String ?? "")
+                        let idle = session["idle_seconds"] as? Int ?? 0
+                        let cwd = Self.browserReplTerminalText(session["cwd"] as? String ?? "")
+                        let workspace = Self.browserReplTerminalText(session["workspace_id"] as? String ?? "")
+                        print(everyWorkspace ? "\(name)\t\(workspace)\t\(idle)s\t\(cwd)" : "\(name)\t\(idle)s\t\(cwd)")
+                    }
+                }
+                return
+            case "mcp":
+                try runBrowserReplMCP(Array(arguments.dropFirst()), client: client)
+                return
+            case "reset":
+                // The session of that name in the caller's workspace;
+                // `--all-workspaces` resets it in every workspace.
+                let (sessionOption, afterSession) = parseOption(Array(arguments.dropFirst()), name: "--session")
+                let (scope, positional) = try browserReplScopeParams(afterSession, client: client)
+                var params = scope
+                guard let session = sessionOption ?? positional.first, !session.isEmpty else {
+                    throw CLIError(message: String(
+                        localized: "cli.browser.repl.error.sessionRequired",
+                        defaultValue: "A session name is required"
+                    ))
+                }
+                params["session"] = session
+                let payload = try client.sendV2(method: "browser.repl.reset", params: params)
+                print(jsonOutput ? jsonString(payload) : "OK")
+                return
+            default:
+                break
+            }
+        }
+
+        var remaining = arguments
+        let (sessionOption, afterSession) = parseOption(remaining, name: "--session")
+        remaining = afterSession
+        let (evalOption, afterEval) = parseOption(remaining, name: "--eval")
+        remaining = afterEval
+        let (baseParams, timeoutMilliseconds, afterBase) = try browserReplBaseParams(remaining, client: client)
+        remaining = afterBase
+        if let stray = remaining.first(where: { $0.hasPrefix("--") && $0 != "--" }) {
+            let prefix = String(
+                localized: "cli.browser.repl.error.unknownOption",
+                defaultValue: "browser repl does not support this option"
+            )
+            throw CLIError(message: "\(prefix): \(stray)")
+        }
+
+        let positional = remaining.filter { $0 != "--" }
+        let code: String?
+        if let evalOption {
+            code = evalOption == "-" ? try Self.readBrowserReplStandardInput() : evalOption
+        } else if !positional.isEmpty {
+            code = positional.joined(separator: " ")
+        } else if isatty(STDIN_FILENO) == 0 {
+            code = try Self.readBrowserReplStandardInput()
+        } else {
+            code = nil
+        }
+
+        if let code {
+            var params = baseParams
+            params["code"] = code
+            if let sessionOption { params["session"] = sessionOption }
+            let ok = try evaluateBrowserRepl(params: params, client: client, jsonOutput: jsonOutput, timeoutMilliseconds: timeoutMilliseconds).ok
+            if !ok {
+                // The error is already printed; only the exit status remains.
+                fflush(stdout)
+                exit(1)
+            }
+            return
+        }
+
+        // Interactive: one line per cell in a session that lives until EOF.
+        // Without --session it is this process's own: a random name and a
+        // random owner token only this process sends, so no other client
+        // lists, attaches to or resets it, also after this process is killed.
+        let ownSession = sessionOption == nil ? Self.browserReplPrivateSession(prefix: "cli") : nil
+        let session = sessionOption ?? ownSession?.name ?? ""
+        // A session belongs to a workspace; once the first cell bound one,
+        // every later call names it, so a change of focus never reaches
+        // another workspace's session. A session callers outside cmux share
+        // stays unpinned (see `pinBrowserReplWorkspace(from:in:)`).
+        var callParams = baseParams
+        if let ownSession { callParams["session_owner"] = ownSession.owner }
+        defer {
+            if ownSession != nil {
+                _ = try? client.sendV2(method: "browser.repl.reset", params: Self.browserReplWorkspaceScope(of: callParams).merging(["session": session]) { _, new in new })
+            }
+        }
+        // Lines are bounded like `--eval -` and MCP input: a terminal in raw
+        // mode delivers a line of any length, so a longer one is refused and
+        // skipped to its newline, never buffered whole or sent.
+        var reader = BrowserReplMCPLineReader(maximumLineBytes: Self.maximumEncodedTextBytes)
+        while true {
+            FileHandle.standardError.write(Data("> ".utf8))
+            guard let next = reader.nextLine() else { break }
+            guard case .text(var line) = next else {
+                let message = String(
+                    localized: "cli.browser.repl.error.inputTooLarge",
+                    defaultValue: "REPL input is too large"
+                )
+                FileHandle.standardError.write(Data((message + "\n").utf8))
+                continue
+            }
+            if line.hasSuffix("\r") { line.removeLast() }
+            if line.trimmingCharacters(in: .whitespaces).isEmpty { continue }
+            var params = callParams
+            params["code"] = line
+            params["session"] = session
+            let outcome = try evaluateBrowserRepl(params: params, client: client, jsonOutput: jsonOutput, timeoutMilliseconds: timeoutMilliseconds)
+            Self.pinBrowserReplWorkspace(from: outcome.payload, in: &callParams)
+        }
+    }
+
+    /// Makes later calls name the workspace the app bound the session to
+    /// (`payload`'s `workspace_id`), instead of the caller's or the focused
+    /// one. A session callers outside cmux share (`outside_cmux`) is left
+    /// unpinned: the app finds it by name whatever workspace is focused, and
+    /// a call that named its workspace would count as one of that
+    /// workspace's own callers and reach the workspace's session of that
+    /// name instead.
+    private static func pinBrowserReplWorkspace(from payload: [String: Any], in params: inout [String: Any]) {
+        guard payload["outside_cmux"] as? Bool != true,
+              let workspaceID = payload["workspace_id"] as? String,
+              params["workspace_id"] == nil else { return }
+        params["workspace_id"] = workspaceID
+        params.removeValue(forKey: "caller_workspace_id")
+    }
+
+    /// A session name and owner token for a session only this process uses:
+    /// `<prefix>-<pid>-<random>` and 128 random bits the app requires on
+    /// every call to it (`session_owner`).
+    private static func browserReplPrivateSession(prefix: String) -> (name: String, owner: String) {
+        let name = "\(prefix)-\(getpid())-\(String(UInt32.random(in: .min ... .max), radix: 36))"
+        let owner = (0..<2).map { _ in String(UInt64.random(in: .min ... .max), radix: 16) }.joined(separator: "-")
+        return (name, owner)
+    }
+
+    /// The workspace params and the owner token of `params`, for
+    /// `browser.repl.reset`.
+    private static func browserReplWorkspaceScope(of params: [String: Any]) -> [String: Any] {
+        params.filter { $0.key == "workspace_id" || $0.key == "caller_workspace_id" || $0.key == "session_owner" }
+    }
+
+    /// Parses `--timeout`, `--workspace` and `--max-output` into the params
+    /// every `browser.repl.eval` call carries.
+    /// - Returns: The params, the timeout in milliseconds and the arguments left.
+    private func browserReplBaseParams(
+        _ arguments: [String],
+        client: SocketClient
+    ) throws -> ([String: Any], Int, [String]) {
+        var remaining = arguments
+        let (timeoutOption, afterTimeout) = parseOption(remaining, name: "--timeout")
+        remaining = afterTimeout
+        let (workspaceOption, afterWorkspace) = parseOption(remaining, name: "--workspace")
+        remaining = afterWorkspace
+        let (maxOutputOption, afterMaxOutput) = parseOption(remaining, name: "--max-output")
+        remaining = afterMaxOutput
+        var timeoutMilliseconds = 120_000
+        if let timeoutOption {
+            guard let value = Int(timeoutOption), value > 0 else {
+                throw CLIError(message: String(
+                    localized: "cli.browser.repl.error.timeout",
+                    defaultValue: "--timeout must be a positive number of milliseconds"
+                ))
+            }
+            // The app refuses a longer one: a running cell holds the
+            // session's JavaScript thread until it ends or times out.
+            guard value <= 600_000 else {
+                throw CLIError(message: String(
+                    localized: "cli.browser.repl.error.timeoutRange",
+                    defaultValue: "--timeout must be 1 to 600000 milliseconds (10 minutes)"
+                ))
+            }
+            timeoutMilliseconds = value
+        }
+
+        var baseParams: [String: Any] = [
+            "cwd": FileManager.default.currentDirectoryPath,
+            "timeout_ms": timeoutMilliseconds,
+        ]
+        // Characters one call prints before the rest goes to a file; 0 for
+        // no limit. The runtime's default applies without the option.
+        if let maxOutputOption {
+            guard let value = Int(maxOutputOption), value >= 0 else {
+                throw CLIError(message: String(
+                    localized: "cli.browser.repl.error.maxOutput",
+                    defaultValue: "--max-output must be a number of characters, or 0 for no limit"
+                ))
+            }
+            baseParams["max_output"] = value
+        }
+        baseParams.merge(try browserReplWorkspaceParams(workspaceOption, client: client)) { _, new in new }
+        return (baseParams, timeoutMilliseconds, remaining)
+    }
+
+    /// The workspace a call acts on: `--workspace`, which must exist, else
+    /// the caller's. `CMUX_WORKSPACE_ID` is only a hint: it can come from
+    /// another cmux instance, so the app treats an id it does not know as a
+    /// caller outside cmux (one shared session per name).
+    private func browserReplWorkspaceParams(_ workspaceOption: String?, client: SocketClient) throws -> [String: Any] {
+        if let workspaceOption {
+            // An explicit choice never falls back to the caller's or the
+            // focused workspace: one that names no workspace is refused.
+            guard let workspace = try normalizeWorkspaceHandle(workspaceOption, client: client) else {
+                let prefix = String(
+                    localized: "cli.browser.repl.error.workspaceInvalid",
+                    defaultValue: "Not a workspace in this cmux instance"
+                )
+                throw CLIError(message: "\(prefix): \(workspaceOption.debugDescription)")
+            }
+            return ["workspace_id": workspace]
+        }
+        if let caller = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            UUID(uuidString: caller) != nil {
+            return ["caller_workspace_id": caller]
+        }
+        return [:]
+    }
+
+    /// Parses `--all-workspaces` and `--workspace` for `list` and `reset`,
+    /// which act on the caller's workspace's sessions by default.
+    /// - Returns: The params and the arguments left.
+    private func browserReplScopeParams(_ arguments: [String], client: SocketClient) throws -> (params: [String: Any], rest: [String]) {
+        let everyWorkspace = arguments.contains("--all-workspaces")
+        let (workspaceOption, rest) = parseOption(arguments.filter { $0 != "--all-workspaces" }, name: "--workspace")
+        if let stray = rest.first(where: { $0.hasPrefix("--") }) {
+            let prefix = String(
+                localized: "cli.browser.repl.error.unknownOption",
+                defaultValue: "browser repl does not support this option"
+            )
+            throw CLIError(message: "\(prefix): \(stray)")
+        }
+        if everyWorkspace { return (["all_workspaces": true], rest) }
+        return (try browserReplWorkspaceParams(workspaceOption, client: client), rest)
+    }
+
+    /// `cmux browser repl mcp`: a Model Context Protocol server on stdio whose
+    /// tools run in one REPL session through `browser.repl.eval` and
+    /// `browser.repl.reset`, the socket methods the other subcommands use.
+    private func runBrowserReplMCP(_ arguments: [String], client: SocketClient) throws {
+        let (sessionOption, afterSession) = parseOption(arguments, name: "--session")
+        let (sharedParams, timeoutMilliseconds, remaining) = try browserReplBaseParams(afterSession, client: client)
+        var baseParams = sharedParams
+        // MCP hosts often start servers in `/` or the home directory, which
+        // the app refuses as an fs root and the agent cannot change. Send no
+        // cwd then, so the session gets a temporary directory of its own.
+        if let cwd = baseParams["cwd"] as? String, Self.browserReplCwdIsTooBroad(cwd) {
+            baseParams.removeValue(forKey: "cwd")
+        }
+        if let stray = remaining.first {
+            let prefix = String(
+                localized: "cli.browser.repl.error.unknownOption",
+                defaultValue: "browser repl does not support this option"
+            )
+            throw CLIError(message: "\(prefix): \(stray)")
+        }
+        // Without --session each server process gets its own session, so two
+        // MCP clients never share variables and tabs by accident; a named
+        // session is how clients share one on purpose.
+        let namedSession = sessionOption.flatMap { $0.isEmpty ? nil : $0 }
+        // The server's own session also has an owner token only this
+        // process sends, so knowing its name gives another client nothing.
+        let ownSession = namedSession == nil ? Self.browserReplPrivateSession(prefix: "mcp") : nil
+        let session = namedSession ?? ownSession?.name ?? ""
+        if let ownSession { baseParams["session_owner"] = ownSession.owner }
+        let responseTimeout = TimeInterval(timeoutMilliseconds) / 1000 + 15
+        let evaluate = { (code: String, maxOutput: Int?) throws -> [String: Any] in
+            var params = baseParams
+            params["code"] = code
+            params["session"] = session
+            if let maxOutput { params["max_output"] = maxOutput }
+            let payload = try client.sendV2(method: "browser.repl.eval", params: params, responseTimeout: responseTimeout)
+            // The session's workspace, for every later call (see the interactive loop).
+            Self.pinBrowserReplWorkspace(from: payload, in: &baseParams)
+            return payload
+        }
+        let resetParams = { Self.browserReplWorkspaceScope(of: baseParams).merging(["session": session]) { _, new in new } }
+        let server = BrowserReplMCPServer(version: resolvedVersionInfo()["CFBundleShortVersionString"] ?? "dev") { name, arguments in
+            switch name {
+            case "reset":
+                let payload = try client.sendV2(method: "browser.repl.reset", params: resetParams())
+                let existed = payload["existed"] as? Bool ?? false
+                return .text(existed ? "Session \(session) reset" : "Session \(session) had no state")
+            case "screenshot":
+                let marker = "cmux-mcp-image:"
+                let code = BrowserReplMCPServer.screenshotCode(arguments, marker: marker)
+                let payload = try evaluate(code, 0)
+                let lines = (payload["output"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }
+                if let error = payload["error"] as? String {
+                    return BrowserReplMCPServer.ToolResult(content: [["type": "text", "text": (lines + [error]).joined(separator: "\n")]], isError: true)
+                }
+                guard let line = lines.last(where: { $0.hasPrefix(marker) }) else {
+                    return BrowserReplMCPServer.ToolResult(content: [["type": "text", "text": lines.joined(separator: "\n")]], isError: true)
+                }
+                return BrowserReplMCPServer.ToolResult(
+                    content: [["type": "image", "data": String(line.dropFirst(marker.count)), "mimeType": "image/png"]],
+                    isError: false
+                )
+            default:
+                guard let code = BrowserReplMCPServer.code(forTool: name, arguments: arguments) else {
+                    throw BrowserReplMCPServer.Failure.unknownTool(name)
+                }
+                return BrowserReplMCPServer.result(ofEval: try evaluate(code, nil))
+            }
+        }
+        // Lines are bounded like `--eval -`: a longer one is answered with a
+        // JSON-RPC error and skipped to its newline, never buffered whole.
+        var reader = BrowserReplMCPLineReader(maximumLineBytes: Self.maximumEncodedTextBytes)
+        while let line = reader.nextLine() {
+            let reply: String?
+            switch line {
+            case .text(let text):
+                reply = server.handle(line: text)
+            case .tooLong:
+                reply = BrowserReplMCPServer.oversizedLineReply(maximumBytes: Self.maximumEncodedTextBytes)
+            }
+            guard let reply else { continue }
+            FileHandle.standardOutput.write(Data((reply + "\n").utf8))
+        }
+        // No other client can name this server's own session, so its tabs
+        // and variables end with the server instead of idling for 30 minutes.
+        if namedSession == nil {
+            _ = try? client.sendV2(method: "browser.repl.reset", params: resetParams())
+        }
+    }
+
+    /// Whether the app refuses `path` as a REPL fs root: `/`, the home
+    /// directory or a directory containing it (`BrowserReplFileSandbox.rootRejection`),
+    /// and the temporary directory (or a parent of it), which holds the
+    /// sessions' private storage (`BrowserReplSession.rootRejection`).
+    private static func browserReplCwdIsTooBroad(_ path: String) -> Bool {
+        let canonical = (path as NSString).resolvingSymlinksInPath
+        let contains = { (other: String) in canonical == other || other.hasPrefix(canonical == "/" ? "/" : canonical + "/") }
+        return canonical == "/"
+            || contains((NSHomeDirectory() as NSString).resolvingSymlinksInPath)
+            || contains((NSTemporaryDirectory() as NSString).resolvingSymlinksInPath)
+    }
+
+    /// Sends one cell and prints its output, then `[ok | Nms]` or `[error | Nms]`.
+    /// - Returns: Whether the cell finished without an uncaught error, and
+    ///   the app's answer (the session's workspace and namespace).
+    private func evaluateBrowserRepl(
+        params: [String: Any],
+        client: SocketClient,
+        jsonOutput: Bool,
+        timeoutMilliseconds: Int
+    ) throws -> (ok: Bool, payload: [String: Any]) {
+        let responseTimeout = TimeInterval(timeoutMilliseconds) / 1000 + 15
+        let payload = try client.sendV2(method: "browser.repl.eval", params: params, responseTimeout: responseTimeout)
+        let ok = payload["ok"] as? Bool ?? false
+        if jsonOutput {
+            print(jsonString(payload))
+            return (ok, payload)
+        }
+        for line in payload["output"] as? [[String: Any]] ?? [] {
+            print(Self.browserReplTerminalText(line["text"] as? String ?? ""))
+        }
+        let duration = payload["duration_ms"] as? Int ?? 0
+        let color = ProcessInfo.processInfo.environment["NO_COLOR"] == nil && isatty(STDOUT_FILENO) != 0
+        if let error = (payload["error"] as? String).map(Self.browserReplTerminalText) {
+            print(color ? "\u{1B}[31m\(error)\u{1B}[0m" : error)
+            print(color ? "\u{1B}[31m[error | \(duration)ms]\u{1B}[0m" : "[error | \(duration)ms]")
+        } else {
+            print(color ? "\u{1B}[2m[ok | \(duration)ms]\u{1B}[0m" : "[ok | \(duration)ms]")
+        }
+        fflush(stdout)
+        return (ok, payload)
+    }
+
+    /// `text` with every control character except newline and tab made
+    /// visible: C0 as its Unicode control picture (ESC as U+241B), DEL as
+    /// U+2421 and C1 as `\u{9B}`. Output carries page text (a title, a
+    /// dialog, whatever a cell prints), whose escape sequences would act on
+    /// the terminal showing it: set its title, write its clipboard (OSC 52),
+    /// clear or redraw it. `--json` keeps the exact text.
+    static func browserReplTerminalText(_ text: String) -> String {
+        func isControl(_ value: UInt32) -> Bool {
+            (value < 0x20 && value != 0x09 && value != 0x0A) || (0x7F...0x9F).contains(value)
+        }
+        guard text.unicodeScalars.contains(where: { isControl($0.value) }) else { return text }
+        var visible = String.UnicodeScalarView()
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            case let value where !isControl(value):
+                visible.append(scalar)
+            case 0x7F:
+                visible.append("\u{2421}")
+            case let value where value < 0x20:
+                visible.append(Unicode.Scalar(0x2400 + value) ?? "?")
+            case let value:
+                visible.append(contentsOf: "\\u{\(String(value, radix: 16, uppercase: true))}".unicodeScalars)
+            }
+        }
+        return String(visible)
+    }
+
+    /// Reads stdin in chunks and stops as soon as it passes
+    /// `maximumEncodedTextBytes`, so an endless stream is refused instead of
+    /// being buffered whole.
+    private static func readBrowserReplStandardInput() throws -> String {
+        var data = Data()
+        while let chunk = try FileHandle.standardInput.read(upToCount: 1 << 20), !chunk.isEmpty {
+            data.append(chunk)
+            guard data.count <= maximumEncodedTextBytes else {
+                throw CLIError(message: String(
+                    localized: "cli.browser.repl.error.inputTooLarge",
+                    defaultValue: "REPL input is too large"
+                ))
+            }
+        }
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw CLIError(message: String(
+                localized: "cli.browser.repl.error.inputEncoding",
+                defaultValue: "REPL input is not valid UTF-8"
+            ))
+        }
+        return text
+    }
+
+    /// Help line for `cmux browser --help`.
+    static var browserReplHelp: String {
+        let usage = "repl [--session <name>] [--workspace <id|ref>] [--eval <code>|-] [--timeout <ms>] [--max-output <chars>] [<code>]"
+        let description = String(
+            localized: "cli.browser.help.replDescription",
+            defaultValue: "Run Playwright-style JavaScript against this workspace's browser panes; see `browser repl guide`"
+        )
+        let mcpUsage = "repl mcp [--session <name>] [--workspace <id|ref>] [--timeout <ms>]"
+        let mcpDescription = String(
+            localized: "cli.browser.help.replMCPDescription",
+            defaultValue: "Serve the REPL as an MCP server on stdio (tools: eval, snapshot, screenshot, tabs, reset; its own session unless --session names one)"
+        )
+        return "\(usage)\n              \(description)\n  \(mcpUsage)\n              \(mcpDescription)"
+    }
+
+    /// The guide shipped with the runtime (`browser-repl/guide.md` in the
+    /// enclosing app, or `CMUX_BROWSER_REPL_RUNTIME_DIR`), else the built-in text.
+    static func browserReplGuideText() -> String {
+        var directories: [URL] = []
+        if let override = ProcessInfo.processInfo.environment["CMUX_BROWSER_REPL_RUNTIME_DIR"], !override.isEmpty {
+            directories.append(URL(fileURLWithPath: override, isDirectory: true))
+        }
+        if let app = CLIExecutableLocator.enclosingAppBundle(), let resources = app.resourceURL {
+            directories.append(resources.appendingPathComponent("browser-repl", isDirectory: true))
+        }
+        for directory in directories {
+            let url = directory.appendingPathComponent("guide.md")
+            if let text = try? String(contentsOf: url, encoding: .utf8),
+               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return text.hasSuffix("\n") ? String(text.dropLast()) : text
+            }
+        }
+        return browserReplGuide
+    }
+
+    /// Built-in agent-facing guide, used when the runtime ships no `guide.md`.
+    static let browserReplGuide = """
+    # `cmux browser repl`
+
+    Run JavaScript in a persistent, sandboxed JavaScriptCore session that
+    drives the browser panes of your cmux workspace. The API is Playwright:
+    `page`, locators, `keyboard`, `mouse`, events and waits behave as in
+    Playwright. Input is native: pages see trusted events.
+
+    ## Usage
+
+        cmux browser repl 'await page.goto("https://example.com"); snapshot()'
+        cmux browser repl --eval - < script.js
+        cmux browser repl --session work --eval 'const s1 = await snapshot()'
+        cmux browser repl list | reset <session> [--all-workspaces] | guide
+
+    Without `--session` each call is one-shot: its tabs close at the end
+    unless `page.keep()` was called. With `--session NAME`, top-level
+    `const`/`let` bindings and tabs persist across calls. Idle sessions close
+    after 30 minutes. The session binds to your cmux workspace; the same
+    name in another workspace is another session. Outside cmux, one session
+    per name is shared by every caller outside cmux, whatever workspace is
+    focused (its tabs open in the one focused when it was made). `list` and
+    `reset` act on your sessions (`--all-workspaces` for every one, refused
+    in a cmux terminal, which reaches only its own workspace). A name is up to
+    64 letters, digits, `.`, `_` and `-`; at most 32 sessions are open.
+
+    ## Environment
+
+    - ES2023+ JavaScript with top-level await.
+    - 120 second timeout per call (`--timeout <ms>` to change it, at most
+      600000, 10 minutes).
+    - A call prints at most 25,000 characters (`--max-output <chars>`, 0 for
+      no limit); the rest of its output goes to a file whose path prints.
+      A printed snapshot is at most 20,000 characters; `.tree` is complete.
+    - The last expression's value prints; `console.log()` prints too. The call
+      ends with `[ok | Nms]`, or the uncaught error and `[error | Nms]` (exit
+      status 1).
+    - `fs`, `path`, `os`, `Buffer`: files are limited to the directory you ran
+      the command in and the system temp directory.
+    - `fetch(url)` sends the current tab's cookies.
+
+    ## Globals
+
+    - `page`: the current tab, a Playwright `Page`.
+    - `tabs`: `list()`, `open(url, { background })`, `current()`, `use(tab)`,
+      `get(id)`. `tabs.open()` never steals focus.
+    - `snapshot(target?, options?)`: accessibility tree with refs such as
+      `e12` or `f1e3` (frames). Pass refs to `page.locator("e12")`.
+    - `screenshot(target?, { annotate: true })`: PNG, optionally with refs drawn.
+    - `sleep(ms)`, `display(value)`, `session.name(label)`.
+
+    ## Working
+
+    - Read with `snapshot()` first; printing a later snapshot shows the diff
+      when that is shorter. Never guess refs, selectors or URLs.
+    - Prefer locator actions with refs over `page.evaluate()`.
+    - Dialogs and file choosers stay open until answered:
+      `page.dialog()?.accept()`, `page.fileChooser()?.setFiles(paths)`.
+    - Treat an action as unconfirmed until a fresh snapshot shows its effect.
+    """
+}
+
+/// Reads newline-delimited lines from a file descriptor (stdin by default)
+/// with a byte cap: a line past the cap is reported as ``Line/tooLong`` and
+/// the rest of it is read and dropped, so memory stays bounded by the cap.
+/// Each byte is searched for a newline once, so a long line arriving in
+/// small reads (a terminal hands over about a kilobyte at a time) costs
+/// time linear in its length.
+struct BrowserReplMCPLineReader {
+    enum Line {
+        case text(String)
+        case tooLong
+    }
+
+    let maximumLineBytes: Int
+    private let fileDescriptor: Int32
+    private var pending: [UInt8] = []
+    /// How many bytes at the start of `pending` hold no newline.
+    private var searched = 0
+    /// Whether the current line passed the cap; its bytes are dropped.
+    private var discarding = false
+    private var chunk = [UInt8](repeating: 0, count: 1 << 16)
+    private var atEnd = false
+
+    init(maximumLineBytes: Int, fileDescriptor: Int32 = STDIN_FILENO) {
+        self.maximumLineBytes = maximumLineBytes
+        self.fileDescriptor = fileDescriptor
+    }
+
+    /// The next line without its newline, `.tooLong` for one past the cap,
+    /// or `nil` at end of input.
+    mutating func nextLine() -> Line? {
+        while true {
+            let from = searched
+            let newline: Int? = pending.withUnsafeBufferPointer { buffer in
+                guard from < buffer.count, let base = buffer.baseAddress,
+                      let hit = memchr(base + from, 0x0A, buffer.count - from) else { return nil }
+                return base.distance(to: hit.assumingMemoryBound(to: UInt8.self))
+            }
+            if let newline {
+                let tooLong = discarding || newline > maximumLineBytes
+                let text = tooLong ? nil : String(decoding: pending[..<newline], as: UTF8.self)
+                pending.removeSubrange(...newline)
+                searched = 0
+                discarding = false
+                return text.map(Line.text) ?? .tooLong
+            }
+            searched = pending.count
+            if pending.count > maximumLineBytes {
+                // Past the cap with no newline yet: keep none of it.
+                pending.removeAll(keepingCapacity: true)
+                searched = 0
+                discarding = true
+            }
+            if atEnd {
+                if discarding {
+                    // The rest of the long line ended with the input.
+                    discarding = false
+                    pending.removeAll()
+                    searched = 0
+                    return .tooLong
+                }
+                guard !pending.isEmpty else { return nil }
+                defer {
+                    pending.removeAll()
+                    searched = 0
+                }
+                return .text(String(decoding: pending, as: UTF8.self))
+            }
+            let descriptor = fileDescriptor
+            let count = chunk.withUnsafeMutableBytes { read(descriptor, $0.baseAddress, $0.count) }
+            if count > 0 {
+                pending.append(contentsOf: chunk[0..<count])
+            } else if count == 0 || errno != EINTR {
+                atEnd = true
+            }
+        }
+    }
+}
+
+/// JSON-RPC 2.0 handling for `cmux browser repl mcp` (Model Context Protocol,
+/// newline-delimited messages on stdio). Tool calls go to `callTool`; this
+/// type only speaks the protocol, so it is testable without a socket.
+struct BrowserReplMCPServer {
+    struct ToolResult {
+        var content: [[String: Any]]
+        var isError: Bool
+
+        static func text(_ text: String, isError: Bool = false) -> ToolResult {
+            ToolResult(content: [["type": "text", "text": text]], isError: isError)
+        }
+    }
+
+    enum Failure: Error {
+        case unknownTool(String)
+    }
+
+    /// Newest first; `initialize` echoes the client's version when listed.
+    static let protocolVersions = ["2025-06-18", "2025-03-26", "2024-11-05"]
+
+    let version: String
+    let callTool: (String, [String: Any]) throws -> ToolResult
+
+    init(version: String, callTool: @escaping (String, [String: Any]) throws -> ToolResult) {
+        self.version = version
+        self.callTool = callTool
+    }
+
+    static var tools: [[String: Any]] {
+        [
+            [
+                "name": "eval",
+                "description": "Run JavaScript in the cmux browser REPL session (Playwright API: page, tabs, snapshot, screenshot, locators; top-level await; const/let persist across calls). Returns what the code printed and the last expression's value. Run `session.guide()` for the full guide.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": ["code": ["type": "string", "description": "JavaScript to evaluate"]],
+                    "required": ["code"],
+                ] as [String: Any],
+            ],
+            [
+                "name": "snapshot",
+                "description": "Accessibility snapshot of the current tab with refs (e12, f1e3) usable as locators in eval. Prints the diff against the previous snapshot when that is shorter.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "target": ["type": "string", "description": "A ref or selector to scope the snapshot to"],
+                        "interactive": ["type": "boolean", "description": "Only interactive elements and the page outline"],
+                        "viewport": ["type": "boolean", "description": "Only elements in the viewport"],
+                    ],
+                ] as [String: Any],
+            ],
+            [
+                "name": "screenshot",
+                "description": "PNG of the current tab's viewport, the full page, or one element.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "target": ["type": "string", "description": "A ref or selector to capture"],
+                        "fullPage": ["type": "boolean", "description": "Capture the whole page"],
+                    ],
+                ] as [String: Any],
+            ],
+            [
+                "name": "tabs",
+                "description": "The session's tabs: id, title, URL and which one is current.",
+                "inputSchema": ["type": "object", "properties": [String: Any]()] as [String: Any],
+            ],
+            [
+                "name": "reset",
+                "description": "End the REPL session: close its tabs and forget its variables.",
+                "inputSchema": ["type": "object", "properties": [String: Any]()] as [String: Any],
+            ],
+        ]
+    }
+
+    /// A JavaScript string literal for `text`.
+    static func literal(_ text: String) -> String {
+        let data = (try? JSONSerialization.data(withJSONObject: [text], options: [])) ?? Data("[\"\"]".utf8)
+        let array = String(decoding: data, as: UTF8.self)
+        return String(array.dropFirst().dropLast())
+    }
+
+    /// REPL code for the tools that are one evaluation.
+    static func code(forTool name: String, arguments: [String: Any]) -> String? {
+        switch name {
+        case "eval":
+            return arguments["code"] as? String
+        case "snapshot":
+            let target = (arguments["target"] as? String).map(literal) ?? "undefined"
+            let interactive = arguments["interactive"] as? Bool ?? false
+            let viewport = arguments["viewport"] as? Bool ?? false
+            return "await snapshot(\(target), { interactive: \(interactive), viewport: \(viewport) })"
+        case "tabs":
+            return "await tabs.list()"
+        default:
+            return nil
+        }
+    }
+
+    /// REPL code that prints the screenshot as `marker` + base64 on one line.
+    static func screenshotCode(_ arguments: [String: Any], marker: String) -> String {
+        let fullPage = arguments["fullPage"] as? Bool ?? false
+        let capture: String
+        if let target = arguments["target"] as? String, !target.isEmpty {
+            capture = "await page.locator(\(literal(target))).screenshot()"
+        } else {
+            capture = "await page.screenshot({ fullPage: \(fullPage) })"
+        }
+        return "console.log(\(literal(marker)) + (\(capture)).toString(\"base64\")); undefined"
+    }
+
+    /// A `browser.repl.eval` result as tool content: the printed lines, then
+    /// the uncaught error, if any, as an error result.
+    static func result(ofEval payload: [String: Any]) -> ToolResult {
+        var lines = (payload["output"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }
+        let duration = payload["duration_ms"] as? Int ?? 0
+        if let error = payload["error"] as? String {
+            lines.append(error)
+            lines.append("[error | \(duration)ms]")
+            return .text(lines.joined(separator: "\n"), isError: true)
+        }
+        lines.append("[ok | \(duration)ms]")
+        return .text(lines.joined(separator: "\n"))
+    }
+
+    /// The reply to a line longer than `maximumBytes`: its id is unknown, so
+    /// the error carries a null id.
+    static func oversizedLineReply(maximumBytes: Int) -> String {
+        encode(error(id: NSNull(), code: -32600, message: "Request too large: a message is at most \(maximumBytes / (1024 * 1024)) MiB"))
+    }
+
+    /// Handles one line; returns the reply line, or nil for a notification.
+    func handle(line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard let object = try? JSONSerialization.jsonObject(with: Data(trimmed.utf8), options: []),
+              let message = object as? [String: Any] else {
+            return Self.encode(Self.error(id: NSNull(), code: -32700, message: "Parse error"))
+        }
+        return handle(message).map(Self.encode)
+    }
+
+    /// Handles one message; returns the response, or nil for a notification
+    /// or a response from the client.
+    func handle(_ message: [String: Any]) -> [String: Any]? {
+        let id = message["id"]
+        guard let method = message["method"] as? String else {
+            guard let id else { return nil }
+            if message["result"] != nil || message["error"] != nil { return nil }
+            return Self.error(id: id, code: -32600, message: "Invalid Request")
+        }
+        guard let id, !(id is NSNull) else { return nil }
+        let params = message["params"] as? [String: Any] ?? [:]
+        switch method {
+        case "initialize":
+            let requested = params["protocolVersion"] as? String ?? ""
+            let version = Self.protocolVersions.contains(requested) ? requested : Self.protocolVersions[0]
+            return Self.reply(id: id, result: [
+                "protocolVersion": version,
+                "capabilities": ["tools": ["listChanged": false]],
+                "serverInfo": ["name": "cmux-browser-repl", "version": self.version],
+                "instructions": "Drive cmux browser tabs with Playwright-style JavaScript through the eval tool; read pages with snapshot and act on its refs.",
+            ])
+        case "ping":
+            return Self.reply(id: id, result: [:])
+        case "tools/list":
+            return Self.reply(id: id, result: ["tools": Self.tools])
+        case "tools/call":
+            guard let name = params["name"] as? String else {
+                return Self.error(id: id, code: -32602, message: "tools/call needs a tool name")
+            }
+            let arguments = params["arguments"] as? [String: Any] ?? [:]
+            guard Self.tools.contains(where: { $0["name"] as? String == name }) else {
+                return Self.error(id: id, code: -32602, message: "Unknown tool: \(name)")
+            }
+            if name == "eval", arguments["code"] as? String == nil {
+                return Self.error(id: id, code: -32602, message: "eval needs code, a string")
+            }
+            let result: ToolResult
+            do {
+                result = try callTool(name, arguments)
+            } catch let failure as CLIError {
+                result = .text(failure.message, isError: true)
+            } catch {
+                result = .text(String(describing: error), isError: true)
+            }
+            return Self.reply(id: id, result: ["content": result.content, "isError": result.isError])
+        default:
+            return Self.error(id: id, code: -32601, message: "Method not found: \(method)")
+        }
+    }
+
+    private static func reply(id: Any, result: [String: Any]) -> [String: Any] {
+        ["jsonrpc": "2.0", "id": id, "result": result]
+    }
+
+    private static func error(id: Any, code: Int, message: String) -> [String: Any] {
+        ["jsonrpc": "2.0", "id": id, "error": ["code": code, "message": message] as [String: Any]]
+    }
+
+    private static func encode(_ message: [String: Any]) -> String {
+        guard JSONSerialization.isValidJSONObject(message),
+              let data = try? JSONSerialization.data(withJSONObject: message, options: [.withoutEscapingSlashes]) else {
+            return "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32603,\"message\":\"Internal error\"}}"
+        }
+        return String(decoding: data, as: UTF8.self)
+    }
+}
