@@ -133,10 +133,14 @@ jobs:
           if [[ "$DETACH" != 0 && "$usage" == *--detach* ]]; then
             detach=(--repo "$GITHUB_REPOSITORY" --report-check "$REPORT_CHECK" --detach)
           fi
+          # Build at light class first, so the bench Mac's exclusive hold covers only the measuring
+          # (split-spring.sh CMUX_MEASURE_PHASE). Only a client that knows the flag sends it.
+          build_first=()
+          [[ "$usage" == *--build-first* ]] && build_first=(--build-first)
           status=0
           "$client" run --class exclusive --measurement --label bench --display \
             --script scripts/measure/split-spring.sh --ref "$SHA" --timeout 5400 --queue-timeout "$QUEUE_WAIT_S" \
-            --key "split-table-$SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --key "split-table-$SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" ${build_first[@]+"${build_first[@]}"} \
             --artifact artifacts/split-spring/report.json ${detach[@]+"${detach[@]}"} \
             --arg=--suite=split-scale --arg=--config=$MEASURE_CONFIG --arg=--quick --arg=--vdisplay=120 \
             2>&1 | tee "$log" || status=${PIPESTATUS[0]}

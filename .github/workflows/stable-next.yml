@@ -388,13 +388,17 @@ jobs:
             [ -s "$why" ] || return 0
             echo "::error title=cmux NEXT Stable: slower than the baseline::$(head -24 "$why" | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"}1')"
           }
+          # Build at light class first, so the M4 Pro's exclusive hold covers only the measuring
+          # (split-spring.sh CMUX_MEASURE_PHASE). Only a client that knows the flag sends it.
+          build_first=()
+          [[ "$("$client" run --help 2>/dev/null || true)" == *--build-first* ]] && build_first=(--build-first)
           # Attempt 1 may wait 3 h for an idle M4 Pro; a retry after a fault gets 1 h (fits the job's 600 min).
           for n in 1 2 3; do
             status=0
             queue=$([ "$n" = 1 ] && echo 10800 || echo 3600)
             "$client" run --class exclusive --measurement --script scripts/measure/split-spring.sh --ref "$COMMIT" \
               --label measure --label macos-27 --label ram48 --label cmux --key "$KEY-$n" \
-              --artifact artifacts/split-spring/report.json \
+              ${build_first[@]+"${build_first[@]}"} --artifact artifacts/split-spring/report.json \
               --arg=--suite=budgets --arg=--gate --arg=--profile --arg=--vdisplay=120 \
               --timeout 7200 --queue-timeout "$queue" 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
             case "$status" in
