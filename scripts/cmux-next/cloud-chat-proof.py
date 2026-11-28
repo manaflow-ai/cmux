@@ -51,6 +51,7 @@ import collections
 import hashlib
 import json
 import os
+import plistlib
 import re
 import secrets
 import shutil
@@ -242,10 +243,9 @@ evidence = {
 }
 app_launcher = None
 owned_app = False
-# The launched app's own stdout and stderr (`open --stdout/--stderr`): a Swift fatal error or a refusal
-# printed before the control socket binds lands here, and only a failed launch's evidence reads it.
+# The launched app's own stdout and stderr (`open --stdout/--stderr`): a Swift fatal error, or a refusal printed
+# before os_log or the control socket is up, lands only here. Only a failed launch's diagnostics read it.
 APP_OUTPUT_DIR = os.path.realpath(tempfile.mkdtemp(prefix="cmux-proof-app-output-"))
-APP_LAUNCHED_AT = None
 
 
 def has_browser_proof_reply(text: str) -> bool:
@@ -270,6 +270,7 @@ def clean(text: str, limit: int = 2000) -> str:
 evidence["tag"] = clean(args.tag, 256)
 # The link log reads from before the app's launch (the step before this one), not from the chat's
 # start: the app starts its link at sign-in, so a Native route that failed then logged before the chat.
+LAUNCH_STARTED = time.time()
 LINK_LOG_SINCE = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 600))
 
 
@@ -441,79 +442,32 @@ def safe_lines(source, keep: int) -> dict:
     return {"line_count": line_count, "left_out": left_out, "lines": list(lines)}
 
 
-def app_link_log(since: str, keep: int = 300, predicate: str = LINK_LOG_PREDICATE, info: bool = True) -> dict:
+def app_link_log(since: str, keep: int = 300, predicate: str = LINK_LOG_PREDICATE) -> dict:
     """The link lines logged from `since` (local "YYYY-MM-DD HH:MM:SS", before the app launched) on, read
     as they stream so only the last `keep` are held, and stopped after 180 s."""
     try:
-        proc = subprocess.Popen([LOG_TOOL, "show", "--style", "compact", *(("--info",) if info else ()), "--start", since,
+        proc = subprocess.Popen([LOG_TOOL, "show", "--style", "compact", "--info", "--start", since,
                                  "--predicate", predicate],
                                 env=ENV, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, errors="replace")
     except OSError as error:
         return {"unavailable": clean(str(error), 300)}
     timer = threading.Timer(180, proc.kill)
     timer.start()
+    lines, line_count, left_out = collections.deque(maxlen=keep), 0, 0
     try:
-        kept = safe_lines(proc.stdout, keep)
+        for line in proc.stdout:
+            for prompt in (BROWSER_PROOF_PROMPT, args.prompt):
+                if prompt:
+                    line = line.replace(prompt, "[prompt]")
+            if EVIDENCE_SCAN.search(line):
+                left_out += 1
+            elif line.strip():
+                line_count += 1
+                lines.append(clean(line, 400))
     finally:
         timer.cancel()
         code = proc.wait()
-    return {"exit": code, **kept}
-
-
-def app_executable(app: str) -> str:
-    import plistlib
-    try:
-        with open(Path(app, "Contents", "Info.plist"), "rb") as handle:
-            return str(plistlib.load(handle).get("CFBundleExecutable") or "")
-    except (OSError, ValueError):
-        return ""
-
-
-def app_launch_state(app: str) -> dict:
-    """Why a launched app never answered on the proof's socket (runs 46111167228 and 46147479576: `app
-    identify` said app.unreachable for 240 s, then the launch helper had exited 0 on its own): whether
-    the app is still running, which socket files exist, what it printed, what it logged, and its crash
-    reports. Every line goes through the evidence scan, as the link log does."""
-    executable = app_executable(app)
-    state: dict = {"executable": executable or None,
-                   "launcher_exit": None if app_launcher is None else app_launcher.poll()}
-    binary = str(Path(app, "Contents", "MacOS", executable)) if executable else ""
-    try:
-        listing = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=30).stdout
-        state["app_pids"] = [int(line.split(None, 1)[0]) for line in listing.splitlines()
-                             if binary and len(line.split(None, 1)) == 2 and line.split(None, 1)[1].startswith(binary)]
-    except (OSError, subprocess.SubprocessError, ValueError) as error:
-        state["app_pids"] = clean(str(error), 200)
-    socket_dir = Path.home() / ".local" / "state" / "cmux-next"
-    state["socket"] = {"path_exists": os.path.lexists(SOCKET_PATH), "path_is_link": os.path.islink(SOCKET_PATH),
-                       "target_exists": os.path.exists(SOCKET_PATH),
-                       "state_dir_sockets": sorted(entry.name for entry in socket_dir.glob("cmux-debug-*"))[:40]
-                       if socket_dir.is_dir() else None}
-    for stream in ("stdout", "stderr"):
-        try:
-            with open(Path(APP_OUTPUT_DIR, f"app.{stream}"), errors="replace") as handle:
-                state[f"app_{stream}"] = safe_lines(handle, 120)
-        except OSError as error:
-            state[f"app_{stream}"] = {"unavailable": clean(str(error), 200)}
-    if executable:
-        # The app's own process, every subsystem: an assertion, a guard's hand-off, or a terminate reason.
-        state["app_log"] = app_link_log(LINK_LOG_SINCE, keep=200, info=False,
-                                        predicate=f'process == "{executable}"')
-    reports = []
-    reports_dir = Path.home() / "Library" / "Logs" / "DiagnosticReports"
-    if executable and reports_dir.is_dir():
-        since = (APP_LAUNCHED_AT or 0) - 2  # file times run on a coarser clock than time.time()
-        for report in sorted(reports_dir.iterdir(), key=lambda entry: entry.stat().st_mtime if entry.exists() else 0):
-            try:
-                if not report.name.startswith(executable) or report.stat().st_mtime < since:
-                    continue
-                with open(report, errors="replace") as handle:
-                    head = [next(handle, "") for _ in range(200)]
-            except OSError:
-                continue
-            reports.append({"name": clean(report.name, 200), **safe_lines(head, 80)})
-    state["crash_reports"] = reports[-3:]
-    return state
+    return {"exit": code, "line_count": line_count, "left_out": left_out, "lines": list(lines)}
 
 
 def listed() -> tuple[int, str, str, dict]:
@@ -735,15 +689,76 @@ def validate_credentials_file(path_text: str) -> str:
     return str(path)
 
 
-def diagnosed(diagnose) -> dict:
-    """A failed step's diagnostics never fail the proof themselves: a broken probe says so instead."""
+# Every app subsystem line, for a launch that never answered: the link categories alone say nothing about a
+# startup that died before sign-in (runs 46147479576, 46111167228: the DEV app's socket never came up, and
+# `open -W` returned 0, so the app had already exited).
+APP_LOG_PREDICATE = 'subsystem BEGINSWITH "com.cmuxterm.app"'
+CRASH_DIRS = (Path.home() / "Library" / "Logs" / "DiagnosticReports", Path("/Library/Logs/DiagnosticReports"))
+
+
+def crash_reports(executable: str, since: float, keep: int = 3) -> list[dict]:
+    """The newest crash reports (.ips) for `executable` written since `since`: name, exception and termination
+    fields only (a report's thread state and paths stay on the runner)."""
+    found = []
+    for folder in CRASH_DIRS:
+        try:
+            entries = list(folder.iterdir())
+        except OSError:
+            continue
+        for path in entries:
+            try:
+                if path.suffix in (".ips", ".crash") and path.name.startswith(executable) and path.stat().st_mtime >= since:
+                    found.append(path)
+            except OSError:
+                continue
+    reports = []
+    for path in sorted(found, key=lambda item: item.stat().st_mtime, reverse=True)[:keep]:
+        report: dict = {"file": path.name}
+        try:
+            header, _, body = path.read_text(errors="replace").partition("\n")
+            report["bug_type"] = json.loads(header).get("bug_type")
+            detail = json.loads(body) if body.strip().startswith("{") else {}
+            for key in ("exception", "termination", "asi"):
+                if key in detail:
+                    report[key] = clean(json.dumps(detail[key]), 600)
+            if "faultingThread" in detail:
+                report["faulting_thread"] = detail["faultingThread"]
+        except (OSError, ValueError):
+            report["unreadable"] = True
+        reports.append(report)
+    return reports
+
+
+def launch_diagnostics(bundle: str, launcher, since: float) -> dict:
+    """Why a launched app never answered on its socket: whether `open -W` (it returns once the app exits) is
+    still waiting, whether the bundle's process runs, its crash reports, and its own log lines since the launch."""
+    out: dict = {"launcher_exit": launcher.poll() if launcher is not None else None}
+    executable = Path(bundle).stem
     try:
-        return diagnose()
-    except Exception as error:  # noqa: BLE001 - any probe failure is evidence, not a crash
-        return {"unavailable": clean(f"{type(error).__name__}: {error}", 300)}
+        with open(Path(bundle, "Contents", "Info.plist"), "rb") as handle:
+            executable = plistlib.load(handle).get("CFBundleExecutable") or executable
+    except (OSError, ValueError):
+        pass
+    try:
+        running = subprocess.run(["/usr/bin/pgrep", "-f", str(Path(bundle, "Contents", "MacOS"))],
+                                 capture_output=True, text=True, timeout=10)
+        out["app_pids"] = [int(pid) for pid in running.stdout.split() if pid.isdigit()]
+    except (OSError, subprocess.TimeoutExpired):
+        out["app_pids"] = None
+    out["socket"] = {"path_exists": os.path.lexists(SOCKET_PATH), "target_exists": os.path.exists(SOCKET_PATH)}
+    for stream in ("stdout", "stderr"):
+        try:
+            with open(Path(APP_OUTPUT_DIR, f"app.{stream}"), errors="replace") as handle:
+                out[f"app_{stream}"] = safe_lines(handle, 120)
+        except OSError as error:
+            out[f"app_{stream}"] = {"unavailable": clean(str(error), 200)}
+    out["crash_reports"] = crash_reports(executable, since - 5)
+    started = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(since - 5))
+    out["app_log"] = app_link_log(started, keep=120, predicate=APP_LOG_PREDICATE)
+    return out
 
 
-def wait_for(name: str, words: tuple[str, ...], ready, timeout: int = 240, diagnose=None) -> dict:
+def wait_for(name: str, words: tuple[str, ...], ready, timeout: int = 240, on_fail=None) -> dict:
     """Bounded wait for app launch or authentication; record only safe status fields."""
     started = time.monotonic()
     deadline = started + timeout
@@ -765,9 +780,13 @@ def wait_for(name: str, words: tuple[str, ...], ready, timeout: int = 240, diagn
     if not satisfied and code == 0 and not (err or "").strip():
         # The command answered but never satisfied the wait: say what it last saw, or the step reads as a bare exit 1.
         why = "last answer: " + json.dumps(safe, sort_keys=True)
+    if not satisfied and on_fail is not None:
+        try:
+            safe.update(on_fail())
+        except Exception as error:  # noqa: BLE001 - a broken probe is evidence, not a crashed proof
+            safe["diagnostics_unavailable"] = clean(f"{type(error).__name__}: {error}", 300)
     record(name, 0 if satisfied else (code or 1), "", "" if satisfied else why,
-           elapsed_ms=round((time.monotonic() - started) * 1000), **safe,
-           **({"app_launch_state": diagnosed(diagnose)} if diagnose and not satisfied else {}))
+           elapsed_ms=round((time.monotonic() - started) * 1000), **safe)
     if not satisfied:
         finish(f"fail: {name}")
     return value
@@ -828,8 +847,8 @@ if args.cleanup_tag:
         record("reuse the running app", 0, "", "", pid=running.get("pid"))
         launchable_cleanup = False
 if launchable_cleanup:
-    APP_LAUNCHED_AT = time.time()
     try:
+        LAUNCH_STARTED = time.time()
         app_launcher = subprocess.Popen(launch, env=launch_env(ENV), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError as error:
         record("launch app", 1, "", str(error))
@@ -837,7 +856,8 @@ if launchable_cleanup:
     record("launch app", 0, "", "", launch_flag=args.cloud_backend)
     wait_for("launched app ready", ("app", "identify", "--json"),
              lambda value: bool(value.get("pid")) and value.get("app_bundle_path") == app_path,
-             timeout=int(os.environ.get("CMUX_PROOF_READY_TIMEOUT", "240")), diagnose=lambda: app_launch_state(app_path))
+             timeout=int(os.environ.get("CMUX_PROOF_READY_TIMEOUT", "240")),
+             on_fail=lambda: launch_diagnostics(app_path, app_launcher, LAUNCH_STARTED))
     owned_app = True
 
 if args.cleanup_machine:

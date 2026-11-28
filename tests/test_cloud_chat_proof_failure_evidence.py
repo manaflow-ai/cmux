@@ -275,7 +275,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 reports="$HOME/Library/Logs/DiagnosticReports"
-printf '{"app_name":"cmux DEV ccp-test"}\n"exception" : {"type":"EXC_BREAKPOINT","signal":"SIGTRAP"}\n' \
+printf '{"app_name":"cmux DEV ccp-test","bug_type":"309"}\n{"exception" : {"type":"EXC_BREAKPOINT","signal":"SIGTRAP"}}\n' \
   > "$reports/cmux DEV ccp-test-2026-11-28-143040.ips"
 printf 'not ours\n' > "$reports/Other-2026-11-28-143040.ips"
 exit 0
@@ -284,7 +284,7 @@ exit 0
 FAKE_PROCESS_LOG = r'''#!/usr/bin/env python3
 import sys
 assert sys.argv[1] == "show", sys.argv
-assert sys.argv[sys.argv.index("--predicate") + 1] == 'process == "cmux DEV ccp-test"', sys.argv
+assert sys.argv[sys.argv.index("--predicate") + 1] == 'subsystem BEGINSWITH "com.cmuxterm.app"', sys.argv
 print("2026-11-28 14:30:40.1 E  cmux DEV ccp-test[9:1] [com.cmuxterm.app.next:launch] single instance: handing off")
 '''
 
@@ -325,15 +325,14 @@ class CloudChatProofLaunchFailureTests(unittest.TestCase):
             self.assertNotIn(CONTEXT, text)
             self.assertNotIn("abcdef123456", text)
             steps = {step["step"]: step for step in json.loads(text)["steps"]}
-            state = steps["launched app ready"]["app_launch_state"]
-            self.assertEqual(state["executable"], "cmux DEV ccp-test")
+            state = steps["launched app ready"]
             self.assertEqual(state["launcher_exit"], 0)
             self.assertEqual(state["app_pids"], [])
             self.assertFalse(state["socket"]["path_exists"])
             self.assertEqual(state["app_stderr"]["lines"], ["Fatal error: launch refused [prompt]"])
             self.assertEqual(state["app_stderr"]["left_out"], 1)
             self.assertIn("single instance: handing off", state["app_log"]["lines"][0])
-            self.assertEqual([report["name"] for report in state["crash_reports"]],
+            self.assertEqual([report["file"] for report in state["crash_reports"]],
                              ["cmux DEV ccp-test-2026-11-28-143040.ips"])
-            self.assertIn("EXC_BREAKPOINT", " ".join(state["crash_reports"][0]["lines"]))
-            self.assertNotIn("app_launch_state", done.stdout)
+            self.assertIn("EXC_BREAKPOINT", state["crash_reports"][0]["exception"])
+            self.assertNotIn("app_stderr", done.stdout)
