@@ -268,7 +268,7 @@ pub(crate) fn restart_window_check() -> String {
   case "$("$HOME/.local/bin/acpmux" --json daemon status 2>/dev/null)" in *'"pid": null'*|*'"pid":null'*) ;; *'"pid":'*) acpmux_up=1;; esac
   if [ -z "$acpmux_up" ]; then
     # Not answering is not "not running": a daemon still loading its sessions holds daemon.lock
-    # before it answers (gcp-agent-lane-4, 2026-11-28: ~270 sessions, 8+ min; every pass restarted it).
+    # before it answers (a fleet lane VM, 2026-11-28: ~270 sessions, 8+ min; every pass restarted it).
     acpmux_dp=$(head -n 1 {REMOTE_HOME}/daemon.lock 2>/dev/null | tr -cd '0-9')
     [ -n "$acpmux_dp" ] && kill -0 "$acpmux_dp" 2>/dev/null || return 1
     acpmux_st="; its daemon (pid $acpmux_dp) is still starting"

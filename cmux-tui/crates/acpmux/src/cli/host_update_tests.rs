@@ -1045,7 +1045,7 @@ fn the_hosts_install_step_refuses_a_push_inside_the_restart_window() {
 }
 
 /// A daemon that runs but does not answer yet (still loading its sessions:
-/// gcp-agent-lane-4, 2026-11-28, ~270 sessions took 8+ min, and every timer
+/// a fleet lane VM, 2026-11-28, ~270 sessions took 8+ min, and every timer
 /// pass restarted it again) is held by the window like one that answers: its
 /// `daemon.lock` names a live pid. A lock whose pid is gone holds nothing.
 #[test]
