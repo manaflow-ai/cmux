@@ -84,7 +84,15 @@ impl HomeSnapshot {
                     std::fs::create_dir_all(&stash).ok()?;
                     std::fs::hard_link(&p, &kept).ok().map(|()| (kept, m.ino()))
                 });
-                Some((p, Was { len: m.len(), modified: m.modified().ok(), contents, link: link.flatten() }))
+                Some((
+                    p,
+                    Was {
+                        len: m.len(),
+                        modified: m.modified().ok(),
+                        contents,
+                        link: link.flatten(),
+                    },
+                ))
             })
             .collect();
         Self { root: root.to_path_buf(), files, dirs, stash }
@@ -141,7 +149,8 @@ impl HomeSnapshot {
                 continue;
             }
             if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("{}: {e}", parent.display()))?;
             }
             match (&was.contents, &was.link) {
                 (Some(contents), _) => {
@@ -169,7 +178,7 @@ impl HomeSnapshot {
                     }
                 }
                 (None, None) => {
-                    return Err(format!("{}: removed, {} bytes", path.display(), was.len))
+                    return Err(format!("{}: removed, {} bytes", path.display(), was.len));
                 }
             }
             was.keep_time(path)?;

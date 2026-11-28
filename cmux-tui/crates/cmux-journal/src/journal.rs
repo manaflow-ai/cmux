@@ -668,13 +668,8 @@ impl Journal {
     /// them) or reads as before.
     fn hand_over_empty(&self, last: Lsn) -> std::io::Result<()> {
         let held = self.held()?;
-        let newest = self
-            .shared
-            .segments
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .last()
-            .copied();
+        let newest =
+            self.shared.segments.lock().unwrap_or_else(PoisonError::into_inner).last().copied();
         let Some(newest) = newest else { return Ok(()) };
         // The newest segment holds a record when the last LSN is past the one before it.
         if last > newest.prev_last {
