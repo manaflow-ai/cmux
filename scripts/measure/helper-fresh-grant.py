@@ -104,12 +104,16 @@ class Run:
             "USER": os.environ.get("USER") or os.environ.get("LOGNAME") or "",
             "LANG": "en_US.UTF-8",
         }
-        helpers = sorted((self.app / "Contents/Library").glob("* Screen Sharing.app"))
+        # `<app> Helper.app` first, then `<app> Screen Sharing.app`, the name older builds carried
+        # (cmux_signed_bundle::HELPER_BUNDLE_SUFFIXES).
+        helpers = [h for suffix in (" Helper.app", " Screen Sharing.app")
+                   for h in sorted((self.app / "Contents/Library").glob(f"*{suffix}"))]
         if not helpers:
             raise SystemExit(self.cannot(f"{self.app.name} carries no Screen Sharing helper in Contents/Library"))
         self.helper = helpers[0]
         info = plistlib.loads((self.helper / "Contents/Info.plist").read_bytes())
         self.helper_id = info["CFBundleIdentifier"]
+        self.helper_exe_name = info.get("CFBundleExecutable") or "cmux-screen-sharing"
         app_info = plistlib.loads((self.app / "Contents/Info.plist").read_bytes())
         self.app_exe = self.app / "Contents/MacOS" / app_info["CFBundleExecutable"]
         self.cli = next((p for p in (self.app / "Contents/Resources/bin/cmux", self.app / "Contents/Resources/bin/cmux-tui")
@@ -404,13 +408,24 @@ class Run:
              + f" typed text read back {r['steps']['get_ui_tree']['has_typed_text']}")
         return r
 
+    def staged_helper(self, legacy_sub: str) -> Path | None:
+        """The helper's staged copy: `cmux-next/helper/<helper id>/<name>.app`, the one fixed path
+        every build stages to (SignedHelperStaging.screenSharing, cmux_signed_bundle::helper_folder),
+        else the per-build `cmux-next/screen-sharing/<helper id>/<legacy_sub>` layout of older builds."""
+        support = self.home / "Library/Application Support/cmux-next"
+        for pattern in (f"helper/{self.helper_id}/*.app/Contents/MacOS/{self.helper_exe_name}",
+                        f"screen-sharing/{self.helper_id}/{legacy_sub}Contents/MacOS/{self.helper_exe_name}"):
+            staged = sorted(support.glob(pattern))
+            if staged:
+                return staged[-1]
+        return None
+
     def part_c(self) -> dict:
         r: dict = {"pass": False}
         if not (self.viewer and Path(self.viewer).is_file() and Path(self.disclaim).is_file()):
             r["error"] = "the viewer or the disclaim launcher did not build"
             return r
-        staged = sorted(self.home.glob(f"Library/Application Support/cmux-next/screen-sharing/{self.helper_id}/computer-use/**/Contents/MacOS/cmux-screen-sharing"))
-        exe = staged[-1] if staged else None
+        exe = self.staged_helper("computer-use/**/")
         r["helper_executable"] = str(exe) if exe else None
         if not exe:
             r["error"] = "no staged helper copy (the daemon stages one when Computer Use starts)"
@@ -529,8 +544,7 @@ class Run:
         if not Path(self.disclaim).is_file():
             r["error"] = "the disclaim launcher did not build"
             return r
-        staged = sorted(self.home.glob(f"Library/Application Support/cmux-next/screen-sharing/{self.helper_id}/**/Contents/MacOS/cmux-screen-sharing"))
-        exe = staged[-1] if staged else None
+        exe = self.staged_helper("**/")
         r["helper_executable"] = str(exe) if exe else None
         if not exe:
             r["error"] = "no staged helper copy"

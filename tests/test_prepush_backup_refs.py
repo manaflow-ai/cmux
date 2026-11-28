@@ -39,11 +39,20 @@ class BackupOnlyPush(unittest.TestCase):
         self.assertTrue(gate.backup_only_push([line("refs/heads/backup/cmux-cg-tower"),
                                                line("refs/heads/backup/cmux-cg-tower--lane-x"), ""]))
 
+    def test_wip_net_backup_refs(self):
+        # 2026-11-28: the arch ratchet held lane/cold-activation-865-next-wip 12 h; the WIP net
+        # saves a refused checkout as lane/backup/<branch>-<host>-wip, which a lane VM's broker takes
+        self.assertTrue(gate.backup_only_push([line("refs/heads/lane/backup/cold-activation-865-next-lane-vm-wip")]))
+        self.assertTrue(gate.backup_only_push([line("refs/heads/lane/backup/x-wip"), line("refs/heads/backup/y")]))
+        self.assertFalse(gate.backup_only_push([line("refs/heads/lane/backup/x-wip"), line("refs/heads/lane/x-wip")]))
+
     def test_any_other_ref_keeps_every_layer(self):
         self.assertFalse(gate.backup_only_push([line("refs/heads/backup/a"), line("refs/heads/lane/a")]))
         self.assertFalse(gate.backup_only_push([line("refs/heads/feat-cmux-next")]))
         self.assertFalse(gate.backup_only_push([line("refs/heads/lane/x-wip")]))  # checkpoints get draft PRs
-        self.assertFalse(gate.backup_only_push([line("refs/heads/lane/backup/x")]))
+        self.assertFalse(gate.backup_only_push([line("refs/heads/lane/backup/x")]))  # a lane/ ref without -wip
+        self.assertFalse(gate.backup_only_push([line("refs/heads/lane/backup/-wip")]))
+        self.assertFalse(gate.backup_only_push([line("refs/heads/lane/backup-x-wip")]))
         self.assertFalse(gate.backup_only_push([line("refs/tags/backup/x")]))
         self.assertFalse(gate.backup_only_push([line("refs/heads/backup/")]))
 
@@ -96,6 +105,13 @@ class MainSkipsCodeQuality(unittest.TestCase):
         self.assertEqual(calls["guardrails"], 0, "the arch ratchet runs inside the guardrails")
         self.assertEqual(calls["trailer"], 0)
         self.assertEqual(gate.BACKUP_PUSH_LAYERS, {"workflows", "job-bounds", "reusable-perms"})
+
+    def test_wip_net_backup_runs_only_the_workflow_layers(self):
+        code, calls = self.run_main("refs/heads/lane/backup/x-lane-vm-wip")
+        self.assertEqual(code, 0)
+        self.assertEqual(calls["only"], [set(gate.BACKUP_PUSH_LAYERS)])
+        self.assertEqual(calls["guardrails"], 0)
+        self.assertEqual(calls["trailer"], 0)
 
     def test_lane_push_runs_every_layer(self):
         code, calls = self.run_main("refs/heads/lane/x")
