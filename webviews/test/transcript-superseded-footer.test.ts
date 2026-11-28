@@ -206,32 +206,33 @@ test("a turn with no summary that the person's next prompt opened over ends on a
 const markup = (footer: AcpmuxRow) => renderToStaticMarkup(createElement(TurnFooter, { row: footer }));
 const COPY = 'aria-label="Copy"';
 
-const steeredThenEnded = (after: AcpmuxRow[] = []) => [
+// `after` builds its rows once the steer's row is made, so they come after it in time as in order: an ended
+// turn's late steer moves by its time against the calls after it (#56293, `lateSteersLast`).
+const steeredThenEnded = (after: () => AcpmuxRow[] = () => []) => [
   row("u", "user", { text: "Plan the transfer work" }),
   row("r1", "assistant", { text: "Got it. I've dropped the plan." }),
   row("s1", "user", { text: "THIS IS THE THING", steer: "landed" }),
-  ...after,
+  ...after(),
   row("sum", "turnSummary", { status: "completed", durationMs: 30_000 }),
 ];
 
+// Since #56293 an ended turn reads a late steer (one the agent started no call after) and then the
+// turn's last word under it (Leo, 2026-11-25: "i steer RIGHT before you finish a turn but your completed
+// sent message goes above mine"), so the reply over the steer moves under it and the turn's own row
+// carries its Copy: still one row, no second row of buttons for the message alone.
+const onlyTurnRow = (view: readonly AcpmuxRow[]) => {
+  const list = ids(view);
+  expect(list.indexOf("s1")).toBeLessThan(list.indexOf("r1"));
+  const shown = footers(view).filter((each) => !isEmptyFooter(each));
+  expect(ids(shown)).toEqual(["sum"]);
+  expect(shown[0]!.text).toBe("Got it. I've dropped the plan.");
+  expect(markup(shown[0]!)).toContain(COPY);
+};
+
 for (const family of ["claude", "codex"])
-  test(`${family}: a turn that ended right after the person's message draws one row, over his message`, () => {
-    for (const working of [true, false]) {
-      const view = turnView(steeredThenEnded(), new Set(), { working, agentFamily: family, now: START + 1e6 });
-      // One row that shows: the one over his message, with its Copy.
-      const shown = footers(view).filter((each) => !isEmptyFooter(each));
-      expect(ids(shown)).toEqual([`${SUPERSEDED}-s1`]);
-      expect(markup(shown[0]!)).toContain(COPY);
-      // The footer under his message, where drawn, has nothing new: no Copy, no Read aloud, no line.
-      const under = view.find((each) => each.id === "sum");
-      if (!working) expect(under).toBeDefined();
-      if (under) {
-        expect(under.text).toBeUndefined();
-        expect(under.turnCopy).toBeUndefined();
-        expect(markup(under)).toContain("cv-turn-actions--empty");
-        expect(markup(under)).not.toContain(COPY);
-      }
-    }
+  test(`${family}: a turn that ended right after the person's message draws one row, under its reply`, () => {
+    for (const working of [true, false])
+      onlyTurnRow(turnView(steeredThenEnded(), new Set(), { working, agentFamily: family, now: START + 1e6 }));
   });
 
 test("a local steer still has its stretch to copy before it joins the stack", () => {
@@ -297,16 +298,21 @@ for (const ending of ["summary", "next prompt"] as const)
   });
 
 test("two messages in a row, then the turn ended: still no row under them", () => {
-  const second = row("s2", "user", { text: "AND THIS", steer: "landed" });
-  const view = turnView(steeredThenEnded([second]), new Set(), { agentFamily: "claude", now: START + 1e6 });
-  expect(ids(footers(view).filter((each) => !isEmptyFooter(each)))).toEqual([`${SUPERSEDED}-s1`]);
+  const after = () => [row("s2", "user", { text: "AND THIS", steer: "landed" })];
+  const view = turnView(steeredThenEnded(after), new Set(), { agentFamily: "claude", now: START + 1e6 });
+  onlyTurnRow(view);
+  expect(ids(view).indexOf("s2")).toBeLessThan(ids(view).indexOf("r1"));
 });
 
 // G04 (cmuxterm-hq#13766): every finished turn ends on its row, a turn of calls alone too. Calls the
 // agent ran after his message are something to copy, so that stretch keeps its row with their Copy;
 // only a turn that said and ran nothing after his message draws none (the test above).
 test("work alone after the person's message ends on its row, copying its calls", () => {
-  const view = turnView(steeredThenEnded([bash("b9")]), new Set(), { agentFamily: "claude", now: START + 1e6 });
+  const view = turnView(
+    steeredThenEnded(() => [bash("b9")]),
+    new Set(),
+    { agentFamily: "claude", now: START + 1e6 },
+  );
   const under = view.find((each) => each.id === "sum")!;
   expect(isEmptyFooter(under)).toBe(false);
   expect(under.turnCopy?.at(-1)).toEqual({
@@ -315,8 +321,11 @@ test("work alone after the person's message ends on its row, copying its calls",
 });
 
 test("a reply after the person's message keeps the turn's row and its Copy", () => {
-  const reply = row("r2", "assistant", { text: "Seed is hooked in." });
-  const view = turnView(steeredThenEnded([reply]), new Set(), { agentFamily: "claude", now: START + 1e6 });
+  const view = turnView(
+    steeredThenEnded(() => [row("r2", "assistant", { text: "Seed is hooked in." })]),
+    new Set(),
+    { agentFamily: "claude", now: START + 1e6 },
+  );
   const under = view.find((each) => each.id === "sum")!;
   expect(under.text).toBe("Seed is hooked in.");
   expect(isEmptyFooter(under)).toBe(false);
@@ -337,14 +346,10 @@ test("send a message: no assistant action row until assistant content arrives", 
   const opened = [...done, row("p2", "user", { text: "Second" })];
   expect(ids(footers(turnView(opened, new Set(), { ...options, working: true })))).toEqual(["e1"]);
   // A message into a running turn the agent then ended (acpmux carries it to the next turn): the
-  // turn's own footer draws nothing while the carried turn runs with nothing said.
+  // reply reads under the message and the turn's own row is its one row, while the carried turn runs
+  // with nothing said (#56293).
   const carried = steeredThenEnded();
-  const live = turnView(carried, new Set(), { ...options, working: true });
-  expect(
-    footers(live)
-      .filter((each) => !isEmptyFooter(each))
-      .map((each) => each.id),
-  ).toEqual([`${SUPERSEDED}-s1`]);
+  onlyTurnRow(turnView(carried, new Set(), { ...options, working: true }));
   // Once the carried turn says something and ends, its reply ends on its own row.
   const answered = [
     ...carried,
