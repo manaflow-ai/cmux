@@ -196,13 +196,18 @@ def main(argv: list[str] | None = None) -> int:
         if __package__ in {None, ""}:
             from codegen import page_router
             from codegen.swift_app import generate as swift_app
+            from codegen.swift_ffi import generate as swift_ffi
         else:
             from . import page_router
             from .swift_app import generate as swift_app
+            from .swift_ffi import generate as swift_ffi
         page_router_status = page_router.main([f"--{mode}"])
         schema_arguments = [] if arguments.schema == DEFAULT_SCHEMA else ["--schema", str(arguments.schema)]
         swift_app_status = swift_app.main(["--check", *schema_arguments])
-        return page_router_status or swift_app_status
+        # The app FFI's wire types, generated from the Rust rule crates (swift_ffi/generate.py) by
+        # WindowRulesWireTypesPlugin: a Rust type the emitter cannot express fails here.
+        swift_ffi_status = swift_ffi.main(["--check"])
+        return page_router_status or swift_app_status or swift_ffi_status
     return 0
 
 

@@ -200,6 +200,10 @@ SWIFT_JOB_INPUTS = (
     # CmuxNextAgentPane's relay policy tables are generated from it at build time (AgentPanePolicyPlugin).
     "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
     "scripts/cmux-next/gen-agent-pane-policy-swift.py",
+    # CmuxNextWindowRules' FFI wire types are generated from its Rust source at build time
+    # (WindowRulesWireTypesPlugin), so a Rust type edit changes the Swift build without a repin.
+    "cmux-tui/crates/cmux-window-rules/src/",
+    "cmux-tui/bindings/codegen/swift_ffi/",
     "cmux-tui/rust-toolchain.toml",
     "scripts/cmux-next/build-app-ffi.sh",
 )

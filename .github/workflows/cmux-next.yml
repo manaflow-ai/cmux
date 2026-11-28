@@ -240,6 +240,8 @@ on:
       - cmux-tui/crates/cmux-agent-pane-policy/policy.json
       - scripts/cmux-next/gen-phone-lane-fields.py
       - cmux-tui/spec/sdk-schema.json
+      - cmux-tui/crates/cmux-window-rules/src/**
+      - cmux-tui/bindings/codegen/swift_ffi/**
       - scripts/ci/cargo-test-selected.sh
       - scripts/cmux-next/herdr-sync.py
       - scripts/cmux-next/bundle-ghostty-resources.sh
@@ -634,6 +636,8 @@ on:
       - cmux-tui/crates/cmux-agent-pane-policy/policy.json
       - scripts/cmux-next/gen-phone-lane-fields.py
       - cmux-tui/spec/sdk-schema.json
+      - cmux-tui/crates/cmux-window-rules/src/**
+      - cmux-tui/bindings/codegen/swift_ffi/**
       - scripts/ci/cargo-test-selected.sh
       - scripts/cmux-next/herdr-sync.py
       - scripts/cmux-next/bundle-ghostty-resources.sh
