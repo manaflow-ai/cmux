@@ -14,10 +14,12 @@ name: Rivals head-to-head (nightly)
 # stops after one HTTP read. workflow_dispatch records now. A run that measures nothing is red and the stamp stays old.
 #
 # The exclusive bench queue waits hours (p90 about 700 min on 2026-11-28), longer than any job should hold the
-# gateway runner. So the job submits once, writes the step id to rivals/v1/_pending.json and stops waiting after
-# 30 min; the step keeps its place. Each later push re-attaches to that step (cmux-ci wait) instead of queueing
-# another, and the run that finds it done records it and clears the pending file. Before this, every due push queued
-# a fresh exclusive step that later ran for nobody.
+# gateway runner. So the job submits detached (`cmux-ci run --detach --report-check`), writes the step id to
+# rivals/v1/_pending.json and ends. Each later push re-attaches to that step for 2 min (cmux-ci wait) instead of
+# queueing another, and the run that finds it done records it and clears the pending file. Detached, not a 30-min
+# wait: the controller's orphan sweep (hq build-fleet/cmd/controller/orphan_drop.go) cancels a queued step whose
+# submitting Actions run has ended, unless a report check is attached. Run 46174737070 re-attached to step
+# ef62c6daf99f8f21894f0985 and found it dropped that way ("nothing waits for it").
 #
 # The job id ends in -fleet: the runner hook admits a fleet-client job by that suffix.
 #
@@ -57,8 +59,9 @@ jobs:
     # The fleet controller is tailnet-only; a job that fetches the fleet client runs on the gateway runner
     # (tests/test_ci_gateway_jobs_on_linux.py).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
-    # The client's queue wait (30 min) and run limit (150 min: 12 apps, each about 10 min: the bundle copy, the quiet
-    # wait, five launches with 20 s after each, a 5 minute soak), the upload. A re-attach waits 30 min, as the submit does.
+    # A detached submit or a 2-min re-attach ends in minutes. The bound is for a controller that takes no check run
+    # (the client then waits here): its run limit (150 min: 12 apps, each about 10 min: the bundle copy, the quiet
+    # wait, five launches with 20 s after each, a 5 minute soak), the queue wait and the upload.
     timeout-minutes: 200
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     permissions:
@@ -143,17 +146,23 @@ jobs:
           if [[ -n "$PENDING" ]]; then
             step="$PENDING"
             echo "re-attaching to pending step $step (submitted by an earlier run)"
-            "$client" wait "$step" --timeout 1800 2>&1 | tee "$out/step.log" || status=$?
+            "$client" wait "$step" --timeout 120 2>&1 | tee "$out/step.log" || status=$?
           else
+            # --report-check keeps the queued step past this run's end (orphan_drop.go skips it); its verdict
+            # lands as a check run on this commit.
             "$client" run --class exclusive --measurement --label bench \
               --script scripts/measure/rivals.sh --ref "$GITHUB_SHA" \
               --artifact artifacts/rivals/results.json \
               --arg="apps=$APPS" --arg="soak=$SOAK" \
-              --timeout 9000 --queue-timeout 1800 2>&1 | tee "$out/step.log" || status=$?
+              --report-check "Rivals head-to-head (bench step)" --detach \
+              --timeout 9000 2>&1 | tee "$out/step.log" || status=$?
             step="$(grep -o -E '\b[0-9a-f]{24}\b' "$out/step.log" | head -1 || true)"
+            # A detached submit exits 0 at once; a controller without check runs waited here instead, so 0 means
+            # queued only when no results came back.
+            if [[ $status == 0 ]] && grep -q 'detached; check run' "$out/step.log"; then status=75; fi
           fi
-          # Exit 75 (the submit's queue wait), 2 (wait's timeout) or 3 (controller unreachable): the step keeps its
-          # place; the next push re-attaches.
+          # Detached (75 above), exit 75 (a queue wait), 2 (wait's timeout) or 3 (controller unreachable): the step
+          # keeps its place; the next push re-attaches.
           if [[ -n "$step" ]] && { [[ $status == 75 ]] || [[ $status == 2 ]] || [[ $status == 3 ]]; }; then
             put_pending "{\"step\": \"$step\", \"sha\": \"$GITHUB_SHA\", \"at\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" || exit 1
             echo "queued=true" >> "$GITHUB_OUTPUT"

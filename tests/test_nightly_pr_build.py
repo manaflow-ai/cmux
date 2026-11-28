@@ -268,7 +268,7 @@ class Workflow(unittest.TestCase):
         match = re.search(r"(?ms)^  swift-fleet:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)", text)
         self.assertIsNotNone(match)
         self.assertIn("if: ${{ needs.route.outputs.swift == 'true' }}", match.group(1))
-        self.assertIn("vars.CI_EVAL_STEP_GATEWAY || vars.CI_OVERFLOW_LINUX || 'cmux-linux'", match.group(1))
+        self.assertIn("vars.CI_EVAL_STEP_GATEWAY || 'cmux-linux'", match.group(1))
 
     def test_queue_wait_is_bounded_and_an_unstarted_step_is_cancelled(self) -> None:
         # Leo, 2026-11-25: "Ok well we can't be letting important rfds like that take breaks unless I put in
