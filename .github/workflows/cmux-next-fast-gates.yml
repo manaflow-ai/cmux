@@ -339,6 +339,7 @@ jobs:
           filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: &verifier-sparse |
+            /.gitmodules
             /scripts/ci/ci_receipt.py
             /scripts/ci/deadline_http.py
             /scripts/ci/cmux_next_fast_gates.py
@@ -542,6 +543,12 @@ jobs:
             /docs/mdm/
             /docs/ci/cmux-next-workflow-notes.md
             /docs/ci/nightly-workflow-notes.md
+            /docs/ci/cmux-next-workflow-notes/
+            /docs/ci/nightly-workflow-notes/
+            # tests/test_outbound_hosts.py reads the host list; the Bun cache keys hash these lockfiles.
+            /docs/privacy.md
+            /agent-chat/bun.lock
+            /backend/bun.lock
             /backend/apps/api/
             *.xcstrings
 

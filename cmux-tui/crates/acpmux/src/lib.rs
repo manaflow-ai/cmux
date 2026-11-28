@@ -91,6 +91,7 @@ mod codex_auth_file;
 pub mod codex_bundle;
 mod codex_cloud_auth;
 pub mod codex_cmux_entry;
+pub mod codex_dedupe;
 pub mod codex_desktop;
 pub mod codex_repo_gate;
 mod codex_signed_out;

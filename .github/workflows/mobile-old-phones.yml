@@ -81,12 +81,22 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
+      # The repo token's hourly quota is shared by every workflow and runs out (46116606886, 46125947911):
+      # resolve then answers with the last list it read, carried here between runs.
+      - name: The last phone list read
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .old-phones-list
+          # No key names this run: the newest list saved under the prefix is the one read.
+          key: mobile-old-phones-list-
+          restore-keys: mobile-old-phones-list-
       - id: resolve
         env:
           GH_TOKEN: ${{ github.token }}
           API: ${{ inputs.api || 'both' }}
         run: |
-          python3 -I scripts/ci/mobile_old_phones.py resolve --repo "$GITHUB_REPOSITORY" --count 3 > phones.txt
+          python3 -I scripts/ci/mobile_old_phones.py resolve --repo "$GITHUB_REPOSITORY" --count 3 \
+            --cache .old-phones-list/phones.txt > phones.txt
           cat phones.txt
           for i in 1 2 3; do echo "sha$i=$(awk -v n="$i" 'NR==n {print $1}' phones.txt)" >> "$GITHUB_OUTPUT"; done
           echo "list=$(awk '{print $1 ":" $3}' phones.txt | paste -sd' ' -)" >> "$GITHUB_OUTPUT"
@@ -94,6 +104,14 @@ jobs:
             staging|prod) echo "apis=[\"$API\"]" >> "$GITHUB_OUTPUT" ;;
             *) echo 'apis=["staging","prod"]' >> "$GITHUB_OUTPUT" ;;
           esac
+      - name: Keep this phone list for the next run
+        # Keyed by the list itself, saved from feat-cmux-next only (tests/test_ci_no_run_scoped_cache_keys.py): a run id
+        # key stored one entry per run, and a dispatch from another branch saved where no later run reads it.
+        if: ${{ github.ref == 'refs/heads/feat-cmux-next' && steps.resolve.outputs.fresh == 'true' }}
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .old-phones-list
+          key: mobile-old-phones-list-${{ hashFiles('.old-phones-list/phones.txt') }}
 
   dial:
     name: Shipped iPhones vs ${{ matrix.api }} API

@@ -169,7 +169,7 @@ class Record(unittest.TestCase):
         self.assertIn("conclusion == 'success'", record)
         self.assertIn("CI_NIGHTLY_PR_BUILD_RECORD", record)
         # Same cache path and key function as the compile job's lookup and its wait-mode save.
-        self.assertIn("path: ${{ runner.temp }}/nightly-pr-build-pass", record)
+        self.assertIn("path: .same-tree/nightly-pr-build-pass", record)
         self.assertIn("nightly_pr_build.py keys", record)
         self.assertIn("nightly_pr_build.py keys", compile_job)
         name = re.search(r"REPORT_CHECK: (.*)", compile_job).group(1).replace("${{ matrix.arch }}", "ARCH")
@@ -267,7 +267,9 @@ class Workflow(unittest.TestCase):
         text = (ROOT / npb.WORKFLOW).read_text()
         match = re.search(r"(?ms)^  swift-fleet:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)", text)
         self.assertIsNotNone(match)
-        self.assertIn("if: ${{ needs.route.outputs.swift == 'true' }}", match.group(1))
+        # The route job's result gates it too (#63984): a skipped needs no longer skips it, a failed route still does.
+        self.assertIn("if: ${{ !cancelled() && needs.route.result == 'success' && needs.route.outputs.swift == 'true' }}",
+                      match.group(1))
         self.assertIn("vars.CI_EVAL_STEP_GATEWAY || vars.CI_OVERFLOW_LINUX || 'cmux-linux'", match.group(1))
 
     def test_queue_wait_is_bounded_and_an_unstarted_step_is_cancelled(self) -> None:

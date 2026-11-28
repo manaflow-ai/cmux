@@ -580,6 +580,7 @@ jobs:
           persist-credentials: false
           sparse-checkout-cone-mode: false
           sparse-checkout: |
+            /.gitmodules
             cmux-next-ios/UITests/AppReviewGateUITests.swift
             cmux-next-ios/AppStoreReview/rejection-history.json
       - name: Checkout the gate's files
@@ -590,6 +591,7 @@ jobs:
           persist-credentials: false
           sparse-checkout-cone-mode: false
           sparse-checkout: |
+            /.gitmodules
             cmux-next-ios/UITests/AppReviewGateUITests.swift
             cmux-next-ios/AppStoreReview/rejection-history.json
       - name: Build on the build fleet
@@ -1216,6 +1218,7 @@ jobs:
           persist-credentials: false
           # The key reads git trees only, which a sparse checkout still has; cmux-tui builds the binary.
           sparse-checkout: |
+            /.gitmodules
             .github/
             scripts/ci/r2-cache.sh
             scripts/ci/lan_cache_fetch.py

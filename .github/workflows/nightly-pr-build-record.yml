@@ -38,6 +38,7 @@ jobs:
           filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: |
+            /.gitmodules
             /scripts/
           submodules: false
       - name: Key the inputs at the head
@@ -49,11 +50,11 @@ jobs:
             "$HEAD_SHA" "+refs/pull/$PR/merge:refs/remotes/pull/merge" || { echo "::notice::no merge ref; nothing recorded"; exit 0; }
           arch="${CHECK_NAME#nightly app compile }"; arch="${arch%% *}"
           key="$(python3 scripts/ci/nightly_pr_build.py keys --rev "$HEAD_SHA" --recipe-rev refs/remotes/pull/merge | sed -n "s/^keys=//p" | python3 -c 'import json,sys; print(json.load(sys.stdin)[sys.argv[1]])' "$arch")"
-          mkdir -p "$RUNNER_TEMP/nightly-pr-build-pass" && echo "$key" > "$RUNNER_TEMP/nightly-pr-build-pass/key"
+          mkdir -p .same-tree/nightly-pr-build-pass && echo "$key" > .same-tree/nightly-pr-build-pass/key
           echo "key=$key" >> "$GITHUB_OUTPUT"
       - name: Save the pass
         if: ${{ steps.key.outputs.key != '' }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ${{ runner.temp }}/nightly-pr-build-pass
+          path: .same-tree/nightly-pr-build-pass
           key: ${{ steps.key.outputs.key }}

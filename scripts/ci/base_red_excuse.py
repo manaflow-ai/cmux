@@ -8117,7 +8117,9 @@ def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
         if why := test_reds.lost_runner(job, notes, str(error)):
             raise infra(name, job, why) from None
         raise
-    if why := test_reds.lost_runner(job, (), text):
+    # A checkout red from the network or a reused workspace (test_reds.checkout_infra) is read_head's: a submodule pin
+    # the change moves can fail the checkout on its own (#43915), so it waits for checkout_death's read of the change.
+    if (why := test_reds.lost_runner(job, (), text)) and why != test_reds.checkout_infra(job, text):
         raise infra(name, job, why)
     return text
 
@@ -10085,15 +10087,21 @@ def checkout_death(repo: str, base: str, sha: str, job: dict, log: str | None, g
     error = test_reds.died_in_checkout(log)
     if error is None:
         return None
+    if not pins_unmoved(repo, base, sha, job, github):
+        return None  # a submodule pin the change moves can fail the checkout on its own (#43915)
+    return f"actions/checkout step, which died before any step of this change ran ({error[:300]})"
+
+
+def pins_unmoved(repo: str, base: str, sha: str, job: dict, github) -> bool:
+    """True when the change at SHA moves neither .gitmodules nor a gitlink against BASE, read in full (runs_no_pr_code's
+    rule). A compare that is cut short or unreadable is False: which paths the change touches is not known."""
     diff = github.json(f"repos/{repo}/compare/{base}...{sha or job.get('head_sha')}")
     files = diff.get("files") if isinstance(diff, dict) else None
     if not isinstance(files, list) or len(files) >= COMPARE_FILES_CAP:
-        return None  # which paths the change touches is not known in full: its red stays its own
+        return False
     changed = {str(path) for found in files if isinstance(found, dict)
                for path in (found.get("filename"), found.get("previous_filename")) if path is not None}
-    if ".gitmodules" in changed or compare_gitlinks(files):
-        return None  # a submodule pin the change moves can fail the checkout on its own (#43915)
-    return f"actions/checkout step, which died before any step of this change ran ({error[:300]})"
+    return ".gitmodules" not in changed and not compare_gitlinks(files)
 
 
 def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_reads: dict,
@@ -10116,6 +10124,8 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
                       f"[cmux-ci machine: {kind}]: {said[:300]}); it gets re-run, never excused")
     if (died := checkout_death(repo, base, sha, job, head_log, github)) is not None:
         raise Refused(f"'{name}' was refused at setup by its runner's {died}; it gets re-run, never excused")
+    if (why := test_reds.checkout_infra(job, head_log)) and pins_unmoved(repo, base, sha, job, github):
+        raise infra(name, job, why)
     if name == TREE_HANDOFF_JOB and (said := tree_handoff_quota_only(job, head_log)) is not None:
         raise JobRateLimited(f"'{name}' reported only its repo installation API quota refusal ({said}); rerun the job "
                              "after that boundary")

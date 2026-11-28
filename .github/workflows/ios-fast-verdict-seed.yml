@@ -42,7 +42,9 @@ jobs:
         with:
           persist-credentials: false
           filter: blob:none
-          sparse-checkout: scripts/ci/ios_fast_dd_key.py
+          sparse-checkout: |
+            /.gitmodules
+            scripts/ci/ios_fast_dd_key.py
           sparse-checkout-cone-mode: false
 
       # The newest seed of any Xcode or path, from its public pointer; no credential.
@@ -63,7 +65,7 @@ jobs:
       group: ios-fast-verdict-seed-${{ github.ref }}
       cancel-in-progress: false
     # The pool pr-pipeline.yml's ios-fast-runner falls back to, so the workspace path matches.
-    runs-on: blacksmith-6vcpu-macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 40
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     permissions:

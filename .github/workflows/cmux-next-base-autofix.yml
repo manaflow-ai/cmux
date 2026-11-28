@@ -241,6 +241,7 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: |
+            /.gitmodules
             /scripts/cmux-next/base-autofix-push-preflight.sh
           sparse-checkout-cone-mode: false
 
