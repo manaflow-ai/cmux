@@ -2281,14 +2281,19 @@ extension AgentChatStore {
     /// What the chat's loading state says. Never the link: a chat waiting on its Mac loads like any other (Leo, 2026-11-22: "i dont
     /// wanna see connecting to cosmic-gray... with the spinner").
     public var loadingText: String {
-        isStarting || awaitsFirstPrompt ? Self.startingText(summary) : "Loading chat…"
+        startingShows ? Self.startingText(summary) : "Loading chat…"
     }
+
+    /// The chat still reads as starting: its first message is on its way, or the Mac is starting it on a live link.
+    /// A start whose Mac dropped after its send ended loads like any other chat (``isStarting`` is read once, so on
+    /// its own it would say "Starting <agent>…" for as long as the link stays down).
+    private var startingShows: Bool { awaitsFirstPrompt || isStarting && !isOffline }
 
     /// The loading state's words show. A start says so at once (the person just asked for
     /// it); a chat catching up or reconnecting shows only its spinner, and its words only after
     /// ``QuietStatusGate/threshold`` (Leo's quiet-connection rule: no "Loading" sentence for a
     /// wait that ends in a moment; iOS release bar read-back, 2026-11-22, shot 14).
-    public var loadingTextShows: Bool { isStarting || awaitsFirstPrompt || quietStatus.isShown }
+    public var loadingTextShows: Bool { startingShows || quietStatus.isShown }
 
     /// "Starting Claude…"; the Mac's default agent, not named yet, is "Starting chat…".
     public static func startingText(_ summary: AgentSessionSummary) -> String {
