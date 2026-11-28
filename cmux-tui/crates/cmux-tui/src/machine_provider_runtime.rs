@@ -1811,7 +1811,7 @@ fn connect_client(
     let client_descriptor = protocol::ClientDescriptor {
         name: "cmux-tui".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
-        supported_versions: vec![protocol::PROTOCOL_VERSION],
+        supported_versions: protocol::ProtocolRange::OURS.versions(),
     };
     let (client, _hello) =
         ProviderClient::connect_authenticated_with(connector, client_descriptor)?;

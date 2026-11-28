@@ -182,3 +182,51 @@ fn every_message_round_trips() {
         assert_eq!(serde_json::from_slice::<Envelope>(&encoded).unwrap(), frame);
     }
 }
+
+mod version_range {
+    use crate::{
+        Envelope, PROTOCOL_MAX, PROTOCOL_MIN, PROTOCOL_VERSION, VersionIncompatible, VersionPeek,
+        speaks,
+    };
+
+    #[test]
+    fn this_build_reads_its_own_version_and_the_legacy_single_number() {
+        assert!(speaks(PROTOCOL_VERSION));
+        // Every build before the range wrote `"version": 1`.
+        assert!(speaks(1));
+        assert!(PROTOCOL_MIN <= PROTOCOL_MAX);
+        if PROTOCOL_MAX > 1 {
+            assert!(PROTOCOL_MIN < PROTOCOL_MAX, "PROTOCOL_MIN must stay at most MAX - 1");
+        }
+    }
+
+    #[test]
+    fn a_newer_peer_frame_is_a_typed_refusal_naming_this_side() {
+        let frame = serde_json::json!({
+            "protocol": "cmux.machine-agent",
+            "version": PROTOCOL_MAX + 1,
+            "message": {"type": "ping", "body": {"nonce": 1, "future": true}},
+        });
+        assert!(serde_json::from_value::<Envelope>(frame.clone()).is_err());
+        let peek: VersionPeek = serde_json::from_value(frame).unwrap();
+        let refusal = peek.check().unwrap();
+        assert_eq!(refusal, VersionIncompatible { theirs: PROTOCOL_MAX + 1 });
+        assert_eq!(refusal.update_side(), "self");
+        assert_eq!(refusal.action(), "update cmux");
+        assert!(refusal.to_string().starts_with("version.incompatible"));
+    }
+
+    #[test]
+    fn an_older_peer_below_the_floor_names_the_peer() {
+        let refusal = VersionIncompatible { theirs: 0 };
+        assert_eq!(refusal.update_side(), "peer");
+        assert_eq!(refusal.action(), "update the cmux server");
+    }
+
+    #[test]
+    fn an_in_range_frame_peeks_clean() {
+        let peek: VersionPeek =
+            serde_json::from_value(serde_json::json!({"version": PROTOCOL_VERSION})).unwrap();
+        assert_eq!(peek.check(), None);
+    }
+}

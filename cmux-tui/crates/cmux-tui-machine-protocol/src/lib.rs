@@ -21,10 +21,15 @@ pub use machine_metadata::{
     MACHINE_METADATA_CLIENT_CAPABILITY, MachineDescriptor, MachinePlatform,
 };
 pub mod operations;
+mod version_range;
 pub use operations::{
     CreateMachineSpec, ExecOutput, ExecRequest, ExposedPort, ForkLatencyClass,
     InMemoryMachineProvider, MachineHandle, MachineOperation, MachineOperationCapabilities,
     MachineProvider, MachineProviderError, MachineRunState, PortProtocol, SnapshotHandle,
+};
+pub use version_range::{
+    PROTOCOL_MAX, PROTOCOL_MIN, ProtocolRange, UpdateSide, VersionIncompatible, VersionPeek,
+    negotiate_version,
 };
 
 pub const PROTOCOL_NAME: &str = "cmux.machine-provider";
@@ -295,7 +300,9 @@ impl<'de> Deserialize<'de> for Protocol {
     }
 }
 
-/// Serializes as v1 and rejects every other major protocol version.
+/// Serializes as [`PROTOCOL_VERSION`] and reads any version in [`ProtocolRange::OURS`]. A frame
+/// from outside the range fails here; a reader that wants the typed refusal checks
+/// [`VersionPeek`] first.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Version;
 
@@ -314,10 +321,13 @@ impl<'de> Deserialize<'de> for Version {
         D: Deserializer<'de>,
     {
         let value = u16::deserialize(deserializer)?;
-        if value == PROTOCOL_VERSION {
+        if ProtocolRange::OURS.contains(value) {
             Ok(Self)
         } else {
-            Err(D::Error::custom(format!("unsupported machine-provider protocol version {value}")))
+            Err(D::Error::custom(format!(
+                "unsupported machine-provider protocol version {value} (this build speaks {})",
+                ProtocolRange::OURS
+            )))
         }
     }
 }
@@ -1071,6 +1081,9 @@ pub enum ProviderErrorCode {
     Unavailable,
     Timeout,
     UnsupportedVersion,
+    /// No protocol version in common (RFD 0224): the message names which side to update. A
+    /// build from before it reads the code as `Other("version.incompatible")`.
+    VersionIncompatible,
     Internal,
     Other(String),
 }
@@ -1085,6 +1098,7 @@ impl ProviderErrorCode {
             Self::Unavailable => "unavailable",
             Self::Timeout => "timeout",
             Self::UnsupportedVersion => "unsupported_version",
+            Self::VersionIncompatible => "version.incompatible",
             Self::Internal => "internal",
             Self::Other(value) => value,
         }
@@ -1114,6 +1128,7 @@ impl<'de> Deserialize<'de> for ProviderErrorCode {
             "unavailable" => Self::Unavailable,
             "timeout" => Self::Timeout,
             "unsupported_version" => Self::UnsupportedVersion,
+            "version.incompatible" => Self::VersionIncompatible,
             "internal" => Self::Internal,
             _ if valid_error_code(&value) => Self::Other(value),
             _ => return Err(D::Error::custom("provider error code is invalid")),

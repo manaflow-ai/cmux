@@ -1,6 +1,8 @@
 use std::io::{self, BufRead, Write};
 
-use cmux_tui_machine_agent_protocol::{Envelope, MAX_FRAME_BYTES};
+use cmux_tui_machine_agent_protocol::{
+    Envelope, MAX_FRAME_BYTES, VersionIncompatible, VersionPeek,
+};
 use zeroize::Zeroize;
 
 #[derive(Debug)]
@@ -10,6 +12,8 @@ pub(super) enum FrameReadError {
     Truncated,
     TooLarge,
     Invalid(serde_json::Error),
+    /// A frame from outside this build's tunnel protocol range (hq RFD 0224).
+    VersionIncompatible(VersionIncompatible),
 }
 
 impl std::fmt::Display for FrameReadError {
@@ -22,6 +26,7 @@ impl std::fmt::Display for FrameReadError {
                 write!(formatter, "machine-agent frame exceeds {MAX_FRAME_BYTES} bytes")
             }
             Self::Invalid(error) => write!(formatter, "invalid machine-agent frame: {error}"),
+            Self::VersionIncompatible(refusal) => write!(formatter, "{refusal}"),
         }
     }
 }
@@ -66,7 +71,13 @@ pub(super) fn read_frame<R: BufRead>(reader: &mut R) -> Result<Envelope, FrameRe
             if frame.last() == Some(&b'\r') {
                 frame.pop();
             }
-            let decoded = serde_json::from_slice(&frame).map_err(FrameReadError::Invalid);
+            let decoded = serde_json::from_slice(&frame).map_err(|error| {
+                // Only a frame that fails the strict decode is peeked: the common path pays nothing.
+                match serde_json::from_slice::<VersionPeek>(&frame).ok().and_then(|p| p.check()) {
+                    Some(refusal) => FrameReadError::VersionIncompatible(refusal),
+                    None => FrameReadError::Invalid(error),
+                }
+            });
             frame.zeroize();
             return decoded;
         }
