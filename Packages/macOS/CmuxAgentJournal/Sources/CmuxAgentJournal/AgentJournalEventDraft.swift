@@ -16,6 +16,10 @@ public struct AgentJournalEventDraft: Codable, Sendable, Equatable {
     /// truncated on a character boundary.
     public static let maximumDetailLength = 500
 
+    /// ``nativeEvent`` of the turn completion the app journals when a pane's
+    /// agent went quiet without reporting its own Stop.
+    public static let paneIdleSettlementNativeEvent = "program_status_idle"
+
     /// Schema version of this draft (``currentSchemaVersion`` for new events).
     public var schemaVersion: Int
     /// Producer-chosen globally unique id; the journal's idempotency key.

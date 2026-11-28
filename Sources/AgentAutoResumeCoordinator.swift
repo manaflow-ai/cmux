@@ -29,7 +29,11 @@ final class AgentAutoResumeCoordinator {
         AutomationCatalogSection().agentAutoResume.value(in: .standard)
     }
 
-    func observe(_ draft: AgentJournalEventDraft) {
+    /// Folds one live journal event into a resume decision.
+    /// - Parameters:
+    ///   - turnOverBefore: The notification reconciler's turn read before it applied `draft`.
+    ///   - turnOverAfter: The same read after it applied `draft`.
+    func observe(_ draft: AgentJournalEventDraft, turnOverBefore: Bool, turnOverAfter: Bool) {
         guard let surfaceId = draft.surfaceId else { return }
         let hadResumes = tracker.totalResumes(surfaceId: surfaceId) > 0
         let action = tracker.observe(
@@ -37,7 +41,9 @@ final class AgentAutoResumeCoordinator {
             surfaceId: surfaceId,
             isSubagent: draft.isSubagent,
             detail: draft.detail,
-            sessionId: draft.sessionId
+            sessionId: draft.sessionId,
+            turnOverBefore: turnOverBefore,
+            turnOverAfter: turnOverAfter
         )
         // The marker lasts until the agent finishes a turn on its own.
         if draft.kind == .sessionEnded || (hadResumes && tracker.totalResumes(surfaceId: surfaceId) == 0) {
