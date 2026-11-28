@@ -1700,6 +1700,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-chat-page-pool"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-chief"
 version = "0.1.0"
 dependencies = [

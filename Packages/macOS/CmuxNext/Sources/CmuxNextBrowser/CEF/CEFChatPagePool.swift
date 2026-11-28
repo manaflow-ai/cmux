@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextDesign
 import Foundation
 
 /// The warm chat page pool (CMUX-1005), off by default: a constant number of cmux chat pages (default 2)
