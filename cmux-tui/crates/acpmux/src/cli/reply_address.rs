@@ -149,9 +149,9 @@ async fn renew_at(path: &std::path::Path, want: AutoRegister, wait: Duration) ->
     }
 }
 
-/// `acpmux register --auto NAME`, from cmux's Claude Code hook (`cli/hook_register.rs`): the
-/// first step a send takes, with no send. Starts no daemon; once the answer says the chat is
-/// reached with this process, leaves the mark that ends the hook's asks.
+/// `acpmux register --auto NAME`: whether the chat is reached with this process. The daemon
+/// delivers no code for it (`hub/register.rs` `auto_why`). Starts no daemon; leaves the mark
+/// once the answer settles it (`cli/hook_register.rs`).
 pub async fn auto(name: String) -> Value {
     let env =
         |key: &str| std::env::var(key).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
