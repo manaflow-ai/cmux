@@ -258,6 +258,18 @@ export function toolOutputOnly(
 ): { id: string; output: string; before: string | undefined } | undefined {
   const index = oneRowChangeFrom(next.rows, previous.rows);
   if (index === undefined || !sameButRows(previous, next)) return undefined;
+  return toolOutputAt(previous, next, index);
+}
+
+/// `toolOutputOnly` for row `index`, which the caller found changed: whether that row's change is
+/// one running shell call's output growing (and naming nothing the pane reads). The rest of the
+/// snapshot is the caller's to compare (a frame that also grew the streaming reply's text,
+/// streamingRow.ts `streamChanges`).
+export function toolOutputAt(
+  previous: AcpmuxSnapshot,
+  next: AcpmuxSnapshot,
+  index: number,
+): { id: string; output: string; before: string | undefined } | undefined {
   const before = previous.rows[index];
   const after = next.rows[index];
   if (!before || !after || before.id !== after.id || after.kind !== "activity") return undefined;
@@ -351,16 +363,24 @@ const STREAMED: ReadonlySet<string> = new Set([
   "tool_call_update",
   "agent_thought_chunk",
   "agent_message_chunk",
+  "usage_update",
 ]);
 
 /// Every field of the two snapshots is the same object, except `rows`.
 export function sameButRows(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot): boolean {
+  return sameBut(drawn, next, "rows");
+}
+
+/// Every field of the two snapshots is the same, except `field`: each row-local and usage bypass
+/// (this file, streamChanges.ts, liveSummary.ts `usageOnly`) reads the client's per-snapshot
+/// projections the same way.
+export function sameBut(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot, field: keyof AcpmuxSnapshot): boolean {
   const before = drawn as unknown as Record<string, unknown>;
   const after = next as unknown as Record<string, unknown>;
   const keys = Object.keys(after);
   if (keys.length !== Object.keys(before).length) return false;
   for (const key of keys) {
-    if (key === "rows") continue;
+    if (key === field) continue;
     if (Object.is(before[key], after[key])) continue;
     // `direct.ts` projects this metadata from its settled view on every snapshot. The wrapper
     // object is new each time, while `lastSeq` and `forkSeqs` remain the same. Treat that

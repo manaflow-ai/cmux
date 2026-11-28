@@ -210,7 +210,8 @@ import type { ShownChrome } from "../shownChrome";
 import { applyPaneTheme, applyPaneThemeCSS } from "../paneTheme";
 import { dismissFocusRing } from "../../../ui/focusModality";
 import { focusRoute } from "../../../ui/focusRoute";
-import { currentRegistry, NEW_TAB_CLOSE_EVENT, streamedOnly } from "../App";
+import { currentRegistry, NEW_TAB_CLOSE_EVENT } from "../App";
+import { streamedOnly } from "../streamChanges";
 import {
   failedRowIds,
   heldGoesAfterTrust,
@@ -1383,8 +1384,15 @@ export function paneSnapshotEffect({
           // running turn's closed fold, and those that still redraw the pane (drawnRows.ts).
           const hiddenChange = acpmuxPerf.enabled && received !== undefined && changeHidden(received, next);
           if (hiddenChange) acpmuxPerf.render("record:row-hidden");
-          const at = drawn ? streamedOnly(drawn, next) : -1;
-          if (drawn && at >= 0) {
+          // With a running command's output grown in the same frame, that output goes to the row
+          // that draws it (liveToolOutput.ts), as when it grows alone.
+          const streamed = drawn ? streamedOnly(drawn, received, next, pendingPaneDraw.pending) : undefined;
+          if (drawn && streamed) {
+            const at = streamed.text;
+            if (streamed.call) {
+              acpmuxPerf.render("pane:streamed-with-output");
+              liveToolOutput.set(streamed.call.id, streamed.call.output, streamed.call.before);
+            }
             streamingRow.set(next.rows[at]!, drawn.rows[at]!);
             liveCallLine.follow(received, next);
             return;

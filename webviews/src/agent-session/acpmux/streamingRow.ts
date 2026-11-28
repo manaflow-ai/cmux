@@ -145,6 +145,19 @@ export function streamingRowBlocked(): boolean {
   return blockedBy.size > 0;
 }
 
+/// `after` is `before`, a streaming reply's row, with only its text grown.
+export function streamedText(before: AcpmuxRow, after: AcpmuxRow): boolean {
+  return (
+    after.kind === "assistant" &&
+    after.streaming === true &&
+    before.id === after.id &&
+    typeof before.text === "string" &&
+    typeof after.text === "string" &&
+    after.text.startsWith(before.text) &&
+    sameButText(before, after)
+  );
+}
+
 /// Every own field of the two rows is the same, except `text` and `version`.
 function sameButText(previous: AcpmuxRow, next: AcpmuxRow): boolean {
   const before = previous as unknown as Record<string, unknown>;
@@ -166,17 +179,7 @@ export function textOnlyRow(previous: readonly AcpmuxRow[], next: readonly Acpmu
     const before = previous[index]!;
     const after = next[index]!;
     if (before === after) continue;
-    if (changed >= 0) return -1;
-    if (
-      after.kind !== "assistant" ||
-      after.streaming !== true ||
-      before.id !== after.id ||
-      typeof before.text !== "string" ||
-      typeof after.text !== "string" ||
-      !after.text.startsWith(before.text) ||
-      !sameButText(before, after)
-    )
-      return -1;
+    if (changed >= 0 || !streamedText(before, after)) return -1;
     changed = index;
   }
   return changed;
