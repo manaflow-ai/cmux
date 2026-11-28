@@ -53,6 +53,7 @@ import { harnessProfiles } from "../harnessProfiles";
 import { setStartModeSource } from "../startMode";
 import { setAttachmentView } from "../composerSettings";
 import { setStartRecoveryPreview } from "../startRecoveryPreview";
+import { setWaitingPreview } from "../waiting/waitingPreview";
 import { setComputerUsePreviewControls } from "../computerUse/computerUsePreview";
 import { setPromptSurfaces } from "../surfaces/promptSurface";
 import { preparedMockTransport } from "../mockTransport";
@@ -155,10 +156,10 @@ import {
   lostRetryDelay,
   nextRetryDelay,
   offersAcpmuxRestart,
-  hostPlannedRestart,
   quickRetry,
   readHostRestoring,
   troubleSinceAfterLoss,
+  hostPlannedRestart,
   hostRetryStep,
   HOST_WAKE_EVENTS,
   hostWakeAsks,
@@ -167,10 +168,10 @@ import {
   RETRY_FIRST_MS,
 } from "../hostRetry";
 import {
+  acpmuxSendsReady,
   heldStartStop,
   sendsHeldForHost,
   untilHostAnswers,
-  acpmuxSendsReady,
   pageClientLink,
   paneSends,
 } from "../sendWhenReady";
@@ -776,6 +777,8 @@ export function paneSnapshotEffect({
       // pick; nothing creates a paid VM without one.
       setPromptSurfaces(on === true);
       setStartRecoveryPreview(on === true);
+      // Waiting on me on the home (waiting/HomeWaitingSection.tsx) ships dark behind Labs at first.
+      setWaitingPreview(on === true);
       setComputerUsePreviewControls(on === true);
       // Workflows no longer follow Advanced > Labs; only applyWorkflowLabs switches them.
     },

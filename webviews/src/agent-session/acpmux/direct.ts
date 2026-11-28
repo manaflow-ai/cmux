@@ -6198,6 +6198,12 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/draft_set", { sessionId, text });
   }
 
+  /// The day's agent chats as working and waiting stretches (`_acpmux/waiting_day`, waiting/waitingModel.ts),
+  /// from acpmux's status log: no session log is read.
+  waitingDay(params: { since: number; until: number }): Promise<unknown> {
+    return this.request("_acpmux/waiting_day", params, 10_000);
+  }
+
   /// The session's unsent chips as acpmux keeps them, in order with their contents
   /// (`{sessionId, draft, attachments}`); an older daemon answers no `attachments`.
   readDraftAttachments(sessionId: string): Promise<unknown> {

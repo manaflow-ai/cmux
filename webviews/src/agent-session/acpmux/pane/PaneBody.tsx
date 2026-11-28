@@ -49,6 +49,7 @@ import { projectName } from "../emptyStateModel";
 import { TourStartContext } from "../repoTour/TourBlock";
 import { ChatUnavailableState } from "../ChatUnavailableState";
 import { PastChat } from "../PastChat";
+import { HomeWaitingSection } from "../waiting/HomeWaitingSection";
 import { ComputerUsePreviewCard } from "../computerUse/ComputerUsePreviewCard";
 import { translate, type Translate } from "../i18n";
 import { LINK_DOWN_SAID_MS } from "../afterDelay";
@@ -115,6 +116,7 @@ import { readFolderStatus } from "./hostBindings";
 import { chatMenuHasRows } from "./chatMenu";
 import { NewTabComposerChips } from "./ComposerChips";
 import type { AcpmuxSnapshot, paneHeader } from "../model";
+import { linkUp } from "../model";
 import type { AcpmuxDirectClient } from "../direct";
 import type { SteerItem } from "../steerQueue/model";
 import type { IslandState } from "../statusIsland/model";
@@ -1744,6 +1746,20 @@ export function drawPaneBody({
                 {/* The pane's toasts stand on the stack's top edge, over the transcript (ToastLayer.tsx). */}
                 <ToastLayer queue={paneToasts} topHost={toastTop} />
                 {asks}
+                {/* Between the hero and the docked composer: only Waiting on me (Labs; draws nothing when off),
+                      so the default new chat stays the plain one. */}
+                {/* A Sandboxed send holds the new chat: no recent chat replaces it while it is out.
+                      Neither does a Cloud start's chat, which shows its sent message (CloudStartView). */}
+                {freshView && !premountsChatView && !sandboxHoldsChat && !viewedSandbox && !cloudStartShown && (
+                  <div className="acpmux-home-area">
+                    <HomeWaitingSection
+                      directClient={directClient}
+                      sessions={snapshot.sessions}
+                      linked={linkUp(snapshot.connection)}
+                      selectSession={selectSession}
+                    />
+                  </div>
+                )}
                 {hostLine}
                 {forkPendingLine}
                 <LiveTypingLine

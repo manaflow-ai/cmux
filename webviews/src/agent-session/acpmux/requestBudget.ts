@@ -46,6 +46,7 @@ const READS = new Set([
   "_acpmux/host_overload",
   "_acpmux/info",
   "_acpmux/stats",
+  "_acpmux/waiting_day",
   "_acpmux/sessions",
   "_acpmux/events",
   "_acpmux/history",
