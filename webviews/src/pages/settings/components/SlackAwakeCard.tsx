@@ -35,62 +35,74 @@ export function SlackAwakeCard({ awake, today, names, busy = false, setAllowance
       <h3 className="group-title">{t("settingsPage.slack.awake.title")}</h3>
       <div className="rows">
         <div className="row">
-          <div className="row-label">
-            <span className="row-title">{t("settingsPage.slack.awake.perTeammate")}</span>
-            <span className="row-help">
-              {awake.allowance_seconds === 0
-                ? t("settingsPage.slack.awake.ownerOnly")
-                : t("settingsPage.slack.awake.others", awakeDuration(awake.allowance_seconds))}
-            </span>
+          <div className="row-main">
+            <div className="row-label">
+              <div className="row-title">{t("settingsPage.slack.awake.perTeammate")}</div>
+              <div className="row-help">
+                {awake.allowance_seconds === 0
+                  ? t("settingsPage.slack.awake.ownerOnly")
+                  : t("settingsPage.slack.awake.others", awakeDuration(awake.allowance_seconds))}
+              </div>
+            </div>
+            <div className="row-control">
+              <Select
+                label={t("settingsPage.slack.awake.selectLabel")}
+                value={String(awake.allowance_seconds)}
+                options={options}
+                disabled={busy}
+                closeOnPick
+                align="end"
+                onChange={(value) => setAllowance(Number(value))}
+              />
+            </div>
           </div>
-          <Select
-            label={t("settingsPage.slack.awake.selectLabel")}
-            value={String(awake.allowance_seconds)}
-            options={options}
-            disabled={busy}
-            closeOnPick
-            align="end"
-            onChange={(value) => setAllowance(Number(value))}
-          />
         </div>
         {!isDefault && (
           <div className="row">
-            <span className="row-help">
-              {t("settingsPage.slack.awake.defaultIs", awakeDuration(awake.default_seconds))}
-            </span>
-            <Button
-              className="link-button"
-              variant="ghost"
-              size="sm"
-              disabled={busy}
-              onClick={() => setAllowance(null)}
-            >
-              {t("settingsPage.slack.awake.useDefault")}
-            </Button>
+            <div className="row-main">
+              <div className="row-label row-help">
+                {t("settingsPage.slack.awake.defaultIs", awakeDuration(awake.default_seconds))}
+              </div>
+              <div className="row-control">
+                <Button
+                  className="link-button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => setAllowance(null)}
+                >
+                  {t("settingsPage.slack.awake.useDefault")}
+                </Button>
+              </div>
+            </div>
           </div>
         )}
         <div className="row" data-slack-awake="spent">
-          <div className="row-label">
-            <span className="row-title">{t("settingsPage.slack.awake.spent")}</span>
-            {rows.length === 0 && <span className="row-help">{t("settingsPage.slack.awake.spentNone")}</span>}
+          <div className="row-main">
+            <div className="row-label">
+              <div className="row-title">{t("settingsPage.slack.awake.spent")}</div>
+              {rows.length === 0 && <div className="row-help">{t("settingsPage.slack.awake.spentNone")}</div>}
+            </div>
           </div>
         </div>
         {rows.map((row) => (
           <div className="row" key={row.user} data-slack-awake-sender={row.user}>
-            <div className="row-label">
-              <span className="row-title">{row.owner ? t("settingsPage.slack.awake.you", row.name) : row.name}</span>
-              <span className="row-help">
-                {row.turns === 1
-                  ? t("settingsPage.slack.awake.oneMessage")
-                  : t("settingsPage.slack.awake.messages", row.turns)}
-                {row.used === 1 && !row.owner ? ` · ${t("settingsPage.slack.awake.outToday")}` : ""}
-              </span>
+            <div className="row-main">
+              <div className="row-label">
+                <div className="row-title">{row.owner ? t("settingsPage.slack.awake.you", row.name) : row.name}</div>
+                <div className="row-help">
+                  {row.turns === 1
+                    ? t("settingsPage.slack.awake.oneMessage")
+                    : t("settingsPage.slack.awake.messages", row.turns)}
+                  {row.used === 1 && !row.owner ? ` · ${t("settingsPage.slack.awake.outToday")}` : ""}
+                </div>
+              </div>
+              <output className="row-control row-value">
+                {row.used !== null
+                  ? `${awakeDuration(row.seconds)} / ${awakeDuration(awake.allowance_seconds)}`
+                  : awakeDuration(row.seconds)}
+              </output>
             </div>
-            <output className="row-value">
-              {row.used !== null
-                ? `${awakeDuration(row.seconds)} / ${awakeDuration(awake.allowance_seconds)}`
-                : awakeDuration(row.seconds)}
-            </output>
           </div>
         ))}
       </div>
