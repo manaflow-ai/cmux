@@ -515,6 +515,8 @@ function githubRows(
 
   if (ready && !state.error && typed && !repos.length && state.truncated)
     repos.push({ id: "\0search", label: t("composer.githubSearchOnReturn"), onAction: () => github.onSearch(typed) });
+  // \0more, \0addAccount and \0connection open GitHub's page: the native palette resumes after them
+  // (AgentProjectPaletteResume.opensGitHub), so keep these ids in step with it.
   const chooseMore =
     ready && !state.error && !state.connecting && !state.status?.connecting
       ? { id: "\0more", label: t("composer.githubChooseMore"), onAction: connectFor }

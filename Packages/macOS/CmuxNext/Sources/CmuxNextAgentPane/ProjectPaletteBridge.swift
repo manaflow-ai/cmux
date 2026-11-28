@@ -112,6 +112,7 @@ final class ProjectPaletteBridge {
                           let event = row.activation(in: model.page, query: model.query) else { return }
                     let input = page.activationEvent
                     page.activationEvent = nil
+                    view?.projectPalettePicked(row.id, on: model.page)
                     view?.sendProjectPaletteEvent(event, session: session, input: input)
                 })
             )

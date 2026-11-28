@@ -10,10 +10,10 @@ extension AgentPaneView {
         }
         switch request.operation {
         case .show:
-            // A Connect to GitHub closed it (GitHub's page took the keys): the page opens it again once GitHub is ready,
-            // with no click of the person's (cmux#55104). Once, and only soon after.
+            // The person's Connect to GitHub closed it (GitHub's page took the keys): the page opens it again once GitHub
+            // is ready, with no click of the person's (cmux#55104). Once, and only soon after.
             guard window != nil, !isHiddenOrHasHiddenAncestor else { return refused }
-            let resumed = !person && projectPaletteResume.take(at: ProcessInfo.processInfo.systemUptime)
+            let resumed = !person && projectPaletteResume.take(at: Date().timeIntervalSince1970)
             if person { projectPaletteResume = AgentProjectPaletteResume() }
             guard person || resumed else { return refused }
             guard onProjectPaletteRequest(request) else { return refused }
@@ -35,9 +35,14 @@ extension AgentPaneView {
         deliver([AgentPageEvent(kind: "projectPalette", value: payload)], scripts: [projectPaletteScript(payload)])
     }
 
+    /// The person picked `row` on `page`: a pick that opens GitHub's page lets the close it causes resume.
+    func projectPalettePicked(_ row: String, on page: AgentProjectPalettePage.Kind) {
+        projectPaletteResume.picked(row, on: page)
+    }
+
     /// The palette's root closed while it showed `page` (a click elsewhere, GitHub's page taking the keys, Escape).
     func projectPaletteClosed(on page: AgentProjectPalettePage.Kind?) {
-        projectPaletteResume.closed(on: page, at: ProcessInfo.processInfo.systemUptime)
+        projectPaletteResume.closed(on: page, at: Date().timeIntervalSince1970)
     }
 
     /// The page closed it itself (a pick): nothing to resume.

@@ -121,19 +121,29 @@ public nonisolated enum AgentProjectPaletteEvent: Equatable, Sendable {
     }
 }
 
-/// The one show of the project palette the page may make with no gesture of the person's (cmux#55104): its palette closed
-/// while it showed the GitHub page (Connect to GitHub opened GitHub's page, which took the keys), and the page opens it
-/// again on that page once GitHub is ready, with the repositories. Single use, within ``window`` of the close; any other
-/// close, a show the person made, or the page closing it itself takes it away.
+/// The one show of the project palette the page may make with no gesture of the person's (cmux#55104): the person picked a
+/// GitHub page row that opens GitHub's own page (Connect to GitHub, Choose more repositories, Add organization), the palette
+/// then closed (GitHub's page took the keys), and the page opens it again on that page once GitHub is ready, with the
+/// repositories. Single use, within ``window`` of the close; Escape or a click elsewhere with no such pick, any other pick, a
+/// show the person made, or the page closing it itself takes it away.
 nonisolated struct AgentProjectPaletteResume: Equatable, Sendable {
     /// As long as a Connect to GitHub's return is followed (``CloudGitHubChanges``).
     static let window: TimeInterval = 30 * 60
+    /// The GitHub page's rows that open github.com (`SourcePicker.tsx` `githubRows`).
+    static let opensGitHub: Set<String> = ["\0connection", "\0more", "\0addAccount"]
+    private var pickedConnect = false
     private var closedOnGitHub: TimeInterval?
 
     init() {}
 
+    mutating func picked(_ row: String, on page: AgentProjectPalettePage.Kind) {
+        pickedConnect = page == .github && Self.opensGitHub.contains(row)
+    }
+
+    /// `now` is wall time (`Date`), so the window also runs while the Mac sleeps.
     mutating func closed(on page: AgentProjectPalettePage.Kind?, at now: TimeInterval) {
-        closedOnGitHub = page == .github ? now : nil
+        closedOnGitHub = pickedConnect && page == .github ? now : nil
+        pickedConnect = false
     }
 
     mutating func take(at now: TimeInterval) -> Bool {
