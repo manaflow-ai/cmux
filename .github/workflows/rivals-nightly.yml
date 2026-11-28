@@ -1,0 +1,165 @@
+name: Rivals head-to-head (nightly)
+
+# Leo, 2026-11-08 (ask-ecadef4111): "three more “wow” ideas / you might as well just go for broke. say 20. we can just
+# keep finding more and more work to do". wow-20 idea 4, "Head-to-head bench vs desktop apps": a page that updates
+# daily with cmux NEXT against the Claude and ChatGPT desktop apps on one fleet Mac.
+#
+# Runs scripts/measure/rivals.sh (signed out) as one exclusive measurement on the bench Mac, then scripts/perf-bench/rivals_page.py merges its results.json into the history and renders the page. Both go
+# to the cmux-ci-cache-next bucket: rivals/v1/index.md (the page), rivals/v1/index.json (one entry per day, 90 days),
+# rivals/v1/days/<date>.json (the day's full run) and rivals/v1/_stamp.json. Public:
+# https://ci-cache-next.cmux.com/rivals/v1/index.md
+#
+# Nightly without a schedule (as bench-baselines-nightly.yml): a scheduled workflow runs main's copy, and this
+# measures feat-cmux-next. Each push to feat-cmux-next reads the stamp; a run that finds it younger than RECORD_HOURS
+# stops after one HTTP read. workflow_dispatch records now. A run that measures nothing is red and the stamp stays old.
+# The job id ends in -fleet: the runner hook admits a fleet-client job by that suffix.
+#
+# Apps: every column of RFD 0131's Measured table (hq docs/rfd/0131-launch-like-the-browsers.md), plus ChatGPT, so
+# each day's rivals/v1/days/<date>.json fills that table. Leo, 2026-11-25: "Ok well we can't be letting important
+# rfds like that take breaks unless I put in fleet wide pauses, esp when this is stuff that materially improves the
+# app". Rex has no public download: rivals.py measures the bench Mac's own /Applications/Rex.app when it is there.
+on:
+  push:
+    branches: [feat-cmux-next]
+  workflow_dispatch:
+    inputs:
+      apps:
+        description: "Comma-separated rivals.py apps"
+        required: false
+        default: "cmux,rex,zed,claude,chatgpt,codex,t3code,slack,chrome,edge,helium,safari"
+      soak:
+        description: "Idle soak seconds per app"
+        required: false
+        default: "300"
+
+permissions: {}
+
+concurrency:
+  group: rivals-nightly
+  cancel-in-progress: false
+
+env:
+  CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+  CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+  RECORD_HOURS: "22"
+
+jobs:
+  record-rivals-fleet:
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
+    name: Record the rivals head-to-head (fleet Mac)
+    # The fleet controller is tailnet-only; a job that fetches the fleet client runs on the gateway runner
+    # (tests/test_ci_gateway_jobs_on_linux.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    # The client's queue wait (30 min) and run limit (150 min: 12 apps, each about 10 min: the bundle copy, the quiet
+    # wait, five launches with 20 s after each, a 5 minute soak), the upload.
+    timeout-minutes: 200
+    environment: next-cache-writer
+    permissions:
+      contents: read
+    steps:
+      - name: Is a record due
+        id: due
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -uo pipefail
+          if [ "$EVENT" = workflow_dispatch ]; then echo "due=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          stamp="$(curl -fsS --max-time 10 "$CI_CACHE_R2_PUBLIC_URL/rivals/v1/_stamp.json?t=$(date +%s)" 2>/dev/null)" || stamp=""
+          due="$(python3 -I -c '
+          import json, sys, time, calendar
+          try:
+              at = json.loads(sys.argv[1])["recorded_at"]
+              age = (time.time() - calendar.timegm(time.strptime(at, "%Y-%m-%dT%H:%M:%SZ"))) / 3600
+          except Exception:
+              print("true"); sys.exit()
+          print("true" if age >= float(sys.argv[2]) else "false")
+          ' "$stamp" "$RECORD_HOURS")"
+          echo "due=$due" | tee -a "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        if: steps.due.outputs.due == 'true'
+        timeout-minutes: 5
+        with:
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 1
+          sparse-checkout: |
+            .github/actions/fleet-client
+            scripts/perf-bench
+            scripts/bench
+          sparse-checkout-cone-mode: false
+
+      - uses: ./.github/actions/fleet-client
+        if: steps.due.outputs.due == 'true'
+        with:
+          controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
+
+      - name: Run rivals.sh on the bench Mac
+        if: steps.due.outputs.due == 'true'
+        env:
+          APPS: ${{ inputs.apps || 'cmux,rex,zed,claude,chatgpt,codex,t3code,slack,chrome,edge,helium,safari' }}
+          SOAK: ${{ inputs.soak || '300' }}
+        run: |
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error::$client is not installed on runner $RUNNER_NAME: no rivals run recorded"
+            exit 1
+          fi
+          out="$RUNNER_TEMP/rivals"
+          mkdir -p "$out"
+          status=0
+          "$client" run --class exclusive --measurement --label bench \
+            --script scripts/measure/rivals.sh --ref "$GITHUB_SHA" \
+            --artifact artifacts/rivals/results.json \
+            --arg="apps=$APPS" --arg="soak=$SOAK" \
+            --timeout 9000 --queue-timeout 1800 2>&1 | tee "$out/step.log" || status=$?
+          step="$(grep -o -E '\b[0-9a-f]{24}\b' "$out/step.log" | head -1 || true)"
+          if [[ -n "$step" ]]; then
+            "$client" artifact "$step" "$out/results.json" || "$client" artifact --failed "$step" "$out/results.json" || true
+          fi
+          echo "fleet step ${step:-(none)} client exit $status"
+          # A run that measured some rows is still the day's numbers; nothing measured is red in the next step.
+
+      - name: Render the page
+        if: steps.due.outputs.due == 'true'
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/rivals"
+          if ! [[ -s "$out/results.json" ]]; then
+            echo "::error::the rivals step returned no results.json; nothing recorded, the stamp stays old"
+            exit 1
+          fi
+          curl -fsS --max-time 20 "$CI_CACHE_R2_PUBLIC_URL/rivals/v1/index.json?t=$(date +%s)" -o "$out/history.json" \
+            || rm -f "$out/history.json"
+          python3 -I scripts/perf-bench/rivals_page.py page --today "$out/results.json" --history "$out/history.json" \
+            --out "$out/page" --sha "$GITHUB_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload to R2
+        if: steps.due.outputs.due == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/rivals"
+          day="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["date"])' "$out/results.json")"
+          put() { # <file> <object key> <content type>
+            local code
+            code="$(printf 'user = "%s:%s"\n' "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" \
+              | curl --config - --silent --show-error --retry 3 --retry-delay 2 --max-time 60 \
+                  --aws-sigv4 "aws:amz:auto:s3" -H "x-amz-content-sha256: UNSIGNED-PAYLOAD" \
+                  -H "Content-Type: $3" -H "Cache-Control: max-age=600" \
+                  -X PUT --upload-file "$1" -o /dev/null -w '%{http_code}' \
+                  "$CI_CACHE_R2_ENDPOINT/$CI_CACHE_R2_BUCKET/$2")"
+            [ "$code" = 200 ] || { echo "::error::PUT $2 answered HTTP $code"; return 1; }
+            echo "put $2"
+          }
+          put "$out/results.json" "rivals/v1/days/$day.json" application/json
+          put "$out/page/index.json" rivals/v1/index.json application/json
+          put "$out/page/index.md" rivals/v1/index.md "text/markdown; charset=utf-8"
+          printf '{"recorded_at": "%s", "sha": "%s", "date": "%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$GITHUB_SHA" "$day" \
+            > "$out/stamp.json"
+          put "$out/stamp.json" rivals/v1/_stamp.json application/json
+          echo "page: $CI_CACHE_R2_PUBLIC_URL/rivals/v1/index.md" | tee -a "$GITHUB_STEP_SUMMARY"

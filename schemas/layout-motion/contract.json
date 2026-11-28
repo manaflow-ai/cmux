@@ -49,7 +49,7 @@
       "platform": "web",
       "selector": "[role='menu'], [role='listbox'], [role='menuitem'], [role='menuitemradio'], [role='menuitemcheckbox'], [role='option']",
       "size": "reserved",
-      "moves": ["menu", "user-scroll", "resize"]
+      "moves": ["menu", "user-scroll", "resize", "expand"]
     },
     {
       "id": "list-row",
@@ -63,7 +63,7 @@
       "platform": "web",
       "selector": "[role='tab']",
       "size": "reserved",
-      "moves": ["resize", "reorder"]
+      "moves": ["resize", "expand", "reorder"]
     },
     {
       "id": "tracked",
