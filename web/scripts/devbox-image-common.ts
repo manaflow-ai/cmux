@@ -199,6 +199,28 @@ export function devboxBakeStepBudgetMs(command: string): number {
   return DOWNLOADING_COMMAND.test(command) ? DEVBOX_BAKE_DOWNLOAD_STEP_BUDGET_MS : DEVBOX_BAKE_STEP_BUDGET_MS;
 }
 
+/**
+ * What a resumed machine's cmux-tui is, against the pin the bake recorded: the
+ * file's sha256, its kind, size, mtime and owner, where a link points, and the
+ * sha256 of every running cmux-tui's executable. Verify used to run a silent
+ * `sha256sum -c`, so a mismatch said nothing about what was there instead.
+ */
+export function devboxCmuxTuiPinEvidenceCommand(binary: string): string {
+  return [
+    `f=${binary}`,
+    `echo "sha=$(sha256sum < "$f" 2>/dev/null | cut -c1-64)"`,
+    `echo "file=$(stat -c '%F %s bytes, mtime %y, %U:%G %a' "$f" 2>&1)"`,
+    `echo "target=$(readlink -f "$f" 2>&1)"`,
+    `for p in $(pgrep -x cmux-tui 2>/dev/null); do echo "running pid $p: $(sha256sum < /proc/$p/exe 2>/dev/null | cut -c1-64) $(readlink /proc/$p/exe 2>&1)"; done`,
+    `echo "version=$("$f" --version 2>&1 | head -1)"`,
+  ].join("; ");
+}
+
+/** The sha256 a devboxCmuxTuiPinEvidenceCommand output found, or null. */
+export function devboxCmuxTuiPinEvidenceSha(output: string): string | null {
+  return /^sha=([0-9a-f]{64})$/m.exec(output)?.[1] ?? null;
+}
+
 export const repoRoot = path.resolve(webRoot, "..");
 
 /** The daemon state reservation is inside the existing guest disk, not a VM resize. */

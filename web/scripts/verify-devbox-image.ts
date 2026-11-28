@@ -65,6 +65,8 @@ import {
   sha256File,
   devboxClaudeTeamCloneCheckCommand,
   devboxClaudeSettingsDefaultsCheckCommand,
+  devboxCmuxTuiPinEvidenceCommand,
+  devboxCmuxTuiPinEvidenceSha,
 } from "./devbox-image-common";
 import {
   DEVBOX_DESKTOP_DISPLAY,
@@ -508,9 +510,11 @@ if (provider === "freestyle") {
     if (bakedPin.exitCode !== 0 || !/^[0-9a-f]{64}$/.test(bakedSha ?? "")) {
       throw new Error(`image carries no readable /etc/cmux/cmux-tui-pin: ${bakedPin.output.slice(-300)}`);
     }
-    const pin = await exec(`printf '%s  %s\\n' ${bakedSha} ${DEVBOX_WORK_HOME}/.cmux/bin/cmux-tui | sha256sum -c >/dev/null 2>&1 && echo baked-pin-ok`, 30_000);
-    if (pin.exitCode !== 0) {
-      throw new Error(`baked cmux-tui does not match the pin recorded at bake time: ${pin.output.slice(-500)}`);
+    const pin = await exec(devboxCmuxTuiPinEvidenceCommand(`${DEVBOX_WORK_HOME}/.cmux/bin/cmux-tui`), 30_000);
+    if (devboxCmuxTuiPinEvidenceSha(pin.output) !== bakedSha) {
+      throw new Error(
+        `baked cmux-tui does not match the pin recorded at bake time (${bakedSha} ${bakedCommit}); on the machine:\n${pin.output.trim().slice(-1500)}`,
+      );
     }
     const live = await resolveCmuxTuiSource("freestyle");
     console.log(

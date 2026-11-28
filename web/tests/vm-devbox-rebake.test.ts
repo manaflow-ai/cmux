@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -15,7 +18,7 @@ import {
   settledAwaiting,
   type SnapshotRow,
 } from "../scripts/devbox-rebake";
-import { DERIVE_MAX_RETRIED_ROWS, DEVBOX_BAKE_DOWNLOAD_STEP_BUDGET_MS, DEVBOX_BAKE_STEP_BUDGET_MS, devboxAgentPins, devboxBakeStepBudgetMs, devboxBubblewrapInstallCommand, deriveRowFailureAction, isFreestyleGuestUnresponsive, isFreestyleTransient, readDevboxAwaitingRebake, repoRoot, retryFreestyleOverload, startAnsweringVm, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
+import { DERIVE_MAX_RETRIED_ROWS, DEVBOX_BAKE_DOWNLOAD_STEP_BUDGET_MS, DEVBOX_BAKE_STEP_BUDGET_MS, devboxAgentPins, devboxBakeStepBudgetMs, devboxBubblewrapInstallCommand, devboxCmuxTuiPinEvidenceCommand, devboxCmuxTuiPinEvidenceSha, deriveRowFailureAction, isFreestyleGuestUnresponsive, isFreestyleTransient, readDevboxAwaitingRebake, repoRoot, retryFreestyleOverload, startAnsweringVm, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Bun's YAML parser; web/tests are typed by tests/bun-test.d.ts, which has no Bun global.
@@ -324,5 +327,29 @@ describe("devboxBakeStepBudgetMs", () => {
     expect(bake).toContain("devboxBakeStepBudgetMs(command)");
     expect(bake).not.toContain("budgetMs: STEP_TIMEOUT_MS");
     expect(bake).toContain("(its ${budgetMs / 1000} s budget ran out)");
+  });
+});
+
+describe("devboxCmuxTuiPinEvidenceCommand", () => {
+  test("reports the file's sha256 and details, so a pin mismatch says what is there", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "pin-evidence-"));
+    try {
+      const binary = path.join(dir, "cmux-tui");
+      writeFileSync(binary, "#!/bin/sh\necho 'cmux 1.0.0 (abc)'\n", { mode: 0o755 });
+      const run = spawnSync("bash", ["-c", devboxCmuxTuiPinEvidenceCommand(binary)], { encoding: "utf8" });
+      const want = createHash("sha256").update(readFileSync(binary)).digest("hex");
+      expect(devboxCmuxTuiPinEvidenceSha(run.stdout)).toBe(want);
+      expect(run.stdout).toContain("file=regular file");
+      expect(run.stdout).toContain(`target=${binary}`);
+      expect(run.stdout).toContain("version=cmux 1.0.0 (abc)");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a missing binary yields no sha, and the stat error is kept", () => {
+    const run = spawnSync("bash", ["-c", devboxCmuxTuiPinEvidenceCommand("/nonexistent/cmux-tui")], { encoding: "utf8" });
+    expect(devboxCmuxTuiPinEvidenceSha(run.stdout)).toBeNull();
+    expect(run.stdout).toMatch(/file=.*No such file/);
   });
 });
