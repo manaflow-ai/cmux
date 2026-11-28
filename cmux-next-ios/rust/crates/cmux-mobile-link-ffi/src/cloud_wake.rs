@@ -109,6 +109,10 @@ fn to_hint(hint: CloudWakeHint) -> Hint {
         allowed: hint.allowed,
         loaded: hint.loaded,
         status: hint.status,
+        // Fields the iPhone does not send yet (`readsWithoutWake`, RFD 0144 piece 2) take the
+        // value an absent JSON field gets, so the hint wakes as before and a new field never
+        // breaks this crate's build.
+        ..Hint::default()
     }
 }
 
