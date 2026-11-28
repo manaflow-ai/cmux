@@ -1,0 +1,102 @@
+/* The design-system state board (ui/DesignSystemState.gallery.tsx): layout only, in tokens. The
+   specimens keep their own classes and values; this sheet places them and prints their numbers. */
+.ds-state {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3);
+  color: var(--cmux-text, CanvasText);
+  font-family: var(--font-ui);
+}
+.ds-state-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  margin: 0;
+}
+.ds-state-group[data-wide] {
+  grid-column: span 2;
+}
+.ds-state-title {
+  margin: 0;
+  font-size: var(--text-detail);
+  font-weight: var(--weight-emphasis, 600);
+  line-height: var(--text-detail--line-height);
+}
+.ds-state-spec {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ds-space-1);
+  margin: 0;
+  min-width: 0;
+}
+.ds-state-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--ds-space-3);
+}
+.ds-state-shell {
+  height: auto;
+  width: 100%;
+  background: transparent;
+  overflow: visible;
+}
+.ds-state-shell .acpmux-permission {
+  padding: 0;
+}
+.ds-state .cv-link-preview {
+  position: static;
+  width: 100%;
+}
+.ds-state-measure {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  margin: 0;
+  color: var(--cmux-text-secondary, GrayText);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  white-space: pre-line;
+}
+/* The popups and the dialog are drawn where they stand, not over the page. */
+.ds-state .ui-dialog,
+.ds-state .ui-title-tooltip,
+.ds-state .ui-tooltip,
+.ds-state .ui-popup {
+  position: static;
+  inset: auto;
+  margin: 0;
+  transform: none;
+  opacity: 1;
+}
+.ds-state .ui-dialog {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+}
+.ds-state .ui-popup {
+  min-width: 0;
+  width: 100%;
+}
+.ds-state .ui-card,
+.ds-state .ui-glass-content {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--ds-space-3);
+}
+.ds-state .ui-notice {
+  width: max-content;
+  max-width: 100%;
+}
+.ds-state-composer {
+  box-sizing: border-box;
+  width: 100%;
+  padding: var(--ds-space-3);
+  border-radius: var(--ds-radius-composer);
+  background: var(--ds-surface-card);
+  box-shadow: var(--elevation-1);
+}
