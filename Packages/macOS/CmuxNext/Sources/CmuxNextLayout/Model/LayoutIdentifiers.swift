@@ -7,7 +7,7 @@ import Foundation
 /// `SplitId`, `tab_resource_id`). Numeric daemon handles are valid for one
 /// daemon generation only and should not be used here.
 public nonisolated struct LayoutIdentifier<Tag>: RawRepresentable, Hashable, Sendable,
-    ExpressibleByStringLiteral, CustomStringConvertible, Comparable
+    ExpressibleByStringLiteral, CustomStringConvertible, Comparable, Codable
 {
     public let rawValue: String
 

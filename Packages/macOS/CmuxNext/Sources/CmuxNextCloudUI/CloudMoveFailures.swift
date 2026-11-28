@@ -23,6 +23,8 @@ extension CloudMoveFailure {
         case "move_in_progress": Self(message: CloudMoveStrings.inProgress, retry: retry)
         case "agent_session.team_vm_blocked": Self(message: CloudMoveStrings.teamMachine(machine))
         case "agent_session.host_unverified": Self(message: CloudMoveStrings.unknownMachine(machine))
+        case "connections.not_cloud", "connections.move_unsupported":
+            Self(message: CloudMoveStrings.loginUnsupported, retry: retry)
         // This Mac's own daemon (the source) is never the machine to update.
         case CloudMoveStrings.outdatedCode where answer.side != "source":
             Self(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating)

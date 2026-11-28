@@ -71,6 +71,13 @@ scale. Ranks match the RFD: 1 is the highest risk.
 | 11 | Cloud relay and sync | `cmux-tui/crates/cmux-relay` | `cloud-turn`, `bytes-path`, `projection-scale`, `projection-way-back` | real relay; N files | no | Manual only. |
 | 11 | Cloud wire | `cmux-tui/crates/cmux-cloud-wire` | `bytes-path` | per folder kind | no | Manual only. |
 | 12 | Browser chrome | `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser` | `BrowserChromeSwitchBench`, `BrowserChromeMemoryBench`, `xbench`, `web-vitals` | n/a | the switch bench checks one render per switch | No time budget. |
+| 13 | New Tab (web) | `webviews/src/agent-session/acpmux/newtab`, `webviews/src/agent-session/acpmux/NewTabPage.tsx`, `webviews/src/agent-session/acpmux/newTabModel.ts`, `webviews/src/agent-session/acpmux/projectRepos.ts`, `webviews/src/agent-session/acpmux/ProjectChooser.tsx`, `webviews/src/agent-session/acpmux/lastPick.ts` | `webviews/bench/project-picker-open.bench.ts`, `webviews/bench/new-tab-scale.bench.tsx`, `webviews/bench/new-tab-omnibar-keystroke.bench.ts` | 1,000-10,000 projects | for-paths --run (needs Chromium; fails open without it) | No budget yet (RFD 0199 area 2). |
+| 13 | Session list readers | `webviews/src/agent-session/acpmux/sessionList.ts`, `webviews/src/agent-session/acpmux/sessionIndex.ts`, `webviews/src/agent-session/acpmux/session-list`, `webviews/src/agent-session/acpmux/steerQueue`, `webviews/src/agent-session/acpmux/dotGrid`, `webviews/src/agent-session/acpmux/ChiefDock.tsx`, `webviews/src/agent-session/acpmux/homeListsModel.ts`, `webviews/src/agent-session/acpmux/newtab/recentProject.ts` | `webviews/bench/session-store-change.bench.ts`, `webviews/bench/session-scale-typing.bench.ts`, `webviews/bench/session-change-cpu.bench.ts` | 10,789 sessions | tests by path | `sessionReaders.dsa` bound test not written yet (RFD 0199 area 7). |
+| 13 | Model picker search | `webviews/src/agent-session/acpmux/modelSearch.ts`, `webviews/src/agent-session/acpmux/modelQuery.ts`, `webviews/src/agent-session/acpmux/ModelPicker.tsx`, `webviews/src/agent-session/acpmux/QuickModelMenu.tsx` | none | 5,000 models | tests by path | The scratch bench is not in `webviews/bench` yet (RFD 0199 area 8). |
+| 13 | Diff view | `webviews/src/diff-viewer`, `webviews/src/find`, `webviews/src/diff-stream.ts` | `webviews/bench/diff-stream.bench.ts` | 2,000 files | for-paths --run, 10 s | Find per keystroke and while streaming has no bench yet (RFD 0199 area 11). |
+| 13 | Pane layout | `Packages/macOS/CmuxNext/Sources/CmuxNextLayout` | `LayoutDragBench`, `PaneMotionBench` | 5-200 panes | tests by path | `LayoutIncrementalBoundTests` not written yet (RFD 0199 area 4). |
+| 13 | Terminal core (Rust) | `cmux-tui/crates/ghostty-vt`, `cmux-tui/crates/cmux-terminal-find`, `cmux-tui/crates/cmux-terminal-projection` | `terminal-throughput-quick` | 10k-100k rows | tests by path | No Linux `run` bench (libghostty-vt needs zig); history page-hop test not written yet (RFD 0199 area 10). |
+| 13 | Settings schema and window | `webviews/src/pages/settings` | `webviews/bench/settings-search-visible-only.bench.ts`, `webviews/bench/settings-cards-visible-only.bench.ts` | 160 KB | tests by path | none |
 
 ## cmux-bench registry
 
@@ -92,8 +99,10 @@ as a gate. `stress` has a dispatch-only compare workflow (`cmux-next-stress-benc
 | `chief-latency` | Chief | 15 asks | no |
 | `ci-vm-idle` | CI | 24 h inventory | no |
 | `claude-vs-acpmux` | acpmux daemon | real model | no |
+| `cloud-first-byte` | cloud | Cloud Git active | no |
 | `cloud-turn` | cloud | real relay | no |
 | `coord-sim` | acpmux daemon | several coordinator chats | no |
+| `coordinator-cpu` | acpmux daemon, chat renderer | 20 live subagents | no |
 | `daemon-latency` | acpmux daemon | commits | no |
 | `desktop-link` | iOS link | n/a | no |
 | `dev-loop` | dev loop | n/a | no |
@@ -185,6 +194,8 @@ whether it fails on a number.
 | `RemoteDecodeRangeBenchTests` | `Packages/macOS/CmuxNext/Tests/CmuxNextRemoteViewTests/RemoteDecodeRangeBenchTests.swift` | `CMUX_RD_DECODE_BENCH` | no |
 | `ResumeLiveBenchTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/ReconnectChainTimingTests.swift` | `CMUX_RESUME_LIVE_BENCH` | yes |
 | `ResumeMatrixBenchTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/ReconnectChainTimingTests.swift` | `CMUX_RESUME_LIVE_BENCH` | no |
+| `ResumeStagesBenchTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/ReconnectChainTimingTests.swift` | `CMUX_RESUME_LIVE_BENCH` | no |
+| `AnimationFrameBenchUITests` | `cmux-next-ios/UITests/AnimationFrameBenchUITests.swift` | UI test plan | no |
 | `RotateBenchUITests` | `cmux-next-ios/UITests/RotateBenchUITests.swift` | UI test plan | no |
 | `SentryScrubCostBench` | `Packages/Shared/CmuxSentryTelemetry/Tests/CmuxSentryScrubbingTests/SentryScrubCostBench.swift` | `CMUX_SENTRY_SCRUB_BENCH` | no |
 | `SidebarHoverCardRetargetBenchTests` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarHoverCardRetargetBenchTests.swift` | `CMUX_HOVER_RETARGET_BENCH` | p95 under 8 ms scaled |
@@ -240,6 +251,9 @@ and gates nothing. The rest run in the perf cron's web UI suite or by hand.
 | `webviews/bench/all-chats-list.bench.ts` | all chats list | no |
 | `webviews/bench/session-*.bench.ts` | session scale | no |
 | `webviews/bench/project-picker-open.bench.ts` | project picker | no |
+| `webviews/bench/inline-text-hasmarks.bench.ts` | inline text marks | no |
+| `webviews/bench/subsession-reply-height.bench.ts` | subsession reply height | no |
+| `webviews/bench/terminal-history-offscreen.bench.ts` | terminal history, offscreen turns | no |
 | `webviews/bench/cloud-*.bench.ts` | cloud feed | no |
 | `webviews/bench/cloud-page-first-row.bench.tsx` | cloud page | no |
 | `webviews/bench/daemon-gate-relink.bench.tsx` | daemon relink | no |
