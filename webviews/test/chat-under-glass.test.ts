@@ -4,8 +4,14 @@
 // 2026-11-10: the permission menu there went clear and the composer showed through it.
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { hostGlassCover, chatUnderHoverCard } from "../src/agent-session/acpmux/chatUnderGlass";
-import { attachSeeThroughBlur, KEEPS_UNDERLAY_ATTRIBUTE, OVER_ATTRIBUTE } from "../src/ui/glass/seeThroughBlur";
+import { importWithDom } from "./support/importWithDom";
+
+const { hostGlassCover, chatUnderHoverCard } = await importWithDom(
+  () => import("../src/agent-session/acpmux/chatUnderGlass"),
+);
+const { attachSeeThroughBlur, KEEPS_UNDERLAY_ATTRIBUTE, OVER_ATTRIBUTE } = await importWithDom(
+  () => import("../src/ui/glass/seeThroughBlur"),
+);
 
 let dom: JSDOM | undefined;
 let detach: (() => void) | undefined;

@@ -119,3 +119,17 @@ fn claims_a_sender(params: &Value) -> bool {
         .any(|key| mux.get(*key).is_some_and(|v| !v.is_null()))
     })
 }
+
+/// How a prompt reached this daemon, as it saw it (`prompt_provenance::TRANSPORT`).
+pub(super) fn transport_of(conn: &Conn) -> &'static str {
+    if conn.is_trigger() {
+        return "trigger";
+    }
+    match conn.origin {
+        super::super::Origin::Local => "unix",
+        super::super::Origin::LocalApp => "app",
+        super::super::Origin::Web | super::super::Origin::Peer => {
+            super::super::carrier::transport(conn)
+        }
+    }
+}

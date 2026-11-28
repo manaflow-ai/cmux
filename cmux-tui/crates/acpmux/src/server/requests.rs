@@ -20,10 +20,11 @@ mod mailbox;
 pub(super) mod person_stop;
 mod prompt_sender;
 pub(super) use prompt_sender::person_admitted;
-use prompt_sender::{app_pane_unproven, owner_terminal};
+use prompt_sender::{app_pane_unproven, owner_terminal, transport_of};
 mod presets;
 mod queued;
 mod session_open;
+mod session_resources;
 mod signature;
 mod start_reason;
 pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
@@ -2561,7 +2562,8 @@ async fn dispatch_method(
             let steer = steer.unwrap_or(false);
             // An outside producer's message that waits for the chat's cold batch (`acpmux send
             // --gather`, `hub/cold_wake.rs`): refused when it could not wait.
-            if flag(crate::hub::cold_wake::GATHER_META) == Some(true) {
+            let gather = flag(crate::hub::cold_wake::GATHER_META) == Some(true);
+            if gather {
                 let fire = mux_meta(&params)
                     .and_then(|m| m.pointer("/notice/severity"))
                     .and_then(Value::as_str)
@@ -2575,6 +2577,12 @@ async fn dispatch_method(
                     return Err(refused);
                 }
             }
+            let provenance = provenance.map(|mut p| {
+                if gather {
+                    p.set(crate::hub::cold_wake::GATHER_META, json!(true));
+                }
+                p
+            });
             // A subagent's prompt that starts a turn of a lane of its own lead: that turn's answer
             // reaches the subagent (`hub/lane_report_subagents.rs`), so the receiver is told to end
             // its turn with it rather than send it to the lead (`hub/prompt_attribution.rs`). Not
@@ -3489,6 +3497,8 @@ async fn dispatch_method(
         method::MUX_PROTOCOL => Ok(crate::protocol::served().clone()),
         // A pure function of the ids asked, the same for every origin (`requests/signature.rs`).
         method::SESSION_SIGNATURE => signature::handle(params),
+        // Read on request from the OS, nothing kept (`requests/session_resources.rs`).
+        method::MUX_SESSION_RESOURCES => session_resources::handle(hub, &params).await,
         method::MUX_HISTORY => {
             let s = hub.resolve(session_key(&params)?)?;
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
@@ -3897,14 +3907,30 @@ async fn dispatch_method(
                     // the worker, not queued on the blocking pool. Under load the pool's queue
                     // held this read behind every other blocking job (cosmic-gray, 2026-11-27:
                     // `acpmux session inbox` 60 s+); the read itself takes no hub-wide lock.
-                    Ok(crate::qos::off_worker(|| hub.inbox_threads(&s)))
+                    let limit = params.get("limit").and_then(Value::as_u64).map(|n| n as usize);
+                    let before = params.get("before").and_then(Value::as_u64);
+                    Ok(crate::qos::off_worker(|| hub.inbox_threads_page(&s, limit, before)))
                 }
                 method::MUX_INBOX_THREAD => {
                     let mark = params.get("markRead").and_then(Value::as_bool).unwrap_or(false);
                     let thread = thread()?;
                     // Held messages that left memory are read from the log (`inbox_surge.rs`),
                     // off the worker and not behind the blocking pool's queue, as above.
-                    crate::qos::off_worker(|| hub.inbox_thread_whole(&s, thread, mark))
+                    let limit = params.get("limit").and_then(Value::as_u64).map(|n| n as usize);
+                    let mut reply =
+                        crate::qos::off_worker(|| hub.inbox_thread_whole(&s, thread, mark))?;
+                    // A page of the newest `limit` messages; `more` says the rest are there.
+                    if let (Some(limit), Some(list)) =
+                        (limit, reply.get_mut("messages").and_then(Value::as_array_mut))
+                    {
+                        let total = list.len();
+                        list.truncate(limit.max(1));
+                        if let Some(map) = reply.as_object_mut() {
+                            map.insert("total".into(), json!(total));
+                            map.insert("more".into(), json!(total > limit.max(1)));
+                        }
+                    }
+                    Ok(reply)
                 }
                 _ => {
                     let text = text_of("text")
@@ -4885,18 +4911,6 @@ async fn queue_text(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
 /// peer daemon said of its own proven caller, else what a relay on this machine's unix socket
 /// said of the machine it relays for (`prompt_provenance::FROM_RELAY`); a client's claim is dropped. A person's prompt and
 /// none are left as they are. Out of `dispatch_request`, whose future must stay small.
-/// How a prompt reached this daemon, as it saw it (`prompt_provenance::TRANSPORT`).
-fn transport_of(conn: &Conn) -> &'static str {
-    if conn.is_trigger() {
-        return "trigger";
-    }
-    match conn.origin {
-        super::Origin::Local => "unix",
-        super::Origin::LocalApp => "app",
-        super::Origin::Web | super::Origin::Peer => super::carrier::transport(conn),
-    }
-}
-
 /// The labels a prompt's sender gave about itself, kept as claims (`prompt_provenance::CLAIMED`),
 /// and the old acpmux CLI its connection is (`cli_caller.rs`), which proves no caller.
 fn claimed_labels(conn: &Conn, params: &Value) -> serde_json::Map<String, Value> {
