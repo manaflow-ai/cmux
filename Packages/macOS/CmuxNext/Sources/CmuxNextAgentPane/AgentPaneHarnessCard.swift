@@ -101,6 +101,6 @@ enum AgentPaneHarnessCard {
     /// The update or restart could not reach this Mac's agent service, after the app tried to start it.
     static var unavailableMessage: String {
         // retry-prompt-ok: updating or restarting the agent service replaces binaries and restarts it
-        String(localized: "agentPane.harness.unavailable", defaultValue: "The agent service is not running. Try again in a moment.", bundle: .localizedModule)
+        String(localized: "agentPane.harness.unavailable", defaultValue: "cmux couldn't start its agent service to do this. Quit and reopen cmux, then try again.", bundle: .localizedModule)
     }
 }
