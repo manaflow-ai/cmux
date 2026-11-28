@@ -18,6 +18,7 @@ extension WebKitTab {
 /// links. The private `_addsVisitedLinks` (WKWebViewPrivate.h, on by default) turns that off for one
 /// web view; a WebKit without it keeps adding, as before.
 enum WebKitVisitedLinks {
+    // crash-allow: making a selector from a string never raises; every use is behind responds(to:) on it.
     static let setter = NSSelectorFromString("_setAddsVisitedLinks:")
 
     static func stopAdding(_ webView: WKWebView) {
@@ -29,6 +30,7 @@ enum WebKitVisitedLinks {
     /// Whether `webView` adds its loads as visited links (nil: this WebKit has no switch).
     static func adds(_ webView: WKWebView) -> Bool? {
         guard webView.responds(to: setter) else { return nil }
+        // crash-allow: guarded by responds(to:) on the setter above; WebKit declares the getter with it (one @property).
         return (webView.value(forKey: "_addsVisitedLinks") as? NSNumber)?.boolValue
     }
 }
