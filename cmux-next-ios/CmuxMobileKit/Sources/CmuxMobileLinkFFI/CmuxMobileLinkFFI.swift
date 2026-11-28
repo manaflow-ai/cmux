@@ -14853,6 +14853,83 @@ public func FfiConverterTypePaneFilterResult_lower(_ value: PaneFilterResult) ->
 
 
 /**
+ * A parsed chat share link.
+ */
+public struct ParsedChatShareLink: Equatable, Hashable {
+    /**
+     * `https://<share host>`, the origin the page and its hand-off are on.
+     */
+    public var origin: String
+    public var page: ChatSharePage
+    public var shareId: String
+    /**
+     * The guest link's secret (`#<secret>`); none for an invite, which is joined by account.
+     */
+    public var secret: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * `https://<share host>`, the origin the page and its hand-off are on.
+         */origin: String, page: ChatSharePage, shareId: String, 
+        /**
+         * The guest link's secret (`#<secret>`); none for an invite, which is joined by account.
+         */secret: String?) {
+        self.origin = origin
+        self.page = page
+        self.shareId = shareId
+        self.secret = secret
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ParsedChatShareLink: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeParsedChatShareLink: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ParsedChatShareLink {
+        return
+            try ParsedChatShareLink(
+                origin: FfiConverterString.read(from: &buf), 
+                page: FfiConverterTypeChatSharePage.read(from: &buf), 
+                shareId: FfiConverterString.read(from: &buf), 
+                secret: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ParsedChatShareLink, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.origin, into: &buf)
+        FfiConverterTypeChatSharePage.write(value.page, into: &buf)
+        FfiConverterString.write(value.shareId, into: &buf)
+        FfiConverterOptionString.write(value.secret, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeParsedChatShareLink_lift(_ buf: RustBuffer) throws -> ParsedChatShareLink {
+    return try FfiConverterTypeParsedChatShareLink.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeParsedChatShareLink_lower(_ value: ParsedChatShareLink) -> RustBuffer {
+    return FfiConverterTypeParsedChatShareLink.lower(value)
+}
+
+
+/**
  * A parsed cmux link.
  */
 public struct ParsedCmuxLink: Equatable, Hashable {
@@ -19834,6 +19911,76 @@ public func FfiConverterTypeChatRefusal_lift(_ buf: RustBuffer) throws -> ChatRe
 #endif
 public func FfiConverterTypeChatRefusal_lower(_ value: ChatRefusal) -> RustBuffer {
     return FfiConverterTypeChatRefusal.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * `g`: a guest link's page; `i`: an invite's.
+ */
+
+public enum ChatSharePage: Equatable, Hashable {
+    
+    case guest
+    case invite
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ChatSharePage: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeChatSharePage: FfiConverterRustBuffer {
+    typealias SwiftType = ChatSharePage
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ChatSharePage {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .guest
+        
+        case 2: return .invite
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ChatSharePage, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .guest:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .invite:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeChatSharePage_lift(_ buf: RustBuffer) throws -> ChatSharePage {
+    return try FfiConverterTypeChatSharePage.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeChatSharePage_lower(_ value: ChatSharePage) -> RustBuffer {
+    return FfiConverterTypeChatSharePage.lower(value)
 }
 
 
@@ -25345,6 +25492,30 @@ fileprivate struct FfiConverterOptionTypeMacRecoveryAttemptState: FfiConverterRu
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeParsedChatShareLink: FfiConverterRustBuffer {
+    typealias SwiftType = ParsedChatShareLink?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeParsedChatShareLink.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeParsedChatShareLink.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeParsedCmuxLink: FfiConverterRustBuffer {
     typealias SwiftType = ParsedCmuxLink?
 
@@ -27907,6 +28078,63 @@ public func chatPromptDefaultHoldMs() -> UInt64  {
 })
 }
 /**
+ * Where the phone's account token is spent for a one-time code on this page.
+ */
+public func chatShareHandoffUrl(link: ParsedChatShareLink) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_chat_share_handoff_url(
+        FfiConverterTypeParsedChatShareLink_lower(link),$0
+    )
+})
+}
+/**
+ * An id or hand-off code: 16 to 128 URL-safe characters.
+ */
+public func chatShareIsId(text: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_chat_share_is_id(
+        FfiConverterString.lower(text),$0
+    )
+})
+}
+/**
+ * The link with these parts, or none when the id or the secret is malformed.
+ */
+public func chatShareLinkMake(origin: String, page: ChatSharePage, shareId: String, secret: String?) -> ParsedChatShareLink?  {
+    return try!  FfiConverterOptionTypeParsedChatShareLink.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_chat_share_link_make(
+        FfiConverterString.lower(origin),
+        FfiConverterTypeChatSharePage_lower(page),
+        FfiConverterString.lower(shareId),
+        FfiConverterOptionString.lower(secret),$0
+    )
+})
+}
+/**
+ * The share link `url` names, or none when it is not one (another host, path or scheme, a
+ * malformed id or secret).
+ */
+public func chatShareLinkParse(url: String) -> ParsedChatShareLink?  {
+    return try!  FfiConverterOptionTypeParsedChatShareLink.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_chat_share_link_parse(
+        FfiConverterString.lower(url),$0
+    )
+})
+}
+/**
+ * The page to open: `<origin>/<g|i>/<id>?in_app=1[&cmux_handoff=<code>][#<secret>]`. `in_app=1`
+ * keeps the page from asking the app to open it again; without a code (or with a malformed
+ * one) it opens signed out.
+ */
+public func chatSharePageUrl(link: ParsedChatShareLink, handoff: String?) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_chat_share_page_url(
+        FfiConverterTypeParsedChatShareLink_lower(link),
+        FfiConverterOptionString.lower(handoff),$0
+    )
+})
+}
+/**
  * Whether this launch should run the cleanup: the marker is missing, not a
  * number, or from an older version of the rules.
  */
@@ -29504,6 +29732,21 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_chat_prompt_default_hold_ms() != 62257) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_chat_share_handoff_url() != 12025) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_chat_share_is_id() != 26424) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_chat_share_link_make() != 21596) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_chat_share_link_parse() != 14586) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_chat_share_page_url() != 23378) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_due() != 41191) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -29648,7 +29891,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_decode() != 25789) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_default() != 6491) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_default() != 37152) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_encode() != 63147) {
