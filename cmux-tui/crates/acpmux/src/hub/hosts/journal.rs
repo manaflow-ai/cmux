@@ -801,7 +801,7 @@ impl WorkFold {
             ("in", "tool_call" | "tool_call_update" | "plan")
                 if current && work.turn.is_some() && !subagents_own =>
             {
-                work.doing.note(&e.msg["params"]["update"]);
+                work.doing.note(&e.msg["params"]["update"], e.at);
             }
             ("in", "compaction") if current && work.turn.is_some() && !subagents_own => {
                 match e.msg.pointer("/params/update/state").and_then(Value::as_str) {
