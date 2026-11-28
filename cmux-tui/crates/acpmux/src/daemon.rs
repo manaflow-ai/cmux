@@ -118,6 +118,8 @@ mod runtime_stall;
 mod socket_rebind;
 mod stop_causes;
 mod stop_watchdog;
+#[cfg(unix)]
+mod term_backstop;
 pub(crate) use stop_watchdog::shutdown_time_left;
 pub(crate) mod supervision;
 #[cfg(unix)]
@@ -470,6 +472,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         // action, and a daemon whose stream failed would then never stop on SIGTERM.
         if term.is_some() {
             term_sender::record();
+            // A stop signal ends the process even when no task ever reads it: every worker
+            // held (`daemon/term_backstop.rs`).
+            term_backstop::arm();
         }
         (term, signal(SignalKind::interrupt()).ok())
     };
@@ -872,6 +877,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     let hub = Hub::new_loading_with_wireguard(config, store, mailbox, wireguard.clone());
     #[cfg(unix)]
     hung_holder::step("hub");
+    #[cfg(unix)]
+    term_backstop::attach(&hub);
     if let Some(v2) = v2.as_ref() {
         let (tee, task) = crate::hub::list_tee::start_v2_tee(hub.clone(), v2.clone());
         hub.install_v2_tee(tee);
@@ -1507,6 +1514,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
                 // Supervisors use SIGTERM for updates and permanent stops alike. Advertise
                 // handoff: a stopped service causes one immediate retry, then normal backoff.
                 _ = next_signal(term.as_mut()) => {
+                    term_backstop::test_hold_unread();
                     let from = term_sender::settled().await.map(term_sender::describe);
                     match &from {
                         Some(from) => tracing::warn!("stopping: SIGTERM from {from} (a restart handoff)"),
