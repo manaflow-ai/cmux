@@ -143,8 +143,11 @@ pub struct SshConnectionShare {
     inner: Option<Arc<ShareInner>>,
 }
 
+type SharedTarget = Arc<Mutex<Option<Shared>>>;
+
 struct ShareInner {
-    masters: Mutex<HashMap<SshTarget, Shared>>,
+    masters: Mutex<HashMap<SshTarget, SharedTarget>>,
+    reconnect_generation: AtomicU64,
     clock: Arc<SshAuthClock>,
 }
 
@@ -165,6 +168,7 @@ impl SshConnectionShare {
             Self {
                 inner: Some(Arc::new(ShareInner {
                     masters: Mutex::new(HashMap::new()),
+                    reconnect_generation: AtomicU64::new(0),
                     clock: Arc::new(SshAuthClock::default()),
                 })),
             }
@@ -182,6 +186,14 @@ impl SshConnectionShare {
         self.inner.as_ref().map(|inner| Arc::clone(&inner.clock))
     }
 
+    /// Retry unavailable control sockets on the next reconnect, while keeping
+    /// live masters and coalescing concurrent runs for each target.
+    pub fn retry_unavailable(&self) {
+        if let Some(inner) = &self.inner {
+            inner.reconnect_generation.fetch_add(1, Ordering::AcqRel);
+        }
+    }
+
     /// Options that send one `ssh` run for `target` through the shared
     /// connection, opening it first when none is alive. They go before the
     /// caller's own options so they win. Empty when sharing is off or the
@@ -195,27 +207,34 @@ impl SshConnectionShare {
         if caller_manages_connection_sharing(&target.extra_args) {
             return Ok(Vec::new());
         }
-        // Concurrent runs wait here for the first one's master instead of
-        // each opening (and authenticating) their own.
-        let mut masters = inner.masters.lock().await;
-        let live = match masters.get_mut(target) {
+        // Only runs for the same target wait for its authentication. Never
+        // hold the map lock while a person is typing a password.
+        let entry = {
+            let mut masters = inner.masters.lock().await;
+            Arc::clone(masters.entry(target.clone()).or_default())
+        };
+        let mut shared = entry.lock().await;
+        let generation = inner.reconnect_generation.load(Ordering::Acquire);
+        let live = match shared.as_mut() {
             Some(Shared::Master(master)) => master.is_alive().then(|| master.client_arguments()),
-            Some(Shared::Unavailable) => return Ok(Vec::new()),
-            None => None,
+            Some(Shared::Unavailable(failed_generation)) if *failed_generation == generation => {
+                return Ok(Vec::new());
+            }
+            _ => None,
         };
         if let Some(arguments) = live {
             return Ok(arguments);
         }
-        masters.remove(target);
+        *shared = None;
         let _clock = inner.clock.begin();
         match ControlMaster::open(target).await? {
             Some(master) => {
                 let arguments = master.client_arguments();
-                masters.insert(target.clone(), Shared::Master(Box::new(master)));
+                *shared = Some(Shared::Master(Box::new(master)));
                 Ok(arguments)
             }
             None => {
-                masters.insert(target.clone(), Shared::Unavailable);
+                *shared = Some(Shared::Unavailable(generation));
                 Ok(Vec::new())
             }
         }
@@ -227,8 +246,8 @@ enum Shared {
     Master(Box<ControlMaster>),
     /// ssh authenticated but could not listen on a control socket: runs
     /// connect on their own instead of opening (and prompting for) another
-    /// master each time.
-    Unavailable,
+    /// master each time. A reconnect expires this negative cache entry.
+    Unavailable(u64),
 }
 
 /// One `ssh -N` control master, owned by the share. Dropping it ends ssh,

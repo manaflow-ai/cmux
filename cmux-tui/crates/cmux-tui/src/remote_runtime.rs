@@ -52,7 +52,6 @@ use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
 use cmux_remote::services::DaemonServices;
 use cmux_remote::session::SessionLimits;
 use cmux_remote::ssh_bootstrap::{BootstrapError, SshBootstrapConfig, SshBootstrapper};
-use cmux_remote::ssh_control::SSH_MASTER_AUTH_TIMEOUT;
 use cmux_remote_protocol::{LanePolicy, SessionId};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -1728,27 +1727,17 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
         )
         .unwrap_or(u32::MAX);
         let ssh_bootstraps = u32::try_from(self.unprepared_ssh_probe_count()).unwrap_or(u32::MAX);
-        // Each SSH route may open its shared connection, which may prompt.
-        let ssh_authentications = if self.options.ssh.connection_share.auth_clock().is_some() {
-            u32::try_from(
-                self.options
-                    .routes
-                    .iter()
-                    .filter(|candidate| {
-                        candidate.endpoint.scheme() == "ssh" && candidate.supports_client_auth(auth)
-                    })
-                    .count(),
-            )
-            .unwrap_or(u32::MAX)
-        } else {
-            0
-        };
-        reconnect_attempt_timeout
-            .saturating_mul(provider_attempts)
-            .saturating_add(
-                self.options.ssh_bootstrap.attempt_timeout.saturating_mul(ssh_bootstraps),
-            )
-            .saturating_add(SSH_MASTER_AUTH_TIMEOUT.saturating_mul(ssh_authentications))
+        reconnect_attempt_timeout.saturating_mul(provider_attempts).saturating_add(
+            self.options.ssh_bootstrap.attempt_timeout.saturating_mul(ssh_bootstraps),
+        )
+    }
+
+    fn resolution_time_excluded(&self) -> Duration {
+        self.options
+            .ssh
+            .connection_share
+            .auth_clock()
+            .map_or(Duration::ZERO, |clock| clock.excluded(Instant::now()))
     }
 
     /// Every route this client can authenticate on but the link's own. Without the route race
@@ -1766,6 +1755,7 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
     }
 
     async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError> {
+        self.options.ssh.connection_share.retry_unavailable();
         let attempt = RuntimeReconnectRouteAttempt {
             options: &self.options,
             prepared_ssh: &self.prepared_ssh,

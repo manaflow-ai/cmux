@@ -256,6 +256,12 @@ pub trait ReconnectGroupSource: Send + Sync {
         reconnect_attempt_timeout
     }
 
+    /// Cumulative time spent authenticating, including authentication in progress.
+    /// Only the increase during this resolution is excluded from its deadline.
+    fn resolution_time_excluded(&self) -> Duration {
+        Duration::ZERO
+    }
+
     async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError>;
 
     /// How many routes other than a link's own this source can hand a redial (`None`: it does
@@ -2042,10 +2048,23 @@ async fn resolve_reconnect_group(
     source: &dyn ReconnectGroupSource,
     reconnect_attempt_timeout: Duration,
 ) -> Option<Arc<dyn LinkGroup>> {
-    tokio::time::timeout(source.resolution_timeout(reconnect_attempt_timeout), source.next_group())
-        .await
-        .ok()?
-        .ok()
+    let budget = source.resolution_timeout(reconnect_attempt_timeout);
+    let excluded_at_start = source.resolution_time_excluded();
+    let started = tokio::time::Instant::now();
+    let next = source.next_group();
+    tokio::pin!(next);
+    loop {
+        let excluded = source.resolution_time_excluded().saturating_sub(excluded_at_start);
+        let elapsed = started.elapsed().saturating_sub(excluded);
+        let remaining = budget.saturating_sub(elapsed);
+        if remaining.is_zero() {
+            return None;
+        }
+        match tokio::time::timeout(remaining, &mut next).await {
+            Ok(result) => return result.ok(),
+            Err(_) => continue, // Recompute only at the deadline; no periodic polling.
+        }
+    }
 }
 
 async fn wait_for_close(mut state: watch::Receiver<CloseState>) -> Result<(), ConnectionError> {
@@ -2146,3 +2165,7 @@ fn cold_ik_applies(config: &ClientConnectionConfig) -> bool {
     config.expected_daemon.is_some()
         && !matches!(config.auth, ClientAuthMode::Invitation { .. } | ClientAuthMode::Grant { .. })
 }
+
+#[cfg(test)]
+#[path = "connection/resolution_tests.rs"]
+mod resolution_tests;
