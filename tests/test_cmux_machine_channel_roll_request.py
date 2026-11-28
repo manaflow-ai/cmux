@@ -1,4 +1,4 @@
-"""MACHINE_ROLL_REQUEST: the Cloud VM image roll is requested from the x86_64 machine build, not behind Mac legs."""
+"""MACHINE_CHANNEL_ROLL (#64621): the Cloud VM image roll is requested from the Linux machine build, not behind Mac legs."""
 import pathlib
 import unittest
 
@@ -12,10 +12,10 @@ class MachineRollRequest(unittest.TestCase):
     def setUp(self):
         self.jobs = yaml.safe_load((ROOT / ".github/workflows/cmux-machine-channel.yml").read_text())["jobs"]
 
-    def test_the_roll_is_requested_once_the_x86_64_machine_build_is_pointed(self):
+    def test_the_roll_is_requested_once_the_linux_machine_build_is_pointed(self):
         job = self.jobs["request-image-roll"]
-        self.assertEqual(job["needs"], ["point-x86_64"])
-        self.assertIn("point-x86_64.result == 'success'", job["if"])
+        self.assertEqual(job["needs"], ["point-linux"])
+        self.assertIn("point-linux.result == 'success'", job["if"])
         self.assertIn("refs/heads/feat-cmux-next", job["if"])
 
     def test_no_leg_the_image_does_not_consume_gates_the_request(self):
