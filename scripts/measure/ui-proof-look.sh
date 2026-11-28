@@ -71,7 +71,7 @@ fetch_history() {
   if [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]]; then
     depth_args=(--unshallow)
   fi
-  git -C "$root" fetch -q --no-tags "${depth_args[@]}" "$source_repo" feat-cmux-next "$head"
+  git -C "$root" fetch -q --no-tags ${depth_args[@]+"${depth_args[@]}"} "$source_repo" feat-cmux-next "$head"
 }
 [[ "$commit" =~ ^[0-9a-f]{7,40}$ ]] || { echo "UPL invalid nightly commit $commit"; exit 3; }
 if ! git -C "$root" cat-file -e "$commit^{commit}" 2>/dev/null; then
