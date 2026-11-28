@@ -617,7 +617,7 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
             workers: int | None = None, only: list[str] | None = None, store: StepResults | None = None,
             root: Path = ROOT, pr_scope: bool = False, tier: str = "full", tools_only: bool = False,
             alone_on_red: bool = False, strict: bool = False, alone_deadline: float | None = None,
-            alone_turn: int = 0) -> int:
+            alone_turn: int = 0, fail_fast: bool = False) -> int:
     names = route(table, paths, label, pr_scope=pr_scope, tier=tier).get(job, [])
     if pr_scope:
         deferred = [n for n in route(table, paths, label, tier=tier).get(job, []) if n not in names]
@@ -688,11 +688,28 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
             with ThreadPoolExecutor(max_workers=limit) as pool:
                 # A step's log prints when it ends, so a job cut by its own timeout still shows the steps
                 # that finished and which one was running.
+                red = threading.Event()
+                red_name: list[str] = []
+
                 def run_and_print(step: Step) -> Result:
+                    # fail_fast: once a blocking step is red the job is red and the re-run runs every step again,
+                    # so a step not yet started would only spend the machine (253 of 493 linux runs were red on
+                    # 11-28 and held 3835 of 6006 runner-min). Steps already running finish.
+                    if fail_fast and red.is_set() and not alone_on_red:
+                        print(f"::notice title=Step table::step {step.name} skipped: blocking step "
+                              f"{red_name[0]} failed (fail-fast)", file=out)
+                        return Result(step, 0, 0.0, "", skipped=True)
                     result = run_step(step, env)
                     print_log(result, out)
+                    if fail_fast and not result.ok and result.step.blocks and not red.is_set():
+                        red_name.append(result.step.name)
+                        red.set()
                     return result
-                results += pool.map(run_and_print, [s for s in steps if not s.alone])
+                parallel = [s for s in steps if not s.alone]
+                if fail_fast:
+                    # The cheap steps first, so the likeliest reds (guards, lints) come before a heavy step starts.
+                    parallel.sort(key=lambda s: s.timeout)
+                results += pool.map(run_and_print, parallel)
             # An `alone` step takes the whole machine: it runs by itself, after the others, in table order.
             # Once a blocking step failed the job is red, and the re-run runs every step again: an alone step
             # (the long ones: 15 to 65 minutes) would only spend the machine, so it is skipped. `alone_on_red`
@@ -822,6 +839,9 @@ def main(argv: list[str] | None = None) -> int:
                         "(CI_ALONE_DEADLINE)")
     x.add_argument("--alone-turn", type=int, default=int(os.environ.get("CI_ALONE_TURN") or 0),
                    help="with --alone-deadline: which alone step starts first, rotating (CI_ALONE_TURN)")
+    x.add_argument("--fail-fast", action="store_true", default=os.environ.get("CI_RUN_FAIL_FAST") == "1",
+                   help="after a blocking step fails, start no further step (running ones finish); "
+                        "CI_RUN_FAIL_FAST=1 says the same")
     args = parser.parse_args(argv)
     table = load(Path(args.table))
     paths = read_paths(getattr(args, "paths_file", None))
@@ -837,7 +857,7 @@ def main(argv: list[str] | None = None) -> int:
     return run_job(table, args.job, paths, args.label or None, workers=args.workers or None,
                    only=parse_only(args.only), store=store, root=Path.cwd(), pr_scope=args.pr_scope, tier=args.tier,
                    tools_only=args.tools_only, alone_on_red=args.alone_on_red,
-                   alone_deadline=args.alone_deadline, alone_turn=args.alone_turn)
+                   alone_deadline=args.alone_deadline, alone_turn=args.alone_turn, fail_fast=args.fail_fast)
 
 
 if __name__ == "__main__":
