@@ -92,4 +92,20 @@ struct SkipOnboardingLaunchTests {
         #expect(await skipping.onboarding.openFirstChat(isFirstRun: true, defaults: defaults) == nil)
         #expect(!defaults.bool(forKey: key))
     }
+
+    /// Meet Chief on screen holds the first-run chat: Home stays in front until it ends.
+    @Test @MainActor func firstChatWaitsForMeetChief() async throws {
+        let suite = "first-chat-waits-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let services = AppServices(environment: AppEnvironment.current(["CMUX_NEXT_ONBOARDING": "1"], arguments: ["cmux"]))
+        let chief = services.onboarding.chief
+        guard chief.begin(freshInstall: true) else { return } // the shared defaults already decided Meet Chief
+        let opened = Task { await services.onboarding.openFirstChat(isFirstRun: true, defaults: defaults) }
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(!defaults.bool(forKey: OnboardingWindowPresenter.firstChatOpenedKey)) // still waiting
+        chief.finish()
+        _ = await opened.value
+        #expect(defaults.bool(forKey: OnboardingWindowPresenter.firstChatOpenedKey))
+    }
 }
