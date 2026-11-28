@@ -66,7 +66,6 @@ export function sweepVmHealth(
     const inventory = yield* bounded("inventory", providers.listAccountVms && (() => providers.listAccountVms!(VM_HEALTH_PROVIDER, { deadlineAtMs })));
     const tlsRules = yield* bounded("tls_rules", providers.listAccountTlsRules && (() => providers.listAccountTlsRules!(VM_HEALTH_PROVIDER, { deadlineAtMs })));
     const cmuxIds = (inventory?.vms ?? []).filter((vm) => vmWorkload(vm.metadata) === "cmux_cloud").map((vm) => vm.id);
-    const dbRows = yield* step("db_rows", repo.vmHealthDbRows && (() => repo.vmHealthDbRows!({ provider: VM_HEALTH_PROVIDER, providerVmIds: cmuxIds })));
 
     const probes = yield* probeRunningVms(inventory?.vms ?? [], {
       deadlineAtMs,
@@ -75,6 +74,8 @@ export function sweepVmHealth(
       probeIdleVms: options.probeIdleVms ?? false,
     });
 
+    // Read after probing: reports delivered during a slow probe are liveness evidence.
+    const dbRows = yield* step("db_rows", repo.vmHealthDbRows && (() => repo.vmHealthDbRows!({ provider: VM_HEALTH_PROVIDER, providerVmIds: cmuxIds })));
     const nowMs = yield* Clock.currentTimeMillis;
     const report = classifyVmHealth({
       now: new Date(nowMs),

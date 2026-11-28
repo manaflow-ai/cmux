@@ -34,6 +34,7 @@ function row(providerVmId: string, overrides: Partial<VmHealthDbRow> = {}): VmHe
     ownerTeamId: `team-${providerVmId}`,
     status: "running",
     imageId: "devbox",
+    resourceSample: { providerVmId, receivedAt: NOW.getTime() - 600_000, cpuPercent: 1 },
     createdAt: new Date(daysAgo(3)),
     updatedAt: new Date(daysAgo(1)),
     ...overrides,
@@ -64,7 +65,39 @@ describe("workload", () => {
 });
 
 describe("hung VMs", () => {
-  test("a running VM whose probe timed out or hit a stale runtime is hung, with owner, image and size", () => {
+  test.each([
+    ["missing", null],
+    ["foreign VM", { providerVmId: "another-vm", receivedAt: NOW.getTime() - 600_000, cpuPercent: 1 }],
+    ["future", { providerVmId: "vm-a", receivedAt: NOW.getTime() + 1, cpuPercent: 1 }],
+    ["malformed gauges", { providerVmId: "vm-a", receivedAt: NOW.getTime() - 600_000, cpuPercent: -1 }],
+    ["missing gauges", { providerVmId: "vm-a", receivedAt: NOW.getTime() - 600_000 }],
+  ])("%s reporter evidence cannot confirm a frozen Cloud guest", (_name, resourceSample) => {
+    const report = classify({
+      vms: [vm("vm-a")], dbRows: [row("vm-a", { resourceSample })],
+      probes: [{ vmId: "vm-a", outcome: "hung", latencyMs: 10, detail: "responsive=false" }],
+    });
+    expect(report.hung).toEqual([]);
+    expect(report.coverage.probeErrors).toBe(1);
+  });
+
+  test.each([0, 299_999, 300_000])("reporter age %d clears a previous hung observation", (age) => {
+    const report = classify({
+      vms: [vm("vm-a")],
+      dbRows: [row("vm-a", { resourceSample: { providerVmId: "vm-a", receivedAt: NOW.getTime() - age, cpuPercent: 1 } })],
+      probes: [{ vmId: "vm-a", outcome: "hung", latencyMs: 10, detail: "responsive=false" }],
+      previousHung: [{ vmId: "vm-a", firstSeenHungAt: minutesAgo(30) }],
+    });
+    expect(report.hung).toEqual([]);
+    expect(report.coverage.probeErrors).toBe(0);
+  });
+
+  test("stale telemetry without a failed guest probe never means frozen", () => {
+    const report = classify({ vms: [vm("vm-a")], dbRows: [row("vm-a")],
+      probes: [{ vmId: "vm-a", outcome: "ok", latencyMs: 1 }] });
+    expect(report.hung).toEqual([]);
+  });
+
+  test("an explicit hung probe with stale reporter evidence is hung, with owner, image and size", () => {
     const report = classify({
       vms: [vm("vm-a"), vm("vm-b", { metadata: { app: "chatmux2" } }), vm("vm-ok")],
       dbRows: [row("vm-a")],
@@ -92,6 +125,7 @@ describe("hung VMs", () => {
   test("first-seen-hung time carries over from the previous sweep", () => {
     const report = classify({
       vms: [vm("vm-a")],
+      dbRows: [row("vm-a")],
       probes: [{ vmId: "vm-a", outcome: "hung", latencyMs: 10_000, detail: "timeout" }],
       previousHung: [{ vmId: "vm-a", firstSeenHungAt: minutesAgo(45) }, { vmId: "vm-recovered", firstSeenHungAt: minutesAgo(90) }],
     });
@@ -143,6 +177,7 @@ describe("hung VMs", () => {
   test("marks only current hung probes as confirmed for this sweep", () => {
     const report = classify({
       vms: [vm("vm-current"), vm("vm-budget"), vm("vm-error")],
+      dbRows: [row("vm-current")],
       probes: [
         { vmId: "vm-current", outcome: "hung", latencyMs: 10_000, detail: "timeout" },
         { vmId: "vm-budget", outcome: "skipped_budget" },
@@ -380,7 +415,7 @@ describe("report bounds", () => {
   test("lists are capped so one incident cannot make a snapshot unbounded", () => {
     const vms = Array.from({ length: 700 }, (_, index) => vm(`vm-${index}`));
     const probes: VmProbeRecord[] = vms.map((entry) => ({ vmId: entry.id, outcome: "hung", latencyMs: 10_000, detail: "timeout" }));
-    const report = classify({ vms, probes });
+    const report = classify({ vms, probes, dbRows: vms.map((entry) => row(entry.id)) });
     expect(report.hung).toHaveLength(500);
     // The reason keeps the true count while the stored list is capped.
     expect(report.attention.reasons).toContainEqual({ code: "hung_vms", count: 700 });

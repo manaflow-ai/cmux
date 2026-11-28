@@ -5,7 +5,7 @@ import { POSTHOG_HOST, POSTHOG_PROJECT_KEY } from "../analytics/iosEventPolicy";
 import { cloudDb } from "../../db/client";
 import { cloudVmAlertStates, cloudVmHealthSnapshots, cloudVmLeases, cloudVms, cloudVmUsageEvents } from "../../db/schema";
 import { sendAlert, type AlertFetch, type AlertInput, type AlertResult } from "./alerts";
-import { allProbesConclusive, confirmedHungThisSweep, VM_HEALTH_PROVIDER } from "../vms/health/evidence";
+import { allProbesConclusive, confirmedHungThisSweep, VM_HEALTH_PROVIDER, VM_HEALTH_STALE_MS } from "../vms/health/evidence";
 import { reportError } from "./report";
 import { readFreestyleTlsRuleUsage, tlsRuleCapacityAlert, TLS_RULE_CAPACITY_ALERT_KEY, type TlsRuleUsage } from "./providerRuleCapacity";
 
@@ -14,7 +14,6 @@ const DROPPED_ALERT_REPORT_TIMEOUT_MS = 2_000;
 const VM_ALERT_REMINDER_WINDOW_MS = 24 * 60 * 60 * 1_000;
 const VM_ALERT_DELIVERY_LEASE_MS = 5 * 60 * 1_000;
 const VM_ALERT_SAMPLE_LIMIT = 25;
-const VM_HEALTH_STALE_MS = 5 * 60 * 1_000;
 // The cron runs every five minutes. A daily bucket gives operators a reminder
 // without creating a new PostHog event for every tick of a persistent outage.
 const DROPPED_ALERT_DEDUPE_WINDOW_MS = 24 * 60 * 60 * 1_000;

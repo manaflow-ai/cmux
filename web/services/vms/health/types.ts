@@ -65,6 +65,8 @@ export type VmProbeRecord =
 
 /** The cmux DB row the sweep joins to a provider VM. */
 export type VmHealthDbRow = {
+  /** Only the reporter sample, never the rest of provider metadata (which contains credentials). */
+  readonly resourceSample: unknown;
   readonly id: string;
   readonly providerVmId: string;
   readonly userId: string;
