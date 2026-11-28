@@ -31,7 +31,7 @@ public struct TabHoverCardGallery {
         replied.hover.latest = "Done: the settings page now remembers the last tab you opened."
         var asking = TabItem(id: TabID("gallery-chat-input"), title: "Fix the flaky upload test", subtitle: "~/code/notes-app",
                              icon: .icon(.agentChat))
-        asking.indicator = .needsInput
+        asking.indicator = .waiting(StatusBlockedKind.permission)
         asking.hover = TabHoverFacts(kind: .agentChat, activity: .needsInput, since: now.addingTimeInterval(-40), model: "Opus 5.5")
         asking.hover.latest = "Allow Bash: git push origin fix-upload-test?"
         let samples: [(TabItem, [Double], UInt64)] = [
