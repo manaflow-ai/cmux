@@ -112,6 +112,7 @@ fn a_folder_that_changed_under_the_record_is_derived_again() {
         servers: Vec::new(),
         codex: None,
         env: Vec::new(),
+        ports: Vec::new(),
     };
     let all = all_tools_with(true, Some(&kept), std::path::Path::new("/new"), || {
         calls.set(calls.get() + 1);
@@ -161,6 +162,7 @@ fn the_mark_holds_only_for_its_folder_and_replaces_a_profiles_own() {
         servers: Vec::new(),
         codex: None,
         env: Vec::new(),
+        ports: Vec::new(),
     };
     let mut env = BTreeMap::from([(RECORDED_ENV.to_owned(), "1".to_owned())]);
     mark_with(true, &mut env, Some(&m), std::path::Path::new("/repo"));
@@ -336,6 +338,7 @@ fn the_codex_mark_holds_only_for_its_folder() {
         servers: Vec::new(),
         codex: Some(record.clone()),
         env: Vec::new(),
+        ports: Vec::new(),
     };
     let mut env = BTreeMap::from([(CODEX_ENV.to_owned(), "forged".to_owned())]);
     mark_with(true, &mut env, Some(&m), std::path::Path::new("/repo"));
@@ -409,4 +412,70 @@ fn a_move_or_fork_start_names_the_env_it_lacks() {
     assert!(check_env_with(false, there.manifest.as_ref(), here, &lacking).is_empty());
     let other = forked(&there, "/home/b/other");
     assert!(other.manifest.is_none());
+}
+
+/// A preview's port is kept once, in order, while the manifest holds for the folder and has room;
+/// off, or for another folder, nothing is kept.
+#[test]
+fn a_preview_port_is_kept_once_in_order() {
+    let derives = Cell::new(0);
+    let mut chat = meta("/repo");
+    start(true, &mut chat, &derives);
+    let cwd = chat.cwd.clone();
+    let cwd = std::path::Path::new(&cwd);
+    assert!(keep_port(true, &mut chat.manifest, cwd, 5173));
+    assert!(keep_port(true, &mut chat.manifest, cwd, 3000));
+    assert!(!keep_port(true, &mut chat.manifest, cwd, 5173));
+    assert_eq!(chat.manifest.as_ref().unwrap().ports, [3000, 5173]);
+    let json = serde_json::to_string(&chat).unwrap();
+    assert!(json.contains("\"ports\":[3000,5173]"));
+    // No more than MAX_PORTS.
+    for port in 0..(MAX_PORTS as u16 + 4) {
+        keep_port(true, &mut chat.manifest, cwd, 8000 + port);
+    }
+    assert_eq!(chat.manifest.as_ref().unwrap().ports.len(), MAX_PORTS);
+    // Off, or for another folder, nothing is kept.
+    let mut off = meta("/repo");
+    start(true, &mut off, &derives);
+    assert!(!keep_port(false, &mut off.manifest, cwd, 3000));
+    assert!(!keep_port(true, &mut off.manifest, std::path::Path::new("/elsewhere"), 3000));
+    assert!(off.manifest.as_ref().unwrap().ports.is_empty());
+    // A manifest without ports reads back as before.
+    assert!(!serde_json::to_string(&off).unwrap().contains("ports"));
+}
+
+/// A move and a fork carry the ports: a start there names the ones something else holds, never
+/// the session's own running servers, and is counted.
+#[test]
+fn a_move_or_fork_start_names_a_taken_port() {
+    let derives = Cell::new(0);
+    let mut chat = meta("/home/a/repo");
+    start(true, &mut chat, &derives);
+    let cwd = chat.cwd.clone();
+    keep_port(true, &mut chat.manifest, std::path::Path::new(&cwd), 3000);
+    keep_port(true, &mut chat.manifest, std::path::Path::new(&cwd), 5173);
+    let there = moved(&chat, "/home/b/repo");
+    let here = std::path::Path::new("/home/b/repo");
+    assert_eq!(there.manifest.as_ref().unwrap().ports, [3000, 5173]);
+    assert!(check_ports_with(true, there.manifest.as_ref(), here, &[], |_| false).is_empty());
+    let before = ports_taken();
+    assert_eq!(check_ports_with(true, there.manifest.as_ref(), here, &[], |p| p == 5173), [5173]);
+    assert!(ports_taken() > before);
+    // Its own running server holds the port: not a conflict.
+    assert_eq!(check_ports_with(true, there.manifest.as_ref(), here, &[5173], |_| true), [3000]);
+    let fork = forked(&there, "/home/b/repo");
+    assert_eq!(check_ports_with(true, fork.manifest.as_ref(), here, &[], |p| p == 3000), [3000]);
+    // Off, or a fork into another folder, checks nothing.
+    assert!(check_ports_with(false, there.manifest.as_ref(), here, &[], |_| true).is_empty());
+    assert!(forked(&there, "/home/b/other").manifest.is_none());
+}
+
+/// The loopback probe sees a listener this test holds and not one it closed.
+#[test]
+fn the_loopback_probe_sees_a_held_port() {
+    let held = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let port = held.local_addr().unwrap().port();
+    assert!(loopback_taken(port));
+    drop(held);
+    assert!(!loopback_taken(port));
 }

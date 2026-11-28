@@ -7,7 +7,8 @@ public import Foundation
 extension UpdaterService {
     /// False when the preflight fails: the update stays staged for a click and nothing opens.
     public func updaterPrepareAutomaticInstall() -> Bool {
-        if let failure = installPreflightFailure() {
+        let failure = if let preflightOverride { preflightOverride() } else { installPreflightFailure() }
+        if let failure {
             log.append("automatic install skipped: preflight failed (\(failure)); the update waits for a click")
             return false
         }

@@ -43,6 +43,7 @@
   "workflows": {
     "nightly.yml": {
       "check-nightly-app-store-shelf": {
+        "Check out the build source from this run's pack": {"plumbing": true},
         "Install Linux build dependencies": {"plumbing": true},
         "Init the ghostty-next submodule (libghostty-vt for cmux-tui-core)": {"plumbing": true},
         "Install zig": {"plumbing": true},
@@ -59,10 +60,12 @@
         "Select Xcode": {"plumbing": true},
         "Select the SDK of the selected Xcode": {"plumbing": true},
         "Download published variant": {"plumbing": true, "note": "a ranged, digest-checked download (download-run-artifact.py, tests/test_download_run_artifact_modes.py) of the published variant"},
+        "Import signing cert for the .pkg": {"nightly_only": "imports the Developer ID Installer signing certificate; a pull request holds no signing secret"},
         "Build, sign, notarize and upload the pre-warming .pkg": {"pr": "cmux-next-guards.yml:tooling-tests:cmux NEXT installer package and its pre-warm postinstall", "note": "next-pkg.test.sh runs build-pkg.sh and the postinstall on fixtures; signing, notarization and the upload need release-next secrets only the nightly holds (RFD 0134 cut 2, #54859)"},
         "Cleanup keychain": {"nightly_only": "deletes the signing keychain"},
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"}},
       "runner-preflight": {
+        "Read the preflight without a git fetch": {"plumbing": true},
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"},
         "Every routing label has an online runner": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly runner preflight fails a run whose routing label has no online runner", "note": "tests/test_nightly_runner_preflight.py runs scripts/ci/nightly_runner_preflight.py on the 2026-11-10 census and variables"}},
       "decide": {
@@ -167,6 +170,7 @@
         "Stop the helper builds still running": {"plumbing": true},
         "Bundle the cmux-tui client": {"pr": "ci-guards.yml:workflow-guard-tests:Validate cmux-tui client installation"}},
       "build-nightly-remote-daemon": {
+        "Check out the build source from this run's pack": {"plumbing": true},
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"},
         "Keep the resumed daemon assets": {"plumbing": true},
         "Build immutable SSH daemon assets once for every app variant": {"pr": "pr-pipeline.yml:linux:Run the routed linux steps (ci/steps.toml)", "note": "ci/steps.toml step remote-daemon-packaging, the commands of cmux-next-remote-daemon.yml step 'Build and exercise stable, nightly and rc daemon artifacts'"}},
@@ -177,6 +181,7 @@
         "Sign the SSH daemon provenance offline": {"nightly_only": "signs the daemon assets' build provenance with the run's OIDC identity (attest-offline/sign.mjs); a pull request has no id-token to sign with"},
         "Store the daemon attestation (one try, no budget wait)": {"nightly_only": "stores the signed bundle through the attestations API with a write token (attest-store.sh); a pull request writes no attestation"}},
       "build-nightly-inputs": {
+        "Check out the build source from this run's pack": {"plumbing": true},
         "Restore pinned Bun 1.4.4 from the CI cache bucket": {"plumbing": true, "note": "local script: restores the pinned toolchain from the CI cache bucket (scripts/ci/toolchain-r2.sh), continue-on-error, the setup action after it still installs; no product check"},
         "Restore pinned Node 24.22.1 from the CI cache bucket": {"plumbing": true, "note": "local script: restores the pinned toolchain from the CI cache bucket (scripts/ci/toolchain-r2.sh), continue-on-error, the setup action after it still installs; no product check"},
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"},
@@ -188,6 +193,7 @@
         "Build the web bundles": {"pr": "cmux-next.yml:web-bundles:Build the web bundles for this source key"},
         "Generate the third-party notices": {"pr": "cmux-next-guards.yml:rust-notices-tree:Generate the Rust notices from this tree (as the nightly does)"}},
       "check-nightly-webviews": {
+        "Check out the build source from this run's pack": {"plumbing": true},
         "Restore pinned Bun 1.4.4 from the CI cache bucket": {"plumbing": true, "note": "local script: restores the pinned toolchain from the CI cache bucket (scripts/ci/toolchain-r2.sh), continue-on-error, the setup action after it still installs; no product check"},
         "Restore pinned Node 24.22.1 from the CI cache bucket": {"plumbing": true, "note": "local script: restores the pinned toolchain from the CI cache bucket (scripts/ci/toolchain-r2.sh), continue-on-error, the setup action after it still installs; no product check"},
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"},
@@ -201,6 +207,8 @@
         "Note the red webview checks as a stale part": {"nightly_only": "runs only when the nightly's own webview checks fail and writes the run's stale-part note (scripts/ci/nightly-steps/stale-part.sh); tests/test_nightly_component_fallbacks.py runs the script on fixtures"},
         "Webview checks on the tip commit": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publishes no red webview tree and no known-bad commit", "note": "the same fast_gate_webviews_checks.py pieces run on every feat-cmux-next pull request in ci-web.yml react-apps-check; this job runs them on the tip before the signer (#50866; tests/test_nightly_early_webviews.py)"}},
       "resolve-nightly-cmux-tui-client": {
+        "Pack the build source for later jobs": {"plumbing": true},
+        "Pack this workflow commit's scripts": {"plumbing": true},
         "Drop the reused git store after a failed checkout": {"plumbing": true, "note": "removes a reused runner's broken .git so the fresh-store checkout after it can run; no product check"},
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"},
         "Fix this run's build number": {"plumbing": true},
@@ -213,8 +221,11 @@
         "Resolve cmux-tui client commit": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
         "Choose the build commit": {"plumbing": true},
         "Leave the build slot to a newer nightly-next push": {"plumbing": true},
+        "Check out the build ref from the host's git mirror": {"plumbing": true},
+        "Drop the mirror-borrowing git store": {"plumbing": true},
         "Record pending tree dependency": {"nightly_only": "records the selected nightly build's attempt-scoped cmux-tui tree dependency for publication recovery; pull requests do not select or publish a nightly tree"}},
       "prepare-nightly-variant-primary": {
+        "Check out the build source from this run's pack": {"plumbing": true},
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"},
         "Add the workflow commit's new step scripts to an older build tree": {"plumbing": true, "note": "only runs when the build tree predates the step scripts it calls"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
@@ -235,6 +246,7 @@
         "Put llvm-lipo on PATH as lipo": {"plumbing": true},
         "Require the cmux-tui client build-nightly-app bundled": {"nightly_only": "compares the cmux-tui.version build-nightly-app wrote with the commit resolve-nightly-cmux-tui-client chose; only the nightly installs a resolved client into a Release app"}},
       "prepare-nightly-variant": {
+        "Check out the build source from this run's pack": {"plumbing": true},
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"},
         "Add the workflow commit's new step scripts to an older build tree": {"plumbing": true, "note": "only runs when the build tree predates the step scripts it calls"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
@@ -255,6 +267,7 @@
         "Put llvm-lipo on PATH as lipo": {"plumbing": true},
         "Require the cmux-tui client build-nightly-app bundled": {"nightly_only": "compares the cmux-tui.version build-nightly-app wrote with the commit resolve-nightly-cmux-tui-client chose; only the nightly installs a resolved client into a Release app"}},
       "build-sign-notarize-nightly": {
+        "Check out the build source from this run's pack": {"plumbing": true},
         "Restore pinned Node 22.23.4 from the CI cache bucket": {"plumbing": true, "note": "local script: restores the pinned toolchain from the CI cache bucket (scripts/ci/toolchain-r2.sh), continue-on-error, the setup action after it still installs; no product check"},
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"},
         "Download prepared app (parallel)": {"plumbing": true, "note": "a ranged, digest-checked download (download-run-artifact.py, tests/test_download_run_artifact_modes.py); download-artifact stays the fallback"},
@@ -290,6 +303,7 @@
         "Write notary test receipt": {"plumbing": true},
         "Cleanup keychain": {"nightly_only": "deletes the signing keychain"}},
       "verify-signed-nightly": {
+        "Check out the build source from this run's pack": {"plumbing": true},
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"},
         "Add the workflow commit's new step scripts to an older build tree": {"plumbing": true, "note": "only runs when the build tree predates the step scripts it calls"},
         "Initialize cmux-next notices submodule": {"plumbing": true},
@@ -303,6 +317,7 @@
         "Run bundled Ghostty theme picker helper regression": {"nightly_only": "launches the bundled ghostty helper's theme picker; needs the Release cmux.app that only the nightly builds (xcodebuild Release on a Mac)"},
         "Verify signed app entitlements": {"nightly_only": "reads the Developer ID signature and entitlements of the signed Release app that only the nightly signs"}},
       "verify-final-dmg-nightly": {
+        "Check out the build source from this run's pack": {"plumbing": true},
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"},
         "Initialize cmux-next notices submodule": {"plumbing": true},
         "Select Xcode": {"plumbing": true},
@@ -407,8 +422,11 @@
         "Record the published build in the release body": {"nightly_only": "edits published GitHub release body"},
         "Move the nightly-next tag to the published build": {"nightly_only": "moves channel release tag (update-release-tag.py tested by tests/test_update_release_tag.py)"}},
       "sentry-dsyms-nightly": {
+        "Wait for API budget before the dSYM download": {"plumbing": true},
+        "Wait through GitHub API rate limits in this job's gh calls": {"plumbing": true},
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"},
         "Find the attempt that compiled the published build": {"nightly_only": "looks up the published binary's producing run and its dSYM artifacts; a pull request has no published nightly build"},
+        "Download the build's dSYMs (parallel, waits through a rate limit)": {"plumbing": true, "note": "a ranged, digest-checked download (download-run-artifact.py, tests/test_download_run_artifact_modes.py); download-artifact stays the fallback"},
         "Upload the build's dSYMs to Sentry": {"nightly_only": "uploads the published build's dSYMs to Sentry with the Sentry token, in the tail run outside the push group"}},
       "restore-historical-notes": {
         "Take the nightly-next publish lease": {"nightly_only": "takes the nightly-next publish lease on a manual restore dispatch (#62726); a pull request publishes nothing"},
@@ -507,6 +525,7 @@
         "Delete the signing keychain": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Publish the variant and its module outputs": {"nightly_only": "uploads the variant DMG, its module outputs and live-code-<commit>.json write-once to the nightly-next files"}},
       "retry-nightly-next": {
+        "Unpack this run's scripts/ci": {"plumbing": true},
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"},
         "Read scripts/ci from the host's git mirror": {"plumbing": true},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
@@ -531,6 +550,7 @@
         "Restore and verify the public signed pair": {"nightly_only": "a workflow_dispatch on nightly-next with a restore provenance input writes archived signed notes back to the nightly-next R2 bucket with its release-next secrets (scripts/ci/nightly-notes-restore.py, #62726); a pull request holds no R2 write credentials"},
         "Release the nightly-next publish lease": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next feed writers' R2 lease"}},
       "nightly-next-one": {
+        "Write the build manifest for this app-input digest": {"plumbing": true},
         "Hand the deltas job its inputs": {"plumbing": true},
         "Restore pinned Bun 1.4.4 from the CI cache bucket": {"plumbing": true, "note": "local script: restores the pinned toolchain from the CI cache bucket (scripts/ci/toolchain-r2.sh), continue-on-error, the setup action after it still installs; no product check (#58009)"},
         "Restore pinned Node 24.22.1 from the CI cache bucket": {"plumbing": true, "note": "local script: restores the pinned toolchain from the CI cache bucket (scripts/ci/toolchain-r2.sh), continue-on-error, the setup action after it still installs; no product check (#58009)"},
@@ -679,6 +699,8 @@
         "Read the published build": {"nightly_only": "reads a published build's record, which only a publication or its dispatched post-publish run has (tests/test_nightly_next_tail_off_push_group.py round-trips the script)"},
         "Read the published build back from the live feed": {"nightly_only": "reads the live nightly-next feed and fails when the build this run says it published is not on it (tests/test_nightly_next_delta_check.py)"}},
       "build-nightly-deltas": {
+        "Wait for API budget before the variant download action": {"plumbing": true},
+        "Wait through GitHub API rate limits in this job's gh calls": {"plumbing": true},
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"},
         "Download published variant (parallel)": {"plumbing": true, "note": "a ranged, digest-checked download (download-run-artifact.py, tests/test_download_run_artifact_modes.py); download-artifact stays the fallback"},
         "Select Xcode": {"plumbing": true},
@@ -715,6 +737,7 @@
         "Install ffmpeg": {"plumbing": true},
         "Build and publish the reel": {"nightly_only": "publishes reel with media secrets (reel.py tested by tests/test_cmux_next_reel.py)"}},
       "report-nightly-failure": {
+        "Unpack this run's scripts/ci": {"plumbing": true},
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"plumbing": true, "note": "sets checkout authentication before reused-workspace git operations; tests/test_nightly_git_token_env.py"},
         "Open or update the nightly failure issue": {"nightly_only": "writes the nightly failure issue"}},
       "close-nightly-failure-issue": {

@@ -1867,6 +1867,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         allow_downgrade,
                         caller,
                         now,
+                        same_build_installed: false,
                     };
                     return crate::cli::hosts::update(client, name, all, opts, json_out).await;
                 }
