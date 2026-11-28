@@ -28,6 +28,12 @@
 //! - then a successor (failover) while failovers are left, never onto a full fleet, past this
 //!   pass's placement cap or too late in the pass;
 //! - else hand off.
+//!
+//! Restart intensity (RFD 0181 B8, RFD 0177 item 4, OTP's `MaxR` in `MaxT`): the counts above
+//! are per death, so a session that dies, comes back and dies again starts at restart 1 every
+//! time. A caller that counts deaths across deaths sets `max_deaths`; once `deaths_in_window`
+//! reaches it, the session is handed over (`Ending::Intensity`) instead of restarted, moved or
+//! failed over again, unless a move is in flight or a live session holds its work.
 
 use serde::{Deserialize, Serialize};
 
@@ -77,6 +83,14 @@ pub struct Facts {
     /// Records of its chat this machine's copy holds (`_acpmux/peer_snapshot`, as
     /// `session move --from-snapshot --dry-run --json` counts them); 0 for none or unread.
     pub snapshot_records: u64,
+    /// Its deaths within the restart-intensity window, this one included (the caller counts
+    /// across deaths); 0 unread.
+    pub deaths_in_window: u32,
+    /// Restart intensity: at this many deaths in the window it is handed over, not restarted
+    /// again; 0 is no limit.
+    pub max_deaths: u32,
+    /// The window's length in seconds, for the hand-off line.
+    pub window_seconds: f64,
     pub max_restarts: u32,
     pub max_failovers: u32,
     pub hosts: Hosts,
@@ -162,7 +176,8 @@ pub enum Route {
     Successor { to: String, number: u32 },
     /// Hand its work to whoever started it, else the coordinator. `after` says which step
     /// ran out: `fresh_start` (no host admits one, or the start failed), `full` (its host is full
-    /// and nothing took it) or `used_up` (restarts and failovers).
+    /// and nothing took it), `used_up` (restarts and failovers) or `intensity` (it died
+    /// `max_deaths` times in the window).
     Handoff { why: String, after: Ending },
 }
 
@@ -173,6 +188,7 @@ pub enum Ending {
     FreshStart,
     Full,
     UsedUp,
+    Intensity,
 }
 
 fn listed(list: &[String], host: &str) -> bool {
@@ -199,6 +215,17 @@ pub fn route(f: &Facts) -> Route {
     }
     if !t.moved_to.is_empty() {
         return Route::FinishMove { to: t.moved_to.clone() };
+    }
+    if f.max_deaths > 0 && f.deaths_in_window >= f.max_deaths {
+        let why = format!(
+            "it died {} times in {} min (restart intensity: {} in {} min), so it is not started \
+again",
+            f.deaths_in_window,
+            (f.window_seconds / 60.0).round() as u64,
+            f.max_deaths,
+            (f.window_seconds / 60.0).round() as u64,
+        );
+        return Route::Handoff { why, after: Ending::Intensity };
     }
     let in_grace = f.host_down && f.dead_seconds < f.host_grace_seconds;
     let network = f.network && !f.host_down && f.has_row && !f.capacity;

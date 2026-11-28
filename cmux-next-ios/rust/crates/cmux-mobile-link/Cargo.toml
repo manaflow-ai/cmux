@@ -68,6 +68,8 @@ webpki-roots = "1"
 webrtc.workspace = true
 x25519-dalek.workspace = true
 zeroize.workspace = true
+# One zstd stream per acpmux channel on the phone link (src/zstd_stream.rs).
+zstd.workspace = true
 
 [dev-dependencies]
 cmux-fault.workspace = true

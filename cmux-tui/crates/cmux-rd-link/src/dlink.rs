@@ -29,7 +29,7 @@
 //!   alone allocates: its relay address reaches the host as a `link_candidate`,
 //!   and cmux-rd-link prefers any live direct path to every relay.
 
-use crate::net::{Candidate, Later, Net, NetConfig, NetEvent, TurnServer};
+use crate::net::{Candidate, Later, Net, NetConfig, NetEvent, TurnServer, TurnTransport};
 use crate::{EndpointEvent, Event, KeyPair, Role};
 use std::net::{SocketAddr, ToSocketAddrs};
 #[cfg(unix)]
@@ -127,7 +127,12 @@ fn turn_servers(names: &[TurnName]) -> Vec<TurnServer> {
         .filter(|t| t.addr.len() <= MAX_STUN_NAME)
         .filter_map(|t| {
             let addr = t.addr.to_socket_addrs().ok()?.find(SocketAddr::is_ipv4)?;
-            Some(TurnServer { addr, username: t.username.clone(), password: t.password.clone() })
+            Some(TurnServer {
+                addr,
+                username: t.username.clone(),
+                password: t.password.clone(),
+                transport: TurnTransport::Udp,
+            })
         })
         .collect()
 }

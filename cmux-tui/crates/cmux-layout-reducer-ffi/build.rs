@@ -14,6 +14,9 @@
 //! are asked in name order, and no two may answer the same op (the `op_modules_are_disjoint`
 //! test), so the order never decides which module answers.
 //!
+//! A `#[path]` module's own `mod x;` resolves next to its file (`src/x.rs`), not in
+//! `src/<name>/`: a module with a directory names each child's file (`#[path = "focus/codec.rs"]`).
+//!
 //! Each `mod` line carries `#[path]`, so rustc resolves a module's own submodules from `src/`,
 //! not `src/NAME/`: a module with submodules in `src/NAME/` declares each one
 //! `#[path = "NAME/sub.rs"] mod sub;` (as `focus` and `window_close_selection` do).

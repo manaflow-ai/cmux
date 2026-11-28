@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import * as journey from "./cloud-journey";
 import { spawnSync } from "node:child_process";
 import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,20 +10,27 @@ import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, machineSt
 import { rpcFailureReason } from "./cloud-journey";
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { saveSendTrace, SEND_TRACE_SETTLE_MS } from "./cloud-journey";
-import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, journeyReadFileCommand, journeyReadPrompt, MODEL_STUB_PY, newReds, capacityOnly, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString, agentReady, milestoneLines, spareTaken } from "./cloud-journey";
-import { oidcSignIn, ownerKindGated, startAfterOwnerKind, waitOwnerKind, waitPreflight, CODEX_STUB_CONFIG, OWNER_KIND_GATE_EXIT, OWNER_KIND_PROGRAM, PREFLIGHT_PROBE } from "./cloud-journey";
+import { startMarks, claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, journeyReadFileCommand, journeyReadPrompt,
+  journeyTextPrompt,
+  journeyTextReply, MODEL_STUB_PY, newReds, capacityOnly, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString, agentReady, milestoneLines, spareTaken } from "./cloud-journey";
+import { oidcSignIn, ownerKindGated, startAfterOwnerKind, START_RESENT_ENV, waitOwnerKind, waitPreflight, CODEX_STUB_CONFIG, OWNER_KIND_GATE_EXIT, OWNER_KIND_PROGRAM, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
-import { carrierScrollProbe, parseScrollReport, scrollDetail } from "./cloud-journey";
+import { carrierScrollProbe, parseScrollReport, scrollDetail, scrollNotes } from "./cloud-journey";
 import { sessionModelVerdict } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, deleteRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, machinesByState, FAILED_JOURNEY_MS, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, deleteRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listPageRetryable, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, machinesByState, FAILED_JOURNEY_MS, STALE_JOURNEY_MS, SHORT_JOURNEY_MS, LONG_JOURNEY_MS, KEPT_JOURNEY_MS, autoMachineName } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 import { idleHeldBy, idlePauseDeadlineMs, machineIdleSeconds } from "./cloud-journey";
 import { parseClaimedMarkers, parseWarmHomeAnswer } from "./cloud-journey";
 import { platformVerdict, waitRunning } from "./cloud-journey";
 import { preclaimPhasesText } from "./cloud-journey";
+import { OWN_LOGIN_CHECK, preclaimInstallCommand } from "./cloud-journey";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 describe("cloud journey", () => {
   test("a create stuck provisioning with no host waits for the platform's verdict and names it", async () => {
@@ -337,6 +345,22 @@ describe("cloud journey", () => {
     expect(md).not.toContain("install_secret");
   });
 
+  test("the preclaim install, cleanup and own-login check run as one exec", () => {
+    const dir = mkdtempSync(join(tmpdir(), "preclaim-"));
+    const run = (install: string, after = "") => {
+      const file = join(dir, "cred.json");
+      writeFileSync(file, "{}");
+      const r = spawnSync("bash", ["-c", preclaimInstallCommand(install, file, after)], { encoding: "utf8" });
+      return { code: r.status, out: r.stdout, left: existsSync(file) };
+    };
+    // A heredoc installer like loginPrograms' keeps its terminator on a line of its own.
+    expect(run("set -e\ncat <<'EOF'\ninstalled\nEOF", "echo own-login")).toEqual({ code: 0, out: "installed\nown-login\n", left: false });
+    // A refused install keeps its exit, removes the file, and skips the check.
+    expect(run("set -e\nfalse\necho never", "echo own-login")).toEqual({ code: 1, out: "", left: false });
+    expect(run("exit 3")).toEqual({ code: 3, out: "", left: false });
+    expect(OWN_LOGIN_CHECK).toContain("echo own-login");
+  });
+
   test("the preclaim step names where its time went, phase by phase", () => {
     expect(preclaimPhasesText(undefined)).toBe("");
     expect(preclaimPhasesText({})).toBe("");
@@ -462,6 +486,14 @@ describe("cloud journey", () => {
     expect(capacityOnly([red("the machine did not take its first exec (vm_unavailable)")])).toBe(false);
     expect(capacityOnly([red("HTTP 429"), red("reply timed out")])).toBe(false);
     expect(capacityOnly([])).toBe(false);
+    // The journey's own capacity codes: a full team before the first create, a create refused at the cap.
+    expect(capacityOnly([red("cloud.quota.headroom quota_headroom:account-team used 5/5, need 2 (no room after 244 s, 17 reads)")])).toBe(true);
+    expect(capacityOnly([red("cloud.quota.exceeded: at the cap (no room after 60 s, 5 refusals)")])).toBe(true);
+    expect(capacityOnly([red("cloud.quota.headroom quota_headroom:t used 5/5, need 2"), red("reply timed out")])).toBe(false);
+    // The provider refusing to make a machine (run 46010808734's cold create), not a given machine breaking.
+    expect(capacityOnly([red('machine failed: {"error":{"code":"cloud.machine.create_overdue","message":"the machine\'s create did not settle within 300 s (6 failed tries, the last cloud.provider.unavailable: VM API: HTTP 503: ServiceUnavailable (vm-provider.createQueueFull))"}}')])).toBe(true);
+    expect(capacityOnly([red("FreestyleApiError: infrastructure overloaded: VM start capacity queue wait expired")])).toBe(true);
+    expect(capacityOnly([red("cloud.provider.unavailable"), red('exec: HTTP 502 "vm_unavailable"')])).toBe(false);
   });
   test("the login copy runs the Mac installer's own programs", () => {
     expect(swiftRawString('  static let x = #"""\n      a\n        b\n      """#', "x")).toBe("a\n  b");
@@ -559,6 +591,13 @@ server.shutdown()
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+  test("Codex's reserved home chat turn is text only: Codex offers no Read, and its shell waits under policy ask", () => {
+    // Prod run 46090508199: the Read came back "unsupported call: Read" and the reply said "The tool printed .".
+    const turn = JOURNEY_STUB_SCRIPT.turns.find((t) => new RegExp(t.match).test(journeyTextPrompt("Name the planet.")));
+    expect(turn?.steps).toEqual([{ text: journeyTextReply("{{nonce}}") }]);
+    expect(new RegExp(turn!.match).test(journeyReadPrompt("Name the planet.", "/tmp/x"))).toBe(false);
+    expect(journeyTextReply("3bde18dfd6b9")).toStartWith("Stub reply 3bde18dfd6b9. ");
   });
   test("a team machine gets the DEV creator allowance, as a nightly build copies", () => {
     const team = claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), true);
@@ -691,6 +730,7 @@ describe("cloud journey: login preflight", () => {
     expect(waited).toBe(1);
     expect(seen2).toHaveLength(2);
     expect(seen2[1]).not.toContain(OWNER_KIND_PROGRAM);
+    expect(seen2[1]).toContain(`export ${START_RESENT_ENV}=1; START`);
     // A wait that fails fails the start as before, with no start run.
     const seen3: string[] = [];
     const none = async (command: string) => { seen3.push(command); return { code: OWNER_KIND_GATE_EXIT, stdout: "vm-kind=team\n", stderr: "" }; };
@@ -744,8 +784,8 @@ describe("cloud journey: leaked machine sweep", () => {
   });
 
   test("takes only an auto-named journey machine (and gateway) older than any journey run, in any state", () => {
-    const old = tagAt(now - STALE_JOURNEY_MS - 60_000);
-    const young = tagAt(now - STALE_JOURNEY_MS + 60_000);
+    const old = tagAt(now - SHORT_JOURNEY_MS - 60_000);
+    const young = tagAt(now - SHORT_JOURNEY_MS + 60_000);
     expect(ids([
       { id: "vm_running", name: `cloud journey auto ${old}`, status: "running" },
       { id: "vm_paused_gw", name: `cloud journey auto ${old} gateway`, status: "paused" },
@@ -756,9 +796,41 @@ describe("cloud journey: leaked machine sweep", () => {
       { id: "vm_deleting", name: `cloud journey auto ${old}`, status: "deleting" },
     ])).toEqual(["vm_running", "vm_paused_gw", "vm_move_b", "vm_cold"]);
     // Just inside the bound is a concurrent run's machine; just past it is leaked.
-    const edge = { id: "vm_edge", name: `cloud journey auto ${tagAt(now - STALE_JOURNEY_MS)}`, status: "paused" };
+    const edge = { id: "vm_edge", name: `cloud journey auto ${tagAt(now - SHORT_JOURNEY_MS)}`, status: "paused" };
     expect(ids([edge])).toEqual([]);
     expect(ids([edge], now + 1)).toEqual(["vm_edge"]);
+  });
+
+  test("a short run's paused or failed leftover goes past SHORT_JOURNEY_MS, the ttl's bound (run 46115218791's 86-machine pile)", () => {
+    expect(SHORT_JOURNEY_MS).toBe(STALE_JOURNEY_MS / 2);
+    expect(journey.journeyMachineTtl(false, { GITHUB_ACTIONS: "true" })).toEqual({ ttl_seconds: SHORT_JOURNEY_MS / 1000 });
+    // 2026-11-28 07:20Z: the 3 h bound swept 4 of 64 paused; every one under 3 h old stayed.
+    const twoHours = tagAt(now - 2 * 3_600_000);
+    const hour = tagAt(now - 3_600_000);
+    expect(ids([
+      { id: "paused_2h", name: `cloud journey auto ${twoHours}`, status: "paused", last_active_at: now - 2 * 3_600_000 },
+      { id: "cold_2h", name: `cloud journey auto ${twoHours} cold`, status: "paused" },
+      { id: "failed_1h", name: `cloud journey auto ${hour}`, status: "failed", last_active_at: now },
+      { id: "running_2h_idle", name: `cloud journey auto ${twoHours}`, status: "running", last_active_at: now - IDLE_JOURNEY_MS - 1 },
+      { id: "running_2h_active", name: `cloud journey auto ${twoHours}`, status: "running", last_active_at: now - 60_000 },
+      { id: "paused_1h", name: `cloud journey auto ${hour}`, status: "paused" },
+      { id: "long_2h", name: `cloud journey auto ${twoHours} long`, status: "paused" },
+      { id: "long_gw_2h", name: `cloud journey auto ${twoHours} long gateway`, status: "paused" },
+      { id: "bench_2h", name: `cloud start bench ${twoHours} source`, status: "paused" },
+      { id: "aj_2h", name: `auto journey aj-${(now - 2 * 3_600_000).toString(36)}`, status: "paused" },
+    ])).toEqual(["paused_2h", "cold_2h", "failed_1h", "running_2h_idle"]);
+  });
+
+  test("takes a leaked repro capsule (`repro capsule <id> jr-<tag>`, sweep.rs's name) by the 3 h bound", () => {
+    const old = tagAt(now - STALE_JOURNEY_MS - 60_000);
+    const young = tagAt(now - STALE_JOURNEY_MS + 60_000);
+    expect(ids([
+      { id: "cap_old", name: `repro capsule rc_abc ${old}`, status: "paused" },
+      { id: "cap_failed", name: `repro capsule rc_abc ${tagAt(now - FAILED_JOURNEY_MS - 60_000)}`, status: "failed" },
+      { id: "cap_young", name: `repro capsule rc_abc ${young}`, status: "paused" },
+      { id: "cap_noid", name: `repro capsule ${old}`, status: "paused" },
+      { id: "cap_suffix", name: `repro capsule rc_abc ${old} kept`, status: "paused" },
+    ])).toEqual(["cap_old", "cap_failed"]);
   });
 
   test("never a machine with recent activity, however old", () => {
@@ -798,6 +870,16 @@ describe("cloud journey: leaked machine sweep", () => {
     expect(long).toContain("cloud-resume-matrix.yml");
   });
 
+  test("a CI run's machines carry a ttl past any run that named them; a hand run's none unless asked", () => {
+    const ci = { GITHUB_ACTIONS: "true" };
+    expect(journey.journeyMachineTtl(false, ci)).toEqual({ ttl_seconds: STALE_JOURNEY_MS / 2 / 1000 });
+    expect(journey.journeyMachineTtl(true, ci)).toEqual({ ttl_seconds: LONG_JOURNEY_MS / 1000 });
+    expect(journey.journeyMachineTtl(false, {})).toEqual({});
+    expect(journey.journeyMachineTtl(false, { CLOUD_JOURNEY_MACHINE_TTL_S: "3600" })).toEqual({ ttl_seconds: 3600 });
+    expect(journey.journeyMachineTtl(false, { ...ci, CLOUD_JOURNEY_MACHINE_TTL_S: "0" })).toEqual({});
+    expect(() => journey.journeyMachineTtl(false, { CLOUD_JOURNEY_MACHINE_TTL_S: "60" })).toThrow(/300 to 604800/);
+  });
+
   test("a long run's machines (` long`) get the long bound; a short run's leak is swept after 3 h", () => {
     const fiveHours = tagAt(now - 5 * 3_600_000);
     const pastLong = tagAt(now - LONG_JOURNEY_MS - 60_000);
@@ -814,11 +896,35 @@ describe("cloud journey: leaked machine sweep", () => {
     ])).toEqual(["vm_short", "vm_short_cold", "vm_long_old", "vm_glued"]);
   });
 
-  test("never a --keep run's plain name, another name or a tag that is not a time", () => {
+  test("a --keep run's machine is the sweep's once failed past LONG_JOURNEY_MS, or idle past KEPT_JOURNEY_MS (589544f1's rollback)", () => {
+    expect(KEPT_JOURNEY_MS).toBe(7 * 24 * 3_600_000);
+    // 2026-11-28 00:17Z: the production agent test account held these two, 4/5 of its team's cap with the other members'.
+    const at = Date.UTC(2026, 10, 28, 0, 17, 0);
+    const leaked = { id: "vm_5c394603ba9c2b33e108", name: "cloud journey jr-mw8lvrpa", status: "failed", last_active_at: at };
+    const lease = { id: "vm_784c3bce74a49b4cb062", name: "lease-lease_z0_5c66c087", status: "paused", last_active_at: at - 298 * 3_600_000 };
+    expect(ids([leaked, lease], at)).toEqual(["vm_5c394603ba9c2b33e108"]);
+    const day = tagAt(now - 24 * 3_600_000), pastLong = tagAt(now - LONG_JOURNEY_MS - 60_000), young = tagAt(now - LONG_JOURNEY_MS + 60_000);
+    const week = tagAt(now - KEPT_JOURNEY_MS - 60_000), inWeek = tagAt(now - KEPT_JOURNEY_MS + 60_000);
+    expect(ids([
+      { id: "failed_old", name: `cloud journey ${pastLong}`, status: "failed" },
+      { id: "failed_gw", name: `cloud journey ${pastLong} gateway`, status: "failed", last_active_at: now },
+      { id: "failed_young", name: `cloud journey ${young}`, status: "failed" },
+      { id: "paused_day", name: `cloud journey ${day}`, status: "paused" },
+      { id: "paused_in_week", name: `cloud journey ${inWeek}`, status: "paused" },
+      { id: "paused_week", name: `cloud journey ${week}`, status: "paused" },
+      { id: "running_week_active", name: `cloud journey ${week}`, status: "running", last_active_at: now - 60_000 },
+      { id: "running_week_idle", name: `cloud journey ${week} gateway`, status: "running", last_active_at: now - IDLE_JOURNEY_MS - 1 },
+      { id: "deleting", name: `cloud journey ${week}`, status: "deleting" },
+      { id: "glued", name: `cloud journey ${week}x`, status: "failed" },
+      { id: "person", name: `my cloud journey ${week}`, status: "failed" },
+    ])).toEqual(["failed_old", "failed_gw", "paused_week", "running_week_idle"]);
+  });
+
+  test("never a young --keep run's name, another name or a tag that is not a time", () => {
     const old = tagAt(now - 48 * 3600_000);
     expect(ids([
       { id: "vm_kept", name: `cloud journey ${old}`, status: "paused" },
-      { id: "vm_kept_gw", name: `cloud journey ${old} gateway`, status: "failed" },
+      { id: "vm_kept_gw", name: `cloud journey ${tagAt(now - 5 * 3600_000)} gateway`, status: "failed" },
       { id: "vm_dev", name: "dev machine", status: "paused" },
       { id: "vm_named", name: `my cloud journey auto ${old}`, status: "paused" },
       { id: "vm_bad", name: "cloud journey auto jr-!!", status: "paused" },
@@ -853,9 +959,33 @@ describe("cloud journey: leaked machine sweep", () => {
     const asked: any[] = [];
     const rows = await listAllMachines(async (p) => { asked.push(p); return pages[String(p.cursor ?? "")]; });
     expect(rows.map((r) => r.id)).toEqual(["a", "b", "c"]);
-    expect(asked).toEqual([{ limit: 100 }, { limit: 100, cursor: "c1" }, { limit: 100, cursor: "c2" }]);
-    // A list that never ends is an error (the sweep then deletes nothing), not a partial sweep.
-    await expect(listAllMachines(async () => ({ machines: [], next_cursor: "again" }), 3)).rejects.toThrow("more than 3 pages");
+    expect(asked).toEqual([{ limit: 25 }, { limit: 25, cursor: "c1" }, { limit: 25, cursor: "c2" }]);
+    // A list that never ends is an error (the sweep then deletes nothing), not a partial sweep: 3 hundred-row pages'
+    // worth is 12 pages of 25.
+    await expect(listAllMachines(async () => ({ machines: [], next_cursor: "again" }), 3)).rejects.toThrow("more than 12 pages");
+  });
+
+  test("a list page that answers an owner reset or a timeout is asked again", async () => {
+    const reset = new Error('cloud.machine.list: HTTP 503 {"code":"owner.unreachable","message":"Error: Durable Object exceeded its CPU time limit and was reset.","retryable":true}');
+    let calls = 0;
+    const rows = await listAllMachines(async () => { if (++calls < 3) throw reset; return { machines: [{ id: "a" }], next_cursor: null }; }, 20, { pauseMs: 0 });
+    expect(rows.map((r) => r.id)).toEqual(["a"]);
+    expect(calls).toBe(3);
+    // A refusal is not asked again.
+    calls = 0;
+    await expect(listAllMachines(async () => { calls++; throw new Error('cloud.machine.list: HTTP 401 {"code":"auth.unauthenticated"}'); }, 20, { pauseMs: 0 })).rejects.toThrow("auth.unauthenticated");
+    expect(calls).toBe(1);
+    expect(listPageRetryable(new Error('cloud.machine.list: HTTP 0 {"code":"transport","message":"The operation timed out.","retryable":true}'))).toBe(true);
+  });
+
+  test("a sweep's list keeps the rows read when a later page still fails", async () => {
+    const timeout = new Error('cloud.machine.list: HTTP 0 {"code":"transport","message":"The operation timed out.","retryable":true}');
+    const read = async (p: Record<string, unknown>) => { if (p.cursor) throw timeout; return { machines: [{ id: "a" }, { id: "b" }], next_cursor: "c1" }; };
+    expect((await listAllMachines(read, 20, { pauseMs: 0, partial: true })).map((r) => r.id)).toEqual(["a", "b"]);
+    // A caller that must see every row gets the error.
+    await expect(listAllMachines(read, 20, { pauseMs: 0 })).rejects.toThrow("timed out");
+    // A first page that fails is the error even for a sweep: it has nothing to go on.
+    await expect(listAllMachines(async () => { throw timeout; }, 20, { pauseMs: 0, partial: true })).rejects.toThrow("timed out");
   });
 });
 
@@ -1856,6 +1986,11 @@ describe("clean-room provider key probe", () => {
       // counted; a key found by its context (a refresh token's field) counts there too.
       "opt/tool/bin/blob": `\0\0ELF${PROJ}\0\0`,
       "home/cmux/.codex/.tmp/plugins/p/skills/api.md": `call it with ${PROJ}\n`,
+      // An installed Python library's own source names the refresh token field (an OAuth client's grants): shipped. A
+      // key's name given a value in that same tree, and the field in a tool's config outside one, still count.
+      "opt/venv/lib/python3.12/site-packages/authlib/grants.py": `doc = '{"refresh_token": "${tok("", 24)}"}'\n`,
+      "opt/venv/lib/python3.12/site-packages/tool/.env": `MISTRAL_API_KEY=${MISTRAL}\n`,
+      "opt/tool/token.json": `{"refresh_token": "${tok("", 24)}"}\n`,
       // AWS's documented stand-in is not a key anywhere; a real-shaped id is.
       "home/cmux/aws.txt": "id AKIAIOSFODNN7EXAMPLE\nid AKIA2E0A8F3B244C9986\n",
       "home/cmux/.claude/.credentials.json": JSON.stringify({ claudeAiOauth: { accessToken: OAUTH } }),
@@ -1893,13 +2028,16 @@ describe("clean-room provider key probe", () => {
         "file /home/cmux/cache/[a name].env:1: MISTRAL_API_KEY",
         "file /home/cmux/cache/[a secret]:1: an OAuth refresh token",
         "file /home/cmux/cache/[a secret]:1: an OpenAI project key",
+        "file /opt/[a name]/lib/[a name]/site-packages/[a name]/.env:1: MISTRAL_API_KEY",
+        "file /opt/[a name]/token.json:1: an OAuth refresh token",
       ]);
       expect((probe.shipped ?? []).map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
         "file /home/cmux/.codex/.tmp/plugins/[a name]/skills/[a name].md:1: an OpenAI project key",
         "file /opt/[a name]/bin/[a name]: an OpenAI project key",
+        "file /opt/[a name]/lib/[a name]/site-packages/[a name]/[a name].py:1: an OAuth refresh token",
       ]);
-      expect(keyProbeDetail(probe)).toStartWith("23 findings: ");
-      expect(keyProbeDetail(probe)).toContain("2 key shapes in installed software, not counted");
+      expect(keyProbeDetail(probe)).toStartWith("25 findings: ");
+      expect(keyProbeDetail(probe)).toContain("3 key shapes in installed software, not counted");
       expect(keyProbeStatus(probe, true)).toBe("fail");
       expect(keyProbeStatus(probe, false)).toBe("skip");
     } finally {
@@ -2947,7 +3085,8 @@ except probe.OutOfTime as cut:
         raw: async () => ({ status: 200, body: { ok: true, value: { token: "id-tok", vm_id: "vm-1", linux_user: "cmux", api_base_url: base, expires_at: Date.now() + 900_000 } } }),
       } as any;
       const r = await directExec(api, "m1", { secrets: [] } as any, 1)("sleep 200; echo done", 290_000);
-      expect(r).toEqual({ code: 0, stdout: "done\n", stderr: "" });
+      expect(r).toMatchObject({ code: 0, stdout: "done\n", stderr: "" });
+      expect(typeof r.route?.call_ms).toBe("number");
       expect(seen.map((x) => `${x.method} ${x.path}`)).toEqual(["POST /v5/vms/vm-1/exec-await", "GET /v5/background-requests/bg-1", "GET /v5/background-requests/bg-1"]);
       for (const x of seen) {
         expect(x.identity).toBe("id-tok");
@@ -2965,8 +3104,15 @@ except probe.OutOfTime as cut:
       polls++;
       return { status: 503, body: {} };
     };
-    await expect(settleBackground(accepted, "http://fs", {}, Date.now() + 60_000, 1, down)).rejects.toThrow("no answer");
-    expect(polls).toBe(5);
+    await expect(settleBackground(accepted, "http://fs", {}, Date.now() + 5, 1, down, 200)).rejects.toThrow("provider outage");
+    expect(polls).toBeGreaterThan(5);
+    // Rebake 45960390204 (2026-11-27): 503 to every poll for 9 min while the command ran on; it is waited out.
+    let n = 0;
+    const overloaded = async () => (++n <= 9 ? { status: 503, body: {} } : { status: 200, body: { statusCode: 0 } });
+    expect((await settleBackground(accepted, "http://fs", {}, Date.now() + 5, 1, overloaded, 5_000)).status).toBe(200);
+    expect(n).toBe(10);
+    const pending = async () => ({ status: 202, body: {} });
+    await expect(settleBackground(accepted, "http://fs", {}, Date.now() + 20, 1, pending, 200)).rejects.toThrow("by the deadline");
     const refused = await settleBackground(accepted, "http://fs", {}, Date.now() + 60_000, 1, async () => ({ status: 409, body: { error: "busy" } }));
     expect(refused.status).toBe(409);
     await expect(settleBackground({ status: 202, body: { requestId: "../x" } }, "http://fs", {}, Date.now() + 60_000, 1, down)).rejects.toThrow("names no request");
@@ -3635,6 +3781,89 @@ open(out, 'w').write(json.dumps(seen))
     // The send's W3C trace id rides the prompt (cmux#55505 perf_trace.rs reads params._meta.traceId).
     expect(seen[2].params._meta.traceId).toBe("0af7651916cd43dd8448eb211c80319c");
   });
+  test("the start prints its own marks, in order, which startMarks reads as start_ parts", { timeout: 30_000 }, () => {
+    const { r } = runPrompted(true);
+    const marks = startMarks(r.stdout);
+    expect(Object.keys(marks)).toEqual(["start_connected", "start_initialized", "start_session_new", "start_prompt_accepted"]);
+    const v = Object.values(marks);
+    for (let i = 1; i < v.length; i++) expect(v[i]).toBeGreaterThanOrEqual(v[i - 1]);
+  });
+  test("route parts land in route_ms beside guest_ms, first value kept, missing ones skipped", () => {
+    let now = 0;
+    const t = new journey.FirstTextTiming(() => now);
+    t.mark("create");
+    t.route("start_client_session", 812.4);
+    t.route("start_call", 3001);
+    t.route("start_call", 9);
+    t.route("start_none", undefined);
+    t.guest("start_total", 8987);
+    now = 100;
+    t.mark("first_text");
+    expect(t.fields().route_ms).toEqual({ start_client_session: 812, start_call: 3001 });
+    expect(t.fields().guest_ms).toEqual({ start_total: 8987 });
+    t.reset();
+    expect(t.fields()).toEqual({});
+  });
+  test("directExec times the client-session mint on the first call only, and each call", async () => {
+    const calls: string[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: any) => {
+      calls.push(String(url));
+      return new Response(JSON.stringify({ statusCode: 0, stdout: "ok", stderr: "" }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as any;
+    try {
+      const api = { raw: async () => ({ status: 200, body: { ok: true, value: { token: "tok_abcdefgh", vm_id: "vm1", linux_user: "u", api_base_url: "https://fs.example", expires_at: Date.now() + 900_000 } } }) } as any;
+      const exec = journey.directExec(api, "m1", { secrets: [] });
+      const first = await exec("true");
+      const second = await exec("true");
+      expect(first.stdout).toBe("ok");
+      expect(typeof first.route?.client_session_ms).toBe("number");
+      expect(typeof first.route?.call_ms).toBe("number");
+      expect(second.route?.client_session_ms).toBeUndefined();
+      expect(typeof second.route?.call_ms).toBe("number");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+  test("directExec premint mints once ahead of the first exec, which then reuses it", async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({ statusCode: 0, stdout: "ok", stderr: "" }), { status: 200, headers: { "content-type": "application/json" } })) as any;
+    let mints = 0;
+    let fail = true;
+    try {
+      const api = { raw: async () => { mints += 1; if (fail) return { status: 503, body: { ok: false, error: { code: "cloud.unavailable" } } }; return { status: 200, body: { ok: true, value: { token: "tok_abcdefgh", vm_id: "vm1", linux_user: "u", api_base_url: "https://fs.example", expires_at: Date.now() + 900_000 } } }; } } as any;
+      const exec = journey.directExec(api, "m1", { secrets: [] });
+      expect(await exec.premint()).toBeNull();
+      fail = false;
+      expect(typeof (await exec.premint())).toBe("number");
+      const first = await exec("start");
+      expect(mints).toBe(2);
+      expect(first.stdout).toBe("ok");
+      expect(first.route?.client_session_ms).toBeUndefined();
+      expect(await exec.premint()).toBe(0);
+      expect(mints).toBe(2);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+  test("directExec shares one client-session mint between calls that start together", async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({ statusCode: 0, stdout: "ok", stderr: "" }), { status: 200, headers: { "content-type": "application/json" } })) as any;
+    let mints = 0;
+    try {
+      const api = { raw: async () => { mints += 1; await new Promise((r) => setTimeout(r, 20)); return { status: 200, body: { ok: true, value: { token: "tok_abcdefgh", vm_id: "vm1", linux_user: "u", api_base_url: "https://fs.example", expires_at: Date.now() + 900_000 } } }; } } as any;
+      const exec = journey.directExec(api, "m1", { secrets: [] });
+      const [a, b] = await Promise.all([exec("start"), exec("observe")]);
+      expect(mints).toBe(1);
+      expect(a.stdout).toBe("ok");
+      expect(b.stdout).toBe("ok");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+  test("startMarks keeps the first of a retried mark and ignores other lines", () => {
+    expect(startMarks("@@mark connected 5\n@@retry x\n@@mark connected 2100\n@@mark session_new 9000\nnoise @@mark x 1\n")).toEqual({ start_connected: 5, start_session_new: 9000 });
+  });
   test("a trace id that is not 32 lowercase hex never reaches the program", () => {
     const program = launchCredentialStartProgram("s", "claude", "CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-x", "hi", "x'; rm -rf /; '");
     expect(program).toContain("trace = None");
@@ -3691,8 +3920,10 @@ while True:
                 else:
                     send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32602, 'message': 'session name "s" is taken'}})
                 continue
-            if mode == 'taken':
+            if mode in ('taken', 'taken-resent'):
                 send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32602, 'message': 'session name "s" is taken'}})
+                if mode == 'taken-resent':
+                    continue
                 done = True
                 break
             if news == 1 and mode not in ('late', 'prompt-cut'):
@@ -3711,7 +3942,7 @@ while True:
         break
 open(out, 'w').write(json.dumps(seen))
 `;
-  const runRestarting = (mode: "retryable" | "refused" | "late" | "prompt-cut" | "made-then-cut" | "taken") => {
+  const runRestarting = (mode: "retryable" | "refused" | "late" | "prompt-cut" | "made-then-cut" | "taken" | "taken-resent") => {
     const home = mkdtempSync("/tmp/jr-");
     try {
       mkdirSync(join(home, ".cmux/acpmux"), { recursive: true });
@@ -3719,7 +3950,7 @@ open(out, 'w').write(json.dumps(seen))
       const sock = join(home, ".cmux/acpmux/acpmux.sock");
       const program = launchCredentialStartProgram("s", "claude", "CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-x", mode === "prompt-cut" ? "hi" : undefined);
       const script = `python3 -I fake.py ${sock} seen.json ${mode} & for i in $(seq 50); do [ -S ${sock} ] && break; sleep 0.1; done\n${program}\nrc=$?\nwait\nexit $rc`;
-      const r = spawnSync("bash", ["-c", script], { cwd: home, env: { PATH: process.env.PATH, HOME: home }, encoding: "utf8", timeout: 20_000 });
+      const r = spawnSync("bash", ["-c", script], { cwd: home, env: { PATH: process.env.PATH, HOME: home, ...(mode === "taken-resent" ? { [START_RESENT_ENV]: "1" } : {}) }, encoding: "utf8", timeout: 20_000 });
       return { r, seen: JSON.parse(readFileSync(join(home, "seen.json"), "utf8")) as string[] };
     } finally {
       rmSync(home, { recursive: true, force: true });
@@ -3775,6 +4006,20 @@ open(out, 'w').write(json.dumps(seen))
     expect(r.stdout).not.toContain("@@adopted");
     expect(r.status).toBe(1);
     expect(seen).not.toContain("_acpmux/resolve");
+  });
+  // Run 46100347935 (staging test-team, 2026-11-28): the start's first exec made the session but its answer was not
+  // read back, so the journey ran the start again and its session/new read "is taken". Run again, it takes that session.
+  test("a start run again by the journey takes the session its first run made", { timeout: 30_000 }, () => {
+    const { r, seen } = runRestarting("taken-resent");
+    expect(r.stdout).toContain("@@adopted s-1");
+    expect(r.stdout).toContain("@@session s-1");
+    expect(r.status).toBe(0);
+    expect(seen.filter((m) => m === "_acpmux/resolve")).toHaveLength(1);
+  });
+  test("the first prompt's promptId is the session name's, so a second run of the start never runs it twice", () => {
+    const a = launchCredentialStartProgram("journey-jr-1", "claude", null, null, "hi");
+    expect(a).toContain("uuid.uuid5(uuid.NAMESPACE_URL, 'cmux-journey-first-prompt:'");
+    expect(a).not.toContain("uuid.uuid4()");
   });
   test("no acpmux socket is a failed start that names the paths it tried, after the retry window", { timeout: 30_000 }, () => {
     const home = mkdtempSync(join(tmpdir(), "journey-launch-"));
@@ -3886,7 +4131,7 @@ describe("listedMachine (run 45174448964: `vm_... missing from 49 machines` on a
     const list = async (p: any) => { seen.push(p); return p.cursor ? { machines: rows(49, 52) } : { machines: rows(0, 49), next_cursor: "c2" }; };
     const r = await listedMachine("vm_51", list, async () => { throw new Error("not asked"); });
     expect(r.detail).toBe("52 machines");
-    expect(seen).toEqual([{ limit: 100 }, { limit: 100, cursor: "c2" }]);
+    expect(seen).toEqual([{ limit: 25 }, { limit: 25, cursor: "c2" }]);
   });
   test("a capped page with no cursor: confirmed by cloud.machine.get, the cap named", async () => {
     const r = await listedMachine("vm_51", async () => ({ machines: rows(0, 49) }), async (id: string) => ({ id, status: "running", size: { cpu: 2 } }));
@@ -3911,6 +4156,19 @@ describe("terminal scroll leg (carrier serve + __scroll-probe)", () => {
       views: { mirror: { blank_rows: 0, missing_rows: 0, jumps: 1 }, daemon: { blank_rows: 0, missing_rows: 0, jumps: 0 } },
     });
     expect(scrollDetail(parseScrollReport(report()))).toBe("bad 1 (mirror: 0 blank, 0 missing, 1 jumps; daemon: 0 blank, 0 missing, 0 jumps), 41.3 s");
+  });
+
+  test("the notes of a view that counted a defect go into the detail, never the counts", () => {
+    const out = report({ bad: 1, views: {
+      mirror: { blank_rows: 0, missing_rows: 0, jumps: 0, notes: ["mirror top moved by the probe"] },
+      daemon: { blank_rows: 0, missing_rows: 0, jumps: 1, notes: ["daemon jump: top Some(812) -> Some(840) (offset 37)"] },
+    } });
+    const notes = scrollNotes(out);
+    expect(notes).toEqual(["daemon: daemon jump: top Some(812) -> Some(840) (offset 37)"]);
+    expect(parseScrollReport(out)).not.toHaveProperty("notes");
+    expect(scrollDetail(parseScrollReport(out), notes)).toBe("bad 1 (mirror: 0 blank, 0 missing, 0 jumps; daemon: 0 blank, 0 missing, 1 jumps), 41.3 s; notes: daemon: daemon jump: top Some(812) -> Some(840) (offset 37)");
+    expect(scrollNotes("not json")).toEqual([]);
+    expect(scrollNotes(report())).toEqual([]);
   });
 
   test("a report that is not whole is refused, never read as 0", () => {
@@ -4037,5 +4295,96 @@ describe("rpcFailureReason", () => {
     expect(rpcFailureReason("unreachable")).toBe(" (unreachable)");
     expect(rpcFailureReason("Error: secret text")).toBe("");
     expect(rpcFailureReason(undefined)).toBe("");
+  });
+});
+
+
+describe("wake-echo own-run cleanup", () => {
+  const scope = { repository: "manaflow-ai/cmux", run: "123", attempt: "2", job: "wake-echo", api: "https://staging.example", team: "" };
+  const machine = "vm_11111111111111111111";
+  const key = "jr-test123-cleanup-delete";
+  const withFile = async (run: (file: string) => Promise<void>) => {
+    const dir = mkdtempSync(join(tmpdir(), "wake-cleanup-test-"));
+    try { await run(join(dir, "created.json")); } finally { rmSync(dir, { recursive: true, force: true }); }
+  };
+
+  test("a fresh process recovers the returned ID and original delete key after the journey is killed", async () => withFile(async (file) => {
+    const child = spawnSync(process.execPath, ["-e", `
+      import { writeWakeCleanup } from ${JSON.stringify(new URL("./cloud-journey.ts", import.meta.url).pathname)};
+      writeWakeCleanup(${JSON.stringify(file)}, ${JSON.stringify(scope)}, ${JSON.stringify(machine)}, ${JSON.stringify(key)});
+      process.kill(process.pid, "SIGKILL");
+    `]);
+    expect(child.signal).toBe("SIGKILL");
+    const calls: string[][] = [];
+    const record = journey.readWakeCleanup(file, scope);
+    expect(record).toMatchObject({ version: 1, machine, key, scope });
+    let deleted = false;
+    await journey.cleanupWakeMachine(record, {
+      get: async (id: string) => { calls.push(["get", id]); return { status: deleted ? "deleting" : "paused" }; },
+      remove: async (id: string, k: string) => { calls.push(["delete", id, k]); deleted = true; },
+    });
+    expect(calls).toEqual([["get", machine], ["delete", machine, key], ["get", machine]]);
+    expect(readFileSync(file, "utf8")).not.toContain("token");
+  }));
+
+  test("missing record and already deleted machine need no delete", async () => withFile(async (file) => {
+    expect(journey.readWakeCleanup(file, scope)).toBeNull();
+    journey.writeWakeCleanup(file, scope, machine, key);
+    for (const row of [null, { status: "deleted" }, { status: "deleting" }]) {
+      await journey.cleanupWakeMachine(journey.readWakeCleanup(file, scope), {
+        get: async () => row, remove: async () => { throw new Error("unexpected delete"); },
+      });
+    }
+  }));
+
+  test("another run, attempt, job, backend or team cannot consume the record", async () => withFile(async (file) => {
+    journey.writeWakeCleanup(file, scope, machine, key);
+    for (const field of Object.keys(scope)) {
+      expect(() => journey.readWakeCleanup(file, { ...scope, [field]: "different" })).toThrow(/scope/);
+    }
+    const record = JSON.parse(readFileSync(file, "utf8"));
+    for (const bad of [{ ...record, version: 2 }, { ...record, machine: "" }, { ...record, key: "" }]) {
+      writeFileSync(file, JSON.stringify(bad));
+      expect(() => journey.readWakeCleanup(file, scope)).toThrow(/record/);
+    }
+  }));
+
+  test("read errors never trigger deletion and an unconfirmed delete fails", async () => withFile(async (file) => {
+    journey.writeWakeCleanup(file, scope, machine, key);
+    const record = journey.readWakeCleanup(file, scope);
+    await expect(journey.cleanupWakeMachine(record, {
+      get: async () => { throw new Error("HTTP 403"); },
+      remove: async () => { throw new Error("unexpected delete"); },
+    })).rejects.toThrow("HTTP 403");
+    await expect(journey.cleanupWakeMachine(record, {
+      get: async () => ({ status: "paused" }), remove: async () => {},
+    })).rejects.toThrow(/not confirmed/);
+  }));
+
+  test("a lost delete reply is settled by readback without hiding a live machine or another error", async () => withFile(async (file) => {
+    journey.writeWakeCleanup(file, scope, machine, key);
+    const record = journey.readWakeCleanup(file, scope);
+    for (const status of ["deleted", "deleting"]) {
+      let called = false;
+      await journey.cleanupWakeMachine(record, {
+        get: async () => ({ status: called ? status : "paused" }),
+        remove: async () => { called = true; throw new Error("TimeoutError"); },
+      });
+    }
+    await expect(journey.cleanupWakeMachine(record, {
+      get: async () => ({ status: "paused" }), remove: async () => { throw new Error("mutation.indeterminate"); },
+    })).rejects.toThrow("mutation.indeterminate");
+  }));
+
+  test("workflow cleans its record on failure or cancellation before artifact upload", () => {
+    const workflow = readFileSync(new URL("../../.github/workflows/cloud-wake-echo.yml", import.meta.url), "utf8");
+    const cleanup = workflow.indexOf("- name: Delete this run's machine");
+    expect(cleanup).toBeGreaterThan(workflow.indexOf("--wake-echo 50"));
+    const step = workflow.slice(cleanup, workflow.indexOf("uses: actions/upload-artifact", cleanup));
+    expect(step).toContain("if: always()");
+    expect(step).toContain("timeout-minutes: 6");
+    expect(step).toContain('--cleanup-wake-record "$out/created-machine.json"');
+    expect(workflow).toContain('--wake-cleanup-record "$out/created-machine.json"');
+    expect(workflow).toContain("wake-echo-${{ github.run_id }}-${{ github.run_attempt }}");
   });
 });

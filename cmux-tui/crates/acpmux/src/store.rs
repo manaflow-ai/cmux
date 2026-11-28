@@ -53,6 +53,7 @@ mod text_index;
 pub use shared_value::{SharedRows, SharedText, SharedValue};
 
 mod session_records;
+pub(crate) use session_records::ClaudeTokenRecovery;
 pub use session_records::{
     ApprovedPlan, AwayRecap, CapacityFallback, EventRecord, ForkBefore, ForkRequest, ForkStart,
     LastReturn, NewestWindow, SessionStatus, TerminalDriver, TerminalInput, WaitReason,
@@ -265,6 +266,26 @@ pub trait Store: Send + Sync {
     ) -> Result<()> {
         self.scan(id, after, visit)
     }
+    /// `scan` as lines: each record past `after` as its log line, without its newline, until
+    /// `visit` returns false. A file store hands over the bytes it read, unparsed, so a reader
+    /// that copies most lines as they are (a pack's lines, `hub/transfer_history.rs`
+    /// `emit_lines`) parses only those it changes; a line may then be one `scan` would skip (a
+    /// torn line, a `seq` at or before `after` it could not read without parsing), and the
+    /// reader decides on it as `scan` does. A store that holds parsed records serializes each.
+    fn scan_raw(&self, id: &str, after: u64, visit: &mut dyn FnMut(&[u8]) -> bool) -> Result<()> {
+        let mut failed = None;
+        self.scan(id, after, &mut |rec| match serde_json::to_vec(&rec) {
+            Ok(line) => visit(&line),
+            Err(e) => {
+                failed = Some(e);
+                false
+            }
+        })?;
+        match failed {
+            Some(e) => Err(e.into()),
+            None => Ok(()),
+        }
+    }
     /// `scan`, but a record that cannot be read (a torn or malformed line) is an error instead of
     /// being skipped: a reader that must see every record (the full-access bound's readback of a
     /// left host, #23322) learns that it did not. A memory store holds only whole records.
@@ -287,6 +308,22 @@ pub trait Store: Send + Sync {
         after: u64,
         before: u64,
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_back(id, after, before, skip, visit)
+    }
+    /// `scan_back` for a reader that wants only some records: a line `may_match(line, dir, kind)`
+    /// is false for holds none of them, and a file store passes it without parsing it (a store
+    /// that holds parsed records may ignore it; `visit` still decides on the rest). A subagent
+    /// pane's newest page of a long chat parsed every line back to that subagent's records (Leo,
+    /// 2026-11-27: "these take way too long to load").
+    fn scan_back_matching(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        _may_match: &dyn Fn(&[u8], &[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         self.scan_back(id, after, before, skip, visit)
@@ -423,6 +460,15 @@ pub trait Store: Send + Sync {
     /// Saves `bytes` as `id`'s restore point, whole or not at all. A store that keeps none
     /// drops it.
     fn save_restore_point(&self, _id: &str, _bytes: &[u8]) -> Result<()> {
+        Ok(())
+    }
+    /// The inbox point `id`'s last inbox restore saved (`hub/inbox_point.rs`), as saved. None in
+    /// a store that keeps none.
+    fn inbox_point(&self, _id: &str) -> Option<Vec<u8>> {
+        None
+    }
+    /// Saves `bytes` as `id`'s inbox point, whole or not at all. A store that keeps none drops it.
+    fn save_inbox_point(&self, _id: &str, _bytes: &[u8]) -> Result<()> {
         Ok(())
     }
     /// Records used by the whole-store search, including an archive without thawing it.
@@ -715,6 +761,11 @@ pub trait Store: Send + Sync {
     fn audit_dir(&self) -> Option<PathBuf> {
         None
     }
+    /// Where each chat's usage tracker is saved (`hub/usage_view.rs`): `usage-trackers/` beside
+    /// `sessions/`, or none (in memory, read over by each daemon) for the memory store.
+    fn usage_tracker_dir(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 /// [`Store::newest_window`] by `scan_back`, for a store with no cheaper read of its seqs.
@@ -813,6 +864,7 @@ pub(crate) use memory::{COPY_FORKS, REFUSE_APPENDS};
 
 /// A chat's restore point, beside its `session.json` (`hub/restore_point.rs`).
 const RESTORE_POINT: &str = "restore-point.json";
+const INBOX_POINT: &str = "inbox-point.json";
 /// A chat's adoption checkpoint, beside its `session.json` (`hub/hosts/checkpoint.rs`).
 const ADOPTION_CHECKPOINT: &str = "adoption-checkpoint.json";
 
@@ -1443,6 +1495,10 @@ impl Store for LocalStore {
         self.scan_lines(id, after, false, Some(may_match), visit)
     }
 
+    fn scan_raw(&self, id: &str, after: u64, visit: &mut dyn FnMut(&[u8]) -> bool) -> Result<()> {
+        self.log_lines(id, after, false, &mut |line, _| Ok(visit(line)))
+    }
+
     fn scan_strict(
         &self,
         id: &str,
@@ -1525,11 +1581,14 @@ impl Store for LocalStore {
     /// in place (`store/compact.rs`), which a fold of them would read differently. The file's
     /// first line is the digest of the compaction marker it was saved under.
     fn adoption_checkpoint(&self, id: &str) -> Option<Vec<u8>> {
-        let bytes = held_file_bytes(&self.dir(id).join(ADOPTION_CHECKPOINT))?;
+        let mut bytes = held_file_bytes(&self.dir(id).join(ADOPTION_CHECKPOINT))?;
         let nl = bytes.iter().position(|&b| b == b'\n')?;
-        let (head, body) = bytes.split_at(nl);
-        (head == self.compaction_digest(id).as_bytes())
-            .then(|| body.get(1..).unwrap_or_default().to_vec())
+        if bytes[..nl] != *self.compaction_digest(id).as_bytes() {
+            return None;
+        }
+        // In place: a long chat's checkpoint is tens of MB, which a copy held twice.
+        bytes.drain(..=nl);
+        Some(bytes)
     }
 
     fn save_adoption_checkpoint(&self, id: &str, bytes: &[u8]) -> Result<()> {
@@ -1700,6 +1759,19 @@ impl Store for LocalStore {
         write_atomic(&dir.join(RESTORE_POINT), bytes)
     }
 
+    fn inbox_point(&self, id: &str) -> Option<Vec<u8>> {
+        std::fs::read(self.dir(id).join(INBOX_POINT)).ok()
+    }
+
+    fn save_inbox_point(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        let _open = self.writable()?;
+        let dir = self.dir(id);
+        // As the restore point's: a deleted chat's folder is not made again (#41721 review F1).
+        let folder = crate::home_fs::symlink_metadata(&dir).is_ok_and(|m| m.file_type().is_dir());
+        anyhow::ensure!(folder, "no folder for {id}");
+        write_atomic(&dir.join(INBOX_POINT), bytes)
+    }
+
     fn text_entries(
         &self,
         id: &str,
@@ -1737,7 +1809,19 @@ impl Store for LocalStore {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_back_in(id, after, before, skip, visit, false)
+        self.scan_back_in(id, after, before, skip, None, visit, false)
+    }
+
+    fn scan_back_matching(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        may_match: &dyn Fn(&[u8], &[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_back_in(id, after, before, skip, Some(may_match), visit, false)
     }
 
     fn scan_back_indexed(
@@ -1748,7 +1832,7 @@ impl Store for LocalStore {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_back_in(id, after, before, skip, visit, true)
+        self.scan_back_in(id, after, before, skip, None, visit, true)
     }
 
     fn flush(&self) -> Result<()> {
@@ -2001,6 +2085,10 @@ impl Store for LocalStore {
     fn audit_dir(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("audit"))
     }
+
+    fn usage_tracker_dir(&self) -> Option<PathBuf> {
+        self.root.parent().map(|home| home.join("usage-trackers"))
+    }
 }
 
 /// Sync a directory entry after a file or subdirectory was created or replaced.
@@ -2104,6 +2192,31 @@ impl LocalStore {
         may_match: Option<&dyn Fn(&[u8]) -> bool>,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
+        self.log_lines(id, after, strict, &mut |line, path| {
+            if may_match.is_some_and(|may_match| !may_match(line)) {
+                return Ok(true);
+            }
+            let rec = match parse_record(line) {
+                Ok(rec) => rec,
+                Err(e) if strict => {
+                    anyhow::bail!("{}: a record could not be read: {e}", path.display())
+                }
+                Err(_) => return Ok(true),
+            };
+            Ok(rec.seq <= after || visit(rec))
+        })
+    }
+
+    /// The log's lines past `after`, as they are on the disk (no newline, no blank line, none
+    /// whose leading `seq` is at or before `after`), in order, until `visit` says stop. Each
+    /// comes with the segment it was read from.
+    fn log_lines(
+        &self,
+        id: &str,
+        after: u64,
+        strict: bool,
+        visit: &mut dyn FnMut(&[u8], &Path) -> Result<bool>,
+    ) -> Result<()> {
         // A strict read learns that the log's segments could not be listed (`segments` lists
         // none then).
         if strict {
@@ -2141,17 +2254,8 @@ impl LocalStore {
                 if record_seq(&line).is_some_and(|seq| seq <= after) {
                     continue;
                 }
-                if may_match.is_some_and(|may_match| !may_match(&line)) {
-                    continue;
-                }
-                let rec = match parse_record(&line) {
-                    Ok(rec) => rec,
-                    Err(e) if strict => {
-                        anyhow::bail!("{}: a record could not be read: {e}", path.display())
-                    }
-                    Err(_) => continue,
-                };
-                if rec.seq > after && !visit(rec) {
+                let text = line.strip_suffix(b"\n").unwrap_or(&line);
+                if !visit(text, path)? {
                     return Ok(());
                 }
             }

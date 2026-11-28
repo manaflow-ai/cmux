@@ -27,6 +27,19 @@ on:
         type: string
   push:
     branches: ["pair-e2e/**", "lane/pair-e2e-**"]
+  # The nightly reconnect run (main's cmux-next-pair-e2e-reconnect-nightly.yml, on a schedule): a schedule
+  # fires only from the default branch, so main calls this file at feat-cmux-next with the ref and words.
+  workflow_call:
+    inputs:
+      ref:
+        description: The branch, tag or commit to test
+        required: true
+        type: string
+      words:
+        description: pair-e2e words for cmux-next-ios-sim.sh, e.g. reconnect-drops=10,60
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -54,7 +67,8 @@ jobs:
       - name: Checkout the ref under test
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.sha }}
+          # inputs.ref is set on dispatch and on a call; a push tests its own commit.
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
           submodules: recursive
 
@@ -149,6 +163,8 @@ jobs:
       - name: pair-e2e (cmux-next-ios-sim.sh pair-e2e)
         id: pair
         timeout-minutes: 110
+        env:
+          PAIR_WORDS: ${{ inputs.words }}
         run: |
           set -euo pipefail
           if [[ -z "${ZIG:-}" && -n "${CMUX_VT_ZIG:-}" ]]; then export ZIG="$CMUX_VT_ZIG"; fi
@@ -157,7 +173,9 @@ jobs:
           # of this run's own, as cmux-ci's build env does, with Rust still where the earlier steps put it.
           export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
           export HOME="$RUNNER_TEMP/pair-home"
-          bash scripts/ci/cmux-next-ios-sim.sh pair-e2e
+          # The caller's words (workflow_call only; validated by cmux-next-ios-sim.sh before any build).
+          read -r -a words <<< "${PAIR_WORDS:-}"
+          bash scripts/ci/cmux-next-ios-sim.sh pair-e2e ${words[@]+"${words[@]}"}
 
       - name: Summarize
         if: always()

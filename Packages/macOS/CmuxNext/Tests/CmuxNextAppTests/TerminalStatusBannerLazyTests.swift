@@ -4,7 +4,7 @@ import CmuxNextWakeupsTestSupport
 import Testing
 
 /// Every new terminal view (a new tab, a split, a reopen, a workspace switch that makes its
-/// terminals again) built a status label and showed it for "Restoring…" with its opacity held
+/// terminals again) built a status label and showed it for "Starting…" with its opacity held
 /// at 0 until the label's wait ended. Each unhide makes AppKit walk the window's views for cursor
 /// rects: 12.5 ms of main thread a HEAVY workspace switch on cmux23 (STATUS 8158), for a label
 /// that never appears when the attach answers within its wait (the usual case).
@@ -17,25 +17,38 @@ import Testing
         let host = TerminalHostView()
         host.showStatus(.connected)
         #expect(Self.banners(in: host).isEmpty, "a connected terminal has no label view")
-        // A restore that answers within its wait: nothing was built, nothing was shown.
-        host.showStatus(.restoring)
+        // A start that answers within its wait: nothing was built, nothing was shown.
+        host.showStatus(.starting)
         host.showStatus(.connected)
-        #expect(Self.banners(in: host).isEmpty, "a Restoring… that clears within its wait builds no label")
+        #expect(Self.banners(in: host).isEmpty, "a Starting… that clears within its wait builds no label")
         #expect(host.statusText == nil)
     }
 
-    /// A restore that lasts past its wait builds the label then and shows it; a lasting status
+    @Test func automaticRecoveryNeverBuildsALabel() {
+        let clock = ManualClock()
+        let host = TerminalHostView(clock: clock)
+        for status in [TerminalConnectionStatus.restoring, .disconnected(.connectionLost, reconnecting: true)] {
+            host.showStatus(status)
+            clock.advance(by: .seconds(60))
+            host.showStatus(status)
+            #expect(host.statusText == nil)
+            #expect(!host.statusLabelWaits)
+            #expect(Self.banners(in: host).isEmpty)
+        }
+    }
+
+    /// A start that lasts past its wait builds the label then and shows it; a lasting status
     /// builds it at once. Either way it is built once.
     @Test func aLastingStatusBuildsTheLabelOnce() async throws {
         let clock = ManualClock()
         let host = TerminalHostView(clock: clock)
-        host.showStatus(.restoring)
+        host.showStatus(.starting)
         #expect(Self.banners(in: host).isEmpty)
         try await clock.waitForSleeper()
-        clock.advance(by: .seconds(TerminalStatusBanner.restoringRevealDelay))
+        clock.advance(by: .seconds(TerminalStatusBanner.startingRevealDelay))
         var turns = 0
         while host.statusText == nil, turns < 10_000 { await Task.yield(); turns += 1 }
-        #expect(host.statusText == "Restoring…")
+        #expect(host.statusText == "Starting…")
         #expect(Self.banners(in: host).count == 1)
         host.showStatus(.connected)
         #expect(host.statusText == nil)
@@ -49,30 +62,30 @@ import Testing
     @Test func aStatusAfterTheDeadlineShowsTheLabelAtOnce() async throws {
         let clock = ManualClock()
         let host = TerminalHostView(clock: clock)
-        host.showStatus(.restoring)
+        host.showStatus(.starting)
         try await clock.waitForSleeper()
-        clock.advance(by: .seconds(TerminalStatusBanner.restoringRevealDelay))
+        clock.advance(by: .seconds(TerminalStatusBanner.startingRevealDelay))
         // No suspension since the advance: the woken task has not run on the main actor yet.
-        host.showStatus(.restoring)
-        #expect(host.statusText == "Restoring…", "the deadline passed: the label shows, the wait does not start again")
+        host.showStatus(.starting)
+        #expect(host.statusText == "Starting…", "the deadline passed: the label shows, the wait does not start again")
         #expect(!host.statusLabelWaits)
     }
 
     /// Leo, 2026-11-07: "the loading in-between indicator shouldn't all of a sudden become opaque ... we can just have
-    /// the small symbols as loading indicators, like really transparent things." "Restoring…" showed as a pill on the
+    /// the small symbols as loading indicators, like really transparent things." "Starting…" showed as a pill on the
     /// theme's raised surface over the pane. An in-between state has no surface of its own: no fill, no edge, its
     /// words only its accessibility label; a lasting status still reads as words on the pill.
     @Test func anInBetweenStateHasNoSurfaceOfItsOwn() async throws {
         let clock = ManualClock()
         let host = TerminalHostView(clock: clock)
-        host.showStatus(.restoring)
+        host.showStatus(.starting)
         try await clock.waitForSleeper()
-        clock.advance(by: .seconds(TerminalStatusBanner.restoringRevealDelay))
+        clock.advance(by: .seconds(TerminalStatusBanner.startingRevealDelay))
         var turns = 0
         while host.statusText == nil, turns < 10_000 { await Task.yield(); turns += 1 }
-        #expect(host.statusText == "Restoring…", "VoiceOver still reads the state")
+        #expect(host.statusText == "Starting…", "VoiceOver still reads the state")
         let banner = try #require(Self.banners(in: host).first)
-        #expect(banner.layer?.backgroundColor == nil, "an opaque pill over the pane while it restores")
+        #expect(banner.layer?.backgroundColor == nil, "an opaque pill over the pane while it starts")
         #expect(banner.layer?.borderWidth == 0)
         #expect(banner.fittingSize.width < 40, "a small mark, not a label")
         host.showStatus(.exited)

@@ -2,8 +2,9 @@
 // source file's code starts, so `cmux app chat perf` can name the file behind a release build's stack
 // position (src/agent-session/acpmux/frameOwners.ts). bundle.mjs --frame-sites builds the pane with
 // external source maps, calls `writeFrameSites`, and deletes the maps: they never ship. The table
-// holds only paths under webviews/ and package names, and the page imports it only once a capture
-// has ended.
+// holds only paths under webviews/, package names and `build:` paths (code the build itself wrote,
+// named from the output's parent, so no temp directory reaches it and a rebuild writes the same
+// bytes), and the page imports it only once a capture has ended.
 import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -29,13 +30,20 @@ function decodeSegment(text) {
   return values;
 }
 
-/** A source map source as the table names it: a path under webviews/, or `node_modules/<package>`. */
-export function siteSource(source, mapDir, webviewsRoot) {
+/**
+ * A source map source as the table names it: a path under webviews/, `node_modules/<package>`, or
+ * `build:<path under buildRoot>` for a file outside webviews/ (a chunk the build wrote to its temp
+ * directory), so the table's bytes do not depend on where the build ran.
+ */
+export function siteSource(source, mapDir, webviewsRoot, buildRoot) {
   if (/^[a-z][\w+.-]*:/i.test(source) && !source.startsWith("file:")) return source;
   const absolute = path.resolve(mapDir, source.replace(/^file:\/\//, ""));
   const relative = path.relative(webviewsRoot, absolute).split(path.sep).join("/");
   const packaged = /(?:^|\/)node_modules\/((?:@[^/]+\/)?[^/]+)(?!.*\/node_modules\/)/.exec(relative);
   if (packaged) return `node_modules/${packaged[1]}`;
+  if (buildRoot && (relative === ".." || relative.startsWith("../"))) {
+    return `build:${path.relative(buildRoot, absolute).split(path.sep).join("/")}`;
+  }
   return relative;
 }
 
@@ -96,7 +104,11 @@ export async function writeFrameSites({ outdir, outputs, file, webviewsRoot }) {
     }
     const mapDir = path.dirname(mapFile);
     const key = path.relative(outdir, script).split(path.sep).join("/");
-    files[key] = boundaries(map, (source) => siteSource(source, mapDir, webviewsRoot), sources);
+    files[key] = boundaries(
+      map,
+      (source) => siteSource(source, mapDir, webviewsRoot, path.dirname(path.resolve(outdir))),
+      sources,
+    );
     await rm(mapFile, { force: true });
   }
   await writeFile(file, `export default ${JSON.stringify({ sources, files })};\n`);

@@ -108,14 +108,23 @@ package final class DesktopNotifier: NSObject {
         usesSystemCenter(in: environment) && (optsIntoNativeNotifications(environment) || !isGUIJob(environment))
     }
 
-    /// An automation launch that opted in to the system center (`CMUX_NEXT_NATIVE_NOTIFICATIONS=1`): it starts
-    /// with this bundle's delivered notifications removed (`startsWithoutDeliveredBanners(in:)`).
-    package nonisolated static let startsWithoutDeliveredBanners = startsWithoutDeliveredBanners(in: ProcessInfo.processInfo.environment)
+    /// An automation launch that opted in to the system center (`CMUX_NEXT_NATIVE_NOTIFICATIONS=1`): a banner id
+    /// it posts first removes an earlier launch's banner under that id (`replacesReusedBannerIDs(in:)`).
+    package nonisolated static let replacesReusedBannerIDs = replacesReusedBannerIDs(in: ProcessInfo.processInfo.environment)
 
-    /// Whether a launch with `environment` removes this bundle's delivered notifications when it first uses the
-    /// system center: only an automation launch that opted in, never a user's launch.
-    package nonisolated static func startsWithoutDeliveredBanners(in environment: [String: String]) -> Bool {
+    /// Whether a launch with `environment` removes an earlier launch's delivered banner under an id before it posts
+    /// that id: only an automation launch that opted in, never a user's launch. A fresh automation state counts its
+    /// notification ids from 1 again, and a banner left under the same id would turn the post into a silent update.
+    /// Only the reused id goes: an earlier launch's other banners stay clickable, as they do after a person's relaunch
+    /// (a relaunch over the same daemon keeps counting, so it reuses none).
+    package nonisolated static func replacesReusedBannerIDs(in environment: [String: String]) -> Bool {
         optsIntoNativeNotifications(environment) && WindowDrawPolicy.isAutomationLaunch(environment)
+    }
+
+    /// Whether a post of an id removes that id's delivered and pending banners first: a launch that replaces reused
+    /// ids, on the id's first post in this launch (a later post is this launch's own update of it).
+    package nonisolated static func clearsEarlierBanner(postedThisLaunch: Bool, replacesReusedIDs: Bool) -> Bool {
+        replacesReusedIDs && !postedThisLaunch
     }
 
     nonisolated private static func optsIntoNativeNotifications(_ environment: [String: String]) -> Bool {
@@ -143,32 +152,62 @@ package final class DesktopNotifier: NSObject {
         let attachment = incognito ? nil : attachment, approval = approval && !incognito
         let approvalCategory = alwaysAllow ? AgentApprovalBanners.alwaysCategory : AgentApprovalBanners.category
         let category = category ?? (approval ? approvalCategory : reply ? Self.replyCategory : Self.defaultCategory)
+        let postedThisLaunch = posted.contains { $0.id == id }
         posted.append(Posted(id: id, title: title, subtitle: subtitle, body: body, surface: surface,
                              sound: defaultSound ? "default" : nil, attachment: attachment, reply: reply,
                              approval: approval, category: category, incognito: incognito))
         if posted.count > Self.postedLimit { posted.removeFirst(posted.count - Self.postedLimit) }
         guard let center = resolvedCenter() else { return }
-        let content = UNMutableNotificationContent()
-        content.title = title
-        if let subtitle { content.subtitle = subtitle }
-        content.body = body
-        let attachmentFile: URL? = attachment.flatMap { Self.writeAttachment($0, id: id) }.flatMap { file in
-            guard let item = try? UNNotificationAttachment(identifier: "status", url: file) else {
-                try? FileManager.default.removeItem(at: file)
-                return nil
-            }
-            content.attachments = [item]
-            return file
+        if Self.clearsEarlierBanner(postedThisLaunch: postedThisLaunch, replacesReusedIDs: Self.replacesReusedBannerIDs) {
+            // Before the add, on the same center: its requests run in order.
+            center.removeDeliveredNotifications(withIdentifiers: [id])
+            center.removePendingNotificationRequests(withIdentifiers: [id])
         }
-        content.sound = defaultSound ? .default : nil
-        content.interruptionLevel = .active
-        if let workspace { content.threadIdentifier = workspace }
-        content.categoryIdentifier = category
-        var info: [String: Any] = ["notification": id]
-        if let surface { info["surface"] = NSNumber(value: surface) }
-        content.userInfo = info
-        let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
         let logger = logger
+        let banner = Banner(id: id, title: title, subtitle: subtitle, body: body, surface: surface, workspace: workspace,
+                            defaultSound: defaultSound, category: category)
+        guard let attachment else {
+            Self.add(banner.request(attachment: nil), to: center, attachmentFile: nil, logger: logger)
+            return
+        }
+        // The attachment file is written and handed to the center off the main thread (a stalled disk would
+        // stall main); the banner is added after, with or without the badge.
+        Task.detached(priority: .userInitiated) {
+            let file = Self.attachmentItem(attachment, id: id)
+            Self.add(banner.request(attachment: file?.item), to: UNUserNotificationCenter.current(), attachmentFile: file?.url, logger: logger)
+        }
+    }
+
+    /// What a banner shows, as plain values a detached task can build its request from.
+    private nonisolated struct Banner: Sendable {
+        var id: String
+        var title: String
+        var subtitle: String?
+        var body: String
+        var surface: UInt64?
+        var workspace: String?
+        var defaultSound: Bool
+        var category: String
+
+        func request(attachment: UNNotificationAttachment?) -> UNNotificationRequest {
+            let content = UNMutableNotificationContent()
+            content.title = title
+            if let subtitle { content.subtitle = subtitle }
+            content.body = body
+            if let attachment { content.attachments = [attachment] }
+            content.sound = defaultSound ? .default : nil
+            content.interruptionLevel = .active
+            if let workspace { content.threadIdentifier = workspace }
+            content.categoryIdentifier = category
+            var info: [String: Any] = ["notification": id]
+            if let surface { info["surface"] = NSNumber(value: surface) }
+            content.userInfo = info
+            return UNNotificationRequest(identifier: id, content: content, trigger: nil)
+        }
+    }
+
+    private nonisolated static func add(_ request: UNNotificationRequest, to center: UNUserNotificationCenter,
+                                        attachmentFile: URL?, logger: Logger) {
         center.add(request) { error in
             guard let error else { return }
             logger.error("banner failed: \(String(describing: error), privacy: .public)")
@@ -176,8 +215,18 @@ package final class DesktopNotifier: NSObject {
         }
     }
 
+    /// The badge file and its attachment, or nil (the file deleted) when either step fails.
+    private nonisolated static func attachmentItem(_ data: Data, id: String) -> (url: URL, item: UNNotificationAttachment)? {
+        guard let file = writeAttachment(data, id: id) else { return nil }
+        guard let item = try? UNNotificationAttachment(identifier: "status", url: file) else {
+            try? FileManager.default.removeItem(at: file)
+            return nil
+        }
+        return (file, item)
+    }
+
     /// A file for one banner's attachment in the temporary directory.
-    private static func writeAttachment(_ data: Data, id: String) -> URL? {
+    private nonisolated static func writeAttachment(_ data: Data, id: String) -> URL? {
         let folder = FileManager.default.temporaryDirectory.appending(path: "cmux-status-notifications", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let file = folder.appending(path: "\(id)-\(UUID().uuidString).png")
@@ -261,16 +310,19 @@ package final class DesktopNotifier: NSObject {
     private let findDeadline = DemandTimer(owner: "notifications.open-when-found")
 
     /// A banner `id` in Notification Center that this launch did not post (it survived a relaunch):
-    /// whether it is there and its tab's surface (`userInfo["surface"]`). Nil center: not found.
-    package func deliveredSurface(_ id: String) async -> (found: Bool, surface: UInt64?) {
-        guard let center = configuredCenter() else { return (false, nil) }
+    /// whether it is there and its tab's surface (`userInfo["surface"]`). Not there: the tab banners
+    /// Notification Center does hold (`held`, nil with no center), so a miss tells "never delivered" or
+    /// "removed" from a wrong lookup (relaunch-click, 2026-11-28T09:02Z: not_found with no evidence either way).
+    package func deliveredSurface(_ id: String) async -> (found: Bool, surface: UInt64?, held: [String]?) {
+        guard let center = configuredCenter() else { return (false, nil, nil) }
         return await withCheckedContinuation { continuation in
             center.getDeliveredNotifications { delivered in
                 guard let match = delivered.last(where: { $0.request.identifier == id }) else {
-                    continuation.resume(returning: (false, nil)); return
+                    let held = delivered.map(\.request.identifier).filter { $0.hasPrefix(Self.tabBannerPrefix) }
+                    continuation.resume(returning: (false, nil, held)); return
                 }
                 let surface = (match.request.content.userInfo["surface"] as? NSNumber)?.uint64Value
-                continuation.resume(returning: (true, surface))
+                continuation.resume(returning: (true, surface, nil))
             }
         }
     }
@@ -330,13 +382,8 @@ package final class DesktopNotifier: NSObject {
         }
         let center = UNUserNotificationCenter.current()
         center.delegate = self
-        if Self.startsWithoutDeliveredBanners {
-            // An automation launch starts from empty state, so its notification ids count from 1 again: a banner a
-            // previous launch left in Notification Center under the same id would turn the next post into a silent
-            // update. Only this launch's own notifications are removed (they are all stale).
-            center.removeAllDeliveredNotifications()
-            center.removeAllPendingNotificationRequests()
-        }
+        // No blanket clear here: a relaunch's first use of the center (a click on a banner the earlier launch posted)
+        // would race it and find nothing. A reused id is cleared at its own post (`replacesReusedBannerIDs`).
         center.setNotificationCategories(Set([Self.defaultBannerCategory(), Self.replyBannerCategory(), Self.attentionBannerCategory(),
                                               IPhonePairNotices.notificationCategory()] + AgentApprovalBanners.notificationCategories()))
         self.center = center

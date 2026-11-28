@@ -1,0 +1,79 @@
+// Sakura: cherry blossom, all the way through. Blush glass over Van Gogh's copy of Hiroshige's plum
+// garden, plum ink text, petal-pink accent and a spring palette in every terminal. Copy it to
+// ~/.config/cmux/themes/sakura.json (yours wins over this one), edit and save: the running app
+// repaints at once, no relaunch.
+{
+  "name": "Sakura",
+  "description": "Blush glass over a blossoming plum garden; petal pink, plum ink and spring green.",
+
+  // The terminal theme and its colors. ANSI 1, 2, 3 and 4 are the danger, success, warning and
+  // highlight tones extensions draw with; colors.accent is the accent.
+  "appearance.appTheme": "followTerminal",
+  "appearance.theme": "Sakura",
+  "colors": {
+    "background": "#fff5f8",
+    "foreground": "#3b2230",
+    "cursor": "#e2588c",
+    "selection": "#fbd3e2",
+    "accent": "#e2588c",
+    "0": "#3b2230",
+    "1": "#c8325f",
+    "2": "#4f8a4c",
+    "3": "#b9822a",
+    "4": "#7a5fb0",
+    "5": "#d4489a",
+    "6": "#3d8f8a",
+    "7": "#e9d9df",
+    "8": "#8a6b79",
+    "9": "#e2588c",
+    "10": "#6ea96a",
+    "11": "#d8a443",
+    "12": "#9c84cf",
+    "13": "#ee7fbb",
+    "14": "#5fb1ab",
+    "15": "#fffafc"
+  },
+  "appearance.accent": "theme",
+  "appearance.highlightColor": "#fbd3e2",
+
+  // The blossoms behind frosted glass.
+  "appearance.background": "van-gogh-flowering-plum",
+  "appearance.backgroundOpacity": 0.72,
+  "appearance.backgroundBlur": "frosted",
+  "appearance.glassTransparency": 0.35,
+  "appearance.wallpaperTint": true,
+
+  // A deeper blush sidebar as its own pane, sections as soft cards.
+  "appearance.chromeStyle": "card",
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#fff6f9",
+  "appearance.surfaces.sidebar.opacity": 0.78,
+  "sidebar.sectionLook": "card",
+  "sidebar.density": "comfortable",
+  "appearance.surfaces.tabBar.color": "#fbe1ea",
+  "appearance.surfaces.tabBar.opacity": 0.7,
+  "appearance.surfaces.terminal.color": "#fff5f8",
+  "appearance.surfaces.terminal.opacity": 0.86,
+  "appearance.surfaces.agentPane.color": "#fff5f8",
+  "appearance.surfaces.agentPane.opacity": 0.9,
+  "appearance.surfaces.newTabPage.color": "#fff5f8",
+  "appearance.surfaces.newTabPage.opacity": 0.55,
+  "appearance.surfaces.home.color": "#fff5f8",
+  "appearance.surfaces.home.opacity": 0.55,
+  "appearance.borders": "none",
+  "browser.omnibar.glass": "regular",
+
+  // Type: Folio's Hanken Grotesk in the chat and the chrome, Menlo in the terminals.
+  "agentPane.display.font.ui": "hanken",
+  "terminal.fontFamily": "Menlo",
+  "terminal.fontSize": 13,
+  "appearance.metrics.chromeFontSize": 13,
+
+  // Motion: a pink pulsing dot, and colors that drift in like petals.
+  "appearance.statusIndicator.style": "dot",
+  "appearance.statusIndicator.color": "#c93d72",
+  "appearance.colorTransition.curve": "easeInOut",
+  "appearance.colorTransition.duration": 450,
+
+  "appearance.density": "comfortable"
+}
