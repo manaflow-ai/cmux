@@ -4678,6 +4678,7 @@ inputs = [
   "cmux-tui/.cargo/**",
   ".cargo/**",
   "cmux-tui/crates/cmux-agent-pane-policy/**",
+  "cmux-tui/crates/cmux-api-compat/**",
   "cmux-tui/crates/cmux-braid-carrier/**",
   "cmux-tui/crates/cmux-braid-class/**",
   "cmux-tui/crates/cmux-braid-path/**",
