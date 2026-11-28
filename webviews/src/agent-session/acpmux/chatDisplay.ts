@@ -257,6 +257,11 @@ export const MODEL_PICKER_ORDER_KEY = "agentPane.display.modelPickerOrder";
 /// turns it on. Not part of ChatDisplay.
 export const MODEL_PICKER_STYLE_KEY = "agentPane.display.modelPickerStyle";
 export type ModelPickerStyle = "list" | "menu";
+/// Settings > Agent Chat > Only This Chat's Agent Updates (harnessUpdateList.ts `ownOnly`): the model
+/// menus' update footer offers the chat's own agent CLI alone, as a one-agent app's model menu does
+/// (the Claude Code app lists no Codex update; customize-app-profiles). Off by default: every
+/// outdated agent CLI (Leo 2026-11-12, ask-3fdf0982ec). A look turns it on. Not part of ChatDisplay.
+export const OWN_HARNESS_UPDATES_KEY = "agentPane.display.ownHarnessUpdatesOnly";
 /// The viewer's picks the page makes and the host keeps (`pane.setDisplay`): the modules that own
 /// them read them with `pickedDisplayValue` and follow `subscribeChatDisplay`.
 const PICKED_KEYS = [MODEL_CHIP_ICON_KEY, QUEUEING_KEY, MODEL_PICKER_ORDER_KEY] as const;
@@ -637,6 +642,7 @@ let sessionInfoHidden: readonly PickableSessionInfoSection[] = NO_HIDDEN_SECTION
 let environmentCardOn = false;
 let changesPillOn = false;
 let modelPickerStyle: ModelPickerStyle = "list";
+let ownHarnessUpdatesOnly = false;
 /// The PICKED_KEYS values as JSON, so a change to one of them alone reaches its listeners.
 let picked = "[]";
 /// Whether a `display` value came (the host's, or the page's own change): until then the picks are
@@ -737,6 +743,7 @@ export function setChatDisplay(value: unknown): void {
   const environmentCard = raw[ENVIRONMENT_CARD_KEY] === true;
   const changesPill = raw[CHANGES_PILL_KEY] === true;
   const pickerStyle: ModelPickerStyle = raw[MODEL_PICKER_STYLE_KEY] === "menu" ? "menu" : "list";
+  const ownUpdates = raw[OWN_HARNESS_UPDATES_KEY] === true;
   const pickedNow = JSON.stringify(PICKED_KEYS.map((key) => raw[key] ?? null));
   const first = !received;
   received = true;
@@ -782,6 +789,7 @@ export function setChatDisplay(value: unknown): void {
     environmentCard === environmentCardOn &&
     changesPill === changesPillOn &&
     pickerStyle === modelPickerStyle &&
+    ownUpdates === ownHarnessUpdatesOnly &&
     sameHiddenSections
   )
     return;
@@ -792,6 +800,7 @@ export function setChatDisplay(value: unknown): void {
   environmentCardOn = environmentCard;
   changesPillOn = changesPill;
   modelPickerStyle = pickerStyle;
+  ownHarnessUpdatesOnly = ownUpdates;
   minimapOn = minimap;
   statusPillsOn = statusPills;
   headerBreadcrumbOn = headerBreadcrumb;
@@ -978,6 +987,10 @@ const sendScrollsToTopSnapshot = () => sendScrollsToTopOn;
 export const useSendScrollsToTop = (): boolean =>
   useSyncExternalStore(subscribe, sendScrollsToTopSnapshot, sendScrollsToTopSnapshot);
 const modelPickerStyleSnapshot = () => modelPickerStyle;
+const ownHarnessUpdatesSnapshot = () => ownHarnessUpdatesOnly;
+/// Whether the model menus' update footer offers the chat's own agent alone (OWN_HARNESS_UPDATES_KEY).
+export const useOwnHarnessUpdatesOnly = (): boolean =>
+  useSyncExternalStore(subscribe, ownHarnessUpdatesSnapshot, ownHarnessUpdatesSnapshot);
 /// What a click on the model chip opens (MODEL_PICKER_STYLE_KEY): the harness columns or the compact menu.
 export const useModelPickerStyle = (): ModelPickerStyle =>
   useSyncExternalStore(subscribe, modelPickerStyleSnapshot, modelPickerStyleSnapshot);

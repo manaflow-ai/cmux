@@ -58,6 +58,8 @@
     // aside and draws each block as its own card.
     "agentPane.display.sessionInfo.placement": "push",
     "agentPane.display.sessionInfo.layout": "groups",
+    // The app's model menu offers only Claude Code's own update, never another agent's (Codex).
+    "agentPane.display.ownHarnessUpdatesOnly": true,
     "agentPane.showContextUsage": true,
     "agentPane.composerRing": "context",
     // Claude's look: the computer, folder, mode and model chips sit in the quiet row under the box,
