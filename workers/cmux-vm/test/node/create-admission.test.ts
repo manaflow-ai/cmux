@@ -16,6 +16,10 @@ import {
   INITIAL_HOLD_MS,
   PROVIDER_CREATE_BUDGET_MS,
   parseCreateAdmission,
+  CREATE_DEADLINE_MARGIN_MS,
+  CREATE_QUEUE_WAIT_CEILING_MS,
+  localCreateAdmission,
+  queueWaitFor,
   type CreateAdmission,
   type CreateAdmissionSettings,
 } from "../../src/limits/create-admission.ts";
@@ -339,6 +343,71 @@ describe("parseCreateAdmission", () => {
   });
 });
 
+describe("a create that names its deadline (cmux-platform#2217)", () => {
+  /** Three people's creates hold every slot for 50 s (past the 25 s wait, under the 55 s lease), the shape of staging 2026-11-28 01:13Z. */
+  const fullQueue = async () => {
+    const queue = new CreateAdmissionQueue(memoryLedgerStorage());
+    const client = localCreateAdmission(queue, SETTINGS);
+    for (const holder of ["a", "b", "c"]) expect(await client.admit(holder)).toMatchObject({ admitted: true });
+    setTimeout(() => { void queue.release("a"); }, 50_000);
+    return client;
+  };
+
+  it("waits for a slot across the time left before its deadline, where 25 s refused it", async () => {
+    const client = await fullQueue();
+    const waiting = client.admit("d", false, Date.now() + 300_000);
+    await vi.advanceTimersByTimeAsync(50_000);
+    expect(await waiting).toMatchObject({ admitted: true, waitedMs: 50_000 });
+  });
+
+  it("with no deadline keeps the configured 25 s wait", async () => {
+    const client = await fullQueue();
+    const waiting = client.admit("d");
+    await vi.advanceTimersByTimeAsync(DEFAULT_CREATE_QUEUE_WAIT_MS);
+    expect(await waiting).toMatchObject({ admitted: false, reason: "wait_expired", waitedMs: DEFAULT_CREATE_QUEUE_WAIT_MS });
+  });
+
+  it("refuses at once when its deadline is past or too close to finish a create, even with a slot free", async () => {
+    const queue = new CreateAdmissionQueue(memoryLedgerStorage());
+    const client = localCreateAdmission(queue, SETTINGS);
+    expect(await client.admit("late", false, Date.now() - 1)).toMatchObject({ admitted: false, reason: "queue_full", waitedMs: 0 });
+    expect(await client.admit("close", false, Date.now() + CREATE_DEADLINE_MARGIN_MS - 1)).toMatchObject({ admitted: false, reason: "queue_full" });
+    expect(queue.state.inFlight).toBe(0);
+  });
+
+  it("staging 01:13Z, before and after: 3 slots held 54 s (under the 55 s lease) refused a person's first 2 tries; with its deadline the first try gets the slot", async () => {
+    const tries = async (deadline: boolean) => {
+      vi.setSystemTime(0);
+      const queue = new CreateAdmissionQueue(memoryLedgerStorage());
+      const client = localCreateAdmission(queue, SETTINGS);
+      for (const holder of ["a", "b", "c"]) await client.admit(holder);
+      setTimeout(() => { void queue.release("a"); }, 54_000);
+      const outcome = (async () => {
+        for (let attempt = 0; attempt < 4; attempt++) {
+          const answer = await client.admit("person", false, deadline ? 300_000 : undefined);
+          if (answer.admitted) return { admittedAtMs: Date.now(), refusals: attempt };
+          await sleep(Math.min(30_000, 1000 * 2 ** attempt));
+        }
+        return { admittedAtMs: null, refusals: 4 };
+      })();
+      await vi.advanceTimersByTimeAsync(300_000);
+      return outcome;
+    };
+    const before = await tries(false);
+    const after = await tries(true);
+    process.stdout.write(`create-admission deadline ${JSON.stringify({ before, after })}\n`);
+    expect(before).toEqual({ admittedAtMs: 54_000, refusals: 2 });
+    expect(after).toEqual({ admittedAtMs: 54_000, refusals: 0 });
+  });
+
+  it("waits at most the ceiling, under the platform's 270 s call, and ignores a deadline that is not a number", () => {
+    expect(queueWaitFor(SETTINGS, 10_000_000, 0)).toBe(CREATE_QUEUE_WAIT_CEILING_MS);
+    expect(queueWaitFor(SETTINGS, 100_000, 0)).toBe(100_000 - CREATE_DEADLINE_MARGIN_MS);
+    expect(queueWaitFor(SETTINGS, undefined, 0)).toBe(DEFAULT_CREATE_QUEUE_WAIT_MS);
+    expect(queueWaitFor(SETTINGS, Number.NaN, 0)).toBe(DEFAULT_CREATE_QUEUE_WAIT_MS);
+  });
+});
+
 describe("the Worker's upstream config", () => {
   it("hands the provider create queue to the client, with every other field (staging 2026-11-27: the layer dropped it)", () => {
     const createAdmission = { admit: async () => ({ admitted: true as const, waitedMs: 0, inFlight: 1, queued: 0 }), release: async () => {} };
@@ -347,5 +416,79 @@ describe("the Worker's upstream config", () => {
     expect(config.createAdmission).toBe(createAdmission);
     expect(config.fetch).toBe(fetch);
     expect({ ...config, apiKey: Redacted.value(config.apiKey) }).toEqual({ baseUrl: "https://provider.test/", apiKey: "k", environment: "staging", createAdmission, fetch, timeoutMs: 5, backgroundPollMs: 2, startPollMs: 3 });
+  });
+});
+
+describe("reserved provider operations under sustained fleet pressure", () => {
+  it("admits independent interactive accounts throughout 240 fleet allocations", async () => {
+    const queue = new CreateAdmissionQueue(memoryLedgerStorage());
+    const provider = makeProvider();
+    let fleetDone = 0;
+    let peopleDone = 0;
+    const fleet = async (worker: number) => {
+      for (let j = 0; j < 60; j++) {
+        const holder = `fleet_${worker}_${j}`;
+        for (;;) {
+          const answer = await queue.admit(holder, SETTINGS, true, `fleet-team-${worker % 2}`);
+          if (answer.admitted) {
+            try { expect(await provider.create()).toBe(true); }
+            finally { await queue.release(holder); }
+            fleetDone++;
+            break;
+          }
+          await sleep(1000);
+        }
+      }
+    };
+    const interactive = async (index: number) => {
+      await sleep(1000 + index * (HOLD_MS + 1000));
+      const holder = `interactive_${index}`;
+      const start = Date.now();
+      const answer = await queue.admit(holder, SETTINGS, false, `account_${index}`);
+      expect(answer).toMatchObject({ admitted: true, waitedMs: 0 });
+      if (!answer.admitted) return;
+      try { expect(await provider.create()).toBe(true); }
+      finally { await queue.release(holder); }
+      expect(Date.now() - start).toBe(HOLD_MS);
+      expect(fleetDone).toBeLessThan(240);
+      peopleDone++;
+    };
+    const all = Promise.all([
+      ...Array.from({ length: 4 }, (_, i) => fleet(i)),
+      ...Array.from({ length: 40 }, (_, i) => interactive(i)),
+    ]);
+    await vi.advanceTimersByTimeAsync(2_500_000);
+    await all;
+    expect(peopleDone).toBe(40);
+    expect(fleetDone).toBe(240);
+    expect(provider.peak).toBe(3);
+    expect(provider.hung).toBe(0);
+  });
+
+  it("skips a queued request of a saturated tenant for a different account", async () => {
+    const queue = new CreateAdmissionQueue(memoryLedgerStorage());
+    await queue.admit("bulk-a", SETTINGS, false, "bulk");
+    await queue.admit("bulk-b", SETTINGS, false, "bulk");
+    const waiting = queue.admit("bulk-c", SETTINGS, false, "bulk");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(queue.state).toMatchObject({ inFlight: 2, queued: 1 });
+    expect(await queue.admit("chat", SETTINGS, false, "new-account")).toMatchObject({ admitted: true, waitedMs: 0 });
+    await queue.release("bulk-a");
+    expect(await waiting).toMatchObject({ admitted: true });
+  });
+
+  it("preserves background classification and tenant through renewal and restart", async () => {
+    const storage = memoryLedgerStorage();
+    const queue = new CreateAdmissionQueue(storage);
+    await queue.admit("spare-a", SETTINGS, true, "fleet");
+    await queue.admit("spare-b", SETTINGS, true, "fleet");
+    await queue.admit("spare-a", SETTINGS, false, "fleet");
+    const restarted = new CreateAdmissionQueue(storage);
+    const waiting = restarted.admit("spare-c", SETTINGS, true, "another-fleet");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(restarted.state).toMatchObject({ inFlight: 2, queued: 1 });
+    expect(await restarted.admit("chat", SETTINGS, false, "new-account")).toMatchObject({ admitted: true, waitedMs: 0 });
+    await restarted.release("spare-a");
+    expect(await waiting).toMatchObject({ admitted: true });
   });
 });

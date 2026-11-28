@@ -91,6 +91,8 @@
   --agent-motion-send: 0ms !important;
   --agent-motion-send-fade: 0ms !important;
   --agent-motion-send-rise: 0ms !important;
+  /* A look's streamed-text fade (cmux.agentPane.style/1) goes to 0 with the host's. */
+  --cmux-motion-stream: 0ms !important;
 }
 [data-chat-motion="minimal"] .acpmux-scroll[data-send-entrance] {
   --agent-motion-send: 0ms !important;

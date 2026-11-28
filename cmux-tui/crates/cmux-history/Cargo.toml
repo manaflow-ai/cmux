@@ -17,7 +17,6 @@ sha2 = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]
-proptest = { version = "1", default-features = false, features = ["std"] }
 
 [lints]
 workspace = true

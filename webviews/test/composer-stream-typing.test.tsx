@@ -7,9 +7,11 @@ import { act, Profiler, useCallback, useRef } from "react";
 import type { Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { MarkdownFieldHandle } from "../src/agent-session/acpmux/MarkdownField";
-import { MarkdownField } from "../src/agent-session/acpmux/MarkdownField";
-import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { MarkdownField } = await importWithDom(() => import("../src/agent-session/acpmux/MarkdownField"));
+const { proseMirrorGlobals } = await importWithDom(() => import("../src/agent-session/acpmux/promptFieldTesting"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

@@ -1,0 +1,151 @@
+name: iOS fast verdict seed
+
+# Seeds the R2 entry pr-pipeline.yml's `ios fast verdict` restores when it lands on a hosted Mac (the picker's
+# fallback when every owned simulator Mac is busy). Owned Macs keep their DerivedData in their own slot
+# (CMUX_DERIVED_DATA_SLOT) and never read it.
+#
+# Why: with the FFI cached (ios-link-ffi-cache-seed.yml), a hosted verdict still built the kit (144 s) and the app
+# (215 s) from empty DerivedData (cmux#61812, 2026-11-27, blacksmith-6vcpu-macos-26). A seed is one run of exactly
+# that build (scripts/ci/ios_fast_verdict.sh, kit build-for-testing plus the app), on the pool the verdict overflows
+# to, at its workspace path (DerivedData records absolute paths), plus the input-time manifest the verdict replays
+# (scripts/ci/e2e_warm_derived_data.py), so a pull request rebuilds only the files that differ from the seed.
+#
+# Same rules as cmux-next-fast-tier-seed.yml: NEXT's bucket and writer environment (next-cache-writer, feat-cmux-next
+# only), pull requests read the public URL and hold no credential (tests/test_ci_pull_request_caches_are_read_only.py),
+# a seed is due when the newest is older than SEED_INTERVAL_MINUTES or the package graph changed
+# (scripts/ci/ios_fast_dd_key.py due), and a failed seed is only a miss for the reader.
+on:
+  push:
+    branches: [feat-cmux-next]
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  # The fast tier seed's interval: the verdict reaches a hosted Mac only as overflow.
+  SEED_INTERVAL_MINUTES: "240"
+  CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+  CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+
+jobs:
+  due:
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
+    name: Is an iOS fast verdict seed due
+    runs-on: cmux-linux
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      due: ${{ steps.due.outputs.due }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: scripts/ci/ios_fast_dd_key.py
+          sparse-checkout-cone-mode: false
+
+      # The newest seed of any Xcode or path, from its public pointer; no credential.
+      - name: Check the newest seed's age and package graph
+        id: due
+        run: |
+          set -euo pipefail
+          newest="$(curl -fsS --max-time 30 "$CI_CACHE_R2_PUBLIC_URL/v1/macOS-ARM64/latest/ios-fast-verdict-" 2>/dev/null | head -c 512 | tr -d '[:space:]')" || newest=""
+          echo "newest seed: ${newest:-none}"
+          python3 -I scripts/ci/ios_fast_dd_key.py due --newest "$newest" --minutes "$SEED_INTERVAL_MINUTES" | tee -a "$GITHUB_OUTPUT"
+
+  seed:
+    needs: due
+    if: ${{ needs.due.outputs.due == 'true' }}
+    name: Seed the iOS fast verdict's DerivedData
+    # One seed at a time; a running seed finishes, a newer push replaces only the pending one.
+    concurrency:
+      group: ios-fast-verdict-seed-${{ github.ref }}
+      cancel-in-progress: false
+    # The pool pr-pipeline.yml's ios-fast-runner falls back to, so the workspace path matches.
+    runs-on: blacksmith-6vcpu-macos-26
+    timeout-minutes: 40
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 1
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Key
+        id: key
+        run: |
+          set -euo pipefail
+          echo "DD_ROOT=$RUNNER_TEMP/ios-fast-dd" >> "$GITHUB_ENV"
+          python3 -I scripts/ci/ios_fast_dd_key.py --workspace "$GITHUB_WORKSPACE" | tee -a "$GITHUB_OUTPUT"
+          inputs="$(python3 scripts/ci/ios_link_ffi_key.py)"
+          echo "ffi=${inputs}" >> "$GITHUB_OUTPUT"
+          echo "fleet_key=cmux-next-ios-link-ffi-xcf-fleet-v1-${inputs}" >> "$GITHUB_OUTPUT"
+
+      # The verdict's FFI is the fleet entry; the seed builds against the same one, so a reader's restored copy is
+      # the seed's byte for byte. A miss is no seed: it would link a framework no reader has.
+      - name: Restore the fleet-built CmuxMobileLinkFFI.xcframework
+        id: xcf-fleet-restore
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          enableCrossOsArchive: true
+          key: ${{ steps.key.outputs.fleet_key }}
+          fail-on-cache-miss: true
+
+      # The reader's "Mark the restored CmuxMobileLinkFFI.xcframework as this job's copy", at the time it sets.
+      - name: Mark the restored CmuxMobileLinkFFI.xcframework as this job's copy
+        env:
+          FFI_KEY: ${{ steps.key.outputs.ffi }}
+        run: |
+          set -euo pipefail
+          frameworks=cmux-next-ios/CmuxMobileKit/Frameworks
+          find "$frameworks/CmuxMobileLinkFFI.xcframework" -exec touch -h -t 202601010000 {} +
+          mtime="$(python3 -I -c 'import os, sys; print(int(os.stat(sys.argv[1]).st_mtime))' "$frameworks/CmuxMobileLinkFFI.xcframework/Info.plist")"
+          printf '%s %s\n' "$FFI_KEY" "$mtime" > "$frameworks/.ios-fast-verdict-ffi"
+
+      # Before the build: the times the products are built from. The reader replays them onto every file whose
+      # content is unchanged.
+      - name: Record the build's input times
+        run: |
+          set -euo pipefail
+          mkdir -p "$DD_ROOT"
+          python3 -I scripts/ci/e2e_warm_derived_data.py record "$PWD" "$DD_ROOT/input-mtimes.json"
+
+      - name: Build the kit and the app as the verdict does
+        id: built
+        env:
+          PLAN: '{"tests":[],"build":true,"app":true}'
+          FFI_KEY: ${{ steps.key.outputs.ffi }}
+        run: |
+          set -euo pipefail
+          CMUX_IOS_FAST_DD_ROOT="$DD_ROOT" bash scripts/ci/ios_fast_verdict.sh
+          printf '%s\n' "$FFI_KEY" > "$DD_ROOT/link-ffi.key"
+          du -sh "$DD_ROOT/kit" "$DD_ROOT/app" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Save the seed
+        if: ${{ steps.built.outcome == 'success' && github.event_name != 'pull_request' && github.ref == 'refs/heads/feat-cmux-next' }}
+        uses: ./.github/actions/cache-save
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: ${{ env.DD_ROOT }}
+          key: ${{ steps.key.outputs.key }}
+
+      - name: Prune seeds older than a day
+        if: ${{ success() }}
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        run: python3 -I scripts/ci/r2_cache_prune.py --endpoint-url "$CI_CACHE_R2_ENDPOINT" --bucket "$CI_CACHE_R2_BUCKET" --delete

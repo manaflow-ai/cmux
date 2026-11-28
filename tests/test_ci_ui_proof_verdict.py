@@ -464,6 +464,23 @@ class LookFailedTest(unittest.TestCase):
         self.assertTrue(desc.startswith(u.LOOK_FAILED + ": no look result within 6 h"))
         self.assertTrue(stale[0]["posted"])
 
+    def test_post_status_falls_through_a_refused_token_and_says_why(self) -> None:
+        calls = []
+
+        def api(path, token, method="GET", body=None):
+            calls.append(token)
+            if token == "spent":
+                raise urllib.error.HTTPError("u", 403, "Forbidden", {}, io.BytesIO(b'{"message":"API rate limit exceeded"}'))
+            return {}
+
+        err = io.StringIO()
+        with mock.patch.object(u, "api", api), contextlib.redirect_stderr(err), mock.patch.object(u.time, "sleep"):
+            self.assertTrue(u.post_status("failure", "x", "o/r", "a" * 40, ["spent", "pool"]))
+            self.assertEqual(calls, ["spent", "pool"])
+            self.assertIn("API rate limit exceeded", err.getvalue())  # the refusal's own words, not only "Forbidden"
+            calls.clear()
+            self.assertFalse(u.post_status("failure", "x", "o/r", "a" * 40, ["spent"]))
+
     def test_workflows_post_it(self) -> None:
         import yaml
         wf = yaml.safe_load((ROOT / ".github/workflows/cmux-next-hot-verify.yml").read_text())
@@ -474,6 +491,12 @@ class LookFailedTest(unittest.TestCase):
         for out in ("tar == 'false'", "again == 'true'", "nothing == 'true'", "needs_build == 'true'"):
             self.assertIn(out, step["if"])
         self.assertIn("ui_proof_verdict.py look-failed", step["run"])
+        # 2026-11-28: github.token alone was refused (403) on every failure post, so the status stayed pending for
+        # the sweep's 6 h; the pool's secrets must follow it, as the sweep's do.
+        toks = step["env"]["TOKENS"]
+        self.assertTrue(toks.startswith("${{ github.token }}"))
+        self.assertIn("${{ secrets.CI_POOL_TOKEN_1 }}", toks)
+        self.assertIn("${{ secrets.CI_POOL_TOKEN_2 }}", toks)
         self.assertIn("ui_proof_verdict.py", "\n".join(
             s.get("with", {}).get("sparse-checkout", "") for s in job["steps"]) + str(job))
         sw = yaml.safe_load((ROOT / ".github/workflows/ui-proof-stale-sweep.yml").read_text())

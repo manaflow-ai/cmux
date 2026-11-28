@@ -1141,10 +1141,9 @@ pub enum Command {
         /// never registered.
         #[arg(long)]
         renew: bool,
-        /// For cmux's own Claude Code hook (`cmux-tui-hook`, UserPromptSubmit): the first step
-        /// with no person's step, under NAME unless the chat has a name already. Nothing when
-        /// the chat is registered with this process; else a one-time code goes to the chat's
-        /// inbox, as from a send. Starts no daemon, never fails (`cli/hook_register.rs`).
+        /// Whether the chat is reached with this process (registered, or through the bridge):
+        /// an answer only. No code is ever delivered for it: only `acpmux send` from the chat's
+        /// own shell, or `acpmux register NAME`, sends one. Starts no daemon, never fails.
         #[arg(long, hide = true, conflicts_with_all = ["code", "renew"], requires = "name")]
         auto: bool,
     },

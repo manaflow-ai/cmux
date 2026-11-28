@@ -903,6 +903,20 @@ def wait_chief_steady(app_pid: int, bundle: str, bound: float, quiet: float = 10
             "waited_s": round(time.monotonic() - start, 1)}
 
 
+# The windows whose --chief-up wait ended with no Chief (the run then exits 1, after writing its report).
+CHIEF_UP_MISSES: list[str] = []
+
+
+def wait_chief_up(app_pid: int, bundle: str, bound: float, step: float = 2.0) -> dict:
+    """--chief-up: before the window, wait (at most `bound` s) until the Chief's brain (optchat-chief) runs. The
+    empty app's number counts the Chief (goal ram-baseline, decision B 2026-11-28): a launch the Chief has not
+    started in yet is launch state A, about 145 MB under the state the goal judges. Returns {up, waited_s}."""
+    start = time.monotonic()
+    while chief_processes(app_pid, bundle) == 0 and time.monotonic() - start < bound:
+        time.sleep(step)  # sleep-ok: a bounded wait for the Chief's process to appear (no event for it)
+    return {"up": chief_processes(app_pid, bundle) > 0, "waited_s": round(time.monotonic() - start, 1)}
+
+
 def launch_state(result: dict, before: dict | None) -> dict:
     """The state an idle window measured: whether the Chief was up (at the window's end, and whether that
     changed in it) and how many agent pages were on screen (attribution's page list; None without it)."""
@@ -914,6 +928,9 @@ def launch_state(result: dict, before: dict | None) -> dict:
     if before is not None:
         state.update(chief_before=before["chief_processes"], chief_steady=before["steady"],
                      chief_wait_s=before["waited_s"], chief_changed_in_window=before["chief_processes"] != chief)
+    up = result.get("chief_up_wait")
+    if up is not None:
+        state.update(chief_up_wait_s=up["waited_s"], chief_up_timed_out=not up["up"])
     return state
 
 
@@ -2486,6 +2503,10 @@ def main():
     parser.add_argument("--chief-steady", type=float, default=0, metavar="SECONDS",
                         help="before each window, wait at most SECONDS until the Chief's process count has not changed "
                              "for 10 s (the sample's launch_state records it); 0 does not wait")
+    parser.add_argument("--chief-up", type=float, default=0, metavar="SECONDS",
+                        help="before each window (and before --chief-steady), wait at most SECONDS until the Chief's "
+                             "brain (optchat-chief) runs; a window it never came up for is recorded in launch_state "
+                             "(chief_up_timed_out) and the run exits 1 after writing its report; 0 does not wait")
     parser.add_argument("--vmmap-kinds", help="after each sample, vmmap --summary of every process of these kinds "
                         "(comma list, e.g. tui-daemon,app), as VMMAP lines")
     parser.add_argument("--config", default="{}",
@@ -2657,6 +2678,12 @@ def main():
         # sleep-ok: the sample is defined as memory --settle s after the step (the report's settle_s); runs compare at the
         # same age, so the duration is the measured condition, not a stand-in for an event. --settled-at passes its own.
         time.sleep(args.settle if settle is None else settle)
+        if args.chief_up > 0:
+            result["chief_up_wait"] = wait_chief_up(app_pid, bundle, args.chief_up)
+            if not result["chief_up_wait"]["up"]:
+                CHIEF_UP_MISSES.append(label)
+                print(f"bench-memory: {label}: the Chief did not start within {args.chief_up:g} s; this window is "
+                      f"launch state A, not the Chief-up state --chief-up asked for", file=sys.stderr, flush=True)
         chief_before = wait_chief_steady(app_pid, bundle, args.chief_steady) if args.chief_steady > 0 else None
         measure, scroller = args.measure, None
         if diff_tab is not None:
@@ -2887,6 +2914,8 @@ def main():
     crash = report.get("chat_renderer_crash")
     if crash is not None and not crash.get("pass"):
         sys.exit(2 if crash.get("setup_failed") else 1)
+    if CHIEF_UP_MISSES:
+        sys.exit(f"bench-memory: --chief-up: no Chief in {', '.join(CHIEF_UP_MISSES)}")
 
 
 if __name__ == "__main__":

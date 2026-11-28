@@ -35,6 +35,24 @@ class CanBuild(unittest.TestCase):
         self.assertTrue(hv.can_build_swift_app(plan({"Swift": ["Sources/A.swift"],
                                                      "strings": ["Resources/Localizable.xcstrings"]})))
 
+    def test_bundled_resource_data_builds(self):
+        # cmux#47278: only Resources/theme-files/*.json (Rust and web beside it) got no look and no proof record.
+        themes = ["Resources/theme-files/sakura.json", "Resources/theme-files/sumi.json"]
+        self.assertTrue(hv.can_build_swift_app(plan({"Swift, resources or manifests": themes})))
+        self.assertTrue(hv.can_build_swift_app(plan({"Swift, resources or manifests": [
+            "Packages/macOS/CmuxNext/Tests/T.swift", *themes, "Packages/X/Sources/X/Resources/icon.png"]})))
+        for path in ("Resources/Info.plist", "Resources/cmux.entitlements", "Resources/bin/cmux",
+                     "Resources/shell-integration.sh", "Resources/.DS_Store", "theme-files/sakura.json",
+                     "Packages/App/Package.swift"):
+            with self.subTest(path=path):
+                self.assertFalse(hv.can_build_swift_app(plan({"Swift, resources or manifests": [path]})))
+
+    def test_bundled_helper_rust_beside_swift_builds(self):
+        # cmux#38466: Swift plus a new crate a bundled helper uses (Cargo.lock) got no look at all.
+        self.assertTrue(hv.can_build_swift_app(plan({"Swift": ["Sources/A.swift"],
+                                                     hv.HELPERS_REASON: ["cmux-tui/Cargo.lock"]})))
+        self.assertFalse(hv.can_build_swift_app(plan({"Swift": ["Sources/A.swift"], hv.HELPERS_REASON: []})))
+
     def test_a_manifest_or_other_reason_does_not(self):
         self.assertFalse(hv.can_build_swift_app(plan({"Swift": ["Package.swift"]})))
         self.assertFalse(hv.can_build_swift_app(plan({"strings": ["Sources/A.swift"]})))

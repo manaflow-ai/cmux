@@ -1,7 +1,7 @@
 //! The plan's thread counts through the v2 list (row 7c, R4) against v1's whole list, from an
 //! agent service in this process (acpmux's `test-support` daemon), and its gate.
 
-use super::{CALL_TIMEOUT, list_read, list_threads, threads};
+use super::{CALL_TIMEOUT, count, list_read, list_threads, threads};
 use crate::server::agent_session_attach::agent_session_link::AcpmuxLink;
 use acpmux::test_support::list_daemon::{
     self, ListDaemon, Serves, bound_away, emit, emit_with_all, insert, seed_down_peer,
@@ -203,4 +203,29 @@ fn v2_pr07c_update_plan() {
     let (small, god, god_all) = emit_with_all(name, &small_wall, &god_wall, "ns");
     assert!(god.saturating_mul(100) <= small.saturating_mul(120), "{name}: {god} vs {small}");
     assert!(god_all <= small.saturating_mul(2), "{name}: every sample {god_all} vs {small}");
+}
+
+/// Old and new acpmux rows side by side: a row with no `residency` (an older acpmux) counts by its
+/// status as before; a v1 `residency` counts what is resident and busy; a newer version still
+/// reads by the fields this build knows.
+#[test]
+fn threads_count_residency_when_a_row_has_it_and_status_when_not() {
+    let rows = json!({"sessions": [
+        {"sessionId": "old-ready", "status": "ready"},
+        {"sessionId": "old-running", "status": "running"},
+        {"sessionId": "old-idle", "status": "idle"},
+        {"sessionId": "new-resident", "status": "ready", "residency": {"v": 1, "resident": true}},
+        {"sessionId": "new-busy", "status": "running",
+         "residency": {"v": 1, "resident": true, "busy": true,
+                       "policy": {"name": "adaptive-v1", "idleSecs": 1800}}},
+        {"sessionId": "new-hibernated", "status": "idle",
+         "residency": {"v": 1, "resident": false, "hibernatedAt": 5}},
+        {"sessionId": "newer", "status": "idle", "residency": {"v": 2, "resident": true, "gpuMb": 1}},
+        {"sessionId": "unversioned", "status": "ready", "residency": {"resident": false}},
+    ]});
+    // live: old-ready, old-running, new-resident, new-busy, newer, unversioned (by status).
+    assert_eq!(threads(&rows), (6, 2));
+    let (mut live, mut running) = (0, 0);
+    count("ready", Some(&json!({"v": 1, "resident": false})), &mut live, &mut running);
+    assert_eq!((live, running), (0, 0), "a v1 row that is not resident costs nothing");
 }

@@ -67,6 +67,7 @@ import struct
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import zlib
@@ -395,7 +396,13 @@ def post_status(state: str, description: str, repo: str, sha: str, tokens: list[
                 api(f"repos/{repo}/statuses/{sha}", token, "POST", body)
                 return True
             except Exception as e:  # noqa: BLE001 - the next token, then the next round
-                print(f"{STATUS_CONTEXT}: post refused ({type(e).__name__}: {e})", file=sys.stderr)
+                why = ""
+                if isinstance(e, urllib.error.HTTPError):  # the refusal's own words: "Forbidden" alone hid a spent hour
+                    try:
+                        why = " " + e.read().decode("utf-8", "replace")[:200]
+                    except Exception:  # noqa: BLE001
+                        pass
+                print(f"{STATUS_CONTEXT}: post refused ({type(e).__name__}: {e}){why}", file=sys.stderr)
         time.sleep(5 * (attempt + 1))
     return False
 

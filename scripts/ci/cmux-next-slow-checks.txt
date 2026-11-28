@@ -43,6 +43,7 @@ python3 -I scripts/cmux-next/check-retry-prompts.py --root "$GITHUB_WORKSPACE"
 python3 -I scripts/cmux-next/tests/test_check_retry_prompts.py
 [checks-structure]
 python3 tests/test_cmux_next_checks_workflow.py
+python3 tests/test_check_pool_whole_baseline.py
 [package-dependency-lists]
 python3 scripts/cmux-next/check-package-dependency-lists.py
 python3 scripts/cmux-next/tests/test_check_package_dependency_lists.py

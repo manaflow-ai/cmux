@@ -45,6 +45,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.parse
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -622,13 +623,18 @@ def hourly_kick(args: argparse.Namespace, tip: str, now: datetime, api=None) -> 
 
 
 def cmd_tick(args: argparse.Namespace) -> int:
-    # A tick that cannot read GitHub (a spent rate limit, a 5xx) skips: the next tick, 30 min on, asks again, and a
-    # red scheduled run would only pile up while the quota is drained.
+    """A tick that cannot reach GitHub (every token rate limited, a 5xx past its retries) dispatched nothing, and
+    its run goes red so someone sees it; the next tick, 30 min on, asks again. "Nothing to do" (tip already
+    covered, a batch in flight, the window not passed) stays green. Until 2026-11-28 the error was a warning and
+    the run exited 0: from 2026-11-27 23:55Z every tick for over 2 h ended "tick skipped: ... API rate limit
+    exceeded" in a green run, no batch ran, and no base row moved while every dashboard read green. A batch
+    run's judge step (--self-run-id) is continue-on-error, so a red there never fails the batch it ends.
+    Detector: tests/test_ci_post_merge_batch.py WebTickTest.test_a_tick_that_cannot_reach_github_goes_red."""
     try:
         return tick(args)
     except RuntimeError as err:
-        print(f"::warning::tick skipped: {err}")
-        return 0
+        print(f"::error::tick dispatched nothing (an error, not a decision; the next tick asks again): {err}")
+        return 1
 
 
 def tick(args: argparse.Namespace) -> int:
@@ -930,6 +936,44 @@ def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict],
     return out
 
 
+# A stuck red whose revert pull request is open (or queued) is bisected again only once that revert has merged and
+# the red is still there: until then the bisect lands on the same culprit and its four confirm runs, at the same
+# commits (web agent-pane-real-acpmux's round at 4dbaa78f/e8f78400 ran three times on 11-27, at 15:23Z, 16:21Z and
+# 19:21Z; web had 153 probe runs in 24 h, 143 red). vars.POST_MERGE_REVERT_HOLD=0 bisects them as before.
+REVERT_TITLE_RE = re.compile(r"\(post-merge batch: (?P<job>.+) red on (?P<branch>\S+)\)\s*$")
+REVERT_CULPRIT_RE = re.compile(r"^Reverts \S+ \(`(?P<sha>[0-9a-f]{40})`\)", re.M)
+
+
+def revert_hold_on() -> bool:
+    return os.environ.get("POST_MERGE_REVERT_HOLD", "") != "0"
+
+
+def open_reverts(repo: str, branch: str, api=None) -> dict[str, set[str]]:
+    """The open post-merge revert pull requests on branch: red job's base name -> the culprit shas they revert.
+    Read from cmd_revert's own title and body, so a revert a person opened by hand counts only if it says the same.
+    One search call: the open pulls list is hundreds deep, and revert #62601 (11-27) was past its first page."""
+    api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
+    query = f'repo:{repo} is:pr is:open in:title "post-merge batch:" "red on {branch}"'
+    got = api("search/issues?per_page=100&q=" + urllib.parse.quote(query)) or {}
+    out: dict[str, set[str]] = {}
+    for pr in got.get("items") or []:
+        title = REVERT_TITLE_RE.search(pr.get("title") or "")
+        culprit = REVERT_CULPRIT_RE.search(pr.get("body") or "")
+        if title and culprit and title.group("branch") == branch:
+            out.setdefault(job_base(title.group("job")), set()).add(culprit.group("sha"))
+    return out
+
+
+def held_by_revert(name: str, good: str, bad: str, reverts: dict[str, set[str]], span) -> str:
+    """The open revert's culprit for this stuck red when it lies in good..bad (its bisect would name it again), else "".
+    span(good, bad) is good..bad's first-parent commits; a culprit outside it is another red's, so this one is bisected."""
+    culprits = reverts.get(job_base(name)) or set()
+    if not culprits:
+        return ""
+    commits = set(span(good, bad))
+    return next((c for c in sorted(culprits) if c in commits), "")
+
+
 def unreached_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], jobs_of) -> list[str]:
     """The reds of verdicts that some earlier judged batch run in runs also had red and none had green: their last green
     is past the reach, so stuck_reds cannot bisect them without deeper runs (DEEP_LOOKBACK_BATCHES)."""
@@ -978,10 +1022,29 @@ def stuck_probe(name: str, suite: str, only: str, good: str, bad: str, origin: s
     return Probe(suite, name, only, mid, good, bad, origin, step=step, states=states)
 
 
+def good_anchor_on() -> bool:
+    """POST_MERGE_GOOD_ANCHOR (vars, default on; "0" turns it off): a new red's bisect probes its last green commit
+    once, right after the red repeats on the batch's own commit, and stops there when that commit is red too.
+
+    Every probe of such a chain fails, so the bisect walks down to the commit just after good and its confirm round
+    finds the parent (good itself) red as well: a flake, no revert, after log2(range) probes plus 4 confirm runs. In
+    the 24 h to 11-27 23:30Z, 13 of the round's 30 confirm rounds ended that way (web / web-typecheck 0fe79faf/53f2fbcb,
+    the culprit of revert #61383; web / agent-pane-real-acpmux 342ec4bc/2046780d and 4dbaa78f/e8f78400; web /
+    web-tests b96ecd92/178d0814; rust-workspaces 2e2604dc/5cab8f04 twice, ...). The anchor costs one probe on a
+    real red's chain and saves the rest of the walk and the round on such a chain."""
+    return os.environ.get("POST_MERGE_GOOD_ANCHOR", "").strip() != "0"
+
+
+def is_anchor(probe: Probe) -> bool:
+    """The good-anchor probe: a bisect probe (not a confirm run) at its own last green commit."""
+    return bool(probe.bad) and not probe.confirm and probe.sha == probe.good
+
+
 def next_step(probe: Probe, conclusion: str, commits: list[str]) -> tuple[str, Probe | str | None]:
     """After a probe finished with conclusion: ('probe', next Probe), ('culprit', sha),
-    ('flake', None), ('lost', None) or ('retry', Probe). commits: good..bad (or good..sha for the
-    confirming probe), oldest first."""
+    ('flake', None), ('lost', None), ('anchored', None) or ('retry', Probe). commits: good..bad (or good..sha for the
+    confirming probe), oldest first. 'anchored': the good-anchor probe (good_anchor_on) failed, so the red is on the
+    last green commit too and no commit in good..bad is its cause."""
     if conclusion == "skipped":
         # The job's own condition skipped it at this commit (probe_conclusion reads a skip behind a lost or red
         # job as no verdict): the same inputs skip it again. Probes 716208d2c92 and d98c77aec8a (compile-fleet,
@@ -992,12 +1055,22 @@ def next_step(probe: Probe, conclusion: str, commits: list[str]) -> tuple[str, P
             return "retry", Probe(**{**probe.__dict__, "tries": probe.tries + 1, "reuse": ""})  # no verdict to reuse: run it
         return "lost", None
     good, bad = probe.good, probe.bad
+    if is_anchor(probe):
+        if conclusion == "failure":
+            return "anchored", None
+        span = commits_between(commits, good, bad)
+        if len(span) <= 1:
+            return "culprit", bad
+        mid = span[(len(span) - 1) // 2]
+        return "probe", Probe(probe.suite, probe.job, probe.only, mid, good, bad, probe.origin, step=probe.step, states=probe.states)
     if bad and probe.sha == bad and conclusion == "success":  # a stuck red's one-commit range, re-confirmed: it passed
         return "flake", None
     if not bad:  # the confirming probe, on the batch's own commit
         if conclusion == "success":
             return "flake", None
         bad = probe.sha
+        if good_anchor_on() and len(commits_between(commits, good, bad)) >= 2:
+            return "probe", Probe(probe.suite, probe.job, probe.only, good, good, bad, probe.origin, step=probe.step, states=probe.states)
     elif conclusion == "failure":
         bad = probe.sha
     else:
@@ -1053,6 +1126,8 @@ def probe_refusal(probe: Probe, branch: str, origin: dict | None, found: list[tu
             return f"confirm `{probe.confirm}` probe's sha `{probe.sha[:11]}` is not its culprit or parent"
         return ""
     for label, sha in (("sha", probe.sha), ("bad", probe.bad)):
+        if label == "sha" and is_anchor(probe) and sha == green:
+            continue  # the good-anchor probe runs at the last green itself (good_anchor_on)
         if (sha or label == "sha") and sha not in span:
             return f"{label} `{sha[:11]}` is not in the commits origin run {origin.get('id')} covered (`{green[:11]}`..`{head[:11]}`)"
     if probe.good != green and probe.good not in span:
@@ -1399,6 +1474,20 @@ def cmd_judge(args: argparse.Namespace) -> int:
         deep = with_deeper_runs(args.repo, args.branch, args.sha, verdicts, runs, jobs_of)
         stuck = stuck_reds(args.sha, verdicts, deep, jobs_of, suites, chain_start=stuck_chain_start,
                            steps=steps_of(args.run_id), steps_of=steps_of)
+        if stuck and revert_hold_on():
+            try:
+                reverts = open_reverts(args.repo, args.branch)
+            except RuntimeError as err:
+                print(f"judge: open reverts unreadable, bisecting stuck reds as before: {err}", file=sys.stderr)
+                reverts = {}
+            kept = []
+            for entry in stuck:
+                held = held_by_revert(entry[0], entry[2], entry[3], reverts, first_parent_range) if reverts else ""
+                if held:
+                    summary(args.summary, f"- Stuck red `{entry[0]}`: its revert of `{held[:11]}` is open; no bisect until it merges.")
+                else:
+                    kept.append(entry)
+            stuck = kept
         stuck_names = {name for name, *_ in stuck}
         notes = [n for n in notes if not any(n.startswith(f"`{name}` was already red") for name in stuck_names)]
         for note in notes:
@@ -1595,6 +1684,9 @@ def cmd_judge(args: argparse.Namespace) -> int:
             out.update(culprit=value, job=probe.job, good=parent, origin=probe.origin)
     elif step == "flake":
         summary(args.summary, f"`{probe.job}` passed again at `{probe.sha[:11]}`: the batch red did not repeat (a flake); no bisect.")
+    elif step == "anchored":
+        summary(args.summary, f"`{probe.job}` is red at its last green `{probe.sha[:11]}` too: no commit in "
+                              f"`{probe.good[:11]}`..`{probe.bad[:11]}` turned it red (a red of the probe's run, not a commit's); no bisect, no revert.")
     elif conclusion == "skipped":
         summary(args.summary, f"`{probe.job}` was skipped at `{probe.sha[:11]}` (its own condition; the same probe would skip again): the bisect stops here.")
     else:
