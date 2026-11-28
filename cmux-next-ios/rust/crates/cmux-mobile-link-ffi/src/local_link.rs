@@ -467,9 +467,10 @@ mod tests {
             }
             // The check above can see a hub dial: a plain one opens it.
             let plain = dial_request("mac-sim", |_| {});
+            let timeline = Timeline::new();
             tokio::select! {
                 accepted = hub.accept() => { accepted.unwrap(); }
-                _ = dial_local(&plain, &Timeline::new()) => panic!("the plain dial ended before it opened the hub"),
+                _ = dial_local(&plain, &timeline) => panic!("the plain dial ended before it opened the hub"),
             }
         });
         local_link_remove("Mac Sim".into());

@@ -1535,7 +1535,7 @@ fn media_manager(
         signaling,
         ice,
         options: {
-            let simulated = simulation::Simulation::of(&request);
+            let simulated = simulation::Simulation::of(request);
             DialOptions {
                 include_loopback: request.include_loopback,
                 relay_only: simulated.relay_only,
