@@ -906,6 +906,11 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             transport.yield_to_link(&home(), LINK_HANDOFF_EVERY, SHUTDOWN_BUDGET).await;
         });
     }
+    // Migrate legacy grants once per start, including grants without a route.
+    let (_, subscription_home) = crate::routes::places(&config);
+    drop(tokio::task::spawn_blocking(move || {
+        crate::subscription_store::migrate_legacy(&subscription_home);
+    }));
     // Serve before reading session metadata or logs. Exact-id chat reads load on demand.
     let hub = Hub::new_loading_with_wireguard(config, store, mailbox, wireguard.clone());
     #[cfg(unix)]
@@ -1492,7 +1497,21 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // An update that moves this executable away swaps to the installed build, make-before-break
     // (F9, `daemon/exe_swap.rs`). Ended with the runtime.
     #[cfg(any(target_os = "linux", target_os = "macos"))]
-    let _exe_watch = hub.scope.spawn_until_cancelled("exe-swap-watch", exe_watch);
+    let _exe_watch = hub.scope.spawn_until_cancelled("exe-swap-watch", {
+        let hub = Arc::downgrade(&hub);
+        async move {
+            exe_watch.await;
+            if let Some(hub) = hub.upgrade() {
+                tracing::info!("update: exiting for launchd to start the verified replacement");
+                supervision::stopping(cmux_supervise_core::StopCause::Update(
+                    "launchd executable swap".into(),
+                ));
+                hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
+                hub.shutdown.notify_waiters();
+                hub.shutdown.notify_one();
+            }
+        }
+    });
     // After a restart's exec in place: the previous image's hosts are reaped as they exit.
     #[cfg(unix)]
     let _handoff_reap = handoff::reap_inherited(inherited, &hub.scope);

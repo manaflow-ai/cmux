@@ -417,6 +417,11 @@ path = "tests/test_hosted_queue_wait.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_hot_apply_abi_read_error.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_hot_apply_abi_read_error.py"
+
+[[test]]
 path = "tests/test_hung_test_watchdog.py"
 lane = "linux-guard"
 
@@ -729,6 +734,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_pairing_scheme_lint.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pattern_download_layout_hint.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1061,6 +1070,11 @@ lane = "legacy"
 path = "tests/test_ssvp_host_early_exit_ends_viewer.py"
 lane = "manual"
 reason = "Run by the lane that changes screen-share-vs-pair.sh: python3 tests/test_ssvp_host_early_exit_ends_viewer.py; needs only bash and python3 (a second)."
+
+[[test]]
+path = "tests/test_ssvp_launch_refused_half.py"
+lane = "manual"
+reason = "Run by the lane that changes screen-share-vs-pair-launch.sh: python3 tests/test_ssvp_launch_refused_half.py; needs only bash, git, openssl and python3 (a second)."
 
 [[test]]
 path = "tests/test_stable_next.py"

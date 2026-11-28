@@ -260,7 +260,10 @@ pub(super) async fn route(
     // Moving a chat to another daemon (`hub/transfer_out.rs`): a bundle holds the whole chat and
     // runs its queue with the rules it was sent under, so only the local socket moves one.
     if m.starts_with("_acpmux/transfer_") {
-        if conn.origin != Origin::Local {
+        // What a move would interrupt is read-only: the app's own pane asks it too, to say so
+        // before its Cloud / Auto / Evacuate (RFD 0063 item 6).
+        let read_only = m == "_acpmux/transfer_interrupts" && conn.origin == Origin::LocalApp;
+        if conn.origin != Origin::Local && !read_only {
             return Err(RpcError::method_not_found(&format!("{m} (local socket only)")));
         }
         // A move's finish may carry the owner's login for the chat's agent (`transfer_in.rs`),
@@ -498,7 +501,7 @@ pub(super) async fn route(
                 .map(PathBuf::from)
                 .or_else(dirs::home_dir)
                 .unwrap_or_else(|| PathBuf::from("/"));
-            let (profile_name, profile) = {
+            let (profile_name, mut profile) = {
                 let cfg = hub.config.read().await;
                 let (name, profile) =
                     crate::chat_fork::profile_for(&cfg, harness).ok_or_else(|| {
@@ -508,6 +511,11 @@ pub(super) async fn route(
                     })?;
                 (name.to_owned(), profile.clone())
             };
+            if crate::config::derive_family(&profile_name, &profile) == "github-copilot" {
+                let mut env = profile.env.clone();
+                hub.apply_route_for(&profile_name, None, None, true, &profile, &mut env).await?;
+                profile.env = env;
+            }
             let forked = crate::chat_fork::fork(harness, &profile_name, &profile, id, &cwd).await?;
             crate::fork_spec::log(
                 &crate::fork_spec::ForkSpec::preset(crate::fork_spec::Preset::TerminalChat),
