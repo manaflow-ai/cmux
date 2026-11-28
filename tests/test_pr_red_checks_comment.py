@@ -453,6 +453,20 @@ def test_the_callers_pass_whether_their_own_checks_passed():
         assert job["with"]["own_checks_green"] == (
             "${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}"), workflow
 
+def test_ci_yml_runs_the_comment_on_a_label_event_only_with_a_red_to_recompute():
+    # 2026-11-25: a green label-event call with no red line on the status comment changed nothing. ci.yml's call
+    # (the writer) runs on a label event only on its own red, a re-run, or when changes read a red line.
+    import yaml
+    ci = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
+    own_red = "contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')"
+    assert "changes" in ci["pr-red-checks"]["needs"]
+    assert "needs.web.result != 'skipped'" in ci["pr-red-checks"]["if"]
+    assert ("github.event.action != 'labeled' && github.event.action != 'unlabeled' || github.run_attempt > 1 || "
+            f"{own_red} || needs.changes.outputs.red_line != 'false')") in ci["pr-red-checks"]["if"]
+    assert ci["changes"]["outputs"]["red_line"] == "${{ steps.red-line.outputs.red_line }}"
+    step = next(s for s in ci["changes"]["steps"] if s.get("id") == "red-line")
+    assert step["continue-on-error"] is True
+
 
 def test_one_writer_per_head_and_green_callers_start_no_runner():
     """ci.yml's call (every pull request that changes more than prose) is the head's writer; a cmux-next.yml or
@@ -629,7 +643,8 @@ def test_ci_and_cmux_next_call_only_after_their_tracked_job_ran():
     import yaml
     for workflow, need in (("ci.yml", "web"), ("cmux-next.yml", "checks")):
         job = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())["jobs"]["pr-red-checks"]
-        assert job["needs"] == [need], workflow
+        assert need in job["needs"], workflow
+        assert set(job["needs"]) <= {need, "changes"}, workflow  # ci.yml also reads changes' red_line
         assert f"needs.{need}.result != 'skipped'" in job["if"], workflow
     guards = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())["jobs"]["pr-red-checks"]
     assert "skipped" not in guards["if"]

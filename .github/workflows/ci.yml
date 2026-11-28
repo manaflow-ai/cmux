@@ -163,6 +163,9 @@ jobs:
       agent_session_web: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none' || (github.event_name != 'pull_request' && steps.line.outputs.next_line == 'true')) && 'false' || (steps.detect.outputs.agent_session_web) }}
       release_build: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false' || (steps.next-route.outputs.release_build || steps.detect.outputs.release_build) }}
       owned_head_repos: ${{ steps.owned-head-repos.outputs.repos }}
+      # 'false' when a label event's read found no red on the status comment's checks line, so pr-red-checks has
+      # nothing to clear; empty (not read, or the read failed) runs it.
+      red_line: ${{ steps.red-line.outputs.red_line }}
       linux_guard_tests: ${{ steps.linux_guards.outputs.linux_guard_tests }}
       linux_guard_test_groups: ${{ steps.linux_guards.outputs.linux_guard_test_groups }}
       linux_guard_history: ${{ steps.linux_guards.outputs.linux_guard_history }}
@@ -287,6 +290,30 @@ jobs:
             Package.swift
             /web/data/model-catalog/
             /examples/gallery/gallery.json
+
+      # pr-red-checks (below) runs on a label event only when the web checks went red here or the status comment's
+      # checks line already names a red to recompute: a green call with no red line changed nothing (2026-11-25:
+      # ~800 comment jobs an hour, most "own checks green, no red line; action=none"). One GraphQL read; any
+      # failure leaves the output empty, and an empty output runs the job as before.
+      - name: Whether the status comment names a red
+        id: red-line
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          python3 -I - <<'PY'
+          import os, sys
+          sys.path.insert(0, "scripts/ci")
+          import pr_status
+          line = pr_status.section(os.environ["GITHUB_REPOSITORY"], int(os.environ["PR_NUMBER"]), "checks")
+          red = line is not None and "red: " in line
+          print(f"checks line names a red: {red}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"red_line={'true' if red else 'false'}\n")
+          PY
 
       # A draft head runs the cheap tier: the Linux guards and checks, no macOS, web app, Swift package or
       # Release jobs (scripts/ci/head_tier.py; vars.CI_DRAFT_CHEAP_TIER=0 turns it off). The `changes`
@@ -1823,9 +1850,11 @@ jobs:
   # It starts only when `web` ran: after a skipped `web` this call has no red of its own to add, and the guards
   # call on every head writes the `ran` line and clears an older head's red. On 11-25 03Z..11Z about 86% of
   # 1,897 calls followed a skipped `web`, about 1.3 min each (about 6.4k runner-min a day).
+  # On a label event it also needs a red to recompute: its own red, a re-run, or a red on the status comment's
+  # checks line (changes' red_line read); a green call with no red line changed nothing (2026-11-25).
   pr-red-checks:
-    needs: [web]
-    if: ${{ (always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && needs.web.result != 'skipped') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","dev-build","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    needs: [changes, web]
+    if: ${{ (always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && needs.web.result != 'skipped') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","dev-build","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) && (github.event.action != 'labeled' && github.event.action != 'unlabeled' || github.run_attempt > 1 || contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.changes.outputs.red_line != 'false') }}
     permissions:
       actions: read
       checks: read
