@@ -19,7 +19,7 @@
 //!    by its first call (seconds on a large chat; every call after reads the pack).
 
 use super::transfer_history::{PackTurn, lower_this_thread, pack_error};
-use super::transfer_out::transfers_dir;
+use super::transfer_out::scratch_dir;
 use super::*;
 use cmux_session_pack as pack;
 use cmux_session_pack::digest;
@@ -124,7 +124,7 @@ impl Hub {
         summary_seq: u64,
     ) -> anyhow::Result<Value> {
         let store = self.pack_store(&session.id)?;
-        let work = transfers_dir().join(format!("outline-{}", uuid::Uuid::now_v7()));
+        let work = scratch_dir("outline");
         let _turn = PackTurn::take(&session.id);
         // A pack that already holds the summary (a `fresh` read packed past it) is kept: packing
         // through the summary again would cut the pack back to it.
@@ -153,7 +153,7 @@ impl Hub {
         if !fresh && let Some(m) = pack::Manifest::load(&store, &session.id).map_err(pack_error)? {
             return Ok(pack::Pack::with_manifest(&store, m));
         }
-        let work = transfers_dir().join(format!("history-read-{}", uuid::Uuid::now_v7()));
+        let work = scratch_dir("history-read");
         let newest = session.seq.load(Ordering::SeqCst);
         // The counter may be a record ahead of what the log holds: try the ones before.
         let mut last_error = anyhow::anyhow!("the chat's log is empty");

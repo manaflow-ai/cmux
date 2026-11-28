@@ -704,6 +704,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-json"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-local-url"
 version = "0.1.0"
 dependencies = [
@@ -759,6 +766,7 @@ dependencies = [
  "cmux-deadline",
  "cmux-egress",
  "cmux-fault",
+ "cmux-json",
  "cmux-message-preview",
  "cmux-mobile-api",
  "cmux-mobile-core",
@@ -876,6 +884,7 @@ dependencies = [
  "cmux-mobile-host",
  "cmux-mobile-last-place",
  "cmux-mobile-link",
+ "cmux-mobile-tailnet",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-ffi",
