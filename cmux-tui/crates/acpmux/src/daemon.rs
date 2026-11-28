@@ -113,7 +113,7 @@ pub use person_key::start_keyed;
 #[cfg(unix)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) mod provision;
-mod runtime_stall;
+pub(crate) mod runtime_stall;
 #[cfg(unix)]
 mod socket_rebind;
 mod stop_causes;

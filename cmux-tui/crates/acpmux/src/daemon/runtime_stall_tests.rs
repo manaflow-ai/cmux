@@ -80,6 +80,53 @@ fn stall_threshold_sits_under_the_waiters_replace() {
     assert!(CHECK_EVERY < STALL && BEAT_EVERY < STALL);
 }
 
+/// 2026-11-28: all 17 "this whole process did not run" lines came right after a capture that took
+/// 5 to 87 s. A capture's own time is the watch's work, not the process stopping.
+#[test]
+fn a_slow_capture_is_not_read_as_the_process_not_running() {
+    use std::cell::Cell;
+    let clock = Cell::new(Duration::ZERO);
+    let mut steps = Vec::new();
+    drive(
+        Some(90),
+        |d| clock.set(clock.get() + d),
+        || clock.get(),
+        // The runtime beat once at the start, then stalled.
+        || Duration::ZERO,
+        |step| {
+            if let Step::Stalled { capture: true, .. } = step {
+                // The capture takes 15 s on a slow disk.
+                clock.set(clock.get() + at(15));
+            }
+            steps.push(step);
+        },
+    );
+    assert!(!steps.iter().any(|s| matches!(s, Step::ProcessLate { .. })), "{steps:?}");
+    let captures = steps.iter().filter(|s| matches!(s, Step::Stalled { capture: true, .. })).count();
+    assert_eq!(captures, 2, "the first capture and the one at a minute: {steps:?}");
+}
+
+/// The process that did stop is still told apart: a sleep that came back 20 s late.
+#[test]
+fn a_late_sleep_is_still_the_process_not_running() {
+    use std::cell::Cell;
+    let clock = Cell::new(Duration::ZERO);
+    let rounds = Cell::new(0);
+    let mut steps = Vec::new();
+    drive(
+        Some(5),
+        |d| {
+            rounds.set(rounds.get() + 1);
+            let extra = if rounds.get() == 3 { at(20) } else { Duration::ZERO };
+            clock.set(clock.get() + d + extra);
+        },
+        || clock.get(),
+        || clock.get(),
+        |step| steps.push(step),
+    );
+    assert_eq!(steps[2], Step::ProcessLate { gap: at(20) }, "{steps:?}");
+}
+
 #[test]
 fn civil_dates() {
     assert_eq!(civil_from_days(0), (1970, 1, 1));
@@ -102,10 +149,102 @@ fn prune_keeps_the_newest() {
         .map(|e| e.unwrap().file_name().into_string().unwrap())
         .collect();
     left.sort();
-    assert_eq!(left.len(), 21);
+    // The newest 20, the daemon's first capture, and the file that is not a capture.
+    assert_eq!(left.len(), 22);
     assert!(left.contains(&"other.txt".to_string()));
-    assert!(!left.contains(&"stall-20261120T000000Z-1.txt".to_string()));
+    assert!(left.contains(&"stall-20261120T000000Z-1.txt".to_string()));
+    assert!(!left.contains(&"stall-20261120T000001Z-1.txt".to_string()));
     assert!(left.contains(&"stall-20261122T000024Z-1.txt".to_string()));
+}
+
+/// A daemon restarted again and again (2026-11-28: 28 restarts in four hours, each stalling)
+/// keeps the start of each daemon's stall, not only the newest captures.
+#[test]
+fn prune_keeps_each_daemons_first_capture() {
+    let dir = tempfile::tempdir().unwrap();
+    // Daemon 7 captured twice at the start, then daemon 9 captured 30 times.
+    for name in ["stall-20261128T054534Z-7.txt", "stall-20261128T054629Z-7.txt"] {
+        std::fs::write(dir.path().join(name), "x").unwrap();
+    }
+    for i in 0..30 {
+        std::fs::write(dir.path().join(format!("stall-20261128T06{i:02}00Z-9.txt")), "x").unwrap();
+    }
+    prune(dir.path(), 20);
+    let left: Vec<String> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    assert!(left.contains(&"stall-20261128T054534Z-7.txt".to_string()), "{left:?}");
+    assert!(!left.contains(&"stall-20261128T054629Z-7.txt".to_string()), "{left:?}");
+    assert!(left.contains(&"stall-20261128T060000Z-9.txt".to_string()), "{left:?}");
+    assert_eq!(left.len(), 22, "{left:?}");
+}
+
+/// The firsts kept are bounded: only the newest daemons' firsts stay.
+#[test]
+fn prune_bounds_the_firsts_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    for pid in 0..(KEEP_FIRSTS + 15) {
+        std::fs::write(dir.path().join(format!("stall-20261128T{:06}Z-{pid}.txt", pid * 100)), "x")
+            .unwrap();
+    }
+    prune(dir.path(), 5);
+    let left = std::fs::read_dir(dir.path()).unwrap().count();
+    assert_eq!(left, KEEP_FIRSTS);
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn a_syscall_names_its_call_and_fd() {
+    // fsync(0x14d), as the 2026-11-28 captures read.
+    assert_eq!(
+        blocked_on("74 0x14d 0x0 0x0 0x0 0x0 0x0 0x7f2d9b3be5f8 0x7f2da06db30c"),
+        Some(Blocked { name: "fsync", fd: Some(0x14d) })
+    );
+    // mkdirat(AT_FDCWD, ...) has no fd to name.
+    assert_eq!(
+        blocked_on("258 0xffffffffffffff9c 0x7f00 0x1ff"),
+        Some(Blocked { name: "mkdirat", fd: None })
+    );
+    // A futex wait, a thread in user space, and one that runs name nothing.
+    assert_eq!(blocked_on("202 0x4f7d64d1400 0x89 0x4"), None);
+    assert_eq!(blocked_on("-1 0x7f2d7f5fd678 0x7f2da066252f"), None);
+    assert_eq!(blocked_on("running"), None);
+}
+
+/// A capture marks the runtime's workers (they park through [`mark_worker`]) and names the file
+/// a blocked thread's syscall acts on.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_linux_capture_marks_workers_and_names_a_blocked_fd() {
+    use std::io::Read;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .on_thread_park(mark_worker)
+        .enable_all()
+        .build()
+        .unwrap();
+    // Let both workers park once.
+    runtime.block_on(async { tokio::time::sleep(Duration::from_millis(50)).await });
+    let worker_tids: Vec<i64> = workers();
+    assert!(!worker_tids.is_empty());
+    // A thread blocked in read(2) on one end of a socket pair.
+    let (mut a, b) = std::os::unix::net::UnixStream::pair().unwrap();
+    let reader = std::thread::spawn(move || {
+        let mut buf = [0u8; 1];
+        let _ = a.read(&mut buf);
+    });
+    std::thread::sleep(Duration::from_millis(200));
+    let dir = tempfile::tempdir().unwrap();
+    let file = capture_stacks(dir.path()).expect("a capture file");
+    let text = std::fs::read_to_string(&file).unwrap();
+    drop(b);
+    reader.join().unwrap();
+    assert!(text.starts_with("# workers marked: "), "{text}");
+    let marked = text.lines().filter(|l| l.contains(" role=worker")).count();
+    assert!(marked >= 2, "{text}");
+    let read_line = text.lines().find(|l| l.contains(" call=read")).unwrap_or_default();
+    assert!(read_line.contains(" fd=socket:["), "{text}");
 }
 
 /// A runtime whose only worker is blocked is seen by the real thread and named in one capture.
