@@ -224,6 +224,10 @@ class Index:
         self.rules = rules
         self.buckets: dict[str, list[tuple[Rule, str, int]]] = {}
         self._compiled: dict[str, list[tuple[Rule, Under | re.Pattern[str], int, str]]] = {}
+        # Counted work, for the flat-at-10x test (a count, not a clock, so a loaded host cannot fail it):
+        # `probes` is glob patterns tried by match(); `compiles` is globs compiled into a bucket.
+        self.probes = 0
+        self.compiles = 0
         self.situation_by_name: dict[str, list[Rule]] = {}
         # Every rule of one (kind, name): plan() merges an area filed twice into one entry (_area_entry), read here
         # once per index rather than by a scan of every rule per matched area (the Bench tooling bench, 0.096 s).
@@ -242,6 +246,7 @@ class Index:
         if got is None:
             got = [(r, matcher(g), spec, literal_suffix(g)) for r, g, spec in self.buckets.get(key, ())]
             self._compiled[key] = got
+            self.compiles += len(got)
         return got
 
     def candidates(self, path: str):
@@ -260,6 +265,7 @@ class Index:
         situations: dict[str, Rule] = {}
         steps: dict[str, Rule] = {}
         for rule, pattern, spec, suffix in self.candidates(path):
+            self.probes += 1
             if not path.endswith(suffix) or not pattern.match(path):
                 continue
             if rule.kind == "situation":
