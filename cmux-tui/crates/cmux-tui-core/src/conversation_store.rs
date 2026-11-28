@@ -46,6 +46,13 @@ pub(crate) const CONVERSATIONS_FILE: &str = "conversations.sqlite3";
 /// 2: the op ledger is keyed by actor too (`op_ledger_v2`) and the agent loop
 /// guard lives in `agent_guard`. Version 1 ledger rows are not consulted.
 pub(crate) const SCHEMA_VERSION: i64 = 2;
+/// The store's place in the rollback rule (`store_compat`). An additive
+/// schema bump keeps `min_reader`; a breaking one sets it to the new schema.
+pub(crate) const STORE_RULE: crate::store_compat::StoreRule = crate::store_compat::StoreRule {
+    label: "conversation store",
+    schema: SCHEMA_VERSION,
+    min_reader: 2,
+};
 /// Largest `tail` and `limit` a page request may ask for.
 pub(crate) const MAX_PAGE_MESSAGES: u32 = 500;
 /// The participant id of the Mac's own user in local conversations.
@@ -146,7 +153,7 @@ impl ConversationStore {
     /// Open `conversations.sqlite3` in `directory`, or an in-memory store
     /// when there is no directory (an in-memory session, tests).
     pub(crate) fn open(directory: Option<&Path>) -> anyhow::Result<Self> {
-        let connection = match directory {
+        let (connection, path) = match directory {
             Some(directory) => {
                 let path = directory.join(CONVERSATIONS_FILE);
                 let connection = crate::workspace_registry::open_registry_database(&path)
@@ -154,15 +161,16 @@ impl ConversationStore {
                 crate::platform::restrict_file(&path)
                     .with_context(|| format!("restrict conversation store {}", path.display()))?;
                 crate::workspace_registry::wal_durability::attach_store(&connection, &path);
-                connection
+                (connection, Some(path))
             }
-            None => Connection::open_in_memory()?,
+            None => (Connection::open_in_memory()?, None),
         };
-        Self::initialize(connection, attachments::Attachments::open(directory)?)
+        Self::initialize(connection, path.as_deref(), attachments::Attachments::open(directory)?)
     }
 
     fn initialize(
         mut connection: Connection,
+        path: Option<&Path>,
         attachments: attachments::Attachments,
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
@@ -174,18 +182,35 @@ impl ConversationStore {
                value TEXT NOT NULL
              );",
         )?;
-        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let stored: Option<String> = transaction
-            .query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |row| row.get(0))
-            .optional()?;
-        if let Some(stored) = stored {
-            let stored: i64 = stored.parse().context("conversation store schema is invalid")?;
-            anyhow::ensure!(
-                stored <= SCHEMA_VERSION,
-                "unsupported conversation store schema {stored}; newest supported is \
-                 {SCHEMA_VERSION}"
-            );
+        // The daemon is the store's one writer, so the stamps read here hold
+        // through the transaction below.
+        let stamps = crate::store_compat::read_stamps(&connection, STORE_RULE.label)?;
+        let verdict = crate::store_compat::verdict(STORE_RULE, &stamps);
+        match verdict {
+            crate::store_compat::Verdict::Refuse { found, min_reader } => {
+                anyhow::bail!(crate::store_compat::refusal_text(
+                    STORE_RULE.label,
+                    found,
+                    min_reader,
+                    SCHEMA_VERSION,
+                    stamps.written_by.as_deref(),
+                    path,
+                    path.and_then(|path| crate::store_compat::newest_backup(path, SCHEMA_VERSION))
+                        .as_deref(),
+                ));
+            }
+            crate::store_compat::Verdict::Migrate { from, backup: true } => {
+                if let Some(path) = path
+                    && let Err(error) = crate::store_compat::keep_backup(&connection, path, from)
+                {
+                    eprintln!(
+                        "cmux-tui: conversation store: no backup kept before the schema {from} migration ({error:#})"
+                    );
+                }
+            }
+            _ => {}
         }
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         transaction.execute_batch(
             "CREATE TABLE IF NOT EXISTS conversation (
                id TEXT PRIMARY KEY NOT NULL,
@@ -254,11 +279,15 @@ impl ConversationStore {
         transaction.execute_batch(runs::SCHEMA)?;
         transaction.execute_batch(scheduled::SCHEMA)?;
         crate::conversation_search::drop_search_index(&transaction)?;
-        transaction.execute(
-            "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![SCHEMA_VERSION.to_string()],
-        )?;
+        // A newer store this build reads keeps its stamps: never lower them.
+        if verdict.stamps() {
+            transaction.execute(
+                "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![SCHEMA_VERSION.to_string()],
+            )?;
+            crate::store_compat::stamp_reader(&transaction, STORE_RULE)?;
+        }
         transaction.commit()?;
         Ok(Self { connection, attachments, home_order_cache: Default::default() })
     }

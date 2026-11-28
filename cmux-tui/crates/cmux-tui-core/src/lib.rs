@@ -131,6 +131,7 @@ use cmux_tui_util::short_id;
 mod sidebar_resource;
 pub mod sizing_policy;
 mod state;
+mod store_compat;
 pub mod store_schemas;
 pub mod wait_pattern;
 use cmux_tui_util::stream_interrupt;

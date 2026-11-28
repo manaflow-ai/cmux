@@ -343,12 +343,34 @@ impl WorkspaceRegistry {
              );",
         )?;
 
-        let stored_schema = meta_value(&connection, "schema_version")?;
-        let stored_schema = stored_schema
-            .as_deref()
-            .map(str::parse::<i64>)
-            .transpose()
-            .context("workspace registry schema is invalid")?;
+        let stamps = crate::store_compat::read_stamps(&connection, "workspace registry")?;
+        let stored_schema = stamps.schema;
+        let verdict = crate::store_compat::verdict(STORE_RULE, &stamps);
+        if let crate::store_compat::Verdict::Refuse { found, min_reader } = verdict {
+            return Err(UnsupportedWorkspaceRegistrySchema {
+                found,
+                newest_supported: SCHEMA_VERSION,
+                min_reader,
+                written_by: stamps.written_by,
+                backup_path: database_path
+                    .as_deref()
+                    .and_then(|path| crate::store_compat::newest_backup(path, SCHEMA_VERSION)),
+                registry_id: meta_value(&connection, "registry_id")?,
+                database_path,
+            }
+            .into());
+        }
+        // A breaking migration keeps the file it migrates from, so the build
+        // of that schema can be rolled back to (`store_compat`).
+        if let (crate::store_compat::Verdict::Migrate { from, backup: true }, Some(path)) =
+            (verdict, database_path.as_deref())
+            && let Err(error) = crate::store_compat::keep_backup(&connection, path, from)
+        {
+            eprintln!(
+                "cmux-tui: workspace registry: no backup kept before the schema {from} migration ({error:#})"
+            );
+        }
+        let read_newer = matches!(verdict, crate::store_compat::Verdict::ReadNewer { .. });
         // Existing registries may carry the pre-multiview terminal-to-workspace
         // foreign key even when a development build already stamped the
         // current schema number. Revalidate and normalize every existing DB.
@@ -369,16 +391,9 @@ impl WorkspaceRegistry {
         }
         let resource_effect_pepper_id = resource_effect_pepper.identifier();
         match stored_schema {
-            Some(value) if value > SCHEMA_VERSION => {
-                return Err(UnsupportedWorkspaceRegistrySchema {
-                    found: value,
-                    newest_supported: SCHEMA_VERSION,
-                    registry_id: meta_value(&connection, "registry_id")?,
-                    database_path,
-                }
-                .into());
-            }
-            Some(value) if value == SCHEMA_VERSION => {
+            // A newer registry this build reads (an additive bump): open it
+            // as the current schema and leave its stamps as they are.
+            Some(value) if value == SCHEMA_VERSION || read_newer => {
                 let tx = connection.unchecked_transaction()?;
                 create_workspace_schema(&tx)?;
                 create_terminal_schema(&tx)?;
@@ -584,6 +599,9 @@ impl WorkspaceRegistry {
                 ensure_session_public_id(&tx)?;
                 tx.commit()?;
             }
+        }
+        if verdict.stamps() {
+            crate::store_compat::stamp_reader(&connection, STORE_RULE)?;
         }
         if migrate_existing_registry && resource_tabs_needs_multiview_normalization(&connection)? {
             let tx = connection.unchecked_transaction()?;
