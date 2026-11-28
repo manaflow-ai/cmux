@@ -1280,6 +1280,9 @@ export type PairingPreview = {
 /** user_<id>, agent_<name> or addr_<26> (an invited address). */
 export type ParticipantId = string
 
+/** An X.509 signing certificate of the IdP, PEM or base64 DER. */
+export type PemCertificate = string
+
 export type Platform = "macos" | "ios" | "linux" | "windows" | "web"
 
 export type PolicyChange = {
@@ -1291,7 +1294,7 @@ export type PolicyChange = {
 }
 
 /** A team policy key (spec/enterprise.md 4.2). */
-export type PolicyKey = "github.repoScope" | "github.requireOrgAdmin" | "github.repoAllowList" | "github.allowWorkflows" | "integrations.allowedProviders" | "mcp.server" | "mcp.remoteTransport" | "apps.install" | "apps.allowedTiers" | "apps.allowList" | "apps.forcedInstalls" | "computerUse.allowed" | "browserAutomation.rawCdp" | "cloud.sandboxes" | "cloud.connectServices" | "cloud.idlePause" | "telemetry.level" | "updates.channel" | "updates.minimumVersion" | "retention.cuaEventsDays" | "retention.cuaFramesDays" | "retention.transcriptDays" | "retention.auditDays" | "sso.enforce" | "sso.enforceForOwners" | "sso.allowGuests" | "sso.sessionMaxAgeHours" | "sso.idleTimeoutHours" | "agents.allowedClasses" | "device.settings"
+export type PolicyKey = "github.repoScope" | "github.requireOrgAdmin" | "github.repoAllowList" | "github.allowWorkflows" | "integrations.allowedProviders" | "mcp.server" | "mcp.remoteTransport" | "apps.install" | "apps.allowedTiers" | "apps.allowList" | "apps.forcedInstalls" | "computerUse.allowed" | "browserAutomation.rawCdp" | "cloud.sandboxes" | "cloud.connectServices" | "cloud.idlePause" | "cloud.providers" | "cloud.regions" | "cloud.egress" | "agents.harnesses" | "agents.models" | "projection.folders" | "projection.readOnly" | "projection.syncBack" | "sandbox.local" | "telemetry.level" | "updates.channel" | "updates.minimumVersion" | "retention.cuaEventsDays" | "retention.cuaFramesDays" | "retention.transcriptDays" | "retention.auditDays" | "sso.enforce" | "sso.enforceForOwners" | "sso.allowGuests" | "sso.sessionMaxAgeHours" | "sso.idleTimeoutHours" | "agents.allowedClasses" | "device.settings"
 
 export type PolicyMode = "enforced" | "default"
 
@@ -1384,6 +1387,12 @@ export type RunWithBody = {
   readonly body: Body
 }
 
+export type SamlSettings = {
+  readonly idp_entity_id: string
+  readonly sso_url: string
+  readonly certificates: ReadonlyArray<PemCertificate>
+}
+
 export type ServerCapability = string
 
 export type ServerNetworkBinding = {
@@ -1427,10 +1436,10 @@ export type SshPresenceProof = {
 
 export type SsoConnection = {
   readonly id: SsoConnectionId
-  readonly kind: "oidc"
+  readonly kind: "oidc" | "saml"
   readonly state: "draft" | "active" | "disabled"
   readonly domains: ReadonlyArray<EmailDomain>
-  readonly oidc: {
+  readonly oidc?: {
     readonly issuer: string
     readonly client_id: string
     readonly scopes: ReadonlyArray<string>
@@ -1438,6 +1447,7 @@ export type SsoConnection = {
     readonly token_endpoint: string | null
     readonly jwks_uri: string | null
   }
+  readonly saml?: SamlSettings
   readonly secret_set: boolean
   readonly secret_generation?: number
   readonly jit: {
@@ -1539,6 +1549,12 @@ export type TeamDomain = {
   readonly verified_at: number | null
   readonly last_checked_at?: number
   readonly check_failures?: number
+}
+
+export type TeamEgress = {
+  readonly mode: "full" | "allowlist" | "none"
+  readonly presets?: ReadonlyArray<"anthropic" | "openai" | "openrouter" | "opencode" | "github" | "npm" | "pypi" | "rust">
+  readonly domains?: ReadonlyArray<string>
 }
 
 /** A team; a personal account is a team of one. */
@@ -1647,6 +1663,42 @@ export type TeamPolicyValues = {
   }
   readonly "cloud.idlePause"?: {
     readonly value: boolean
+    readonly mode: PolicyMode
+  }
+  readonly "cloud.providers"?: {
+    readonly value: ReadonlyArray<string>
+    readonly mode: PolicyMode
+  }
+  readonly "cloud.regions"?: {
+    readonly value: ReadonlyArray<string>
+    readonly mode: PolicyMode
+  }
+  readonly "cloud.egress"?: {
+    readonly value: TeamEgress
+    readonly mode: PolicyMode
+  }
+  readonly "agents.harnesses"?: {
+    readonly value: ReadonlyArray<string>
+    readonly mode: PolicyMode
+  }
+  readonly "agents.models"?: {
+    readonly value: ReadonlyArray<string>
+    readonly mode: PolicyMode
+  }
+  readonly "projection.folders"?: {
+    readonly value: ReadonlyArray<string>
+    readonly mode: PolicyMode
+  }
+  readonly "projection.readOnly"?: {
+    readonly value: boolean
+    readonly mode: PolicyMode
+  }
+  readonly "projection.syncBack"?: {
+    readonly value: boolean
+    readonly mode: PolicyMode
+  }
+  readonly "sandbox.local"?: {
+    readonly value: "on" | "required"
     readonly mode: PolicyMode
   }
   readonly "telemetry.level"?: {
@@ -4005,7 +4057,7 @@ export interface CloudOps {
     }
     readonly result: unknown
   }
-  /** Fetch the issuer's OpenID discovery document and activate the connection (owners and admins). Needs the secret and every domain verified by this team. */
+  /** Activate the connection (owners and admins). OIDC: fetches the issuer's discovery document and needs the secret. SAML: needs a valid IdP certificate. Both need every domain verified by this team. */
   readonly "sso.connection.activate": {
     readonly params: {
       readonly connection: SsoConnectionId
@@ -4019,6 +4071,20 @@ export interface CloudOps {
       readonly client_id: string
       readonly domains: ReadonlyArray<EmailDomain>
       readonly scopes?: ReadonlyArray<string>
+      readonly jit?: {
+        readonly enabled: boolean
+        readonly default_role: "member" | "admin"
+      }
+    }
+    readonly result: SsoConnection
+  }
+  /** Create a SAML 2.0 connection in draft (owners and admins) from the IdP's entity id, sign-on URL and signing certificate. Give the IdP the SP metadata at /v1/sso/saml/metadata/{team}/{connection}, then activate it. */
+  readonly "sso.connection.create_saml": {
+    readonly params: {
+      readonly idp_entity_id: string
+      readonly sso_url: string
+      readonly certificates: ReadonlyArray<PemCertificate>
+      readonly domains: ReadonlyArray<EmailDomain>
       readonly jit?: {
         readonly enabled: boolean
         readonly default_role: "member" | "admin"
@@ -4942,6 +5008,7 @@ export const cloudOpMeta = {
   "slack.post_as_bot": { class: "mutation", idempotency: "required", owner: "cloud:ConnectionDO", risk: "send-external" },
   "sso.connection.activate": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "sso.connection.create": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "sso.connection.create_saml": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "sso.connection.disable": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "destructive" },
   "sso.connection.list": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
   "sso.connection.set_secret": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },

@@ -57,6 +57,8 @@
 #               A suite named *ColdUITests or *ColdLiveUITests runs each of its test*Cold methods
 #               on a freshly booted iPhone, CMUX_LAUNCH_COLD_RUNS (10) times
 #               (LaunchTTIColdUITests); LAUNCHTTI lines go to launch-tti.jsonl.
+#             coldruns=N   runs of each cold suite's tests, one fresh boot each (1-30;
+#               default CMUX_LAUNCH_COLD_RUNS or 10), e.g. ReadFirstColdUITests
 #               LaunchColdLiveUITests also accepts repeatable net=lte|lossy-3|off
 #               and runs against the paired live daemon (the duress link knob shapes
 #               replay delivery when duress= is enabled).
@@ -188,6 +190,13 @@
 #           reconnect-drops=10,60 (FlowSuite's reconnect-after-drop: the Mac app and
 #           its hostd freeze for each drop; the phone must reattach within 30 s
 #           with no tap; reconnect-after-drop.mp4 records the phone).
+#   open-live [runs=N]   (also `pair-e2e open-live=N`, `shots open-live=N`)
+#           pair-e2e, then one Claude chat on the paired Mac and N (5-20, default 5)
+#           launches of the phone into it (CMUX_MOBILE_OPEN_URL=cmux://tab/ID): launch
+#           to the chat's latest output line on screen, in ms (LaunchMarks
+#           chat_latest_output_frame), idle fixture and duress (the chat streams a
+#           long reply as the phone opens); open-live.mp4 and open-live.json. Send it
+#           with `cmux-ci run --sign-in agent`.
 #   listperf
 #           build, plus the list frame-rate rig (ListStressRig,
 #           verify/listperf/): each case launches the Demo app with
@@ -364,6 +373,23 @@ if [[ "$mode" == shots && $# -eq 2 && "${2:-}" == try=dev ]]; then
   set -- try
   mode=try
 fi
+# open-live: pair-e2e (the tagged Mac app, QR pairing with no seed), then one Claude chat on that Mac
+# and RUNS launches of the phone straight into it, each timed from process start to the chat's latest
+# output line on screen (LaunchMarks chat_latest_output_frame), at rest (idle fixture) and while the
+# chat streams a long reply (duress), with the screen recorded (open-live.mp4, open-live.json).
+# Forms: `open-live [runs=N]`, and `pair-e2e open-live=N` / `shots open-live=N` while the fleet
+# controller's MODE list does not name open-live. N is 5-20 (default 5). Send it with
+# `cmux-ci run --sign-in agent`: both apps sign in from the step's agent session.
+if [[ "$mode" == open-live || ( ( "$mode" == pair-e2e || "$mode" == shots ) && $# -eq 2 && "${2:-}" == open-live=* ) ]]; then
+  open_live_runs=5
+  [[ "${2:-}" == open-live=* ]] && open_live_runs="${2#open-live=}"
+  [[ "$mode" == open-live && "${2:-}" == runs=* ]] && open_live_runs="${2#runs=}"
+  [[ "$open_live_runs" =~ ^[0-9]+$ && $open_live_runs -ge 5 && $open_live_runs -le 20 ]] ||
+    { echo "cmux-next-ios-sim.sh: open-live wants runs=N (or open-live=N), N from 5 to 20, got '$open_live_runs'" >&2; exit 2; }
+  export CMUX_PAIR_E2E_OPEN_LIVE_RUNS="$open_live_runs"
+  set -- pair-e2e
+  mode=pair-e2e
+fi
 case "$mode" in build|release-build|test|bench|all|pair-e2e|screen-proof|shots|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy|handoff|try|theme-relaunch|ui-build) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, ui-build, test, bench, all, pair-e2e, screen-proof, shots, clips, chief-live-perf, chief-live-perf-baseline, listperf, energy, handoff, try or theme-relaunch, got '$mode'" >&2; exit 2 ;; esac
 if [[ ( "$mode" == release-build || "$mode" == try ) && $# -ne 1 ]]; then
   echo "cmux-next-ios-sim.sh: $mode takes no further arguments" >&2; exit 2
@@ -488,6 +514,10 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
         [[ "${sel#duress=}" =~ ^[a-z][a-z0-9_-]*(,[a-z_]+=[A-Za-z0-9._-]+)*$ ]] ||
           { echo "cmux-next-ios-sim.sh: duress= wants off or PRESET[,knob=value...], got '$sel'" >&2; exit 2; }
         duress_specs+=("${sel#duress=}") ;;
+      coldruns=?*)
+        [[ "${sel#coldruns=}" =~ ^[0-9]+$ ]] && (( ${sel#coldruns=} >= 1 && ${sel#coldruns=} <= 30 )) ||
+          { echo "cmux-next-ios-sim.sh: coldruns= is 1-30, got '$sel'" >&2; exit 2; }
+        export CMUX_LAUNCH_COLD_RUNS="${sel#coldruns=}" ;;
       net=?*)
         [[ "${sel#net=}" =~ ^(off|lte|lossy-3)$ ]] ||
           { echo "cmux-next-ios-sim.sh: net= wants off, lte or lossy-3, got '$sel'" >&2; exit 2; }
@@ -500,7 +530,7 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
           { echo "cmux-next-ios-sim.sh: products= wants a ui-build step's job id (24 hex), got '$ui_products_job'" >&2; exit 2; } ;;
       video) ui_video=1 ;;
       profile) ui_profile=1 ;;
-      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST, duress=SPEC, net=PROFILE, config=debug|demo, products=JOB, video and profile, got '$sel'" >&2; exit 2 ;;
+      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST, duress=SPEC, coldruns=N, net=PROFILE, config=debug|demo, products=JOB, video and profile, got '$sel'" >&2; exit 2 ;;
     esac
   done
   if [[ -n "$ui_products_job" ]]; then
@@ -983,7 +1013,8 @@ ffi_swift=cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFF
 ffi_how=""
 if [[ -n "$ffi_key" ]]; then
   ffi_rc=0
-  "${ffi_cache[@]}" restore "$root" "$ffi_key" >>"$ffi_log" 2>&1 || ffi_rc=$?
+  # With the inputs, a miss claims the key at the controller, or waits for the step that claimed it (one build per key).
+  "${ffi_cache[@]}" restore "$root" "$ffi_key" "$work/ffi-inputs.json" >>"$ffi_log" 2>&1 || ffi_rc=$?
   if [[ $ffi_rc -eq 0 && -f "$ffi_xcf/Info.plist" && -s "$ffi_swift" ]]; then
     ffi_how="cache hit ${ffi_key:0:12}"
   elif [[ $ffi_rc -eq 0 ]]; then
