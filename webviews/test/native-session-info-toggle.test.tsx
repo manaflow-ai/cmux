@@ -10,21 +10,26 @@ import vm from "node:vm";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
-import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
-import { setNativeHost } from "../src/agent-session/acpmux/native";
-import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
-import {
-  runNativeSessionInfoAction,
-  setNativeSessionInfoHost,
-} from "../src/agent-session/acpmux/session-info/native/host";
 import type { NativeSessionInfo as Model } from "../src/agent-session/acpmux/session-info/native/model";
 import { loadNativeSessionInfo } from "../src/agent-session/acpmux/session-info/native/LazyNativeSessionInfo";
-import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
-import { assistant, chat, user } from "../src/gallery/fixtures/acpmux";
 import { settleReact } from "./support/domTeardown";
-import { SESSION_INFO, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
+import { importWithDom } from "./support/importWithDom";
+
+const { setChatDisplay } = await importWithDom(() => import("../src/agent-session/acpmux/chatDisplay"));
+const { setHeaderState } = await importWithDom(() => import("../src/agent-session/acpmux/header/headerState"));
+const { setNativeHost } = await importWithDom(() => import("../src/agent-session/acpmux/native"));
+const { useSessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/useSessionInfo"));
+const { runNativeSessionInfoAction, setNativeSessionInfoHost } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/native/host"),
+);
+const { resetSessionInfoState } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/sessionInfoState"),
+);
+const { assistant, chat, user } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { SESSION_INFO, SESSION_INFO_TOGGLE } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/sessionInfoSelectors"),
+);
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
