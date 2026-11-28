@@ -1,6 +1,7 @@
 import { CLOUD_CHATGPT_SIGN_IN_READY } from "../shared/cloudModelConnections";
 import { CLOUD_SIGN_IN_ANSWERS, type CloudSignInWait } from "./cloudSignIn";
 import type { CloudStartAnswer } from "./cloudRun";
+import { translate } from "./i18n";
 
 /// Cloud first use (cmux-tui/docs/model-connections.md, "Cloud first use"): the host refused a Cloud
 /// start with `cloud_setup_required` because no connection serves the picker's model (CloudSetup.swift).
@@ -29,7 +30,8 @@ function setupFamily(value: unknown): value is string {
 }
 
 /// What the card names: the picker's agent family and its model id, when the host said one.
-export type CloudSetupNeed = { family: string; model?: string; machine?: string; timedOut?: true };
+/// `error`: why the last set up's sign-in ended without a connection (`cloud_setup_failed`'s words).
+export type CloudSetupNeed = { family: string; model?: string; machine?: string; timedOut?: true; error?: string };
 
 /// The card's ways in, as `cloud.setUp {action}` names them (CloudSetup.Action).
 export const CLOUD_SETUP_ACTIONS = ["connectChatGPT", "setUpClaude", "addKey", "openSettings"] as const;
@@ -37,6 +39,9 @@ export type CloudSetupAction = (typeof CLOUD_SETUP_ACTIONS)[number];
 
 /// The host's refusal code for a start nothing serves.
 export const CLOUD_SETUP_REQUIRED = "cloud_setup_required";
+
+/// `cloud.setUp`'s answer when the sign-in its button ran ended without a connection: its words say why.
+export const CLOUD_SETUP_FAILED = "cloud_setup_failed";
 
 /// How long a set up waits for a connection before the card offers its buttons again: a browser
 /// sign-in's deadline (`CLOUD_SIGN_IN_LIMIT_MS`) doubled, for a key pasted in Settings.
@@ -49,16 +54,19 @@ export function readCloudSetupNeed(details: unknown): CloudSetupNeed | undefined
     model?: unknown;
     machine?: unknown;
     timedOut?: unknown;
+    error?: unknown;
   };
   if (!setupFamily(raw.family)) return undefined;
   const model = typeof raw.model === "string" && raw.model.trim() ? raw.model.trim().slice(0, 128) : undefined;
   const machine =
     typeof raw.machine === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(raw.machine) ? raw.machine : undefined;
+  const error = typeof raw.error === "string" && raw.error.trim() ? raw.error.trim().slice(0, 240) : undefined;
   return {
     family: raw.family,
     ...(model ? { model } : {}),
     ...(machine ? { machine } : {}),
     ...(raw.timedOut === true ? { timedOut: true } : {}),
+    ...(error ? { error } : {}),
   };
 }
 
@@ -103,8 +111,8 @@ export function waitForCloudSetUp(
     finish = resolve;
   });
   let over = false;
-  // Not set up yet: the card again, naming the same model.
-  const { timedOut: _timedOut, ...details } = need;
+  // Not set up yet: the card again, naming the same model (and no earlier attempt's error).
+  const { timedOut: _timedOut, error: _earlier, ...details } = need;
   const notReady: CloudStartAnswer = { ok: false, code: CLOUD_SETUP_REQUIRED, details };
   const end = (value: "signedIn" | CloudStartAnswer, cancel = false) => {
     if (over) return;
@@ -125,8 +133,21 @@ export function waitForCloudSetUp(
   }).then(
     () => end("signedIn"),
     (error: unknown) => {
-      const code = (error as { code?: unknown } | null)?.code;
-      end(code === "cloud_sign_in_cancelled" ? CLOUD_SIGN_IN_ANSWERS.withdrawn : notReady);
+      const { code, userMessage, message } = (error ?? {}) as {
+        code?: unknown;
+        userMessage?: unknown;
+        message?: unknown;
+      };
+      if (code === "cloud_sign_in_cancelled") return end(CLOUD_SIGN_IN_ANSWERS.withdrawn);
+      // The sign-in the button ran failed (cmux#63349): the card again, saying why (acpmux's code), with Try again.
+      const failed =
+        code === CLOUD_SETUP_FAILED ? (typeof userMessage === "string" ? userMessage : message) : undefined;
+      const why = typeof failed === "string" ? failed.trim().slice(0, 64) : "";
+      end(
+        why
+          ? { ...notReady, details: { ...details, error: translate("cloudSetup.signInFailed", { code: why }) } }
+          : notReady,
+      );
     },
   );
   const withdraw = () => {

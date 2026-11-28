@@ -4,13 +4,13 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
   type ReactNode,
   type RefObject,
+  useLayoutEffect,
 } from "react";
 import { measureElement as measureBox, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { Spinner } from "../../agent-session/acpmux/conversation/icons";
@@ -19,9 +19,10 @@ import { offsetRange, sliceBand, type VisibleSlice } from "../../ui/visibleSlice
 import { SceneContextMenu, SceneMenu } from "./sceneMenus";
 import { SceneReorderable } from "./SceneReorderable";
 import { SceneSymbol } from "./SceneSymbol";
-import { SceneChoreography, nodeChoreography } from "./SceneChoreography";
+import { nodeChoreography } from "./nodeChoreography";
+import { SceneChoreography } from "./SceneChoreography";
 import { SceneParticles } from "./SceneParticles";
-import { loopStyle, sceneTransitionKind, sceneTransitionVars, trimRange } from "./motionProps";
+import { loopStyle, trimRange, sceneTransitionKind, sceneTransitionVars } from "./motionProps";
 import {
   SceneAppeared,
   SceneLeavingContext,
@@ -34,11 +35,11 @@ import { formatSceneDate, sceneDateStyle, useSceneNow, type SceneDateStyle } fro
 import {
   sceneColor,
   sceneNumber,
+  sceneRecord,
   sceneStyle,
   sceneText,
   textStyle,
   sceneGradient,
-  sceneRecord,
   type SceneStyle,
   sceneGlass,
 } from "./sceneStyle";

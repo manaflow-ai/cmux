@@ -6,7 +6,7 @@ import { Close } from "./icons";
 import { MessageCopy, MessageFooterRow } from "./MessageActions";
 import { ROW_ICON } from "./messageActionsModel";
 import { TurnActionsContext, type QueuedActions, type TakeBack } from "./turnActions";
-import { resendsItself, usePendingShown } from "./PromptDelivery";
+import { resendsItself, usePendingShown } from "./promptDeliveryModel";
 import {
   NewestSteerContext,
   SteerChatContext,

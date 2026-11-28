@@ -1,5 +1,25 @@
 # Measurement harnesses
 
+## Cold inbox deadline receipt
+
+`cold-batch-runtime-receipt.py` checks a sanitized private-daemon capture after
+compaction warms a chat and the daemon restarts before its original batch deadline:
+
+```sh
+python3 scripts/measure/cold-batch-runtime-receipt.py evidence.json \
+  --run-start-ms RUN_START_MS --session MUX_UUID --acp-session ACP_UUID \
+  --marker fyi-A --marker fyi-B
+```
+
+It requires binary identity and ancestry, a real 60–300 second batch-open event,
+completed compaction, warm usage, a restart before that deadline and one timer-only
+delivery of both gathered FYIs at the original deadline. An ordinary FYI flush,
+an unrelated wake, or a reopened window cannot pass. Exit 0 is PASS, 1 is FAIL,
+2 is INCOMPLETE; truncated captures cannot prove a missed deadline.
+This measures daemon scheduling with a controlled ACP agent, not model quality,
+token savings or the person's installed app. Never publish raw listener/MCP config.
+Fixtures: `python3 scripts/measure/tests/cold-batch-runtime-receipt.test.py`.
+
 Measurements now go through `scripts/bench/cmux-bench`: one entry point, one row schema (`cmux-bench/v1`), one ledger (the `bench-ledger` branch of cmuxterm-hq).
 
 - `cmux-bench list` shows the registered benches.
@@ -169,6 +189,7 @@ actions, including doctor refusal and terminal MCP denial.
 | `perf-10x-daemon.sh` | Request latency of a headless cmux-tui (raw, 10 clients, CLI). | perf-10x | 2026-10-18 | active |
 | `app-stream-bytes.sh` | Bytes a second acpmux sends the app's chat panes by kind, and its CPU (bench app-stream-bytes). | CMUX-571 | 2026-11-16 | active |
 | `perf-10x-settings.sh` | Settings page render cost over the mock provider in bun and jsdom. | perf-10x | 2026-11-11 | active |
+| `clickthrough.sh` | The click-through check (`scripts/cmux-next/clickthrough-live.py`) on a tagged build: picks that stick, and chat switches that are fast, never blank and never shift (live check). | ask-184fd85d1e | 2026-11-28 | active |
 | `terminal-cmd-click.sh` | Cmd-click in a terminal: no main-thread stall over 50 ms (live check). | cx-7xss | 2026-10-24 | active |
 | `terminal-throughput.sh` | 200 MB burst through a NEXT terminal and through a standalone terminal. | CMUX-571 | 2026-11-13 | active |
 | `terminal-throughput-quick.sh` | The same burst on any Mac in about a minute: an installed NEXT (a side copy of the NIGHTLY) and an installed Ghostty, no build or slot. | CMUX-571 | 2026-11-23 | active |
@@ -435,7 +456,7 @@ Retired in the cmux-bench PR: `fresh-home-launch-ab.sh` (same measurement as `ni
 - `nightly-cas-identity.sh`: a one-time byte proof for the warm nightly worker.
 - `hotkey-history.sh`: runs an action-catalog regression test, not a measurement; belongs with the tests.
 - `export-action-catalog-dump.sh`, `export-action-surfaces.sh`, `export-settings-artifacts.sh`: generators, not measurements; they fit better in a generators directory.
-- `update-e2e.sh`, `crash-gate.sh`, `stable-next-smoke.sh`, `terminal-cmd-click.sh`: correctness checks that run on the fleet, not measurements.
+- `update-e2e.sh`, `crash-gate.sh`, `stable-next-smoke.sh`, `terminal-cmd-click.sh`, `clickthrough.sh`: correctness checks that run on the fleet, not measurements.
 - `ci140-input-hash-repeats`: CI minutes spent on job runs whose declared inputs (router/step-table/workflow `paths`, else whole tree) hash the same as an earlier green run of the same job; read-only, needs the hq meter's `--save` records (goal ci-min-per-pr-140).
 
 Phone terminal deterministic work: `cmux-bench phone-speed` wraps the `phone-speed-icount` Linux PR gate; `--import LOG` records its six Callgrind instruction counts. Calibration and scope: [phone-speed](../bench/phone-speed/README.md).

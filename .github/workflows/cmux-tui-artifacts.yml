@@ -1689,19 +1689,17 @@ jobs:
           needs.tree-preflight.outputs.run_macos == 'true' &&
           (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
     needs: [tree-preflight, tree-owner-wait]
-    # FEAT_BUILD_COALESCED: a feat-cmux-next push's first attempt shares one build group (feat-push) with no
-    # cancel-in-progress: GitHub keeps one build running and one pending, and a newer push replaces only the
-    # pending one, so an intermediate trunk tip no longer builds beside the tip (on 2026-11-27 12-22Z up to 6
-    # feat-cmux-next builds ran at once; replaying those runs with one running and one pending drops about
-    # 1,750 of their 3,870 build and daemon-test min). The tip is never the replaced one, so latest/ and the channels still track the
-    # newest commit, as tree-preflight's --trunk-tip-only skip already decides at preflight. A replaced
-    # run's notify-unpublished-tree hands its key to a run that deferred to it; a takeover run, a re-run
-    # (cmux-tui-tree-request.yml's repair of one commit's tree) and a dispatch keep their per-run group, so
-    # no repair is replaced. Leo: "de facto, im asking for 99% fewer minutes of ci time, period."
-    # One group per run, and one per branch on other branches' pushes, as `build` (cx-73f2,
-    # BRANCH_BUILD_SUPERSEDED).
+    # SPLIT_PAIR_STARVED: a feat-cmux-next push's Linux build keeps one group per run, so the darwin `build`'s
+    # feat-push group (FEAT_BUILD_COALESCED) is the run's one admission point. Both legs used to share a
+    # feat-push group each, and a newer window replaced each leg's pending slot on its own, so no run held
+    # both: run 46184033844 (20:00Z window, 2026-11-28) held darwin from 20:28Z while its pending Linux was
+    # replaced at 21:00Z; run 46189288797 (21:00Z) ran Linux with darwin pending behind it. publish needs
+    # both, so no window published or requested an image roll from about 09:00Z. A window's Linux now always
+    # finishes beside its own darwin; a run whose darwin is replaced spends one Linux build (one window an
+    # hour, base-coalesce.yml), and the pending darwin still coalesces to the newest window.
+    # One group per branch on other branches' pushes, as `build` (cx-73f2, BRANCH_BUILD_SUPERSEDED).
     concurrency:
-      group: cmux-tui-build-linux-${{ (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && needs.tree-owner-wait.outputs.takeover != 'true') && 'feat-push' || (((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && format('ref-{0}', github.ref) || format('{0}-{1}', needs.tree-preflight.outputs.key, github.run_id)) }}
+      group: cmux-tui-build-linux-${{ ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && format('ref-{0}', github.ref) || format('{0}-{1}', needs.tree-preflight.outputs.key, github.run_id) }}
       cancel-in-progress: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
     permissions:
       contents: read
