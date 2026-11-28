@@ -2,6 +2,7 @@ import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextTabs
 import Foundation
 import Testing
 @testable import CmuxNextApp
