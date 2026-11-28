@@ -11,7 +11,7 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
-import { openRunningTray } from "./support/openRunningTray";
+import { openFinishedTrayRows, openRunningTray } from "./support/openRunningTray";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("subagent-tray-one-row.test.ts", async () => {
@@ -52,6 +52,8 @@ await requireBrowserLane("subagent-tray-one-row.test.ts", async () => {
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           await page.locator(".acpmux-running-tray").waitFor();
           await openRunningTray(page);
+          // What ended folds under one line beside running work; this test measures every row.
+          await openFinishedTrayRows(page);
           if (process.env.CMUX_TRAY_CAPTURE_DIR) {
             await mkdir(process.env.CMUX_TRAY_CAPTURE_DIR, { recursive: true });
             await page.screenshot({

@@ -10,7 +10,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
-import { openRunningTray } from "./support/openRunningTray";
+import { openFinishedTrayRows, openRunningTray } from "./support/openRunningTray";
 
 await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -230,9 +230,10 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     // Reviewer and Tester run, newest first (#33364): the Tester started last, so it is on top. The
     // Linter ended and stays as a finished card under them (49acdd1d589d keeps finished cards
     // mounted in the tray).
-    const running = tray(page).locator("li:not([data-finished])");
+    const running = tray(page).locator("li:not([data-finished]):not([data-ended-fold])");
     expect(await running.locator(".acpmux-summary-agent__name").allTextContents()).toEqual(["Tester", "Reviewer"]);
     expect(await running.locator(".acpmux-agent-line__time").count()).toBe(2);
+    await openFinishedTrayRows(page);
     expect(await tray(page).locator("li[data-finished] .acpmux-summary-agent__name").allTextContents()).toEqual([
       "Linter",
     ]);
@@ -273,7 +274,7 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     const stale = await open(STUCK, "Review the branch with a few agents");
     await tray(stale).waitFor({ timeout: 5_000 });
     await openRunningTray(stale);
-    expect(await tray(stale).locator("li:not([data-finished])").count()).toBe(0);
+    expect(await tray(stale).locator("li:not([data-finished]):not([data-ended-fold])").count()).toBe(0);
     expect(await tray(stale).locator('li[data-finished] .acpmux-agent-line[data-status="stopped"]').count()).toBe(1);
     await stale.close();
   });

@@ -324,6 +324,11 @@ function headInView(ctx: PlayContext): void {
 
 /** Opens the tray, scrolls the list to its end, then checks the head stays. Every ended line is in
  *  the list: there is no View all (Leo, 2026-11-01: "just let it be scroll-downable"). */
+const openEnded = async (ctx: PlayContext) => {
+  const selector = '.acpmux-running-tray [data-ended-fold] > button[aria-expanded="false"]';
+  if (ctx.document.querySelector(selector)) await ctx.click({ selector });
+};
+
 const scrollPanel = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray"));
   const head = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
@@ -333,6 +338,7 @@ const scrollPanel = async (ctx: PlayContext) => {
     await ctx.click({ selector: ".acpmux-running-tray__head" });
     await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list"));
   }
+  await openEnded(ctx);
   if (ctx.document.querySelector(".acpmux-running-tray__finished")) throw new Error("the tray has no View all");
   await ctx.scroll({ selector: ".acpmux-running-tray__list" }, "bottom");
   headInView(ctx);
@@ -659,6 +665,7 @@ export default pinKindsHead(
         ),
         play: async (ctx) => {
           await openTray(ctx);
+          await openEnded(ctx);
           await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray li[data-finished]"));
           const shell = ctx.document.querySelector<HTMLElement>(".acpmux-shell")!;
           shell.style.width = "300px";
@@ -1211,6 +1218,7 @@ export default pinKindsHead(
         play: async (ctx) => {
           await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
           await ctx.click({ selector: ".acpmux-running-tray__head" });
+          await openEnded(ctx);
           await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray li[data-finished]").length === 3);
           // The header's count change rolls (TextRoll, #56303): while it rolls, its title also holds the
           // outgoing copy ("42 sessions" while 4 rolls out above 2), aria-hidden and inert. Read what a
@@ -1265,6 +1273,7 @@ export default pinKindsHead(
         note: "A finished row beside a running one: its check sits in the Stop square's slot, after its time, the same size and column, so nothing moves when a row finishes; no Done on the left.",
         play: async (ctx) => {
           await openTray(ctx);
+          await openEnded(ctx);
           if (
             !ctx.document.querySelector(
               '.acpmux-agent-line[data-status="done"] .acpmux-agent-line__stop-track [data-done-check]',

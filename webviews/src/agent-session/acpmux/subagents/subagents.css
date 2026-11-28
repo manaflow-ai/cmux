@@ -2488,6 +2488,33 @@ button.cv-subagent > :last-child {
   align-self: stretch;
 }
 
+/* ---------- What ended, as one line (SubagentTray.tsx `EndedFold`) ----------
+   Under what runs: "3 finished · 1 failed" in the lines' columns, its mark in the icon column, its
+   chevron where the lines' end, quiet like the header's meta; it opens to the ended lines under it. */
+.acpmux-running-tray .acpmux-running-tray__ended {
+  padding-inline: var(--acpmux-tray-inset) calc(var(--acpmux-tray-inset) + var(--acpmux-tray-gutter, 0px));
+  height: var(--ui-row-height, 28px);
+  color: var(--agent-muted);
+}
+.acpmux-running-tray__ended .acpmux-lineage__icon {
+  width: 14px;
+}
+.acpmux-running-tray__ended .acpmux-lineage__icon[data-state="failed"] {
+  color: var(--agent-status-failure);
+}
+.acpmux-running-tray__ended-text {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: baseline;
+  gap: var(--ds-space-1, 4px);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-running-tray__ended-text > .acpmux-running-tray__failed {
+  margin-inline-start: 0;
+}
+.acpmux-running-tray__ended:hover {
+  color: var(--agent-text);
+}
 /* The hat's top rim drags (trayResize.ts; Leo, 2026-11-12: "you have this glass rim, but you can't
    drag up the composer hat area"): a band along the top edge, inside the hat's clip, with the
    resize cursor. The tuck chevron comes later in the hat and keeps the middle of the band. */

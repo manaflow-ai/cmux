@@ -53,7 +53,7 @@ await requireBrowserLane("subagent-tray-kinds.test.ts", async () => {
         if ((await page.locator(".acpmux-running-tray__head").getAttribute("aria-expanded")) !== "true")
           await page.click(".acpmux-running-tray__head");
         await page.waitForFunction(
-          ({ RUNNING_TRAY_LIST_LINE }) => document.querySelectorAll(RUNNING_TRAY_LIST_LINE).length === 5,
+          ({ RUNNING_TRAY_LIST_LINE }) => document.querySelectorAll(RUNNING_TRAY_LIST_LINE).length === 4,
           { RUNNING_TRAY_LIST_LINE },
         );
         await page.evaluate(() => {

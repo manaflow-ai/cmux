@@ -36,6 +36,7 @@ const head = (ctx: PlayContext) => ctx.document.querySelector<HTMLElement>(".acp
 const openHat = async (ctx: PlayContext) => {
   await ctx.waitFor(() => head(ctx));
   if (head(ctx)!.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: ".acpmux-running-tray__head" });
+  await ctx.click({ selector: ".acpmux-running-tray [data-ended-fold] > button" });
   await ctx.waitFor(() => ctx.document.querySelectorAll(RUNNING_TRAY_LINE).length === 3);
 };
 

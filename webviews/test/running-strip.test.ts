@@ -17,7 +17,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
-import { openRunningTray } from "./support/openRunningTray";
+import { openFinishedTrayRows, openRunningTray } from "./support/openRunningTray";
 import { RUNNING_TRAY_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
 
 await requireBrowserLane("running-strip.test.ts", async () => {
@@ -62,6 +62,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
     // the header, so what the tests read is the line at rest.
     await page.waitForSelector(".acpmux-running-tray");
     await openRunningTray(page);
+    await openFinishedTrayRows(page);
     await page.mouse.move(0, 0);
     await page.waitForSelector(RUNNING_TRAY_LINE);
     // The header's hover wash fades out (summary.css's background transition): wait for the pointer
@@ -155,6 +156,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
         );
         await page.waitForSelector(".acpmux-running-tray__head");
         await openRunningTray(page);
+        await openFinishedTrayRows(page);
         expect(await page.$(".acpmux-running-tray__finished")).toBeNull();
         await page.waitForFunction(
           () => document.querySelectorAll(".acpmux-running-tray li[data-finished]").length === 116,
@@ -290,6 +292,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
     await page.evaluate((w) => (window as unknown as { __showRows: (w: number) => void }).__showRows(w), width);
     await page.waitForSelector(".acpmux-running-tray");
     await openRunningTray(page);
+    await openFinishedTrayRows(page);
     await page.mouse.move(0, 0);
     return page;
   }

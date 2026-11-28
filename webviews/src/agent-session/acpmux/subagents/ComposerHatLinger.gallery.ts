@@ -31,7 +31,8 @@ const GRACE = 2_000;
 const stage = (name: string) => ({ selector: `[data-stage="${name}"]` });
 const head = (ctx: PlayContext) => ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
 const rows = (ctx: PlayContext) => [...ctx.document.querySelectorAll(".acpmux-running-tray__list > li")];
-const doneLine = (ctx: PlayContext) => ctx.document.querySelector('.acpmux-agent-line[data-status="done"]');
+const doneLine = (ctx: PlayContext) =>
+  ctx.document.querySelector('.acpmux-agent-line[data-status="done"], [data-ended-fold]');
 /// Resolves after `ms`, as a wait the play measures.
 const after = (ctx: PlayContext, ms: number) => {
   const until = Date.now() + ms;
@@ -82,9 +83,12 @@ export const composerHatLingerScript = [
       await ctx.waitFor(() => head(ctx)?.getAttribute("aria-expanded") === "false");
       // Under the pointer the hat is still held: the stage's button takes the pointer away.
       await ctx.hover(stage("run"));
-      await ctx.waitFor(() => !ctx.document.querySelector('[data-hat-done], .acpmux-agent-line[data-status="done"]'), {
-        capMs: GRACE + 3_000,
-      });
+      await ctx.waitFor(
+        () => !ctx.document.querySelector('[data-hat-done], .acpmux-agent-line[data-status="done"], [data-ended-fold]'),
+        {
+          capMs: GRACE + 3_000,
+        },
+      );
     },
   },
 ];

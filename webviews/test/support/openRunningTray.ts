@@ -25,3 +25,9 @@ export async function openRunningTray(page: Page | Frame): Promise<void> {
     return !fold || fold.style.overflow === "";
   });
 }
+
+/** Expands completed work in a mixed tray when a test inspects its individual rows. */
+export async function openFinishedTrayRows(page: Page | Frame): Promise<void> {
+  const disclosure = page.locator('.acpmux-running-tray [data-ended-fold] > button[aria-expanded="false"]');
+  if ((await disclosure.count()) > 0) await disclosure.click();
+}

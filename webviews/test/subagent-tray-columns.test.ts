@@ -7,7 +7,7 @@ import { chromium, type Browser } from "playwright";
 import { GALLERY_NOW } from "../src/gallery/clock";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { openRunningTray } from "./support/openRunningTray";
+import { openFinishedTrayRows, openRunningTray } from "./support/openRunningTray";
 import { RUNNING_TRAY_LINE, RUNNING_TRAY_LIST_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
 
 await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
@@ -650,6 +650,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           const head = page.locator(".acpmux-running-tray__head");
           if ((await head.count()) > 0 && (await head.getAttribute("aria-expanded")) !== "true") await head.click();
           await page.locator(RUNNING_TRAY_LINE).first().waitFor();
+          await openFinishedTrayRows(page);
           // Captured before the checks, so the same capture also records a base (before) tree.
           if (process.env.CMUX_TRAY_CAPTURE_DIR) {
             await mkdir(process.env.CMUX_TRAY_CAPTURE_DIR, { recursive: true });

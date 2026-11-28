@@ -137,7 +137,11 @@ function columns(ctx: PlayContext): void {
   const lines = [...tray.querySelectorAll<HTMLElement>(RUNNING_TRAY_LIST_LINE)];
   const list = tray.querySelector<HTMLElement>(".acpmux-running-tray__list")!;
   // Under 400px (the tray's container query) each line takes two rows, so five of them scroll.
-  if (lines.length <= 5 && tray.getBoundingClientRect().width > 400 && list.scrollHeight > list.clientHeight + 0.5)
+  if (
+    list.children.length <= 5 &&
+    tray.getBoundingClientRect().width > 400 &&
+    list.scrollHeight > list.clientHeight + 0.5
+  )
     throw new Error(`five lines overflow the list by ${list.scrollHeight - list.clientHeight}px`);
   const near = (a: number, b: number, what: string) => {
     if (Math.abs(a - b) > 0.5) throw new Error(`${what}: ${a} vs ${b}`);
@@ -187,7 +191,7 @@ export default pinKindsHead(
       "leo-tray": {
         note: 'Leo\'s tray (2026-11-03): four background commands and a finished subagent, open. Every time ends on one x (the done line\'s "Done · 29m 21s" no longer runs into the empty Stop column), the Stop squares and the chevrons each sit in one column with the header\'s, and the header says "1 build · 2 waits · 1 command · 1 subagent done", its commands counted by what they do.',
         play: async (ctx) => {
-          await open(ctx, 5);
+          await open(ctx, 4);
           columns(ctx);
           if (title(ctx) !== "1 build · 2 waits · 1 command · 1 subagent done")
             throw new Error(`unexpected header: ${title(ctx)}`);
@@ -197,7 +201,7 @@ export default pinKindsHead(
       mixed: {
         note: "Every kind: two subagents (one Codex, by its mark: in the header's stacked marks, or after the counts when the stack has no room for it), a session the agent started, a test run and a server, a subagent done and one stopped. The columns hold on every line.",
         play: async (ctx) => {
-          await open(ctx, 7);
+          await open(ctx, 5);
           columns(ctx);
           if (title(ctx) !== "2 subagents · 1 session · 1 test run · 1 server · 1 subagent done · 1 stopped")
             throw new Error(`unexpected header: ${title(ctx)}`);

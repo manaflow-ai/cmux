@@ -3,6 +3,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, type Browser } from "playwright";
 import path from "node:path";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { openFinishedTrayRows } from "./support/openRunningTray";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { RUNNING_TRAY_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
 
@@ -54,6 +55,7 @@ await requireBrowserLane("subagent-tray-composer-geometry.test.ts", async () => 
         const head = page.locator(".acpmux-running-tray__head");
         if ((await head.getAttribute("aria-expanded")) !== "true") await head.click();
         await page.locator(RUNNING_TRAY_LINE).first().waitFor();
+        await openFinishedTrayRows(page);
         const geometry = await page.evaluate(() => {
           const rect = (node: Element | null) => {
             if (!node) return null;

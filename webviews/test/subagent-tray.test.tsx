@@ -778,6 +778,7 @@ describe("the tray", () => {
       { open: true },
     );
     try {
+      await act(async () => root.querySelector<HTMLButtonElement>("[data-ended-fold] > button")!.click());
       const lines = [...root.querySelectorAll<HTMLElement>(RUNNING_TRAY_LINE)];
       const running = lines.find((line) => line.dataset.status === "running")!;
       const finished = lines.find((line) => line.dataset.status === "done")!;
@@ -1064,6 +1065,7 @@ describe("a tray line says what it is and what a click does", () => {
     try {
       const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head");
       if (head && head.getAttribute("aria-expanded") !== "true") await act(async () => head.click());
+      await act(async () => root.querySelector<HTMLButtonElement>("[data-ended-fold] > button")!.click());
       const lines = [...root.querySelectorAll<HTMLElement>(RUNNING_TRAY_LIST_LINE)];
       expect(lines).toHaveLength(2);
       for (const line of lines) {
@@ -1221,10 +1223,12 @@ describe("the tray tells the truth", () => {
       expect(lines[4]!.querySelector(".acpmux-summary-agent__kind")).toBeNull();
       expect(lines[4]!.querySelector<HTMLElement>(".acpmux-agent-line__button")!.title).toBe("Run the tests");
       expect(lines[0]!.querySelector(".acpmux-summary-agent__state")?.textContent).toBe("Waiting");
-      // Finished work is visible as lines without changing the running count, every one of them in the
-      // list that scrolls: no View all (Leo, 2026-11-01: "why is there even a view all 5 button it's
-      // useless just let it be scroll-downable").
-      expect(root.querySelector(".acpmux-running-tray__finished")).toBeNull();
+      const disclosure = root.querySelector<HTMLButtonElement>("[data-ended-fold] > button")!;
+      expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+      expect(disclosure.textContent).toContain("2 finished");
+      expect(disclosure.textContent).toContain("2 failed");
+      expect(root.querySelector("li[data-finished]")).toBeNull();
+      await act(async () => disclosure.click());
       const ended = [...root.querySelectorAll<HTMLElement>("li[data-finished] .acpmux-agent-line")];
       // What failed leads with what waits; the rest of what ended keeps its order.
       expect(names(ended)).toEqual(["Fuzzer", "Retry the upload", "Linter", "Fix the dock"]);
@@ -1233,6 +1237,9 @@ describe("the tray tells the truth", () => {
         ended.map((line) => line.querySelector(".acpmux-summary-agent__state, .acpmux-agent-line__sr")?.textContent),
       ).toEqual(["Failed", "Failed", "Done", "Done"]);
       expect(liveLines(root).length).toBe(5);
+      await act(async () => disclosure.click());
+      expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+      expect(root.querySelector("li[data-finished]")).toBeNull();
     } finally {
       await done();
     }
@@ -1485,7 +1492,11 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
         "acpmux-running-tray__rim",
       ]);
       expect([...tray.children[1]!.children].map((child) => child.className)).toEqual(["acpmux-running-tray__list"]);
-      expect(list.querySelectorAll("li").length).toBe(118);
+      expect(list.children).toHaveLength(3);
+      const disclosure = list.querySelector<HTMLButtonElement>("[data-ended-fold] > button")!;
+      expect(disclosure.textContent).toContain("116 finished");
+      await act(async () => disclosure.click());
+      expect(list.children).toHaveLength(119);
       // Scrolling the list to its end leaves the header mounted, first, and the same node.
       const head = tray.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
       list.scrollTop = 118 * 28;
@@ -1933,6 +1944,7 @@ test("many live and finished commands share one terminal header mark without hid
     const stack = shown.root.querySelector(".acpmux-running-tray__stack")!;
     expect(stack.querySelectorAll('[data-icon="terminal"]')).toHaveLength(1);
     expect(stack.querySelectorAll(".agent-mark")).toHaveLength(1);
+    await act(async () => shown.root.querySelector<HTMLButtonElement>("[data-ended-fold] > button")!.click());
     expect(shown.root.querySelectorAll(".acpmux-agent-line")).toHaveLength(9);
     await shown.show(
       createElement(SubagentTray, {

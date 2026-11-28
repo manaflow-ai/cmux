@@ -66,7 +66,6 @@ import {
   type CSSProperties,
   type FocusEvent,
   memo,
-  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
   type ReactNode,
@@ -78,6 +77,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
@@ -116,7 +116,7 @@ import { StopButton } from "./SubagentGroup";
 import { ResumeControl, type ResumeActions } from "./ResumeControl";
 import { SubagentHarnessContext, ticking } from "./subagentGroupModel";
 import { Elapsed } from "./Elapsed";
-import { commandStatus, itemStart, trayItemKey, type TrayItem, SILENT_TURN_ICON } from "./runningTray";
+import { commandStatus, endedInFailure, itemStart, trayItemKey, type TrayItem, SILENT_TURN_ICON } from "./runningTray";
 import type { SilentTurn } from "../conversation/silentTurns";
 import { backgroundTurnLabel } from "../conversation/backgroundTurns";
 import { longestRunningFirst, runSince } from "./trayHeadOrder";
@@ -130,10 +130,10 @@ import { trayMotionLook } from "./trayMotion.experiment";
 import { trayHeadLook } from "./trayHead.experiment";
 import { hatFacesLook } from "./hatFaces.experiment";
 import { HatFaces, hatFaces, type HatFace } from "./HatFaces";
-import { type TrayFoldHeadArm, trayFoldHeadLook } from "./trayFoldHead.experiment";
+import { trayFoldHeadLook, type TrayFoldHeadArm } from "./trayFoldHead.experiment";
 import { trayOpenLook } from "./trayOpen.experiment";
 import { trayHeadKindsLook } from "./trayHeadKinds.experiment";
-import { trayHead, trayHeadGroups, trayHeadLine, trayHeadParts, type TrayHeadPart } from "./trayHeadKinds";
+import { trayHead, trayHeadParts, type TrayHeadPart, trayHeadGroups, trayHeadLine } from "./trayHeadKinds";
 import { HeadSummary } from "./HeadSummary";
 import { trayHeadHeightLook } from "./trayHeadHeight.experiment";
 import { COMMAND_KIND_ICON, commandKind } from "./trayCommandKinds";
@@ -292,6 +292,8 @@ export const SubagentTray = memo(function SubagentTray({
   // keeps two).
   const [oneName, setOneName] = useState(false);
   // Folded until the person opens it; their choice holds for this chat (trayFoldMemory.ts).
+  const foldsEnded = finished.length > 0 && items.length > 0;
+  const [endedOpen, setEndedOpen] = useState(false);
   const [opened, setOpened] = useState<boolean | undefined>(() => trayOpenFor(chat));
   // The list height the person dragged the rim to (trayResize.ts), shared by every hat.
   const hatHeight = useHatHeight();
@@ -488,7 +490,8 @@ export const SubagentTray = memo(function SubagentTray({
     const keys = new Set([...items.map(itemKey), ...finished.map(itemKey)]);
     const known = seen.current ?? keys;
     seen.current = keys;
-    const fresh = [...keys].filter((key) => !known.has(key) && !leaving.has(key));
+    const visibleKeys = foldsEnded && !endedOpen ? items.map(itemKey) : keys;
+    const fresh = [...visibleKeys].filter((key) => !known.has(key) && !leaving.has(key));
     const moves = open && fold.present && !foldMotion.reducedMotion() && entranceMayRun();
     if (fresh.length > 0 && fresh.length <= ARRIVALS_PER_UPDATE && moves)
       setArrived((current) => new Set([...current, ...fresh]));
@@ -569,7 +572,20 @@ export const SubagentTray = memo(function SubagentTray({
   // "what the fuck are you timing man" (trayHeadClock.experiment.ts).
   const leadStart = leading[0] === undefined ? undefined : itemStart(leading[0]);
   const itemsSince = headClock === "run" ? since : headClock === "running" ? leadStart : undefined;
-  const ordered = useMemo(() => attentionFirst(items, finished, waiting), [items, finished, waiting]);
+  const ordered = useMemo(
+    () =>
+      foldsEnded
+        ? [
+            ...attentionFirst(items, NO_ITEMS, waiting),
+            ...(endedOpen ? attentionFirst(NO_ITEMS, finished, waiting) : []),
+          ]
+        : attentionFirst(items, finished, waiting),
+    [items, finished, waiting, foldsEnded, endedOpen],
+  );
+  const failedCount = useMemo(
+    () => (foldsEnded ? finished.reduce((count, item) => count + Number(endedInFailure(item)), 0) : 0),
+    [foldsEnded, finished],
+  );
   // A lone item's header draws its own mark, as its line does.
   const headMarks = useMemo(
     () => (head === "stack" || lone ? stackMarks(leading, finished, chatHarness) : NO_MARKS),
@@ -707,6 +723,21 @@ export const SubagentTray = memo(function SubagentTray({
       </TrayRow>
     );
   });
+  if (fold.present && foldsEnded) {
+    const firstEnded = drawn.findIndex(({ card }) => card.finished);
+    cards.splice(
+      firstEnded === -1 ? cards.length : firstEnded,
+      0,
+      <EndedFold
+        key="ended-fold"
+        t={t}
+        finished={finished.length - failedCount}
+        failed={failedCount}
+        open={endedOpen}
+        onToggle={() => setEndedOpen((current) => !current)}
+      />,
+    );
+  }
   // The header's click: it opens the panel (the `header` arm) or expands and folds the hat in place.
   const toggle = () => {
     if (opensPanel === "header") {
@@ -1045,7 +1076,9 @@ export const SubagentTray = memo(function SubagentTray({
           {/* The rest of the names, one word space after them (subagents.css); its count rolls in place
               and its "+" sits on the figures' centre (Typography.tsx `Sign`). */}
           {named && !peekHead && moreCount > 0 && (
-            <Dwelt key={open ? "open" : "folded"} value={moreCount} dwellMs={PHASE_DWELL_MS}>
+            // Its own key: two siblings keyed alike swap their held values, a count reaching the title's
+            // Tick as its text.
+            <Dwelt key={open ? "more-open" : "more-folded"} value={moreCount} dwellMs={PHASE_DWELL_MS}>
               {(n) => (
                 <Tick
                   className="acpmux-summary-meta acpmux-running-tray__more"
@@ -1504,6 +1537,49 @@ export const SubagentTray = memo(function SubagentTray({
     );
   }
 });
+
+function EndedFold({
+  t,
+  finished,
+  failed,
+  open,
+  onToggle,
+}: {
+  t: Translate;
+  finished: number;
+  failed: number;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <li data-ended-fold>
+      <button
+        type="button"
+        className="acpmux-summary-row acpmux-summary-link acpmux-running-tray__ended"
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        <span className="acpmux-lineage__icon" data-state={failed > 0 ? "failed" : "done"} aria-hidden="true">
+          <Icon name={failed > 0 ? "status.error" : "status.complete"} size={ROW_ICON} row />
+        </span>
+        <span className="acpmux-summary-text acpmux-running-tray__ended-text">
+          {finished > 0 && <Tick text={t("backgroundTasks.finished", { n: finished })} steadyCounts />}
+          {failed > 0 && (
+            <span className="acpmux-running-tray__failed">
+              {finished > 0 && <span aria-hidden="true">· </span>}
+              <Tick text={t("summary.subagents.failed", { n: failed })} steadyCounts />
+            </span>
+          )}
+        </span>
+        <span className="acpmux-running-tray__status">
+          <span className="acpmux-agent-line__chevron" aria-hidden="true">
+            <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
+          </span>
+        </span>
+      </button>
+    </li>
+  );
+}
 
 /// A subagent's state needs no word on its line when its glyph says it: done, or running under the
 /// spinner. Waiting, failed, stopped and a retry keep theirs.
