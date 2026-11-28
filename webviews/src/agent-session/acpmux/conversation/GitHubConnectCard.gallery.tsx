@@ -65,7 +65,11 @@ const asked = (org = "manaflow-ai", why?: string): GitHubConnectNeed => ({
 });
 
 /// A cmux connection other than GitHub: a hosted call's lapsed sign-in, or the agent's ask by name.
-const service = (name: string, reason: GitHubConnectNeed["reason"] = "needs-reauth", why?: string): GitHubConnectNeed => ({
+const service = (
+  name: string,
+  reason: GitHubConnectNeed["reason"] = "needs-reauth",
+  why?: string,
+): GitHubConnectNeed => ({
   reason,
   service: name,
   ...(why && { why }),
@@ -131,7 +135,8 @@ export default componentEntry<Props>({
             // A service card (Linear, Sentry, ...): the host runs `connections.connect` for it.
             connectService: async (service: string) => {
               record.asked.push(service);
-              if (walk === "refuse") throw new NativeError({ code: "unavailable", userMessage: `Sign in to cmux to connect ${service}.` });
+              if (walk === "refuse")
+                throw new NativeError({ code: "unavailable", userMessage: `Sign in to cmux to connect ${service}.` });
               record.opened.push(`https://mcp.${service}.app/authorize`);
             },
             continue: async () => void record.sent.push("Continue"),
@@ -179,7 +184,10 @@ export default componentEntry<Props>({
     },
     "service-asked-needs": {
       note: "The agent asked for Notion by name (settings_ask connection:notion), Needs you arm.",
-      props: { need: service("notion", "asked", "The spec lives in Notion; connect it and I'll read it."), askArm: "needs" },
+      props: {
+        need: service("notion", "asked", "The spec lives in Notion; connect it and I'll read it."),
+        askArm: "needs",
+      },
     },
     "service-asked-popover": {
       note: "The agent asked for Linear by name, Popover arm: the chip and its one row.",
@@ -191,7 +199,10 @@ export default componentEntry<Props>({
     },
     "service-refused": {
       note: "The app did not run Connect for the service: its reason, Try again.",
-      props: { need: service("cloudflare-docs"), phase: { kind: "refused", reason: "Sign in to cmux to connect Cloudflare Docs." } },
+      props: {
+        need: service("cloudflare-docs"),
+        phase: { kind: "refused", reason: "Sign in to cmux to connect Cloudflare Docs." },
+      },
     },
     "service-walk": {
       note: "Live: tap Connect Linear; the sign-in page opens; back in the chat, Continue goes by itself.",

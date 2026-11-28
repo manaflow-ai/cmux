@@ -451,7 +451,9 @@ test("popover arm: the ask opens a Needs you popover once, its Connect names the
     expect(popup()!.textContent).toContain("Needs you");
     expect(popup()!.textContent).toContain("manaflow-ai");
     expect(popup()!.contains(dom.window.document.activeElement)).toBe(false);
-    const connectButton = [...popup()!.querySelectorAll("button")].find((b) => b.textContent === "Sign in with GitHub")!;
+    const connectButton = [...popup()!.querySelectorAll("button")].find(
+      (b) => b.textContent === "Sign in with GitHub",
+    )!;
     await act(async () => connectButton.click());
     expect(orgs).toEqual(["manaflow-ai"]);
     expect(popup()!.textContent).toContain("Finish on GitHub");
@@ -481,7 +483,11 @@ test("popover arm: the ask opens a Needs you popover once, its Connect names the
 // draws the same card, when a hosted call's sign-in lapsed (cmux-platform `mcp_server.needs_auth`) or
 // the agent asked for the service by name (settings_ask `connection:linear`).
 const NEEDS_AUTH = "The linear MCP server's sign-in expired or was revoked; reconnect it in Settings > Connections";
-const hosted = (output: string, title = "mcp__cmux-hosted__linear_list_issues", status: Tool["status"] = "failed"): Tool => ({
+const hosted = (
+  output: string,
+  title = "mcp__cmux-hosted__linear_list_issues",
+  status: Tool["status"] = "failed",
+): Tool => ({
   id: "call-hosted",
   title,
   kind: "other",
@@ -501,18 +507,22 @@ test("a hosted call's needs_auth names the connection from the platform's own er
   // The harness kept only the text block.
   expect(serviceConnectCall(hosted(NEEDS_AUTH))).toEqual({ reason: "needs-reauth", service: "linear" });
   // A team server's tools carry a suffix; the message names the connection itself.
-  expect(serviceConnectCall(hosted(platformError(), "mcp__cmux-hosted__sentry_a1b2c3_search"))?.service).toBe(
-    "linear",
-  );
+  expect(serviceConnectCall(hosted(platformError(), "mcp__cmux-hosted__sentry_a1b2c3_search"))?.service).toBe("linear");
   // A key-based connection that refused its credential.
   expect(
-    serviceConnectCall(hosted("The sentry MCP server refused its credential; remove it and add it again with a new token")),
+    serviceConnectCall(
+      hosted("The sentry MCP server refused its credential; remove it and add it again with a new token"),
+    ),
   ).toEqual({ reason: "needs-reauth", service: "sentry" });
   // Code mode behind the folding `cmux` server: `{ok: false, error: {error}}`.
   expect(
     serviceConnectCall(
       hosted(
-        JSON.stringify({ ok: false, message: NEEDS_AUTH, error: { error: { code: "mcp_server.needs_auth", message: NEEDS_AUTH } } }),
+        JSON.stringify({
+          ok: false,
+          message: NEEDS_AUTH,
+          error: { error: { code: "mcp_server.needs_auth", message: NEEDS_AUTH } },
+        }),
         "mcp__cmux__code",
       ),
     ),

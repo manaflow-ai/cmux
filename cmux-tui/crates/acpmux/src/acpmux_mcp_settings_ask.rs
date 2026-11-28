@@ -223,7 +223,8 @@ mod tests {
     #[test]
     fn catalog_service_targets_name_the_service() {
         assert_eq!(
-            check(&json!({"target": "connection:linear", "why": "The issue is in Linear."})).unwrap(),
+            check(&json!({"target": "connection:linear", "why": "The issue is in Linear."}))
+                .unwrap(),
             json!({"kind": "connection", "provider": "linear", "why": "The issue is in Linear."})
         );
         // Lowercased, as catalog names are.
@@ -235,7 +236,13 @@ mod tests {
             check(&json!({"connection": "connection:cloudflare-docs"})).unwrap()["provider"],
             "cloudflare-docs"
         );
-        for bad in ["connection:-bad", "connection:bad-", "connection:li near", "connection:linear:team", "linear"] {
+        for bad in [
+            "connection:-bad",
+            "connection:bad-",
+            "connection:li near",
+            "connection:linear:team",
+            "linear",
+        ] {
             assert!(check(&json!({"target": bad})).is_err(), "{bad}");
         }
         assert_eq!(

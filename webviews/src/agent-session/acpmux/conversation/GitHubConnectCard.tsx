@@ -131,17 +131,17 @@ export function GitHubConnectCardView({
   const cause = words
     ? words.cause
     : asked
-    ? (need.why ??
-      (repo
-        ? t("githubConnect.askedOrg", { org: repo })
-        : need.org
-          ? t("githubConnect.askedOrg", { org: need.org })
-          : t("githubConnect.asked")))
-    : need.reason === "not-covered" && repo
-      ? t("githubConnect.notCoveredRepo", { repo })
-      : repo && need.reason === "not-connected"
-        ? t("githubConnect.notConnectedRepo", { repo })
-        : t(CAUSE[need.reason]);
+      ? (need.why ??
+        (repo
+          ? t("githubConnect.askedOrg", { org: repo })
+          : need.org
+            ? t("githubConnect.askedOrg", { org: need.org })
+            : t("githubConnect.asked")))
+      : need.reason === "not-covered" && repo
+        ? t("githubConnect.notCoveredRepo", { repo })
+        : repo && need.reason === "not-connected"
+          ? t("githubConnect.notConnectedRepo", { repo })
+          : t(CAUSE[need.reason]);
   const line =
     phase.kind === "waiting"
       ? (words?.waiting ?? t("githubConnect.finishOnGitHub"))

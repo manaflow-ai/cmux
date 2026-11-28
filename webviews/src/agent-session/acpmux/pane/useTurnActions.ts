@@ -43,11 +43,7 @@ import type { Folds } from "../conversation/viewFolds";
 import type { AcpmuxDirectClient } from "../direct";
 import { translate } from "../i18n";
 import { sessionLink } from "../links";
-import {
-  GITHUB_CONNECT_ACTION,
-  SERVICE_CONNECT_ACTION,
-  type GitHubConnectOffer,
-} from "../conversation/githubConnect";
+import { GITHUB_CONNECT_ACTION, SERVICE_CONNECT_ACTION, type GitHubConnectOffer } from "../conversation/githubConnect";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { postNative } from "../native";
 import { openPicker } from "../pickerOpeners";
