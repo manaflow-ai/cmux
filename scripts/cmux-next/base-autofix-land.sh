@@ -177,7 +177,7 @@ main() {
       return 0
     fi
     previous="$(cut -f1 <<<"$previous")"
-    if [[ -n "$previous" ]] && git fetch --quiet --no-tags "$remote" "$previous" 2>/dev/null \
+    if [[ -n "$previous" ]] && git fetch --no-recurse-submodules --quiet --no-tags "$remote" "$previous" 2>/dev/null \
       && [[ "$(git diff --name-only "$previous^" "$previous" 2>/dev/null)" == "$(sort <<<"$paths")" ]] \
       && mapfile -t path_list <<<"$paths" && git diff --quiet "$previous" "$commit" -- "${path_list[@]}"; then
       echo "The Swift rewrites already wait on $sources_branch (${previous:0:12}) for their pull request's compile."
@@ -290,7 +290,7 @@ none" >/dev/null; then
       fi
       exit "$status"  # not a hold: a rejected push, a conflict, an unreadable history
     fi
-    git fetch --quiet --no-tags "$remote" "refs/heads/$branch" || {
+    git fetch --no-recurse-submodules --quiet --no-tags "$remote" "refs/heads/$branch" || {
       echo "::error::cannot read $branch from the remote to make the repair again" >&2
       exit 1
     }

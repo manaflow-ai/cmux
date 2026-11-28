@@ -23,7 +23,7 @@ depth=100
 for _ in 1 2 3 4 5 6; do
   dflag=()
   [[ "$(git rev-parse --is-shallow-repository)" == true ]] && dflag=(--depth="$depth")
-  git fetch --no-tags --quiet ${dflag[@]+"${dflag[@]}"} origin "$base" "$head" >&2
+  git fetch --no-recurse-submodules --no-tags --quiet ${dflag[@]+"${dflag[@]}"} origin "$base" "$head" >&2
   mb="$(git merge-base "$base" "$head" 2>/dev/null || true)"
   if [[ "$mb" =~ $hex ]] && ! { [[ -f "$shallow" ]] && grep -qx "$mb" "$shallow"; }; then
     echo "$mb"; exit 0

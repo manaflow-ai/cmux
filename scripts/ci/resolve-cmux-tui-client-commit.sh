@@ -155,14 +155,14 @@ spans_enough_versions() {
 fetch_deepen() {
   local attempt=1 delay="$FETCH_RETRY_SECONDS"
   if [[ -n "$MIRROR" ]]; then
-    if git fetch --quiet --deepen="$deepen" "$MIRROR" "$head_sha" 2>/dev/null; then
+    if git fetch --no-recurse-submodules --quiet --deepen="$deepen" "$MIRROR" "$head_sha" 2>/dev/null; then
       return 0
     fi
     log "the local mirror $MIRROR could not deepen to $head_sha; deepening from $REMOTE"
   fi
   while :; do
-    if git fetch --quiet --deepen="$deepen" "$REMOTE" "$head_sha" 2>/dev/null \
-       || git fetch --quiet --deepen="$deepen" "$REMOTE"; then
+    if git fetch --no-recurse-submodules --quiet --deepen="$deepen" "$REMOTE" "$head_sha" 2>/dev/null \
+       || git fetch --no-recurse-submodules --quiet --deepen="$deepen" "$REMOTE"; then
       return 0
     fi
     if [[ $attempt -ge $FETCH_ATTEMPTS ]]; then

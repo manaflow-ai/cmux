@@ -37,7 +37,7 @@ fetch_rest() {
   missing > "$list"
   split -l "$CHUNK" "$list" "$list."
   for c in "$list".*; do
-    git -C "$DIR" -c fetch.negotiationAlgorithm=noop fetch -q origin --no-tags --no-write-fetch-head \
+    git -C "$DIR" -c fetch.negotiationAlgorithm=noop fetch --no-recurse-submodules -q origin --no-tags --no-write-fetch-head \
       --recurse-submodules=no --filter=blob:none --stdin < "$c"
   done
   rm -f "$list" "$list".*

@@ -58,7 +58,7 @@ jobs:
             echo "workflow_dispatch version must match stable X.Y.Z (no prerelease)" >&2
             exit 1
           }
-          git fetch --force origin main --tags
+          git fetch --no-recurse-submodules --force origin main --tags
           tag="cmux-tui-v$DISPATCH_VERSION"
           expected_ref="refs/tags/$tag"
           if [[ "$GITHUB_REF" != "$expected_ref" ]]; then

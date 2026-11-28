@@ -216,7 +216,7 @@ jobs:
           set -euo pipefail
           # Dispatches may check out a topic at depth 1. Record the fetched integration tip
           # explicitly instead of requiring that checkout to contain a merge-base history.
-          git fetch --no-tags --depth=1 origin +refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next
+          git fetch --no-recurse-submodules --no-tags --depth=1 origin +refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next
           base="$(git rev-parse --verify 'refs/remotes/origin/feat-cmux-next^{commit}')"
           bun run latency:ci --base "$base"
 

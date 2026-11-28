@@ -84,7 +84,7 @@ jobs:
         run: |
           set -euo pipefail
           # History without blobs: the range's commits and trees only.
-          git fetch --no-tags --filter=blob:none --depth=400 origin "$HEAD_SHA"
+          git fetch --no-recurse-submodules --no-tags --filter=blob:none --depth=400 origin "$HEAD_SHA"
           base="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/cmux-next-head-compile.yml/runs?branch=feat-cmux-next&event=push&status=success&per_page=1" \
             --jq '.workflow_runs[0].head_sha // ""' || true)"
           [ -z "${FORCED_BASE:-}" ] || base="$FORCED_BASE"

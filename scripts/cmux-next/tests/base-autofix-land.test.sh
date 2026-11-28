@@ -407,7 +407,7 @@ setup_daemon() {
   lane_commit "daemon schema and baseline" cmux-tui/spec/sdk-schema.json v1 "$surface" baseline-v1 \
     cmux-tui/spec/api-compat.json rules-v1 cmux-tui/spec/api-compat-fixtures.json fixtures-v1 \
     cmux-tui/crates/cmux-api-compat/Cargo.toml '[package]'
-  (cd "$tmp/bot" && git fetch -q origin feat && git reset -q --hard FETCH_HEAD)
+  (cd "$tmp/bot" && git fetch --no-recurse-submodules -q origin feat && git reset -q --hard FETCH_HEAD)
   base="$(git -C "$tmp/bot" rev-parse HEAD)"
   (cd "$tmp/bot" && echo stale-candidate > "$surface" && git commit -q -am 'chore(next): base autofix')
   : > "$tmp/abi-baselines"

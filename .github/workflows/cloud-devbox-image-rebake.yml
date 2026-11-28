@@ -331,7 +331,7 @@ jobs:
           set -euo pipefail
           args=()
           for branch in feat-cmux-next main; do
-            git fetch --quiet origin "$branch"
+            git fetch --no-recurse-submodules --quiet origin "$branch"
             git show "origin/$branch:web/services/vms/images/manifest.json" > "$RUNNER_TEMP/manifest-$branch.json"
             args+=(--also-manifest "$RUNNER_TEMP/manifest-$branch.json")
           done

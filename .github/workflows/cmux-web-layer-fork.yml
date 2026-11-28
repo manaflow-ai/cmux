@@ -65,9 +65,9 @@ jobs:
           set -euo pipefail
           [[ -z "$BASE" || "$BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::base must be a full commit sha"; exit 1; }
           head="$(git rev-parse HEAD)"
-          git fetch -q --filter=blob:none "$UPSTREAM" "+refs/heads/feat-cmux-next:refs/remotes/upstream/feat-cmux-next"
+          git fetch --no-recurse-submodules -q --filter=blob:none "$UPSTREAM" "+refs/heads/feat-cmux-next:refs/remotes/upstream/feat-cmux-next"
           base="${BASE:-$(git rev-parse refs/remotes/upstream/feat-cmux-next)}"
-          git cat-file -e "$base^{commit}" 2>/dev/null || git fetch -q --filter=blob:none "$UPSTREAM" "$base"
+          git cat-file -e "$base^{commit}" 2>/dev/null || git fetch --no-recurse-submodules -q --filter=blob:none "$UPSTREAM" "$base"
           fork="$(git merge-base refs/remotes/upstream/feat-cmux-next "$head")"
           git -c advice.detachedHead=false checkout -q --detach "$base"
           if ! git diff --binary "$fork" "$head" | git apply -q --3way --index; then

@@ -10,7 +10,7 @@ set -euo pipefail
 # A depth flag only in an already-shallow checkout: in a full clone it would make every worktree shallow.
 depth=()
 [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
-git fetch --no-tags ${depth[@]+"${depth[@]}"} origin "$BUILD_SHA"
+git fetch --no-recurse-submodules --no-tags ${depth[@]+"${depth[@]}"} origin "$BUILD_SHA"
 # An owned Mac keeps its workspace between jobs while the runner empties RUNNER_TEMP, so an
 # earlier job's build-src can still be registered there: drop registrations whose folder is gone.
 git worktree prune

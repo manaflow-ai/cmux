@@ -330,7 +330,7 @@ jobs:
           unset FREESTYLE_KEY_SECRET
           tip="$RUNNER_TEMP/branch-tip"
           rm -rf "$tip" && mkdir -p "$tip/images/cmux-vm/channels" "$tip/backend/apps/api"
-          git -C .. fetch --quiet --no-tags --depth=1 origin refs/heads/feat-cmux-next
+          git -C .. fetch --no-recurse-submodules --quiet --no-tags --depth=1 origin refs/heads/feat-cmux-next
           git -C .. show FETCH_HEAD:backend/apps/api/wrangler.jsonc > "$tip/backend/apps/api/wrangler.jsonc"
           # The entries of the channels tree itself (cleanup.ts reads its top-level *.json, as here).
           # NUL-delimited: git quotes a name with unusual characters in line output, and that name would be skipped.

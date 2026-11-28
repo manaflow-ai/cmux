@@ -45,7 +45,7 @@ jobs:
         run: |
           set -euo pipefail
           # The recipe is the pull request's merge ref, as the compile job's github.sha is.
-          git -c protocol.version=2 fetch --no-tags --depth=1 --filter=blob:none origin \
+          git -c protocol.version=2 fetch --no-recurse-submodules --no-tags --depth=1 --filter=blob:none origin \
             "$HEAD_SHA" "+refs/pull/$PR/merge:refs/remotes/pull/merge" || { echo "::notice::no merge ref; nothing recorded"; exit 0; }
           arch="${CHECK_NAME#nightly app compile }"; arch="${arch%% *}"
           key="$(python3 scripts/ci/nightly_pr_build.py keys --rev "$HEAD_SHA" --recipe-rev refs/remotes/pull/merge | sed -n "s/^keys=//p" | python3 -c 'import json,sys; print(json.load(sys.stdin)[sys.argv[1]])' "$arch")"

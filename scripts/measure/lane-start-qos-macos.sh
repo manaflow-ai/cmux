@@ -88,7 +88,7 @@ kind="$1" src="$2" mirror="$3" wt="$4"
 if [ "$kind" = cold ]; then
   git clone -q --bare --no-local "$src" "$mirror"
 else
-  git -C "$mirror" fetch -q "$src" "+refs/heads/*:refs/heads/*"
+  git -C "$mirror" fetch --no-recurse-submodules -q "$src" "+refs/heads/*:refs/heads/*"
 fi
 git -C "$mirror" worktree add -q --detach "$wt" refs/heads/lane-start-bench
 git -C "$mirror" rev-parse --verify -q "refs/heads/lane-start-bench^{commit}" >/dev/null
@@ -145,7 +145,7 @@ fetch_arm() {  # arm load: git-fetch-once's network fetch, depth 1 of this commi
   pre="$(prefix_for "$arm")"
   t0="$(ms)"
   # shellcheck disable=SC2086
-  if ! $pre git -C "$dir" fetch -q --depth=1 https://github.com/manaflow-ai/cmux.git "$rev" 2>"$root/fetch.err"; then
+  if ! $pre git -C "$dir" fetch --no-recurse-submodules -q --depth=1 https://github.com/manaflow-ai/cmux.git "$rev" 2>"$root/fetch.err"; then
     echo "lane-start-qos: fetch failed: $(head -c 300 "$root/fetch.err")" >&2
     rm -rf "$dir"
     return 0

@@ -54,7 +54,7 @@ jobs:
       - name: Fetch feat-cmux-next's recent history
         continue-on-error: true
         timeout-minutes: 3
-        run: git fetch -q --no-tags --filter=blob:none --shallow-since="9 days ago" origin "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next"
+        run: git fetch --no-recurse-submodules -q --no-tags --filter=blob:none --shallow-since="9 days ago" origin "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next"
 
       - name: Test the speed check
         run: python3 -I tests/test_nightly_speed.py

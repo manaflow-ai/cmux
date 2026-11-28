@@ -116,7 +116,7 @@ rm -f "$repo/json.py"
 # CMUX_APP_FFI_PIN_REMOTE.
 fleet="$tmp/fleet"
 git init -q "$fleet"
-git -C "$fleet" fetch -q --depth=1 "file://$repo" "$(git -C "$repo" rev-parse HEAD)"
+git -C "$fleet" fetch --no-recurse-submodules -q --depth=1 "file://$repo" "$(git -C "$repo" rev-parse HEAD)"
 git -C "$fleet" checkout -q --detach FETCH_HEAD
 git -C "$fleet" cat-file -e "$pinned^{commit}" 2>/dev/null && fail "the fleet checkout already has the pinned sha"
 out="$(cd "$fleet" && CMUX_APP_FFI_PIN_REMOTE="file://$repo" bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)" \

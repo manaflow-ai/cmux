@@ -196,7 +196,7 @@ jobs:
               # one comes through origin with the same filter (no shallow file,
               # no full blob download).
               git cat-file -e "$candidate^{commit}" 2>/dev/null \
-                || git fetch -q --no-tags --filter=blob:none origin "$candidate" 2>/dev/null || continue
+                || git fetch --no-recurse-submodules -q --no-tags --filter=blob:none origin "$candidate" 2>/dev/null || continue
               prefetch_key_inputs "$candidate"
               [[ "$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$candidate" 2>/dev/null)" == "$key" ]] || continue
             fi

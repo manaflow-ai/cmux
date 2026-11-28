@@ -13,7 +13,7 @@ if [[ "$EVENT_NAME" == push && -n "$BEFORE" && "$BEFORE" != 00000000000000000000
   depth=()
   [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
   git cat-file -e "$BEFORE^{commit}" 2>/dev/null \
-    || git fetch --no-tags --quiet ${depth[@]+"${depth[@]}"} origin "$BEFORE" || true
+    || git fetch --no-recurse-submodules --no-tags --quiet ${depth[@]+"${depth[@]}"} origin "$BEFORE" || true
   base=(--base "$BEFORE")
 fi
 scripts/cmux-next/check-app-size.sh ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE"

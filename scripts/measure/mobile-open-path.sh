@@ -66,7 +66,7 @@ if [[ -n "$before" ]]; then
   depth=()
   [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
   fetch_url="$(git remote get-url origin 2>/dev/null || echo https://github.com/manaflow-ai/cmux.git)"
-  git rev-parse --verify -q "$before^{commit}" >/dev/null || git fetch -q ${depth[@]+"${depth[@]}"} "$fetch_url" "$before"
+  git rev-parse --verify -q "$before^{commit}" >/dev/null || git fetch --no-recurse-submodules -q ${depth[@]+"${depth[@]}"} "$fetch_url" "$before"
   trap 'git restore --source=HEAD --staged --worktree -- cmux-tui' EXIT
   git restore --source="$before" --staged --worktree -- cmux-tui
   build "$work/before"

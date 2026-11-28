@@ -196,11 +196,11 @@ checkout() {
     fi
   fi
   if ! sha="$(git -C "$src" rev-parse -q --verify "$ref^{commit}" 2>/dev/null)"; then
-    git -C "$src" fetch -q origin "$branch" "$ref" 2>/dev/null || git -C "$src" fetch -q origin "$branch" || true
+    git -C "$src" fetch --no-recurse-submodules -q origin "$branch" "$ref" 2>/dev/null || git -C "$src" fetch --no-recurse-submodules -q origin "$branch" || true
     # A head the mirror has not fetched yet (a fresh push) comes from GitHub by URL.
     git -C "$src" rev-parse -q --verify "$ref^{commit}" >/dev/null 2>&1 \
       || [[ "$(git -C "$src" remote get-url origin)" == "$repo_url" ]] \
-      || git -C "$src" -c protocol.version=2 fetch -q --no-tags "$repo_url" "$ref" 2>/dev/null || true
+      || git -C "$src" -c protocol.version=2 fetch --no-recurse-submodules -q --no-tags "$repo_url" "$ref" 2>/dev/null || true
     sha="$(git -C "$src" rev-parse -q --verify "$ref^{commit}")" || die "no commit $ref on origin (push it, or use a feat-cmux-next ancestor)"
   fi
   git -C "$src" checkout -q --detach -f "$sha"

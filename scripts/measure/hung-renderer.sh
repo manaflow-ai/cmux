@@ -72,7 +72,7 @@ for arm in "${arm_list[@]}"; do
   if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
     depth=()
     [ "$(git rev-parse --is-shallow-repository)" = true ] && depth=(--depth=1)
-    git fetch -q --no-tags ${depth[@]+"${depth[@]}"} https://github.com/manaflow-ai/cmux.git "$sha"
+    git fetch --no-recurse-submodules -q --no-tags ${depth[@]+"${depth[@]}"} https://github.com/manaflow-ai/cmux.git "$sha"
   fi
   git worktree add -q --detach "$tree" "$sha"
   trees+=("$tree")

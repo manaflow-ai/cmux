@@ -42,7 +42,7 @@ nightly_host_root_take() {
   # The host's last built commit may be another slot's; bring its objects here so the clean rules
   # can diff against it (nightly_build_state.py). A failed fetch only means a clean build.
   if git -C "$root/src" rev-parse -q --verify HEAD >/dev/null 2>&1; then
-    git -c core.hooksPath=/dev/null fetch -q --no-tags "$root/src" "+HEAD:refs/nightly-host/last-built" 2>/dev/null || true
+    git -c core.hooksPath=/dev/null fetch --no-recurse-submodules -q --no-tags "$root/src" "+HEAD:refs/nightly-host/last-built" 2>/dev/null || true
   fi
   if env -u GITHUB_ENV CMUX_CI_CANONICAL_ROOT="$root" scripts/ci/canonical-build-root.sh "$workspace" >&2 \
     && [[ "$(git -C "$root/src" rev-parse HEAD 2>/dev/null)" == "$head" ]] \

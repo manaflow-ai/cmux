@@ -282,7 +282,7 @@ git -C "$O" checkout -q -; for i in $(seq 1 20); do oc "base $i"; done
 tip=$(git -C "$O" rev-parse HEAD)
 P="$TMP/pool"
 git_fixture_init "$P" && git -C "$P" remote add origin "file://$O"
-git -C "$P" fetch -q --no-tags --depth=1 origin "$head" && git -C "$P" checkout -q --detach FETCH_HEAD
+git -C "$P" fetch --no-recurse-submodules -q --no-tags --depth=1 origin "$head" && git -C "$P" checkout -q --detach FETCH_HEAD
 ARGS=(react-doctor "$tip")
 out=$( (cd "$P" && env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" CMUX_CI_STEP_KEY=k /bin/bash "$SCRIPT" "${ARGS[@]}") 2>&1) || true
 grep -q "^base: $fork$" <<<"$out" || fail "a depth-1 HEAD must be compared with its merge base $fork, not the tip $tip: $out"

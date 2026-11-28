@@ -104,7 +104,7 @@ if [[ "$TUI_SOURCE" == pin ]]; then
   # only when the pin has them. A cache made before they were archived (no
   # .archived-v2 stamp) is made again.
   if [[ ! -f "$tui_src/.archived-v2" ]]; then
-    git -C "$ROOT" cat-file -e "$pin^{commit}" 2>/dev/null || net_retry "fetch the cmux-tui pin $pin" git -C "$ROOT" fetch --quiet origin "$pin"
+    git -C "$ROOT" cat-file -e "$pin^{commit}" 2>/dev/null || net_retry "fetch the cmux-tui pin $pin" git -C "$ROOT" fetch --no-recurse-submodules --quiet origin "$pin"
     tui_paths=(cmux-tui first-party-apps/cloud/server)
     if git -C "$ROOT" cat-file -e "$pin:workers/cmux-vm/cli" 2>/dev/null; then tui_paths+=(workers/cmux-vm/cli); fi
     rm -rf "$tui_src" "$tui_src.partial" && mkdir -p "$tui_src.partial"

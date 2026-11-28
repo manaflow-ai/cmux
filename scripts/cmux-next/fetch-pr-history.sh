@@ -43,7 +43,7 @@ fetch() {
   for try in 1 2 3; do
     # An unshallow try that completed the history before failing needs no other.
     [[ "${1:-}" == --unshallow && "$(git rev-parse --is-shallow-repository)" == false ]] && return 0
-    git fetch --no-tags --quiet --filter=blob:none "$@" "$remote" "$merge" "$base" "$head" && return 0
+    git fetch --no-recurse-submodules --no-tags --quiet --filter=blob:none "$@" "$remote" "$merge" "$base" "$head" && return 0
     echo "::warning::history fetch $* failed (try $try of 3)"
     sleep $((try * ${CMUX_PR_HISTORY_RETRY_S:-10}))
   done
@@ -58,7 +58,7 @@ store="${CMUX_PR_HISTORY_STORE:-/var/cache/fsr/git/${repo/\//--}.git}"
 if [[ -d "$store/objects" && ! -s "$store/shallow" && "$(git rev-parse --is-shallow-repository)" == true ]]; then
   # Fetched by path, so no remote is configured; the refs it writes are the store's branches.
   # The store itself may lack blobs (a blob-less clone): its upload-pack must honour the filter, never fetch lazily.
-  GIT_NO_LAZY_FETCH=1 git fetch --no-tags --quiet --filter=blob:none --unshallow \
+  GIT_NO_LAZY_FETCH=1 git fetch --no-recurse-submodules --no-tags --quiet --filter=blob:none --unshallow \
     --upload-pack='git -c uploadpack.allowFilter=true upload-pack' "$store" \
     '+refs/heads/*:refs/remotes/pr-history-store/*' || echo "::notice::history store fetch failed; fetching from $remote"
   # The store lacks the PR's merge commit, so the checkout's shallow boundary stays at it. When the store gave every

@@ -74,7 +74,7 @@ for spec in ${trees[@]+"${trees[@]}"}; do
   src="$work/$tree"
   depth=()
   [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
-  git fetch -q ${depth[@]+"${depth[@]}"} "$fetch_url" "$tree"
+  git fetch --no-recurse-submodules -q ${depth[@]+"${depth[@]}"} "$fetch_url" "$tree"
   git worktree add -q --detach "$src" "$tree"
   git -C "$src" submodule update --init --depth 1 ghostty-next >/dev/null
   for f in "${yardstick[@]}"; do mkdir -p "$(dirname "$src/$f")"; cp "$root/$f" "$src/$f"; done

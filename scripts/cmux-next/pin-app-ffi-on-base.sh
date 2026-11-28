@@ -89,11 +89,11 @@ push() {
 current_pin() {
   python3 -I scripts/ci/app_ffi_pin.py read-pin-file "$pin_file" "$manifest" | awk '{print $1}'
 }
-have() { git cat-file -e "$1^{commit}" 2>/dev/null || git fetch --quiet "$remote" "$1"; }
+have() { git cat-file -e "$1^{commit}" 2>/dev/null || git fetch --no-recurse-submodules --quiet "$remote" "$1"; }
 
 have "$sha" || { echo "error: the release source $sha is not available from $remote" >&2; exit 1; }
 for attempt in 1 2 3 4 5; do
-  git fetch --quiet "$remote" "+refs/heads/$branch:refs/remotes/pin-base/$branch"
+  git fetch --no-recurse-submodules --quiet "$remote" "+refs/heads/$branch:refs/remotes/pin-base/$branch"
   git checkout --quiet --force --detach "refs/remotes/pin-base/$branch"
   tip="$(git rev-parse HEAD)"
   inputs=()
@@ -117,7 +117,7 @@ for attempt in 1 2 3 4 5; do
     for _ in 1 2 3 4 5 6 7 8; do
       git merge-base --is-ancestor "$pinned" "$sha" 2>/dev/null && break
       [[ "$(git rev-parse --is-shallow-repository)" == true ]] || break
-      git fetch --quiet --deepen=50 "$remote" "$sha" 2>/dev/null || break
+      git fetch --no-recurse-submodules --quiet --deepen=50 "$remote" "$sha" 2>/dev/null || break
     done
     git merge-base --is-ancestor "$pinned" "$sha" 2>/dev/null \
       || finish newer "the FFI sources at ${tip:0:12} are not those of $tag, and $tag is not newer than the current pin ${pinned:0:12}"

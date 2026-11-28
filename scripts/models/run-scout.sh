@@ -13,7 +13,7 @@ here="$(cd "$(dirname "$0")/../.." && pwd)"
 export PATH="$HOME/.bun/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 # Only this worktree (made for the scout) is moved; a checkout someone works in is left alone.
 if [ "$(basename "$here")" = models-scout ] && [ -z "$(git -C "$here" status --porcelain)" ]; then
-  if git -C "$here" fetch -q origin feat-cmux-next; then
+  if git -C "$here" fetch --no-recurse-submodules -q origin feat-cmux-next; then
     git -C "$here" checkout -q --detach FETCH_HEAD
   else
     echo "fetch failed; running the scout this worktree has" >&2

@@ -64,7 +64,7 @@ if [[ -n "$ref" && "$ref" != "$(git rev-parse HEAD)" ]]; then
     fetched=false depth=()
     [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
     for remote in origin /Users/Shared/cmux-build-fleet/git/cmux.git https://github.com/manaflow-ai/cmux.git; do
-      git fetch --quiet ${depth[@]+"${depth[@]}"} "$remote" "$ref" 2>/dev/null && { fetched=true; break; }
+      git fetch --no-recurse-submodules --quiet ${depth[@]+"${depth[@]}"} "$remote" "$ref" 2>/dev/null && { fetched=true; break; }
     done
     $fetched || { echo "HFG cannot fetch $ref" >&2; exit 3; }
   fi

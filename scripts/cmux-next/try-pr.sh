@@ -117,7 +117,7 @@ if [[ -n "$stop" ]]; then
 fi
 
 base_ref="${CMUX_TRY_PR_BASE:-feat-cmux-next}"
-git -C "$ROOT" fetch -q origin "refs/pull/$pr/head" "refs/heads/$base_ref"
+git -C "$ROOT" fetch --no-recurse-submodules -q origin "refs/pull/$pr/head" "refs/heads/$base_ref"
 head="$(git -C "$ROOT" rev-parse "FETCH_HEAD")"
 base="$(git -C "$ROOT" merge-base "$head" "origin/$base_ref")"
 

@@ -237,7 +237,7 @@ jobs:
             if info="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq '[.head.repo.full_name, .head.sha, .base.ref, .title, .state] | @tsv')"; then
               IFS=$'\t' read -r head_repo head base_ref title state <<<"$info"
               [[ "$head_repo" == "$GITHUB_REPOSITORY" ]] || { echo "::error::#$PR comes from $head_repo; only same-repo PRs get a published layer"; exit 1; }
-              git fetch -q --filter=blob:none origin "+refs/pull/$PR/head:refs/remotes/pr/head"
+              git fetch --no-recurse-submodules -q --filter=blob:none origin "+refs/pull/$PR/head:refs/remotes/pr/head"
               [[ "$(git rev-parse refs/remotes/pr/head)" == "$head" ]] || head="$(git rev-parse refs/remotes/pr/head)"
             else
               # The API refused (13 of 18 failed layer runs on 2026-11-22 were "API rate limit
@@ -245,7 +245,7 @@ jobs:
               # same-repo PR's head is the tip of one of this repository's branches, and a fork
               # cannot make one. Its base is taken as feat-cmux-next, the only layered base.
               echo "::warning::the pull request API did not answer for #$PR; reading it from git"
-              git fetch -q --filter=blob:none origin "+refs/pull/$PR/head:refs/remotes/pr/head"
+              git fetch --no-recurse-submodules -q --filter=blob:none origin "+refs/pull/$PR/head:refs/remotes/pr/head"
               head="$(git rev-parse refs/remotes/pr/head)"
               tips="$(git ls-remote -q origin 'refs/heads/*' | cut -f1)"
               grep -qx "$head" <<<"$tips" \
@@ -261,12 +261,12 @@ jobs:
             base_ref=feat-cmux-next state=""
             if git ls-remote --exit-code -q origin "refs/heads/$REF" >/dev/null; then
               kind=branch
-              git fetch -q --filter=blob:none origin "+refs/heads/$REF:refs/remotes/pr/head"
+              git fetch --no-recurse-submodules -q --filter=blob:none origin "+refs/heads/$REF:refs/remotes/pr/head"
               head="$(git rev-parse refs/remotes/pr/head)"
             elif [[ "$REF" =~ ^[0-9a-f]{40}$ ]]; then
               kind=sha head="$REF"
-              git fetch -q --filter=blob:none origin '+refs/heads/*:refs/remotes/origin/*'
-              git cat-file -e "$head^{commit}" 2>/dev/null || git fetch -q --filter=blob:none origin "$head" || true
+              git fetch --no-recurse-submodules -q --filter=blob:none origin '+refs/heads/*:refs/remotes/origin/*'
+              git cat-file -e "$head^{commit}" 2>/dev/null || git fetch --no-recurse-submodules -q --filter=blob:none origin "$head" || true
               git cat-file -e "$head^{commit}" 2>/dev/null && [[ -n "$(git for-each-ref --count=1 --contains "$head" refs/remotes/origin)" ]] \
                 || { echo "::error::$REF is on no branch of $GITHUB_REPOSITORY (a fork's commit?): a fork publishes its own layer with cmux-web-layer-fork.yml"; exit 1; }
             else
@@ -276,11 +276,11 @@ jobs:
             label="$REF"
           fi
           base="${BASE:-$(git rev-parse HEAD)}"
-          git cat-file -e "$base^{commit}" 2>/dev/null || git fetch -q --filter=blob:none origin "$base"
+          git cat-file -e "$base^{commit}" 2>/dev/null || git fetch --no-recurse-submodules -q --filter=blob:none origin "$base"
           # The layer is the change's own diff on the app's commit, nothing else. Merging the head
           # would also bring every commit between that commit and where it branched off, so the
           # diff from its branch point is applied instead.
-          git fetch -q --filter=blob:none origin "+refs/heads/$base_ref:refs/remotes/pr/base"
+          git fetch --no-recurse-submodules -q --filter=blob:none origin "+refs/heads/$base_ref:refs/remotes/pr/base"
           fork="$(git merge-base refs/remotes/pr/base "$head")"
           git -c advice.detachedHead=false checkout -q --detach "$base"
           if ! git diff --binary "$fork" "$head" | git apply -q --3way --index; then
@@ -320,7 +320,7 @@ jobs:
           fi
           pr="${BASH_REMATCH[1]}"
           head="$GITHUB_SHA"
-          git fetch -q --depth 2 --filter=blob:none origin "$head" || { echo "::warning::fetching $head failed: no merged PR layer for #$pr"; exit 0; }
+          git fetch --no-recurse-submodules -q --depth 2 --filter=blob:none origin "$head" || { echo "::warning::fetching $head failed: no merged PR layer for #$pr"; exit 0; }
           parent="$(git rev-parse "$head^")"
           classify="$(python3 scripts/cmux-next/live_apply.py --json "$parent" "$head")" || { echo "::warning::live_apply failed: no merged PR layer for #$pr"; exit 0; }
           mkdir -p "$RUNNER_TEMP/pr-layer"

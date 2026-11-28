@@ -60,7 +60,7 @@ jobs:
           EXPLICIT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          git fetch --force --tags
+          git fetch --no-recurse-submodules --force --tags
           latest_tag="$(
             git tag --merged HEAD --list 'cmux-tui-v*' --sort=-v:refname |
               grep -E '^cmux-tui-v[0-9]+\.[0-9]+\.[0-9]+$' |

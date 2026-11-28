@@ -71,10 +71,10 @@ else
     if [ -z "$base" ]; then
       # A CI snapshot checkout has no origin/* refs: fetch the bases' commits (no blobs) and pick again.
       for b in feat-cmux-next main master; do
-        git fetch --quiet --no-tags --filter=blob:none origin "+refs/heads/$b:refs/remotes/origin/$b" 2>/dev/null || true
+        git fetch --no-recurse-submodules --quiet --no-tags --filter=blob:none origin "+refs/heads/$b:refs/remotes/origin/$b" 2>/dev/null || true
       done
       if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = true ]; then
-        git fetch --quiet --no-tags --filter=blob:none --unshallow origin 2>/dev/null || true
+        git fetch --no-recurse-submodules --quiet --no-tags --filter=blob:none --unshallow origin 2>/dev/null || true
       fi
       base="$(pick_base)"
     fi

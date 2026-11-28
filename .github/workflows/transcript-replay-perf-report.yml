@@ -57,7 +57,7 @@ jobs:
           # Deepen both sides until they meet: the merge base is the base the head's own change sits on.
           base=""
           for depth in 50 200 1000 5000; do
-            git fetch --no-tags --depth="$depth" origin "$BASE_TIP" "$HEAD_SHA"
+            git fetch --no-recurse-submodules --no-tags --depth="$depth" origin "$BASE_TIP" "$HEAD_SHA"
             if base="$(git merge-base "$BASE_TIP" "$HEAD_SHA")"; then break; fi
             base=""
           done

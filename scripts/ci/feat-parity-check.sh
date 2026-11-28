@@ -316,10 +316,10 @@ required_base() { # BASE: fetch it when the checkout lacks it, then print the me
   # The exact commit first. A remote that refuses a fetch by SHA, or history too shallow to reach the base, gets
   # the base branch's tip and then the whole history (2026-11-20: cmux#46751 and #45681 failed with "base: cannot
   # fetch" and `fatal: bad object`, exit 128, after the single fetch of the SHA).
-  have_base || git -C "$root" fetch --quiet --no-tags ${depth[@]+"${depth[@]}"} "$remote" "$base" || true
-  have_base || git -C "$root" fetch --quiet --no-tags --depth=1000 "$remote" "refs/heads/$requiredChecksBranch" || true
+  have_base || git -C "$root" fetch --no-recurse-submodules --quiet --no-tags ${depth[@]+"${depth[@]}"} "$remote" "$base" || true
+  have_base || git -C "$root" fetch --no-recurse-submodules --quiet --no-tags --depth=1000 "$remote" "refs/heads/$requiredChecksBranch" || true
   if ! have_base && [[ "$shallow" == true ]]; then
-    git -C "$root" fetch --quiet --no-tags --unshallow "$remote" || true
+    git -C "$root" fetch --no-recurse-submodules --quiet --no-tags --unshallow "$remote" || true
   fi
   if ! have_base; then
     # No verdict (exit 3, setup): the pool poster requeues a setup fault on the same head, where exit 1 is the
@@ -335,9 +335,9 @@ required_base() { # BASE: fetch it when the checkout lacks it, then print the me
   head="$(git -C "$root" rev-parse HEAD)"
   merged="$(git -C "$root" merge-base "$base" HEAD 2>/dev/null)" && { echo "$merged"; return 0; }
   if [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]]; then
-    git -C "$root" fetch --quiet --no-tags --deepen=200 "$remote" "$head" || true
+    git -C "$root" fetch --no-recurse-submodules --quiet --no-tags --deepen=200 "$remote" "$head" || true
     merged="$(git -C "$root" merge-base "$base" HEAD 2>/dev/null)" && { echo "$merged"; return 0; }
-    git -C "$root" fetch --quiet --no-tags --unshallow "$remote" "$head" || true
+    git -C "$root" fetch --no-recurse-submodules --quiet --no-tags --unshallow "$remote" "$head" || true
     merged="$(git -C "$root" merge-base "$base" HEAD 2>/dev/null)" && { echo "$merged"; return 0; }
   fi
   echo "base: HEAD and $base share no history here; comparing with $base itself" >&2

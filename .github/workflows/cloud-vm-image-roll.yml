@@ -237,8 +237,8 @@ jobs:
           # A pin off the branch (a hand pin of a lane build) is fetched with its history; a pin that cannot be
           # fetched fails the plan, never skips the guard. A build commit off the branch is "not on the tip" anyway.
           pinned="$(jq -r '.programs[] | select(.name == "cmux-tui") | .version' images/cmux-vm/inputs.lock.json)"
-          if ! git cat-file -e "$pinned^{commit}" 2> /dev/null; then git fetch -q --filter=blob:none origin "$pinned"; fi
-          if [ -n "$COMMIT" ] && ! git cat-file -e "$COMMIT^{commit}" 2> /dev/null; then git fetch -q --filter=blob:none origin "$COMMIT" || true; fi
+          if ! git cat-file -e "$pinned^{commit}" 2> /dev/null; then git fetch --no-recurse-submodules -q --filter=blob:none origin "$pinned"; fi
+          if [ -n "$COMMIT" ] && ! git cat-file -e "$COMMIT^{commit}" 2> /dev/null; then git fetch --no-recurse-submodules -q --filter=blob:none origin "$COMMIT" || true; fi
           bun images/cmux-vm/auto-roll.ts plan --event "$EVENT" --commit "$COMMIT" --before "${BEFORE:-}" --dry-run "$DRY_RUN" --tip HEAD > "$RUNNER_TEMP/plan.json"
           cat "$RUNNER_TEMP/plan.json"
           {

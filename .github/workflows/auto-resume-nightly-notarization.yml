@@ -1179,7 +1179,7 @@ jobs:
             # refuses an older build. An RC must not move the feed to a lower
             # marketing version, so RC compares versions instead of ancestry.
             if [ -n "$published_sha" ]; then
-              git fetch --no-tags origin "$SOURCE_HEAD_SHA" "$published_sha"
+              git fetch --no-recurse-submodules --no-tags origin "$SOURCE_HEAD_SHA" "$published_sha"
               if [ "$CHANNEL" = rc ]; then
                 marketing_version() {
                   local project versions

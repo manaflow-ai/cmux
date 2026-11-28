@@ -16,8 +16,8 @@ mkdir -p "$work/side"; CMUX_SIDE_ROOT="$(cd "$work/side" && pwd -P)"; export CMU
 trap 'rm -rf "$work"' EXIT
 
 # try-pr.sh reads the base branch's history for the merge base.
-git -C "$root" fetch -q origin "+refs/heads/${CMUX_TRY_PR_BASE:-feat-cmux-next}:refs/remotes/origin/${CMUX_TRY_PR_BASE:-feat-cmux-next}"
-git -C "$root" rev-parse --is-shallow-repository | grep -q true && git -C "$root" fetch -q --unshallow origin
+git -C "$root" fetch --no-recurse-submodules -q origin "+refs/heads/${CMUX_TRY_PR_BASE:-feat-cmux-next}:refs/remotes/origin/${CMUX_TRY_PR_BASE:-feat-cmux-next}"
+git -C "$root" rev-parse --is-shallow-repository | grep -q true && git -C "$root" fetch --no-recurse-submodules -q --unshallow origin
 
 start=$(now)
 curl -fsSL -o "$work/nightly.dmg" https://github.com/manaflow-ai/cmux/releases/download/nightly-next/cmux-nightly-next-macos.dmg

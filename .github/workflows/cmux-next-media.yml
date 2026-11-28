@@ -183,7 +183,7 @@ jobs:
           # this is the files API's `.filename` set, less a change the base
           # already carries. The files API is the fallback; it lists at most
           # 3000, and past that the label decides.
-          if git fetch --no-tags --quiet --depth=2 --filter=blob:none origin "$GITHUB_SHA" \
+          if git fetch --no-recurse-submodules --no-tags --quiet --depth=2 --filter=blob:none origin "$GITHUB_SHA" \
             && git diff --name-only -z -M "$GITHUB_SHA^1" "$GITHUB_SHA" | tr '\0' '\n' > "$RUNNER_TEMP/changed.txt"; then
             echo "listed=true" >> "$GITHUB_OUTPUT"
           elif ! gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' \
@@ -271,9 +271,9 @@ jobs:
             || { echo "no previous tip ($BASE); no clips"; exit 0; }
           head_time="$(git show -s --format=%ct "$HEAD")"
           # One day past the window: the oldest highlight in it needs its commit's parent.
-          git fetch --no-tags --quiet --filter=blob:none --shallow-since="@$((head_time - 8 * 86400))" origin "$HEAD"
+          git fetch --no-recurse-submodules --no-tags --quiet --filter=blob:none --shallow-since="@$((head_time - 8 * 86400))" origin "$HEAD"
           # The previous tip is in that history; a depth-1 fetch of it would cut the history at it.
-          git cat-file -e "$BASE^{commit}" 2>/dev/null || git fetch --no-tags --quiet --filter=blob:none --depth=1 origin "$BASE"
+          git cat-file -e "$BASE^{commit}" 2>/dev/null || git fetch --no-recurse-submodules --no-tags --quiet --filter=blob:none --depth=1 origin "$BASE"
           python3 scripts/cmux-next/media/whats-new-clips.py plan --app mac --base "$BASE" --head "$HEAD" \
             --out "$RUNNER_TEMP/clips-plan.json" --tours "$RUNNER_TEMP/clip-tours" | tee /dev/stderr
           echo "plan=$(python3 -c 'import json, sys; print(json.dumps(json.load(open(sys.argv[1])), separators=(",", ":")))' "$RUNNER_TEMP/clips-plan.json")" >> "$GITHUB_OUTPUT"
@@ -419,7 +419,7 @@ jobs:
           merge_base="$(scripts/ci/media_merge_base.sh "$BASE_SHA" "$HEAD_SHA")"
           # The base app builds from it, and pin-cmux-tui.sh
           # resolve-newest-published searches its newest 50 commits.
-          git fetch --no-tags --quiet --depth=60 origin "$merge_base"
+          git fetch --no-recurse-submodules --no-tags --quiet --depth=60 origin "$merge_base"
           echo "MERGE_BASE=$merge_base" >> "$GITHUB_ENV"
           echo "merge base of $BASE_SHA and $HEAD_SHA: $merge_base"
 
@@ -521,7 +521,7 @@ jobs:
           ci=scripts/ci
           if ! grep -q -- '--slots' "$ci/media_tag_lock.py" 2>/dev/null \
             || ! grep -q -- '--slots' "$ci/prune_media_derived_data.py" 2>/dev/null; then
-            git fetch --no-tags origin "$GITHUB_SHA"
+            git fetch --no-recurse-submodules --no-tags origin "$GITHUB_SHA"
             ci="$RUNNER_TEMP/media-ci"
             mkdir -p "$ci"
             for script in media_tag_lock.py prune_media_derived_data.py; do
@@ -556,7 +556,7 @@ jobs:
           ci="$GITHUB_WORKSPACE/scripts/ci"
           if [ ! -f "$ci/media_app_cache.py" ] || [ ! -f "$ci/media_build_app.sh" ] ||
               [ ! -f "$ci/media_tree_submodules.sh" ]; then
-            git fetch --no-tags origin "$GITHUB_SHA"
+            git fetch --no-recurse-submodules --no-tags origin "$GITHUB_SHA"
             ci="$RUNNER_TEMP/media-tour-ci"
             mkdir -p "$ci"
             for script in media_app_cache.py media_build_app.sh media_module_cache_stamp.py media_tree_submodules.sh; do
@@ -565,7 +565,7 @@ jobs:
             chmod +x "$ci/media_build_app.sh" "$ci/media_tree_submodules.sh"
           fi
           # The workflow itself comes from GITHUB_SHA (the merge ref of a pull request).
-          git cat-file -e "$GITHUB_SHA^{commit}" 2>/dev/null || git fetch --no-tags origin "$GITHUB_SHA"
+          git cat-file -e "$GITHUB_SHA^{commit}" 2>/dev/null || git fetch --no-recurse-submodules --no-tags origin "$GITHUB_SHA"
           recipe="$({ cat "$ci/media_build_app.sh" "$ci/media_module_cache_stamp.py"
             git show "$GITHUB_SHA:.github/workflows/cmux-next-media.yml"
             env | grep -E '^(CMUX_SKIP_ZIG_BUILD|CMUX_GHOSTTYKIT_PREPROVISIONED|CMUX_CI_XCODE_APP)=' | sort
@@ -882,7 +882,7 @@ jobs:
             tree="$RUNNER_TEMP/cmux-next-clip-before"
             # Each network step runs on the job's clock too: the ghostty-next clone alone took 5.5 min
             # in job 140119006420, and a stalled one must not run the step into the job's cap.
-            bounded git fetch --no-tags --quiet --depth=1 origin "$sha" \
+            bounded git fetch --no-recurse-submodules --no-tags --quiet --depth=1 origin "$sha" \
               && git worktree add -f -f --detach "$tree" "$sha" \
               && bounded "$MEDIA_TOUR_CI/media_tree_submodules.sh" "$tree" \
               && (cd "$tree" && GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" bounded ./scripts/download-prebuilt-ghosttykit.sh) \
@@ -913,7 +913,7 @@ jobs:
           set -uo pipefail
           tour=scripts/cmux-next/media/tour.py
           if ! grep -q -- '--stop' "$tour" 2>/dev/null; then
-            git cat-file -e "$GITHUB_SHA^{commit}" 2>/dev/null || git fetch --no-tags origin "$GITHUB_SHA"
+            git cat-file -e "$GITHUB_SHA^{commit}" 2>/dev/null || git fetch --no-recurse-submodules --no-tags origin "$GITHUB_SHA"
             tour="$RUNNER_TEMP/media-stop/tour.py"
             mkdir -p "${tour%/*}"
             git show "$GITHUB_SHA:scripts/cmux-next/media/tour.py" > "$tour"

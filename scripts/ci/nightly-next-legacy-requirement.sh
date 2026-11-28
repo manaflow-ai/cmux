@@ -67,7 +67,7 @@ git_ancestry() {
   # Bounded: a stalled connection falls back to the compare API instead of using up the job.
   if git init -q --bare "$dir" 2>/dev/null &&
     bounded "${NIGHTLY_LEGACY_GIT_SECONDS:-180}" \
-      git -C "$dir" -c protocol.version=2 fetch -q --no-tags --filter=tree:0 "$url" "$1" "$2" >/dev/null 2>&1; then
+      git -C "$dir" -c protocol.version=2 fetch --no-recurse-submodules -q --no-tags --filter=tree:0 "$url" "$1" "$2" >/dev/null 2>&1; then
     git -C "$dir" merge-base --is-ancestor "$1" "$2" 2>/dev/null
     rc=$?
   else

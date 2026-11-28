@@ -248,7 +248,7 @@ jobs:
           fetch_retry() {
             local bound="$1" try; shift
             for try in 1 2 3; do
-              timeout "$bound" git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch "$@" && return 0
+              timeout "$bound" git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch --no-recurse-submodules "$@" && return 0
               echo "hot verify plan: fetch attempt $try failed" >&2; [[ $try == 3 ]] || sleep $((try * 5))
             done
             return 1
@@ -290,11 +290,11 @@ jobs:
               && curl -fsS --retry 2 --max-time 30 "https://files-next.cmux.com/nightly-next/appcast-arm64.xml?reader=cmux-hot-verify-plan" -o "$RUNNER_TEMP/feed.xml"; then
             nightly="$(python3 "$tool" nightly-commit "$RUNNER_TEMP/feed.xml" || true)"
             if [[ "$nightly" =~ ^[0-9a-f]{40}$ ]] && ! git cat-file -e "$nightly^{commit}" 2>/dev/null; then
-              timeout 600 git fetch -q --no-tags --filter=blob:none --shallow-since="$(date -u -d '45 days ago' +%Y-%m-%d)" \
+              timeout 600 git fetch --no-recurse-submodules -q --no-tags --filter=blob:none --shallow-since="$(date -u -d '45 days ago' +%Y-%m-%d)" \
                 origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF" 2>/dev/null || true
             fi
             if [[ "$nightly" =~ ^[0-9a-f]{40}$ ]] && { git cat-file -e "$nightly^{commit}" 2>/dev/null \
-                || timeout 120 git fetch -q --no-tags --filter=blob:none origin "$nightly" 2>/dev/null; } \
+                || timeout 120 git fetch --no-recurse-submodules -q --no-tags --filter=blob:none origin "$nightly" 2>/dev/null; } \
                 && git cat-file -e "$nightly^{commit}" 2>/dev/null; then
               base=(--base "$nightly")
               echo "hot verify plan: against the NEXT nightly's commit ${nightly:0:12}" >> "$GITHUB_STEP_SUMMARY"

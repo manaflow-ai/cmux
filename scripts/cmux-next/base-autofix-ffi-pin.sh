@@ -35,7 +35,7 @@ pin() { # <commit>: the pin file's text ("none" without one)
     [[ -n "$url" ]] || return 1
     # core.alternateRefsCommand=true: as base-autofix-changed.sh, offer no commits this repository
     # has none of the history of.
-    git -c core.alternateRefsCommand=true fetch --quiet --no-tags --no-write-fetch-head "$url" "$blob" \
+    git -c core.alternateRefsCommand=true fetch --no-recurse-submodules --quiet --no-tags --no-write-fetch-head "$url" "$blob" \
       2>/dev/null || return 1
   fi
   git cat-file blob "$1:$pin_file"

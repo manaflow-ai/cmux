@@ -32,7 +32,7 @@ git clone -q --bare "$tmp/up" "$tmp/fleet/cmux.git"
 step() {
   rm -rf "$tmp/step"
   git init -q "$tmp/step"
-  git -C "$tmp/step" fetch -q --no-tags "$tmp/up" "$head"
+  git -C "$tmp/step" fetch --no-recurse-submodules -q --no-tags "$tmp/up" "$head"
   git -C "$tmp/step" checkout -q --detach "$head"
   git -C "$tmp/step" cat-file -e "$graft^{commit}" 2>/dev/null && fail "fixture already has the graft"
   true
