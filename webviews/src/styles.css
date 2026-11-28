@@ -3136,7 +3136,9 @@ button.review-brief-spot:hover {
   position: relative;
   width: 100%;
 }
-.plain-english-file {
+/* Only the windowed list's sections are placed at an offset; a section drawn elsewhere (the gallery's
+   prose design) stays in flow. */
+.plain-english-space > .plain-english-file {
   position: absolute;
   top: 0;
   inset-inline-start: 0;
