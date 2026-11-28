@@ -1034,8 +1034,9 @@ export const SubagentTray = memo(function SubagentTray({
               {t("summary.subagents.failed", { n: counts.failed })}
             </span>
           )}
-          {/* A family the stacked marks already draw is not drawn again here. */}
-          {!named && !loneEnd && !peekHead && !kindsHead && trailingMarks.length > 0 && (
+          {/* A family the stacked marks already draw is not drawn again here. The one line is words only
+              (hatLine.experiment.ts `words`; its deck arms draw the marks), so it draws none. */}
+          {!named && !loneEnd && !peekHead && !kindsHead && !lineHead && trailingMarks.length > 0 && (
             <span className="acpmux-running-tray__marks" data-tray-marks>
               {trailingMarks.map((harness) => (
                 <AgentMark key={harness} agent={harness} size={ROW_ICON} label={harness} />
