@@ -96,11 +96,36 @@ const logStoreFailure = (error: StoreError) =>
   );
 
 /**
+ * A query that died with its connection, not with its statement: the Workers socket dropped ("Network connection
+ * lost") or postgres.js saw the connection close under it. The next query on that connection fails the same way.
+ */
+export const connectionLost = (cause: unknown): boolean => {
+  if (typeof cause !== "object" || cause === null) return false;
+  const code = Reflect.get(cause, "code");
+  if (typeof code === "string" && ["CONNECTION_CLOSED", "CONNECTION_DESTROYED", "CONNECTION_ENDED", "ECONNRESET", "EPIPE"].includes(code))
+    return true;
+  const message = Reflect.get(cause, "message");
+  return typeof message === "string" && message.toLowerCase().includes("network connection lost");
+};
+
+/** A statement that only reads, so sending it again cannot change anything. */
+const readsOnly = (text: string): boolean => /^\s*select\b/i.test(text);
+
+/**
  * Postgres through a Hyperdrive binding. Inside `withRequestConnection` the
  * request's queries share one connection; outside it (tools, tests) each
  * query opens and closes its own.
+ *
+ * A query whose connection was lost drops that connection, so the request's
+ * next query opens a fresh one, and a read is sent once more on it. Writes are
+ * not resent: the lost one may have committed. 2026-11-28 14:23Z: staging's
+ * `ownership.find` lost its connection twice in one guest exec, cmux-vm
+ * answered 503, and the platform answered the probe's setup write 502
+ * vm_unavailable (run 46154198308). Detector: the "cmux-vm store query
+ * failed" log followed by "cmux-vm dependency unavailable" with cause_class
+ * connection_lost.
  */
-export const hyperdriveSqlLayer = (connectionString: string): Layer.Layer<SqlClient> =>
+export const hyperdriveSqlLayer = (connectionString: string, open: (connectionString: string) => postgres.Sql = connect): Layer.Layer<SqlClient> =>
   Layer.succeed(SqlClient, {
     query: (operation, text, params) => {
       const run = (sql: postgres.Sql) =>
@@ -108,10 +133,18 @@ export const hyperdriveSqlLayer = (connectionString: string): Layer.Layer<SqlCli
           try: async (): Promise<ReadonlyArray<unknown>> => Array.from(await sql.unsafe(text, [...params])),
           catch: (cause) => new StoreError({ operation, cause }),
         }).pipe(Effect.tapError((error) => logStoreFailure(error)));
-      return Effect.flatMap(FiberRef.get(CurrentConnection), (slot) => {
-        if (slot === null) return Effect.acquireUseRelease(Effect.sync(() => connect(connectionString)), run, disconnect);
-        if (slot.sql === null) slot.sql = connect(connectionString);
-        return run(slot.sql);
+      const once = Effect.flatMap(FiberRef.get(CurrentConnection), (slot) => {
+        if (slot === null) return Effect.acquireUseRelease(Effect.sync(() => open(connectionString)), run, disconnect);
+        if (slot.sql === null) slot.sql = open(connectionString);
+        const sql = slot.sql;
+        return run(sql).pipe(
+          Effect.tapError((error) => {
+            if (!connectionLost(error.cause) || slot.sql !== sql) return Effect.void;
+            slot.sql = null;
+            return disconnect(sql);
+          }),
+        );
       });
+      return readsOnly(text) ? once.pipe(Effect.retry({ times: 1, while: (error) => connectionLost(error.cause) })) : once;
     },
   });
