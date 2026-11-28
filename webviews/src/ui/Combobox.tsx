@@ -7,6 +7,12 @@
 // (VirtualRows), with or without pinned actions, so a picker over thousands draws and filters as one
 // over a menu's worth. Each row is a memoized ComboboxOption with stable handlers and style: a
 // caller's re-render (a highlight preview, a live update) re-renders only the rows it changed.
+//
+// A list of more than COMBOBOX_VIRTUAL_AFTER scrolling rows mounts only the rows near its scroller's
+// viewport (VirtualRows), with or without pinned actions and with or without `virtualRows`, so a
+// picker over thousands draws and filters as one over a menu's worth. Each row is a memoized
+// ComboboxOption with stable handlers and style: a caller's re-render (a highlight preview, a live
+// update) re-renders only the rows it changed.
 import {
   useCallback,
   useEffect,
@@ -308,18 +314,8 @@ export function Combobox({
   }, [keep]);
   const held = keep && tallest > 0;
   const hasPinned = Boolean(pinnedSuggestions?.length);
-  // A pinned list, or one whose caller asked for virtual rows, scrolls inside a ScrollArea; a long
-  // plain list windows inside the list itself (`virtualized` below).
-  const hasScroller = hasPinned || virtualRows !== undefined;
   const edges = useScrollEdges();
   const pinnedEdges = useScrollEdges();
-  const attachList = useCallback(
-    (node: HTMLDivElement | null) => {
-      listRef.current = node;
-      edges(hasScroller ? null : node);
-    },
-    [edges, hasScroller],
-  );
   const deliberatelyHighlighted = useRef(false);
   const virtualizer = useRef<Virtualizer<HTMLElement, Element> | null>(null);
   // The row the arrows moved to stays mounted in the commit that highlights it, before the scroll
@@ -355,10 +351,19 @@ export function Combobox({
   const disabledSuggestions = suggestions.filter((item) => isItemDisabled?.(item) && !pinnedSet.has(item));
   const scrollingRows = hasPinned ? scrollingCount : enabledSuggestions.length;
   // Once a list has windowed it stays windowed while mounted: a query that narrows it to a few rows
-  // and back must not rebuild the window (and measure its rows again) on each key.
-  const [windowing, setWindowing] = useState(false);
-  if (!windowing && scrollingRows > COMBOBOX_VIRTUAL_AFTER) setWindowing(true);
-  const virtualized = virtualRows !== undefined || windowing || scrollingRows > COMBOBOX_VIRTUAL_AFTER;
+  // and back must not rebuild the window (and measure its rows again) on each key. A list that opens
+  // long windows from its first render; one that grows past the bound switches on as it does.
+  const [windowing, setWindowing] = useState(() => scrollingCount > COMBOBOX_VIRTUAL_AFTER);
+  if (!windowing && scrollingCount > COMBOBOX_VIRTUAL_AFTER) setWindowing(true);
+  const virtualized = virtualRows !== undefined || windowing || scrollingCount > COMBOBOX_VIRTUAL_AFTER;
+  const hasScroller = hasPinned || virtualized;
+  const attachList = useCallback(
+    (node: HTMLDivElement | null) => {
+      listRef.current = node;
+      edges(hasScroller ? null : node);
+    },
+    [edges, hasScroller],
+  );
   // The list opens scrolled to its current row, not its top (Leo, 2026-11-12, on the theme picker:
   // "shouldn't the opened thing be jumped already to the proper place?"). Once per mount, when the
   // current row first renders (suggestions may arrive late); the highlight stays where it was, so a
@@ -736,6 +741,8 @@ function VirtualRows({
     // and its margin-top pushes it down (a section heading drawn in that margin), so a slot of the
     // border box alone would let it cover the next row. A size the library answers from its cache
     // (no resize entry) was measured here already and holds the margins.
+    // The border box is taken fractional: the library's own measure rounds it (a 30.8 px row at an
+    // interface scale of 1.1 counts as 31, and the list grows a pixel every five rows).
     measureElement: (element, entry, instance) => {
       // A row that mounts again (scrolled back, or the menu reopened) has no resize entry: its slot is the one
       // measured here before, margins and all. The library's own answer is its border box alone, which would
@@ -746,7 +753,7 @@ function VirtualRows({
       return virtualRowSlot(cached, () => {
         const style = element.ownerDocument.defaultView?.getComputedStyle(element);
         return virtualRowSize(
-          measureElement(element, entry, instance),
+          entry?.borderBoxSize?.[0]?.blockSize ?? element.getBoundingClientRect().height,
           style?.marginTop ?? "",
           style?.marginBottom ?? "",
         );
@@ -817,10 +824,11 @@ export function virtualRowSlot(cached: number | undefined, measure: () => number
 }
 
 /// A virtual row's slot height: its border-box height and its computed vertical margins (CSS pixel
-/// strings such as "20px"). A value that does not parse counts as 0, so the size is never NaN.
+/// strings such as "20px"), fractional as laid out. A value that does not parse counts as 0, so the
+/// size is never NaN.
 export function virtualRowSize(borderBox: number, marginTop: string, marginBottom: string): number {
   const px = (value: number) => (Number.isFinite(value) ? value : 0);
-  return Math.round(px(borderBox) + px(Number.parseFloat(marginTop)) + px(Number.parseFloat(marginBottom)));
+  return px(borderBox) + px(Number.parseFloat(marginTop)) + px(Number.parseFloat(marginBottom));
 }
 
 /// The nearest ancestor of `node` that scrolls vertically (a pinned list's ScrollArea viewport

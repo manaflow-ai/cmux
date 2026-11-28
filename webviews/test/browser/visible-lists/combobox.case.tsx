@@ -1,6 +1,8 @@
 // ui/Combobox inline with N suggestions and no pinned actions, as the project chooser uses it:
 // the caller filters on each key. `?vary=1` gives every third row a second line (rows of two
-// heights), and `window.__removeItem(id)` takes an item out of the open list.
+// heights), `window.__removeItem(id)` takes an item out of the open list, and `?start=K` opens it
+// with the first K items until `window.__grow()` hands it all N (suggestions arriving late).
+// `?placement=bottom` puts the pinned action under the list, as the folder popover does.
 import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
@@ -20,9 +22,13 @@ function ComboboxCaseRow({ label, lines }: { label: string; lines: number }) {
 
 let changeOne = () => {};
 const vary = new URLSearchParams(location.search).get("vary") === "1";
+const params = new URLSearchParams(location.search);
+const vary = params.get("vary") === "1";
+const start = params.has("start") ? Number(params.get("start")) : undefined;
+const placement = params.get("placement") === "bottom" ? "bottom" : "top";
 
 function CaseCombobox({ n, pinned }: { n: number; pinned: boolean }) {
-  const [items, setItems] = useState(() => caseItems(n));
+  const [items, setItems] = useState(() => caseItems(Math.min(n, start ?? n)));
   const [query, setQuery] = useState("");
   // In an effect, not at render: a component that writes outside itself at render is one the
   // compiler leaves uncompiled, and its callbacks would change every render.
@@ -33,7 +39,8 @@ function CaseCombobox({ n, pinned }: { n: number; pinned: boolean }) {
       );
     (window as unknown as { __removeItem(id: string): void }).__removeItem = (id) =>
       setItems((previous) => previous.filter((item) => item.id !== id));
-  }, []);
+    (window as unknown as { __grow(): void }).__grow = () => setItems(caseItems(n));
+  }, [n]);
   const labels = new Map(items.map((item) => [item.id, item.label]));
   const suggestions = items.filter((item) => item.label.includes(query)).map((item) => item.id);
   return (
@@ -41,6 +48,7 @@ function CaseCombobox({ n, pinned }: { n: number; pinned: boolean }) {
       inline
       suggestions={pinned ? [...suggestions, "new"] : suggestions}
       pinnedSuggestions={pinned ? ["new"] : undefined}
+      pinnedPlacement={placement}
       onQuery={setQuery}
       onSubmit={(value) => {
         (window as unknown as { __submitted: string[] }).__submitted.push(value);
@@ -63,7 +71,12 @@ export function comboboxCase(pinned: boolean): VisibleListCase {
       const style = document.createElement("style");
       style.textContent =
         ".case-list { max-height: 320px; overflow: auto; } .ui-combobox-item { box-sizing: border-box; }" +
-        (vary ? " .ui-combobox-item { line-height: 18px; padding: 5px 8px; }" : " .ui-combobox-item { height: 28px; }");
+        (vary
+          ? " .ui-combobox-item { line-height: 18px; padding: 5px 8px; }"
+          : " .ui-combobox-item { height: calc(28px * var(--cmux-interface-scale, 1)); }");
+      // `?scale=1.1`: the interface scale (Text Size), as the App writes it: rows of 30.8 px.
+      const scale = new URLSearchParams(location.search).get("scale");
+      if (scale) document.documentElement.style.setProperty("--cmux-interface-scale", scale);
       document.head.append(style);
       flushSync(() => createRoot(root).render(<CaseCombobox n={n} pinned={pinned} />));
       const scroller = () =>

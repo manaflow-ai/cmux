@@ -172,7 +172,8 @@ test("a late theme save leaves the pointer's pending preview in the reopened pic
   await fire(search, "keydown", { key: "ArrowDown" });
   await fire(search, "keydown", { key: "Enter" });
   await click(button);
-  const row = (name: string) => document.querySelector<HTMLElement>(`[data-theme-option="${name}"]`)!.closest("li")!;
+  const row = (name: string) =>
+    document.querySelector<HTMLElement>(`[data-theme-option="${name}"]`)!.closest(".theme-option")!;
   const names = [...document.querySelectorAll<HTMLElement>("[data-theme-option]")].map((el) =>
     el.getAttribute("data-theme-option")!,
   );
@@ -196,7 +197,8 @@ test("a pointer passing over themes previews nothing until it rests; the arrow k
   const { DWELL_MS } = await import("./components/ThemePicker");
   page = await renderPage({ path: "/settings/theme" });
   await click(theme(page).querySelector('[data-theme-row="app"] [data-theme-picker]')!);
-  const row = (name: string) => document.querySelector<HTMLElement>(`[data-theme-option="${name}"]`)!.closest("li")!;
+  const row = (name: string) =>
+    document.querySelector<HTMLElement>(`[data-theme-option="${name}"]`)!.closest(".theme-option")!;
   const previews = () => ops(page!.provider, "cmux.settings.preview");
   const pointer = (element: Element) =>
     act(async () => {
