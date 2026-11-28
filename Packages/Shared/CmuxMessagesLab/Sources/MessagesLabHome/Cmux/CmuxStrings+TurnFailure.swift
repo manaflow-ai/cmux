@@ -17,6 +17,9 @@ extension CmuxStrings {
     static var turnFailureGeneric: String {
         String(localized: "home.turnFailure.generic", defaultValue: "The Chief's reply failed.", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
     }
+    static var turnFailureSignIn: String {
+        String(localized: "home.turnFailure.signIn", defaultValue: "Sign In", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
     static var turnFailureRetry: String {
         // retry-prompt-ok: re-runs a failed model turn (a paid request)
         String(localized: "home.turnFailure.retry", defaultValue: "Retry", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
