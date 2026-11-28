@@ -171,6 +171,9 @@ key = "cmux.acpmux.harnessProfiles.v1"
 key = "cmux.acpmux.jumpUpIdle"
 
 [[storage_key]]
+key = "cmux.acpmux.cloudLastPick"
+
+[[storage_key]]
 key = "cmux.acpmux.lastChips"
 
 [[storage_key]]
