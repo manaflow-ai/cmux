@@ -9,7 +9,8 @@ Measures a chat move at three link rates (lan = unthrottled, 1MBps, 96KBps) in t
 
 Two acpmux daemons start in their own homes (tmp dirs) with the fake harness
 (crates/acpmux/tests/fake_agent.py), as tests/transfer_cli.rs does. The source chat is filled with
-turns whose text is random hex (so it compresses like real text, not like "aaaa") until the log
+turns whose text is distinct slices of this repo's Rust source (--text code, the default: it
+packs like a real chat log; --text hex is random hex, which does not) until the log
 holds about --size-mb. A unix-socket proxy with a token bucket per direction sits in front of the
 target's socket; its path is passed as --to. The CLI's own stderr is timestamped line by line.
 
@@ -32,6 +33,9 @@ import sys, tempfile, threading, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 FAKE = os.path.join(HERE, "..", "..", "cmux-tui", "crates", "acpmux", "tests", "fake_agent.py")
 RATES = {"lan": None, "1MBps": 1_000_000, "96KBps": 96_000}
+
+
+os.umask(0o077)  # the daemon refuses group-writable state ancestors
 
 
 def rpc_session(path):
@@ -141,15 +145,33 @@ class Proxy(threading.Thread):
         await asyncio.gather(self.pump(cr, tw, 0), self.pump(tr, cw, 1))
 
 
-def fill(sock, home, size_mb):
+def corpus_text(per):
+    """Turn texts that compress like a real chat: distinct slices of this repo's own Rust source
+    (code and tool output is what a chat log mostly holds). Random hex does not: it cannot pack
+    below 50%, and its exact echo is caught by a 4 MB zstd page but not by the session pack, whose
+    columns order remainders by kind; that made history-later look 2x heavier on the wire than it
+    is (on real logs the pack is 1.3-1.8x smaller than the pages; see the PR)."""
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "cmux-tui", "crates")
+    files = sorted(os.path.join(d, f) for d, _, fs in os.walk(root) for f in fs if f.endswith(".rs"))
+    blob = b"".join(open(f, "rb").read() for f in files).decode("utf-8", "replace")
+    at = 0
+    while True:
+        if at + per > len(blob):
+            at = 0
+        yield blob[at:at + per]
+        at += per
+
+
+def fill(sock, home, size_mb, text_kind):
     cwd = os.path.join(home, "project")
     os.makedirs(cwd)
     call, s = rpc_session(sock)
     sid = call("session/new", {"cwd": cwd, "mcpServers": []})["sessionId"]
-    per = 128 * 1024  # random hex chars per turn; the echo doubles it in the log
+    per = 128 * 1024  # chars per turn; the echo doubles it in the log
     turns = max(2, int(size_mb * 1e6 / (2 * per)))
+    texts = corpus_text(per) if text_kind == "code" else None
     for i in range(turns):
-        text = secrets.token_hex(per // 2)
+        text = next(texts) if texts else secrets.token_hex(per // 2)
         call("session/prompt", {"sessionId": sid, "prompt": [{"type": "text", "text": text}],
                                 "_meta": {"acpmux": {"promptId": f"p-{i}"}}})
     call("session/prompt", {"sessionId": sid, "prompt": [{"type": "text", "text": "last"}],
@@ -158,23 +180,14 @@ def fill(sock, home, size_mb):
     return sid, turns
 
 
-def log_bytes(home):
-    total = 0
-    for d, _, fs in os.walk(home):
-        for f in fs:
-            if f.endswith((".jsonl", ".log")) and "daemon" not in f:
-                total += os.path.getsize(os.path.join(d, f))
-    return total
-
-
-def one_run(binary, rate_name, mode, size_mb):
+def one_run(binary, rate_name, mode, size_mb, text_kind="code"):
     root = tempfile.mkdtemp(prefix="mu-", dir="/tmp")
     procs = []
     try:
         tp, thome, tsock = start_daemon(binary, "t", root)
         sp, shome, ssock = start_daemon(binary, "s", root)
         procs = [tp, sp]
-        sid, turns = fill(ssock, shome, size_mb)
+        sid, turns = fill(ssock, shome, size_mb, text_kind)
         proxy_sock = os.path.join(root, "p.sock")
         proxy = Proxy(proxy_sock, tsock, RATES[rate_name])
         proxy.start()
@@ -182,14 +195,12 @@ def one_run(binary, rate_name, mode, size_mb):
         env = env_for(shome, ssock)
         if mode == "after":
             env["ACPMUX_MOVE_HISTORY_LATER"] = "4"
-        src_log = log_bytes(shome)
         os.makedirs(os.path.join(thome, "arrived"), exist_ok=True)
         t0 = time.monotonic()
         cli = subprocess.Popen([binary, "transfer", sid, "--to", proxy_sock, "--cwd",
                                 os.path.join(thome, "arrived")],
                                env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        res = {"rate": rate_name, "mode": mode, "size_mb_asked": size_mb, "turns": turns,
-               "source_log_bytes": src_log}
+        res = {"rate": rate_name, "mode": mode, "size_mb_asked": size_mb, "turns": turns, "text": text_kind}
         lines = []
         probe = {}
 
@@ -240,12 +251,14 @@ def main():
     ap.add_argument("--rates", default="lan,1MBps,96KBps")
     ap.add_argument("--modes", default="before,after")
     ap.add_argument("--out", default="/tmp/move-usable-results.jsonl")
+    ap.add_argument("--text", choices=["code", "hex"], default="code",
+                    help="turn text: slices of this repo's Rust source (like a real chat) or random hex")
     a = ap.parse_args()
     rows = []
     for rep in range(a.reps):
         for rate in a.rates.split(","):
             for mode in a.modes.split(","):
-                r = one_run(a.bin, rate, mode, a.size_mb)
+                r = one_run(a.bin, rate, mode, a.size_mb, a.text)
                 r["rep"] = rep
                 rows.append(r)
                 with open(a.out, "a") as f:
