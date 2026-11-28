@@ -147,6 +147,19 @@ jobs:
           set -euo pipefail
           mirror=/var/lib/cmux-git/cmux.git/objects
           [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          # One reused workspace per sparse list (rnd rc-454d007c): jobs with different lists took turns with one .git on this
+          # VM, so a job after a narrower one widened the tree first (median 6.4 s widening the guards' list to the fast gates',
+          # 1.8 s reusing the same list, 5.1 s fresh: bench run 46133992029, 4 runs each). Each list keeps its own workspace
+          # beside $GITHUB_WORKSPACE, moved in and out by a rename on the same file system (no copy); 4 lists at most are kept.
+          ws=$GITHUB_WORKSPACE; stash="$(dirname "$ws")/.pool-ws"
+          key=$(printf '%s' "${SPARSE:-}" | sha1sum | cut -c1-16)
+          have=$(cat "$ws/.git/cmux-pool-key" 2>/dev/null || true)
+          if [[ "$have" != "$key" ]] && { [[ "$have" =~ ^[0-9a-f]{16}$ ]] || [[ -d "$stash/$key" ]]; }; then
+            mkdir -p "$stash"; cd "$stash"
+            if [[ "$have" =~ ^[0-9a-f]{16}$ ]]; then rm -rf "${stash:?}/$have"; mv "$ws" "$stash/$have"; touch "$stash/$have"; else rm -rf "$ws"; fi
+            if [[ -d "$stash/$key" ]]; then mv "$stash/$key" "$ws"; else mkdir -p "$ws"; fi
+            ls -1t "$stash" | tail -n +5 | while read -r old; do rm -rf "${stash:?}/$old"; done
+          fi
           cd "$GITHUB_WORKSPACE"
           # Reuse a .git this step made (borrows the mirror, no promisor or partial-clone filter): `git checkout` then
           # writes only what changed since the last job on this VM, not the whole tree (~10.7 s of ~13 s, rnd rc-0e8e7c8b).
@@ -187,7 +200,8 @@ jobs:
           # narrower job on this VM; rnd rc-c6f133b4).
           git -c checkout.workers=8 checkout -q -f --detach "$SHA"
           if [[ $reuse == reused ]]; then if [[ -n "${SPARSE//[[:space:]]/}" ]]; then git sparse-checkout reapply; else git sparse-checkout disable; fi; fi
-          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
+          [[ -z "${key:-}" ]] || echo "$key" > .git/cmux-pool-key
+          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse sparse_key=${key:-}"
 
       # Runs no checked-out code: git rev-parse on the merge ref, or the GitHub API
       # on dispatch, which refuses a fork head, a closed pull request
@@ -343,6 +357,7 @@ jobs:
             /scripts/ci/deadline_http.py
             /scripts/ci/cmux_next_fast_gates.py
             /scripts/ci/gh_http.py
+            /.gitmodules
 
       - name: "Pool mirror: checkout the base for the receipt verifier (lane dispatch)"
         if: ${{ github.event_name == 'workflow_dispatch' && steps.resolve.outputs.lane_dispatch == 'true' && startsWith(runner.name, 'cmux-runner-pool-') }}
@@ -542,6 +557,12 @@ jobs:
             /docs/mdm/
             /docs/ci/cmux-next-workflow-notes.md
             /docs/ci/nightly-workflow-notes.md
+            /docs/ci/cmux-next-workflow-notes/
+            /docs/ci/nightly-workflow-notes/
+            # tests/test_outbound_hosts.py reads the host list; the Bun cache keys hash these lockfiles.
+            /docs/privacy.md
+            /agent-chat/bun.lock
+            /backend/bun.lock
             /backend/apps/api/
             *.xcstrings
 
@@ -798,6 +819,7 @@ jobs:
   # checks nothing out and reads nothing the gates jobs wrote. A skipped
   # panic-ratchet (nothing to rejudge) does not fail it.
   post:
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     name: post cmux-next/fast-gates
     needs: [resolve, fast-gates, panic-ratchet]
     # A valid receipt posted the status itself; an audited one is judged here again by the gates.
