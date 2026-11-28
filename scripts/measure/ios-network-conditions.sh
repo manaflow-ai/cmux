@@ -134,6 +134,23 @@ root="$(git rev-parse --show-toplevel)"
 cd "$root"
 # A bare runner (cmux-ci test): the pinned Rust and Zig and the native build tools, as
 # mobile-open-path.sh and infinite-items-linux.sh get them.
+# On a Mac, the Xcode this source pins for this host (select-ci-xcode.sh without xcode-select),
+# unless the worker already exported one: cargo links build scripts through xcrun and the
+# transcript surface runs swift. 2026-11-28 steps 95175ac5 and 373f159a on ultra1-guest
+# (Xcode_27.0 and Xcode_27.2 installed, xcode-select at the missing /Applications/Xcode.app)
+# failed linking every Rust build script: "xcrun: error: missing DEVELOPER_DIR path".
+if [[ "$(uname -s)" == Darwin ]]; then
+  if [[ -z "${DEVELOPER_DIR:-}" && -f scripts/select-ci-xcode.sh ]]; then
+    xcode_env="$(mktemp)"
+    CMUX_CI_SKIP_XCODE_SELECT=1 GITHUB_ENV="$xcode_env" /bin/bash scripts/select-ci-xcode.sh >/dev/null
+    DEVELOPER_DIR="$(sed -n 's/^DEVELOPER_DIR=//p' "$xcode_env" | tail -n 1)"
+    rm -f "$xcode_env"
+    [[ -n "$DEVELOPER_DIR" ]] || { echo "ios-network-conditions.sh: select-ci-xcode.sh chose no Xcode" >&2; exit 3; }
+    export DEVELOPER_DIR
+  fi
+  unset SDKROOT
+  echo "NETCOND-XCODE DEVELOPER_DIR=${DEVELOPER_DIR:-} $(xcodebuild -version 2>/dev/null | head -n 1)"
+fi
 export PATH="$HOME/.cargo/bin:$PATH"
 command -v cargo >/dev/null || ./scripts/install-rust-ci.sh
 export PATH="$HOME/.cargo/bin:$PATH"

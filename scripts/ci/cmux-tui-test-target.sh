@@ -210,6 +210,7 @@ save() {
     say "the target is $size_gib GiB, over $max_gib: saving third-party output plus ghostty-vt-sys and its build dependency"
     # Keep library names separate from test/bin names: a test named http must
     # not delete the third-party http library. Clean up only our metadata file.
+    # Passing metadata directly also works with macOS Bash 3.2 (no mapfile).
     (
       metadata="$(mktemp "${TMPDIR:-/tmp}/cmux-tui-cache-metadata.XXXXXX")"
       trap 'rm -f -- "$metadata"' EXIT
