@@ -715,7 +715,11 @@
             "open",
             "start page",
             "profile"
-          ]
+          ],
+          "swift_owner": {
+            "type": "CmuxConfigSnapshot",
+            "prefixed": true
+          }
         },
         {
           "key": "window.settingsLeadPages",
@@ -737,7 +741,11 @@
             "pages",
             "first",
             "profile"
-          ]
+          ],
+          "swift_owner": {
+            "type": "CmuxConfigSnapshot",
+            "prefixed": true
+          }
         }
       ]
     },
