@@ -20,6 +20,11 @@ on:
         type: choice
         options: [plan, apply]
         default: plan
+      app:
+        description: production is IOS_APPSTORE_APP_ID (com.cmux.app.*); internal is IOS_INTERNAL_APP_ID (dev.cmux.app.internal.*), the same records under its product ids
+        type: choice
+        options: [production, internal]
+        default: production
       ref:
         description: Branch or SHA whose records.json and images to use
         required: false
@@ -29,12 +34,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: ios-asc-subscription-records
+  group: ios-asc-subscription-records-${{ inputs.app }}
   cancel-in-progress: false
 
 jobs:
   records:
-    name: Subscription records (${{ inputs.mode }})
+    name: Subscription records (${{ inputs.app }} ${{ inputs.mode }})
     if: github.repository == 'manaflow-ai/cmux'
     environment: release
     # It holds the App Store Connect key, so it takes an ephemeral Linux
@@ -42,7 +47,8 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds the App Store Connect key
     timeout-minutes: 15
     env:
-      ASC_APP_ID: ${{ vars.IOS_APPSTORE_APP_ID }}
+      ASC_APP_ID: ${{ inputs.app == 'internal' && vars.IOS_INTERNAL_APP_ID || vars.IOS_APPSTORE_APP_ID }}
+      APP: ${{ inputs.app }}
       MODE: ${{ inputs.mode }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -63,7 +69,7 @@ jobs:
           set -euo pipefail
           case "$MODE" in plan|apply) ;; *) echo "mode is plan or apply, not $MODE"; exit 2 ;; esac
           if ! [[ "$ASC_APP_ID" =~ ^[0-9]+$ ]]; then
-            echo "no App Store Connect app id (repository variable IOS_APPSTORE_APP_ID)"; exit 1
+            echo "no App Store Connect app id for the $APP app (repository variable IOS_APPSTORE_APP_ID or IOS_INTERNAL_APP_ID)"; exit 1
           fi
           key="$RUNNER_TEMP/AuthKey.p8"
           trap 'rm -f "$key"' EXIT
@@ -72,13 +78,15 @@ jobs:
           unset ASC_API_KEY_P8_BASE64
           export ASC_API_KEY_PATH="$key"
           mkdir -p out
-          python3 -I cmux-next-ios/scripts/asc_subscription_records.py "$MODE" --app "$ASC_APP_ID" \
+          rename=()
+          if [ "$APP" = internal ]; then rename=(--rename com.cmux.app.=dev.cmux.app.internal.); fi
+          python3 -I cmux-next-ios/scripts/asc_subscription_records.py "$MODE" --app "$ASC_APP_ID" "${rename[@]}" \
             --json out/subscription-records.json | tee out/subscription-records.txt
           { echo '```'; cat out/subscription-records.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: subscription-records-${{ inputs.mode }}
+          name: subscription-records-${{ inputs.app }}-${{ inputs.mode }}
           path: out/subscription-records.*
           if-no-files-found: ignore
           retention-days: 14
