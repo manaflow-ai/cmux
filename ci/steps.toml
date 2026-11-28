@@ -3690,6 +3690,75 @@ exit "$status"
 # scripts/ci/ios_runner_pool.py (the `pipeline` lane) and selects Xcode first. Each step judges its own cells: the
 # matrix report (scripts/ci/ios_reliability_matrix.py) fails a step when a `gate: true` cell of its suite failed or
 # did not run, as the workflow's report job did for both logs.
+# Fast headless coverage of signed pairing over each carrier, independently of
+# the full workspace/scroll matrix. Fake providers, production link and host.
+[step.ios-pairing-paths]
+job = "linux"
+pr_scope = false
+# Share the Cargo graph with the full matrix without racing another Rust build.
+alone = true
+timeout = 1800
+title = "iOS signed pairing: impaired carrier paths"
+about = "real signed pairing, host approval and authenticated echo over LocalHub, UDP, TURN UDP and WebSocket relay with deterministic delay/loss"
+needs = ["rust"]
+# Cargo closure rooted at mobile-host, including integration-test dependencies.
+# test_pairing_paths_route_their_cargo_closure keeps these routes complete.
+inputs = [
+  "ci/steps.toml",
+  "scripts/ci/ios_link_ffi_key.py",
+  "tests/test_ci_step_table.py",
+  "cmux-next-ios/rust/crates/cmux-mobile-host/**",
+  "cmux-next-ios/rust/crates/cmux-mobile-link/**",
+  "cmux-next-ios/rust/Cargo.*",
+  "cmux-next-ios/rust/rust-toolchain.toml",
+  "cmux-next-ios/rust/.cargo/**",
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/Cargo.lock",
+  "cmux-tui/rust-toolchain.toml",
+  "cmux-tui/.cargo/**",
+  ".cargo/**",
+  "cmux-tui/crates/cmux-agent-pane-policy/**",
+  "cmux-tui/crates/cmux-braid-carrier/**",
+  "cmux-tui/crates/cmux-braid-class/**",
+  "cmux-tui/crates/cmux-braid-path/**",
+  "cmux-tui/crates/cmux-build-space/**",
+  "cmux-tui/crates/cmux-bundle/**",
+  "cmux-tui/crates/cmux-cloud-wire/**",
+  "cmux-tui/crates/cmux-deadline/**",
+  "cmux-tui/crates/cmux-egress/**",
+  "cmux-tui/crates/cmux-fault/**",
+  "cmux-tui/crates/cmux-hop-relay/**",
+  "cmux-tui/crates/cmux-json/**",
+  "cmux-tui/crates/cmux-message-preview/**",
+  "cmux-tui/crates/cmux-mobile-core/**",
+  "cmux-tui/crates/cmux-output-paint/**",
+  "cmux-tui/crates/cmux-phone-page/**",
+  "cmux-tui/crates/cmux-proxy/**",
+  "cmux-tui/crates/cmux-rd-core/**",
+  "cmux-tui/crates/cmux-rd-engine/**",
+  "cmux-tui/crates/cmux-rd-link/**",
+  "cmux-tui/crates/cmux-rd-proto/**",
+  "cmux-tui/crates/cmux-relay-snapshot/**",
+  "cmux-tui/crates/cmux-remote-protocol/**",
+  "cmux-tui/crates/cmux-scope/**",
+  "cmux-tui/crates/cmux-tab-snapshots/**",
+  "cmux-tui/crates/cmux-terminal-projection/**",
+  "cmux-tui/crates/cmux-terminal-sizing/**",
+  "cmux-tui/crates/cmux-transport/**",
+  "cmux-tui/crates/cmux-transport-rewrite/**",
+  "cmux-tui/crates/cmux-unix-socket/**",
+  "cmux-tui/crates/cmux-wg/**",
+  "cmux-tui/crates/ghostty-vt/**",
+  "cmux-tui/crates/ghostty-vt-sys/**",
+  "cmux-tui/vendor/crossterm/**",
+  "cmux-tui/vendor/smoltcp/**",
+  "cmux-tui/vendor/terminput-crossterm/**",
+]
+run = '''
+cd cmux-next-ios/rust
+cargo test --release --locked -p cmux-mobile-host --test host pairing_paths:: -- --nocapture
+'''
+
 [step.ios-matrix-protocol]
 job = "linux"
 tier = "push"
