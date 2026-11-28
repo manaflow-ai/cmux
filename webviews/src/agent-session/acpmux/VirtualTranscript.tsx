@@ -101,6 +101,7 @@ import { useCountedRender } from "./perfRender";
 import { drewStreamingRow, useStreamingRowCatchUp } from "./streamingRow";
 import { drewThoughts, lineHeardNow, liveThoughtHeard, rowsDrawnNow } from "./liveThought";
 import { drewLiveLine, liveCallLineHeard } from "./liveCallLine";
+import { drewHiddenRows } from "./hiddenReply";
 import { followTrace } from "./followTrace";
 import {
   FIELD_GROWTH_EVENT,
@@ -111,7 +112,7 @@ import {
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { holdOlderScrollTarget, noteOlderScrollTarget } from "./conversation/olderScrollTarget";
-import { noteTranscriptMount } from "./flickerLog";
+import { noteFoldCopyOrphan, noteTranscriptMount } from "./flickerLog";
 import { useEndedReplyCheck } from "./conversation/replyJudge";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { transcriptScrollPacer } from "./transcriptScrollPacer.experiment";
@@ -158,7 +159,7 @@ import {
   type FoldAnchor,
   notePlacement,
 } from "./conversation/foldAnchor";
-import { settleTurnFold, startTurnFold, watchTurnFold, type TurnFold } from "./conversation/turnFold";
+import { settleTurnFold, startTurnFold, sweepFoldCopies, watchTurnFold, type TurnFold } from "./conversation/turnFold";
 import { drawnOpenStateHolds, rowOpenState } from "./conversation/rowOpenState";
 import {
   captureTurnEnd,
@@ -1067,6 +1068,7 @@ function TranscriptView({
   useLayoutEffect(() => {
     if (!streams) return;
     drewThoughts(paneRows);
+    drewHiddenRows(paneRows);
     for (let index = paneRows.length - 1; index >= 0; index -= 1) {
       const row = paneRows[index]!;
       if (row.kind === "assistant" && row.streaming) {
@@ -2047,9 +2049,16 @@ function TranscriptView({
           !(foldMs(rows) > 0)
         )
           return;
-        const tx = threadTransaction(rows);
-        tx.expect("send");
-        tx.ride(detail.animation);
+        // A send while a turn runs goes to the queue: no prompt row lands to release a send's hold (as
+        // sendMoves knows, #50851), so holding the field for one drew the tall composer still for the
+        // hold's bound (266 ms measured, 15-lines-busy-latest) and then dropped it 149 px in one frame
+        // (Leo, 2026-11-22: the collapse of the composer took too long, and the send jumped). A queued
+        // send's collapse plays as a growth does: the field on its own spring, the rows on its clock.
+        if (!workingRef.current) {
+          const tx = threadTransaction(rows);
+          tx.expect("send");
+          tx.ride(detail.animation);
+        }
         detail.outside.claim();
       }
       growth = { field: target, to: detail.to };
@@ -5745,6 +5754,17 @@ function TranscriptView({
     },
     [sessionId],
   );
+  // A fold copy no playing fold owns goes at the next commit (turnFold.ts `sweepFoldCopies`), and the
+  // flicker log records it: each fold takes its own copies out when it ends, so one found here is one
+  // a fold left behind. O(1) while the thread holds no copy (copies are recorded where they go in).
+  useLayoutEffect(() => {
+    const end = turnEnd.current;
+    const taken = sweepFoldCopies(
+      thread.current,
+      (copy) => (end?.done !== true && end?.copies.has(copy) === true) || foldGhosts.current.has(copy),
+    );
+    if (taken > 0) noteFoldCopyOrphan(taken, end === undefined ? "none" : end.done ? "settled" : "running");
+  });
   // What this pass gave the room of the tray's open list (`trayHold`), and the rows it measured.
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs after every commit on purpose (it stores what this pass gave the room); its one setState call is guarded by the compare with noticeBase.
   useLayoutEffect(() => {
@@ -6252,7 +6272,7 @@ function TranscriptView({
       .map((node) => warmMotionTokens(node, SEND_MOTION_TOKENS));
     // The motion gate's own read (motionMode, on the root).
     const root = ref.current?.ownerDocument.documentElement;
-    if (root) stops.push(warmMotionTokens(root, ["--agent-motion-in"]));
+    if (root) stops.push(warmMotionTokens(root, ["--agent-motion-in", "--cmux-motion-stream"]));
     return () => stops.forEach((stop) => stop());
   }, []);
   // The reader sent a prompt: the view goes to the latest message before the frame paints, even
