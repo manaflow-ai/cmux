@@ -152,8 +152,11 @@ struct PageInfoSiteDataMemoryTests {
 @MainActor
 struct PageInfoSiteNameTests {
     /// One unit a character, so the widths below are character counts.
-    private func fitted(_ name: String, _ width: CGFloat) -> String {
-        PageInfoSite.fittedName(name, width: width) { CGFloat($0.count) }
+    private func fitted(
+        _ name: String, _ width: CGFloat,
+        registrableDomain: ((String) -> String?)? = PublicSuffixList.sharedRegistrableDomain
+    ) -> String {
+        PageInfoSite.fittedName(name, width: width, registrableDomain: registrableDomain) { CGFloat($0.count) }
     }
 
     @Test func aLongHostKeepsItsRegistrableDomainInThePartThatAlwaysShows() {
@@ -178,6 +181,74 @@ struct PageInfoSiteNameTests {
         let parts = PageInfoSite.splitName("example.com")
         #expect(parts.head.isEmpty)
         #expect(parts.tail == "example.com")
+    }
+
+    /// A site on a private suffix (`github.io`, `vercel.app`) is its own site: its owner always
+    /// shows, so `paypal-login.evil.github.io` cannot look like GitHub's page (#41671).
+    @Test(arguments: [
+        ("paypal-login.evil.github.io", "paypal-login.", "evil.github.io"),
+        ("login.my-bank.vercel.app:8443", "login.", "my-bank.vercel.app:8443"),
+        ("www.bbc.co.uk", "www.", "bbc.co.uk"),
+        ("a.b.example.com.au", "a.b.", "example.com.au"),
+        ("sub.city.kawasaki.jp", "sub.", "city.kawasaki.jp"),
+        ("www.shop.example.kawasaki.jp", "www.", "shop.example.kawasaki.jp"),
+    ])
+    func aHostKeepsItsRegistrableDomainFromThePublicSuffixList(name: String, head: String, tail: String) {
+        let parts = PageInfoSite.splitName(name)
+        #expect(parts.head == head)
+        #expect(parts.tail == tail)
+    }
+
+    /// A name the list has no site for, a public suffix itself or an IP address, is all tail: no
+    /// part of it names an owner a prefix could hide.
+    @Test(arguments: ["github.io", "co.uk", "192.168.100.200", "192.168.100.200:8080"])
+    func aNameWithNoRegistrableDomainIsAllTail(name: String) {
+        let parts = PageInfoSite.splitName(name)
+        #expect(parts.head.isEmpty)
+        #expect(parts.tail == name)
+    }
+
+    @Test func aNarrowHeaderStillShowsThePrivateSuffixSitesOwner() {
+        #expect(fitted("paypal-login.evil.github.io", 20) == "paypa…evil.github.io")
+    }
+
+    /// The header lays out on the main thread: before the list is read it guesses, and the list is
+    /// read on another thread, never the caller's (Codex review, #44608).
+    @Test func theHeaderGuessesUntilTheListIsReadInTheBackground() async {
+        #expect(fitted("paypal-login.evil.github.io", 20, registrableDomain: nil) == "paypal-log…github.io")
+        // A read in the caller's own task (for the header, on the main thread) hands back no list.
+        let caller = withUnsafeCurrentTask { $0?.hashValue }
+        let lookup = await PublicSuffixList.sharedRegistrableDomainInBackground {
+            withUnsafeCurrentTask { $0?.hashValue } == caller ? nil : PublicSuffixList.sharedRegistrableDomain
+        }
+        #expect(lookup != nil)
+        #expect(fitted("paypal-login.evil.github.io", 20, registrableDomain: lookup) == "paypa…evil.github.io")
+        #expect(await PublicSuffixList.sharedRegistrableDomainInBackground() != nil)
+    }
+
+    /// A local name has no dot to cut at, or is a site of its own: it shows whole.
+    @Test(arguments: ["localhost", "localhost:3000", "app.localhost:5173", "[::1]:8080"])
+    func aLocalNameIsAllTail(name: String) {
+        let parts = PageInfoSite.splitName(name)
+        #expect(parts.head.isEmpty)
+        #expect(parts.tail == name)
+    }
+
+    /// The list reads punycode; a name it cannot read (Unicode) falls back to the guess.
+    @Test func anInternationalizedHostKeepsItsRegistrableDomain() {
+        let punycode = PageInfoSite.splitName("paypal.xn--bcher-kva.github.io")
+        #expect(punycode.tail == "xn--bcher-kva.github.io")
+        let unicode = PageInfoSite.splitName("login.bücher.example.de")
+        #expect(unicode.head == "login.bücher.")
+        #expect(unicode.tail == "example.de")
+    }
+
+    /// Without the list (a missing resource) the cut guesses as before.
+    @Test func withoutAListTheCutGuesses() {
+        let privateSuffix = PageInfoSite.splitName("paypal-login.evil.github.io", registrableDomain: nil)
+        #expect(privateSuffix.tail == "github.io")
+        let shortSecondLevel = PageInfoSite.splitName("login.bank.example.co.uk", registrableDomain: nil)
+        #expect(shortSecondLevel.tail == "example.co.uk")
     }
 
     @Test func aPathKeepsItsEnd() {

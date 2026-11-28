@@ -46,9 +46,18 @@ public nonisolated struct PublicSuffixList: Sendable {
     /// file: build it once per owner, off the typing path.
     public static func bundled() -> PublicSuffixList? {
         guard let url = Bundle.module.url(forResource: "PublicSuffixList", withExtension: "dat"),
-              // concurrency-allow: a bundled file read once when email verification AutoFill turns on.
+              // concurrency-allow: a bundled file read once, on the first use of ``shared``.
               let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
         return PublicSuffixList(listText: text)
+    }
+
+    /// The app's one list (``bundled()``), read on first use and kept: email verification
+    /// AutoFill and Page Info's site name share it. Nil when the resource is missing.
+    public static let shared = bundled()
+
+    /// ``registrableDomain(of:)`` on ``shared``, or nil when there is no list.
+    static let sharedRegistrableDomain: (@Sendable (String) -> String?)? = shared.map { list in
+        { @Sendable host in list.registrableDomain(of: host) }
     }
 
     /// How many rules the list holds.
