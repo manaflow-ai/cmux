@@ -1740,7 +1740,8 @@ function ThreadMinimapView({
         turns={loadedTurns}
         layout={layout}
         scroller={scroller}
-        viewportHeight={viewportHeight}
+        // Its box starts under a floating tab row (threadMinimap.css --acpmux-rail-top).
+        viewportHeight={viewportHeight - topInset}
         scrolls={scrolls}
         placement={placement}
         marks={marks}

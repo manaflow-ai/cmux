@@ -104,5 +104,38 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card"));
       },
     },
+    // Leo, 2026-11-25: "overlay bug in scroll rail". The rail's box is measured from under the floating
+    // tab row (railBox), and the rail now sticks there too (--acpmux-rail-top), not at the scroller's top
+    // over the tab row's title. Short panes push the rail to its room's top, where the overlap showed.
+    "solo-tab-top": {
+      note: "A one-tab pane at the chat's top: the rail starts below the floating tab row, never beside its title.",
+      snapshot: chat(rows, { title: "New chat rail under the tab row" }),
+      play: async (ctx) => {
+        await solo(ctx);
+        await railReady(ctx);
+        await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
+      },
+    },
+    "solo-tab-mid": {
+      note: "A one-tab pane scrolled to the chat's middle: the sticky rail stays below the tab row.",
+      snapshot: chat(rows, { title: "New chat rail under the tab row" }),
+      play: async (ctx) => {
+        await solo(ctx);
+        await railReady(ctx);
+        const scroller = ctx.find({ selector: ".acpmux-scroll" }) as HTMLElement;
+        await ctx.scroll({ selector: ".acpmux-scroll" }, Math.round(scroller.scrollHeight / 2));
+      },
+    },
+    "solo-tab-narrow": {
+      note: "A narrow, short one-tab pane: the rail fills its room and its top still clears the tab row.",
+      snapshot: chat(rows, { title: "New chat rail under the tab row" }),
+      play: async (ctx) => {
+        await solo(ctx);
+        await railReady(ctx);
+        await ctx.resize(420);
+        const scroller = ctx.find({ selector: ".acpmux-scroll" }) as HTMLElement;
+        await ctx.scroll({ selector: ".acpmux-scroll" }, Math.round(scroller.scrollHeight / 3));
+      },
+    },
   },
 });

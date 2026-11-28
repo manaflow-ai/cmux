@@ -4,7 +4,8 @@
    (the accent, as the prompt bubble), the bottom border for tool groups (muted). */
 .acpmux-chat-minimap {
   position: sticky;
-  top: 0;
+  /* Below a floating tab row (--acpmux-rail-top, transcriptShell.tsx), as the thread rail. */
+  top: var(--acpmux-rail-top, 0px);
   z-index: var(--layer-sticky);
   height: 0;
 }
