@@ -440,7 +440,7 @@ jobs:
     # sees no verdict and dispatches the same probe again, so the bisect goes on instead of stopping.
     if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 20
+    timeout-minutes: 70  # the judge waits up to 65 min for a spent rate limit's reset (post_merge_batch.py budgets)
     # The read App's key lives in ci-routing-agent, which serves the base; elsewhere (a drill branch) the mint
     # finds no key and the reads fall back to GITHUB_TOKEN.
     environment: ${{ github.ref_name == 'feat-cmux-next' && 'ci-routing-agent' || '' }}

@@ -16,6 +16,8 @@ Packages/Shared/CmuxChiefList  CmuxChiefListTests  -
 Packages/Shared/CmuxEgress  CmuxEgressTests  -
 Packages/Shared/CmuxConnectivityTelemetry  CmuxConnectivityTelemetryTests  -
 Packages/Shared/CmuxDeviceHub  CmuxDeviceHubTests  CMUX_SWIFTPM_TARGET_LINUX=1
+Packages/Shared/CmuxSentryTelemetry  CmuxSentryScrubbingTests  CMUX_SWIFTPM_TARGET_LINUX=1
+Packages/Shared/CmuxHomeCore  CmuxHomeCoreTests  CMUX_SWIFTPM_TARGET_LINUX=1
 Packages/Shared/CMUXAuthCore  CMUXAuthCoreTests  -
 Packages/Shared/CmuxFeedPushCore  CmuxFeedPushCoreTests  CMUX_SWIFTPM_TARGET_LINUX=1
 Packages/Shared/CmuxInstallAuthCore  CmuxInstallAuthCoreTests  CMUX_SWIFTPM_TARGET_LINUX=1

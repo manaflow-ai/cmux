@@ -8,7 +8,7 @@ import { AI_LIMIT_MEMBER_OP, AI_LIMIT_OP, AI_LIMIT_OPS, mayManageBilling, reduce
 // TeamDO reads limits through this module (team-do.ts stays within its size budget).
 export { aiLimitViewOf, codeRunLimit, memberLimit } from "./team-ai-limit.ts"
 import { reduceDomainClaim, reduceDomainLost, reduceDomainRechecked, reduceDomainReleased, reduceDomainVerified, type DomainState } from "./team-domains.ts"
-import { reduceActivated, reduceConnectionCreate, reduceConnectionDisable, reduceSecretSet, type SsoState } from "./team-sso.ts"
+import { reduceActivated, reduceConnectionCreate, reduceConnectionCreateSaml, reduceConnectionDisable, reduceSecretSet, type SsoState } from "./team-sso.ts"
 import { reduceDeviceEnroll, reduceDeviceRelease, reduceReportStatus, reduceTokenCreate, reduceTokenRevoke, type EnrollmentState } from "./team-enrollment.ts"
 import { reduceIntegrationLock, reduceIntegrationSeed, reduceIntegrationSynced, reduceReleaseDone, reduceReleaseLock, type IntegrationSyncState } from "./team-integration-sync.ts"
 import { reducePolicyRollback, reducePolicyUpdate, withNewTeamPolicy } from "./team-policy.ts"
@@ -322,12 +322,14 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         return withAudit(reduceDomainClaim(state, params, ctx), state.team.id, ctx, op)
       }
       case "sso.connection.create":
+      case "sso.connection.create_saml":
       case "sso.connection.disable": {
         if (!state.team) return reject("validation.invalid", "team not initialized")
         if (p.kind === "agent" || p.agent) return reject("auth.forbidden", "agents cannot change SSO connections")
         const role = roleOf(state, ctx.rows, p.user)
         if (!roleHas(role, "team.manage")) return reject("auth.forbidden", "only team owners and admins may change SSO connections")
-        return withAudit(op === "sso.connection.create" ? reduceConnectionCreate(state, params, ctx) : reduceConnectionDisable(state, params, ctx), state.team.id, ctx, op)
+        const reduce = op === "sso.connection.create" ? reduceConnectionCreate : op === "sso.connection.create_saml" ? reduceConnectionCreateSaml : reduceConnectionDisable
+        return withAudit(reduce(state, params, ctx), state.team.id, ctx, op)
       }
       case AI_LIMIT_OP:
       case AI_LIMIT_MEMBER_OP:
