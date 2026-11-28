@@ -8,7 +8,7 @@ import { BrowseFailure } from "./BrowseFailure";
 import { browseFailureMessage } from "./browseFailureModel";
 import { useT } from "./i18n";
 import { Popover } from "../../ui/Popover";
-import { Combobox } from "../../ui/Combobox";
+import { COMBOBOX_VIRTUAL_AFTER, Combobox } from "../../ui/Combobox";
 import { ProjectBadge } from "./ProjectBadge";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { chooserRows, type ProjectRepo } from "./projectRepos";
@@ -16,8 +16,8 @@ import { machineColor } from "./machineColor";
 import { emptyFolderLabel } from "./composerContextModel";
 
 /// A folder to start a chat in. `peer` (with its display name `host`) is another machine's folder:
-/// its row carries the machine's computer, in the machine's own color, and its name, and a pick
-/// starts the chat there. `repo` is the
+/// it lists under that machine's heading (its symbol, in the machine's own color, and its name), and
+/// a pick starts the chat there. `repo` is the
 /// folder's repository as this Mac's host read it (projectRepos.ts).
 export type Project = {
   cwd: string;
@@ -93,10 +93,17 @@ export function ProjectChooser({
 
   // One row per repository; a lane's worktree or a scratch folder only when the search names it
   // (projectRepos.ts chooserRows).
+  // Then grouped by machine (Leo, 2026-10-20: "these are the projects, right? Like on this project was
+  // associated with that computer, just having that show on the one thing"): each machine's folders
+  // together, machines in the order their newest folder comes, so the machine is named once over its
+  // folders instead of on every row.
   const shown = useMemo(
-    () => chooserRows(projects, query, currentPeer ? undefined : current),
+    () => byMachine(chooserRows(projects, query, currentPeer ? undefined : current)),
     [projects, query, current, currentPeer],
   );
+  // Each machine's heading sits on its first folder. One machine's list needs none when it is this
+  // Mac (nothing to tell apart); another machine's folders always say whose they are.
+  const headings = useMemo(() => machineHeadings(shown), [shown]);
   const rows = useMemo<Row[]>(() => {
     const listed: Row[] = shown.map((project) => ({ key: rowKey(project), project }));
     if (onNoProject) listed.unshift({ key: NO_PROJECT_KEY });
@@ -257,8 +264,20 @@ export function ProjectChooser({
               const project = row?.project;
               const checked = isCurrent(key);
               const name = project ? project.label : row ? t("project.noFolder") : t("project.usePath", { path: key });
+              const heading = headings.get(key);
               return (
                 <>
+                  {heading && (
+                    <span
+                      className="acpmux-project-machine"
+                      data-peer={heading.peer}
+                      data-divider={shown[0] && rowKey(shown[0]) === key ? undefined : ""}
+                      aria-hidden="true"
+                    >
+                      <MachineIcon name={heading.peer ? heading.host : undefined} peer={heading.peer} />
+                      <span>{heading.peer ? heading.host : t("composer.thisMac")}</span>
+                    </span>
+                  )}
                   {project ? (
                     <ProjectBadge project={project} />
                   ) : (
@@ -272,12 +291,6 @@ export function ProjectChooser({
                       <span className="acpmux-menu-description" data-path={project.cwd} />
                     )}
                   </span>
-                  {project?.host && (
-                    <span className="acpmux-project-host" data-peer={project.peer}>
-                      <MachineIcon name={project.peer ? project.host : undefined} peer={project.peer} />
-                      <span>{project.host}</span>
-                    </span>
-                  )}
                   <span className="acpmux-project-check" aria-hidden="true">
                     {checked ? "✓" : ""}
                   </span>
@@ -286,6 +299,10 @@ export function ProjectChooser({
             }}
             inline
             keepHeight
+            // A heading drawn in a row's margin changes its outer size: a windowed list measures it apart.
+            {...(shown.length > COMBOBOX_VIRTUAL_AFTER
+              ? { virtualRows: { estimate: 28, sizeKey: (key: string) => (headings.has(key) ? "heading" : "") } }
+              : {})}
           />
           {shown.length === 0 && !typedPath && (query.trim() || !onNoProject) && (
             <div className="acpmux-project-empty">
@@ -301,6 +318,36 @@ export function ProjectChooser({
   );
 }
 
+/// The chooser's folders with each machine's together: this Mac's first when it has any, then each
+/// other machine in the order its first folder came. Within a machine the order is kept.
+export function byMachine<T extends { peer?: string }>(projects: T[]): T[] {
+  const machines = new Map<string, T[]>();
+  for (const project of projects) {
+    const id = project.peer ?? "";
+    const rows = machines.get(id);
+    if (rows) rows.push(project);
+    else machines.set(id, [project]);
+  }
+  if (machines.size < 2) return projects;
+  const local = machines.get("") ?? [];
+  machines.delete("");
+  return [...local, ...[...machines.values()].flat()];
+}
+
+/// Row key → the machine whose heading goes over that row: the first folder of each machine, except
+/// a list that is only this Mac's.
+export function machineHeadings(shown: readonly Project[]): Map<string, { peer?: string; host?: string }> {
+  const headings = new Map<string, { peer?: string; host?: string }>();
+  if (!shown.some((project) => project.peer)) return headings;
+  let previous: string | null = null;
+  for (const project of shown) {
+    const id = project.peer ?? "";
+    if (id !== previous) headings.set(rowKey(project), { peer: project.peer, host: project.host });
+    previous = id;
+  }
+  return headings;
+}
+
 /// A folder the host names by its own path (a home folder has no project name): its title is
 /// already the path, so the row shows it once (Leo, ":( alignemnt").
 function titledByPath(project: Project) {
@@ -308,9 +355,9 @@ function titledByPath(project: Project) {
   return trim(project.label) === trim(project.cwd);
 }
 
-/// The machine a project is on: the computer the composer's chip and the environment list draw for
-/// it, in that machine's own color (machineColor), so each machine reads as itself instead of one
-/// globe repeated on every row (Leo, 2026-10-20: "we can have them be delineated rather than just
+/// The machine a group of projects is on: the computer the composer's chip and the environment list
+/// draw for it, in that machine's own color (machineColor), so each machine reads as itself instead
+/// of one globe repeated on every row (Leo, 2026-10-20: "we can have them be delineated rather than just
 /// this is a computer symbol. This is a computer symbol"). This Mac stays quiet.
 function MachineIcon({ name, peer }: { name?: string; peer?: string }) {
   // Its own device glyph once its daemon said what it is (Leo 2026-11-14); else the laptop.
