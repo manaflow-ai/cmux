@@ -23,8 +23,11 @@ Read types (a family's `objects`): result and snapshot structs the app decodes, 
 name. The binding may set `conformances` (default Decodable, Sendable, Equatable), `order`, `init: false`,
 `omit` (schema fields the app does not read; never a required one of a type it encodes), `extra` (app-only
 properties with a type and default, not on the wire) and per field the request keys plus `default` (a
-Swift expression: the field decodes leniently, missing means the default) and `optional: true`. Encoding is
-always synthesized; decoding is synthesized unless a property has a default.
+Swift expression: the field decodes leniently, missing means the default), `optional: true`, `lenient: true`
+(a value of the wrong shape reads as missing, so a newer daemon's value never fails the parent), `when` (a
+Swift condition on properties read before it; false reads nil), `prefer` (a wire key read first, this field's
+own key the fallback; the preferred key is omitted from the struct). Encoding is always synthesized; decoding is synthesized unless a
+property uses one of these read options.
 """
 
 from __future__ import annotations
@@ -75,12 +78,15 @@ _TOP_KEYS = frozenset({"$comment", "sources_root", "ids", "types", "families"})
 _FAMILY_KEYS = frozenset({"$comment", "enums", "requests", "objects"})
 _ENUM_KEYS = frozenset({"doc"})
 _REQUEST_KEYS = frozenset({
-    "name", "doc", "order", "fields", "response", "response_order", "response_fields", "protocol",
+    "name", "doc", "order", "fields", "response", "response_order", "response_fields", "protocol", "mutation",
 })
-_FIELD_KEYS = frozenset({"name", "type", "doc"})
+_FIELD_KEYS = frozenset({"name", "type", "doc", "default", "optional", "encode", "update"})
+_ENCODE_MODES = {"always": True, "if_present": False}
+MUTATION = "mutation"
+_MUTATION_WIRE = ("origin", "mutation_id", "expected_generation", "expected_revision")
 # A read type's field may also take a Swift default (a lenient read: a missing key decodes as it) or be made
 # optional although the schema requires it (an app that still reads an older daemon that left it out).
-_READ_FIELD_KEYS = _FIELD_KEYS | {"default", "optional"}
+_READ_FIELD_KEYS = _FIELD_KEYS | {"default", "optional", "lenient", "when", "prefer"}
 _OBJECT_KEYS = frozenset({"$comment", "type", "result", "doc", "conformances", "order", "fields", "extra", "init", "omit"})
 _EXTRA_KEYS = frozenset({"type", "default", "doc"})
 DEFAULT_CONFORMANCES = ("Decodable", "Sendable", "Equatable")
@@ -197,15 +203,36 @@ class _Field:
     doc: list[str]
     default: str | None = None
     on_wire: bool = True
+    update: bool = False
+    mutation: bool = False
+    # A lenient read (`lenient`): a value of the wrong shape decodes as missing instead of failing the parent.
+    lenient: bool = False
+    # A Swift condition on properties decoded before this one (`when`); false reads nil.
+    when: str | None = None
+    # A wire key read first (`prefer`), this field's own key the fallback: a newer daemon's spelling.
+    prefer: str | None = None
+
+    @property
+    def custom_read(self) -> bool:
+        return self.default is not None or self.lenient or self.when is not None or self.prefer is not None
 
     @property
     def declared_type(self) -> str:
+        if self.update:
+            return f"FieldUpdate<{self.swift_type}>"
         return self.swift_type + ("?" if self.optional else "")
 
     def parameter(self) -> str:
-        if self.default is not None:
-            return f"{self.name}: {self.declared_type} = {self.default}"
-        return f"{self.name}: {self.declared_type}" + (" = nil" if self.optional else "")
+        default = self.default
+        if default is None:
+            default = ".unchanged" if self.update else "nil" if self.optional else None
+        return f"{self.name}: {self.declared_type}" + ("" if default is None else f" = {default}")
+
+    def encode_line(self) -> str:
+        if self.mutation:
+            return f"        try MutationFields(identity: {self.name}).encode(to: encoder)"
+        method = "encode" if self.always_encoded or self.update else "encodeIfPresent"
+        return f"        try container.{method}({self.name}, forKey: .{_bare(self.name)})"
 
     def coding_key(self) -> str:
         return f"case {self.name}" + ("" if _bare(self.name) == self.wire else f" = {json.dumps(self.wire)}")
@@ -319,11 +346,32 @@ class _Renderer:
             required = spec["presence"] == "required"
             # A JSONValue carries null itself, so a required nullable JSON field is not an Optional.
             optional = not required or (spec["nullable"] and swift_type != JSON_VALUE)
-            default = override.get("default")
-            if default is not None:
-                optional = False
-            elif override.get("optional"):
-                optional = True
+            if read:
+                default = override.get("default")
+                if default is not None:
+                    optional = False
+                elif override.get("optional"):
+                    optional = True
+                always = required
+                update = False
+            else:
+                update = override.get("update", False)
+                if update is not False and (update is not True or required or not spec["nullable"]):
+                    raise BindingError(f"{where}.{wire}: update is true only on an optional nullable field")
+                if "optional" in override:
+                    if not isinstance(override["optional"], bool) or update:
+                        raise BindingError(f"{where}.{wire}: optional is true or false, and not with update")
+                    optional = override["optional"]
+                always = required
+                if "encode" in override:
+                    if override["encode"] not in _ENCODE_MODES or update:
+                        raise BindingError(f"{where}.{wire}: encode is always or if_present, and not with update")
+                    always = _ENCODE_MODES[override["encode"]]
+                if not optional and not always:
+                    raise BindingError(f"{where}.{wire}: a field that is not Optional is always encoded")
+                default = override.get("default")
+                if default is not None and (not isinstance(default, str) or not default):
+                    raise BindingError(f"{where}.{wire}: default is a Swift expression")
             doc = list(override.get("doc") or ([spec["description"]] if spec.get("description") else []))
             doc += _constraint_lines(spec.get("constraints", ()))
             if spec.get("capability") and read:
@@ -342,10 +390,19 @@ class _Renderer:
                 name=_escaped(override["name"]) if "name" in override else swift_name(wire),
                 swift_type=swift_type,
                 optional=optional,
-                always_encoded=required,
+                always_encoded=always,
                 doc=doc,
                 default=default,
+                lenient=bool(override.get("lenient")),
+                when=override.get("when"),
+                prefer=override.get("prefer"),
+                update=update,
             ))
+            made = result[-1]
+            if made.lenient and not made.optional and made.default is None:
+                raise BindingError(f"{where}.{wire}: lenient needs an optional field or a default")
+            if made.when is not None and not made.optional:
+                raise BindingError(f"{where}.{wire}: when needs an optional field (a false condition reads nil)")
         names = [_bare(item.name) for item in result]
         if len(set(names)) != len(names):
             raise BindingError(f"{where}: two fields become the same Swift name")
@@ -395,7 +452,27 @@ class _Renderer:
         if protocol not in PROTOCOLS:
             raise BindingError(f"{command}: protocol must be one of {', '.join(PROTOCOLS)}")
         nested: list[_Enum] = []
-        fields = self.fields(command, request["fields"], binding.get("fields", {}), binding.get("order", ()), nested)
+        schema_fields, order = request["fields"], list(binding.get("order", ()))
+        mutation = binding.get("mutation", False)
+        if mutation not in (True, False):
+            raise BindingError(f"{command}: mutation is true or false")
+        if mutation:
+            if not {"origin", "mutation_id"} <= set(schema_fields):
+                raise BindingError(f"{command}: mutation needs the schema's origin and mutation_id fields")
+            schema_fields = {wire: spec for wire, spec in schema_fields.items() if wire not in _MUTATION_WIRE}
+        at = order.index(MUTATION) if mutation and MUTATION in order else None
+        if at is not None:
+            order.pop(at)
+        fields = self.fields(command, schema_fields, binding.get("fields", {}), order, nested)
+        if mutation:
+            if MUTATION in (_bare(item.name) for item in fields):
+                raise BindingError(f"{command}: a field is already named mutation")
+            fields.insert(len(fields) if at is None else at, _Field(
+                wire=MUTATION, name=MUTATION, swift_type="MutationIdentity", optional=True, always_encoded=False,
+                doc=["The exactly-once key (`origin`, `mutation_id`); reuse it on every retry of this write."],
+                mutation=True,
+            ))
+        keyed = [item for item in fields if not item.mutation]
         response = self.response_binding(command, schema["result"], binding)
 
         name = binding["name"]
@@ -416,14 +493,15 @@ class _Renderer:
         out += ["", f"    public init({', '.join(item.parameter() for item in fields)}) {{"]
         out += [f"        self.{item.name} = {item.name}" for item in fields]
         out.append("    }")
-        if fields:
+        if keyed:
             out += ["", "    enum CodingKeys: String, CodingKey {"]
-            out += [f"        {item.coding_key()}" for item in fields]
-            out += ["    }", "", "    public func encode(to encoder: any Encoder) throws {"]
-            out.append("        var container = encoder.container(keyedBy: CodingKeys.self)")
-            for item in fields:
-                method = "encode" if item.always_encoded else "encodeIfPresent"
-                out.append(f"        try container.{method}({item.name}, forKey: .{_bare(item.name)})")
+            out += [f"        {item.coding_key()}" for item in keyed]
+            out.append("    }")
+        if fields:
+            out += ["", "    public func encode(to encoder: any Encoder) throws {"]
+            if keyed:
+                out.append("        var container = encoder.container(keyedBy: CodingKeys.self)")
+            out += [item.encode_line() for item in [*keyed, *(item for item in fields if item.mutation)]]
             out.append("    }")
         if response == GENERATE:
             out += ["", *self.response(command, schema["result"], binding)]
@@ -522,6 +600,15 @@ class _Renderer:
         if len(set(names)) != len(names):
             raise BindingError(f"{where}: two properties become the same Swift name")
         wire = [item for item in ordered if item.on_wire]
+        preferred: list[tuple[str, str]] = []
+        for item in wire:
+            if item.prefer is None:
+                continue
+            if item.prefer not in target["fields"]:
+                raise BindingError(f"{where}.{item.wire}: prefer names {item.prefer!r}, which the schema does not have")
+            if item.prefer in schema_fields:
+                raise BindingError(f"{where}.{item.wire}: prefer reads {item.prefer!r} into this field; omit it")
+            preferred.append((swift_name(item.prefer), item.prefer))
         conformances = binding.get("conformances", list(DEFAULT_CONFORMANCES))
         decodes = "Decodable" in conformances or "Codable" in conformances
 
@@ -539,31 +626,37 @@ class _Renderer:
         if wire:
             out += ["", "    enum CodingKeys: String, CodingKey {"]
             out += [f"        {item.coding_key()}" for item in wire]
+            out += [f"        case {key} = {json.dumps(value)}" for key, value in preferred]
             out.append("    }")
-        if decodes and any(item.default is not None for item in ordered):
+        if decodes and any(item.custom_read for item in ordered):
             # A lenient read: a key the daemon left out decodes as the property's default.
             out += ["", "    public init(from decoder: any Decoder) throws {"]
             out.append("        let container = try decoder.container(keyedBy: CodingKeys.self)")
             for item in ordered:
-                if not item.on_wire:
-                    out.append(f"        {item.name} = {item.default}")
-                elif item.default is not None:
-                    out.append(
-                        f"        {item.name} = try container.decodeIfPresent({item.swift_type}.self,"
-                        f" forKey: .{_bare(item.name)}) ?? {item.default}"
-                    )
-                elif item.optional:
-                    out.append(
-                        f"        {item.name} = try container.decodeIfPresent({item.swift_type}.self,"
-                        f" forKey: .{_bare(item.name)})"
-                    )
-                else:
-                    out.append(
-                        f"        {item.name} = try container.decode({item.swift_type}.self, forKey: .{_bare(item.name)})"
-                    )
+                out.append(f"        {item.name} = {_read_expression(item)}")
             out.append("    }")
         out.append("}")
         return out
+
+
+def _read_expression(item: _Field) -> str:
+    """The Swift expression `init(from:)` assigns to one read-type property."""
+    if not item.on_wire:
+        return str(item.default)
+    key = f".{_bare(item.name)}"
+    if not item.optional and item.default is None and item.prefer is None:
+        return f"try container.decode({item.swift_type}.self, forKey: {key})"
+    keys = ([f".{_bare(swift_name(item.prefer))}"] if item.prefer is not None else []) + [key]
+    reads = [f"container.decodeIfPresent({item.swift_type}.self, forKey: {each})" for each in keys]
+    if item.lenient:
+        expression = " ?? ".join(f"((try? {read}) ?? nil)" for read in reads)
+    else:
+        expression = "try " + " ?? ".join(reads)
+    if item.default is not None:
+        expression = f"({expression}) ?? {item.default}" if item.lenient else f"{expression} ?? {item.default}"
+    if item.when is not None:
+        expression = f"{item.when} ? ({expression}) : nil"
+    return expression
 
 
 def render(ir: SdkIR, bindings: Mapping[str, Any]) -> dict[str, str]:

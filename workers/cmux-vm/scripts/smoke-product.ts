@@ -18,6 +18,7 @@
  * names the image the create's receipt confirmed.
  */
 import { appendFileSync } from "node:fs";
+import { retryWhileQueueFull } from "./create-retry.ts";
 
 const base = process.env["CMUX_VM_SMOKE_URL"] ?? "";
 const tokenUrl = process.env["ACTIONS_ID_TOKEN_REQUEST_URL"] ?? "";
@@ -140,12 +141,12 @@ try {
   const create = async (attempt: number) => {
     // A 429 made nothing, so each try takes its own key: the first try's answer is never replayed.
     createKey = attempt === 1 ? `smoke-product-${runId}` : `smoke-product-${runId}-q${attempt}`;
-    const answer = await call(
+    const answer = await retryWhileQueueFull(() => call(
       "POST",
       "/v1/vms",
       { displayName: name, labels: { role: "cloud", cmux_next_team: "cmux-vm-product-smoke", purpose: "smoke" }, image },
       { "idempotency-key": createKey },
-    );
+    ));
     if (answer.status === 429 || answer.status === 201) createKey = null;
     return answer;
   };

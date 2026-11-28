@@ -63,6 +63,11 @@ def parse_claude_stream(lines: list[str], times: list[float] | None = None) -> T
         kind = ev.get("type")
         if kind == "system" and ev.get("subtype") == "init":
             tr.meta.update(agent_version=ev.get("claude_code_version"), model_id=ev.get("model"))
+            # Whether the computer-use server was connected and its tools offered when the model
+            # started: a first call that fails "No such tool available" is either a server not
+            # up yet (status not connected, no mcp__ tools) or the model calling a bare name.
+            tr.meta["mcp_servers"] = {m.get("name", ""): m.get("status") for m in ev.get("mcp_servers") or []}
+            tr.meta["mcp_tools_offered"] = sum(1 for n in ev.get("tools") or [] if str(n).startswith("mcp__"))
             if t is not None:  # the agent is up and its MCP servers connected: the model's clock starts here
                 tr.meta["t_init"] = last_t = t
         elif kind == "assistant":
@@ -99,6 +104,7 @@ def parse_claude_stream(lines: list[str], times: list[float] | None = None) -> T
                     call["result_bytes"] = len(body.encode())
                     call["images"] = images
                     call["is_error"] = bool(block.get("is_error"))
+                    call["not_offered"] = "No such tool available" in body
                     call["no_effect"] = bool(metrics.NO_EFFECT_RE.search(body))
                     call.update(metrics.result_fields(body))
                     if t is not None and call.get("t_use") is not None:
@@ -257,7 +263,8 @@ def fake_desktop(task: dict, env: TaskEnv) -> dict:
 def call_row(run_id: str, arm_id: str, task_id: str, trial: int, i: int, c: dict) -> dict:
     return {
         "run_id": run_id, "arm": arm_id, "task": task_id, "trial": trial, "i": i,
-        "tool": metrics.base_name(c.get("name", "")), "args": c.get("args"),
+        "tool": metrics.base_name(c.get("name", "")), "name": c.get("name", ""), "args": c.get("args"),
+        "not_offered": c.get("not_offered"),
         "args_bytes": c.get("args_bytes"), "think_s": c.get("think_s"), "latency_s": c.get("latency_s"),
         "result_bytes": c.get("result_bytes"), "images": c.get("images", []),
         "is_error": c.get("is_error"), "no_effect": c.get("no_effect"), "repeat": c.get("repeat"),

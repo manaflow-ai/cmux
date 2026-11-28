@@ -57,6 +57,7 @@ import os
 import random
 import re
 import subprocess
+import tempfile
 import sys
 from pathlib import Path
 
@@ -179,10 +180,22 @@ def shard_files(repo: Path, shard: int, count: int, selected: set[str] | None) -
     """SHARD's test files (repo paths), as run-webviews-tests.sh splits them with this environment."""
     env = dict(os.environ, CMUX_WEB_TEST_LIST_ONLY="1", CMUX_WEB_TEST_SHARD=str(shard), CMUX_WEB_TEST_SHARD_COUNT=str(count))
     env.pop("CMUX_WEB_TEST_FILES", None)
-    if selected is not None:
-        env["CMUX_WEB_TEST_FILES"] = "\n".join(sorted(f.removeprefix(wa.WEB) for f in selected))
-    out = subprocess.run(["bash", str(RUNNER)], cwd=repo / "webviews", env=env, capture_output=True, text=True,
-                         check=True).stdout
+    env.pop("CMUX_WEB_TEST_FILES_FROM", None)
+    with tempfile.NamedTemporaryFile("w", suffix=".files", delete=False) as listing:
+        if selected:  # an empty selection lists every file, as an empty CMUX_WEB_TEST_FILES did
+            # Through a file: a full-ci closure is past the 128 KiB one environment variable may hold (E2BIG),
+            # and that failed pick ran all 8 shards in place of the sampled 3.
+            listing.write("\n".join(sorted(f.removeprefix(wa.WEB) for f in selected)) + "\n")
+            env["CMUX_WEB_TEST_FILES_FROM"] = listing.name
+    try:
+        out = subprocess.run(["bash", str(RUNNER)], cwd=repo / "webviews", env=env, capture_output=True, text=True,
+                             check=True).stdout
+    except subprocess.CalledProcessError as err:
+        # The runner's own words, so a failed pick (which runs every shard) says why (run 45934349255 did not).
+        tail = (err.stderr or "").strip().splitlines()[-3:]
+        raise RuntimeError(f"run-webviews-tests.sh exit {err.returncode}: {' | '.join(tail)[-400:]}") from err
+    finally:
+        os.unlink(listing.name)
     return {wa.WEB + line for line in out.splitlines() if line}
 
 

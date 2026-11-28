@@ -45,10 +45,12 @@ pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
         owner_panic::install(&args.session);
         // Earlier panics and memory alerts not sent yet (tester rollout #7),
         // then the memory guard (#9), which sends its alerts as they happen.
+        // The acpmux daemon's panics too (RFD 0157): outside the app nobody else sends them.
         let panic_log = owner_panic::log_path(&args.session);
         let logs = panic_log
             .iter()
             .flat_map(|log| [log.clone(), memory_guard::memory_log_path(log)])
+            .chain([crash_forward::acpmux_panic_log()])
             .collect();
         let forwarder = crash_forward::start(logs);
         memory_guard::spawn(panic_log, forwarder);
