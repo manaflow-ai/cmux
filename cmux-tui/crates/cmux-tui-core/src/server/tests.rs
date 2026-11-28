@@ -563,6 +563,7 @@ mod list_request_counts;
 mod list_workspaces_cost;
 mod list_workspaces_shared_text;
 mod long_connections;
+mod notification_delivery_receipt;
 mod outbound_and_scheduler;
 mod rds_input_lane;
 mod read_barrier;
@@ -579,6 +580,8 @@ mod socket_and_render;
 mod stop_if_idle;
 mod subscribe_cap;
 mod subscribe_scroll_on_attach;
+#[cfg(unix)]
+mod team_policy_fetch;
 mod terminal_close_if_unplaced;
 mod terminal_progress_follower;
 #[cfg(unix)]

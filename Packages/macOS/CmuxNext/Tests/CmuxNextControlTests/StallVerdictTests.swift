@@ -47,6 +47,49 @@ struct StallVerdictTests {
         #expect(StallVerdict.classify(wall: .seconds(3), mainThreadCPU: nil, host: calm, idleWait: true) == .waiting)
     }
 
+    /// Under each verdict, the thread state System Trace would show (WWDC26 268, hq#18524): a blocked
+    /// main thread that ran is our own work; one off-core is a syscall wait. A starved one is our own
+    /// queues when this process kept half the cores busy, else the host's load.
+    @Test func eachVerdictSplitsIntoItsThreadState() {
+        func cause(_ verdict: StallVerdict, cpu: Duration?, cores: Double?, host: HostLoad?) -> StallCause? {
+            StallCause.classify(verdict: verdict, wall: .seconds(3), mainThreadCPU: cpu, processCores: cores, host: host)
+        }
+        #expect(cause(.blocked, cpu: .milliseconds(2_800), cores: nil, host: calm) == .ownWork)
+        #expect(cause(.blocked, cpu: .milliseconds(1_500), cores: nil, host: calm) == .ownWork)
+        #expect(cause(.blocked, cpu: .milliseconds(1_400), cores: nil, host: calm) == .syscallWait)
+        #expect(cause(.blocked, cpu: .milliseconds(20), cores: 0.1, host: nil) == .syscallWait)
+        #expect(cause(.blocked, cpu: nil, cores: 1, host: calm) == nil)
+        #expect(cause(.starved, cpu: .milliseconds(20), cores: 0.4, host: overloaded) == .hostLoad)
+        #expect(cause(.starved, cpu: .milliseconds(20), cores: 4.9, host: overloaded) == .hostLoad)
+        #expect(cause(.starved, cpu: .milliseconds(20), cores: 5, host: overloaded) == .ownQueues)
+        #expect(cause(.starved, cpu: .milliseconds(20), cores: nil, host: overloaded) == nil)
+        #expect(cause(.waiting, cpu: .milliseconds(5), cores: 9, host: overloaded) == nil)
+    }
+
+    @Test func theHangFileNamesTheCause() {
+        let ours = HangLoad(mainThreadCPU: .milliseconds(30), host: overloaded, processCores: 7.3).lines(duration: .seconds(3))
+        #expect(ours[0].hasPrefix("verdict: starved"))
+        #expect(ours[1].hasPrefix("cause: own-queues (") && ours[1].hasSuffix("; this process 7.3 cores)"))
+        let theirs = HangLoad(mainThreadCPU: .milliseconds(30), host: overloaded, processCores: 0.3).lines(duration: .seconds(3))
+        #expect(theirs[1].hasPrefix("cause: host-load ("))
+        let syscall = HangLoad(mainThreadCPU: .milliseconds(30), host: calm).lines(duration: .seconds(3))
+        #expect(syscall[1].hasPrefix("cause: syscall-wait ("))
+        #expect(HangLoad(mainThreadCPU: .seconds(3), host: calm).lines(duration: .seconds(3))[1].hasPrefix("cause: own-work ("))
+        #expect(HangLoad().lines(duration: .seconds(3))[1] == "cause: unknown")
+        #expect(!HangLoad(host: calm, idleWait: true).lines(duration: .seconds(3)).contains { $0.hasPrefix("cause:") })
+    }
+
+    @Test func thisProcessesCPUReadsInCores() throws {
+        let start = TaskEventCounts(faults: 0, pageIns: 0, processCPUNanos: 1_000_000_000, uptimeNanos: 10_000_000_000)
+        let end = TaskEventCounts(faults: 0, pageIns: 0, processCPUNanos: 7_000_000_000, uptimeNanos: 12_000_000_000)
+        #expect(start.processCores(to: end) == 3)
+        #expect(start.processCores(to: nil) == nil)
+        #expect(end.processCores(to: start) == nil)  // no time passed forward
+        #expect(start.load(to: end, cpu: nil).processCores == 3)
+        let now = try #require(TaskEventCounts.current())
+        #expect(now.processCPUNanos != nil && now.uptimeNanos > 0)
+    }
+
     @Test func theHangFileNamesTheVerdictAndTheHostLoad() {
         let lines = HangLoad(mainThreadCPU: .milliseconds(30), host: overloaded).lines(duration: .seconds(3))
         #expect(lines.first?.hasPrefix("verdict: starved") == true)
@@ -130,6 +173,7 @@ struct StallVerdictTests {
         #expect(!outstandingAfterReport)
         let record = try #require(watchdog.log.records().first)
         #expect(record.details["verdict"] == JSONValue.string("starved"))
+        #expect(record.details["cause"] == nil)  // this process's CPU was not read: no cause claimed
         #expect(record.duration == .seconds(3))
         #expect(watchdog.log.records().count == 1)
         recorder.drain()
@@ -139,9 +183,19 @@ struct StallVerdictTests {
         #expect(text.contains("verdict: starved"))
         #expect(text.contains("state: recovered"))
 
-        // A hang the watchdog already reported in that window keeps its own record.
-        watchdog.noteProbeAnswered(sentAt: 5, delayNanos: 3_000_000_000, cpuNanos: 0, host: { [overloaded] in overloaded })
+        // This process kept 6 of the 10 cores busy meanwhile: our own queues starved it.
+        watchdog.noteProbeAnswered(sentAt: 20, delayNanos: 3_000_000_000, cpuNanos: 0, processCores: { 6 },
+                                   host: { [overloaded] in overloaded })
         watchdog.probeReportQueue.sync {}
-        #expect(watchdog.log.records().count == 1)
+        let ours = try #require(watchdog.log.records().last)
+        #expect(ours.details["cause"] == JSONValue.string("own-queues"))
+        #expect(ours.details["process_cores"] == JSONValue.number(6))
+        #expect(watchdog.log.records().count == 2)
+
+        // A hang the watchdog already reported in that window keeps its own record.
+        watchdog.lastHangUptime.store(30, ordering: .releasing)
+        watchdog.noteProbeAnswered(sentAt: 25, delayNanos: 3_000_000_000, cpuNanos: 0, host: { [overloaded] in overloaded })
+        watchdog.probeReportQueue.sync {}
+        #expect(watchdog.log.records().count == 2)
     }
 }

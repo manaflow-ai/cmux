@@ -219,6 +219,31 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(planned["fork"], tip)
         self.assertTrue(any("behind" in note for note in planned["notes"]), planned["notes"])
 
+    def test_an_app_newer_than_the_change_s_fork_is_noted(self):
+        # cmux#64758: a look of a PR forked before the nightly overlaid its older web bundle on the newer app and
+        # drew a blank New Tab with no note saying the app was ahead of the change's fork.
+        head = self.fx.change({"webviews/src/app.tsx": "export const title = 'Home 4'\n"})
+        app = self.advance_base({"webviews/src/newtab.tsx": "export const newTab = 2\n", "docs/notes.md": "x\n"})
+        planned = self.plan(head, base=app)
+        self.assertEqual(planned["fork"], self.fx.base)
+        self.assertEqual(planned["base"], app)
+        ahead = [note for note in planned["notes"] if "ahead of the change's fork" in note]
+        self.assertEqual(len(ahead), 1, planned["notes"])
+        self.assertIn("1 commits ahead", ahead[0])
+        self.assertIn("(1 of them in webviews/)", ahead[0])
+
+    def test_an_app_that_already_has_the_head_has_no_gap_note(self):
+        # A merged PR looked at on a nightly that ships it: "the app already contains" it, not "ahead of its fork".
+        head = self.fx.change({"webviews/src/app.tsx": "export const title = 'Home 6'\n"})
+        app = self.fx.commit({"docs/notes.md": "later\n"}, "after the change", parent=head)
+        planned = self.plan(head, base=app)
+        self.assertFalse([note for note in planned["notes"] if "ahead of the change's fork" in note],
+                         planned["notes"])
+
+    def test_an_app_at_the_change_s_fork_has_no_gap_note(self):
+        planned = self.plan(self.fx.change({"webviews/src/app.tsx": "export const title = 'Home 5'\n"}))
+        self.assertFalse([note for note in planned["notes"] if "ahead" in note or "behind" in note], planned["notes"])
+
     def test_the_change_s_own_swift_still_needs_a_build_after_drift(self):
         tip = self.advance_base({"docs/notes.md": "drift\n"})
         head = self.fx.commit({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift":
@@ -488,6 +513,51 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(planned["layers"], ["web"])
         self.assertTrue(any("working tree has changes" in note for note in planned["notes"]))
         self.assertEqual(self.fx.git("status", "--porcelain"), "M webviews/src/app.tsx")  # nothing staged
+
+    def test_a_repeat_snapshot_reuses_its_kept_index_and_follows_every_change(self):
+        # team-dev-build-swap's 18:50Z 2026-11-28 row: the swap's second `app try` of an unchanged tree spent 4.0 s
+        # planning, through a throwaway index copy. The kept copy must give the same commit a fresh copy would.
+        repo = self.fx.repo
+        app = repo / "webviews/src/app.tsx"
+        app.write_text("export const title = 'one'\n")
+        first = hv.snapshot(repo)
+        slot = next((Path(os.environ["CMUX_HOT_VERIFY_CACHE"]) / "index").iterdir())
+        kept = (slot / "index").stat().st_mtime_ns
+        tree = lambda commit: self.fx.git("rev-parse", f"{commit}^{{tree}}")
+        self.assertEqual(tree(hv.snapshot(repo)), tree(first))  # unchanged: the same tree, through the kept copy
+        self.assertTrue((slot / "stamp").is_file())
+        self.assertGreaterEqual((slot / "index").stat().st_mtime_ns, kept)
+        # An edit, a new file, a deleted new file: each read as a fresh copy reads it.
+        app.write_text("export const title = 'two'\n")
+        (repo / "webviews/src/new.ts").write_text("export {}\n")
+        second = hv.snapshot(repo)
+        self.assertEqual(self.fx.git("show", f"{second}:webviews/src/app.tsx"), "export const title = 'two'")
+        self.assertEqual(self.fx.git("show", f"{second}:webviews/src/new.ts"), "export {}")
+        (repo / "webviews/src/new.ts").unlink()
+        third = hv.snapshot(repo)
+        self.assertNotIn("new.ts", self.fx.git("ls-tree", "-r", "--name-only", third))
+        # A file an earlier snapshot added that a .gitignore now ignores is left out, as a fresh copy leaves it.
+        (repo / "scratch.log").write_text("x\n")
+        self.assertIn("scratch.log", self.fx.git("ls-tree", "-r", "--name-only", hv.snapshot(repo)))
+        (repo / ".git/info").mkdir(exist_ok=True)
+        (repo / ".git/info/exclude").write_text("*.log\n")
+        self.assertNotIn("scratch.log", self.fx.git("ls-tree", "-r", "--name-only", hv.snapshot(repo)))
+        # A commit moves HEAD and the real index: the copy is made again, and a clean tree is HEAD itself.
+        app.write_text("export const title = 'one'\n")
+        self.fx.git("add", "webviews/src/app.tsx")
+        self.fx.git("commit", "-q", "-m", "one")
+        self.assertEqual(hv.snapshot(repo), self.fx.git("rev-parse", "HEAD"))
+        self.assertEqual(self.fx.git("status", "--porcelain", "--untracked-files=no"), "")  # nothing staged
+
+    def test_a_held_kept_index_falls_back_to_a_throwaway_copy(self):
+        repo = self.fx.repo
+        (repo / "webviews/src/app.tsx").write_text("export const title = 'held'\n")
+        index = Path(self.fx.git("rev-parse", "--path-format=absolute", "--git-path", "index"))
+        head = self.fx.git("rev-parse", "HEAD")
+        with hv.kept_index(index, head) as (held, fresh):
+            self.assertTrue(fresh)
+            made = hv.snapshot(repo)  # a second snapshot while the first holds the slot
+        self.assertEqual(self.fx.git("show", f"{made}:webviews/src/app.tsx"), "export const title = 'held'")
 
     def test_a_clone_with_no_working_tree_reads_the_rules_from_feat_cmux_next(self):
         # The fleet's engine is an export of scripts/cmux-next over a blob-less clone with no checkout: the FFI
@@ -2062,6 +2132,27 @@ class LaunchFailureTest(unittest.TestCase):
         self.assertNotIn("line 100\n", said)
         self.assertNotIn("abcdefgh12345678", said)
         self.assertNotIn("ZZZZZZZZZZZZZZ", said)
+
+    def test_a_dead_copys_crash_line_comes_first_past_a_long_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            err = Path(tmp) / "app.stderr.log"
+            err.write_text("cmux: open-file limit 256 -> 61440\n"
+                           "cmux: ignored inherited " + " ".join(f"CMUX_CI_{i}" for i in range(400)) + "\n"
+                           "CmuxNextHostedChief/HostedChiefRules.swift:15: Fatal error: home rules op chiefs_tab: "
+                           "unknownOp\n")
+            dead = subprocess.Popen([sys.executable, "-c", "pass"])
+            dead.wait()
+            said = hv.launch_failure(dead.pid, [str(err)])
+        head = said[:300]
+        self.assertTrue(head.startswith("app launch: running False\ncrash: "), head)
+        self.assertIn("Fatal error: home rules op chiefs_tab: unknownOp", head)
+
+    def test_no_crash_line_adds_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            err = Path(tmp) / "app.stderr.log"
+            err.write_text("just slow\n")
+            said = hv.launch_failure(os.getpid(), [str(err)])
+        self.assertNotIn("crash:", said)
 
     def test_a_live_copy_with_no_output_says_so(self):
         said = hv.launch_failure(os.getpid(), [])

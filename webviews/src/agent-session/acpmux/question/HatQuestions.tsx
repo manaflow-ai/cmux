@@ -35,6 +35,7 @@ import { useAnswerHold } from "../answerHold";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { TAG_KEY } from "./askTag";
+import { hasCutText } from "./cutText";
 import { inlineText } from "./inlineText";
 import { keepShown, type HatAnswer, type HatQuestion } from "./hatModel";
 import { hatQuestionsLook } from "./hatQuestions.experiment";
@@ -64,18 +65,6 @@ const REPLY = "\u0000reply";
 /// Whether the band's height transition is still running; with motion off it never starts.
 const moving = (element: HTMLElement | null) =>
   element?.getAnimations().some((animation) => animation.playState === "running") ?? false;
-
-/// The parts of a shown question that are cut to their room until More: the question (two lines),
-/// the line under it, and who asks and what about (the head's room).
-const CUT_TEXT =
-  ".acpmux-hat-questions__prompt, .acpmux-hat-questions__detail, .acpmux-hat-questions__who, .acpmux-hat-questions__about";
-
-/// Whether any of `question`'s cut parts runs past its room.
-export function hasCutText(question: HTMLElement): boolean {
-  return Array.from(question.querySelectorAll<HTMLElement>(CUT_TEXT)).some(
-    (part) => part.scrollHeight > part.clientHeight + 1 || part.scrollWidth > part.clientWidth + 1,
-  );
-}
 
 /// Where a started chat's question puts its reply field (the gallery compares them): on its own line
 /// under the choices (shipped), at the end of the choices' line, or behind a Reply button.
