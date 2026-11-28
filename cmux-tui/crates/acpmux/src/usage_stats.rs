@@ -921,8 +921,10 @@ fn read_new(
             tail.lose(now);
         } else if skip_to_line {
             tail.in_long_line = true;
+        } else {
+            // Else a line still being written: read again, whole, next time.
+            return settled_end(tail, &buf, now);
         }
-        // Else a line still being written: read again, whole, next time.
         return false;
     };
     let mut lines = buf.get(..end).unwrap_or_default().split(|b| *b == b'\n');
@@ -938,7 +940,31 @@ fn read_new(
     }
     tail.offset = tail.offset.saturating_add(end as u64).saturating_add(1);
     // Bytes past the last newline: a line still being written, read next time.
-    to_end && buf.len().checked_sub(1) == Some(end)
+    match buf.get(end.saturating_add(1)..) {
+        _ if !to_end => false,
+        Some([]) | None => true,
+        Some(rest) => settled_end(tail, rest, now),
+    }
+}
+
+/// Whether `rest`, the bytes after a file's last newline, are its end for good: a line still
+/// being written is read again, whole, next time, but one whose file has not been written for
+/// [`LIVE_QUIET_MS`] is the cut-off end of a writer that died mid-line (a killed chat or
+/// subagent), which never ends it. Before this, such a file read as never read to its end, so a
+/// chat with one cut-off subagent transcript read as unmetered (`no_counters`) for as long as
+/// its daemon ran, with its transcript found (2026-11-28: one way a found 35 MB goal chat on
+/// fs-agent-lane-36 can read so; its tracker was not readable from here). A cut-off line that held a count makes its time's day unknown, as any
+/// record that cannot be read does; it is read again should its line ever end.
+fn settled_end(tail: &mut Tail, rest: &[u8], now: u64) -> bool {
+    let Some(written) = modified_ms(&tail.path) else { return false };
+    if written.saturating_add(LIVE_QUIET_MS) > now {
+        return false;
+    }
+    const COUNTED: [&[u8]; 4] = [b"assistant", b"compact", b"token_count", b"spawn_agent"];
+    if COUNTED.iter().any(|kind| contains(rest, kind)) {
+        tail.lose(quick_timestamp(rest).unwrap_or(written));
+    }
+    true
 }
 
 /// The chat's transcript: Claude's under its project folder (else any project

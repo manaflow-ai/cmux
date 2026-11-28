@@ -36,7 +36,7 @@ permissions: {}
 # and the diff, never the description): its run takes no runner and its own group, so it never
 # cancels a push's run (pattern pr-edit-fans-out-ci, tests/test_ci_pr_runs_cancel_superseded.py).
 concurrency:
-  group: classic-frozen-guard-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && !github.event.changes.base && '-metadata' || '' }}
+  group: classic-frozen-guard-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && !github.event.changes.base && '-metadata' || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
