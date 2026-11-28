@@ -161,7 +161,7 @@ async fn a_fired_time_watch_waits_for_no_cold_batch() {
     use crate::hub::cold_wake::{MIN_WINDOW_MS, stamp_due};
     use crate::prompt_provenance::session_message;
     let config = serde_json::from_value(json!({})).unwrap();
-    let hub = Hub::new(config, Box::new(crate::store::MemoryStore::default()));
+    let hub = crate::hub::Hub::new(config, Box::new(crate::store::MemoryStore::default()));
     let now = crate::store::now_ms();
     let cold_since = now - 16_000_000;
     let meta = serde_json::from_value(json!({
