@@ -562,7 +562,7 @@ impl Hub {
         let first_work = match route {
             super::inbox::Route::First(first) => Some(first),
             super::inbox::Route::Plain => None,
-            super::inbox::Route::Inbox(agent, class) => {
+            super::inbox::Route::Inbox(agent, class, given) => {
                 admission.enter("inbox");
                 // The inbox's acceptance callback commits this delivery after its journal write.
                 return Box::pin(self.inbox_accept(
@@ -572,6 +572,7 @@ impl Hub {
                     &prompt_id,
                     &agent,
                     class,
+                    given,
                     opts.thread.as_deref(),
                     opts.provenance.as_ref(),
                     opts.human_authenticated,

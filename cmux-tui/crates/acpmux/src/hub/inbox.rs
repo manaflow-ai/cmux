@@ -392,7 +392,7 @@ pub struct Inbox {
 /// How [`Hub::inbox_route`] routes a prompt.
 pub(super) enum Route {
     /// Into the inbox: its sender and class.
-    Inbox(String, PromptClass),
+    Inbox(String, PromptClass, bool),
     /// The chat's first work, run as its prompt; the hold ends when this drops.
     First(FirstWork),
     /// As any prompt.
@@ -1198,6 +1198,7 @@ fn ordinary_fyi(item: &Item) -> bool {
 /// (`prompt_provenance::waited`). A waited message wakes the chat whatever its class, an FYI
 /// too: an idle chat takes no flush turn for what wakes nobody (#55196), so a message sent while
 /// the hub was down (an unclassed one files as an FYI) would otherwise never run.
+/// An FYI its sender named is never `waited` (`inbox_admit::notice_waited`): it wakes nobody.
 fn wakes_as(
     meta: &SessionMeta,
     class: PromptClass,

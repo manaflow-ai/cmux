@@ -77,8 +77,11 @@ impl Hub {
         if controls(&session.meta(), sender_session(provenance).as_deref()) {
             return Route::Plain;
         }
+        // Whether the sender named the class, read before an unclassed message files as an FYI:
+        // only that default FYI wakes on a wait (`notice_waited`).
+        let given = class.is_some();
         let class = default_notice_class(class);
-        Route::Inbox(agent, class)
+        Route::Inbox(agent, class, given)
     }
 
     /// `session/prompt` of another agent's message the inbox takes (`turns.rs`): logged, put in
@@ -92,6 +95,7 @@ impl Hub {
         prompt_id: &str,
         sender: &str,
         class: PromptClass,
+        given: bool,
         explicit: Option<&str>,
         provenance: Option<&Value>,
         human_authenticated: bool,
@@ -103,7 +107,7 @@ impl Hub {
         let sender_session = sender_session(provenance);
         // Read before the inbox's lock, as `inbox_review` reads them.
         let meta_now = session.meta();
-        let waited = crate::prompt_provenance::waited(provenance);
+        let waited = notice_waited(class, given, provenance);
         let surge_on = self.surge_inbox_on();
         let wakes_before_rule = (surge_on && fire_notice(provenance.and_then(|p| p.get("notice"))))
             || wakes_as(&meta_now, class, is_report(provenance), waited, sender_session.as_deref());
@@ -741,4 +745,14 @@ fn delivered(prompt_id: &str, held: bool) -> Value {
         mux.set(crate::cli::output::HELD_IN_INBOX, json!(true));
     }
     json!({"stopReason": Value::Null, "_meta": {"acpmux": mux}})
+}
+
+/// Whether a notice of `class` counts as one that waited for this machine
+/// (`prompt_provenance::waited`), which wakes the chat whatever its class (`wakes_as`). An FYI
+/// its sender named (`--class fyi`) never does: its sender said it wakes nobody, and a resend
+/// from a peer's outbox or an ssh carry does not change that. Those were 124 of 252 co-owner
+/// notes a day on one lane host, each waking an idle chat for nothing. An unclassed message,
+/// filed as an FYI by default, still wakes when it waited (#55196): it may be a question.
+pub(super) fn notice_waited(class: PromptClass, given: bool, provenance: Option<&Value>) -> bool {
+    crate::prompt_provenance::waited(provenance) && !(given && class == PromptClass::Fyi)
 }

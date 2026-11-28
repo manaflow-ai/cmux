@@ -538,6 +538,7 @@ async fn inbox_accepts_a_new_notice_while_configuration_is_being_written() {
         "after-restore",
         "acpmux",
         PromptClass::Result,
+        true,
         None,
         None,
         false,
@@ -2269,6 +2270,7 @@ async fn explicit_gather_fyi_survives_restart_and_delivers_at_the_cold_deadline(
             id,
             sender,
             PromptClass::Fyi,
+            true,
             None,
             Some(&provenance),
             false,
@@ -2446,4 +2448,51 @@ async fn gathered_fyi_keeps_page_and_surge_holds() {
         assert!(!tried(&session), "{name}");
     }
     super::cold_wake::KNOBS_FOR_TEST.with(|k| k.set(None));
+}
+
+/// An FYI its sender named (`--class fyi`) wakes nobody even when a peer's outbox resent it or
+/// an ssh carry brought it (`notice_waited`): before, every such resend was marked waited and
+/// woke the idle chat, 124 of 252 co-owner notes a day on one lane host. An unclassed message
+/// that waited still wakes (#55196).
+#[tokio::test]
+async fn a_named_fyi_that_waited_does_not_wake_an_idle_chat() {
+    let (hub, session) = hub_with_chat("fyi-waited");
+    for (id, given, wakes_expected) in [("named-fyi", true, false), ("unclassed", false, true)] {
+        let blocks = [json!({"type": "text", "text": id})];
+        let mut provenance = crate::prompt_provenance::named_sender("lane-co-owner", &session.id);
+        provenance.set(crate::prompt_provenance::WAITED, json!(true));
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut accept = |notice| tx.send(notice).unwrap();
+        let prompt = hub.inbox_accept(
+            &session,
+            &blocks,
+            "test",
+            id,
+            "lane-co-owner",
+            PromptClass::Fyi,
+            given,
+            None,
+            Some(&provenance),
+            false,
+            false,
+            None,
+            &mut accept,
+        );
+        tokio::pin!(prompt);
+        tokio::select! {
+            result = &mut prompt => { result.expect("delivered"); }
+            ack = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv()) => {
+                assert_eq!(ack.expect("bounded acceptance").expect("accepted")["promptId"], id);
+            }
+        }
+        let meta = session.meta();
+        let inbox = session.inbox();
+        let item = inbox.items.iter().find(|i| i.prompt_id == id).expect("in the inbox");
+        assert_eq!(item.waited, wakes_expected, "{id}: waited");
+        assert_eq!(wakes(&meta, item), wakes_expected, "{id}: wakes");
+    }
+    assert!(!notice_waited(PromptClass::Fyi, true, Some(&json!({"waited": true}))));
+    assert!(notice_waited(PromptClass::Fyi, false, Some(&json!({"waited": true}))));
+    assert!(notice_waited(PromptClass::Question, true, Some(&json!({"waited": true}))));
+    assert!(!notice_waited(PromptClass::Fyi, false, None));
 }
