@@ -526,6 +526,96 @@ async fn a_move_whose_client_comes_back_on_a_new_connection_goes_on() {
     assert!(records(&mut src, &id, "transfer_aborted").await.is_empty(), "{info}");
 }
 
+/// A mover that read the whole bundle and hung up: the source asks the target within seconds
+/// (`CLIENT_GONE_ASK_GRACE`, 10 s, after nothing read), not after the lease (minutes). The target
+/// took the chat, so the move commits on its own.
+#[tokio::test]
+async fn a_move_whose_client_hangs_up_after_the_target_took_the_chat_commits_in_seconds() {
+    let (a, mut src) = setup(PermissionPolicy::ApproveAll).await;
+    let (b, mut dst) = setup(PermissionPolicy::ApproveAll).await;
+    let socket = listen(&b).await;
+    let id = busy_chat(&mut src, &[("p-a", "a")]).await;
+    let mut mover = connect(&a).await;
+    let begin = mover
+        .request(
+            "_acpmux/transfer_begin",
+            json!({"sessionId": id, "interrupt": true, "to": {"socket": &socket.0}}),
+        )
+        .await
+        .unwrap();
+    let received =
+        dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await.unwrap();
+    let receive_id = received["receiveId"].as_str().unwrap().to_owned();
+    copy_bundle(&mut mover, &mut dst, &begin, &receive_id).await;
+    dst.request(
+        "_acpmux/transfer_finish",
+        json!({"receiveId": receive_id, "epoch": begin["epoch"]}),
+    )
+    .await
+    .unwrap();
+    // The lease stays at its default (minutes): only the hang-up can end the move this soon.
+    drop(mover);
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(40);
+    while records(&mut src, &id, "transferred").await.is_empty() {
+        assert!(tokio::time::Instant::now() < deadline, "the move never committed");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    wait_status(&mut src, &id, "closed").await;
+    let committed = records(&mut src, &id, "transferred").await;
+    assert_eq!(committed.len(), 1, "{committed:?}");
+    assert!(records(&mut src, &id, "transfer_aborted").await.is_empty());
+    let there = dst.request(method::MUX_INFO, json!({"sessionId": id})).await;
+    assert!(there.is_ok(), "the target keeps the chat it took: {there:?}");
+}
+
+/// The same hang-up before the target finished: the target drops its receive when asked, the
+/// chat runs here again within seconds (`client_gone`), and a late finish there is refused.
+#[tokio::test]
+async fn a_move_whose_client_hangs_up_before_the_target_finished_gives_the_chat_back_in_seconds() {
+    let (a, mut src) = setup(PermissionPolicy::ApproveAll).await;
+    let (b, mut dst) = setup(PermissionPolicy::ApproveAll).await;
+    let socket = listen(&b).await;
+    let id = busy_chat(&mut src, &[("p-a", "a")]).await;
+    let mut mover = connect(&a).await;
+    let begin = mover
+        .request(
+            "_acpmux/transfer_begin",
+            json!({"sessionId": id, "interrupt": true, "to": {"socket": &socket.0}}),
+        )
+        .await
+        .unwrap();
+    let received =
+        dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await.unwrap();
+    let receive_id = received["receiveId"].as_str().unwrap().to_owned();
+    copy_bundle(&mut mover, &mut dst, &begin, &receive_id).await;
+    drop(mover);
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(40);
+    while records(&mut src, &id, "transfer_aborted").await.is_empty() {
+        assert!(tokio::time::Instant::now() < deadline, "the move never ended");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    let aborted = records(&mut src, &id, "transfer_aborted").await;
+    assert_eq!(aborted[0]["reason"], "client_gone", "{aborted:?}");
+    // Its queue runs here again (polled: a request here passes over notifications).
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while !texts(&mut src, &id, "user_message").await.contains(&"a".to_owned()) {
+        assert!(tokio::time::Instant::now() < deadline, "the queue never ran here");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    src.request(method::SESSION_PROMPT, prompt(&id, "p-again", "again")).await.unwrap();
+    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(info["transferBlocked"], false, "{info}");
+    let late = dst
+        .request(
+            "_acpmux/transfer_finish",
+            json!({"receiveId": receive_id, "epoch": begin["epoch"]}),
+        )
+        .await;
+    assert!(late.as_ref().is_err_and(|e| e.contains("transfer.unknown")), "{late:?}");
+}
+
 #[tokio::test]
 async fn a_move_whose_client_goes_away_after_the_target_took_the_chat_commits_on_its_own() {
     let (a, mut src) = setup(PermissionPolicy::ApproveAll).await;
