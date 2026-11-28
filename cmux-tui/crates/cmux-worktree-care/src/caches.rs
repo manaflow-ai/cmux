@@ -515,10 +515,29 @@ fn projected_reals(roots: &[PathBuf]) -> Vec<PathBuf> {
 }
 
 /// A Cargo target folder: cargo writes `CACHEDIR.TAG` naming itself in it.
+/// Whether `path` is a cargo target folder. Cargo writes `CACHEDIR.TAG` only
+/// when it makes the folder itself; a target made first by `mkdir`, a shim or
+/// an older cargo has none (a lane VM, 2026-11-28: 0 of 197 projected targets
+/// had one, 5.5 GiB in one). So `.rustc_info.json` beside a profile's
+/// `.fingerprint`, which every cargo build writes, counts too.
 fn cargo_target(path: &Path) -> bool {
-    real_dir(path)
-        && std::fs::read(path.join("CACHEDIR.TAG"))
-            .is_ok_and(|tag| tag.windows(5).any(|w| w == b"cargo"))
+    if !real_dir(path) {
+        return false;
+    }
+    let tagged = std::fs::read(path.join("CACHEDIR.TAG"))
+        .is_ok_and(|tag| tag.windows(5).any(|w| w == b"cargo"));
+    tagged || (path.join(".rustc_info.json").is_file() && has_fingerprint(path))
+}
+
+/// A profile folder (`debug`, `release`, or `<triple>/<profile>`) with a
+/// `.fingerprint` folder.
+fn has_fingerprint(target: &Path) -> bool {
+    let Ok(children) = std::fs::read_dir(target) else { return false };
+    children.flatten().any(|child| {
+        let path = child.path();
+        real_dir(&path.join(".fingerprint"))
+            || ["debug", "release"].iter().any(|p| real_dir(&path.join(p).join(".fingerprint")))
+    })
 }
 
 fn projected_entries(index: usize, roots: &[PathBuf], found: &mut Vec<Entry>) {
