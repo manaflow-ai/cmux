@@ -386,6 +386,32 @@ fn projected_checkouts_cargo_targets_are_a_family() {
     let _ = std::fs::remove_dir_all(&home);
 }
 
+/// A target cargo did not make itself has no `CACHEDIR.TAG`; `.rustc_info.json` and a
+/// profile's `.fingerprint` still mark it. Either alone does not.
+#[test]
+fn an_untagged_projected_cargo_target_is_found() {
+    let home = scratch("caches-projected-untagged");
+    let real = home.join(".cache/cmux-projection/wt/owner/repo");
+    let untagged = real.join("lane--a-1/real/cmux-tui/target");
+    std::fs::create_dir_all(untagged.join("release/.fingerprint")).unwrap();
+    std::fs::write(untagged.join(".rustc_info.json"), "{}").unwrap();
+    let cross = real.join("lane--b-2/real/target");
+    std::fs::create_dir_all(cross.join("aarch64-apple-darwin/debug/.fingerprint")).unwrap();
+    std::fs::write(cross.join(".rustc_info.json"), "{}").unwrap();
+    let info_only = real.join("lane--c-3/real/target");
+    std::fs::create_dir_all(info_only.join("debug")).unwrap();
+    std::fs::write(info_only.join(".rustc_info.json"), "{}").unwrap();
+    let fingerprint_only = real.join("lane--d-4/real/target");
+    std::fs::create_dir_all(fingerprint_only.join("debug/.fingerprint")).unwrap();
+    let families = default_families(&home);
+    let index = families.iter().position(|f| f.name == "projected-build-dirs").unwrap();
+    let found: Vec<PathBuf> =
+        entries(&families).into_iter().filter(|e| e.family == index).map(|e| e.path).collect();
+    assert!(found.contains(&untagged) && found.contains(&cross), "{found:?}");
+    assert!(!found.contains(&info_only) && !found.contains(&fingerprint_only), "{found:?}");
+    let _ = std::fs::remove_dir_all(&home);
+}
+
 /// A target folder a cargo build is writing (it holds `<profile>/.cargo-lock`) is kept at the
 /// last check, whatever its age; once the build lets go it is an entry again.
 #[cfg(unix)]
