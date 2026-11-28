@@ -141,6 +141,8 @@ public final class LiveCoordinator {
     @ObservationIgnored let instants: ClockInstants
     @ObservationIgnored private var presence: PresenceListener?
     @ObservationIgnored private var isBackgrounded = false
+    /// The network-return watch while a link is down in front (``updateNetworkReturnWatch()``).
+    @ObservationIgnored private var networkReturnTask: Task<Void, Never>?
     /// UIKit's `willEnterForeground` already resumed the links for this return
     /// (`followForegroundNotification`): the scene's `.active` a frame or more later is a repeat.
     @ObservationIgnored private var foregroundedEarly = false
@@ -528,6 +530,64 @@ public final class LiveCoordinator {
     /// Presence down at least this long before its return redials the links.
     static let presenceOutageMin = PresenceTiming.outageMin
 
+    /// Whether a link is down while the app is in front: the network-return watch runs then.
+    private var wantsNetworkReturnWatch: Bool {
+        guard !isBackgrounded, registeredTeamID != nil else { return false }
+        return sessions.values.contains { session in
+            guard session.linkDownSince != nil else { return false }
+            switch session.link.phase {
+            case .connecting, .waiting: return true
+            case .idle, .connected, .macOffline, .signedOut: return false
+            }
+        }
+    }
+
+    /// Starts or stops the network-return watch (Rust `net_return`): while a link is down and
+    /// the app is in front, a TCP connect to the cmux service once a second; the first that gets
+    /// through after one that did not redials every link at once. It is the network-back signal
+    /// when iOS reports no path change and presence is still in its backoff (or hanging on the
+    /// dead path): before it, such a return waited out a backoff step, up to 30 s
+    /// (`network_flaps`). A network that was never down (the Mac is the problem) ends it until
+    /// the next phase change. Costs one SYN a second while dark, nothing in the background.
+    func updateNetworkReturnWatch() {
+        #if canImport(CmuxMobileLinkFFI)
+        guard wantsNetworkReturnWatch else {
+            networkReturnTask?.cancel()
+            networkReturnTask = nil
+            return
+        }
+        guard networkReturnTask == nil else { return }
+        let baseURL = api.baseURL.absoluteString
+        networkReturnTask = Task { [weak self] in
+            // Bounded rounds: a cancelled watch's Rust side stops within one.
+            while !Task.isCancelled {
+                let got = await waitForNetworkReturn(baseUrl: baseURL, maxWaitMillis: 15_000)
+                guard !Task.isCancelled, let self else { return }
+                if got.back {
+                    self.networkReturned(downMillis: got.downMillis)
+                    break
+                }
+                if got.neverDown { break }
+                if !self.wantsNetworkReturnWatch { break }
+            }
+            // A cancelled watch leaves the slot to the one that replaced it.
+            guard !Task.isCancelled else { return }
+            self?.networkReturnTask = nil
+        }
+        #endif
+    }
+
+    /// The network-return watch got through after a dark spell: as on a path change, every
+    /// waiting or dialing link dials now and presence reconnects now.
+    private func networkReturned(downMillis: UInt64) {
+        log.info("network back (probe, dark \(downMillis) ms): links redial")
+        ConnectTimeline.shared.mark("network_back_probe")
+        lastPathNudge = instants.now()
+        if store.isOffline { store.isOffline = false }
+        presence?.kick()
+        for session in sessions.values { session.link.send(.networkChanged) }
+    }
+
     // MARK: Warm start
 
     /// Launch with a snapshot: show the space, its Macs and their last-known
@@ -635,13 +695,24 @@ public final class LiveCoordinator {
         }
     }
 
+    /// How long unchanged workspaces keep their snapshot stamp (``saveSnapshot()``).
+    static let snapshotStampInterval: TimeInterval = 60
+
     private func saveSnapshot() {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
         var saved = snapshot?.teamID == team.id ? snapshot?.workspaces ?? [:] : [:]
         let macIDs = Set(team.macs.map(\.id))
         saved = saved.filter { macIDs.contains($0.key) }
         for mac in team.macs where store.macData[mac.id]?.source == .live {
-            saved[mac.id] = .init(workspaces: store.workspaces.filter { $0.macID == mac.id && !store.isPending($0.id) }, savedAt: Date())
+            let workspaces = store.workspaces.filter { $0.macID == mac.id && !store.isPending($0.id) }
+            // The same workspaces keep their stamp for up to a minute: a fresh `savedAt` on every
+            // save made each one differ from the last, so the guard below never held and every
+            // change anywhere rewrote the file. The stamp still says when they were last live,
+            // to the minute.
+            let now = Date()
+            if let held = saved[mac.id], held.workspaces == workspaces,
+               now.timeIntervalSince(held.savedAt) < Self.snapshotStampInterval { continue }
+            saved[mac.id] = .init(workspaces: workspaces, savedAt: now)
         }
         let next = LiveSnapshot(teamID: team.id, teamName: team.name, macs: team.macs,
                                 linkedMacID: focusedMacID ?? snapshot?.linkedMacID, workspaces: saved)
@@ -889,8 +960,9 @@ public final class LiveCoordinator {
         case .mac(let mac) where mac.removed == true:
             forgetMac(mac.deviceId)
         case .mac(let mac):
-            // A Mac came or went: discovery looks now (another team's Mac to follow, or the
-            // fast wait again) instead of at its backed-off cadence.
+            // A Mac came or went: discovery looks now (another team's Mac to follow) instead of
+            // at its backed-off cadence; the backoff stays, so Macs reconnecting over and over
+            // do not keep the phone on the fast cadence (MacDiscoveryPoll.wakeSpacing).
             discovery.wake()
             var current = store.teams.first { $0.id == teamID }?.macs ?? []
             let known = current.first { $0.id == mac.deviceId }
@@ -1032,7 +1104,8 @@ public final class LiveCoordinator {
         for mac in macs where decision.linked.contains(mac.id) {
             let session = session(for: mac)
             session.name = mac.name
-            session.link.send(.target(LinkMachine.Target(macID: mac.id, name: mac.name, isOnline: mac.isOnline)))
+            // The service's presence alone: a link that drops to a Mac it lists offline is gone.
+            session.link.send(.target(LinkMachine.Target(macID: mac.id, name: mac.name, isOnline: mac.listedOnline)))
         }
         for (id, session) in sessions where !decision.linked.contains(id) && session.link.target != nil {
             log.info("link to \(session.name, privacy: .private) idle: closing it")
@@ -1142,23 +1215,29 @@ public final class LiveCoordinator {
 
     // MARK: Discovery across spaces
 
-    /// One discovery look; says whether the active team has an online Mac (the poll's cadence).
-    private func lookForMacs() async -> Bool {
-        await discoverOnce()
-        return store.activeTeam?.macs.contains(where: \.isOnline) ?? false
+    /// One discovery look; says whether the active team has an online Mac (the poll's cadence),
+    /// or that the service did not answer: a timeout is not "no Mac online", so it backs the
+    /// poll off instead of keeping it on the 4 s cadence while the service is struggling.
+    private func lookForMacs() async -> MacDiscoveryPoll.Look {
+        guard await discoverOnce() else { return .failed }
+        return store.activeTeam?.macs.contains(where: \.isOnline) == true ? .online : .noMac
     }
 
     /// One look at the account's Macs everywhere: shows each in its team and
     /// moves to the team of an online Mac while the active team has none.
-    func discoverOnce() async {
+    /// False when the service did not answer.
+    @discardableResult
+    func discoverOnce() async -> Bool {
         do {
             let asked = removedMacs.mark
             let macs = try await api.myMacs()
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return true }
             applyDiscovered(macs, askedAt: asked)
+            return true
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return true }
             log.error("Mac discovery failed: \(String(describing: error), privacy: .public)")
+            return false
         }
     }
 
@@ -1343,6 +1422,7 @@ public final class LiveCoordinator {
         // A call's link may have been opened since the call started.
         holdCallLink()
         for session in sessions.values { session.link.send(.background) }
+        updateNetworkReturnWatch()
         discovery.pause()
         presence?.backgrounded = true
         #if canImport(CmuxMobileLinkFFI)

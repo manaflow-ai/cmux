@@ -114,6 +114,15 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         untilLive = creating ? .starting : restoring ? .restoring : nil
     }
 
+    /// Moves the input queued while attaching out of this view, uncounted as dropped: a view that
+    /// is replaced before it went live (its daemon answered with a new generation at launch) hands
+    /// the keys typed meanwhile to its replacement instead of losing them (the launch-TTI round 2).
+    /// A live view has nothing queued.
+    public mutating func takeQueuedInput() -> [Data] {
+        defer { queuedInput = []; queuedInputBytes = 0 }
+        return queuedInput
+    }
+
     /// The link input goes to right now, if any.
     public var liveLink: Link? {
         if case .live(let link) = phase { return link }

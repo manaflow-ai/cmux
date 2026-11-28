@@ -1271,7 +1271,7 @@ test("a Save begun and answered while cancel and edit reads the row's images kee
   expect(run.lost).toEqual([]);
 });
 
-test("a prompt listed twice draws one row, and the list says what it holds", async () => {
+test("a prompt listed twice draws one row, and the list carries no summary tooltip", async () => {
   const container = await render(
     async () => true,
     async () => true,
@@ -1283,5 +1283,34 @@ test("a prompt listed twice draws one row, and the list says what it holds", asy
   );
   expect(container.querySelectorAll('[data-prompt-id="p-1"]').length).toBe(1);
   expect(container.querySelectorAll(".acpmux-queued").length).toBe(2);
-  expect(container.querySelector("ol")?.getAttribute("title")).toBe("composer.queueSummary");
+  expect(container.querySelector("ol")?.hasAttribute("title")).toBe(false);
+});
+
+test("a thumbnail whose first read failed is read again, not left blank", async () => {
+  let reads = 0;
+  const container = installDom();
+  const first = { ...pictured[0]!, images: [{ ...pictured[0]!.images![0]!, src: undefined }] };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ComposerQueue
+        queue={[first]}
+        chat="c"
+        t={t}
+        readImage={async () => {
+          reads += 1;
+          // The first read misses (acpmux paused or slow); the next one answers.
+          return reads === 1 ? undefined : "data:image/png;base64,QQ==";
+        }}
+      />,
+    );
+  });
+  await settle();
+  const slot = () => container.querySelector(".acpmux-queued-image-slot");
+  expect(slot()?.getAttribute("data-thumbnail")).toBe("missing");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+  });
+  expect(reads).toBe(2);
+  expect(slot()?.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,QQ==");
 });

@@ -13,7 +13,7 @@
 #   - SDK wire layers: every language binding's generated files from
 #     cmux-tui/spec/sdk-schema.json (cmux-tui/bindings/codegen/generate.py; with --sdk);
 #   - the daemon capability export: plans/cmux-next/daemon-capabilities.json from
-#     DaemonEndpoint.swift (scripts/cmux-next/check-daemon-capabilities-fresh.py; with --capabilities);
+#     cmux-tui/spec/gui-capabilities.json (scripts/cmux-next/check-daemon-capabilities-fresh.py; with --capabilities);
 #   - the docs shortcuts: web/data/cmux-shortcuts.generated.json from the
 #     committed action catalog export (web/scripts/export-docs-shortcuts.ts;
 #     with --docs-shortcuts);
@@ -65,6 +65,10 @@
 #   - the iPhone app's uniffi Swift bindings: rewrites
 #     cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift from
 #     cmux-mobile-link-ffi (scripts/ios-ffi-bindings.sh, a host cargo build; with --ios-ffi).
+#     Only that file is written.
+#   - the published settings keys: adds a regenerated settings schema's new rows to
+#     schemas/settings/published-keys.txt with cmux-config's own writer
+#     (CMUX_PUBLISHED_KEYS_WRITE=1 cargo test -p cmux-config --test published_keys).
 #     Only that file is written.
 #   - undeclared pull request jobs: each job no router declares its inputs to is
 #     recorded as runs-always in scripts/ci/job-inputs-always.json
@@ -622,6 +626,39 @@ if (( acpmux_ir )) && [[ -f "$repo/cmux-tui/crates/acpmux/Cargo.toml" ]]; then
       echo "left: acpmux protocol tests fail with ACPMUX_PROTOCOL_BLESS=1 (an ABI break needs a rule in $acpmux_spec/acpmux-abi.compat.json first): $(grep -m1 -E 'panicked at|^error' "$ir_log" || tail -n 1 "$ir_log")"
     fi
     rm -f "$ir_log"
+  fi
+fi
+
+# 5c. The published settings keys (schemas/settings/published-keys.txt), after a regenerated settings schema. The
+# record only grows: cmux-config's published_keys test fails on a schema row it does not list, and its writer
+# (CMUX_PUBLISHED_KEYS_WRITE=1) adds the live rows and keeps every key it had. The base autofix copied a schema with
+# new rows in, never the record, and the workflow's schema gate refused the whole repair after its half-hour
+# regeneration: on 11-27 from 02:00Z every base tip failed `autofix feat-cmux-next` that way (run 45924857630,
+# 11 new keys), as with the 37 keys #59554 recorded by hand. A removed row still fails that test (it needs a
+# retired-keys.json entry), and the gate still runs it.
+published_keys=schemas/settings/published-keys.txt
+if [[ -f "$repo/cmux-tui/crates/cmux-config/tests/published_keys.rs" && -f "$repo/$published_keys" ]] \
+  && ! git -C "$repo" diff --quiet HEAD -- schemas/settings/settings-schema.json 2>/dev/null; then
+  if (( unverified_settings )); then
+    echo "left: $published_keys (waits for the settings exports; their Mac job did not regenerate them)"
+  elif ! command -v cargo >/dev/null 2>&1; then
+    echo "left: $published_keys not checked (no cargo on PATH)"
+  else
+    keys_log="$(mktemp)"
+    if (cd "$repo/cmux-tui" && CMUX_PUBLISHED_KEYS_WRITE=1 cargo test --locked -p cmux-config --test published_keys >"$keys_log" 2>&1); then
+      if ! git -C "$repo" diff --quiet -- "$published_keys"; then
+        if frozen "$published_keys"; then
+          git -C "$repo" checkout --quiet -- "$published_keys"
+          echo "skipped (frozen): $published_keys (stale; CMUX_PUBLISHED_KEYS_WRITE=1 cargo test -p cmux-config --test published_keys in cmux-tui)"
+        else
+          echo "fixed: recorded the regenerated settings schema's new keys in $published_keys"
+        fi
+      fi
+    else
+      git -C "$repo" checkout --quiet -- "$published_keys" 2>/dev/null || true
+      echo "left: $published_keys not written (the published_keys writer failed): $(grep -m1 -E 'panicked at|^error' "$keys_log" || tail -n 1 "$keys_log")"
+    fi
+    rm -f "$keys_log"
   fi
 fi
 

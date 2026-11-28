@@ -31,6 +31,7 @@ interface Job {
   at: number;
   by: number;
   atRest: boolean;
+  whenAwake: boolean;
   run: (atRest: boolean) => void;
 }
 
@@ -38,6 +39,10 @@ export interface LaterOptions {
   /** The job waits only for the page to go quiet: it may run early, on the beat that rests the page,
    * which then tells it `atRest`. */
   atRest?: boolean;
+  /** The job has nothing to do on a page at rest (a mode to drop once nothing happened, where nothing
+   * happens): while the page rests it arms no timer, and runs on the wake that ends the rest
+   * (`wake()`), if its window opened by then. */
+  whenAwake?: boolean;
 }
 
 type TimerHost = Pick<typeof globalThis, "setTimeout" | "clearTimeout">;
@@ -53,6 +58,7 @@ export class SlackTimers {
   private jobs = new Map<number, Job>();
   private next = 1;
   private armed: { handle: unknown; by: number } | undefined;
+  private atRest = false;
 
   constructor(private readonly clock: SlackClock = windowClock(globalThis)) {}
 
@@ -61,7 +67,13 @@ export class SlackTimers {
     const now = this.clock.now();
     const id = this.next++;
     const at = now + Math.max(0, ms);
-    this.jobs.set(id, { at, by: at + Math.max(0, slack), atRest: options.atRest === true, run });
+    this.jobs.set(id, {
+      at,
+      by: at + Math.max(0, slack),
+      atRest: options.atRest === true,
+      whenAwake: options.whenAwake === true,
+      run,
+    });
     this.arm();
     return id;
   }
@@ -80,8 +92,22 @@ export class SlackTimers {
   /** The page goes to rest on this wake: run every job whose window opened, and every `atRest` job,
    * so nothing that only waited for quiet wakes the resting page. */
   rest(): void {
+    this.atRest = true;
     this.runDue(true);
     this.arm();
+  }
+
+  /** The page woke from its rest (pageHealth.ts `start`): its beat rides the jobs again. */
+  wake(): void {
+    if (!this.atRest) return;
+    this.atRest = false;
+    this.runDue();
+    this.arm();
+  }
+
+  /** The page rests: no beat comes, so a job that waits for it wakes the page alone. */
+  get resting(): boolean {
+    return this.atRest;
   }
 
   /** Jobs waiting (for tests and `cmuxDebug`). */
@@ -110,7 +136,7 @@ export class SlackTimers {
 
   private arm(): void {
     let by = Infinity;
-    for (const job of this.jobs.values()) by = Math.min(by, job.by);
+    for (const job of this.jobs.values()) if (!(this.atRest && job.whenAwake)) by = Math.min(by, job.by);
     if (this.armed && this.armed.by === by) return;
     if (this.armed) this.clock.clear(this.armed.handle);
     this.armed = undefined;

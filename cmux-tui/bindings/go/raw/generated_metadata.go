@@ -6,7 +6,7 @@ package raw
 const (
 	SDKSchemaVersion   = 2
 	MuxProtocolVersion = 12
-	SDKIRSHA256        = "5861f2b9f2e7381ab6fd7e5e9a27b601d363b888de3eb18c7732395b395edb3b"
+	SDKIRSHA256        = "d2e58e7363ddeea75dced973d72229d390076f4ddefc62d7d2c13dba33084783"
 )
 
 type Authority string
@@ -251,6 +251,7 @@ var commandMetadata = map[string]CommandMetadata{
 	"new-workspace":                      {Name: "new-workspace", GoMethod: "NewWorkspace", Authority: AuthorityControl, Since: 5, Capability: "", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"note-size-activity":                 {Name: "note-size-activity", GoMethod: "NoteSizeActivity", Authority: AuthorityControl, Since: 12, Capability: "shared-sizing-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"notify":                             {Name: "notify", GoMethod: "Notify", Authority: AuthorityControl, Since: 6, Capability: "", Stream: "", FieldSince: map[string]uint32{"source": 12}, FieldCapabilities: map[string]string{"source": "notification-source-v1"}},
+	"offer-link-to-phone":                {Name: "offer-link-to-phone", GoMethod: "OfferLinkToPhone", Authority: AuthorityLocalAdmin, Since: 12, Capability: "", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"page-credential":                    {Name: "page-credential", GoMethod: "PageCredential", Authority: AuthorityLocalAdmin, Since: 12, Capability: "page-credential-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"pairing-response":                   {Name: "pairing-response", GoMethod: "PairingResponse", Authority: AuthorityLocalAdmin, Since: 7, Capability: "", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"pane-neighbor":                      {Name: "pane-neighbor", GoMethod: "PaneNeighbor", Authority: AuthorityControl, Since: 6, Capability: "", Stream: "", FieldSince: nil, FieldCapabilities: nil},
@@ -395,6 +396,7 @@ var eventMetadata = map[string]EventMetadata{
 	"client-attached":                   {Name: "client-attached", Since: 6, Capability: "", Streams: []string{"subscribe"}, Emission: "emitted"},
 	"client-changed":                    {Name: "client-changed", Since: 6, Capability: "", Streams: []string{"subscribe"}, Emission: "emitted"},
 	"client-detached":                   {Name: "client-detached", Since: 6, Capability: "", Streams: []string{"subscribe"}, Emission: "emitted"},
+	"client-disconnected-by":            {Name: "client-disconnected-by", Since: 12, Capability: "", Streams: []string{"control"}, Emission: "emitted"},
 	"client-list-invalidated":           {Name: "client-list-invalidated", Since: 9, Capability: "", Streams: []string{"subscribe"}, Emission: "serialized-never-emitted"},
 	"cloud-conversation-changed":        {Name: "cloud-conversation-changed", Since: 12, Capability: "cloud-conversations-v1", Streams: []string{"subscribe"}, Emission: "emitted"},
 	"cloud-conversation-live":           {Name: "cloud-conversation-live", Since: 12, Capability: "cloud-chief-live-v1", Streams: []string{"subscribe"}, Emission: "emitted"},
@@ -440,6 +442,7 @@ var eventMetadata = map[string]EventMetadata{
 	"pane-closed":                       {Name: "pane-closed", Since: 7, Capability: "", Streams: []string{"subscribe-deltas"}, Emission: "emitted"},
 	"participant-avatar-changed":        {Name: "participant-avatar-changed", Since: 12, Capability: "participant-avatars-v1", Streams: []string{"subscribe"}, Emission: "emitted"},
 	"personal-changed":                  {Name: "personal-changed", Since: 12, Capability: "profiles-v1", Streams: []string{"subscribe"}, Emission: "emitted"},
+	"phone-open-link":                   {Name: "phone-open-link", Since: 12, Capability: "", Streams: []string{"control"}, Emission: "emitted"},
 	"program-status-changed":            {Name: "program-status-changed", Since: 12, Capability: "", Streams: []string{"subscribe"}, Emission: "emitted"},
 	"render-delta":                      {Name: "render-delta", Since: 7, Capability: "", Streams: []string{"attach-render"}, Emission: "emitted"},
 	"render-state":                      {Name: "render-state", Since: 7, Capability: "", Streams: []string{"attach-render"}, Emission: "emitted"},
@@ -524,7 +527,7 @@ func ProfileInfo(name Profile) (ProfileMetadata, bool) {
 }
 
 func AllCommandMetadata() []CommandMetadata {
-	result := make([]CommandMetadata, 0, 314)
+	result := make([]CommandMetadata, 0, 315)
 	result = append(result, cloneCommandMetadata(commandMetadata["ack-tab-notifications"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["add-screens-to-screen-group"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["add-tabs-to-tab-group"]))
@@ -714,6 +717,7 @@ func AllCommandMetadata() []CommandMetadata {
 	result = append(result, cloneCommandMetadata(commandMetadata["new-workspace"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["note-size-activity"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["notify"]))
+	result = append(result, cloneCommandMetadata(commandMetadata["offer-link-to-phone"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["page-credential"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["pairing-response"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["pane-neighbor"]))
@@ -843,7 +847,7 @@ func AllCommandMetadata() []CommandMetadata {
 }
 
 func AllEventMetadata() []EventMetadata {
-	result := make([]EventMetadata, 0, 100)
+	result := make([]EventMetadata, 0, 102)
 	var metadata EventMetadata
 	metadata = eventMetadata["activity-changed"]
 	metadata.Streams = append([]string(nil), metadata.Streams...)
@@ -891,6 +895,9 @@ func AllEventMetadata() []EventMetadata {
 	metadata.Streams = append([]string(nil), metadata.Streams...)
 	result = append(result, metadata)
 	metadata = eventMetadata["client-detached"]
+	metadata.Streams = append([]string(nil), metadata.Streams...)
+	result = append(result, metadata)
+	metadata = eventMetadata["client-disconnected-by"]
 	metadata.Streams = append([]string(nil), metadata.Streams...)
 	result = append(result, metadata)
 	metadata = eventMetadata["client-list-invalidated"]
@@ -1026,6 +1033,9 @@ func AllEventMetadata() []EventMetadata {
 	metadata.Streams = append([]string(nil), metadata.Streams...)
 	result = append(result, metadata)
 	metadata = eventMetadata["personal-changed"]
+	metadata.Streams = append([]string(nil), metadata.Streams...)
+	result = append(result, metadata)
+	metadata = eventMetadata["phone-open-link"]
 	metadata.Streams = append([]string(nil), metadata.Streams...)
 	result = append(result, metadata)
 	metadata = eventMetadata["program-status-changed"]

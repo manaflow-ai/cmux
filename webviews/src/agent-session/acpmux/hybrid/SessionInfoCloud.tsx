@@ -26,8 +26,14 @@ export type SessionInfoCloudControl = {
   setPin(pin: HybridPin): void;
 };
 
-const PINS = ["auto", "cloud", "local"] as const;
-const PIN_KEYS = { auto: "hybrid.mode.hybrid", cloud: "hybrid.pin.cloud", local: "hybrid.pin.local" } as const;
+const PINS = ["local", "auto", "cloud"] as const;
+const PIN_KEYS = { auto: "composer.auto", cloud: "hybrid.pin.cloud", local: "hybrid.pin.local" } as const;
+// A short hint under each choice: what happens to the chat when this Mac sleeps.
+const PIN_HINT_KEYS = {
+  local: "hybrid.pin.local.hint",
+  auto: "hybrid.pin.auto.hint",
+  cloud: "hybrid.pin.cloud.hint",
+} as const;
 
 export function SessionInfoCloudRows({
   control,
@@ -89,11 +95,25 @@ export function SessionInfoCloudRows({
               <span className="acpmux-session-info-row__name">{t("hybrid.pin")}</span>
               <span className="acpmux-session-info-row__end acpmux-hybrid-where">{t(PIN_KEYS[view.pin])}</span>
             </MenuButton>
-            <MenuPopup align="end" label={t("hybrid.pin")} className="acpmux-menu">
+            {/* The row's drop-down, its end on the row's end: each choice with a short hint under
+                its name, the check a trailing mark (cloudToggle.css). acpmux-picker-menu lets the
+                positioner place it; bare acpmux-menu keeps the composer's absolute rule, and the
+                pane's edge cut the menu off. */}
+            <MenuPopup
+              align="end"
+              label={t("hybrid.pin")}
+              className="acpmux-menu acpmux-picker-menu acpmux-hybrid-pin-menu"
+            >
               <MenuRadioGroup value={view.pin} onValueChange={(next) => control.setPin(next as HybridPin)}>
                 {PINS.map((pin) => (
                   <MenuRadioItem key={pin} value={pin} closeOnClick>
-                    {t(PIN_KEYS[pin])}
+                    <span className="ui-menu-text">
+                      <span className="ui-menu-label">{t(PIN_KEYS[pin])}</span>
+                      {/* data-popup-detail: the native popup host draws a dash before it, not "AutoMoves". */}
+                      <span className="ui-menu-subtitle" data-popup-detail="">
+                        {t(PIN_HINT_KEYS[pin])}
+                      </span>
+                    </span>
                   </MenuRadioItem>
                 ))}
               </MenuRadioGroup>

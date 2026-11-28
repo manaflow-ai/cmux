@@ -20,6 +20,80 @@ const MAX_DECODED_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 /// The length a missing file is sent with.
 const MISSING: u64 = u64::MAX;
 
+/// Folders an agent's tools fill with dependencies, caches and build output, by name. A new one
+/// (the Mac's manifest never had it) stays on the machine when Bring Back asks for a pruned
+/// listing ([`Layer::collect_pruned`]), so an `npm install` or a build tree is never listed,
+/// carried or planned path by path. Folders holding a `CACHEDIR.TAG` (Cargo's `target/`, ...)
+/// count too. `dist` and `build` are not here: a repository's `.gitignore` decides those, as the
+/// Mac's `git check-ignore` reads it.
+pub const KEPT_ON_MACHINE: &[&str] = &[
+    "node_modules",
+    "bower_components",
+    ".venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".tox",
+    ".next",
+    ".nuxt",
+    ".turbo",
+    ".parcel-cache",
+    ".svelte-kit",
+    ".gradle",
+    ".cache",
+];
+
+/// A folder [`Layer::collect_pruned`] left out of the listing: its path and what it holds.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Pruned {
+    pub path: String,
+    pub files: u64,
+    pub bytes: u64,
+}
+
+/// Whether the upper folder `path` named `name` is one [`KEPT_ON_MACHINE`] names or one marked a
+/// cache by its `CACHEDIR.TAG` (<https://bford.info/cachedir/>).
+fn kept_on_machine(name: &str, path: &Path) -> bool {
+    if KEPT_ON_MACHINE.contains(&name) {
+        return true;
+    }
+    // The agent wrote the tag: a link or a named pipe there is not one, and never blocks the read.
+    let mut head = [0u8; 43];
+    fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path.join("CACHEDIR.TAG"))
+        .and_then(|mut file| {
+            if !file.metadata()?.is_file() {
+                return Err(std::io::ErrorKind::InvalidInput.into());
+            }
+            file.read_exact(&mut head)
+        })
+        .is_ok_and(|()| head == *b"Signature: 8a477f597d28d172789f06886806bc55")
+}
+
+/// The files and bytes below `folder`, following no symlink (what cannot be read is not counted).
+fn holds(folder: &Path) -> (u64, u64) {
+    let (mut files, mut bytes) = (0u64, 0u64);
+    let mut stack = vec![folder.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else { continue };
+        for entry in entries.filter_map(Result::ok) {
+            let Ok(kind) = entry.file_type() else { continue };
+            if kind.is_dir() {
+                stack.push(entry.path());
+            } else {
+                files += 1;
+                if kind.is_file() {
+                    bytes += entry.metadata().map_or(0, |meta| meta.len());
+                }
+            }
+        }
+    }
+    (files, bytes)
+}
+
 /// What the agent changed: the upper layer's paths (folders before what they hold) and the
 /// whiteouts.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,6 +104,11 @@ pub struct Layer {
 
 fn mtime_of(meta: &fs::Metadata) -> i64 {
     meta.mtime().saturating_mul(1_000_000_000).saturating_add(meta.mtime_nsec())
+}
+
+/// The last name of a `/`-separated path.
+fn name_of(path: &str) -> String {
+    path.rsplit('/').next().unwrap_or(path).to_owned()
 }
 
 /// Whether `path` is relative, `/`-separated plain names.
@@ -44,6 +123,19 @@ impl Layer {
     /// preserves every other symlink as a link. Skips what is not a
     /// file, folder or link, and names that are not UTF-8.
     pub fn collect(state: &Path) -> anyhow::Result<Self> {
+        Ok(Self::collect_with(state, false)?.0)
+    }
+
+    /// [`Layer::collect`] without the folders [`KEPT_ON_MACHINE`] names or `CACHEDIR.TAG` marks
+    /// (nor anything below them): those, with what each holds. Bring Back asks for this listing
+    /// (`"prune": true`) and asks again for the whole one when a pruned folder is one its manifest
+    /// has (a repository that commits its `node_modules`).
+    pub fn collect_pruned(state: &Path) -> anyhow::Result<(Self, Vec<Pruned>)> {
+        Self::collect_with(state, true)
+    }
+
+    fn collect_with(state: &Path, prune: bool) -> anyhow::Result<(Self, Vec<Pruned>)> {
+        let mut pruned = Vec::new();
         let root = state.join("upper");
         let swapped_git = crate::git_swap::swapped_repository(state)?;
         let mut upper = Vec::new();
@@ -82,6 +174,11 @@ impl Layer {
                     },
                     _ => None,
                 };
+                if kind == Kind::Dir && prune && kept_on_machine(&name_of(&child), &path) {
+                    let (files, bytes) = holds(&path);
+                    pruned.push(Pruned { path: child, files, bytes });
+                    continue;
+                }
                 upper.push(Upper {
                     path: child.clone(),
                     kind,
@@ -105,12 +202,32 @@ impl Layer {
                 text.split(ends).filter(|path| plain(path)).map(str::to_owned).collect()
             })
             .unwrap_or_default();
-        Ok(Self { upper, whiteouts })
+        pruned.sort_by(|a, b| a.path.cmp(&b.path));
+        Ok((Self { upper, whiteouts }, pruned))
     }
 
     /// The listing as the wire carries it (bincode, then zstd).
     pub fn encode(&self) -> anyhow::Result<Vec<u8>> {
         Ok(zstd::encode_all(bincode::serialize(self)?.as_slice(), 3)?)
+    }
+
+    /// [`Layer::collect_pruned`]'s folders as the wire carries them, after the listing.
+    pub fn encode_pruned(pruned: &[Pruned]) -> anyhow::Result<Vec<u8>> {
+        Ok(zstd::encode_all(bincode::serialize(pruned)?.as_slice(), 3)?)
+    }
+
+    /// The folders from [`Layer::encode_pruned`]'s bytes: every path plain, no more than the
+    /// limits.
+    pub fn decode_pruned(bytes: &[u8]) -> anyhow::Result<Vec<Pruned>> {
+        let mut raw = Vec::new();
+        zstd::Decoder::new(bytes)?.take(MAX_DECODED_BYTES + 1).read_to_end(&mut raw)?;
+        anyhow::ensure!(raw.len() as u64 <= MAX_DECODED_BYTES, "the pruned list is too large");
+        let pruned: Vec<Pruned> = bincode::deserialize(&raw)?;
+        anyhow::ensure!(pruned.len() <= MAX_PATHS, "too many paths");
+        for folder in &pruned {
+            anyhow::ensure!(plain(&folder.path), "bad path {:?}", folder.path);
+        }
+        Ok(pruned)
     }
 
     /// A listing from [`Layer::encode`]'s bytes: every path plain, no more than the limits.

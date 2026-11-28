@@ -5,11 +5,10 @@ import Foundation
 // by numeric handle. Group changes emit `tree-changed` plus a
 // `screen-changed` per member.
 
-public struct ListSavedScreenGroupsRequest: DaemonRequest {
+// The saved-group requests are generated (bindings.json, family Screens);
+// ListSavedScreenGroupsRequest's response stays here.
+extension ListSavedScreenGroupsRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var groups: [SavedScreenGroupSnapshot]
     }
-    public static let command = "list-saved-screen-groups"
-    public static let requiredCapability: String? = DaemonCapability.screenGroups.rawValue
-    public init() {}
 }

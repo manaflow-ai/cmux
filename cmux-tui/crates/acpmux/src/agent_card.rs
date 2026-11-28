@@ -13,7 +13,8 @@
 //! has it. The text puts what never changes first and this machine's numbers last, so a prompt
 //! cache keeps everything above them. [`refresh`] rewrites the numbers at every spawn (after a
 //! resize, or a move to another machine). `cmux capabilities` and `cmux machine info` print the
-//! same card and facts on demand. [`SWITCH_ENV`]`=0` turns the card off.
+//! same card and facts on demand, and `cmux capabilities` adds every Cloud size with its price
+//! ([`can_get`]: what the agent can get beyond this machine and how to ask). [`SWITCH_ENV`]`=0` turns the card off.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -421,8 +422,9 @@ fn intro(place: Place) -> &'static str {
     }
 }
 
-/// The card's text.
-pub fn render(facts: &MachineFacts, enabled: &[Enabled]) -> String {
+/// The card's text: what never changes first, then what the agent can get
+/// ([`can_get::CanGet::lines`]), then this machine's numbers.
+pub fn render(facts: &MachineFacts, enabled: &[Enabled], can_get: &can_get::CanGet) -> String {
     let mut text = String::from("<where-you-are>\n");
     text.push_str(intro(facts.place));
     text.push_str("\nWhat cmux lets you do in this chat (details: `cmux capabilities`):\n");
@@ -431,6 +433,7 @@ pub fn render(facts: &MachineFacts, enabled: &[Enabled]) -> String {
         text.push_str(c.line);
         text.push('\n');
     }
+    text.push_str(&can_get.lines());
     // Last, so a prompt cache keeps everything above it when only the numbers change.
     text.push_str(&facts.line());
     text.push_str(" (`cmux machine info` reads them again.)\n</where-you-are>");
@@ -468,7 +471,11 @@ pub fn for_env(
     }
     let place = Place::here(auto);
     let facts = MachineFacts::read(place, cwd);
-    Some(render(&facts, &enabled(place, &servers_for(remote_origin, env))))
+    Some(render(
+        &facts,
+        &enabled(place, &servers_for(remote_origin, env)),
+        &can_get::CanGet::read(),
+    ))
 }
 
 /// The card as a context part on `channel`.
@@ -514,6 +521,7 @@ pub fn cli(what: &str, json: bool, cwd: &Path) -> String {
     let facts = MachineFacts::read(place, cwd);
     let env = BTreeMap::new();
     let caps = enabled(place, &servers_for(false, &env));
+    let more = can_get::CanGet::read();
     match (what, json) {
         ("machine", true) => serde_json::to_string_pretty(&facts).unwrap_or_default(),
         ("machine", false) => facts.line(),
@@ -521,18 +529,24 @@ pub fn cli(what: &str, json: bool, cwd: &Path) -> String {
             "place": place,
             "machine": facts,
             "capabilities": caps,
+            "can_get": more,
         }))
         .unwrap_or_default(),
         _ => {
-            let mut out = render(&facts, &caps);
+            let mut out = render(&facts, &caps, &more);
             out.push_str("\n\nDetails:\n");
             for c in &caps {
                 out.push_str(&format!("- {}: {}\n", c.id, c.detail));
             }
+            out.push('\n');
+            out.push_str(&more.table());
             out
         }
     }
 }
+
+#[path = "agent_card_can_get.rs"]
+pub mod can_get;
 
 #[cfg(test)]
 #[path = "agent_card_tests.rs"]

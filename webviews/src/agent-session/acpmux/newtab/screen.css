@@ -54,6 +54,13 @@
 .nt-row-icon{color:var(--acpmux-composer-dim)}
 .nt-row.is-selected .nt-row-icon,.nt-row:not(:disabled,.nt-rows > *):hover .nt-row-icon{color:var(--agent-text)}
 .nt-row-favicon{display:block;border-radius:25%;box-shadow:none;object-fit:contain}
+/* A one-colour favicon (faviconInk.ts) where its own ink would vanish: a dark one on the dark theme, a light one on the
+   light theme. A mark (GitHub) draws in the label colour, as the sidebar's `adaptive` favicon style does; a tile with
+   a knockout (Vercel's black disc, white triangle) draws inverted, so the knockout stays. On the other theme, and any
+   other favicon: as fetched (Lucas 2026-11-26). */
+.nt-row-favicon:is([data-ink="dark"],[data-ink="light"]){background:var(--nt-favicon) center/contain no-repeat}
+:root:not([data-theme="light"]) .nt-row-favicon[data-ink="dark"],:root[data-theme="light"] .nt-row-favicon[data-ink="light"]{background:currentColor;mask:var(--nt-favicon) center/contain no-repeat}
+:root:not([data-theme="light"]) .nt-row-favicon[data-ink="dark-tile"],:root[data-theme="light"] .nt-row-favicon[data-ink="light-tile"]{filter:invert(1)}
 /* The title takes the row's room first and is cut only at the action (or the row's trailing padding); the
    detail takes what is left (flex-basis 0) and goes before the title does (user 34731: a long "Search the
    web for …" stopped at 60% of the row, a third of it empty). */

@@ -146,6 +146,26 @@ fn the_capability_is_advertised() {
     assert!(capabilities.iter().any(|value| value == "agent-cli-hybrid-v2"), "{identity}");
 }
 
+/// `list-clients` shows what each client declared, so a running daemon tells whether a phone
+/// opted into the hybrid stream.
+#[test]
+fn list_clients_shows_declared_capabilities() {
+    let (mux, _surface) = terminal("hybrid-list-clients", None);
+    let hybrid =
+        declaring(&mux, &["agent-cli-hybrid-v2", "agent-cli-hybrid-v1", "not-a-capability"]);
+    let plain = viewer(&mux, false);
+    let listed = handle_command(&mux, plain.client, Command::ListClients, &plain._writer).unwrap();
+    let row = |client: u64| {
+        listed.as_array().unwrap().iter().find(|row| row["client"] == client).cloned().unwrap()
+    };
+    assert_eq!(
+        row(hybrid.client)["capabilities"],
+        json!(["agent-cli-hybrid-v1", "agent-cli-hybrid-v2"]),
+        "{listed}"
+    );
+    assert_eq!(row(plain.client)["capabilities"], json!([]), "{listed}");
+}
+
 /// The lean form (`agent-cli-hybrid-v2`): the same frames as `agent-cli-lean` events, read back
 /// by the viewer's decoder, in fewer bytes than v1's `agent-cli-frame` events.
 #[test]

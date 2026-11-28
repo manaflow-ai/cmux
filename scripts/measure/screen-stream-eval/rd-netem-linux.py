@@ -39,7 +39,10 @@ see it; jitter is netem's default distribution, which reorders packets):
 
 Each profile starts a fresh host and runs two viewer sessions against it:
   passive  `bench --input none --duration-s N`: received Mbps per second and the host's target
-           bitrate per second (the `kbps` of the host's newest stats message in that second)
+           bitrate per second (the `kbps` of the host's newest stats message in that second); the host
+           sends stats every 100 ms (--stats-ms 100), so the bench's 100 ms rows give the seconds to
+           15 Mbps for the target, the received rate and both (HQ NOW's rate_s_to_15mbps definition),
+           and how many rows the target sat at the 1 Mbps floor
   key      `bench --input key --samples N`: key press to decoded marker, p50/p95, lost
 IDRs are the host's own per-frame timing records (CMUX_RD_TIMING_LOG) during each session.
 `stage_ledger` (schema cmux.rd-stage-ledger/1) is copied from each bench line that has it.
@@ -108,6 +111,10 @@ WIFI_AWAY_SEED, WIFI_AWAY_SECONDS = 7, 120.0
 HOLDS_FILE = Path(__file__).with_name("wifi-away-holds.json")
 # Extra `cmux-rd host` flags for every host this run starts (--host-arg, e.g. an encode profile).
 HOST_ARGS: list[str] = []
+# The host's stats cadence: the bench's `series_100ms` rows carry the host's newest target, which is fresh
+# every 100 ms only when the host sends stats that often (`cmux-rd host --stats-ms`, default 1000), so the
+# time to a rate reads below one second (goals/screen-share-rate-control.md). 100 ms is the host's floor.
+HOST_STATS_ARGS = ["--stats-ms", "100"]
 # The OpenH264 every host encodes with (--openh264): "cisco", Cisco's binary that shipped hosts load,
 # fetched with the measured cmux-rd's own `openh264-install`; "source", the bench feature's source
 # build, compiled without its assembly; or a path to Cisco's library.
@@ -222,6 +229,7 @@ def summarize_passive(report: dict | None) -> dict:
         "decoded_fps_per_s": fps,
         "target_s_to_15mbps": seconds_to(target, 15_000),
         "received_s_to_15mbps": seconds_to(mbps, 15),
+        **fine_rate(report.get("series_100ms")),
         "host_keyframes_delta": (seen[-1] - seen[0]) if len(seen) >= 2 else None,
         "fps": _num(report.get("fps")),
         "decoded_frames": _num(report.get("decoded_frames")),
@@ -230,6 +238,46 @@ def summarize_passive(report: dict | None) -> dict:
         "ended": report.get("ended"),
         "repair_rtt_ms": _num(report.get("repair_rtt_ms")),
         "stage_ledger": ledger_of(report),
+    }
+
+
+RATE_KBPS = 15_000  # the rate goal's line (goals/screen-share-rate-control.md), as HQ's NOW reads it
+FLOOR_KBPS = 1_000  # the controller's floor: a target at or below it after the line is a fall to the floor
+
+
+def fine_rate(rows) -> dict:
+    """The bench's `series_100ms` rows ([ms into the window, bytes in the 100 ms bucket, host target kbps or
+    null]) read the way HQ's now_screen_share_fast.time_to_rate reads a pair run's `fine` rows: seconds to the
+    end of the first row whose target is at RATE_KBPS, of the first whose received rate is, and of the first
+    where both are (`s_to_15mbps_100ms`, the goal's number), the lowest target from that row on, and how many
+    rows after the first target sit at or below FLOOR_KBPS. Empty when the bench has no 100 ms rows."""
+    if not isinstance(rows, list) or not rows:
+        return {}
+    fine, prev = [], 0
+    for row in rows:
+        if not isinstance(row, list) or len(row) != 3:
+            return {}
+        ms, nbytes, kbps = _num(row[0]), _num(row[1]), _num(row[2])
+        if ms is None or nbytes is None:
+            return {}
+        fine.append((ms, round(nbytes * 8 / max(ms - prev, 1) / 1e3, 2), kbps))
+        prev = ms
+
+    def first(ok):
+        return next((i for i, row in enumerate(fine) if ok(*row)), None)
+
+    at_t = first(lambda _, m, k: k is not None and k >= RATE_KBPS)
+    at_r = first(lambda _, m, k: m >= RATE_KBPS / 1000)
+    both = first(lambda _, m, k: k is not None and k >= RATE_KBPS and m >= RATE_KBPS / 1000)
+    seen = first(lambda _, m, k: k is not None)
+    after = [k for _, _, k in fine[both:] if k is not None] if both is not None else []
+    return {
+        "target_s_to_15mbps_100ms": round(fine[at_t][0] / 1000, 2) if at_t is not None else None,
+        "received_s_to_15mbps_100ms": round(fine[at_r][0] / 1000, 2) if at_r is not None else None,
+        "s_to_15mbps_100ms": round(fine[both][0] / 1000, 2) if both is not None else None,
+        "min_target_kbps_after_15mbps": min(after) if after else None,
+        "floor_rows": sum(1 for _, _, k in fine[seen:] if k is not None and k <= FLOOR_KBPS) if seen is not None else 0,
+        "fine_rows": len(fine),
     }
 
 
@@ -516,6 +564,10 @@ def markdown_table(rows: list[dict]) -> str:
         down = (r.get("wire") or {}).get("down_mbps_per_s") or []
         wire_cell = f"{statistics.median(down):.2f}" if down else "–"
         t15 = f"{_fmt(passive.get('target_s_to_15mbps'))} / {_fmt(passive.get('received_s_to_15mbps'))}"
+        if passive.get("fine_rows"):
+            t15 += (f" (100 ms: {_fmt(passive.get('target_s_to_15mbps_100ms'), 2)} / "
+                    f"{_fmt(passive.get('received_s_to_15mbps_100ms'), 2)}, both {_fmt(passive.get('s_to_15mbps_100ms'), 2)}"
+                    f"; floor {passive.get('floor_rows')})")
         ledgers = [x for x in (passive.get("stage_ledger"), key.get("stage_ledger")) if x]
         ledger = "yes" if ledgers else "no"
         reasm = r.get("reassembly") or {}
@@ -846,7 +898,7 @@ def measure_profile(rig: Rig, binary: Path, commit: str, profile: str, scratch: 
     with open(host_log, "wb") as log:
         host = rig.spawn(rig.host_ns, [str(binary), "host", "--owner", "owner", "--bind", HOST_IP,
                                        "--single-tenant-overlay", "1", "--display", display, "--port", str(PORT),
-                                       "--profile", "baseline", "--token-fd", "3", *LIB_ARGS, *HOST_ARGS],
+                                       "--profile", "baseline", "--token-fd", "3", *LIB_ARGS, *HOST_STATS_ARGS, *HOST_ARGS],
                          env={"CMUX_RD_TIMING_LOG": str(timing)}, token=token, stdout=log, stderr=log)
     try:
         if not wait_for(host_log, "listening", host, 20):
@@ -897,7 +949,7 @@ def measure_lo(rig: Rig, binary: Path, row: dict, scratch: Path, display: str, p
     with open(host_log, "wb") as log:
         host = rig.spawn(rig.host_ns, [str(binary), "host", "--owner", "owner", "--bind", "127.0.0.1",
                                        "--display", display, "--port", str(PORT), "--profile", "baseline",
-                                       "--token-fd", "3", *LIB_ARGS, *HOST_ARGS],
+                                       "--token-fd", "3", *LIB_ARGS, *HOST_STATS_ARGS, *HOST_ARGS],
                          env={"CMUX_RD_TIMING_LOG": str(timing)}, token=token, stdout=log, stderr=log)
     driver = HoldDriver(rig, holds, period, loss)
     try:

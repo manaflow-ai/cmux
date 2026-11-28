@@ -48,6 +48,10 @@ pub struct LsArgs {
     /// Only sessions carrying this tag (key or key=value).
     #[arg(long)]
     tag: Option<String>,
+    /// Only settled chats (archived with a reason, `hub/auto_settle.rs`): the same as
+    /// `--tag settled`.
+    #[arg(long, conflicts_with = "tag")]
+    settled: bool,
     /// Return at most N sessions, newest first. With `--json`, `nextCursor` names where the
     /// next ones start (`--cursor`); null when none is left.
     #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
@@ -89,7 +93,7 @@ pub struct LsArgs {
     /// `lane.reportsTo`), once, with `reports` (those sessions' names), most reports first
     /// (`ls_leads.rs`). The coordinator, its deputies and the area owners each are one.
     #[arg(long, conflicts_with_all = [
-        "patterns", "name_patterns", "status", "pending", "tag", "limit", "cursor", "since", "host", "all",
+        "patterns", "name_patterns", "status", "pending", "tag", "settled", "limit", "cursor", "since", "host", "all",
     ])]
     leads: bool,
     /// Only the archived chats (the chat menu's Archive, `acpmux archive`, or the setting
@@ -177,12 +181,15 @@ async fn bounded_total<T>(
 /// budget, never a daemon that is gone (it answered the connect).
 fn timeout_error(budget: &ListBudget, step: &str, waited: Duration) -> anyhow::Error {
     let next = if budget.route == LOCAL_ROUTE {
-        format!("the daemon is busy; retry, or `{} daemon status`", crate::cli::entry::program())
+        format!(
+            "the daemon is not answering (`{} daemon status` shows why)",
+            crate::cli::entry::program()
+        )
     } else {
-        "retry after the machine reconnects".to_owned()
+        "the machine is not answering (`acpmux machine ls` shows its link)".to_owned()
     };
     errors::AppError::timeout(format!(
-        "acpmux ls for machine {:?} via {}: {} step stalled after {:.0?} (ls budget {:.0?}); {next}",
+        "acpmux ls for machine {:?} via {}: {} step stalled after {:.0?} (ls budget {:.0?}): {next}",
         budget.machine, budget.route, step, waited, LS_TOTAL_DEADLINE
     ))
     .retryable()
@@ -336,6 +343,7 @@ async fn scoped_output_with_budget(
         status,
         pending,
         tag,
+        settled,
         limit,
         cursor,
         fields,
@@ -350,6 +358,7 @@ async fn scoped_output_with_budget(
         closed,
         refresh_relay_cache: _,
     } = args;
+    let tag = tag.or_else(|| settled.then(|| crate::hub::auto_settle::SETTLED_TAG.to_owned()));
     // `--closed` is `--status closed` (clap refuses the two together).
     let status = if closed { Some("closed".to_owned()) } else { status };
     // The leaders need every live row: the sessions that report are read with them.

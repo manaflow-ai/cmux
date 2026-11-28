@@ -18,7 +18,7 @@ scripts/gallery-matrix/parity.py pairs it with a Linux run.
 Fleet: scripts/measure/gallery-mac-reference.sh builds the app and the gallery and runs this.
 Exits 0 once the app came up for every engine (read results.json); 1 when it did not.
 """
-import argparse, functools, http.server, json, os, socketserver, subprocess, sys, tempfile, threading, time, urllib.parse
+import argparse, functools, http.server, json, os, re, socketserver, subprocess, sys, tempfile, threading, time, urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pathlib import Path
@@ -98,6 +98,11 @@ def rpc(method, params=None):
         return {"error": str(error)}
 
 
+# The tab every page command names. `browser open` does not focus the tab it opens, and a call that names
+# none falls back to the focused tab (the first workspace's terminal), so each engine pins the tab it opened.
+TARGET = ["page"]
+
+
 def case_url(item):
     path = item.get("path_or_url") or "frame.html"
     if "#" in path:
@@ -126,7 +131,7 @@ READ_ENV = """(() => {
 
 
 def page_json(script):
-    code, out = cli("browser", "page", "eval", script)
+    code, out = cli("browser", TARGET[0], "eval", script)
     try:
         value = json.loads(out)
         return json.loads(value) if isinstance(value, str) else value
@@ -150,21 +155,21 @@ def render(item, engine):
                              "revision": variants[engine].get("revision", variants[engine].get("rev", INPUT_KEYS.get("revision"))),
                              "store": f"{family}-mac-gallery-{engine}-{key}"}
     url = case_url(item)
-    code, out = cli("browser", "page", "navigate", url)
+    code, out = cli("browser", TARGET[0], "navigate", url)
     if code != 0:
         row["error"] = f"navigate: {out[:300]}"
         return row
-    code, out = cli("browser", "page", "wait", "html[data-gallery-ready]", "--timeout-ms", str(opts.ready_timeout_ms),
+    code, out = cli("browser", TARGET[0], "wait", "html[data-gallery-ready]", "--timeout-ms", str(opts.ready_timeout_ms),
                     timeout=opts.ready_timeout_ms / 1000 + 30)
     row["ready"] = code == 0
     if code != 0:
         row["error"] = f"never ready: {out[:300]}"
     # The stage is ready when painted and still; one more stable read covers late font swaps.
-    wait_stable(lambda: cli("browser", "page", "eval", "document.fonts ? document.fonts.status : 'n/a'")[1],
+    wait_stable(lambda: cli("browser", TARGET[0], "eval", "document.fonts ? document.fonts.status : 'n/a'")[1],
                 f"{item['id']} fonts", timeout=5, interval=0.2, raise_on_timeout=False)
     row["env"] = page_json(READ_ENV)
     name = f"{safe(item['id'])}-{engine}.png"
-    code, out = cli("browser", "page", "screenshot", "--out", os.path.join(OUT, name), "--selector", CAPTURE_SELECTOR)
+    code, out = cli("browser", TARGET[0], "screenshot", "--out", os.path.join(OUT, name), "--selector", CAPTURE_SELECTOR)
     if code == 0 and os.path.exists(os.path.join(OUT, name)):
         row["screenshot"] = name
     else:
@@ -194,7 +199,12 @@ def run_engine(engine, cases):
                    "the first workspace's pane", timeout=30, interval=0.2, raise_on_timeout=False)
         first = cases[0] if cases else {"id": "blank", "path_or_url": "frame.html"}
         opened = cli("browser", "open", case_url(first))
-        cli("browser", "page", "wait", "--load-state", "complete", "--timeout-ms", "30000", timeout=45)
+        tab = re.search(r"\btab_id\s+(tab_[0-9a-f]+)", opened[1])
+        if not tab:
+            print(f"gallery-mac-reference: browser open named no tab for {engine}: {opened[1][:300]}", flush=True)
+            return None
+        TARGET[0] = tab.group(1)
+        cli("browser", TARGET[0], "wait", "--load-state", "complete", "--timeout-ms", "30000", timeout=45)
         print(f"{engine}: open {opened}; ua {cli('browser', 'page', 'eval', 'navigator.userAgent')[1][:200]}", flush=True)
         for index, item in enumerate(cases):
             row = render(item, engine)
@@ -244,7 +254,10 @@ def main():
                    "reference_runtime": opts.runtime, "revision": opts.rev,
                    "input_keys": INPUT_KEYS or None}, handle, indent=1)
     server.shutdown()
-    return 0 if came_up else 1
+    drawn = sum(1 for row in results if row.get("screenshot"))
+    print(f"gallery-mac-reference: {drawn}/{len(results)} screenshots", flush=True)
+    # A run that drew nothing is not a reference, even when every app came up.
+    return 0 if came_up and drawn else 1
 
 
 if __name__ == "__main__":

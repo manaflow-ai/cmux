@@ -301,7 +301,7 @@ pub enum Event {
     OfferFailed,
     /// One line of the link process, and what the offer is made of if this line has the key.
     ProcessLine {
-        line: AppLine,
+        line: Box<AppLine>,
         #[serde(default)]
         inputs: OfferInputs,
     },
@@ -357,7 +357,7 @@ pub enum Event {
         frame_size: Size,
         #[serde(default)]
         stalled: bool,
-        stats: Option<LiveStats>,
+        stats: Option<Box<LiveStats>>,
         path: Option<String>,
     },
 }
@@ -447,7 +447,7 @@ impl Session {
                 }
             }
             Event::OfferFailed => self.fail(Message::signaling_failed(), &mut fx),
-            Event::ProcessLine { line, inputs } => self.process_line(line, &inputs, &mut fx),
+            Event::ProcessLine { line, inputs } => self.process_line(*line, &inputs, &mut fx),
             Event::ProcessExited { stderr_tail } => {
                 if self.phase == Phase::Connecting {
                     let message = if stderr_tail.is_empty() {
@@ -508,7 +508,7 @@ impl Session {
             } => {
                 self.phase = phase;
                 if let Some(stats) = stats {
-                    self.stats = stats;
+                    self.stats = *stats;
                 }
                 if path.is_some() {
                     self.path_text = path;
@@ -737,7 +737,7 @@ mod tests {
     fn line(f: impl FnOnce(&mut AppLine)) -> Event {
         let mut line = AppLine::default();
         f(&mut line);
-        Event::ProcessLine { line, inputs: OfferInputs::default() }
+        Event::ProcessLine { line: Box::new(line), inputs: OfferInputs::default() }
     }
 
     fn answer_text(f: impl FnOnce(&mut RdDocument)) -> String {

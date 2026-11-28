@@ -24,6 +24,15 @@ beforeAll(() => {
     pretendToBeVisual: true,
   });
   window.HTMLElement.prototype.scrollIntoView = () => undefined;
+  // jsdom has no layout: every element is a 400 by 800 box, so the lines (a virtual list at any
+  // length) have a viewport, as in a window.
+  const box = { x: 0, y: 0, top: 0, left: 0, right: 400, bottom: 800, width: 400, height: 800 };
+  Object.defineProperties(window.HTMLElement.prototype, {
+    getBoundingClientRect: { configurable: true, value: () => ({ ...box, toJSON: () => box }) },
+    offsetHeight: { configurable: true, get: () => box.height },
+    offsetWidth: { configurable: true, get: () => box.width },
+    clientHeight: { configurable: true, get: () => box.height },
+  });
   const replacements: Record<string, unknown> = {
     window,
     document: window.document,
@@ -192,44 +201,56 @@ test("reports: a selection renders the two report rows whose state flipped", asy
   expect(rowRenders.count("ReportRow")).toBe(2);
 });
 
-test("a long feed (virtual list): mounted rows stay the window's, and a selection renders two rows", async () => {
+test("at any length only the window's rows are mounted (a short feed too), and a selection renders two", async () => {
   const { manyNotices } = await import("../src/pages/feed/mockProvider");
-  // jsdom has no layout: every element is an 800 by 400 box, so the virtual list has a viewport.
-  const proto = (window as unknown as { HTMLElement: { prototype: HTMLElement } }).HTMLElement.prototype;
-  const box = { x: 0, y: 0, top: 0, left: 0, right: 400, bottom: 800, width: 400, height: 800 };
-  const stubs = {
-    getBoundingClientRect: { configurable: true, value: () => ({ ...box, toJSON: () => box }) },
-    offsetHeight: { configurable: true, get: () => 800 },
-    offsetWidth: { configurable: true, get: () => 400 },
-    clientHeight: { configurable: true, get: () => 800 },
-  };
-  const before = Object.fromEntries(
-    Object.keys(stubs).map((key) => [key, Object.getOwnPropertyDescriptor(proto, key)]),
-  );
-  Object.defineProperties(proto, stubs);
   const counts: Record<number, { rows: number; nodes: number }> = {};
-  try {
-    for (const n of [1_000, 10_000]) {
-      const feed = await mount("#/list", (now) => manyNotices(now, n));
-      counts[n] = { rows: feed.rows().length, nodes: host.querySelectorAll("*").length };
-      if (n === 1_000) {
-        const ids = feed.readRows().map(rowItem);
-        expect(ids.length).toBeGreaterThan(2);
-        await feed.run(() => feed.store.select(ids[1]));
-        rowRenders.reset();
-        await feed.run(() => feed.store.select(ids[2]));
-        expect(rowRenders.count("FeedRow")).toBe(2);
-      }
-    }
-  } finally {
-    for (const [key, descriptor] of Object.entries(before)) {
-      if (descriptor) Object.defineProperty(proto, key, descriptor);
-      else delete (proto as unknown as Record<string, unknown>)[key];
+  for (const n of [50, 150, 1_000, 10_000]) {
+    const feed = await mount("#/list", (now) => manyNotices(now, n));
+    counts[n] = { rows: feed.rows().length, nodes: host.querySelectorAll("*").length };
+    if (n === 1_000) {
+      const ids = feed.readRows().map(rowItem);
+      expect(ids.length).toBeGreaterThan(2);
+      await feed.run(() => feed.store.select(ids[1]));
+      rowRenders.reset();
+      await feed.run(() => feed.store.select(ids[2]));
+      expect(rowRenders.count("FeedRow")).toBe(2);
     }
   }
   console.log(
-    `[jsdom] feed mounted rows / DOM nodes: N=1000 ${JSON.stringify(counts[1_000])}, N=10000 ${JSON.stringify(counts[10_000])}`,
+    `[jsdom] feed mounted rows / DOM nodes: ${[50, 150, 1_000, 10_000].map((n) => `N=${n} ${JSON.stringify(counts[n])}`).join(", ")}`,
   );
+  // An 800 px viewport holds about 14 lines; the window adds a few on each side, whatever the length.
   expect(counts[1_000]!.rows).toBeGreaterThan(5);
+  expect(counts[50]!.rows).toBeLessThan(40);
+  expect(counts[150]!.rows).toBe(counts[1_000]!.rows);
   expect(counts[10_000]!.rows).toBe(counts[1_000]!.rows);
+});
+
+test("a scroll step in a short feed mounts the rows coming into view and renders no other", async () => {
+  const { manyNotices } = await import("../src/pages/feed/mockProvider");
+  const feed = await mount("#/list", (now) => manyNotices(now, 150));
+  const scroller = host.querySelector<HTMLElement>(".feed-list-scroll")!;
+  // The list's space moves up as its scroller scrolls (the stubbed boxes do not move by themselves).
+  const space = host.querySelector<HTMLElement>(".ui-virtual-space")!;
+  Object.defineProperty(space, "getBoundingClientRect", {
+    configurable: true,
+    value: () => {
+      const top = -scroller.scrollTop;
+      return { x: 0, y: top, top, left: 0, right: 400, bottom: top + 800, width: 400, height: 800 };
+    },
+  });
+  const before = new Set(feed.rows().map(rowItem));
+  rowRenders.reset();
+  await feed.run(async () => {
+    Object.defineProperty(scroller, "scrollTop", { configurable: true, writable: true, value: 600 });
+    scroller.dispatchEvent(new window.Event("scroll"));
+    // Until the window has moved: a row it did not hold before is mounted (one frame at a time).
+    for (let frame = 0; frame < 60 && feed.rows().every((row) => before.has(rowItem(row))); frame++)
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
+  });
+  const after = feed.rows().map(rowItem);
+  const entered = after.filter((id) => !before.has(id)).length;
+  expect(entered).toBeGreaterThan(0);
+  expect(after.length).toBeLessThan(40);
+  expect(rowRenders.count("FeedRow")).toBe(entered);
 });

@@ -110,6 +110,9 @@ pub struct HistoryEntry {
     /// Agent only: the hook adapter id (`claude`, `codex`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
+    /// Page visit provenance: `person` or `agent`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor: Option<String>,
 }
 
 impl HistoryEntry {
@@ -139,6 +142,7 @@ impl HistoryEntry {
             exit_code: None,
             session_id: None,
             provider: None,
+            actor: None,
         }
     }
 }

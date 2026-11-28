@@ -295,23 +295,19 @@ test("simulator launch seeds a deterministic durable device id before app launch
   );
 });
 
-test("release gate keeps its transport proofs and refuses the Mac app-rpc modes", () => {
-  for (const [mode, expectedPlan] of [
-    ["direct-only", "simulator-direct-transport"],
-    ["private-path", "host-private-path-transport"],
+test("release gate refuses every mode: its Swift transport package and the Mac app-rpc listener are gone", () => {
+  for (const [mode, reason] of [
+    ["direct-only", /CmuxIrohTransport.*was deleted/],
+    ["private-path", /CmuxIrohTransport.*was deleted/],
+    ["automatic", /no longer runs the iroh phone listener/],
+    ["relay-only", /no longer runs the iroh phone listener/],
+    ["relay-expiry", /no longer runs the iroh phone listener/],
   ]) {
     const result = run("bash", [
       "scripts/run-iroh-release-gate.sh", "--mode", mode, "--tag", `plan-${mode}`, "--print-plan",
     ]);
-    assert.equal(result.status, 0, `${mode}: ${result.stderr}`);
-    assert.equal(result.stdout.trim(), expectedPlan);
-  }
-  for (const mode of ["automatic", "relay-only", "relay-expiry"]) {
-    const result = run("bash", [
-      "scripts/run-iroh-release-gate.sh", "--mode", mode, "--tag", `plan-${mode}`, "--print-plan",
-    ]);
     assert.equal(result.status, 2, `${mode}: ${result.stderr}`);
-    assert.match(result.stderr, /no longer runs the iroh phone listener/);
+    assert.match(result.stderr, reason);
     assert.equal(result.stdout, "");
   }
 });

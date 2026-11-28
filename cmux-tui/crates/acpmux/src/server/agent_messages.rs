@@ -140,6 +140,8 @@ pub(super) async fn person_prompt(
     let chief = crate::hub::is_chief(&s.meta());
     if !chief && counts_as_person_prompt(agent_message, conn.is_trigger(), in_session) {
         hub.person_prompted(crate::store::now_ms());
+        // Only the person's own message brings a settled chat back (`hub/auto_settle.rs`).
+        hub.unsettle_on_person_prompt(s);
     }
     if !agent_message && local_person(conn) {
         // After its log and its peers' load, which restore the pairs this resumes.

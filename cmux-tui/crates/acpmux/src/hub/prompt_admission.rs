@@ -11,8 +11,13 @@
 //! Now every bound is here, and there is no other way in:
 //! - [`admit`] waits at most [`ADMISSION_BOUND`] for the lock. Past that the prompt goes on
 //!   without it: the order yields, the prompt is never stranded.
-//! - A holder keeps the lock at most [`ADMISSION_BOUND`] (its lease): a timer lets it go and logs
-//!   the step it was in, so the daemon log names the await that held it.
+//! - A holder keeps the lock at most [`ADMISSION_BOUND`] of the runtime's time (its lease): a
+//!   timer lets it go and logs the step it was in, so the daemon log names the await that held
+//!   it. The lease is charged in [`LEASE_TICK`]s, and a tick that wakes late is charged only its
+//!   own length: time the runtime gave no task is starvation, and starved is slow, never dead
+//!   (RFD 0124). A wall-clock lease let 346 of 388 holders go in the setup step on Leo's Mac at
+//!   load 187 on 15 cores (2026-11-27), each still alive, so the order it keeps broke exactly when
+//!   the chat was busiest. [`LEASE_WALL_CAP`] bounds a holder on a host starved for good.
 //! - A prompt someone waits on that has no answer [`ANSWER_BOUND`] after it came (`Hub::
 //!   run_prompt_joined`) is put in the queue durably (its `queued` record) and accepted as
 //!   queued; it then runs from the queue as a restored prompt does (`queue.rs`
@@ -35,10 +40,19 @@ use crate::rpc::RpcError;
 
 /// How long a prompt waits for admission, and how long it may hold it.
 pub(crate) const ADMISSION_BOUND: Duration = Duration::from_secs(3);
+/// The lease's step: each one charges at most its own length (plus [`LEASE_TICK_SLACK`]) whatever
+/// the wall clock moved while the runtime ran nothing.
+pub(crate) const LEASE_TICK: Duration = Duration::from_millis(250);
+/// A timer's ordinary lateness, charged with its tick.
+const LEASE_TICK_SLACK: Duration = Duration::from_millis(50);
+/// However starved the runtime, a holder keeps the lock no longer than this wall time.
+pub(crate) const LEASE_WALL_CAP: Duration = Duration::from_secs(30);
 /// How long after it came a prompt someone waits on goes without an answer before it is queued.
+// timeout: past it the prompt is queued and answered, not dropped.
 pub(crate) const ANSWER_BOUND: Duration = Duration::from_secs(5);
 /// How long a prompt someone waits on waits in `queue_slot` for a turn lock held with no turn
 /// shown (or a restore) before it joins the queue, which answers it (#55502's bound).
+// timeout: past it the prompt joins the queue, which answers it (#55502).
 pub(crate) const TURN_LOCK_WAIT: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy, Debug)]
@@ -63,8 +77,6 @@ pub struct Admission {
     stage: StdMutex<Stage>,
     committed: AtomicBool,
     acquired: AtomicBool,
-    queue_owned: AtomicBool,
-    defer_requested: AtomicBool,
     came: Instant,
     /// Someone waits on its acceptance or refusal.
     listened: AtomicBool,
@@ -89,8 +101,6 @@ impl Admission {
             stage: StdMutex::new(Stage::Setup("admission")),
             committed: AtomicBool::new(false),
             acquired: AtomicBool::new(false),
-            queue_owned: AtomicBool::new(false),
-            defer_requested: AtomicBool::new(false),
             came,
             listened: AtomicBool::new(false),
             session: session.id.clone(),
@@ -101,7 +111,6 @@ impl Admission {
     pub(super) fn none(session: &Session) -> Arc<Self> {
         let admission = Self::new(session);
         admission.acquired.store(true, Ordering::SeqCst);
-        admission.queue_owned.store(true, Ordering::SeqCst);
         admission
     }
 
@@ -123,16 +132,11 @@ impl Admission {
         };
         *self.guard.lock().unwrap_or_else(|e| e.into_inner()) = Some(guard);
         self.enter("setup");
-        let lease = Arc::downgrade(self);
-        scope.spawn_named("prompt-admission-lease", async move {
-            tokio::time::sleep(ADMISSION_BOUND).await;
-            let Some(admission) = lease.upgrade() else { return };
-            let lapsed = admission.guard.lock().unwrap_or_else(|e| e.into_inner()).take();
-            if lapsed.is_some() {
-                let stage = admission.stage_now().name();
-                tracing::warn!(session = %admission.session, stage, "prompt admission lease lapsed: let go");
-            }
-        });
+        scope.spawn_named("prompt-admission-lease", lease(Arc::downgrade(self), Instant::now()));
+    }
+
+    fn held(&self) -> bool {
+        self.guard.lock().unwrap_or_else(|e| e.into_inner()).is_some()
     }
 
     /// Lets the lock go: the prompt was accepted, or it left.
@@ -165,25 +169,6 @@ impl Admission {
         self.committed.load(Ordering::SeqCst)
     }
 
-    /// A bounded setup probe found a lock that did not return in time. The caller can durably
-    /// queue this prompt instead of returning a late "started" answer.
-    pub(super) fn request_defer(&self) {
-        self.defer_requested.store(true, Ordering::SeqCst);
-    }
-
-    pub(super) fn defer_requested(&self) -> bool {
-        self.defer_requested.load(Ordering::SeqCst)
-    }
-
-    /// A prompt already owned by the durable queue: it may wait for the child outside admission.
-    pub(super) fn queue_owned(&self) -> bool {
-        self.queue_owned.load(Ordering::SeqCst)
-    }
-
-    pub(super) fn listened(&self) -> bool {
-        self.listened.load(Ordering::SeqCst)
-    }
-
     /// When an unanswered prompt is queued instead.
     pub(crate) fn answer_due(&self) -> Instant {
         self.came + ANSWER_BOUND
@@ -197,6 +182,34 @@ impl Admission {
     /// The due time `queue_slot` keeps to for the turn lock: None when no one waits on it.
     pub(super) fn queue_due(&self) -> Option<Instant> {
         self.listened.load(Ordering::SeqCst).then(|| self.answer_due())
+    }
+}
+
+/// A holder's lease: lets its lock go once it held it [`ADMISSION_BOUND`] of the runtime's time
+/// (or [`LEASE_WALL_CAP`] of the wall's). Ends at once when the holder let go or left.
+async fn lease(lease: std::sync::Weak<Admission>, start: Instant) {
+    let (mut last, mut charged) = (start, Duration::ZERO);
+    loop {
+        tokio::time::sleep(LEASE_TICK).await;
+        let now = Instant::now();
+        charged += (now - last).min(LEASE_TICK + LEASE_TICK_SLACK);
+        last = now;
+        let Some(admission) = lease.upgrade() else { return };
+        if !admission.held() {
+            return;
+        }
+        let wall = now - start;
+        if charged < ADMISSION_BOUND && wall < LEASE_WALL_CAP {
+            continue;
+        }
+        let lapsed = admission.guard.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if lapsed.is_some() {
+            let stage = admission.stage_now().name();
+            let (held_ms, wall_ms) = (charged.as_millis() as u64, wall.as_millis() as u64);
+            let starved_ms = wall_ms.saturating_sub(held_ms);
+            tracing::warn!(session = %admission.session, stage, held_ms, wall_ms, starved_ms, "prompt admission lease lapsed: let go");
+        }
+        return;
     }
 }
 
@@ -232,6 +245,7 @@ pub(super) struct Deferral {
 }
 
 /// How a prompt with no answer by its due time ends.
+#[allow(clippy::large_enum_variant)] // one per unanswered prompt, matched at once; boxing buys nothing
 pub(super) enum Unanswered {
     /// Queued durably; its run from the queue answers it.
     Defer(Deferral),
@@ -380,6 +394,7 @@ impl Hub {
             {
                 return Err(restore_deadline());
             }
+            // Counted as `queue_slot` counts a prompt that queues, before it goes in.
             session.queued.fetch_add(1, Ordering::SeqCst);
             self.enqueue_admitted(session, &slot, &turn_id, limits, claimed, |row, _| {
                 let outcome = super::prompt_ledger::recover(session, &row.prompt_id);
@@ -391,8 +406,7 @@ impl Hub {
                     .unwrap_or_else(|e| e.into_inner())
                     .push((row.prompt_id.clone(), row.turn_id.clone()));
                 outcome
-            })
-            .map_err(|refused| refused)?
+            })?
         };
         // The queue's own from now on, as `restore_queues` makes a prompt it read back: the
         // queue runs it, and a resend of its id waits on its ledger entry.
@@ -406,3 +420,7 @@ impl Hub {
         Ok(outcome)
     }
 }
+
+#[cfg(test)]
+#[path = "prompt_admission_tests.rs"]
+mod tests;
