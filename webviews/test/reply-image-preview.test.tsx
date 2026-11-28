@@ -5,10 +5,14 @@
 // a file that is not there has no Open, and Open asks the host to open the path it names.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { isImagePath, isTemplatePath, linkPath } from "../src/agent-session/acpmux/chips/paths";
-import { bareImageSource } from "../src/agent-session/acpmux/conversation/inlineMedia";
-import { toolImages } from "../src/agent-session/acpmux/toolImages";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { isImagePath, isTemplatePath, linkPath } = await importWithDom(
+  () => import("../src/agent-session/acpmux/chips/paths"),
+);
+const { bareImageSource } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/inlineMedia"));
+const { toolImages } = await importWithDom(() => import("../src/agent-session/acpmux/toolImages"));
 
 const TEMPLATE = "/Users/me/site/public/${variant}-320.png";
 const OUTSIDE = "/Volumes/Shots/sidebar-320.png";

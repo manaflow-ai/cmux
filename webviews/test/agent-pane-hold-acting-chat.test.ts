@@ -10,8 +10,10 @@
 // chat on screen, whose server it names, not the chat opening.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
 
 const SESSION_A = "hold-acting-a";
 const SESSION_B = "hold-acting-b";
