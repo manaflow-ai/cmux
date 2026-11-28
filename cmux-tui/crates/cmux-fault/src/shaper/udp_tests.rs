@@ -156,3 +156,53 @@ async fn one_seed_drops_the_same_datagrams() {
     }
     assert_eq!(run(5).await, run(5).await);
 }
+
+/// The nat-rebind row: the host sees a new port at once and the phone's socket flows on it.
+#[tokio::test]
+async fn the_nat_rebind_row_rebinds_with_no_stall() {
+    let (host, seen) = echo_host().await;
+    let mut nat = profile("nat-rebind");
+    nat.loss_percent = 0.0;
+    let shaper = UdpShaper::start(host, nat, 1, &Trace::new()).await.unwrap();
+    let socket = phone(&shaper).await;
+    ping(&socket, Duration::from_secs(2)).await.unwrap();
+    let before = shaper.phone_addr_at_host().unwrap();
+    let back = shaper.disrupt().await.unwrap().unwrap();
+    assert!(back <= tokio::time::Instant::now());
+    ping(&socket, Duration::from_secs(2)).await.unwrap();
+    let after = shaper.phone_addr_at_host().unwrap();
+    assert_eq!(*seen.lock().unwrap(), vec![before, after]);
+}
+
+/// The wifi-to-cell row: a new port and the cellular link's numbers from the change on.
+#[tokio::test]
+async fn the_wifi_to_cell_row_rebinds_and_steps_to_the_cell_link() {
+    let (host, seen) = echo_host().await;
+    let shaper = UdpShaper::start(host, profile("wifi-to-cell"), 1, &Trace::new()).await.unwrap();
+    let socket = phone(&shaper).await;
+    ping(&socket, Duration::from_secs(2)).await.unwrap();
+    shaper.disrupt().await.unwrap().unwrap();
+    assert_eq!(shaper.profile().name, "cell-after-wifi");
+    let mut cell = profile("cell-after-wifi");
+    cell.loss_percent = 0.0;
+    shaper.set_profile(cell);
+    let took = ping(&socket, Duration::from_secs(2)).await.unwrap();
+    assert!(took >= Duration::from_millis(42), "{took:?}");
+    assert_eq!(seen.lock().unwrap().len(), 2, "the host saw one new address");
+}
+
+/// A blackout row through the datagram twin: nothing either way, then the same addresses.
+#[tokio::test]
+async fn a_blackout_row_drops_both_ways_for_its_window() {
+    let (host, seen) = echo_host().await;
+    let mut row = profile("blackout-2s");
+    row.loss_percent = 0.0;
+    let shaper = UdpShaper::start(host, row, 1, &Trace::new()).await.unwrap();
+    let socket = phone(&shaper).await;
+    ping(&socket, Duration::from_secs(2)).await.unwrap();
+    let back = shaper.disrupt().await.unwrap().unwrap();
+    assert!(ping(&socket, Duration::from_millis(500)).await.is_none());
+    tokio::time::sleep_until(back).await;
+    ping(&socket, Duration::from_secs(2)).await.unwrap();
+    assert_eq!(seen.lock().unwrap().len(), 1);
+}

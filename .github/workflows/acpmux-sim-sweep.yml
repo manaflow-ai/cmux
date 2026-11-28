@@ -46,7 +46,9 @@ on:
 # still keeps at most one sweep running and one waiting, the newest.
 concurrency:
   # A batch run and its bisect probes (one commit, one job each) never cancel one another.
-  group: acpmux-sim-sweep-${{ github.ref }}${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}
+  # A post-merge call (inputs.sha set) is keyed by its caller's run too: same-commit calls (a confirm round's red-1/red-2,
+  # back-to-back probes) evicted or cancelled each other, and each lost call was dispatched again (cmux runs 45988834788, 45997396504).
+  group: acpmux-sim-sweep-${{ github.ref }}${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}
   # A pull request's newer push replaces its older sweep.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 

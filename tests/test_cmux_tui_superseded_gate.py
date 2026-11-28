@@ -12,7 +12,7 @@ tree-preflight's stale step finds only once it has that runner.
    the same command and environment as tree-preflight's stale step) on the one-minute
    control pool (RUNNER_POOLS.linux_2), holding no secret, and never fails the run.
 2. It runs only for lane-branch pushes: trunk and integration refs, which the check
-   never supersedes, skip it.
+   never supersedes, skip it; feat-cmux-next-* heads take it for the branch-inputs step.
 3. tree-preflight needs push-gate, still runs when the gate is skipped or failed
    (!cancelled()), and stops only on the gate's stale=true. Every other job hangs off
    tree-preflight, so a superseded push takes no Blacksmith runner at all.
@@ -33,9 +33,12 @@ WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
 SCRIPT = "scripts/ci/cmux_tui_superseded_push.py"
 # Refs the superseded check never supersedes: they skip the gate.
 TRUNK = ("refs/heads/main", "refs/heads/feat-cmux-next", "refs/heads/nightly-next",
-         "refs/heads/release-next", "refs/heads/feat-cmux-next-cloud-dev-stack",
+         "refs/heads/release-next",
          "refs/heads/next-batch/42", "refs/heads/rc/0.70", "refs/heads/cmux-tui-pin-abc")
-LANES = ("refs/heads/lane/fix-thing", "refs/heads/scratch/probe", "refs/heads/perf/x", "refs/heads/leo/y")
+# feat-cmux-next-* takes the gate for its branch-inputs step (the superseded check still never supersedes it):
+# most such heads are pull request branches that change no tree-key input (2026-11-27).
+LANES = ("refs/heads/lane/fix-thing", "refs/heads/scratch/probe", "refs/heads/perf/x", "refs/heads/leo/y",
+         "refs/heads/feat-cmux-next-cloud-dev-stack")
 
 
 def jobs() -> dict:
@@ -122,7 +125,11 @@ class SupersededGateTest(unittest.TestCase):
             # supersede-feat-runs is a gate of the same kind for feat-cmux-next pushes: it runs beside the
             # preflight on the one-minute control pool and only cancels older never-started runs
             # (tests/test_cmux_tui_feat_latest_wins.py). coalesce (base-coalesce.yml) is the other upfront gate.
-            if name in ("push-gate", "coalesce", "tree-preflight", "reject-untrusted-pin-ref", "supersede-feat-runs"):
+            # keep-feat-channel (#62425) is independent of coalesce on purpose: it advances the feat-cmux-next channel to
+            # an earlier run's tested tree while this window's publisher still builds; its concurrency group keeps
+            # one job running and one pending.
+            if name in ("push-gate", "coalesce", "tree-preflight", "reject-untrusted-pin-ref", "supersede-feat-runs",
+                        "keep-feat-channel"):
                 continue
             with self.subTest(job=name):
                 self.assertIn("needs", job, f"{name} would start beside the gate and take a runner")

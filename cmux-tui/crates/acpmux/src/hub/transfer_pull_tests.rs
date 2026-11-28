@@ -4,9 +4,18 @@ use super::*;
 fn a_move_folder_is_checked_before_anything_is_made() {
     let folder = |v: Value| named_folder(v.as_object().unwrap());
     assert!(folder(json!({"home": "Projects/x"})).is_ok());
-    for home in ["", "/abs", "../up", "a/../b", "a b", "x\ny"] {
+    for home in ["/abs", "../up", "a/../b", "a b", "x\ny", ".", "./", "/"] {
         assert!(folder(json!({"home": home})).is_err(), "{home:?}");
     }
+    let home = dirs::home_dir().unwrap().to_string_lossy().into_owned();
+    assert!(matches!(
+        folder(json!({"home": ""})).unwrap(),
+        crate::cli::session_move_plan::Folder::Plain { cwd } if cwd == home
+    ));
+    assert!(matches!(
+        folder(json!({"home": ".local/state/x"})).unwrap(),
+        crate::cli::session_move_plan::Folder::Plain { cwd } if cwd == format!("{home}/.local/state/x")
+    ));
     let ok = json!({"repo": "o/n", "url": "https://github.com/o/n.git", "branch": "lane/x", "subdir": ""});
     assert!(folder(ok.clone()).is_ok());
     for (key, bad) in [

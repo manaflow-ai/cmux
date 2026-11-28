@@ -46,7 +46,7 @@ declare global {
         not rows that mounted since. */
     benchKeptRenders: { mark(): void; since(): number };
     /** Pages: the held build's notes load. Card: the `index`th change's detail changes. */
-    benchChangeOne(index: number): Promise<void>;
+    benchChangeOne(index?: number): void | Promise<void>;
   }
 }
 

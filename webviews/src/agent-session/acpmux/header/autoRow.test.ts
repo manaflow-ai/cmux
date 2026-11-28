@@ -63,10 +63,10 @@ test("the Auto rows end the chat's Cloud submenu under a line, after the places 
   ]);
 });
 
-test("with nowhere to move, the submenu is the chat's Environment and holds only Auto", () => {
+test("with nowhere to move, the submenu is the chat's Computer and holds only Auto", () => {
   const rows = autoRows(auto(), { setAuto: () => undefined, keepInCloud: () => undefined }, t);
   const row = moveMachineRow({ move: false, bringBack: false, targets: [] }, noMoves, t, rows);
-  expect(row?.label).toBe("composer.environment");
+  expect(row?.label).toBe("composer.computer");
   expect(row?.children?.map((child) => [child.label, child.separatorBefore === true])).toEqual([["auto.menu", false]]);
 });
 

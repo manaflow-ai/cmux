@@ -86,6 +86,8 @@ public final class AgentPaneView: NSView {
     var remoteApprovalsNotice: AgentPaneNotice?
     /// "The Cloud chat ended" on a Mac tab whose Cloud chat went (``showCloudChatEnded(machine:promptBack:)``, cmux#55066).
     var cloudChatEndedNotice: AgentPaneNotice?
+    /// A credential refusal for this chat, with the Settings action supplied by the app.
+    var modelConnectionNotice: AgentPaneNotice?
     var remoteApprovals: AgentPaneRemoteApprovals?
     /// Why the notice says a peer of this Mac's daemon did not count this Mac's allow (peer-route
     /// approvals); nil for no notice or another one.
@@ -381,6 +383,7 @@ public final class AgentPaneView: NSView {
         model.paneShown = { [weak self] in self.map { $0.window != nil && !$0.isHidden } ?? false }
         model.onTabKeyChange = { [weak self] in self?.announceTab() }
         model.onPaintReport = { [weak self] in self?.documentCoverPaintReported() }
+        model.onRenderFailed = { [weak self] in self?.pageRenderFailed() }
         model.onRenderRate = { [weak self] full in
             guard let self, self.renderRate == .adaptive else { return }
             self.rendersAtFullRate = full

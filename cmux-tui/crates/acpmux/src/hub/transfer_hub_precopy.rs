@@ -28,7 +28,6 @@
 //! TODO: a chat coming back does not send only the delta (`transfer_base`) over the hub: a
 //! guarded stage rewrites every line, so the target's own copy cannot stand in for a base.
 
-use super::transfer_guard::Guard;
 use super::transfer_out::transfer_precopy::PREFIX_SCHEMA;
 use super::transfer_out::{inside, transfers_dir};
 use super::transfer_pull::{
@@ -148,14 +147,7 @@ impl Hub {
         if !plain_daemon(source) {
             return Err(pull_error("source", "the message names no source daemon"));
         }
-        let roots = self.config.read().await.web_roots.clone();
-        if roots.is_empty() {
-            return Err(pull_error(
-                "no_roots",
-                "this machine names no webRoots, so no moved chat may work here",
-            ));
-        }
-        let guard = Guard::from_config_roots(&roots).await?;
+        let guard = self.hub_move_guard().await?;
         let dial = self.transfer_dial().ok_or_else(|| {
             pull_error("no_route", "this daemon has no hub carrier to the source")
         })?;

@@ -5,7 +5,6 @@
     "\"baseline 2026-11-04\" marks a step that was already there when this file started; replace it with a reason when you touch the step."
   ],
   "steps": {
-    "actions-artifact-prune.yml: Prune": "polls (tests/test_ci_no_github_token_polling.py): hourly: paces artifact deletes 0.4 s apart (at most 150 a minute) and stops at 50 calls left",
     "app-ffi-release.yml: The latest release is not an FFI tag": "baseline 2026-11-04",
     "app-ffi-release.yml: The release exists with this run's archive": "baseline 2026-11-04",
     "app-ffi-release.yml: Pin the new release and open or update the pull request": "re-pin hold (publish-app-ffi-repin.sh): one release-runs list, one jobs read per pending newer run, and the held PR's commit, check runs and status: about 3 to 8 calls per run, on a feat-cmux-next FFI push; a call refused for the rate limit is asked again only after its retry-after or reset (else 60 s doubling), 600 s in all, then the job fails",
@@ -35,7 +34,6 @@
     "backend-migrations.yml: Consume the apply label": "baseline 2026-11-04",
     "build-ghosttykit.yml: Check if xcframework release already exists": "baseline 2026-11-04",
     "chief-evals.yml: Model cases": "baseline 2026-11-04",
-    "ci-artifact-canary.yml: Measure cold import then warm read on Linux": "baseline 2026-11-04",
     "ci-cloud-overflow-probe.yml: End this run's stuck probe": "baseline 2026-11-04",
     "ci-cloud-overflow-probe.yml: Probe and switch": "polls (tests/test_ci_no_github_token_polling.py): every 10 min: watches its probe job, one jobs read every 15 s for at most CI_CLOUD_PROBE_MINUTES + 5 (7 to 25 min); a candidate for an App token",
     "ci-compile-attribution.yml: Check that main's head is the analyzed commit and nothing is open for it": "baseline 2026-11-04",
@@ -92,6 +90,7 @@
     "cmux-next-generated-catch-up.yml: Select PRs that conflict with feat-cmux-next": "polls (tests/test_ci_no_github_token_polling.py): per feat-cmux-next push, only while a PR's mergeable is UNKNOWN: re-lists open PRs every 20 s, at most 5 more times",
     "cmux-next-hot-verify.yml: Dispatch the look": "one workflow dispatch per eligible same-repo PR push, no poll; a skipped plan spends nothing",
     "cmux-next-hot-verify.yml: Is the gallery advisory also on this head": "one runs list (per_page=1) per posted look, to add the first-look note",
+    "cmux-next-hot-verify.yml: Post cmux/ui-proof for a look that could not run": "one commit status POST per look that made no record (1 call, 3 at most on a retry); github.token holds statuses: write",
     "cmux-next-hot-verify.yml: Start the web layer": "one workflow dispatch of the web publisher (pr=N) per dispatched look whose plan names the web layer; nothing waits after it",
     "cmux-next-hot-verify.yml: Read the pull request": "one pulls read per dispatched look and one per its result run (the controller's look_result dispatch): head repo, live head, base, state, draft",
     "cmux-next-media.yml: Decide whether this pull request gets a tour": "baseline 2026-11-04",
@@ -225,10 +224,8 @@
     "pr-body-checks.yml: Check the description for a Performance table": "baseline 2026-11-04",
     "pr-body-checks.yml: Check the description for a real capture": "baseline 2026-11-04",
     "pr-checks.yml: Compare the new head with the previous one": "baseline 2026-11-04",
-    "pr-media-prune.yml: Prune": "baseline 2026-11-04",
     "pr-red-checks-comment.yml: Update the red checks line": "baseline 2026-11-04",
     "pr-status.yml: Write the line": "polls (tests/test_ci_no_github_token_polling.py): pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds",
-    "r2-binaries-prune.yml: Trunk commits, pins and windows": "baseline 2026-11-04",
     "release.yml: Attest SSH daemon release assets": "baseline 2026-11-04",
     "release.yml: Decide whether this release is latest": "baseline 2026-11-04",
     "release.yml: Download the staged appcast for a resumed release": "baseline 2026-11-04",
@@ -258,6 +255,10 @@
     "tui-publish-pypi.yml: Download PyPI wheels": "baseline 2026-11-04",
     "tui-publish-pypi.yml: Download the generated third-party notices": "baseline 2026-11-04",
     "tui-publish-pypi.yml: Require successful verified artifact run": "polls (tests/test_ci_no_github_token_polling.py): a release, by hand: at most 24 reads",
-    "update-homebrew.yml: Check the signed macOS build job": "baseline 2026-11-04"
+    "ui-proof-stale-sweep.yml: Turn stale pending into failure": "hourly: 1 GraphQL page per 100 open feat-cmux-next PRs, then one status POST per head pending past 6 h",
+    "update-homebrew.yml: Check the signed macOS build job": "baseline 2026-11-04",
+    "storage-maintenance.yml: Prune Actions artifacts": "polls (tests/test_ci_no_github_token_polling.py): hourly: paces artifact deletes 0.4 s apart (at most 150 a minute) and stops at 50 calls left",
+    "storage-maintenance.yml: Prune PR media": "baseline 2026-11-04",
+    "storage-maintenance.yml: Trunk commits, pins and windows": "baseline 2026-11-04"
   }
 }

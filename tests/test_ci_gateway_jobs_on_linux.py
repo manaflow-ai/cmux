@@ -12,6 +12,8 @@ and a listed job that left the label must leave the list.
 
 from __future__ import annotations
 
+import re
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -30,19 +32,99 @@ GATEWAY_MAC = frozenset({
     "cmux-next-iphone-clips.yml#record",
     "cmux-next-perf-bench.yml#bench",
     "cmux-next-perf-budgets.yml#measure",
-    "cmux-next-stress-bench.yml#measure",
+    "cmux-next-web-perf.yml#stress-measure",
     "cmux-next-tab-switch.yml#frames",
     "fleet-compile-check.yml#compile-check",
-    "fleet-test-compile.yml#mac-fallback",
     "ios-base-bisect.yml#bisect",
     "ios-sim-linux-build.yml#build-fleet",
+    "ios-sim-linux-build.yml#shots-fleet",  # #57700 took it by vars.CI_EVAL_STEP_GATEWAY; #54437 froze it to the label
     "screen-stream-eval.yml#eval",
+    # The fleet controller is tailnet-only and the cmux-linux pool's VMs are not on the tailnet, so these fetch the client on
+    # the gateway runner (a fleet-client job on the pool fails "runner NAME has no route to the controller").
+    "bench-baselines-nightly.yml#record-mac-fleet",
+    "chief-evals.yml#fleet-ab",
+    "cmux-next-agent-conn-chaos.yml#chaos-fleet",
+    "cmux-next-sidebar-bench.yml#bench-fleet",
+    "cmux-next-split-table.yml#measure-fleet",
+    "cmux-next-tip-test-compile.yml#compile-fleet",
+    "nightly-interaction-latency.yml#benches-fleet",
+    # Already on the gateway by vars.CI_EVAL_STEP_GATEWAY; linux-pickers-gone (host pins) froze them to the label.
+    "cmux-next-ios-gestures.yml#gestures",
+    "cmux-next-ios-try-ahead.yml#build-ahead",
+    "ios-review-gate.yml#gate-products-fleet",
 })
 
 MOVED = {
     "chief-evals.yml#fleet-ab": "scripts/measure/chief-evals.sh",
     "cmux-next-tip-test-compile.yml#compile-fleet": "scripts/ci/tip-test-compile.sh",
+    "cmux-next-sidebar-bench.yml#bench-fleet": "CMUX_CI_CLIENT",
 }
+
+
+# The gateway runner's job-started hook names a job by its calling workflow file plus its job id and takes any id
+# ending in -fleet. A gateway job in a reusable workflow (on: workflow_call) is named by its caller's file, so its
+# id must end in -fleet. cmuxterm-hq#26191: #55354 made cmux-next-fast-tier-batch.yml and
+# cmux-next-tip-test-compile.yml reusable from cmux-next-post-merge.yml; the hook refused "cmux-next-post-merge.yml
+# swift" and "... compile" on every batch until #56548 renamed them swift-fleet and compile-fleet.
+# A repository variable can name the gateway too (vars.*GATEWAY).
+GATEWAY_VAR = re.compile(r"vars\.\w*GATEWAY\b")
+# Known: ci-macos.yml (called from ci.yml) takes vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY on pull requests when
+# that opt-in variable is set (hq#794); its id has about 70 references, so its rename is its own change.
+REUSABLE_GATEWAY_KNOWN = frozenset({"ci-macos.yml#swift-package-tests"})
+
+
+# The gateway runner's job-started hook (glaeda-cmux-runner-hook) names the jobs it takes, as "FILE JOB", and takes
+# any job id ending in -fleet; it refuses every other job at "Set up runner". This is its list as of its refusal of
+# nightly-interaction-latency.yml benches (run 46133631477, 2026-11-28 10:25Z), which #64245 had moved here.
+HOOK_NAMED = frozenset({
+    "chief-evals.yml#fleet-ab",
+    "cmux-next-ios-energy-nightly.yml#bench",
+    "cmux-next-ios-gestures.yml#gestures",
+    "cmux-next-ios-keyboard-motion.yml#bench",
+    "cmux-next-ios-try-ahead.yml#build-ahead",
+    "cmux-next-iphone-clips.yml#record",
+    "cmux-next-perf-bench.yml#bench",
+    "cmux-next-stress-bench.yml#measure",
+    "cmux-next-tab-switch.yml#frames",
+    "cmux-next-tip-test-compile.yml#compile",
+    "cmux-next.yml#app-compile-fleet",
+    "cu-driver-eval.yml#eval",
+    "fleet-compile-check.yml#compile-check",
+    "fleet-rd-host-macos.yml#check",
+    "fleet-test-compile.yml#compile",
+    "native-sidebar-gallery.yml#capture",
+    "screen-stream-eval.yml#eval",
+})
+# Gateway jobs the hook's list does not name and whose id does not end in -fleet, from before this check. Each still
+# runs or is skipped by its own condition; renaming one to -fleet takes it off this list.
+HOOK_UNNAMED_KNOWN = frozenset({
+    "cmux-next-head-compile.yml#compile",
+    "cmux-next-perf-budgets.yml#measure",
+    "cmux-next-web-perf.yml#stress-measure",
+    "ios-base-bisect.yml#bisect",
+})
+
+
+def gateway_jobs_the_hook_refuses() -> list[str]:
+    return sorted(key for key, job in jobs() if on_gateway(job) and not key.endswith("-fleet") and key not in HOOK_NAMED)
+
+
+def reusable(document: dict) -> bool:
+    triggers = document.get(True, document.get("on")) or {}  # PyYAML reads a bare `on` as True
+    return isinstance(triggers, dict) and "workflow_call" in triggers
+
+
+def reusable_gateway_jobs_the_hook_refuses(root: Path = WORKFLOWS) -> list[str]:
+    refused = []
+    for path in sorted(root.glob("*.y*ml")):
+        document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        if not reusable(document):
+            continue
+        for name, job in (document.get("jobs") or {}).items():
+            runs_on = yaml.safe_dump((job or {}).get("runs-on", ""))
+            if ("glaeda-gateway" in runs_on or "mac-gateway" in runs_on or GATEWAY_VAR.search(runs_on)) and not name.endswith("-fleet"):
+                refused.append(f"{path.name}#{name}")
+    return refused
 
 
 def jobs():
@@ -54,7 +136,8 @@ def jobs():
 
 
 def on_gateway(job: dict) -> bool:
-    return "glaeda-gateway" in yaml.safe_dump(job.get("runs-on", ""))
+    runs_on = yaml.safe_dump(job.get("runs-on", ""))
+    return "glaeda-gateway" in runs_on or "mac-gateway" in runs_on
 
 
 class GatewayJobsOnLinuxTests(unittest.TestCase):
@@ -65,12 +148,33 @@ class GatewayJobsOnLinuxTests(unittest.TestCase):
                          "with .github/actions/fleet-client")
         self.assertEqual(sorted(GATEWAY_MAC - gateway), [], "left the gateway label: drop it from GATEWAY_MAC")
 
+    def test_a_new_gateway_job_is_one_the_hook_takes(self) -> None:
+        refused = set(gateway_jobs_the_hook_refuses())
+        self.assertEqual(sorted(refused - HOOK_UNNAMED_KNOWN), [],
+                         "the gateway runner's hook refuses these at Set up runner: end the job id in -fleet")
+        self.assertEqual(sorted(HOOK_UNNAMED_KNOWN - refused), [], "renamed or moved: drop it from HOOK_UNNAMED_KNOWN")
+
+    def test_a_gateway_job_in_a_reusable_workflow_ends_in_fleet(self) -> None:
+        refused = set(reusable_gateway_jobs_the_hook_refuses())
+        self.assertEqual(sorted(refused - REUSABLE_GATEWAY_KNOWN), [],
+                         "the gateway hook names these by their caller's file and refuses them: end the job id in -fleet")
+        self.assertEqual(sorted(REUSABLE_GATEWAY_KNOWN - refused), [], "renamed: drop it from REUSABLE_GATEWAY_KNOWN")
+
+    def test_the_reusable_check_sees_the_jobs_hq_26191_broke(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            call = "on:\n  workflow_call:\njobs:\n"
+            (root / "fast-tier.yml").write_text(call + "  swift:\n    runs-on: ${{ vars.CI_COMPILE_CHECK_GATEWAY }}\n")
+            (root / "tip.yml").write_text(call + "  compile:\n    runs-on: glaeda-gateway-xcode-26.6\n")
+            (root / "ok.yml").write_text(call + "  swift-fleet:\n    runs-on: glaeda-gateway-xcode-26.6\n")
+            (root / "direct.yml").write_text("on:\n  workflow_dispatch:\njobs:\n  bench:\n    runs-on: glaeda-gateway-xcode-26.6\n")
+            self.assertEqual(reusable_gateway_jobs_the_hook_refuses(root), ["fast-tier.yml#swift", "tip.yml#compile"])
+
     def test_moved_jobs_run_on_linux_with_the_checked_client(self) -> None:
         found = dict(jobs())
         for key, marker in MOVED.items():
             with self.subTest(key):
                 job = found[key]
-                self.assertEqual(job["runs-on"], LINUX)
                 steps = job["steps"]
                 checkouts = [s for s in steps if str(s.get("uses", "")).startswith("actions/checkout")]
                 uses = [str(s.get("uses", "")) for s in steps]
@@ -87,6 +191,18 @@ class GatewayJobsOnLinuxTests(unittest.TestCase):
                 later = yaml.safe_dump(steps[client + 1:])
                 self.assertIn(marker, later, "the fleet step runs after the client is in place")
 
+    def test_no_fleet_client_job_names_only_the_pool(self) -> None:
+        bare = []
+        for key, job in jobs():
+            uses = [str(s.get("uses", "")) for s in job.get("steps") or [] if isinstance(s, dict)]
+            if any(u.endswith("/.github/actions/fleet-client") for u in uses) and not on_gateway(job) \
+                    and "vars.CI_EVAL_STEP_GATEWAY" not in yaml.safe_dump(job.get("runs-on", "")) \
+                    and "cmux-linux" in yaml.safe_dump(job.get("runs-on", "")):
+                bare.append(key)
+        self.assertEqual(sorted(bare), [],
+                         "a job that fetches the fleet client on the cmux-linux pool alone has no route to the controller "
+                         "(\"runner NAME has no route to the controller\"): run it on the gateway runner (mac-gateway)")
+
     def test_batch_swift_reads_public_results_before_using_a_private_gateway(self) -> None:
         found = dict(jobs())
         read = found["cmux-next-fast-tier-batch.yml#swift-results"]
@@ -101,7 +217,7 @@ class GatewayJobsOnLinuxTests(unittest.TestCase):
         self.assertIn("Packages/**/Tests/**/*.swift", fallback)
         self.assertIn("scripts/ci/display-suites.txt", fallback)
         self.assertEqual(report["runs-on"], "${{ needs.swift-results.outputs.verdict == 'unavailable' "
-                         "&& 'glaeda-gateway-xcode-26.6' || 'cmux-linux' }}")
+                         "&& 'mac-gateway' || 'cmux-linux' }}")
         self.assertEqual(report["steps"][-1]["if"], "needs.swift-results.outputs.verdict == 'unavailable'")
 
     def test_the_action_checks_every_file_and_exports_the_client_only_when_whole(self) -> None:
@@ -111,11 +227,14 @@ class GatewayJobsOnLinuxTests(unittest.TestCase):
         self.assertIn("hashlib.sha256(data).hexdigest() != digest", run)
         # The exports come last, after the fetch succeeded; every failure path exits red before them (at least as
         # strict as the gateway Mac, whose client was always installed: no silent no-verdict green).
-        self.assertLess(run.index('if [[ "$ok" != 1'), run.index("CMUX_CI_CLIENT="))
+        # #60339 spells the name "CMUX_CI_"CLIENT so a guard reading the literal misses it; key on the write itself.
+        self.assertLess(run.index('if [[ "$ok" != 1'), run.index('>> "$GITHUB_ENV"'))
         self.assertNotIn("exit 0", run)
-        self.assertEqual(run.count("exit 1"), 2)
+        # No controller, no route to it (every connect failed: tests/test_fleet_client_no_route.py), fetch failed,
+        # and (#60339) the installed client is not executable or fails --help.
+        self.assertEqual(run.count("exit 1"), 5)
         self.assertNotIn("::warning", run)
-        self.assertIn("CMUX_CI_CONTROLLER=", run)
+        self.assertIn('"CMUX_CI_"CONTROLLER "$CONTROLLER" >> "$GITHUB_ENV"', run)
 
 
 if __name__ == "__main__":

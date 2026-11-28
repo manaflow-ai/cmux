@@ -1,4 +1,19 @@
 import type { AcpmuxActivity } from "../model";
+import { mcpCall } from "./mcpCalls";
+
+/// The Cloud repository MCP server (acpmux cloud_repo_mcp.rs `SERVER_NAME`): Claude titles its
+/// calls `mcp__cmux-cloud-repos__add_repo`.
+const CLOUD_REPOS_SERVER = "cmux-cloud-repos";
+
+function isRepoTool(tool: NonNullable<AcpmuxActivity["tool"]>): boolean {
+  const title = tool.title;
+  if (title === "list_repos" || title === "add_repo" || title.endsWith(".list_repos") || title.endsWith(".add_repo"))
+    return true;
+  // A shell call is never an MCP call, whatever its title says.
+  if (tool.command || tool.kind === "execute") return false;
+  const call = mcpCall(tool);
+  return call?.server === CLOUD_REPOS_SERVER && (call.tool === "list_repos" || call.tool === "add_repo");
+}
 
 type Choice = { fullName: string; private?: boolean; source?: string };
 export type RepoRecovery = {
@@ -34,13 +49,7 @@ export function githubInstallUrl(value: unknown): string | undefined {
 }
 
 export function repoRecoveryFor(tool: NonNullable<AcpmuxActivity["tool"]>): RepoRecovery | undefined {
-  if (
-    tool.title !== "list_repos" &&
-    tool.title !== "add_repo" &&
-    !tool.title.endsWith(".list_repos") &&
-    !tool.title.endsWith(".add_repo")
-  )
-    return undefined;
+  if (!isRepoTool(tool)) return undefined;
   const data = payload(tool.output);
   const code = data?.code;
   if (code !== "repo.needs_github" && code !== "repo.no_access" && code !== "repo.ambiguous") return undefined;
@@ -113,6 +122,7 @@ export type RepoRecoveryKey =
   | "cloudRepository.attachFailedRepo"
   | "cloudRepository.tryAgain"
   | "cloudRepository.noAccess"
+  | "cloudRepository.grantNotCovered"
   | "cloudRepository.installOn"
   | "cloudRepository.requestAccess"
   | "cloudRepository.which"
@@ -214,11 +224,10 @@ export function repoRecoveryView(
   if (recovery.code === "repo.no_access")
     return {
       tone: "plain",
-      message: text("cloudRepository.noAccess", {
-        target: recovery.org
-          ? text("cloudRepository.repositories", { org: recovery.org })
-          : text("cloudRepository.thisRepository"),
-      }),
+      // One line: whose grant leaves what out (Leo's gap 1: the person, not only the agent).
+      message: recovery.org
+        ? text("cloudRepository.grantNotCovered", { org: recovery.org })
+        : text("cloudRepository.noAccess", { target: text("cloudRepository.thisRepository") }),
       actions: [
         ...(recovery.installUrl
           ? [

@@ -321,8 +321,15 @@ async function launchChrome(): Promise<{
   const exe = chrome || shell;
   if (!exe) throw new Error("sim-ladder: no Chrome (set CMUX_CHROME_HEADLESS_SHELL or install google-chrome)");
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "sim-ladder-"));
+  // Chrome dies with this process. An abort (SIGABRT, an OOM kill, `timeout -s KILL`) skips close() below, and Chrome
+  // lived on: a tabs 50/200/500 run aborted at its x200 rung left 348 Chrome processes holding 26 GB and the session's
+  // pids cap, so the next run and every shell in that session failed to fork. setpriv's death signal reaches the
+  // browser process; its renderers exit when the browser's IPC closes. Bun.spawn forks from the main thread, which
+  // lives as long as the process, so the signal fires only when the bench is gone.
+  const setpriv = Bun.which("setpriv");
   const proc = Bun.spawn(
     [
+      ...(setpriv ? [setpriv, "--pdeathsig", "KILL"] : []),
       exe,
       ...(shell ? [] : ["--headless=new"]),
       "--remote-debugging-port=0",
@@ -812,7 +819,8 @@ async function measure(
         ]),
       ),
   );
-  // The heap after the collection, one reading per renderer (its isolate), summed.
+  // The heap after the collection, one reading per renderer (its isolate), summed. A read that failed or timed out is
+  // NaN, not 0: chats x200 under load1 74 read 0 MB of a 2.3 GB heap and published a -1.03 heap ratio from it.
   const heaps = await Promise.all(
     items
       .filter((item, index) => index === 0 || item.page.url() !== items[0]!.page.url())
@@ -820,12 +828,16 @@ async function measure(
         Promise.race([
           item.cdp
             .send("Performance.getMetrics")
-            .then((m) => m.metrics.find((x) => x.name === "JSHeapUsedSize")?.value ?? 0)
-            .catch(() => 0),
-          new Promise<number>((resolve) => setTimeout(() => resolve(0), 3000)),
+            .then((m) => m.metrics.find((x) => x.name === "JSHeapUsedSize")?.value ?? Number.NaN)
+            .catch(() => Number.NaN),
+          new Promise<number>((resolve) => setTimeout(() => resolve(Number.NaN), 3000)),
         ]),
       ),
   );
+  if (heaps.some((bytes) => !Number.isFinite(bytes)))
+    console.log(
+      `SIM-LADDER   heap unread: ${heaps.filter((bytes) => !Number.isFinite(bytes)).length} of ${heaps.length} renderer(s) did not answer`,
+    );
   console.log(`SIM-LADDER   pss split MB ${pssSplit(pids)}`);
   return {
     cpu_ms_per_s: Math.round(CPU_WINDOWS > 3 || cycles ? Math.min(...windows) : Math.min(...thirds)),
@@ -1076,7 +1088,22 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
     let count = axis === "chats" ? 1 : 0;
     let cycleBudgetMs = RUNGS.length * CYCLE_CAP_MS;
     for (const [i, rung] of RUNGS.entries()) {
-      while (count < rung) await add(count++);
+      while (count < rung) {
+        const startedMs = Date.now();
+        try {
+          await add(count);
+        } catch (error) {
+          // Where a ladder breaks is a result: name the item it broke on and what the browser held then.
+          const pids = renderers(rootPid);
+          const pss = pids.map((pid) => Math.round(rssMB(pid)));
+          console.log(
+            `SIM-LADDER broke ${axis} #${count} on the way to x${rung} after ${Date.now() - startedMs} ms | renderers ${pids.length}, largest ${Math.max(...pss)} MB`,
+          );
+          throw error;
+        }
+        if (count % 10 === 0) console.log(`SIM-LADDER   added ${axis} #${count} in ${Date.now() - startedMs} ms`);
+        count += 1;
+      }
       await focused.bringToFront();
       startChurn(RATE);
       const capMs = cycleBudgetMs - (RUNGS.length - 1 - i) * CYCLE_CAP_MS;
@@ -1116,6 +1143,13 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
   report[`${axis}_gc_cycles`] = Object.fromEntries(RUNGS.map((rung) => [rung, cycleCounts[rung] ?? null]));
   for (const metric of [...Object.keys(FLOOR), "frame_p95_ms"] as Metric[]) {
     const values = RUNGS.map((rung) => samples[rung]![metric]);
+    // A rung that could not read the metric gives it no ratio: "?" here, and no row a reader would take as measured.
+    if (values.some((value) => !Number.isFinite(value))) {
+      console.log(
+        `SIM-LADDER ${axis} ${metric} ${values.map((v) => (Number.isFinite(v) ? v : "?")).join(" / ")} | ratio ? (unread at a rung)`,
+      );
+      continue;
+    }
     // The CPU and script readings carry their standard error (whole cycles, or a rung's windows) where the run had one
     // at every rung; the rest are one reading after a collection.
     const se = RUNGS.every((rung) => ses[rung]?.[metric] !== undefined)

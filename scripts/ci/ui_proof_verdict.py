@@ -27,6 +27,12 @@ The state, for a head:
            stays on its branch: `cmux app try N` puts it in NIGHTLY, `cmux customize use pr:N` loads its web half,
            scripts/cmux-next/try-pr.sh N runs it beside
   failure  the record at this head failed
+  failure  the look could not run (`UI look could not run: REASON`): the fleet cancelled it (no Mac took it within
+           the controller's 3 h queue bound), lost its out.tar, its worker planned a build, or no look result came
+           within STALE_HOURS of the pending post (`sweep`). Never an endless pending: on 2026-11-27 cmux#61289,
+           #61543 and #61546 sat pending 4 h+ while their looks were cancelled twice ("no fleet Mac took the look
+           within 3h0m0s") and nothing said so. Leo, 2026-11-27: "we need to be fixing reds as they come instead of
+           just waving them off". A later passing record still turns it to success (the gate is rerun)
 
 Accepted suites (ci/proof-record/README.md): a webviews-only change takes web-flows, gui-flows or mac-flows; a
 change to the app's Swift, resources or assets takes gui-flows or mac-flows (a Linux web gallery never ran the
@@ -35,6 +41,11 @@ Swift). Switch: vars.CI_UI_PROOF=0 posts success everywhere (counted by `report`
     ui_proof_verdict.py affects FILE...           whether these paths are visual, and which suites prove them
     ui_proof_verdict.py gate                      env REPO PR SHA GH_TOKEN [ADDED_FILE]: print STATE<TAB>DESC
     ui_proof_verdict.py status STATE DESCRIPTION  env REPO SHA TOKENS [RUN_URL]: post cmux/ui-proof (never fails)
+    ui_proof_verdict.py look-failed --pr N --reason R [--again]
+                                                  env REPO SHA TOKENS [RUN_URL]: post the failure of a look that
+                                                  could not run (the hot-verify result run)
+    ui_proof_verdict.py sweep [--hours 6]         env REPO TOKENS: every open PR whose cmux/ui-proof has been
+                                                  pending past HOURS gets the failure, with that reason
     ui_proof_verdict.py record --out DIR --pr N --repo R --head SHA [--suite S] [--post]
                                                   the proof record of a hot-verify look's DIR
     ui_proof_verdict.py report [--days 7]         env REPO GH_TOKEN: merged PRs, how each passed this gate, and
@@ -56,6 +67,7 @@ import struct
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import zlib
@@ -63,6 +75,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+import gh_http  # noqa: E402
 import proof_record  # noqa: E402
 
 STATUS_CONTEXT = "cmux/ui-proof"
@@ -76,7 +89,19 @@ APP_VISUAL = ("Packages/macOS/", "Packages/Shared/", "Native/", "Resources/", "A
 # Under a visual root, still nothing a user sees: tests, fixtures, benches, docs, copy (Leo's tier 0 keeps copy fast).
 NOT_VISUAL = ("*/Tests/*", "*Tests.swift", "*/test/*", "*/tests/*", "*/__tests__/*", "*.test.*", "*.spec.*",
               "*/bench/*", "*.bench.*", "*/fixtures/*", "*.md", "*.xcstrings", "*.strings", "*/dev-server/*",
-              "Resources/Info.plist", "*.entitlements")
+              "Resources/Info.plist", "*.entitlements", "Packages/macOS/CmuxNext/app-ffi-pin.json")
+# app-ffi-pin.json is the release bot's FFI pin roll (app-ffi-release.yml): its Rust already merged in the PRs that
+# changed it (Rust is not visual here; hot-verify looks at it on that PR), and no look can run on the roll itself
+# (hot-verify needs a build for an xcframework), so the bot's pin PR stayed pending: cmux#60965 from 14:56Z 11-27,
+# the FFI pin 600 min behind main. The pin PR's Package.swift imports only PackageDescription.
+# A Swift file whose every import is one of these has no way to draw (no SwiftUI, AppKit, CoreGraphics, Metal, WebKit,
+# GhosttyKit or a Cmux module that might re-export them), so changing it changes no pixels. A file with no import at
+# all, an unread one, or one that dropped a UI import (its base text is checked too) stays visual.
+NON_UI_IMPORTS = frozenset({"Foundation", "Combine", "os", "OSLog", "Darwin", "Dispatch", "Observation", "CryptoKit",
+                            "Security", "Network", "XCTest", "Testing", "PackageDescription", "Synchronization",
+                            "System", "UniformTypeIdentifiers", "SwiftData", "RegexBuilder", "Accelerate"})
+SWIFT_IMPORT = re.compile(r"^[ \t]*(?:@\w+(?:\([^)]*\))?[ \t]+)*import[ \t]+(?:\w+[ \t]+)?(?P<mod>[A-Za-z_]\w*)",
+                          re.M)
 NEW_UI_EXT = (".tsx", ".css", ".swift")
 SWIFT_VIEW = re.compile(r":\s*(?:some\s+)?(?:View|NSView|NSViewController|NSWindowController|NSPanel)\b|"
                         r"\bvar body:\s*some View\b")
@@ -84,6 +109,14 @@ DECLARED_NONE = re.compile(r"^\s*Visual:\s*none\b[\s:(—-]*(?P<why>.*)$", re.M 
 DECLARED_COMPLETE = re.compile(r"^\s*Visible-UI:\s*complete\b", re.M | re.I)
 DECLARED_NOT_NEW = re.compile(r"^\s*Visible-UI:\s*none\b", re.M | re.I)
 PREVIEW = "preview: cmux app try {pr} | cmux customize use pr:{pr} | try-pr.sh {pr}"
+# A look that could not run is a failure with its reason, never a pending that waits for ever.
+LOOK_FAILED = "UI look could not run"
+NO_LOOK = "Visual change, no look at this head"
+LOOK_WAIT = "Visual change, "
+# The longest a look can take and still answer: two looks (the first, and one more when it returns no out.tar), each
+# bounded by the controller (cmuxterm-hq build-fleet/cmd/controller/hot_verify_look.go: submit 30 min, queue 3 h,
+# run 45 min). A pending older than this has no look coming: the controller never saw the request or never reported.
+STALE_HOURS = 6
 
 
 def _match(path: str, patterns) -> bool:
@@ -101,9 +134,31 @@ def kind(path: str) -> str:
     return ""
 
 
-def affects(paths) -> str:
-    """'' when PATHS change nothing a user sees; 'web' when only webviews; 'app' when any Swift, resource or asset."""
-    kinds = {kind(p) for p in paths} - {""}
+def swift_draws(texts) -> bool:
+    """Whether Swift TEXTS (a file's head and base text) can change pixels: no import, or any import outside
+    NON_UI_IMPORTS."""
+    for text in texts:
+        mods = {m.group("mod") for m in SWIFT_IMPORT.finditer(re.sub(r"/\*.*?\*/", "", text, flags=re.S))}
+        if not mods or not mods <= NON_UI_IMPORTS:
+            return True
+    return False
+
+
+def affects(paths, read=None) -> str:
+    """'' when PATHS change nothing a user sees; 'web' when only webviews; 'app' when any Swift that can draw, resource
+    or asset. READ(path) gives a Swift file's texts (head and base, whichever exist) or raises OSError (unread = draws);
+    without READ every Swift file under a visual root counts."""
+    kinds = set()
+    for p in paths:
+        k = kind(p)
+        if k == "app" and read is not None and p.endswith(".swift"):
+            try:
+                if not swift_draws(read(p)):
+                    continue
+            except OSError:
+                pass
+        kinds.add(k)
+    kinds -= {""}
     return "app" if "app" in kinds else ("web" if kinds else "")
 
 
@@ -241,10 +296,14 @@ def diff_ratio(before: bytes, after: bytes, tolerance: int = 8) -> float | None:
 # --- the record of a hot-verify look -------------------------------------------------------------------------------
 
 def suite_of(plan: dict | None) -> str:
-    """gui-flows when the look put Rust in (NEXT's daemon and GUI), web-flows for a web-only layer, else mac-flows."""
+    """gui-flows when the look put Rust in (NEXT's daemon and GUI), web-flows for a web-only layer, else mac-flows. A
+    look that built the head app for its Swift (plan "build") shot that app: mac-flows, though its hot-swap layers
+    read ["web"]; as web-flows a Swift change's gate, which reads only gui-flows and mac-flows, never saw it (#61705)."""
     layers = (plan or {}).get("layers") or []
     if "rust" in layers:
         return "gui-flows"
+    if (plan or {}).get("build"):
+        return "mac-flows"
     return "web-flows" if layers == ["web"] else "mac-flows"
 
 
@@ -325,8 +384,9 @@ def api(path: str, token: str, method: str = "GET", body: dict | None = None):
                                  data=json.dumps(body).encode() if body is not None else None,
                                  headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
                                           "X-GitHub-Api-Version": "2022-11-28"})
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        return json.loads(resp.read() or b"null")
+    # gh_http asks a read again after a refusal that can change; a write is sent once (its rule).
+    _, raw, _ = gh_http.request(req, 20, raise_errors=True)
+    return json.loads(raw or b"null")
 
 
 def post_status(state: str, description: str, repo: str, sha: str, tokens: list[str], target_url: str = "") -> bool:
@@ -338,7 +398,13 @@ def post_status(state: str, description: str, repo: str, sha: str, tokens: list[
                 api(f"repos/{repo}/statuses/{sha}", token, "POST", body)
                 return True
             except Exception as e:  # noqa: BLE001 - the next token, then the next round
-                print(f"{STATUS_CONTEXT}: post refused ({type(e).__name__}: {e})", file=sys.stderr)
+                why = ""
+                if isinstance(e, urllib.error.HTTPError):  # the refusal's own words: "Forbidden" alone hid a spent hour
+                    try:
+                        why = " " + e.read().decode("utf-8", "replace")[:200]
+                    except Exception:  # noqa: BLE001
+                        pass
+                print(f"{STATUS_CONTEXT}: post refused ({type(e).__name__}: {e}){why}", file=sys.stderr)
         time.sleep(5 * (attempt + 1))
     return False
 
@@ -371,18 +437,284 @@ def show(path: str) -> str:
         raise OSError(str(e)) from e
 
 
+def show_both(path: str) -> list[str]:
+    """PATH's texts at HEAD and at its first parent, whichever exist; OSError when neither is readable."""
+    out = []
+    for rev in ("HEAD", "HEAD^1"):
+        try:
+            out.append(subprocess.run(["git", "show", f"{rev}:{path}"], check=True, capture_output=True, text=True,
+                                      errors="replace", timeout=60).stdout)
+        except subprocess.CalledProcessError:
+            continue  # absent at that rev: added or deleted
+        except subprocess.TimeoutExpired as e:
+            raise OSError(str(e)) from e
+    if not out:
+        raise OSError(path)
+    return out
+
+
+def look_failed(reason: str, pr: str | int = "N", again: bool = False) -> tuple[str, str]:
+    """The (state, description) of a look that could not run: failure, with its reason and the next step."""
+    why = " ".join((reason or "no reason given").split())
+    then = "one more look is queued" if again else f"hot-verify.py look --pr {pr} --record"
+    return "failure", f"{LOOK_FAILED}: {why}; {then}"[:140]
+
+
+def look_failed_unless_declared(body: str | None, reason: str, pr: str | int = "N",
+                                again: bool = False) -> tuple[str, str]:
+    """A look that could not run, unless the body says `Visual: none (WHY)`: that head needs no look, so the
+    gate's own success stands. cmux#39287 declared none, yet a look queued before the line sat 3 h with no fleet
+    Mac and its failure turned the gate red and stopped the land (2026-11-28)."""
+    if DECLARED_NONE.search(body or ""):
+        return verdict("web", body or "", {}, [], pr)
+    return look_failed(reason, pr, again)
+
+
+def pr_body(repo: str, pr: str | int, tokens: list[str]) -> str | None:
+    """The PR's body over the first token that reads it; None when none does (the failure then posts as before)."""
+    for token in tokens:
+        try:
+            return (api(f"repos/{repo}/pulls/{pr}", token) or {}).get("body") or ""
+        except Exception:  # noqa: BLE001 - the next token
+            continue
+    return None
+
+
+def look_reason(env) -> str:
+    """Why a result run made no record, from the publish job's step outputs (env names as in the workflow)."""
+    reason = " ".join(env.get("REASON", "").split())
+    if env.get("RESULT_OUTCOME") == "failure":
+        return "the look's result was not read"
+    if env.get("TAR") == "false":
+        return reason or "the fleet sent no result"
+    if env.get("NEEDS_BUILD") == "true":
+        return "the look needs a build of this head first"
+    if env.get("NOTHING") == "true":
+        return "the look drew nothing"
+    if env.get("NO_RECEIPT") == "true":
+        return "the look's pictures came without a receipt"
+    if env.get("STAGE_OUTCOME") == "failure":
+        return "the look's pictures were not unpacked"
+    return reason or "the look made no record"
+
+
+def settled_success(status: dict | None) -> bool:
+    """Whether cmux/ui-proof already reads success at this head (the router's UI-free success, a `Visual: none`
+    bypass, or a passing record). A look that could not run answers a question a success has closed: it must not
+    turn that success into failure (cmux#64036: router success 04:43Z, then "no fleet Mac took the look" 07:45Z,
+    "queue was full" 08:03Z, "pictures came without a receipt" 09:49Z; the newest status won and refused the merge).
+    A pending or absent status is not settled: the look failure still bounds a real UI PR's unanswered look."""
+    return bool(status and status.get("state") == "success")
+
+
+def kept_look_failure(status: dict | None) -> tuple[str, str] | None:
+    """A look failure already posted at this head (STATUS: the combined status' cmux/ui-proof entry), which a gate
+    rerun with no record keeps: a body edit must not turn it back into a pending nothing will answer."""
+    if status and status.get("state") == "failure" and (status.get("description") or "").startswith(LOOK_FAILED):
+        return "failure", status["description"]
+    return None
+
+
+def current_status(repo: str, sha: str, token: str) -> dict | None:
+    got = api(f"repos/{repo}/commits/{sha}/status?per_page=100", token) or {}
+    return next((s for s in got.get("statuses") or [] if s.get("context") == STATUS_CONTEXT), None)
+
+
+def stale_pending(prs: list[dict], now: dt.datetime, hours: float = STALE_HOURS) -> list[dict]:
+    """The open PRs (PRS: graphql nodes, number, headRefOid, the head's cmux/ui-proof context) whose cmux/ui-proof
+    has been pending longer than HOURS."""
+    out = []
+    for pr in prs:
+        ctx = (((pr.get("commits") or {}).get("nodes") or [{}])[0].get("commit") or {}).get("status") or {}
+        ctx = ctx.get("context") or {}
+        # Only a pending that waits on a look ("Visual change, ..."); "say Visible-UI: complete" waits on the author.
+        if ctx.get("state") != "PENDING" or not ctx.get("createdAt") or not str(ctx.get("description") or "").startswith(LOOK_WAIT):
+            continue
+        at = dt.datetime.fromisoformat(ctx["createdAt"].replace("Z", "+00:00"))
+        if now - at > dt.timedelta(hours=hours):
+            out.append({"pr": pr["number"], "sha": pr["headRefOid"], "since": ctx["createdAt"],
+                        "description": ctx.get("description") or ""})
+    return out
+
+
+def answered_failures(prs: list[dict]) -> list[dict]:
+    """The open PRs (as stale_pending reads them) whose cmux/ui-proof is a look failure (LOOK_FAILED): a record
+    posted after it answers it, and only a gate rerun reads that record. 2026-11-28, cmux#63752: the sweep posted
+    "no look result within 6 h" at 11:25Z, a fleet look passed and its record landed at 11:37Z, and the gate was
+    never rerun (the record was posted by hand after the look's own post queued); the sweep reread only pendings, so
+    the failure stood and land-judge refused the merge with every other check green."""
+    out = []
+    for pr in prs:
+        ctx = (((pr.get("commits") or {}).get("nodes") or [{}])[0].get("commit") or {}).get("status") or {}
+        ctx = ctx.get("context") or {}
+        if ctx.get("state") == "FAILURE" and ctx.get("createdAt") and \
+                str(ctx.get("description") or "").startswith(LOOK_FAILED):
+            out.append({"pr": pr["number"], "sha": pr["headRefOid"], "since": ctx["createdAt"],
+                        "description": ctx.get("description") or ""})
+    return out
+
+
+SWEEP_QUERY = """query($owner: String!, $name: String!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(states: OPEN, baseRefName: "feat-cmux-next", first: 100, after: $after,
+                 orderBy: {field: UPDATED_AT, direction: DESC}) {
+      pageInfo { hasNextPage endCursor }
+      nodes { number headRefOid
+        commits(last: 1) { nodes { commit { status { context(name: "cmux/ui-proof") {
+          state description createdAt } } } } } }
+    }
+  }
+}"""
+
+
+# Pages of 100 the sweep reads. feat-cmux-next holds thousands of open PRs (4859 on 2026-11-28); a 10-page cap in
+# oldest-first order read only the first 1000, so no newer PR's pending was ever swept. Newest-updated first, every
+# page: a PR whose pending is fresh is updated recently, and the cap only bounds a runaway cursor.
+SWEEP_MAX_PAGES = 100
+
+
+def open_prs(repo: str, token: str, max_pages: int = SWEEP_MAX_PAGES) -> list[dict]:
+    owner, name = repo.split("/", 1)
+    nodes, after = [], None
+    for _ in range(max_pages):
+        got = api("graphql", token, "POST", {"query": SWEEP_QUERY,
+                                             "variables": {"owner": owner, "name": name, "after": after}})
+        if got.get("errors"):
+            raise RuntimeError(f"graphql: {got['errors'][0].get('message')}")
+        page = got["data"]["repository"]["pullRequests"]
+        nodes += page["nodes"]
+        if not page["pageInfo"]["hasNextPage"]:
+            break
+        after = page["pageInfo"]["endCursor"]
+    else:
+        print(f"cmux/ui-proof sweep: page cap {max_pages} reached; the least recently updated PRs were not read",
+              file=sys.stderr)
+    return nodes
+
+
+def record_at(repo: str, pr: int, sha: str, token: str, bots: list[str]) -> str:
+    """When the newest trusted proof record at SHA was posted on PR (any look suite, "" for none)."""
+    comments = proof_record.pr_comments(repo, pr, token)
+    when = {c.get("html_url", ""): c.get("created_at") or "" for c in comments}
+    can_write = proof_record.writer_check(repo, [token])
+    found = [proof_record.find(comments, suite, sha, bots, can_write) for suite in proof_record.SUITES]
+    return max((when.get(r.get("_comment", ""), "") for r in found if r), default="")
+
+
+def rerun_gate_rest(repo: str, sha: str, tokens: list[str], after: str = "") -> str:
+    """rerun_gate over REST with TOKENS (the sweep has no gh): rerun the completed ui proof status job at SHA.
+    AFTER (a record's time): a gate job that completed after it has read that record, so it is not rerun again (a
+    record the gate does not pass keeps the look failure; without this every sweep would rerun it)."""
+    def read(token):
+        runs = api(f"repos/{repo}/actions/workflows/pr-router.yml/runs?head_sha={sha}&per_page=5", token) or {}
+        for run in runs.get("workflow_runs") or []:
+            for j in (api(f"repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100", token) or {}).get("jobs") or []:
+                if j["name"] == GATE_JOB and j.get("status") == "completed" and j.get("conclusion") != "skipped":
+                    return j["id"], j.get("completed_at") or ""
+        return None
+    try:
+        got = proof_record.with_tokens(read, tokens)
+    except Exception as e:  # noqa: BLE001 - unread: the next sweep asks again
+        return f"gate not rerun: jobs unread ({type(e).__name__})"
+    if got is None:
+        return "gate job has not run yet: it reads the record when it does"
+    job, done = got
+    if after and done and done > after:
+        return f"gate job {job} already read the record (completed {done})"
+    for token in tokens:
+        try:
+            api(f"repos/{repo}/actions/jobs/{job}/rerun", token, "POST", {})
+            return f"reran {GATE_JOB} (job {job})"
+        except Exception as e:  # noqa: BLE001 - the next token
+            print(f"{STATUS_CONTEXT}: rerun of job {job} refused ({type(e).__name__}: {e})", file=sys.stderr)
+    return f"gate not rerun: every token refused job {job}"
+
+
+def sweep(repo: str, tokens: list[str], hours: float, now: dt.datetime | None = None, post=None,
+          answered=None, rerun=None) -> list[dict]:
+    """Every open PR whose cmux/ui-proof waits on a look: a trusted record posted after the pending re-runs the gate
+    (the look answered, the gate never read it); else a pending past HOURS turns the look failure. A look failure
+    with a trusted record posted after it re-runs the gate too (answered_failures).
+    2026-11-28: cmux#62379 held a passing web-flows record from 22:16Z and sat pending 12 h; the post's own
+    rerun_gate had not reached the gate, and nothing asked again."""
+    post = post or post_status
+    bots = [b for b in os.environ.get("PROOF_RECORD_BOTS", proof_record.DEFAULT_BOTS).split(",") if b]
+    answered = answered or (lambda pr, sha: proof_record.with_tokens(
+        lambda token: record_at(repo, pr, sha, token, bots), tokens))
+    rerun = rerun or (lambda sha, after="": rerun_gate_rest(repo, sha, tokens, after))
+    now = now or dt.datetime.now(dt.timezone.utc)
+    prs = proof_record.with_tokens(lambda token: open_prs(repo, token), tokens)
+    out = []
+    for s in stale_pending(prs, now, 0):
+        try:
+            at = answered(s["pr"], s["sha"])
+        except Exception as e:  # noqa: BLE001 - an unread record is no record: the bound still holds
+            print(f"#{s['pr']}: records unread ({type(e).__name__})", file=sys.stderr)
+            at = ""
+        if at and at > s["since"]:
+            s["rerun"] = rerun(s["sha"])
+            out.append(s)
+        elif now - dt.datetime.fromisoformat(s["since"].replace("Z", "+00:00")) > dt.timedelta(hours=hours):
+            state, desc = look_failed(f"no look result within {hours:g} h of the pending post", s["pr"])
+            s["posted"] = post(state, desc, repo, s["sha"], tokens, os.environ.get("RUN_URL", ""))
+            out.append(s)
+    for s in answered_failures(prs):
+        try:
+            at = answered(s["pr"], s["sha"])
+        except Exception as e:  # noqa: BLE001 - unread: the failure stands until the next sweep reads it
+            print(f"#{s['pr']}: records unread ({type(e).__name__})", file=sys.stderr)
+            continue
+        if at and at > s["since"]:
+            s["rerun"] = rerun(s["sha"], at)
+            out.append(s)
+    return out
+
+
 def gate_now(repo: str, pr: str, sha: str, token: str, bots: list[str]) -> tuple[str, str]:
     if os.environ.get("CI_UI_PROOF", "").strip() == "0":
         return verdict("", "", {}, [], pr, off=True)
     files = changed_files()
-    need = "app" if files is None else affects(files)
+    need = "app" if files is None else affects(files, read=show_both)
     if not need:
         return verdict(need, "", {}, [], pr)
     body = (api(f"repos/{repo}/pulls/{pr}", token) or {}).get("body") or ""
     comments = proof_record.pr_comments(repo, pr, token)
-    records = {s: proof_record.find(comments, s, sha, bots) for s in suites_for(need)}
+    can_write = proof_record.writer_check(repo, proof_record.read_tokens() or [token])
+    records = {s: proof_record.find(comments, s, sha, bots, can_write) for s in suites_for(need)}
     ui = new_ui(added_files(), read=show)
-    return verdict(need, body, records, ui, pr)
+    state, desc = verdict(need, body, records, ui, pr)
+    if state == "pending" and desc.startswith(NO_LOOK):
+        try:
+            kept = kept_look_failure(current_status(repo, sha, token))
+        except Exception:  # noqa: BLE001 - an unread status keeps the pending; the sweep still bounds it
+            kept = None
+        return kept or (state, desc)
+    return state, desc
+
+
+POST_REFUSED = "record built, post refused"
+
+
+def post_record(repo: str, pr: int, body: str, tokens: list[str]) -> tuple[bool, str]:
+    """Comment BODY on PR with each token in turn: (posted, the last refusal's own words). The gate trusts only a
+    record from a repository writer or a listed bot App (proof_record.DEFAULT_BOTS), so the tokens are those Apps'.
+    2026-11-28, cmux#62400: the CI pool's one token (pull_requests: read) was refused ("Resource not accessible by
+    integration") with nothing after it, the step's continue-on-error read it as success, and cmux/ui-proof sat
+    pending on a look that had run."""
+    why = "no token"
+    for token in tokens:
+        try:
+            api(f"repos/{repo}/issues/{pr}/comments", token, "POST", {"body": body})
+            return True, ""
+        except Exception as e:  # noqa: BLE001 - the next token
+            why = f"{type(e).__name__}: {e}"
+            if isinstance(e, urllib.error.HTTPError):
+                try:
+                    why += " " + e.read().decode("utf-8", "replace")[:200]
+                except Exception:  # noqa: BLE001
+                    pass
+            print(f"{STATUS_CONTEXT}: record post refused ({why})", file=sys.stderr)
+    return False, why
 
 
 def rerun_gate(repo: str, sha: str) -> str:
@@ -447,6 +779,13 @@ def main(argv: list[str] | None = None) -> int:
     a = sub.add_parser("affects")
     a.add_argument("paths", nargs="*")
     sub.add_parser("gate")
+    lf = sub.add_parser("look-failed")
+    lf.add_argument("--pr", required=True)
+    lf.add_argument("--reason", default="")
+    lf.add_argument("--again", action="store_true", help="one more look was started")
+    sub.add_parser("look-reason")
+    sw = sub.add_parser("sweep")
+    sw.add_argument("--hours", type=float, default=STALE_HOURS)
     s = sub.add_parser("status")
     s.add_argument("state")
     s.add_argument("description")
@@ -458,6 +797,9 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--suite", choices=proof_record.SUITES)
     r.add_argument("--pushed-at", type=float)
     r.add_argument("--post", action="store_true", help="gh pr comment the record, then rerun the gate job")
+    pr_ = sub.add_parser("post-record", help="comment a built record on POST_TOKENS in turn; on refusal post failure")
+    pr_.add_argument("--file", required=True)
+    pr_.add_argument("--pr", required=True, type=int)
     w = sub.add_parser("report")
     w.add_argument("--days", type=int, default=7)
     w.add_argument("--json", action="store_true")
@@ -473,15 +815,46 @@ def main(argv: list[str] | None = None) -> int:
                          os.environ.get("RUN_URL", ""))
         print(f"{STATUS_CONTEXT}: {args.state}: {args.description}" + ("" if ok else " (NOT posted)"))
         return 0
+    if args.cmd == "look-failed":
+        tokens = [t for t in os.environ.get("TOKENS", "").split() if t]
+        body = pr_body(os.environ.get("REPO", ""), args.pr, tokens)
+        state, desc = look_failed_unless_declared(body, args.reason, args.pr, args.again)
+        repo, sha = os.environ.get("REPO", ""), os.environ.get("SHA", "")
+        for token in tokens:
+            try:
+                current = current_status(repo, sha, token)
+            except Exception:  # noqa: BLE001 - an unread status posts the failure: the bound stays
+                continue
+            if settled_success(current):
+                print(f"{STATUS_CONTEXT}: already success at {sha[:12]} ({current.get('description')}); "
+                      f"the look's failure ({desc}) is not posted")
+                return 0
+            break
+        ok = post_status(state, desc, os.environ.get("REPO", ""), os.environ.get("SHA", ""), tokens,
+                         os.environ.get("RUN_URL", ""))
+        print(f"{STATUS_CONTEXT}: {state}: {desc}" + ("" if ok else " (NOT posted)"))
+        return 0 if ok else 1
+    if args.cmd == "look-reason":
+        print(look_reason(os.environ))
+        return 0
+    if args.cmd == "sweep":
+        tokens = proof_record.read_tokens()
+        stale = sweep(os.environ.get("REPO", "manaflow-ai/cmux"), tokens, args.hours)
+        for s in stale:
+            print(f"#{s['pr']} {s['sha'][:12]} pending since {s['since']}: "
+                  + (f"record found, {s['rerun']}" if "rerun" in s else f"failure posted={s['posted']}"))
+        failed = [s for s in stale if "posted" in s]
+        print(f"{STATUS_CONTEXT} sweep: {len(failed)} pending past {args.hours:g} h, {len(stale) - len(failed)} re-gated")
+        return 0 if all(s["posted"] for s in failed) else 1
     if args.cmd == "gate":
         repo, pr, sha = os.environ.get("REPO", ""), os.environ.get("PR", ""), os.environ.get("SHA", "")
-        token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+        tokens = proof_record.read_tokens()
         bots = [b for b in os.environ.get("PROOF_RECORD_BOTS", proof_record.DEFAULT_BOTS).split(",") if b]
-        if not (repo and pr and sha and token):
+        if not (repo and pr and sha and tokens):
             print("error\tUI proof not read: REPO, PR, SHA and GH_TOKEN are needed")
             return 0
         try:
-            state, desc = gate_now(repo, pr, sha, token, bots)
+            state, desc = proof_record.with_tokens(lambda token: gate_now(repo, pr, sha, token, bots), tokens)
         except Exception as e:  # noqa: BLE001 - unread is an error state, never a pass
             state, desc = "error", f"UI proof not read ({proof_record.read_error(e)}): see job log"
         print(f"{state}\t{desc}")
@@ -498,6 +871,27 @@ def main(argv: list[str] | None = None) -> int:
                             str(out / "proof-record.md")], check=True)
             print(rerun_gate(args.repo, args.head), file=sys.stderr)
         return 0 if record["verdict"] == "pass" else 1
+    if args.cmd == "post-record":
+        repo, sha = os.environ.get("REPO", ""), os.environ.get("SHA", "")
+        posters = [t for t in os.environ.get("POST_TOKENS", "").split() if t]
+        ok, why = post_record(repo, args.pr, Path(args.file).read_text(), posters)
+        if ok:
+            print(rerun_gate(repo, sha))
+            return 0
+        desc = f"{POST_REFUSED}: {why}"
+        print(f"::error title=cmux/ui-proof::{desc[:400]}")
+        tokens = [t for t in os.environ.get("TOKENS", "").split() if t]
+        for token in tokens:
+            try:
+                if settled_success(current_status(repo, sha, token)):
+                    print(f"{STATUS_CONTEXT}: already success at {sha[:12]}; the refused post is not posted as failure")
+                    return 1
+            except Exception:  # noqa: BLE001 - unread: post the failure, a later record overturns it
+                continue
+            break
+        posted = post_status("failure", desc, repo, sha, tokens, os.environ.get("RUN_URL", ""))
+        print(f"{STATUS_CONTEXT}: failure: {desc}" + ("" if posted else " (NOT posted)"))
+        return 1
     if args.cmd == "report":
         got = report(os.environ.get("REPO", "manaflow-ai/cmux"), os.environ.get("GH_TOKEN", ""), args.days)
         if args.json:

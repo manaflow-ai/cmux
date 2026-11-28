@@ -98,6 +98,8 @@ impl Drop for StderrTail {
         }
     }
 }
+#[path = "relay_dial_standby.rs"]
+mod dial_standby;
 #[path = "relay_registration_loop.rs"]
 mod registration_loop;
 #[path = "relay_registration_state.rs"]
@@ -462,8 +464,9 @@ impl RelayTls {
         self.outer.snapshot()
     }
 
-    fn connector(&self) -> Option<Connector> {
-        self.client_config.clone().map(Connector::Rustls)
+    pub(crate) fn connector(&self) -> Option<Connector> {
+        // No roots of its own: the platform's, read once (`websocket::native_tls`).
+        self.client_config.clone().map(Connector::Rustls).or_else(super::websocket::native_tls)
     }
 }
 
@@ -646,8 +649,19 @@ impl TransportProvider for RelayProvider {
         // An inline circuit (relay_standby.rs) carries its frames on this socket, so it takes
         // a circuit's message limit, not a control socket's.
         let limit = framing.websocket_message_limit(self.config.maximum_frame_bytes);
-        let control =
-            connect_provider_control(&endpoint, &self.credentials, limit, &self.tls).await?;
+        // A redial takes the standby socket the dial before left open (`relay_dial_standby.rs`;
+        // off by default), then leaves one for the next.
+        let standby = dial_standby::dial_standby_wanted();
+        let taken = if standby { dial_standby::take(&endpoint, limit).await } else { None };
+        let control = match taken {
+            Some(control) => control,
+            None => {
+                connect_provider_control(&endpoint, &self.credentials, limit, &self.tls).await?
+            }
+        };
+        if standby {
+            dial_standby::prime(&endpoint, &self.credentials, limit, &self.tls);
+        }
         Ok(Arc::new(RelayLinkGroup {
             description: route.clone(),
             evidence: CarrierEvidence::Relay {
@@ -1210,8 +1224,30 @@ impl LinkGroup for RelayLinkGroup {
             let mut control = match stored_control.take() {
                 Some(control) => control,
                 None => {
-                    connect_provider_control(&self.endpoint, &self.credentials, limit, &self.tls)
-                        .await?
+                    // A standby socket a dial before left open skips the TCP connect and the
+                    // upgrade (`relay_dial_standby.rs`; off by default).
+                    let standby = dial_standby::dial_standby_wanted();
+                    let taken = if standby {
+                        dial_standby::take(&self.endpoint, limit).await
+                    } else {
+                        None
+                    };
+                    let control = match taken {
+                        Some(control) => control,
+                        None => {
+                            connect_provider_control(
+                                &self.endpoint,
+                                &self.credentials,
+                                limit,
+                                &self.tls,
+                            )
+                            .await?
+                        }
+                    };
+                    if standby {
+                        dial_standby::prime(&self.endpoint, &self.credentials, limit, &self.tls);
+                    }
+                    control
                 }
             };
             if self.early_connect(request.generation) {
@@ -1435,13 +1471,14 @@ async fn read_until_allocation(
             {
                 return Ok(Allocation::Inline(circuit));
             }
-            RelayControl::Error { code, retryable, .. } => {
+            RelayControl::Error { code, message, retryable } => {
                 return Err(if relay_authentication_error(&code) {
                     AllocationError::Authentication(relay_rejection())
                 } else if retryable {
-                    AllocationError::Reconnect(relay_unavailable(
+                    AllocationError::Reconnect(relay_unavailable_detail(
                         "relay allocation is temporarily unavailable",
                         &code,
+                        &message,
                     ))
                 } else {
                     AllocationError::Terminal(relay_rejection())
@@ -2271,6 +2308,27 @@ fn relay_unavailable(message: &str, code: &str) -> ProviderError {
         ));
     }
     relay_carrier_error(format!("{message} (relay code {})", sanitize_relay_code(code)))
+}
+
+/// `relay_unavailable` with the relay's own message after the code, so a refusal says which limit it hit (a
+/// `slot-circuit-capacity` refusal names the live or rate limit and its counts). The message is shown only when
+/// it is short printable ASCII; the code stays in its `(relay code ...)` parenthetical for parsers.
+fn relay_unavailable_detail(message: &str, code: &str, detail: &str) -> ProviderError {
+    let error = relay_unavailable(message, code);
+    match (error, sanitize_relay_detail(detail)) {
+        (ProviderError::Link(LinkError::Transport(text)), Some(detail)) => {
+            relay_carrier_error(format!("{text}: {detail}"))
+        }
+        (error, _) => error,
+    }
+}
+
+fn sanitize_relay_detail(detail: &str) -> Option<&str> {
+    let detail = detail.trim();
+    (!detail.is_empty()
+        && detail.len() <= 200
+        && detail.bytes().all(|b| b.is_ascii_graphic() || b == b' '))
+    .then_some(detail)
 }
 
 /// A relay's error code as shown: a short word as is, anything else `other`.

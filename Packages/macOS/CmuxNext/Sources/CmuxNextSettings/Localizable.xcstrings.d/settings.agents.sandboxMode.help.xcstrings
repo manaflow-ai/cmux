@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.sandboxMode.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workspace Only keeps agents' writes inside their workspace and turns full-access modes off."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يُبقي خيار «مساحة العمل فقط» كتابات الوكلاء داخل مساحة عملهم ويوقف أوضاع الوصول الكامل."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Samo radni prostor drži upise agenata unutar njihovog radnog prostora i isključuje načine punog pristupa."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kun arbejdsområde holder agenters skrivninger inden for deres arbejdsområde og slår tilstande med fuld adgang fra."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nur Arbeitsbereich hält Schreibzugriffe der Agenten in ihrem Arbeitsbereich und schaltet Vollzugriffsmodi aus."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Solo espacio de trabajo mantiene las escrituras de los agentes dentro de su espacio de trabajo y desactiva los modos de acceso total."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Espace de travail uniquement garde les écritures des agents dans leur espace de travail et désactive les modes d’accès complet."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Solo area di lavoro mantiene le scritture degli agenti nella loro area di lavoro e disattiva le modalità di accesso completo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「ワークスペースのみ」はエージェントの書き込みをワークスペース内に限り、フルアクセスモードをオフにします。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កន្លែងធ្វើការប៉ុណ្ណោះ រក្សាការសរសេររបស់ភ្នាក់ងារនៅក្នុងកន្លែងធ្វើការរបស់វា ហើយបិទរបៀបចូលប្រើពេញលេញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "작업 공간만은 에이전트의 쓰기를 작업 공간 안으로 제한하고 전체 접근 모드를 끕니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bare arbeidsområde holder agenters skriving innenfor arbeidsområdet og slår av moduser med full tilgang."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tylko obszar roboczy ogranicza zapisy agentów do ich obszaru roboczego i wyłącza tryby pełnego dostępu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Somente espaço de trabalho mantém as gravações dos agentes dentro do espaço de trabalho e desativa os modos de acesso total."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Только рабочая область» оставляет записи агентов внутри их рабочей области и отключает режимы полного доступа."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เฉพาะพื้นที่ทำงานจะจำกัดการเขียนของเอเจนต์ไว้ในพื้นที่ทำงานและปิดโหมดเข้าถึงเต็มรูปแบบ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yalnızca Çalışma Alanı, ajanların yazmalarını çalışma alanlarında tutar ve tam erişim modlarını kapatır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Лише робоча область» залишає записи агентів у їхній робочій області та вимикає режими повного доступу."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chỉ không gian làm việc giữ việc ghi của tác tử trong không gian làm việc và tắt các chế độ toàn quyền."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“仅工作区”会将代理的写入限制在其工作区内，并关闭完全访问模式。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「僅工作區」會將代理的寫入限制在其工作區內，並關閉完整存取模式。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

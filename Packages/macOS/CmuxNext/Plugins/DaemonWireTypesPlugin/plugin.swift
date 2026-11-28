@@ -18,7 +18,9 @@ struct DaemonWireTypesPlugin: BuildToolPlugin {
                 displayName: "Generate the CmuxNextDaemon request types from cmux-tui/spec/sdk-schema.json",
                 // The generator shares cmux-tui/bindings/codegen, which needs Python 3.10+ (dataclass slots), and
                 // Xcode runs plugins with PATH=/usr/bin:/bin, whose python3 is macOS's 3.9. Take the first 3.10+
-                // interpreter from Homebrew, python.org or PATH, and fail naming the fix when there is none.
+                // interpreter from Homebrew, python.org or PATH, and fail naming the fix when there is none. A
+                // versioned name counts in each folder: Homebrew's python@3.13 as another formula's dependency
+                // links only python3.13 (aws-m4pro-1 and -3, 2026-11-27).
                 executable: URL(filePath: "/bin/sh"),
                 // -B: no __pycache__ beside the generator (a plugin may write only its work directory).
                 arguments: ["-c", Self.pickPython, "sh", script.path(percentEncoded: false), out.path(percentEncoded: false)],
@@ -28,10 +30,11 @@ struct DaemonWireTypesPlugin: BuildToolPlugin {
     }
 
     static let pickPython = #"""
-    for py in /opt/homebrew/bin/python3 /usr/local/bin/python3 \
-        /Library/Frameworks/Python.framework/Versions/Current/bin/python3 \
-        "$(command -v python3.13)" "$(command -v python3.12)" "$(command -v python3.11)" \
-        "$(command -v python3.10)" "$(command -v python3)"; do
+    names="python3 python3.14 python3.13 python3.12 python3.11 python3.10"
+    for py in $(for dir in /opt/homebrew/bin /usr/local/bin \
+        /Library/Frameworks/Python.framework/Versions/Current/bin; do
+        for name in $names; do echo "$dir/$name"; done; done) \
+        $(for name in $names; do command -v "$name"; done); do
         [ -n "$py" ] && [ -x "$py" ] || continue
         "$py" -I -c 'import sys; sys.exit(sys.version_info < (3, 10))' 2>/dev/null || continue
         exec "$py" -I -B "$1" --out "$2"

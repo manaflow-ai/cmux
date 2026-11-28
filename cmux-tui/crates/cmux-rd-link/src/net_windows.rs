@@ -7,10 +7,11 @@
 use super::UDP_BUFFER_SIZE;
 use std::io;
 use std::mem::size_of_val;
-use std::net::{IpAddr, UdpSocket};
+use std::net::{IpAddr, TcpStream, UdpSocket};
 use std::os::windows::io::{AsRawSocket, RawSocket};
 use windows_sys::Win32::Networking::WinSock::{
-    POLLRDNORM, SO_RCVBUF, SO_SNDBUF, SOCKET, SOL_SOCKET, WSAPOLLFD, WSAPoll, setsockopt,
+    POLLRDNORM, POLLWRNORM, SO_RCVBUF, SO_SNDBUF, SOCKET, SOL_SOCKET, WSAPOLLFD, WSAPoll,
+    setsockopt,
 };
 
 /// What the driver and its caller wait on.
@@ -18,6 +19,11 @@ pub(super) type Raw = RawSocket;
 
 pub(super) fn raw(socket: &UdpSocket) -> Raw {
     socket.as_raw_socket()
+}
+
+/// A stream TURN relay's socket (stream_relay.rs).
+pub(super) fn raw_stream(stream: &TcpStream) -> Raw {
+    stream.as_raw_socket()
 }
 
 /// A wake-up: a byte sent from `write` to `read` means "look at the queue".
@@ -57,9 +63,21 @@ impl Wake {
 
 /// Blocks until one of `sockets` is readable or `timeout_ms` passes (-1: no timeout).
 pub(super) fn wait_readable(sockets: &[Raw], timeout_ms: i32) {
+    let sockets: Vec<(Raw, bool)> = sockets.iter().map(|&s| (s, false)).collect();
+    wait_ready(&sockets, timeout_ms);
+}
+
+/// Blocks until one of `sockets` is readable (or, where its flag is set, writable) or
+/// `timeout_ms` passes (-1: no timeout). A failed nonblocking connect may not wake
+/// `WSAPoll`; the stream relay's connect deadline ends that one.
+pub(super) fn wait_ready(sockets: &[(Raw, bool)], timeout_ms: i32) {
     let mut fds: Vec<WSAPOLLFD> = sockets
         .iter()
-        .map(|&s| WSAPOLLFD { fd: s as SOCKET, events: POLLRDNORM, revents: 0 })
+        .map(|&(s, write)| WSAPOLLFD {
+            fd: s as SOCKET,
+            events: if write { POLLRDNORM | POLLWRNORM } else { POLLRDNORM },
+            revents: 0,
+        })
         .collect();
     let count = u32::try_from(fds.len()).unwrap_or(u32::MAX);
     // SAFETY: fds is a valid array of WSAPOLLFD for its length; the sockets are open for the
