@@ -94,6 +94,7 @@ pub mod codex_desktop;
 pub mod codex_repo_gate;
 mod codex_signed_out;
 pub mod complete;
+pub mod compose_wake;
 pub mod computer_use;
 pub mod config;
 pub mod conn_origin;
@@ -150,6 +151,8 @@ pub mod hypervisor;
 pub mod install_share;
 pub mod key_check;
 pub mod memory_follow;
+mod subscription_store;
+mod subscriptions;
 pub mod model_router;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
 /// never offered, and the command says so.
