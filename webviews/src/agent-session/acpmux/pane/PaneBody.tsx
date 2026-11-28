@@ -37,6 +37,7 @@ import type { AllChatsPage } from "../newtab/allChatsListModel";
 import { newTabScreenActions } from "../newtab/screenActions";
 import { cloudSendAgent } from "../cloudModePick";
 import { cloudAgentPick } from "../cloudAgentPick";
+import { cloudLastPick } from "../cloudLastPick";
 import { jumpSide } from "../jumpPlace";
 import type { ComposerPlace } from "../composerPlace.experiment";
 import { StyleSwitch } from "../newtab/StyleSwitch";
@@ -1022,7 +1023,7 @@ export function drawPaneBody({
                               // Cloud start mode is left out, so the machine starts Claude.
                               // The agent picked for the machine (cloudAgentPick.ts), as the chips show it.
                               ...(() => {
-                                const machine = cloudAgentPick();
+                                const machine = cloudAgentPick() ?? cloudLastPick();
                                 const agent = machine?.harness ?? harness;
                                 return cloudSendAgent(
                                   snapshot.catalog.find((entry) => entry.id === agent)?.family,

@@ -102,6 +102,7 @@ import {
 } from "./newtab/draftFolder";
 import { cloudModePickFor as cloudModeFor, useCloudModePick } from "./cloudModePick";
 import { cloudAgentPick, holdCloudAgentPick } from "./cloudAgentPick";
+import { cloudLastPick } from "./cloudLastPick";
 import {
   askAppCloudPick,
   cloudPickChoices,
@@ -5056,7 +5057,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         const client = directClient.current;
         const { intent, model } = harnessSwitch.view();
         const summary = snapshotRef.current?.summary;
-        const cloudPick = cloudAgentPick();
+        const cloudPick = cloudAgentPick() ?? cloudLastPick();
         return {
           harness: cloudPick?.harness ?? intent?.harness ?? summary?.harness,
           revision: [

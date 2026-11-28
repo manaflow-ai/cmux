@@ -1,4 +1,5 @@
 import { seedLastPicks } from "./lastPick";
+import { seedCloudLastPick } from "./cloudLastPick";
 import type { AcpmuxSnapshot } from "./model";
 import { MAX_NEW_TAB_ENTRIES, omnibarContext, type OmnibarContext, type OmnibarRow } from "./omnibar";
 import {
@@ -152,6 +153,8 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const object = (typeof value === "object" ? value : {}) as Record<string, unknown>;
   // The app's copy of the last picks: this page's own storage did not outlive the launch.
   seedLastPicks(object.lastPicks);
+  // Cloud's own bucket rides in the same blob (AgentPaneLastPicks `cloud`, cloudLastPick.ts).
+  seedCloudLastPick((object.lastPicks as { cloud?: unknown } | undefined)?.cloud);
   // The chats a page of this Mac listed last: the Chats list's first frame (newtab/warmSnapshot.ts).
   seedWarmNewTab(object.warm);
   const keys = (typeof object.hotkeys === "object" && object.hotkeys !== null ? object.hotkeys : {}) as Record<
