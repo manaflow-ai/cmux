@@ -237,6 +237,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         standardInput: String? = nil,
         extraEnvironment: [String: String] = [:],
         underTerminal: Bool = false,
+        terminalRunner: String? = nil,
         waitForSocket: Bool = true,
         handler: @escaping (String, [String: Any]) -> String?
     ) throws -> (result: ProcessRunResult, state: MockSocketServerState) {
@@ -307,7 +308,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         let result = runProcess(
             executablePath: underTerminal ? "/bin/sh" : cliPath,
-            arguments: underTerminal ? ["-c", Self.terminalRunner, "sh", doneSignal, cliPath] + arguments : arguments,
+            arguments: underTerminal ? ["-c", terminalRunner ?? Self.terminalRunner, "sh", doneSignal, cliPath] + arguments : arguments,
             environment: environment,
             standardInput: underTerminal ? nil : standardInput,
             timeout: 5
@@ -324,6 +325,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
         mkfifo "$done" || exit 125
         { printf '%s' "$CMUX_TEST_TERMINAL_INPUT"; read _ < "$done"; } |
             { /usr/bin/script -q /dev/null "$@"; status=$?; echo > "$done"; exit "$status"; }
+        """#
+
+    /// `terminalRunner` that also reads what the terminal shows while the
+    /// command runs. When a line contains `$CMUX_TEST_RELEASE_TEXT` it writes
+    /// `shown` to the FIFO at `$CMUX_TEST_RELEASE_FIFO`, so a child can wait
+    /// until its output has reached the terminal. The exit status is printed
+    /// last.
+    private static let terminalRunnerReleasingOnOutput = #"""
+        done="$1"; shift
+        mkfifo "$done" "$CMUX_TEST_RELEASE_FIFO" || exit 125
+        { printf '%s' "$CMUX_TEST_TERMINAL_INPUT"; read _ < "$done"; } |
+            { /usr/bin/script -q /dev/null "$@"; echo "status=$?"; echo > "$done"; } |
+            while IFS= read -r line; do
+                printf '%s\n' "$line"
+                case "$line" in
+                *"$CMUX_TEST_RELEASE_TEXT"*) ( echo shown > "$CMUX_TEST_RELEASE_FIFO" ) > /dev/null 2>&1 & ;;
+                esac
+            done
         """#
 
     /// The mock responds with `__ID__` so the handler closure does not need the
@@ -483,6 +502,75 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
         XCTAssertFalse(result.stdout.contains("Label"), result.stdout)
         XCTAssertNil(label)
+    }
+
+    // `claude setup-token` prints a sign-in link and waits. The stand-in below
+    // prints its link, then waits to be told the terminal has shown that line
+    // before it prints the token. If the link has not shown after 3 seconds the
+    // test releases it instead, and the stand-in reports who released it.
+    func testCoderouterClaudeAddOAuthTokenShowsSetupTokenOutputWhileItRuns() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-coderouter-setup-token-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let releaseFIFO = home.appendingPathComponent("link-shown").path
+        DispatchQueue.global().asyncAfter(deadline: .now() + 3) {
+            let fd = open(releaseFIFO, O_WRONLY | O_NONBLOCK)
+            guard fd >= 0 else { return }
+            _ = write(fd, "timeout\n", 8)
+            close(fd)
+        }
+        // A late `shown` writer has no reader left; opening the read end lets it go.
+        defer {
+            let fd = open(releaseFIFO, O_RDONLY | O_NONBLOCK)
+            if fd >= 0 { close(fd) }
+        }
+        let claude = home.appendingPathComponent("claude")
+        try #"""
+            #!/bin/sh
+            [ "$1" = setup-token ] || exit 64
+            printf 'Open this link to sign in:\r\nhttps://claude.example.test/authorize\r\n'
+            read released_by < "$CMUX_TEST_RELEASE_FIFO"
+            printf 'released by: %s\r\nYour token:\r\n%s\r\n' "$released_by" "$CMUX_TEST_SETUP_TOKEN"
+            """#.write(to: claude, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: claude.path)
+
+        nonisolated(unsafe) var receivedToken: String?
+        let (result, state) = try runCoderouterCLI(
+            ["coderouter", "claude", "add", "oauth-token", "--label", "work"],
+            socketName: "coderouter-add-setup-token-live",
+            extraEnvironment: [
+                "HOME": home.path,
+                "CLAUDE_CONFIG_DIR": "",
+                "CMUX_CUSTOM_CLAUDE_PATH": claude.path,
+                "CMUX_TEST_SETUP_TOKEN": Self.sampleOAuthToken,
+                "CMUX_TEST_RELEASE_FIFO": releaseFIFO,
+                "CMUX_TEST_RELEASE_TEXT": "claude.example.test/authorize",
+            ],
+            underTerminal: true,
+            terminalRunner: Self.terminalRunnerReleasingOnOutput
+        ) { method, params in
+            guard method == "coderouter.claude_upstream.add" else { return nil }
+            receivedToken = params["token"] as? String
+            return self.okResponse([
+                "teamId": "team_local",
+                "account": Self.account(id: Self.accountA, kind: "anthropic_oauth", identifier: "sk-ant-oat01-...HIJ", label: "work"),
+                "accountsTotal": 1,
+            ])
+        }
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertTrue(
+            result.stdout.contains("released by: shown"),
+            "the sign-in link was not shown while setup-token ran: \(result.stdout)"
+        )
+        XCTAssertTrue(result.stdout.contains("status=0"), result.stdout)
+        XCTAssertEqual(receivedToken, Self.sampleOAuthToken)
+        XCTAssertTrue(result.stdout.contains("https://claude.example.test/authorize"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("[REDACTED]"), result.stdout)
+        XCTAssertFalse(result.stdout.contains(Self.sampleOAuthToken), "the secret must never be printed")
+        XCTAssertFalse(result.stderr.contains(Self.sampleOAuthToken), "the secret must never be printed")
+        XCTAssertEqual(state.commands.filter { $0.contains(#""method":"coderouter.claude_upstream.add""#) }.count, 1)
     }
 
     func testCoderouterClaudeSetIsAnAliasForAddAndReadsTheEnvironment() throws {
