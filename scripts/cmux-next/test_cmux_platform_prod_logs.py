@@ -244,6 +244,29 @@ class GuardTests(unittest.TestCase):
         for leak in (VM, logs.base.tag(VM), "hunter2", "1795721451000"):
             self.assertNotIn(leak, text)
 
+    def test_cmux_vm_window_keeps_a_vm_start_lines_split_and_drops_its_ids(self):
+        # handlers/vms.ts timedStart: startMs is the provider's start call, totalMs the handler's whole time.
+        start = event({"event": "vm_start", "vmId": VM, "route": "start", "ok": True, "stateBefore": None,
+                       "stateAfter": "running", "ownMs": 140, "gateMs": 0, "startMs": 412, "totalMs": 1630})
+        resume = event({"event": "vm_start", "vmId": VM, "route": "hunter2", "ok": False, "stateBefore": "hunter2 " + VM,
+                        "stateAfter": "paused", "readMs": 88, "startMs": 300, "totalMs": 420})
+        path = event_file({"service": VM_PROD, "id": "window", "needles": "vm_start"})
+        try:
+            code, out, _, upload = run_main(["--from", "2026-11-26T19:30:30Z", "--from-event", path],
+                                            response={"result": {"events": {"events": [start, resume]}}})
+        finally:
+            os.unlink(path)
+        self.assertEqual(code, 0)
+        _, _, rows = upload.call_args.args
+        logs_kept = sorted((r["log"] for r in rows), key=json.dumps)
+        self.assertIn({"event": "vm_start", "ok": True, "route": "start", "stateAfter": "running", "ownMs": 140,
+                       "gateMs": 0, "startMs": 412, "totalMs": 1630}, logs_kept)
+        self.assertIn({"event": "vm_start", "ok": False, "stateAfter": "paused", "readMs": 88, "startMs": 300,
+                       "totalMs": 420}, logs_kept)
+        text = json.dumps(rows) + out
+        for leak in (VM, logs.base.tag(VM), "hunter2"):
+            self.assertNotIn(leak, text)
+
     def test_cmux_vm_window_keeps_the_create_queues_fields(self):
         # cmux#61073 limits/create-admission.ts: a refused create's line and a create sent without the queue.
         refused = event({"event": "vm_create", "vmId": VM, "ok": False, "preMs": 4, "admitWaitMs": 61, "admitQueueMs": 0,
@@ -665,6 +688,14 @@ class NeverBoundTests(unittest.TestCase):
         self.assertNotIn("index.js", json.dumps(row))
         bare = logs.line(event({"msg": "cloud.rows.scan_large", "table": "machine", "rows": 9, "at": "nonsense"}))
         self.assertNotIn("callers", bare["log"])
+        # cmux-platform#2546: the bundled stack named no caller (every 05-10Z line read caller < eachRow < next),
+        # so each ledger scan names its site and the pages it read.
+        named = logs.line(event({"msg": "cloud.rows.scan_large", "table": "ledger", "site": "prune_at", "rows": 41860,
+                                 "yielded": 41818, "pages": 42, "ms": 0}))
+        self.assertEqual(named["log"], {"msg": "cloud.rows.scan_large", "table": "ledger", "site": "prune_at",
+                                        "rows": 41860, "yielded": 41818, "pages": 42, "ms": 0})
+        dotted = logs.line(event({"msg": "cloud.rows.scan_large", "table": "ledger", "site": "reap_target.done"}))
+        self.assertEqual(dotted["log"].get("site"), "reap_target.done")
 
     def test_a_spare_fill_keeps_its_machine_and_refill_timing(self):
         """Production 2026-11-27 02:37Z (hq#31487): a create missed the spare after a 20 s fill wait; the fill lines

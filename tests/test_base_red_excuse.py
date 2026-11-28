@@ -1945,10 +1945,12 @@ class Excusing(unittest.TestCase):
         self.gh.logs[1] = (ROOT / "tests/fixtures/test_reds/51655-changes-checkout-job-514215463833.log").read_text()
 
     def test_a_checkout_death_is_rerun_never_the_prs_own_red(self):
-        # glaeda-gh reruns a "was refused at setup by its runner" own_red once per (head, run), never stops on it.
+        # A network checkout death is infra since #57288 (test_reds.checkout_infra, read by lost_runner before
+        # checkout_death): a re-run like a cancelled job, never this PR's own red, and never excused.
         self.checkout_death_setup()
-        with self.assertRaisesRegex(excuse.Refused, r"^'.+' was refused at setup by its runner's actions/checkout "
-                                                    r"step, .*Operation too slow.*it gets re-run, never excused"):
+        with self.assertRaisesRegex(excuse.Infra, r"^'.+' is infra, not a verdict \(job 1: its checkout step "
+                                                  r"\(actions/checkout@\w+\) failed on the network .*from promisor "
+                                                  r"remote\); it is never this PR's own red and needs a re-run"):
             self.judge()
 
     def test_a_checkout_death_a_submodule_pin_can_cause_stays_judged(self):
@@ -17392,6 +17394,84 @@ class WorkflowHeadersPlaceRealLogs(unittest.TestCase):
                 self.assertIs(excuse.warning_led(line), led)
 
 
+class RealBaseLogsPlaceWithAnnotations(WorkflowHeadersPlaceRealLogs):
+    """2026-11-28: land-judge refused reds that fail as their base did with "its red base verdict's log does not map
+    one to one onto its steps (step_owners), so no base line can be told to a failed step". The base logs, real and
+    trimmed (step headers, groups, runner lines and `##[` lines, stamps as served; each workflow at the job's commit,
+    hq's cut to its job's steps and the text of its log's annotations and passing tests cut, as hq is private):
+    - hq main run 46106377067's 'tests' (job 140859953348; refused hq#35967 at 04:25Z and hq#35280 at 01:12Z): its
+      passing suites print Actions annotations (`##[error]<lane>: refused: ...` from the freestyle-lane-vms
+      tests, `##[error]No overload matches this call.` from a checks suite), and _aligned_starts read any `##[error]` in
+      a passed step as the reading disagreeing with GitHub, so the log was unplaced. A passed step's tell is the runner's
+      own exit line (RUNNER_EXIT_RED), which it never prints.
+    - cmux#63523's 'plan (changed Cargo workspaces)' (base run 46113542594, job 140884231693; a called workflow) and
+      cmux#63557's 'acpmux tests (lib, hub_integration)' (run 46098918707, job 140836780847): placed since #64216."""
+
+    PATHS = {**WorkflowHeadersPlaceRealLogs.PATHS,
+             "hq-35967-tests": ".github/workflows/fleet-reconcilers-tests.yml",
+             "cmux-63557-acpmux": ".github/workflows/cmux-tui-spec.yml",
+             "cmux-63523-plan": ".github/workflows/cmux-next-post-merge.yml"}
+    # Each case's workflow files by path (a called workflow's file too).
+    FILES = {"cmux-63523-plan": {".github/workflows/cmux-next-post-merge.yml": "cmux-63523-plan.yml",
+                                 ".github/workflows/rust-workspaces.yml": "cmux-63523-plan-rust-workspaces.yml"}}
+    HQ = "hq-35967-tests"
+    # The header after the passing 'freestyle-lane-vms suite' section (its annotations' text is cut: hq is private),
+    # and the failed suite's failed test.
+    NEXT_HEADER = "##[group]Run python3 -m unittest discover -s tools/screenshare-e2e -p 'test_*.py' -v $K"
+    HQ_RED = "test_every_record_job_asks_whether_its_probe_job_started"
+
+    def github(self, case, head, base):
+        github = super().github(case, head, base)
+        files = self.FILES.get(case)
+        if not files:
+            return github
+
+        def blob(repo, ref, wanted):
+            if wanted not in files:
+                raise excuse.Refused(f"{repo}@{ref}: {wanted} is not a text file GitHub served")
+            return (STEP_MAPPING_FIXTURES / files[wanted]).read_text()
+        github.blob = blob
+        return github
+
+    def base_view(self, case, text=None):
+        job, served = self.fixture(case, "base")
+        text = served if text is None else text
+        github = self.github(case, (job, text), (job, text))
+        names = excuse.workflow_step_names(REPO, dict(job, head_sha=HEAD), self.PATHS[case], github, {})
+        return excuse.failed_view(job, text, step_names=names, base=True)
+
+    def test_each_base_log_is_placed(self):
+        for case, failed in (("hq-35967-tests", {"fleet-reconcilers suite": "failed"}),
+                             ("cmux-63523-plan", {"Every Cargo workspace is listed": "failed"}),
+                             ("cmux-63557-acpmux", {"cargo test -p acpmux --lib --test hub_integration": "failed"})):
+            with self.subTest(case=case):
+                view = self.base_view(case)
+                self.assertIsNot(view, excuse.UNPLACED)
+                self.assertEqual({str(view.steps[k]["name"]): status for k, status, _ in view.sections}, failed)
+
+    def test_a_passed_step_with_the_runners_exit_line_is_still_unplaced(self):
+        # The gate: a passed step's section holding the line the runner ends a failed step with means the reading
+        # puts a failed step's lines in a passed step, so nothing is placed.
+        _, text = self.fixture(self.HQ, "base")
+        lines = text.splitlines()
+        at = next(n for n, raw in enumerate(lines) if raw.endswith(" " + self.NEXT_HEADER))
+        lines.insert(at, lines[at - 1].split(" ", 1)[0] + " ##[error]Process completed with exit code 1.")
+        text = "\n".join(lines)
+        self.assertIs(self.base_view(self.HQ, text), excuse.UNPLACED)
+
+    def test_hq_35967_the_bases_red_is_excused_and_a_red_of_its_own_is_refused(self):
+        base = self.fixture(self.HQ, "base")
+        said = self.judge(self.github(self.HQ, base, base))
+        self.assertIn("excused 'tests'", said)
+        self.assertNotIn("compared whole", said)  # placed: compared by step (before the fix: unplaced, whole)
+        # The gate holds: a head red for its own reason (a test the base passes) is refused.
+        own = (base[0], base[1].replace(self.HQ_RED, "test_every_record_job_names_its_probe"))
+        self.assertNotEqual(own[1], base[1])
+        with self.assertRaisesRegex(excuse.Refused, "1 failing test.s. pass or do not run on feat-cmux-next run 20: "
+                                                    "test_every_record_job_names_its_probe"):
+            self.judge(self.github(self.HQ, own, base))
+
+
 class RealShapesOfNovember11(WorkflowHeadersPlaceRealLogs):
     """Two shapes lanes hit on 2026-11-11, from the real jobs (trimmed to their step headers, groups, runner lines and
     failure lines, stamps as served; the workflows' steps at the jobs' commits, each script cut to its first line).
@@ -18855,6 +18935,9 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-next-tab-switch.yml",
             # iPhone DEV built ahead (#51721): an advisory fleet build per PR head; never a required check.
             "cmux-next-ios-try-ahead.yml",
+            # cmux ios verify per iOS PR head (ask-292c9fdd30): dispatches the protected-branch run that posts the
+            # ios-flows proof record; cmux/ios-fast (pr-router.yml) is the gate, this job never is.
+            "cmux-next-ios-verify-auto.yml",
             # Split latency measurements (#61185) and acpmux's transfer_cli product tests (#58314).
             "cmux-next-split-table.yml", "session-move-tests.yml",
             # Type-checks the measuring probes (scripts/measure/*.swift) on a Mac when a change touches them.
