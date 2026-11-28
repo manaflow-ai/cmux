@@ -68,12 +68,15 @@ import Testing
                 case "session/prompt":
                     let text = (params["prompt"] as? [[String: Any]])?.first?["text"] as? String ?? ""
                     let session = params["sessionId"] as? String ?? ""
+                    // hostd records the message under the id the phone sent it with: that is how the
+                    // phone's bubble knows the Mac has it (#57933).
+                    let promptID = ((params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["promptId"] as? String ?? "next"
                     lock.withLock { prompts.append((machine, session, text)) }
                     result = [:]
                     let record: [String: Any] = [
                         "jsonrpc": "2.0", "method": "_acpmux/event", "params": [
                             "sessionId": session, "seq": 4, "at": 4, "dir": "mux", "kind": "user_message",
-                            "msg": ["text": text, "promptId": "next", "turnId": "next"],
+                            "msg": ["text": text, "promptId": promptID, "turnId": "next"],
                         ],
                     ]
                     if let data = try? JSONSerialization.data(withJSONObject: record) { notices.append(data) }
