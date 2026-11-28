@@ -267,26 +267,32 @@ await requireBrowserLane("reply-settle-frames-real-browser.test.ts", async () =>
       expect(final.reply.opacity).toBe(1);
     });
 
-  for (const moving of [false, true])
+  for (const variant of ["ghost", "slide", "dissolve", "dip", "swap"] as const) {
+    const moving = variant !== "ghost";
     test(
       moving
-        ? "F6: a retained row moving past a row drawn at rest stays clipped until clear"
+        ? `F6 ${variant}: a retained row moving past a row drawn at rest stays clipped until clear`
         : "F5: a retained row that skips offscreen motion still covers a visible fold ghost",
       async () => {
         const page = await browser.newPage({ viewport: { width: 600, height: 400 } });
+        page.on("response", async (r) => { if (r.status() >= 400) console.log("FETCH", r.status(), r.url(), (await r.text()).slice(0, 2000)); });
         try {
           const origin = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
           const blank = await vite!.transformIndexHtml("/blank.html", "<!doctype html><html><body></body></html>");
           await page.route(`${origin}/blank.html`, (route) => route.fulfill({ contentType: "text/html", body: blank }));
           await page.goto(`${origin}/blank.html`);
           const result = await page.evaluate(
-            async ({ foldUrl, moving }) => {
-              const { captureTurnEnd, playTurnEnd, settleTurnEnd } = await import(foldUrl);
+            async ({ foldUrl, moving, variant }) => {
+              const { captureTurnEnd, playTurnEnd, settleTurnEnd, TURN_END_SNAPSHOT_ATTR } = await import(foldUrl);
               document.body.style.margin = "0";
               const scroller = document.createElement("div");
               scroller.style.cssText = "height:300px;overflow:auto";
               const thread = document.createElement("div");
-              thread.setAttribute("data-turn-end-fold", "fade");
+              thread.setAttribute("data-turn-end-fold", variant === "dissolve" ? "dissolve" : "fade");
+              thread.setAttribute(
+                "data-turn-end-subagent",
+                variant === "dip" || variant === "swap" ? variant : "slide",
+              );
               thread.style.cssText = "position:relative;height:1000px";
               scroller.append(thread);
               document.body.append(scroller);
@@ -299,9 +305,10 @@ await requireBrowserLane("reply-settle-frames-real-browser.test.ts", async () =>
                 thread.append(node);
                 return node;
               };
-              const upper = draw("upper", 0, 200);
+              const upper = draw("upper", 0, variant === "ghost" || variant === "slide" ? 200 : 120);
               const gone = draw("gone", moving ? 600 : 500, 100);
               const lower = draw("lower", moving ? 500 : 650, 40);
+              if (variant === "dip" || variant === "swap") lower.classList.add("acpmux-subagents");
               scroller.scrollTop = 400;
               const rows = ["upper", "lower"].map((id) => ({ id, kind: "assistant", version: 1, at: 1 }));
               const capture = captureTurnEnd(thread, scroller, rows, "s", true);
@@ -335,6 +342,8 @@ await requireBrowserLane("reply-settle-frames-real-browser.test.ts", async () =>
                 finalTop: 0,
                 finalOpacity: 0,
                 finalClipped: 0,
+                snapshot: Boolean(thread.querySelector(`[${TURN_END_SNAPSHOT_ATTR}="lower"]`)),
+                liveClippedDuringSwap: 0,
               };
               if (moving) {
                 // Read real interpolated clips across the entire move, not just its first frame.
@@ -343,14 +352,21 @@ await requireBrowserLane("reply-settle-frames-real-browser.test.ts", async () =>
                     const timing = animation.effect.getTiming();
                     animation.currentTime = timing.delay + Number(timing.duration) * fraction;
                   }
-                  const now = lower.getBoundingClientRect();
-                  const inset = /^inset\(([^)]*)\)/.exec(getComputedStyle(lower).clipPath);
-                  const sides = inset?.[1]!.split(/\s+/).map(Number.parseFloat) ?? [0];
-                  out.overlap = Math.max(
-                    out.overlap,
-                    Math.min(retained.bottom, now.bottom - (sides[2] ?? sides[0]!)) -
-                      Math.max(retained.top, now.top + sides[0]!),
-                  );
+                  const snapshot = thread.querySelector<HTMLElement>(`[${TURN_END_SNAPSHOT_ATTR}="lower"]`);
+                  for (const painted of [lower, ...(snapshot ? [snapshot] : [])]) {
+                    const now = painted.getBoundingClientRect();
+                    const style = getComputedStyle(painted);
+                    const inset = /^inset\(([^)]*)\)/.exec(style.clipPath);
+                    const sides = inset?.[1]!.split(/\s+/).map(Number.parseFloat) ?? [0];
+                    if (variant === "swap" && painted === lower)
+                      out.liveClippedDuringSwap = Math.max(out.liveClippedDuringSwap, sides[0]!, sides[2] ?? sides[0]!);
+                    if (Number(style.opacity) <= 0.05) continue;
+                    out.overlap = Math.max(
+                      out.overlap,
+                      Math.min(retained.bottom, now.bottom - (sides[2] ?? sides[0]!)) -
+                        Math.max(retained.top, now.top + sides[0]!),
+                    );
+                  }
                 }
                 const finalStyle = getComputedStyle(lower);
                 const finalInset = /^inset\(([^)]*)\)/.exec(finalStyle.clipPath);
@@ -362,23 +378,32 @@ await requireBrowserLane("reply-settle-frames-real-browser.test.ts", async () =>
               settleTurnEnd(thread, fold);
               return out;
             },
-            { foldUrl: `${origin}${vite!.config.base}src/agent-session/acpmux/conversation/turnEndFold.ts`, moving },
+            {
+              foldUrl: `${origin}${vite!.config.base}src/agent-session/acpmux/conversation/turnEndFold.ts`,
+              moving,
+              variant,
+            },
           );
-          console.log(`reply-settle-frames ${moving ? "F6" : "F5"} ${JSON.stringify(result)}`);
+          console.log(`reply-settle-frames ${moving ? "F6" : "F5"} ${variant} ${JSON.stringify(result)}`);
           expect(result.folding).toBe(true);
           expect(result.ghost).toBe(true);
           expect(result.upperTop).toBe(0);
           expect(result.upperAnimations).toBe(0);
-          expect(result.ghostOpacity).toBe(1);
+          expect(result.ghostOpacity).toBe(variant === "swap" ? 0 : 1);
           expect(result.overlap).toBeLessThanOrEqual(0);
           if (moving) {
             expect(result.finalTop).toBe(250);
             expect(result.finalOpacity).toBe(1);
             expect(result.finalClipped).toBe(0);
+            if (variant === "swap") {
+              expect(result.snapshot).toBe(true);
+              expect(result.liveClippedDuringSwap).toBe(0);
+            }
           }
         } finally {
           await page.close();
         }
       },
     );
+  }
 });
