@@ -40,7 +40,7 @@ extension GitHubConnections {
         static var connect: String { String(localized: "github.connect", defaultValue: "Connect GitHub", table: "GitHubConnection", bundle: .module) }
         static var retryAgain: String { String(localized: "github.retry", defaultValue: "Retry", table: "GitHubConnection", bundle: .module) }
         static var pending: String {
-            String(localized: "github.completePending", defaultValue: "GitHub sent your request to the organization's owners. When an owner approves it, connect GitHub again.",
+            String(localized: "github.completePending", defaultValue: "GitHub sent your request to the organization's owners. Connect again once approved.",
                    table: "GitHubConnection", bundle: .module)
         }
         static var refused: String {

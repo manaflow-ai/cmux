@@ -30,6 +30,13 @@ if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
   ./scripts/download-prebuilt-ghosttykit.sh || { echo "dev-loop-ceiling: GhosttyKit download failed" >&2; exit 1; }
 fi
 IFS=, read -ra list <<<"$loops"
+# Each loop runs in the background, in its own process group (set -m). Every DLC_HEARTBEAT_S the step prints the
+# loop's last log line, so the silence watchdog sees progress. A loop past DLC_LOOP_MAX_S is stopped and reported
+# UNMEASURED, so the others and bound.py still run. 2026-11-26 step 693ee00d07850816efffd5d2: startup_loop's
+# warm build printed nothing for 68 min, the controller stopped the step as hung, and no report.json came back.
+beat_s="${DLC_HEARTBEAT_S:-300}"
+loop_max_s="${DLC_LOOP_MAX_S:-7200}"
+set -m
 for loop in "${list[@]}"; do
   script="$here/$loop.sh"
   if [[ ! -x "$script" ]]; then
@@ -39,8 +46,33 @@ for loop in "${list[@]}"; do
   fi
   start=$(date +%s)
   echo "dev-loop-ceiling: $loop (n=$n)"
-  if ! "$script" "$out" "$n" >"$out/$loop.log" 2>&1; then
-    echo "dev-loop-ceiling: $loop failed after $(( $(date +%s) - start )) s; last lines:" >&2
+  "$script" "$out" "$n" >"$out/$loop.log" 2>&1 &
+  pid=$!
+  next_beat=$(( start + beat_s ))
+  over=""
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 5
+    now=$(date +%s)
+    if (( now - start >= loop_max_s )); then
+      over=1
+      echo "dev-loop-ceiling: $loop ran over $loop_max_s s (DLC_LOOP_MAX_S); stopping it" >&2
+      kill -TERM -- "-$pid" 2>/dev/null
+      sleep 15
+      kill -KILL -- "-$pid" 2>/dev/null
+      break
+    fi
+    if (( now >= next_beat )); then
+      echo "dev-loop-ceiling: $loop running $(( now - start )) s; last: $(grep -v '] ending pid ' "$out/$loop.log" | tail -1 | cut -c1-200)"
+      next_beat=$(( now + beat_s ))
+    fi
+  done
+  wait "$pid"
+  rc=$?
+  if [[ -n "$over" ]]; then
+    printf '{"schema":"dev-loop-ceiling/loop/v1","loop":"%s","error":"ran over %s s (DLC_LOOP_MAX_S)"}\n' "$loop" "$loop_max_s" >"$out/$loop.json"
+  fi
+  if (( rc != 0 )); then
+    echo "dev-loop-ceiling: $loop failed (exit $rc) after $(( $(date +%s) - start )) s; last lines:" >&2
     # Without cleanup's "ending pid" lines, which filled the whole tail on 2026-11-22 step a8b4d181c32ad2c06b3a0126.
     grep -v '] ending pid ' "$out/$loop.log" | tail -20 >&2
     [[ -s "$out/$loop.json" ]] || printf '{"schema":"dev-loop-ceiling/loop/v1","loop":"%s","error":"exited nonzero with no json"}\n' "$loop" >"$out/$loop.json"

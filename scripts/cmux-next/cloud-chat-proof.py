@@ -64,6 +64,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import claude_login_cache  # noqa: E402
+import codex_chatgpt_import  # noqa: E402
 from app_launch_env import launch_env  # noqa: E402
 from state_wait import wait_stable  # noqa: E402
 
@@ -140,10 +141,17 @@ ENV = {
 }
 # The token goes to `cloud secret set` on stdin only; no CLI call inherits it.
 ENV.pop(claude_login_cache.TOKEN_ENV, None)
+# The Codex login goes only to the import's 0600 file (codex_chatgpt_import.py); no CLI call inherits it.
+CODEX_AUTH = os.environ.get("CODEX_AUTH_JSON", "")
+ENV.pop("CODEX_AUTH_JSON", None)
+# A Codex chat's imported chatgpt-plan connection (codex_chatgpt_import.Import), cleared in finish() after the quit.
+CODEX_IMPORT = None
 # The cached login entries this run stored, removed in finish().
 CACHED_LOGINS: list[str] = []
 # The Claude connections this run added (claude_login_cache.connect), removed in finish().
 ADDED_CONNECTIONS: list[dict] = []
+# The VM token this proof created, removed in finish(). A pre-existing token is never touched.
+VM_TOKEN_CREATED = False
 
 
 def claude_chat(agent: str) -> bool:
@@ -155,11 +163,13 @@ def claude_chat(agent: str) -> bool:
 
 
 # A Claude chat's `--login` only: Codex never takes it (`none` would leave it signed out; its login is the Mac's broker).
+# The Rust `cmux cloud start-chat` has no --login (run 45643863592: unexpected argument "--login"): the start-chat
+# --help probe below drops it for that CLI, and an older app's CLI that still lists it gets it.
 START_LOGIN = ("--login", args.login) if args.login and claude_chat(args.agent) else ()
 # --grant-claude-login: the launched app's own cmux.json (0600), removed with its folder when the run ends. It holds
 # the consent a Release build's claude chat on the account's own machine waits for (CloudLoginCopyConsentSetting:
 # only the file can say yes; `settings set` asks a person on screen, which CI has not). Never the shared
-# ~/.config/cmux/cmux-next.json a person's other apps read.
+# ~/.config/cmux-next/cmux-next.json a person's other apps read.
 CLAUDE_LOGIN_SETTING = ("cloud", "useMyClaudeLoginOnMyCloudMachines")
 CONFIG_DIR = None
 CONFIG_FILE = None
@@ -294,6 +304,13 @@ signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(128 + signum))  # a
 
 
 def finish(result: str) -> None:
+    global VM_TOKEN_CREATED
+    if VM_TOKEN_CREATED:
+        code, out, err = cmux("vm", "token", "revoke", "--json", timeout=60)
+        record("revoke VM token", code, out, err)
+        if code != 0 and result == "pass":
+            result = "fail: VM token not revoked"
+        VM_TOKEN_CREATED = False
     while CACHED_LOGINS:
         entry = CACHED_LOGINS.pop()
         code, err = claude_login_cache.remove(CLI, ENV, entry)
@@ -324,6 +341,12 @@ def finish(result: str) -> None:
             record("app exited", 124, "", "the launched app did not exit within 60s")
             if result == "pass":
                 result = "fail: the launched app did not exit"
+    if CODEX_IMPORT is not None:
+        # After the quit: the imported home (and the route the import wrote) leave the runner.
+        left = CODEX_IMPORT.clear()
+        record("clear codex import", 1 if left else 0, "", ", ".join(left))
+        if left and result == "pass":
+            result = "fail: codex import left on the runner"
     if FOLDER_PROOF_DIR:
         shutil.rmtree(FOLDER_PROOF_DIR, ignore_errors=True)
     if CONFIG_DIR:
@@ -655,9 +678,18 @@ def wait_for(name: str, words: tuple[str, ...], ready, timeout: int = 240) -> di
         if satisfied or time.monotonic() >= deadline:
             break
         time.sleep(min(5, max(0, deadline - time.monotonic())))
-    safe = {key: value.get(key) for key in ("pid", "signed_in", "backend", "cloud_environment")
+    safe = {key: value.get(key) for key in ("pid", "signed_in", "backend", "cloud_environment", "loaded", "signedIn", "team")
             if key in value}
-    record(name, 0 if satisfied else (code or 1), "", "" if satisfied else err,
+    account = value.get("account")
+    if isinstance(account, dict):  # list-machines' sign-in (a shipped app): whether, and for a team, never the ids
+        safe["account"] = {"signed_in": account.get("signed_in"), "team": account.get("team_id") is not None}
+    if value.get("last_error"):
+        safe["last_error"] = clean(str(value["last_error"]), 500)
+    why = err
+    if not satisfied and code == 0 and not (err or "").strip():
+        # The command answered but never satisfied the wait: say what it last saw, or the step reads as a bare exit 1.
+        why = "last answer: " + json.dumps(safe, sort_keys=True)
+    record(name, 0 if satisfied else (code or 1), "", "" if satisfied else why,
            elapsed_ms=round((time.monotonic() - started) * 1000), **safe)
     if not satisfied:
         finish(f"fail: {name}")
@@ -675,6 +707,26 @@ launch = [open_tool, "-W", "-g", "-n"]
 # and the app then strips the CMUX_NEXT_* state-root knobs (LaunchIdentity.inheritedKeys), the socket one included.
 # `open` also hands the app this process's environment, so the launcher runs on launch_env(ENV) (app_launch_env.py).
 launch.extend(["--env", f"CMUX_NEXT_SOCKET_PATH={SOCKET_PATH}"])
+# A NIGHTLY or release holds one copy per user (SingleInstanceGuard: a flock on its Application Support
+# instance.lock); a second launch hands off to the copy already running on the Mac and exits before it binds
+# this socket, so `app identify` never reached it (kinds run 45821171663, job 139987363954). Opt out, as a test run.
+launch.extend(["--env", "CMUX_NEXT_ALLOW_SECOND_INSTANCE=1"])
+# A Codex chat starts only on a Cloud-serving Codex connection ("No Cloud connection serves codex yet", runs
+# 45999014551 and 46040021553). Import the agent account's Codex login as a chatgpt-plan connection into a fresh
+# acpmux home before the launch, and run the app (and this proof's CLI calls) on that home.
+if (not claude_chat(args.agent) and not args.cleanup_machine and not args.cleanup_tag
+        and not args.paused_capture):
+    CODEX_IMPORT = codex_chatgpt_import.Import()
+    started = time.monotonic()
+    imported = CODEX_IMPORT.prepare(Path(args.app).resolve(), CODEX_AUTH)
+    record("import codex chatgpt connection", 1 if imported.get("error") else 0, "", imported.get("error", ""),
+           elapsed_ms=round((time.monotonic() - started) * 1000), error_code=imported.get("error_code"),
+           connection=imported.get("connection"))
+    evidence["codex_import"] = {"connection": imported.get("connection"), "error_code": imported.get("error_code")}
+    if imported.get("error"):
+        finish(f"fail: {imported['error_code']}")
+    ENV["ACPMUX_HOME"] = imported["home"]
+    launch.extend(["--env", f"ACPMUX_HOME={imported['home']}"])
 if CONFIG_FILE:
     # Its own cmux.json, as the socket: LaunchServices passes the app only what --env names.
     launch.extend(["--env", f"CMUX_NEXT_CONFIG_FILE={CONFIG_FILE}"])
@@ -736,8 +788,11 @@ if SHIPPED_APP:
     # A shipped build refuses `cmux app call` (app.call_debug_only), so its sign-in is read the way a person sees
     # it: `cloud list-machines` answers `loaded: true` only for a signed-in Cloud account. A shipped NIGHTLY talks
     # to production by construction (its bundle id, checked by the workflow), so its origin is the expected one.
-    wait_for("selected backend active and signed in", ("cloud", "list-machines", "--json"),
-             lambda value: value.get("loaded") is True)
+    # Its `account` ({signed_in, user_id, team_id}: CloudHandlers.listAccount, the app's own sign-in) names the
+    # user and team the login cache below is scoped to, as `auth.status` does on a dev build.
+    listing = wait_for("selected backend active and signed in", ("cloud", "list-machines", "--json"),
+                       lambda value: value.get("loaded") is True)
+    actual = listing.get("account") if isinstance(listing.get("account"), dict) else {}
     evidence["api_origin"] = args.expected_api_origin if args.cloud_backend == "prod" else None
 else:
     actual = wait_for("selected backend active and signed in", ("app", "call", "auth.status", "--json"),
@@ -932,7 +987,7 @@ if args.cache_claude_login:
     # The entries the start reads for this account (CloudCredentialLogin.loadAny): its team's, then its personal one.
     entries = claude_login_cache.names(actual)
     if not entries:
-        record("cache claude login", 1, "", "auth.status names no user")
+        record("cache claude login", 1, "", "the sign-in (list-machines account or auth.status) names no user")
         finish("fail: cache claude login")
     for entry in entries:
         CACHED_LOGINS.append(entry)
@@ -957,6 +1012,7 @@ code, out, err = cmux("vm", "token", "create", "--ttl", "30m", "--json", timeout
 record("vm token create", code, out, err, elapsed_ms=round((time.monotonic() - started) * 1000))
 if code != 0:
     finish("fail: vm token create")
+VM_TOKEN_CREATED = True
 
 # 3. The Cloud chat: start, send, wait for the turn, read the reply. The machine is named after the
 # run, so a start still pending (exit 75: creation goes on in the app) is asked again with the same

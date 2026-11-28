@@ -58,6 +58,20 @@ public nonisolated enum AgentPaneFileOpen {
         return shown.contains { type.conforms(to: $0) }
     }
 
+    /// The Experiments switch (`experiments.writtenHTMLOpenBeside`, off by default) that lets a person's
+    /// click open a written HTML file in a tab: the written-file card's Open beside
+    /// (docs/design/next-rich-output.md, plan item 5).
+    static let writtenHTMLOpenBesideSwitch = "writtenHTMLOpenBeside"
+
+    /// HTML files a person's own click may open in a tab as the rendered page. The host opens them in the
+    /// sandboxed browser tab `cmux file open` and MCP `open` already use (u18051), never by the file's handler.
+    static let clickedPageExtensions: Set<String> = ["html", "htm"]
+
+    /// Whether a person's click may open the file at `url` in a tab as the rendered page.
+    static func opensAsPageOnClick(_ url: URL) -> Bool {
+        clickedPageExtensions.contains(url.pathExtension.lowercased())
+    }
+
     /// The app that edits text: the default for source code, else for plain text.
     @MainActor public static func editorApplication(workspace: NSWorkspace = .shared) -> URL? {
         workspace.urlForApplication(toOpen: .sourceCode) ?? workspace.urlForApplication(toOpen: .plainText)

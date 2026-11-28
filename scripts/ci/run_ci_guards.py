@@ -670,12 +670,27 @@ def default_base(head_sha: str) -> str:
     explicit = os.environ.get("CMUX_GUARDS_BASE_SHA")
     if explicit:
         return explicit
-    for ref in ("upstream/main", "mf/main", "origin/main"):
-        try:
-            return git("merge-base", head_sha, ref)
-        except subprocess.CalledProcessError:
+    # A push checkout of feat-cmux-next has none of these refs; each miss is expected, so git's
+    # "fatal: Not a valid object name" stays out of the log (it read as the group's red on job 139513893359).
+    # The nearest merge-base wins: a feat-cmux-next head is ~61k commits from main's merge-base, so
+    # main alone made every "new since base" guard (iOS loading placeholders: 112 spinners) count
+    # the whole branch. Ties keep this order, so a main branch still compares to main.
+    best, best_distance = "", None
+    for ref in ("upstream/main", "mf/main", "origin/main",
+                "upstream/feat-cmux-next", "mf/feat-cmux-next", "origin/feat-cmux-next"):
+        found = subprocess.run(["git", "merge-base", head_sha, ref], cwd=ROOT, stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL, text=True)
+        if found.returncode != 0:
             continue
-    return ""
+        base = found.stdout.strip()
+        counted = subprocess.run(["git", "rev-list", "--count", f"{base}..{head_sha}"], cwd=ROOT,
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        if counted.returncode != 0:
+            continue
+        distance = int(counted.stdout.strip() or 0)
+        if best_distance is None or distance < best_distance:
+            best, best_distance = base, distance
+    return best
 
 
 def tree_is_clean() -> bool:

@@ -152,6 +152,14 @@ SHELL_SIGNAL_NUMBERS = {"Killed": "9", "Terminated": "15", "Hangup": "1", "Inter
 # tests job read as "the test process crashed (signal 9)"). A fault (`Segmentation fault`, a signal code from SwiftPM,
 # an exit status of 128 + N) is a crash wherever it is.
 STEP_ERROR = re.compile(r"^(?:##\[error\]|::error)")
+# The same holds for a unit inside one step: a runner of many units in one step (cmuxterm-hq's
+# scripts/ci/run_parallel.py: `::group::ok   NAME (exit 0, 8 s)`, the unit's log, `::endgroup::`) prints each unit's
+# log under a header naming how the unit ended. A kill inside a unit whose header says exit 0 is that unit's own doing,
+# even when another unit failed the step (2026-11-26: cmuxterm-hq#28312's Fleet tests, run 45790420707, read as "the
+# test process crashed (signal 9)" from the terminate-app unit's cleanup while the step's one red was another unit).
+# A crash needs the unit itself to end on the signal: its header then says a non-zero exit.
+UNIT_PASSED = re.compile(r"^(?:##\[group\]|::group::)ok +\S.* \(exit 0, \d+ s\)$")
+UNIT_EDGE = re.compile(r"^(?:##\[(?:group|endgroup)\]|::(?:group|endgroup)::)")
 # Actions may preserve only the shell status when a process dies after printing its test summary.
 # A 128 + signal status is still an abnormal end; a complete summary cannot excuse it as a base red.
 # Match the runner annotation, never a test name or an assertion quoting the diagnostic.
@@ -1187,7 +1195,10 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
     crashed = False
     console = False  # inside a vitest console block (VITEST_CONSOLE)
     unit_output = False  # inside a unittest -v test's own output (its `name (mod.Cls.name) ... ` line has no verdict yet)
+    unit_passed = False  # inside a passing unit's group of a many-unit step (UNIT_PASSED)
     for passing, text in shown:
+        if UNIT_EDGE.match(text):
+            unit_passed = bool(UNIT_PASSED.match(text))
         if SWIFT_TEST_SUMMARY_FIXTURE.search(text):
             continue
         if VITEST_CONSOLE.match(text):
@@ -1218,7 +1229,7 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
         if 1 <= signal_exit <= 64:
             crashed = True
             signals.append(str(signal_exit))
-        killed = SHELL_SIGNAL.search(text) and not passing
+        killed = SHELL_SIGNAL.search(text) and not passing and not unit_passed
         runtime = HELPER_KILLED.search(text) or killed or (
             (CRASH.search(text) or (not quoted and (CRASH_AT_START.search(text) or SIGNALED.search(text))))
             and not TEST_LINE.search(text) and not HEADING.match(text)
@@ -1338,6 +1349,56 @@ def runner_shut_down(log: str) -> str | None:
     return None
 
 
+# A checkout step's red that is the network's or the reused workspace's, never the commit's: a partial clone's blob
+# fetch that stalled (cmux jobs 139514965769, 139502980388, 139501266914, 2026-11-25: "could not fetch <sha> from
+# promisor remote" after curl 28 "Operation too slow"), a fetch GitHub dropped, or a workspace an earlier job left
+# behind. hq handbook sparse-checkout-left-on-a-reused-runner.md rule 8.
+CHECKOUT_INFRA = re.compile(
+    r"from promisor remote|Operation too slow|Failed to connect to|Could not resolve host|unable to access '|"
+    r"RPC failed|early EOF|bad pack header|unexpected disconnect|transfer closed with|the remote end hung up|"
+    r"The requested URL returned error: (?:5\d\d|429)|Connection (?:reset|refused|timed out)|"
+    r"not uptodate\. Cannot merge|not uptodate; will not remove|fatal: not a git repository|index\.lock': File exists|"
+    r"Another git process seems to be running")
+# What the commit or its workflow did: a ref, path or option that is wrong is the PR's own red.
+CHECKOUT_OWN = re.compile(
+    r"not our ref|unadvertised object|couldn't find remote ref|invalid path|pathspec '[^'\n]{0,400}' did not match|"
+    r"Repository not found|could not read Username|Permission to \S{1,200} denied|Input required|"
+    r"Unexpected input|is not a valid|does not exist|Invalid (?:format|repository)")
+CHECKOUT_STEP = re.compile(r"\bcheck[- ]?out\b|actions/checkout", re.I)
+
+
+def checkout_infra(job, log):
+    """Why failed JOB's red is infra (a re-run, no verdict), or None: every failed step is a checkout
+    (actions/checkout), the section of LOG that failed is that action's own (its `##[group]Run actions/checkout`
+    is the last step header before the first `##[error]`), and its lines show a network or workspace failure
+    (CHECKOUT_INFRA) and nothing the commit or workflow caused (CHECKOUT_OWN). A checkout that went on and a later
+    step that failed keeps its verdict, as does a log with no actions/checkout section."""
+    if (job or {}).get("conclusion") != "failure" or not isinstance(log, str):
+        return None
+    steps = [step for step in (job or {}).get("steps") or [] if isinstance(step, dict)]
+    failed = [str(step.get("name") or "") for step in steps if step.get("conclusion") == "failure"]  # step-name: classify
+    if failed and not all(CHECKOUT_STEP.search(name) for name in failed):
+        return None
+    header, section, erred = None, [], False
+    for text in log_lines(log):
+        if text.startswith("##[group]Run "):
+            if erred:
+                break
+            header, section = text[len("##[group]Run "):], []
+            continue
+        section.append(text)
+        erred = erred or text.startswith("##[error]")
+    if not erred or header is None or not header.startswith("actions/checkout"):
+        return None
+    if any(CHECKOUT_OWN.search(text) for text in section):
+        return None
+    hits = [text for text in section if CHECKOUT_INFRA.search(text)]
+    if not hits:
+        return None
+    said = " ".join(hits[-1].removeprefix("##[error]").split())[:200]
+    return f"its checkout step ({header.split()[0]}) failed on the network or a reused workspace: {said}"
+
+
 # A job that died inside actions/checkout, before any step of the change ran: cmux#51655 at fd3c0b17 (2026-11-25),
 # 'cmux-tui spec inventory / changes' (job 139448781664) failed in `Run actions/checkout@...` on "fatal: unable to
 # access 'https://github.com/manaflow-ai/cmux/': Operation too slow" and "could not fetch ... from promisor remote",
@@ -1372,14 +1433,52 @@ def died_in_checkout(log):
     return first
 
 
+# A job whose runner's own worker process (GitHub.Runner.Worker) crashed under it: 2026-11-25, cmux#50809's
+# `web / react-apps-base-check` (run 45639356121, job 139341128013, runner cmux-runner-pool-c1c-0124) and cmux#50827's
+# (run 45649635922, job 139340766008, cmux-runner-pool-w1b-0056). Each runner's disk filled, its worker could not write
+# its own trace (`System.IO.IOException: No space left on device : '/home/runner/actions-runner/_diag/Worker_...log'`)
+# and died on `Unhandled exception.` in GitHub.Runner.Worker.Program.Main, mid-step with no step failed and no log
+# stored, leaving that stack as the job's one failure annotation. land-judge read it as "its per-test webview verdict
+# names its own reds (react-apps-base-check failed: a red the replay names is the PR's own)" though no test ran. The
+# annotation is the runner's, never a test's: its stack frames name the runner's own assembly, and the full disk is the
+# runner's _diag directory. A job with a failed step keeps its verdict (a test that failed before the crash).
+RUNNER_WORKER_CRASH = re.compile(r"^Unhandled exception\. .*(?:\n.*)*?\n\s+at GitHub\.Runner\.Worker\.", re.M)
+RUNNER_DIAG_FULL = re.compile(r"No space left on device : '[^'\n]*/actions-runner/_diag/[^'\n]*'")
+
+
+def runner_worker_crashed(job, annotations=()):
+    """Why failed JOB's check-run ANNOTATIONS (dicts with "message" and "annotation_level", or plain messages) say its
+    runner's worker crashed under it (RUNNER_WORKER_CRASH, or RUNNER_DIAG_FULL: the runner's own disk full), when no
+    step of JOB failed; else None."""
+    if (job or {}).get("conclusion") != "failure":
+        return None
+    if any(isinstance(step, dict) and step.get("conclusion") == "failure" for step in (job or {}).get("steps") or []):
+        return None
+    for note in annotations or ():
+        if isinstance(note, dict):
+            if (note.get("annotation_level") or "failure") != "failure":
+                continue
+            message = str(note.get("message") or "")
+        else:
+            message = str(note)
+        full = RUNNER_DIAG_FULL.search(message)
+        crash = RUNNER_WORKER_CRASH.search(message)
+        if full or crash:
+            said = (full or crash).group(0).splitlines()[0].strip()
+            return f"its runner's worker crashed ({said[:200]}) before any step of it failed"
+    return None
+
+
 def lost_runner(job, annotations=(), log=None):
     """Why failed JOB (an Actions job or check run) is infra and no verdict, or None. ANNOTATIONS are its check run's
     annotations (dicts with "message" and "annotation_level", or plain messages); LOG, when the caller read it, is
-    its log text or the error its read gave. Any one is enough: a failure annotation that says the runner was lost;
+    its log text or the error its read gave. Any one is enough: a failure annotation that says the runner was lost,
+    or that its worker crashed with no step failed (runner_worker_crashed);
     a job that completed with a step still unfinished and no step failed (the runner stopped reporting mid-step); or
     a log GitHub never stored (BlobNotFound) with no step failed. A job with a failed step keeps its verdict, except
     the one case where the failed step is the shutdown itself (runner_shut_down): the runner's notice in LOG plus a
-    step that ended on a sent signal."""
+    step that ended on a sent signal, and a checkout step that failed on the network or a reused workspace
+    (checkout_infra)."""
     if (job or {}).get("conclusion") != "failure":
         return None
     for note in annotations or ():
@@ -1391,7 +1490,11 @@ def lost_runner(job, annotations=(), log=None):
             message = str(note)
         if LOST_RUNNER.search(message):
             return "its runner was lost: " + " ".join(message.split())[:200]
+    if why := runner_worker_crashed(job, annotations):
+        return why
     if isinstance(log, str) and (why := runner_shut_down(log)):
+        return why
+    if why := checkout_infra(job, log):
         return why
     steps = [step for step in (job or {}).get("steps") or [] if isinstance(step, dict)]
     if any(step.get("conclusion") == "failure" for step in steps):

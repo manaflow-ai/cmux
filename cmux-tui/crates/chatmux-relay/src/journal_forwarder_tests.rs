@@ -296,3 +296,41 @@ async fn pooled_flush_posts_two_sessions_in_one_body_and_acks_each_cursor() {
     }
     remove_cursor_test_path(&root).await;
 }
+
+/// Seeded secrets on the wire (cmux_egress::capture) through the forwarder's POST: the events
+/// token rides only in `Authorization`, the agent's prompt and the session's name only in the
+/// body, and the cursor key (the verified identity, kept on this machine) nowhere.
+/// tests/egress_seeded.json names this test for `chatmux_relay::journal_forwarder`.
+#[cfg(unix)]
+#[tokio::test]
+async fn seeded_secrets_ride_only_in_authorization_and_the_body() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let token = "SEEDjournalEventsToken-38e1";
+    let prompt = "SEEDagentPrompt fix the login bug in /home/person/app-5c7d";
+    let session_name = "SEEDsessionName-b6f0";
+    let cursor_key = "SEEDcursorKey-1a92";
+    let (root, path) = cursor_test_path("seeded").await;
+    let (mut shared, _wake) =
+        test_shared("https://api.chatmux.dev/v2/seeded/journal".to_owned(), path);
+    shared.events.token = token.to_owned();
+    let mut record = record("g1", "1");
+    record["item"] = json!({"type": "user_message", "text": prompt});
+    let batch = SessionBatch {
+        session_id: "seeded-session".to_owned(),
+        session_name: session_name.to_owned(),
+        cursor_key: cursor_key.to_owned(),
+        records: vec![record],
+        cursor: cursor("g1", "1"),
+    };
+    assert!(post_with_retry(&shared, vec![batch]).await, "the capture server acks 200");
+    remove_cursor_test_path(&root).await;
+
+    let sent = cmux_egress::capture::requests_to("api.chatmux.dev");
+    assert!(sent.iter().any(|r| r.target == "/v2/seeded/journal"), "{sent:?}");
+    let at = |place: &str| format!("api.chatmux.dev POST /v2/seeded/journal: {place}");
+    assert_eq!(cmux_egress::capture::leaks(token), [at("header authorization")]);
+    assert_eq!(cmux_egress::capture::leaks(prompt), [at("body")]);
+    assert_eq!(cmux_egress::capture::leaks(session_name), [at("body")]);
+    assert!(cmux_egress::capture::leaks(cursor_key).is_empty());
+}

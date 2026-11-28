@@ -68,7 +68,8 @@ def frames_verdict(run_dir):
         return None
     w, c = v.get("windows") or {}, v.get("content") or {}
     return {"transition_frames": v.get("transition_frames"), "transition_states": w.get("transition_states"),
-            "partial_alpha_samples": w.get("partial_alpha_samples"), "same_frame": w.get("same_frame"),
+            "partial_alpha_samples": w.get("partial_alpha_samples"), "covered_samples": w.get("covered_samples"),
+            "same_frame": w.get("same_frame"),
             "blank_gap_ms": w.get("blank_gap_ms"), "content_transition_frames": c.get("content_transition_frames"),
             "recorded": c.get("recorded")}
 

@@ -165,6 +165,7 @@ class Wiring(unittest.TestCase):
 
     WIRED = [
         ("cmux-next-hot-verify.yml", "plan", "Dispatch the look"),
+        ("cmux-next-hot-verify.yml", "web", "Start the web layer"),
         ("cmux-tui-artifacts.yml", "darwin-fallback-plan", "Find the macOS targets the build left without artifacts"),
         ("cmux-tui-artifacts.yml", "rerun-deferred-commits", "Re-run the runs that deferred to this tree"),
         ("cmux-tui-artifacts.yml", "sweep-pending-tree-notify", "Start the cmux-next tree jobs a refused tree notify left"),
@@ -190,7 +191,7 @@ class Wiring(unittest.TestCase):
                 self.assertTrue(token.endswith("github.token }}"), token)
 
     def test_shell_gh_steps_rotate_every_pool_then_github_token(self) -> None:
-        for workflow, job, name in self.WIRED[:2]:
+        for workflow, job, name in self.WIRED[:3]:
             with self.subTest(job=job):
                 env = step(workflow, job, name)["env"]
                 self.assertEqual(env["GH_TOKEN_SPARES"], "${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}")

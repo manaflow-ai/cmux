@@ -1282,6 +1282,7 @@ mod connect;
 #[path = "remote_disconnect.rs"]
 mod disconnect;
 mod events;
+mod held_tree;
 mod interactive_writer;
 #[cfg(test)]
 use interactive_writer::InteractiveWriteMetrics;
@@ -1335,6 +1336,8 @@ pub struct RemoteSession {
     #[cfg(test)]
     retire_surface_test_marker: Mutex<Option<Sender<SurfaceId>>>,
     tree: Mutex<RemoteTreeCache>,
+    /// The tree the last refresh read, sent back as `known` (held_tree.rs).
+    held_tree: Mutex<held_tree::HeldTrees>,
     browser_sources: Mutex<HashMap<SurfaceId, BrowserSource>>,
     tree_refresh: Mutex<()>,
     tree_stale: AtomicBool,
@@ -1534,7 +1537,22 @@ impl RemoteSession {
             let cache = self.tree.lock().unwrap();
             (cache.title_generation(), cache.agent_generation())
         };
-        let data = match self.request(json!({"cmd": "list-workspaces"})) {
+        // A tree held with no tree event since it was read goes as `known`: an unchanged tree
+        // is then an O(1) answer and no parse (held_tree.rs).
+        let known_capable = self
+            .capabilities
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .contains(held_tree::LIST_WORKSPACES_KNOWN_CAPABILITY);
+        let (held_at, held) = {
+            let held_trees = self.held_trees();
+            (held_trees.stamp(), if known_capable { held_trees.fresh() } else { None })
+        };
+        let request = match &held {
+            Some(held) => json!({"cmd": "list-workspaces", "known": held.known}),
+            None => json!({"cmd": "list-workspaces"}),
+        };
+        let data = match self.request(request) {
             Ok(data) => data,
             Err(e) => {
                 if identity_refresh {
@@ -1544,6 +1562,13 @@ impl RemoteSession {
                 return Err(e);
             }
         };
+        let held = held.filter(|held| held_tree::confirms(&data, &held.known));
+        if held.is_none() && held_tree::is_unchanged(&data) {
+            // `unchanged` for a tree this client does not hold: never draw its empty list.
+            self.held_trees().forget();
+            self.tree_stale.store(true, Ordering::Release);
+            anyhow::bail!("remote daemon answered unchanged for a tree this client does not hold");
+        }
         let agents = self
             .request(json!({"cmd": "list-agents"}))
             .ok()
@@ -1553,15 +1578,32 @@ impl RemoteSession {
                     .and_then(|agents| serde_json::from_value::<Vec<AgentInfo>>(agents).ok())
             })
             .unwrap_or_default();
-        let capabilities = self.capabilities.lock().unwrap();
-        let tree = parse_tree_with_capabilities(
-            &data,
-            TreeCapabilities {
-                viewport_splits: capabilities.contains(VIEWPORT_SPLITS_CAPABILITY),
-                viewport_column_resize: capabilities.contains(VIEWPORT_COLUMN_RESIZE_CAPABILITY),
-            },
-        );
-        drop(capabilities);
+        let tree = match held {
+            Some(held) => {
+                let tree = held.tree.clone();
+                self.held_trees().hold(held, held_at);
+                tree
+            }
+            None => {
+                let capabilities = self.capabilities.lock().unwrap();
+                let tree = parse_tree_with_capabilities(
+                    &data,
+                    TreeCapabilities {
+                        viewport_splits: capabilities.contains(VIEWPORT_SPLITS_CAPABILITY),
+                        viewport_column_resize: capabilities
+                            .contains(VIEWPORT_COLUMN_RESIZE_CAPABILITY),
+                    },
+                );
+                drop(capabilities);
+                let mut held_trees = self.held_trees();
+                match held_tree::known_of(&data).filter(|_| known_capable) {
+                    Some(known) => held_trees
+                        .hold(Arc::new(held_tree::HeldTree { known, tree: tree.clone() }), held_at),
+                    None => held_trees.forget(),
+                }
+                tree
+            }
+        };
         let raw_surface_ids = tree
             .workspaces()
             .iter()
@@ -1628,7 +1670,25 @@ impl RemoteSession {
     }
 
     pub fn invalidate_tree(&self) {
+        self.mark_tree_stale();
+    }
+
+    /// The held tree. A panic while it was locked left a whole entry or none (each write is one
+    /// call), so a poisoned lock is still a good cache.
+    fn held_trees(&self) -> std::sync::MutexGuard<'_, held_tree::HeldTrees> {
+        self.held_tree.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The tree changed: the next refresh reads it whole, and the held tree is stale.
+    pub(super) fn mark_tree_stale(&self) {
+        self.held_trees().invalidate();
         self.tree_stale.store(true, Ordering::Release);
+    }
+
+    /// Whether a tree is held for `known`, and whether it is fresh (held_tree.rs).
+    #[cfg(test)]
+    pub(super) fn held_tree_state(&self) -> Option<bool> {
+        self.held_trees().lookup()
     }
 
     pub fn take_tree_stale(&self) -> bool {
@@ -1999,6 +2059,7 @@ fn test_session_with_writer(
         retired_surfaces: Mutex::new(HashSet::new()),
         retire_surface_test_marker: Mutex::new(None),
         tree: Mutex::new(RemoteTreeCache::default()),
+        held_tree: Mutex::new(held_tree::HeldTrees::default()),
         browser_sources: Mutex::new(HashMap::new()),
         tree_refresh: Mutex::new(()),
         tree_stale: AtomicBool::new(true),

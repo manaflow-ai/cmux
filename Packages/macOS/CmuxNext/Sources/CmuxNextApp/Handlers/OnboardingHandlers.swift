@@ -101,7 +101,7 @@ enum OnboardingHandlers {
     }
 
     /// What the import cards run through the App: the Import from Browser window's import run,
-    /// Import Workspaces from Classic cmux and Import from Conductor.
+    /// Import Workspaces from Classic cmux, Import from Conductor and Move this Mac to AutoCloud.
     static func importCardsHost(_ services: AppServices) -> ImportCardsHost {
         ImportCardsHost(
             runImport: { plan, keys, progress in try await AppOnboardingServices(owner: services.onboarding).runImport(plan, keys: keys, progress: progress) },
@@ -113,7 +113,7 @@ enum OnboardingHandlers {
                 guard let reply = try? await AppOnboardingServices(owner: services.onboarding).classicImportClient().probe(.manual),
                       reply.available else { return .unavailable }
                 return reply.alreadyImported ? .alreadyImported : .available
-            })
+            }, autoCloud: AutoCloudMove(cli: services.bundledCLI, settings: { services.settings }))
     }
 
     /// Import Workspaces from Classic cmux as every entrypoint runs it (the action, the cmux

@@ -29,13 +29,25 @@ echo "udid=$udid" >> "$GITHUB_OUTPUT"
 # and a run past the bound gets SIGINT, which makes xcodebuild close the result bundle so the report still says
 # which tests passed, failed or never finished.
 bound="${KIT_SIM_BOUND_S:-1500}"
+# Which bundles run here (RFD 0051's per-bundle cutover): KIT_SIM_PART is mac (the simulator step) or fallback (the
+# Mac fallback after a pool run with no verdict); scripts/ci/ios_sim_bundles.py reads vars.CMUX_IOS_SIM_LINUX and
+# scripts/ci/ios-sim-mac-bundles.txt. In shadow both are every bundle, as before.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# No mapfile: owned Macs run this under /bin/bash 3.2, where mapfile does not exist (kit run 46122946766, job
+# 140911593987, 11-28 07:5xZ: "mapfile: command not found", exit 127); same class as kit_sim_fleet.sh (#63758).
+filters=()
+while IFS= read -r line || [[ -n "$line" ]]; do [[ -n "$line" ]] && filters+=("$line"); done \
+  < <(python3 -I "$here/ios_sim_bundles.py" "${KIT_SIM_PART:-mac}")
+if [[ ${#filters[@]} -eq 0 ]]; then
+  echo "no simulator test bundle runs on this Mac (${KIT_SIM_PART:-mac}, CMUX_IOS_SIM_LINUX=${CMUX_IOS_SIM_LINUX:-shadow}): the fleet pool runs them all"
+  echo "### iOS simulator tests on this Mac: none (every bundle is on the fleet pool)" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+  exit 0
+fi
+echo "simulator test filter: ${filters[*]}"
 xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" \
   -enableCodeCoverage NO -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/dd-ios-sim}" CODE_SIGNING_ALLOWED=NO -quiet \
   -test-timeouts-enabled YES -default-test-execution-time-allowance 120 -maximum-test-execution-time-allowance 300 \
-  -skip-testing:CmuxMobileInstantPerfTests \
-  -skip-testing:CmuxMobileDesignCoreTests \
-  -skip-testing:CmuxMobileRealtimeTests \
-  -skip-testing:CmuxMobileTransportTests \
+  "${filters[@]}" \
   -resultBundlePath "$RUNNER_TEMP/ios-sim.xcresult" &
 xcb=$!
 ( sleep "$bound"

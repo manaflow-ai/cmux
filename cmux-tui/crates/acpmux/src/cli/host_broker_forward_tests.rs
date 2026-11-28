@@ -164,3 +164,48 @@ async fn with_every_owner_down_nothing_is_sent_and_the_call_says_why() {
     assert!(err.contains("no owner's broker reachable"), "{err}");
     assert!(owners.records().iter().all(|r| r.healthy == Some(false)));
 }
+
+// RFD 0060 Weft move 3: a session is pointed at the daemon-held forward only while an owner's
+// broker answered its last check, so a forward with no broker behind it never takes a session off
+// the ssh socket.
+#[tokio::test]
+async fn the_held_socket_is_offered_only_while_an_owner_is_healthy() {
+    let dir = tempfile::tempdir().unwrap();
+    let listen = dir.path().join("carrier.sock");
+    let down = daemon(dir.path(), vec![("cp-1", Broker::Stalled), ("cp-2", Broker::Refused)]);
+    let owners = Owners::new(&names(&["cp-1", "cp-2"]), None);
+    assert_eq!(healthy_socket(&listen, &owners), None, "unchecked owners are not healthy");
+    check_all(&owners, &down).await;
+    assert_eq!(healthy_socket(&listen, &owners), None, "every owner down");
+
+    owners.note("cp-2", Ok(Duration::from_millis(200)));
+    assert_eq!(healthy_socket(&listen, &owners), Some(listen.clone()));
+    owners.note("cp-2", Err("no ping answer within 5 s".into()));
+    assert_eq!(healthy_socket(&listen, &owners), None, "the last check decides");
+}
+
+#[test]
+fn the_held_socket_sits_beside_lane_ghs_default() {
+    let held = held_socket_path();
+    assert!(held.ends_with(".cache/lane-gh/carrier.sock"), "{}", held.display());
+}
+
+#[test]
+fn lane_gh_carrier_takes_machine_names_or_none() {
+    use crate::config::Config;
+    let mut config = Config::default();
+    config.set("lane_gh_carrier", "huge-blue, cosmic-gray,huge-blue").unwrap();
+    assert_eq!(config.lane_gh_carrier, Some(names(&["huge-blue", "cosmic-gray"])));
+    let json = serde_json::to_value(&config).unwrap();
+    assert_eq!(json["laneGhCarrier"], json!(["huge-blue", "cosmic-gray"]));
+    for bad in ["/tmp/x.sock", "--socket", "a;b"] {
+        assert!(config.set("lane_gh_carrier", bad).is_err(), "{bad}");
+    }
+    assert_eq!(config.lane_gh_carrier, Some(names(&["huge-blue", "cosmic-gray"])), "kept");
+    config.set("lane-gh-carrier", "none").unwrap();
+    assert_eq!(config.lane_gh_carrier, None);
+    assert!(
+        serde_json::to_value(&config).unwrap().get("laneGhCarrier").is_none(),
+        "off by default"
+    );
+}

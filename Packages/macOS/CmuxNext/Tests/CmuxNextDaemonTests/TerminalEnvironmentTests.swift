@@ -1,6 +1,9 @@
 import Testing
 @testable import CmuxNextDaemon
 
+/// `xterm-ghostty` installed in `/home/u/.terminfo` (a fake disk for the launch rules).
+private let installed = ["files": ["/home/u/.terminfo/78/xterm-ghostty"]]
+
 @Suite("Terminal environment")
 struct TerminalEnvironmentTests {
     /// A side instance's daemon (`side-instance.sh make`) ran without the app's
@@ -35,7 +38,7 @@ struct TerminalEnvironmentTests {
     /// installed in `~/.terminfo` on this Mac must not leak to ssh hosts.
     @Test
     func defaultTermIsXterm256colorEvenWithGhosttyTerminfoInstalled() {
-        let environment = TerminalEnvironment.instance.ghostty(resourcesDirectory: nil, version: nil, fileExists: { _ in true })
+        let environment = TerminalEnvironment.instance.ghostty(resourcesDirectory: nil, version: nil, home: "/home/u", fs: installed)
 
         #expect(environment["TERM"] == "xterm-256color")
         #expect(environment["COLORTERM"] == "truecolor")
@@ -47,14 +50,14 @@ struct TerminalTermChoiceTests {
     @Test
     func optInSelectsXtermGhosttyOnlyWhenItIsInstalled() {
         let environment = TerminalEnvironment.instance
-        #expect(environment.term(prefersGhosttyTerm: true, home: "/home/u", fileExists: { $0 == "/home/u/.terminfo/78/xterm-ghostty" }) == "xterm-ghostty")
-        #expect(environment.term(prefersGhosttyTerm: true, home: "/home/u", fileExists: { _ in false }) == "xterm-256color")
-        #expect(environment.term(prefersGhosttyTerm: false, home: "/home/u", fileExists: { _ in true }) == "xterm-256color")
+        #expect(environment.term(prefersGhosttyTerm: true, home: "/home/u", fs: installed) == "xterm-ghostty")
+        #expect(environment.term(prefersGhosttyTerm: true, home: "/home/u", fs: [:]) == "xterm-256color")
+        #expect(environment.term(prefersGhosttyTerm: false, home: "/home/u", fs: installed) == "xterm-256color")
     }
 
     @Test
     func optInReachesTheGhosttyIdentity() {
-        let environment = TerminalEnvironment.instance.ghostty(resourcesDirectory: nil, version: nil, prefersGhosttyTerm: true, fileExists: { _ in true })
+        let environment = TerminalEnvironment.instance.ghostty(resourcesDirectory: nil, version: nil, prefersGhosttyTerm: true, home: "/home/u", fs: installed)
         #expect(environment["TERM"] == "xterm-ghostty")
     }
 }

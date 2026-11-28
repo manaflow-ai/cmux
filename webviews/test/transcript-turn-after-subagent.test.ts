@@ -114,16 +114,18 @@ await requireBrowserLane("transcript-turn-after-subagent.test.ts", async () => {
       { agent: AGENT, replies: OWN_REPLIES, TRANSCRIPT_ROW },
     );
 
-  const check = (state: string, result: Awaited<ReturnType<typeof measure>>) => {
+  /** `folded`: the subagent's end is folded under its turn's closed "Worked for", so only the replies are checked. */
+  const check = (state: string, result: Awaited<ReturnType<typeof measure>>, folded = false) => {
     const why = `${state}; rows:\n${result.tops.join("\n")}`;
-    expect(result.subagent, why).not.toBeNull();
+    if (folded) expect(result.subagent, why).toBeNull();
+    else expect(result.subagent, why).not.toBeNull();
     let previousTop = -Infinity;
     for (const [index, reply] of (result.replies as Reply[]).entries()) {
       const what = `${why}\nreply ${index + 1}: ${JSON.stringify(reply)}`;
       expect(reply.text, what).not.toBeNull();
       // Outside the subagent row's box, below it, at the reply column.
       expect(reply.insideSubagent, what).toBe(false);
-      expect(reply.text!.top, what).toBeGreaterThanOrEqual(result.subagent!.bottom);
+      if (result.subagent) expect(reply.text!.top, what).toBeGreaterThanOrEqual(result.subagent.bottom);
       expect(Math.abs(reply.text!.left - result.replyLeft!), what).toBeLessThanOrEqual(1);
       // Its own turn: the boundary mark, the turn gap over it, its own footer under it.
       expect(reply.opens, what).toBe(true);
@@ -138,6 +140,9 @@ await requireBrowserLane("transcript-turn-after-subagent.test.ts", async () => {
     const page = await browser.newPage({ viewport: { width: 1000, height: 1300 }, deviceScaleFactor: 2 });
     // The report that opens under its line is the retained disclosure look (the shipped compact line
     // has no chevron, #42247): pinned, so the opened report's place is still checked.
+    // The hat's `line` head (the default) says the background command's end, so the transcript draws
+    // none (Leo, c-9628ffdabf: "what if we simply put it into the composer hat and iddnt put it into the
+    // transcript?").
     await pinArms(page, { "subagent-done-report": "disclosure" });
     const port = (vite!.httpServer!.address() as { port: number }).port;
     await page.goto(
@@ -148,13 +153,20 @@ await requireBrowserLane("transcript-turn-after-subagent.test.ts", async () => {
     });
     await page.evaluate(() => document.fonts.ready);
     await page.mouse.move(0, 0);
+    // A subagent's end is work of the turn it came in, as a tool call's end is: it folds under that
+    // turn's closed "Worked for" (turns.ts `staysOut`; Leo, 2026-11-24: "we can indeed treat them as
+    // tool calls"). The agent's replies after it are still its own turns.
+    const folded = await measure(page);
+    check("folded", folded, true);
+    expect(
+      folded.tops.some((line) => line.includes("subagentDone:")),
+      folded.tops.join("\n"),
+    ).toBe(false);
+    await page.locator('[data-row-id="worked-backgroundTurn-own-1"] button.cv-worked').click();
+    await page.waitForSelector(`.acpmux-row[data-row-id="subagentDone:${AGENT}"]`);
+    await settled(page);
     const closed = await measure(page);
     check("closed", closed);
-    // The background command's end draws as its own row above the subagent's.
-    expect(
-      closed.tops.some((line) => line.includes("subagentDone:")),
-      closed.tops.join("\n"),
-    ).toBe(true);
 
     const toggle = page.locator(`.acpmux-row[data-row-id="subagentDone:${AGENT}"] .cv-agentmsg__chevron`);
     await toggle.click();

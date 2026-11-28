@@ -58,6 +58,24 @@ import UIKit
         #expect(rule.lines(contentHeight: 0) == 1)
     }
 
+    @Test func attachmentsShareTheExactCapWithoutMovingTheContentEdge() {
+        for line: CGFloat in [17, 22, 40] {
+            let sizing = ComposerFieldHeight(lineHeight: line, verticalInset: 6)
+            for count in [1, 5, 6, 20] {
+                let content = CGFloat(count) * line + 6
+                let plain = sizing.height(contentHeight: content)
+                let field = sizing.height(contentHeight: content, reserve: 68)
+                let overlap = sizing.stripOverlap(contentHeight: content, reserve: 68)
+                #expect(field >= sizing.minHeight)
+                #expect(field + 68 <= sizing.maxHeight)
+                #expect(abs(field + 68 - overlap - plain) < 0.001)
+            }
+        }
+        #expect(rule.height(contentHeight: 126, reserve: 0) == 126)
+        #expect(rule.stripOverlap(contentHeight: 126, reserve: 0) == 0)
+        #expect(rule.height(contentHeight: 126, reserve: 500) == rule.minHeight)
+    }
+
     @Test func heightNeverShrinksAsLinesAreAdded() {
         var last: CGFloat = 0
         for lines in 1...20 {
@@ -139,6 +157,46 @@ import UIKit
             #expect(caret.minY >= visible.minY - 2 && caret.maxY <= visible.maxY + 2,
                     "caret \(caret) inside \(visible) with \(count) lines")
         }
+    }
+
+    /// ComposerRowLayout asks the draft's height at the inline width and at the full width to
+    /// choose one row or two. Answered with the height settled at the field's own width, a
+    /// draft that wraps inline but fits the full width flipped between the two layouts forever
+    /// (the offline-send hang: "main thread busy for 30.0s"). Each width gets its own height,
+    /// and the field's own width keeps its settled one.
+    @Test func anotherWidthIsMeasuredAtThatWidth() {
+        let draft = "Run the tests and summarize."
+        let field = Self.field(draft)
+        let font = field.font ?? .preferredFont(forTextStyle: .body)
+        let oneLine = ceil((draft as NSString).size(withAttributes: [.font: font]).width)
+        let wide = oneLine + 40, narrow = floor(oneLine * 0.6)
+        let wideHeight = field.fittingSize(proposedWidth: wide).height
+        // Settle the field at a width where the draft wraps.
+        field.frame.size.width = narrow
+        field.layoutIfNeeded()
+        let wrapped = field.fittingSize(proposedWidth: narrow).height
+        #expect(wrapped > wideHeight, "the draft wraps at \(narrow) pt")
+        #expect(field.fittingSize(proposedWidth: wide).height == wideHeight,
+                "asked at \(wide) pt while settled at \(narrow) pt: the height at \(wide) pt")
+        #expect(field.fittingSize(proposedWidth: narrow).height == wrapped)
+        #expect(field.fittingSize(proposedWidth: nil).height == wrapped, "no width: the settled height")
+
+        // The row's choice, fed the real field, places the draft once and keeps it there: a
+        // row whose inline width wraps the draft and whose full width fits it.
+        let leading = CGSize(width: 44, height: 44), trailing = CGSize(width: 80, height: 44)
+        let rowWidth = narrow + leading.width + trailing.width + 2 * ComposerRowGeometry.spacing
+        #expect(rowWidth - 2 * ComposerRowGeometry.textInset >= oneLine, "the full width fits the draft")
+        #expect(narrow >= ComposerRowGeometry.minInlineFieldWidth)
+        var placed: [Bool] = []
+        for _ in 0..<6 {
+            let geometry = ComposerRowGeometry.place(width: rowWidth, leading: leading, trailing: trailing,
+                                                     fieldHeight: { field.fittingSize(proposedWidth: $0).height },
+                                                     lineHeight: wideHeight)
+            placed.append(geometry.inline)
+            field.frame.size = geometry.field.size
+            field.layoutIfNeeded()
+        }
+        #expect(Set(placed).count == 1, "one row or two, not both in turn: \(placed)")
     }
 
     @Test func aDraftThatFitsStaysAtItsTop() {

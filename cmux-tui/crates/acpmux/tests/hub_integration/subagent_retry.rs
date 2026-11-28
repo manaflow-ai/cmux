@@ -37,6 +37,12 @@ async fn until(hub: &Hub, id: &str, pred: impl Fn(&[String]) -> bool) -> Vec<Str
     outcomes(hub, id)
 }
 
+/// A chat whose resumed subagent fails again on a dropped connection: a transport error, which
+/// keeps its configured attempts (SR2's 503 is an outage, waited out past them, #58817).
+fn resume_fails() -> BTreeMap<String, String> {
+    BTreeMap::from([("FAKE_CLAUDE_RESUME_FAILS".to_owned(), "agent-reset".to_owned())])
+}
+
 /// A Claude chat with `delays` as `autoResumeDelaysMs`, after its first turn ("agent-503" or
 /// another) ended.
 async fn chat(first: &str, delays: Vec<u64>) -> (Arc<Hub>, TestClient, String) {
@@ -201,12 +207,19 @@ async fn a_subagent_a_dropped_connection_failed_is_resumed() {
     assert_eq!(scheduled.msg["reason"], "transport", "{:?}", scheduled.msg);
 }
 
-/// A resume that fails on the 503 again waits for its next attempt, and after the configured
-/// attempts it is given up.
+/// Repeated dropped connections use the configured attempt budget. Capacity outages instead
+/// wait out the outage horizon, so they cannot stand in for this failure class.
+fn repeated_transport_failure() -> BTreeMap<String, String> {
+    BTreeMap::from([
+        ("FAKE_CLAUDE_RESUME_FAILS".to_owned(), "1".to_owned()),
+        ("FAKE_CLAUDE_RESUME_ERROR".to_owned(), "agent-reset".to_owned()),
+    ])
+}
+
+/// A resume whose connection keeps dropping is given up after the configured attempts.
 #[tokio::test]
 async fn a_subagent_that_keeps_failing_is_given_up_after_the_attempts() {
-    let env = BTreeMap::from([("FAKE_CLAUDE_RESUME_FAILS".to_owned(), "1".to_owned())]);
-    let (hub, _c, id) = chat_env("agent-503", vec![20, 20], env).await;
+    let (hub, _c, id) = chat_env("agent-reset", vec![20, 20], repeated_transport_failure()).await;
     let got = until(&hub, &id, |o| o.iter().any(|o| o == "exhausted")).await;
     assert_eq!(
         got,
@@ -226,6 +239,24 @@ async fn a_subagent_that_keeps_failing_is_given_up_after_the_attempts() {
     assert_eq!(given_up["state"], "failed", "{given_up}");
     assert_eq!(given_up["retry"], Value::Null, "{given_up}");
     assert_eq!(given_up["retryable"], true, "{given_up}");
+}
+
+/// A capacity outage keeps retrying beyond the ordinary attempt budget, including failures
+/// emitted by the resumed agent through the real harness translator.
+#[tokio::test]
+async fn a_subagent_capacity_outage_is_retried_beyond_the_configured_attempts() {
+    let env = BTreeMap::from([("FAKE_CLAUDE_RESUME_FAILS".to_owned(), "1".to_owned())]);
+    let (hub, mut c, id) = chat_env("agent-503", vec![20, 20], env).await;
+    let got = until(&hub, &id, |o| o.iter().filter(|o| o.as_str() == "fired").count() >= 3).await;
+    assert!(got.iter().filter(|o| o.as_str() == "fired").count() >= 3, "{got:?}");
+    assert!(!got.iter().any(|o| o == "exhausted"), "{got:?}");
+    for event in records(&hub, &id)
+        .into_iter()
+        .filter(|e| e.kind == "subagent_retry" && e.msg["outcome"] == "scheduled")
+    {
+        assert_eq!(event.msg["reason"], "capacity", "{:?}", event.msg);
+    }
+    c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
 }
 
 /// A person's turn runs when the retry fires: its prompt waits in the queue behind that turn
@@ -343,9 +374,9 @@ async fn close_after_stop_or_giving_up_is_not_retryable() {
     hub.kill(&hub.resolve(&id).unwrap(), false).await.unwrap();
     assert_eq!(last_entries(&hub, &id)[0]["retryable"], false, "stopped, then closed");
 
-    let env = BTreeMap::from([("FAKE_CLAUDE_RESUME_FAILS".to_owned(), "1".to_owned())]);
-    let (hub, _c, id) = chat_env("agent-503", vec![20], env).await;
-    until(&hub, &id, |o| o.iter().any(|o| o == "exhausted")).await;
+    let (hub, _c, id) = chat_env("agent-reset", vec![20], repeated_transport_failure()).await;
+    let got = until(&hub, &id, |o| o.iter().any(|o| o == "exhausted")).await;
+    assert!(got.iter().any(|o| o == "exhausted"), "{got:?}");
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(last_entries(&hub, &id)[0]["retryable"], true);
     hub.kill(&hub.resolve(&id).unwrap(), false).await.unwrap();
@@ -380,11 +411,9 @@ async fn failures_past_the_limit_are_forgotten_after_a_stop_or_giving_up() {
 /// retried again, and given up after the attempts, as a remembered one is.
 #[tokio::test]
 async fn a_forgotten_agent_that_keeps_failing_is_given_up_after_the_attempts() {
-    let env = BTreeMap::from([
-        ("FAKE_CLAUDE_FORGET_AGENTS".to_owned(), "1".to_owned()),
-        ("FAKE_CLAUDE_RESUME_FAILS".to_owned(), "1".to_owned()),
-    ]);
-    let (hub, _c, id) = chat_env("agent-503", vec![20, 20], env).await;
+    let mut env = repeated_transport_failure();
+    env.insert("FAKE_CLAUDE_FORGET_AGENTS".to_owned(), "1".to_owned());
+    let (hub, _c, id) = chat_env("agent-reset", vec![20, 20], env).await;
     let got = until(&hub, &id, |o| o.iter().any(|o| o == "exhausted")).await;
     assert_eq!(got, ["scheduled", "fired", "scheduled", "fired", "exhausted"]);
     let last = entries_of(&hub, &id, &retried(&hub, &id)).last().cloned().unwrap();

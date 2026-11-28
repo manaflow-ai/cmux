@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, type CSSProperties } from "react";
+import { viewStore } from "../paneViewStore";
 import { setPopupInsetTop } from "../../../ui/popupInset";
 
 /// The pane's tab row the chat header's tools may sit in (CmuxNextAgentPane AgentPaneTabRow; Leo
@@ -25,15 +26,15 @@ export interface TabRow {
 export const TAB_ROW_GAP = 4;
 
 const NONE: TabRow = { height: 0, trailingInset: 0 };
-let current: TabRow = NONE;
-const listeners = new Set<() => void>();
+// One row a pane view (paneViewStore.ts); the page itself is the null view.
+const store = viewStore<TabRow>(NONE);
 
 const pixels = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0);
 
 /// The App's `tabRow` push; anything without a positive height ends the one-row header. Each
 /// offered row is a new one, even when it equals the last: the App offers it again after it forgot
 /// the tools' width (the page said ready again), and the page reports the width again for it.
-export function setTabRow(value: unknown): void {
+export function setTabRow(value: unknown, view: string | null = null): void {
   const raw = (value ?? {}) as {
     height?: unknown;
     trailingInset?: unknown;
@@ -46,7 +47,7 @@ export function setTabRow(value: unknown): void {
       ? Math.max(0, raw.accessoryRoom)
       : undefined;
   const height = pixels(raw.height);
-  current =
+  const current: TabRow =
     height > 0
       ? {
           height,
@@ -57,18 +58,13 @@ export function setTabRow(value: unknown): void {
         }
       : NONE;
   // The native row draws over the page's top, so menus and popovers open below it (ui/popupInset.ts).
+  // The inset is the document's; with several views it is the last pushed view's until the host shows one.
   setPopupInsetTop(current.height);
-  for (const listener of listeners) listener();
+  store.set(current, view);
 }
 
-const tabRow = (): TabRow => current;
-const subscribe = (listener: () => void) => {
-  listeners.add(listener);
-  return () => void listeners.delete(listener);
-};
-
 /// The row the App offers now.
-export const useTabRow = (): TabRow => useSyncExternalStore(subscribe, tabRow, tabRow);
+export const useTabRow = (): TabRow => store.use();
 
 /// The header's height and right inset in the row, for the stage that holds the header and the
 /// summary card (header.css, summary.css); none outside it.

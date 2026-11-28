@@ -942,14 +942,15 @@ fn vm_help_teaches_vm_and_machine_help_points_at_it() {
 }
 
 /// A DEV build names its own `vm.json` (`CMUX_VM_DEFAULT_CONFIG`, BuildStatePaths): the person's
-/// `~/.config/cmux/vm.json` is NIGHTLY's and stable's, never a DEV build's credential.
+/// `~/.config/cmux-next/vm.json` (`cmux` off macOS) is NIGHTLY's and stable's, never a DEV build's
+/// credential.
 #[test]
 fn dev_build_own_vm_config_is_the_one_counted() {
     let base = std::env::temp_dir().join(format!("cmux-vm-dev-config-{}", std::process::id()));
-    std::fs::create_dir_all(base.join("home/.config/cmux")).unwrap();
+    let config = base.join("home/.config").join(cmux_config::NEXT_DIR);
+    std::fs::create_dir_all(&config).unwrap();
     std::fs::create_dir_all(base.join("build")).unwrap();
-    std::fs::write(base.join("home/.config/cmux/vm.json"), r#"{"apiKey":"cmuxvm_sk_person"}"#)
-        .unwrap();
+    std::fs::write(config.join("vm.json"), r#"{"apiKey":"cmuxvm_sk_person"}"#).unwrap();
     let own = base.join("build/vm.json");
     let home = base.join("home").to_string_lossy().into_owned();
     let own_text = own.to_string_lossy().into_owned();

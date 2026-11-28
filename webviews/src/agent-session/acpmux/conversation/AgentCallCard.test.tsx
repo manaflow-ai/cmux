@@ -102,11 +102,12 @@ test("a finished call is one line: kind, words, Done, time and tool uses; opened
   expect(panel.textContent).toContain("Find where the parser drops results.");
 });
 
-test("a running call says Working and shows its prompt when opened", async () => {
+test("a running call draws no Working word, keeps it on hover, and shows its prompt when opened", async () => {
   const running = tool({ status: "in_progress", output: undefined });
   const container = await render(<AgentCallCard call={agentCall(running)!} tool={running} />);
   expect(container.querySelector(".cv-agentcall__status")?.getAttribute("data-state")).toBe("working");
-  expect(container.querySelector(".cv-agentcall__status")?.textContent).toContain("Working");
+  expect(container.querySelector(".cv-agentcall__status")?.textContent).not.toContain("Working");
+  expect(container.querySelector(".cv-agentcall__status")?.getAttribute("title")).toBe("Working");
   await act(async () => container.querySelector<HTMLButtonElement>(".cv-disclosure__toggle")!.click());
   expect(container.querySelector(".cv-disclosure__panel")?.textContent).toContain("Find where the parser drops");
 });

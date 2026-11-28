@@ -19,7 +19,7 @@ use serde::Deserialize;
 pub fn default_roots(home: &Path) -> Vec<PathBuf> {
     let mut roots =
         vec![home.join("Projects"), home.join("wt"), home.join("src"), home.join("code")];
-    for parent in [home.join("wt"), home.join(".cmux/worktrees")] {
+    for parent in [home.join("wt"), home.join(".cmux/worktrees"), home.join(".wt/checkouts")] {
         if let Ok(entries) = std::fs::read_dir(&parent) {
             roots.extend(entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()));
         }
@@ -32,11 +32,17 @@ pub fn default_roots(home: &Path) -> Vec<PathBuf> {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SessionFile {
+    #[serde(default)]
+    id: String,
     name: String,
     cwd: PathBuf,
     status: String,
     #[serde(default)]
     updated_at: u64,
+    #[serde(default)]
+    agent_session_id: Option<String>,
+    #[serde(default)]
+    previous_agent_session_ids: Vec<String>,
 }
 
 /// The setting naming more acpmux state folders to read (a supervisor's
@@ -150,11 +156,18 @@ pub fn on_disk(home: &Path, skip: Option<&Path>) -> Vec<Session> {
         for entry in entries.flatten() {
             let Ok(bytes) = std::fs::read(entry.path().join("session.json")) else { continue };
             let Ok(file) = serde_json::from_slice::<SessionFile>(&bytes) else { continue };
+            let ids = std::iter::once(file.id)
+                .chain(file.agent_session_id)
+                .chain(file.previous_agent_session_ids)
+                .filter(|id| !id.is_empty())
+                .collect();
             found.push(Session {
                 name: file.name,
                 cwd: file.cwd,
                 open: running && file.status != "closed",
+                archived_checkout: None,
                 updated_ms: file.updated_at,
+                ids,
             });
         }
     }
