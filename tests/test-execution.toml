@@ -2593,3 +2593,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_stale_route_runs.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_readiness_gate_wait.py"
+lane = "linux-guard"
