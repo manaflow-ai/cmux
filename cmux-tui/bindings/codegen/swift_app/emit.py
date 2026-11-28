@@ -57,7 +57,9 @@ properties with a type and default, not on the wire) and per field the request k
 Swift expression: the field decodes leniently, missing means the default), `optional: true`, `lenient: true`
 (a value of the wrong shape reads as missing, so a newer daemon's value never fails the parent), `when` (a
 Swift condition on properties read before it; false reads nil), `prefer` (a wire key read first, this field's
-own key the fallback; the preferred key is omitted from the struct). Encoding is always synthesized; decoding is synthesized unless a
+own key the fallback; the preferred key is omitted from the struct), `decode` (a Swift expression that is the
+whole read, over `container` and this field's coding key, for a wire shape the schema states only in a
+constraint, such as a `decimal uint64` string; it needs a default or an optional field). Encoding is always synthesized; decoding is synthesized unless a
 property uses one of these read options.
 """
 
@@ -138,7 +140,7 @@ WORKSPACE_REF = "workspace"
 _WORKSPACE_REF_WIRE = ("workspace", "key")
 # A read type's field may also take a Swift default (a lenient read: a missing key decodes as it) or be made
 # optional although the schema requires it (an app that still reads an older daemon that left it out).
-_READ_FIELD_KEYS = (_FIELD_KEYS - {"constant"}) | {"default", "optional", "lenient", "when", "prefer"}
+_READ_FIELD_KEYS = (_FIELD_KEYS - {"constant"}) | {"default", "optional", "lenient", "when", "prefer", "decode"}
 _OBJECT_KEYS = frozenset({"$comment", "type", "result", "doc", "conformances", "order", "fields", "extra", "init", "omit"})
 _EXTRA_KEYS = frozenset({"type", "default", "doc"})
 DEFAULT_CONFORMANCES = ("Decodable", "Sendable", "Equatable")
@@ -297,6 +299,8 @@ class _Field:
     when: str | None = None
     # A wire key read first (`prefer`), this field's own key the fallback: a newer daemon's spelling.
     prefer: str | None = None
+    # The whole read as a Swift expression (`decode`), for a wire shape the schema states only in a constraint.
+    decode: str | None = None
     # Encoded only when true (`encode: if_true`): a plain Bool, false by default.
     if_true: bool = False
     # A UInt64 sent as its decimal string (`encode: decimal`).
@@ -322,7 +326,8 @@ class _Field:
 
     @property
     def custom_read(self) -> bool:
-        return self.default is not None or self.lenient or self.when is not None or self.prefer is not None
+        return (self.default is not None or self.lenient or self.when is not None or self.prefer is not None
+                or self.decode is not None)
 
     @property
     def declared_type(self) -> str:
@@ -574,6 +579,7 @@ class _Renderer:
                 lenient=bool(override.get("lenient")),
                 when=override.get("when"),
                 prefer=override.get("prefer"),
+                decode=override.get("decode"),
                 update=update,
                 if_true=if_true,
                 decimal=decimal,
@@ -583,6 +589,15 @@ class _Renderer:
                 raise BindingError(f"{where}.{wire}: lenient needs an optional field or a default")
             if made.when is not None and not made.optional:
                 raise BindingError(f"{where}.{wire}: when needs an optional field (a false condition reads nil)")
+            if made.decode is not None and (
+                not isinstance(made.decode, str) or not made.decode
+                or made.lenient or made.prefer is not None or made.when is not None
+                or (not made.optional and made.default is None)
+            ):
+                raise BindingError(
+                    f"{where}.{wire}: decode is a Swift expression on a field with a default or an Optional, and"
+                    " not with lenient, prefer or when"
+                )
         names = [_bare(item.name) for item in result]
         if len(set(names)) != len(names):
             raise BindingError(f"{where}: two fields become the same Swift name")
@@ -1047,6 +1062,8 @@ def _read_expression(item: _Field) -> str:
     if not item.on_wire:
         return str(item.default)
     key = f".{_bare(item.name)}"
+    if item.decode is not None:
+        return item.decode
     if not item.optional and item.default is None and item.prefer is None:
         return f"try container.decode({item.swift_type}.self, forKey: {key})"
     keys = ([f".{_bare(swift_name(item.prefer))}"] if item.prefer is not None else []) + [key]
