@@ -906,6 +906,7 @@ pub fn daemon_status() -> Value {
     let mut status = global().status();
     if let Some(fields) = status.as_object_mut() {
         fields.insert("queues".into(), crate::server::queue_gauge::status());
+        fields.insert("hotSwapE2e".into(), "acpmux 2026-11-21".into());
     }
     status
 }

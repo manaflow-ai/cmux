@@ -103,6 +103,7 @@ pub(super) fn run(global: &GlobalArgs) -> i32 {
     let value = report(&inputs);
     match global.output {
         OutputMode::Human => {
+            println!("HOT SWAP E2E rust 2026-11-21");
             print!("{}", human(&value, &crate::localization::catalog().app_control.version));
             0
         }
