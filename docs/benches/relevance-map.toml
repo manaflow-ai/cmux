@@ -452,6 +452,365 @@ benches = []
 tests = ["cd webviews && bun test test/composer-hat-line-ink.test.ts"]
 budget = "0 accent- or link-coloured words and 0 filled chips on the open hat line, hovered or not, light and dark, at 360 and 900 px; 0 overlaps between the panel button and the words or \"+N more\""
 
+# ---- areas the red goals rest on (cmuxterm-hq goals/*.md product_paths; leo-workspace tools/area-view) --------
+
+[[area]]
+name = "Screen sharing"
+# Goals screen-share-fast, screen-share-quality-ladder, screen-share-e2e, ss-ios-viewer, screen-share-phone, cloud-desktop-agent
+# (cmuxterm-hq goals/): a key press reaches the presented frame in at most 100 ms p95, first frame within 2 s p95, a shared
+# screen's real frames and a key and click round-trip, on a Mac viewing a Mac, the iPhone viewing a Mac, and a Cloud desktop.
+paths = [
+  "cmux-tui/crates/cmux-rd-host",
+  "cmux-tui/crates/cmux-rd-core",
+  "cmux-tui/crates/cmux-encode",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen",
+  "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileScreenSharing",
+]
+benches = ["screen-share", "RemoteDecodeRangeBenchTests"]
+tests = [
+  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-rd-core -p cmux-encode",
+  "cargo test --locked --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml --no-default-features --features openh264,link",
+  "swift test --package-path Packages/macOS/CmuxNext --filter 'MacScreenRdLineTests|MacScreenStreamProcessTests|RemoteFastPresentTests|RemoteEncoderDropTests|RemoteRdHandshakeTests'",
+]
+budget = "key press to the presented frame at most 100 ms p95 (60 ms p50); connect to first frame at most 2,000 ms p95"
+
+[[area]]
+name = "Remote connect and reconnect"
+# Goals remote-connect-phone-list (probe remote-connect-phone-production: from the iPhone's machine list a person opens a session on
+# their Mac that answers) and remote-reconnect-after-relaunch (probe connection-reconnect-chat: sessions stay usable after a quit and relaunch).
+paths = [
+  "Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextRemote",
+]
+benches = ["remote-connect-phone-production", "connection-reconnect-chat"]
+tests = [
+  "swift test --package-path Packages/macOS/CmuxNext --filter 'IPhoneHostRemoteControlTests|MobileHostPairingTests|RemoteConnectRecoveryTests|RemoteLinkOneRedialerTests'",
+]
+budget = "every 6 hours on the newest Nightly and iPhone app, a session opened from the phone's machine list answers; sessions usable after quit and relaunch"
+
+[[area]]
+name = "Cloud start"
+# Leo's Cloud start: a chat that starts at once and answers in seconds, for every folder x team x bypass combination
+# (goals cloud-instant-start, cloud-instant-start-journey, cloud-first-reply-p95-journey, rfd0135-first-reply-30s,
+# rfd0135-first-reply-20-of-20, cloud-start-matrix, cloud-environment-auto, probes-cover-start-combinations,
+# onboarding-new-person). Measured by hourly and 6-hourly production probes, not a bench in this tree.
+paths = [
+  "cmux-tui/crates/cmux-cloud-start-core",
+  "cmux-tui/crates/cmux-cloud-environment",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextCloudStart",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextCloudPlace",
+]
+situations = ["main-thread"]
+benches = ["cloud-journey-first-text-production", "cloud-start-matrix-production"]
+tests = [
+  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-cloud-start-core",
+  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-cloud-environment",
+  "swift test --package-path Packages/macOS/CmuxNext --filter 'AgentPaneCloudStartTests|CloudPlaceFlowsTests'",
+]
+budget = "start to first text p50 at most 3,000 ms and p95 at most 8,823 ms over the newest 20 real-model journey runs, 20 of 20 with a real reply; every start combination passes its matrix row"
+
+[[area]]
+name = "Cloud chat and client"
+# Cloud chats that open, reply and recover on their own (goals cloud-chat-999, cloud-chat-attach-budget,
+# cloud-chat-waiting-always-explained, cloud-errors-self-recover, cloud-client-swift-to-rust). The Swift HTTP client
+# moves into cmux-cloud-client; the swift-cloud-http.py count falls to 0.
+paths = [
+  "cmux-tui/crates/cmux-cloud-client",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI",
+  "Packages/Shared/CmuxAPIClient",
+]
+situations = ["main-thread"]
+benches = ["cloud-chat-replies-production", "cloud-chat-attach-production"]
+tests = [
+  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-cloud-client",
+  "swift test --package-path Packages/macOS/CmuxNext --filter 'CloudChatRecoveryAttachTests|CloudMachineRouteTests'",
+]
+budget = "at least 0.999 of cloud chat reply probes available, attach click to transcript p95 at most 707 ms, 0 unexplained waits, 0 Swift files building a Cloud HTTP request"
+
+[[area]]
+name = "Cloud machines"
+# A personal Cloud machine that is ready, resumes and lists fast (goals cloud-machine-ready, cloud-personal-machine,
+# cloud-machines-last-seen-cold-start).
+paths = ["cmux-tui/crates/cmux-cloud-machine"]
+benches = ["machine-ready-after-create", "machine-resume", "cloud-last-seen-cold-start"]
+tests = [
+  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-cloud-machine",
+  "swift test --package-path Packages/macOS/CmuxNext --filter 'CloudLastSeenMachinesTests|AgentPaneCloudMachineRequestTests'",
+]
+budget = "machine ready after create p95 at most 10,000 ms; resume availability at least 0.99; last-seen list on a cold start p95 at most 1,000 ms"
+
+[[area]]
+name = "Cloud sign-in"
+# Zero re-login in Cloud chat (goal cloud-zero-login).
+paths = [
+  "Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials",
+  "Packages/Shared/CmuxAuthRuntime",
+]
+benches = ["cloud-chat-pro-no-relogin"]
+tests = [
+  "swift test --package-path Packages/Shared/CmuxAuthRuntime --filter AuthCoordinatorCloudTokenTests",
+  "swift test --package-path Packages/macOS/CmuxNext --filter 'CloudCredentialRelayRefusalTests|CloudSignInEnrollCallerTests'",
+]
+budget = "0 re-logins: the no-relogin probe passes at least 0.95 of runs with lower confidence bound at least 0.85"
+
+[[area]]
+name = "Cloud carrier"
+# A Cloud chat survives a dropped relay: ssh backup and no lost output (goals cloud-carrier-ssh-backup,
+# cloud-resume-no-lost-output).
+paths = ["cmux-tui/crates/cmux-remote"]
+benches = ["cloud-carrier-ssh-failover", "cloud-carrier-chaos-staging"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-remote"]
+budget = "a relay killed mid-turn loses and repeats 0 output; the chat continues over ssh from the acpmux seq"
+
+[[area]]
+name = "Cloud vault"
+# No plaintext secret on a Cloud machine and no way around the vault (goals cloud-machine-no-plaintext-secrets,
+# cloud-secrets-adversarial-no-leak, cloud-vault-adversarial-all-paths, cloud-vault-no-bypass).
+paths = [
+  "cmux-tui/crates/cmux-vault-e2e",
+  "cmux-tui/crates/cmux-vault-egress",
+]
+benches = [
+  "cloud-machine-no-plaintext-secrets-production",
+  "cloud-vault-adversarial-production",
+  "cloud-vault-no-bypass-production",
+]
+tests = [
+  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-vault-egress",
+  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-vault-e2e",
+]
+budget = "0 plaintext secrets and 0 bypasses: every attack class in the vault census is refused on a live production machine"
+
+[[area]]
+name = "Session transfer"
+# Moving a session between local, Cloud and other machines (goals cloud-move-to-cloud-budget,
+# cloud-move-to-local-budget, offload-anywhere, session-move-machines, session-move-matrix-green, super-highway).
+paths = [
+  "Packages/macOS/CmuxNext/Sources/CmuxNextSessionTransfer",
+  "cmux-tui/crates/cmux-session-cloud",
+]
+situations = ["main-thread"]
+benches = [
+  "cloud-session-move-to-cloud-production",
+  "cloud-session-move-to-local-production",
+  "session-move-gcp",
+  "super-highway-moves",
+]
+tests = [
+  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-session-cloud",
+  "swift test --package-path Packages/macOS/CmuxNext --filter 'CloudMoveTests|SessionMoveSelectionTests'",
+]
+budget = "move start to the far side's first output p95 at most 10,000 ms each way; offload round trip p95 at most 5,000 ms; the move matrix green for 24 hours"
+
+[[area]]
+name = "Connectivity"
+# Connections within target (goal connections-within-target: connections.within_target_share at least 0.95).
+# No bench or probe row covers it; NOW's metric is the only measure.
+paths = [
+  "Packages/Shared/CmuxConnectivityTelemetry",
+  "web/services/connectivity",
+]
+benches = []
+tests = [
+  "swift test --package-path Packages/Shared/CmuxConnectivityTelemetry --filter ConnectivityAudienceTests",
+  "cd web && bun test tests/connectivity-authority.test.ts",
+]
+budget = "at least 0.95 of connections within target, the 24 h mean of NOW's passes"
+
+[[area]]
+name = "Weft"
+# Weft first byte (goal weft-first-byte: weft.first_byte_s p95 at most 0.07 s). NOW's metric only; no bench row.
+paths = ["cmux-tui/crates/cmux-weft"]
+benches = []
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-weft"]
+budget = "first byte p95 at most 0.07 s over 24 h of NOW's passes"
+
+[[area]]
+name = "Home accessibility"
+# Goal a11y-baseline (cmuxterm-hq goals/): the accessibility walk of NEXT Home, sidebar, composer and iOS home finds 0 unlabeled controls in light and dark, and animations honor Reduce Motion.
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextHome"]
+benches = ["a11y-baseline"]
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter 'HomeAccessibilityNamesTests|MacScreenHomeAccessibilityTests'"]
+budget = "0 unlabeled controls in Home, the sidebar, the composer and the iOS home, in light and dark; every animation honors Reduce Motion"
+
+[[area]]
+name = "acpmux under duress"
+# Goal acpmux-under-duress (cmuxterm-hq goals/): every leg of the acpmux duress bench meets its target, none missing or incomplete (RFD 0124).
+paths = ["cmux-tui/crates/cmux-duress"]
+benches = ["agent-class-duress"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-duress"]
+budget = "acpmux_duress.unmet 0 legs: CLI p99 of ls, send and register under 500 ms with no failed call, false-dead 0, a killed session caught under 60 s"
+
+[[area]]
+name = "Agent integrations settings"
+# Goals agent-hooks-in-cmux, agent-mcp-in-cmux, agent-settings-in-cmux, agent-skills-in-cmux (cmuxterm-hq goals/): Claude Code and Codex hooks, MCP servers, settings and skills are listed and editable in NEXT, edits round-trip.
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextAgentIntegrations"]
+benches = ["agent-hooks-in-cmux", "agent-mcp-in-cmux", "agent-settings-in-cmux", "agent-skills-in-cmux"]
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter 'SettingsAgentIntegrationsTests|SettingsAgentMcpServersTests|SettingsAgentSkillsTests|SettingsAgentIntegrationsExecutorTests'"]
+budget = "each probe passes on its newest run: every hook, server, setting and skill listed, and an edit round-trips without losing other entries"
+
+[[area]]
+name = "Onboarding and first run"
+# Goals first-run-one-screen, next-first-run-setup, onboarding-new-person, agent-shortcut-found (cmuxterm-hq goals/): a fresh install reaches a first agent reply with at most one decision, and a new person finds the start-an-agent shortcut.
+paths = [
+  "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextKeys",
+  "webviews/src/pages/onboarding",
+]
+benches = ["first-run-one-screen-nightly", "next-first-run-setup-nightly", "onboarding-new-person-production", "agent-shortcut-found-nightly"]
+tests = [
+  "swift test --package-path Packages/macOS/CmuxNext --filter 'FirstRunSetupTests|OnboardingAgentsStepTests|OnboardingAccountSignInTests|MessageChiefGlobalHotKeyTests'",
+  "bash scripts/ci/run-webviews-tests.sh pages/onboarding/",
+]
+budget = "each probe ok on the newest nightly run: a clean Mac reaches a first agent reply with at most one decision before the composer, and the agent shortcut is offered in one click"
+
+[[area]]
+name = "Agent lanes orchestrator"
+# Goal competitive-orchestrator-16 (cmuxterm-hq goals/): one chat supervises 16 worktree children, local and cloud, with no UI frame over 16 ms while all stream.
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes"]
+benches = ["webviews/bench/orchestrator-16.bench.ts"]
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter 'AgentLanesTests|AgentLaneStoreNamesCostTests'"]
+budget = "competitive.orchestrator.p99_frame_ms_16_children at most 7 ms (ceiling 16 ms) with 16 children streaming"
+
+[[area]]
+name = "Computer Use"
+# Goal computer-use-click-lands-everywhere (cmuxterm-hq goals/): every scheduled click lands where the agent aimed it, across all surfaces.
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse"]
+benches = ["cloud-desktop-agent-production"]
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter 'ComputerUseSessionActionsTests|ComputerUsePreviewRouterTests'"]
+budget = "click_ok_share at least 0.99 (p50 of the probe's newest 20 rows)"
+
+[[area]]
+name = "Comment round-trip"
+# Goal extend-comment-round-trip-beyond (cmuxterm-hq goals/): Leo's comments round-trip to the agent on every surface, not only the three covered ones.
+paths = ["webviews/src/comments", "Packages/macOS/CmuxNext/Sources/CmuxNextTerminalComments"]
+benches = ["cloud-chat-replies-production"]
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter 'TerminalCommentThreadsTests|BrowserCommentThreadsTests|DiffCommentsTests'"]
+budget = "cloud-chat-replies-production ok on its newest run: a comment reaches its agent and the reply returns on every surface"
+
+[[area]]
+name = "Hang reports"
+# Goal field-hang-seconds-tenth (cmuxterm-hq goals/): NIGHTLY main-thread hang seconds per day fall to a tenth of the first reading and below 10 s/day.
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextHangReports"]
+benches = []
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter 'HangReportCollectorTests|HangReportServiceTests|HangReportAskPolicyTests'"]
+budget = "field_hang_s_per_day at most 10 s over 7 days on every hang-watch Mac"
+
+[[area]]
+name = "iOS app release"
+# Goals ios-app-store-live, ios-quality-climb (cmuxterm-hq goals/): the iOS app is live on the App Store and keeps the release bar (App Review gate YES, simulator read-back passes).
+paths = ["cmux-next-ios/AppStoreReview", "cmux-next-ios/CmuxMobileKit"]
+benches = ["ios-app-store-live-production", "ios-release-bar"]
+tests = ["swift test --package-path cmux-next-ios/CmuxMobileKit --filter CmuxMobileAgentChatTests"]
+budget = "App Review readiness gate YES at the submitted head, ios-release-bar passes, no red on the last 10 main pushes"
+
+[[area]]
+name = "Launch first frame"
+# Goal next-launch-instant (cmuxterm-hq goals/): NEXT cold-starts to its first window and Home in 0.6 s or less.
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextLaunchImages"]
+benches = ["launch", "launch-bare"]
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter 'AgentPaneLaunchImagesAlphaTests|AgentPaneLaunchImageReadTests'"]
+budget = "app_warm_launch_idle_median_ms at most 380 ms; first window and Home within 600 ms of launch"
+
+[[area]]
+name = "Notification banners"
+# Goals notify-banner-click, notify-banner-click-all-paths, notify-banner-click-burst-and-relaunch, notify-banner-click-concurrent-chats, notify-banner-fleet-self-checking (cmuxterm-hq goals/): each agent chat notification shows exactly one macOS banner and its click opens that chat's tab.
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextNotifications"]
+benches = ["notify-banner-click-nightly"]
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter 'NotificationBannerContentTests|NotificationsControlTests'"]
+budget = "notify-banner-click-nightly ok: exactly one banner per finished turn, failed turn and wait, and its click opens that chat's tab"
+
+[[area]]
+name = "Screenshot into chat"
+# Goal screenshot-into-chat (cmuxterm-hq goals/): a person sends a screenshot into a NEXT chat from another app in one step.
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots"]
+benches = ["screenshot-into-chat-nightly"]
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter 'ScreenshotDropSaverTests|ScreenshotsPageWiringTests|NewestPictureTests'"]
+budget = "screenshot-into-chat-nightly ok on the newest nightly: capture shortcut, Share menu or Service lands the image in the chat in one step"
+
+[[area]]
+name = "Customization and themes"
+# Goals customization-capability-matrix, customize-app-profiles, customize-composer-nightly, look-packs-land,
+# theme-live-reload (cmuxterm-hq goals/): the extension SDK, look packs and theme files customize NEXT, and a theme save shows within 1 s.
+paths = [
+  "cmux-tui/crates/cmux-extension-sdk",
+  "cmux-tui/crates/cmux-customize",
+  "cmux-tui/crates/cmux-theme-pack",
+  "cmux-tui/crates/cmux-agent-customize",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Themes",
+]
+benches = ["customize-composer-nightly", "feature-flow-looks", "theme-live-reload-nightly"]
+tests = [
+  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-customize",
+  "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-theme-pack",
+  "swift test --package-path Packages/macOS/CmuxNext --filter 'ThemeLivePreviewTests|ThemeFileSaveTests'",
+]
+budget = "every theme-file save on screen within 1,000 ms (200 saves, no miss); the three scheduled probes pass fresh"
+
+[[area]]
+name = "Hibernation and tab discard"
+# Goals infinite-items-flat, infinite-tabs-flat: memory with 1,000 items or tabs stays within 1.2x of an empty app.
+paths = [
+  "Packages/macOS/CmuxNext/Sources/CmuxNextHibernation",
+  "cmux-tui/crates/cmux-tab-discard",
+]
+benches = ["footprint"]
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter 'HibernationRankingTests|WorkspaceHibernationTests'"]
+budget = "memory with 1,000 items or tabs at most 1.2x an empty app; growth per day near 0; idle CPU equal to the empty app's"
+
+[[area]]
+name = "Split layout reducer"
+# Goal instant-splits: every split, close and divider drag settles within 120 ms of its animation end.
+paths = ["cmux-tui/crates/cmux-layout-reducer"]
+benches = ["LayoutDragBench", "PaneMotionBench"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-layout-reducer"]
+budget = "each cell settles within 120 ms of its transition's animation end; split_scale score 1.0"
+
+[[area]]
+name = "Composer send and local start"
+# Goals local-composer-combinations-via-ui, local-start-matrix: every composer and start-picker combination sends from the UI.
+paths = ["cmux-tui/crates/cmux-composer-send"]
+benches = ["local-composer-matrix-nightly", "local-start-matrix-nightly"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-composer-send"]
+budget = "composer matrix probe passes fresh; the worst start-matrix cell passes at least 95% of its last 20 decided runs"
+
+[[area]]
+name = "Classic import"
+# Goal next-zero-classic-footprint-all-surfaces: NEXT leaves no Classic footprint on any surface.
+paths = ["cmux-tui/crates/cmux-classic-import"]
+benches = ["next-zero-classic-footprint-nightly"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-classic-import"]
+budget = "the nightly probe passes fresh: every Classic surface listed after fresh NEXT flows shows zero footprint"
+
+[[area]]
+name = "Daemon recovery"
+# Goals remote-reconnect-after-relaunch, restart-to-chat: after a relaunch the daemon and chat come back fast.
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextDaemonRecovery"]
+benches = ["connection-reconnect-chat"]
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter 'DaemonRecoveryNoticeTests|DaemonRecoveryAfterFailedStartsTests'"]
+budget = "relaunch to a drawn live chat at most 600 ms median; the reconnect-chat probe row ok and fresh"
+
+[[area]]
+name = "App bundle size"
+# Goal bundle-size-falls: the installed NEXT app shrinks.
+paths = ["scripts/thin-app-bundle.sh", "scripts/strip-release-bundle.sh"]
+benches = ["bundle"]
+tests = [
+  "bash tests/test_thin_app_bundle.sh",
+  "bash tests/test_strip_release_bundle.sh",
+]
+budget = "newest NEXT NIGHTLY installed app at most 500 MB"
+
+[[area]]
+name = "What's new"
+# Goal whats-new-pretty: every New or Improved highlight has media, every Improved one a before and after pair.
+paths = ["scripts/whats-new", "webviews/src/pages/changelog"]
+benches = []
+tests = ["python3 -I -m unittest discover -s scripts/whats-new -p 'test_*.py'"]
+budget = "0 New or Improved highlights without media (whats_new.missing = 0) over the newest 10 nightlies"
+
 # ---- generated by `scripts/bench/cmux-bench for-paths --write`; edit above this line ----
 
 [[unit]]

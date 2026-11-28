@@ -9,8 +9,8 @@ reaped, unless `Child::detach(reason)` says why it outlives its handle).
 
 This guard counts, per file of the Rust crates under cmux-tui/crates (product code: no `tests/`,
 `benches/`, `examples/`, `*_tests.rs` or `tests.rs` file, no file a `#[cfg(test)] mod name;` declares
-(`name.rs`, `name/mod.rs` or its `#[path]`) nor any file below that module: rust_test_modules.py, and nothing
-after a trailing `#[cfg(test)] mod ... {`), the lines that start one with no owner:
+(`name.rs`, `name/mod.rs` or its `#[path]`) nor any file below that module: rust_test_modules.py, and nothing inside
+an inline `#[cfg(test)] mod ... { }` block), the lines that start one with no owner:
   - `tokio::spawn(`, `tokio::task::spawn(`, `task::spawn(`;
   - `std::thread::spawn(`, `thread::spawn(`;
   - a bare `spawn(` in a file that imports one of those by name;
@@ -25,7 +25,8 @@ Existing sites are rows of scripts/cmux-next/spawn-owner-baseline.tsv (path, cou
 more than its row, or a new file with any, fails, with a `next:` line. A file with fewer prints a
 note to lower its row; `--update` lowers it (and deletes a row at 0). Rows are never raised here:
 the pre-push gate judges a push against the INSTALLED copy of the baseline, and CI
-(`--base-ref REF`) fails a baseline whose row is above the base's or new. A file that moved
+(`--base-ref REF`) fails a baseline whose row is above the base's or new, unless the rise is no more than
+what the old cut-at-the-first-test-module reading missed in the base's own copy (debt now recorded). A file that moved
 (baseline_renames.py: git's renames plus explicit seams) keeps its old path's row in both.
 
 An error in the guard itself prints a warning and passes (fail open), as the other ratchets do.
@@ -81,8 +82,6 @@ RAW_COMMAND = re.compile(
     r"\b(?:std|tokio)::process::(?:Command\b|\{[^}]*\bCommand\b)|(?<![\w:])process::Command\b")
 PROCESS_SPAWN = re.compile(r"\.spawn\(\s*\)")
 COMMENT = re.compile(r"^\s*(//|/\*|\*(\s|/|$))")
-TEST_TAIL = re.compile(r"^#\[cfg\(test\)\]\s*\n(?:#\[[^\n]*\]\s*\n)*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*\{",
-                       re.MULTILINE)
 TRIGGER = b"spawn"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -96,10 +95,16 @@ def load_test_modules():
     return module
 
 
+_TEST_MODULES = None
+
+
 def product_text(text: str) -> str:
-    """The file up to a trailing `#[cfg(test)] mod ... {` (a test module at the end of the file)."""
-    match = TEST_TAIL.search(text)
-    return text[: match.start()] if match else text
+    """TEXT without its inline `#[cfg(test)] mod name { ... }` blocks (rust_test_modules.product_text: only each
+    block is test code, product code after one still counts)."""
+    global _TEST_MODULES
+    if _TEST_MODULES is None:
+        _TEST_MODULES = load_test_modules()
+    return _TEST_MODULES.product_text(text)
 
 
 def matching_lines(text: str) -> list[tuple[int, str]]:
@@ -194,8 +199,26 @@ def base_baseline(root: str, ref: str) -> dict[str, int] | None:
     return parse_baseline(shown.stdout) if shown.returncode == 0 else None
 
 
+# The reading before 2026-11-28: a file stopped at its first inline test module, so code after a mid-file one
+# was never counted. Kept only to size what that reading hid.
+_OLD_CUT = re.compile(r"^#\[cfg\(test\)\]\s*\n(?:#\[[^\n]*\]\s*\n)*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*\{",
+                      re.MULTILINE)
+
+
+def hidden_in_base(root: str, ref: str, path: str) -> int:
+    """The unowned spawn lines REF's copy of PATH has that the old cut-at-the-first-test-module reading missed
+    (0 when REF has no such file). Only that much may enter the baseline as recorded debt; a spawn the old
+    reading also saw is a base red or a raise, judged as before."""
+    shown = subprocess.run(["git", "-C", root, "show", f"{ref}:{path}"], capture_output=True)
+    if shown.returncode != 0:
+        return 0
+    text = shown.stdout.decode("utf-8", errors="replace")
+    cut = _OLD_CUT.search(text)
+    return max(0, len(matching_lines(text)) - len(matching_lines(text[:cut.start()] if cut else text)))
+
+
 def judge_against_base(rows: dict[str, int], base: dict[str, int] | None, ref: str,
-                       moved: dict[str, str] | None = None) -> int:
+                       moved: dict[str, str] | None = None, root: str = ".") -> int:
     """1 when the baseline has a row above the base's copy, or one the base had not (a new file's
     debt): the baseline only goes down. A base with no baseline file judges nothing. MOVED ({new
     path: old path}, baseline_renames.renames) lets a moved file's row read its old path's base row."""
@@ -219,7 +242,12 @@ def judge_against_base(rows: dict[str, int], base: dict[str, int] | None, ref: s
             left[moved_from] -= base_count
             print(f"check-spawn-owner: {BASELINE} carries {base_count} of {moved_from}'s base row "
                   f"{base[moved_from]} -> {path} (split; {moved_from} now {rows[moved_from]})")
-        if count > (base_count or 0):
+        if count > (base_count or 0) and count <= (base_count or 0) + hidden_in_base(root, ref, path):
+            # Debt the base's own file already held, which the old reading missed (a mid-file inline test
+            # module hid everything after it): recorded, not added.
+            print(f"check-spawn-owner: {BASELINE} records {path} at {count}: the old reading missed that "
+                  f"many in {ref}'s own copy (base row {(base_count or 0)})")
+        elif count > (base_count or 0):
             status = 1
             print(f"check-spawn-owner: {BASELINE} raises {path} to {count} (base {ref}: {(base_count or 0)}). "
                   "The baseline only goes down.", file=sys.stderr)
@@ -312,7 +340,8 @@ def main(argv: list[str]) -> int:
             print(f"check-spawn-owner: lowered {rel} {baseline[rel]} -> {count}")
     if base_ref:
         status |= judge_against_base(read_baseline(root), base_baseline(root, base_ref), base_ref,
-                                     baseline_renames.renames(root, base_ref) if baseline_renames else None)
+                                     baseline_renames.renames(root, base_ref) if baseline_renames else None,
+                                     root)
     if status == 0:
         total = sum(min(len(v), baseline.get(k, 0)) for k, v in hits.items())
         print(f"check-spawn-owner: ok ({total} baselined line(s) in {len(hits)} file(s))")
