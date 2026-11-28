@@ -53,6 +53,17 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
     /// with others (an idle browser asks about 1.7 times a second). Never more
     /// than a tenth of the delay; a request for "now" stays exact.
     static let delayedLeeway: TimeInterval = 0.008
+    /// From this delay on, a request is Chromium housekeeping (the disk-space check every 5 s,
+    /// CpuHealthTracker every 15 s, each tab strip's metrics every 30 s): it gets a tenth of its
+    /// delay, at most `longLeewayCap` (Apple's timer guidance), so macOS can run it on a nearby wake
+    /// instead of waking the app for it alone. It never runs early.
+    static let longDelay: TimeInterval = 1.0
+    static let longLeewayCap: TimeInterval = 1.0
+
+    /// The leeway of a delayed request `delay` seconds out.
+    static func leeway(forDelay delay: TimeInterval) -> TimeInterval {
+        delay >= longDelay ? min(delay / 10, longLeewayCap) : min(delayedLeeway, delay / 10)
+    }
 
     /// The next timer fire, in the clock's seconds.
     struct Wake: Equatable, Sendable {
@@ -73,7 +84,7 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
     /// Work that must run on the next run loop pass.
     private var immediate = false
     private var requestedDeadline: TimeInterval?
-    /// Leeway of `requestedDeadline` (`delayedLeeway`, capped by its delay).
+    /// Leeway of `requestedDeadline` (``leeway(forDelay:)``).
     private var requestedTolerance: TimeInterval = 0
     private var safetyNetDeadline: TimeInterval?
     /// The earliest Chromium-thread request the gate kept (``CEFPumpCrossThreadGate``). It stays
@@ -123,7 +134,7 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
             // posted: it replaces the earlier request and the safety net.
             let delay = TimeInterval(milliseconds) / 1_000
             requestedDeadline = now + delay
-            requestedTolerance = min(Self.delayedLeeway, delay / 10)
+            requestedTolerance = Self.leeway(forDelay: delay)
             safetyNetDeadline = nil
             armedSafetyNetInterval = nil
         }

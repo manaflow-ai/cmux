@@ -397,6 +397,21 @@ impl Hub {
         self.scan_kinds_and_kept(session, kinds, f)
     }
 
+    /// [`Self::scan_for_rebuild`] of the journal records past `after` (an inbox point's seq,
+    /// `inbox_point.rs`), then the kept ones.
+    pub(super) fn scan_for_rebuild_after(
+        &self,
+        session: &Session,
+        after: u64,
+        kinds: &[&str],
+        f: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> anyhow::Result<()> {
+        if self.at_918d() {
+            return self.store.scan_kinds_after(&session.id, after, kinds, f);
+        }
+        self.scan_kinds_after_and_kept(session, after, kinds, f)
+    }
+
     /// [`Self::scan_for_rebuild`] of the records whose head `keep` keeps
     /// ([`crate::store::Store::scan_kinds_keyed`]), in order: the journal's, then the kept ones.
     pub(super) fn scan_for_rebuild_keyed(

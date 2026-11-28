@@ -1,3 +1,4 @@
+import CmuxEgress
 public import Foundation
 
 /// Why a call to the API Worker as the signed-in user (the App's `FeedService.call`) failed;
@@ -20,6 +21,6 @@ extension URLSession {
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
-        return URLSession(configuration: configuration)
+        return CmuxEgress.session(site: "CmuxNextCloud.cloudNoStore", configuration: configuration)
     }()
 }

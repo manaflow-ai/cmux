@@ -216,7 +216,7 @@ pub fn project_label(cwd: &str) -> String {
         return "~".into();
     }
     let parts: Vec<&str> = trimmed.split('/').filter(|p| !p.is_empty()).collect();
-    if parts.len() == 2 && matches!(parts[0], "Users" | "home") {
+    if matches!(parts.as_slice(), ["Users" | "home", _]) {
         return "~".into();
     }
     std::path::Path::new(trimmed)
@@ -433,6 +433,19 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
     // A pending permission docks as a card above the composer, Codex-app
     // style, instead of covering the conversation.
     let pending = app.selected_id().and_then(|id| app.transcripts.get(&id)).and_then(|t| {
+        // Per-frame work (cmux-view-rows frame_work): `live_permission` reads items from the
+        // newest until a pending one while the turn is open; with none pending, every item
+        // (#46143 review P1-F1). A closed turn reads none.
+        #[cfg(test)]
+        if t.status.is_empty() || matches!(t.status.as_str(), "running" | "waiting") {
+            cmux_view_rows::frame_work::walked(
+                t.items
+                    .iter()
+                    .rev()
+                    .position(|i| matches!(i, Item::Permission { decided: None, .. }))
+                    .map_or(t.items.len(), |n| n + 1),
+            );
+        }
         match crate::live_permission(t) {
             Some(Item::Permission { title, options, .. }) => Some((title.clone(), options.clone())),
             _ => None,
@@ -699,9 +712,11 @@ impl Selection {
         for (r, line) in rows.iter().enumerate().take(r1 + 1).skip(r0) {
             let chars: Vec<char> = line.chars().collect();
             let piece = match self.cols_on_row(r, line) {
-                Some((s, e)) if e > s => {
-                    chars[s.min(chars.len())..e.min(chars.len())].iter().collect::<String>()
-                }
+                Some((s, e)) if e > s => chars
+                    .get(s.min(chars.len())..e.min(chars.len()))
+                    .unwrap_or_default()
+                    .iter()
+                    .collect::<String>(),
                 _ => String::new(),
             };
             out.push(piece.trim_end().to_owned());
@@ -716,12 +731,12 @@ impl Selection {
 pub fn content_bounds(line: &str) -> (usize, usize) {
     let chars: Vec<char> = line.chars().collect();
     let mut lo = 0;
-    while lo < chars.len() && chars[lo] == ' ' {
+    while lo < chars.len() && chars.get(lo) == Some(&' ') {
         lo += 1;
     }
     if lo < chars.len()
         && matches!(
-            chars[lo],
+            chars.get(lo).copied().unwrap_or_default(),
             '›' | '•'
                 | '»'
                 | '▸'
@@ -742,25 +757,28 @@ pub fn content_bounds(line: &str) -> (usize, usize) {
         )
     {
         lo += 1;
-        while lo < chars.len() && chars[lo] == ' ' {
+        while lo < chars.len() && chars.get(lo) == Some(&' ') {
             lo += 1;
         }
         // A second marker, e.g. the outcome bullet after the collapse arrow.
         if lo < chars.len()
-            && matches!(chars[lo], '•' | '✓' | '✗')
+            && matches!(chars.get(lo), Some('•' | '✓' | '✗'))
             && chars.get(lo + 1) == Some(&' ')
         {
             lo += 2;
         }
     }
     let mut hi = chars.len();
-    while hi > lo && chars[hi - 1] == ' ' {
+    while hi > lo && chars.get(hi - 1) == Some(&' ') {
         hi -= 1;
     }
     // A trailing toggle glyph ("  ›", "  ▾") is chrome, not content.
-    if hi >= lo + 3 && matches!(chars[hi - 1], '›' | '▾') && chars[hi - 2] == ' ' {
+    if hi >= lo + 3
+        && matches!(chars.get(hi - 1), Some('›' | '▾'))
+        && chars.get(hi - 2) == Some(&' ')
+    {
         hi -= 1;
-        while hi > lo && chars[hi - 1] == ' ' {
+        while hi > lo && chars.get(hi - 1) == Some(&' ') {
             hi -= 1;
         }
     }
@@ -774,13 +792,14 @@ pub fn word_bounds(line: &str, col: usize) -> (usize, usize) {
     }
     let col = col.min(chars.len() - 1);
     let is_word = |c: char| c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | ':' | '~');
-    let target = is_word(chars[col]);
+    let Some(&ch) = chars.get(col) else { return (0, 0) };
+    let target = is_word(ch);
     let mut s = col;
-    while s > 0 && is_word(chars[s - 1]) == target {
+    while s > 0 && chars.get(s - 1).is_some_and(|&ch| is_word(ch) == target) {
         s -= 1;
     }
     let mut e = col + 1;
-    while e < chars.len() && is_word(chars[e]) == target {
+    while e < chars.len() && chars.get(e).is_some_and(|&ch| is_word(ch) == target) {
         e += 1;
     }
     (s, e)

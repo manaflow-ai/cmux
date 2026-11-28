@@ -7,7 +7,8 @@
 set -euo pipefail
 [[ "$PR" =~ ^[1-9][0-9]{0,6}$ ]] || { echo "::error::pr must be a pull request number"; exit 1; }
 [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::head must be a full commit sha"; exit 1; }
-[[ "$LAYERS" =~ ^(web|rust|customize)(,(web|rust|customize)){0,2}$ ]] || { echo "::error::layers takes web, rust and customize"; exit 1; }
+# app: the look builds the head's app on the fleet first (a Swift change; hot-verify-ci.py verdict).
+[[ "$LAYERS" =~ ^(app|web|rust|customize)(,(app|web|rust|customize)){0,3}$ ]] || { echo "::error::layers takes app, web, rust and customize"; exit 1; }
 # These go into the request job's name, which the build fleet controller parses: only these shapes.
 KIND="${KIND:-head}" ATTEMPT="${ATTEMPT:-0}" EVENT_AT="${EVENT_AT:-}"
 [[ "$KIND" =~ ^(head|merge)$ ]] || { echo "::error::kind takes head or merge"; exit 1; }

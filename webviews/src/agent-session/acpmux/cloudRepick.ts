@@ -25,7 +25,7 @@ export function repickMachine(
 }
 
 /// Asks the app to move the chat; true when it took the pick (moved, or ran the move and said why it
-/// failed in its toast, `cloud_start_failed`), false for any refusal before it ran (not a chat a Cloud
+/// failed in its toast), false for an unhandled request (not a chat a Cloud
 /// start opened, no such machine, no gesture, an older app): the pick then does what it did before.
 export async function repickCloudChat(
   call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
@@ -36,6 +36,6 @@ export async function repickCloudChat(
     return true;
   } catch (error) {
     const code = (error as { code?: unknown } | null | undefined)?.code;
-    return code === "cloud_start_failed";
+    return code === "cloud_start_failed" || code === "environment_mismatch";
   }
 }

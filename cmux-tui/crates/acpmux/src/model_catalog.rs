@@ -505,6 +505,39 @@ pub fn capacity_fallback(entry: &crate::catalog::CatalogHarness, running: &str) 
     Some(format!("{newest}{suffix}"))
 }
 
+/// Whether a capacity error asks the client for another model: Codex's "Selected model is at
+/// capacity. Please try a different model." The provider says this model has no room, not that
+/// it has none at all, so the chat goes on on another (`hub/auto_resume/capacity_failover.rs`).
+pub fn asks_for_another_model(error: &str) -> bool {
+    let m = error.to_ascii_lowercase();
+    m.contains("at capacity") && (m.contains("different model") || m.contains("another model"))
+}
+
+/// The model a chat running `running` moves to when its provider's error asks for another
+/// ([`asks_for_another_model`]): its [`capacity_fallback`] when its family has one, else the
+/// newest catalog model of the same head and family words at a lower version (`gpt-6.2-sol` ->
+/// `gpt-6.1-sol`), which the provider serves from other capacity; with `running`'s suffix. None
+/// when the catalog does not know `running` or lists no such model.
+pub fn asked_fallback(entry: &crate::catalog::CatalogHarness, running: &str) -> Option<String> {
+    if let Some(to) = capacity_fallback(entry, running) {
+        return Some(to);
+    }
+    let (base, suffix) = split_suffix(running.trim());
+    let id = catalog_id(entry, base)?;
+    let parts = id_parts(split_suffix(&id).0)?;
+    let older = entry
+        .models
+        .iter()
+        .filter_map(|m| {
+            let p = id_parts(&m.id)?;
+            (p.head == parts.head && p.words == parts.words && p.version < parts.version)
+                .then_some((p.version, m.id.as_str()))
+        })
+        .max_by(|a, b| a.0.cmp(&b.0))?
+        .1;
+    Some(format!("{older}{suffix}"))
+}
+
 /// Whether `a` and `b` name the same model in `entry` (each read as its catalog id), so a chat
 /// that reports `sonnet` runs the `claude-sonnet-5-5` a failover set.
 pub fn same_model(entry: Option<&crate::catalog::CatalogHarness>, a: &str, b: &str) -> bool {

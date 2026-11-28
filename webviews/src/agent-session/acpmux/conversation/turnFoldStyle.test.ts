@@ -239,7 +239,7 @@ const shellEnd = (id: string, at: number, state: "completed" | "stopped" | "fail
 });
 
 for (const family of ["claude", "codex", "gemini", "muse"])
-  test(`${family}: a background command that finished or stopped folds under Worked for`, () => {
+  test(`${family}: a background command that finished or stopped is the composer hat's, never a transcript row`, () => {
     const rows = [
       prompt,
       work("w1", 1_000, 2),
@@ -252,10 +252,15 @@ for (const family of ["claude", "codex", "gemini", "muse"])
     const closed = drawn(family, new Set(), rows);
     const worked = closed.find((row) => row.kind === WORKED)!;
     expect(ids(closed.filter((row) => row.kind !== "turnSummary"))).toEqual([worked.id, "a"]);
-    // Opened, they draw in their places among the work.
+    // By default the composer hat's line says those ends, and the transcript draws none of them,
+    // opened or not (Leo, 2026-11-25: "what if we simply put it into the composer hat and iddnt put
+    // it into the transcript?"; backgroundRuns.ts hatSaysEnd, #56287).
+    // Opened, the fold shows the work around them, and the reply stays after it.
     const opened = ids(drawn(family, new Set([worked.id]), rows));
-    expect(opened.indexOf("bg1")).toBeGreaterThan(opened.indexOf(worked.id));
-    expect(opened.indexOf("bg2")).toBeLessThan(opened.indexOf("a"));
+    expect(opened).not.toContain("bg1");
+    expect(opened).not.toContain("bg2");
+    expect(opened.indexOf("w1")).toBeGreaterThan(opened.indexOf(worked.id));
+    expect(opened.indexOf("w2")).toBeLessThan(opened.indexOf("a"));
   });
 
 test("a background command that failed stays in sight beside the closed Worked for", () => {

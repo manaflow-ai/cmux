@@ -298,6 +298,31 @@
           "page_hidden": "web UI updates follow the channel and Automatic Updates (2026-11-22); cmux.json only"
         },
         {
+          "key": "updates.webCas",
+          "note": "RFD 0166 web OTA step 2: a NIGHTLY's web update reads only the chunks its kept updates lack (cas/1: the signed pointer's cas field, local chunks, then Range GETs on files.cmux.com), with the whole archive on any miss. Row W1: the archive is 16.3-17.25 MB a merge today, the chunk path 24.9% of it at p50 (cas-replay W1). Off until a NIGHTLY proves it end to end; then a follow-up turns it on.",
+          "title": {
+            "key": "settings.updates.webCas",
+            "text": "Fetch Web UI Updates by Chunks"
+          },
+          "help": {
+            "key": "settings.updates.webCas.help",
+            "text": "Web UI updates download only what changed, or the whole update when that fails."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "update",
+            "web",
+            "ota",
+            "download",
+            "chunks",
+            "cas",
+            "delta",
+            "nightly"
+          ],
+          "page_hidden": "a feature gate, not a choice (RFD 0166, 2026-11-27); cmux.json only"
+        },
+        {
           "key": "updates.daemon",
           "note": "Live daemon updates between app updates (Leo 2026-11-22: \"i wonder how many we can actually just ship and not even need the user to restart to update, tbh.\"): NIGHTLY and tip builds only. The app's own daemon reads this key (cmux-tui cli/app/try_cmd/daemon_updates.rs): at Every Merge it checks the signed mac-live channel and, while no agent works and input is quiet, runs the bundled `cmux --json app try channel`, which swaps Contents/Resources/bin and hands the terminal daemon over. Swift only shows the row. Off by default.",
           "title": {

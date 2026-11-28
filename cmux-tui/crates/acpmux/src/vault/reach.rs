@@ -33,7 +33,7 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 /// The owner's harness login: the names a Cloud chat's launch credential carries.
-pub const LOGIN_NAMES: [&str; 4] = crate::agent_credentials::NAMES;
+pub const LOGIN_NAMES: &[&str] = crate::agent_credentials::NAMES;
 /// Names that match the shape but hold no secret.
 const NOT_SECRET: [&str; 2] = [crate::agent_credentials::MARKER, "SSH_AUTH_SOCK"];
 const NAME_WORDS: [&str; 5] = ["TOKEN", "KEY", "SECRET", "PASSWORD", "CREDENTIAL"];

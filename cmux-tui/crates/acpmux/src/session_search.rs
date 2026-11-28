@@ -74,6 +74,8 @@ impl Projector {
             return;
         }
         match rec.kind.as_str() {
+            // A line the harness wrote into a turn: not the person's words.
+            "user_message" if crate::adopt_replay::harness_row(&rec.msg) => {}
             "user_message" => {
                 self.open = None;
                 if let Some(text) = rec.msg.get("text").and_then(Value::as_str) {

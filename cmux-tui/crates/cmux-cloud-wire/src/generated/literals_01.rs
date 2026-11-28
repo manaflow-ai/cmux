@@ -105,10 +105,6 @@ wire_literal! {
 }
 
 wire_literal! {
-    LitOidc = "oidc"
-}
-
-wire_literal! {
     LitOp = "op"
 }
 

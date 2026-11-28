@@ -1,0 +1,33 @@
+# Executor (executor.sh) for the Cloud Chief: `executor serve` on 127.0.0.1:4312, as the work user (RFD 0111).
+# Installed enabled under cmux-chief.service (WantedBy), so it runs only on a machine whose Chief runs; that unit
+# itself stays disabled until pairing.
+#
+# Executor makes its own key on its first start (~/.executor/v2/cli/keys.json, 0600): every machine gets its own,
+# none is in the image. ExecStartPost (cmux-executor-setup) hands that key to the Chief's MCP store
+# (servers/executor.json, secrets/executor.json) and deploys the first-party GitHub app; a failed setup leaves
+# Executor running (the `-`).
+[Unit]
+Description=Executor for the Cloud Chief (executor serve, 127.0.0.1:4312)
+After=network-online.target
+Wants=network-online.target
+PartOf=cmux-chief.service
+ConditionPathExists=/home/cmux/.cmux/chief/cloud/install.json
+# An image whose lock carries no Executor: skip, not a restart loop.
+ConditionPathExists=/opt/cmux/current/bin/executor
+
+[Service]
+Type=simple
+User=cmux
+Group=cmux
+Environment=HOME=/home/cmux
+Environment=DO_NOT_TRACK=1
+# The Chief host's acpmux home: the MCP store is <ACPMUX_HOME>/mcp (cmux-mcp-connect shared.rs), as cmux-chief.service sets.
+Environment=ACPMUX_HOME=/home/cmux/.cmux/chief/acpmux
+ExecStart=/opt/cmux/current/bin/executor serve
+ExecStartPost=-/usr/local/lib/cmux-chief/cmux-executor-setup
+TimeoutStartSec=300
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=cmux-chief.service

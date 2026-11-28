@@ -130,3 +130,10 @@ fn pick_takes_the_first_socket_that_exists_else_the_first() {
     assert_eq!(pick(&list).unwrap().path, live);
     assert_eq!(pick(&list[..1]).unwrap().source, "a");
 }
+
+#[test]
+fn the_bundle_name_is_the_app_around_the_binary() {
+    let exe = Path::new("/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux");
+    assert_eq!(bundle_name(exe).as_deref(), Some("cmux NIGHTLY"));
+    assert_eq!(bundle_name(Path::new("/usr/local/bin/cmux")), None);
+}

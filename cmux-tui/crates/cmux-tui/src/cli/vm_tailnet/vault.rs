@@ -17,6 +17,9 @@ use super::{await_detached, exec_ok, millis};
 
 /// The vault's one tailnet node (cmux-platform `VaultTailnetNodeApi`).
 pub(super) const NODE_PATH: &str = "/v1/vault/tailnet-node";
+/// Which VM holds that node now: a lease only one VM has at a time (cmux-platform#2167).
+pub(super) const HOLDER_PATH: &str = "/v1/vault/tailnet-node/holder";
+const RELEASE_PATH: &str = "/v1/vault/tailnet-node/holder/release";
 
 const VAULT_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -28,6 +31,14 @@ pub(super) struct KeptNode {
     pub(super) state: Secret,
 }
 
+/// The vault's lease on the node: the VM that holds it (none between holders) and the epoch every
+/// claim and release moves on, so a late write from an old holder is refused.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct Lease {
+    pub(super) holder: Option<String>,
+    pub(super) epoch: u64,
+}
+
 /// The user's vault, as far as the node goes. A fake stands in for it in tests.
 pub(super) trait NodeVault {
     /// Keeps `state` as the node `name`; `Ok` is the vault revision.
@@ -36,6 +47,13 @@ pub(super) trait NodeVault {
     fn get(&self) -> Result<Option<KeptNode>, String>;
     /// Drops the kept node (it was signed out: its keys open nothing any more).
     fn delete(&self) -> Result<(), String>;
+    /// Who holds the node now.
+    fn lease(&self) -> Result<Lease, String>;
+    /// Names `holder` the node's holder. With `if_epoch` it takes the node over from whoever holds
+    /// it at that epoch; without it, another holder is refused.
+    fn claim(&self, holder: &str, if_epoch: Option<u64>) -> Result<Lease, String>;
+    /// Ends `holder`'s lease, when it still holds the node at `epoch`.
+    fn release(&self, holder: &str, epoch: u64) -> Result<(), String>;
 }
 
 /// The vault on the cmux platform, signed in as the person.
@@ -60,6 +78,10 @@ fn said(error: CallError) -> String {
     match error {
         CallError::Status { code: "vault.tailnet_node_conflict", .. } => {
             "your vault's tailnet node changed while this ran; run it again".to_owned()
+        }
+        CallError::Status { code: "vault.tailnet_holder_conflict", .. } => {
+            "another VM holds your tailnet node now (your vault's lease); nothing changed"
+                .to_owned()
         }
         CallError::Status { status, code, .. } if !code.is_empty() => {
             format!("your vault refused it ({status} {code})")
@@ -96,6 +118,113 @@ impl NodeVault for PlatformVault {
             Err(error) => Err(said(error)),
         }
     }
+
+    fn lease(&self) -> Result<Lease, String> {
+        let body = self.platform.request(reqwest::Method::GET, HOLDER_PATH, None).map_err(said)?;
+        parse_lease(&body)
+    }
+
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "positions come from the value's own length or search, so they are in range"
+    )]
+    fn claim(&self, holder: &str, if_epoch: Option<u64>) -> Result<Lease, String> {
+        let mut body = json!({"holder": holder});
+        if let Some(epoch) = if_epoch {
+            body["ifEpoch"] = json!(epoch);
+        }
+        match self.platform.request(reqwest::Method::PUT, HOLDER_PATH, Some(body)) {
+            Ok(answer) => parse_lease(&answer),
+            Err(CallError::Status { code: "vault.tailnet_holder_conflict", .. }) => {
+                Err(match self.lease() {
+                    Ok(Lease { holder: Some(other), .. }) => held_by(&other, holder),
+                    _ => said(CallError::Status {
+                        status: 409,
+                        code: "vault.tailnet_holder_conflict",
+                        facts: None,
+                    }),
+                })
+            }
+            Err(error) => Err(said(error)),
+        }
+    }
+
+    fn release(&self, holder: &str, epoch: u64) -> Result<(), String> {
+        self.platform
+            .request(
+                reqwest::Method::POST,
+                RELEASE_PATH,
+                Some(json!({"holder": holder, "epoch": epoch})),
+            )
+            .map(|_| ())
+            .map_err(said)
+    }
+}
+
+/// Reads the vault's lease answer (`{holder: string|null, epoch, updatedAt}`).
+pub(super) fn parse_lease(body: &Value) -> Result<Lease, String> {
+    let Some(epoch) = body.get("epoch").and_then(Value::as_u64) else {
+        return Err("your vault's tailnet lease is missing its epoch".to_owned());
+    };
+    let holder = match body.get("holder") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(holder)) if !holder.is_empty() => Some(holder.clone()),
+        Some(_) => return Err("your vault's tailnet lease has an unreadable holder".to_owned()),
+    };
+    Ok(Lease { holder, epoch })
+}
+
+fn held_by(other: &str, vm: &str) -> String {
+    format!(
+        "{other} holds your tailnet node (your vault's lease); run `cmux vm tailnet move {other} {vm}`, or `cmux vm tailnet adopt {vm} --take-over` if {other} is gone"
+    )
+}
+
+/// Makes `vm` the node's one holder before it comes up there. Already its holder: unchanged. Free:
+/// claimed. Held by `from` (a move) or `take_over` (the user said so): taken over at the epoch
+/// just read, so a holder that changed meanwhile still wins. Held by another VM: refused.
+pub(super) fn hold(
+    vault: &dyn NodeVault,
+    vm: &str,
+    from: Option<&str>,
+    take_over: bool,
+) -> Result<Lease, String> {
+    let lease = vault.lease()?;
+    match lease.holder.as_deref() {
+        Some(holder) if holder == vm => Ok(lease),
+        None => vault.claim(vm, None),
+        Some(holder) if take_over || from == Some(holder) => vault.claim(vm, Some(lease.epoch)),
+        Some(holder) => Err(held_by(holder, vm)),
+    }
+}
+
+/// Ends `vm`'s lease when it holds the node (it signed out or went away); a lease it does not
+/// hold is left alone.
+pub(super) fn let_go(vault: &dyn NodeVault, vm: &str) -> Result<(), String> {
+    match vault.lease()? {
+        Lease { holder: Some(holder), epoch } if holder == vm => vault.release(vm, epoch),
+        _ => Ok(()),
+    }
+}
+
+/// After `vm` resumed from a memory snapshot with `tailscaled` still running the node `name`: the
+/// VM the lease names now when that is another VM and the vault's node is this one (so the resumed
+/// VM runs a second copy of it). `None` when the lease is free, names `vm`, or the vault keeps
+/// another node or none.
+pub(super) fn moved_away(
+    vault: &dyn NodeVault,
+    vm: &str,
+    name: &str,
+) -> Result<Option<String>, String> {
+    let Some(holder) = vault.lease()?.holder.filter(|holder| holder != vm) else {
+        return Ok(None);
+    };
+    Ok(vault.get()?.filter(|kept| label(&kept.name) == label(name)).map(|_| holder))
+}
+
+/// Stops the node on a VM that no longer holds it, without signing it out (the holder runs it).
+pub(super) fn stand_down(guest: &mut dyn Guest) -> Result<(), String> {
+    exec_ok(guest, &handoff::stand_down_command(), "cmux-tailnet-stood-down")
 }
 
 /// The vault names the node by its hostname label (`leo-cmux` of `leo-cmux.tail1.ts.net`): the
@@ -174,6 +303,8 @@ pub(super) fn keep(
 pub(super) fn adopt(
     guest: &mut dyn Guest,
     vault: &dyn NodeVault,
+    vm: &str,
+    take_over: bool,
     timeout: Duration,
 ) -> Result<(Value, String), String> {
     let started = Instant::now();
@@ -184,6 +315,36 @@ pub(super) fn adopt(
                 .to_owned(),
         );
     };
+    let lease = hold(vault, vm, None, take_over)?;
+    let brought_up = bring_up(guest, &kept, deadline, timeout);
+    let node = match brought_up {
+        Ok(node) => node,
+        Err(why) => {
+            // It never came up here: the lease goes back, so the next adopt or move is not refused.
+            let _ = vault.release(vm, lease.epoch);
+            return Err(why);
+        }
+    };
+    Ok((
+        json!({
+            "dnsName": node.dns_name,
+            "ips": node.ips,
+            "tags": node.tags,
+            "online": node.online,
+            "revision": kept.revision,
+            "epoch": lease.epoch,
+            "elapsedMs": millis(started.elapsed()),
+        }),
+        kept.name,
+    ))
+}
+
+fn bring_up(
+    guest: &mut dyn Guest,
+    kept: &KeptNode,
+    deadline: Instant,
+    timeout: Duration,
+) -> Result<cmux_tailnet_join::Joined, String> {
     exec_ok(
         guest,
         &cmux_tailnet_join::prepare_command(cmux_cloud_start_core::machine_bootstrap::USER),
@@ -197,17 +358,7 @@ pub(super) fn adopt(
         .map_err(|e| format!("writing the node state: {e}"))?;
     exec_ok(guest, &cmux_tailnet_join::start_command(), "started")?;
     let (node, _) = await_detached(guest, deadline, timeout, Duration::from_millis(250), "adopt")?;
-    Ok((
-        json!({
-            "dnsName": node.dns_name,
-            "ips": node.ips,
-            "tags": node.tags,
-            "online": node.online,
-            "revision": kept.revision,
-            "elapsedMs": millis(started.elapsed()),
-        }),
-        kept.name,
-    ))
+    Ok(node)
 }
 
 /// Before the VM goes (`vm rm`): stop its node, hand the state to the vault, then delete the VM's
@@ -216,6 +367,7 @@ pub(super) fn adopt(
 pub(super) fn release_to_vault(
     guest: &mut dyn Guest,
     vault: &dyn NodeVault,
+    vm: &str,
     name: &str,
 ) -> Result<u64, String> {
     let answer = guest.exec(&handoff::release_command())?;
@@ -231,6 +383,8 @@ pub(super) fn release_to_vault(
         Ok(revision) => {
             // Best effort: the VM is about to go, and its stopped copy goes with it.
             let _ = exec_ok(guest, &handoff::forget_command(), "cmux-tailnet-forgot");
+            // The node is down and kept: no VM holds it until one adopts it.
+            let _ = let_go(vault, vm);
             Ok(revision)
         }
         Err(why) => {
