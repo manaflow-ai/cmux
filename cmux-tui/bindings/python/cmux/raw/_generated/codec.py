@@ -65,6 +65,7 @@ MODEL_BY_PATH = {
     'types/EmptyResult': models.EmptyResult,
     'types/ExportLayoutResult': models.ExportLayoutResult,
     'types/ExportedPane': models.ExportedPane,
+    'types/FloatingPane': models.FloatingPane,
     'types/FocusDirectionResult': models.FocusDirectionResult,
     'types/FrontendJournalEvent/variants/focus': models.FrontendJournalEventFocus,
     'types/FrontendJournalEvent/variants/resize': models.FrontendJournalEventResize,
