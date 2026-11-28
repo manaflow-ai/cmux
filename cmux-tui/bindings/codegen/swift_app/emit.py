@@ -24,6 +24,13 @@ Wire rules (the same JSON the hand-written types sent):
 - a required field is always encoded (a nil required-nullable field encodes `null`);
 - an optional field is a Swift Optional, nil by default, and encoded only when set, so an unset field
   leaves the daemon's default in force;
+- `encode: if_true` on an optional boolean whose schema default is false makes a plain `Bool`, false by
+  default, encoded (as `true`) only when true: a daemon without the field's capability sees the request it
+  always saw;
+- `workspace_ref: true` folds the schema's optional `workspace` (handle) and `key` fields into one
+  `workspace: WorkspaceRef` the caller must give, encoded flat as the one of the two it names
+  (`WorkspaceRefFields`); `"workspace"` in `order` places it, else it comes after the fields, before
+  `mutation`;
 - `float32` is `Double` in the app: the app keeps its precision and the daemon narrows it.
 
 Read types (a family's `objects`): result and snapshot structs the app decodes, from a schema object
@@ -86,17 +93,20 @@ _TOP_KEYS = frozenset({"$comment", "sources_root", "ids", "types", "flatten", "f
 _FAMILY_KEYS = frozenset({"$comment", "enums", "requests", "objects"})
 _ENUM_KEYS = frozenset({"doc"})
 _REQUEST_KEYS = frozenset({
-    "allow_unadvertised_capability", "initializer", "extra",
+    "allow_unadvertised_capability", "initializer", "extra", "workspace_ref",
     "name", "doc", "order", "fields", "response", "response_order", "response_fields", "protocol", "mutation", "flatten", "omit",
 })
 _INIT_KEYS = frozenset({"post_init", "explicit", "labels"})
 _FIELD_KEYS = frozenset({"name", "type", "doc", "default", "optional", "encode", "encode_when", "update"})
 _ENCODE_MODES = {"always": True, "if_present": False}
 WHEN_TRUE = "when_true"
+IF_TRUE = "if_true"
 _FLATTEN_TYPE_KEYS = frozenset({"$comment", "wire", "encode"})
 _FLATTEN_KEYS = frozenset({"type", "doc", "default", "optional"})
 MUTATION = "mutation"
 _MUTATION_WIRE = ("origin", "mutation_id", "expected_generation", "expected_revision")
+WORKSPACE_REF = "workspace"
+_WORKSPACE_REF_WIRE = ("workspace", "key")
 # A read type's field may also take a Swift default (a lenient read: a missing key decodes as it) or be made
 # optional although the schema requires it (an app that still reads an older daemon that left it out).
 _READ_FIELD_KEYS = (_FIELD_KEYS - {"encode_when"}) | {"default", "optional", "lenient", "when", "prefer"}
@@ -416,7 +426,7 @@ class _Renderer:
                     optional = override["optional"]
                 always = required
                 mode = override.get("encode")
-                when_true = mode == WHEN_TRUE
+                when_true = mode in (WHEN_TRUE, IF_TRUE)
                 if isinstance(mode, Mapping):
                     enum = self.ir.types.get(spec["type"].get("name"))
                     case = mode.get("when_true")
@@ -434,8 +444,14 @@ class _Renderer:
                         raise BindingError(f"{where}.{wire}: decimal_uint64 requires an optional decimal uint64 string")
                     swift_type, decimal_uint64 = "UInt64", True
                 elif when_true:
-                    if (required or spec["type"] != {"kind": "scalar", "name": "boolean"} or update
-                            or "optional" in override or override.get("type", "Bool") != "Bool"):
+                    boolean_field = (not required and spec["type"] == {"kind": "scalar", "name": "boolean"}
+                                     and not update and "optional" not in override)
+                    if mode == IF_TRUE and (not boolean_field or spec.get("default") is not False
+                                            or "type" in override or override.get("default", "false") != "false"):
+                        raise BindingError(
+                            f"{where}.{wire}: encode if_true is for an optional boolean whose schema default is false"
+                        )
+                    if not boolean_field or override.get("type", "Bool") != "Bool":
                         raise BindingError(f"{where}.{wire}: encode when_true is only for an optional boolean")
                     swift_type, optional, always = "Bool", False, True
                 elif "encode" in override:
@@ -613,6 +629,25 @@ class _Renderer:
         if len(set(order)) != len(order):
             raise BindingError(f"{command}: the order names a field twice")
         claimed_flatten_wires = set(_MUTATION_WIRE) if mutation else set()
+        workspace_ref = binding.get("workspace_ref", False)
+        if not isinstance(workspace_ref, bool):
+            raise BindingError(f"{command}: workspace_ref is true or false")
+        if workspace_ref:
+            if omitted.intersection(_WORKSPACE_REF_WIRE):
+                raise BindingError(f"{command}.omit cannot remove a field written by workspace_ref")
+            if any(wire not in schema_fields or schema_fields[wire]["presence"] == "required"
+                   for wire in _WORKSPACE_REF_WIRE):
+                raise BindingError(f"{command}: workspace_ref needs the schema's optional workspace and key fields")
+            if any(wire in binding.get("fields", {}) for wire in _WORKSPACE_REF_WIRE):
+                raise BindingError(f"{command}: workspace_ref owns the workspace and key fields; bind neither")
+            if WORKSPACE_REF in flatten:
+                raise BindingError(f"{command}: a flattened field is already named {WORKSPACE_REF}")
+            claimed_flatten_wires.update(_WORKSPACE_REF_WIRE)
+            schema_fields = {wire: spec for wire, spec in schema_fields.items() if wire not in _WORKSPACE_REF_WIRE}
+            synthetic[WORKSPACE_REF] = _Field(
+                wire=WORKSPACE_REF, name=WORKSPACE_REF, swift_type="WorkspaceRef", optional=False, always_encoded=True,
+                doc=[], flat="try WorkspaceRefFields(ref: {value}).encode(to: encoder)",
+            )
         for name, spec in flatten.items():
             if not _IDENTIFIER.fullmatch(name) or name == MUTATION:
                 raise BindingError(f"{command}.flatten: {name!r} is not a Swift property name")

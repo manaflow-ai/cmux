@@ -157,6 +157,16 @@ struct GeneratedRequestPayloadGoldenTests {
         ]))
     }
 
+    @Test func omittedInitializerArgumentsKeepTheirWireDefaults() throws {
+        let workspace = WorkspaceRef.key(Self.workspaceKey)
+        #expect(try line(CloseTabsRequest(surfaces: [SurfaceID(rawValue: 2)])) ==
+            envelope("close-tabs", ["surfaces": .array([.number(2)])]))
+        #expect(try line(MoveWorkspaceRequest(workspace: workspace, index: 2)) ==
+            envelope("move-workspace", ["key": .string(Self.workspaceKey.rawValue), "index": .number(2)]))
+        #expect(try line(SetWorkspaceMetadataRequest(workspace: workspace)) ==
+            envelope("set-workspace-metadata", ["key": .string(Self.workspaceKey.rawValue)]))
+    }
+
     @Test func createTerminalKeepsPostInitShellAndWorkspaceFields() throws {
         let mutation = MutationIdentity(origin: "golden-test", mutationID: "mutation-terminal", expectedRevision: 42)
         var request = CreateTerminalRequest(

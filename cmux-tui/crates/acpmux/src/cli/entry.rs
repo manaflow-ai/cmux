@@ -153,6 +153,9 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == "__remote-sandbox-keeper") {
         crate::linux_sandbox::keeper::main(args.into_iter().skip(1).collect());
     }
+    if args.first().is_some_and(|arg| arg == crate::subscriptions::grok_hook::ARG) {
+        return crate::subscriptions::grok_hook::run(args.get(1).and_then(|arg| arg.to_str()));
+    }
     if let Some(home) = invocation.home.clone() {
         crate::config::set_home_override(home);
     }
@@ -383,6 +386,7 @@ async fn async_main(parsed: Parsed) -> Result<()> {
     match command {
         Some(Command::Gh { args }) => crate::cli::gh_shim::run(args).await,
         Some(Command::PrWait(args)) => crate::cli::pr_wait::run(args, json_out).await,
+        Some(Command::GhRead(args)) => crate::cli::gh_read::run(args, json_out).await,
         Some(Command::Ci(ci)) => crate::cli::ci_wait::run(ci, json_out).await,
         Some(Command::RunAsk { file }) => crate::run_ask::run_cli(file).await,
         // Before anything that reads or writes the home: this runs as root.
