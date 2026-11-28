@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextLayout
+import CmuxNextTerminal
 import CmuxNextWindowRules
 
 /// Pane and split actions (category `.pane` except columns and screens):
@@ -21,17 +22,18 @@ enum PaneHandlers {
 
     // MARK: Geometry helpers
 
-    /// The pane next to `pane` in `direction` on its screen, by displayed
-    /// frames and the window's focus history (the most recently focused of
-    /// several adjacent panes, and of a strip column; focus.md section 4a).
-    static func neighbor(of pane: LayoutPaneID, direction: LayoutDirection, in content: WorkspaceContentController) -> LayoutPaneID? {
-        guard let screen = content.layoutModel.screen(containing: pane) else { return nil }
-        // One logical line: docked columns before and after the strip. The frames of `pane`'s own screen,
-        // active or not: what opens beside a chat on a screen the person left reads that screen (#28044).
-        let frames = content.layoutView.navigationFrames(ofScreenContaining: pane)
-        return FocusNavigation.neighbor(of: pane, direction: direction, frames: frames,
-                                        recency: content.recentPanes,
-                                        columns: screen.layout.columns.map(\.root.panes))
+    /// The pane next to `pane` in `direction` on its screen, by displayed frames and focus history (``LayoutRootView/paneTarget(of:_:recency:showing:)``).
+    static func neighbor(of pane: LayoutPaneID, direction: LayoutDirection, in content: WorkspaceContentController) -> LayoutPaneID? { content.layoutView.paneTarget(of: pane, .direction(direction), recency: content.recentPanes) }
+
+    /// Ghostty's `split-preserve-zoom = navigation` (cmux#47785): on a zoomed screen the key lands where it would unzoomed and the zoom moves with it; false leaves the key's zoomed meaning.
+    static func navigateZoomed(_ ctx: AppActionContext, _ invocation: ActionInvocation, _ pane: PaneController, _ move: LayoutRootView.PaneMove, _ action: ActionID) -> Bool {
+        guard GhosttyRuntime.shared.splitPreserveZoom.contains(.navigation), let content = pane.workspace,
+              let screen = content.daemon.store.screen(containing: pane.pane.handle), screen.zoomedPane == pane.pane.handle,
+              let next = content.layoutView.paneTarget(of: pane.layoutPaneID, move, recency: content.recentPanes, showing: LayoutMapping.shared.unzoomedLayout(of: screen)),
+              let handle = content.handles.panes[next], let model = content.daemon.store.pane(handle) else { return false }
+        ctx.registry.settle(showNow(ctx, model) { $0.zoomEffect(handle) }, of: action, invocation) // the zoom first: the focus lands on a shown pane
+        focusByKey(next, in: content, invocation)
+        return true
     }
 
     static func focus(_ pane: LayoutPaneID, in content: WorkspaceContentController) {
@@ -211,6 +213,7 @@ enum PaneHandlers {
                 let window = invocation.target == nil ? ctx.services.windows.active : nil
                 if window?.moveFocusFromChiefPanel(toward: direction) == true { return }
                 guard let pane = ctx.paneController(invocation), let content = pane.workspace else { return }
+                if navigateZoomed(ctx, invocation, pane, .direction(direction), id) { return }
                 guard let next = neighbor(of: pane.layoutPaneID, direction: direction, in: content) else {
                     if window?.moveFocusIntoChiefPanel(toward: direction) == true { return }
                     return ctx.refuseQuietly(RefusalStrings.noPaneInDirection(RefusalStrings.direction(direction)))
@@ -218,8 +221,8 @@ enum PaneHandlers {
                 focusByKey(next, in: content, invocation)
             })
         }
-        registry.bind("focusPreviousPane", invoke: { cycleFocus(ctx, $0, offset: -1) })
-        registry.bind("focusNextPane", invoke: { cycleFocus(ctx, $0, offset: 1) })
+        registry.bind("focusPreviousPane", invoke: { cycleFocus(ctx, $0, offset: -1, "focusPreviousPane") })
+        registry.bind("focusNextPane", invoke: { cycleFocus(ctx, $0, offset: 1, "focusNextPane") })
         registry.bind("focusPaneByNumber", invoke: { invocation in
             guard let pane = ctx.paneController(invocation), let content = pane.workspace,
                   let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
@@ -233,14 +236,10 @@ enum PaneHandlers {
         })
     }
 
-    private static func cycleFocus(_ ctx: AppActionContext, _ invocation: ActionInvocation, offset: Int) {
-        guard let pane = ctx.paneController(invocation), let content = pane.workspace,
-              let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
-        let order = screen.layout.visualPanes
-        guard order.count > 1, let index = order.firstIndex(of: pane.layoutPaneID) else {
-            return ctx.refuseQuietly(RefusalStrings.screenHasOnePane)
-        }
-        focusByKey(order[(index + offset + order.count) % order.count], in: content, invocation)
+    private static func cycleFocus(_ ctx: AppActionContext, _ invocation: ActionInvocation, offset: Int, _ action: ActionID) {
+        guard let pane = ctx.paneController(invocation), let content = pane.workspace, content.layoutModel.screen(containing: pane.layoutPaneID) != nil, !navigateZoomed(ctx, invocation, pane, .cycle(offset: offset), action) else { return }
+        guard let next = content.layoutView.paneTarget(of: pane.layoutPaneID, .cycle(offset: offset)) else { return ctx.refuseQuietly(RefusalStrings.screenHasOnePane) }
+        focusByKey(next, in: content, invocation)
     }
 
     // MARK: Sizing

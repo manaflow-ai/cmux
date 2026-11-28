@@ -66,9 +66,24 @@ public struct LayoutMapping {
         return Set(trees.flatMap(\.splits).filter { handles.splits[$0].map(screen.hiddenDividers.contains) == true })
     }
 
+    /// The tiled layout `screen` shows once unzoomed, whether it is zoomed or not: where a pane-navigation key lands
+    /// under `split-preserve-zoom = navigation` (cmux#47785). Its floating panes stay out: the daemon never zooms a floating pane.
+    public func unzoomedLayout(of screen: ScreenModel) -> ScreenLayout? {
+        var handles = LayoutHandleMap()
+        var paneIDs: [DaemonPaneID: LayoutPaneID] = [:]
+        for pane in screen.panes {
+            let id = LayoutPaneID(pane.id)
+            paneIDs[pane.handle] = id
+            handles.addPane(id, handle: pane.handle)
+        }
+        var tiled = paneIDs
+        if !floatingPanes(of: screen, paneIDs: paneIDs).isEmpty { for entry in screen.floating { tiled[entry.pane] = nil } }
+        return layout(of: screen, paneIDs: tiled, handles: &handles, ignoringZoom: true)
+    }
+
     func layout(of screen: ScreenModel, paneIDs: [DaemonPaneID: LayoutPaneID],
-                       handles: inout LayoutHandleMap) -> ScreenLayout? {
-        if let zoomed = screen.zoomedPane, let id = paneIDs[zoomed] {
+                       handles: inout LayoutHandleMap, ignoringZoom: Bool = false) -> ScreenLayout? {
+        if !ignoringZoom, let zoomed = screen.zoomedPane, let id = paneIDs[zoomed] {
             return .splits(.leaf(id))
         }
         if !screen.columns.isEmpty {

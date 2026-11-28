@@ -36,8 +36,8 @@ public nonisolated struct GhosttyKeySupport: Sendable {
     public static let unsupported: [String: GhosttyUnsupported] = {
         var table: [String: GhosttyUnsupported] = [:]
         for key in [
-            // Pane chrome and splits.
-            "split-divider-color", "split-preserve-zoom",
+            // Pane chrome and splits. `split-preserve-zoom` applies (GhosttySplitPreserveZoom).
+            "split-divider-color",
             // Processes: the daemon spawns them with cmux's own rules.
             "command", "initial-command", "env", "input", "wait-after-command", "abnormal-command-exit-runtime",
             // `working-directory` and the *-inherit-working-directory keys apply (GhosttyWorkingDirectoryInheritance).
