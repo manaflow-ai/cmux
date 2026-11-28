@@ -77,7 +77,7 @@ describe("coderouter alert checks", () => {
 
   test("upstream failures across providers aggregate into one warning and list the breakdown", async () => {
     const { sent, run } = harness([
-      { outcome: "upstream_error", failure_stage: "upstream_response", team_id: "t1", provider: "codex", c: 3 },
+      { outcome: "upstream_error", failure_stage: "upstream_response", team_id: "t1", provider: "codex", status: 529, c: 3 },
       { outcome: "no_usable_account", failure_stage: "upstream_transport", team_id: "t1", provider: "codex", c: 1 },
       { outcome: "provider_unavailable", failure_stage: "upstream_transport", team_id: "t3", provider: "opencode-go", c: 1 },
       { outcome: "success", failure_stage: "none", team_id: "t1", provider: "codex", c: 5 },
@@ -87,7 +87,10 @@ describe("coderouter alert checks", () => {
     expect(sent[0]!.severity).toBe("warning");
     expect(sent[0]!.body).toContain("5 of 10 requests");
     expect(sent[0]!.body).toContain("ended in a provider failure after failover.");
-    expect(sent[0]!.body).not.toContain("codex");
+    expect(sent[0]!.body).toContain("Providers: codex: 4, opencode-go: 1.");
+    expect(sent[0]!.body).toContain("Stages: upstream_error/upstream_response: 3, no_usable_account/upstream_transport: 1, provider_unavailable/upstream_transport: 1.");
+    expect(sent[0]!.body).toContain("Statuses: 529: 3, unknown: 2.");
+    expect(sent[0]!.body).not.toContain("t1");
   });
 
   test("tenants without a usable account are named, auth rejects use their own threshold", async () => {

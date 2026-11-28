@@ -168,6 +168,53 @@ pub struct LanEnrollReply {
     pub addresses: Vec<String>,
     /// The phone's address inside the mesh.
     pub phone_overlay: String,
+    /// RFD 0164 T5: this Mac's own tailnet addresses, sent only while its
+    /// `transport.tailnetCarrier` is not `off` and it sees itself on a
+    /// tailnet. Absent from an old Mac's reply (a new phone reads `None`), and
+    /// an old phone ignores the unknown field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tailnet: Option<TailnetHint>,
+}
+
+/// The hint's shape version; a phone reads only a version it knows.
+pub const TAILNET_HINT_VERSION: u32 = 1;
+
+/// The Mac's tailnet addresses, reported to the phone (RFD 0164 T5).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TailnetHint {
+    /// [`TAILNET_HINT_VERSION`] when written.
+    pub v: u32,
+    /// IP literals in the tailnet ranges (100.64.0.0/10), reached on the
+    /// same mesh port as the LAN addresses.
+    pub addresses: Vec<String>,
+}
+
+/// The Mac's addresses on a tailnet: its interfaces' IPv4 addresses in
+/// 100.64.0.0/10 (the mesh is bound to every interface, the tailnet's too).
+pub fn tailnet_addresses() -> Vec<IpAddr> {
+    let mut found = Vec::new();
+    for ip in crate::dial::wireguard::interface_ips() {
+        if ip.is_ipv4() && crate::dial::is_cgnat(ip) && !found.contains(&ip) {
+            found.push(ip);
+        }
+    }
+    found
+}
+
+/// The hint a Mac adds to its enroll reply: `None` when its carrier setting
+/// is off (`carrier_on` false) or it has no tailnet address.
+pub fn tailnet_hint(carrier_on: bool, addresses: &[IpAddr]) -> Option<TailnetHint> {
+    if !carrier_on {
+        return None;
+    }
+    let addresses: Vec<String> =
+        addresses.iter().filter(|ip| tailnet_ip(**ip)).map(ToString::to_string).collect();
+    (!addresses.is_empty()).then_some(TailnetHint { v: TAILNET_HINT_VERSION, addresses })
+}
+
+fn tailnet_ip(ip: IpAddr) -> bool {
+    ip.is_ipv4() && crate::dial::is_cgnat(ip)
 }
 
 /// The Mac's addresses a phone on the same network may reach: every
@@ -428,6 +475,17 @@ impl LanHost {
         device_id: &str,
         request: &LanEnrollRequest,
     ) -> Result<LanEnrollReply, String> {
+        self.enroll_hinting(device_id, request, false).await
+    }
+
+    /// [`Self::enroll`], adding this Mac's [`TailnetHint`] when `tailnet_carrier`
+    /// (its `transport.tailnetCarrier` is not `off`) and it is on a tailnet.
+    pub async fn enroll_hinting(
+        &self,
+        device_id: &str,
+        request: &LanEnrollRequest,
+        tailnet_carrier: bool,
+    ) -> Result<LanEnrollReply, String> {
         let key = parse_key(&request.phone_key).ok_or("phoneKey is not a base64 Curve25519 key")?;
         let (phone, replaced, snapshot) = {
             let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
@@ -464,6 +522,7 @@ impl LanHost {
             port: self.port,
             addresses: local_addresses(self.include_loopback).iter().map(ToString::to_string).collect(),
             phone_overlay: phone.overlay.to_string(),
+            tailnet: tailnet_hint(tailnet_carrier, &tailnet_addresses()),
         })
     }
 
@@ -523,6 +582,10 @@ pub struct LanMac {
     /// (its own LAN address's /24, [`network_tag`]).
     #[serde(default)]
     pub last_ok: HashMap<String, String>,
+    /// The Mac's tailnet addresses from its [`TailnetHint`] (RFD 0164 T5);
+    /// empty from an old Mac or one whose carrier setting is off.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tailnet: Vec<String>,
 }
 
 impl LanMac {
@@ -534,17 +597,41 @@ impl LanMac {
             phone_overlay: reply.phone_overlay.parse().ok()?,
             addresses: reply.addresses.clone(),
             last_ok: HashMap::new(),
+            tailnet: reply
+                .tailnet
+                .as_ref()
+                .filter(|hint| hint.v == TAILNET_HINT_VERSION)
+                .map(|hint| {
+                    hint.addresses
+                        .iter()
+                        .filter(|text| text.parse::<IpAddr>().is_ok_and(tailnet_ip))
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default(),
         })
     }
 
     /// The addresses to try, in order: the one that last worked on
     /// `network`, then the ones enrollment reported (or a discovery answer
-    /// added).
+    /// added). No tailnet address: [`Self::candidates_with`] adds those.
     pub fn candidates(&self, network: Option<&str>) -> Vec<SocketAddr> {
+        self.candidates_with(network, false)
+    }
+
+    /// [`Self::candidates`], then, with `tailnet` (the phone's carrier
+    /// setting is not `off`), the Mac's tailnet addresses on the mesh port:
+    /// a `Direct` tailnet candidate raced beside the LAN ones and the relay.
+    /// A tailnet address that last worked goes first only with `tailnet`.
+    pub fn candidates_with(&self, network: Option<&str>, tailnet: bool) -> Vec<SocketAddr> {
         let mut out: Vec<SocketAddr> = Vec::new();
         let first = network.and_then(|network| self.last_ok.get(network));
-        for text in first.into_iter().chain(self.addresses.iter()) {
+        let reported = if tailnet { self.tailnet.as_slice() } else { &[] };
+        for text in first.into_iter().chain(self.addresses.iter()).chain(reported) {
             let Some(address) = parse_address(text, self.port) else { continue };
+            if tailnet_ip(address.ip()) && !tailnet {
+                continue;
+            }
             if !out.contains(&address) {
                 out.push(address);
             }
@@ -824,6 +911,7 @@ mod tests {
             phone_overlay: Ipv4Addr::new(10, 78, 0, 2),
             addresses: vec!["192.168.1.20".into(), "10.0.0.5".into()],
             last_ok: HashMap::new(),
+            tailnet: Vec::new(),
         };
         assert_eq!(
             mac.candidates(Some("10.0.0.0/24")),
@@ -845,6 +933,99 @@ mod tests {
             mac.candidates(Some("172.16.0.0/24"))[0],
             "192.168.1.20:7421".parse::<SocketAddr>().unwrap()
         );
+    }
+
+    fn reply(tailnet: Option<TailnetHint>) -> LanEnrollReply {
+        LanEnrollReply {
+            mac_key: LanIdentity::generate().public_b64(),
+            port: 7421,
+            addresses: vec!["192.168.1.20".into()],
+            phone_overlay: "10.78.0.2".into(),
+            tailnet,
+        }
+    }
+
+    /// The enroll reply as a phone built before T5 parses it.
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    #[allow(dead_code)]
+    struct OldReply {
+        mac_key: String,
+        port: u16,
+        addresses: Vec<String>,
+        phone_overlay: String,
+    }
+
+    #[test]
+    fn a_new_phone_reads_no_tailnet_from_an_old_mac() {
+        let old_mac =
+            r#"{"macKey":"KEY","port":7421,"addresses":["192.168.1.20"],"phoneOverlay":"10.78.0.2"}"#;
+        let mut parsed: LanEnrollReply = serde_json::from_str(old_mac).unwrap();
+        assert_eq!(parsed.tailnet, None);
+        parsed.mac_key = LanIdentity::generate().public_b64();
+        let mac = LanMac::from_reply(&parsed).unwrap();
+        assert!(mac.tailnet.is_empty());
+        assert_eq!(mac.candidates_with(None, true), vec!["192.168.1.20:7421".parse::<SocketAddr>().unwrap()]);
+    }
+
+    #[test]
+    fn an_old_phone_ignores_a_new_macs_tailnet_hint() {
+        let new_mac = reply(tailnet_hint(true, &["100.101.102.103".parse().unwrap()]));
+        let text = serde_json::to_string(&new_mac).unwrap();
+        assert!(text.contains(r#""tailnet":{"v":1,"addresses":["100.101.102.103"]}"#), "{text}");
+        let old: OldReply = serde_json::from_str(&text).unwrap();
+        assert_eq!(old.addresses, vec!["192.168.1.20".to_owned()]);
+        assert_eq!(serde_json::from_str::<LanEnrollReply>(&text).unwrap(), new_mac);
+    }
+
+    #[test]
+    fn a_mac_with_its_setting_off_sends_no_hint() {
+        let ip: IpAddr = "100.101.102.103".parse().unwrap();
+        assert_eq!(tailnet_hint(false, &[ip]), None);
+        assert_eq!(tailnet_hint(true, &[]), None);
+        assert_eq!(tailnet_hint(true, &["192.168.1.2".parse().unwrap()]), None, "not a tailnet address");
+        let text = serde_json::to_string(&reply(None)).unwrap();
+        assert!(!text.contains("tailnet"), "an off Mac's reply is byte-for-byte the old shape: {text}");
+    }
+
+    #[test]
+    fn the_phone_races_a_tailnet_address_only_with_its_setting_on() {
+        let hint = TailnetHint {
+            v: TAILNET_HINT_VERSION,
+            addresses: vec!["100.101.102.103".into(), "8.8.8.8".into(), "fd7a:115c:a1e0::1".into()],
+        };
+        let mac = LanMac::from_reply(&reply(Some(hint))).unwrap();
+        assert_eq!(mac.tailnet, vec!["100.101.102.103".to_owned()], "only tailnet IPv4 is kept");
+        let lan: SocketAddr = "192.168.1.20:7421".parse().unwrap();
+        let tailnet: SocketAddr = "100.101.102.103:7421".parse().unwrap();
+        assert_eq!(mac.candidates_with(None, false), vec![lan]);
+        assert_eq!(mac.candidates_with(None, true), vec![lan, tailnet], "LAN first, then tailnet");
+        assert_eq!(mac.candidates(None), vec![lan], "the old call is unchanged");
+    }
+
+    #[test]
+    fn a_tailnet_address_that_worked_leads_only_while_the_setting_is_on() {
+        let hint = TailnetHint { v: TAILNET_HINT_VERSION, addresses: vec!["100.101.102.103".into()] };
+        let mut mac = LanMac::from_reply(&reply(Some(hint))).unwrap();
+        mac.last_ok.insert("10.0.0.0/24".into(), "100.101.102.103:7421".into());
+        let lan: SocketAddr = "192.168.1.20:7421".parse().unwrap();
+        let tailnet: SocketAddr = "100.101.102.103:7421".parse().unwrap();
+        assert_eq!(mac.candidates_with(Some("10.0.0.0/24"), true), vec![tailnet, lan]);
+        assert_eq!(mac.candidates_with(Some("10.0.0.0/24"), false), vec![lan], "off: no tailnet at all");
+    }
+
+    #[test]
+    fn a_hint_of_an_unknown_version_is_ignored() {
+        let hint = TailnetHint { v: TAILNET_HINT_VERSION + 1, addresses: vec!["100.101.102.103".into()] };
+        let mac = LanMac::from_reply(&reply(Some(hint))).unwrap();
+        assert!(mac.tailnet.is_empty());
+    }
+
+    #[test]
+    fn memory_written_before_t5_still_loads() {
+        let old = r#"{"macKey":"K","port":7421,"phoneOverlay":"10.78.0.2","addresses":["192.168.1.20"]}"#;
+        let mac: LanMac = serde_json::from_str(old).unwrap();
+        assert!(mac.tailnet.is_empty());
     }
 
     #[test]

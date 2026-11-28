@@ -8,11 +8,17 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createSimulation, runSimulation, type SimResult, type RowProbe } from "../src/agent-session/acpmux/sim/run";
+import {
+  backgroundRunRemapped,
+  createSimulation,
+  runSimulation,
+  type RowProbe,
+  type SimResult,
+} from "../src/agent-session/acpmux/sim/run";
 import { parseRecords, sanitizeRecords, scrubText } from "../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, SIM_SESSION } from "../src/agent-session/acpmux/sim/script";
 import { SCENARIOS, longRun, FORK_MID_STREAM, forkMidStream } from "../src/agent-session/acpmux/sim/scenarios";
-import { TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_LIVE_STEP_GAP } from "../src/agent-session/acpmux/transcriptGrid";
+import { TRANSCRIPT_LIVE_STEP_GAP, TRANSCRIPT_RUN_GAP } from "../src/agent-session/acpmux/transcriptGrid";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "chat-sim");
 const broken = (result: SimResult, prefix: string) =>
@@ -72,7 +78,9 @@ for (const name of ["incoming-notice-turn", "incoming-message-turn"])
     const { rows, at } = openedTurn(name);
     const head = rows[at - 1]!;
     expect(head.id).toBe(`worked-${rows[at]!.id}`);
-    expect(head.gap).toBe(TRANSCRIPT_BLOCK_GAP);
+    // Under the turn before's reply footer: the run gap (FOOTER_WORKING_GAP_LOOKS, default "run"; the
+    // block gap stays for a turn that opens right under a reply with no footer row between).
+    expect(head.gap).toBe(TRANSCRIPT_RUN_GAP);
     expect(rows[at]!.gap).toBe(0);
     expect(rows[at + 1]!.gap).toBe(TRANSCRIPT_LIVE_STEP_GAP);
     expect(broken(runSimulation(SCENARIOS[name]!()), "d-")).toEqual([]);
@@ -149,6 +157,11 @@ const burst = (from = 0) => {
 };
 describe("chat simulator: Leo's 22:05-22:11Z subagent burst keeps rule d", () => {
   const whole = burst();
+  test("the completed task joins a run and both members reappear when a start separates them", () => {
+    const remapped = whole.folds.filter((fold) => fold.verdict === "remapped").map((fold) => fold.id);
+    expect(remapped).toContain("bgtask-1032");
+    expect(remapped).toContain("backgroundRun-bgtask-1032");
+  });
   for (const rule of [
     "d-started-pill",
     "d-started-lines",
@@ -165,6 +178,17 @@ describe("chat simulator: Leo's 22:05-22:11Z subagent burst keeps rule d", () =>
   for (const from of [400, 1_200])
     test(`read from record ${from}: no start line for subagents it never saw start`, () =>
       expect(broken(burst(from), "d-started")).toEqual([]));
+});
+
+test("a run with a missing member still counts as a fold", () => {
+  const run = {
+    id: "run",
+    backgroundRun: { finished: 2, stopped: 0, failed: 0, scheduled: 0, other: 0, commands: 2, rows: ["a", "b"] },
+  };
+  const drawn = new Map([["a", true]]);
+  expect(backgroundRunRemapped(run, drawn, new Set(["unrelated"]))).toBe(false);
+  expect(backgroundRunRemapped(run, drawn, new Set(["b"]))).toBe(true);
+  expect(backgroundRunRemapped({ ...run, foldOpen: true }, drawn, new Set(["b"]))).toBe(false);
 });
 
 test("chat simulator: the sanitizer keeps the shape and drops every word", () => {
@@ -383,15 +407,18 @@ test("chat simulator: think-then-answer: the live line under a thought stands th
   const result = runSimulation(SCENARIOS["think-then-answer"]!());
   const live = new Set<number>();
   const reply = new Set<number>();
-  // The first turn's work is the one thought (the second runs a command between its thoughts).
+  // The first turn's work is the one thought (the second runs a command between its thoughts). A thought
+  // folds under the turn's "Worked for" line (no activity row draws it: #56293, #56965), so the rows
+  // the live line and the reply stand under are that line.
   for (const trace of result.traces.filter((trace) => trace.turn === 1)) {
     const rows = trace.rows ?? [];
     rows.forEach((row, at) => {
-      if (at === 0 || rows[at - 1]!.kind !== "activity") return;
+      if (at === 0 || rows[at - 1]!.kind !== "worked") return;
       if (row.live && row.kind === "thinking") live.add(row.gap);
       if (row.kind === "assistant" && rows.at(-1)?.live) reply.add(row.gap);
     });
   }
   expect(reply.size).toBe(1);
+  expect(live.size).toBe(1);
   expect([...live]).toEqual([...reply]);
 });

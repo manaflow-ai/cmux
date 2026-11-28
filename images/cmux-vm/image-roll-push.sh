@@ -9,7 +9,8 @@
 #   TOKEN=... images/cmux-vm/image-roll-push.sh rollback --image ID --message-file M [--dry-run]
 #
 # TOKEN pushes cmux (the manaflow-cmux-pr-autofix App's token, so the push starts cmux-vm.yml's production
-# deploy; no ruleset or branch protection applies to feat-cmux-next). PLATFORM_TOKEN pushes cmux-platform
+# deploy; it pushes straight to feat-cmux-next, so a ruleset there that the App cannot bypass stops the roll:
+# that refusal exits 3 with GitHub's reason, never retried as a moved tip). PLATFORM_TOKEN pushes cmux-platform
 # main in platform mode. Tokens reach git only as extra headers in the environment. --dry-run makes the
 # commits and prints them, and pushes nothing.
 # Prints `pushed <sha>`, `nothing <reason>` or `dry-run <sha>` as its last line; the step output
@@ -192,7 +193,16 @@ for push_try in 1 2 3 4 5; do
     report dry-run "$sha (not pushed)" "$sha"
     exit 0
   fi
-  if git push -q origin "HEAD:refs/heads/${branch}"; then report pushed "$sha" "$sha"; exit 0; fi
+  push_err="${RUNNER_TEMP:-/tmp}/image-roll-push.err"
+  if git push -q origin "HEAD:refs/heads/${branch}" 2>"$push_err"; then cat "$push_err" >&2; report pushed "$sha" "$sha"; exit 0; fi
+  cat "$push_err" >&2
+  # A ruleset or protection refusal never clears on a retry: name it and stop, so the run reads as the
+  # refusal it is, not as a tip that kept moving.
+  if grep -qE 'GH013|GH006|declined due to repository rule|protected branch' "$push_err"; then
+    echo "image-roll-push: GitHub refused the push to ${branch} by a repository rule, not a moved tip; nothing landed." >&2
+    echo "::error title=Image roll push refused::${branch} has a ruleset or branch protection the roll's App token cannot pass (see the remote lines above); nothing landed." >&2
+    exit 3
+  fi
   echo "feat-cmux-next moved under the push; making the change again on the new tip (attempt ${push_try})"
 done
 echo "image-roll-push: feat-cmux-next kept moving; nothing landed" >&2

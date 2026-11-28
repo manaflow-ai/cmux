@@ -33,6 +33,10 @@ const CLIENT_ID = "virtual:cmux-hot-swap-timing-client";
 const RESOLVED_CLIENT_ID = `\0${CLIENT_ID}`;
 export const HOT_SWAP_TIMING_EVENT = "cmux:hot-swap-timing";
 export const REFRESHED_EVENT = "cmux:react-refreshed";
+/// The page's hello and the server's answer: a round trip on the HMR socket, so the page can say it is
+/// connected (`<html data-cmux-hmr="connected">`) and a capture can read that before it saves.
+export const HMR_HELLO_EVENT = "cmux:hmr-hello";
+export const HMR_ACK_EVENT = "cmux:hmr-ack";
 const REFRESH_RUNTIME = "/@react-refresh";
 /// How long after its commit an update may still report its frame (a hidden page draws none).
 const NO_FRAME_MS = 2000;
@@ -83,6 +87,15 @@ export function refreshRuntimeWithoutTimer(code: string): string | undefined {
 
 /// The page's half: times each update from its message to its next drawn frame and sends it back.
 export const CLIENT_SOURCE = `if (import.meta.hot) {
+  // Where the page came from and whether a save can reach it: "connected" only once the server
+  // answered a hello on this socket (a queued send proves nothing), "disconnected" when it drops.
+  const marks = document.documentElement.dataset;
+  marks.cmuxHmrOrigin = location.origin;
+  marks.cmuxHmr = "connecting";
+  import.meta.hot.on(${JSON.stringify(HMR_ACK_EVENT)}, () => (marks.cmuxHmr = "connected"));
+  import.meta.hot.on("vite:ws:disconnect", () => (marks.cmuxHmr = "disconnected"));
+  import.meta.hot.on("vite:ws:connect", () => import.meta.hot.send(${JSON.stringify(HMR_HELLO_EVENT)}, {}));
+  import.meta.hot.send(${JSON.stringify(HMR_HELLO_EVENT)}, {});
   const at = () => performance.timeOrigin + performance.now();
   const pending = new Map();
   let refreshed = 0;
@@ -217,6 +230,9 @@ export function hotSwapTiming(): Plugin {
           );
         } catch {}
       };
+      server.ws.on(HMR_HELLO_EVENT, (_data: unknown, client: { send: (event: string, payload?: unknown) => void }) =>
+        client.send(HMR_ACK_EVENT, {}),
+      );
       server.ws.on(HOT_SWAP_TIMING_EVENT, (data: HotSwapPageMarks & { timestamp: number; page: string }) => {
         const marks = sent.get(data.timestamp);
         if (!marks) return;

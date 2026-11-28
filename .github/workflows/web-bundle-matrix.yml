@@ -140,7 +140,7 @@ jobs:
     needs: matrix
     if: ${{ !cancelled() && needs.matrix.result != 'skipped' }}
     name: web bundle matrix status and fix
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }} # ephemeral-required: holds a statuses, contents and pull-requests write App token
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || 'cmux-linux' }} # ephemeral-required: holds a statuses, contents and pull-requests write App token
     environment:
       name: ci-routing-agent
       deployment: false

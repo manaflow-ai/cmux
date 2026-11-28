@@ -11,8 +11,12 @@ import type { Root } from "react-dom/client";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { TurnCheckpointLoad } from "../src/agent-session/acpmux/changes/turnCheckpoint";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
 import { editedRows } from "./support/unknownWrite";
-import { setEditedFilesSettings } from "../src/agent-session/acpmux/turnChanges/settings";
+
+const { setEditedFilesSettings } = await importWithDom(
+  () => import("../src/agent-session/acpmux/turnChanges/settings"),
+);
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
