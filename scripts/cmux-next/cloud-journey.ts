@@ -6924,11 +6924,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           J.firstText.mark("sent");
           return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
         }
-        if (probeExtra.login_path === "receipt" && provider === "claude") {
-          // The spare holds the person's login (its receipt says installed): the app's start carries no credential and
-          // sends the first prompt on the link its start opened. Before, the journey ran `acp ensure` and then `acp send`
-          // as two execs and two fresh cmux-tui processes: session_ready -> sent 2,566 and 2,515 ms on the real leg's
-          // last two ok runs (45563753386, 45571173365), a cost no person's first send pays.
+        if (provider === "claude") {
+          // A start that carries no credential: the machine holds the login (the spare's receipt says installed, or the
+          // journey copied it), or the machine's own model route answers (no login: the scheduled real leg,
+          // REAL_ROUTE=machine, or a gateway). The app's start sends the first prompt on the link its start opened
+          // (RemoteAcpmuxWire.startChat). Before, the journey ran `acp ensure` and then `acp send` as two execs and two
+          // fresh cmux-tui processes: session_ready -> sent 2,566 and 2,515 ms on the receipt leg's runs 45563753386, 45571173365, and on the no-login real leg
+          // send chat 3,331 ms of which 149 ms on the guest (run 46028327619): a cost no person's first send pays.
           const r = await startExec(`${GUEST}${launchCredentialStartProgram(session, agent, null, null, prompt, sendTrace.id)}`);
           const id = /@@session (\S+)/.exec(r.stdout)?.[1];
           if (!id) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
@@ -6937,7 +6939,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           promptedWithStart = true;
           J.firstText.mark("send");
           J.firstText.mark("sent");
-          return { value: null, detail: `session ${session}, on the login copied on spare.ready; its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
+          const on = probeExtra.login_path === "receipt" ? "on the login copied on spare.ready" : probeExtra.login_path === "copy" ? "on the login the journey copied" : gatewayAny ? "on the team's gateway" : "on the machine's model route (no login)";
+          return { value: null, detail: `session ${session}, ${on}; its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
         }
         const r = await startExec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
