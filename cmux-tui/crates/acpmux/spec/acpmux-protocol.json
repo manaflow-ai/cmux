@@ -3497,6 +3497,7 @@
     "AcpmuxRequestMeta": {
       "additionalProperties": false,
       "properties": {
+        "abi": true,
         "adopt": true,
         "agentSessionId": true,
         "answeredBy": true,
@@ -3506,6 +3507,7 @@
         "author": true,
         "autoPlace": true,
         "beforePromptId": true,
+        "build": true,
         "callerKind": true,
         "callerProtocol": true,
         "callerSession": true,
