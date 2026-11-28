@@ -613,6 +613,8 @@ struct Worker {
     /// The pressure probe (`pressure.rs`): its memory and when it reads next (while bound).
     pressure: super::pressure::Tracker,
     pressure_at: Option<u64>,
+    /// A failed hotplug write was logged (`hotplug.rs`): once a process, not once a second.
+    hotplug_failed_logged: bool,
     rng: SystemRandom,
     epoch: Instant,
     /// This service is the restart a flip or a rollback queued: the first session starts
@@ -700,6 +702,7 @@ impl Worker {
             workload_at: None,
             pressure: super::pressure::Tracker::default(),
             pressure_at: None,
+            hotplug_failed_logged: false,
             rng: SystemRandom::new(),
             epoch: Instant::now(),
             restarted: false,
@@ -1377,6 +1380,20 @@ impl Worker {
     fn probe_pressure(&mut self) {
         let now = self.now();
         self.pressure_at = Some(now + super::pressure::PROBE_INTERVAL_MS);
+        // A grow's hot-added memory and vCPUs online now, not behind udev (`hotplug.rs`).
+        let onlined = super::hotplug::online_hot_added(self.paths.root());
+        if onlined.memory_auto_online || !onlined.cpus.is_empty() {
+            log(&format!(
+                "hotplug: memory auto-online {}, vCPUs onlined {:?} at {}",
+                onlined.memory_auto_online,
+                onlined.cpus,
+                wall_ms()
+            ));
+        }
+        if !onlined.failed.is_empty() && !self.hotplug_failed_logged {
+            self.hotplug_failed_logged = true;
+            log(&format!("hotplug: could not online: {}", onlined.failed.join("; ")));
+        }
         let Some(live) = self.live.as_mut() else { return };
         let block = super::pressure::read(self.paths.root())
             .and_then(|r| self.pressure.observe(&r, wall_ms()).to_json());
