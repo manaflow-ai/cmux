@@ -19149,6 +19149,8 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             # iOS product UI on a fleet simulator: the gesture-conflict suite (#52373) and the composer and terminal
             # keyboard screenshot loop (#62182).
             "cmux-next-ios-gestures.yml", "ios-sim-screenshot-loop.yml",
+            # The vault proven on staging with no Mac (cmux#56893): a product end-to-end run, not a guard.
+            "vault-e2e.yml",
             # Push-only checks that also run, advisory and path-gated, on PRs into feat-cmux-next (#47445): the
             # acpmux simulator sweep, Chief's evals, the mobile FFI, the cmux-next terminal and the Windows RD host.
             "acpmux-sim-sweep.yml", "chief-evals.yml", "cmux-mobile-ffi.yml", "cmux-next-terminal.yml",

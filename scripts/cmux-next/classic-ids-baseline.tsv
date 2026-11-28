@@ -485,3 +485,4 @@ scripts/cmux-next/agent-conn-chaos/linux_daemon.py	join(self.env["XDG_CONFIG_HOM
 scripts/cmux-next/auto-journal-nightly-recovery.ts	.config/cmux	1	keep	harness: writes settings under the run's own scratch home (out/home), never a person's (scripts ship in no build)
 scripts/cmux-next/update-e2e.py	/tmp/cmux-nightly--{fnv1a32(STABLE_BUNDLE_ID)}.sock	1	keep	update harness: the Stable build's own control socket, read to drive the installed build (scripts ship in no build)
 scripts/cmux-next/update-e2e.py	/tmp/cmux-nightly.sock	2	keep	update harness: cmux NIGHTLY's own control socket, read to drive the installed build (scripts ship in no build)
+scripts/cmux-next/vault-e2e.ts	.config/cmux/	1	keep	reads the file cmux-host writes on the machine under test (acpmux login_env.rs), a diagnostic of the product path, not a state root
