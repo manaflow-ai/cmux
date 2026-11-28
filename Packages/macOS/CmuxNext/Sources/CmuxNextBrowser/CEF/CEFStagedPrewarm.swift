@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+import CmuxNextWakeups
 import Darwin
 public import Foundation
 
@@ -106,16 +107,12 @@ public struct CEFStagedPrewarm: Sendable {
         return withExtendedLifetime(session) { run(layout: layout, root: root, session: session, stage: stage) }
     }
 
-    /// Runs `end` on a background queue once `limit` has passed, unless the returned source is cancelled or released
-    /// first; the caller keeps it for the watch to last. Off the main thread: the hang it ends holds the main thread.
-    nonisolated static func watchdog(after limit: Duration, then end: @escaping @Sendable () -> Void) -> any DispatchSourceTimer {
-        let parts = limit.components
-        let nanoseconds = Int(clamping: parts.seconds) &* 1_000_000_000 &+ Int(parts.attoseconds / 1_000_000_000)
-        let source = DispatchSource.makeTimerSource(queue: .global(qos: .userInitiated))
-        source.schedule(deadline: .now() + .nanoseconds(max(0, nanoseconds)), repeating: .never)
-        source.setEventHandler { end() }
-        source.resume()
-        return source
+    /// Runs `end` once `limit` has passed, off the main thread (a nonisolated action on the global executor: the hang it
+    /// ends holds the main thread), unless the returned timer is cancelled or released first; the caller keeps it.
+    nonisolated static func watchdog(after limit: Duration, then end: @escaping @Sendable () -> Void) -> DemandTimer {
+        let timer = DemandTimer(owner: "CEFStagedPrewarm.deadline")
+        timer.schedule(after: limit, reason: "stalled") { @Sendable () async in end() }
+        return timer
     }
 
     private func run(layout: CEFRuntimeLayout, root: URL, session: CEFPrewarmSession, stage: CEFPrewarmStage) -> Outcome {
@@ -204,8 +201,6 @@ public struct CEFStagedPrewarm: Sendable {
     }
 }
 
-/// One pre-warm's state behind the shim's C callbacks (their `ctx`, unretained; the pre-warm keeps it alive), and the
-/// watch that ends the process with the app that started it.
 /// Where the pre-warm is, for the watchdog's line: set on the main thread, read on the watchdog's queue.
 nonisolated final class CEFPrewarmStage: Sendable {
     // concurrency-allow: a short critical section over one string, written by the main thread at each stage and read
@@ -217,10 +212,12 @@ nonisolated final class CEFPrewarmStage: Sendable {
     }
 }
 
+/// One pre-warm's state behind the shim's C callbacks (their `ctx`, unretained; the pre-warm keeps it alive), and the
+/// watch that ends the process with the app that started it.
 final class CEFPrewarmSession {
     var pump: CEFMessagePump?
     /// The whole run's deadline (``CEFStagedPrewarm/watchdog(after:then:)``), kept for as long as the pre-warm runs.
-    var watchdog: (any DispatchSourceTimer)?
+    var watchdog: DemandTimer?
     /// The page's main-frame load ended or failed.
     var loaded = false
     /// Browsers asked for whose OnAfterCreated has not come yet.

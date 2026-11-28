@@ -89,4 +89,3 @@ import Testing
         #expect(CEFStagedPrewarm().run(application: NSApplication.shared, layout: nil) == .notEmbedded)
     }
 }
-
