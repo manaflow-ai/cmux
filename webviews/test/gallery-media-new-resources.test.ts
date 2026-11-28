@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { emulateMedia } from "../src/gallery/frame/media";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { emulateMedia } = await importWithDom(() => import("../src/gallery/frame/media"));
 
 const overrides = {
   "prefers-color-scheme": "dark",

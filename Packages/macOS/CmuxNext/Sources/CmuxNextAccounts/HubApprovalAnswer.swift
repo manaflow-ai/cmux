@@ -14,7 +14,7 @@ public struct HubApprovalAnswer {
         { platform, team, path, body in
             guard allowed() else { throw URLError(.cancelled) }
             let access = try await auth.tokens().access
-            let reply = try await InstallHTTPTransport(baseURL: platform, buildSpace: auth.configuration.buildSpace)
+            let reply = try await InstallHTTPTransport(baseURL: platform, buildSpace: auth.configuration.buildSpace, machineIO: auth.machineIO)
                 .post(path, json: body, bearer: access, headers: team.map { ["x-cmux-team": $0] } ?? [:])
             return (reply.status, reply.body)
         }

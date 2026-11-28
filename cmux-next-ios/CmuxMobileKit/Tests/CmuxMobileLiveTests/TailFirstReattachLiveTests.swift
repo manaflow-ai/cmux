@@ -397,7 +397,8 @@ import Testing
         await Self.waitUntil { Self.shows(store, last) && !store.isFillingGap }
         #expect(store.turns.map(\.id) == Self.ids(0...last))
         #expect(source.gapFill == nil)
-        #expect(fake.attaches.count == 1)
+        // The open's attach and the reattach (`resetCounts` keeps attaches): no third one.
+        #expect(fake.attaches.count == 2)
         #expect(fake.gapPageCount >= 5)
     }
 

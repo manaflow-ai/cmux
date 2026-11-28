@@ -34,8 +34,8 @@ fn chat_move_consent_matrix() {
                         if from == to {
                             assert_eq!(c, Consent::Already, "{cell}");
                         } else if to == Place::Local {
-                            // Cloud→Local (and Auto→Local) always asks the person.
-                            assert!(matches!(c, Consent::NeedsPerson(_)), "{cell}");
+                            // Cloud→Local and Auto→Local: home, unless the kill switch is on.
+                            assert_eq!(c == Consent::Go, enabled, "{cell}");
                         } else {
                             let go = auto_cloud && enabled;
                             assert_eq!(c == Consent::Go, go, "{cell}");
@@ -43,7 +43,6 @@ fn chat_move_consent_matrix() {
                                 assert!(matches!(c, Consent::NeedsPerson(_)), "{cell}");
                             }
                         }
-                        assert!(!(c == Consent::Go && to == Place::Local), "{cell}");
                     }
                 }
                 // A Go lands exactly where it was asked to.

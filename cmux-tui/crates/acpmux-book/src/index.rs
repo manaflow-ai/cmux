@@ -63,6 +63,8 @@ use acpmux_list_types::KIN_DEPTH_STOPS;
 #[cfg(test)]
 pub(crate) use acpmux_list_types::MAX_FIELD_BYTES;
 pub(super) use acpmux_list_types::MAX_KIN_DEPTH;
+/// A chat's versioned residency record (`acpmux ls`, `daemon status`), shared with cmux-tui.
+pub use acpmux_list_types::residency;
 pub use acpmux_list_types::{
     ForkOf, HOT_WINDOW_MS, MAX_SUMMARY_BYTES, MAX_TITLE_BYTES, OriginState, RowKey, Summary,
     SummaryRecord, cut_fields, empty_extras, is_live_state, kin_depth_stops, omitted_folders,

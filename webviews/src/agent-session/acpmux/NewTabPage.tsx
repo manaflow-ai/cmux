@@ -28,7 +28,8 @@ import { firstProject, FolderRecency, homePath, projectLabel, isTemporaryFolder 
 import { useT } from "./i18n";
 import { ShortcutKeycaps } from "./ButtonKeycaps";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
-import { isStartableProject, startedProjectChoices } from "./newtab/startedProject";
+import { isStartableProject, rememberStartedProject, startedProjectChoices } from "./newtab/startedProject";
+import { callNative } from "./callNative";
 import { useNoEntryMotion } from "./newtab/noEntryMotion";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import { newTabStart, useNewTabChipModel } from "./newtab/chipDefaults";
@@ -200,6 +201,12 @@ export function NewTabPage({
     setBrowseError(undefined);
     setProjectCwd(path);
   };
+  // A folder of this Mac the person picked is the next New Tab's default (newtab/startedProject.ts); another
+  // machine's row (`peer`) or a page on another machine (no `home`) never is.
+  const pickByPerson = (path: string, peer?: string) => {
+    pickProject(path);
+    if (home && !peer) rememberStartedProject(path, callNative);
+  };
   const browseProject = async (request?: BrowseRequest): Promise<BrowseResult> => {
     if (browsePending.current) return BROWSE_BUSY;
     browsePending.current = true;
@@ -210,7 +217,10 @@ export function NewTabPage({
       setBrowseError(undefined);
       try {
         const path = await onBrowseProject?.(request);
-        if (browseRequest.current === id && typeof path === "string" && path.length > 0) setProjectCwd(path);
+        if (browseRequest.current === id && typeof path === "string" && path.length > 0) {
+          setProjectCwd(path);
+          if (home) rememberStartedProject(path, callNative);
+        }
         return path;
       } catch (error) {
         if (browseRequest.current === id) setBrowseError(browseFailureMessage(error));
@@ -762,7 +772,7 @@ export function NewTabPage({
                   current={projectCwd}
                   currentLabel={selectedProject}
                   icon={<FolderIcon />}
-                  onPick={pickProject}
+                  onPick={pickByPerson}
                   onBrowse={onBrowseProject && browseProject}
                 />
               )}

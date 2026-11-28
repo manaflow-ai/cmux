@@ -26,6 +26,10 @@ fn scope_props() -> Value {
     })
 }
 
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 pub(super) fn descriptors() -> Vec<Value> {
     let read = json!({"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true});
     // skew: strict vault scope: unknown scope keys could silently target the wrong encrypted store.

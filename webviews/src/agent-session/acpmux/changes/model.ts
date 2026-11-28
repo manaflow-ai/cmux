@@ -89,18 +89,6 @@ export function readBranch(value: unknown): { branch: string; base: string } | u
   return raw.detached !== true && branch && base ? { branch, base } : undefined;
 }
 
-/// The scope menu, top to bottom; `null` is a separator.
-export const SCOPE_ORDER: (ChangeScope | null)[] = [
-  "lastTurn",
-  null,
-  "uncommitted",
-  "unstaged",
-  "staged",
-  null,
-  "committed",
-  "branch",
-];
-
 /// Each scope's label key in the pane's string table (render with `t(SCOPE_LABEL[scope])`).
 export const SCOPE_LABEL = {
   lastTurn: "changes.scope.lastTurn",
