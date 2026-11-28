@@ -2778,6 +2778,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_build_src_worktree_prune.py
 
+      - name: Validate every workflow's inline python parses before Python 3.12
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_workflow_inline_python_f_strings.py
+
       - name: Validate the cmux NEXT Edge feed composer
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_edge_feed.py
