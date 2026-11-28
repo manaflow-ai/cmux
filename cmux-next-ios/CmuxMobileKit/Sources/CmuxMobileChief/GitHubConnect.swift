@@ -285,6 +285,7 @@ public struct GitHubConnectRow: View {
         case .unavailable: String(localized: "Not available")
         case .notConnected: String(localized: "Not connected")
         case .pending: String(localized: "Finish on GitHub")
+        // retry-prompt-ok: GitHub re-auth needs the person in GitHub's own OAuth page; nothing can do it for them
         case .needsReauth: String(localized: "mobile.chief.github.reconnect", defaultValue: "Reconnect needed", bundle: .module)
         case .error: String(localized: "mobile.chief.github.error", defaultValue: "GitHub error", bundle: .module)
         case let .connected(logins): logins.isEmpty ? String(localized: "Connected") : logins.joined(separator: ", ")

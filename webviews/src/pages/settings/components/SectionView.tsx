@@ -1,5 +1,5 @@
 import { categoryById, type CategoryCard } from "../categories";
-import { text } from "../strings";
+import { text, t } from "../strings";
 import { GroupList } from "./GroupList";
 import { APPEARANCE_CATEGORIES } from "../appearanceUndo";
 import { AppearanceBar } from "./AppearanceBar";
@@ -22,6 +22,8 @@ import {
   THEME_KEY,
   useBackdropsShown,
   useSeveralSpaces,
+  SELECTION_KEY,
+  DOCTOR_NOTICE_KEY,
 } from "../cardRows";
 import { arrangeGroups } from "../rowLevels";
 import { Card } from "./cardModules";
@@ -53,11 +55,23 @@ export function SectionView({
   const unmatched = missing ?? (absent && target ? linkName(target) : null);
   const category = categoryById(section);
   // The theme studio draws appearance.theme, appearance.appTheme, appearance.accent,
-  // appearance.highlightColor, appearance.rotateFavoriteThemes and appearance.themeFile itself; the
-  // schema's group for them would draw each a second time (a second "App Theme" card).
+  // appearance.selection, appearance.highlightColor, appearance.rotateFavoriteThemes,
+  // appearance.themeFile and customize.doctorNotice itself; the schema's group for them would draw each a second time (a second
+  // "App Theme" card).
   const studio = category.lead.includes("themeStudio");
   const drawn = new Set(
-    studio ? [THEME_KEY, APP_THEME_KEY, ACCENT_KEY, HIGHLIGHT_COLOR_KEY, ROTATE_FAVORITES_KEY, THEME_FILE_KEY] : [],
+    studio
+      ? [
+          THEME_KEY,
+          APP_THEME_KEY,
+          ACCENT_KEY,
+          SELECTION_KEY,
+          HIGHLIGHT_COLOR_KEY,
+          ROTATE_FAVORITES_KEY,
+          THEME_FILE_KEY,
+          DOCTOR_NOTICE_KEY,
+        ]
+      : [],
   );
   // The background picker draws appearance.background and its Opacity while it shows.
   const picker = useBackdropsShown() && [...category.lead, ...category.trail].includes("backdrops");
@@ -102,7 +116,18 @@ export function SectionView({
       {category.lead.map((card) => (
         <CardSlot key={card} card={card} focus={focus} workspace={workspace} reveal={reveal === card} />
       ))}
-      {cards.length > 0 && <GroupList groups={cards} focus={focus} pageTitle={text(category.title)} />}
+      {cards.length > 0 && (
+        <GroupList
+          groups={cards}
+          focus={focus}
+          pageTitle={text(category.title)}
+          groupHelp={
+            category.id === "cloud"
+              ? { "settings.group.cloudWorkspaces": t("settingsWindow.cloud.workspaces.help") }
+              : undefined
+          }
+        />
+      )}
       {category.trail.map((card) => (
         <CardSlot key={card} card={card} focus={focus} workspace={workspace} reveal={reveal === card} />
       ))}

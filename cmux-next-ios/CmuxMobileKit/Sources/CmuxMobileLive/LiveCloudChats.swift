@@ -107,6 +107,7 @@ public final class CloudChatRelay {
         let generation = generation
         linkID = ObjectIdentifier(link)
         error = nil
+        hub.onStall = nil
         binding?.cancel()
         binding = Task { [weak self] in
             guard let self, self.generation == generation, !Task.isCancelled else { return }
@@ -122,12 +123,17 @@ public final class CloudChatRelay {
                 }
                 // Files on this VM must never use the relay Mac's file/upload
                 // services. Leave macLink unset; ACP still carries chat text.
+                hub.onStall = { [weak self] in
+                    guard let self, !self.isRetired, self.generation == generation else { return }
+                    self.bind(link, force: true)
+                    await self.binding?.value
+                }
                 await hub.bind(channel)
                 guard self.generation == generation else { return }
-                if !hub.isReady { error = "Couldn't connect. Try again." }
+                if !hub.isReady { error = "Couldn't connect." }
             } catch {
                 guard self.generation == generation else { return }
-                self.error = "Couldn't connect. Try again."
+                self.error = "Couldn't connect."
             }
             if self.generation == generation { binding = nil }
         }
@@ -137,6 +143,7 @@ public final class CloudChatRelay {
         generation += 1
         let generation = generation
         linkID = nil
+        hub.onStall = nil
         binding?.cancel()
         binding = nil
         hub.cancelWaiters()
@@ -212,7 +219,7 @@ extension LiveCoordinator {
         guard await waitUntil(within: .seconds(20), { [weak self] in
             self?.sessions[macID]?.workspaces.daemon != nil
         }), let session = sessions[macID], !stopped else {
-            throw LinkError(code: "offline", message: "Couldn't connect. Try again.")
+            throw LinkError(code: "offline", message: "Couldn't connect to your Mac.")
         }
         let link = try await pairedLink(session)
         guard !stopped, sessions[macID] === session else { throw LinkError(code: "offline", message: "Connect your Mac.") }
@@ -237,7 +244,7 @@ extension LiveCoordinator {
         }
         await channel.close(code: "eof", reason: "directory read")
         guard !stopped, sessions[macID] === session, session.currentLink === link else {
-            throw LinkError(code: "offline", message: "Connection changed. Try again.")
+            throw LinkError(code: "offline", message: "The connection to your Mac changed.")
         }
         return directory
     }
@@ -335,7 +342,7 @@ public enum CloudChatDirectory {
                 group.addTask {
                     try await Task.sleep(for: .seconds(20))
                     await channel.close(code: "timeout", reason: "directory timed out")
-                    throw LinkError(code: "timeout", message: "Couldn't load Cloud machines. Try again.")
+                    throw LinkError(code: "timeout", message: "Couldn't load Cloud machines.")
                 }
                 defer { group.cancelAll() }
                 return try await group.next() ?? CloudDirectory(paid: false, machines: [])

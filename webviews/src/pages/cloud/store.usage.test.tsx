@@ -59,9 +59,9 @@ const panel = (store: CloudStore) =>
   renderToStaticMarkup(<AccountPanel store={store} state={store.getSnapshot()} strings={strings} />);
 
 test("meters convert seconds to the units they are priced in and keep the server's dollars", () => {
-  expect(meterAmount(usage, "vcpu")).toEqual({ amount: 10, usd: 0.5 });
-  expect(meterAmount(usage, "memory")).toEqual({ amount: 20, usd: 0.25 });
-  expect(meterAmount(usage, "stored")).toEqual({ amount: 1, usd: 0.125 });
+  expect(meterAmount(usage, "vcpu")).toEqual({ amount: 10, usd: 0.5, rate: undefined });
+  expect(meterAmount(usage, "memory")).toEqual({ amount: 20, usd: 0.25, rate: undefined });
+  expect(meterAmount(usage, "stored")).toEqual({ amount: 1, usd: 0.125, rate: undefined });
   expect(cardBrand("visa")).toBe("Visa");
   expect(cardBrand("amex")).toBe("American Express");
   expect(cardBrand("elo")).toBe("Elo");

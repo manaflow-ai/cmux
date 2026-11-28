@@ -6,6 +6,9 @@
 use super::session_move::prompt;
 use super::*;
 
+/// The person key both daemons get on `--person-key-fd`, as from the app's launcher.
+const MATRIX_PERSON_KEY: &str = "6d617472697870657273306e6b65796d617472697870657273306e6b65793031";
+
 /// The smallest PNG: a 1x1 transparent pixel.
 const PNG_B64: &str =
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
@@ -101,19 +104,36 @@ fn chosen(info: &Value, rules: &Value) -> Value {
 
 async fn move_matrix(harness: &'static str, harness_env: Value, mode: &str, hibernate: bool) {
     let tag = format!("mx-{harness}{}", if hibernate { "-h" } else { "" });
-    // Under the ask policy a client other than the app may pick a mode and rules that ask.
-    let target = Daemon::with_env(&format!("{tag}-t"), None, harness_env.clone(), &[], "ask").await;
+    // Under the ask policy a client other than the app may pick a mode and rules that ask; a
+    // mode that does not ask (`acceptEdits`) is the person's to pick, so each daemon holds the
+    // person key as the app's launcher passes it, and the source's client proves it.
+    let target = Daemon::with_person(
+        &format!("{tag}-t"),
+        None,
+        harness_env.clone(),
+        &[],
+        "ask",
+        MATRIX_PERSON_KEY,
+    )
+    .await;
     let idle: &[(&str, &str)] = if hibernate { &[("ACPMUX_IDLE_CHILD_SECS", "1")] } else { &[] };
     let mut harness_env = harness_env;
     let pids = std::env::temp_dir().join(format!("amx-{tag}-pids-{}", std::process::id()));
     let _ = std::fs::remove_file(&pids);
     harness_env["FAKE_CLASS_LOG"] = json!(pids);
-    let source =
-        Daemon::with_env(&format!("{tag}-s"), Some(&target), harness_env, idle, "ask").await;
+    let source = Daemon::with_person(
+        &format!("{tag}-s"),
+        Some(&target),
+        harness_env,
+        idle,
+        "ask",
+        MATRIX_PERSON_KEY,
+    )
+    .await;
     let mut cells = Cells { harness, red: Vec::new() };
     let cwd = source.home.join("project");
     std::fs::create_dir(&cwd).unwrap();
-    let mut src = Rpc::connect(&source.socket).await;
+    let mut src = Rpc::connect_person(&source.socket, MATRIX_PERSON_KEY).await;
     let made = src.call("session/new", json!({"cwd": cwd, "mcpServers": []})).await;
     let id = made["sessionId"].as_str().unwrap().to_owned();
     let id = id.as_str();
@@ -136,7 +156,11 @@ async fn move_matrix(harness: &'static str, harness_env: Value, mode: &str, hibe
         "the source keeps the image"
     );
 
-    // Model, effort, mode and allow rules, as the person picked them.
+    // Model, effort, mode and allow rules, as the person picked them. Each cell below checks
+    // the picked value on both sides, so a pick the source refused is that cell's red, not a
+    // start default that reads the same after the move.
+    let rules = json!({"autoDeny": ["delete"], "ask": ["execute"], "default": "ask"});
+    let picked = json!({"model": "opus", "effort": "low", "mode": mode, "rules": rules});
     let picks = [
         ("session/set_model", json!({"sessionId": id, "modelId": "opus"})),
         (
@@ -144,10 +168,7 @@ async fn move_matrix(harness: &'static str, harness_env: Value, mode: &str, hibe
             json!({"sessionId": id, "configId": "effort", "value": "low"}),
         ),
         ("session/set_mode", json!({"sessionId": id, "modeId": mode})),
-        (
-            "_acpmux/set_rules",
-            json!({"sessionId": id, "rules": {"autoDeny": ["delete"], "ask": ["execute"], "default": "ask"}}),
-        ),
+        ("_acpmux/set_rules", json!({"sessionId": id, "rules": rules})),
     ];
     for (method, params) in picks {
         if let Err(e) = src.try_call(method, params).await {
@@ -258,8 +279,8 @@ async fn move_matrix(harness: &'static str, harness_env: Value, mode: &str, hibe
     for key in ["model", "effort", "mode", "rules"] {
         cells.check(
             key,
-            !before[key].is_null() && before[key] == after[key],
-            format!("{} -> {}", before[key], after[key]),
+            before[key] == picked[key] && before[key] == after[key],
+            format!("{} -> {} (picked {})", before[key], after[key], picked[key]),
         );
     }
 
@@ -501,9 +522,40 @@ async fn codex_store_moves(way: Way) {
             cells.check("moved", receipt["moves"][0]["moved"] == true, &receipt);
         }
         Way::Gui => {
+            // As the app moves it (a `peer`-controlled receive), the target would start the
+            // agent as a remote launch, which takes a Codex chat only through the
+            // `codex app-server` bridge (`web_modes::remote_start`). The fake agent speaks ACP,
+            // so the guarded receive refuses it (`remote.mode_not_asking`) before anything
+            // freezes: the row checks that refusal is clean, the chat staying whole and live on
+            // the source and nothing of it landing on the target.
             std::fs::create_dir_all(&destination).unwrap();
             let moved = gui_move(&mut src, &mut dst, id, &destination).await;
-            cells.check("moved", moved.is_ok(), format!("{moved:?}"));
+            cells.check(
+                "refused-before-freeze",
+                moved.as_ref().is_err_and(|e| {
+                    e.starts_with("receive:") && e.contains("remote.mode_not_asking")
+                }),
+                format!("{moved:?}"),
+            );
+            let on_target = files_under(&home_of(&format!("{tag}-t")).join(".codex/sessions"));
+            cells.check("target-untouched", on_target.is_empty(), format!("{on_target:?}"));
+            let kept = std::fs::read(&on_source[0]).ok();
+            cells.check(
+                "source-store-kept",
+                kept.as_deref().is_some_and(|k| k.starts_with(&rollout)),
+                "",
+            );
+            let answer =
+                src.try_call("session/prompt", prompt(id, "p-probe", "history-probe")).await;
+            let probe = src.texts(id, "agent_message_chunk").await.pop().unwrap_or_default();
+            let probe: Value = serde_json::from_str(&probe).unwrap_or(Value::Null);
+            cells.check(
+                "source-still-answers",
+                answer.is_ok() && probe["prompts"] == json!(["one", "two"]),
+                format!("{answer:?} {probe}"),
+            );
+            assert!(cells.red.is_empty(), "red cells for codex-store (gui): {:#?}", cells.red);
+            return;
         }
     }
 
@@ -513,14 +565,6 @@ async fn codex_store_moves(way: Way) {
         on_target.len() == 1 && std::fs::read(&on_target[0]).ok().as_deref() == Some(&rollout[..]),
         format!("{on_target:?}"),
     );
-    // Moved as the app moves it (a `peer`-controlled receive), the target respawns the agent as
-    // a remote launch, which takes a Codex chat only through the `codex app-server` bridge
-    // (`web_modes::remote_start`). The fake agent speaks ACP, so it is refused there
-    // (`remote.mode_not_asking`); the CLI row checks the resume from the moved store.
-    if matches!(way, Way::Gui) {
-        assert!(cells.red.is_empty(), "red cells for codex-store (gui): {:#?}", cells.red);
-        return;
-    }
     let answer = dst.try_call("session/prompt", prompt(id, "p-probe", "history-probe")).await;
     let probe = dst.texts(id, "agent_message_chunk").await.pop().unwrap_or_default();
     let probe: Value = serde_json::from_str(&probe).unwrap_or(Value::Null);
@@ -664,4 +708,70 @@ async fn a_claude_chat_with_subagents_moves_its_transcript_and_folds() {
 #[tokio::test]
 async fn a_claude_chat_with_subagents_moves_as_the_app_drives_it() {
     claude_subagent_folds_move(Way::Gui).await;
+}
+
+/// The bundle is the source's manifest of the chat's own files: a move whose target cannot keep
+/// one of them fails, and the source still holds the chat, rather than landing without it. Here
+/// the target holds a folder where the Codex rollout goes, so the rollout cannot be placed; the
+/// receive used to count what it placed and move on, and the agent there resumed with no
+/// history.
+#[tokio::test]
+async fn a_move_whose_agent_store_cannot_land_fails_and_the_source_keeps_the_chat() {
+    let tag = "mxun";
+    let env = |side: &str| {
+        json!({"FAMILY": "codex", "FAKE_CODEX_STORE": "1",
+               "CODEX_HOME": home_of(&format!("{tag}-{side}")).join(".codex")})
+    };
+    let target = Daemon::with_env(&format!("{tag}-t"), None, env("t"), &[], "ask").await;
+    let source = Daemon::with_env(&format!("{tag}-s"), Some(&target), env("s"), &[], "ask").await;
+    let cwd = source.home.join("project");
+    std::fs::create_dir(&cwd).unwrap();
+    let mut src = Rpc::connect(&source.socket).await;
+    let made = src.call("session/new", json!({"cwd": cwd, "mcpServers": []})).await;
+    let id = made["sessionId"].as_str().unwrap().to_owned();
+    let id = id.as_str();
+    src.call("session/prompt", prompt(id, "p-one", "one")).await;
+    let source_codex = home_of(&format!("{tag}-s")).join(".codex");
+    let on_source = files_under(&source_codex.join("sessions"));
+    assert_eq!(on_source.len(), 1, "the agent keeps one rollout: {on_source:?}");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    // A folder where the target would put the rollout.
+    let rel = on_source[0].strip_prefix(&source_codex).unwrap();
+    let blocked = home_of(&format!("{tag}-t")).join(".codex").join(rel);
+    std::fs::create_dir_all(blocked.join("in-the-way")).unwrap();
+
+    let destination = home_of(&format!("{tag}-t")).join("work/arrived");
+    std::fs::create_dir_all(&destination).unwrap();
+    let mut command = daemon_env::tokio_command(&source.home, daemon_env::Agents::Deny);
+    command
+        .args(["--json", "session", "move", id, "--machine", "target", "--interrupt", "--cwd"])
+        .arg(&destination)
+        .env(
+            "PATH",
+            format!("{}:{}", source.home.join("bin").display(), daemon_env::bare_path(&[])),
+        )
+        .env("ACPMUX_HOME", &source.home)
+        .env("ACPMUX_SOCKET", &source.socket)
+        .kill_on_drop(true);
+    let out = tokio::time::timeout(Duration::from_secs(45), command.output())
+        .await
+        .expect("session move completed")
+        .expect("run session move");
+    let said =
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let receipt: Value = serde_json::from_slice(&out.stdout).unwrap_or(Value::Null);
+    assert!(
+        !out.status.success() || receipt["moves"][0]["moved"] != true,
+        "the move landed without its rollout: {said}"
+    );
+    assert!(said.contains("not kept here"), "the refusal names no unkept file: {said}");
+
+    // The target holds no chat; the source still does, with its store, and answers.
+    let mut dst = Rpc::connect(&target.socket).await;
+    let there =
+        dst.try_call("_acpmux/events", json!({"sessionId": id, "afterSeq": 0, "limit": 10})).await;
+    assert!(there.is_err(), "the target kept a chat with no rollout: {there:?}");
+    assert!(on_source[0].is_file(), "the source's rollout went");
+    let answer = src.try_call("session/prompt", prompt(id, "p-two", "two")).await;
+    assert!(answer.is_ok(), "the source no longer answers: {answer:?}");
 }

@@ -15,7 +15,7 @@ import {
   settledAwaiting,
   type SnapshotRow,
 } from "../scripts/devbox-rebake";
-import { readDevboxAwaitingRebake, repoRoot, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
+import { isFreestyleTransient, readDevboxAwaitingRebake, repoRoot, retryFreestyleOverload, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Bun's YAML parser; web/tests are typed by tests/bun-test.d.ts, which has no Bun global.
@@ -149,5 +149,82 @@ describe("rebake inputs", () => {
     expect(workflow.concurrency["cancel-in-progress"]).toBe(false);
     // The account and the devbox-rebake/* PRs are shared: one canonical branch bakes.
     expect(workflow.jobs.rebake.if).toContain("github.ref == 'refs/heads/feat-cmux-next'");
+  });
+});
+
+describe("retryFreestyleOverload", () => {
+  const overloaded = Object.assign(new Error("infrastructure overloaded: VM start capacity queue wait expired"), { status: 429, code: "INFRASTRUCTURE_OVERLOADED" });
+
+  test("asks again after a 429 overload and returns the VM", async () => {
+    let calls = 0;
+    const vm = await retryFreestyleOverload("t", async () => {
+      calls += 1;
+      if (calls < 3) throw overloaded;
+      return "vm-1";
+    }, 1_000, 1);
+    expect(vm).toBe("vm-1");
+    expect(calls).toBe(3);
+  });
+
+  test("rethrows any other error at once", async () => {
+    let calls = 0;
+    const other = Object.assign(new Error("bad snapshot"), { status: 400 });
+    await expect(retryFreestyleOverload("t", async () => { calls += 1; throw other; }, 1_000, 1)).rejects.toBe(other);
+    expect(calls).toBe(1);
+  });
+
+  test("gives up with the overload once the budget is spent", async () => {
+    let calls = 0;
+    await expect(retryFreestyleOverload("t", async () => { calls += 1; throw overloaded; }, 30, 10)).rejects.toBe(overloaded);
+    expect(calls).toBeGreaterThan(1);
+  });
+
+  test("asks again after a 409 VM_NON_RESPONSIVE start, and rethrows other 409s", async () => {
+    // Rebake run 46028301324 attempt 3: the verify's second vms.create answered 409 VM_NON_RESPONSIVE.
+    const nonResponsive = Object.assign(new Error("vm stopped responding: timed out reading from guest agent"), { status: 409, code: "VM_NON_RESPONSIVE" });
+    let calls = 0;
+    const vm = await retryFreestyleOverload("t", async () => {
+      calls += 1;
+      if (calls < 2) throw nonResponsive;
+      return "vm-2";
+    }, 1_000, 1);
+    expect(vm).toBe("vm-2");
+    expect(calls).toBe(2);
+    const conflict = Object.assign(new Error("name taken"), { status: 409, code: "CONFLICT" });
+    calls = 0;
+    await expect(retryFreestyleOverload("t", async () => { calls += 1; throw conflict; }, 1_000, 1)).rejects.toBe(conflict);
+    expect(calls).toBe(1);
+  });
+
+  test("an ask that outlasts the budget in Freestyle's queue is still asked again", async () => {
+    // Rebake run 46028301324: the verify start sat ten minutes in the capacity queue, then 429.
+    let calls = 0;
+    const vm = await retryFreestyleOverload("t", async () => {
+      calls += 1;
+      if (calls < 3) {
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        throw overloaded;
+      }
+      return "vm-1";
+    }, 30, 5);
+    expect(vm).toBe("vm-1");
+    expect(calls).toBe(3);
+  });
+
+  test("with isFreestyleTransient asks again after a 500, as a resize needs, and still rethrows a 4xx", async () => {
+    // Rebake run 45889121287: POST /v5/vms/ID/resize answered 500 INTERNAL_ERROR once.
+    const internal = Object.assign(new Error("Internal server error"), { status: 500, code: "INTERNAL_ERROR" });
+    let calls = 0;
+    const ok = await retryFreestyleOverload("t", async () => {
+      calls += 1;
+      if (calls < 2) throw internal;
+      return "resized";
+    }, 1_000, 1, isFreestyleTransient);
+    expect(ok).toBe("resized");
+    expect(calls).toBe(2);
+    const bad = Object.assign(new Error("bad size"), { status: 400 });
+    expect(isFreestyleTransient(bad)).toBe(false);
+    expect(isFreestyleTransient(overloaded)).toBe(true);
+    await expect(retryFreestyleOverload("t", async () => { throw internal; }, 1_000, 1)).rejects.toBe(internal);
   });
 });

@@ -13,6 +13,7 @@ import {
   type previewForFile,
 } from "./composer/imagePool";
 import { liftInlineImages } from "./inlineImages";
+import { pastedPlainText } from "./pasteText";
 import { PASTE_FILE_CHARS, pastedTextBlocks } from "./pastedText";
 
 import type { StringKey } from "./i18n";
@@ -519,6 +520,22 @@ export function promptText(text: string, attachments: ComposerAttachment[], opti
   return [visibleText, ...files, ...notes].filter(Boolean).join("\n\n");
 }
 
+/// One line `promptText` adds for a linked file: the agent's, never the person's words.
+const ATTACHED_FILE_NOTE = /^Attached file: .+ \([^\s(),]+, \d+ bytes\)\. Read the linked file with your tools\.$/;
+
+/// `text` without the notes `promptText` added for its linked files: the bubble, its Copy and its
+/// editor show what the person typed; the file draws as its chip or thumbnail.
+export function withoutAttachedFileNotes(text: string): string {
+  if (!text.includes("Attached file: ")) return text;
+  const lines = text.split("\n");
+  const kept = lines.filter((line) => !ATTACHED_FILE_NOTE.test(line));
+  if (kept.length === lines.length) return text;
+  return kept
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/^\n+|\n+$/g, "");
+}
+
 /// ACP prompt blocks: the text (with text files) first, then each pasted text (pastedText.ts), then
 /// each image, PDF, recording and file or folder link.
 /// A `data:` image written into the text goes as an image block, never as text (inlineImages.ts).
@@ -857,11 +874,14 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
 /// Whether a paste of files carries no text but their own names: files copied in a file manager
 /// also put each one's name (or path, or a file: URL list) on the clipboard as text, which the
 /// field must not take as a prompt. As the Home channel's composer decides (home-channels/Composer.tsx).
+/// Text WebKit withheld for the files beside it but kept in the HTML (a copy of text with an image
+/// in it, issue 59851) is the person's own: the paste carries more than the files.
 export function pasteIsOnlyFileNames(transfer: DataTransfer): boolean {
   if (transfer.files.length === 0) return false;
   const text = transfer.getData("text/plain");
+  if (!text) return !pastedPlainText(transfer).trim();
   const names = [...transfer.files].map((file) => file.name);
-  return !text || [...transfer.types].includes("text/uri-list") || names.some((name) => text.includes(name));
+  return [...transfer.types].includes("text/uri-list") || names.some((name) => text.includes(name));
 }
 
 /// Smaller than this is a page's spacer or icon, not an image someone copied.

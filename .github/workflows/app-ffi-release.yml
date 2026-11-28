@@ -58,6 +58,7 @@ on:
       - "cmux-tui/crates/cmux-app-ffi/**"
       - "cmux-tui/crates/cmux-action-catalog/**"
       - "cmux-tui/crates/cmux-agent-pane-policy/**"
+      - "cmux-tui/crates/cmux-background-ready/**"
       - "cmux-tui/crates/cmux-bookmarks-core/**"
       - "cmux-tui/crates/cmux-build-space/**"
       - "cmux-tui/crates/cmux-cloud-config/**"
@@ -70,12 +71,16 @@ on:
       - "cmux-tui/crates/cmux-browser-rules/**"
       - "cmux-tui/crates/cmux-cloud-tasks/**"
       - "cmux-tui/crates/cmux-config/**"
+      - "cmux-tui/crates/cmux-home-rules/**"
       - "cmux-tui/crates/cmux-cookie-sync/**"
       - "cmux-tui/crates/cmux-daemon-conn-core/**"
       - "cmux-tui/crates/cmux-daemon-launch-core/**"
+      - "cmux-tui/crates/cmux-update-prewarm-core/**"
       - "cmux-tui/crates/cmux-health-core/**"
       - "cmux-tui/crates/cmux-launch-image/**"
       - "cmux-tui/crates/cmux-pane-pictures/**"
+      - "cmux-tui/crates/cmux-chat-markdown/**"
+      - "cmux-tui/crates/cmux-acpmux-remote-wire/**"
       - "cmux-tui/crates/cmux-screenshots/**"
       - "cmux-tui/crates/cmux-focus-core/**"
       - "cmux-tui/crates/cmux-imessage/**"
@@ -88,6 +93,7 @@ on:
       - "cmux-tui/crates/cmux-lifeline/**"
       - "cmux-tui/crates/cmux-local-auth/**"
       - "cmux-tui/crates/cmux-layout-reducer-ffi/**"
+      - "cmux-tui/crates/cmux-error-journal/**"
       - "cmux-tui/crates/cmux-palette-ranker/**"
       - "cmux-tui/crates/cmux-process/**"
       - "cmux-tui/crates/cmux-motion/**"
@@ -98,6 +104,7 @@ on:
       - "cmux-tui/crates/cmux-rd-proto/**"
       - "cmux-tui/crates/cmux-rd-ffi/**"
       - "cmux-tui/crates/cmux-sdk-ffi/**"
+      - "cmux-tui/crates/cmux-sign-clone-sweep/**"
       - "cmux-tui/bindings/rust/**"
       - "cmux-tui/crates/cmux-remote-browser/**"
       - "cmux-tui/crates/cmux-tasks-core/**"
@@ -105,6 +112,20 @@ on:
       - "cmux-tui/crates/cmux-url-input/**"
       - "cmux-tui/crates/cmux-unix-socket/**"
       - "cmux-tui/crates/cmux-window-rules/**"
+      - "cmux-tui/crates/cmux-message-preview/**"
+      - "cmux-tui/crates/cmux-mobile-host-core/**"
+      - "cmux-tui/crates/cmux-share-approval/**"
+      - "cmux-tui/crates/cmux-vnc/**"
+      # Reached through cmux-tui workspace dependencies (`name.workspace = true`), as check-app-ffi-pin.sh derives.
+      - "cmux-tui/crates/cmux-app-host/**"
+      - "cmux-tui/crates/cmux-egress/**"
+      - "cmux-tui/crates/cmux-embed/**"
+      - "cmux-tui/crates/cmux-embed-macros/**"
+      - "cmux-tui/crates/cmux-felt/**"
+      - "cmux-tui/crates/cmux-json/**"
+      - "cmux-tui/crates/cmux-rd-screen/**"
+      - "cmux-tui/crates/cmux-scope/**"
+      - "cmux-tui/crates/cmux-theme-tokens/**"
       - "cmux-tui/rust-toolchain.toml"
       - "scripts/cmux-next/build-app-ffi.sh"
       - ".github/workflows/app-ffi-release.yml"
@@ -116,6 +137,8 @@ on:
       - "!cmux-tui/bindings/rust/examples/**"
       # cmux-rd-ffi's line reader test includes cmux-rd-proto/tests/vectors/app_lines.json.
       - "cmux-tui/crates/cmux-rd-proto/tests/**"
+      # cmux-wallpaper's lottie code includes tests/fixtures/lottie/orbs.json (include_bytes!).
+      - "cmux-tui/crates/cmux-wallpaper/tests/**"
   workflow_dispatch:
     inputs:
       universal:
@@ -194,7 +217,7 @@ jobs:
   placement:
     name: place the build
     if: github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     # The routing App's read-only key, in the environment cmux-next's placement uses.
     environment:
@@ -211,7 +234,7 @@ jobs:
       # The attempt that placed: a re-run of the build alone keeps attempt 1's outputs, read then.
       placed_attempt: ${{ steps.place.outcome == 'success' && format('{0}', github.run_attempt) || '' }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -268,12 +291,12 @@ jobs:
   portable-tests:
     name: app FFI unit tests (Linux)
     if: github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -288,7 +311,8 @@ jobs:
           workspaces: |
             cmux-tui -> target
             cmux-tui/crates/cmux-app-ffi -> target
-          key: app-ffi-unit-tests
+          # The toolchain and both workspaces' lockfiles: a fixed key restores its first entry forever.
+          key: app-ffi-unit-tests-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', 'cmux-tui/crates/cmux-app-ffi/Cargo.lock', '.cargo/config.toml') }}
 
       - name: Test the reducer
         working-directory: cmux-tui
@@ -328,17 +352,17 @@ jobs:
     # the routes below.
     # RELEASE_FIRST (claude-sr2-coord, 2026-11-16: "release and pin jobs ...
     # and nightlies ... go ahead of PR jobs"): every attempt, push or dispatch,
-    # first takes glaeda's nightly slot label, glaeda-nightly-std-xcode-26.6,
+    # first takes glaeda's nightly slot label, mac-nightly,
     # one runner per owned std mini that no pull request job asks for. glaeda's
     # hook ranks this build as a nightly job there (teamleaderleo/glaeda#2037,
     # release_pin_build): it is admitted ahead of every PR job waiting on the
     # mini, and no PR job is refused for it. Run 43869638705 (a dispatch at
-    # 4c6b1efc) queued 1 to 4 hours on glaeda-side-std-xcode-26.6 behind PR
+    # 4c6b1efc) queued 1 to 4 hours on mac-std behind PR
     # jobs while the nightly slots sat idle. vars.CI_RELEASE_PIN_SLOT `off`
     # restores the routes below. Order: a rescue dispatch, then CI_FFI_RELEASE_POOL when set, then this slot.
     # A bot's re-run past attempt 2 (the owned-pool rescue's move) leaves the slot for the routes below, so the
     # rescue cannot loop on the minis (tests/test_seed_derived_data.py); a person's re-run keeps it.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.rescue == 'blacksmith' && needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_12_jobs, ' app-ffi-build ') && fromJSON(vars.RUNNER_POOLS).macos_26_large || inputs.rescue == 'blacksmith' && needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_6_jobs, ' app-ffi-build ') && fromJSON(vars.RUNNER_POOLS).macos_26 || inputs.rescue != '' && inputs.rescue_pool == 'ffi-pool' && vars.CI_FFI_RELEASE_POOL || inputs.rescue != '' && inputs.rescue_pool == 'promote' && vars.CI_NEXT_PROMOTE_POOL || inputs.rescue != '' && inputs.rescue_pool == 'side' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.CI_FFI_RELEASE_POOL != '' && vars.CI_FFI_RELEASE_POOL || vars.CI_RELEASE_PIN_SLOT != 'off' && (github.run_attempt <= 2 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && 'glaeda-nightly-std-xcode-26.6' || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.placement.outputs.promote_runner != '' && needs.placement.outputs.promote_runner || vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_12_jobs, ' app-ffi-build ') && (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26_large) || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_6_jobs, ' app-ffi-build ') && (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.rescue == 'blacksmith' && needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_12_jobs, ' app-ffi-build ') && fromJSON(vars.RUNNER_POOLS).macos_26_large || inputs.rescue == 'blacksmith' && needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_6_jobs, ' app-ffi-build ') && fromJSON(vars.RUNNER_POOLS).macos_26 || inputs.rescue != '' && inputs.rescue_pool == 'ffi-pool' && vars.CI_FFI_RELEASE_POOL || inputs.rescue != '' && inputs.rescue_pool == 'promote' && vars.CI_NEXT_PROMOTE_POOL || inputs.rescue != '' && inputs.rescue_pool == 'side' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.CI_FFI_RELEASE_POOL != '' && vars.CI_FFI_RELEASE_POOL || vars.CI_RELEASE_PIN_SLOT != 'off' && (github.run_attempt <= 2 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && 'mac-nightly' || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.placement.outputs.promote_runner != '' && needs.placement.outputs.promote_runner || vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_12_jobs, ' app-ffi-build ') && (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26_large) || needs.placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.placement.outputs.blacksmith_6_jobs, ' app-ffi-build ') && (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 45
     # A newer push or dispatch on the same ref waits for this build, never
     # cancels it; a still newer one replaces it while it waits. A build that has
@@ -372,7 +396,7 @@ jobs:
             rm -rf "$GITHUB_WORKSPACE/.git"
           fi
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -437,6 +461,8 @@ jobs:
         env:
           CMUX_APP_FFI_ARCHS: ${{ inputs.universal && 'arm64,x86_64' || 'arm64' }}
           CMUX_APP_FFI_OUT: ${{ runner.temp }}/app-ffi
+          # Self-hosted Macs keep cargo's target directory between releases (build-app-ffi.sh).
+          CMUX_APP_FFI_PERSIST_TARGET: ${{ runner.environment == 'self-hosted' && '1' || '0' }}
         run: ../scripts/cmux-next/build-app-ffi.sh
 
       - name: Assemble, check and checksum
@@ -470,8 +496,8 @@ jobs:
           smoke="$RUNNER_TEMP/smoke"
           mkdir -p "$smoke"
           {
-            printf '%s\n' '#include <CCmuxRdFFI/cmux_rd_ffi.h>' '#include <CCmuxLayoutReducerFFI/cmux_layout_reducer_ffi.h>' '#include <CCmuxPaletteRankerFFI/cmux_palette_ranker.h>' '#include <stdio.h>' 'int main(void) {'
-            for symbol in $(cat cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h cmux-tui/crates/cmux-palette-ranker/include/cmux_palette_ranker.h | grep -oE '\bcmux_[a-z0-9_]+\(' | tr -d '(' | sort -u); do
+            printf '%s\n' '#include <CCmuxRdFFI/cmux_rd_ffi.h>' '#include <CCmuxScreenKitFFI/cmux_screen_kit.h>' '#include <CCmuxLayoutReducerFFI/cmux_layout_reducer_ffi.h>' '#include <CCmuxPaletteRankerFFI/cmux_palette_ranker.h>' '#include <stdio.h>' 'int main(void) {'
+            for symbol in $(cat cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h cmux-tui/crates/cmux-rd-core/include/cmux_screen_kit.h cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h cmux-tui/crates/cmux-palette-ranker/include/cmux_palette_ranker.h | grep -oE '\bcmux_[a-z0-9_]+\(' | tr -d '(' | sort -u); do
               printf '  printf("%%p %s\\n", (void *)&%s);\n' "$symbol" "$symbol"
             done
             printf '%s\n' '  printf("abi %u\n", cmux_layout_reducer_ffi_abi_version());' '  return 0;' '}'
@@ -520,7 +546,7 @@ jobs:
   # (tests/test_ci_macos_cross_shadow_jobs.py). It becomes blocking only after
   # three clean publishes. The report is the job summary and an artifact.
   # The build's runs-on is fixed when its job is created, and GitHub never re-routes a queued job: on 2026-11-16 run
-  # 43978720557's build sat queued on glaeda-side-std-xcode-26.6 from 23:23Z to 02:38Z with no runner. This job
+  # 43978720557's build sat queued on mac-std from 23:23Z to 02:38Z with no runner. This job
   # watches its own run's build (scripts/ci/app_ffi_rescue.py, hq#3690): queued with no runner for 20 minutes, it
   # dispatches this workflow on the same ref with the rescue inputs and cancels this run. The script reads the
   # Blacksmith switch: allowed, rescue=blacksmith (a live Blacksmith slot its placement finds, else rescue_pool; the
@@ -532,13 +558,13 @@ jobs:
     name: rescue a build no runner took
     needs: placement
     if: ${{ !cancelled() && github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai' && (inputs.rescue == '' || inputs.rescue_tried != '') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 110
     permissions:
       actions: write
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # app_ffi_rescue.py imports deadline_http.py from its own folder.
@@ -556,7 +582,9 @@ jobs:
           CI_SIDE_LANE_RUNNER: ${{ vars.CI_SIDE_LANE_RUNNER }}
           RESCUE_TRIED: ${{ inputs.rescue_tried }}
           FFI_UNIVERSAL: ${{ inputs.universal && 'true' || '' }}
-        run: python3 scripts/ci/app_ffi_rescue.py
+        # -u: a buffered print stamped every line at the job's end (job 140538369006: a 17 min sleep to a rate-limit reset
+        # logged at 13:54Z for a read refused at 13:37Z).
+        run: python3 -u scripts/ci/app_ffi_rescue.py
 
   macos-cross-shadow:
     name: macOS cross-compile shadow (Linux, compare only)
@@ -574,7 +602,7 @@ jobs:
       XC_TARGETS: ${{ inputs.universal && 'aarch64-apple-darwin x86_64-apple-darwin' || 'aarch64-apple-darwin' }}
       FFI_SLICE: ${{ inputs.universal && 'macos-arm64_x86_64' || 'macos-arm64' }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -640,7 +668,7 @@ jobs:
         run: ./scripts/ci/macos-cross.sh cctools
 
       - name: Download the Mac-built xcframework
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: CCmuxAppFFI.xcframework
           path: ${{ runner.temp }}/macos-cross/mac
@@ -697,7 +725,7 @@ jobs:
     # not skip the publish of a build that succeeded.
     # A universal run (a stable release's) publishes nothing: its artifact is the deliverable (ARM64 ONLY above).
     if: ${{ !cancelled() && needs.build.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && inputs.universal != true }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     # Never cancelled. Two runs of one commit (a push and a dispatch, or two
     # dispatches) publish one at a time, so the second sees the first's
@@ -726,7 +754,7 @@ jobs:
         && scripts/cmux-next/repin-app-ffi.sh ${{ github.sha }} ${{ needs.build.outputs.checksum }}
         && scripts/cmux-next/check-app-ffi-pin.sh --verify-release
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: CCmuxAppFFI.xcframework
           path: ${{ runner.temp }}/assets
@@ -885,7 +913,7 @@ jobs:
     # A universal run re-pins nothing (it publishes no release).
     if: always() && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && inputs.universal != true
     environment: ffi-release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # 20, not 10 (2026-11-20): checkout alone took about 1.5 min and one healthy re-pin about 8 (run 44655157417),
     # so runs 44660432819, 44661713537, 44662970467 and 44664319551 hit the 10 min bound and re-dispatched. 30, not
     # 20: publish-app-ffi-repin.sh may also wait up to 10 min (REPIN_RATE_LIMIT_WAIT_S) for GitHub's rate limit, and
@@ -965,7 +993,7 @@ jobs:
             rm -rf "$GITHUB_WORKSPACE/.git"
           fi
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/feat-cmux-next
           token: ${{ steps.app-token.outputs.token }}
@@ -999,8 +1027,8 @@ jobs:
           TAG: ${{ needs.build.outputs.tag }}
           CHECKSUM: ${{ needs.build.outputs.checksum }}
           # A stalled git transfer (a lazy tree fetch of this treeless clone, or `git fetch origin $previous`) aborts
-          # after 60 s under 1 KB/s instead of hanging the job to its timeout; the script treats a failed read as before.
-          GIT_HTTP_LOW_SPEED_LIMIT: "1000"
+          # after 60 s with no byte instead of hanging the job to its timeout; the script treats a failed read as before.
+          GIT_HTTP_LOW_SPEED_LIMIT: "1"
           GIT_HTTP_LOW_SPEED_TIME: "60"
         shell: bash
         run: bash scripts/cmux-next/publish-app-ffi-repin.sh
@@ -1016,4 +1044,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         shell: bash
-        run: gh workflow run app-ffi-repin.yml --ref feat-cmux-next
+        # The run's installation token shares a rate limit with every other job: runs 46002456039 and
+        # 46005933257 got "HTTP 403: API rate limit exceeded for installation" here (2026-11-27 13:47Z and
+        # 14:17Z) and no re-pin ran. A fixed 9 min backoff then spent all five tries inside one spent hour (run
+        # 46086089622, 2026-11-28 00:25Z; the pin sat 131 min behind), so the script waits for the reset instead.
+        run: bash scripts/cmux-next/dispatch-app-ffi-repin.sh

@@ -45,8 +45,19 @@ pub const CASES_ALL_FINISHED: &[EnumCase] = &[EnumCase { value: "all", title: t(
 pub const CASES_CLAUDE_CODEX: &[EnumCase] = &[EnumCase { value: "claude", title: Text::raw("Claude Code") }, EnumCase { value: "codex", title: Text::raw("Codex") }, EnumCase { value: "opencode", title: Text::raw("OpenCode") }, EnumCase { value: "gemini", title: Text::raw("Gemini") }];
 #[rustfmt::skip]
 pub const CASES_FINISHED_NEEDS_INPUT: &[EnumCase] = &[EnumCase { value: "finished", title: t("Localizable", "argument.value.notifications.event.finished", "Agent Finished") }, EnumCase { value: "needsInput", title: t("Localizable", "argument.value.notifications.event.needsInput", "Agent Needs Input") }, EnumCase { value: "error", title: t("Localizable", "argument.value.notifications.event.error", "Error") }, EnumCase { value: "bell", title: t("Localizable", "argument.value.notifications.event.bell", "Terminal Notification") }, EnumCase { value: "message", title: t("Localizable", "argument.value.notifications.event.message", "cmux notify Message") }];
-#[rustfmt::skip]
-pub const CASES_TALK_VIEW: &[EnumCase] = &[EnumCase { value: "talk", title: t("ActionCatalog", "argument.agentShare.role.talk", "Can talk") }, EnumCase { value: "view", title: t("ActionCatalog", "argument.agentShare.role.view", "Can view") }];
+const SHARE_TALK: EnumCase = EnumCase {
+    value: "talk",
+    title: t("ActionCatalog", "argument.agentShare.role.talk", "Can talk"),
+};
+const SHARE_VIEW: EnumCase = EnumCase {
+    value: "view",
+    title: t("ActionCatalog", "argument.agentShare.role.view", "Can view"),
+};
+const SHARE_DRIVE: EnumCase = EnumCase {
+    value: "drive",
+    title: t("ActionCatalog", "argument.agentShare.role.drive", "Can drive"),
+};
+pub const CASES_TALK_VIEW: &[EnumCase] = &[SHARE_TALK, SHARE_VIEW];
 #[rustfmt::skip]
 pub const CASES_ACP_TERMINAL: &[EnumCase] = &[EnumCase { value: "acp", title: t("ActionCatalog", "argument.agent.harness.protocol.acp", "ACP") }, EnumCase { value: "terminal", title: t("ActionCatalog", "argument.agent.harness.protocol.terminal", "Terminal") }];
 #[rustfmt::skip]
@@ -60,7 +71,6 @@ pub const CASES_FULL_TRUSTED: &[EnumCase] = &[EnumCase { value: "full", title: t
 #[rustfmt::skip]
 pub const CASES_CODEX_OPENAI: &[EnumCase] = &[EnumCase { value: "codex", title: Text::raw("ChatGPT / Codex") }, EnumCase { value: "openai", title: Text::raw("OpenAI API") }, EnumCase { value: "claude", title: Text::raw("Claude Code") }, EnumCase { value: "anthropic", title: Text::raw("Anthropic API") }, EnumCase { value: "gemini", title: Text::raw("Gemini") }, EnumCase { value: "openrouter", title: Text::raw("OpenRouter") }, EnumCase { value: "groq", title: Text::raw("Groq") }, EnumCase { value: "xai", title: Text::raw("xAI") }, EnumCase { value: "mistral", title: Text::raw("Mistral") }, EnumCase { value: "deepseek", title: Text::raw("DeepSeek") }, EnumCase { value: "bedrock", title: Text::raw("Amazon Bedrock") }, EnumCase { value: "vertex", title: Text::raw("Google Vertex AI") }, EnumCase { value: "copilot", title: Text::raw("GitHub Copilot") }];
 #[rustfmt::skip]
-pub const CASES_CODEX_OPENAI_2: &[EnumCase] = &[EnumCase { value: "codex", title: Text::raw("ChatGPT / Codex") }, EnumCase { value: "openai", title: Text::raw("OpenAI API") }, EnumCase { value: "claude", title: Text::raw("Claude Code") }, EnumCase { value: "anthropic", title: Text::raw("Anthropic API") }, EnumCase { value: "openrouter", title: Text::raw("OpenRouter") }, EnumCase { value: "bedrock", title: Text::raw("Amazon Bedrock") }];
 #[rustfmt::skip]
 pub const CASES_NETWORK_CODE: &[EnumCase] = &[EnumCase { value: "network", title: t("RemoteActions", "argument.value.addDeviceWay.network", "On Your Network") }, EnumCase { value: "code", title: t("RemoteActions", "argument.value.addDeviceWay.code", "It Shows a Code") }, EnumCase { value: "newDevice", title: t("RemoteActions", "argument.value.addDeviceWay.newDevice", "Set Up a New Device") }];
 #[rustfmt::skip]
@@ -429,6 +439,8 @@ pub const GUEST_ID: Argument = Argument { name: "guestId", title: t("ActionCatal
 pub const ACCOUNT: Argument = Argument { name: "account", title: t("ActionCatalog", "argument.agentShare.account", "Email or @handle"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const ROLE: Argument = Argument { name: "role", title: t("ActionCatalog", "argument.agentShare.role", "Access"), kind: ArgKind::Enumeration(CASES_TALK_VIEW), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+pub const INVITE_ROLE: Argument =
+    Argument { kind: ArgKind::Enumeration(&[SHARE_TALK, SHARE_VIEW, SHARE_DRIVE]), ..ROLE };
 #[rustfmt::skip]
 pub const SIGNED_IN_ROLE: Argument = Argument { name: "signedInRole", title: t("ActionCatalog", "argument.agentShare.signedInRole", "Signed-in Guests"), kind: ArgKind::Enumeration(CASES_TALK_VIEW), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
@@ -500,9 +512,7 @@ pub const LINK_ID: Argument = Argument { name: "linkId", title: t("CloudPortActi
 #[rustfmt::skip]
 pub const PROVIDER: Argument = Argument { name: "provider", title: t("AccountsActions", "argument.provider", "Provider"), kind: ArgKind::Enumeration(CASES_CODEX_OPENAI), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
-pub const PROVIDER_2: Argument = Argument { name: "provider", title: t("AccountsActions", "argument.provider", "Provider"), kind: ArgKind::Enumeration(CASES_CODEX_OPENAI_2), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
-pub const ACCOUNT_2: Argument = Argument { name: "account", title: t("AccountsActions", "argument.account", "Account ID"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const DESTINATION: Argument = Argument { name: "destination", title: t("RemoteActions", "argument.destination", "SSH Destination"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]

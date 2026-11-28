@@ -2,7 +2,7 @@
 // footer under an answer. Markup and metrics from reference prototype (messages.tsx,
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
 import { FindReveal, isRevealRow } from "./chatFind";
-import { useContext, useMemo, useRef, useState, type ReactNode } from "react";
+import { useContext, useMemo, useState, type ReactNode } from "react";
 import type { AcpmuxRow } from "../model";
 import { RETRY_HOLD_MS, useAnswerHold } from "../answerHold";
 import { ErrorDetails } from "./ErrorDetails";
@@ -39,14 +39,13 @@ import {
   workedLabel,
   workedMessagesText,
   turnTimeKey,
+  formatDuration,
   FOLD_COUNTS_SWITCH,
   workedCountsText,
-  formatDuration,
 } from "./turns";
 import { FailedCount } from "./FailedCount";
 import { useExperimentSwitch } from "../../../experiments/switches";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
-import { failedTurnMark } from "./failedTurnMark.experiment";
 import { turnCopyText } from "./turnCopy";
 import { workedLine } from "./workedLine.experiment";
 import { workedCountParts, workedOutcome, workedOutcomeParts, workedSentence, type WorkedPart } from "./workedOutcome";
@@ -70,6 +69,7 @@ import { CloudSignIn } from "./CloudSignIn";
 import { offersGateway, type CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
 import { useT, type Translate } from "../i18n";
 import {
+  cloudClaudeTokenRejected,
   failureCopy,
   failureKind,
   failureRecovery,
@@ -210,6 +210,7 @@ export function WorkedFor({
     <button
       type="button"
       className="cv-worked has-divider is-toggle"
+      data-alone={row.workedAlone ? "" : undefined}
       aria-expanded={expanded}
       aria-controls={expanded ? controls : undefined}
       onClick={onToggle}
@@ -458,6 +459,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     retryWith,
     reauthenticate,
     cloudSignIn,
+    openClaudeCloudSettings,
     apiKeySignIn,
     resume,
     compact,
@@ -499,27 +501,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
       )}
     </WithFacts>
   );
-  // A failed turn's row says the turn failed (G04): the failed mark after its buttons
-  // (failedTurnMark.experiment.ts), so a failed turn with nothing to copy still ends on a row that
-  // reads as its end, never a bare line of hover controls. No tooltip: the row carries no time or
-  // Worked for (Lawrence and Lucas, 2026-11-11 standup).
-  const failedLook = failed && !waiting ? experimentArm(failedTurnMark) : undefined;
-  const endMark = failedLook && (
-    <span
-      className={`cv-turn-end-mark cv-turn-end-mark--failed cv-turn-end-mark--${failedLook}`}
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an icon glyph with a spoken name, not an image file.
-      role="img"
-      aria-label={t("turn.failedMark")}
-    >
-      {failedLook === "word" ? (
-        t("turn.failedMark")
-      ) : failedLook === "cross" ? (
-        <Close size={ROW_ICON} />
-      ) : (
-        <AlertCircle size={ROW_ICON} />
-      )}
-    </span>
-  );
   // A failed turn's Retry (card and footer) asks acpmux's turn retry where the chat has one
   // (turnRetry.ts): one at a time, and a refusal leaves its note on the card.
   const [retrying, setRetrying] = useState(false);
@@ -551,6 +532,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           setRetryNote(note);
           setRetryWent(note === undefined ? true : undefined);
         },
+        // retry-prompt-ok: the resend the person clicked did not go; another resend is a paid model request.
         () => setRetryNote("retry.failed"),
       )
       .finally(() => setRetrying(false));
@@ -569,6 +551,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             // A chat without acpmux's retry sends the prompt again; a send that did not go says so.
             if (retrying) return;
             const rowId = row.retryRowId!;
+            // retry-prompt-ok: sends the prompt again, a paid model request.
             runRetry(async () => ((await retry(rowId, prompt)) === false ? "retry.failed" : undefined), "retry");
           }
         : undefined;
@@ -579,13 +562,17 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     offersRetry(row) &&
     !isEmptyFooter(row);
   const footerRetry = failedRetry;
+  // retry-prompt-ok: the turn's Retry sends the prompt again, a paid model request (and may change files again).
   const retryTitle = row.changedFiles ? t("turn.retryChangedFiles") : t("turn.retryLabel");
   const retryModels = failed && prompt && retry && retryWith && retryWith.models.length > 1 ? retryWith : undefined;
   // The card's lead (errorRecovery.ts): Continue when the turn had done work, Retry when nothing
   // ran; it shares the footer Retry's one-at-a-time state and refusal note. A sign-in failure's comes
   // only after its Sign in again, so only the card offers it (signInRetry), never the native command.
   const goOnRecovery = failed ? errorRecovery(row, route, { resume, retry, retryFailed }) : undefined;
-  const recovery = goOnRecovery ?? (failed ? signInRetry(row, route, { retryFailed, reauthenticate }) : undefined);
+  const recoverToken = cloudClaudeTokenRejected(row.error, route, row.errorCode) ? openClaudeCloudSettings : undefined;
+  const recovery =
+    goOnRecovery ??
+    (failed ? signInRetry(row, route, { retryFailed, reauthenticate: recoverToken ?? reauthenticate }) : undefined);
   const goOn =
     recovery &&
     (() => {
@@ -617,6 +604,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           compact={compact}
           reauthenticate={reauthenticate}
           cloudSignIn={cloudSignIn}
+          openClaudeCloudSettings={openClaudeCloudSettings}
           apiKeySignIn={apiKeySignIn}
           retryRowId={row.retryRowId}
           prompt={prompt}
@@ -639,7 +627,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             ? "cv-turn-actions cv-turn-actions--failed"
             : isEmptyFooter(row.resumable ? { ...row, resumable: undefined } : row)
               ? "cv-turn-actions cv-turn-actions--empty"
-              : "cv-turn-actions"
+              : waiting
+                ? "cv-turn-actions cv-turn-actions--waiting"
+                : "cv-turn-actions"
         }
       >
         <MessageFooterRow className="cv-turn-footer-row">
@@ -653,6 +643,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
                   <button
                     type="button"
                     className="cv-iconbtn cv-iconbtn--compact"
+                    // retry-prompt-ok: sends the turn's prompt again, a paid model request.
                     aria-label={t("turn.retry")}
                     title={retryTitle}
                     disabled={retrying}
@@ -692,7 +683,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               with the row while the pointer is on the turn, as Claude's (Leo, 2026-11-22: "you hover
               and you get the timing ... and we already have logic for the timing"). */}
           {!messages && !failed && <ReplyTime at={row.at} />}
-          {!messages && endMark}
         </MessageFooterRow>
       </div>
       {!messages && timeline.panel}
@@ -715,6 +705,7 @@ function TurnFailure({
   compact,
   reauthenticate,
   cloudSignIn,
+  openClaudeCloudSettings,
   apiKeySignIn,
   retryRowId,
   prompt,
@@ -739,6 +730,7 @@ function TurnFailure({
   reauthenticate?: () => void;
   /// A Cloud chat's own sign-in on its machine (cloudAgentLogin.ts, CloudSignIn.tsx).
   cloudSignIn?: CloudSignInActions;
+  openClaudeCloudSettings?: () => void;
   /// A chat here whose built-in Claude Code or Codex is not signed in: Use an API key
   /// (cloudAgentLogin.ts `localApiKeyLogin`).
   apiKeySignIn?: CloudSignInActions;
@@ -764,7 +756,6 @@ function TurnFailure({
   retryNote?: RetryNote;
 }) {
   const t = useT();
-  const actionsRef = useRef<HTMLSpanElement>(null);
   const { access } = useContext(TurnActionsContext);
   const sends = useContext(FailedSendsContext);
   // One click sends one /compact: the button stays disabled until that send settles.
@@ -803,14 +794,16 @@ function TurnFailure({
   // An expired login leads with Sign in again, and Continue or Retry follows it for once the login
   // is done. Where the chat has no login to run (a Cloud chat, a harness that names none), the card
   // is as it was: Switch model, and no Retry, which would fail the same way.
-  const signInFirst = recovery === "sign-in" && reauthenticate !== undefined;
+  const renewClaude = cloudClaudeTokenRejected(message, route, code) ? openClaudeCloudSettings : undefined;
+  const signInFirst = !renewClaude && recovery === "sign-in" && reauthenticate !== undefined;
   // A Cloud chat's agent signs in on its own machine (Leo 2026-11-01, on the one-click sign-in:
   // "yes those are important"): Sign in to Claude or Codex leads the card, Use an API key beside it,
   // and Switch model follows them outlined.
   // A team Cloud machine takes no personal login (isTeamMachineSignIn): Switch model leads, and the
   // card keeps only Use an API key of the sign-in, never Sign in to Claude, which would dead-end.
   const teamMachine = isTeamMachineSignIn(kind, route);
-  const cloudSignInLeads = recovery === "sign-in" && cloudSignIn !== undefined && !signInFirst && !teamMachine;
+  const cloudSignInLeads =
+    !renewClaude && recovery === "sign-in" && cloudSignIn !== undefined && !signInFirst && !teamMachine;
   // A chat here whose built-in Claude Code or Codex is not signed in (Leo 2026-10-26: "if user picks a
   // model they don't have api key, we offer them to add credits or add their own api key"): Use an API
   // key follows Sign in again, outlined; the key goes where the agent's own CLI reads it.
@@ -823,7 +816,7 @@ function TurnFailure({
   const teamAccountKey = kind === "no-team-account" && route?.hostKind === "cloud" ? cloudSignIn : undefined;
   // Continue or Retry is the way out, or the second one after Switch model for a key or proxy
   // failure, or after Sign in again; never for trust (errorRecovery.ts).
-  const offersRetry = goOn !== undefined && (recovery !== "sign-in" || signInFirst);
+  const offersRetry = goOn !== undefined && (recovery !== "sign-in" || signInFirst || !!renewClaude);
   // A chat that outgrew its context window fails the same way on Retry until it is compacted, so
   // Compact leads and Retry follows it; a harness without /compact keeps Retry alone.
   const compactFirst = recovery === "compact" && compact !== undefined;
@@ -839,6 +832,7 @@ function TurnFailure({
     offersSwitch &&
     !connectionFailure &&
     !signInFirst &&
+    !renewClaude &&
     !cloudSignInLeads &&
     (recovery === "switch-model" || !offersRetry);
   // The agent's account is out of usage or turned off (cmux#55066): Use another agent leads, and
@@ -863,14 +857,17 @@ function TurnFailure({
         {arm !== "note" && <AlertCircle size={arm === "card" ? 16 : 14} className="cv-turn-error__icon" />}
         <span className="text-fg">{sentence}</span>
       </span>
-      <span className="cv-turn-error__actions" ref={actionsRef}>
+      <span className="cv-turn-error__actions">
         {trustFix && (
           <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={trustFix}>
             {t("trust.trustFolder")}
           </button>
         )}
-        {teamAccountKey && (
-          <CloudSignIn signIn={teamAccountKey} rowId={retryRowId} prompt={prompt} keyOnly actionsRef={actionsRef} />
+        {teamAccountKey && <CloudSignIn signIn={teamAccountKey} rowId={retryRowId} prompt={prompt} keyOnly />}
+        {renewClaude && (
+          <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={renewClaude}>
+            {t("turn.action.claudeCloudSetup")}
+          </button>
         )}
         {accessButtons}
         {switchFirst && switchButton}
@@ -887,7 +884,6 @@ function TurnFailure({
             keyOnly={otherAccountKeyOnly}
             another
             gateway={offersGateway(message)}
-            actionsRef={actionsRef}
           />
         )}
         {compactFirst && (
@@ -910,26 +906,25 @@ function TurnFailure({
             prompt={prompt}
             keyOnly={teamMachine}
             gateway={offersGateway(message)}
-            actionsRef={actionsRef}
           />
         )}
         {signInFirst && (
           <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={reauthenticate}>
+            {/* retry-prompt-ok: a sign-in the person does. */}
             {t("turn.signInAgain")}
           </button>
         )}
-        {localKey && (
-          <CloudSignIn signIn={localKey} rowId={retryRowId} prompt={prompt} keyOnly actionsRef={actionsRef} />
-        )}
+        {localKey && <CloudSignIn signIn={localKey} rowId={retryRowId} prompt={prompt} keyOnly />}
         {offersRetry && (
           <button
             type="button"
-            className={`cv-turn-auth-action${switchFirst || accessLeads || compactFirst || signInFirst ? "" : " cv-turn-error__primary"}`}
+            className={`cv-turn-auth-action${switchFirst || accessLeads || compactFirst || signInFirst || renewClaude ? "" : " cv-turn-error__primary"}`}
             // The card's first stop in the tab order, so Return on the focused card goes on.
             aria-keyshortcuts="Enter"
             disabled={retrying}
             onClick={goOn}
           >
+            {/* retry-prompt-ok: sends the failed turn again, a paid model request. */}
             {goOnLabel === "continue" ? t("turn.continue") : t("turn.retry")}
           </button>
         )}

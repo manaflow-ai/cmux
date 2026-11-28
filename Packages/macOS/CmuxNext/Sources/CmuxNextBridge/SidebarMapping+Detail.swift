@@ -40,17 +40,6 @@ extension SidebarMapping {
         return detail
     }
 
-    /// Who made the workspace, as the sidebar's automatic fold reads it (`created_by.kind`); nil without a
-    /// record or for a kind from a newer daemon, which always shows.
-    static func creator(_ creator: WorkspaceCreator?) -> SidebarCreator? {
-        switch creator?.kind {
-        case .person?: .person
-        case .agent?: .agent
-        case .script?: .script
-        case .other?, nil: nil
-        }
-    }
-
     /// Who made the workspace, for its hover card: an agent's or a script's session, host and
     /// purpose. Nil for the person, an unknown kind, or a creator with nothing to say (a bare
     /// `{"kind":"script"}`), so the person's own workspaces show nothing new.

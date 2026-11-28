@@ -14,7 +14,7 @@ import { PICKER_LABELS } from "../composerPickerModel";
 import type { MessageBranch } from "../conversation/branches";
 import { chatAfterRewind, type ChatMarks } from "../conversation/cloudTurnCheckpoints";
 import { projectInboxRows } from "../conversation/laneNoticeBatches";
-import { messagesRows } from "../conversation/messagesRows";
+import { detailRows } from "../chatDetail";
 import { takeBackSteer, takesSteersBack } from "../conversation/pendingSteerModel";
 import type { QueuedMessageActionsValue } from "../conversation/QueuedMessageCard";
 import type { RetryModel } from "../conversation/retryModelSections";
@@ -83,6 +83,10 @@ export interface TurnRowsShownDeps {
   doneLines: RefObject<DoneLineCache>;
   workflowLabsEnabled: boolean;
   lastTurns: RefObject<{ sessionId: string | undefined; turns: TurnView; subagents: SubagentRows } | undefined>;
+  /// The last turns of each chat shown before, newest last, at most ``PAST_TURNS_KEPT``: a chat shown
+  /// again builds on its own (turnViewFrom), its rows the objects it was left with (direct.ts
+  /// `leftRows`), not shaping every turn anew on a chat switch.
+  pastTurns?: RefObject<Map<string, { sessionId: string | undefined; turns: TurnView; subagents: SubagentRows }>>;
   shownSessionId: string | undefined;
   heldCalls: RefObject<Held & { lined?: string }>;
   callRelease: number;
@@ -163,6 +167,9 @@ export interface TurnActionsDeps {
 }
 
 /// The transcript's rows as AcpmuxPane draws them (its `turnRowsShown` memo's body).
+/// How many chats' last turns the pane keeps once it shows another (`pastTurns`).
+const PAST_TURNS_KEPT = 8;
+
 export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
   const {
     chatPresentation,
@@ -174,6 +181,7 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
     doneLines,
     workflowLabsEnabled,
     lastTurns,
+    pastTurns,
     shownSessionId,
     heldCalls,
     callRelease,
@@ -189,7 +197,7 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
     heldFolds,
     chatShellRuns,
   } = deps;
-  if (chatPresentation === "messages") return messagesRows(childRows ?? sourceRows);
+  if (chatPresentation === "messages") return detailRows(childRows ?? sourceRows, "messages");
   if (childRows) {
     return withoutAskedCalls(withoutQuietThoughts(childRows), panelAsks);
   }
@@ -199,7 +207,20 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
   // The tray takes the running groups out of the rows, so the live line's wait is counted first.
   const trayAgents = trayWaitAgents(startedRows);
   return acpmuxPerf.timed("app.rows", () => {
-    const last = lastTurns.current?.sessionId === shownSessionId ? lastTurns.current : undefined;
+    const left = lastTurns.current;
+    if (pastTurns && left?.sessionId !== undefined && left.sessionId !== shownSessionId) {
+      const past = pastTurns.current;
+      past.delete(left.sessionId);
+      past.set(left.sessionId, left);
+      // ends: each pass deletes the oldest key, so the map shrinks to PAST_TURNS_KEPT
+      while (past.size > PAST_TURNS_KEPT) past.delete(past.keys().next().value!);
+    }
+    const last =
+      left?.sessionId === shownSessionId
+        ? left
+        : shownSessionId === undefined
+          ? undefined
+          : pastTurns?.current.get(shownSessionId);
     if (heldCalls.current.session !== shownSessionId) heldCalls.current = { session: shownSessionId, keys: new Set() };
     // Null while the view follows the latest row: what was held out goes back in there. The view
     // following again with calls held (`callRelease`) shapes the rows again for that.
@@ -640,7 +661,6 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
       ...(terminalLogin.onCloud && { terminalSignIn: true }),
     },
     switchModel: () => void openPicker(translate(PICKER_LABELS.model)),
-
     access,
   };
 }

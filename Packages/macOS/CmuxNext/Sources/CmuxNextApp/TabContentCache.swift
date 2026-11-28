@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -8,6 +9,7 @@ import CmuxNextDesign
 import CmuxNextMacScreen
 import CmuxNextMobileHost
 import CmuxNextRemote
+import CmuxNextRemoteLocalhostService
 import CmuxNextTerminal
 import CmuxNextWakeups
 import Observation
@@ -133,7 +135,8 @@ final class TabContentCache {
     /// The remote-localhost store and navigation guard of a Chromium page for
     /// a tab (`RemoteLocalhostService.configuration`). Nil result: the proxy
     /// could not start, so the page must not load (never this Mac's localhost).
-    var configureBrowser: ((TabModel, URL?, BrowserTabConfiguration) async -> BrowserTabConfiguration?)?
+    var configureBrowser: SignInBrowserRouting.Configure?
+    let browserRouting: SignInBrowserRouting
     /// The avatar the toolbar's profile button draws for tab `key` (nil: its plain glyph).
     var profileBadge: ((String) -> BrowserProfileBadge?)?
     /// The omnibar and tab-strip machine chip of tab `key` for a URL.
@@ -176,13 +179,16 @@ final class TabContentCache {
     ///   - resizes: The app's grid sender (`AppServices.resizes`); tests get their own. `memoryPressure`: drops the WebKit tab made ahead (`WebKitSpareTab`).
     init(daemon: DaemonService, cef: CEFEngine = CEFEngine(stores: .inMemory(), signInCallbacks: CEFSignInCallbacks()), fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
-         resizes: ResizeCoordinator = ResizeCoordinator(), memoryPressure: MemoryPressureEvents? = nil) {
+         resizes: ResizeCoordinator = ResizeCoordinator(), memoryPressure: MemoryPressureEvents? = nil, localhost: RemoteLocalhostService? = nil) {
         self.daemon = daemon
         self.cef = cef
         webKit = WebKitEngine(fileInput: fileInput, stores: cef.stores, spareTab: WebKitSpareTab(memoryPressure: memoryPressure))
         self.afterFrame = afterFrame
         self.resizes = resizes
-        browserTabs = BrowserTabService(daemon: daemon, cef: cef)
+        browserRouting = SignInBrowserRouting(localhost: localhost, offTheRecord: cef.stores.offTheRecord)
+        browserTabs = BrowserTabService(daemon: daemon, cef: cef, privacy: BrowserTabPrivacy { [weak localhost] in
+            localhost?.isSignInApprovalTab($0) == true
+        })
         wireNotices()
     }
 
@@ -204,17 +210,19 @@ final class TabContentCache {
             return entry
         }
         let identity = daemon.terminalIdentity(of: tab), carried = terminals[tab.id]?.session.carriedFrame(for: identity)
+        var heldInput: [Data] = []
         if let stale = terminals.removeValue(forKey: tab.id) {
             // Daemon restarted or the tab's surface changed: the old pane lets the view go first; a new view of the same terminal shows its frame.
             if let owner = ledger.remove(tab.id) { presenters[owner]?.value?.surfaceWasDisplaced(tab.id) }
             applyLifecycle(lifecycle.send(.removed(tab.id)))
             pendingMounts[tab.id] = nil
-            stale.close()
+            heldInput = stale.close(handingOffInput: true) // keys typed while it attached (a launch's snapshot view) go to the new view
         }
         // Paused (and not claiming geometry) until a visible pane presents it; a visible pane that waited for its surface attached it ahead (``attachAhead(_:daemon:)``).
         let render = ledger.isRendering(tab.id)
         let gate = ProvisionalTab.isProvisional(surface: tab.surface) ? TerminalTargetGate() : nil
         let io = gate == nil ? attachAhead.take(tab.id, validity: validity).map { io in if !render { io.setVisible(false) }; return io } ?? newIO(for: tab, daemon: daemon, visible: render, gate: nil) : newIO(for: tab, daemon: daemon, visible: render, gate: gate)
+        io.carry(heldInput)
         let session = makeSession(io: io, tab: tab, daemon: daemon)
         session.showsTerminal(identity, carrying: carried)
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
@@ -354,13 +362,7 @@ final class TabContentCache {
     /// tab gets goes through here, a hibernated page waking included). A
     /// failed proxy start leaves the page blank, never on this Mac's localhost.
     func chromiumConfiguration(for tab: TabModel?, base: BrowserTabConfiguration) async -> BrowserTabConfiguration {
-        guard let tab, let configureBrowser else { return base }
-        if let configured = await configureBrowser(tab, base.initialURL, base) { return configured }
-        var blank = base
-        blank.initialURL = nil
-        blank.restoreState = nil
-        blank.navigationGuard = .noLoopback
-        return blank
+        await browserRouting.configuration(for: tab, base: base, configure: configureBrowser)
     }
 
     /// The surface the phones know tab `key` by (``PhoneTabPictures``): a tab of this Mac's daemon showing a page that is not incognito, or with no page yet (restored, not shown) and a last picture on disk.
@@ -385,10 +387,14 @@ final class TabContentCache {
         browsers.removeValue(forKey: key)?.close()
         Task {
             defer { pendingBrowsers.remove(key) }
-            guard let page = try? await makeCEFTab(await chromiumConfiguration(for: tab, key: key, url: url)) else { return }
-            install(page, for: key)
-            browserTabs.track(page, tabID: key)
-            onBrowserReady?(key)
+            await browserRouting.replace(for: key, url: url, tabExists: { tabModel(key) != nil }) {
+                let configuration = await chromiumConfiguration(for: tab, key: key, url: url)
+                return try await makeCEFTab(configuration)
+            } install: { page in
+                install(page, for: key)
+                browserTabs.track(page, tabID: key)
+                onBrowserReady?(key)
+            }
         }
     }
 
@@ -432,9 +438,10 @@ final class TabContentCache {
         page.delegate = pageRequests
         if page.engineKind == .cef { page.keyRouter = keyRouter }
         (page as? CEFTab)?.devToolsObserver = self
+        browserRouting.adopt(page, for: key)
         let incognito = cef.stores.offTheRecord.isOffTheRecord(page.profileID) ? incognitoMemory : nil
-        let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine(forPage: page),
-                                 history: incognito?.history ?? history(for: page.profileID))
+        let history = browserTabs.privacy.historySource(for: key, incognito?.history ?? history(for: page.profileID))
+        let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine(forPage: page), history: history)
         pageRequests.routeOmnibarOpens(of: entry.state, page: page)
         mount(entry, as: key)
         return entry
@@ -458,12 +465,11 @@ final class TabContentCache {
         }
         if agentDrivenTabs.contains(key) { page.markAgentDriven() } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
         pageRequests.proxiedTabs.adopt(store: (page as? CEFTab)?.machineStore, key: key)
-        pageRequests.services?.remoteLocalhost.adoptPage(page, key: key)  // a chat's sign-in page (ChatMachineSignInTab)
         pageRequests.siteEngines.follow(entry.state, page: page) // browser.siteEngines for the pages it reaches (#45018)
         browsers[key] = entry
         openTabFeed.follow(page, key: key) { [weak self] page in self?.suggestionEngine(forPage: page) }
         phonePictures?.followFavicon(tab: key) { [weak page] in page?.favicon }
-        (page as? CEFTab)?.onReadyForKeys = { [weak self] in self?.onBrowserReady?(key) } // the page is ready for keys (a restored one: its document loaded)
+        if let tab = page as? CEFTab { (tab.onReadyForKeys, tab.onLaunchMark) = ({ [weak self] in self?.onBrowserReady?(key) }, { DebugTimings.markLaunch($0) }) } // ready for keys (a restored page: its document loaded); its launch marks
         pageInstalls.bump([key])
         // Pages are kept by hibernation, never by the terminal warm set.
         ledger.setRetained(key, false)

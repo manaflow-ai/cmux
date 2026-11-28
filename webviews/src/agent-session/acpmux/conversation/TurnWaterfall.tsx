@@ -13,6 +13,7 @@ import {
   waterfall,
   waterfallCharts,
   waterfallLines,
+  MODEL_CALL,
   WATERFALL_FIRST,
   type WaterfallSpan,
   type WaterfallTone,
@@ -58,6 +59,8 @@ const LANE_NAMES = {
 } as const;
 
 function spanLabel(t: Translate, item: AcpmuxActivity): string {
+  // A model call that streamed no thinking still had the model reading and writing: "Model call".
+  if (item.kind === MODEL_CALL && !item.thought) return t("turn.timeline.modelCall");
   if (!item.tool) return t("turn.timeline.thought");
   return toolLabel(
     item.tool,
@@ -66,6 +69,14 @@ function spanLabel(t: Translate, item: AcpmuxActivity): string {
     undefined,
     t("tools.ranUnnamed"),
   );
+}
+
+/// How long a timed model call waited for its first byte; none for any other span, or a call whose
+/// request was not seen.
+function modelWait(item: AcpmuxActivity): number | undefined {
+  if (item.kind !== MODEL_CALL || item.firstTokenAt === undefined || item.startedAt === undefined) return undefined;
+  const wait = item.firstTokenAt - item.startedAt;
+  return wait > 0 ? wait : undefined;
 }
 
 /// The header corner's words: how many calls the turn timed (commands when every one was a shell
@@ -137,7 +148,15 @@ export function TurnWaterfall({
     ]
       .filter(Boolean)
       .join(" ");
-    const title = [label, time, span.failed && t("turn.timeline.failed"), isSlowest && t("turn.timeline.slowest")]
+    // A model call's wait for its first byte, of its time from request to last token.
+    const wait = modelWait(span.item);
+    const title = [
+      label,
+      time,
+      wait !== undefined && t("turn.timeline.firstToken", { time: spanTime(t, wait) }),
+      span.failed && t("turn.timeline.failed"),
+      isSlowest && t("turn.timeline.slowest"),
+    ]
       .filter(Boolean)
       .join(" · ");
     const body = (
@@ -217,13 +236,14 @@ export function TurnWaterfall({
     </span>
   );
   if (form === "plain" || (form === "auto" && !waterfallCharts(chart))) {
-    // Plain: the turn's thinking as one line, then each call and its time; no axis, no bars.
+    // Plain: the turn's thinking as one line, then each call and its time; no axis, no bars. No
+    // total over the lines: one line is the total, and two or more end on a Total line in the same
+    // row style (Leo, 2026-11-25: "the 34s is weird to have on both").
     const lines = waterfallLines(chart);
     const listed = all ? lines : lines.slice(0, WATERFALL_FIRST);
     const more = lines.length - listed.length;
     return (
       <section id={id} className="cv-waterfall is-plain" aria-label={t("turn.timeline.label")} data-find-skip="">
-        <div className="cv-waterfall__head">{head}</div>
         <ul className="cv-waterfall__lines">
           {listed.map((line, at) => {
             const time = spanTime(t, line.ms);
@@ -271,6 +291,12 @@ export function TurnWaterfall({
           <button type="button" className="cv-waterfall__more" onClick={() => setAll(true)}>
             {t("turn.timeline.more", { n: more })}
           </button>
+        )}
+        {lines.length > 1 && (
+          <div className="cv-waterfall__line is-total">
+            <span className="cv-waterfall__name">{t("turn.timeline.total")}</span>
+            <span className="cv-waterfall__time">{spanTime(t, chart.total)}</span>
+          </div>
         )}
       </section>
     );

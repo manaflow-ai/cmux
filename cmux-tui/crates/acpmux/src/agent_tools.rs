@@ -341,13 +341,21 @@ pub fn cmux_server(cmux: &Path, all_tools: bool, settings_file: &Path) -> McpSer
     if all_tools {
         args.push("--all-tools".to_owned());
     }
-    let env = vec![
+    let mut env = vec![
         (
             crate::user_settings::CONFIG_OVERRIDE.to_owned(),
             settings_file.to_string_lossy().into_owned(),
         ),
         (crate::desktop_link::GUEST_ENV.to_owned(), String::new()),
     ];
+    // macOS: the server runs malloc in space-efficient mode, as the daemons do (malloc_space.rs).
+    // An idle chat's server held 32 MB, about 20 of it freed blocks still dirty in its footprint
+    // (goal ram-baseline); its `main` drops the variable, so the tools it starts run the default.
+    env.extend(
+        cmux_tui_platform::malloc_space::child_env()
+            .into_iter()
+            .map(|(key, value)| (key.to_owned(), value.to_owned())),
+    );
     McpServer { name: CMUX_SERVER.into(), command: cmux.to_path_buf(), args, env }
 }
 
@@ -513,6 +521,9 @@ pub struct Inputs {
     /// by default): sessions get `start_session` and the rest
     /// (`subsession_mcp.rs`, `hub/subsessions.rs`).
     pub subsessions: bool,
+    /// Sessions get the forum tools (`forum_mcp.rs`): only on a machine in a team or forum
+    /// ([`crate::forum_mcp::enabled`]), not every chat.
+    pub forum: bool,
     /// The display allocation folder when this daemon runs with
     /// per-workspace displays (`agent_displays.rs`), else `None`.
     pub displays: Option<PathBuf>,
@@ -573,6 +584,7 @@ impl Inputs {
             secrets: var(SECRET_TOOLS_ENV).is_some_and(|v| v == "1"),
             offers: var(OFFER_TOOLS_ENV).is_none_or(|v| v != "0"),
             subsessions: crate::subsession_settings::enabled(),
+            forum: crate::forum_mcp::enabled(),
             displays: crate::agent_displays::per_workspace()
                 .then(|| crate::agent_displays::dir(&crate::config::home())),
             hosted: crate::hosted_mcp::enabled(),
@@ -1260,15 +1272,18 @@ fn resolve_servers(inputs: &Inputs) -> AgentTools {
                 .collect(),
         });
     }
-    if let Some(acpmux) = &inputs.acpmux {
+    if let (true, Some(acpmux)) = (inputs.forum, &inputs.acpmux) {
         // announce, rules and ack (`forum_mcp.rs`, hq#2570): acts as the
-        // session with its caller token, like the sub-session server.
+        // session with its caller token, like the sub-session server. Only
+        // in a team or forum ([`Inputs::forum`]).
         servers.push(McpServer {
             name: crate::forum_mcp::SERVER_NAME.into(),
             command: acpmux.exe.clone(),
             args: acpmux.args_lossy(&["forum-mcp"]),
             env: vec![],
         });
+    }
+    if let Some(acpmux) = &inputs.acpmux {
         // send, ls, last and info (`acpmux_mcp.rs`): messages another session as this one,
         // instead of `acpmux send` in a shell; and the chat's daemon-owned background tasks.
         servers.push(McpServer {

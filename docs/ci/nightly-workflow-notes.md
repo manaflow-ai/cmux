@@ -176,13 +176,13 @@ The helper builds with the Zig the Ghostty submodule pins (0.16.0) and links aga
 
 retry-nightly-next, the loop's retry:
 
-The nightly-next loop's retry (Leo, 2026-11-06: one nightly at a time, the newest head next; a failed run is retried at the newest commit, not at its own). When this run built and failed to publish, and nightly-next still points at its commit, it asks for one more run of the push group: GitHub keeps that group's one pending place for the newest arrival, so a push that lands meanwhile takes it instead and nothing waits beside the loop. The retry builds again from scratch: a dispatch runs at the head when it is dispatched, so a push that lands between the check and the dispatch (and loses its pending place to the retry) is still the commit the retry builds; resuming this run's unsigned app would publish the older commit for it. At most two retries in a row.
+The nightly-next loop's retry (Leo, 2026-11-06: one nightly at a time, the newest head next; a failed run is retried at the newest commit, not at its own). When this run built and failed to publish, and nightly-next still points at its commit, it asks for one more run of the push group: GitHub keeps that group's one pending place for the newest arrival, so a push that lands meanwhile takes it instead and nothing waits beside the loop. The retry builds again from scratch: a dispatch runs at the head when it is dispatched, so a push that lands between the check and the dispatch (and loses its pending place to the retry) is still the commit the retry builds; resuming this run's unsigned app would publish the older commit for it. At most two retries in a row. When feat-cmux-next has moved past the failed commit, there is no retry of it: the job asks main's tick to promote the newest buildable commit instead, whose push run builds it (run 45589863477 retried 92c8d92d9, whose source the tip had already fixed, while 6c8931ce2 waited). Only a failed commit that is still the tip, likely a flake, is retried as itself.
 
 ## note-25
 
 keep-published-dsyms:
 
-A published nightly-next build's dSYMs, kept on R2. Nothing needs it and it continues on error, so it never delays a publication. The dSYMs come from the run that compiled the published binary (its build number is that run's id and attempt). A rerun repairs a missing object; an existing one (exit 75 from --write-once) counts as kept. A loop run keeps it in the run that published, as the GitHub release. It takes the trusted signing runner (the whole Mac, after the signing is done), never GitHub-hosted Ubuntu, whose queue (39 min for the oldest job on 2026-11-08) held the next push run for as long.
+A published nightly-next build's dSYMs, kept on R2. Nothing needs it and it continues on error, so it never delays a publication. The dSYMs come from the run that compiled the published binary (its build number is that run's id and attempt). A rerun repairs a missing object; an existing one (exit 75 from --write-once) counts as kept. A loop run keeps it in the run that published, as the GitHub release. It runs on the dedicated one-job nightly JIT VM, so artifact download and R2 upload do not claim or occupy the signing Mac.
 
 ## note-26
 
@@ -237,11 +237,11 @@ The upload runs after the feed is written, but it still holds nightly-next-one-p
 
 ## note-33
 
-Both cmux15 and ultra1 carry `glaeda-trusted-next-signing` on multiple runners. A single `nightly-next-one-push` group serialized both Macs; removing it without pinning the runner could send both builds to the same Mac and leave the other idle.
+Both cmux15 and ultra1 carry `glaeda-trusted-next-signing` on multiple runners. The shared `nightly-next-one-push` group serializes admission even when the optional picker pins a run to a signer, so two builds cannot run concurrently.
 
-For a push or loop retry, `pick-nightly-next-signer` reads the runner census and active jobs. It chooses a free signer with no queued build, preferring cmux15 on a tie. If both are busy, it prefers a signer finishing its current work. `nightly-next-one` takes `nightly-next-one-push-<host>` with `cancel-in-progress: false`. Its runner pin requires both the literal signing label and that runner’s label. A failed or stale pick falls back to cmux15’s group and the signing label alone, not a guaranteed cmux15 pin. One-slot and explicit one-mini mode skip the pick and keep the legacy `nightly-next-one-push` group, so a finishing build and its queued successor cannot overlap. Non-loop dispatches keep their run-specific groups.
+For a push or loop retry, `pick-nightly-next-signer` reads the runner census and active jobs. It chooses a free signer with no queued build, preferring cmux15 on a tie. If both are busy, it prefers a signer finishing its current work. `nightly-next-one` takes the shared `nightly-next-one-push` group with `cancel-in-progress: false`, while its runner pin still requires both the literal signing label and that runner’s label. A failed or stale pick falls back to the signing label alone. Non-loop dispatches keep their run-specific groups.
 
-Main’s rolling rule defaults to one slot. Enable `NIGHTLY_NEXT_SLOTS=2` only after both changes land and existing legacy-group builds drain; likewise drain the per-host groups when switching back to one. The Macs share a publication lease: under that lease the publisher rechecks the live feed, and the conditional feed write compares build number and source ancestry before replacing it. Finishing late cannot roll the authoritative appcast back. The release mirror has its own lease and can lag the feed; the two are not an atomic write.
+Main’s rolling rule defaults to one slot. `NIGHTLY_NEXT_SLOTS=2` may choose the second signer for capacity, but the shared push group still admits one build at a time. The Macs share a publication lease: under that lease the publisher rechecks the live feed, and the conditional feed write compares build number and source ancestry before replacing it. Finishing late cannot roll the authoritative appcast back. The release mirror has its own lease and can lag the feed; the two are not an atomic write.
 
 The pick accepts a census up to 50 min old (CENSUS_MAX_AGE_SECONDS), not the pool's 5 min: vars are read when the run starts and the pick runs after resolve (~13 min), so on 2026-11-22 runs 44990363506, 44992267457 and 44993740115 read censuses 30, 36 and 23 min old, every pick fell back to the label alone in nightly-next-one-push-cmux15, and the second build waited for the first (run 44992267457 waited 6 min at the slot, left it, and its retry fed 8ff8e496 56 min after landing). Who holds each host still comes from the live jobs listing.
 
@@ -452,8 +452,10 @@ on one commit). This job runs the same `fast_gate_webviews_checks.py` on decide'
 resolve (~4.5 min), so it adds no time to a green run. nightly-next-one skips only when resolve's
 build_sha equals the red sha; the Mac's own check stays the publish guard's input. retry-nightly-next
 skips a webview red (early on the built commit, or the Mac's `webview_red`), which is deterministic, and
-waits for a new commit instead. Route: check-nightly-webviews' owned nightly-only pool, not Linux, since
-test_nightly_owned_minis_only allows a JIT Linux label only for Leo's listed tail and loop jobs.
+waits for a new commit instead. Route: check-nightly-webviews' Linux pool, cmux-linux (a fork: ubuntu-24.04).
+Both jobs run Bun, Node and Python and hold no secret, so neither needs a Mac: ci-web.yml runs the same script on
+Linux for every webviews push. On the nightly-only Mac they held it 2-5 min per nightly run. Leo, 2026-11-26: "How
+about freeing up the Mac's from doing things that don't need Mac's asap?"
 
 ## note-53
 
@@ -477,8 +479,36 @@ paths, and nothing read it before a publish: a tree whose shelf was red could st
 (feat-cmux-next's shelf runs failed 2026-11-23 19:39-20:02Z). This job runs the same
 `scripts/ci/app-store-shelf-check.sh` on the exact build commit, beside the build in both modes: about
 14-26 min on Linux against a build, sign and notarize of tens of minutes, so it adds no time to a green run.
-The final publication gate (`nightly_publish_guard.py shelf-verdict`) refuses a build without it green:
-publish-nightly reads the job through its needs; nightly-next-one, which does not wait on it, reads the job
-in this run (`SHELF_SOURCE=run`), waiting up to 30 min for it to finish; a recovered build needs it green
-in the run that built it. Route: resolve-nightly-cmux-tui-client's `cmux-linux`, since it has no secret
-and the cargo build would otherwise take a nightly Mac.
+A red shelf no longer holds a publish (Leo, 2026-11-25: "we need to make sure we can just have stuff be ok"): a
+NIGHTLY blocks on four things (compiles, signed and notarized, launch smoke, update from the previous NIGHTLY).
+`report-nightly-shelf-red` opens or updates "NIGHTLY App Store shelf is red". Webview checks: stale part unless
+`NIGHTLY_COMPONENT_GATES=block`. Route: resolve-nightly-cmux-tui-client's `cmux-linux` (no secret, no Mac).
+
+## note-54
+
+The comments of nightly.yml's "Checkout build ref (warm nightly-next builder)" step (`&x9`, run by
+nightly-next-one and build-nightly-app), moved here word for word to keep the workflow under GitHub's
+512,000-byte limit (over it, every run is a startup failure with no jobs; feat-cmux-next crossed it
+2026-11-26 16:12Z at #56682). In step order:
+
+- The release App's read-only token, minted for this checkout alone (nightly-next-one's "Mint the release App token for the warm checkout"): never the shared cmux-bot token, never the job's GITHUB_TOKEN, never anonymous. Run 45744507889 failed on GitHub's unauthenticated per-IP limit (raw.githubusercontent.com 429 four times, then git fetch 403). Where no step mints it (build-nightly-app, whose environment holds no release App key) the job's own token: never anonymous.
+
+- Every read here goes out with the job's token. Anonymous, nightlies 45744507889 and 45756842046..45763487534 (2026-11-26) got 429s for git_fetch_retry.py and a 403 for the fetch from the fleet's shared address. The header lives in this step's environment only, never in the kept slot's git config.
+
+- Run 45744507889 (11-26) failed here on a cold slot that had borrowed the mirror: its curl and git fetch to github.com got 429 four times, then 403. The mirror (glaeda-git-mirror: main, feat-cmux-next and nightly-next every 60 s) is the one GitHub reader on this host; read it first. Every github.com git transfer this step makes is counted from git's own trace2 events (one file per git process): the goal is 0 per nightly, the commit read from this host's mirror.
+
+- The mirror is fetched from GitHub every minute by the host's one fetcher (glaeda-git-mirror's LaunchAgent, under a flock). A commit pushed seconds ago may not be in it yet: ask that fetcher for a pass now and wait for it, instead of fetching from GitHub here.
+
+- The helper comes from local objects (the slot's, the borrowed mirror's, the mirror itself), never from raw.githubusercontent.com: that anonymous read is what answered 429.
+
+- The mirror never got the commit: fetch only that commit from GitHub, authenticated with the release App's token (the job's own where none is minted), with a bounded backoff on a 429 or 403. Before each try the mirror is read again, so a pass of the host's fetcher that lands meanwhile wins.
+
+- The job's token header is in the step's environment (GIT_CONFIG_*, above).
+
+- nightly-next-one checks out .publish-tooling (the claim script) before this step; the clean keeps it.
+
+- Run 45782377330 timed out here (600 s, 3 tries) reading the submodules from github.com. A mini keeps one bare mirror per submodule at submodules/NAME.git beside cmux.git (glaeda-git-mirror: each pin as refs/pins/<sha>, depth 1, glaeda.url naming its GitHub URL). Each submodule (nested too) whose commit one holds is read from it, through this step's environment only; the rest from github.com.
+
+- A warm slot holds the submodule commits already: check them out with no network (https refused, so a missing one fails here instead of cloning anonymously), then fetch only with the App's token. Without the mirror rewrite: a clone from a mirror here skips its refs/pins and leaves no HEAD.
+
+- A hybrid ref capture (cmux-next.yml, `hybrid_ref_capture`) fetches the same-tree cmux-tui of the PR head it is dispatched at; an unpublished tree fails it before any build. On 2026-11-26 22:3xZ feat-cmux-next took a merge about every 30 s while cmux-tui-artifacts built one tree per 60-min window, so none of the last 186 commits had a published tree (the newest was 328c5eab, 21:12Z). Dispatch a capture at a PR head whose `scripts/cmux-next/pin-cmux-tui.sh key` answers 200 on files.cmux.com, for example a docs-only branch off the newest published commit.

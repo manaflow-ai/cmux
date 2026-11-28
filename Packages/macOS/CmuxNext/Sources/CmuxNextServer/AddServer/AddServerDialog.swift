@@ -186,6 +186,7 @@ enum AddServerCard {
             }
             if case let .approveFailed(_, reject) = step {
                 error = reject
+                // retry-prompt-ok: SECURITY: approving grants a server access to this account; only the person's own click sends it again
                 approve.title = AddServerStrings.retry
             }
         case .added: break

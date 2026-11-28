@@ -112,10 +112,11 @@ your sidebar as it was. Empty (the default) draws no block. Together with `sideb
 # Sidebar looks
 
 `sidebar.look` draws the sidebar like another app's: `claude` (the Claude desktop app), `codex`
-(the Codex app), `studio` (a coding studio: threads under a heading per project, status in words and icons) or
-`cmux`, the default, which is today's sidebar. The transcript (`agentPane.display.transcriptLook`)
-and the composer (`agentPane.display.composerLook`) use the same four names, so one word sets the
-whole window's look.
+(the Codex app), `studio` (threads grouped by project, with status text and icons), or `rex`
+(a flat list of sessions with the status before the name). The default is `cmux`. Settings >
+Customize lists the sidebar looks. The transcript setting (`agentPane.display.transcriptLook`)
+accepts `cmux`, `claude`, `codex`, and `studio`. The composer setting (`agentPane.composerLook`)
+accepts `auto` and `studio`. The `rex` look applies only to the sidebar.
 
 ```sh
 cmux settings set sidebar.look claude
@@ -219,7 +220,7 @@ Two detectors hold this:
 - Swift (`AASidebarLookPresetGalleryTests`, CmuxNextAppTests): through the real sidebar list, for
   every look, a row changing state (working, busy, waiting, error, done, unread, idle) and a hot
   reload move no row's frame; switching looks keeps the list width and one workspace row height
-  across all four looks; and switching away and back returns every row frame exactly. Its gallery
+  across every look; and switching away and back returns every row frame exactly. Its gallery
   (`CMUX_TEST_REQUIRE_GUI=1`) writes `sidebar-look-presets-gallery/`, one column per look, dark
   above light.
 
@@ -243,7 +244,10 @@ heights, title and detail type) so the two can be compared number by number.
 
 What each look sets to match: Claude groups by project, hides the time, draws a dot; Codex groups by
 project, shows the time and draws the thin ring (`arc`); Studio groups by project, shows the time and draws an
-icon for each status.
+icon for each status. Rex lists every session flat (no folders, headings or counts), draws the
+status first in the icon's place (it keeps that slot while idle, so the name never moves) and hides
+the icon, color and time. Rex is not in the table: no capture of its sidebar has been measured yet,
+so its gallery column draws at the default width.
 
 Width and row pitch are not set by a look (No shift). To match a reference's numbers, set them
 yourself: `appearance.metrics.sidebarWidth` (for example 256, 288 or 300) and `sidebar.density`.

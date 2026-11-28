@@ -28,9 +28,10 @@ import Testing
         #expect(probe.exemption == nil)
     }
 
-    /// Only media the person resumes from outside the page keeps it: a muted autoplay or ad video, or
-    /// sound with no element, still freezes; a muted player whose page handles media keys does not.
-    @Test func aMutedAutoplayVideoStillFreezes() {
+    /// Only media the person resumes from outside the page is a session: a muted autoplay or ad video, or
+    /// sound with no element, is none; a muted player whose page handles media keys is one. A muted video that
+    /// plays keeps the page from a freeze anyway (`PageProbe.mediaPlays`, `PlayingMediaFreezeTests`).
+    @Test func aMutedAutoplayVideoIsNoSession() {
         #expect(!PageProbe.resumable(BrowserMediaState(title: "hero", isPlaying: true, isMuted: true, isVideo: true)))
         #expect(!PageProbe.resumable(BrowserMediaState(title: "sound", isPlaying: false, isSoundOnly: true)))
         #expect(!PageProbe.resumable(nil))
