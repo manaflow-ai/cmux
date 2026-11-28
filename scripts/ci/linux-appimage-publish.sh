@@ -3,10 +3,15 @@
 # (cmuxterm-hq docs/rfd/0157-linux-and-windows-releases.md, Packaging; scripts/ci/linux-archive.py does the
 # building).
 #
-#   scripts/ci/linux-appimage-publish.sh BUILT_DIR WORK_DIR
+#   scripts/ci/linux-appimage-publish.sh BUILT_DIR WORK_DIR             feat-cmux-next, this commit
+#   scripts/ci/linux-appimage-publish.sh - WORK_DIR nightly|stable       the commit that channel names
 #
 # BUILT_DIR holds this run's own build of the musl binaries, the ones the Linux release file was signed
-# against. Reads env R2_ENDPOINT and the AWS_* R2 credentials, GITHUB_SHA, GITHUB_RUN_ID, and optionally
+# against. For nightly and stable (`install.sh --channel`; cmux-linux-nightly-follow.sh points them at an
+# older commit than this push) the binaries come from the signed release file's URLs instead, each checked
+# against its sha256 (linux-archive.py appdir), and that channel's AppImage embeds its own channel's update
+# file, so an AppImage stays on the channel it was downloaded from. A channel AppImage already at the named
+# commit is not rebuilt. Reads env R2_ENDPOINT and the AWS_* R2 credentials, GITHUB_SHA, GITHUB_RUN_ID, and optionally
 # ARCHIVE_SIGNING_KEY (the apt and yum archive's signing subkey): with it and the committed public keyring,
 # each AppImage also gets a detached OpenPGP signature (.asc), checked with gpgv before upload.
 #
@@ -16,7 +21,8 @@
 # bytes.
 #
 # Layout on files.cmux.com:
-#   cmux-tui/<commit>/cmux-<version>-<arch>.AppImage (.asc)          written once
+#   cmux-tui/<commit>/cmux-<version>-<arch>.AppImage (.asc)          written once (feat-cmux-next)
+#   cmux-tui/<commit>/cmux-<version>-<channel>-<arch>.AppImage (.asc) written once (nightly, stable)
 #   linux/appimage/<channel>/cmux-<arch>.AppImage (.asc)             the stable download link
 #   linux/appimage/<channel>/cmux-<arch>.AppImage.zsync               the update file, written last
 # The .zsync names the per-commit file, never the stable link, so an update in flight never mixes two
@@ -25,8 +31,12 @@
 # The channel moves only when the Linux release channel names this commit, so it inherits that channel's
 # ordering (an older run finishing late leaves the AppImage channel alone).
 set -euo pipefail
-built=$1 work=$2
-channel=feat-cmux-next
+built=$1 work=$2 channel=${3:-feat-cmux-next}
+case "$channel" in
+  feat-cmux-next) [[ "$built" != - ]] || { echo "usage: $0 BUILT_DIR WORK_DIR" >&2; exit 2; } ;;
+  nightly | stable) [[ "$built" == - ]] || { echo "usage: $0 - WORK_DIR $channel" >&2; exit 2; } ;;
+  *) echo "usage: $0 BUILT_DIR WORK_DIR | $0 - WORK_DIR nightly|stable" >&2; exit 2 ;;
+esac
 root=$(cd "$(dirname "$0")/../.." && pwd)
 archive="$root/scripts/ci/linux-archive.py"
 keys="$root/Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json"
@@ -43,6 +53,25 @@ declare -A RUNTIME_SHA256=(
 declare -A TARGET=([x86_64]=x86_64-unknown-linux-musl [aarch64]=aarch64-unknown-linux-musl)
 
 mkdir -p "$work" && chmod 700 "$work"
+channel_commit() { # the commit linux-$channel.json names, verified, or nothing
+  curl -fsS --retry 3 --max-time 60 -o "$work/channel.json" \
+    "$files/cmux-tui/channels/linux-$channel.json?appimage=${GITHUB_RUN_ID:-0}" || return 0
+  python3 "$root/scripts/cmux-next/web-ota-pointer.py" verify --pointer "$work/channel.json" --keys "$keys" \
+    --purpose cmux-linux-release | python3 -c 'import json,sys; print(json.load(sys.stdin)["commit"])' || true
+}
+if [[ "$channel" == feat-cmux-next ]]; then
+  commit=$GITHUB_SHA suffix=""
+else
+  commit=$(channel_commit)
+  [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "::notice::linux-$channel.json names no verifiable commit; no $channel AppImage"; exit 0; }
+  suffix="-$channel"
+  # Already published for this commit: the channel's update file (written last) names its per-commit copy.
+  if curl -fsS --retry 3 --max-time 60 "$files/linux/appimage/$channel/cmux-aarch64.AppImage.zsync?appimage=${GITHUB_RUN_ID:-0}" 2>/dev/null |
+    head -c 4096 | grep -aqE "^URL: $files/cmux-tui/$commit/cmux-[^/]*$suffix-aarch64\.AppImage\s*$"; then
+    echo "AppImage channel $channel is at $commit already" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+    exit 0
+  fi
+fi
 need=()
 command -v mksquashfs >/dev/null && command -v unsquashfs >/dev/null || need+=(squashfs-tools)
 command -v zsyncmake >/dev/null || need+=(zsync)
@@ -67,16 +96,32 @@ else
   echo "::notice::the archive signing key or keyring is missing; the AppImages carry no .asc (their binaries are checked against the signed release file)"
 fi
 
-curl -fsS --retry 3 --max-time 60 -o "$work/release.json" "$files/cmux-tui/$GITHUB_SHA/release.json?appimage=$GITHUB_RUN_ID"
+curl -fsS --retry 3 --max-time 60 -o "$work/release.json" "$files/cmux-tui/$commit/release.json?appimage=$GITHUB_RUN_ID"
 version=$(python3 -c 'import base64,json,sys; print(json.loads(base64.b64decode(json.load(open(sys.argv[1]))["payload"]))["version"])' "$work/release.json")
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+\+[0-9]{14}\.[0-9a-f]{12}$ ]] || { echo "::error::bad release version $version"; exit 1; }
+
+if [[ "$built" == - ]]; then # the release file's own musl binaries; appdir checks each sha256
+  built="$work/built"
+  mkdir -p "$built"
+  while read -r url dest; do
+    curl -fsSL --retry 3 --max-time 600 -o "$dest" "$url"
+  done < <(python3 - "$work/release.json" "$built" <<'PY'
+import base64, json, os, sys
+targets = json.loads(base64.b64decode(json.load(open(sys.argv[1]))["payload"]))["targets"]
+for target in ("x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"):
+    for name, entry in targets[target].items():
+        if name not in ("deb", "rpm") and entry["url"].startswith("https://files.cmux.com/"):
+            print(entry["url"], os.path.join(sys.argv[2], os.path.basename(entry["url"])))
+PY
+  )
+fi
 
 mkdir -p "$work/out"
 for arch in x86_64 aarch64; do
   target=${TARGET[$arch]}
   curl -fsSL --retry 3 --max-time 120 -o "$work/runtime-$arch" \
     "https://github.com/AppImage/type2-runtime/releases/download/$RUNTIME_TAG/runtime-$arch"
-  name="cmux-$version-$arch.AppImage"
+  name="cmux-$version$suffix-$arch.AppImage"
   rm -rf "$work/AppDir-$arch"
   python3 "$archive" appdir --release "$work/release.json" --keys "$keys" --target "$target" \
     --binaries-dir "$built" --icon "$icon" --out "$work/AppDir-$arch"
@@ -87,7 +132,7 @@ for arch in x86_64 aarch64; do
   python3 "$archive" appimage-verify --appimage "$work/out/$name" --release "$work/release.json" --keys "$keys" \
     --target "$target"
   # The update file names the per-commit copy (absolute URL), which never changes once written.
-  (cd "$work/out" && zsyncmake -u "$files/cmux-tui/$GITHUB_SHA/$name" -o "cmux-$arch.AppImage.zsync" "$name" >/dev/null)
+  (cd "$work/out" && zsyncmake -u "$files/cmux-tui/$commit/$name" -o "cmux-$arch.AppImage.zsync" "$name" >/dev/null)
   if ((sign)); then
     gpg --batch --yes --pinentry-mode loopback --local-user "$subkey!" --digest-algo SHA512 --armor \
       --detach-sign --output "$work/out/$name.asc" "$work/out/$name"
@@ -104,33 +149,31 @@ upload() { # FILE KEY CACHE-CONTROL MODE...
 immutable="public, max-age=31536000, immutable"
 index="public, max-age=60, must-revalidate"
 for arch in x86_64 aarch64; do
-  name="cmux-$version-$arch.AppImage"
+  name="cmux-$version$suffix-$arch.AppImage"
   for f in "$name" "$name.asc"; do
     [[ -f "$work/out/$f" ]] || continue
     rc=0
-    upload "$work/out/$f" "cmux-tui/$GITHUB_SHA/$f" "$immutable" --write-once || rc=$?
+    upload "$work/out/$f" "cmux-tui/$commit/$f" "$immutable" --write-once || rc=$?
     # An earlier attempt of this commit wrote it: the build is reproducible, so the bytes must match.
     if [[ $rc == 9 ]]; then
-      curl -fsS --retry 3 --max-time 600 -o "$work/published" "$files/cmux-tui/$GITHUB_SHA/$f?appimage=$GITHUB_RUN_ID"
+      curl -fsS --retry 3 --max-time 600 -o "$work/published" "$files/cmux-tui/$commit/$f?appimage=$GITHUB_RUN_ID"
       cmp -s "$work/published" "$work/out/$f" || [[ $f == *.asc ]] || {
-        echo "::error::cmux-tui/$GITHUB_SHA/$f is already published with other bytes"; exit 1; }
+        echo "::error::cmux-tui/$commit/$f is already published with other bytes"; exit 1; }
     elif [[ $rc != 0 ]]; then
       exit "$rc"
     fi
   done
-  echo "AppImage ($arch) -> $files/cmux-tui/$GITHUB_SHA/$name" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+  echo "AppImage ($arch) -> $files/cmux-tui/$commit/$name" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
 done
 
 # Move the channel only to the commit the Linux release channel names now.
-curl -fsS --retry 3 --max-time 60 -o "$work/channel.json" "$files/cmux-tui/channels/linux-$channel.json?appimage=$GITHUB_RUN_ID"
-named=$(python3 "$root/scripts/cmux-next/web-ota-pointer.py" verify --pointer "$work/channel.json" --keys "$keys" \
-  --purpose cmux-linux-release | python3 -c 'import json,sys; print(json.load(sys.stdin)["commit"])') || named=""
-if [[ "$named" != "$GITHUB_SHA" ]]; then
-  echo "::notice::linux-$channel.json names ${named:-nothing verifiable}, not $GITHUB_SHA; the AppImage channel stays"
+named=$(channel_commit)
+if [[ "$named" != "$commit" ]]; then
+  echo "::notice::linux-$channel.json names ${named:-nothing verifiable}, not $commit; the AppImage channel stays"
   exit 0
 fi
 for arch in x86_64 aarch64; do
-  name="cmux-$version-$arch.AppImage"
+  name="cmux-$version$suffix-$arch.AppImage"
   stable="linux/appimage/$channel/cmux-$arch.AppImage"
   upload "$work/out/$name" "$stable" "$index"
   [[ -f "$work/out/$name.asc" ]] && upload "$work/out/$name.asc" "$stable.asc" "$index"
