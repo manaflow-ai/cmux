@@ -442,6 +442,26 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_router_web_exact.py
 
+      - name: Validate advisory job names
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_advisory_job_names.py
+
+      - name: Validate motion frames dispatch
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_motion_frames_dispatch.py
+
+      - name: Validate pr router areas
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_router_areas.py
+
+      - name: Validate repo scripts run after checkout
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_repo_scripts_after_checkout.py
+
+      - name: Validate router ios fast skip
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_router_ios_fast_skip.py
+
       - name: Validate rust-workspaces disk headroom
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_rust_workspaces_disk.py
