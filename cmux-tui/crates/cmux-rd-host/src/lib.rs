@@ -44,6 +44,8 @@
 mod args;
 #[cfg(all(feature = "bench", any(target_os = "linux", target_os = "macos")))]
 mod bench;
+#[cfg(all(feature = "bench", any(target_os = "linux", target_os = "macos")))]
+mod bench_rx;
 #[cfg(target_os = "linux")]
 mod browser;
 #[cfg(target_os = "linux")]

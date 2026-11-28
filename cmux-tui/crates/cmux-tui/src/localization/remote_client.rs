@@ -511,6 +511,7 @@ for up to two relay fallbacks
     known_daemon_refresh_missing: "known daemon disappeared while refreshing its route",
     positional_invitation_rejected: "positional invitations are not accepted; use --invite-file or stdin",
     connect_one_route: "connect accepts one route",
+    // retry-prompt-ok: names the --reconnect-* flags' values, no instruction to reconnect
     reconnect_policy_invalid: "reconnect delays, attempt timeout, and enabled heartbeat timeout must be positive; max delay must be at least initial",
     upgrade_no_install: "--upgrade cannot be combined with --no-install",
     upgrade_forced_command: "--upgrade cannot be combined with --ssh-forced-command: that key runs only remote-link, so nothing can be installed over it",

@@ -30,11 +30,8 @@ import workflow_jobs  # noqa: E402
 WORKFLOW = ROOT / ".github/workflows/machine-join-e2e.yml"
 SCRIPT = ROOT / "scripts/cmux-next/machine-join-e2e.ts"
 DEV = "https://cmux-platform-development.debussy.workers.dev"
-RUNS_ON = (
-    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-    "vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || "
-    "fromJSON(vars.RUNNER_POOLS).linux_8 }}"
-)
+# The linux_8 pool it read, frozen to its label (scripts/ci/one_linux_label.py; no runs-on reads a variable).
+RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-fleet-linux-x64' }}"
 
 
 def load() -> dict:

@@ -15,6 +15,10 @@
     {"prefix": "scripts/fleet-", "python": ["tests/test_cmux_next_bench_cli_calls.py"]},
     {"prefix": "scripts/measure/", "python": ["tests/test_cmux_next_bench_cli_calls.py"]},
     {"prefix": "webviews/src/", "python": ["tests/test_webviews_no_duplicate_import_names.py"]},
+    {"prefix": "tests/test_egress_gate.py", "python": ["tests/test_cmux_next_fast_gates.py"]},
+    {"prefix": "tests/test_outbound_hosts.py", "python": ["tests/test_cmux_next_fast_gates.py"]},
+    {"prefix": "tests/test_classic_cloud_routes.py", "python": ["tests/test_cmux_next_fast_gates.py"]},
+    {"prefix": "tests/guard_delta.py", "python": ["tests/test_cmux_next_fast_gates.py"]},
     {"prefix": "webviews/src/agent-session/", "python": ["tests/test_short_timeout_guard.py"]}
   ]
 }
