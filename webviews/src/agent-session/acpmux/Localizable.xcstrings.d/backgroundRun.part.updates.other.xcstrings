@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "backgroundTasks.loading" : {
-      "comment" : "Agent pane Background tasks panel: shown while the chat's list of subagents is first read",
+    "backgroundRun.part.updates.other" : {
+      "comment" : "Agent pane transcript: a part of a run line: {n} other background updates (background turns, scheduled checks); {n} is 2 or more; parts join with commas into the one muted line of rows the harness wrote into a turn, folded as tool calls are (conversation/backgroundRuns.ts); it opens to show each",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Loading background tasks…"
+            "value" : "{n} background updates"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "جارٍ تحميل مهام الخلفية…"
+            "value" : "{n} تحديثات في الخلفية"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Učitavanje pozadinskih zadataka…"
+            "value" : "Pozadinska ažuriranja: {n}"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Indlæser baggrundsopgaver…"
+            "value" : "{n} baggrundsopdateringer"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hintergrundaufgaben werden geladen…"
+            "value" : "{n} Hintergrundaktualisierungen"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Cargando tareas en segundo plano…"
+            "value" : "{n} actualizaciones en segundo plano"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chargement des tâches en arrière-plan…"
+            "value" : "{n} mises à jour en arrière-plan"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Caricamento delle attività in background…"
+            "value" : "{n} aggiornamenti in background"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "バックグラウンドタスクを読み込み中…"
+            "value" : "バックグラウンド更新 {n} 件"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "កំពុងផ្ទុកកិច្ចការផ្ទៃខាងក្រោយ…"
+            "value" : "បច្ចុប្បន្នភាពផ្ទៃខាងក្រោយ {n}"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "백그라운드 작업 불러오는 중…"
+            "value" : "백그라운드 업데이트 {n}개"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Laster inn bakgrunnsoppgaver…"
+            "value" : "{n} bakgrunnsoppdateringer"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Wczytywanie zadań w tle…"
+            "value" : "Aktualizacje w tle: {n}"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Carregando tarefas em segundo plano…"
+            "value" : "{n} atualizações em segundo plano"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Загрузка фоновых задач…"
+            "value" : "Фоновых обновлений: {n}"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "กำลังโหลดงานเบื้องหลัง…"
+            "value" : "การอัปเดตเบื้องหลัง {n} รายการ"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Arka plan görevleri yükleniyor…"
+            "value" : "{n} arka plan güncellemesi"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Завантаження фонових завдань…"
+            "value" : "Фонових оновлень: {n}"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Đang tải tác vụ nền…"
+            "value" : "{n} cập nhật nền"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "正在加载后台任务…"
+            "value" : "{n} 个后台更新"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "正在載入背景工作…"
+            "value" : "{n} 個背景更新"
           }
         }
       }
