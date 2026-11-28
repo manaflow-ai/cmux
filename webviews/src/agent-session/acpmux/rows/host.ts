@@ -15,7 +15,7 @@ export type ChatRowsPost = (method: string, params: Record<string, unknown>) => 
 export type ChatRowsBatch = { batch: number; changes: readonly string[] };
 
 /// What `open` gives: the sid the page named, or the code the chat falls to v1 with.
-export type ChatRowsOpen = { sid: string } | { fallen: string };
+export type ChatRowsOpen = { sid: string; heights?: true } | { fallen: string };
 
 /// Names for sids and blob ids (decision 228): a prefix made once per document from 64 random
 /// bits, then a counter, `<prefix>.<n>`. Hex and digits only, so always in `A-Za-z0-9._-` and far
@@ -105,7 +105,7 @@ export class ChatRowsHost {
       this.store.close(sid);
       return { fallen: typeof answered === "string" && answered ? CHAT_ROWS_OTHER_SID : CHAT_ROWS_OFF };
     }
-    return { sid };
+    return (reply as { heights?: unknown }).heights === true ? { sid, heights: true } : { sid };
   }
 
   close(sid: string): void {

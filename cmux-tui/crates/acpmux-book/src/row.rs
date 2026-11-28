@@ -305,6 +305,11 @@ impl Row<'_> {
             escape_into(out, preview, MAX_PREVIEW);
             out.extend_from_slice(b"\"}");
         }
+        if self.kind == RowKind::Tool && !self.open {
+            // The approval can arrive after a multi-megabyte output settled. Reserve its bit
+            // outside the immutable body so the patch only rewrites the bounded row.
+            out.extend_from_slice(b",\"approvedAfterSettle\":false");
+        }
         out.push(b'}');
     }
 }
@@ -402,6 +407,19 @@ impl RowHead {
         front.step(b",\"body\":")?;
         Some(RowHead { id, rev, kind, turn, group, at, open, phase, body_at: front.at })
     }
+}
+
+/// Apply a late approval to the fixed row encoding. The blob descriptor and every output
+/// byte are preserved. The patch from rev 1 to 2 fits even when the original row was full.
+pub fn approve_settled_tool(text: &[u8], head: &RowHead) -> Option<Vec<u8>> {
+    if head.kind != RowKind::Tool || head.open || head.rev != 1 {
+        return None;
+    }
+    let mut bytes = format!(r#"{{"id":{},"rev":2"#, head.id).into_bytes();
+    let old = text.get(bytes.len()..)?.strip_suffix(b",\"approvedAfterSettle\":false}")?;
+    bytes.extend_from_slice(old);
+    bytes.extend_from_slice(b",\"approvedAfterSettle\":true}");
+    Some(bytes)
 }
 
 struct Front<'a> {

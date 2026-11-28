@@ -3,7 +3,7 @@
 //! (`request`, then `outcome`) and its small proven facts as fields; the page builds the view's
 //! `AcpmuxPermission` and a question's answered state from the same bytes (v1's
 //! `permissionFromMessage` and `decidedQuestion`). No row holds localized text.
-use super::{BodyField, Error, OwnedRow, State, input, prompt_hash, user};
+use super::{BodyField, Change, Error, OwnedRow, State, input, prompt_hash, user};
 use crate::row::RowKind;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, value::RawValue};
@@ -97,6 +97,9 @@ impl State {
             if let Some(value) = value.as_str().filter(|value| !value.is_empty()) {
                 self.capped(&mut row, field, value, super::MAX_KEY_BYTES);
             }
+        }
+        if let Some(call) = request.tool_call.get("toolCallId").and_then(Value::as_str) {
+            self.capped(&mut row, "toolCallId", call, super::MAX_KEY_BYTES);
         }
         // What a settled permission's receipt reads (PermissionRecordRow.tsx): its title.
         let title = request
@@ -207,7 +210,8 @@ impl State {
         let chosen = (outcome.get("outcome").and_then(Value::as_str) == Some("selected"))
             .then(|| outcome.get("optionId").and_then(Value::as_str))
             .flatten();
-        row.fields.insert("decision".into(), self.decision(chosen, &options));
+        let decision = self.decision(chosen, &options);
+        self.permission_receipt(&mut row, decision, out);
         if let Some(by) = answered_by(&record.answered_by) {
             row.fields.insert("answeredBy".into(), by);
         }
@@ -225,18 +229,67 @@ impl State {
             return;
         };
         let decision = if let Some(mode) = record.full_access.as_str() {
-            let mut kept = Map::new();
-            kept.insert("kind".into(), Value::String("fullAccess".into()));
-            kept.insert("mode".into(), Value::String(self.cut_counted(mode, MAX_WORD_BYTES)));
-            json(Value::Object(kept))
+            serde_json::json!({"kind": "fullAccess", "mode": self.cut_counted(mode, MAX_WORD_BYTES)})
         } else {
             let chosen = (record.cancelled != Value::Bool(true))
                 .then(|| record.option_id.as_str())
                 .flatten();
             self.decision(chosen, &options)
         };
-        row.fields.insert("decision".into(), decision);
+        self.permission_receipt(&mut row, decision, out);
         settle(row, out);
+    }
+
+    /// Put an approval on the named active call. An ask with no such call keeps its own receipt.
+    fn permission_receipt(
+        &mut self,
+        row: &mut OwnedRow,
+        decision: Value,
+        out: &mut input::Output<'_>,
+    ) {
+        let approval = matches!(
+            decision.get("kind").and_then(Value::as_str),
+            Some("allowed" | "allowedAlways" | "fullAccess")
+        );
+        let call =
+            row.fields.get("toolCallId").and_then(|s| serde_json::from_str::<String>(s).ok());
+        let tool = call
+            .as_ref()
+            .and_then(|id| self.tools.get_mut(id))
+            .filter(|tool| approval && tool.turn == row.turn);
+        let drawn_on_tool = tool.is_some();
+        if let Some(tool) = tool {
+            tool.fields.insert("approved".into(), "true".into());
+            out.row(tool);
+        } else if approval && let Some(call) = call {
+            // The index belongs to the current prompt. An older ask can outlive it, including
+            // when the new prompt reuses the call ID; search the book in the ask's own turn.
+            let same_turn = row.turn == self.turn;
+            let hint = same_turn
+                .then(|| {
+                    self.recent_calls
+                        .iter()
+                        .rev()
+                        .find(|(key, _)| *key == prompt_hash(&call))
+                        .map(|(_, id)| *id)
+                })
+                .flatten();
+            if hint.is_some() || self.calls_overflowed || !same_turn {
+                out.emit(Change::Approve { ask: row.id, call, turn: row.turn, hint });
+            } else {
+                self.permission_line();
+            }
+        } else {
+            self.permission_line();
+        }
+        row.fields.insert("drawnOnTool".into(), drawn_on_tool.to_string());
+        row.fields.insert("decidedAtMs".into(), self.at_ms.to_string());
+        row.fields.insert("decision".into(), json(decision));
+    }
+
+    /// A receipt with no matching tool divides consecutive activity runs.
+    pub fn permission_line(&mut self) {
+        self.activity_start_ms = None;
     }
 
     /// `secret_decision` and `elevation_decision`: the outcome's word (provided, declined,
@@ -258,25 +311,20 @@ impl State {
 
     /// The view's `PermissionDecision` for the option chosen, by its kind: none chosen is
     /// `cancelled`; an option of no allow or deny kind, or one not kept, is `answered` with its id.
-    fn decision(&mut self, chosen: Option<&str>, options: &[(u64, u8)]) -> String {
+    fn decision(&mut self, chosen: Option<&str>, options: &[(u64, u8)]) -> Value {
         let Some(chosen) = chosen else {
-            return r#"{"kind":"cancelled"}"#.into();
+            return serde_json::json!({"kind": "cancelled"});
         };
         let kind = options.iter().find(|(hash, _)| *hash == prompt_hash(chosen)).map(|(_, k)| *k);
-        match kind {
-            Some(ONCE) => r#"{"kind":"allowed"}"#.into(),
-            Some(ALWAYS) => r#"{"kind":"allowedAlways"}"#.into(),
-            Some(DENY) => r#"{"kind":"denied"}"#.into(),
+        let word = match kind {
+            Some(ONCE) => "allowed",
+            Some(ALWAYS) => "allowedAlways",
+            Some(DENY) => "denied",
             _ => {
-                let mut answered = Map::new();
-                answered.insert("kind".into(), Value::String("answered".into()));
-                answered.insert(
-                    "option".into(),
-                    Value::String(self.cut_counted(chosen, MAX_WORD_BYTES)),
-                );
-                json(Value::Object(answered))
+                return serde_json::json!({"kind":"answered", "option":self.cut_counted(chosen, MAX_WORD_BYTES)});
             }
-        }
+        };
+        serde_json::json!({"kind": word})
     }
 
     fn open_ask(
