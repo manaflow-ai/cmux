@@ -29508,6 +29508,12 @@
         "ty": "json"
       }
     },
+    "request:_acpmux/watchdog_hold": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/web_modes": {
       "/*untyped*": {
         "ty": "json",
@@ -41079,6 +41085,12 @@
       }
     },
     "response:_acpmux/watch_take_over": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/watchdog_hold": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true

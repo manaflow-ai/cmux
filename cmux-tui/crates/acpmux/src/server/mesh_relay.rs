@@ -1422,7 +1422,7 @@ pub async fn deliver(
     }
     use super::outbox::Next;
     match super::outbox::attempt_once(hub, None, request, Origin::Peer).await {
-        Ok(_) => Some(Ack::delivered(prompt_id, None)),
+        Ok(accepted) => Some(Ack::delivered(prompt_id, Some(acceptance(&accepted)))),
         // A paused agent pair holds it in the session's queue: the person's resume runs it.
         Err((why, Next::Held)) => Some(Ack::delivered(prompt_id, Some(format!("held: {why}")))),
         Err((why, Next::Fail)) => {
@@ -1462,6 +1462,35 @@ pub async fn deliver(
             None
         }
     }
+}
+
+/// How the target took a relayed prompt, for the ack's detail: the sender's outbox record
+/// (`acpmux send --status`) then tells a turn that started, steered in or queued from a message
+/// an inbox or a hold keeps without one. Before, every acceptance acked with no detail, so a
+/// moved chat that never answered read as "delivered" with nothing saying where it went.
+pub(crate) fn acceptance(accepted: &serde_json::Value) -> String {
+    let flag = |k: &str| accepted.get(k) == Some(&serde_json::Value::Bool(true));
+    let state = accepted.get("state").and_then(serde_json::Value::as_str);
+    let mut kind = if flag(crate::cli::output::HELD_IN_INBOX) {
+        "inbox, held: the idle chat does not wake for it".to_owned()
+    } else if flag("inbox") {
+        "inbox".to_owned()
+    } else if let Some(hold) = ["surgeHeld", "sessionHeld", "held"].into_iter().find(|k| flag(k)) {
+        format!("held ({hold})")
+    } else {
+        match state {
+            Some(state) => state.to_owned(),
+            None if flag("queued") => "queued".to_owned(),
+            None => "accepted".to_owned(),
+        }
+    };
+    if let Some(turn) = accepted.get("turnId").and_then(serde_json::Value::as_str) {
+        kind.push_str(&format!("; turnId {turn}"));
+    }
+    if let Some(thread) = accepted.get("threadId").and_then(serde_json::Value::as_str) {
+        kind.push_str(&format!("; threadId {thread}"));
+    }
+    kind
 }
 
 /// How many leases a relayed prompt whose attempt failed for a reason that may pass (a timeout,

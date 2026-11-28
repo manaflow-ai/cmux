@@ -286,6 +286,23 @@ fn the_same_persons_direct_prompt_is_a_turn_and_any_other_marked_one_is_informat
 }
 
 #[test]
+fn an_acceptance_names_how_the_chat_took_it() {
+    let inbox = json!({"promptId": "p", "queued": true, "inbox": true, "threadId": "t1"});
+    assert_eq!(acceptance(&inbox), "inbox; threadId t1");
+    let mut held = inbox.clone();
+    held[crate::cli::output::HELD_IN_INBOX] = json!(true);
+    assert!(acceptance(&held).starts_with("inbox, held"), "{}", acceptance(&held));
+    let started = json!({"promptId": "p", "turnId": "u1", "queued": false, "state": "started"});
+    assert_eq!(acceptance(&started), "started; turnId u1");
+    let queued = json!({"promptId": "p", "turnId": "u2", "queued": true, "state": "queued"});
+    assert_eq!(acceptance(&queued), "queued; turnId u2");
+    let steered = json!({"turnId": "u3", "queued": false, "state": "steered", "steer": true});
+    assert_eq!(acceptance(&steered), "steered; turnId u3");
+    assert_eq!(acceptance(&json!({"sessionHeld": true})), "held (sessionHeld)");
+    assert_eq!(acceptance(&json!({})), "accepted");
+}
+
+#[test]
 fn only_an_explicit_allowed_decision_can_start_work() {
     let mut message = from("", "lane");
     message.to.team_address = Some("@team/coordinator".into());
