@@ -1876,6 +1876,7 @@
       "name": "Free",
       "price": "$0",
       "cta": "Mac版をダウンロード",
+      "compareCta": "ダウンロード",
       "featuresLead": "含まれるもの:",
       "features": [
         "Ghostty 上に構築された、完全オープンソースのネイティブ macOS ターミナル",

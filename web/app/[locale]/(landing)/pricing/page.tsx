@@ -445,7 +445,7 @@ function PricingContent({
       actions={{
         free: (
           <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF} size="compact">
-            {t("free.cta")}
+            {t("free.compareCta")}
           </PrimaryLink>
         ),
         go: appStoreAction ? appStoreAction("compact") : isGo ? (
