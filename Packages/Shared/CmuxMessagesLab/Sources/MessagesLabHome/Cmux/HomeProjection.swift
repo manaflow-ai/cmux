@@ -100,6 +100,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// Retry a committed person message in a Chief conversation. The app
     /// forwards this canonical owner message id to `chief.retry`.
     var onChiefRetry: ((MessageID) -> Void)?
+    /// Sign in on a signed-out Chief's failed-turn card: the host runs the agent's own login (a
+    /// terminal tab with `claude auth login` typed and run), given the agent the failure names
+    /// (`turn failed on claude`, else "claude"). Nil: the card offers no Sign in.
+    var onChiefSignIn: ((String) -> Void)? { didSet { refreshTurnFailureStates() } }
     /// My Chief-chat messages deleted here whose retraction the owner has not refused (#36019): shown
     /// as retracted from the click on, so the row leaves at once and no rebuild brings it back.
     var deleting: Set<MessageID> = []
