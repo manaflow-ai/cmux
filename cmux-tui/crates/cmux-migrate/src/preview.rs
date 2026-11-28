@@ -1,7 +1,9 @@
 //! What a confirmation shows before a plan is applied: the app's "Move this Mac to AutoCloud"
 //! preview (RFD 0173) reads this from `cmux migrate plan SOURCE --out FILE --preview --json` and
 //! only words it. Which projects move, what is already done, and how much of each list is shown
-//! are decided here, once, for every surface.
+//! are decided here, once, for every surface. So are an apply's progress ([`progress`], on each
+//! `--json` event line) and its end ([`Applied`], in its `--json` answer): how many projects a run
+//! really moved, and how many are still not on AutoCloud.
 
 use serde::{Deserialize, Serialize};
 
@@ -56,6 +58,29 @@ impl Preview {
                 .collect(),
         }
     }
+}
+
+/// How an apply ended, for the app's card: what it moved and what is still not moved.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Applied {
+    /// Checked projects this run finished moving (their machine made).
+    pub moved: usize,
+    /// Checked projects still not moved after it: a rerun picks them up.
+    pub left: usize,
+}
+
+impl Applied {
+    /// The ledger `before` and `after` the run, read the way [`Preview::of`] reads one.
+    pub fn of(plan: &Plan, before: &Ledger, after: &Ledger) -> Self {
+        let (before, after) = (Preview::of(plan, before), Preview::of(plan, after));
+        Self { moved: after.already.saturating_sub(before.already), left: after.moving }
+    }
+}
+
+/// How far an apply is, 0 to 1: the steps reported over the steps it runs
+/// ([`crate::apply::step_count`]). A run with no steps is done.
+pub fn progress(reported: usize, steps: usize) -> f64 {
+    if steps == 0 { 1.0 } else { reported.min(steps) as f64 / steps as f64 }
 }
 
 fn cut(text: &str, chars: usize) -> String {
@@ -127,6 +152,24 @@ mod tests {
             (preview.left, preview.left_rows.as_slice()),
             (1, &["Docker volumes: not copied".to_owned()][..])
         );
+    }
+
+    #[test]
+    fn applied_counts_what_this_run_moved_and_what_is_left() {
+        let plan = plan(3);
+        let mut before = Ledger::new();
+        before.entry_mut("laptop:mac", "/code/p0").stage = Stage::Done;
+        let mut after = before.clone();
+        after.entry_mut("laptop:mac", "/code/p1").stage = Stage::Done;
+        after.entry_mut("laptop:mac", "/code/p2").stage = Stage::Failed;
+        assert_eq!(Applied::of(&plan, &before, &after), Applied { moved: 1, left: 1 });
+        assert_eq!(Applied::of(&plan, &after, &after), Applied { moved: 0, left: 1 });
+    }
+
+    #[test]
+    fn progress_runs_from_zero_to_one() {
+        assert_eq!((progress(0, 4), progress(1, 4), progress(4, 4)), (0.0, 0.25, 1.0));
+        assert_eq!((progress(9, 4), progress(0, 0)), (1.0, 1.0));
     }
 
     #[test]
