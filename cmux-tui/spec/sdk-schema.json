@@ -1453,6 +1453,157 @@
    },
    "additional_properties": false
   },
+  "TerminalEndKind": {
+   "kind": "enum",
+   "values": [
+    "exited",
+    "signaled",
+    "host_lost",
+    "launch_failed"
+   ]
+  },
+  "TerminalHostLostReason": {
+   "kind": "enum",
+   "values": [
+    "missing_record",
+    "incarnation_mismatch",
+    "dead_before_adoption",
+    "died_during_adoption",
+    "died_without_exit_status",
+    "missing_exit_receipt",
+    "unadoptable_host_ended",
+    "owner_gone",
+    "session_shutdown",
+    "restart_exhausted",
+    "restart_failed",
+    "other"
+   ]
+  },
+  "TerminalLaunchFailure": {
+   "kind": "enum",
+   "values": [
+    "pty_capacity_exhausted"
+   ]
+  },
+  "TerminalLossCause": {
+   "kind": "object",
+   "fields": {
+    "panicked": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Whether the host had panicked."
+    },
+    "signal": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Conventional name of the first signal the host recorded (`SIGTERM`)."
+    },
+    "sender_pid": {
+     "type": {
+      "kind": "scalar",
+      "name": "int64"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "description": "The pid that sent `signal`; null when the host could not tell."
+    },
+    "sender_name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "The sender's process name, when it still ran when recorded and its pid was not reused."
+    }
+   },
+   "additional_properties": true
+  },
+  "TerminalTabEnd": {
+   "kind": "object",
+   "fields": {
+    "kind": {
+     "type": {
+      "kind": "ref",
+      "name": "TerminalEndKind"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "code": {
+     "type": {
+      "kind": "scalar",
+      "name": "int32"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "`exited`: the exit code, when the host recorded one."
+    },
+    "signal": {
+     "type": {
+      "kind": "scalar",
+      "name": "int32"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "`signaled`: the signal that killed the process."
+    },
+    "core_dumped": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "`signaled`: whether the process dumped core."
+    },
+    "reason": {
+     "type": {
+      "kind": "ref",
+      "name": "TerminalHostLostReason"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "`host_lost`: a stable code for how the host was lost; the raw text stays in `detail`."
+    },
+    "detail": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "`host_lost` and `launch_failed`, and an `exited` end with no status: free-form text."
+    },
+    "cause": {
+     "type": {
+      "kind": "ref",
+      "name": "TerminalLossCause"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "`host_lost`: the evidence the host left (cx-0tgl), when it recorded any."
+    },
+    "launch_failure": {
+     "type": {
+      "kind": "ref",
+      "name": "TerminalLaunchFailure"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "A `restart_failed` host loss: why the restart launch failed, when the detail names it."
+    }
+   },
+   "additional_properties": true
+  },
   "Tab": {
    "kind": "object",
    "fields": {
@@ -1765,7 +1916,7 @@
     "end": {
      "type": {
       "kind": "ref",
-      "name": "JsonValue"
+      "name": "TerminalTabEnd"
      },
      "presence": "optional",
      "nullable": true,

@@ -131,7 +131,7 @@ final class TerminalLinkWatch {
         case .restartExhausted: return .restartExhausted
         case .restartFailed: return end.launchFailure == .ptyCapacityExhausted ? .restartFailedNoFreeTerminal : .restartFailed
         case .deadBeforeAdoption, .diedDuringAdoption, .diedWithoutExitStatus, .missingExitReceipt,
-             .unadoptableHostEnded, .other, nil:
+             .unadoptableHostEnded, .ownerGone, .other, nil:
             return .hostEnded
         }
     }
