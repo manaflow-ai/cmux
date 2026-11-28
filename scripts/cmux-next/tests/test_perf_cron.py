@@ -3374,7 +3374,9 @@ class RateLimitTests(unittest.TestCase):
 
             def limited(*a, headers=headers, **k):
                 raise urllib.error.HTTPError("https://api.github.com/x", 403, "Forbidden", headers, io.BytesIO(b"{}"))
-            with mock.patch.dict(os.environ, {"GH_TOKEN": "t"}), mock.patch.object(urllib.request, "urlopen", limited):
+            # A fresh process's tokens each time: a token spent by the first case is never tried again.
+            with mock.patch.dict(os.environ, {"GH_TOKEN": "t"}), mock.patch.object(urllib.request, "urlopen", limited), \
+                    mock.patch.object(cron, "SPENT_TOKENS", set()):
                 with self.assertRaises(cron.RateLimited) as ctx:
                     cron.gh_request("/repos/o/r")
             self.assertAlmostEqual(ctx.exception.wait, want, delta=5)

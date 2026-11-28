@@ -137,7 +137,23 @@ impl Layer {
     fn collect_with(state: &Path, prune: bool) -> anyhow::Result<(Self, Vec<Pruned>)> {
         let mut pruned = Vec::new();
         let root = state.join("upper");
-        let swapped_git = crate::git_swap::swapped_repository(state)?;
+        // Each swapped `.git` (the folder's own and nested ones): its machine repository, and
+        // the files of it Bring Back leaves out (a nested one's packs from the swap).
+        let swapped_git: std::collections::HashMap<String, PathBuf> =
+            crate::git_swap::swapped_repositories(state)?.into_iter().collect();
+        let left_out: std::collections::HashSet<String> = swapped_git
+            .iter()
+            .flat_map(|(repo, local)| {
+                let pack = if repo.is_empty() {
+                    ".git/objects/pack".to_owned()
+                } else {
+                    format!("{repo}/.git/objects/pack")
+                };
+                crate::git_swap::swap_packs(local)
+                    .into_iter()
+                    .map(move |name| format!("{pack}/{name}"))
+            })
+            .collect();
         let mut upper = Vec::new();
         let mut stack: Vec<(PathBuf, String)> = Vec::new();
         if fs::symlink_metadata(&root).is_ok_and(|meta| meta.is_dir()) {
@@ -151,13 +167,15 @@ impl Layer {
             names.sort();
             let mut below = Vec::new();
             for name in names {
-                let path = if relative.is_empty() && name == ".git" {
-                    swapped_git.clone().unwrap_or_else(|| dir.join(&name))
-                } else {
-                    dir.join(&name)
+                let path = match swapped_git.get(&relative) {
+                    Some(local) if name == ".git" => local.clone(),
+                    _ => dir.join(&name),
                 };
                 let Ok(meta) = fs::symlink_metadata(&path) else { continue };
                 let child = if relative.is_empty() { name } else { format!("{relative}/{name}") };
+                if left_out.contains(&child) {
+                    continue;
+                }
                 let kind = if meta.is_dir() {
                     Kind::Dir
                 } else if meta.file_type().is_symlink() {

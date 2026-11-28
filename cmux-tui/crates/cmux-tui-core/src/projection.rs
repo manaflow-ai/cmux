@@ -433,6 +433,9 @@ struct Projected {
     /// Its away episodes: the agent is told once of each ([`away_notice`]).
     #[cfg(target_os = "linux")]
     away: Arc<cmux_projection::away::Away>,
+    /// Held while its nested repositories swap ([`nested_swap::start`]): one pass at a time.
+    #[cfg(target_os = "linux")]
+    nested_swap: Mutex<()>,
 }
 
 impl Projected {
@@ -1457,6 +1460,9 @@ fn extend(
         mounted.forget_inodes(&extended.changed);
     }
     open_barrier(&projected)?;
+    if let Ok(state) = state_of(name) {
+        nested_swap::start(&projected, at, &state);
+    }
     let data = json!({
         "at": at,
         "extended": true,
@@ -1662,6 +1668,7 @@ fn mount(
         barrier: Mutex::new(None),
         mounted: Mutex::new(Some(mounted)),
         away,
+        nested_swap: Mutex::new(()),
     });
     table.insert(name.to_owned(), projected.clone());
     if head {
@@ -1717,6 +1724,10 @@ fn mount(
             }
         });
     }
+    // A head mount holds a few entries only: its nested repositories swap once the extend lands.
+    if !head {
+        nested_swap::start(&projected, at, state);
+    }
     // The record the reaper reads: where it is, since when, and a release or Bring Back undone (a
     // dial again means the chat is live). One that cannot be written leaves the state to the orphan grace,
     // never freed early.
@@ -1732,23 +1743,6 @@ fn mount(
         record.detached = None;
     });
     Ok(projected)
-}
-
-/// Whether fs-v1, rooted at `home`, follows a `.git` link from `at` into `state`: either the folder
-/// is not under `home` (fs-v1 does not serve it), or the state folder is under it too, as the
-/// default state folder (`~/.local/state`) is. fs-v1 matches its root as given and canonical.
-#[cfg(target_os = "linux")]
-pub(crate) fn swap_link_served(at: &Path, state: &Path, home: Option<&Path>) -> bool {
-    let Some(home) = home else { return true };
-    let spellings: Vec<PathBuf> = [Some(home.to_path_buf()), std::fs::canonicalize(home).ok()]
-        .into_iter()
-        .flatten()
-        .collect();
-    let canonical = std::fs::canonicalize(at).ok();
-    let served = spellings.iter().any(|home| {
-        at.starts_with(home) || canonical.as_deref().is_some_and(|at| at.starts_with(home))
-    });
-    !served || spellings.iter().any(|home| state.starts_with(home))
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -1853,6 +1847,11 @@ fn fnv(bytes: &[u8]) -> u64 {
     })
 }
 
+#[cfg(target_os = "linux")]
+#[path = "projection_nested_swap.rs"]
+mod nested_swap;
 #[cfg(test)]
 #[path = "projection_tests.rs"]
 mod tests;
+#[cfg(target_os = "linux")]
+pub(crate) use nested_swap::swap_link_served;

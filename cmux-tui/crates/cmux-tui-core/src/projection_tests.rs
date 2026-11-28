@@ -1038,6 +1038,7 @@ fn pin_unpin_and_pins_answer_the_mounted_overlay_and_its_status() {
         ext: Mutex::new(None),
         barrier: Mutex::new(None),
         away: cmux_projection::away::Away::new(|_| {}),
+        nested_swap: Mutex::new(()),
     });
     projections().lock().unwrap().insert(name.into(), projected.clone());
 
