@@ -151,6 +151,7 @@ async fn a_continuation_overtaken_during_admission_never_joins_the_queue() {
             // needs a config read. Keep that read blocked until the continuation refuses.
             Some(hub.config.write().await)
         } else {
+            // timeout: a test's hang bound; it fails the case instead of hanging the suite.
             tokio::time::timeout(std::time::Duration::from_secs(10), async {
                 loop {
                     assert!(futures::poll!(&mut continuation).is_pending());
@@ -170,6 +171,7 @@ async fn a_continuation_overtaken_during_admission_never_joins_the_queue() {
         drop(child_lock);
         drop(turn_lock);
 
+        // timeout: a test's hang bound; it fails the case instead of hanging the suite.
         let error = tokio::time::timeout(std::time::Duration::from_secs(10), async {
             tokio::select! {
                 biased;
@@ -228,6 +230,7 @@ async fn automatic_restart_retry_waits_for_background_work_before_hibernating_th
     );
     *session.work_below_since.lock().unwrap() = 0;
     assert!(
+        // timeout: a test's hang bound; it fails the case instead of hanging the suite.
         tokio::time::timeout(Duration::from_secs(10), waiting).await.unwrap().unwrap(),
         "handoff did not complete after background work ended"
     );
@@ -281,6 +284,7 @@ async fn automatic_restart_retry_stop_retains_the_old_child() {
             tokio::time::sleep(Duration::from_millis(150)).await;
             hub.stop_auto_resume(&session);
         }
+        // timeout: a test's hang bound; it fails the case instead of hanging the suite.
         assert!(!tokio::time::timeout(Duration::from_secs(2), waiting).await.unwrap().unwrap());
         *session.work_below_since.lock().unwrap() = 0;
         assert!(
@@ -337,6 +341,7 @@ async fn automatic_restart_retry_shutdown_preserves_the_durable_schedule() {
             )
             .await;
     });
+    // timeout: a test's hang bound; it fails the case instead of hanging the suite.
     tokio::time::timeout(Duration::from_secs(2), async {
         loop {
             if matches!(session.auto_resume.lock().as_ref(), Some(Mark::Firing(..))) {
@@ -349,6 +354,7 @@ async fn automatic_restart_retry_shutdown_preserves_the_durable_schedule() {
     .unwrap();
     hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
     hub.begin_shutdown();
+    // timeout: a test's hang bound; it fails the case instead of hanging the suite.
     tokio::time::timeout(Duration::from_secs(6), waiting).await.unwrap().unwrap();
     assert!(Arc::ptr_eq(&old, session.child.lock().await.as_ref().unwrap()));
     assert!(matches!(session.auto_resume.lock().as_ref(), Some(Mark::Firing(..))));

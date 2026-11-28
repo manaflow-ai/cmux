@@ -21,6 +21,7 @@ import glob
 import json
 import os
 import shlex
+import signal
 import subprocess
 import sys
 
@@ -37,6 +38,19 @@ FAKE = os.path.abspath(os.path.join(HERE, "../../../cmux-tui/crates/acpmux/tests
 AGENT = os.path.abspath(os.path.join(HERE, "../scripts/e2e_agent.py"))
 ACPMUX_HOME = os.path.join(RIG, "acpmux")
 WORK = os.path.join(RIG, "work")
+# The notify tap `launch` starts: `quit` (another invocation) stops it by this recorded process group, not by name.
+TAP_PID = os.path.join(RIG, "notify-tap.pid")
+
+
+def tap_pgid():
+    """The running tap's process group from TAP_PID, or None when there is none or it has exited."""
+    try:
+        with open(TAP_PID) as f:
+            pgid = int(f.read().strip())
+        os.killpg(pgid, 0)
+        return pgid
+    except (OSError, ValueError):
+        return None
 
 
 def mac():
@@ -75,11 +89,13 @@ def main():
         print(json.dumps({"app": m.app, "bundle": m.bundle_id, "tag": m.tag}))
     elif cmd == "launch":
         tap = os.path.join(HERE, "notify-tap.mjs")
-        if subprocess.run(["pgrep", "-f", f"notify-tap.mjs {TAP_PORT}"], capture_output=True).returncode != 0:
+        if tap_pgid() is None:
             log = open(os.path.join(RIG, "notify-tap.log"), "a")
             # PUSHRIG_UPSTREAM: another cmux-mobile-api (a local `wrangler dev` of a branch's Worker).
             upstream = [os.environ["PUSHRIG_UPSTREAM"]] if os.environ.get("PUSHRIG_UPSTREAM") else []
-            subprocess.Popen(["node", tap, str(TAP_PORT), CAPTURE, *upstream], stdout=log, stderr=log, start_new_session=True)
+            tap_proc = subprocess.Popen(["node", tap, str(TAP_PORT), CAPTURE, *upstream], stdout=log, stderr=log, start_new_session=True)
+            with open(TAP_PID, "w") as f:
+                f.write(str(tap_proc.pid))
         t0 = m.launch(timeout=180)
         ok = m.wait_hostd(timeout=180)
         print(json.dumps({"pid": m.pid, "hostd": ok, "t0": t0}))
@@ -116,7 +132,11 @@ def main():
         sys.exit(r.returncode)
     elif cmd == "quit":
         print(json.dumps({"quit": m.quit()}))
-        subprocess.run(["pkill", "-f", f"notify-tap.mjs {TAP_PORT}"])
+        pgid = tap_pgid()
+        if pgid is not None:
+            os.killpg(pgid, signal.SIGTERM)
+        if os.path.exists(TAP_PID):
+            os.remove(TAP_PID)
     else:
         sys.exit(f"unknown command {cmd}: {shlex.join(sys.argv)}")
 

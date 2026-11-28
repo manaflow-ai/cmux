@@ -64,8 +64,30 @@ fn unresolved_outdated_threads_are_kept_and_resolved_threads_are_excluded() {
 fn partial_review_context_is_refused_instead_of_silently_dropped() {
     let threads = json!([{"isResolved":false,"comments":{"pageInfo":{"hasNextPage":true}}}]);
     assert!(append_threads(&mut String::new(), rows(&threads)).is_err());
-    let mut prompt = "a".repeat(PROMPT_LIMIT);
-    assert!(append(&mut prompt, "b").is_err());
+}
+
+#[test]
+fn context_past_the_budget_is_cut_with_a_note_never_refused() {
+    let mut prompt = "a".repeat(PROMPT_LIMIT - 10);
+    assert!(!append(&mut prompt, &"é".repeat(PROMPT_LIMIT)));
+    assert!(prompt.ends_with(OMITTED), "the cut is said, not silent");
+    assert!(prompt.len() <= PROMPT_LIMIT + OMITTED.len());
+    let before = prompt.len();
+    assert!(!append(&mut prompt, "later"), "nothing is added after the note");
+    assert_eq!(prompt.len(), before);
+    let mut short = String::new();
+    assert!(append(&mut short, "fits"));
+    assert_eq!(short, "fits");
+}
+
+#[test]
+fn a_long_log_keeps_its_tail() {
+    let log = format!("{}the cause\n", "noise\n".repeat(50_000));
+    let tail = log_tail(&log, 1000);
+    assert!(tail.len() <= 1000);
+    assert!(tail.starts_with("[earlier log lines left out]"));
+    assert!(tail.ends_with("the cause\n"));
+    assert_eq!(log_tail("short", 1000), "short");
 }
 
 #[test]

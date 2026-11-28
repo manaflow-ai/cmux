@@ -188,6 +188,7 @@ pub async fn ask_udp(server: &str) -> Option<SocketAddr> {
         let request = binding_request(id);
         let mut buf = [0u8; MAX_ANSWER];
         // Two sends, the second after a lost first.
+        // timeout: STUN retransmit waits (a lost UDP datagram is resent); the whole ask is bounded by ASK_BOUND.
         for wait in [Duration::from_millis(700), Duration::from_millis(1200)] {
             socket.send_to(&request, to).await.ok()?;
             if let Ok(Ok((n, from))) = tokio::time::timeout(wait, socket.recv_from(&mut buf)).await

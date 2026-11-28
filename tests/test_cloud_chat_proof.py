@@ -70,6 +70,7 @@ class CloudChatProofTests(unittest.TestCase):
         environment = backend_name if environment is None else environment
         launcher = Mock()
         launcher.wait.return_value = 0
+        launcher.poll.return_value = 0  # `open -W` already returned; launch_diagnostics records it
         if not app_exits:
             launcher.wait.side_effect = subprocess.TimeoutExpired("open", 60)
 
@@ -88,9 +89,12 @@ class CloudChatProofTests(unittest.TestCase):
                 import plistlib
                 (app / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.cmuxterm.app.nightly"}))
 
-            def run(command, *, env, capture_output, text, timeout, input=None):
+            def run(command, *, env=None, capture_output, text, timeout, input=None):
                 nonlocal clock, auth_reads
                 clock += 0.25
+                if command[0] == "/usr/bin/pgrep":
+                    # launch_diagnostics (#64908) lists the app's processes when a launch never answers.
+                    return subprocess.CompletedProcess(command, 1, "", "")
                 self.assertEqual(command[0], str(app / "Contents/Resources/bin/cmux"))
                 # The token reaches the CLI on `cloud secret set`'s stdin only, never its environment or argv.
                 self.assertNotIn(claude_login_cache.TOKEN_ENV, env)
@@ -224,9 +228,21 @@ class CloudChatProofTests(unittest.TestCase):
                 token_env["CODEX_AUTH_JSON"] = FAKE_CODEX_AUTH
             handlers = {each: signal.getsignal(each) for each in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
             self.addCleanup(lambda: [signal.signal(each, handler) for each, handler in handlers.items()])
+            # The app launch is the one Popen the proof makes for itself; a failed launch also streams the app's
+            # unified log (launch_diagnostics, #64908), which reads as an empty log here.
+            launch = Mock(return_value=launcher)
+
+            def popen(command, **kwargs):
+                if command[1:2] == ["show"] and "--predicate" in command:
+                    log = Mock()
+                    log.stdout = iter(())
+                    log.wait.return_value = 0
+                    return log
+                return launch(command, **kwargs)
+
             with patch.object(sys, "argv", argv), patch("subprocess.run", side_effect=run), \
                     patch.dict(os.environ, token_env), \
-                    patch("subprocess.Popen", return_value=launcher) as launch, \
+                    patch("subprocess.Popen", side_effect=popen), \
                     patch.object(codex_chatgpt_import, "Import", FakeCodexImport), \
                     patch("time.monotonic", side_effect=lambda: clock), \
                     patch("time.sleep", side_effect=sleep), contextlib.redirect_stdout(io.StringIO()):
