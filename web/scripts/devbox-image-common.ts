@@ -98,7 +98,7 @@ export function cmuxTuiWebsocketSmokeCommand(session = "cloud", binary?: string)
   // privileges) and handed in: re-running the selector here, already dropped to
   // the daemon's user, would fail every probe and fall back to root's path.
   const shell = `#!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 BIN="\${CMUX_TUI_BIN:?cmux-tui binary not provided}"
 : "\${HOME:?home not provided}"
 SESSION=${session}
@@ -113,8 +113,18 @@ PROCESS_ID=""
 rm -rf "$ROOT"
 mkdir -m 700 -p "$ROOT/state"
 rpc() {
-  "$BIN" remote rpc "$ROUTE" --state-dir "$ROOT/state" --lanes single --connect-timeout-seconds 45 --reconnect-attempts 1 --request "$1"
+  "$BIN" remote rpc "$ROUTE" --state-dir "$ROOT/state" --lanes single --connect-timeout-seconds 45 --reconnect-attempts 1 --request "$1" | tee "$ROOT/last-rpc"
 }
+# A failed test or jq -e prints nothing under set -e; name the step and show
+# what it was judging, so a red says which part of the round trip broke.
+on_error() {
+  local code=$?
+  echo "websocket-smoke failed (exit $code) at line $1: $2" >&2
+  for f in connect.out connect.err last-rpc; do
+    if [ -s "$ROOT/$f" ]; then echo "--- $f" >&2; tail -c 1200 "$ROOT/$f" >&2; echo >&2; fi
+  done
+}
+trap 'on_error "$LINENO" "$BASH_COMMAND"' ERR
 cleanup() {
   if [ -n "$CONNECT_PID" ]; then
     kill "$CONNECT_PID" 2>/dev/null || true
@@ -167,9 +177,16 @@ SPAWN_REQUEST="$(jq -nc --arg workspace "$WORKSPACE_ID" --arg marker "$MARKER" '
 SPAWN="$(rpc "$SPAWN_REQUEST")"
 PROCESS_ID="$(echo "$SPAWN" | jq -r '.process // .result.Ok.process')"
 test -n "$PROCESS_ID" && test "$PROCESS_ID" != "null"
-sleep 2
 SNAPSHOT_REQUEST="$(jq -nc --arg process "$PROCESS_ID" '{type:"snapshot-process-terminal",process:$process}')"
-FIRST="$(rpc "$SNAPSHOT_REQUEST")"
+# bash -lc reads the login profiles before it prints, which on a fresh boot can
+# take longer than any fixed sleep (one red snapshot was blank at sequence 0):
+# poll until the marker is on screen, bounded at 30 s.
+FIRST=""
+for attempt in $(seq 1 30); do
+  sleep 1
+  FIRST="$(rpc "$SNAPSHOT_REQUEST")"
+  if echo "$FIRST" | jq -e --arg marker "$MARKER" 'tostring | contains($marker)' >/dev/null; then break; fi
+done
 echo "$FIRST" | jq -e --arg marker "$MARKER" 'tostring | contains($marker)' >/dev/null
 # The whole point of the daemon layout: a pane it opens is a shell of the work
 # user on a machine named cmux, which is what the prompt shows a person.
