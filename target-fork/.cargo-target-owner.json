@@ -1,0 +1,14 @@
+{
+ "owners": [
+  {
+   "at": "2026-11-28T08:55:38Z",
+   "harness": "claude",
+   "host": "fs-agent-lane-49",
+   "name": "base-red-tui-artifacts-20261127-2",
+   "pr": null,
+   "session_id": "01a22126-c2fe-779a-8b28-4994465c37d0",
+   "worktree": "/home/cmux/.wt/checkouts/cmux/lane--base-autofix-heal/cmux-tui"
+  }
+ ],
+ "schema": "cargo-target-owner/v1"
+}
