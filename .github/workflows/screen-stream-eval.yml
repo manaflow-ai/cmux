@@ -81,6 +81,7 @@ jobs:
           filter: blob:none
           sparse-checkout: |
             /scripts/measure/screen-stream-eval/
+            /scripts/measure/budget_gate/
             /.gitmodules
           sparse-checkout-cone-mode: false
       - name: the last daily run with results
@@ -285,4 +286,66 @@ jobs:
             artifacts/screen-stream-eval/probe.json
             artifacts/screen-stream-eval/gate.json
           if-no-files-found: ignore
+          retention-days: 3
+
+  # A runner that dies (run 46185238418: "runner lost communication") never reaches the upload above, so
+  # its run keeps no gate.json. This job runs after eval whatever its end and, when the run has no artifact,
+  # uploads the fail-by-default record naming the last workflow step the eval job reached. Not on a cancel:
+  # a cancelled eval job still runs its own always() upload, which keeps gate.json.
+  gate-fallback:
+    needs: eval
+    if: ${{ !cancelled() && needs.eval.result != 'skipped' && needs.eval.result != 'success' && contains(format(',{0},', inputs.targets || 'rd,webrtc,iphone-sim'), ',rd,') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 10
+    steps:
+      - name: the eval job's artifact
+        id: kept
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          n=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=screen-stream-eval" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin).get("total_count", 0))') || n=unknown
+          echo "artifacts=$n" >> "$GITHUB_OUTPUT"
+          echo "screen-stream-eval artifacts on this run: $n"
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        if: steps.kept.outputs.artifacts == '0'
+        with:
+          ref: refs/heads/feat-cmux-next
+          fetch-depth: 1
+          submodules: false
+          filter: blob:none
+          sparse-checkout: |
+            /scripts/measure/screen-stream-eval/
+            /scripts/measure/budget_gate/
+          sparse-checkout-cone-mode: false
+      - name: a fail naming the last step reached
+        if: steps.kept.outputs.artifacts == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUDGET: ${{ inputs.budget || '' }}
+          EVAL_RESULT: ${{ needs.eval.result }}
+        run: |
+          set -uo pipefail
+          out=artifacts/screen-stream-eval
+          mkdir -p "$out"
+          gate_py=scripts/measure/screen-stream-eval/budget_gate.py
+          overrides=()
+          for pair in $BUDGET; do overrides+=(--budget "$pair"); done
+          python3 "$gate_py" init --out "$out/gate.json" ${overrides[@]+"${overrides[@]}"}
+          last=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=20" | python3 -c '
+          import json, sys
+          jobs = [j for j in json.load(sys.stdin).get("jobs") or [] if j.get("name") == "eval"]
+          steps = [s for s in (jobs[0].get("steps") or []) if s.get("status") != "queued" and s.get("started_at")] if jobs else []
+          print(steps[-1]["name"] if steps else "")') || last=""
+          python3 "$gate_py" mark-stage "eval job ended ${EVAL_RESULT} in step '${last:-unknown}' with no artifact kept (runner lost or cut before its upload)" --out "$out/gate.json"
+          cat "$out/gate.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: steps.kept.outputs.artifacts == '0'
+        with:
+          name: screen-stream-eval
+          path: artifacts/screen-stream-eval/gate.json
+          if-no-files-found: error
           retention-days: 3
