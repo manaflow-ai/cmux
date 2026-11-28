@@ -936,6 +936,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
         run: bun test scripts/cmux-next/machine-join-e2e.test.ts
 
+      - name: Validate the UI preview shooter settles animations before it shoots
+        if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
+        run: bun test scripts/cmux-next/ui-preview-settle.test.ts
+
       # The Auto journey's S4 phone sends, and the deploy check's retries: a failed Cloud journey runs once more, and db-release waits out a
       # full database (fake bun and fake connect; no network, no secret).
       - name: Validate the Cloud journey and deploy gate retries

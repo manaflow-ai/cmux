@@ -166,7 +166,12 @@ GALLERIES = 2
 # prewarm shoots up to PREWARM_ENTRIES of the entries looks shot most in KEEP_H at each new feat-cmux-next tip, one
 # entry at a time and only while no look runs, on a gallery no look holds.
 CONTENT_CACHE_MB = 4096
-CONTENT_SCHEMA = "ui-preview-content/1"  # in every key: a change to what a shot depends on starts a new cache
+CONTENT_SCHEMA = "ui-preview-content/2"  # in every key: a change to what a shot depends on starts a new cache
+# The web shot cache's folder under shots/. A change to how a web shot is taken names a new one, so a before cached
+# under the old way is never paired with an after taken the new way. web-settled: shots wait for every finite
+# animation to end (ui-preview-settle.mjs); shots/web held frames caught mid-fade at a fixed 300 ms.
+WEB_SHOTS = "web-settled"
+OLD_WEB_SHOTS = ("web",)
 PREWARM_ENTRIES = 8
 KEEP_H = 36
 # The published census copy (ui-preview/HOST.json on now-census) goes through the broker's state_put, which refuses a
@@ -1183,6 +1188,16 @@ class Worker:
         return {"sha": ask["sha"], "shots": {s: base64.b64encode(Path(f).read_bytes()).decode()
                                              for s, f in shots.items()}}
 
+    def shot_dir(self, kind: str, sha: str) -> Path:
+        """SHA's shot cache for KIND (swift, web): web shots live under WEB_SHOTS, so a change to how they are taken
+        starts a new cache instead of pairing an old before with a new after."""
+        return self.state / "shots" / (WEB_SHOTS if kind == "web" else kind) / sha
+
+    def drop_old_web_shots(self) -> None:
+        """The web shot folders an older shooter wrote (OLD_WEB_SHOTS): never read again, so gone."""
+        for name in OLD_WEB_SHOTS:
+            shutil.rmtree(self.state / "shots" / name, ignore_errors=True)
+
     @staticmethod
     def _cached(cache: Path) -> dict:
         try:
@@ -1318,7 +1333,7 @@ class Worker:
 
     def content_hits(self, sha: str, entries: list[str], keys: dict) -> dict:
         """ENTRIES the content cache holds under KEYS, put into SHA's shot cache: {entry: png}."""
-        cache = self.state / "shots" / "web" / sha
+        cache = self.shot_dir("web", sha)
         found = {e: self.content_file(keys[e]) for e in entries if keys.get(e) and self.content_file(keys[e]).is_file()}
         if not found:
             return {}
@@ -1349,7 +1364,7 @@ class Worker:
 
     def cached_side(self, sha: str, entries: list[str], keys: dict | None = None) -> dict:
         """SHA's shots of ENTRIES this worker holds without shooting: its shot cache, then the content cache."""
-        cache = self.state / "shots" / "web" / sha
+        cache = self.shot_dir("web", sha)
         have = {s: cache / f for s, f in self._cached(cache).items() if s in entries and (cache / f).is_file()}
         missing = [e for e in entries if e not in have]
         if missing and keys:
@@ -1360,7 +1375,7 @@ class Worker:
                  keys: dict | None = None) -> dict:
         """SHA's shots of ENTRIES: what the shot cache or the content cache (KEYS, Worker.content_keys) holds, the rest
         shot on GALLERY (else gallery_for) and stored in both."""
-        cache = self.state / "shots" / "web" / sha
+        cache = self.shot_dir("web", sha)
         have = self.cached_side(sha, entries, keys)
         want = [e for e in entries if e not in have]
         if want:
@@ -1599,7 +1614,7 @@ class Worker:
             kept, gone = tips[:BASE_TIPS_KEPT], tips[BASE_TIPS_KEPT:]
             for old in gone:
                 for kind in ("swift", "web"):
-                    shutil.rmtree(self.state / "shots" / kind / old, ignore_errors=True)
+                    shutil.rmtree(self.shot_dir(kind, old), ignore_errors=True)
             tmp = self.warm_tips_path.with_suffix(".tmp")
             tmp.write_text(json.dumps(kept))
             os.replace(tmp, self.warm_tips_path)
@@ -1608,7 +1623,7 @@ class Worker:
     def is_cached(self, kind: str, sha: str, scenes) -> bool:
         """Every one of SCENES' KIND shots at SHA is in the shot cache (a look's side that shoots nothing)."""
         scenes = list(scenes)
-        return bool(scenes) and set(scenes) <= set(self._cached(self.state / "shots" / kind / sha))
+        return bool(scenes) and set(scenes) <= set(self._cached(self.shot_dir(kind, sha)))
 
     def swift_scenes_here(self) -> tuple[str, ...]:
         return ALL_SWIFT_SCENES if (self.swift_on or self.swift_peer) else ()
@@ -2344,6 +2359,7 @@ def follow(worker: "Worker", jobs: "queue.Queue", call=lane_gh_call) -> None:
 
 def command_serve(args) -> int:
     worker = Worker(Path(args.state), args.public, args.send, args.publish_receipts)
+    worker.drop_old_web_shots()
     worker.swift_on = not args.no_swift
     worker.swift_peer = PULL if args.swift_pull else (args.swift_peer or "")
     bind = args.bind or tailnet_address() or "127.0.0.1"

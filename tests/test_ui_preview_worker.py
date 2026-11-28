@@ -152,7 +152,7 @@ class FakeWorker(w.Worker):
         return g
 
     def web_side(self, sha, entries, gallery=None, keys=None):
-        out = self.state / "shots" / "web" / sha
+        out = self.shot_dir("web", sha)
         out.mkdir(parents=True, exist_ok=True)
         self.shot.append(f"web:{sha}")
         for e in entries:
@@ -291,6 +291,36 @@ class LookTests(unittest.TestCase):
             receipt = worker.look(request())
             self.assertEqual(worker.shot, [])
             self.assertIn("shoots web scenes only", receipt["error"])
+
+
+class SettledShotCacheTests(unittest.TestCase):
+    """A web before shot the old way (a fixed 300 ms after ready, so mid-fade) is never paired with an after shot the
+    settled way (ui-preview-settle.mjs): the chat-motion-pass scene showed the same false 7.22% diff on every
+    transcript push (2026-11-28), its cached before a different point of one fade than each after."""
+
+    def test_web_shots_cache_under_the_settled_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            self.assertEqual(worker.shot_dir("web", BASE), Path(tmp) / "shots" / w.WEB_SHOTS / BASE)
+            self.assertEqual(worker.shot_dir("swift", BASE), Path(tmp) / "shots" / "swift" / BASE)
+            self.assertNotIn(w.WEB_SHOTS, w.OLD_WEB_SHOTS)
+
+    def test_a_before_cached_the_old_way_is_shot_again_and_dropped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            old = Path(tmp) / "shots" / "web" / BASE
+            old.mkdir(parents=True)
+            (old / "entry.a.png").write_bytes(b"png")
+            (old / "index.json").write_text(json.dumps({"entry.a": "entry.a.png"}))
+            self.assertFalse(worker.is_cached("web", BASE, ["entry.a"]))
+            worker.drop_old_web_shots()
+            self.assertFalse((Path(tmp) / "shots" / "web").exists())
+
+    def test_the_shooter_settles_before_it_shoots(self):
+        shoot = (w.HERE / "ui-preview-shoot.mjs").read_text()
+        self.assertIn('import { settle } from "./ui-preview-settle.mjs"', shoot)
+        self.assertIn("page.evaluate(settle", shoot)
+        self.assertNotIn("setTimeout(r, 300)", shoot)
 
 
 class WarmBeforeTests(unittest.TestCase):
@@ -960,7 +990,7 @@ class StallTests(unittest.TestCase):
             worker = FakeWorker(Path(tmp))
 
             def web_side(sha, entries, gallery=None, keys=None):
-                out = worker.state / "shots" / "web" / sha
+                out = worker.shot_dir("web", sha)
                 out.mkdir(parents=True, exist_ok=True)
                 name = (w.ABSENT_PREFIX if sha == BASE else "") + "entry.a.png"
                 (out / name).write_bytes(b"png-" + sha.encode())
