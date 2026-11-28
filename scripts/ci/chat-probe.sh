@@ -48,6 +48,9 @@ real_home="$(/usr/bin/dscl . -read "/Users/$(/usr/bin/id -un)" NFSHomeDirectory 
 
 work="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/chat-probe.XXXXXX")"
 acpmux_home="$work/acpmux"
+# An inherited ACPMUX_* variable (ACPMUX_SOCKET above all) would point the probe's acpmux, and its
+# `daemon shutdown --end-agents` on exit, at the caller's daemon.
+for name in $(compgen -A export ACPMUX_); do unset "$name"; done
 acpmux=""
 run_pid="" watchdog_pid=""
 

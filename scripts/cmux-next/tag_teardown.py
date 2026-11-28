@@ -319,7 +319,9 @@ class TagTeardown:
             if self.acpmux_home_ok is not None and not self.acpmux_home_ok(home):
                 self.log(f"teardown: no acpmux daemon shutdown in ACPMUX_HOME={home}: not a home of this tag")
                 continue
-            env = dict(os.environ, ACPMUX_HOME=home)
+            # No inherited ACPMUX_* (an ACPMUX_SOCKET would aim the shutdown at the caller's daemon).
+            env = {k: v for k, v in os.environ.items() if not k.startswith("ACPMUX_")}
+            env["ACPMUX_HOME"] = home
             if sock:
                 env["ACPMUX_SOCKET"] = sock
             # The tag's own agents end (`--end-agents`, cx-qryd0); a bundle of a build before the
