@@ -3983,6 +3983,8 @@ dependencies = [
  "rcgen",
  "rustls",
  "rustls-native-certs",
+ "serde",
+ "serde_json",
  "time",
  "tokio",
  "tokio-rustls",
