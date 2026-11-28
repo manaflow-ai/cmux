@@ -398,6 +398,28 @@ class LookFailedTest(unittest.TestCase):
         self.assertLessEqual(len(u.look_failed("x " * 200, 1)[1]), 140)
         self.assertIn("no reason given", u.look_failed("", 1)[1])
 
+    def test_a_look_that_could_not_run_keeps_a_declared_none(self) -> None:
+        # cmux#39287 (2026-11-28): "Visual: none (...)" in the body, a stale look cancelled after 3 h, gate red.
+        state, desc = u.look_failed_unless_declared("x\nVisual: none (deletes dead modules)\n", self.CANCELLED, 39287)
+        self.assertEqual(state, "success")
+        self.assertTrue(desc.startswith("Declared no visual change: deletes dead modules"))
+        self.assertEqual(u.look_failed_unless_declared("no line", self.CANCELLED, 1)[0], "failure")
+        self.assertEqual(u.look_failed_unless_declared(None, self.CANCELLED, 1)[0], "failure")
+
+    def test_look_failed_reads_the_body_through_its_tokens(self) -> None:
+        calls = []
+
+        def api(path, token, *a, **k):
+            calls.append((path, token))
+            if token == "spent":
+                raise RuntimeError("403")
+            return {"body": "Visual: none (copy only)"}
+        with mock.patch.object(u, "api", side_effect=api):
+            self.assertEqual(u.pr_body("o/r", 7, ["spent", "ok"]), "Visual: none (copy only)")
+        self.assertEqual(calls[-1], ("repos/o/r/pulls/7", "ok"))
+        with mock.patch.object(u, "api", side_effect=RuntimeError("down")):
+            self.assertIsNone(u.pr_body("o/r", 7, ["a"]))
+
     def test_look_reason_from_step_outputs(self) -> None:
         self.assertEqual(u.look_reason({"TAR": "false", "REASON": self.CANCELLED}), self.CANCELLED)
         self.assertEqual(u.look_reason({"TAR": "false"}), "the fleet sent no result")

@@ -458,6 +458,26 @@ def look_failed(reason: str, pr: str | int = "N", again: bool = False) -> tuple[
     return "failure", f"{LOOK_FAILED}: {why}; {then}"[:140]
 
 
+def look_failed_unless_declared(body: str | None, reason: str, pr: str | int = "N",
+                                again: bool = False) -> tuple[str, str]:
+    """A look that could not run, unless the body says `Visual: none (WHY)`: that head needs no look, so the
+    gate's own success stands. cmux#39287 declared none, yet a look queued before the line sat 3 h with no fleet
+    Mac and its failure turned the gate red and stopped the land (2026-11-28)."""
+    if DECLARED_NONE.search(body or ""):
+        return verdict("web", body or "", {}, [], pr)
+    return look_failed(reason, pr, again)
+
+
+def pr_body(repo: str, pr: str | int, tokens: list[str]) -> str | None:
+    """The PR's body over the first token that reads it; None when none does (the failure then posts as before)."""
+    for token in tokens:
+        try:
+            return (api(f"repos/{repo}/pulls/{pr}", token) or {}).get("body") or ""
+        except Exception:  # noqa: BLE001 - the next token
+            continue
+    return None
+
+
 def look_reason(env) -> str:
     """Why a result run made no record, from the publish job's step outputs (env names as in the workflow)."""
     reason = " ".join(env.get("REASON", "").split())
@@ -662,8 +682,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{STATUS_CONTEXT}: {args.state}: {args.description}" + ("" if ok else " (NOT posted)"))
         return 0
     if args.cmd == "look-failed":
-        state, desc = look_failed(args.reason, args.pr, args.again)
         tokens = [t for t in os.environ.get("TOKENS", "").split() if t]
+        body = pr_body(os.environ.get("REPO", ""), args.pr, tokens)
+        state, desc = look_failed_unless_declared(body, args.reason, args.pr, args.again)
         ok = post_status(state, desc, os.environ.get("REPO", ""), os.environ.get("SHA", ""), tokens,
                          os.environ.get("RUN_URL", ""))
         print(f"{STATUS_CONTEXT}: {state}: {desc}" + ("" if ok else " (NOT posted)"))
