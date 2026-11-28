@@ -11,6 +11,7 @@ import { chat } from "../../gallery/fixtures/acpmux";
 import { countMotionPhases, type MotionSample } from "../../gallery/motionPhases";
 import type { PlayContext } from "../../gallery/play";
 import { COMPOSER_EDITOR } from "./composerSelectors";
+import { MOTION_MS } from "../../motion/scale.generated";
 
 const EDITOR = { selector: COMPOSER_EDITOR };
 /// The boxes a send moves: the composer card, the last prompt before it, the sent prompt, the thinking row.
@@ -101,6 +102,29 @@ function transcriptMoving(doc: Document): boolean {
   });
 }
 
+/// A collapse starts in the frame the prompt clears or the next one (two frames at 60 Hz, with slack
+/// for a loaded runner's late frame).
+const COLLAPSE_START_MS = 50;
+
+/// The composer's collapse in a send's frames: how long after the prompt cleared its box first moved
+/// (`startLag`) and last moved (`rest`), ms. Undefined when the box never moved (a one-line draft).
+export function collapseTiming(frames: readonly Sample[]): { startLag: number; rest: number } | undefined {
+  const cleared = frames.findIndex((frame, index) => index > 0 && frame.text < frames[index - 1]!.text);
+  if (cleared < 0) return undefined;
+  let first = -1;
+  let last = -1;
+  for (let index = 1; index < frames.length; index += 1) {
+    const before = frames[index - 1]!.composer;
+    const after = frames[index]!.composer;
+    if (before == null || after == null || Math.abs(after - before) <= 0.5) continue;
+    if (first < 0) first = index;
+    last = index;
+  }
+  if (first < 0) return undefined;
+  const at = frames[cleared]!.t;
+  return { startLag: Math.max(0, frames[first]!.t - at), rest: frames[last]!.t - at };
+}
+
 export async function settle(ctx: PlayContext) {
   await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-cancel"), { capMs: 30_000 });
   await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-thread")?.hasAttribute("data-turn-end-folding"));
@@ -168,6 +192,16 @@ function sendOnce(lines: number, busy: boolean, scrolled: boolean) {
     // (up, then most of the way back), on the base code too: a separate cause, recorded, not failed.
     if (send.phases > 1 && !(busy && scrolled))
       throw new Error(`the send moved in ${send.phases} phases: ${send.detail.join("; ")}`);
+    // The composer collapses as the prompt clears, and is at rest within the standard step (Leo,
+    // 2026-11-22, a tall send while a turn ran: the composer's collapse took too long and the send
+    // jumped). A queued send's collapse was held for a prompt row that never comes: drawn tall and
+    // still for 266 ms, then dropped 149 px in one frame.
+    const collapse = collapseTiming(window);
+    doc.documentElement.dataset.sendCollapse = JSON.stringify(collapse);
+    if (collapse && (collapse.startLag > COLLAPSE_START_MS || collapse.rest > MOTION_MS.standard))
+      throw new Error(
+        `the composer collapse started ${collapse.startLag} ms after the prompt cleared and rested at ${collapse.rest} ms (bounds ${COLLAPSE_START_MS}, ${MOTION_MS.standard})`,
+      );
   };
 }
 
