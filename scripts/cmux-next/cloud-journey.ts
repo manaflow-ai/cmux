@@ -4010,8 +4010,13 @@ export async function startAfterOwnerKind(exec: Exec, command: string, timeoutMs
     return r;
   }
   await waitKind();
-  return exec(guestTimed(command), timeoutMs);
+  // The first exec may have run the start with its answer lost (run 46100347935: no vm-kind line read back, then the
+  // resend's session/new found the name taken). The start run again takes a session of its own name as its own.
+  return exec(guestTimed(`export ${START_RESENT_ENV}=1; ${command}`), timeoutMs);
 }
+
+/** Set on a start the journey runs a second time (launchCredentialStartProgram reads it as a cut start). */
+export const START_RESENT_ENV = "CMUX_JOURNEY_START_RESENT";
 
 /** What the journey accepts as a login to install, per provider. */
 export function validLogin(provider: "claude" | "codex", value: string): boolean {
@@ -4231,8 +4236,10 @@ class Retryable(RuntimeError):
 # (run 45885585817): the resend's "name is taken" then names that session, which the start takes by name.
 RETRY_S = float(os.environ.get('CMUX_JOURNEY_START_RETRY_S') or 45)
 deadline = time.monotonic() + RETRY_S
-# Whether a session/new was cut after it was sent (a retryable answer or a closed link), so may have made it.
-cut = False
+# Whether a session/new was cut after it was sent (a retryable answer or a closed link), so may have made it. A start
+# the journey runs again after an exec whose answer it could not read (startAfterOwnerKind, run 46100347935: the
+# first exec made the session, the resend's session/new read "is taken") starts cut: that name is this run's own.
+cut = os.environ.get('CMUX_JOURNEY_START_RESENT') == '1'
 while True:
     errors = []
     sid = None
@@ -4284,7 +4291,8 @@ if sid is not None:
     # The session exists now: a failed prompt never starts a second session on another socket. A prompt cut by
     # acpmux's restart (retryable, a closed or refused connection) is sent again on the same socket with the same
     # promptId, which acpmux runs at most once ("a send with the same --prompt-id never runs twice").
-    pid = str(uuid.uuid4())
+    # One promptId per session name, so a start run again after a lost answer never sends its first prompt twice.
+    pid = str(uuid.uuid5(uuid.NAMESPACE_URL, 'cmux-journey-first-prompt:' + params['_meta']['acpmux']['name']))
     meta = {'acpmux': {'steer': False, 'promptId': pid, 'resend': False}}
     if trace:
         meta['traceId'] = trace
