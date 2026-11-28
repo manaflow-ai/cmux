@@ -202,13 +202,14 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
 
 /// The keys of a turn's result kept as the session's `lastTurn` (its `detail` names why a turn
 /// ended without an answer, e.g. `outcome_unknown`).
-pub(super) const LAST_TURN_KEYS: [&str; 10] = [
+pub(super) const LAST_TURN_KEYS: [&str; 11] = [
     "turnId",
     "promptId",
     "status",
     "stopReason",
     "errorText",
     "errorSource",
+    "errorCode",
     "detail",
     "errorKind",
     "recovery",
@@ -1091,6 +1092,10 @@ impl Hub {
         // How many of the daemon's background tasks it runs (`bg_tasks.rs`,
         // `session-bg-facts-v1`): they stay here when it moves, so rebalance holds it.
         extras.push(("bgTasksRunning", json!(self.bg_running_count(session))));
+        // Those of them that are re-armable waits (`rearm.rs`, `session-bg-waits-v1`): a move
+        // starts each again at the destination, so rebalance moves a session whose every task
+        // is one.
+        extras.push(("bgWaits", json!(self.bg_waits(session))));
         // Other sessions' messages its Claude Code holds (`native_messaging.rs`): `acpmux pending`.
         extras.push(("heldMessages", super::native_messaging::held_messages(session)));
         // Its inbox's held-message deadlines (`inbox.rs`, "Deadlines"): NOW counts a session with
@@ -1409,6 +1414,9 @@ impl Hub {
             // Each session scope's memory, CPU, IO and disk budget and its use, versioned
             // (`session_budget.rs`, `hub/session_budget_watch.rs`).
             "sessionBudgets": super::session_budget_watch::status(),
+            // How typing wakes of a paused peer's machine ended: sent with their lead, or a
+            // draft never sent (`compose_wake.rs`, RFD 0072's parallel start).
+            "composeWakes": crate::compose_wake::status(),
             // The fleet hold while it holds (`session_hold.rs`): who set it, until when, how
             // many chats it holds. A hold nobody saw idled a host's chats (2026-11-25).
             "fleetHold": self.fleet_hold_shown(),
@@ -1655,6 +1663,7 @@ mod time_breakdown_tests {
 #[path = "views_status_budget_tests.rs"]
 mod status_budget_tests;
 
-#[cfg(test)]
+// Times thread CPU with clock_gettime, which windows-gnu libc lacks.
+#[cfg(all(test, unix))]
 #[path = "composer_status_cost_tests.rs"]
 mod composer_status_cost_tests;

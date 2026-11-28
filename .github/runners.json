@@ -338,9 +338,8 @@
     },
     "cloud-chat-proof.yml#proof-staging": {"class": "apple-app-build"},
     "cloud-chat-proof.yml#proof-prod": {"class": "apple-app-build"},
-    "cloud-mvp-nightly-readback.yml#readback": {"class": "macos-runtime-tests"},
     "cloud-composer-journey.yml#journey": {"class": "apple-app-build"},
-    "cloud-rd-link-readback.yml#readback": {"class": "macos-runtime-tests", "picker_followup": "builds cmux-tui and launches it on a Mac behind NAT to dial the Cloud desktop's UDP link while holding the dev stack pair: attempt 1 takes the owned side label (glaeda-side-std-xcode-26.6) while CI_PR_POOL_OWNED is 1, a re-run the declared macos_26 pool; feat-cmux-next only, manual dispatch; take the label from a placement job"},
+    "cloud-rd-link-readback.yml#readback": {"class": "macos-runtime-tests", "picker_followup": "builds cmux-tui and launches it on a Mac behind NAT to dial the Cloud desktop's UDP link while holding the dev stack pair: attempt 1 takes the owned side label (mac-std) while CI_PR_POOL_OWNED is 1, a re-run the declared macos_26 pool; feat-cmux-next only, manual dispatch; take the label from a placement job"},
     "cmux-mobile-ffi.yml#apple": {
       "class": "apple-swift-tests",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
@@ -390,6 +389,10 @@
     "cmux-next-stress-bench.yml#measure": {
       "class": "apple-gui",
       "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the stress runs to the bench Mac with cmux-ci run"
+    },
+    "cmux-next-agent-conn-chaos.yml#chaos-fleet": {
+      "class": "apple-gui",
+      "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the chaos suite to a fleet Mac with cmux-ci run"
     },
     "screen-stream-eval.yml#eval": {
       "class": "apple-gui",
@@ -589,7 +592,7 @@
     },
     "stable-next.yml#sign": {
       "class": "apple-signing-release",
-      "picker_followup": "runs-on names a fixed macOS label (glaeda-gui-std-xcode-26.6 on attempt 1, an M4 Pro mini; stable-next never uses an M6), then Blacksmith; take it from a picker job's output that keeps off the M6 minis"
+      "picker_followup": "runs-on names a fixed macOS label (mac-gui on attempt 1, an M4 Pro mini; stable-next never uses an M6), then Blacksmith; take it from a picker job's output that keeps off the M6 minis"
     },
     "stable-next.yml#smoke-26": {
       "class": "apple-gui",
