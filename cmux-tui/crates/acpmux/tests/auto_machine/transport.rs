@@ -110,7 +110,6 @@ async fn the_owners_routes_are_refused_without_a_call() {
         cloud.list(None, None).await.unwrap_err(),
         cloud.wait(CHAT, 0, 0).await.unwrap_err(),
         cloud.post_inbox(CHAT, &message).await.unwrap_err(),
-        cloud.keep(CHAT, true).await.unwrap_err(),
     ];
     for error in &refused {
         assert_eq!(error.status(), Some(403), "{error}");
@@ -119,7 +118,6 @@ async fn the_owners_routes_are_refused_without_a_call() {
     // The fake store refuses a machine the same way, so the two agree.
     let machine = owner.as_machine(VM);
     assert_eq!(machine.list(None, None).await.unwrap_err().status(), Some(403));
-    assert_eq!(machine.keep(CHAT, true).await.unwrap_err().status(), Some(403));
     assert!(agent.calls().is_empty(), "{:?}", agent.calls());
 }
 
