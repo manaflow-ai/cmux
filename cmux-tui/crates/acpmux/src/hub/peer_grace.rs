@@ -343,9 +343,16 @@ impl Hub {
                     let run_of = this.batchable_change(&peer, &notice).map(str::to_owned);
                     if let Some(mux) = run_of {
                         // Changed rows queued behind this one join it under one taking of the
-                        // rows writer lock (`peers/changes.rs`), each a different session, in
-                        // the order they came; the first that cannot join goes next, alone.
-                        let mut seen = HashSet::from([(peer.clone(), mux)]);
+                        // rows writer lock (`peers/changes.rs`), in the order they came; the
+                        // first that cannot join goes next, alone. A session's change joins a
+                        // run that has one of its session only when both fold into one row
+                        // (`Hub::change_folds`, `apply_session_changes`).
+                        let folds = |n: &PeerNotice| match n {
+                            PeerNotice::SessionChanged { kind, .. } => Hub::change_folds(kind),
+                            _ => false,
+                        };
+                        let mut seen: HashMap<(String, String), (u64, bool)> =
+                            HashMap::from([((peer.clone(), mux), (generation, folds(&notice)))]);
                         let mut run = vec![(peer.clone(), generation, notice)];
                         let mut labels = Vec::new();
                         while run.len() < super::peers::CHANGES_PER_HOLD {
@@ -353,8 +360,11 @@ impl Hub {
                             let joins = |p: &String, g: u64, n: &PeerNotice| {
                                 let current = this.peer(p).filter(|c| c.generation == g)?;
                                 let mux = this.batchable_change(p, n)?;
-                                (!seen.contains(&(p.clone(), mux.to_owned())))
-                                    .then(|| (current, mux.to_owned()))
+                                let joins = match seen.get(&(p.clone(), mux.to_owned())) {
+                                    None => true,
+                                    Some(&(was, folded)) => was == g && folded && folds(n),
+                                };
+                                joins.then(|| (current, mux.to_owned()))
                             };
                             let joined = match &next {
                                 Work::Notice(p, g, n) => joins(p, *g, n),
@@ -370,7 +380,7 @@ impl Hub {
                                     }
                                     current.outage_ended.store(false, Ordering::SeqCst);
                                     labels.push(n.label());
-                                    seen.insert((p.clone(), mux));
+                                    seen.insert((p.clone(), mux), (g, folds(&n)));
                                     run.push((p, g, n));
                                 }
                                 (other, _) => {
