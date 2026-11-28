@@ -144,7 +144,12 @@ start_job() { # <index>
   (
     cd "$ROOT" || exit 2
     s="$(date +%s)"
-    bash -c "${JOB_CMDS[$i]}" > "$log" 2>&1
+    # The two longest builds keep full priority; the rest run niced so they take idle cores, not theirs.
+    case "$name" in
+      bundle:agent-pane|bundle:pages|typecheck) nice_cmd=() ;;
+      *) nice_cmd=(); [ "${CMUX_WEB_MATRIX_NICE:-10}" != 0 ] && command -v nice >/dev/null && nice_cmd=(nice -n "${CMUX_WEB_MATRIX_NICE:-10}") ;;
+    esac
+    ${nice_cmd[@]+"${nice_cmd[@]}"} bash -c "${JOB_CMDS[$i]}" > "$log" 2>&1
     rc=$?
     echo "$rc $(( $(date +%s) - s ))" > "$OUT/logs/${name//[:\/]/-}.status"
     exit "$rc"
