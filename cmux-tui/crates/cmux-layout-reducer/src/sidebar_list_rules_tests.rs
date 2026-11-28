@@ -186,6 +186,14 @@ fn folds_deep_folds_parents_below_the_top_level_until_opened() {
 // SidebarLayout+DoneFold
 
 #[test]
+fn runs_cut_at_each_top_level_entry() {
+    let drawn = entries(&[(0, 0), (1, 1), (2, 2), (3, 0), (4, 1), (5, 0)]);
+    let indices: Vec<Vec<i64>> =
+        runs(&drawn).iter().map(|run| run.iter().map(|entry| entry.index).collect()).collect();
+    assert_eq!(indices, vec![vec![0, 1, 2], vec![3, 4], vec![5]]);
+}
+
+#[test]
 fn done_rows_fold_behind_one_row_at_the_end_and_open_below_it() {
     let workspaces = vec![Some(ws("a")), Some(done("b")), Some(ws("c")), Some(done("d"))];
     let drawn = entries(&[(0, 0), (1, 0), (2, 0), (3, 0)]);
