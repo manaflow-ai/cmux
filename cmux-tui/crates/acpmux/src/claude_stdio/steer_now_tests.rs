@@ -272,3 +272,47 @@ async fn turn_with_all(t: &Translator, work: &[Value]) {
     t.inbound(&echo(&first[0])).await;
     t.inbound(&json!({"type": "assistant", "message": {"content": work}})).await;
 }
+
+/// A steer that stops the step says so after its words: Claude Code answers the stopped step as
+/// the user's rejection ("STOP what you are doing and wait for the user"), and lanes held on it
+/// for hours as a person's stop (hold-no-lift, 2026-11-27). One that stops nothing says nothing.
+#[tokio::test]
+async fn a_steer_that_stops_the_step_says_no_one_stopped_you() {
+    let text_of = |line: &Value| {
+        line["message"]["content"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|b| b["text"].as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    turn_with(&t, shell("toolu_sh", false)).await;
+    let meta = json!({"steer": true, "steerNow": true});
+    let Outbound::Lines(written) = t.outbound(&prompt(2, "reply PINEAPPLE", meta)).await else {
+        panic!()
+    };
+    assert!(written.iter().any(is_interrupt), "{written:?}");
+    let said = text_of(&written[0]);
+    assert!(said.starts_with("reply PINEAPPLE"), "{said}");
+    assert!(said.ends_with(super::steer_batch::STEP_STOPPED_NOTE), "{said}");
+
+    for work in [agent("toolu_fg", false)] {
+        let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+        turn_with(&t, work).await;
+        let meta = json!({"steer": true, "steerNow": true});
+        let Outbound::Lines(written) = t.outbound(&prompt(2, "reply PINEAPPLE", meta)).await else {
+            panic!()
+        };
+        assert!(!text_of(&written[0]).contains("[acpmux]"), "{written:?}");
+    }
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    turn_with(&t, shell("toolu_sh", false)).await;
+    let Outbound::Lines(written) =
+        t.outbound(&prompt(2, "reply PINEAPPLE", json!({"steer": true}))).await
+    else {
+        panic!()
+    };
+    assert!(!text_of(&written[0]).contains("[acpmux]"), "{written:?}");
+}

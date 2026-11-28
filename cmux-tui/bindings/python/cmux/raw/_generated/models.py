@@ -79,6 +79,19 @@ class ClientTransport(str, Enum):
 class CloseReason(str, Enum):
     SESSION_END = 'session_end'
 
+class ColumnDockEdge(str, Enum):
+    LEFT = 'left'
+    RIGHT = 'right'
+    TOP = 'top'
+    BOTTOM = 'bottom'
+
+class ColumnDockMode(str, Enum):
+    DOCKED = 'docked'
+    OVERLAY = 'overlay'
+
+class ColumnDockRole(str, Enum):
+    AGENT_CHAT = 'agent_chat'
+
 class ColumnMoveDirection(str, Enum):
     LEFT = 'left'
     RIGHT = 'right'
@@ -562,6 +575,7 @@ class ClientInfo:
     is_self: bool = field(metadata={'wire_name': 'self'})
     sizes: List[ClientSize]
     transport: ClientTransport
+    capabilities: Union[List[str], MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -591,6 +605,18 @@ class CloudConversationPresenceParticipant:
     __cmux_schema_path__: ClassVar[str] = 'types/CloudConversationPresenceParticipant'
     participant: str
     viewing: bool
+
+
+@dataclass(frozen=True)
+class ColumnDock:
+    __cmux_schema_path__: ClassVar[str] = 'types/ColumnDock'
+    edge: ColumnDockEdge
+    mode: ColumnDockMode
+    allow_tabs: Union[bool, MissingType] = field(default=MISSING)
+    permanent: Union[bool, MissingType] = field(default=MISSING)
+    pinned: Union[bool, MissingType] = field(default=MISSING)
+    role: Union[ColumnDockRole, MissingType] = field(default=MISSING)
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
 
 
 @dataclass(frozen=True)
@@ -836,6 +862,16 @@ class ExportedPane:
     __cmux_schema_path__: ClassVar[str] = 'types/ExportedPane'
     pane: Id
     surfaces: List[Id]
+
+
+@dataclass(frozen=True)
+class FloatingPane:
+    __cmux_schema_path__: ClassVar[str] = 'types/FloatingPane'
+    pane: Id
+    h: float
+    w: float
+    x: float
+    y: float
 
 
 @dataclass(frozen=True)
@@ -1114,7 +1150,7 @@ class LayoutColumnNode:
     id: Id
     layout: Layout
     width: float
-    dock: Union[JsonValue, MissingType] = field(default=MISSING)
+    dock: Union[ColumnDock, MissingType] = field(default=MISSING)
     rows: Union[List[LayoutRowNode], MissingType] = field(default=MISSING)
 
 
@@ -1617,7 +1653,7 @@ class Screen:
     zoomed_pane: Union[Id, None]
     color: Union[str, None, MissingType] = field(default=MISSING)
     columns: Union[List[LayoutColumnNode], MissingType] = field(default=MISSING)
-    floating: Union[JsonValue, MissingType] = field(default=MISSING)
+    floating: Union[List[FloatingPane], MissingType] = field(default=MISSING)
     group: Union[str, None, MissingType] = field(default=MISSING)
     hidden_dividers: Union[List[Id], MissingType] = field(default=MISSING)
     icon: Union[str, None, MissingType] = field(default=MISSING)
@@ -6997,6 +7033,9 @@ __all__ = [
     'BrowserProviderHosting',
     'ClientTransport',
     'CloseReason',
+    'ColumnDockEdge',
+    'ColumnDockMode',
+    'ColumnDockRole',
     'ColumnMoveDirection',
     'ColumnSide',
     'ConversationThreadStatus',
@@ -7051,6 +7090,7 @@ __all__ = [
     'ClientSize',
     'CloseTerminalResult',
     'CloudConversationPresenceParticipant',
+    'ColumnDock',
     'ColumnPin',
     'ConversationChange',
     'ConversationImportMessage',
@@ -7076,6 +7116,7 @@ __all__ = [
     'EmptyResult',
     'ExportLayoutResult',
     'ExportedPane',
+    'FloatingPane',
     'FocusDirectionResult',
     'FrontendJournalEventFocus',
     'FrontendJournalEventResize',

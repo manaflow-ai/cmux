@@ -107,7 +107,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("run_attempt", job["if"])
         place_env = {s.get("id"): s for s in job["steps"]}["place"]["env"]
         self.assertEqual(place_env["NIGHTLY_LABEL"],
-                         "${{ vars.CI_DEV_COMPILE_NIGHTLY_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}")
+                         "${{ vars.CI_DEV_COMPILE_NIGHTLY_RUNNER || 'mac-nightly' }}")
         runs_on = self.jobs["cmux-scheme-compile"]["runs-on"]
         self.assertIn("needs.dev-daily-place.outputs.runs_on != '' && fromJSON(needs.dev-daily-place.outputs.runs_on)", runs_on)
         self.assertNotIn("github.run_attempt == 1 && needs.dev-daily-place", runs_on)
@@ -128,6 +128,11 @@ class WorkflowTests(unittest.TestCase):
         for clause in ("github.ref == 'refs/heads/feat-cmux-next'", "inputs.dev_daily_sha == github.sha",
                        "inputs.dev_daily_sha == inputs.same_tree_sha"):
             self.assertIn(clause, dispatch)
+        # A job that needs push-head-preflight reads its output only in the job-level form, which a pull request also
+        # passes (tests/test_cmux_next_checks_workflow.py); the Release step (push-only since #64544) reads it bare.
+        # In a workflow_dispatch run the two are the same condition.
+        current = "needs.push-head-preflight.outputs.current == 'true'"
+        dispatch = dispatch.replace(current, "(github.event_name == 'pull_request' || " + current + ")")
         self.assertIn(" && " + dispatch + " && " + tree, job["if"])
         require = {s.get("name"): s for s in self.jobs["cmux-scheme-compile"]["steps"]}[
             "Require the requested DEV daily commit"]

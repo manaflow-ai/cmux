@@ -90,17 +90,24 @@ const initialState: RenderTerminalViewState = {
   history: emptyHistory,
 };
 
-function renderTerminalViewReducer(
+export function renderTerminalViewReducer(
   state: RenderTerminalViewState,
   action: RenderTerminalViewAction,
 ): RenderTerminalViewState {
   if (action.type === "bind") {
-    return { ...initialState, client: action.client, surface: action.surface };
+    // The replacement transport has not delivered a frame yet. Keep the last
+    // frame for this surface until it does; a different surface starts empty.
+    return {
+      ...(state.surface === action.surface ? state : initialState),
+      client: action.client,
+      surface: action.surface,
+      focused: false,
+    };
   }
   if (state.client !== action.client || state.surface !== action.surface) return state;
   switch (action.type) {
     case "reset":
-      return initialState;
+      return { ...state, client: null, focused: false };
     case "frame":
       return {
         ...state,
@@ -112,6 +119,12 @@ function renderTerminalViewReducer(
     case "history":
       return { ...state, history: action.history };
   }
+}
+
+export function renderTerminalFrame(state: RenderTerminalViewState, surface: Id | null) {
+  return state.surface === surface
+    ? { model: state.model, history: state.history }
+    : { model: null, history: emptyHistory };
 }
 
 interface RenderTerminalController {
@@ -266,11 +279,14 @@ export function useRenderTerminal({ client, surface, active, focusOnMount = fals
       returnToLive();
     };
     const sendText = (text: string, paste = false) => {
-      if (text.length === 0) return;
+      // A replacement transport may show the cached frame before its first
+      // snapshot. Do not send input to that transport until it owns a frame.
+      if (text.length === 0 || currentModel === null) return;
       prepareInput();
       void client.send(surface, { text, ...(paste ? { paste: true } : {}) }).catch(onError);
     };
     const sendNamedKey = (key: string) => {
+      if (currentModel === null) return;
       prepareInput();
       void client.sendKey(surface, [key]).catch(onError);
     };
@@ -374,7 +390,11 @@ export function useRenderTerminal({ client, surface, active, focusOnMount = fals
       }
     };
 
-    const controller: RenderTerminalController = { backToLive: returnToLive, sendKey: sendNamedKey, sendText };
+    const controller: RenderTerminalController = {
+      backToLive: returnToLive,
+      sendKey: sendNamedKey,
+      sendText,
+    };
     controllerRef.current = controller;
     measureCells();
 
@@ -390,7 +410,12 @@ export function useRenderTerminal({ client, surface, active, focusOnMount = fals
     const handleBlur = () => {
       queueMicrotask(() => {
         if (!cancelled) {
-          dispatch({ type: "focus", client, surface, focused: host.contains(document.activeElement) });
+          dispatch({
+            type: "focus",
+            client,
+            surface,
+            focused: host.contains(document.activeElement),
+          });
         }
       });
     };
@@ -513,6 +538,9 @@ export function useRenderTerminal({ client, surface, active, focusOnMount = fals
       try {
         let recoveryAttempt = 0;
         for (;;) {
+          // Keep the cached frame visible while a replacement transport is
+          // attaching, but do not let input or resize target the old model.
+          currentModel = null;
           stream = await client.attachSurface(surface, { mode: "render" });
           if (cancelled) return;
           if (graphicsResnapshotRequested) {
@@ -665,8 +693,9 @@ export function useRenderTerminal({ client, surface, active, focusOnMount = fals
   return {
     terminalRef,
     focused: bound && state.focused,
-    model: bound ? state.model : null,
-    history: bound ? state.history : emptyHistory,
+    // A client's handshake can finish before its first terminal snapshot.
+    // Transport identity gates input/focus, not the last displayed frame.
+    ...renderTerminalFrame(state, surface),
     backToLive,
     sendKey,
     sendText,

@@ -337,7 +337,9 @@ impl Runner for Fake {
         }
         self.clock += self.cost(args);
         self.ran.push(args.to_vec());
-        self.answers.pop_front().expect("an answer for every step")
+        self.answers
+            .pop_front()
+            .unwrap_or_else(|| panic!("no answer for {args:?}; ran {:?}", self.ran))
     }
     /// A step that would run past `until` is killed there, as `internal::bounded::output_by` kills it: its answer
     /// is used up and never seen.
@@ -2948,6 +2950,33 @@ fn make_room_deletes_the_offered_machine_and_starts_again_once() {
         fake.ran[2],
         strings(&["cloud", "kill-machine", "--target", "machine:vm-b", "--confirm", "--json"])
     );
+}
+
+/// The offered machine is already gone (deleted in the meantime, or the fault drill's id no machine has): the room is
+/// made all the same, so the start runs again.
+#[test]
+fn make_room_whose_offered_machine_is_already_gone_starts_again() {
+    let free = json!({"machine": "vm-gone", "name": "web", "reason": "failed_create"});
+    let gone = Ran {
+        code: 1,
+        stderr:
+            json!({"code": "cloud.machine.not_found", "message": "no such machine in this team"})
+                .to_string(),
+        ..Ran::default()
+    };
+    let sent = exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n");
+    let mut fake = Fake::new(vec![
+        three_machines(),
+        held_refusal(free),
+        gone,
+        three_machines(),
+        started(),
+        sent,
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "hi", "--make-room"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["session_id"], "sess-1");
 }
 
 #[test]

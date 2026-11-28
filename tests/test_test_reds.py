@@ -2285,6 +2285,60 @@ class LostRunner(unittest.TestCase):
         self.assertIn("a verdict", done.stdout)
 
 
+def checkout_log(*lines, then=()):
+    """A job log shaped as cmux job 139514965769's (2026-11-25): set-up, actions/checkout's section, then any later step."""
+    stamp = "2026-11-25T21:12:0{}.0000000Z "
+    rows = ["##[group]Run actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955",
+            "with:", "  fetch-depth: 2", "  filter: blob:none", "##[endgroup]",
+            "##[group]Fetching the repository", "##[endgroup]", *lines, *then]
+    return "\n".join(stamp.format(n % 10) + row for n, row in enumerate(["Current runner version: '2.338.2'", *rows]))
+
+
+class CheckoutInfra(unittest.TestCase):
+    """A red in actions/checkout from the network or a reused workspace is infra (a re-run), never the PR's own."""
+
+    job = {"conclusion": "failure", "steps": [
+        {"name": "Set up job", "conclusion": "success", "status": "completed"},
+        {"name": "Run actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955", "conclusion": "failure",
+         "status": "completed"},
+        {"name": "Detect CI change areas", "conclusion": "skipped", "status": "completed"}]}
+    stalled = ["##[error]error: Path 'Sources/App.swift' not uptodate; will not remove from working tree.",
+               "error: RPC failed; curl 28 Operation too slow. Less than 1 bytes/sec transferred the last 60 seconds",
+               "fatal: could not fetch 5e762d93a1b2c3d4e5f60718293a4b5c6d7e8f90 from promisor remote",
+               "##[error]The process '/usr/bin/git' failed with exit code 128"]
+
+    def test_the_stalled_blob_fetch_of_job_139514965769_is_infra(self):
+        why = reds.checkout_infra(self.job, checkout_log(*self.stalled))
+        self.assertIn("checkout step", why)
+        self.assertIn("promisor remote", why)
+        self.assertEqual(reds.lost_runner(self.job, (), checkout_log(*self.stalled)), why)
+
+    def test_a_checkout_left_by_a_reused_workspace_is_infra(self):
+        for line in ("fatal: not a git repository (or any of the parent directories): .git",
+                     "fatal: Unable to create '/home/runner/_work/cmux/cmux/.git/index.lock': File exists.",
+                     "##[error]error: Entry 'a.txt' not uptodate. Cannot merge."):
+            self.assertTrue(reds.checkout_infra(self.job, checkout_log(line, "##[error]exit code 128")), line)
+
+    def test_a_ref_or_path_the_commit_named_stays_the_prs(self):
+        for line in ("fatal: remote error: upload-pack: not our ref 0123456789abcdef0123456789abcdef01234567",
+                     "error: invalid path 'a:b'", "fatal: couldn't find remote ref refs/heads/gone"):
+            self.assertIsNone(reds.checkout_infra(self.job, checkout_log(line, *self.stalled)), line)
+
+    def test_a_later_steps_red_after_a_noisy_checkout_stays_the_prs(self):
+        job = dict(self.job, steps=[dict(self.job["steps"][1], conclusion="success"),
+                                    {"name": "Detect CI change areas", "conclusion": "failure"}])
+        log = checkout_log("warning: Path 'a' not uptodate; will not remove from working tree.",
+                           then=["##[group]Run scripts/ci/detect-change-areas.sh", "##[endgroup]",
+                                 "fatal: could not fetch 4320dcc5 from promisor remote", "##[error]exit code 128"])
+        self.assertIsNone(reds.checkout_infra(job, log))
+        # the failed step named alone is not a checkout either
+        self.assertIsNone(reds.checkout_infra({"conclusion": "failure"}, log))
+
+    def test_a_passing_job_or_no_log_is_no_verdict_here(self):
+        self.assertIsNone(reds.checkout_infra(dict(self.job, conclusion="success"), checkout_log(*self.stalled)))
+        self.assertIsNone(reds.checkout_infra(self.job, None))
+
+
 class EscapesEndAtTheirFirstTerminator(unittest.TestCase):
     r"""cmux#41382's review F1 (test_reds.py:64): "The OSC pattern is greedy and runs to the last ESC \ in the log, so
     plain() deletes every line between two title sequences. Reproduced through cargo_test_verdict.read_text: a head

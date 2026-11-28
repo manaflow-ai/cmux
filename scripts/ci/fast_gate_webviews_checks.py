@@ -41,6 +41,7 @@ nightly on? what about the fixit/ignoring and fixing forward for things?" Withou
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import os
 from collections import Counter
@@ -63,6 +64,7 @@ CHECKS = (
     "check:catalog-unused",
     "check:popup-hover-reveals",
     "check:surface-bypass",
+    "check:status-outside-dot",
     "check:bundle-matrix",
 )
 # Per check: ("lint", "") reports and is fixed forward on the nightly (--advisory-out); ("blocks", why) still fails it.
@@ -79,6 +81,7 @@ CHECK_CLASSES = {
     "check:catalog-unused": LINT,
     "check:popup-hover-reveals": LINT,
     "check:surface-bypass": LINT,
+    "check:status-outside-dot": LINT,
     "check:bundle-matrix": ("blocks", "two pull requests each imported layoutGeometry into VirtualTranscript.tsx: green alone, red merged, 2026-11-27"),
 }
 # Ratchets introduced together with their baseline and package script: a base without the script cannot run them.
@@ -86,6 +89,7 @@ NEW_CHECK_SCRIPTS = {
     "check:design-tokens": "scripts/check-design-tokens.ts",
     "check:ui-review": "scripts/check-ui-review.ts",
     "check:surface-bypass": "scripts/check-surface-bypass.ts",
+    "check:status-outside-dot": "scripts/check-status-outside-dot.ts",
     "check:bundle-matrix": "../scripts/ci/web-bundle-matrix.sh",
 }
 ADVISORY_EXCERPT = 40  # findings per check in the advisory report; the run log holds them all
@@ -352,6 +356,25 @@ def bun_install(cwd: Path) -> int:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+# The base worktree's holder in the temp folder, ~1.1 GB (webviews and its node_modules). A run killed by a timeout,
+# SIGKILL or a closed session never reaches close(), and acpmux keeps the session TMPDIR it sits in (gcp-codex-lane-5,
+# 2026-11-27: 5.4 GiB of them in one session's TMPDIR, five holders 1.2 to 6.4 h old, none with an owner file, so no
+# sweep could tell a dead run's from a live one). Each holder names its owner (.owner-pid) and the next base checkout
+# removes the holders whose owner is gone, as fast-gates-base-* and ci-receipt-* do (tests/test_ci_holder_sweep.py).
+HOLDER_PREFIX = "fast-gate-webviews-base-"
+
+
+def sweep_dead_holders(prefix: str) -> int:
+    """cmux_next_fast_gates.sweep_dead_holders (one sweep for every holder of this kind), with its worktree prune."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import cmux_next_fast_gates  # noqa: PLC0415  (scripts/ci/cmux_next_fast_gates.py)
+
+    removed = cmux_next_fast_gates.sweep_dead_holders(prefix)
+    if removed:
+        subprocess.run(["git", "worktree", "prune"], capture_output=True, check=False)
+    return removed
+
+
 class BaseTree:
     """A worktree of BASE, made on first use. Its webviews/node_modules is the merge's only when the two install
     the same thing (web_lint_prepush.shares_deps: package.json, bun.lock, file: dependencies); otherwise it installs
@@ -362,7 +385,9 @@ class BaseTree:
 
     def webviews(self) -> Path | None:
         if self.path is None:
-            holder = Path(tempfile.mkdtemp(prefix="fast-gate-webviews-base-"))
+            sweep_dead_holders(HOLDER_PREFIX)
+            holder = Path(tempfile.mkdtemp(prefix=HOLDER_PREFIX))
+            (holder / ".owner-pid").write_text(str(os.getpid()))
             made = subprocess.run(["git", "-C", str(self.repo), "worktree", "add", "--quiet", "--detach",
                                    str(holder / "base"), self.base], capture_output=True, text=True)
             if made.returncode != 0:
@@ -417,8 +442,14 @@ def main(argv: list[str] | None = None) -> int:
     failed = []
     shown: dict[str, list[str]] = {}  # a failed check's findings, for --advisory-out
     try:
+        # The checks are independent reads of the one installed tree: run them side by side (the serial sum was
+        # 280 s of 35 checks on 2026-11-28, the longest 63 s), then judge them in CHECKS order so the output and
+        # the base comparison read as before. WEBVIEWS_CHECKS_JOBS=1 restores the serial order.
+        jobs = max(1, int(os.environ.get("WEBVIEWS_CHECKS_JOBS") or min(os.cpu_count() or 2, 6)))
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=jobs)
+        futures = {check: pool.submit(run_check, webviews, check, True) for check in checks}
         for check in checks:
-            code, output = run_check(webviews, check, fixit=True)
+            code, output = futures[check].result()
             print(output, end="", flush=True)
             if code == 0:
                 continue
@@ -463,6 +494,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  {line}", flush=True)
                 print(f"::{'warning' if advisory else 'error'} title=webviews {check}::{line}", flush=True)
     finally:
+        pool.shutdown(wait=True, cancel_futures=True)
         if base:
             base.close()
     where = "the pull request merged with its base" if args.base else "this commit"
