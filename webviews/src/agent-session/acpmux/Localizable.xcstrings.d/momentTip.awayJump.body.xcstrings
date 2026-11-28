@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "momentTip.awayJump.body" : {
+      "comment" : "Agent pane moment tip on the Jump to new pill after a return: one sentence",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jump to where you left off; a recap waits there."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "انتقل إلى حيث توقفت؛ ملخص ينتظرك هناك."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skoči gdje si stao; tamo te čeka sažetak."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hop til hvor du slap; et resumé venter der."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Spring zu deiner letzten Stelle; dort wartet eine Zusammenfassung."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Salta a donde lo dejaste; allí te espera un resumen."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Allez là où vous vous étiez arrêté ; un résumé vous y attend."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vai dove avevi lasciato; lì ti aspetta un riepilogo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "中断した場所へジャンプ。そこに要約があります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "លោតទៅកន្លែងដែលអ្នកឈប់ សេចក្តីសង្ខេបរង់ចាំនៅទីនោះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "멈춘 곳으로 이동하세요. 요약이 기다리고 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hopp dit du slapp; et sammendrag venter der."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Przejdź tam, gdzie skończyłeś; czeka tam podsumowanie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vá até onde parou; um resumo espera por você."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Перейдите туда, где остановились: там ждёт сводка."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ข้ามไปยังจุดที่คุณค้างไว้ มีสรุปรออยู่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kaldığın yere atla; orada bir özet bekliyor."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Перейдіть туди, де зупинилися: там чекає підсумок."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nhảy đến chỗ bạn dừng; bản tóm tắt đang chờ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "跳到你离开的地方，那里有一份回顾。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "跳到你離開的地方，那裡有一份回顧。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

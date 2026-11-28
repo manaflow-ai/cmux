@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "momentTip.planCompare.body" : {
+      "comment" : "Agent pane moment tip on the plan card's build menu: one sentence",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This menu builds the plan on two agents, then compares them."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تبني هذه القائمة الخطة على وكيلين ثم تقارن بينهما."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ovaj meni gradi plan na dva agenta, pa ih uporedi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne menu bygger planen med to agenter og sammenligner dem."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dieses Menü baut den Plan mit zwei Agenten und vergleicht sie."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Este menú construye el plan con dos agentes y los compara."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ce menu construit le plan avec deux agents, puis les compare."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Questo menu costruisce il piano con due agenti e li confronta."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このメニューで2つのエージェントが計画をビルドし、比較します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ម៉ឺនុយនេះបង្កើតផែនការលើភ្នាក់ងារពីរ រួចប្រៀបធៀប។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 메뉴는 두 에이전트로 계획을 빌드한 뒤 비교합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne menyen bygger planen med to agenter og sammenligner dem."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "To menu buduje plan na dwóch agentach i je porównuje."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Este menu constrói o plano com dois agentes e os compara."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Это меню собирает план двумя агентами и сравнивает их."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เมนูนี้สร้างแผนด้วยสองเอเจนต์ แล้วเปรียบเทียบกัน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu menü planı iki ajanla oluşturur, sonra karşılaştırır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Це меню збирає план двома агентами й порівнює їх."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Menu này xây kế hoạch bằng hai tác tử rồi so sánh."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此菜单用两个代理构建计划，然后比较。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此選單用兩個代理建置計畫，然後比較。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
