@@ -1896,7 +1896,20 @@ fn submit_steering_prompt(
     // marker is inserted by the typed agent-session path, never accepted from
     // the phone or forwarded as arbitrary ACP metadata.
     if attachment.cloud_mobile {
-        params["_meta"]["acpmux"]["via"] = json!("cloud-mobile");
+        if let Some(meta) = params.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+            meta.insert("via".to_owned(), json!("cloud-mobile"));
+            // The phone the Cloud link's owner check admitted (owner_phone.rs): acpmux treats it as
+            // the owner's own phone under D13, never with Full access (RFD 0135 gate 4).
+            #[cfg(unix)]
+            if let Some(device) =
+                attachment.mux.upgrade().and_then(|mux| mux.owner_phone(attachment.client))
+            {
+                meta.insert(
+                    "ownerPhone".to_owned(),
+                    json!({"device": device, "fullAccess": false}),
+                );
+            }
+        }
     }
     // Only the owner and team members steer. Even a Drive invite submits ordinary prompts.
     let guest = attachment.author.as_ref().is_some_and(proxy::is_guest);
@@ -2044,8 +2057,7 @@ fn refuse_with_data(
 /// The text of `refusal` with `data`: the generic `refused` names `data.reason` (acpmux's code)
 /// and a bad request `data.field` (the param, [`bad_field`]), so a reader of the error alone sees
 /// why; every other refusal's text is its own. A start's `refused` also names `data.step`, the
-/// phase acpmux refused in (`agent_session_start` `StartTimings::at`), as do a start's
-/// `unavailable` and `timeout` (the phase that lost acpmux).
+/// phase acpmux refused in (`agent_session_start` `StartTimings::at`).
 fn refusal_text(refusal: Refusal, data: &Value) -> String {
     let text = |key: &str| data.get(key).and_then(Value::as_str);
     match (refusal, text("reason"), text("field")) {
@@ -2060,7 +2072,7 @@ fn refusal_text(refusal: Refusal, data: &Value) -> String {
             out
         }
         (Refusal::BadRequest, _, Some(field)) => format!("{} (field: {field})", refusal.message()),
-        // A start that lost acpmux names the phase it lost it in.
+        // The phase acpmux went away or went quiet in (the start's `data.step`).
         (Refusal::Unavailable | Refusal::Timeout, _, _) if text("step").is_some() => {
             format!("{} at {}", refusal.message(), text("step").unwrap_or_default())
         }

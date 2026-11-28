@@ -601,27 +601,7 @@ impl Hub {
                 let _ = release.await;
             }
         }
-        // A prompt that cannot reach any agent (none running, and its folder or harness is gone)
-        // is refused before it is recorded (`cold_prompt_check`, after steer-only's refusal).
         admission.enter("agent");
-        // Release the child mutex before probing the host. A delivery awaiting acceptance
-        // stays in setup until the enclosing answer deadline queues it durably. Treating a
-        // timed-out probe as live here would publish "started" before dispatch can proceed.
-        // Restored/daemon prompts have no acceptance waiter; bound their probe separately.
-        let probe = async {
-            let child = session.child.lock().await.clone();
-            match child {
-                Some(child) => child.is_alive().await,
-                None => false,
-            }
-        };
-        let live = if admission.queue_due().is_some() {
-            probe.await
-        } else {
-            tokio::time::timeout(super::prompt_admission::ADMISSION_BOUND, probe)
-                .await
-                .unwrap_or(true)
-        };
         let text = prompt_text(&blocks);
         let running = session.turn();
         // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
@@ -695,10 +675,6 @@ impl Hub {
             }
             return Err(super::turn_cap::steer_unavailable(capped));
         }
-        if !live {
-            admission.enter("cold_check");
-            self.cold_prompt_check(session).await?;
-        }
         if steer_now && session.moving().is_some() {
             return Err(super::queue::moving_error(session));
         }
@@ -744,8 +720,7 @@ impl Hub {
             }
             return steered;
         }
-        // An automatic continuation runs only while its chat still ends on the cut turn: no await
-        // from here to `queue_slot`'s choice, so it never joins the queue (`auto_resume.rs`).
+        // An automatic continuation runs only while its chat still ends on the cut turn.
         let after_turn = opts.after_turn.clone();
         let fired = opts.fired;
         super::auto_resume::check_cut(
@@ -754,6 +729,91 @@ impl Hub {
             false,
             opts.provenance.as_ref(),
         )?;
+        // Opportunistic updates can use a quiet gap before the next prompt.
+        // A required change is handled under the turn claim, including for the restored queue.
+        if fired.is_none()
+            && running.is_none()
+            && session.respawn_when_quiet.load(Ordering::SeqCst)
+            && !session.respawn_required.load(Ordering::SeqCst)
+        {
+            // Own the quiet check in a detached task. Once the census commits hibernation,
+            // `hibernate_held` takes the child slot and its kill may outlive this admission's
+            // three-second answer bound. Dropping a directly awaited future there would cancel
+            // after `slot.take()` and leave `detaching` set with the old host alive. A spawned
+            // owner continues the committed teardown after this prompt defers; a queued prompt
+            // also makes the task's final eligibility check refuse a new hibernation.
+            // task-owner: one quiet restart teardown for this session; admission only bounds the
+            // JoinHandle wait while the spawned owner finishes the committed kill.
+            let quiet_restart = {
+                let hub = Arc::clone(self);
+                let session = Arc::clone(session);
+                self.scope.spawn_named("quiet-restart-teardown", async move {
+                    hub.end_quiet_stale(&session, "prompt-restart", None).await
+                })
+            };
+            // Acceptance callers defer through the enclosing admission deadline. Restored
+            // prompts have no acceptance waiter, so bound their join separately.
+            let result = if admission.queue_due().is_some() {
+                Some(quiet_restart.await)
+            } else {
+                tokio::time::timeout(super::prompt_admission::ADMISSION_BOUND, quiet_restart)
+                    .await
+                    .ok()
+            };
+            match result {
+                Some(Ok(_)) => {}
+                Some(Err(error)) => {
+                    tracing::warn!(
+                        session = %session.id,
+                        ?error,
+                        "prompt quiet-restart census task failed"
+                    );
+                }
+                None => {
+                    tracing::warn!(
+                        session = %session.id,
+                        "prompt quiet-restart census lapsed during admission"
+                    );
+                }
+            }
+        }
+        // The quiet restart above may have hibernated the child. Re-read both pieces of
+        // admission state after that await so a cold prompt cannot reuse the pre-hibernation
+        // liveness result or steer a turn that no longer exists.
+        let running = session.turn();
+        // Release the child mutex before probing the host. A delivery awaiting acceptance
+        // stays in setup until the enclosing answer deadline queues it durably. Treating a
+        // timed-out probe as live here would publish "started" before dispatch can proceed.
+        // Restored/daemon prompts have no acceptance waiter; bound their probe separately.
+        let probe = async {
+            let child = session.child.lock().await.clone();
+            match child {
+                Some(child) => child.is_alive().await,
+                None => false,
+            }
+        };
+        let live = if admission.queue_due().is_some() {
+            probe.await
+        } else {
+            tokio::time::timeout(super::prompt_admission::ADMISSION_BOUND, probe)
+                .await
+                .unwrap_or(true)
+        };
+        if !live {
+            admission.enter("cold_check");
+            self.cold_prompt_check(session).await?;
+        }
+        // The quiet handoff and live check above may await long enough for a person's prompt to
+        // take the turn lock. A continuation must recheck its cut immediately before queueing so
+        // it cannot join behind a newer turn that superseded it during those awaits.
+        if after_turn.is_some() {
+            super::auto_resume::check_cut(
+                session,
+                after_turn.as_deref(),
+                false,
+                opts.provenance.as_ref(),
+            )?;
+        }
         // The person's steer to an agent that steers, sent while no turn showed yet: another
         // prompt holds the turn and is still starting (its agent spawning, its uploads read), so
         // this one queues behind it, and steers in once that turn shows (`queue.rs`
@@ -849,6 +909,23 @@ impl Hub {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
+        }
+        // The preceding turn can install a fallback while this prompt is in the queue.
+        // Check after claiming the turn, including for a prompt restored after admission defers.
+        if session.respawn_required.load(Ordering::SeqCst) {
+            let restart = async {
+                self.wait_required_prompt_restart(
+                    session,
+                    cancels,
+                    no_queue || after_turn.is_some(),
+                )
+                .await?;
+                self.cold_prompt_check(session).await
+            };
+            if let Err(e) = Box::pin(restart).await {
+                self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+                return Err(e);
+            }
         }
         // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
         let (mut blocks, control, trust_gate, cloud_mobile) =
