@@ -73,7 +73,7 @@ app="$work/app/cmux NIGHTLY.app"
 ditto "$(find "$mnt" -maxdepth 1 -name '*.app' | head -1)" "$app" || exit 3
 hdiutil detach "$mnt" >/dev/null || exit 3
 mnt=""
-pb() { /usr/libexec/PlistBuddy -c "Print :$1" "$app/Contents/Info.plist" 2>/dev/null || true; }
+pb() { [[ -f "$app/Contents/Info.plist" ]] || return 0; /usr/libexec/PlistBuddy -c "Print :$1" "$app/Contents/Info.plist" 2>/dev/null || true; }
 commit="$(pb CMUXCommit)"
 echo "SSR app version $(pb CFBundleShortVersionString) build $(pb CFBundleVersion) commit $commit"
 
