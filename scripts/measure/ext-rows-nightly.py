@@ -440,13 +440,18 @@ def row_web_pane(ctx: Ctx) -> dict:
     snapshot = wait_for(lambda: (s := ctx.rpc("snapshot.get", {}, timeout=15)) and tab in json.dumps(s) and s,
                         wait=15)
     drawn = capture_marker(ctx, "web-pane", marker) if snapshot else {"drawn": False}
-    return {"checks": {"installed": install["installed"],
-                       "web_page_listed": any(p.get("interface") == "cmux.pane/1" for p in pages
-                                              if isinstance(p, dict)),
-                       "open_answered": isinstance(opened, dict) and "error" not in opened,
-                       "page_tab_open": bool(snapshot), "page_content_drawn": drawn["drawn"]},
-            "install": install, "web_pages": pages, "open": opened,
-            "page_tab": find_tab(snapshot, tab) if snapshot else None, "drawing": drawn}
+    out = {"checks": {"installed": install["installed"],
+                      "web_page_listed": any(p.get("interface") == "cmux.pane/1" for p in pages
+                                             if isinstance(p, dict)),
+                      "open_answered": isinstance(opened, dict) and "error" not in opened,
+                      "page_tab_open": bool(snapshot), "page_content_drawn": drawn["drawn"]},
+           "install": install, "web_pages": pages, "open": opened,
+           "page_tab": find_tab(snapshot, tab) if snapshot else None, "drawing": drawn}
+    if drawn.get("skipped"):
+        # Not captured on this Mac (unattended, no screen-capture alert bypass): the drawing is unproven, not failed.
+        del out["checks"]["page_content_drawn"]
+        out.update(unproven=True, skipped_checks={"page_content_drawn": drawn["skipped"]})
+    return out
 
 
 row_web_pane.needs_app = True

@@ -69,7 +69,9 @@ CANDIDATE_WORDS_ANY_CASE = ("big-red", "big_red", "bigred", "big red")
 @functools.lru_cache(maxsize=1)
 def candidate_files() -> tuple[str, ...]:
     found: set[str] = set()
-    for flags, words in ((["-F"], CANDIDATE_WORDS), (["-F", "-i"], CANDIDATE_WORDS_ANY_CASE)):
+    # --cached too: a sparse checkout's left-out files are tracked, and CI's full checkout scans them (read_text).
+    for flags, words in ((["-F"], CANDIDATE_WORDS), (["-F", "-i"], CANDIDATE_WORDS_ANY_CASE),
+                         (["--cached", "-F"], CANDIDATE_WORDS), (["--cached", "-F", "-i"], CANDIDATE_WORDS_ANY_CASE)):
         argv = ["git", "-C", str(ROOT), "grep", "-I", "-l", "-z", *flags]
         for word in words:
             argv += ["-e", word]
@@ -82,6 +84,18 @@ def candidate_files() -> tuple[str, ...]:
 
 def read_text(rel: str) -> str | None:
     path = ROOT / rel
+    if not path.exists() and not path.is_symlink():
+        # A sparse checkout (a lane worktree leaves cmux-next-ios/verify/ out) still tracks the file, and CI's full
+        # checkout reads it: read the index copy, so a local run agrees with CI. #60339 removed 20 allowlist rows
+        # under cmux-next-ios/verify/ as stale from such a checkout, and the feat-cmux-next push went red on them.
+        p = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-s", "--", rel], capture_output=True, text=True)
+        if not p.stdout.startswith("100"):  # a regular file, not a symlink (120000) or a submodule (160000)
+            return None
+        p = subprocess.run(["git", "-C", str(ROOT), "show", f":{rel}"], capture_output=True)
+        try:
+            return p.stdout.decode() if p.returncode == 0 else None
+        except UnicodeDecodeError:
+            return None
     if path.is_symlink() or not path.is_file():
         return None
     try:
@@ -264,6 +278,17 @@ def base_allowlist() -> dict | None:
     return json.loads(p.stdout) if p.returncode == 0 else None
 
 
+def base_tree_count(rule: str, rel: str) -> int:
+    """How many lines of `rel` match `rule` at the base commit (0 when the base has no such file)."""
+    p = subprocess.run(["git", "-C", str(ROOT), "show", f"{base_ref()}:{rel}"], capture_output=True)
+    if p.returncode != 0:
+        return 0
+    try:
+        return RULES[rule][0](p.stdout.decode())
+    except UnicodeDecodeError:
+        return 0
+
+
 def grown(base: dict, allow: dict, rule: str) -> list[str]:
     """Entries added or raised since the base allowlist whose reason is not "safe:": debt only shrinks."""
     out = []
@@ -275,6 +300,9 @@ def grown(base: dict, allow: dict, rule: str) -> list[str]:
 
     for rel, entry in sorted(allow.get(rule, {}).items()):
         was = old.get(rel, {}).get("count", 0)
+        if entry.get("count", 0) > was:
+            # Debt the base tree already held (an entry a wrong cleanup dropped) is recorded, not grown.
+            was = max(was, base_tree_count(rule, rel))
         # A test module moved out of its file (foo.rs -> foo_tests.rs) takes its entry along: the folder's debt
         # did not grow, so the new row is not new debt.
         if rel.endswith(("_tests.rs", "/tests.rs")) and \
