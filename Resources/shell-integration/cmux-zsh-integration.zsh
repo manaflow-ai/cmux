@@ -325,6 +325,7 @@ _cmux_now() {
 }
 
 typeset -g _CMUX_CLAUDE_WRAPPER=""
+typeset -g _CMUX_AGY_WRAPPER=""
 typeset -g _CMUX_GROK_WRAPPER=""
 typeset -g _CMUX_MUSE_WRAPPER=""
 # Sets REPLY to PATH-style $2 with $1 moved to the front (and $3 dropped),
@@ -585,19 +586,25 @@ _cmux_install_cli_wrapper() {
     [[ -x "$wrapper_path" ]] || return 0
 
     # Keep the bundled wrapper ahead of later PATH mutations. Install it
-    # via eval so an existing alias cannot break parsing.
+    # via eval so an existing alias cannot break parsing, then restore any
+    # self-referential flag-forwarding alias (e.g. `alias agy="agy ..."`).
     typeset -g "$wrapper_variable=$wrapper_path"
     if [[ "$command_name" == "claude" ]]; then
         _cmux_install_cli_command_shim "$command_name" "$wrapper_path"
     fi
+    local saved_alias="${aliases[$command_name]-}"
     builtin unalias "$command_name" >/dev/null 2>&1 || true
     if [[ "$command_name" == "claude" ]]; then
         eval "$command_name() { _cmux_claude_wrapper_command \"\$@\"; }"
     else
         eval "$command_name() { \"\${$wrapper_variable}\" \"\$@\"; }"
     fi
+    if [[ "$saved_alias" == "$command_name "* ]]; then
+        builtin alias "$command_name=$saved_alias"
+    fi
 }
 _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
+_cmux_install_cli_wrapper agy _CMUX_AGY_WRAPPER
 _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
 _cmux_install_cli_wrapper muse _CMUX_MUSE_WRAPPER
 
@@ -2442,6 +2449,7 @@ _cmux_fix_path() {
         fi
     fi
     _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
+    _cmux_install_cli_wrapper agy _CMUX_AGY_WRAPPER
     _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
     _cmux_install_cli_wrapper muse _CMUX_MUSE_WRAPPER
     add-zsh-hook -d precmd _cmux_fix_path
