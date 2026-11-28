@@ -1196,7 +1196,7 @@ class LoadBindingsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "bindings.json"
             path.write_text('{"families": {"Creation": {"enums": {"A": {}}, "enums": {"B": {}}}}}', encoding="utf-8")
-            with self.assertRaisesRegex(BindingError, "duplicate key 'enums'"):
+            with self.assertRaisesRegex(BindingError, "repeats the key\(s\) enums"):
                 generate.load_bindings(path)
 
 
