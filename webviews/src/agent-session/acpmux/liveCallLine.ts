@@ -181,20 +181,13 @@ export function drewLiveLine(rows: readonly AcpmuxRow[] | undefined): void {
     if (!drawn)
       lost = `open:${
         !line
-          ? `noline/at=${rows ? rows.length - 1 - rows.findLastIndex((r) => r.id === LIVE_THINKING) : "x"}/n=${rows?.length}/tail=${(
-              rows ?? []
-            )
-              .slice(-3)
-              .map((r) => r.kind)
-              .join(
-                ",",
-              )}/shape=${shape ? shape.shaped.at(-1)?.kind : "-"}/same=${shape ? (rows ?? []).findLastIndex((r) => r.kind === "user" && r.id === shape.user.id) >= 0 : "-"}/sn=${shape?.shaped.length}/idle=${shape?.idle}`
+          ? "noline"
           : !basis
             ? "nobasis"
             : !shape
               ? "noshape"
               : !drewShaped(shape.shaped, open)
-                ? `drewShaped/${shapedMiss(shape.shaped, open)}/via=${shape.via}/idle=${shape.idle}/fin=${shape.final}/age=${stamp - shape.stamp}/assist=${[
+                ? `drewShaped/${shapedMiss(shape.shaped, open)}/via=${shape.via}/fin=${shape.final}/age=${stamp - shape.stamp}/assist=${[
                     ...open.values(),
                   ]
                     .filter((r) => r.kind === "assistant")
@@ -255,8 +248,7 @@ function shapedMiss(shaped: readonly AcpmuxRow[], open: ReadonlyMap<string, Acpm
     if (row.kind === "user") continue;
     const drew = open.get(row.id);
     if (!drew) return `absent:${row.kind}${row.id === LIVE_THINKING ? "(line)" : ""}`;
-    if (!sameShape(drew, row, COMPARE_DEPTH))
-      return `differs:${row.kind}@${diffPath(drew, row, COMPARE_DEPTH)}/v=${drew.version}:${row.version}/n=${(drew as { toolCount?: number }).toolCount}:${(row as { toolCount?: number }).toolCount}`;
+    if (!sameShape(drew, row, COMPARE_DEPTH)) return `differs:${row.kind}@${diffPath(drew, row, COMPARE_DEPTH)}`;
     count += 1;
   }
   return `count:${count}/${open.size}`;
