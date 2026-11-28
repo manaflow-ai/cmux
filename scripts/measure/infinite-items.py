@@ -296,12 +296,81 @@ def smaps_kinds(pid):
 TUI_LOG = []
 
 
+def thread_detail(pid):
+    """Each thread's wake counters and signal masks, Linux only: what woke an idle thread (a signal shows as a caught
+    signal unblocked on the thread; the scheduler's own counts say whether a waker was local or remote)."""
+    out = {}
+    if not (IS_LINUX and pid):
+        return out
+    try:
+        tids = os.listdir(f"/proc/{pid}/task")
+    except OSError:
+        return out
+    for tid in tids:
+        d = {}
+        try:
+            with open(f"/proc/{pid}/task/{tid}/status") as f:
+                for line in f:
+                    k, _, v = line.partition(":")
+                    if k in ("Name", "State", "SigPnd", "ShdPnd", "SigBlk", "SigIgn", "SigCgt"):
+                        d[k] = v.strip()
+                    elif k in ("voluntary_ctxt_switches", "nonvoluntary_ctxt_switches"):
+                        d[k[:4]] = int(v)
+        except OSError:
+            continue
+        try:
+            with open(f"/proc/{pid}/task/{tid}/sched") as f:
+                for line in f:
+                    k, _, v = line.partition(":")
+                    k = k.strip().rsplit(".", 1)[-1]
+                    if k.startswith("nr_wakeups") or k in ("nr_switches", "nr_voluntary_switches"):
+                        try:
+                            d[k] = int(float(v))
+                        except ValueError:
+                            pass
+        except OSError:
+            pass
+        out[tid] = d
+    return out
+
+
+def last_pid():
+    try:
+        with open("/proc/loadavg") as f:
+            return int(f.read().split()[-1])
+    except (OSError, ValueError):
+        return 0
+
+
+def thread_delta(before, after):
+    """The threads that woke between two `thread_detail`s, with their counters' deltas and masks."""
+    rows = []
+    for tid, a in after.items():
+        b = before.get(tid)
+        if not b:
+            continue
+        delta = {k: v - b.get(k, 0) for k, v in a.items() if isinstance(v, int) and v - b.get(k, 0)}
+        if delta.get("volu", 0) + delta.get("nonv", 0) > 0:
+            masks = {k: a[k] for k in ("State", "SigPnd", "ShdPnd", "SigBlk", "SigCgt") if k in a}
+            rows.append((a.get("Name", "?"), tid, delta, masks))
+    rows.sort(key=lambda r: -(r[2].get("volu", 0) + r[2].get("nonv", 0)))
+    return [{"name": n, "tid": t, "delta": d, **m} for n, t, d, m in rows[:10]]
+
+
 def idle_window(top, seconds, disks):
     """Per-role totals: memory at the end, CPU and wakeups over `seconds` of nothing."""
+    tui_threads, pid_at = thread_detail(top.get("tui")), last_pid()
+    try:
+        with open(f"/proc/{top.get('tui')}/timers") as f:
+            tui_timers = f.read().strip().replace("\n", " | ")[:600]
+    except (OSError, TypeError):
+        tui_timers = "-"
     before = snapshot(top)
     log_at = os.path.getsize(TUI_LOG[0]) if TUI_LOG and os.path.exists(TUI_LOG[0]) else None
     syncer = busy_thread_states(top.get("tui"), ("sqlite-wal-sync", "mux-output-stor"), seconds)
     after = snapshot(top)
+    threads = thread_delta(tui_threads, thread_detail(top.get("tui")))
+    pids_made = last_pid() - pid_at
     commits, wakes, asked = {}, {}, set()
     if log_at is not None:
         with open(TUI_LOG[0], "rb") as f:
@@ -372,7 +441,8 @@ def idle_window(top, seconds, disks):
         r["rss_mb"] = round(r.pop("rss") / 1048576, 2)
     return {"total": total, "roles": roles, "disk": disk, "files": file_groups(disks), "commits": commits,
             "syncer": syncer, "window": seconds,
-            "wakes": wakes, "wake_terminals": len(asked)}
+            "wakes": wakes, "wake_terminals": len(asked),
+            "threads": threads, "pids_made": pids_made, "timers": tui_timers}
 
 
 def busy_thread_states(pid, name, seconds, every=0.2):
@@ -400,7 +470,17 @@ def busy_thread_states(pid, name, seconds, every=0.2):
                     call = f.read().split()[0]
                 with open(f"/proc/{pid}/task/{tid}/wchan") as f:
                     wchan = f.read().strip() or "-"
-            except (OSError, IndexError):
+            except OSError as exc:
+                # A running thread has no syscall to read (EAGAIN): say so instead of dropping the sample.
+                try:
+                    with open(f"/proc/{pid}/task/{tid}/comm") as f:
+                        if f.read().strip() in name:
+                            key = f"{tid}:err{exc.errno}"
+                            states[key] = states.get(key, 0) + 1
+                except OSError:
+                    pass
+                continue
+            except IndexError:
                 continue
             key = f"{tid}:{call}:{wchan}"
             states[key] = states.get(key, 0) + 1
@@ -1066,6 +1146,8 @@ def report(results):
                   f"wal={json.dumps({k: v for k, v in s.get('files', {}).items() if k.endswith('-wal')})}", flush=True)
             print(f"INFINITE-WAKES {n} day={s['day']} terminals={s.get('wake_terminals', 0)} "
                   f"by={json.dumps(dict(sorted(s.get('wakes', {}).items(), key=lambda kv: -kv[1])[:12]))}", flush=True)
+            print(f"INFINITE-THREADS {n} day={s['day']} pids_made={s.get('pids_made')} timers={s.get('timers')!r} "
+                  f"rows={json.dumps(s.get('threads', []))}", flush=True)
             for k, v in (sorted(s["roles"].items()) if s is r["samples"][0] or s is r["samples"][-1] else []):
                 top_cmds = sorted(v.get("cmds", {}).items(), key=lambda kv: -kv[1])[:2]
                 print(f"INFINITE-ROLE {n} day={s['day']} {k} n={v['count']} thr={v.get('threads')} mb={v['pss_mb']} "
