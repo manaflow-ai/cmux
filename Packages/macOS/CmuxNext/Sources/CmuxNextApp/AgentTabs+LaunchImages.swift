@@ -6,7 +6,7 @@ extension AgentTabStore {
     func shownPageImages(but isIncognito: (AgentTabKey) -> Bool) async -> [String: NSImage?] {
         var images: [String: NSImage?] = [:]
         for (key, view) in views where view.window?.isVisible == true && !view.isHiddenOrHasHiddenAncestor {
-            if case let scoped = resolvedKey(key), !isIncognito(scoped) { images[launchImages.slot(scoped.key, machine: scoped.machine)] = .some(view.model.hasPainted ? await view.pageImage() : nil) }
+            if case let scoped = resolvedKey(key), !isIncognito(scoped) { images[launchImages.slot(scoped.key, machine: scoped.machine)] = .some(view.model.hasPainted ? await view.launchPicture() : nil) }
         }
         return images
     }

@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+import Foundation
 
 extension AgentPaneView {
     /// An image of the page as shown (the next launch draws it until this
@@ -13,6 +14,29 @@ extension AgentPaneView {
         let under = performWithTheme { AgentPaneTheme.underPageColor(themeTokens, surface: surfaceKind) }
         return PageImageBackground.cover(image, color: under, pageIsOpaque: Self.pageIsOpaque(surfaceKind, in: self),
                                          keepsClearAreas: snapshotKeepsClearAreas)
+    }
+
+    /// The defaults key that turns on ``launchPicture()``'s see-through Chromium picture (off by default).
+    public nonisolated static let seeThroughLaunchPictureKey = "cmux.agentPane.seeThroughLaunchPicture"
+
+    /// The picture the next launch draws for this chat before its page paints (`AgentPaneLaunchImages`).
+    ///
+    /// Same as ``pageImage()``, except for a Chromium page that is clear over its window (a glass, frosted or
+    /// see-through window, or a background image, the common NEXT window): ``pageImage()`` has none there (its
+    /// JPEG has no alpha, so the clear pixels come out black), so no launch picture was ever saved for such a chat
+    /// and a relaunch showed the loading cover, an empty transcript with a spinner, until the page and its live
+    /// session answered (Leo, 2026-11-27: "stop putting the opaque thing from the start ... just all settings all
+    /// layout all as soon as it comes"). With the flag on, that chat's picture is the page's PNG that keeps its
+    /// clear areas (``PageWebView/clearAreaSnapshot()``), which ``AgentPaneLaunchImages/takeCovering(_:newTab:size:appearance:in:)``
+    /// already accepts because it has alpha. The PNG costs the main thread more than the JPEG, so a launch picture
+    /// is taken at most as often as ``AgentLaunchPictures`` saves (a page's first paint plus its settle, one per
+    /// cooldown, and the quit).
+    public func launchPicture(flagged: Bool = UserDefaults.standard.bool(forKey: AgentPaneView.seeThroughLaunchPictureKey)) async -> NSImage? {
+        if snapshotKeepsClearAreas || Self.pageIsOpaque(surfaceKind, in: self) { return await pageImage() }
+        guard flagged, let page else { return nil }
+        guard let image = await page.clearAreaSnapshot(), !page.snapshotKeepsClearAreas else { return nil }
+        let under = performWithTheme { AgentPaneTheme.underPageColor(themeTokens, surface: surfaceKind) }
+        return PageImageBackground.cover(image, color: under, pageIsOpaque: false, keepsClearAreas: true)
     }
 
     /// A small picture of the page for a hover card (#51768), at most `maxPixelWidth` pixels wide: the page's
