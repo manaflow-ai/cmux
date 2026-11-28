@@ -111,12 +111,22 @@ copy="$("$side" path "$name")"
 cli="$copy/Contents/Resources/bin/cmux"
 run_cli() { CMUX_SOCKET_PATH="$sock" CMUX_NEXT_SOCKET_PATH="$sock" "$cli" --app-socket "$sock" "$@"; }
 sleep 5  # the window settles before a tab opens
-tab="$(run_cli tab new-mac-screen --json 2>"$out/tab.err" | python3 -c 'import json,sys; print(json.load(sys.stdin)["tab"])')" \
-  || { echo "SSR tab new-mac-screen failed: $(head -c 300 "$out/tab.err")"; exit 3; }
-echo "SSR tab $tab"
-run_cli app mac-screen-replay --tab "$tab" --path "$rec" --frames "$frames" --timeout 120 --json >"$out/replay.json" 2>"$out/replay.err"
+# `tab new-mac-screen` with no --device opens the Screen Sharing home page; its JSON carries `tab` only
+# when the app lists the tab it opened, so a missing key is not a failure: the replay with no --tab plays
+# into the home-page tab (mac_screen.replay picks one). Raw output goes in the log either way.
+tab_out="$(run_cli tab new-mac-screen --json 2>"$out/tab.err")"; tab_status=$?
+echo "SSR tab new-mac-screen exit=$tab_status stdout=$(printf %s "$tab_out" | head -c 400 | tr '\n' ' ') stderr=$(head -c 400 "$out/tab.err" | tr '\n' ' ')"
+[[ "$tab_status" -eq 0 ]] || exit 3
+tab="$(printf %s "$tab_out" | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("tab") or "")
+except Exception: print("")')"
+tab_args=()
+[[ -n "$tab" ]] && tab_args=(--tab "$tab")
+echo "SSR tab ${tab:-<none: the app picks its home-page tab>}"
+sleep 2  # the new tab is on screen before frames are waited for
+run_cli app mac-screen-replay ${tab_args[@]+"${tab_args[@]}"} --path "$rec" --frames "$frames" --timeout 120 --json >"$out/replay.json" 2>"$out/replay.err"
 status=$?
-echo "SSR replay exit=$status $(head -c 300 "$out/replay.err")"
+echo "SSR replay exit=$status stdout=$(head -c 400 "$out/replay.json" | tr '\n' ' ') stderr=$(head -c 400 "$out/replay.err" | tr '\n' ' ')"
 python3 - "$out/replay.json" "$host" "$commit" "$recording" "$dmg" <<'PY' || status=3
 import json, sys
 path, host, commit, recording, dmg = sys.argv[1:6]

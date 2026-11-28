@@ -251,6 +251,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-app-feed"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "p256",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cmux-app-ffi"
 version = "0.1.0"
 dependencies = [
@@ -330,6 +343,7 @@ dependencies = [
 name = "cmux-browser-rules"
 version = "0.1.0"
 dependencies = [
+ "cmux-url-input",
  "serde",
  "serde_json",
 ]
@@ -640,6 +654,7 @@ dependencies = [
 name = "cmux-layout-reducer-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-app-feed",
  "cmux-app-workspace-creation",
  "cmux-bookmarks-core",
  "cmux-browser-rules",
@@ -704,6 +719,7 @@ version = "0.1.0"
 name = "cmux-palette-ranker"
 version = "0.1.0"
 dependencies = [
+ "memchr",
  "serde",
  "serde_json",
  "unicode-general-category",

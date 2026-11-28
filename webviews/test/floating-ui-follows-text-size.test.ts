@@ -16,7 +16,7 @@ const { POPOVER_GAP, POPOVER_WIDTH, VIEWPORT_MARGIN, computePopoverStyle, popove
   () => import("../src/branchBasePopover"),
 );
 const { headerToolPreviewPlacement } = await importWithDom(
-  () => import("../src/agent-session/acpmux/header/HeaderToolPreview"),
+  () => import("../src/agent-session/acpmux/header/headerToolPreviewPlacement"),
 );
 const { locationMenuHeights, locationMenuSide } = await importWithDom(
   () => import("../src/agent-session/acpmux/locationPopover"),

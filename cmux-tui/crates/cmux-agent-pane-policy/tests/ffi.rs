@@ -181,7 +181,7 @@ fn c_abi_runs_the_check_corpus() {
         // A case that names the person's gesture (state `gesture`) runs
         // through the check with a gesture; the others through the check
         // without one, as a host that never learned the click rule calls it.
-        let got = match s.get("gesture").map(|g| g.as_str().unwrap()) {
+        let mut got = match s.get("gesture").map(|g| g.as_str().unwrap()) {
             None => check(
                 &pane,
                 case["text"].as_str().unwrap(),
@@ -204,6 +204,9 @@ fn c_abi_runs_the_check_corpus() {
                 check_gesture(&pane, case["text"].as_str().unwrap(), number).unwrap()
             }
         };
+        // This shared corpus records the legacy reply shape. Compare that
+        // projection; frame_refusal_parity tests the added cause field directly.
+        got.as_object_mut().unwrap().remove("cause");
         assert_eq!(got, case["expect"], "{}", case["name"]);
     }
 }

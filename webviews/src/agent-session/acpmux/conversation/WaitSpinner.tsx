@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import { waitSpinnerDelayMs } from "../waitSpinnerDelay.experiment";
-import { useDelayedVisible } from "./DelayedSpinner";
+import { useDelayedVisible } from "./useDelayedVisible";
 import { Spinner, type SpinnerLook } from "./Spinner";
 
 type WaitSpinnerProps = {
