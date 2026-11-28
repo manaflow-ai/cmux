@@ -2,6 +2,7 @@
 
 use super::auto_resume::RefusedRules;
 use super::exit_reason::explains_exit;
+use super::inbox::Route;
 use super::transcript::REPLAY_CHARS;
 use super::*;
 use crate::close_why::{CloseActor, CloseRecord, CloseWhy};
@@ -545,8 +546,8 @@ impl Hub {
                 }
             }
         };
-        // Another agent's message goes into the chat's inbox, never a turn or a steer of its own
-        // (`inbox.rs`). It can be accepted even while startup holds the child lock.
+        // Another agent's message goes to the chat's inbox, never a turn or steer of its own
+        // (`inbox.rs`), accepted even while startup holds the child lock.
         let route = self.inbox_route(
             session,
             &prompt_id,
@@ -558,11 +559,11 @@ impl Hub {
             opts.agent.as_deref(),
             opts.inbox,
         );
-        // Held until this prompt ends: its turn, or its refusal (`inbox.rs`).
+        // Held until this prompt ends: its turn or refusal (`inbox.rs`).
         let first_work = match route {
-            super::inbox::Route::First(first) => Some(first),
-            super::inbox::Route::Plain => None,
-            super::inbox::Route::Inbox(agent, class, given) => {
+            Route::First(first) => Some(first),
+            Route::Plain => None,
+            Route::Inbox(agent, class, given) => {
                 admission.enter("inbox");
                 // The inbox's acceptance callback commits this delivery after its journal write.
                 return Box::pin(self.inbox_accept(
