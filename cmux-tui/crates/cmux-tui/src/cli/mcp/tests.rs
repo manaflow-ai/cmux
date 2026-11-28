@@ -647,7 +647,7 @@ fn fixture_actions() -> Value {
             "arguments": [{"name": "confirm", "title": "Confirm", "kind": "bool", "required": false}],
         },
         {
-            "id": "accounts.connect", "title": "Connect Account", "cli_name": "accounts connect",
+            "id": "accounts.reauthenticate", "title": "Re-authenticate Provider", "cli_name": "accounts reauth",
             "PLAN": {"cli": "offered", "mcp": "credentials"}, "targets": [],
             "arguments": [{"name": "provider", "title": "Provider", "kind": "enum", "required": true,
                            "choices": [{"value": "codex", "title": "Codex"}]}],
@@ -735,7 +735,7 @@ fn cli_actions_become_tools_with_the_cli_request_and_an_mcp_origin() {
     assert_eq!(names, ["app_workspace_rename", "app_new_window", "app_workspace_close"]);
     // The app decides (surfaces.mcp); an app that does not say is refused.
     assert_eq!(excluded.len(), 2);
-    assert!(excluded[0].name.starts_with("accounts.connect"));
+    assert!(excluded[0].name.starts_with("accounts.reauthenticate"));
     assert!(excluded[0].reason.contains("credentials"));
     assert!(excluded[1].name.starts_with("oldApp"));
     assert!(!names.iter().any(|name| name.contains("sidebar")), "GUI-only actions stay out");

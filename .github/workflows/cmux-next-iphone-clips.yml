@@ -101,6 +101,7 @@ jobs:
       - name: Record
         id: record
         env:
+          CI_SIM_BENCH_QUEUE_S: ${{ vars.CI_SIM_BENCH_QUEUE_S }}
           CLIPS_PLAN: ${{ needs.plan.outputs.plan }}
           HEAD: ${{ github.sha }}
         # Every failure is handled where it happens: one clip's failed step must not drop the others.
@@ -122,7 +123,9 @@ jobs:
           out="${RUNNER_TEMP:?}/media/whats-new-clips"
           mkdir -p "$out"
           count=0
-          QUEUE_S=3600 RUN_S=3600
+          # A simulator-class wait past 15 min has never paid off (job 140683535687: 71 min, zero clips). Repo variable
+          # CI_SIM_BENCH_QUEUE_S=3600 restores the old hour.
+          QUEUE_S="${CI_SIM_BENCH_QUEUE_S:-900}" RUN_S=3600
           # A shipped nightly's clips rank above plain agent steps (--priority pr), due when the queue wait ends.
           # As plain agent steps they lost every turn: 45978228941's two clips sat their whole 3600 s while the
           # simulator class's p90 queue wait was 393 min (20 agent steps queued, 15 of 17 workers busy), so the
