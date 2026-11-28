@@ -147,7 +147,7 @@ export function makeUpstreamHttp(config: UpstreamConfig): UpstreamHttp {
       ...(until === undefined ? {} : { headers: { [BACKGROUND_AFTER_HEADER]: String(BACKGROUND_AFTER_SECS) } }),
     });
     const settled = until === undefined ? sent : sent.pipe(Effect.flatMap((response) => response.status === 202
-      ? awaitBackground((op, at, init) => request(op, init.method, at, { timeoutMs: init.timeoutMs }), operation, response, base.origin, until, config.backgroundPollMs ?? DEFAULT_BACKGROUND_POLL_MS)
+      ? awaitBackground((op, at, init) => request(op, init.method, at, { timeoutMs: init.timeoutMs }), operation, response, base.origin, until, config.backgroundPollMs ?? DEFAULT_BACKGROUND_POLL_MS, config.backgroundOutageMs)
       : Effect.succeed(response)));
     return settled.pipe(Effect.flatMap((response) => parse(operation, response)), timedUpstream);
   };
