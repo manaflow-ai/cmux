@@ -246,7 +246,7 @@ SHOT_TRY_S = 20
 SHOT_BOUND_S = 60
 # Files whose change makes vite restart its server or re-optimize its deps: the worker restarts the gallery itself
 # after a checkout that changes one, and waits for it to answer, instead of shooting pages into vite's own restart.
-GALLERY_CONFIG = ("webviews/vite.config*.ts", "webviews/package.json", "webviews/dev-server/", "bun.lock",
+GALLERY_CONFIG = ("webviews/vite.config*.ts", "webviews/vite.config*.mjs", "webviews/package.json", "webviews/dev-server/", "bun.lock",
                   "webviews/bun.lock")
 # A gallery entry one side of the push does not have (the push adds it): that side's picture is a card that says so,
 # not a 60 s wait for a frame that never marks ready (the frame settles the whole registry first, then fails).
@@ -258,6 +258,15 @@ ABSENT_PREFIX = "absent."
 # TRANSFORM_CACHE_MB, oldest first, at warm.
 TRANSFORM_CACHE_MB = 2048
 PRESHOOT_FAMILIES = ("agent-pane.", "pages.")
+# Files that shape every screen with no gallery entry importing them (the vite configs, the dev server): touched.ts
+# ranks no entry for them, and 11-28 00-12Z 5 such pushes (webviews/vite.config.acpmux-pane.mjs,
+# webviews/dev-server/hotSwapTiming.ts) went unpreviewed. Their look shoots the representative entries instead.
+EVERY_SCREEN = re.compile(r"^webviews/(?:vite\.config[^/]*\.(?:ts|mts|js|mjs)$|dev-server/)")
+# A shot whose page held modules from before a checkout under the same vite: its import of a module vite has since
+# invalidated (URL `?t=...`) fails ("Failed to fetch dynamically imported module"), on every entry of the look.
+# 11-28 00-12Z 6 looks took no shot this way, of files that load fine on a fresh vite. The look restarts that
+# gallery's vite and shoots once more on a cold page.
+STALE_MODULE = "Failed to fetch dynamically imported module"
 # vite's optimized deps, one folder per gallery config in each tree (node_modules/.vite-<key>, CMUX_VITE_CACHE_DIR;
 # inside webviews/, where the gallery's fs.allow lets vite serve it), the newest DEPS_KEYS kept: a gallery back on a
 # config it served keeps its deps instead of a scan and bundle, and two galleries never share one folder.
@@ -629,14 +638,34 @@ class Gallery:
             log(f"the resident shooter ({self.name}): {err}; one cold shoot")
             self.stop_shooter()
             rows = self.shoot_once(spec, out)
-        shots = {}
-        for row in rows:
-            if isinstance(row, dict) and row.get("file") and (out / row["file"]).is_file():
-                shots[row["name"]] = row["file"]
+        shots, errors = self.collect(rows, out)
+        if not shots and entries and any(STALE_MODULE in e for e in errors):
+            log(f"gallery {self.name}: a stale module graph ({tail(errors[0], 160)}): restarting its vite, one cold shoot")
+            self.stop_shooter()
+            self.stop()
+            self.start()
+            shots, errors = self.collect(self.shoot_once(spec, out), out)
         if not shots and entries:
-            errors = [str(r.get("error")) for r in rows if isinstance(r, dict) and r.get("error")]
             raise LookError(f"the gallery shoot took no shot: {tail('; '.join(errors)) or 'no answer'}")
         return shots
+
+    @staticmethod
+    def collect(rows: list, out: Path) -> tuple[dict, list[str]]:
+        """A shooter's answer as ({entry: file} of the shots on disk, [the errors it named])."""
+        shots = {row["name"]: row["file"] for row in rows
+                 if isinstance(row, dict) and row.get("file") and (out / row["file"]).is_file()}
+        return shots, [str(r.get("error")) for r in rows if isinstance(r, dict) and r.get("error")]
+
+    def representative_entries(self) -> list[str]:
+        """The entries a change to the gallery as a whole shows: the first one touched.ts ranks for the gallery
+        itself, plus one entry of each big family (PRESHOOT_FAMILIES)."""
+        entries = self.scenes(["webviews/src/gallery/warm"])[:1]
+        held = sorted(self.entry_ids())
+        for family in PRESHOOT_FAMILIES:
+            pick = next((e for e in held if e.startswith(family)), None)
+            if pick and not any(e.startswith(family) for e in entries):
+                entries.append(pick)
+        return entries
 
     def shoot_once(self, spec: dict, out: Path) -> list:
         (out / "spec.json").write_text(json.dumps(spec))
@@ -1187,12 +1216,7 @@ class Worker:
                     # A change to the gallery itself touches every entry: the first one ranked is a real entry. Plus
                     # one entry of each big family (PRESHOOT_FAMILIES): vite and the transform cache hold its modules
                     # (agent-pane's App.tsx is ~33 s of React Compiler cold), so a push's first agent-pane look is warm.
-                    entries = g.scenes(["webviews/src/gallery/warm"])[:1]
-                    held = sorted(g.entry_ids())
-                    for family in PRESHOOT_FAMILIES:
-                        pick = next((e for e in held if e.startswith(family)), None)
-                        if pick and not any(e.startswith(family) for e in entries):
-                            entries.append(pick)
+                    entries = g.representative_entries()
                     if entries:
                         self.web_side(tip, entries, g)
                 with stages("web_spare"):
@@ -1312,6 +1336,9 @@ class Worker:
                             g.stop_shooter()
                         web_files = [f for f in req["ui_files"] if f.startswith(WEB_PREFIXES)]
                         entries = g.scenes(web_files)
+                        if not entries and any(EVERY_SCREEN.match(f) for f in web_files):
+                            entries = g.representative_entries()
+                            receipt["web_entries_why"] = "every screen"
                 receipt["web_entries"] = entries
                 if entries:
                     # Head first: its tree is checked out already; the base is often cached (the last push's head).
