@@ -1513,15 +1513,11 @@ struct ContentView: View {
             ]
         ) { event in
             updateSidebarResizerBandState(using: event)
-            let shouldOverrideCursorEvent: Bool = {
-                switch event.type {
-                case .cursorUpdate, .mouseMoved, .mouseEntered, .mouseExited, .appKitDefined, .systemDefined:
-                    return true
-                default:
-                    return false
-                }
-            }()
-            if shouldOverrideCursorEvent, (isResizerBandActive || isResizerDragging) {
+            if sidebarResizerOcclusionResolver.consumesPointerMonitorEvent(
+                ofType: event.type,
+                isBandActive: isResizerBandActive,
+                isDragging: isResizerDragging
+            ) {
                 // Consume hover motion in divider band so overlapped views cannot
                 // continuously reassert their own cursor while we are resizing.
                 activateSidebarResizerCursor()
