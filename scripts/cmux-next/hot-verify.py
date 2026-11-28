@@ -158,6 +158,20 @@ LAUNCH_SECONDS = 120
 WINDOW_SECONDS = 60
 STEP_SECONDS = 45
 APPLY_SECONDS = 900
+# How long a Swift look waits for its fleet app build (build_swift_app), from the submit to the build's end: the
+# Linux pool's cmux builds as the controller measured them over the last 24 h (GET /v1/linux-pool, metrics_24h
+# queue_p90 + run_p90), times APP_BUILD_MARGIN for the builds past p90, between APP_BUILD_FLOOR and APP_BUILD_CAP.
+# It was APPLY_SECONDS, shorter than the build itself: the pool's cmux builds of 2026-11-27 from 12Z ran 2017 s at
+# p50, 2672 s at p90 and 3331 s at most, after a 593 s p90 queue, so a Swift look stopped waiting with its build
+# still running and no look (cmux#44800, #62151). When the controller gives no reading: APP_BUILD_UNREAD, that
+# day's queue_p90 + run_p90 (3265 s) with the margin. The fleet look's own run bound (cmuxterm-hq
+# build-fleet/pr_capture/hot_verify_run.py APP_RUN_SECONDS, inside the controller's 120 min look-step bound) leaves
+# room for APP_BUILD_CAP after a daemon build.
+APP_BUILD_MARGIN = 1.25
+APP_BUILD_FLOOR, APP_BUILD_CAP = APPLY_SECONDS, 4500
+APP_BUILD_UNREAD = 4080
+DEFAULT_CONTROLLER = "http://100.89.225.106:18765"
+FLEET_CLIENT_CONFIG = Path.home() / ".local/share/cmux-fleet-client/client.json"
 # The most a look waits for the copy's window to repaint (the release socket says nothing about paint, so the
 # window's own pixels are read: Repaint): after launch, a theme change, and an overlay reload.
 REPAINT_LAUNCH = 20.0
@@ -2307,13 +2321,28 @@ def emit(result: dict, phases, began: float, code: int) -> int:
     return code
 
 
+# Files under a Resources/ folder the complete app bundles as data, never as configuration or code: Info.plist,
+# entitlements and scripts change what the app is, so they stay an explicit build (a manifest's reason).
+RESOURCE_NOT_DATA = (".plist", ".entitlements", ".sh", ".py", ".dylib", ".so", ".a")
+
+
+def bundled_resource(path: str) -> bool:
+    """Whether PATH is a data file the complete app bundles from a Resources/ folder (a theme file, an image, a
+    JSON table). cmux#47278 changed only Resources/theme-files/*.json (Rust and web beside it): its plan named
+    `Swift, resources or manifests` with no .swift path, so no look was built and cmux/ui-proof held it pending."""
+    parts = path.split("/")
+    return ("Resources" in parts[:-1] and "bin" not in parts[:-1] and not parts[-1].startswith(".")
+            and not parts[-1].endswith(RESOURCE_NOT_DATA))
+
+
 def can_build_swift_app(planned: dict) -> bool:
     """Whether a complete fleet app can cover every build-required layer in the plan.
 
     A fleet artifact is the exact head's complete app, so it also carries web or Rust layers
-    that are live-swappable when they accompany a Swift change. The bundled helpers ride in it too: the
-    project's build phases compile them from the head's cmux-tui (only the FFI is pinned, app-ffi-pin.json).
-    Other build reasons (FFI, manifests) remain an explicit build-required result.
+    that are live-swappable when they accompany a Swift change, and the data files it bundles from
+    Resources/ (bundled_resource). The bundled helpers ride in it too: the project's build phases compile
+    them from the head's cmux-tui (only the FFI is pinned, app-ffi-pin.json). Other build reasons (FFI,
+    manifests, Info.plist) remain an explicit build-required result.
     """
     build = planned.get("build")
     if not (planned.get("needs_build") and isinstance(build, dict) and build
@@ -2325,7 +2354,8 @@ def can_build_swift_app(planned: dict) -> bool:
     copy = (lambda path: path.endswith((".xcstrings", ".strings")))
     # A Swift change that also adds or edits a crate a bundled helper uses (cmux#38466: a new cmux-conductor-import
     # crate, so Cargo.lock) planned that reason beside Swift and was refused a build, so it could get no look.
-    return all(paths and all(True if reason == HELPERS_REASON else copy(path) if reason == "strings" else swift(path)
+    return all(paths and all(True if reason == HELPERS_REASON else copy(path) if reason == "strings"
+                             else (swift(path) or bundled_resource(path))
                              for path in paths)
                for reason, paths in build.items())
 
@@ -2343,6 +2373,41 @@ def _ci_run(argv: list[str], cwd: Path | None = None, timeout: int = APPLY_SECON
         detail = why_failed(done.stderr or done.stdout, 500) or "no output"
         raise LookError(f"{' '.join(argv[1:])}: {detail}")
     return done
+
+
+def _controller() -> str:
+    """The fleet controller cmux-ci talks to: CMUX_CI_CONTROLLER, else the fleet client's configured one."""
+    url = os.environ.get("CMUX_CI_CONTROLLER", "")
+    if not url:
+        with contextlib.suppress(OSError, ValueError, AttributeError):
+            url = str(json.loads(FLEET_CLIENT_CONFIG.read_text()).get("controller") or "")
+    return (url or DEFAULT_CONTROLLER).rstrip("/")
+
+
+def _linux_pool_metrics() -> dict | None:
+    """The controller's 24 h view of the Linux pool's cmux builds (GET /v1/linux-pool metrics_24h), or None."""
+    try:
+        request = urllib.request.Request(f"{_controller()}/v1/linux-pool", headers={"User-Agent": "cmux-hot-verify"})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            metrics = json.loads(response.read()).get("metrics_24h")
+    except (urllib.error.URLError, OSError, ValueError, AttributeError):
+        return None
+    return metrics if isinstance(metrics, dict) else None
+
+
+def app_build_seconds(metrics: dict | None) -> int:
+    """How long build_swift_app waits for its build: the measured queue_p90 + run_p90 of the pool's cmux builds
+    times APP_BUILD_MARGIN, rounded up, between APP_BUILD_FLOOR and APP_BUILD_CAP; APP_BUILD_UNREAD when METRICS
+    has no usable reading (none, no builds done, or not numbers)."""
+    try:
+        done = int((metrics or {}).get("done") or 0)
+        measured = float(metrics["queue_p90"]) + float(metrics["run_p90"])
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return APP_BUILD_UNREAD
+    if done <= 0 or not measured > 0:  # NaN, no builds and empty readings
+        return APP_BUILD_UNREAD
+    wait = min(float(APP_BUILD_CAP), measured * APP_BUILD_MARGIN)  # clamped before rounding: inf stays out of it
+    return int(max(APP_BUILD_FLOOR, -(-wait // 1)))
 
 
 def _artifact_app(bundle: Path) -> Path:
@@ -2371,21 +2436,32 @@ def build_swift_app(repo: Path, planned: dict, source: str, out: Path) -> Path:
         job = str(json.loads(submitted.stdout)["id"])
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
         raise LookError(f"cmux-ci build returned no job id: {why_failed(submitted.stdout, 300) or 'no output'}") from error
-    log(f"fleet app build {job} for {planned['head'][:12]}")
-    _ci_run([ci, "wait", "--timeout", str(APPLY_SECONDS), job], cwd=tree, timeout=APPLY_SECONDS + 30)
+    metrics = _linux_pool_metrics()
+    wait = app_build_seconds(metrics)
+    measured = (f"the pool's p90 queue {metrics.get('queue_p90')} s + run {metrics.get('run_p90')} s"
+                if wait != APP_BUILD_UNREAD and metrics else "no pool reading")
+    log(f"fleet app build {job} for {planned['head'][:12]}: waiting up to {wait} s ({measured})")
+    _ci_run([ci, "wait", "--timeout", str(wait), job], cwd=tree, timeout=wait + 30)
     bundle = out / "fleet-bundle"
     bundle.mkdir(parents=True, exist_ok=True)
     artifact = subprocess.run([ci, "artifact", job, str(bundle), "--bundle"], cwd=tree,
                               capture_output=True, text=True, errors="replace", timeout=APPLY_SECONDS)
-    if artifact.returncode == 3:
+    if artifact.returncode != 0:
+        # Exit 3 is "no bundle for this job"; a Linux-pool build that published only its zip answers the bundle
+        # fetch with a 404 and exit 1 instead (cmux#47278, 2026-11-28: the look failed after a 682 s build whose
+        # zip downloaded fine). The bundle is a faster form of the same app, so any failure falls back to the zip.
+        bundle_error = why_failed(artifact.stderr or artifact.stdout, 300) or "no output"
         archive = out / "fleet-app.zip"
-        _ci_run([ci, "artifact", job, str(archive)], cwd=tree)
+        try:
+            _ci_run([ci, "artifact", job, str(archive)], cwd=tree)
+        except LookError as error:
+            raise LookError(f"cmux-ci artifact {job}: {bundle_error}; its zip: {error}") from error
+        if artifact.returncode != 3:
+            log(f"no bundle for fleet app build {job} ({bundle_error}); used its zip")
         shutil.rmtree(bundle, ignore_errors=True)
         bundle.mkdir(parents=True, exist_ok=True)
         # ditto preserves the executable modes and framework symlinks in macOS app archives.
         _ci_run(["ditto", "-x", "-k", str(archive), str(bundle)], cwd=tree)
-    elif artifact.returncode != 0:
-        raise LookError(f"cmux-ci artifact {job}: {why_failed(artifact.stderr or artifact.stdout, 500) or 'no output'}")
     return _artifact_app(bundle)
 
 
