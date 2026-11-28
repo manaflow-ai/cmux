@@ -21,7 +21,7 @@ import UIKit
         store.send(prompt: "run the tests")
         let id = try SentPromptShownTests.promptID(source)
         let ids = list.layout.items.map(\.id)
-        #expect(ids.contains("u-\(AgentChatStore.localTurnKey(id))"), "shown in the same turn as Send: \(before) → \(ids)")
+        #expect(ids.contains("u-\(AgentChatStore.localTurnID(id))"), "shown in the same turn as Send: \(before) → \(ids)")
     }
 
     /// The rows are laid out in that turn too, so the transcript's glide starts in the frame the
@@ -52,7 +52,7 @@ import UIKit
         surface.holdsTranscript = true
         store.send(prompt: "run the tests")
         let id = try SentPromptShownTests.promptID(source)
-        #expect(!list.layout.items.map(\.id).contains("u-\(AgentChatStore.localTurnKey(id))"), "a card on the tab grid does not rebuild per change")
+        #expect(!list.layout.items.map(\.id).contains("u-\(AgentChatStore.localTurnID(id))"), "a card on the tab grid does not rebuild per change")
     }
 }
 #endif
