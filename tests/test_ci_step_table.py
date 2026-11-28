@@ -178,13 +178,15 @@ class NightlyGateTest(unittest.TestCase):
 
     def test_the_table_maps_the_nightly_causes(self) -> None:
         steps = ci_steps.load().steps
-        for name, paths in (("rust-notices", ["cmux-tui/Cargo.lock"]),
-                            ("rust-notices", ["scripts/cmux-next/generate-third-party-notices.sh"])):
+        for name, paths, expected in (
+            ("rust-notices", ["cmux-tui/Cargo.lock"], ["cmux-next-idle-wakeups", "rust-notices"]),
+            ("rust-notices", ["scripts/cmux-next/generate-third-party-notices.sh"],
+             ["next-state-roots", "rust-notices"]),
+        ):
             with self.subTest(name):
                 self.assertTrue(steps[name].nightly)
-                # next-state-roots (a land_gate step) also scans scripts/cmux-next/*.sh for Classic ids.
-                self.assertEqual([n for n in ci_steps.nightly_gate_steps(ci_steps.load(), paths)
-                                  if n != "next-state-roots"], [name])
+                # Lockfiles also reach idle-wakeup guards; scripts/cmux-next shell files reach state-root guards.
+                self.assertEqual(ci_steps.nightly_gate_steps(ci_steps.load(), paths), expected)
 
     def test_a_storage_key_change_runs_the_persisted_formats_registry_on_the_pr_and_the_landing_head(self) -> None:
         # cmux#57474 (cmux.acpmux.modelPickerOrder), #62806 (two newTab keys) and #54956 added a webviews storage key
@@ -209,7 +211,7 @@ class NightlyGateTest(unittest.TestCase):
         self.assertIn("nightly gate", why["pr-pipeline.yml"])
         self.assertEqual(jobs, ["linux"])
         # page.tsx routes web-typecheck, a `land_gate` step; a plain web step (web-lint, web tests) stays off.
-        self.assertEqual(only, ["web-typecheck", "rust-notices", "phone-speed-icount"])
+        self.assertEqual(only, ["web-typecheck", "cmux-next-idle-wakeups", "rust-notices", "phone-speed-icount"])
         start, why, (jobs, only) = self.landing(["scripts/cmux-next/generate-third-party-notices.sh"])
         self.assertIn("nightly gate: runs only next-state-roots, rust-notices", why["pr-pipeline.yml"])
         self.assertEqual((jobs, only), (["linux"], ["next-state-roots", "rust-notices"]))
@@ -281,14 +283,17 @@ class NightlyGateTest(unittest.TestCase):
         self.assertEqual(only, [])
 
     def test_phone_speed_runs_on_each_affected_landing_input(self) -> None:
-        for path in ("cmux-tui/crates/cmux-terminal-projection/src/lib.rs",
-                     "scripts/bench/phone-speed/src/main.rs", "cmux-tui/Cargo.lock"):
+        for path, expected in (
+            ("cmux-tui/crates/cmux-terminal-projection/src/lib.rs",
+             ["persisted-formats", "next-state-roots", "phone-speed-icount"]),
+            ("scripts/bench/phone-speed/src/main.rs", ["phone-speed-icount"]),
+            ("cmux-tui/Cargo.lock", ["cmux-next-idle-wakeups", "rust-notices", "phone-speed-icount"]),
+        ):
             with self.subTest(path=path):
                 start, why, (jobs, only) = self.landing([path])
                 self.assertIn("pr-pipeline.yml", start)
                 self.assertIn("phone speed gate", why["pr-pipeline.yml"])
                 self.assertEqual(jobs, ["linux"])
-                expected = ["rust-notices", "phone-speed-icount"] if path.endswith("Cargo.lock") else ["phone-speed-icount"]
                 self.assertEqual(only, expected)
 
     def test_phone_speed_does_not_depend_on_the_nightly_mirror_switch(self) -> None:
