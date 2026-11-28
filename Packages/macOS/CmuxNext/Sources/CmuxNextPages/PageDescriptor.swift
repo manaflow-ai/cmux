@@ -308,7 +308,7 @@ public extension PageDescriptor {
         id: "cmux.apps", resource: "apps", namespaces: ["cmux.apps."], nativeOps: [PageNativeOp.actionRun],
         actions: ["app.open", "openSettings"], gestureActions: ["app.open"], dynamicPrefixes: [AppsPageNativeOps.glyphPrefix])
 
-    /// The cross-harness skills, MCP server and plugin directory. Mutations are
+    /// The cross-harness skills and MCP server directory. Mutations are
     /// confirmed by the page owner before reaching the local daemon.
     static let skills = PageDescriptor(
         id: "cmux.skills", resource: "skills", namespaces: ["cmux.skills."])

@@ -1,4 +1,8 @@
-//! Curated skills, MCP servers and plugins installable across agent harnesses.
+//! Curated skills and MCP servers installable across agent harnesses.
+//!
+//! Only kinds a harness really loads are installable there: skills go to every
+//! harness's `skills/<id>/SKILL.md`; MCP servers go to Claude, Codex and OpenCode
+//! configs (Pi has no MCP loader). `harness_loads` is the single gate.
 
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
@@ -90,6 +94,15 @@ fn entry(id: &str) -> Result<Entry> {
         .with_context(|| format!("unknown directory entry: {id}"))
 }
 
+/// Whether `harness` really reads entries of `kind` from where we write them.
+fn harness_loads(harness: &str, kind: &str) -> bool {
+    match kind {
+        "skill" => matches!(harness, "claude" | "codex" | "pi" | "opencode"),
+        "mcp" => matches!(harness, "claude" | "codex" | "opencode"),
+        _ => false,
+    }
+}
+
 fn requested_targets(params: &Value, entry: &Entry) -> Result<Vec<String>> {
     let targets = params
         .get("targets")
@@ -102,6 +115,9 @@ fn requested_targets(params: &Value, entry: &Entry) -> Result<Vec<String>> {
     for target in &targets {
         if !entry.targets.iter().any(|allowed| allowed == target) {
             bail!("{} is not supported by {}", target, entry.id);
+        }
+        if !harness_loads(target, &entry.kind) {
+            bail!("{target} does not load {} entries", entry.kind);
         }
     }
     Ok(targets)
@@ -182,9 +198,7 @@ fn validate_target_path(root: &Path, path: &Path) -> Result<()> {
 }
 
 fn managed_dir(root: &Path, harness: &str, entry: &Entry) -> Result<PathBuf> {
-    let dir = target_root(root, harness)?
-        .join(if entry.kind == "skill" { "skills" } else { "plugins" })
-        .join(&entry.id);
+    let dir = target_root(root, harness)?.join("skills").join(&entry.id);
     validate_target_path(root, &dir)?;
     Ok(dir)
 }
@@ -194,7 +208,7 @@ fn config_path(root: &Path, harness: &str) -> Result<PathBuf> {
         "codex" => target_root(root, harness)?.join("config.toml"),
         "opencode" => target_root(root, harness)?.join("opencode.json"),
         "claude" => claude_mcp_path(root),
-        _ => target_root(root, harness)?.join("settings.json"),
+        _ => bail!("{harness} has no MCP configuration"),
     };
     validate_target_path(root, &path)?;
     Ok(path)
@@ -236,42 +250,14 @@ fn install_skill(root: &Path, harness: &str, entry: &Entry) -> Result<PathBuf> {
     Ok(base)
 }
 
-fn install_plugin(root: &Path, harness: &str, entry: &Entry) -> Result<PathBuf> {
-    let base = managed_dir(root, harness, entry)?;
-    validate_managed_dir(&base, entry, harness)?;
-    validate_directory(&base.join(".claude-plugin"))?;
-    validate_managed_file(&base.join(".claude-plugin").join("plugin.json"))?;
-    ensure_dir(&base)?;
-    let manifest = json!({"name": entry.id, "version": entry.version, "description": entry.description, "managedBy": "cmux.skills-directory"});
-    ensure_dir(&base.join(".claude-plugin"))?;
-    crate::config::write_atomic(
-        &base.join(".claude-plugin").join("plugin.json"),
-        serde_json::to_vec_pretty(&manifest)?.as_slice(),
-    )?;
-    write_marker(&base, entry, harness)?;
-    Ok(base)
-}
-
 fn remove_managed_dir(dir: &Path, entry: &Entry, harness: &str) -> Result<()> {
     if !validate_managed_dir(dir, entry, harness)? {
         return Ok(());
     }
-    let owned = if entry.kind == "skill" {
-        vec![dir.join("SKILL.md"), dir.join(MARKER)]
-    } else {
-        vec![dir.join(".claude-plugin/plugin.json"), dir.join(MARKER)]
-    };
-    for path in owned {
+    for path in [dir.join("SKILL.md"), dir.join(MARKER)] {
         if let Some(metadata) = safe_metadata(&path)? {
             ensure!(metadata.is_file(), "refusing non-file target {}", path.display());
             crate::home_fs::remove_file(path)?;
-        }
-    }
-    if entry.kind == "plugin" {
-        let manifest_dir = dir.join(".claude-plugin");
-        validate_directory(&manifest_dir)?;
-        if manifest_dir.is_dir() && fs::read_dir(&manifest_dir)?.next().is_none() {
-            crate::home_fs::remove_dir(manifest_dir)?;
         }
     }
     if dir.is_dir() && fs::read_dir(dir)?.next().is_none() {
@@ -376,22 +362,17 @@ fn edit_mcp(root: &Path, harness: &str, entry: &Entry, install: bool) -> Result<
 
 fn install_mcp(root: &Path, harness: &str, entry: &Entry) -> Result<PathBuf> {
     match harness {
-        "claude" | "pi" | "opencode" | "codex" => edit_mcp(root, harness, entry, true),
+        "claude" | "opencode" | "codex" => edit_mcp(root, harness, entry, true),
         _ => bail!("unsupported harness: {harness}"),
     }
 }
 
 fn validate_install_target(root: &Path, harness: &str, entry: &Entry) -> Result<()> {
     match entry.kind.as_str() {
-        "skill" | "plugin" => {
+        "skill" => {
             let dir = managed_dir(root, harness, entry)?;
             validate_managed_dir(&dir, entry, harness)?;
-            if entry.kind == "skill" {
-                validate_managed_file(&dir.join("SKILL.md"))?;
-            } else {
-                validate_directory(&dir.join(".claude-plugin"))?;
-                validate_managed_file(&dir.join(".claude-plugin").join("plugin.json"))?;
-            }
+            validate_managed_file(&dir.join("SKILL.md"))?;
         }
         "mcp" => {
             let path = config_path(root, harness)?;
@@ -427,15 +408,10 @@ fn validate_install_target(root: &Path, harness: &str, entry: &Entry) -> Result<
 
 fn validate_remove_target(root: &Path, harness: &str, entry: &Entry) -> Result<()> {
     match entry.kind.as_str() {
-        "skill" | "plugin" => {
+        "skill" => {
             let dir = managed_dir(root, harness, entry)?;
             if validate_managed_dir(&dir, entry, harness)? {
-                if entry.kind == "skill" {
-                    validate_managed_file(&dir.join("SKILL.md"))?;
-                } else {
-                    validate_directory(&dir.join(".claude-plugin"))?;
-                    validate_managed_file(&dir.join(".claude-plugin").join("plugin.json"))?;
-                }
+                validate_managed_file(&dir.join("SKILL.md"))?;
             }
         }
         "mcp" => {
@@ -463,7 +439,7 @@ fn validate_remove_target(root: &Path, harness: &str, entry: &Entry) -> Result<(
 
 fn is_installed(root: &Path, harness: &str, entry: &Entry) -> bool {
     match entry.kind.as_str() {
-        "skill" | "plugin" => managed_dir(root, harness, entry)
+        "skill" => managed_dir(root, harness, entry)
             .and_then(|dir| validate_managed_dir(&dir, entry, harness))
             .unwrap_or(false),
         "mcp" => {
@@ -527,7 +503,6 @@ pub fn install(params: &Value, root: Option<&Path>) -> Result<Value> {
     for harness in targets {
         let path = match e.kind.as_str() {
             "skill" => install_skill(&root, &harness, &e)?,
-            "plugin" => install_plugin(&root, &harness, &e)?,
             "mcp" => install_mcp(&root, &harness, &e)?,
             _ => bail!("unsupported entry kind"),
         };
@@ -546,7 +521,7 @@ pub fn remove(params: &Value, root: Option<&Path>) -> Result<Value> {
     }
     for harness in &targets {
         match e.kind.as_str() {
-            "skill" | "plugin" => {
+            "skill" => {
                 let dir = managed_dir(&root, harness, &e)?;
                 remove_managed_dir(&dir, &e, harness)?;
             }
@@ -584,13 +559,7 @@ mod tests {
         remove(&skill, Some(root)).unwrap();
         assert!(!root.join(".claude/skills/terminal-workflows").exists());
 
-        let plugin = json!({"id":"review-kit","targets":["claude"]});
-        install(&plugin, Some(root)).unwrap();
-        assert!(root.join(".claude/plugins/review-kit/.claude-plugin/plugin.json").is_file());
-        remove(&plugin, Some(root)).unwrap();
-        assert!(!root.join(".claude/plugins/review-kit").exists());
-
-        let mcp = json!({"id":"filesystem-tools","targets":["claude","codex","pi","opencode"]});
+        let mcp = json!({"id":"filesystem-tools","targets":["claude","codex","opencode"]});
         install(&mcp, Some(root)).unwrap();
         assert!(root.join(".codex/config.toml").is_file());
         assert_eq!(
@@ -723,14 +692,50 @@ mod tests {
     }
 
     #[test]
-    fn plugin_can_be_updated_with_existing_manifest_directory() {
+    fn every_catalog_target_really_loads_its_kind() {
+        let catalog = catalog();
+        assert!(!catalog.entries.is_empty());
+        for e in &catalog.entries {
+            assert!(matches!(e.kind.as_str(), "skill" | "mcp"), "{}: {}", e.id, e.kind);
+            for h in &e.targets {
+                assert!(
+                    harness_loads(h, &e.kind),
+                    "{} targets {h}, which does not load {}",
+                    e.id,
+                    e.kind
+                );
+            }
+            if e.kind == "skill" {
+                let body = e.skill.as_deref().unwrap_or("");
+                assert!(body.lines().count() >= 8, "{} skill body is a stub", e.id);
+            } else {
+                assert!(e.command.is_some() && !e.args.is_empty(), "{} has no command", e.id);
+            }
+        }
+    }
+
+    #[test]
+    fn refuses_harnesses_without_a_loader() {
         let temp = tempfile::tempdir().unwrap();
         let root = private_test_root(&temp);
-        let request = json!({"id":"review-kit","targets":["claude"]});
-        install(&request, Some(root)).unwrap();
-        install(&request, Some(root)).unwrap();
-        remove(&request, Some(root)).unwrap();
-        assert!(!root.join(".claude/plugins/review-kit").exists());
+        let err = install(&json!({"id":"memory-tools","targets":["pi"]}), Some(root)).unwrap_err();
+        assert!(err.to_string().contains("not supported"), "{err}");
+        assert!(!root.join(".pi").exists());
+        assert!(install(&json!({"id":"review-kit"}), Some(root)).is_err());
+    }
+
+    #[test]
+    fn installed_skill_has_frontmatter_and_full_body() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = private_test_root(&temp);
+        install(&json!({"id":"git-review","targets":["claude","opencode"]}), Some(root)).unwrap();
+        for path in
+            [".claude/skills/git-review/SKILL.md", ".config/opencode/skills/git-review/SKILL.md"]
+        {
+            let doc = fs::read_to_string(root.join(path)).unwrap();
+            assert!(doc.starts_with("---\nname: git-review\ndescription: "), "{doc}");
+            assert!(doc.contains("## Checklist"), "{doc}");
+        }
     }
 
     #[cfg(unix)]

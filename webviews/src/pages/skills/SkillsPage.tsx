@@ -68,7 +68,7 @@ export function SkillsPage({
       <header className="skills-header">
         <div>
           <p className="skills-eyebrow">DIRECTORY</p>
-          <h1>Skills, MCP servers and plugins</h1>
+          <h1>Skills and MCP servers</h1>
           <p className="skills-subtitle">Install once and keep every harness in sync.</p>
         </div>
         <div className="skills-count">{visible.length} available</div>
@@ -82,7 +82,7 @@ export function SkillsPage({
           aria-label="Search the directory"
         />
         <div className="skills-filters">
-          {(["all", "skill", "mcp", "plugin"] as const).map((value) => (
+          {(["all", "skill", "mcp"] as const).map((value) => (
             <button key={value} className={kind === value ? "is-active" : ""} onClick={() => setKind(value)}>
               {value === "all"
                 ? "Everything"
