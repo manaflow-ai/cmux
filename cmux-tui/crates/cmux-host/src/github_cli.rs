@@ -1301,6 +1301,18 @@ fn gh_auto(args: &[String]) -> u8 {
             eprintln!("cmux github gh: {note}");
             command.args(args);
         }
+        GhRoute::Token { repo, args, .. } if platform_edge_reachable() => {
+            // An edge machine: gh calls the platform edge as a GitHub Enterprise host and the
+            // token is added past the VM (cmux-platform GitHubApiEgress.ts); none enters it.
+            let branch = current_branch();
+            command.args(edge_gh_args(&args, branch.as_deref()));
+            for (k, v) in edge_gh_env(&repo) {
+                command.env(k, v);
+            }
+            for k in GH_TOKEN_VARS.iter().filter(|k| **k != "GH_ENTERPRISE_TOKEN") {
+                command.env_remove(k);
+            }
+        }
         GhRoute::Token { repo, args, asks } => {
             command.args(&args);
             // The person's own GitHub login, carried from their Mac: first when it can push to the
@@ -1362,6 +1374,69 @@ fn gh_auto(args: &[String]) -> u8 {
     let err = command.exec();
     eprintln!("cmux github gh: gh: {err}");
     1
+}
+
+/// The platform edge's name on a Cloud machine whose create carried the edge rule (cmux-platform
+/// PlatformEdge.ts); it resolves nowhere else (`git_cache::EDGE`, the clone step's own check).
+pub const PLATFORM_EDGE_HOST: &str = "platform.cmux.internal";
+/// What gh sends as its token to the edge: the edge drops it and adds the machine's own (gh will
+/// not call a GitHub Enterprise host with no token at all). Not a credential.
+pub const EDGE_GH_PLACEHOLDER: &str = "cmux-platform-edge";
+
+fn platform_edge_reachable() -> bool {
+    std::net::ToSocketAddrs::to_socket_addrs(&(PLATFORM_EDGE_HOST, 443)).is_ok()
+}
+
+fn current_branch() -> Option<String> {
+    let out = std::process::Command::new("git").args(["branch", "--show-current"]).output().ok()?;
+    let b = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    (out.status.success() && !b.is_empty()).then_some(b)
+}
+
+/// gh's environment on an edge machine for `repo`: the edge as its host, the repo on it (the
+/// machine's remotes name github.com or its git cache, which gh would not match to that host).
+pub fn edge_gh_env(repo: &str) -> Vec<(&'static str, String)> {
+    vec![
+        ("GH_HOST", PLATFORM_EDGE_HOST.to_owned()),
+        ("GH_ENTERPRISE_TOKEN", EDGE_GH_PLACEHOLDER.to_owned()),
+        ("GH_REPO", format!("{PLATFORM_EDGE_HOST}/{repo}")),
+    ]
+}
+
+/// gh's arguments on an edge machine: `-R`/`--repo` dropped (GH_REPO names the repo on the edge
+/// host), and `pr create` given `--head BRANCH` when it names none, since gh finds the head among
+/// remotes of its host and an edge machine has none (the branch is pushed through the git egress).
+pub fn edge_gh_args(args: &[String], branch: Option<&str>) -> Vec<String> {
+    let mut out = Vec::with_capacity(args.len() + 2);
+    let mut it = args.iter();
+    let mut has_head = false;
+    while let Some(arg) = it.next() {
+        if arg == "--" {
+            out.push(arg.clone());
+            out.extend(it.by_ref().cloned());
+            break;
+        }
+        if arg == "-R" || arg == "--repo" {
+            it.next();
+            continue;
+        }
+        if arg.starts_with("--repo=") || arg.starts_with("-R") {
+            continue;
+        }
+        if arg == "--head" || arg.starts_with("--head=") || arg.starts_with("-H") {
+            has_head = true;
+        }
+        out.push(arg.clone());
+    }
+    let words = gh_words(args);
+    if words.starts_with(&["pr", "create"])
+        && !has_head
+        && let Some(b) = branch
+    {
+        let at = out.iter().position(|a| a == "--").unwrap_or(out.len());
+        out.splice(at..at, ["--head".to_owned(), b.to_owned()]);
+    }
+    out
 }
 
 fn gh(args: &[String]) -> u8 {
@@ -1431,6 +1506,37 @@ mod tests {
 
     fn minted() -> Minted {
         Minted { token: SECRET.to_owned() }
+    }
+
+    /// On an edge machine gh runs against the edge host with a placeholder and no GitHub token.
+    #[test]
+    fn edge_gh_carries_no_token_and_names_the_repo_on_the_edge() {
+        let env = edge_gh_env("acme/app");
+        assert!(env.contains(&("GH_HOST", "platform.cmux.internal".to_owned())));
+        assert!(env.contains(&("GH_REPO", "platform.cmux.internal/acme/app".to_owned())));
+        for (_, v) in &env {
+            assert!(!v.starts_with("gh"), "no GitHub token shape in {v}");
+        }
+        assert_eq!(
+            edge_gh_args(&strings(&["pr", "create", "-R", "acme/app", "--fill"]), Some("feat")),
+            strings(&["pr", "create", "--fill", "--head", "feat"])
+        );
+        assert_eq!(
+            edge_gh_args(
+                &strings(&["pr", "create", "--head", "x", "--repo=acme/app"]),
+                Some("feat")
+            ),
+            strings(&["pr", "create", "--head", "x"])
+        );
+        assert_eq!(
+            edge_gh_args(&strings(&["pr", "view", "-Racme/app", "5"]), Some("feat")),
+            strings(&["pr", "view", "5"])
+        );
+        assert_eq!(
+            edge_gh_args(&strings(&["pr", "create", "--title", "t", "--", "-R"]), Some("b")),
+            strings(&["pr", "create", "--title", "t", "--head", "b", "--", "-R"])
+        );
+        assert_eq!(edge_gh_args(&strings(&["pr", "create"]), None), strings(&["pr", "create"]));
     }
 
     /// A Cloud machine's git cache rewrites github.com fetches to its proxy; the repo still reads.
