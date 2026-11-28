@@ -1,4 +1,5 @@
 name: cmux-next web bundle publish
+run-name: cmux-next web bundle publish ${{ inputs.pr && format('#{0}', inputs.pr) || inputs.ref || github.sha }}
 
 # Publishes the built cmux-next web bundles (agent pane, React pages, Agent
 # Activity, webviews app) per source key on files.cmux.com, like

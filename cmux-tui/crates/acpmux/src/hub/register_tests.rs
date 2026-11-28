@@ -217,13 +217,92 @@ fn a_register_code_is_taken_once_and_only_from_its_own_process() {
 
 #[test]
 fn an_automatic_code_says_why_it_came_and_where_replies_go() {
-    let text = code_text("claude-desktop-03214b87", "c0de", &Why::Send("cosmic-gray".into()));
+    let by = "pid 51151 (`acpmux send coordinator hi`)".to_owned();
+    let send = Why::Send { host: "cosmic-gray".into(), by: by.clone() };
+    let text = code_text("claude-desktop-03214b87", "c0de", &send);
     assert!(text.contains("its receiver cannot answer you"), "{text}");
     assert!(text.contains("acpmux register claude-desktop-03214b87 --code c0de"), "{text}");
     assert!(text.contains("replies reach cosmic-gray/claude-desktop-03214b87"), "{text}");
+    assert!(text.contains(&by), "names the process that sent: {text}");
+    assert!(text.contains("no other code on its own"), "{text}");
     let asked = code_text("desktop-zoe", "c0de", &Why::Asked);
     assert!(asked.contains("acpmux register desktop-zoe --code c0de"), "{asked}");
     assert!(!asked.contains("acpmux send"), "{asked}");
+}
+
+#[test]
+fn an_automatic_ask_says_what_asked() {
+    let origin = |o: &str| {
+        let p = json!({"name": "claude-h-ab627c05", "auto": true, "origin": o});
+        RegisterRequest::from_params(&p).unwrap().origin
+    };
+    assert_eq!(origin("hook"), Some(Origin::Hook));
+    assert_eq!(origin("send"), Some(Origin::Send));
+    assert_eq!(origin("other"), None);
+}
+
+/// Repro (Lawrence, 2026-11-28): a chat's background shells (a deploy loop, a merge-check
+/// script) carry its environment for days; a send one of them makes is not the chat's own, so
+/// it gets no code into the chat. A command the chat's Bash tool ran (`zsh -c`, its forks for
+/// a pipeline, acpmux's own launcher) is.
+#[test]
+fn only_a_send_the_chats_own_shell_ran_gets_a_code() {
+    let p = |exe: &str, args: &[&str]| {
+        (1, exe.to_owned(), args.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>())
+    };
+    let tool = p("/bin/zsh", &["/bin/zsh", "-c", "source snap && eval 'acpmux send x hi'"]);
+    assert!(chat_ran_it(&[]), "Claude Code ran it itself");
+    assert!(chat_ran_it(std::slice::from_ref(&tool)), "its Bash tool");
+    assert!(chat_ran_it(&[tool.clone(), tool.clone()]), "a pipeline's fork");
+    assert!(chat_ran_it(&[
+        p("/Applications/cmux.app/Contents/Resources/bin/cmux", &["cmux", "acp"]),
+        tool.clone()
+    ]));
+    assert!(chat_ran_it(&[p("/bin/bash", &["bash", "-lc", "acpmux send x hi"])]));
+    let script = p("/bin/bash", &["/bin/bash", "/tmp/row7g/deploy.sh"]);
+    assert!(!chat_ran_it(&[script, tool.clone()]), "a script the chat started");
+    let traced = p("/bin/bash", &["bash", "-x", "deploy.sh"]);
+    assert!(!chat_ran_it(&[traced, tool.clone()]));
+    let python = p("/usr/bin/python3", &["python3", "-c", "import os"]);
+    assert!(!chat_ran_it(&[python, tool.clone()]), "an interpreter");
+    assert!(!chat_ran_it(&[p("/bin/zsh", &["zsh", "--norcs", "loop.sh"]), tool]));
+}
+
+#[test]
+fn a_caller_is_named_by_pid_command_and_the_chats_process_that_runs_it() {
+    let caller = Caller {
+        pid: 51151,
+        command: "acpmux send x hi".into(),
+        between: vec![(
+            54978,
+            "/bin/zsh".into(),
+            vec!["/bin/zsh".into(), "-c".into(), "loop".into()],
+        )],
+    };
+    assert_eq!(
+        caller.named(),
+        "pid 51151 (`acpmux send x hi`), under this chat's process 54978 (`/bin/zsh -c loop`)"
+    );
+    let long: Vec<String> = vec!["x".repeat(300), "a`b\ncd".into()];
+    let short = short_command(&long);
+    assert!(short.chars().count() <= 103 && short.ends_with("..."), "{short}");
+    assert!(!short_command(&["a`b\nc".into()]).contains(['`', '\n']));
+}
+
+/// Repro (Lawrence, 2026-11-28: "who keeps sending this to the claude code TUIs??"): chats that
+/// ran no `acpmux send` (claude-34, claude-lawrences-macbook-pro-2-ab627c05) got a register code
+/// as a prompt, because cmux's prompt hook asked for one at every prompt. A code goes only for
+/// a send the chat's own shell ran: never for the hook, nor for an ask that does not say it is
+/// a send (an older CLI's, which a hook of an older build runs).
+#[test]
+fn only_a_send_from_the_chats_own_shell_gets_an_automatic_code() {
+    let why = |origin| auto_why(origin, &[], "h".into(), "pid 1 (`acpmux send x hi`)".into());
+    assert!(matches!(why(Some(Origin::Send)), Ok(Why::Send { .. })));
+    assert_eq!(why(Some(Origin::Hook)).err(), Some(NO_SEND), "the prompt hook");
+    assert_eq!(why(None).err(), Some(NO_SEND), "an ask that names no send");
+    let script = (9, "/bin/bash".to_owned(), vec!["bash".to_owned(), "deploy.sh".to_owned()]);
+    let from_script = auto_why(Some(Origin::Send), &[script], "h".into(), "pid 9".into());
+    assert_eq!(from_script.err(), Some(NOT_OWN_SEND));
 }
 
 #[test]

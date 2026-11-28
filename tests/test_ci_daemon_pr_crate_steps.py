@@ -51,10 +51,16 @@ def tracked(*paths: str) -> list[str]:
 def members() -> dict[str, str]:
     """Workspace member name -> its directory (repository-relative)."""
     out: dict[str, str] = {}
+    root = "cmux-tui/Cargo.toml"
+    excluded = {f"cmux-tui/{d}" for d in tomllib.loads((ROOT / root).read_text(encoding="utf-8"))["workspace"].get("exclude", [])}
     for manifest in tracked("cmux-tui/*Cargo.toml"):
         try:
-            package = tomllib.loads((ROOT / manifest).read_text(encoding="utf-8")).get("package")
+            doc = tomllib.loads((ROOT / manifest).read_text(encoding="utf-8"))
         except tomllib.TOMLDecodeError:
+            continue
+        package = doc.get("package")
+        # A crate with its own [workspace] (cmux-next-linux) or in the exclude list is no member.
+        if manifest != root and ("workspace" in doc or str(PurePosixPath(manifest).parent) in excluded):
             continue
         if package and isinstance(package.get("name"), str):
             out[package["name"]] = str(PurePosixPath(manifest).parent)
@@ -112,11 +118,19 @@ def gate_members(by_dir: dict[str, str]) -> set[str]:
     names = set()
     for f in out:
         d = PurePosixPath(f).parent
-        while str(d) not in by_dir and str(d) != ".":
+        # The nearest crate, as the script finds it: a non-member's file (cmux-next-linux) is skipped, not given
+        # to the workspace root's package.
+        while str(d) != "." and not (ROOT / d / "Cargo.toml").is_file():
             d = d.parent
-        if str(d) in by_dir:
+        # A crate with its own [workspace] table (cmux-next-linux, cmux-rd-host) is not a cmux-tui member: the
+        # script skips it (`-p NAME` would fail the gate), so its `cmux_next_linux::` is not a gate test.
+        if str(d) in by_dir and not own_workspace(str(d)):
             names.add(by_dir[str(d)])
     return names
+
+
+def own_workspace(crate_dir: str) -> bool:
+    return "workspace" in tomllib.loads((ROOT / crate_dir / "Cargo.toml").read_text(encoding="utf-8"))
 
 
 class DaemonPrCrateStep(unittest.TestCase):
