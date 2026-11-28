@@ -105,18 +105,35 @@ if [[ -z "${CARGO_BUILD_JOBS:-}" ]]; then
   if [[ -n "$avail_gib" ]] && { [[ -z "$budget" ]] || ((avail_gib < budget)); }; then
     budget=$avail_gib source="MemAvailable"
   fi
+  capped=""
   if [[ -n "$budget" ]]; then
     per=${CARGO_GROUPS_GIB_PER_CORE:-3}
     fit=$((budget / per)); ((fit >= 1)) || fit=1
     if ((fit < cores)); then
       echo "cargo groups: $source ${budget} GiB holds ${fit} of ${cores} cores at ${per} GiB each"
-      cores=$fit
+      cores=$fit capped=1
     fi
   fi
   groups=${#commands[@]}
   jobs=$(((2 * cores + groups - 1) / groups))
   ((jobs >= 1)) || jobs=1
   lead_jobs=$((cores > jobs ? cores : jobs))
+  # Capped by memory, every group's tokens run at once, so their sum has to fit the budget, not each group's: the
+  # split above hands out about 3 x cores tokens. In a 14 GiB pool slot (4 cores) it ran 4 + 4 x 2 = 12 rustc
+  # and the kernel SIGKILLed the acpmux and cmux-tui-core rustc (cmux-machine-channel run 46144424122, job
+  # 140980982077, cmux-runner-pool-w1c-0258, 2026-11-28), so no Cloud machine channel point for 62 min. The sum
+  # is budget / CARGO_GROUPS_GIB_PER_TOKEN (2) tokens, at least one per group; a third (or more) goes to group 1.
+  if [[ -n "$capped" ]]; then
+    per_token=${CARGO_GROUPS_GIB_PER_TOKEN:-2}
+    total=$((budget / per_token)); ((total >= groups)) || total=$groups
+    if ((groups > 1)); then
+      jobs=$(((total - (total + 2) / 3) / (groups - 1))); ((jobs >= 1)) || jobs=1
+      lead_jobs=$((total - jobs * (groups - 1))); ((lead_jobs >= 1)) || lead_jobs=1
+    else
+      jobs=$total lead_jobs=$total
+    fi
+    echo "cargo groups: $source ${budget} GiB holds ${total} tokens across ${groups} groups at ${per_token} GiB each"
+  fi
   export CARGO_BUILD_JOBS=$jobs
   echo "cargo groups: ${#commands[@]}, CARGO_BUILD_JOBS=$lead_jobs for group 1, $CARGO_BUILD_JOBS each for the others"
 else
