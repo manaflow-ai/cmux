@@ -609,8 +609,15 @@ impl SignalingClient {
         egress: &crate::egress::Egress,
     ) -> Result<Self, SignalingError> {
         crate::install_crypto_provider();
-        let url = signal_url(base_url, team_id, device_id)?;
-        Self::open(url, base_url, token, device_id, build_space, egress).await
+        let mut url = signal_url(base_url, team_id, device_id)?;
+        // This network's netcheck when one is cached and the switch is on (PROTOCOL.md "Relay
+        // placement", `netcheck.rs`); a connect never waits on a measurement.
+        crate::netcheck::append_query(&mut url, base_url, build_space);
+        let client = Self::open(url, base_url, token, device_id, build_space, egress).await?;
+        // Measured after the upgrade, in the background: the next connect and relay join on this
+        // network carry it.
+        crate::netcheck::refresh_in_background(base_url, token, build_space, egress);
+        Ok(client)
     }
 
     /// Open the socket at `url` (a [`signal_url`], maybe with more query),

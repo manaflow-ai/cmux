@@ -193,6 +193,14 @@ pub fn relay_url(base_url: &str, session_id: &str, device_id: &str) -> Option<St
         .then(|| format!("{ws}/v1/relay/{session_id}?deviceId={device_id}"))
 }
 
+/// [`relay_url`] with `&netcheck=<value>` when there is one (PROTOCOL.md
+/// "Relay placement": a client may add its netcheck to a relay join).
+pub fn join_url(base_url: &str, session_id: &str, device_id: &str, netcheck: Option<&str>) -> Option<String> {
+    let mut url = relay_url(base_url, session_id, device_id)?;
+    crate::netcheck::with_value(&mut url, netcheck);
+    Some(url)
+}
+
 /// Why a join failed: what the network diagnosis tells the person.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -375,14 +383,31 @@ impl RelayCarrier {
     /// Join session `session_id`'s relay as `endpoint`'s device, with its
     /// `ticket` for the session; only frames that name `peer_device` (the
     /// relay stamps the sender) are taken.
+    ///
+    /// With netcheck on (`netcheck.rs`, off by default), the join carries
+    /// this network's cached round trips (`&netcheck=wnam:31,...`), so the
+    /// Worker places a relay the hub did not prewarm by them; a join never
+    /// waits on a measurement.
     pub async fn join(
         endpoint: &RelayEndpoint,
         session_id: &str,
         peer_device: &str,
         ticket: Option<&str>,
     ) -> Result<Self, RelayFailure> {
+        let netcheck = crate::netcheck::cached_value(&endpoint.base_url, endpoint.build_space.as_ref());
+        Self::join_with(endpoint, session_id, peer_device, ticket, netcheck.as_deref()).await
+    }
+
+    /// [`Self::join`] reporting `netcheck` (a `netcheck=` value) as given.
+    pub(crate) async fn join_with(
+        endpoint: &RelayEndpoint,
+        session_id: &str,
+        peer_device: &str,
+        ticket: Option<&str>,
+        netcheck: Option<&str>,
+    ) -> Result<Self, RelayFailure> {
         crate::install_crypto_provider();
-        let url = relay_url(&endpoint.base_url, session_id, &endpoint.device_id)
+        let url = join_url(&endpoint.base_url, session_id, &endpoint.device_id, netcheck)
             .ok_or_else(|| RelayFailure::Unreachable { detail: "not a relay URL".into() })?;
         let token = (endpoint.token)().await.ok_or(RelayFailure::NoToken)?;
         let mut request = url
@@ -654,6 +679,68 @@ mod tests {
         // Ids go into the path and query as they are: nothing but hex and dashes.
         assert_eq!(relay_url("https://x", "../../v1/ice", device), None);
         assert_eq!(relay_url("https://x", session, "a&b=c"), None);
+    }
+
+    #[test]
+    fn a_join_url_carries_netcheck_only_when_there_is_one() {
+        let session = "6f1c2a8e-1b7d-4c2e-9a51-3b9f0d2e7c11";
+        let device = "0a6b7c8d-1111-4222-8333-944455566677";
+        let plain = relay_url("https://mobile-api.cmux.dev", session, device);
+        assert_eq!(join_url("https://mobile-api.cmux.dev", session, device, None), plain);
+        assert_eq!(
+            join_url("https://mobile-api.cmux.dev", session, device, Some("wnam:31,enam:72")),
+            plain.map(|url| url + "&netcheck=wnam:31,enam:72")
+        );
+        assert_eq!(join_url("ftp://x", session, device, Some("wnam:31")), None);
+    }
+
+    /// Wire lockstep, new client to old relay: a relay that reads only
+    /// `deviceId` (every relay before netcheck, and the test relay) takes a
+    /// join that reports `netcheck=` and carries frames as before.
+    #[tokio::test]
+    async fn a_join_with_netcheck_works_against_a_relay_that_ignores_it() {
+        use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let session = "6f1c2a8e-1b7d-4c2e-9a51-3b9f0d2e7c11";
+        let device = "0a6b7c8d-1111-4222-8333-944455566677";
+        let peer_device = "1b7c8d9e-2222-4333-8444-a55566677788";
+        let peer = PeerId(*uuid::Uuid::parse_str(peer_device).unwrap().as_bytes());
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut seen = String::new();
+            // tungstenite's handshake callback returns its own large `ErrorResponse`; this test never builds one.
+            #[allow(clippy::result_large_err)]
+            let callback = |request: &Request, mut response: Response| {
+                seen = request.uri().to_string();
+                response.headers_mut().insert("sec-websocket-protocol", SUBPROTOCOL.parse().unwrap());
+                Ok(response)
+            };
+            let mut socket = tokio_tungstenite::accept_hdr_async(stream, callback).await.unwrap();
+            // The old relay's read of the query: `deviceId` and nothing else.
+            let (_, query) = seen.split_once('?').unwrap();
+            let joined = query.split('&').find_map(|kv| kv.strip_prefix("deviceId=")).unwrap().to_owned();
+            let frame = RelayFrame::datagrams(peer, &[b"hello"]).unwrap().encode().unwrap();
+            socket.send(Message::Binary(frame.into())).await.unwrap();
+            let Some(Ok(Message::Binary(bytes))) = socket.next().await else { panic!("no frame") };
+            let echoed = RelayFrame::decode(&bytes).unwrap();
+            (
+                seen,
+                joined,
+                echoed.split_datagrams().unwrap().into_iter().map(<[u8]>::to_vec).collect::<Vec<_>>(),
+            )
+        });
+        let endpoint = RelayEndpoint::with_token(format!("http://{addr}"), None, device, "user:u");
+        let mut carrier =
+            RelayCarrier::join_with(&endpoint, session, peer_device, None, Some("wnam:31,enam:72"))
+                .await
+                .unwrap();
+        assert_eq!(&carrier.inbound.recv().await.unwrap()[..], b"hello");
+        carrier.send(b"back", SendClass::Control);
+        let (seen, joined, echoed) = server.await.unwrap();
+        assert_eq!(seen, format!("/v1/relay/{session}?deviceId={device}&netcheck=wnam:31,enam:72"));
+        assert_eq!(joined, device);
+        assert_eq!(echoed, vec![b"back".to_vec()]);
     }
 
     #[test]

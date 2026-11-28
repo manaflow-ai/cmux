@@ -796,6 +796,16 @@ split wins.
   `netcheck=<region>:<ms>,...` to its signal socket's URL (and may add it to
   a relay join). Entries that fail to parse are dropped. The hub keeps the
   value with the socket and never stores it.
+- **The Rust client (added 2026-11-25, off by default, no version change):**
+  `cmux-mobile-link` (`src/netcheck.rs`) measures every region in the
+  background after its signal socket connects (3 pings each, 3 s per region,
+  cached 30 min per service, build space and network, measured again on a
+  roam), and reports the cached value on its next signal socket and on every
+  relay join. It never waits on a measurement, so a join is no slower. It is
+  off unless `CMUX_MOBILE_NETCHECK=1`. On the wire this is only the optional
+  query parameter above: a Worker before netcheck reads only `deviceId` and
+  ignores it, and a client without it gets the geolocation estimate, so old
+  and new clients and Workers mix in both directions.
 - **Prewarm (added 2026-11-24, server-only, no version change):** when the
   hub forwards a session's first `wg-init`, it creates the session's relay
   object (the same name the relay route uses) without waiting for it, placed

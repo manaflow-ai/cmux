@@ -9,7 +9,7 @@ import type { Env } from "../src/env.ts"
 import type { LinkRelay } from "../src/link-relay.ts"
 import { relayRoomName } from "../src/placement.ts"
 import { checkFrame, splitTagged } from "../src/relay-frame.ts"
-import { linkStatLine, uuidToBytes, userHubName } from "../src/team-hub.ts";
+import { linkStatLine, userHubName, uuidToBytes } from "../src/team-hub.ts"
 import { connect, register, sockOf, token, worker, type Sock } from "./helpers.ts"
 
 // PROTOCOL.md "WebSocket relay": the last way a WireGuard link reaches its peer, WireGuard datagrams in relay
@@ -30,8 +30,8 @@ const frame = (datagrams: Uint8Array[], peer = new Uint8Array(16).fill(0xee), ki
 const tickets = new Map<string, string>()
 const TICKET = "x-cmux-relay-ticket"
 
-/** A join as `deviceId`, with that device's own ticket unless `extra` names another (or `null`: none). */
-const join = (tok: string, sessionId: string, deviceId: string, extra: Record<string, string | null> = {}) => {
+/** A join as `deviceId`, with that device's own ticket unless `extra` names another (or `null`: none), and `query` after `deviceId`. */
+const join = (tok: string, sessionId: string, deviceId: string, extra: Record<string, string | null> = {}, query = "") => {
   const headers: Record<string, string> = { Upgrade: "websocket", authorization: `Bearer ${tok}` }
   const own = tickets.get(`${sessionId}|${deviceId}`)
   if (own) headers[TICKET] = own
@@ -39,7 +39,7 @@ const join = (tok: string, sessionId: string, deviceId: string, extra: Record<st
     if (v === null) delete headers[k]
     else headers[k] = v
   }
-  return worker.fetch(`https://api.test/v1/relay/${sessionId}?deviceId=${deviceId}`, { headers })
+  return worker.fetch(`https://api.test/v1/relay/${sessionId}?deviceId=${deviceId}${query}`, { headers })
 }
 
 /** The ticket stamped on the last signal of `sessionId` that `sock` (device `deviceId`) received, recorded. */
@@ -58,8 +58,8 @@ const exchange = async (p: Sock, phone: string, m: Sock, mac: string, sessionId:
   return { macTicket, phoneTicket: recordTicket(p, sessionId, phone) }
 }
 
-const joined = async (tok: string, sessionId: string, deviceId: string, extra: Record<string, string | null> = {}): Promise<Sock> => {
-  const res = await join(tok, sessionId, deviceId, extra)
+const joined = async (tok: string, sessionId: string, deviceId: string, extra: Record<string, string | null> = {}, query = ""): Promise<Sock> => {
+  const res = await join(tok, sessionId, deviceId, extra, query)
   expect(res.status, await (res.status === 101 ? Promise.resolve("") : res.text())).toBe(101)
   const s = sockOf(res.webSocket!)
   await s.until((x) => x.frames.some((f) => f.type === "joined"))
@@ -218,6 +218,28 @@ describe("link relay: what it carries", () => {
     expect(toHex(a.binary[0]!.subarray(2, 18))).toBe(toHex(uuidToBytes(mac)))
     a.ws.close()
     b.ws.close()
+  })
+
+  // Wire lockstep (PROTOCOL.md "Relay placement"): a client with netcheck on reports it on its relay join; one
+  // without (every client before it) does not; a malformed report is ignored. All three join and carry frames.
+  it("takes a join with or without a netcheck report, and a malformed one, and carries frames between them", async () => {
+    for (const [phoneQuery, macQuery] of [
+      ["&netcheck=wnam:31,enam:72", ""],
+      ["", "&netcheck=weur:9"],
+      ["&netcheck=mars:1,wnam:-4,,enam", "&netcheck=" + "wnam:1,".repeat(80)],
+    ]) {
+      const { tok, phone, mac, sessionId } = await session()
+      const a = await joined(tok, sessionId, phone, {}, phoneQuery)
+      const b = await joined(tok, sessionId, mac, {}, macQuery)
+      a.ws.send(frame([new Uint8Array([4, 0, 0, 0, 1])]))
+      await b.until((x) => x.binary.length === 1)
+      expect(toHex(b.binary[0]!.subarray(2, 18))).toBe(toHex(uuidToBytes(phone)))
+      b.ws.send(frame([new Uint8Array([4, 0, 0, 0, 2])]))
+      await a.until((x) => x.binary.length === 1)
+      expect(toHex(a.binary[0]!.subarray(2, 18))).toBe(toHex(uuidToBytes(mac)))
+      a.ws.close()
+      b.ws.close()
+    }
   })
 
   it("says the peer is not there instead of dropping frames without a word, and when it leaves", async () => {

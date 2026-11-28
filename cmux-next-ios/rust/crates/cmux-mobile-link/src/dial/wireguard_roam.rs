@@ -2079,6 +2079,8 @@ async fn run_control(
 pub async fn network_changed() -> Vec<(String, Timeline)> {
     // The new network's proxy (and whether it inspects TLS) is asked afresh.
     crate::egress::network_changed();
+    // Relay placement's netcheck is measured again on the new network.
+    crate::netcheck::network_changed();
     let sessions = live();
     let roams =
         sessions.iter().map(|session| async move { (session.session_id.clone(), session.roam().await) });
