@@ -72,6 +72,8 @@ await requireBrowserLane("agent-question-card-paging.browser.test.ts", async () 
   const PARTS = {
     card: ".acpmux-question-ask",
     title: ".acpmux-question-head",
+    // The shown question's body: its rows, and its preview beside or under them, in the tallest page's room.
+    body: ".acpmux-question-pages > .acpmux-question-body:not([aria-hidden])",
     rows: ".acpmux-question-pages > .acpmux-question-body:not([aria-hidden]) > .acpmux-question-rows",
     footer: ".acpmux-question-footer",
     skip: ".acpmux-question-skip",
@@ -98,7 +100,9 @@ await requireBrowserLane("agent-question-card-paging.browser.test.ts", async () 
 
   const expectSame = (label: string, first: Boxes, now: Boxes) => {
     for (const name of Object.keys(PARTS) as (keyof typeof PARTS)[]) {
-      for (const edge of ["x", "y", "width", "height"] as const) {
+      // The rows start where every page's start; a page with a preview gives them a narrower or
+      // shorter box beside or over it (pending-paging-uneven's last page), so only their corner holds.
+      for (const edge of name === "rows" ? (["x", "y"] as const) : (["x", "y", "width", "height"] as const)) {
         const moved = Math.abs(now[name][edge] - first[name][edge]);
         if (moved > TOLERANCE)
           throw new Error(`${label}: ${name}.${edge} moved ${first[name][edge]} -> ${now[name][edge]}`);
