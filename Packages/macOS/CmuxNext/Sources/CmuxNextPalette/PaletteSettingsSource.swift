@@ -5,6 +5,8 @@
 @MainActor
 public protocol PaletteSettingsSource: AnyObject {
     var rows: [PaletteSettingRow] { get }
+    /// Destinations within Settings, opened through the app's Settings action.
+    var navigationItems: [PaletteItem] { get }
     /// Shows `option` live without writing it; nil ends the preview.
     func preview(row: String, option: String?)
     /// Writes `option` ("on" or "off" for a toggle).
@@ -22,6 +24,8 @@ public protocol PaletteSettingsSource: AnyObject {
 }
 
 extension PaletteSettingsSource {
+    public var navigationItems: [PaletteItem] { [] }
+
     public func observeChanges(_ onChange: @escaping @MainActor () -> Void) {}
     public var revealsInSettings: Bool { false }
     public func reveal(row: String) {}
