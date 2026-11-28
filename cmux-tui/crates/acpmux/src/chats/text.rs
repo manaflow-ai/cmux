@@ -297,6 +297,17 @@ impl Doc {
 
     /// The newest message that holds every word, and how many messages do.
     fn find(&self, needle: &Needle, matcher: &Matcher) -> Option<Matched> {
+        self.scan(needle, matcher, false)
+    }
+
+    /// Whether some message holds every word: [`Doc::find`] that stops at its first hit, so a
+    /// short common word costs one message, not every message holding it.
+    fn holds(&self, needle: &Needle, matcher: &Matcher) -> bool {
+        self.scan(needle, matcher, true).is_some()
+    }
+
+    /// [`Doc::find`]; with `first`, the oldest hit alone (its count 1).
+    fn scan(&self, needle: &Needle, matcher: &Matcher, first: bool) -> Option<Matched> {
         let mut found: Option<Matched> = None;
         let mut hit = |i: usize| {
             let message = u32::try_from(i).unwrap_or(u32::MAX);
@@ -307,17 +318,20 @@ impl Doc {
         if !self.may_hold(matcher) {
             return None;
         }
-        let Some((first, rest)) = ascii.and_then(<[_]>::split_first) else {
-            (self.live as usize..self.messages.len())
-                .filter(|&i| needle.find(self.message(i)).is_some())
-                .for_each(hit);
+        let Some((longest, rest)) = ascii.and_then(<[_]>::split_first) else {
+            let mut held = (self.live as usize..self.messages.len())
+                .filter(|&i| needle.find(self.message(i)).is_some());
+            match first {
+                true => held.next().into_iter().for_each(hit),
+                false => held.for_each(hit),
+            }
             return found;
         };
         let mut from = self.live_start();
         if from >= self.text.len() {
             return None;
         }
-        while let Some(m) = first.find(Input::new(self.text.as_str()).range(from..)) {
+        while let Some(m) = longest.find(Input::new(self.text.as_str()).range(from..)) {
             let i = self
                 .messages
                 .partition_point(|msg| msg.start as usize <= m.start())
@@ -326,6 +340,9 @@ impl Doc {
             let text = self.text.get(start..end).unwrap_or_default();
             if rest.iter().all(|word| word.is_match(text)) {
                 hit(i);
+                if first {
+                    break;
+                }
             }
             // The next match is in a later message.
             from = end.max(m.end());
@@ -407,7 +424,8 @@ fn folds_to_ascii(text: &str) -> bool {
 /// searcher per word, longest first (the rarest likely, so the first pass stops least).
 struct Matcher {
     ascii: Option<Vec<AhoCorasick>>,
-    /// Every trigram of every ASCII word ([`Trigrams::key`]): a doc missing one holds no hit.
+    /// Every trigram of every ASCII word ([`Trigrams::keys`]; a shorter word's one or two bytes):
+    /// a doc missing one holds no hit.
     trigrams: Vec<u32>,
 }
 
@@ -417,8 +435,7 @@ impl Matcher {
         if !words.iter().all(|word| word.is_ascii()) {
             return Self { ascii: None, trigrams: Vec::new() };
         }
-        let mut trigrams: Vec<u32> =
-            words.iter().flat_map(|word| word.as_bytes().windows(3).map(Trigrams::key)).collect();
+        let mut trigrams: Vec<u32> = words.iter().flat_map(|word| Trigrams::keys(word)).collect();
         trigrams.sort_unstable();
         trigrams.dedup();
         words.sort_by_key(|word| std::cmp::Reverse(word.len()));
@@ -436,7 +453,8 @@ impl Matcher {
 const TRIGRAM_MIN_BITS: usize = 1 << 10;
 const TRIGRAM_MAX_BITS: usize = 1 << 16;
 
-/// A one-hash Bloom filter of a text's ASCII-lowercased byte trigrams. An ASCII word matched
+/// A one-hash Bloom filter of a text's ASCII-lowercased byte trigrams, and its bytes and byte
+/// pairs, so a query's first two keys (a word too short for a trigram) skip a doc too. An ASCII word matched
 /// case-blind is a run of bytes whose lowercase is the word's, so each of the word's trigrams is one
 /// of the text's: a missing bit proves no match, a set bit proves nothing (the pass confirms it).
 #[derive(Clone, Debug, Default)]
@@ -479,6 +497,26 @@ impl Trigrams {
         (key.wrapping_mul(0x9E37_79B1) >> (32 - len.trailing_zeros())) as usize
     }
 
+    /// What a word of `word`'s bytes needs the set to hold: its trigrams, or (shorter) the word.
+    fn keys(word: &str) -> Vec<u32> {
+        match word.as_bytes() {
+            [] => Vec::new(),
+            [a] => vec![Self::one(*a)],
+            [a, b] => vec![Self::two(*a, *b)],
+            bytes => bytes.windows(3).map(Self::key).collect(),
+        }
+    }
+
+    /// One byte as a key no trigram's is (trigrams take the low 24 bits).
+    fn one(a: u8) -> u32 {
+        2 << 24 | u32::from(a.to_ascii_lowercase())
+    }
+
+    /// Two bytes as a key no trigram's or byte's is.
+    fn two(a: u8, b: u8) -> u32 {
+        1 << 24 | u32::from(a.to_ascii_lowercase()) << 8 | u32::from(b.to_ascii_lowercase())
+    }
+
     /// Whether the set was sized for at least `len` bytes of text (or is at its most).
     fn fits(&self, len: usize) -> bool {
         let bits = self.bits.len() * 64;
@@ -489,8 +527,11 @@ impl Trigrams {
         if self.bits.is_empty() {
             return;
         }
-        for t in bytes.windows(3) {
-            let bit = self.bit(Self::key(t));
+        let threes = bytes.windows(3).map(Self::key);
+        let twos = bytes.windows(2).map(|t| Self::two(t[0], t[1]));
+        let ones = bytes.iter().map(|&a| Self::one(a));
+        for key in threes.chain(twos).chain(ones) {
+            let bit = self.bit(key);
             if let Some(word) = self.bits.get_mut(bit / 64) {
                 *word |= 1 << (bit % 64);
             }
@@ -519,7 +560,6 @@ struct Matched {
 #[derive(Clone, Debug)]
 pub struct Found {
     doc: Arc<Doc>,
-    matched: Matched,
 }
 
 /// Every chat's text, and the last query's answer.
@@ -992,9 +1032,10 @@ impl ChatText {
             })
             .map(|(_, _, found)| found.clone());
         let matcher = Matcher::new(needle);
+        // Whether a chat holds the words, not where: a window reads where (`hit`) only for the
+        // rows it shows, so a one-letter query reads one message of each chat, not all of them.
         let search = |key: &String, doc: &Arc<Doc>| {
-            let matched = doc.find(needle, &matcher)?;
-            Some((key.clone(), Found { doc: doc.clone(), matched }))
+            doc.holds(needle, &matcher).then(|| (key.clone(), Found { doc: doc.clone() }))
         };
         let docs: Vec<(&String, &Arc<Doc>)> = match &narrowed {
             Some(last) => last.iter().map(|(key, found)| (key, &found.doc)).collect(),
@@ -1021,7 +1062,9 @@ impl ChatText {
     /// `prompt` or `answer`, and `highlights` are the snippet's characters (Unicode scalars) that
     /// are part of a word, as the palette draws a row's matched characters.
     pub fn hit(found: &Found, needle: &Needle) -> Option<Value> {
-        let (doc, i) = (&found.doc, found.matched.message as usize);
+        let doc = &found.doc;
+        let matched = doc.find(needle, &Matcher::new(needle))?;
+        let i = matched.message as usize;
         let message = doc.messages.get(i)?;
         let text = doc.message(i);
         let snippet = snippet_around(text, needle.find(text).unwrap_or(0), ROW_BEFORE, ROW_SNIPPET);
@@ -1030,7 +1073,7 @@ impl ChatText {
             "role": if message.answer { "answer" } else { "prompt" },
             "highlights": needle.highlights(&snippet),
             "snippet": snippet,
-            "matches": found.matched.matches,
+            "matches": matched.matches,
         }))
     }
 

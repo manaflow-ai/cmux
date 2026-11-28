@@ -705,3 +705,29 @@ fn an_older_builds_json_copy_is_read_then_written_anew_and_removed() {
     assert!(again.search(&needle("legacy answer")).contains_key("codex:a"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A query's first two keys (a word too short for a trigram) skip a chat that lacks the word's
+/// bytes without reading it, and a hit still reports the newest message and how many hold the
+/// word, though the search stopped at the first.
+#[test]
+fn a_short_word_skips_chats_without_it_and_its_hit_counts_every_message() {
+    let text = index();
+    let said = |id: &str| match id {
+        "a" => vec![turn("zq first", "plain"), turn("more zq", "zq again")],
+        _ => vec![turn("nothing", "here at all")],
+    };
+    text.update(&[chat("a", 1), chat("b", 1), chat("c", 1)], &|entry| {
+        Some(said(&entry.session_id))
+    });
+    for word in ["z", "zq"] {
+        let at = text.read();
+        let found = text.search(&needle(word));
+        assert_eq!(found.keys().collect::<Vec<_>>(), ["codex:a"], "{word}");
+        assert_eq!(text.read() - at, 1, "{word}: only the chat holding its bytes is read");
+    }
+    let found = text.search(&needle("zq"));
+    let hit = ChatText::hit(&found["codex:a"], &needle("zq")).expect("hit");
+    assert_eq!(hit["matches"], 3, "every message holding the word: {hit}");
+    assert_eq!(hit["snippet"], "zq again", "the newest one: {hit}");
+    let _ = std::fs::remove_file(&text.path);
+}
