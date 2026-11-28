@@ -4,9 +4,11 @@
 import { expect, test } from "bun:test";
 import "./testCatalog";
 import { displayNumber, parseNumber, shownUnit, unitLabel } from "./format";
-import { rowsByKey, type NumberRange } from "./schema";
+import { hostRowsByKey, type NumberRange } from "./schema";
 
-const range = (key: string): NumberRange => rowsByKey.get(key)!.range!;
+// Page-hidden rows too: the Updates durations folded into Automatic Updates (2026-11-22) but keep
+// their ranges for cmux.json and the CLI.
+const range = (key: string): NumberRange => hostRowsByKey.get(key)!.range!;
 
 test("Check Every reads in hours and stores seconds", () => {
   const every = range("updates.checkIntervalSeconds");
