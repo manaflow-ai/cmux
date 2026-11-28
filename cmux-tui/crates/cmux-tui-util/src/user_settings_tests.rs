@@ -90,14 +90,35 @@ fn ultra_is_auto_unless_the_file_says_otherwise() {
 }
 
 #[test]
-fn tailnet_carrier_is_off_unless_direct_only_or_on_is_named() {
+fn tailnet_carrier_is_off_unless_the_file_names_direct_only_or_on() {
     use super::TailnetCarrier::{DirectOnly, Off, On};
     use super::tailnet_carrier_from_config_text as carrier;
-    assert_eq!(carrier(""), Off);
+    assert_eq!(carrier(""), Off, "no file: the default");
+    assert_eq!(carrier("{}"), Off, "no key: the default");
     assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"direct-only"}}"#), DirectOnly);
+    assert_eq!(carrier(r#"{"transport.tailnetCarrier":"on"}"#), On, "the flat key");
     assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"on"}}"#), On);
-    assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"bogus"}}"#), Off);
+    assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"off"}}"#), Off);
+    assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"bogus"}}"#), Off, "not understood");
     assert_eq!(carrier("{not json"), Off);
+    assert_eq!(super::tailnet_carrier(), Off, "unit tests never read the developer's file");
+}
+
+#[test]
+fn invalid_tailnet_setting_types_do_not_enable_the_default() {
+    use serde_json::json;
+    for value in [json!(false), json!(true), json!(0), json!(1), json!([]), json!({})] {
+        for doc in [
+            json!({"transport.tailnetCarrier": value}),
+            json!({"transport": {"tailnetCarrier": value}}),
+        ] {
+            assert_eq!(
+                super::tailnet_carrier_from_config_text(&doc.to_string()),
+                super::TailnetCarrier::Off,
+                "{doc}",
+            );
+        }
+    }
 }
 
 #[test]

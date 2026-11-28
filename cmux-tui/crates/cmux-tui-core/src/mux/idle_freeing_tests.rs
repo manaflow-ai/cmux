@@ -68,6 +68,39 @@ fn an_attach_between_two_passes_counts_as_use() {
 }
 
 #[test]
+fn the_measure_clock_moves_on_by_its_advances_and_reads_output_when_printed() {
+    let mut clock = MeasureClock::default();
+    assert_eq!(clock.at(5_000), 5_000, "no advance: the wall clock");
+    clock.pending_ms = IDLE_MS;
+    assert_eq!(clock.apply_pending(10_000), IDLE_MS);
+    assert_eq!(clock.apply_pending(10_001), 0, "applied once");
+    assert_eq!(clock.at(9_999), 9_999, "output before the advance keeps its time");
+    assert_eq!(clock.at(10_000), 10_000 + IDLE_MS);
+    assert_eq!(clock.at(20_000), 20_000 + IDLE_MS, "output after it is on the moved clock");
+    clock.pending_ms = IDLE_MS;
+    clock.apply_pending(30_000);
+    assert_eq!(clock.offset_ms(), 2 * IDLE_MS);
+    assert_eq!(clock.at(20_000), 20_000 + IDLE_MS);
+    assert_eq!(clock.at(30_000), 30_000 + 2 * IDLE_MS);
+}
+
+#[test]
+fn a_day_on_the_measure_clock_frees_a_quiet_terminal_at_the_product_idle_time() {
+    let start = 100 * IDLE_MS;
+    let mut clock = MeasureClock::default();
+    let mut tracker = FreeingTracker::default();
+    let printed = start + 2_000;
+    let quiet = |clock: &MeasureClock| [view("t", false, 0, Some(clock.at(printed)))];
+    assert!(tracker.due(clock.at(start), IDLE_MS, &quiet(&clock)).is_empty());
+    // Seconds of a bench day later, a day passes for the timer.
+    let wall = start + 10_000;
+    assert!(tracker.due(clock.at(wall), IDLE_MS, &quiet(&clock)).is_empty(), "not a day yet");
+    clock.pending_ms = IDLE_MS;
+    clock.apply_pending(wall);
+    assert_eq!(tracker.due(clock.at(wall), IDLE_MS, &quiet(&clock)), ["t"]);
+}
+
+#[test]
 fn a_refused_terminal_waits_a_full_period_and_a_gone_one_is_forgotten() {
     let start = 100 * IDLE_MS;
     let mut tracker = FreeingTracker::default();

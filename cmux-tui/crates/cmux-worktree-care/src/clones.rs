@@ -2,8 +2,8 @@
 //! worktree): the one family whose content can be unique. Before one goes,
 //! its work is checked and archived:
 //!
-//! - uncommitted, untracked or ignored changes: the clone stays (this archive keeps
-//!   commits, not loose files);
+//! - uncommitted or untracked changes, or ignored files that are not build
+//!   output: the clone stays (this archive keeps commits, not loose files);
 //! - commits on no remote branch: kept in a bundle in the archive store
 //!   (`clones/<id>.bundle`), verified, before the folder goes;
 //! - nothing of its own: nothing to keep.
@@ -63,10 +63,10 @@ pub enum Work {
 
 /// What is in `clone` that would be lost, or why it cannot be said or must stay.
 pub fn work(clone: &Path) -> Result<Work, String> {
-    let status =
-        crate::git::user_git(clone, &["status", "--porcelain=v1", "-uall", "--ignored"], LIMIT)?;
+    // Ignored entries are the next check's: build output may go, local files may not.
+    let status = crate::git::user_git(clone, &["status", "--porcelain=v1", "-uall"], LIMIT)?;
     if !status.is_empty() {
-        return Err("it has uncommitted, untracked or ignored changes".into());
+        return Err("it has uncommitted or untracked changes".into());
     }
     // Ignored files are local too (`.env`, secrets, notes): only build
     // output may go with the clone.
