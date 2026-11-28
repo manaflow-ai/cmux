@@ -373,6 +373,9 @@ impl Hub {
         bindings: &std::collections::BTreeSet<&str>,
     ) -> Result<Value, RpcError> {
         self.wait_startup().await;
+        // Agents warmed for these bindings (a Cloud chat's prewarm) end first: none is served to
+        // a start after the withdrawal.
+        self.pool_withdraw_bindings(bindings);
         let matching = self.session_handles().into_iter().filter_map(|session| {
             let binding = session.read_meta(|meta| {
                 meta.credential_connection

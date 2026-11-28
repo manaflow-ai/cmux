@@ -259,7 +259,9 @@ pub struct PrewarmRequest {
 /// The parts of a coming `session/new` a hint names beyond its harness and folder: the model it
 /// pins (`_meta.acpmux.model`), its workspace (`_meta.acpmux.workspaceId`) and the owner's Cloud
 /// credential (`_meta.acpmux.credentials`, this machine's own socket only). Hints carrying
-/// API keys or Claude setup tokens are declined. Other credentialed entries only live as long as the hint.
+/// API keys or Claude tokens are declined unless the credential names its owner's connection
+/// binding, which a withdrawal reaches (`pool_withdraw_bindings`); endpoint credentials always
+/// are. Other credentialed entries only live as long as the hint.
 #[derive(Debug, Clone, Default)]
 pub struct PrewarmShape {
     pub model: Option<String>,
@@ -540,6 +542,7 @@ impl Hub {
             ),
             model,
             effort,
+            binding: credential.and_then(|c| c.connection()).map(str::to_owned),
         };
         Ok(PoolSpec { key, spawn, draft: draft.clone(), answer })
     }
@@ -650,11 +653,16 @@ impl Hub {
         if req.release {
             return Ok(self.pool_release(req).await);
         }
-        // Cloud opt-out and Disconnect reach bound sessions. Keep these hints out of the pool.
+        // Cloud opt-out and Disconnect reach bound sessions and, by the key's `binding`, the
+        // entries warmed for them (`pool_withdraw_bindings`). A key or token with no binding has
+        // nothing for a withdrawal to reach, and an endpoint credential is checked at launch:
+        // both stay out of the pool, as Gemini and Grok credentials do.
         if req.shape.credential.as_ref().is_some_and(|credential| {
+            let secret =
+                credential.key_provider().is_some() || credential.uses_claude_subscription_token();
             matches!(credential.family(), CredentialFamily::Gemini | CredentialFamily::Grok)
-                || credential.key_provider().is_some()
-                || credential.uses_claude_subscription_token()
+                || credential.check_launch_destination().is_err()
+                || (secret && credential.connection().is_none())
         }) {
             return Ok(json!({"accepted": false}));
         }
@@ -1268,6 +1276,26 @@ impl Hub {
                 Err(e) => tracing::debug!("last-used harness not poolable: {}", e.message),
             }
         });
+    }
+
+    /// The owner withdrew these connection bindings (`agent/credentials.update`): every entry
+    /// warmed with one ends, ready or warming, and so does one a `session/new` claimed but has
+    /// not taken. A hint still in its debounce is superseded, so it never starts with a binding
+    /// withdrawn meanwhile (another pending hint only starts cold).
+    pub(crate) fn pool_withdraw_bindings(&self, bindings: &std::collections::BTreeSet<&str>) {
+        if bindings.is_empty() {
+            return;
+        }
+        let bound = |key: &PoolKey| key.binding.as_deref().is_some_and(|b| bindings.contains(b));
+        self.pool.hint_gen.fetch_add(1, Ordering::SeqCst);
+        let mut ended = lock(&self.pool.pool).remove_keys(bound);
+        {
+            let mut claimed = lock(&self.pool.claimed);
+            let ids: Vec<String> =
+                claimed.iter().filter(|(_, p)| bound(&p.key)).map(|(id, _)| id.clone()).collect();
+            ended.extend(ids.iter().filter_map(|id| claimed.remove(id)));
+        }
+        self.pool_discard(ended);
     }
 
     /// Config reload: every entry ends; none started under the old catalog

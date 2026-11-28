@@ -37,6 +37,7 @@ fn key(auth: &str) -> PoolKey {
         settings_file: PathBuf::new(),
         model: Some("haiku".into()),
         effort: None,
+        binding: None,
     }
 }
 

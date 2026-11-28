@@ -401,19 +401,32 @@ fn a_guest_does_not_forward_saved_keys_to_the_unbound_pool() {
     assert!(chat.sent("_acpmux/prewarm").is_empty());
 }
 
+/// A saved token with no connection binding has nothing a withdrawal reaches, so it goes only to
+/// the chat's start. A bound one is warmed: Cloud opt-out and Disconnect withdraw the binding, and
+/// acpmux ends the pooled agent warmed with it (`pool_withdraw_bindings`).
 #[test]
-fn a_guest_only_takes_a_claude_setup_token_on_the_chat_start() {
+fn a_guest_warms_a_claude_token_only_with_its_connection_binding() {
     for (label, variable) in [
         ("prewarm-setup-token", "ANTHROPIC_AUTH_TOKEN"),
         ("prewarm-legacy-token", "CLAUDE_CODE_OAUTH_TOKEN"),
     ] {
         let mut chat = connect(label, AgentStartHost::OwnerCloud, false);
+        let unbound = json!({"env":{(variable):"sk-ant-oat-fixture"}});
+        let warmed = chat.prewarm(unbound, json!("owner"));
+        assert_eq!(warmed["ok"], true);
+        assert_eq!(warmed["data"]["accepted"], false, "{variable}");
+        assert!(chat.sent("_acpmux/prewarm").is_empty());
+
         let credential = json!({"env":{(variable):"sk-ant-oat-fixture"},
             "connection":format!("claude-token:{}", "a".repeat(64))});
         let warmed = chat.prewarm(credential.clone(), json!("owner"));
         assert_eq!(warmed["ok"], true);
-        assert_eq!(warmed["data"]["accepted"], false, "{variable}");
-        assert!(chat.sent("_acpmux/prewarm").is_empty());
+        assert_eq!(warmed["data"]["accepted"], true, "{variable}: {warmed}");
+        let hints = chat.sent("_acpmux/prewarm");
+        assert_eq!(hints.len(), 1, "{hints:?}");
+        let hinted = &hints[0]["params"]["credentials"];
+        assert!(hinted["env"].get(variable).is_some());
+        assert_eq!(hinted["connection"], credential["connection"]);
 
         assert_eq!(chat.start(credential, json!("owner"))["ok"], true);
         let starts = chat.sent("session/new");
