@@ -2293,6 +2293,7 @@ impl Hub {
             }
             return;
         };
+        tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: store listed");
         // The small index the chat logs load by (`log_load.rs`): agent hosts still running.
         let read = Self::read_live_host_sessions();
         // Records that can not be read may hide a host whose lines adoption holds again: an off
