@@ -61,6 +61,34 @@ def take(pictures, capture="screencapturekit", spans=None, before=2, at_zero=Fal
             "mean_interval_ms": STEP, "strip_intermediate": 0.0, "lead_ms": 120.0, **fields}
 
 
+def streamed(reply, idle=(), own=(), lost=(), **changed):
+    """`reply` as a build with the recorder's counts of its stream writes it (`screen_stream`): each row's file has
+    the row's place in the recording as its number, and each row is a complete buffer but the places `idle` (idle
+    buffers: the last picture again). `own`: the places of the rows with the handler's own time. `lost`: the buffers
+    that made no row, each (ms after the reply's zero, why: a status's raw number, -1 no status, -2 no picture,
+    -3 idle before a picture) and, as the build that says a buffer's clock writes it, a third value (1: the time is
+    the handler's own, 0: the display's). `changed`: the fields of `screen_stream` that a test sets itself."""
+    rows = [dict(frame) for frame in reply["frames"]]
+    times = [round(STEP * (int(frame["file"][6:9]) - 2), 1) for frame in rows]
+    for place, frame in enumerate(rows):
+        frame["file"] = f"frame-{place:03d}.png"
+    status = "".join("i" if place in idle else "c" for place in range(len(rows)))
+    whys = [entry[1] for entry in lost]
+    counts = {"buffers": len(rows) + len(lost), "rows": len(rows), "row_status": status, "row_ms": times,
+              "complete": status.count("c") + whys.count(-2), "idle": status.count("i") + whys.count(-3),
+              "other_status": {str(why): whys.count(why) for why in sorted(set(whys)) if why >= 0},
+              "no_status": whys.count(-1), "no_picture": whys.count(-2), "idle_before_a_picture": whys.count(-3),
+              "own_time_rows": sorted(own), "no_display_time": len(own), "display_time_later": 0,
+              "no_row": [[float(value) for value in entry] for entry in lost],
+              "lag_ms_max": 3.2, "lag_ms_mean": 1.1, "work_ms_max": 2.5, "work_ms_mean": 0.9}
+    return {**reply, "frames": rows, "screen_stream": {**counts, **changed}}
+
+
+def gap_kinds(span):
+    """The frames with no row of a stream's span, by the kind of their gap (the kinds with a gap only)."""
+    return {kind: span[kind]["frames"] for kind in nsf.STREAM_KINDS if span[kind]["gaps"]}
+
+
 class OneKeyTests(unittest.TestCase):
     def test_a_first_frame_that_is_the_last_picture_has_no_change_after_it(self):
         got = nsf.one_key(take([(NEW, ROW_NEW)] * 240), "n", asked_hz=120)
@@ -339,6 +367,600 @@ class OneKeyTests(unittest.TestCase):
         self.assertEqual((got["blinks"], got["changes_after_content"], got["first_is_final"]), ([], 60, False))
 
 
+class StreamCountsTests(unittest.TestCase):
+    """The recorder's counts of its stream say why a frame of the display has no row. They are facts of a row: no
+    INVALID reason reads them."""
+
+    # Frames 2 and 3 have no row; the page is in frame 4's row (the row at place 3 of the recording).
+    HOLE = [(OLD, ROW_OLD), None, None] + [(NEW, ROW_NEW)] * 237
+    # The page is in frame 1; frames 101 and 102 of the still picture have no row (the row after them: place 102).
+    LATER = [(NEW, ROW_NEW)] * 100 + [None, None] + [(NEW, ROW_NEW)] * 138
+    NO_ROW = ("no-row: 2 of the 4 frames from the key to content_first have no row (frames 2, 3; the longest step between "
+              "rows 25 ms): content_first can be at most 16.7 ms early")
+
+    def stream(self, pictures, **said):
+        return nsf.one_key(streamed(take(pictures), **said), "n", asked_hz=120)["stream"]
+
+    def test_a_reply_with_no_counts_of_the_stream_has_none(self):
+        got = nsf.one_key(take(self.HOLE), "n", asked_hz=120)
+        self.assertIn("stream", got)
+        self.assertIsNone(got["stream"])
+        # A recording with no row after the key: the same field, and with counts the counts alone.
+        self.assertIsNone(nsf.one_key(take([]), "n", asked_hz=120)["stream"])
+        got = nsf.one_key(streamed(take([])), "n", asked_hz=120)["stream"]
+        self.assertEqual((got["rows"], got["counts_agree"], got["to_content_first"], got["steps"]), (2, True, None, None))
+
+    def test_the_counts_are_in_the_row_as_whole_numbers_and_they_agree(self):
+        # The app's numbers are JSON doubles: a count comes back as a whole number.
+        got = self.stream(self.HOLE, idle=(5, 6), own=(9,), lost=[(20.0, 3), (500.0, -2), (600.0, -1)], rows=240.0)
+        names = ("buffers", "rows", "complete", "idle", "other_status", "no_status", "no_picture", "idle_before_a_picture",
+                 "own_time_rows", "no_display_time", "display_time_later", "buffers_with_no_row", "no_row_not_listed",
+                 "lag_ms_max", "lag_ms_mean", "work_ms_max", "work_ms_mean", "counts_agree")
+        self.assertEqual({name: got[name] for name in names},
+                         {"buffers": 243, "rows": 240, "complete": 239, "idle": 2, "other_status": {"3": 1}, "no_status": 1,
+                          "no_picture": 1, "idle_before_a_picture": 0, "own_time_rows": 1, "no_display_time": 1,
+                          "display_time_later": 0, "buffers_with_no_row": 3, "no_row_not_listed": 0, "lag_ms_max": 3.2,
+                          "lag_ms_mean": 1.1, "work_ms_max": 2.5, "work_ms_mean": 0.9, "counts_agree": True})
+        self.assertIs(type(got["rows"]), int)
+        self.assertEqual((got["rows_after_key"], got["content_first_status"]), ({"complete": 236, "idle": 2, "not_known": 0}, "complete"))
+
+    def test_a_gap_with_no_buffer_is_named_by_the_row_after_it(self):
+        got = self.stream(self.HOLE)
+        self.assertEqual((got["to_content_first"]["gaps"], got["to_content_first"]["frames"], gap_kinds(got["to_content_first"])),
+                         (1, 2, {"then_complete": 2}))
+        self.assertEqual((got["before_content_first"], got["content_first_status"], gap_kinds(got["whole_take"])),
+                         ("then_complete", "complete", {"then_complete": 2}))
+        # A gap in the still picture after the first content: an idle buffer comes after it, or a complete one.
+        got = self.stream(self.LATER, idle=(102,))
+        self.assertEqual((gap_kinds(got["whole_take"]), got["to_content_first"]["gaps"], got["before_content_first"]), ({"then_idle": 2}, 0, "no_gap"))
+        self.assertEqual(gap_kinds(self.stream(self.LATER)["whole_take"]), {"then_complete": 2})
+
+    def test_a_gap_with_a_buffer_that_made_no_row_is_named_first(self):
+        # A buffer that made no row at 20 ms, between the rows at 8 ms and at 33 ms: another status, no status, a
+        # picture that did not copy, an idle buffer before a picture. The row after the gap has the handler's time.
+        for why in (3, -1, -2, -3):
+            got = self.stream(self.HOLE, own=(3,), lost=[(20.0, why)])
+            self.assertEqual((gap_kinds(got["to_content_first"]), got["before_content_first"]), ({"with_a_buffer": 2}, "with_a_buffer"), why)
+        # A buffer at another time is not in the gap.
+        got = self.stream(self.HOLE, lost=[(100.0, 3)])
+        self.assertEqual((gap_kinds(got["to_content_first"]), got["buffers_with_no_row"]), ({"then_complete": 2}, 1))
+
+    def test_a_gap_next_to_a_row_with_the_handlers_own_time_is_named_before_the_status(self):
+        for place in (2, 3):  # the row before the gap, the row after it
+            self.assertEqual(gap_kinds(self.stream(self.HOLE, own=(place,))["to_content_first"]), {"own_time": 2}, place)
+        self.assertEqual(gap_kinds(self.stream(self.HOLE, own=(4,))["to_content_first"]), {"then_complete": 2})
+
+    def test_a_buffer_with_the_handlers_own_time_never_makes_a_gap_with_a_buffer(self):
+        # The frame of such a buffer is at its time OR BEFORE it: the gap that its time is in is not known, whatever
+        # the buffer's reason and also next to a row with the handler's own time. The row counts such buffers apart.
+        one, none = {"gaps": 1, "frames": 2}, {"gaps": 0, "frames": 0}
+        for why in (3, -1, -2, -3):
+            got = self.stream(self.HOLE, own=(3,), lost=[(20.0, why, 1)])
+            self.assertEqual((gap_kinds(got["to_content_first"]), got["before_content_first"], got["no_row_own_time"], got["counts_agree"]),
+                             ({"not_known": 2}, "not_known", 1, True), why)
+            self.assertEqual((got["own_time_buffer_gaps"], got["kind_not_safe_gaps"], got["lists"]["no_row"]),
+                             ({"whole_take": one, "to_content_first": one}, {"whole_take": none, "to_content_first": none}, [[20.0, why, 1]]), why)
+        # The same buffer with the display's time is in its gap by that time.
+        got = self.stream(self.HOLE, lost=[(20.0, 3, 0)])
+        self.assertEqual((gap_kinds(got["to_content_first"]), got["no_row_own_time"], got["own_time_buffer_gaps"], got["lists"]["no_row"]),
+                         ({"with_a_buffer": 2}, 0, {"whole_take": none, "to_content_first": none}, [[20.0, 3, 0]]))
+        # A buffer with the display's time in the same gap names it; the gap still counts as one with an own-time buffer.
+        got = self.stream(self.HOLE, lost=[(20.0, 3, 1), (25.0, -1, 0)])
+        self.assertEqual((gap_kinds(got["to_content_first"]), got["no_row_own_time"], got["own_time_buffer_gaps"]["to_content_first"]),
+                         ({"with_a_buffer": 2}, 1, one))
+        # An entry of 2 values (a build that does not say the clock) reads as before, and the row says `not said`.
+        for lost in ([(20.0, 3)], [(20.0, 3), (500.0, -2, 1)]):
+            got = self.stream(self.HOLE, lost=lost)
+            self.assertEqual((gap_kinds(got["to_content_first"]), got["no_row_own_time"], got["lists"]["no_row"][0], got["counts_agree"]),
+                             ({"with_a_buffer": 2}, None, [20.0, 3], True), lost)
+        # A third value that is not 0 or 1 is no entry: the list is then not whole, and the gap is not known.
+        got = self.stream(self.HOLE, lost=[(20.0, 3)], no_row=[[20.0, 3.0, 2.0]])
+        self.assertEqual((gap_kinds(got["to_content_first"]), got["no_row_not_listed"], got["no_row_own_time"], got["lists"]["no_row"]),
+                         ({"not_known": 2}, 1, 0, []))
+
+    def test_the_kind_of_a_gap_that_ends_within_the_lag_before_an_own_time_buffer_is_not_safe(self):
+        # The gap of frames 2 and 3 ends at the row at 33 ms; the largest lag of a buffer that made a row is 3.2 ms. A
+        # buffer with the handler's own time at most 3.2 ms after that row (with the half ms of the rows' whole ms)
+        # can be a frame of the gap: the gap keeps its kind, and the row counts it as not safe.
+        one, none = {"gaps": 1, "frames": 2}, {"gaps": 0, "frames": 0}
+
+        def not_safe(pictures=self.HOLE, **said):
+            got = self.stream(pictures, **said)
+            return gap_kinds(got["whole_take"]), got["kind_not_safe_gaps"]["whole_take"], got["own_time_buffer_gaps"]["whole_take"]
+
+        for at in (34.0, 35.0, 36.7):
+            self.assertEqual(not_safe(lost=[(at, 3, 1)]), ({"then_complete": 2}, one, none), at)
+        self.assertEqual(not_safe(idle=(3,), lost=[(35.0, -1, 1)]), ({"then_idle": 2}, one, none))
+        self.assertEqual(not_safe(own=(3,), lost=[(35.0, -1, 1)]), ({"own_time": 2}, one, none))
+        # Later than the lag after the row, at the display's time, or before the gap: the kind is safe.
+        for lost in ([(36.8, 3, 1)], [(40.0, 3, 1)], [(35.0, 3, 0)], [(35.0, 3)], [(5.0, 3, 1)], []):
+            self.assertEqual(not_safe(lost=lost), ({"then_complete": 2}, none, none), lost)
+        # A reply with no lag: each gap before such a buffer is not safe.
+        for lag in (None, "long", float("nan")):
+            self.assertEqual(not_safe(lost=[(40.0, 3, 1)], lag_ms_max=lag), ({"then_complete": 2}, one, none), lag)
+            self.assertEqual(not_safe(lost=[(5.0, 3, 1)], lag_ms_max=lag), ({"then_complete": 2}, none, none), lag)
+        # The same when no row has the display's time: the reply's lag is then the lag of no buffer.
+        each = tuple(range(240))
+        self.assertEqual(not_safe(own=each, lost=[(40.0, 3, 1)], lag_ms_max=0.0), ({"own_time": 2}, one, none))
+        self.assertEqual(not_safe(own=each[1:], lost=[(40.0, 3, 1)], lag_ms_max=0.0), ({"own_time": 2}, none, none))
+        # A gap that names no cause is not counted: it has a buffer with the display's time, or it is not known.
+        self.assertEqual(not_safe(lost=[(20.0, 3, 0), (35.0, -1, 1)]), ({"with_a_buffer": 2}, none, none))
+        self.assertEqual(not_safe(lost=[(20.0, 3, 1), (35.0, -1, 1)]), ({"not_known": 2}, none, one))
+        # 2 gaps (frames 2 and 4 have no row; rows at 25 ms and 42 ms): a buffer at 27 ms is in the second gap, and
+        # the first gap ends 2 ms before it.
+        twice = [(OLD, ROW_OLD), None, (OLD, ROW_OLD), None] + [(NEW, ROW_NEW)] * 236
+        got = self.stream(twice, lost=[(27.0, -1, 1)])
+        self.assertEqual((gap_kinds(got["to_content_first"]), got["before_content_first"], got["kind_not_safe_gaps"]["to_content_first"],
+                          got["own_time_buffer_gaps"]["to_content_first"]),
+                         ({"then_complete": 1, "not_known": 1}, "not_known", {"gaps": 1, "frames": 1}, {"gaps": 1, "frames": 1}))
+        # A gap after the first content is in the whole take's count only; a recording with no first content has no such count.
+        got = self.stream(self.LATER, lost=[(860.0, 3, 1)])
+        self.assertEqual((got["kind_not_safe_gaps"], nsf.apart_of(got, "kind_not_safe_gaps")), ({"whole_take": one, "to_content_first": none}, 0))
+        got = nsf.one_key(streamed(take([]), lost=[(35.0, 3, 1)]), "n", asked_hz=120)["stream"]
+        self.assertEqual((got["kind_not_safe_gaps"], got["own_time_buffer_gaps"], got["no_row_own_time"], nsf.apart_of(got, "kind_not_safe_gaps")),
+                         ({"whole_take": none, "to_content_first": None}, {"whole_take": none, "to_content_first": None}, 1, 0))
+        self.assertEqual(nsf.apart_of(self.stream(self.HOLE, lost=[(35.0, 3, 1)]), "kind_not_safe_gaps"), 1)
+
+    def late_row(self, at, own=(3,), sent=0.0, **said):
+        """The stream of a recording whose buffers came in this order: a row at 8 ms (the display's time, frame 1), a
+        row that the handler took at `at` ms (place 3 of the recording; with no display time when it is in `own`),
+        a row at 25 ms (the display's time, frame 3), then each frame from the page's first one (frame 4, 33 ms).
+        Frame 2 has no row. `sent`: the key went in that many ms before the reply's zero."""
+        reply = take([(OLD, ROW_OLD), None, (OLD, ROW_OLD)] + [(NEW, ROW_NEW)] * 237, before_send_ms=sent)
+        reply["frames"] = reply["frames"][:3] + [{**row(3, OLD, ROW_OLD), "ms": at}] + reply["frames"][3:]
+        reply = streamed({**reply, "frame_count": len(reply["frames"])}, own=own, **said)
+        reply["screen_stream"]["row_ms"][3] = float(at)
+        return nsf.one_key(reply, "n", asked_hz=120)["stream"]
+
+    def test_the_kind_of_a_gap_that_ends_before_a_later_row_with_the_handlers_own_time_is_not_safe(self):
+        # A row with no display time has the handler's time. The handler took it at 27 ms, later than the display's
+        # time (25 ms) of the row that came after it: the reader's order of the rows is 8, 25, 27 ms, the row is not
+        # next to the gap of frame 2, and that gap can be its true one. The gap keeps its kind and is not safe.
+        one, none = {"gaps": 1, "frames": 1}, {"gaps": 0, "frames": 0}
+
+        def not_safe(got):
+            return (gap_kinds(got["whole_take"]), got["kind_not_safe_gaps"]["to_content_first"],
+                    got["kind_not_safe_by_row_gaps"]["to_content_first"], got["own_time_buffer_gaps"]["whole_take"])
+
+        got = self.late_row(27)
+        self.assertEqual((gap_kinds(got["whole_take"]), got["kind_not_safe_gaps"]), ({"then_complete": 1}, {"whole_take": one, "to_content_first": one}))
+        self.assertEqual(not_safe(got), ({"then_complete": 1}, one, one, none))
+        self.assertEqual((got["counts_agree"], got["own_time_rows"], got["lists"]["own_time_rows"], got["lists"]["places_after_key"][:4],
+                          got["kind_not_safe_gaps"]["whole_take"], got["kind_not_safe_by_row_gaps"]["whole_take"],
+                          nsf.apart_of(got, "kind_not_safe_by_row_gaps")), (True, 1, [3], [2, 4, 3, 5], one, one, 1))
+        # Each kind that names a cause: the row after the gap is an idle buffer's, or it has the handler's own time too.
+        self.assertEqual(not_safe(self.late_row(27, idle=(4,))), ({"then_idle": 1}, one, one, none))
+        self.assertEqual(not_safe(self.late_row(27, own=(3, 4))), ({"own_time": 1}, one, one, none))
+        # The limit is the largest lag plus 1 ms: the 2 rows' times are whole ms.
+        self.assertEqual(not_safe(self.late_row(27, lag_ms_max=1.0)), ({"then_complete": 1}, one, one, none))
+        self.assertEqual(not_safe(self.late_row(27, lag_ms_max=0.9)), ({"then_complete": 1}, none, none, none))
+        self.assertEqual(not_safe(self.late_row(29)), ({"then_complete": 1}, one, one, none))
+        self.assertEqual(not_safe(self.late_row(30)), ({"then_complete": 1}, none, none, none))
+        # A lag of 0 ms: the limit is 1 ms. The row 1 ms after the gap's end row counts, the row 2 ms after it does not.
+        self.assertEqual(not_safe(self.late_row(26, lag_ms_max=0.0)), ({"then_complete": 1}, one, one, none))
+        self.assertEqual(not_safe(self.late_row(27, lag_ms_max=0.0)), ({"then_complete": 1}, none, none, none))
+        # 2 rows with the same time, 25 ms: the one that came first has the display's time and ends the gap, the one
+        # after it (place 4) has the handler's own time. It counts, also with a lag of 0 ms.
+        for lag in (3.2, 0.0):
+            self.assertEqual(not_safe(self.late_row(25, own=(4,), lag_ms_max=lag)), ({"then_complete": 1}, one, one, none), lag)
+        # A reply with no lag: each gap before such a row is not safe.
+        self.assertEqual(not_safe(self.late_row(40)), ({"then_complete": 1}, none, none, none))
+        for lag in (None, "long", float("nan")):
+            self.assertEqual(not_safe(self.late_row(40, lag_ms_max=lag)), ({"then_complete": 1}, one, one, none), lag)
+        # The same row with the display's time is no such row.
+        self.assertEqual(not_safe(self.late_row(27, own=())), ({"then_complete": 1}, none, none, none))
+        # A gap that names no cause is not counted.
+        self.assertEqual(not_safe(self.late_row(27, lost=[(15.0, 3, 0)])), ({"with_a_buffer": 1}, none, none, none))
+        self.assertEqual(not_safe(self.late_row(27, lost=[(15.0, 3, 1)])), ({"not_known": 1}, none, none, one))
+        # A buffer with no row and a row after one gap: the gap is counted one time, and it is one by a row.
+        self.assertEqual(not_safe(self.late_row(27, lost=[(26.0, 3, 1)])), ({"then_complete": 1}, one, one, none))
+        got = self.late_row(30, lost=[(26.0, 3, 1)])
+        self.assertEqual((gap_kinds(got["whole_take"]), got["kind_not_safe_gaps"], got["kind_not_safe_by_row_gaps"]),
+                         ({"then_complete": 1}, {"whole_take": one, "to_content_first": one}, {"whole_take": none, "to_content_first": none}))
+        # The key went in 5.2 ms before the reply's zero: each row is 5.2 ms later, frame 1 has no row too, and the 2
+        # rows' times are no whole numbers. The row is still 2 ms after the gap's end row, to 3 places.
+        got = self.late_row(27, sent=5.2, lag_ms_max=1.0)
+        self.assertEqual((gap_kinds(got["whole_take"]), got["kind_not_safe_gaps"]["whole_take"], got["kind_not_safe_by_row_gaps"]["whole_take"]),
+                         ({"then_complete": 2}, one, one))
+
+    def test_a_row_with_the_handlers_own_time_next_to_its_gap_or_before_it_makes_no_gap_not_safe(self):
+        # The gap of frames 2 and 3 is between the rows at places 2 (8 ms) and 3 (33 ms). Its own end rows name it
+        # (`own_time`) and do not make it not safe, also with no lag; a row before it does not; the next row (place
+        # 4, 42 ms) does when the lag is 8 ms or more (42 - 33 - 1), or not known.
+        one, none = {"gaps": 1, "frames": 2}, {"gaps": 0, "frames": 0}
+
+        def by_row(pictures=self.HOLE, **said):
+            got = self.stream(pictures, **said)
+            return gap_kinds(got["whole_take"]), got["kind_not_safe_gaps"], got["kind_not_safe_by_row_gaps"]
+
+        both, no = {"whole_take": one, "to_content_first": one}, {"whole_take": none, "to_content_first": none}
+        for place in (2, 3):
+            for lag in (3.2, None):
+                self.assertEqual(by_row(own=(place,), lag_ms_max=lag), ({"own_time": 2}, no, no), (place, lag))
+        self.assertEqual(by_row(own=(1,), lag_ms_max=None), ({"then_complete": 2}, no, no))
+        self.assertEqual(by_row(own=(4,)), ({"then_complete": 2}, no, no))
+        self.assertEqual(by_row(own=(4,), lag_ms_max=7.9), ({"then_complete": 2}, no, no))
+        self.assertEqual(by_row(own=(4,), lag_ms_max=8.0), ({"then_complete": 2}, both, both))
+        self.assertEqual(by_row(own=(4,), lag_ms_max=None), ({"then_complete": 2}, both, both))
+        self.assertEqual(by_row(own=(239,), lag_ms_max=None), ({"then_complete": 2}, both, both))
+        # The nearest such row after the gap decides: a far one after a near one changes nothing.
+        self.assertEqual(by_row(own=(4, 9), lag_ms_max=8.0), ({"then_complete": 2}, both, both))
+        self.assertEqual(by_row(own=(5, 9), lag_ms_max=8.0), ({"then_complete": 2}, no, no))
+        # A reply that does not say which rows have the handler's own time: no gap is counted by a row, the row has
+        # no list of them, and its counts do not agree.
+        for not_said in (None, "3", [1.5]):
+            got = self.stream(self.HOLE, own_time_rows=not_said, lag_ms_max=None)
+            self.assertEqual((got["kind_not_safe_by_row_gaps"], got["lists"]["own_time_rows"], got["counts_agree"]), (no, None, False), not_said)
+        # A gap after the first content is in the whole take's count only; a recording with no row after the key has none.
+        after = {"whole_take": one, "to_content_first": none}
+        self.assertEqual(by_row(self.LATER, own=(103,), lag_ms_max=None), ({"then_complete": 2}, after, after))
+        got = nsf.one_key(streamed(take([]), own=(1,)), "n", asked_hz=120)["stream"]
+        self.assertEqual((got["kind_not_safe_by_row_gaps"], nsf.apart_of(got, "kind_not_safe_by_row_gaps")),
+                         ({"whole_take": none, "to_content_first": None}, 0))
+
+    def test_a_gap_with_a_buffer_and_an_end_row_with_the_handlers_own_time_is_not_safe(self):
+        # The gap of frames 2 and 3 (between the rows at places 2 and 3) has a buffer that made no row, with the
+        # display's time, in its window: its kind is `with_a_buffer`, the first in the order. With an end row that
+        # has the handler's own time the limit of that window is not the display's time: the gap keeps its kind, is
+        # not safe, and is counted apart from the gaps that are not safe by a later row.
+        one, none = {"gaps": 1, "frames": 2}, {"gaps": 0, "frames": 0}
+        both, no = {"whole_take": one, "to_content_first": one}, {"whole_take": none, "to_content_first": none}
+
+        def by_end(pictures=self.HOLE, **said):
+            got = self.stream(pictures, **said)
+            return (gap_kinds(got["whole_take"]), got["kind_not_safe_gaps"], got["kind_not_safe_by_end_row_gaps"],
+                    got["kind_not_safe_by_row_gaps"])
+
+        got = self.stream(self.HOLE, own=(3,), lost=[(20.0, 3, 0)])
+        self.assertEqual((gap_kinds(got["whole_take"]), got["kind_not_safe_gaps"], got["counts_agree"]), ({"with_a_buffer": 2}, both, True))
+        self.assertEqual((got["kind_not_safe_by_end_row_gaps"], nsf.apart_of(got, "kind_not_safe_by_end_row_gaps")), (both, 1))
+        # The row before the gap or the row after it; a buffer that does not say its clock, or one with each clock;
+        # with a lag and with none.
+        for place in (2, 3):
+            for lost in ([(20.0, 3, 0)], [(20.0, -1)], [(20.0, 3, 1), (25.0, -1, 0)]):
+                for lag in (3.2, None):
+                    self.assertEqual(by_end(own=(place,), lost=lost, lag_ms_max=lag), ({"with_a_buffer": 2}, both, both, no), (place, lost, lag))
+        # No end row with that time (no row, a row before the gap, the next row after it, also with no lag): not counted.
+        for own in ((), (1,), (4,)):
+            self.assertEqual(by_end(own=own, lost=[(20.0, 3, 0)], lag_ms_max=None), ({"with_a_buffer": 2}, no, no, no), own)
+        # The other kinds are not in this count: a gap that is not known, and a gap of the kind `own_time`.
+        self.assertEqual(by_end(own=(3,), lost=[(20.0, 3, 1)]), ({"not_known": 2}, no, no, no))
+        self.assertEqual(by_end(own=(3,), lost=[(100.0, 3, 0)]), ({"own_time": 2}, no, no, no))
+        # A gap that is not safe by a later row is in the count of those, not in this one.
+        self.assertEqual(by_end(own=(4,), lag_ms_max=None), ({"then_complete": 2}, both, no, both))
+        # A reply that does not say which rows have that time: no gap is counted, and its counts do not agree.
+        got = self.stream(self.HOLE, own_time_rows=None, lost=[(20.0, 3, 0)])
+        self.assertEqual((got["kind_not_safe_gaps"], got["kind_not_safe_by_end_row_gaps"], got["counts_agree"]), (no, no, False))
+        # A gap after the first content is in the whole take's count only; a recording with no row after the key has none.
+        after = {"whole_take": one, "to_content_first": none}
+        self.assertEqual(by_end(self.LATER, own=(102,), lost=[(845.0, 3, 0)]), ({"with_a_buffer": 2}, after, after, no))
+        got = nsf.one_key(streamed(take([]), own=(1,), lost=[(1.0, 3, 0)]), "n", asked_hz=120)["stream"]
+        self.assertEqual((got["kind_not_safe_by_end_row_gaps"], nsf.apart_of(got, "kind_not_safe_by_end_row_gaps")),
+                         ({"whole_take": none, "to_content_first": None}, 0))
+
+    def test_a_lag_below_0_in_the_reply_is_no_lag(self):
+        # The app writes no lag below 0. A reply with one: the lag is not known, so each gap before a buffer or a row
+        # with the handler's own time is not safe, as with no lag in the reply. The row keeps the reply's number.
+        one, none = {"gaps": 1, "frames": 2}, {"gaps": 0, "frames": 0}
+        for lag in (-0.1, -5.0):
+            got = self.stream(self.HOLE, lost=[(40.0, 3, 1)], lag_ms_max=lag)
+            self.assertEqual((gap_kinds(got["whole_take"]), got["kind_not_safe_gaps"]["whole_take"], got["lag_ms_max"]),
+                             ({"then_complete": 2}, one, lag), lag)
+            got = self.stream(self.HOLE, own=(239,), lag_ms_max=lag)
+            self.assertEqual((got["kind_not_safe_gaps"]["whole_take"], got["kind_not_safe_by_row_gaps"]["whole_take"]), (one, one), lag)
+        # A lag of 0 is a lag: the same buffer and the same row are then too far.
+        got = self.stream(self.HOLE, lost=[(40.0, 3, 1)], own=(239,), lag_ms_max=0.0)
+        self.assertEqual((got["kind_not_safe_gaps"]["whole_take"], got["kind_not_safe_by_row_gaps"]["whole_take"]), (none, none))
+        # The head: a lag below 0 is not the largest lag of the rows, and with no other lag the lag is not known.
+        low = nsf.one_key(streamed(take(self.HOLE), lag_ms_max=-5.0), "n", asked_hz=120)
+        with_lag = nsf.one_key(streamed(take(self.HOLE), lag_ms_max=0.0), "n", asked_hz=120)
+        self.assertIn("; the handler's lag at most not known ms; ", nsf.stream_sentence([low]))
+        self.assertIn("; the handler's lag at most 0 ms; ", nsf.stream_sentence([low, with_lag]))
+        # The same for a lag that is not finite.
+        endless = nsf.one_key(streamed(take(self.HOLE), lag_ms_max=float("inf")), "n", asked_hz=120)
+        self.assertIn("; the handler's lag at most not known ms; ", nsf.stream_sentence([endless]))
+
+    def test_two_clocks_in_one_gap_a_list_that_is_not_whole_and_two_buffers_after_one_gap(self):
+        one, none = {"gaps": 1, "frames": 2}, {"gaps": 0, "frames": 0}
+        # An entry of 2 values (read as the display's time) and an entry with the handler's own time in the same gap.
+        for lost in ([(20.0, 3), (22.0, -1, 1)], [(20.0, -1, 1), (22.0, 3)]):
+            got = self.stream(self.HOLE, lost=lost)
+            self.assertEqual((gap_kinds(got["to_content_first"]), got["no_row_own_time"], got["own_time_buffer_gaps"]["to_content_first"],
+                              got["kind_not_safe_gaps"]["to_content_first"], got["counts_agree"]), ({"with_a_buffer": 2}, None, one, none, True), lost)
+        # A list that is not whole (2 buffers made no row, the reply lists the first one) with a buffer that has the
+        # handler's own time. The gap before the listed buffer keeps its kind and is not safe by that buffer; the
+        # gap in which that buffer's time is, is not known; a gap after it is not known and not counted.
+        part = {"other_status": {"3": 2}, "buffers": 242}
+        got = self.stream(self.HOLE, lost=[(35.0, 3, 1)], **part)
+        self.assertEqual((got["no_row_not_listed"], got["counts_agree"], gap_kinds(got["whole_take"]), got["kind_not_safe_gaps"]["whole_take"],
+                          got["own_time_buffer_gaps"]["whole_take"]), (1, True, {"then_complete": 2}, one, none))
+        got = self.stream(self.HOLE, lost=[(20.0, 3, 1)], **part)
+        self.assertEqual((gap_kinds(got["whole_take"]), got["kind_not_safe_gaps"]["whole_take"], got["own_time_buffer_gaps"]["whole_take"]),
+                         ({"not_known": 2}, none, one))
+        got = self.stream(self.LATER, lost=[(35.0, 3, 1)], **part)
+        self.assertEqual((got["no_row_not_listed"], gap_kinds(got["whole_take"]), got["kind_not_safe_gaps"]["whole_take"],
+                          got["own_time_buffer_gaps"]["whole_take"]), (1, {"not_known": 2}, none, none))
+        # 2 buffers with the handler's own time after one gap, each within the lag: the gap is counted one time.
+        for lost in ([(34.0, 3, 1), (35.0, -1, 1)], [(35.0, 3, 1), (40.0, -1, 1)], [(35.0, 3, 1), (35.0, 3, 1)]):
+            got = self.stream(self.HOLE, lost=lost)
+            self.assertEqual((gap_kinds(got["whole_take"]), got["kind_not_safe_gaps"], got["no_row_own_time"]),
+                             ({"then_complete": 2}, {"whole_take": one, "to_content_first": one}, 2), lost)
+
+    def test_a_stream_that_made_no_row_keeps_its_counts_alone_in_a_window_list_reply(self):
+        # The app's reply for a stream that gave buffers and no row: the frames are the window list's, and the counts
+        # are the stream's (the third test of FrameStripStreamReplyTests.swift has this `screen_stream`). The frames
+        # are not the stream's rows: the reader keeps the counts and reads no gap of the window list's frames by them.
+        said = {"buffers": 2.0, "rows": 0.0, "row_status": "", "complete": 0.0, "idle": 1.0, "other_status": {}, "no_status": 1.0,
+                "no_picture": 0.0, "idle_before_a_picture": 1.0, "own_time_rows": [], "no_display_time": 0.0, "display_time_later": 0.0,
+                "no_row": [[1.0, -3.0, 0.0], [9.3, -1.0, 1.0]], "row_ms": [],
+                "lag_ms_max": 0.0, "lag_ms_mean": 0.0, "work_ms_max": 0.0, "work_ms_mean": 0.0}
+        reply = {**take(self.HOLE, capture="window_list"), "capture_error": "ScreenCaptureKit gave no frame", "screen_stream": said}
+        got = nsf.one_key(reply, "n", asked_hz=120)
+        self.assertEqual((got["stream_fault"], got["stream_kept"], len(got["invalid"]), got["invalid"][0][:8]), (None, None, 2, "capture:"))
+        stream = got["stream"]
+        self.assertEqual((stream["buffers"], stream["rows"], stream["idle"], stream["buffers_with_no_row"], stream["no_row_own_time"],
+                          stream["counts_agree"]), (2, 0, 1, 2, 1, True))
+        self.assertEqual((stream["to_content_first"], stream["before_content_first"], stream["whole_take"]["gaps"], stream["steps"],
+                          stream["lists"]["places_after_key"], stream["lists"]["no_row"]), (None, None, 0, None, [], [[1.0, -3, 0], [9.3, -1, 1]]))
+        # The head's sentence has the row's buffers and none of the window list's frames with no row.
+        self.assertIn("2 buffers (complete 0, idle 1, another status 0, no status 1); 2 buffers made no row (another status 0, no status 1, "
+                      "no picture 0, idle before a picture 1; 1 of the listed ones have the handler's own time (not said in 0 rows)); "
+                      "0 rows have the handler's own time; the frames with no row from the key to content_first: 0 in 0 gaps ",
+                      nsf.stream_sentence([got]))
+
+    def test_a_buffers_time_counts_from_the_rows_zero(self):
+        # The key went in 2 ms before the reply's zero: each row is 2 ms later, and frame 1 has no row. The buffer at
+        # 9 ms of the reply's time is 11 ms after the key, after the row at 10 ms: it is in the second gap, not the first.
+        got = nsf.one_key(streamed(take(self.HOLE, before_send_ms=2.0), lost=[(9.0, 3)]), "n", asked_hz=120)
+        self.assertEqual((got["content_first"]["frame"], got["content_first"]["ms"]), (5, 35))
+        span = got["stream"]["to_content_first"]
+        self.assertEqual((span["gaps"], span["frames"], gap_kinds(span), got["stream"]["before_content_first"]),
+                         (2, 3, {"with_a_buffer": 2, "then_complete": 1}, "with_a_buffer"))
+
+    def test_a_gap_after_the_last_listed_buffer_is_not_known_when_the_list_is_not_whole(self):
+        # 2 buffers made no row and the reply lists the first one only (the recorder keeps a first part of them).
+        got = self.stream(self.LATER, lost=[(20.0, 3)], other_status={"3": 2}, buffers=242)
+        self.assertEqual((got["buffers_with_no_row"], got["no_row_not_listed"], got["counts_agree"], gap_kinds(got["whole_take"])),
+                         (2, 1, True, {"not_known": 2}))
+        # A gap before the last listed buffer is in the part that the list has whole.
+        got = self.stream(self.HOLE, lost=[(100.0, 3)], other_status={"3": 2}, buffers=242)
+        self.assertEqual(gap_kinds(got["to_content_first"]), {"then_complete": 2})
+
+    def test_counts_that_do_not_add_up_are_said(self):
+        self.assertTrue(self.stream(self.HOLE)["counts_agree"])
+        for changed in ({"buffers": 239}, {"rows": 239}, {"complete": 241}, {"row_status": "c" * 239}, {"other_status": {"x": 1}},
+                        {"no_status": None}, {"no_display_time": 1}, {"row_status": "c" * 239 + "x"}, {"row_ms": [0.0]},
+                        {"other_status": {"3": 1}}, {"own_time_rows": None}, {"no_row": [[20.0, 3.0]]}):
+            self.assertFalse(self.stream(self.HOLE, **changed)["counts_agree"], changed)
+        # A status that is no number is not in the row: the row has numbers and its own words only.
+        self.assertIsNone(self.stream(self.HOLE, other_status={"x": 1})["other_status"])
+        # The app writes a status's raw number in ASCII digits: a digit of another form, or more than 20, is no number.
+        for key in ("\u00b2", "\u0663", "1" * 21):
+            self.assertIsNone(self.stream(self.HOLE, other_status={key: 0})["other_status"], key)
+        self.assertEqual(self.stream(self.HOLE, other_status={"1" * 20: 0})["other_status"], {"1" * 20: 0})
+
+    def test_no_check_reads_the_counts(self):
+        for pictures in (self.HOLE, self.LATER):
+            reply = streamed(take(pictures), own=(3,), lost=[(20.0, 3)])
+            with_counts = nsf.one_key(reply, "n", asked_hz=120)
+            without = nsf.one_key({name: value for name, value in reply.items() if name != "screen_stream"}, "n", asked_hz=120)
+            self.assertIsNotNone(with_counts.pop("stream"))
+            self.assertIsNone(without.pop("stream"))
+            self.assertEqual(with_counts, without)
+        # A row with a frame with no row before its first content stays INVALID, whatever the counts say of that frame.
+        for said in ({}, {"lost": [(20.0, 3)]}, {"own": (3,)}, {"idle": (3,)}):
+            self.assertEqual(nsf.one_key(streamed(take(self.HOLE), **said), "n", asked_hz=120)["invalid"], [self.NO_ROW], said)
+
+    def test_the_rows_steps_against_the_displays_grid_are_counted_from_the_times_in_tenths(self):
+        whole = [(NEW, ROW_NEW)] * 240
+        self.assertEqual(self.stream(whole)["steps"], {"n": 239, "off_grid_to_0_5_ms": 239, "off_grid_to_1_ms": 0, "off_grid_to_2_ms": 0,
+                                                       "off_grid_above_2_ms": 0, "one_frame": 239, "one_frame_mean_ms": 8.33})
+        # One row 3 ms late: the step to it and the step after it are 3 ms off a whole count of frame times.
+        times = streamed(take(whole))["screen_stream"]["row_ms"]
+        got = self.stream(whole, row_ms=times[:50] + [times[50] + 3.0] + times[51:])
+        self.assertEqual((got["steps"]["off_grid_to_0_5_ms"], got["steps"]["off_grid_above_2_ms"], got["counts_agree"]), (237, 2, True))
+        # A reply with no times: no count of steps.
+        self.assertIsNone(self.stream(whole, row_ms=None)["steps"])
+
+    def test_the_heads_sentence_sums_the_rows_with_counts(self):
+        a = nsf.one_key(streamed(take(self.HOLE), lost=[(20.0, 3)]), "n", asked_hz=120)
+        b = nsf.one_key(streamed(take([(NEW, ROW_NEW)] * 240)), "n", asked_hz=120)
+        c = nsf.one_key(take(self.HOLE), "n", asked_hz=120)
+        self.assertEqual(nsf.stream_sentence([a, b, c]),
+                         "the screen stream's counts (2 of the 3 rows have them): 483 buffers (complete 482, idle 0, another status 1, "
+                         "no status 0); 1 buffers made no row (another status 1, no status 0, no picture 0, idle before a picture 0; "
+                         "0 of the listed ones have the handler's own time (not said in 1 rows)); "
+                         "0 rows have the handler's own time; the frames with no row from the key to content_first: 2 in 1 gaps "
+                         "(with a buffer 1, own time 0, then idle 0, then complete 0, not known 0); 0 of the gaps end within the "
+                         "row's largest lag before a buffer with no row that has the handler's own time, or within that lag plus 1 ms "
+                         "before a later buffer that made a row and has it (0 of the gaps), or have the kind with_a_buffer and "
+                         "an end row that has it (0 of the gaps), in 0 rows: their kind is not safe, the kinds answer for the "
+                         "other gaps only, and the lag is a limit only when the stream gives its buffers in the display's order "
+                         "(NOT PROVED); 0 gaps have a buffer with no row and the handler's own time in them; the "
+                         "handler's lag at most 3.2 ms; the counts do not agree in 0 rows")
+        self.assertIsNone(nsf.stream_sentence([c]))
+        self.assertIsNone(nsf.stream_sentence([]))
+        # A buffer with the handler's own time 2 ms after the gap's end row (2 rows), and one in the gap (1 row): the
+        # head counts the 2 apart.
+        d = nsf.one_key(streamed(take(self.HOLE), lost=[(35.0, 3, 1)]), "n", asked_hz=120)
+        e = nsf.one_key(streamed(take(self.HOLE), lost=[(20.0, -1, 1)]), "n", asked_hz=120)
+        said = nsf.stream_sentence([b, d, d, e])
+        self.assertIn("; 3 of the listed ones have the handler's own time (not said in 0 rows)); ", said)
+        self.assertIn("(with a buffer 0, own time 0, then idle 0, then complete 2, not known 1); 2 of the gaps end within the row's "
+                      "largest lag before a buffer with no row that has the handler's own time, or within that lag plus 1 ms before "
+                      "a later buffer that made a row and has it (0 of the gaps), or have the kind with_a_buffer and an end row "
+                      "that has it (0 of the gaps), in 2 rows: their kind is not safe, the kinds answer for the other gaps only, "
+                      "and the lag is a limit only when the stream gives its buffers in the display's order (NOT PROVED); "
+                      "1 gaps have a buffer with no row and the handler's own time in them; ", said)
+        # A gap before a later row with the handler's own time (the next row, with no lag in the reply): the head
+        # counts it with the gaps that are not safe, and says how many are so by such a row.
+        f = nsf.one_key(streamed(take(self.HOLE), own=(4,), lag_ms_max=None), "n", asked_hz=120)
+        said = nsf.stream_sentence([d, f, f, e])
+        self.assertIn("; 2 rows have the handler's own time; ", said)
+        self.assertIn("then complete 3, not known 1); 3 of the gaps end within the row's largest lag before a buffer with no row that "
+                      "has the handler's own time, or within that lag plus 1 ms before a later buffer that made a row and has it "
+                      "(2 of the gaps), or have the kind with_a_buffer and an end row that has it (0 of the gaps), in 3 rows: "
+                      "their kind is not safe, ", said)
+        # A gap with a buffer that made no row and an end row with the handler's own time: the head counts it with the
+        # gaps that are not safe, and says how many are so by such an end row.
+        g = nsf.one_key(streamed(take(self.HOLE), own=(3,), lost=[(20.0, 3, 0)]), "n", asked_hz=120)
+        said = nsf.stream_sentence([d, f, g, g])
+        self.assertIn("(with a buffer 2, own time 0, then idle 0, then complete 2, not known 0); 4 of the gaps end within the row's "
+                      "largest lag before a buffer with no row that has the handler's own time, or within that lag plus 1 ms before "
+                      "a later buffer that made a row and has it (1 of the gaps), or have the kind with_a_buffer and an end row "
+                      "that has it (2 of the gaps), in 4 rows: their kind is not safe, ", said)
+
+    def test_counts_in_a_form_that_the_reader_does_not_know_end_no_run(self):
+        # 2 forms that the app does not write: the list of the buffers with no row is a number, a count is infinite.
+        reply = streamed(take(self.HOLE))
+        plain = nsf.one_key({name: value for name, value in reply.items() if name != "screen_stream"}, "n", asked_hz=120)
+        self.assertEqual((plain["stream"], plain["stream_fault"], plain["stream_kept"], plain["invalid"]), (None, None, None, [self.NO_ROW]))
+        for changed, word in (({"no_row": 5}, "TypeError"), ({"buffers": float("inf")}, "OverflowError")):
+            got = nsf.one_key({**reply, "screen_stream": {**reply["screen_stream"], **changed}}, "n", asked_hz=120)
+            self.assertEqual((got["stream"], got["stream_fault"]), (None, word), changed)
+            # Each other number of the row is as with no counts: the row is judged as before.
+            self.assertEqual({**got, "stream_fault": None, "stream_kept": None}, plain, changed)
+            # The row keeps the reply's counts but the one in the form that the reader does not know.
+            self.assertEqual(got["stream_kept"], {name: value for name, value in reply["screen_stream"].items() if name not in changed}, changed)
+        # What is kept is numbers and the 2 status letters: no other text of the reply, and no list with a place lost.
+        odd = {"no_row": [[20.0, 3.0, 1.0], ["x", 1.0], [1.0], [float("nan"), 2.0]], "row_status": "a text", "row_ms": [1.0, "a"],
+               "other_status": {"x": 1.0, "3": 2.0, "4": "many"}, "lag_ms_max": "long", "buffers": float("inf"), "more": "a text"}
+        got = nsf.one_key({**reply, "screen_stream": {**reply["screen_stream"], **odd}}, "n", asked_hz=120)
+        self.assertEqual((got["stream"], got["stream_fault"]), (None, "OverflowError"))
+        self.assertEqual(got["stream_kept"], {**{name: value for name, value in reply["screen_stream"].items() if name not in odd},
+                                              "no_row": [[20.0, 3.0, 1.0]], "other_status": {"3": 2.0}})
+        # A recording with no row after the key reads the counts one time: the same word.
+        got = nsf.one_key(streamed(take([]), no_row=5), "n", asked_hz=120)
+        self.assertEqual((got["stream"], got["stream_fault"]), (None, "TypeError"))
+        self.assertIsNone(nsf.one_key(streamed(take(self.HOLE)), "n", asked_hz=120)["stream_fault"])
+
+    def test_the_kept_counts_are_no_larger_than_the_app_writes_them_and_a_reply_that_cannot_be_cut_keeps_none(self):
+        reply = streamed(take(self.HOLE), buffers=float("inf"))
+        said = {name: value for name, value in reply["screen_stream"].items() if name != "buffers"}
+
+        def kept(**changed):
+            got = nsf.one_key({**reply, "screen_stream": {**reply["screen_stream"], **changed}}, "n", asked_hz=120)
+            self.assertEqual((got["stream"], got["stream_fault"]), (None, "OverflowError"), list(changed))
+            return got["stream_kept"]
+
+        def without(*names):
+            return {name: value for name, value in said.items() if name not in names}
+
+        self.assertEqual(kept(), said)
+        # The app lists 256 buffers with no row at most, and a status is a number in ASCII digits.
+        most = [[float(at), 3.0, 0.0] for at in range(256)]
+        self.assertEqual(kept(no_row=most), {**said, "no_row": most})
+        self.assertEqual(kept(no_row=most + [[256.0, 3.0, 0.0]]), without("no_row"))
+        self.assertEqual(kept(other_status={"\u00b2": 1.0, "\u0663": 1.0, "1" * 21: 1.0, "1" * 20: 1.0, "7": 2.0}),
+                         {**said, "other_status": {"1" * 20: 1.0, "7": 2.0}})
+        self.assertEqual(kept(other_status={str(status): 1.0 for status in range(256)})["other_status"]["255"], 1.0)
+        self.assertEqual(kept(other_status={str(status): 1.0 for status in range(257)}), without("other_status"))
+        # A list of the rows, or their status letters, with more entries than a recording has rows is left out.
+        for name, one in (("row_ms", [1.0]), ("own_time_rows", [1.0]), ("row_status", "c")):
+            self.assertEqual(kept(**{name: one * 100_000}), {**said, name: one * 100_000}, name)
+            self.assertEqual(kept(**{name: one * 100_001}), without(name), name)
+        # A reply that cannot be cut keeps none: the fault's word stays the row's fact.
+        for not_counts in (5, None, [1.0], "a text"):
+            self.assertIsNone(nsf._kept({"screen_stream": not_counts}), not_counts)
+        self.assertIsNone(nsf._kept({}))
+
+        def fails(*_):
+            raise ValueError("a fault of the reader")
+
+        with mock.patch.object(nsf, "stream_of", fails):
+            got = nsf.one_key({**reply, "screen_stream": 5}, "n", asked_hz=120)
+        self.assertEqual((got["stream"], got["stream_fault"], got["stream_kept"], got["invalid"]), (None, "ValueError", None, [self.NO_ROW]))
+
+    def test_a_fault_in_the_read_of_the_counts_against_the_rows_ends_no_run(self):
+        read = nsf.stream_of
+
+        def no_rows(reply, every=(), *more):
+            if every:
+                raise ValueError("rows in a form that the reader does not know")
+            return read(reply, every, *more)
+
+        with mock.patch.object(nsf, "stream_of", no_rows):
+            got = nsf.one_key(streamed(take(self.HOLE)), "n", asked_hz=120)
+        self.assertEqual((got["stream"], got["stream_fault"], got["invalid"]), (None, "ValueError", [self.NO_ROW]))
+        self.assertEqual(got["content_first"]["frame"], 4)
+        # A fault of the reader's own code on a reply in the right form: the row keeps the reply's counts whole.
+        self.assertEqual(got["stream_kept"], streamed(take(self.HOLE))["screen_stream"])
+
+    def test_the_head_says_the_rows_whose_counts_the_reader_did_not_know(self):
+        good = nsf.one_key(streamed(take(self.HOLE)), "n", asked_hz=120)
+        bad = nsf.one_key(streamed(take(self.HOLE), no_row=5), "n", asked_hz=120)
+        worse = nsf.one_key(streamed(take(self.HOLE), buffers=float("inf")), "n", asked_hz=120)
+        fault = ("the reader could not read the counts of 3 rows (OverflowError 1, TypeError 2): the reply's form or a fault of the "
+                 "reader; each such row keeps the reply's counts (`stream_kept`)")
+        said = nsf.stream_sentence([good, bad, worse, bad])
+        self.assertTrue(said.startswith("the screen stream's counts (1 of the 4 rows have them): 240 buffers "), said)
+        self.assertTrue(said.endswith("; the counts do not agree in 0 rows; " + fault), said)
+        # With no row that has counts the head still says it.
+        self.assertEqual(nsf.stream_sentence([bad, worse, bad]), "the screen stream's counts (0 of the 3 rows have them): " + fault)
+        self.assertTrue(nsf.stream_sentence([good]).endswith("the counts do not agree in 0 rows"))
+
+    def test_the_row_keeps_the_checked_lists_of_the_stream(self):
+        # A later reading of the same take by another rule of the kinds has what the app gave: the lists as they
+        # came, and the place of each row in them.
+        reply = streamed(take(self.HOLE, before_send_ms=2.0), idle=(5,), own=(9, 3), lost=[(20.0, 3), (500.0, -2)])
+        got, said = nsf.one_key(reply, "n", asked_hz=120), reply["screen_stream"]
+        self.assertEqual(got["stream"]["lists"], {"row_status": said["row_status"], "row_ms": said["row_ms"], "no_row": [[20.0, 3], [500.0, -2]],
+                                                  "own_time_rows": [3, 9], "place_before_key": 1, "places_after_key": list(range(2, 240)),
+                                                  "shift_ms": 2.0})
+        self.assertEqual((len(got["stream"]["lists"]["places_after_key"]), got["stream"]["counts_agree"]), (len(got["rows_ms"]), True))
+        self.assertIs(type(got["stream"]["lists"]["no_row"][0][1]), int)
+        # A list in a wrong form is not in the row: numbers and the 2 status letters only, no other text of the reply.
+        for changed, name in (({"row_status": "c" * 239 + "x"}, "row_status"), ({"row_status": 7}, "row_status"), ({"row_ms": ["a"]}, "row_ms"),
+                              ({"row_ms": [float("nan")] * 240}, "row_ms"), ({"own_time_rows": [1.5]}, "own_time_rows"),
+                              ({"own_time_rows": "3"}, "own_time_rows")):
+            self.assertIsNone(self.stream(self.HOLE, **changed)["lists"][name], changed)
+        wrong = [[20.0, 3.0], ["x", 1], [1.0], [float("nan"), 2.0], "20", [30.5, -1.0]]
+        self.assertEqual(self.stream(self.HOLE, no_row=wrong)["lists"]["no_row"], [[20.0, 3], [30.5, -1]])
+        # A recording with no row after the key: the lists, and no place.
+        got = nsf.one_key(streamed(take([])), "n", asked_hz=120)["stream"]["lists"]
+        self.assertEqual((got["row_status"], got["place_before_key"], got["places_after_key"]), ("cc", None, []))
+
+    def test_a_reply_whose_rows_start_at_the_last_row_before_the_key_reads_the_same(self):
+        # The app's reply has the rows from the last one before the key, each file with its place in the whole
+        # recording; the counts and the lists are of each row from the stream's start.
+        whole = streamed(take(self.HOLE, before=14), idle=(20,), own=(17,), lost=[(20.0, 3)])
+        cut = {**whole, "frames": whole["frames"][13:]}
+        a, b = (nsf.one_key(reply, "n", asked_hz=120)["stream"] for reply in (whole, cut))
+        self.assertEqual((b["rows"], len(cut["frames"]), b["counts_agree"]), (252, 239, True))
+        self.assertEqual((b["lists"]["place_before_key"], b["lists"]["places_after_key"][:2], len(b["lists"]["row_ms"])), (13, [14, 15], 252))
+        for name in ("to_content_first", "whole_take", "before_content_first", "content_first_status", "rows_after_key", "steps", "lists"):
+            self.assertEqual(b[name], a[name], name)
+        self.assertEqual((gap_kinds(b["to_content_first"]), b["rows_after_key"]), ({"with_a_buffer": 2}, {"complete": 237, "idle": 1, "not_known": 0}))
+
+    def test_the_reply_that_the_apps_own_test_wants_has_counts_that_agree(self):
+        # The `screen_stream` that the app's own test wants from a tally of 7 buffers: the first test of
+        # Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FrameStripStreamReplyTests.swift (the same numbers, kept the
+        # same by hand: change the 2 together). The reader takes each field of it.
+        said = {"buffers": 7.0, "rows": 3.0, "row_status": "cic", "complete": 3.0, "idle": 2.0, "other_status": {"2": 1.0},
+                "no_status": 1.0, "no_picture": 1.0, "idle_before_a_picture": 1.0, "own_time_rows": [1.0, 2.0],
+                "no_display_time": 1.0, "display_time_later": 1.0,
+                "no_row": [[-10.0, -1.0, 1.0], [-5.0, -3.0, 0.0], [18.0, -2.0, 1.0], [20.0, 2.0, 0.0]],
+                "row_ms": [0.0, 8.4, 16.7], "lag_ms_max": 3.3, "lag_ms_mean": 3.3, "work_ms_max": 2.0, "work_ms_mean": 1.6}
+        got = nsf.stream_of({"screen_stream": said})
+        self.assertEqual((got["counts_agree"], got["buffers_with_no_row"], got["no_row_not_listed"], got["own_time_rows"], got["no_row_own_time"]),
+                         (True, 4, 0, 2, 2))
+        self.assertEqual(got["lists"], {"row_status": "cic", "row_ms": [0.0, 8.4, 16.7],
+                                        "no_row": [[-10.0, -1, 1], [-5.0, -3, 0], [18.0, -2, 1], [20.0, 2, 0]],
+                                        "own_time_rows": [1, 2], "place_before_key": None, "places_after_key": [], "shift_ms": 0.0})
+        # A reply that lost one of the fields that the sums need does not agree.
+        for name in ("buffers", "rows", "row_status", "complete", "idle", "other_status", "no_status", "no_picture", "idle_before_a_picture",
+                     "own_time_rows", "no_display_time", "display_time_later"):
+            self.assertFalse(nsf.stream_of({"screen_stream": {key: value for key, value in said.items() if key != name}})["counts_agree"], name)
+
+    def test_a_gap_is_not_known_when_the_row_after_has_no_status_or_a_count_is_no_number(self):
+        # The reply's status letters end before the row after the gap (place 3).
+        got = self.stream(self.HOLE, row_status="ccc")
+        self.assertEqual((gap_kinds(got["to_content_first"]), got["content_first_status"], got["counts_agree"]), ({"not_known": 2}, None, False))
+        # A count that is no number: how many buffers made no row is not known, so a gap can hold one.
+        got = self.stream(self.HOLE, no_status=None)
+        self.assertEqual((gap_kinds(got["to_content_first"]), got["buffers_with_no_row"], got["no_row_not_listed"]), ({"not_known": 2}, None, None))
+
+
 class OpenedSinceTests(unittest.TestCase):
     def test_new_records_are_counted_also_when_the_apps_list_is_full(self):
         full = [{"spare": True, "ms": float(n)} for n in range(64)]
@@ -389,6 +1011,9 @@ class FakeApp:
         # `records`: the spare flags of the opening records that each frame_strip makes (None: one, of a spare, for
         # each opening). The app's records and its openings are not one count: a Cmd-N of a reserved workspace makes none.
         self.records = None
+        # `stream`: a build whose reply has the recorder's counts of its stream (`streamed`; a dict: the fields of
+        # `screen_stream` that the test sets itself).
+        self.stream = False
         # The app at its launch is not active and has no key window, as an app that takes no keyboard, and no call
         # of the tool changes that. `window_calls`: each `debug.window.focus` call's params. `shell_window`: the
         # app's one shell window in `debug.window_list` (a test changes a field of it; no report may keep its
@@ -491,6 +1116,8 @@ class FakeApp:
             if self.sent is not None:
                 reply["before_send_ms"] = self.sent
             reply["strip_intermediate"] = self.slid
+            if self.stream:
+                reply = streamed(reply, **(self.stream if isinstance(self.stream, dict) else {}))
             os.makedirs(params["dir"], exist_ok=True)
             for frame in reply["frames"]:
                 Path(params["dir"], frame["file"]).write_bytes(b"png")
@@ -543,6 +1170,57 @@ class ScreenTests(unittest.TestCase):
         self.assertIn("new-surface-screen/cmd-n-idle-0-content_first-frame-003.png", names)
         self.assertNotIn("new-surface-screen/cmd-n-idle-1-content_first-frame-003.png", names)  # --keep-keys 1, no change
         self.assertEqual(json.loads(Path(self.folder, "report.json").read_text())["display_hz_asked"], 120.0)
+
+    def test_the_head_has_the_streams_counts_when_the_app_gives_them(self):
+        app = FakeApp(self.folder, [(NEW, ROW_NEW)] * 240)
+        app.stream = True
+        report, _ = self.run_mode(app, keys="n", runs=1)
+        said = nsf.stream_sentence(report["rows"])
+        self.assertTrue(said.startswith("the screen stream's counts (1 of the 1 rows have them): 242 buffers (complete 242, "), said)
+        # After the recorder's rows and the asked rate's sentences, before the app's settings lines.
+        lines = report["settings"]["lines"]
+        self.assertEqual(report["head"][len(report["head"]) - len(lines) - 1:], [said] + lines)
+        self.assertEqual((report["rows"][0]["stream"]["counts_agree"], report["rows"][0]["invalid"]), (True, []))
+        self.assertEqual(json.loads(Path(self.folder, "report.json").read_text())["rows"][0]["stream"]["buffers"], 242)
+        # A build with no counts: no sentence, and the head is as it was.
+        report, _ = self.run_mode(FakeApp(self.folder, [(NEW, ROW_NEW)] * 240), keys="n", runs=1)
+        self.assertEqual([said for said in report["head"] if said.startswith("the screen stream")], [])
+        self.assertIsNone(report["rows"][0]["stream"])
+
+    def test_counts_in_a_form_that_the_reader_does_not_know_do_not_end_the_run(self):
+        # The list of the buffers with no row is a number: the run goes on to its last recording, each row is judged
+        # as with no counts, and the row and the head say the fact.
+        app = FakeApp(self.folder, [(NEW, ROW_NEW)] * 240)
+        app.stream = {"no_row": 5}
+        said = io.StringIO()
+        with contextlib.redirect_stdout(said):
+            report, _ = self.run_mode(app, keys="n", runs=2)
+        self.assertEqual([(row["stream"], row["stream_fault"], row["invalid"]) for row in report["rows"]], [(None, "TypeError", [])] * 2)
+        self.assertIn("the screen stream's counts (0 of the 2 rows have them): the reader could not read the counts of 2 rows "
+                      "(TypeError 2): the reply's form or a fault of the reader; each such row keeps the reply's counts (`stream_kept`)",
+                      report["head"])
+        # The row's line says the fault's word and the row stays valid; the report's file keeps the reply's counts for a
+        # later reading: the numbers and the status letters, and not the list in the form that the reader did not know.
+        lines = [line for line in said.getvalue().splitlines() if line.startswith("NEW-SURFACE-SCREEN-ROW ")]
+        self.assertEqual([(line.split()[2], " capture=screencapturekit no_row_to_content_first=0/1" in line, line.count(" stream_fault=TypeError "))
+                          for line in lines], [("valid", True, 1)] * 2)
+        row = json.loads(Path(self.folder, "report.json").read_text())["rows"][1]
+        self.assertEqual((row["stream_fault"], row["stream_kept"]["buffers"], row["stream_kept"]["row_status"], "no_row" in row["stream_kept"]),
+                         ("TypeError", 242, "c" * 242, False))
+        # A row with counts has no such word in its line and keeps nothing more.
+        app = FakeApp(self.folder, [(NEW, ROW_NEW)] * 240)
+        app.stream = True
+        said = io.StringIO()
+        with contextlib.redirect_stdout(said):
+            report, _ = self.run_mode(app, keys="n", runs=1)
+        self.assertNotIn("stream_fault", said.getvalue())
+        self.assertEqual((report["rows"][0]["stream_fault"], report["rows"][0]["stream_kept"]), (None, None))
+        # The checked lists are in the report's file too.
+        app = FakeApp(self.folder, [(NEW, ROW_NEW)] * 240)
+        app.stream = True
+        self.run_mode(app, keys="n", runs=1)
+        lists = json.loads(Path(self.folder, "report.json").read_text())["rows"][0]["stream"]["lists"]
+        self.assertEqual((lists["row_status"], lists["places_after_key"], lists["no_row"]), ("c" * 242, list(range(2, 242)), []))
 
     def test_a_run_with_no_asked_display_rate_has_no_valid_row(self):
         # With no asked rate the frame time is the median step of the recording's rows, and a frame with no row

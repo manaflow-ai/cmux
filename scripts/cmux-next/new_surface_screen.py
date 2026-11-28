@@ -1161,10 +1161,12 @@ class Screen:
                 self.rows.append(row)
                 said = {name: row.get(name) and [row[name]["frame"], row[name]["ms"]] for name in ("tab", "content_first", "content_final", "final")}
                 tabs = f" workspace_tabs_before={row['workspace_tabs_before']}" if "workspace_tabs_before" in row else ""
+                # A row whose stream counts the reader could not read says so here too (a fact: the row is judged as before).
+                fault = f" stream_fault={row['stream_fault']}" if row.get("stream_fault") else ""
                 print(f"{MARK}-ROW {row['label']}: {'INVALID ' + '; '.join(row['invalid']) if row['invalid'] else 'valid'} "
                       f"{json.dumps(said)} first_is_final={row.get('first_is_final')} whole_window={row.get('whole_window')} "
                       f"changes_after_content={row.get('changes_after_content')} "
-                      f"refresh_ms={row.get('refresh_ms')} rate_share={row.get('rate_share')} capture={row.get('capture')}{holes(row)}{tabs} "
+                      f"refresh_ms={row.get('refresh_ms')} rate_share={row.get('rate_share')} capture={row.get('capture')}{holes(row)}{tabs}{fault} "
                       f"app_active={row.get('app_active')} shell_window_is_key={row.get('shell_window_is_key')} "
                       f"key_window_form={row.get('key_window_form')}", flush=True)
                 if row.get("call_went_on"):
@@ -1193,7 +1195,9 @@ class Screen:
         # The head's first sentences keep their places; then the recorder's lost rows, with an asked rate the limit of
         # its check (and the asked rate's margin when a valid row's is small), then the app's settings lines.
         rate = [said for said in (frames_of.rate_limit_sentence(self.rate), frames_of.rate_margin_sentence(self.rows)) if said]
-        report["head"] = self.head() + [frames_of.recorder_sentence(report["cases"])] + rate + settings["lines"]
+        # The recorder's counts of its stream, when the build's replies have them (no sentence for a build with none).
+        stream = [said for said in (frames_of.stream_sentence(self.rows),) if said]
+        report["head"] = self.head() + [frames_of.recorder_sentence(report["cases"])] + rate + stream + settings["lines"]
         print(f"{MARK}-HEAD {'; '.join(report['head'])}", flush=True)
         # A stopped run is not a whole run: the driver ends with this code (0: each case ran).
         report["exit_code"] = STOPPED_EXIT if report.get("stopped") else 0

@@ -35,7 +35,9 @@ public nonisolated final class FrameStripRecording: Sendable {
     public typealias Recorded = (frames: [WindowFrame], capture: WindowFrameCapture, error: String?)
     private let lead: Double
     private let firstFrame = FrameSignal()
-    private let task: Task<Recorded, Never>
+    /// `stream`: what a ScreenCaptureKit stream gave, buffer by buffer: also one that made no row, whose frames are
+    /// then the window list's (none when no stream was made).
+    private let task: Task<(recorded: Recorded, stream: StreamTally?), Never>
 
     public init(_ window: CGWindowID, above: CGRect?, crop: CGRect?, scale: Double, from start: ContinuousClock.Instant,
                 lead: Double, duration: Double, capture: String?) {
@@ -47,19 +49,22 @@ public nonisolated final class FrameStripRecording: Sendable {
             defer { first.fire() }
             guard let above else {
                 first.fire()
-                return (await WindowFrame.record(window, scale: scale, crop: crop, from: start, until: until), .windowList, nil)
+                return ((await WindowFrame.record(window, scale: scale, crop: crop, from: start, until: until), .windowList, nil), nil)
             }
             var failure: String?
+            // What a stream that made no row gave: its buffers say why (the window list's reply keeps them).
+            var given: StreamTally?
             if (asked ?? (CGPreflightScreenCaptureAccess() ? .windowList : .screenCaptureKit)) == .screenCaptureKit {
                 if #available(macOS 14.4, *) {
+                    let stream = ScreenFrameStream(window: window, bounds: above, scale: scale, start: start, first: first)
                     do {
-                        let stream = ScreenFrameStream(window: window, bounds: above, scale: scale, start: start, first: first)
                         let frames = try await stream.run(lead: lead, until: until)
-                        if !frames.isEmpty { return (frames, .screenCaptureKit, nil) }
+                        if !frames.isEmpty { return ((frames, .screenCaptureKit, nil), stream.tally()) }
                         failure = "ScreenCaptureKit gave no frame"
                     } catch {
                         failure = "\(error)"
                     }
+                    given = stream.tally()
                 } else {
                     failure = "own-window ScreenCaptureKit needs macOS 14.4"
                 }
@@ -67,7 +72,7 @@ public nonisolated final class FrameStripRecording: Sendable {
             // A failed stream took time: the window list still records `duration` ms after the key that follows.
             let end = max(until, WindowFrame.elapsed(since: start) + duration)
             first.fire()
-            return (await WindowFrame.recordAbove(window, bounds: above, scale: scale, from: start, until: end), .windowList, failure)
+            return ((await WindowFrame.recordAbove(window, bounds: above, scale: scale, from: start, until: end), .windowList, failure), given)
         }
     }
 
@@ -78,13 +83,22 @@ public nonisolated final class FrameStripRecording: Sendable {
         await firstFrame.untilFired()
     }
 
-    /// The frames, and the report's fields about them: `capture`, `capture_error`, and `lead_ms` (`sentAt`, when the
-    /// key went in, ms after the start).
+    /// The frames, and the report's fields about them: `capture`, `capture_error`, `lead_ms` (`sentAt`, when the
+    /// key went in, ms after the start), and `screen_stream` (``StreamTally``) when a ScreenCaptureKit stream was
+    /// made: for its recording, and with `capture: "window_list"` for a stream that made no row.
     public func result(sentAt: Double) async -> (frames: [WindowFrame], fields: [String: any Sendable]) {
-        let result = await task.value
-        var fields: [String: any Sendable] = ["capture": result.capture.rawValue, "lead_ms": sentAt.rounded()]
-        if let error = result.error { fields["capture_error"] = error }
-        return (result.frames, fields)
+        let (result, stream) = await task.value
+        return (result.frames, Self.fields(capture: result.capture, error: result.error, stream: stream, sentAt: sentAt))
+    }
+
+    /// The report's fields of one recording. The app puts them into the reply only when ALL of them convert to the
+    /// reply's values, so one that does not would take `capture` out of the reply too: a test gives a tally through
+    /// that conversion with no stream.
+    static func fields(capture: WindowFrameCapture, error: String?, stream: StreamTally?, sentAt: Double) -> [String: any Sendable] {
+        var said: [String: any Sendable] = ["capture": capture.rawValue, "lead_ms": sentAt.rounded()]
+        if let error { said["capture_error"] = error }
+        if let stream { said["screen_stream"] = stream.fields(sentAt: sentAt) }
+        return said
     }
 }
 
@@ -152,6 +166,8 @@ nonisolated final class ScreenFrameStream: NSObject, SCStreamOutput, SCStreamDel
         var last: WindowFrame?
         /// When the first frame came, ms after `start`.
         var firstAt: Double?
+        /// What the stream gave, buffer by buffer: one `row` for each of `frames`, one `noRow` for each other buffer.
+        var tally = StreamTally()
     }
 
     // concurrency-allow: written by the sample handler on `queue`, read after a hop onto it; held only to append or copy.
@@ -215,20 +231,40 @@ nonisolated final class ScreenFrameStream: NSObject, SCStreamOutput, SCStreamDel
         return frames
     }
 
+    /// What the stream gave (the reply's `screen_stream`), once ``run(lead:until:)`` has returned.
+    func tally() -> StreamTally {
+        collected.withLock { $0.tally }
+    }
+
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard type == .screen,
-              let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
-              let info = attachments.first, let raw = info[.status] as? Int, let status = SCFrameStatus(rawValue: raw) else { return }
-        // The frame's display time, as ms after `start`: its age now, taken from the elapsed time now.
+        guard type == .screen else { return }
+        guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
+              let info = attachments.first, let raw = info[.status] as? Int else {
+            // No attachments: no display time to read, so this buffer's time is the handler's own.
+            let at = WindowFrame.elapsed(since: start)
+            collected.withLock { $0.tally.noRow(at: at, why: StreamTally.noStatus, own: true) }
+            return
+        }
+        // The frame's display time, as ms after `start`: its age now, taken from the elapsed time now. A buffer with
+        // no display time, or with a later one, has the handler's own time: the tally says which rows those are.
         let now = mach_absolute_time()
-        let shown = min((info[.displayTime] as? NSNumber)?.uint64Value ?? now, now)
-        let at = WindowFrame.elapsed(since: start) - Double(now - shown) * Self.secondsPerTick * 1000
-        switch status {
-        case .complete:
+        let display = (info[.displayTime] as? NSNumber)?.uint64Value
+        let shown = min(display ?? now, now)
+        // The handler's own clock is read before the age's arithmetic, where it was read before the tally.
+        let read = WindowFrame.elapsed(since: start)
+        let age = Double(now - shown) * Self.secondsPerTick * 1000
+        let at = read - age
+        let time = display.map { value -> StreamTally.Time in value > now ? .later : .display(age: age) } ?? .missing
+        switch SCFrameStatus(rawValue: raw) {
+        case .complete?:
             guard let buffer = CMSampleBufferGetImageBuffer(sampleBuffer), let image = Self.image(of: buffer),
-                  let frame = WindowFrame(image, scale: scale, at: at) else { return }
+                  let frame = WindowFrame(image, scale: scale, at: at) else {
+                collected.withLock { $0.tally.noRow(at: at, why: StreamTally.noPicture, own: time.isOwn) }
+                return
+            }
             let arrived = WindowFrame.elapsed(since: start)
             let isFirst = collected.withLock { state -> Bool in
+                state.tally.row("c", index: state.frames.count, at: at, time: time, work: arrived - at - age)
                 state.frames.append(frame)
                 state.last = frame
                 guard state.firstAt == nil else { return false }
@@ -239,14 +275,18 @@ nonisolated final class ScreenFrameStream: NSObject, SCStreamOutput, SCStreamDel
                 first.fire()
                 started.fire()
             }
-        case .idle:
+        case .idle?:
             collected.withLock { state in
-                guard var again = state.last else { return }
+                guard var again = state.last else {
+                    state.tally.noRow(at: at, why: StreamTally.idleBeforeAPicture, own: time.isOwn)
+                    return
+                }
                 again.milliseconds = at
+                state.tally.row("i", index: state.frames.count, at: at, time: time, work: 0)
                 state.frames.append(again)
             }
         default:
-            return
+            collected.withLock { $0.tally.noRow(at: at, why: raw, own: time.isOwn) }
         }
     }
 
