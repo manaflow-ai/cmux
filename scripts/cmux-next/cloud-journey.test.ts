@@ -828,6 +828,16 @@ describe("cloud journey: leaked machine sweep", () => {
     expect(long).toContain("cloud-resume-matrix.yml");
   });
 
+  test("a CI run's machines carry a ttl past any run that named them; a hand run's none unless asked", () => {
+    const ci = { GITHUB_ACTIONS: "true" };
+    expect(journey.journeyMachineTtl(false, ci)).toEqual({ ttl_seconds: STALE_JOURNEY_MS / 2 / 1000 });
+    expect(journey.journeyMachineTtl(true, ci)).toEqual({ ttl_seconds: LONG_JOURNEY_MS / 1000 });
+    expect(journey.journeyMachineTtl(false, {})).toEqual({});
+    expect(journey.journeyMachineTtl(false, { CLOUD_JOURNEY_MACHINE_TTL_S: "3600" })).toEqual({ ttl_seconds: 3600 });
+    expect(journey.journeyMachineTtl(false, { ...ci, CLOUD_JOURNEY_MACHINE_TTL_S: "0" })).toEqual({});
+    expect(() => journey.journeyMachineTtl(false, { CLOUD_JOURNEY_MACHINE_TTL_S: "60" })).toThrow(/300 to 604800/);
+  });
+
   test("a long run's machines (` long`) get the long bound; a short run's leak is swept after 3 h", () => {
     const fiveHours = tagAt(now - 5 * 3_600_000);
     const pastLong = tagAt(now - LONG_JOURNEY_MS - 60_000);
