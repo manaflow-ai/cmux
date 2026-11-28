@@ -1183,3 +1183,7 @@ mod live {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "hub_carrier_idle_keepalive_tests.rs"]
+mod idle_keepalive_tests;

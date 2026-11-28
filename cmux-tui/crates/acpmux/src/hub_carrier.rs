@@ -923,10 +923,8 @@ impl HubCarrier {
 
     /// How long since anything came back on a live kept circuit to `daemon`, the freshest of its
     /// circuits: a local read of link liveness, no round trip (RFD 0127 cut 3). The dialer pings
-    /// a kept circuit carrying a stream every [`Timings::keepalive`] and closes it after two
-    /// silent periods, so a busy healthy link reads under one period; an idle one is pinged only
-    /// every `mux::IDLE_KEEPALIVE` (a ping wakes a paused far machine), so it may read up to that.
-    /// None when no kept circuit to `daemon` is open.
+    /// each kept circuit every [`Timings::keepalive`] and closes it after two silent periods, so a
+    /// healthy link reads under one period. None when no kept circuit to `daemon` is open.
     pub fn link_age(&self, daemon: &str) -> Option<Duration> {
         self.kept.live(daemon).iter().map(|mux| mux.heard_age()).min()
     }
@@ -3261,10 +3259,6 @@ mod silent_circuit_tests;
 #[cfg(test)]
 #[path = "hub_carrier_kept_hedge_tests.rs"]
 mod kept_hedge_tests;
-
-#[cfg(test)]
-#[path = "hub_carrier_idle_keepalive_tests.rs"]
-mod idle_keepalive_tests;
 
 #[cfg(test)]
 #[path = "hub_carrier_kept_prune_tests.rs"]

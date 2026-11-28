@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use super::mux::{IDLE_KEEPALIVE, KeepaliveTick, keepalive_tick};
+use super::{IDLE_KEEPALIVE, KeepaliveTick, keepalive_tick};
 
 const EVERY: Duration = Duration::from_secs(30);
 
