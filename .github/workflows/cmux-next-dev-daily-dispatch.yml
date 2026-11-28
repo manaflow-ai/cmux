@@ -2,12 +2,13 @@ name: cmux NEXT DEV daily dispatcher
 
 # The feat-cmux-next push lane is intentionally cheap and can be superseded by
 # the next merge. This schedule snapshots the current branch tip and asks the
-# source workflow for one Release cmux NEXT DEV artifact every five minutes.
+# source workflow for one Release cmux NEXT DEV artifact per spacing window
+# (30 minutes by default; repo variable CMUX_NEXT_DEV_SPACING_MINUTES).
 # The source run builds only that SHA (cmux-next.yml checks github.sha) and
 # never cancels another run. GitHub's cron fired every 15-25 minutes on
 # 2026-10-25 (a merge reached the tip feed 48 minutes later), so every
 # feat-cmux-next push also starts this dispatcher (cmux-next.yml job
-# kick-cmux-next-dev-dispatch); the 5-minute spacing below keeps that from
+# kick-cmux-next-dev-dispatch); the spacing window below keeps that from
 # starting a DEV build per merge.
 on:
   schedule:
@@ -109,6 +110,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           APP_TOKEN: ${{ steps.app-spend.outputs.low != 'true' && steps.app-token.outputs.token || '' }}
+          DEV_SPACING_MINUTES: ${{ vars.CMUX_NEXT_DEV_SPACING_MINUTES || '30' }}
         with:
           script: |
             if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
@@ -251,20 +253,26 @@ jobs:
               core.notice(`Dev-daily source run already covers feat-cmux-next ${sha}`);
               return;
             }
-            // At most one new DEV build per five minutes, as the schedule meant:
-            // a push kicks this dispatcher on every merge (one every few minutes),
-            // and a build per merge would double the fleet's Release compiles.
-            // A run is spaced only while it is still active; the next push or
-            // tick after the window asks for the newest tip.
-            const spacingMs = 5 * 60 * 1000;
+            // At most one new DEV build per window (default 30 minutes, repo
+            // variable CMUX_NEXT_DEV_SPACING_MINUTES): a push kicks this
+            // dispatcher on every merge, and a Release build plus publish per
+            // merge cost about 8k runner-min/day (219 builds/day on 11-28).
+            // A run spaces the next while it is active or after it succeeded
+            // inside the window; a failed or cancelled run does not, so a red
+            // build retries on the next tick. The first tick after the window
+            // asks for the newest tip, so DEV is one build per window at the
+            // tip, never a queue of stale SHAs.
+            const spacingMinutes = Number(process.env.DEV_SPACING_MINUTES || '30');
+            const spacingMs = (Number.isFinite(spacingMinutes) && spacingMinutes >= 0 ? spacingMinutes : 30) * 60 * 1000;
             // Only a run this dispatcher started: its name carries a full SHA.
             const devName = /^cmux NEXT DEV daily · [0-9a-f]{40}$/;
             const recent = data.workflow_runs.find((run) =>
               (devName.test(run.name || '') || devName.test(run.display_title || '')) &&
-              ['queued', 'requested', 'waiting', 'pending', 'in_progress'].includes(run.status) &&
+              (['queued', 'requested', 'waiting', 'pending', 'in_progress'].includes(run.status) ||
+                (run.status === 'completed' && run.conclusion === 'success')) &&
               Date.now() - Date.parse(run.created_at) < spacingMs);
             if (recent) {
-              core.notice(`DEV source run ${recent.id} started under five minutes ago; the next push or tick asks for ${sha}`);
+              core.notice(`DEV source run ${recent.id} started under ${spacingMs / 60000} minutes ago; the next tick after the window asks for the tip (now ${sha})`);
               return;
             }
             // The reads above take about 20 s (tick 45958399125: 07:26:06 to
