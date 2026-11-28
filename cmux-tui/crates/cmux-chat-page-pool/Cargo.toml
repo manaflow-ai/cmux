@@ -1,0 +1,13 @@
+[package]
+name = "cmux-chat-page-pool"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The rules of the warm chat page pool: a constant number of preloaded chat pages that sidebar hovers point at a session (latest hover wins, LRU, debounced) and a click adopts"
+
+[lints]
+workspace = true
+
+[dependencies]
