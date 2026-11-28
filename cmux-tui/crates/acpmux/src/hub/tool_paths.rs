@@ -3,6 +3,8 @@
 //! files by one spelling: the edited-files card lists a failed call and its
 //! retry at another spelling once.
 
+#[path = "tool_test_results.rs"]
+mod tool_test_results;
 use super::*;
 use crate::path_canon::canonical_path;
 
@@ -22,7 +24,7 @@ pub(super) fn add_canonical_paths(session: &Session, kind: &str, msg: &mut Value
     // The packages it installs, while Usage Patterns is on (`tool_installs.rs`).
     super::tool_installs::count_installs(&session.id, kind, msg);
     // A test command's pass/fail counts and failures so far (`tool_test_results.rs`).
-    super::tool_test_results::add_test_results(&session.id, kind, msg);
+    tool_test_results::add_test_results(&session.id, kind, msg);
     let Some(update) = msg.pointer_mut("/params/update").filter(|u| u.is_object()) else {
         return;
     };

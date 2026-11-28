@@ -5,6 +5,7 @@
 import { useT } from "../i18n";
 import type { AcpmuxTestResults } from "../model";
 import { PathChip } from "../chips/LinkChips";
+import { Surface } from "../../../ui/surface/Surface";
 
 export type TestResultsLook = "strip" | "bar";
 
@@ -13,7 +14,9 @@ export function TestResultsPanel({ results, look = "strip" }: { results: AcpmuxT
   const { passed, failed, skipped, failures, moreFailures, done } = results;
   const total = passed + failed + skipped;
   return (
-    <section
+    <Surface
+      role="card"
+      as="section"
       className="cv-test-results"
       data-look={look}
       data-done={done ? "true" : "false"}
@@ -63,6 +66,6 @@ export function TestResultsPanel({ results, look = "strip" }: { results: AcpmuxT
           )}
         </ul>
       )}
-    </section>
+    </Surface>
   );
 }

@@ -24,7 +24,7 @@ use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
 
-use super::turn_artifacts::{command_of, is_test_command, output_text};
+use super::super::turn_artifacts::{command_of, is_test_command, output_text};
 
 /// Calls followed at once, across sessions.
 const MAX_CALLS: usize = 1024;

@@ -90,7 +90,8 @@ export default componentEntry<Props>({
     "agent-session/acpmux/conversation/TestResultsPanel.tsx",
     "agent-session/acpmux/conversation/CommandRow.tsx",
   ],
-  styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
+  styles: () =>
+    Promise.all([import("../styles.css"), import("./conversation.css"), import("./TestResultsPanel.gallery.css")]),
   load: async () => TestResultsGallery,
   keywords: ["test", "results", "passed", "failed", "cargo", "pytest", "jest", "live", "panel"],
   variants: {

@@ -9708,16 +9708,12 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 
 /* A test command's results under its row (TestResultsPanel.tsx): the counts tick while it runs,
    each failure a line with its name, a chip opening the file at its line, and the first words of
-   why. The same card as .cv-run-elsewhere, at the row's text inset. */
+   why. A card surface (ui/surface) at the row's text inset. */
 .cv-test-results {
   display: flex;
   flex-direction: column;
   gap: var(--ds-space-1);
   margin: var(--ds-space-1) 0 var(--ds-space-2) var(--cv-tool-text-inset, 0);
-  padding: var(--ds-space-2) var(--ds-space-3);
-  border-radius: var(--cv-card-radius, var(--ds-radius-control));
-  box-shadow: inset 0 0 0 1px var(--cv-look-card-ring);
-  background: var(--cv-card-fill);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   letter-spacing: var(--text-detail--letter-spacing);
@@ -9739,22 +9735,6 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 .cv-test-results__count[data-tone="failed"] {
   color: var(--agent-status-failure);
   font-weight: 600;
-}
-.cv-test-results__bar {
-  display: flex;
-  height: 4px;
-  overflow: hidden;
-  border-radius: 2px;
-  background: var(--cv-look-card-ring);
-}
-.cv-test-results__bar > [data-tone="passed"] {
-  background: var(--agent-status-success);
-}
-.cv-test-results__bar > [data-tone="failed"] {
-  background: var(--agent-status-failure);
-}
-.cv-test-results__bar > [data-tone="skipped"] {
-  background: var(--cv-text-dim);
 }
 .cv-test-results__failures {
   display: flex;

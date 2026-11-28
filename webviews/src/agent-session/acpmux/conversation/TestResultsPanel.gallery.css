@@ -1,0 +1,17 @@
+/* The `bar` arm only (TestResultsPanel.gallery.tsx): a thin passed/failed/skipped proportion bar. */
+.cv-test-results__bar {
+  display: flex;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--cv-look-card-ring);
+}
+.cv-test-results__bar > [data-tone="passed"] {
+  background: var(--agent-status-success);
+}
+.cv-test-results__bar > [data-tone="failed"] {
+  background: var(--agent-status-failure);
+}
+.cv-test-results__bar > [data-tone="skipped"] {
+  background: var(--cv-text-dim);
+}
