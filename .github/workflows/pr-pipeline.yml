@@ -101,11 +101,11 @@ jobs:
     # once on 2 CPUs) and the `alone` steps (ci-artifact-worker, web-production-build, the package conventions gate
     # and the four web test shards 6 min each, the cmux_next_ daemon tests 65 min, the cmux_next_ tests of acpmux,
     # cmux-tui-core and cmux-tui 45 min each, the iOS matrix protocol 45 min, the App Store shelf 45 min, the acpmux
-    # instruction counts 40 min, the compile canary 30 min, the Rust notices 20 min, the cmux VM Rust clients 30 min, the nightly and cmux-tui
-    # release guards 20 min, the cmux cloud CLI 15 min, the idle daemon tests 45 min, and the rest): 1025 min with the
-    # shared steps two at once and the setup and
+    # instruction counts 40 min, the memory per item A/B 50 min, the compile canary 30 min, the Swift test-target compile 30 min, the Rust notices 20 min, the cmux VM Rust clients 30 min, the nightly and cmux-tui
+    # release guards 20 min, the cmux cloud CLI 15 min, the idle daemon tests 45 min, and the rest): 1165 min with the
+    # shared steps two at once (#64665's three land_gate ratchets added waves) and the setup and
     # tool bounds, so a slow step is reported by the runner, not cut here.
-    timeout-minutes: 1025
+    timeout-minutes: 1165
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
@@ -135,6 +135,19 @@ jobs:
           set -euo pipefail
           mirror=/var/lib/cmux-git/cmux.git/objects
           [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          # One reused workspace per sparse list (rnd rc-454d007c): jobs with different lists took turns with one .git on this
+          # VM, so a job after a narrower one widened the tree first (median 6.4 s widening the guards' list to the fast gates',
+          # 1.8 s reusing the same list, 5.1 s fresh: bench run 46133992029, 4 runs each). Each list keeps its own workspace
+          # beside $GITHUB_WORKSPACE, moved in and out by a rename on the same file system (no copy); 4 lists at most are kept.
+          ws=$GITHUB_WORKSPACE; stash="$(dirname "$ws")/.pool-ws"
+          key=$(printf '%s' "${SPARSE:-}" | sha1sum | cut -c1-16)
+          have=$(cat "$ws/.git/cmux-pool-key" 2>/dev/null || true)
+          if [[ "$have" != "$key" ]] && { [[ "$have" =~ ^[0-9a-f]{16}$ ]] || [[ -d "$stash/$key" ]]; }; then
+            mkdir -p "$stash"; cd "$stash"
+            if [[ "$have" =~ ^[0-9a-f]{16}$ ]]; then rm -rf "${stash:?}/$have"; mv "$ws" "$stash/$have"; touch "$stash/$have"; else rm -rf "$ws"; fi
+            if [[ -d "$stash/$key" ]]; then mv "$stash/$key" "$ws"; else mkdir -p "$ws"; fi
+            ls -1t "$stash" | tail -n +5 | while read -r old; do rm -rf "${stash:?}/$old"; done
+          fi
           cd "$GITHUB_WORKSPACE"
           # Reuse a .git this step made (borrows the mirror, no promisor or partial-clone filter): `git checkout` then
           # writes only what changed since the last job on this VM, not the whole tree (~10.7 s of ~13 s, rnd rc-0e8e7c8b).
@@ -170,7 +183,8 @@ jobs:
           # narrower job on this VM; rnd rc-c6f133b4).
           git -c checkout.workers=8 checkout -q -f --detach "$SHA"
           [[ $reuse == fresh ]] || git sparse-checkout disable
-          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
+          [[ -z "${key:-}" ]] || echo "$key" > .git/cmux-pool-key
+          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse sparse_key=${key:-}"
       - name: List the changed paths
         # Every path the merge commit changes against the base tip, both sides of a rename (what the
         # router read). With no merge commit there is no list, and ci/run then runs every step.
@@ -314,6 +328,19 @@ jobs:
           set -euo pipefail
           mirror=/var/lib/cmux-git/cmux.git/objects
           [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          # One reused workspace per sparse list (rnd rc-454d007c): jobs with different lists took turns with one .git on this
+          # VM, so a job after a narrower one widened the tree first (median 6.4 s widening the guards' list to the fast gates',
+          # 1.8 s reusing the same list, 5.1 s fresh: bench run 46133992029, 4 runs each). Each list keeps its own workspace
+          # beside $GITHUB_WORKSPACE, moved in and out by a rename on the same file system (no copy); 4 lists at most are kept.
+          ws=$GITHUB_WORKSPACE; stash="$(dirname "$ws")/.pool-ws"
+          key=$(printf '%s' "${SPARSE:-}" | sha1sum | cut -c1-16)
+          have=$(cat "$ws/.git/cmux-pool-key" 2>/dev/null || true)
+          if [[ "$have" != "$key" ]] && { [[ "$have" =~ ^[0-9a-f]{16}$ ]] || [[ -d "$stash/$key" ]]; }; then
+            mkdir -p "$stash"; cd "$stash"
+            if [[ "$have" =~ ^[0-9a-f]{16}$ ]]; then rm -rf "${stash:?}/$have"; mv "$ws" "$stash/$have"; touch "$stash/$have"; else rm -rf "$ws"; fi
+            if [[ -d "$stash/$key" ]]; then mv "$stash/$key" "$ws"; else mkdir -p "$ws"; fi
+            ls -1t "$stash" | tail -n +5 | while read -r old; do rm -rf "${stash:?}/$old"; done
+          fi
           cd "$GITHUB_WORKSPACE"
           # Reuse a .git this step made (borrows the mirror, no promisor or partial-clone filter): `git checkout` then
           # writes only what changed since the last job on this VM, not the whole tree (~10.7 s of ~13 s, rnd rc-0e8e7c8b).
@@ -349,7 +376,8 @@ jobs:
           # narrower job on this VM; rnd rc-c6f133b4).
           git -c checkout.workers=8 checkout -q -f --detach "$SHA"
           [[ $reuse == fresh ]] || git sparse-checkout disable
-          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
+          [[ -z "${key:-}" ]] || echo "$key" > .git/cmux-pool-key
+          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse sparse_key=${key:-}"
       - name: List the changed paths
         run: |
           if git rev-parse -q --verify 'HEAD^2' >/dev/null; then
