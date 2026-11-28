@@ -61,6 +61,7 @@ import SwiftUI
 /// - `agentmark`: a terminal agent's avatar beside a GUI agent chat's (Leo 2026-11-24: "both of them rn
 ///   are just claude icon"), every variant side by side; `agentmark-a` ... `agentmark-d`, one variant on
 ///   Feed-like rows (`AgentAvatarHostGallery`).
+/// - `githubsignin`: Sign in with GitHub on a Cloud start and a chat's refused GitHub call (`GitHubSignInGallery`).
 public struct RecoveryGalleryRoot: View {
     public static var isRequested: Bool {
         ProcessInfo.processInfo.arguments.contains("-cmux-mobile-recovery-gallery")
@@ -145,6 +146,8 @@ public struct RecoveryGalleryRoot: View {
                 SiteMonogramGallery()
             case "agentmark":
                 AgentAvatarHostGallery(variant: variant)
+            case "githubsignin":
+                GitHubSignInGallery()
             default:
                 states
             }

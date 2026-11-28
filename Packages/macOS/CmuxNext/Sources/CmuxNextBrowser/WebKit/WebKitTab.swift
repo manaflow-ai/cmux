@@ -38,6 +38,10 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
     @ObservationIgnored public let inspectorWatch = WebKitInspectorWatch()
     /// Files an agent offered this page's next file chooser (`runOpenPanelWith` takes them first).
     @ObservationIgnored public let agentFiles = BrowserAgentFiles()
+    /// An agent drove or read this page (``markAgentDriven()``, WebKitTab+AgentMarks); never cleared.
+    @ObservationIgnored public internal(set) var isAgentDriven = false
+    /// The agent session that last drove this page (``noteAgentSession(_:)``).
+    @ObservationIgnored public internal(set) var agentSessionID: String?
 
     private var machine = BrowserTabStateMachine()
     @ObservationIgnored private(set) weak var engine: WebKitEngine?

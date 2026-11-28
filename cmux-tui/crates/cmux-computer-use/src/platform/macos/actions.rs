@@ -119,14 +119,15 @@ impl MacDesktop {
         )))
     }
 
-    /// The route for pointer events into a window.
+    /// The route for pointer events into a window: its process, never the
+    /// HID tap, which moves the person's pointer (input.rs).
     fn pointer_route(&self, t: &Target, delivery: Delivery) -> DResult<Route> {
         self.require_input()?;
         match delivery {
             Delivery::Foreground => {
                 super::refuse_if_locked("foreground input")?;
                 self.raise(t)?;
-                Ok(Route::Hid)
+                Ok(Route::Pid { pid: t.window.pid, window: t.window.id })
             }
             Delivery::Background if t.window.on_screen => {
                 Ok(Route::Pid { pid: t.window.pid, window: t.window.id })
@@ -3178,8 +3179,6 @@ pub(super) fn move_pointer(
         PointerTarget::Point { point, .. } => d.point_in(&t, *point)?,
         PointerTarget::Element { element_id, .. } => d.element_center(&t, element_id)?,
     };
-    // Background: the window must be on screen (pointer_route refuses
-    // otherwise); foreground raises it and posts at the HID tap.
     let route = d.pointer_route(&t, delivery)?;
     unprimed(route, |p| input::move_to(p, at))?;
     Ok(ActionOutcome::delivered(route.name()).at(at))
