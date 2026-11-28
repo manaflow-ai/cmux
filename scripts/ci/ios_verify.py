@@ -9,6 +9,8 @@
 2. Select. cmux-next-ios/FlowSuite/select_flows.py picks the flows the diff can affect (flows.json).
 3. Run, in parallel, on the simulator fleet: two shards by default, placed by the controller. Explicit --workers
    (or env CMUX_IOS_VERIFY_WORKERS; never cosmic-gray or air-blue) selects worker hints, one shard per worker.
+   A hint a reservation lease holds (read up front from `cmux-ci lease list`, or the controller's refusal) falls
+   to the next named worker, then to unpinned placement; --pin-strict never falls back.
    Each `cmux-ci run --class simulator` runs `test only=KIT ui=UI video` against scripts/ci/cmux-next-ios-sim.sh,
    reusing cached DerivedData, FFI/cargo cache and a slim simulator (--sim-features none); `pair-e2e` (a tagged DEBUG Mac pairs by QR, drops and
    reconnects) when a selected flow has "pair_e2e": true; the flows' `scripts` here. A flow's macOS `swift` tests
@@ -70,6 +72,20 @@ GATE_JOB = "ios fast verdict status"
 BROKER_ID = re.compile(r"through the broker as (\S+)")
 STEP_ID = re.compile(r"\bstep[: ]+([0-9a-f]{8,})\b")
 SAME_RATIO = 0.002
+XCODE_PINS = REPO_ROOT / "scripts" / "ci" / "xcode-pins.txt"
+
+
+def xcode_label(pins: Path = XCODE_PINS) -> str | None:
+    """The worker label naming the Xcode cmux-next-ios-sim.sh will select: the pin of the newest macOS row in
+    xcode-pins.txt (the simulator pool runs the newest macOS). Without it the controller may move a step pinned to a
+    warm worker onto any simulator host, and one without that Xcode exits 3 ("no Xcode at ..."): cmux#38805's proof
+    went from cmux22 to a host that advertised simulator but no xcode-27.2."""
+    rows = []
+    for line in pins.read_text().splitlines() if pins.is_file() else []:
+        parts = line.split("#", 1)[0].split()
+        if len(parts) == 2 and parts[0].isdigit():
+            rows.append((int(parts[0]), parts[1]))
+    return f"xcode-{max(rows)[1]}" if rows else None
 # Above this a changed screen needs a Visual-change line (ios_gate_screen_diff.CHANGED_RATIO).
 FAIL_RATIO = ios_gate_screen_diff.CHANGED_RATIO
 
@@ -133,18 +149,90 @@ def delegated(selection: dict) -> list[dict]:
 # ---------- run ----------
 
 def step_key(step: dict, head: str, pr: int, strict: bool = False, attempt: str = "1") -> str:
-    """Identify one simulator submission, keeping its head, shard and worker visible in fleet logs."""
+    """Identify one simulator submission by its work, keeping its head and shard visible in fleet logs.
+
+    The worker is part of the key only under --pin-strict, where the host is the evidence: the same work
+    sent to cmux22 and aws-m4pro-4 is one step, and the fleet's idempotency key dedupes it instead of
+    queueing it twice (ios-sim-queue red, 11-27: pairs c71f2d2b1a45/dc356492a3bf, 7f3a4f1e9b47/45c3414ad5f8).
+    The digest leaves the head out (the key's full-sha head field carries it), so a newer head's step matches the older
+    queued one "commits aside" and cmux-ci's supersede replaces it rather than queueing both."""
     shard = step["name"].split(":", 1)[0].replace(" ", "").replace("/", "of")
-    workload = json.dumps([head, SIM_SCRIPT, ARTIFACT, step["args"], strict, attempt], separators=(",", ":"))
+    workload = json.dumps([SIM_SCRIPT, ARTIFACT, step["args"], strict, attempt], separators=(",", ":"))
     digest = hashlib.sha256(workload.encode()).hexdigest()[:32]
-    return f"ios-verify-{pr}-{head[:12]}-{step['mode']}-{shard}-{step['worker'] or 'auto'}-{digest}"
+    pinned = f"-{step['worker']}" if strict else ""
+    return f"ios-verify-{pr}-{head}-{step['mode']}-{shard}{pinned}-{digest}"
 
 
-def run_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1") -> dict:
+def stream(cmd: list[str], tag: str) -> tuple[int, str]:
+    """Run CMD, echo each line to stderr as "[TAG] line" while it runs, and return its exit code and output. A
+    capture-only run printed nothing until the step ended, so a step waiting in the fleet queue (a pinned worker busy
+    with a runner job) looked hung: two proofs sat silent for 90 min and ended at the caller's timeout, exit 124."""
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    lines = []
+    for line in p.stdout:
+        lines.append(line)
+        print(f"[{tag}] {line}", end="", file=sys.stderr, flush=True)
+    return p.wait(), "".join(lines)
+
+
+# The controller refuses a step pinned (--target-worker) to a host a fleet registry reservation lease holds for another
+# account: "fleet registry reservation lease-...: nothing is moved to or tested on it ... omit target_worker so the job
+# places on the rest of the fleet". A worker hint was then a FAIL unrelated to the PR (cmux/ios-fast red on a lease).
+LEASE_REFUSAL = re.compile(r"reservation lease|omit target_worker", re.I)
+
+
+def short(host: str | None) -> str:
+    return (host or "").split(".")[0]
+
+
+def leased_hosts() -> set[str]:
+    """Short names of the hosts an active fleet lease holds (`cmux-ci lease list --json --active`), or an empty set
+    when the controller cannot say: the refusal check in run_step still catches a lease this read missed."""
+    try:
+        p = subprocess.run(["cmux-ci", "lease", "list", "--json", "--active"], capture_output=True, text=True,
+                           timeout=60)
+        rows = (json.loads(p.stdout or "{}").get("leases") or []) if p.returncode == 0 else []
+    except (OSError, subprocess.SubprocessError, ValueError, AttributeError):
+        return set()
+    return {short(h) for r in rows if isinstance(r, dict) for h in (r.get("hosts") or []) if h}
+
+
+def placements_for(step: dict, workers: list[str], strict: bool, leased: set[str]) -> list[str | None]:
+    """Where STEP may run, in order. Under --pin-strict, only its named worker (the host is the evidence). Otherwise
+    its worker hint, then the other named workers, skipping any a lease holds, then unpinned fleet placement."""
+    if strict or not step["worker"]:
+        return [step["worker"]]
+    order = [step["worker"], *(w for w in workers if w != step["worker"])]
+    return [w for w in order if short(w) not in leased] + [None]
+
+
+def run_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1",
+             workers: list[str] | None = None, leased: set[str] | None = None) -> dict:
+    """Run STEP on the first placement the controller takes. A placement refused for a reservation lease (and only
+    that refusal) moves to the next; under --pin-strict the refusal is the result."""
+    refused = []
+    for where in placements_for(step, workers or [], strict, leased or set()):
+        # A fallback gets its own key: off --pin-strict the key leaves the worker out, so the refused step's key
+        # would dedupe the retry back onto the refusal.
+        tries = attempt if not refused else f"{attempt}-fallback{len(refused)}"
+        run = dispatch_step({**step, "worker": where}, head, pr, strict, tries)
+        if strict or where is None or run["result"] == "pass" or not LEASE_REFUSAL.search(run["tail"]):
+            run["refused_workers"] = refused
+            return run
+        print(f"ios verify: {step['name']}: {where} is held by a reservation lease; trying the next placement",
+              file=sys.stderr, flush=True)
+        refused.append(where)
+    return run
+
+
+def dispatch_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1") -> dict:
     cmd = ["cmux-ci", "run", "--class", "simulator", "--script", SIM_SCRIPT, "--ref", head,
            "--key", step_key(step, head, pr, strict, attempt),
            "--sim-features", "none", "--artifact", ARTIFACT, "--priority", "agent",
            "--reason", f"cmux ios verify #{pr}"]
+    label = xcode_label()
+    if label:
+        cmd += ["--label", label]
     if step["worker"]:
         cmd += ["--target-worker", step["worker"]]
     if strict:
@@ -152,12 +240,11 @@ def run_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1") -
     for a in step["args"]:
         cmd += ["--arg", a]
     t0 = time.monotonic()
-    p = subprocess.run(cmd, capture_output=True, text=True)
-    text = p.stdout + "\n" + p.stderr
+    code, text = stream(cmd, step["name"])
     m = BROKER_ID.search(text) or STEP_ID.search(text)
     return {"name": step["name"], "mode": step["mode"], "worker": step["worker"], "args": step["args"],
-            "step": m.group(1) if m else None, "result": "pass" if p.returncode == 0 else "fail",
-            "exit": p.returncode, "seconds": round(time.monotonic() - t0), "tail": text.strip()[-400:]}
+            "step": m.group(1) if m else None, "result": "pass" if code == 0 else "fail",
+            "exit": code, "seconds": round(time.monotonic() - t0), "tail": text.strip()[-400:]}
 
 
 def run_script(script: str) -> dict:
@@ -370,7 +457,7 @@ def public_runs(runs: list[dict]) -> list[dict]:
     """RUNS as the posted record holds them: no output tail and no worker. The record is PR text, and a public repo's
     PR text names no fleet host (public-body-guard refused the proof on cmux#61688 for naming two); no gate reads the
     worker, and the step id still leads to it. The worker stays in this run's stderr."""
-    return [{k: v for k, v in r.items() if k not in ("tail", "worker")} for r in runs]
+    return [{k: v for k, v in r.items() if k not in ("tail", "worker", "refused_workers")} for r in runs]
 
 
 def scrub_hosts(body: str, hosts: list[str]) -> str:
@@ -458,8 +545,10 @@ def main(argv: list[str] | None = None) -> int:
         if not selection["ios"]:
             print("not iOS-affecting: cmux/ios-fast passes without a proof", file=sys.stderr)
         return 0
+    leased = set() if a.pin_strict or not workers else leased_hosts()
     with cf.ThreadPoolExecutor(max_workers=len(steps) + len(selection["scripts"]) or 1) as pool:
-        futs = [pool.submit(run_step, s, head, int(view["number"]), a.pin_strict, a.attempt) for s in steps]
+        futs = [pool.submit(run_step, s, head, int(view["number"]), a.pin_strict, a.attempt, workers, leased)
+                for s in steps]
         futs += [pool.submit(run_script, s) for s in selection["scripts"]]
         runs = [f.result() for f in futs]
     runs += delegated(selection)
@@ -496,7 +585,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"FAIL {r['name']} on {r.get('worker', '?')}:\n{r.get('tail', '')}\n", file=sys.stderr)
     body = scrub_hosts(proof_record.render(record, summary_md(record)),
                        [*workers, *LEGACY_WORKERS, *FORBIDDEN_WORKERS, os.uname().nodename,
-                        *(r.get("worker", "") for r in runs)])
+                        *(r.get("worker") or "" for r in runs),
+                        *(w for r in runs for w in r.get("refused_workers") or [])])
     if a.out:
         Path(a.out).write_text(json.dumps(record, indent=1))
     if not a.no_post:
