@@ -145,7 +145,7 @@ jobs:
           name: nightly-next-train-dispatch-${{ github.run_id }}
           path: nightly-next-train-dispatch.json
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 3
 
       # A tip on nightly-next whose newest run ended cancelled (a rescue that lost its
       # re-run, run 40340830337) is never requested again below ("already on

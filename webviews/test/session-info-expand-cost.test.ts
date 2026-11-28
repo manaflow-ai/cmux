@@ -36,10 +36,28 @@ await requireBrowserLane("session-info-expand-cost.test.ts", async () => {
     await vite?.close();
   });
 
-  /// The rows a 700 px window shows at the least row height (24 px), and the overscan of 8.
+  /// The rows a 700 px window shows at the least row height (24 px), and a viewport of overscan above
+  /// and under them (WindowedRows.tsx OVERSCAN_VIEWS), a row of rounding at each edge.
   const HEIGHT = 700;
-  const BOUND = Math.ceil(HEIGHT / 24) + 8;
-  const PRESSES = 5;
+  const BOUND = 3 * Math.ceil(HEIGHT / 24) + 2;
+  /// The furthest row mounted in `selector`'s list, by its place in the whole list.
+  const deepest = (selector: string) =>
+    Math.max(
+      0,
+      ...[...document.querySelectorAll(`${selector} > li[aria-posinset]`)].map((row) =>
+        Number(row.getAttribute("aria-posinset")),
+      ),
+    );
+  /// Whether `selector`'s list mounts a row past `reached` (self-contained: it runs in the page).
+  const deeperThan = ([selector, reached]: readonly [string, number]) =>
+    Math.max(
+      0,
+      ...[...document.querySelectorAll(`${selector} > li[aria-posinset]`)].map((row) =>
+        Number(row.getAttribute("aria-posinset")),
+      ),
+    ) > reached;
+  /// Presses per list and N (SESSION_INFO_EXPAND_PRESSES raises it for a measurement; CI keeps 5).
+  const PRESSES = Math.max(1, Number(process.env.SESSION_INFO_EXPAND_PRESSES) || 5);
 
   test("tasks: the rows past the window draw as the panel scrolls to them", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
@@ -56,13 +74,11 @@ await requireBrowserLane("session-info-expand-cost.test.ts", async () => {
       const body = ".acpmux-session-info__body";
       const rows = () => page.locator("ul[data-finished] > li:not([data-rows-rest])").count();
       expect(await rows()).toBeLessThanOrEqual(BOUND);
-      // A short scroll draws the next rows, not the rest.
+      // A short scroll mounts the next rows and lets go of the ones it left: the count stays bounded.
+      const reached = await page.evaluate(deepest, "ul[data-finished]");
       await page.evaluate((selector) => (document.querySelector(selector)!.scrollTop = 1000), body);
-      await page.waitForFunction(
-        (bound) => document.querySelectorAll("ul[data-finished] > li:not([data-rows-rest])").length > bound,
-        BOUND,
-      );
-      expect(await rows()).toBeLessThan(200);
+      await page.waitForFunction(deeperThan, ["ul[data-finished]", reached] as const);
+      expect(await rows()).toBeLessThanOrEqual(BOUND);
       // At the end, the last row is there, in the room held for it.
       const height = await page.evaluate((selector) => document.querySelector(selector)!.scrollHeight, body);
       await page.evaluate((selector) => {
@@ -71,6 +87,10 @@ await requireBrowserLane("session-info-expand-cost.test.ts", async () => {
       }, body);
       await page.getByText("bun test shard 4999").waitFor();
       expect(await page.evaluate((selector) => document.querySelector(selector)!.scrollHeight, body)).toBe(height);
+      // The rows scrolled past were let go: at the end the list holds a window, not every row before it.
+      const atEnd = await rows();
+      console.log(`SESSION-INFO-EXPAND tasks rows mounted at the end of 5000: ${atEnd}`);
+      expect(atEnd).toBeLessThanOrEqual(BOUND);
     } finally {
       await page.close();
     }
@@ -92,11 +112,10 @@ await requireBrowserLane("session-info-expand-cost.test.ts", async () => {
         () => document.querySelector("ul[data-sort]")?.getAttribute("data-sort") === "context",
       );
       expect(await drawn()).toBeLessThanOrEqual(BOUND);
+      const reached = await page.evaluate(deepest, "ul[data-sort]");
       await page.evaluate(() => (document.querySelector(".acpmux-session-info__body")!.scrollTop = 1000));
-      await page.waitForFunction(
-        (bound) => document.querySelectorAll("ul[data-sort] > li:not([data-rows-rest])").length > bound,
-        BOUND,
-      );
+      await page.waitForFunction(deeperThan, ["ul[data-sort]", reached] as const);
+      expect(await drawn()).toBeLessThanOrEqual(BOUND);
     } finally {
       await page.close();
     }
@@ -109,11 +128,12 @@ await requireBrowserLane("session-info-expand-cost.test.ts", async () => {
       await page.goto(`http://127.0.0.1:${port}${PAGE}?list=usage&n=5000`);
       await page.waitForFunction(() => typeof window.__expand === "function");
       await page.evaluate(() => window.__expand());
-      /// The focused row's place in the list, or -1 when focus is outside it.
+      /// The focused row's place in the list (its aria-posinset, as rows above it may be let go), or -1
+      /// when focus is outside it.
       const focusedRow = () =>
         page.evaluate(() => {
           const row = document.activeElement?.closest("ul[data-sort] > li");
-          return row ? [...row.parentElement!.children].indexOf(row) : -1;
+          return row ? Number(row.getAttribute("aria-posinset")) - 1 : -1;
         });
       await page.locator("ul[data-sort] > li button").first().focus();
       for (let press = 0; press < 60; press += 1) await page.keyboard.press("Tab");
@@ -124,6 +144,119 @@ await requireBrowserLane("session-info-expand-cost.test.ts", async () => {
       await page.waitForFunction(
         () => document.activeElement?.querySelector(".acpmux-session-info-row__name")?.textContent === "Chat 0",
       );
+      // Only that end's window mounted, not every row.
+      expect(
+        await page.evaluate(() => document.querySelectorAll("ul[data-sort] > li:not([data-rows-rest])").length),
+      ).toBeLessThanOrEqual(BOUND + 1);
+    } finally {
+      await page.close();
+    }
+  });
+
+  // Outputs' list and the ended subagents' list each scroll themselves (capped, overflow-y auto): their
+  // own scroll, not the panel's, moves the window.
+  for (const [list, selector] of [
+    ["outputs", "ul[data-section=outputs]"],
+    ["subagents", ".acpmux-session-info-subagents__list"],
+  ] as const) {
+    test(`${list}: a list that is its own scroller mounts the rows its scroll reaches`, async () => {
+      const { port } = vite!.httpServer!.address() as { port: number };
+      const page = await browser!.newPage({ viewport: { width: 900, height: HEIGHT } });
+      try {
+        await page.goto(`http://127.0.0.1:${port}${PAGE}?list=${list}&n=500`);
+        await page.waitForFunction(() => typeof window.__expand === "function");
+        await page.evaluate(() => window.__expand());
+        await page.waitForFunction(() => !document.querySelector("[data-folding]"));
+        expect(await page.evaluate((s) => getComputedStyle(document.querySelector(s)!).overflowY, selector)).toBe(
+          "auto",
+        );
+        await page.evaluate((s) => {
+          const scroller = document.querySelector(s)!;
+          scroller.scrollTop = scroller.scrollHeight;
+        }, selector);
+        // Two frames for the scroll event and the commit it makes.
+        await page.evaluate(
+          () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+        );
+        const seen = await page.evaluate((s) => {
+          const scroller = document.querySelector(s)!;
+          const view = scroller.getBoundingClientRect();
+          const rows = [...scroller.querySelectorAll(":scope > li:not([data-rows-rest])")];
+          const inView = rows.filter((row) => {
+            const box = row.getBoundingClientRect();
+            return box.bottom > view.top && box.top < view.bottom;
+          });
+          const last = rows.at(-1);
+          return {
+            mounted: rows.length,
+            inView: inView.length,
+            lastPlace: Number(last?.getAttribute("aria-posinset") ?? 0),
+            size: Number(last?.getAttribute("aria-setsize") ?? 0),
+            lastText: last?.textContent ?? "",
+          };
+        }, selector);
+        console.log(`SESSION-INFO-EXPAND ${list} scrolled to its own end (500): ${JSON.stringify(seen)}`);
+        // Rows fill the list's view at its end, the true last row among them, not a blank box.
+        expect(seen.inView).toBeGreaterThan(0);
+        expect(seen.mounted).toBeLessThanOrEqual(BOUND);
+        if (seen.size > 0) expect(seen.lastPlace).toBe(seen.size);
+        if (list === "outputs") expect(seen.lastText).toContain("file-499");
+      } finally {
+        await page.close();
+      }
+    });
+  }
+
+  test("shared list: Tab from a row before a scrolled window lands on the true first row; Shift-Tab from after it on the last", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 900, height: HEIGHT } });
+    try {
+      await page.goto(`http://127.0.0.1:${port}${PAGE}?list=shared&n=500`);
+      await page.waitForSelector("ul[data-shared] > li[aria-posinset]");
+      /// The focused element's row: its place in the whole list, the list's length and its words.
+      const focused = () =>
+        page.evaluate(() => {
+          const row = document.activeElement?.closest("ul[data-shared] > li");
+          return row
+            ? {
+                place: Number(row.getAttribute("aria-posinset")),
+                size: Number(row.getAttribute("aria-setsize")),
+                text: row.textContent ?? "",
+              }
+            : null;
+        });
+      const mounted = () =>
+        page.evaluate(() => document.querySelectorAll("ul[data-shared] > li:not([data-rows-rest])").length);
+      // The window scrolled far from the list's top: its first mounted row is not its first row.
+      await page.evaluate(() => (document.querySelector(".acpmux-session-info__body")!.scrollTop = 8000));
+      await page.waitForFunction(() => {
+        const first = document.querySelector("ul[data-shared] > li[data-rows-rest] + li");
+        return Number(first?.getAttribute("aria-posinset") ?? 0) > 50;
+      });
+      await page.locator("ul[data-shared] > li[data-before='2'] button").focus();
+      await page.keyboard.press("Tab");
+      await page.waitForFunction(() => !!document.activeElement?.closest("ul[data-shared] > li:not([data-before])"));
+      // Settle the window the Tab asked for.
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const tabbed = await focused();
+      console.log(
+        `SESSION-INFO-EXPAND shared Tab from the row before: ${JSON.stringify(tabbed)} mounted=${await mounted()}`,
+      );
+      // The three rows before it hold places 1-3; the windowed list's first row is place 4.
+      expect(tabbed?.place).toBe(4);
+      expect(tabbed?.text).toContain("Shared");
+      expect(await mounted()).toBeLessThanOrEqual(BOUND + 4);
+      // Shift-Tab from the button after the list lands on its true last row.
+      await page.evaluate(() => (document.querySelector(".acpmux-session-info__body")!.scrollTop = 0));
+      await page.locator("button[data-after]").focus();
+      await page.keyboard.press("Shift+Tab");
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const back = await focused();
+      console.log(
+        `SESSION-INFO-EXPAND shared Shift-Tab from after: ${JSON.stringify(back)} mounted=${await mounted()}`,
+      );
+      expect(back?.place).toBe(back?.size);
+      expect(await mounted()).toBeLessThanOrEqual(BOUND + 4);
     } finally {
       await page.close();
     }

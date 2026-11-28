@@ -3,9 +3,13 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { Overview, OVERVIEW_PREVIEW_LIMIT, scenarioHref } from "../src/gallery/parity/Overview";
-import { SCENARIOS, scenarioFrame } from "../src/gallery/parity/scenarios";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { Overview, OVERVIEW_PREVIEW_LIMIT, scenarioHref } = await importWithDom(
+  () => import("../src/gallery/parity/Overview"),
+);
+const { SCENARIOS, scenarioFrame } = await importWithDom(() => import("../src/gallery/parity/scenarios"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

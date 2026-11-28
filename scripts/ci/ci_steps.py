@@ -2,7 +2,8 @@
 """Route a diff to the step table's steps and run one job's steps (ci/steps.toml).
 
   ci/run route --paths-file F            the routed steps by job, as JSON
-  ci/run run --job JOB [--paths-file F] [--label NAME] [--only NAMES] [--pr-scope]
+  ci/run run --job JOB [--paths-file F] [--label NAME] [--only NAMES] [--pr-scope] [--tier pr|full]
+  ci/run step NAME                       run that one step here, whatever routes it, and exit with its verdict
 
 `ci/run` is the entry (it calls this file). `run` starts the job's routed steps, as many at
 once as the machine has CPUs, each as `bash -euo pipefail -c RUN` in the current directory
@@ -16,13 +17,21 @@ setup or tool that fails fails the job. It exits 1 only when a step with `blocks
 `blocks = false` that fails or runs past its timeout is a warning annotation: an advisory
 step never turns its job red. A step with `alone = true` runs by itself, after the others, in table order,
 and is skipped (a notice, not a failure) once a step with `blocks = true` has failed: the job is red
-already, and the re-run that fixes it runs the step anyway.
+already, and the re-run that fixes it runs the step anyway. `--alone-on-red` (or CI_RUN_ALONE_ON_RED=1) runs it all the same: the
+post-merge batch has no re-run, so a base that stays red would otherwise never run its alone steps.
 `--label NAME` says the event is a label change of NAME;
 then only the steps that list NAME in `labels` run. `--only NAMES` (comma or space separated)
 runs only those of the routed steps; empty means every routed step. A name the table does
 not have is a notice and is skipped, never an error: the pull request that adds a step runs
 against a base whose table lacks it. Two workflows run steps of the `advisory` job, each its
 own (pr-body-checks.yml the description lints, pr-checks.yml the rest), so each names them.
+
+`step NAME` runs one step by name, as its job runs it (the job's setup, the tools it needs, its timeout), with no
+diff (routing never skips it), the full tier, the step's first label as the event when it lists labels, and no step
+results (it always runs). Unlike `run` it exits 1 when the step fails whether or not it blocks, and 2 when the table
+has no such step or the step's job runs on another OS (STEP_JOB_OS). This is the build fleet's entry for any step
+(`cmux-ci run --step NAME --ref SHA`, through scripts/ci/run-step.sh; Leo, 2026-11-19: "can't you... just be able to
+run whatever ci steps?").
 
 The table's rules (checked on load): every step names one of the table's jobs, there are
 at most 8 jobs, and a step that does not block runs in the `advisory` job in class `idle`.
@@ -37,6 +46,19 @@ a literal path or a one-directory glob (`*`, `?`, no `**`). A step a change reac
 glob (`dir/**`, `**`) or a change to the pipeline itself is left to the post-merge batch, which runs every linux
 step at the merged tip (cmux-next-pr-pipeline-linux-batch.yml) and bisects a new red there. A step with
 `pr_scope = false` keeps its whole route on a pull request. An unknown diff still routes every step.
+
+`nightly` names the nightly.yml steps (`nightly.yml:<job>:<step>`) a step runs the same check as: a red there stops
+the nightly's publish or reds its run, found hours after the merge (Leo, 2026-11-27: "shouldn't a build check fail
+beforehand fast like fast-fail is useful ci all stuff"). Such a step keeps its whole route under `--pr-scope`, and
+pr_router.py starts it on a landing head of the affected tier (nightly_gate_steps), so the landing fails, not the
+nightly. .github/nightly-step-coverage.json maps the nightly step back to it ({"table": NAME};
+tests/test_nightly_step_coverage.py checks both directions).
+
+`land_gate = true` starts a step the same way on a landing head of the affected tier, with no nightly counterpart: a
+cheap check whose red, left to the post-merge batch, reds the base for every lane until a fix-forward lands. 11-27:
+cmux#61511 landed web/tests/vm-image-pin-cmux-tui.test.ts with type errors on a head where pr-pipeline.yml never
+ran (`cheap tier: starts when ready-to-land`), and web-typecheck stayed red on feat-cmux-next until #62788. It
+must block, and costs its own seconds plus a linux job only on a landing head its inputs route.
 
 Step results by input hash (the CI v2 design, "Caches: three, content-addressed", item 3). Before a
 routed step runs, `run` keys it: sha256 over the step's own table entry, the job's setup and the
@@ -62,6 +84,7 @@ import argparse
 import hashlib
 import json
 import os
+import platform
 import re
 import signal
 import subprocess
@@ -100,6 +123,10 @@ EVENT_VARS = (
 MACHINE_VARS = ("RUNNER_OS", "RUNNER_ARCH", "ImageOS", "DEVELOPER_DIR")
 PIPELINE_PATHS = ("ci/steps.toml", "ci/run", "scripts/ci/ci_steps.py", ".github/workflows/pr-pipeline.yml")
 ADVISORY_JOB = "advisory"
+# The OS (platform.system()) a job's steps run on, for `step`; a job not listed runs on Linux. `verdict` has no
+# machine, so `step` refuses its steps.
+STEP_JOB_OS = {"mac": "Darwin", "ios": "Darwin"}
+NO_MACHINE_JOBS = ("verdict",)
 LOG_LOCK = threading.Lock()
 CLASSES = ("feed", "named", "pr", "batch", "idle")
 
@@ -129,6 +156,15 @@ class Step:
     # False: a pull request's --pr-scope route keeps every input of this step (security-holes: a secret or a
     # workflow hole must not land to be found post-merge).
     pr_scope: bool = True
+    # "push": the pull request's own run leaves the step to the push tier (`--tier pr` skips it, `full` runs it).
+    tier: str = "pr"
+    # The nightly.yml steps this step runs the same check as (`nightly.yml:<job>:<step>`; the module's docs).
+    nightly: tuple[str, ...] = ()
+    # Runs on a landing head of the affected tier when routed, as a `nightly` step does (the module's docs).
+    land_gate: bool = False
+
+
+TIERS = ("pr", "push")
 
 
 @dataclass
@@ -203,7 +239,12 @@ def parse(doc: dict) -> Table:
             alone=raw.get("alone", False),
             reuse=raw.get("reuse", True),
             pr_scope=raw.get("pr_scope", True),
+            tier=raw.get("tier", "pr"),
+            nightly=tuple(raw.get("nightly", ())),
+            land_gate=raw.get("land_gate", False),
         )
+        if step.tier not in TIERS:
+            raise TableError(f"step {name}: `tier` is one of {TIERS}")
         if step.job not in jobs:
             raise TableError(f"step {name}: job {step.job!r} is not one of [jobs] {sorted(jobs)}")
         if not isinstance(step.blocks, bool):
@@ -214,6 +255,11 @@ def parse(doc: dict) -> Table:
             raise TableError(f"step {name}: `reuse` is true or false")
         if not isinstance(step.pr_scope, bool):
             raise TableError(f"step {name}: `pr_scope` is true or false")
+        if not all(isinstance(n, str) and re.fullmatch(r"nightly\.yml:[^:]+:.+", n) for n in step.nightly) or (
+                step.nightly and not step.blocks):
+            raise TableError(f"step {name}: `nightly` lists a blocking step's nightly.yml:<job>:<step> counterparts")
+        if not isinstance(step.land_gate, bool) or (step.land_gate and not step.blocks):
+            raise TableError(f"step {name}: `land_gate` is true or false, on a blocking step")
         if step.klass not in CLASSES:
             raise TableError(f"step {name}: class {step.klass!r} is not one of {CLASSES}")
         if not step.blocks and (step.job != ADVISORY_JOB or step.klass != "idle"):
@@ -246,7 +292,7 @@ def named_input(glob: str) -> bool:
 def routed(step: Step, paths: list[str] | None, pr_scope: bool = False) -> bool:
     """Whether a diff of `paths` needs the step. No inputs, or an unknown diff, routes it. PR_SCOPE: only the step's
     named inputs route it, and a change to the pipeline does not route every step (see the module's `--pr-scope`)."""
-    narrow = pr_scope and step.pr_scope
+    narrow = pr_scope and step.pr_scope and not step.nightly and not step.land_gate
     if not step.inputs or paths is None or (not narrow and any(p in PIPELINE_PATHS for p in paths)):
         return True
     patterns = [glob_pattern(g) for g in step.inputs if not narrow or named_input(g)]
@@ -258,10 +304,20 @@ def routed(step: Step, paths: list[str] | None, pr_scope: bool = False) -> bool:
     return any(p.match(path) and kept(path) for path in paths for p in patterns)
 
 
+def nightly_gate_steps(table: Table, paths: list[str] | None, jobs: tuple[str, ...] | list[str] = ()) -> list[str]:
+    """The steps with a `nightly` counterpart or `land_gate` a diff of PATHS routes (every input kept), in JOBS when
+    given."""
+    return [step.name for step in table.steps.values()
+            if (step.nightly or step.land_gate) and (not jobs or step.job in jobs) and routed(step, paths, pr_scope=True)]
+
+
 def route(table: Table, paths: list[str] | None, label: str | None = None,
-          pr_scope: bool = False) -> dict[str, list[str]]:
+          pr_scope: bool = False, tier: str = "full") -> dict[str, list[str]]:
+    """Each job's routed steps. TIER "pr" leaves out the steps marked `tier = "push"`; "full" keeps every step."""
     jobs: dict[str, list[str]] = {}
     for step in table.steps.values():
+        if tier == "pr" and step.tier == "push":
+            continue
         if label is not None and label not in step.labels:
             continue
         if routed(step, paths, pr_scope):
@@ -551,10 +607,11 @@ def step_env(base: Mapping[str, str], tools: str) -> dict[str, str]:
 
 def run_job(table: Table, job: str, paths: list[str] | None, label: str | None = None, out=sys.stdout,
             workers: int | None = None, only: list[str] | None = None, store: StepResults | None = None,
-            root: Path = ROOT, pr_scope: bool = False, tools_only: bool = False) -> int:
-    names = route(table, paths, label, pr_scope).get(job, [])
+            root: Path = ROOT, pr_scope: bool = False, tier: str = "full", tools_only: bool = False,
+            alone_on_red: bool = False, strict: bool = False) -> int:
+    names = route(table, paths, label, pr_scope=pr_scope, tier=tier).get(job, [])
     if pr_scope:
-        deferred = [n for n in route(table, paths, label).get(job, []) if n not in names]
+        deferred = [n for n in route(table, paths, label, tier=tier).get(job, []) if n not in names]
         if deferred:
             print(f"--pr-scope: {len(deferred)} step(s) this change reaches only through a whole-directory input or the "
                   f"pipeline's own files run in the post-merge batch, not here: {', '.join(deferred)}", file=out)
@@ -629,12 +686,13 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
                 results += pool.map(run_and_print, [s for s in steps if not s.alone])
             # An `alone` step takes the whole machine: it runs by itself, after the others, in table order.
             # Once a blocking step failed the job is red, and the re-run runs every step again: an alone step
-            # (the long ones: 15 to 65 minutes) would only spend the machine, so it is skipped.
+            # (the long ones: 15 to 65 minutes) would only spend the machine, so it is skipped. `alone_on_red`
+            # (the post-merge batch, which nothing re-runs) runs it anyway: it is that commit's only run of it.
             for s in steps:
                 if not s.alone:
                     continue
                 failed = next((r.step.name for r in results if not r.ok and r.step.blocks), None)
-                if failed is None:
+                if failed is None or alone_on_red:
                     results.append(run_and_print(s))
                     continue
                 print(f"::notice title=Step table::step {s.name} skipped: blocking step {failed} failed", file=out)
@@ -651,15 +709,39 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
                       f"inputs did not hold (the key is evicted)", file=out)
         if store.error:
             print(f"::warning title=Step results::{store.url} {store.error}; nothing reused or stored", file=out)
-    return finish(results, job, out)
+    return finish(results, job, out, strict=strict)
 
 
-def finish(results: list[Result], job: str, out=sys.stdout) -> int:
+def finish(results: list[Result], job: str, out=sys.stdout, strict: bool = False) -> int:
     summary = report(results, job, out, logs=False)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
             f.write(summary)
-    return 1 if any(not r.ok and r.step.blocks for r in results) else 0
+    # STRICT (`step`): the one step's own verdict, a step that does not block included.
+    return 1 if any(not r.ok and (r.step.blocks or strict) for r in results) else 0
+
+
+def run_named_step(table: Table, name: str, out=sys.stdout, workers: int | None = None, root: Path = ROOT,
+             system: str | None = None) -> int:
+    """`step NAME`: the one step, as its job runs it, with its own verdict (the module's docs). 2: no such step, or
+    its job runs on another OS (a Linux step on a Mac would say nothing about the Linux check)."""
+    step = table.steps.get(name)
+    if step is None:
+        print(f"ci/run step: no step {name!r} in {TABLE.relative_to(ROOT)} at this commit", file=out)
+        return 2
+    if step.job in NO_MACHINE_JOBS:
+        print(f"ci/run step: step {name} is in job {step.job}, which runs on no machine", file=out)
+        return 2
+    want = STEP_JOB_OS.get(step.job, "Linux")
+    here = system or platform.system()
+    if here != want:
+        print(f"ci/run step: step {name} is in job {step.job}, which runs on {want}; this machine is {here}", file=out)
+        return 2
+    label = step.labels[0] if step.labels else None
+    print(f"ci/run step: {name} (job {step.job}{', label ' + label if label else ''})", file=out, flush=True)
+    code = run_job(table, step.job, None, label, out=out, workers=workers, only=[name], store=None, root=root,
+                   tier="full", alone_on_red=True, strict=True)
+    return code
 
 
 def read_paths(path: str | None) -> list[str] | None:
@@ -680,30 +762,42 @@ def main(argv: list[str] | None = None) -> int:
     r = sub.add_parser("route")
     r.add_argument("--paths-file")
     r.add_argument("--pr-scope", action="store_true", help="route by named inputs only (see the module's docs)")
+    r.add_argument("--tier", choices=("pr", "full"), default="full",
+                   help="pr: leave the steps marked `tier = \"push\"` to the push tier; full (default): every routed step")
+    one = sub.add_parser("step", help="run one step by name here and exit with its verdict (the module's docs)")
+    one.add_argument("name")
+    one.add_argument("--workers", type=int, default=0)
     x = sub.add_parser("run")
     x.add_argument("--job", required=True)
     x.add_argument("--paths-file")
     x.add_argument("--label", default="", help="the label of a labeled or unlabeled event; empty for other events")
     x.add_argument("--workers", type=int, default=0, help="steps at once (default: the machine's CPUs)")
+    x.add_argument("--tier", choices=("pr", "full"), default="full",
+                   help="pr: leave the steps marked `tier = \"push\"` to the push tier; full (default): every routed step")
     x.add_argument("--only", default="", help="run only these routed steps (comma or space separated); empty: all")
     x.add_argument("--tools-only", action="store_true",
                    help="run the job's setup and the tools its routed steps need, then no step (a cache warm)")
     x.add_argument("--pr-scope", action="store_true",
                    help="a pull request's route: a step reached only by a whole-directory input or the pipeline's own "
                         "files is left to the post-merge batch")
+    x.add_argument("--alone-on-red", action="store_true", default=os.environ.get("CI_RUN_ALONE_ON_RED") == "1",
+                   help="run the `alone` steps even after a blocking step failed (the post-merge batch: no re-run); "
+                        "CI_RUN_ALONE_ON_RED=1 says the same")
     args = parser.parse_args(argv)
     table = load(Path(args.table))
-    paths = read_paths(args.paths_file)
+    paths = read_paths(getattr(args, "paths_file", None))
     if args.command == "route":
-        print(json.dumps(route(table, paths, pr_scope=args.pr_scope), indent=1, sort_keys=True))
+        print(json.dumps(route(table, paths, pr_scope=args.pr_scope, tier=args.tier), indent=1, sort_keys=True))
         return 0
+    if args.command == "step":
+        return run_named_step(table, args.name, workers=args.workers or None, root=Path.cwd())
     if args.job not in table.jobs:
         parser.error(f"--job {args.job!r} is not one of {sorted(table.jobs)}")
     # A label event runs only the steps that name the label: those read the event, so none is reused.
     store = None if args.label or args.tools_only else StepResults.from_env(dict(os.environ))
     return run_job(table, args.job, paths, args.label or None, workers=args.workers or None,
-                   only=parse_only(args.only), store=store, root=Path.cwd(), pr_scope=args.pr_scope,
-                   tools_only=args.tools_only)
+                   only=parse_only(args.only), store=store, root=Path.cwd(), pr_scope=args.pr_scope, tier=args.tier,
+                   tools_only=args.tools_only, alone_on_red=args.alone_on_red)
 
 
 if __name__ == "__main__":

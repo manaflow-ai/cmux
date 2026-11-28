@@ -54,6 +54,21 @@ impl Origin {
         matches!(self, Self::System | Self::Custom | Self::Tool(_))
     }
 
+    /// Whether a source of the origin whose case is `name` ([`Self::name`]) takes drops; false for
+    /// a name that is no case.
+    pub fn named_accepts_drops(name: &str) -> bool {
+        [
+            Self::System,
+            Self::SystemPreview,
+            Self::Tool(Tool::CleanShotX),
+            Self::ToolHistory(Tool::CleanShotX),
+            Self::Custom,
+        ]
+        .into_iter()
+        .find(|origin| origin.name() == name)
+        .is_some_and(Self::accepts_drops)
+    }
+
     /// The C ABI name of the origin's case.
     pub const fn name(self) -> &'static str {
         match self {
@@ -134,13 +149,13 @@ fn percent_decode(text: &str) -> Option<String> {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' {
+    while let Some(&current) = bytes.get(i) {
+        if current == b'%' {
             let hex = text.get(i + 1..i + 3)?;
             out.push(u8::from_str_radix(hex, 16).ok()?);
             i += 3;
         } else {
-            out.push(bytes[i]);
+            out.push(current);
             i += 1;
         }
     }
@@ -162,10 +177,7 @@ impl<'a, E: Environment + ?Sized> Detector<'a, E> {
     pub fn expand(&self, value: &str) -> Option<String> {
         let text = value.trim();
         if let Some(rest) = text.strip_prefix("file://") {
-            let path = match rest.find('/') {
-                Some(slash) => &rest[slash..],
-                None => return None,
-            };
+            let path = rest.get(rest.find('/')?..)?;
             let path = path.split(['?', '#']).next().unwrap_or_default();
             return Some(standardize(&percent_decode(path)?));
         }

@@ -182,6 +182,7 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
         let chromium = planned.indices.filter { planned[$0].arguments == [Self.chromiumArgument] }
         let first = planned.indices.filter { !chromium.contains($0) }
         for wave in [first, chromium] where !wave.isEmpty {
+            if Task.isCancelled { break }  // stopped for the install: no further run starts
             let remaining = total - (ContinuousClock.now - runsStarted)
             await withTaskGroup(of: (Int, String)?.self) { group in
                 for index in wave {
@@ -225,6 +226,12 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
             }
         }
         var ran = parts.keys.sorted().compactMap { parts[$0] }
+        // Stopped (``UpdaterService/stopPrewarm(_:)``): an install moves these files now, or a cancel removes them, so
+        // nothing more of them is read, and the marker keeps the step it reached.
+        if Task.isCancelled {
+            return "launch pre-warm of \(build) (\(bundle.lastPathComponent)): stopped"
+                + (ran.isEmpty ? "" : " after " + ran.joined(separator: ", "))
+        }
         // The framework's pages a renderer and the GPU process run, which the helpers' --version never touched
         // (``readPages(under:)``). Its own idle slot on the files lane: the best-effort one may still hold the
         // rollback keep, and nobody waits for this.

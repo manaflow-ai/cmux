@@ -169,7 +169,7 @@ fn push(
             OPERATION,
             "upstream_mismatch",
             format!(
-                "{branch} tracks {upstream}; choose the destination with git push --set-upstream {remote} {branch} in a terminal, then try again"
+                "{branch} tracks {upstream}; choose the destination with git push --set-upstream {remote} {branch} in a terminal"
             ),
             json!({"branch": branch, "upstream": upstream, "remote": remote}),
         ));

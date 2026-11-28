@@ -211,7 +211,7 @@ pub fn disabled(element: &Element) -> Option<Refusal> {
     element.disabled.then(|| Refusal {
         code: "element_disabled",
         message: format!(
-            "[{}] {} is disabled (dimmed), so acting on it does nothing. Do what enables it first (for example fill the fields it needs), then check its state in the result before trying again.",
+            "[{}] {} is disabled (dimmed), so acting on it does nothing. Do what enables it first (for example fill the fields it needs), then check in the result that it is enabled.",
             element.id,
             named(element)
         ),

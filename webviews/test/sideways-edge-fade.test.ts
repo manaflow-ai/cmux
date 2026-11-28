@@ -6,7 +6,9 @@
 // mask in conversation.css and the Markdown viewer's styles.css.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { watchSideways } from "../src/agent-session/acpmux/conversation/sideways";
+import { importWithDom } from "./support/importWithDom";
+
+const { watchSideways } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/sideways"));
 
 let window: JSDOM["window"];
 

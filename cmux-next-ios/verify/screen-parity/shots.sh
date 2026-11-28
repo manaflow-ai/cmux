@@ -6,13 +6,20 @@
 #
 # fleet hands the rows of screens.tsv to the build fleet's `shots` step (scripts/ci/cmux-next-ios-sim.sh, class
 # simulator): it builds the app at SHA, boots MODEL, overrides the status bar to 9:41 and takes each scene in light
-# and dark after SETTLE_S. The NAME-light and NAME-dark rows are one scene there and must share their environment.
+# and dark after FLEET_WAIT_S. The NAME-light and NAME-dark rows are one scene there and must share their
+# environment.
 # It writes the same OUT_DIR/NAME.png and meta.json as simctl, plus the step's SUMMARY.md. No Mac or Xcode is
 # needed on this host.
 #
 # simctl needs the app installed already (simctl install). For each row of screens.tsv it sets the appearance,
 # relaunches the app on that fixture screen and waits for a settled frame (two screenshots in a row with the same
-# bytes, after SETTLE_S), then writes OUT_DIR/NAME.png.
+# bytes, STABLE_GAP_S apart, after SETTLE_S), then writes OUT_DIR/NAME.png.
+#
+# Both waits outlast the fixture's script. ListStressRig.open clicks through to its screen for up to ~9 s after the
+# app starts (artifacts: open the chat, the artifacts, then the grid), holding each step still for up to 3 s. The
+# fleet step has no settled-frame check, only one pause, so FLEET_WAIT_S (14) covers launch plus the longest script;
+# at 6 s it raced the artifacts grid, which opens ~5.6 s after the app starts. simctl's two equal frames must be
+# 5 s apart, longer than any still step, so only the held screen can match.
 #
 # OUT_DIR/meta.json records the backend, model, scale and effects that compare.py reads. EFFECTS (full | reduced)
 # is recorded as given; the caller sets it.
@@ -28,6 +35,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 screens=${SCREENS_TSV:-$here/screens.tsv}
 settle=${SETTLE_S:-6}
 tries=${STABLE_TRIES:-10}
+gap=${STABLE_GAP_S:-5}
+fleet_wait=${FLEET_WAIT_S:-14}
 model=${MODEL:-iPhone 17 Pro}
 effects=${EFFECTS:-unknown}
 only=${ONLY:-}
@@ -72,7 +81,7 @@ if [ "$backend" = fleet ]; then
     base=${name%-"$look"}
     [ "$base-$look" = "$name" ] || { echo "screens.tsv: $name: name fleet rows BASE-light / BASE-dark" >&2; exit 2; }
     words=$(tr -s ' ' ',' <<<"$envline")
-    scene="$base=SHOT_WAIT=$settle${words:+,$words}"
+    scene="$base=SHOT_WAIT=$fleet_wait${words:+,$words}"
     case "$seen" in
       *$'\n'"$scene"$'\n'*) continue ;;
       *$'\n'"$base="*) echo "screens.tsv: $base: light and dark differ in environment" >&2; exit 2 ;;
@@ -86,11 +95,33 @@ if [ "$backend" = fleet ]; then
   rm -rf "$scratch"
   mkdir -p "$scratch"
   status=0
+  # FLEET_QUEUE_S bounds the queue wait (0, the client's default: unbounded). FLEET_PRIORITY ranks the step (agent,
+  # pr, idle): a base-branch seed render runs as pr, since as a plain agent step 45993456716 sat 75 min behind 8 older
+  # agent steps (simulator p90 queue wait 392 min) and was cancelled before a worker took it.
+  rank=(--queue-timeout "${FLEET_QUEUE_S:-0}")
+  # FLEET_KEY (a seed render: the golden's input-hash name) is the step's idempotency key, so a step that outlasts
+  # this job's queue bound keeps its place and the next run of the same inputs re-attaches to it instead of queueing
+  # anew: 46021311352 waited 60 min behind a 222 min p90 simulator queue and gave its place back.
+  [ -z "${FLEET_KEY:-}" ] || rank+=(--key "$FLEET_KEY")
+  if [ -n "${FLEET_PRIORITY:-}" ] && "$client" run --help 2>/dev/null | grep -q -- '--priority {'; then
+    rank+=(--priority "$FLEET_PRIORITY")
+    [ "${FLEET_QUEUE_S:-0}" = 0 ] || rank+=(--deadline "${FLEET_QUEUE_S}s")
+  fi
   "$client" run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$sha" \
-    --timeout "${FLEET_TIMEOUT_S:-3600}" --artifact artifacts/ios-sim/evidence.zip \
+    --timeout "${FLEET_TIMEOUT_S:-3600}" "${rank[@]}" --artifact artifacts/ios-sim/evidence.zip \
     --arg shots --arg statusbar=clean --arg "device=${model// /,}" "${scene_args[@]}" 2>&1 | tee "$log" || status=$?
   step=$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2 || true)
   [ -n "$step" ] || { echo "fleet: no step id in the client's output (exit $status)" >&2; exit 1; }
+  # 75: the step never left the queue. Keyed, it keeps its place for the next run of the same key; unkeyed it would
+  # run for nobody, so take it back.
+  if [ "$status" = 75 ] && [ -n "${FLEET_KEY:-}" ]; then
+    echo "fleet: step $step is still queued after ${FLEET_QUEUE_S:-0}s; it keeps its place under key $FLEET_KEY: run again to re-attach" >&2
+    exit 75
+  fi
+  if [ "$status" = 75 ]; then
+    "$client" cancel --reason "screen-parity shots: not out of the queue in ${FLEET_QUEUE_S:-0}s" "$step" || true
+    echo "fleet: step $step did not leave the queue in ${FLEET_QUEUE_S:-0}s" >&2; exit 1
+  fi
   "$client" artifact "$step" "$scratch/evidence.zip" || "$client" artifact --failed "$step" "$scratch/evidence.zip" ||
     { echo "fleet: step $step (exit $status) returned no artifact" >&2; exit 1; }
   unzip -oq "$scratch/evidence.zip" -d "$scratch/x"
@@ -156,7 +187,7 @@ while IFS=$'\t' read -r name look envline; do
       if [ "$h" = "$prev" ]; then ok=1; break; fi
       prev=$h
     fi
-    sleep 2
+    sleep "$gap"
   done
   if [ -f "$out/$name.png.tmp" ]; then
     mv "$out/$name.png.tmp" "$out/$name.png"

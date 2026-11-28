@@ -13,6 +13,8 @@ const DEFAULT_LEASE_SECONDS: u64 = 30;
 const DEFAULT_JOIN_TIMEOUT_SECONDS: u64 = 15;
 const DEFAULT_IDLE_TIMEOUT_SECONDS: u64 = 300;
 const DEFAULT_HANDSHAKE_TIMEOUT_SECONDS: u64 = 10;
+/// Off: a socket's first control message must attach it (register, connect, join).
+const DEFAULT_PREATTACH_HOLD_SECONDS: u64 = 0;
 const DEFAULT_CONTROL_IDLE_TIMEOUT_SECONDS: u64 = 120;
 const DEFAULT_HTTP_HEADER_TIMEOUT_SECONDS: u64 = 5;
 const DEFAULT_HTTP_KEEPALIVE_TIMEOUT_SECONDS: u64 = 600;
@@ -41,6 +43,10 @@ pub struct RelayConfig {
     pub join_timeout: Duration,
     pub idle_timeout: Duration,
     pub handshake_timeout: Duration,
+    /// How long a socket may wait unattached, answering `Ping` controls, before its first
+    /// register, connect or join: a dialer's standby socket. Each wait between messages is
+    /// still bounded by `handshake_timeout`. Zero (the default) turns the hold off.
+    pub preattach_hold: Duration,
     pub control_idle_timeout: Duration,
     pub http_header_timeout: Duration,
     pub http_keepalive_timeout: Duration,
@@ -71,6 +77,7 @@ impl Default for RelayConfig {
             join_timeout: Duration::from_secs(DEFAULT_JOIN_TIMEOUT_SECONDS),
             idle_timeout: Duration::from_secs(DEFAULT_IDLE_TIMEOUT_SECONDS),
             handshake_timeout: Duration::from_secs(DEFAULT_HANDSHAKE_TIMEOUT_SECONDS),
+            preattach_hold: Duration::from_secs(DEFAULT_PREATTACH_HOLD_SECONDS),
             control_idle_timeout: Duration::from_secs(DEFAULT_CONTROL_IDLE_TIMEOUT_SECONDS),
             http_header_timeout: Duration::from_secs(DEFAULT_HTTP_HEADER_TIMEOUT_SECONDS),
             http_keepalive_timeout: Duration::from_secs(DEFAULT_HTTP_KEEPALIVE_TIMEOUT_SECONDS),
@@ -121,6 +128,9 @@ impl RelayConfig {
         if let Some(value) = lookup("CMUX_RELAY_HANDSHAKE_TIMEOUT_SECONDS") {
             self.handshake_timeout =
                 parse_duration("CMUX_RELAY_HANDSHAKE_TIMEOUT_SECONDS", &value)?;
+        }
+        if let Some(value) = lookup("CMUX_RELAY_PREATTACH_HOLD_SECONDS") {
+            self.preattach_hold = parse_duration("CMUX_RELAY_PREATTACH_HOLD_SECONDS", &value)?;
         }
         if let Some(value) = lookup("CMUX_RELAY_CONTROL_IDLE_TIMEOUT_SECONDS") {
             self.control_idle_timeout =
@@ -273,7 +283,7 @@ impl RelayConfig {
 
 #[derive(Clone)]
 pub enum RelayCommand {
-    Serve(RelayConfig),
+    Serve(Box<RelayConfig>),
     Ticket {
         secret: Vec<u8>,
         issuer: String,
@@ -418,7 +428,7 @@ impl RelayCommand {
             }
         }
         config.validate()?;
-        Ok(Self::Serve(config))
+        Ok(Self::Serve(Box::new(config)))
     }
 
     fn parse_ticket(

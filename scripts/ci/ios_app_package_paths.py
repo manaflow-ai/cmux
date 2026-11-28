@@ -45,11 +45,12 @@ import ios_link_ffi_key  # noqa: E402
 # The app's manifests: the XcodeGen project and the kit package.
 APP_MANIFESTS = ("cmux-next-ios/project.yml", "cmux-next-ios/CmuxMobileKit/Package.swift")
 
-# Workflows whose pull_request and push filters must name exactly the app's packages.
-WORKFLOWS = (".github/workflows/ios-review-gate.yml", ".github/workflows/cmux-next-ios-kit.yml")
-# The triggers each workflow filters. The kit workflow keeps only its push: a feat-cmux-next pull request runs
-# the kit as TABLE_STEP (pr-pipeline.yml's ios job).
-WORKFLOW_EVENTS = {".github/workflows/cmux-next-ios-kit.yml": ("push",)}
+# Workflows whose pull_request and push filters must name exactly the app's packages. cmux-next-ios-kit.yml has
+# no path filter left: a feat-cmux-next pull request runs the kit as TABLE_STEP (pr-pipeline.yml's ios job) and the
+# push runs it in the post-merge batch (suite pr-pipeline-ios, gated on the same step inputs).
+WORKFLOWS = (".github/workflows/ios-review-gate.yml",)
+# The triggers each workflow filters (default: both).
+WORKFLOW_EVENTS: dict[str, tuple[str, ...]] = {}
 # The step table and its step whose `inputs` must name exactly the app's packages.
 TABLE = "ci/steps.toml"
 TABLE_STEP = "ios-kit"
@@ -134,10 +135,13 @@ RUST_ROOTS = ("cmux-tui/crates/", "cmux-tui/vendor/")
 
 def rust_inputs(packages: list[str], roots: list[str]) -> list[str]:
     """The ios-kit input patterns the FFI's Cargo closure needs outside cmux-next-ios/ (which `cmux-next-ios/**`
-    covers): each package's tree, each workspace root's manifest and lock, the fixed files the build reads."""
+    covers): each package's tree, each workspace root's manifest, the fixed files the build reads. Cargo reads only
+    the building workspace's (cmux-next-ios/rust) Cargo.lock, so another root's lock is no input, as in
+    ios_link_ffi_key's key: a cmux-tui/Cargo.lock-only change took a Mac for 8 of 95 branches (200 of 2,258 min)
+    of the ios fast verdict on 2026-11-27 16-20Z."""
     want = {f"{pkg}/**" for pkg in packages}
     for root in roots:
-        want |= {f"{root}/Cargo.toml", f"{root}/Cargo.lock"}
+        want.add(f"{root}/Cargo.toml")
     want |= set(ios_link_ffi_key.FIXED)
     return sorted(p for p in want if not p.startswith("cmux-next-ios/"))
 
@@ -187,7 +191,7 @@ def check(root: Path = ROOT, rust: tuple[list[str], list[str]] | None = None) ->
         for pattern in sorted(want - set(lines)):
             problems.append(f"{where} misses {pattern} (the app links it)")
         for line in lines:
-            if line.startswith("!") or "/Resources/" in line or not line.startswith(PACKAGE_ROOTS):
+            if line.startswith("!") or not line.startswith(PACKAGE_ROOTS):
                 continue
             if line not in want:
                 problems.append(f"{where} names {line}, which the app does not link")

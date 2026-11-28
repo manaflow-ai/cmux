@@ -22,6 +22,7 @@ import {
   HistoryOps,
   type CookieBackup,
   type CookieBackupsDeleted,
+  type HistoryActor,
   type HistoryChanged,
   type HistoryEntry,
   type HistoryListParams,
@@ -36,6 +37,8 @@ export interface HistorySnapshot {
   filter: HistoryFilter;
   /** How far back the list reaches (the When menu); "all" reads every entry. */
   range: HistoryRange;
+  /** Whose page visits the list shows (RFD 0125 D5): the person's unless asked. */
+  actor: HistoryActor;
   grouping: HistoryGrouping;
   entries: HistoryEntry[];
   groups: HistoryGroup[];
@@ -86,6 +89,7 @@ export class HistoryStore {
       text: "",
       filter: "all",
       range: "all",
+      actor: "mine",
       grouping: "day",
       entries: [],
       groups: [],
@@ -339,6 +343,12 @@ export class HistoryStore {
     void this.reload();
   }
 
+  setActor(actor: HistoryActor): void {
+    if (actor === this.snapshot.actor) return;
+    this.set({ actor });
+    void this.reload();
+  }
+
   setGrouping(grouping: HistoryGrouping): void {
     if (grouping === this.snapshot.grouping) return;
     this.set({ grouping, groups: groupEntries(this.snapshot.entries, grouping) });
@@ -352,9 +362,10 @@ export class HistoryStore {
   async reload(): Promise<void> {
     if (!this.client) return;
     const generation = ++this.generation;
-    const { text, filter, range } = this.snapshot;
+    const { text, filter, range, actor } = this.snapshot;
     const params: HistoryListParams = { kinds: filterKinds(filter), text, limit: PAGE_LIMIT };
     if (range !== "all") params.range = range;
+    if (actor !== "mine") params.actor = actor;
     if (!this.snapshot.loading) this.set({ loading: true });
     try {
       const result = await this.client.call<HistoryListResult>(HistoryOps.list, params);

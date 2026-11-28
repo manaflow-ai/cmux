@@ -528,6 +528,7 @@ fn the_first_bind_steps_again_after_any_stop_since_the_last_step() {
         pauses,
         last_look_ns,
         pause_from_ns: i128::from(crate::agent::PAUSE_FROM_NONE),
+        waking_after_ns: 30_000_000_000,
     };
     let (offset, boot) = (50 * second, 100 * second);
     // Never stepped in this process (or the bake's snapshot never did): step.
@@ -714,8 +715,8 @@ fn a_pause_the_watch_found_starts_the_connect_hold() {
     let gate = gate::Gate::new(&paths);
     let watch = watch_at_b0();
     let handled = AtomicU64::new(watch.pause_seq());
-    // An ordinary minute, the watch looking every 10 s: no hold.
-    watch.looked(at(60).0, false);
+    // An ordinary minute, the watch looking every second: no hold.
+    watch.looked(at(64).0, false);
     assert!(!role::hold_if_paused(&paths, &watch, &handled, at(65)));
     assert_eq!(gate.held_left(at(65).1).unwrap(), None);
     // Paused 40 minutes in its pool, then claimed: the watch found it.
@@ -724,6 +725,7 @@ fn a_pause_the_watch_found_starts_the_connect_hold() {
     assert!(role::hold_if_paused(&paths, &watch, &handled, resumed));
     assert_eq!(gate.held_left(resumed.1).unwrap(), Some(role::CONNECT_HOLD));
     // Handled: the next look, with the watch fresh, holds no more.
+    watch.looked(at(65 + 2404).0, false);
     assert!(!role::hold_if_paused(&paths, &watch, &handled, at(65 + 2405)));
 }
 
@@ -779,8 +781,8 @@ fn a_pause_the_watch_has_not_woken_from_yet_holds() {
     let paths = Paths::new(dir.path());
     let watch = watch_at_b0();
     let handled = AtomicU64::new(watch.pause_seq());
-    // 25 s since its last look: within a tick and its slack.
-    assert!(!role::hold_if_paused(&paths, &watch, &handled, at(25)));
+    // 2 s since its last look: within a tick and its slack.
+    assert!(!role::hold_if_paused(&paths, &watch, &handled, at(2)));
     // 3 minutes since: the machine was stopped.
     assert!(role::hold_if_paused(&paths, &watch, &handled, at(180)));
     assert!(gate::Gate::new(&paths).held_left(at(180).1).unwrap().is_some());
@@ -2035,6 +2037,34 @@ fn the_updater_looks_again_within_20_s_idle_or_busy() {
     }
     let spread: BTreeSet<_> = (0..64u64).map(|i| role::next_look(&outcomes[1], i * 977)).collect();
     assert!(spread.len() > 8, "the jitter spreads the looks: {spread:?}");
+}
+
+/// An idle machine (no turn, no attached carrier session) stops reading the
+/// channel for longer than the provider's 300 s idle timeout, so the VM can
+/// pause; a busy machine, or a look that read nothing, keeps the 15 s look.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_idle_machine_goes_quiet_past_the_provider_idle_timeout() {
+    use std::time::Duration;
+    let reads = [
+        role::Outcome::Current("c".to_owned()),
+        role::Outcome::Older,
+        role::Outcome::RolledBackBefore,
+        role::Outcome::Failed("reading the channel: timeout".to_owned()),
+    ];
+    for outcome in &reads {
+        for draw in [0, 3_750, u64::MAX] {
+            let idle = role::next_look_when(outcome, true, draw);
+            assert!(idle > Duration::from_secs(300), "{outcome:?} idle: {idle:?}");
+            assert_eq!(role::next_look_when(outcome, false, draw), role::next_look(outcome, draw));
+        }
+    }
+    let busy = role::Outcome::Busy(vec!["1 carrier session(s) attached".to_owned()]);
+    let off = role::Outcome::Off("off".to_owned());
+    for outcome in [&busy, &off] {
+        assert!(!role::read_channel_look(outcome));
+        assert_eq!(role::next_look_when(outcome, true, 7), role::next_look(outcome, 7));
+    }
 }
 
 #[test]

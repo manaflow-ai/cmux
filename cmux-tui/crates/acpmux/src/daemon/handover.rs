@@ -2,7 +2,6 @@
 //! running daemon's endpoint. The app uses this path instead of CLI auto-start.
 
 use std::path::Path;
-#[cfg(unix)]
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -26,17 +25,33 @@ pub(super) enum Started {
 /// Wait for the lock to become ours or for its winner to answer at this launch's
 /// socket. A stopping old daemon may have no successor yet, so this launch still
 /// tries the normal nonblocking acquisition. It never removes another daemon's
-/// files. A live lock holder is retried until it answers or releases the lock.
+/// files. A live lock holder is retried until it answers or releases the lock, or, on Unix, until
+/// it is hung: no probe of this wait reached it and its beat stopped, both for longer than the
+/// bound of its phase (`hung_holder.rs`); then it is replaced, once proven this home's daemon.
 pub(super) async fn wait(home: &Path, socket: &Path) -> Option<Started> {
+    let lock = home.join("daemon.lock");
+    #[cfg(unix)]
+    let bounds = super::hung_holder::Bounds::current();
+    #[cfg(not(unix))]
+    let probe_bound = Duration::from_secs(20);
+    #[cfg(unix)]
+    let probe_bound = bounds.probe;
+    // The holder this wait watches, and since when no probe of it was answered.
+    let mut watched: Option<u32> = None;
+    let mut unanswered_since = tokio::time::Instant::now();
+    let mut said = tokio::time::Instant::now();
     loop {
-        match super::acquire_lock(&home.join("daemon.lock")) {
+        match super::acquire_lock(&lock) {
             Ok(lock) => return Some(Started::Acquired(lock)),
             Err(e) if e.downcast_ref::<super::LockHeld>().is_some() => {}
             Err(_) => return None,
         }
-        if let Ok(client) = crate::client::Client::connect(socket).await
-            && let Ok(status) = client.request(crate::rpc::method::MUX_STATUS, json!({})).await
-        {
+        // Bounded: a connect into a queue nobody accepts from waits forever otherwise.
+        let probe = async {
+            let client = crate::client::Client::connect(socket).await.ok()?;
+            client.request(crate::rpc::method::MUX_STATUS, json!({})).await.ok()
+        };
+        if let Ok(Some(status)) = tokio::time::timeout(probe_bound, probe).await {
             // ACPMUX_SOCKET may name another home's daemon. Its endpoint is
             // not this launch's winner, even though it answers.
             if status.get("home").and_then(Value::as_str).map(Path::new) != Some(home)
@@ -55,6 +70,46 @@ pub(super) async fn wait(home: &Path, socket: &Path) -> Option<Started> {
                 "webUrl": status["webUrl"],
             })));
         }
+        #[cfg(unix)]
+        {
+            let holder = super::lock::live_holder_pid(&lock);
+            if holder != watched {
+                // Another holder (a successor, or the first look): its own clock.
+                watched = holder;
+                unanswered_since = tokio::time::Instant::now();
+            }
+            if let Some(pid) = holder {
+                let unanswered = unanswered_since.elapsed();
+                let beat = super::hung_holder::beat_of(home, pid);
+                if super::hung_holder::stalled(unanswered, beat, bounds) {
+                    let why = format!(
+                        "daemon {pid} holds the lock but answered no probe for {}s and its beat \
+                         is {} old",
+                        unanswered.as_secs(),
+                        beat.map_or("missing".to_owned(), |(_, age)| format!("{}s", age.as_secs()))
+                    );
+                    match super::hung_holder::replace(home, &why).await {
+                        // The lock is free or a successor holds it: look again now.
+                        Ok(_) => continue,
+                        Err(refusal) => {
+                            tracing::warn!("{why}; not replacing it: {refusal}");
+                            // Its clock starts again: one refusal a bound, not one a retry.
+                            unanswered_since = tokio::time::Instant::now();
+                        }
+                    }
+                }
+            }
+            if said.elapsed() >= super::hung_holder::WAITER_SAYS_EVERY {
+                said = tokio::time::Instant::now();
+                tracing::info!(
+                    holder = ?holder,
+                    "still waiting for the lock holder; no answer for {}s",
+                    unanswered_since.elapsed().as_secs()
+                );
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = (&mut watched, &mut unanswered_since, &mut said);
         tokio::time::sleep(super::HANDOVER_RETRY).await;
     }
 }

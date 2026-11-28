@@ -440,7 +440,7 @@ pub(super) async fn upload_opened(
         let after = file.metadata().await?;
         anyhow::ensure!(
             after.len() == size && after.modified().ok() == meta.modified().ok(),
-            "{label} changed while it was sent; send it again once writing finishes"
+            "{label} changed while it was sent: another program is still writing it"
         );
         anyhow::Ok(())
     };

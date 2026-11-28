@@ -62,11 +62,11 @@ yardstick=(
   cmux-tui/crates/cmux-tui/tests/mobile_link_conditions.rs
   cmux-tui/crates/acpmux/tests/mobile_link_conditions.rs
 )
-cleanup() { for t in "${trees[@]}"; do git -C "$root" worktree remove --force "$work/${t%%:*}" 2>/dev/null || true; done; }
+cleanup() { for t in ${trees[@]+"${trees[@]}"}; do git -C "$root" worktree remove --force "$work/${t%%:*}" 2>/dev/null || true; done; }
 trap cleanup EXIT
 
 : >"$out/lines.txt"
-for spec in "${trees[@]}"; do
+for spec in ${trees[@]+"${trees[@]}"}; do
   tree="${spec%%:*}" benches="scroll+chat"
   [[ "$spec" == *:* ]] && benches="${spec#*:}"
   [[ "$tree" =~ ^[0-9a-f]{40}$ ]] || { echo "mobile-bandwidth-steps.sh: tree= is a 40-character SHA" >&2; exit 2; }

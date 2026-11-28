@@ -66,6 +66,15 @@ rate_limit_wait() {
   [[ "$waited" =~ ^[0-9]+$ ]] || waited=0
   left=$((rate_limit_max - waited))
   retry="$(header "$1" retry-after)" remaining="$(header "$1" x-ratelimit-remaining)" reset="$(header "$1" x-ratelimit-reset)"
+  # A refusal with no headers (a call that is not `gh api --include`, such as scripts/ci/gh_pages.py) says nothing of
+  # the reset, and the backoff below then slept 60+120+240+180 s before failing (job 140440306992, 2026-11-27: 10 min
+  # spent on a limit that reset 30 min later). GET /rate_limit does not count against the limit: read the token's
+  # core budget there, so a reset past this run's bound fails now.
+  if [[ -z "$retry" && -z "$reset" ]] &&
+      read -r remaining reset < <(gh api rate_limit --jq '"\(.resources.core.remaining) \(.resources.core.reset)"' 2>/dev/null) &&
+      [[ "$remaining" =~ ^[0-9]+$ && "$reset" =~ ^[0-9]+$ ]]; then
+    ((remaining == 0)) || remaining="" reset=""
+  fi
   if [[ "$retry" =~ ^[0-9]+$ ]]; then
     wait_s=$((retry > 0 ? retry : 1)) wait_why="retry-after ${retry}s"
   elif [[ "$remaining" == 0 && "$reset" =~ ^[0-9]+$ ]]; then
@@ -231,6 +240,22 @@ fi
 # restarts the clock at the next FFI commit, which the newer run then covers.
 # A failed read re-pins as before. When the holding run's re-pin job fails, its failure step starts app-ffi-repin.yml.
 pending_max_min="${REPIN_PENDING_MAX_MIN:-60}"
+# oldest_unpinned PIN RELEASE: the commit time of the oldest commit in PIN..RELEASE that changes an FFI input. This
+# checkout is treeless (filter: tree:0), so that walk fetches the trees of every commit one at a time; with the pin
+# 501 min behind it ran from 13:19Z until the job's timeout cancelled it at 13:47Z, and nothing re-pinned (app FFI
+# release run 46002456039, 2026-11-27; GIT_HTTP_LOW_SPEED_TIME never fires, as bytes keep coming). Past
+# REPIN_INPUT_WALK_S it reads the oldest commit in the range instead, which needs no tree and is never younger, so the
+# bound below ends a hold no later than with the walk.
+oldest_unpinned() {
+  local walk_s="${REPIN_INPUT_WALK_S:-60}" oldest
+  if oldest="$(timeout -k 5 "$walk_s" git log --format=%ct "$1..$2" -- "${input_paths[@]}" 2>/dev/null | tail -n 1)" &&
+      [[ "$oldest" =~ ^[0-9]+$ ]]; then
+    echo "$oldest"
+    return 0
+  fi
+  echo "the walk of the FFI inputs in ${1:0:12}..${2:0:12} did not finish in $walk_s s: the clock reads the range's oldest commit" >&2
+  git log --format=%ct "$1..$2" 2>/dev/null | tail -n 1
+}
 read_runs() { GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the release runs}" gh_retry gh api "$@"; }
 pending_newer() {
   local runs id head age jobs pin_time pin_age oldest
@@ -239,8 +264,13 @@ pending_newer() {
   # the next and nothing pinned (2026-11-18: 44262749842, 44269219861 and 44272641346 each held, 07:56Z to 09:48Z,
   # and the pin trailed past the 120 min grace). A failed read keeps this release's commit time.
   if pin_time="$(git show -s --format=%ct "$pin_sha" 2>/dev/null)" && [[ "$pin_time" =~ ^[0-9]+$ ]]; then
-    if [[ "$current" =~ ^[0-9a-f]{40}$ && ${#input_paths[@]} -gt 0 ]] &&
-        oldest="$(git log --format=%ct "$current..$pin_sha" -- "${input_paths[@]}" 2>/dev/null | tail -n 1)" &&
+    # The oldest unpinned commit only makes the age larger, so a release whose own commit is already past the bound
+    # needs no walk. The walk is a path-limited `git log` in this treeless clone, which fetches each commit's trees
+    # one by one: 16 min in job 140515668328 and 5.7 min in 140468066668 (2026-11-27), each for a release 369 to
+    # 481 min old against the 60 min bound.
+    if (( ($(date +%s) - pin_time) / 60 <= pending_max_min )) &&
+        [[ "$current" =~ ^[0-9a-f]{40}$ && ${#input_paths[@]} -gt 0 ]] &&
+        oldest="$(oldest_unpinned "$current" "$pin_sha")" &&
         [[ "$oldest" =~ ^[0-9]+$ ]] && (( oldest < pin_time )); then
       pin_time="$oldest"
     fi
@@ -321,12 +351,13 @@ pin_on_base() { # pin_on_base SHA CHECKSUM [PROVEN_PIN]: sets base_result
 }
 # The re-pin PR's head proves its pin when the build fleet's compile of that head passed (the tip check's Release
 # compile, scripts/ci/fleet_compile_result.py: no GitHub quota, and no --pr, which would submit a compile) and its
-# cmux-next fast tier, which runs HandlerCoverageTests, succeeded with none of its jobs failed. The PR's whole rollup
+# fast tier, which runs HandlerCoverageTests, passed: a cmux-next fast tier check at the head with none of its jobs
+# failed, or else the build fleet's fast tier verdict for that head. The PR's whole rollup
 # is not the proof: on 2026-11-25 release b6be67e4 changed a declaration over the pin (run 45645816280), went to
 # #55633, whose rollup never went green on infra reds while base merges restarted its CI, and the pin sat about 11
 # hours behind. A head that pins the base's own pin proves nothing new.
 proven_pr_pin() {
-  local verdict runs
+  local verdict runs fast
   [[ -n "$pr_pin" && "$pr_pin" != "$current" && -n "$previous" ]] || return 1
   verdict="$(python3 -I scripts/ci/fleet_compile_result.py --sha "$previous" --repo "$GITHUB_REPOSITORY" \
     --wait 45 --no-record 0)" || verdict=none
@@ -336,9 +367,23 @@ proven_pr_pin() {
   fi
   runs="$(GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" \
     gh_retry python3 scripts/ci/gh_pages.py "repos/$GITHUB_REPOSITORY/commits/$previous/check-runs")" || return 1
-  if ! jq -e '[.[] | select(.name | startswith("cmux-next fast tier"))]
-      | any(.conclusion == "success") and all(.conclusion == "success" or .conclusion == "skipped")' <<<"$runs" >/dev/null; then
-    echo "the re-pin branch's head ${previous:0:12} has no passing cmux-next fast tier yet; its pin stays on the pull request"
+  if jq -e '[.[] | select(.name | startswith("cmux-next fast tier"))]
+      | any(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")' <<<"$runs" >/dev/null; then
+    echo "the re-pin branch's head ${previous:0:12} has a failed cmux-next fast tier; its pin stays on the pull request"
+    return 1
+  fi
+  if jq -e '[.[] | select(.name | startswith("cmux-next fast tier"))] | any(.conclusion == "success")' <<<"$runs" >/dev/null; then
+    return 0
+  fi
+  # Since #53487 (2026-11-24) the cmux-next fast tier runs only on feat-cmux-next pushes, and pr-router's nightly gate
+  # leaves pr-pipeline's mac-fast-tier out of a landing re-pin head, so no check-run at the head ever proved it:
+  # #64944's proven head dd754ec6 (fleet compile pass) sat held 17:24Z-18:48Z until the PR landed whole, with every
+  # fast tier check skipped. Ask the build fleet for the re-pin's own fast tier at the head instead (HandlerCoverageTests,
+  # scripts/ci/fleet_fast_tier_result.py --ffi-repin): the read submits it, and a later release run reads its pass.
+  fast="$(python3 -I scripts/ci/fleet_fast_tier_result.py --sha "$previous" --repo "$GITHUB_REPOSITORY" --ffi-repin \
+    --wait "${REPIN_FAST_TIER_WAIT_S:-600}" --queue-wait 300 --no-record 120)" || fast=unavailable
+  if [[ "$fast" != pass ]]; then
+    echo "the re-pin branch's head ${previous:0:12} has no passing fast tier yet (build fleet: ${fast:-unavailable}); its pin stays on the pull request"
     return 1
   fi
 }
@@ -423,24 +468,36 @@ held_pr() {
   # after its push, and at 08:53Z re-pin run 44042861860 moved it for "8 failed check(s) of its own" while its Mac jobs
   # had been queued 47 minutes. The move cancelled those, the CI started over, and feat-cmux-next stayed red on "Check
   # the app FFI pin". A head whose cancelled check never runs again is still moved once it is older than the hold.
+  check_runs() {
+    GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" \
+      gh_retry python3 scripts/ci/gh_pages.py "repos/$GITHUB_REPOSITORY/commits/$1/check-runs"
+  }
   failed_names() {
     local runs
-    runs="$(GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" \
-      gh_retry python3 scripts/ci/gh_pages.py "repos/$GITHUB_REPOSITORY/commits/$1/check-runs")" || return 1
+    runs="${2:-}"
+    [[ -n "$runs" ]] || runs="$(check_runs "$1")" || return 1
+    # An advisory check gates nothing (land-judge lands past it), so its failure is not a reason to throw away the
+    # head's CI. 2026-11-27: re-pin run 46033637560 moved cmux#60965 off 2da59316 for "2 failed check(s) of its own":
+    # "nightly app compile arm64 fleet job (advisory)" and the merge-train status (below), while its land was seated.
     jq -r '.[] | select(.conclusion as $c
-      | ["failure", "timed_out", "action_required", "startup_failure", "stale"] | index($c)) | .name' <<<"$runs"
+      | ["failure", "timed_out", "action_required", "startup_failure", "stale"] | index($c))
+      | select(.name | test("\\(advisory\\)$") | not) | .name' <<<"$runs"
   }
-  local head_failed base_failed="" staged_on
-  head_failed="$(failed_names "$previous")" || return 2
+  local head_runs head_failed base_failed="" staged_on running
+  head_runs="$(check_runs "$previous")" || return 2
+  head_failed="$(failed_names "$previous" "$head_runs")" || return 2
   if staged_on="$(git merge-base "$previous" "$tip" 2>/dev/null)" && [[ "$staged_on" =~ ^[0-9a-f]{40}$ ]]; then
     base_failed="$(failed_names "$staged_on")" || base_failed=""
   fi
   failed="$(comm -23 <(sed '/^$/d' <<<"$head_failed" | sort -u) <(sed '/^$/d' <<<"$base_failed" | sort -u) | wc -l)"
   failed="${failed//[[:space:]]/}"
   [[ "$failed" =~ ^[0-9]+$ ]] || return 2
-  status="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous/status" --jq '.state')" || return 2
-  [[ "$status" =~ ^(success|pending|failure|error)$ ]] || return 2
-  [[ "$status" == failure || "$status" == error ]] && failed=$((failed + 1))
+  # The merge-train status is the train's seat answer ("turned this head away: not seated"), not a verdict on the
+  # head: its error is the queue, and moving the head for it restarts the CI the train is waiting on.
+  status="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous/status" \
+    --jq '[.statuses[]? | select(.context != "merge-train") | select(.state == "failure" or .state == "error")] | length')" || return 2
+  [[ "$status" =~ ^[0-9]+$ ]] || return 2
+  failed=$((failed + status))
   # A workflow run that never started at the head has no check run, so the count above misses it, and the check it
   # owns stays pending for good. 2026-11-26: #58251's head a04b30c8 sat on a base whose cmux-next.yml was over GitHub's
   # 512,000-byte limit (fixed on the base by #59284), so next-autoland's cmux-next.yml dispatch 45880000763 ended
@@ -451,6 +508,20 @@ held_pr() {
     --jq '[.workflow_runs[] | select(.conclusion == "startup_failure")] | length')" || return 2
   [[ "$unstarted" =~ ^[0-9]+$ ]] || return 2
   failed=$((failed + unstarted))
+  # A head whose CI is still running keeps it while young: a move throws away every check still queued or running
+  # for one red that a re-run or the land queue answers. 2026-11-28: cmux#64303 was moved off 512ee340 (11:51Z) and
+  # 68a65d55 (12:07Z), 28 and 16 min after their pushes, for "backend migrations applied" ("migration plan
+  # cancelled") and the build fleet's app compile ("source-checkout: git fetch failed ... not our ref"), faults
+  # with nothing to do with the pin, while their Mac and fleet compiles were still running; each glaeda land pinned
+  # to the head then stopped head_moved and the app FFI pin fell 250 min behind. Once every check has finished, a
+  # failure of its own moves the head as before; the hold (hold_min) still bounds the wait.
+  running="$(jq '[.[] | select(.status != "completed" and .conclusion == null)
+    | select(.name | test("\\(advisory\\)$") | not)] | length' <<<"$head_runs")" || return 2
+  [[ "$running" =~ ^[0-9]+$ ]] || return 2
+  if (( failed > 0 && running > 0 )); then
+    echo "kept #$number at ${previous:0:12}: pushed $age min ago (hold $hold_min min), $failed failed check(s) with $running still running; it moves once they finish or the hold ends"
+    return 0
+  fi
   if (( failed > 0 )); then
     echo "#$number's head ${previous:0:12} has $failed failed check(s) of its own: moving it" >&2
     return 1

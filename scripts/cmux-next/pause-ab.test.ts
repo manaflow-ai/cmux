@@ -136,6 +136,18 @@ describe("pool", () => {
 });
 
 describe("stalePauseAbMachines", () => {
+  test("a failed machine is taken once its run is 15 min old, inside the 110 min window", () => {
+    const now = Date.UTC(2026, 10, 27, 12);
+    const t20 = (now - 20 * 60_000).toString(36);
+    const t5 = (now - 5 * 60_000).toString(36);
+    const rows = [
+      { id: "dead", name: `pause-ab-${t20}-aggressive-1`, status: "failed" },
+      { id: "young", name: `pause-ab-${t5}-aggressive-1`, status: "failed" },
+      { id: "live", name: `pause-ab-${t20}-aggressive-2`, status: "running" },
+      { id: "theirs", name: `fp-${t20}`, status: "failed" },
+    ];
+    expect(stalePauseAbMachines(rows, now).map((r) => r.id)).toEqual(["dead"]);
+  });
   test("only our name shape and an old tag, active or not", () => {
     const now = Date.UTC(2026, 10, 24, 20);
     const old = (now - 4 * 3_600_000).toString(36);

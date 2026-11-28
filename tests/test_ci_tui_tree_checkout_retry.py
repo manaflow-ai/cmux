@@ -14,6 +14,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
+# Windows binaries now build in cross-build-windows; build-windows only verifies artifacts.
 # The jobs that build or key a cmux-tui tree: one failed checkout there leaves the tree unpublished.
 # Windows binaries come from cross-build-windows; build-windows only verifies those artifacts.
 TREE_PATH = {

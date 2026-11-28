@@ -1,7 +1,7 @@
 package import Foundation
 
 /// A site's request for a permission the prompt bar asks about (camera and
-/// microphone, location, notifications), in either engine: answered from the
+/// microphone, location, clipboard, notifications), in either engine: answered from the
 /// shared store, asking only when the site has no decision, and the answer
 /// stored ("Allow this time" stores nothing).
 package struct SitePermissionRequest {
@@ -58,6 +58,7 @@ extension BrowserPermissionKind {
         case .camera: [.camera]
         case .microphone: [.microphone]
         case .cameraAndMicrophone: [.camera, .microphone]
+        case .clipboard: [.clipboard]
         case .location: [.location]
         case .notifications: [.notifications]
         case .automaticDownloads, .screenShare: []

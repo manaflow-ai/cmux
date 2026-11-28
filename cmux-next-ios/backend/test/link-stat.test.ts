@@ -51,6 +51,23 @@ describe("link_stat log line", () => {
     })
   })
 
+  it("accepts hop paths and bounds hop repair counters", () => {
+    const line = linkStatLine(
+      stat({ path: "hop", hop: { srttMs: 712, lossPermille: 12, resent: 8, repaired: 3 } }),
+      "phone",
+      ingress,
+      "LAX"
+    )!
+    expect(line).toMatchObject({ path: "hop", hopSrttMs: 712, hopLossPermille: 12, hopResent: 8, hopRepaired: 3 })
+    const bounded = linkStatLine(
+      stat({ path: "hop", hop: { srttMs: 1e12, lossPermille: 1e12, resent: 1e12, repaired: 1e12 } }),
+      "phone",
+      undefined,
+      null
+    )!
+    expect(bounded).toMatchObject({ hopSrttMs: 600_000, hopLossPermille: 1_000, hopResent: 100_000, hopRepaired: 100_000 })
+  })
+
   it("clamps numbers, drops unknown marks, words and free text, and never copies an id", () => {
     const line = linkStatLine(
       stat({
