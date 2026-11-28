@@ -345,9 +345,9 @@ jobs:
           sparse-checkout-cone-mode: false
 
       # Why: docs/ci/nightly-workflow-notes/2026-11-26-decide-1.md
-      - name: Check out the App token spread action
-        # Why: .github/actions/app-token-spread (read on cmux-bot or the quota pool before the controller's App, #64871).
-        if: github.repository == 'manaflow-ai/cmux' && vars.GLAEDA_ROUTE_APP_ID != ''
+      - &ats
+        name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (#64871); no if: the step is continue-on-error and only the mint is gated.
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -1708,17 +1708,7 @@ jobs:
           sparse-checkout: scripts/ci
 
       # The all-nightly route reads runners only to offer its warm builder (CI_NIGHTLY_ONLY_BUILDER_RUNNER).
-      - name: Check out the App token spread action
-        # Why: .github/actions/app-token-spread (read on cmux-bot or the quota pool before the controller's App, #64871).
-        if: github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/nightly-next' && !(github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER == '')
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          path: .app-token-spread
-          sparse-checkout: .github/actions/app-token-spread
-          persist-credentials: false
+      - *ats
       - name: Mint the owned-pool routing token
         id: route-token
         if: github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/nightly-next' && !(github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER == '')
@@ -1746,17 +1736,7 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
 
-      - name: Check out the App token spread action
-        # Why: .github/actions/app-token-spread (read on cmux-bot or the quota pool before the controller's App, #64871).
-        if: github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/nightly-next' && !(github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER == '')
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          path: .app-token-spread
-          sparse-checkout: .github/actions/app-token-spread
-          persist-credentials: false
+      - *ats
       - name: Mint the glaeda read token
         id: snapshot-read-token
         if: github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/nightly-next' && !(github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER == '')
@@ -1860,17 +1840,7 @@ jobs:
           submodules: false
 
       # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-nightly-app-mint-the-glaeda-read-token-for-the-unsigne.md
-      - name: Check out the App token spread action
-        # Why: .github/actions/app-token-spread (read on cmux-bot or the quota pool before the controller's App, #64871).
-        if: inputs.nightly_next_unsigned_run != '' && github.repository == 'manaflow-ai/cmux' && vars.GLAEDA_ROUTE_APP_ID != ''
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          path: .app-token-spread
-          sparse-checkout: .github/actions/app-token-spread
-          persist-credentials: false
+      - *ats
       - name: Mint the glaeda read token for the unsigned restore
         id: resume-read-token
         if: inputs.nightly_next_unsigned_run != '' && github.repository == 'manaflow-ai/cmux' && vars.GLAEDA_ROUTE_APP_ID != ''
@@ -3752,17 +3722,7 @@ jobs:
           sparse-checkout: scripts/ci
 
       # As pick-nightly-build-runner (run 41051244674's 403s were here).
-      - name: Check out the App token spread action
-        # Why: .github/actions/app-token-spread (read on cmux-bot or the quota pool before the controller's App, #64871).
-        if: github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_name == 'nightly-next'
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          path: .app-token-spread
-          sparse-checkout: .github/actions/app-token-spread
-          persist-credentials: false
+      - *ats
       - name: Mint the glaeda read token
         id: snapshot-read-token
         if: github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_name == 'nightly-next'
@@ -3778,17 +3738,7 @@ jobs:
           permission-actions: read
 
       # Why: docs/ci/nightly-workflow-notes/2026-11-26-pick-nightly-sign-runner-mint-the-owned-pool-routing-token.md
-      - name: Check out the App token spread action
-        # Why: .github/actions/app-token-spread (read on cmux-bot or the quota pool before the controller's App, #64871).
-        if: github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_name == 'nightly-next'
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          path: .app-token-spread
-          sparse-checkout: .github/actions/app-token-spread
-          persist-credentials: false
+      - *ats
       - name: Mint the owned-pool routing token
         id: route-token
         if: github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_name == 'nightly-next'
@@ -4795,17 +4745,7 @@ jobs:
 
       - *wait-through-github-api-rate-l
 
-      - name: Check out the App token spread action
-        # Why: .github/actions/app-token-spread (read on cmux-bot or the quota pool before the controller's App, #64871).
-        if: github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_name == 'nightly-next'
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          path: .app-token-spread
-          sparse-checkout: .github/actions/app-token-spread
-          persist-credentials: false
+      - *ats
       - name: Mint the owned-pool routing token
         id: route-token
         if: github.repository == 'manaflow-ai/cmux' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_name == 'nightly-next'
@@ -5188,17 +5128,7 @@ jobs:
         run: bash scripts/ci/nightly-steps/visual-gate-resolve-mode.sh
 
       # Why: docs/ci/nightly-workflow-notes/2026-11-26-route-visual-gate-nightly-mint-the-owned-pool-routing-token.md
-      - name: Check out the App token spread action
-        # Why: .github/actions/app-token-spread (read on cmux-bot or the quota pool before the controller's App, #64871).
-        if: steps.mode.outputs.mode != 'off' && steps.mode.outputs.mode != 'invalid' && vars.GLAEDA_ROUTE_APP_ID != ''
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          path: .app-token-spread
-          sparse-checkout: .github/actions/app-token-spread
-          persist-credentials: false
+      - *ats
       - name: Mint the owned-pool routing token
         id: route-token
         if: steps.mode.outputs.mode != 'off' && steps.mode.outputs.mode != 'invalid' && vars.GLAEDA_ROUTE_APP_ID != ''
@@ -6873,17 +6803,7 @@ jobs:
           sparse-checkout: scripts/ci
 
       # Why: docs/ci/nightly-workflow-notes/2026-11-26-pick-nightly-next-signer-1.md
-      - name: Check out the App token spread action
-        # Why: .github/actions/app-token-spread (read on cmux-bot or the quota pool before the controller's App, #64871).
-        if: vars.GLAEDA_ROUTE_APP_ID != '' && github.ref == 'refs/heads/nightly-next'
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          path: .app-token-spread
-          sparse-checkout: .github/actions/app-token-spread
-          persist-credentials: false
+      - *ats
       - name: Mint a spare read token for the pick
         id: pick-spare-token
         if: vars.GLAEDA_ROUTE_APP_ID != '' && github.ref == 'refs/heads/nightly-next'
