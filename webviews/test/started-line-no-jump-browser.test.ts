@@ -62,14 +62,14 @@ await requireBrowserLane("started-line-no-jump-browser.test.ts", async () => {
       expect(pair).toHaveLength(2);
       expect(pair[0]!.left).toBe(lone[0]!.left);
       expect(pair[0]!.width).toBe(lone[0]!.width);
-      // Cut at its own cap (16em), never at a share of its own words.
-      expect(lone[0]!.width).toBeGreaterThanOrEqual(Math.floor(15.5 * lone[0]!.em));
+      // Cut at its own cap (28em), never at a share of its own words.
+      expect(lone[0]!.width).toBeGreaterThanOrEqual(Math.floor(27.5 * lone[0]!.em));
     });
 
     test("a short row cuts the later name first", async () => {
-      // Room for the first name whole and a few words of the second.
-      const lone = await chips(1, 520);
-      const pair = await chips(2, 520);
+      // Room for the first name whole at its 28em cap and a few words of the second.
+      const lone = await chips(1, 680);
+      const pair = await chips(2, 680);
       expect(pair[0]!.width).toBe(lone[0]!.width);
       expect(pair[1]!.cut).toBe(true);
       // Too short for both: each keeps its few words, the later no wider than the first.
