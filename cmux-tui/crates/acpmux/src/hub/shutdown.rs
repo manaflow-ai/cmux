@@ -151,7 +151,7 @@ impl Hub {
     /// under (`start_retry.rs` `fail_unless_shutdown_settles`): that end is wholly before the
     /// shutdown began, or sees it. Returns the plan's `end_agents` and `keep`.
     fn start_shutdown(&self) -> (bool, std::collections::HashSet<String>) {
-        let _ends = self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
+        let _ends = self.settled_by_shutdown.write().unwrap_or_else(|e| e.into_inner());
         let mut plan = self.shutdown_plan.lock().unwrap();
         plan.started = true;
         (plan.end_agents, plan.keep.clone())
@@ -413,7 +413,7 @@ impl Hub {
                 // next daemon that reads the log after it finds no cut turn. The shutdown's lock
                 // first, as `finish_turn` takes them.
                 let mut settled =
-                    self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
+                    self.settled_by_shutdown.write().unwrap_or_else(|e| e.into_inner());
                 let turn = s.turn.lock().unwrap_or_else(|e| e.into_inner()).take();
                 settled.extend(turn.map(|t| t.turn_id));
             }
@@ -464,7 +464,7 @@ impl Hub {
                 break;
             }
         }
-        let mut settled = self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
+        let mut settled = self.settled_by_shutdown.write().unwrap_or_else(|e| e.into_inner());
         for s in sessions {
             let ending = s.ending.lock().unwrap_or_else(|e| e.into_inner()).take();
             let Some(turn) = ending else { continue };
@@ -480,7 +480,7 @@ impl Hub {
     /// its prompt future writes nothing more.
     fn settle_cancelled(&self, s: &Arc<Session>) {
         // The shutdown's lock first, as `finish_turn` takes them.
-        let mut settled = self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
+        let mut settled = self.settled_by_shutdown.write().unwrap_or_else(|e| e.into_inner());
         let Some(turn) = s.turn.lock().unwrap_or_else(|e| e.into_inner()).take() else { return };
         settled.insert(turn.turn_id.clone());
         drop(settled);
