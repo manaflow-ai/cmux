@@ -557,6 +557,61 @@ class NestedObjectTests(unittest.TestCase):
                 self.source(fields, omit, order)
 
 
+class SpreadTests(unittest.TestCase):
+    """`spread`: a request property of a hand-written type (the top-level `spreads`) that encodes some optional
+    schema fields flat, as `SpawnOptions` does for the terminal-spawning requests."""
+
+    SPREADS = {"Spawn": {"doc": ["The new terminal."], "fields": ["cwd", "cols", "env"], "default": "Spawn()"}}
+
+    def document(self) -> dict[str, Any]:
+        document = layout_document()
+        request = document["commands"]["swap-pane"]["request"]["fields"]
+        request["cwd"] = _field({"kind": "scalar", "name": "string"}, required=False, nullable=True)
+        request["cols"] = _field({"kind": "scalar", "name": "uint16"}, required=False, nullable=True)
+        return document
+
+    def source(self, binding: dict[str, Any] | None = None, spreads: dict[str, Any] | None = None) -> str:
+        bindings = layout_bindings()
+        bindings["spreads"] = self.SPREADS if spreads is None else spreads
+        swap = bindings["families"]["Layout"]["requests"]["swap-pane"]
+        swap.update({"order": ["pane", "options", "dir", "target"], "spread": {"options": "Spawn"}})
+        swap.update(binding or {})
+        return rendered(self.document(), bindings)["Layout/SwapPaneRequest.generated.swift"]
+
+    def test_the_spread_takes_its_fields_and_encodes_them_flat(self) -> None:
+        source = self.source()
+        self.assertIn("    /// The new terminal.\n    /// Carries this command's `cwd`, `cols`, encoded flat, each when set.\n"
+                      "    public var options: Spawn\n", source)
+        self.assertIn("    public init(pane: PaneID, options: Spawn = Spawn(), dir: PaneDirection? = nil,"
+                      " target: PaneID? = nil) {\n", source)
+        self.assertIn("        try container.encodeIfPresent(target, forKey: .target)\n        try options.encode(to: encoder)\n",
+                      source)
+        self.assertNotIn("case cwd", source)
+        self.assertNotIn("case cols", source)
+        self.assertEqual(source.count("{"), source.count("}"))
+
+    def test_without_order_the_spread_comes_last(self) -> None:
+        source = self.source({"order": ["pane", "dir", "target"]})
+        self.assertIn("target: PaneID? = nil, options: Spawn = Spawn()) {\n", source)
+
+    def test_a_spread_is_refused_where_it_cannot_keep_the_wire(self) -> None:
+        cases: dict[str, tuple[dict[str, Any], dict[str, Any] | None]] = {
+            "a type the spreads lack": ({"spread": {"options": "Nope"}}, None),
+            "a spread that sends none of the fields": ({}, {"Spawn": {"fields": ["env"], "default": "Spawn()"}}),
+            "a required field": ({}, {"Spawn": {"fields": ["pane", "cwd"], "default": "Spawn()"}}),
+            "a field the request also binds": ({"fields": {"cwd": {"type": "String"}}}, None),
+            "a field the order also names": ({"order": ["pane", "options", "cwd"]}, None),
+            "two spreads of one field": ({"spread": {"options": "Spawn", "more": "Spawn"}}, None),
+            "a property a field already has": ({"spread": {"target": "Spawn"}, "order": ["pane", "dir"]}, None),
+            "a spread with no default": ({}, {"Spawn": {"fields": ["cwd"]}}),
+            "a spread field twice": ({}, {"Spawn": {"fields": ["cwd", "cwd"], "default": "Spawn()"}}),
+            "an unknown spreads key": ({}, {"Spawn": {"fields": ["cwd"], "default": "Spawn()", "nope": 1}}),
+        }
+        for name, (binding, spreads) in cases.items():
+            with self.subTest(name), self.assertRaises(BindingError):
+                self.source(binding, spreads)
+
+
 class DecimalTests(unittest.TestCase):
     """`encode: decimal`: a UInt64 the wire carries as a decimal string."""
 

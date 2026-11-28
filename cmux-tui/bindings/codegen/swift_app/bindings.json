@@ -15,6 +15,30 @@
     "ConversationPart": "ConversationPart",
     "ConversationReactionKind": "ConversationReactionKind"
   },
+  "spreads": {
+    "SpawnOptions": {
+      "doc": [
+        "The new terminal's options (Creation/NewTab.swift)."
+      ],
+      "fields": [
+        "cwd",
+        "cols",
+        "rows",
+        "argv",
+        "command",
+        "name",
+        "env",
+        "keep",
+        "terminal_id",
+        "shell_args",
+        "pane_id",
+        "tab_id",
+        "split_id",
+        "around"
+      ],
+      "default": "SpawnOptions()"
+    }
+  },
   "families": {
     "Agents": {
       "$comment": "The agent-inventory*, agent-session-share-* and agent-cli-update-job requests are not in the schema.",
@@ -454,7 +478,6 @@
       }
     },
     "Layout": {
-      "$comment": "new-row stays hand-written in Layout/NewRowRequest.swift: it carries the shared SpawnOptions and moves with the Creation family.",
       "enums": {
         "ColumnMoveDirection": {
           "doc": [
@@ -487,6 +510,37 @@
             }
           },
           "response": "EmptyResponse"
+        },
+        "new-row": {
+          "name": "NewRowRequest",
+          "doc": [
+            "Adds a row with a new terminal below the pane's row (`rows-v1`)."
+          ],
+          "protocol": "TerminalSpawningRequest",
+          "order": [
+            "pane",
+            "height_permille",
+            "options"
+          ],
+          "omit": [
+            "transaction"
+          ],
+          "spread": {
+            "options": "SpawnOptions"
+          },
+          "fields": {
+            "pane": {
+              "type": "PaneID"
+            },
+            "height_permille": {
+              "name": "height",
+              "type": "Int",
+              "doc": [
+                "Permille of the column's viewport height."
+              ]
+            }
+          },
+          "response": "SurfaceCreated"
         },
         "set-column-dock": {
           "name": "SetColumnDockRequest",
@@ -3563,6 +3617,93 @@
               ]
             }
           }
+        }
+      }
+    },
+    "Creation": {
+      "$comment": "Hand-written still: SpawnOptions (the spreads type these requests send flat; DaemonConnection fills and drops its fields), new-pane-right (the schema gates it on viewport-splits-v1, which the app does not check before sending), create-terminal and its detached form, NewTerminalWorkspace, SurfaceCreated, and the CreatingRequests and ShellIntegrationArguments conformances.",
+      "requests": {
+        "split": {
+          "name": "SplitRequest",
+          "doc": [
+            "Splits a pane with a new terminal (`cwd`/`env` with `terminal-env-v1`).",
+            "Moving an existing tab into a new pane is `move-tab-to-split` (`DaemonConnection.split(_:direction:movingTab:)`",
+            "routes there)."
+          ],
+          "protocol": "TerminalSpawningRequest",
+          "order": [
+            "pane",
+            "dir",
+            "options",
+            "before"
+          ],
+          "omit": [
+            "kind",
+            "url"
+          ],
+          "spread": {
+            "options": "SpawnOptions"
+          },
+          "fields": {
+            "pane": {
+              "type": "PaneID"
+            },
+            "dir": {
+              "name": "direction",
+              "type": "SplitDirection"
+            },
+            "before": {
+              "encode": "if_true",
+              "doc": [
+                "The new pane goes before `pane` on the split axis (Split Left, Split Up)."
+              ]
+            }
+          },
+          "response": "SurfaceCreated"
+        },
+        "new-pane": {
+          "name": "NewPaneRequest",
+          "doc": [
+            "Adds a pane to the pane's column (vertical stack inside a column)."
+          ],
+          "protocol": "TerminalSpawningRequest",
+          "order": [
+            "pane",
+            "options"
+          ],
+          "spread": {
+            "options": "SpawnOptions"
+          },
+          "fields": {
+            "pane": {
+              "type": "PaneID"
+            }
+          },
+          "response": "SurfaceCreated"
+        },
+        "new-tab": {
+          "name": "NewTabRequest",
+          "doc": [
+            "Opens a tab with a new terminal in `pane` (the focused pane when nil)."
+          ],
+          "protocol": "TerminalSpawningRequest",
+          "order": [
+            "pane",
+            "options"
+          ],
+          "omit": [
+            "place",
+            "transaction"
+          ],
+          "spread": {
+            "options": "SpawnOptions"
+          },
+          "fields": {
+            "pane": {
+              "type": "PaneID"
+            }
+          },
+          "response": "SurfaceCreated"
         }
       }
     }

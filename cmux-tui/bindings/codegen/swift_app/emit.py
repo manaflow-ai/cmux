@@ -33,6 +33,10 @@ Wire rules (the same JSON the hand-written types sent):
   same rules, so it sends what the hand-written nested struct sent;
 - `omit` (request or nested object) lists optional schema fields the Swift type never sends: the daemon
   keeps their default;
+- `spread: {PROPERTY: TYPE}` on a request makes a property of a hand-written Swift type that encodes some
+  optional schema fields flat (`TYPE.encode(to:)`, as `SpawnOptions` does): the top-level `spreads` names
+  each such type's wire fields and its default, and the request sends the ones its schema has through the
+  property, placed by `"PROPERTY"` in `order`;
 - `float32` is `Double` in the app: the app keeps its precision and the daemon narrows it.
 
 Read types (a family's `objects`): result and snapshot structs the app decodes, from a schema object
@@ -91,13 +95,15 @@ _KEYWORDS = frozenset({
     "fallthrough", "for", "guard", "if", "in", "repeat", "return", "switch", "where", "while", "as", "catch",
     "false", "is", "nil", "self", "Self", "super", "throw", "throws", "true", "try", "Any", "Type",
 })
-_TOP_KEYS = frozenset({"$comment", "sources_root", "ids", "types", "families"})
+_TOP_KEYS = frozenset({"$comment", "sources_root", "ids", "types", "spreads", "families"})
 _FAMILY_KEYS = frozenset({"$comment", "enums", "requests", "objects"})
 _ENUM_KEYS = frozenset({"doc"})
 _REQUEST_KEYS = frozenset({
     "name", "doc", "order", "fields", "response", "response_order", "response_fields", "protocol", "mutation",
-    "workspace_ref", "one_of", "omit",
+    "workspace_ref", "one_of", "omit", "spread",
 })
+# A hand-written Swift type a request property encodes flat (`spreads`): the wire fields it writes, its default.
+_SPREAD_KEYS = frozenset({"fields", "default", "doc"})
 # A request property of a hand-written Swift enum (`one_of`): each case carries one optional schema field, and
 # the request sends the field of the case it holds, so exactly one of them goes on the wire.
 _ONE_OF_KEYS = frozenset({"type", "cases", "doc"})
@@ -330,6 +336,14 @@ class _Renderer:
         self.ids: Mapping[str, str] = bindings.get("ids", {})
         self.bound: Mapping[str, str] = bindings.get("types", {})
         self.families: Mapping[str, Any] = bindings.get("families", {})
+        self.spreads: dict[str, Mapping[str, Any]] = {}
+        for name, spec in bindings.get("spreads", {}).items():
+            spec = _check_keys(f"spreads.{name}", spec, _SPREAD_KEYS)
+            fields = spec.get("fields")
+            if (not _IDENTIFIER.fullmatch(name) or not isinstance(fields, list) or not fields
+                    or len(set(fields)) != len(fields) or not isinstance(spec.get("default"), str)):
+                raise BindingError(f"spreads.{name}: give the Swift type's wire fields, each once, and its default")
+            self.spreads[name] = spec
         self.enums: dict[str, tuple[str, Mapping[str, Any]]] = {}
         for family, spec in sorted(self.families.items()):
             if not _IDENTIFIER.fullmatch(family):
@@ -652,6 +666,27 @@ class _Renderer:
             if any(wire in binding.get("fields", {}) for wire in _WORKSPACE_REF_WIRE):
                 raise BindingError(f"{command}: workspace_ref owns the workspace and key fields; bind neither")
             schema_fields = {wire: spec for wire, spec in schema_fields.items() if wire not in _WORKSPACE_REF_WIRE}
+        spread = binding.get("spread", {})
+        if not isinstance(spread, Mapping):
+            raise BindingError(f"{command}: spread maps a Swift property to a type of the top-level spreads")
+        spread_wire: dict[str, list[str]] = {}
+        for token, swift in spread.items():
+            if not _IDENTIFIER.fullmatch(token) or swift not in self.spreads:
+                raise BindingError(f"{command}.spread.{token}: name a Swift type of the top-level spreads")
+            covered = [wire for wire in self.spreads[swift]["fields"] if wire in schema_fields]
+            if not covered:
+                raise BindingError(f"{command}.spread.{token}: {swift} sends none of this command's fields")
+            for wire in covered:
+                if any(wire in sent for sent in spread_wire.values()):
+                    raise BindingError(f"{command}.spread.{token}: two spreads send {wire}")
+                if schema_fields[wire]["presence"] == "required":
+                    raise BindingError(f"{command}.spread.{token}: {wire} is required; a spread sends optional fields")
+                if wire in binding.get("fields", {}) or wire in order:
+                    raise BindingError(f"{command}.spread.{token}: {swift} sends {wire}; bind it in neither fields nor order")
+            spread_wire[token] = covered
+        schema_fields = {
+            wire: spec for wire, spec in schema_fields.items() if not any(wire in sent for sent in spread_wire.values())
+        }
         # Spread fields leave the schema's fields and come back at their place in `order` (else last).
         spreads: list[tuple[str, _Field]] = []
         if workspace_ref:
@@ -664,6 +699,13 @@ class _Renderer:
                 wire=MUTATION, name=MUTATION, swift_type="MutationIdentity", optional=True, always_encoded=False,
                 doc=["The exactly-once key (`origin`, `mutation_id`); reuse it on every retry of this write."],
                 mutation=True, spread=f"MutationFields(identity: {MUTATION})",
+            )))
+        for token, swift in spread.items():
+            sent = ", ".join(f"`{wire}`" for wire in spread_wire[token])
+            spreads.append((token, _Field(
+                wire=token, name=token, swift_type=swift, optional=False, always_encoded=True,
+                doc=[*self.spreads[swift].get("doc", ()), f"Carries this command's {sent}, encoded flat, each when set."],
+                default=self.spreads[swift]["default"], spread=token,
             )))
         one_of = binding.get("one_of", {})
         if not isinstance(one_of, Mapping):

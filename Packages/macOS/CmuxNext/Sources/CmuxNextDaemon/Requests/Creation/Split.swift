@@ -1,53 +1,7 @@
 import Foundation
 
-/// Splits a pane with a new terminal (`cwd`/`env` with `terminal-env-v1`).
-/// The daemon's `split` has no `tab` field; moving an existing tab into a new
-/// pane is `move-tab-to-split` (`DaemonConnection.split(_:direction:movingTab:)`
-/// routes there). `tab` is not sent.
-public struct SplitRequest: TerminalSpawningRequest {
-    public typealias Response = SurfaceCreated
-    public static let command = "split"
-    public var pane: PaneID
-    public var direction: SplitDirection
-    public var tab: SurfaceID?
-    public var options: SpawnOptions
-    /// The new pane goes before `pane` on the split axis (Split Left, Split Up; `split-before-v1`). Sent only when true.
-    public var before: Bool
-    public init(pane: PaneID, direction: SplitDirection, tab: SurfaceID? = nil, options: SpawnOptions = SpawnOptions(),
-                before: Bool = false) {
-        self.pane = pane
-        self.direction = direction
-        self.tab = tab
-        self.options = options
-        self.before = before
-    }
-    enum CodingKeys: String, CodingKey { case pane, dir, before }
-    public func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(pane, forKey: .pane)
-        try c.encode(direction, forKey: .dir)
-        if before { try c.encode(true, forKey: .before) }
-        try options.encode(to: encoder)
-    }
-}
-
-/// Adds a pane to the pane's column (vertical stack inside a column).
-public struct NewPaneRequest: TerminalSpawningRequest {
-    public typealias Response = SurfaceCreated
-    public static let command = "new-pane"
-    public var pane: PaneID
-    public var options: SpawnOptions
-    public init(pane: PaneID, options: SpawnOptions = SpawnOptions()) {
-        self.pane = pane
-        self.options = options
-    }
-    enum CodingKeys: String, CodingKey { case pane }
-    public func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(pane, forKey: .pane)
-        try options.encode(to: encoder)
-    }
-}
+// split, new-pane and new-tab are generated (swift_app bindings.json, Creation); new-pane-right stays hand-written:
+// the schema gates it on viewport-splits-v1, which the app does not check before sending.
 
 /// Adds a new scrolling column to the right (`viewport-splits-v1`).
 public struct NewColumnRequest: TerminalSpawningRequest {
