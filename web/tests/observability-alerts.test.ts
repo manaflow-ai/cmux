@@ -28,6 +28,8 @@ function fakeAlertDb(): ReturnType<typeof cloudDb> {
             limit: async () => [],
           });
         },
+        // recentHungEvidence reads the newest health snapshot; none here.
+        orderBy: () => ({ limit: async () => [] }),
       }),
     }),
   } as unknown as ReturnType<typeof cloudDb>;
