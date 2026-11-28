@@ -146,6 +146,7 @@ struct WorkspacesScreen: View {
                     shell.tab = .settings
                     shell.settingsPath = [.account]
                 },
+                openCloudChief: { shell.openCloudChief() },
                 filter: shell.macFilter,
                 macPanelShown: { shown in if shell.workspacesMacPanelShown != shown { shell.workspacesMacPanelShown = shown } },
                 rememberedWorkspaceID: shell.lastWorkspaceID

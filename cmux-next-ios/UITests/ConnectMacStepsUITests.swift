@@ -22,5 +22,13 @@ final class ConnectMacStepsUITests: XCTestCase {
         XCTAssertTrue(signIn.exists)
         XCTAssertTrue(app.descendants(matching: .any)["connect-mac.status"].exists)
         XCTAssertTrue(account.isHittable, "Keep the Account Settings action available.")
+        // App Review 2.1(a): with no Mac there is still something to try (iOS release bar read-back 2026-11-28).
+        app.tap() // dismiss the popover
+        let cloudChief = app.buttons["workspaces.connect-mac.cloud-chief"]
+        XCTAssertTrue(cloudChief.waitForExistence(timeout: 5), "No Mac: the empty state offers the Cloud Chief.")
+        XCTAssertTrue(cloudChief.isHittable)
+        cloudChief.tap()
+        XCTAssertTrue(app.tabBars.buttons.element(boundBy: 0).waitForExistence(timeout: 5))
+        XCTAssertFalse(cloudChief.exists, "Chat with Chief leaves Workspaces for Home's Cloud Chief.")
     }
 }
