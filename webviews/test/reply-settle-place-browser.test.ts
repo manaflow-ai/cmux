@@ -7,7 +7,9 @@ import { JSDOM } from "jsdom";
 import { captureTurnEnd, playTurnEnd, settleTurnEnd } from "../src/agent-session/acpmux/conversation/turnEndFold";
 import { LIVE_THINKING } from "../src/agent-session/acpmux/conversation/turns";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { MOTION_SETTLE_MS } from "../src/motion/scale.generated";
+import { importWithDom } from "./support/importWithDom";
+
+const { MOTION_SETTLE_MS } = await importWithDom(() => import("../src/motion/scale.generated"));
 
 type Sample = {
   id: string;
