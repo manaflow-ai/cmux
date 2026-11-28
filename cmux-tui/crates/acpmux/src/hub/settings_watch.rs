@@ -1,7 +1,6 @@
 //! Part of `Hub`; see `hub/mod.rs`. The cmux settings file watched for the
 //! start-mode setting (`agents.defaultPermissionMode`, `start_mode.rs`) and the
-//! cmux router's start model (`agents.modelRouter.model`, which reloads the catalog),
-//! and the new-chat model and effort rows (`agents.defaults.*`, which redraw each harness's start):
+//! new-chat model and effort rows (`agents.defaults.*`, which redraw each harness's start):
 //! when its value changes, local `_acpmux/watch` connections get
 //! `_acpmux/start_mode_changed`, so a pending chat's start-mode chip asks
 //! acpmux again only then, never each time its pane is shown again. Any
@@ -129,9 +128,6 @@ impl Hub {
             Some(watch.clone());
         // The value the watchers' last answer was based on.
         let mut last = super::start_mode::setting_snapshot();
-        // The cmux router profile's start model (`agents.modelRouter.model`): a change rebuilds
-        // the catalog, so the next new chat on `cmux` starts on it.
-        let mut last_router = crate::config::cmux_router_model_setting();
         // The new-chat model and effort rows (`model_settings.rs`): a change redraws open pages'
         // start model and effort.
         let mut last_models = crate::model_settings::chat_defaults_snapshot();
@@ -147,10 +143,9 @@ impl Hub {
                     hub.subsession_runs.wake();
                     hub.settings_changes.send_modify(|seq| *seq = seq.wrapping_add(1));
                 }
-                let Ok((now, router, models)) = tokio::task::spawn_blocking(|| {
+                let Ok((now, models)) = tokio::task::spawn_blocking(|| {
                     (
                         super::start_mode::setting_snapshot(),
-                        crate::config::cmux_router_model_setting(),
                         crate::model_settings::chat_defaults_snapshot(),
                     )
                 })
@@ -162,17 +157,6 @@ impl Hub {
                     last_models = models;
                     if let Some(hub) = hub.upgrade() {
                         hub.start_settings_changed().await;
-                    }
-                }
-                if router != last_router {
-                    last_router = router;
-                    if let Some(hub) = hub.upgrade()
-                        && let Err(e) = hub.reload_catalog().await
-                    {
-                        tracing::warn!(
-                            "model router setting: catalog reload failed: {}",
-                            e.message
-                        );
                     }
                 }
                 if now == last {

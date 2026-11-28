@@ -2,9 +2,7 @@
 //! gateway, started and kept running by the cmux app (CmuxNextCloud `PersonalGateway`), answering
 //! their Cloud machines' model calls from the logins already on the Mac. Nothing to set up.
 //!
-//! The Mac's local CodeRouter (`cmux-coderouter`) cannot be the upstream: it forwards only to the
-//! hosted cmux router with the cmux sign-in or the free-tier token, and answers `/v1/responses`
-//! with 501. So the gateway reads the agents' own logins:
+//! The gateway reads the agents' own logins:
 //!
 //! - Claude (`/v1/messages`, `/v1/messages/count_tokens`): Claude Code's sign-in, BORROWED. Its
 //!   access token is read from `<CLAUDE_CONFIG_DIR or ~/.claude>/.credentials.json`, else (macOS)

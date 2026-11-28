@@ -165,24 +165,6 @@ impl ConversationMark {
     }
 }
 
-/// Whether a failover onto profile `to` (`profile`) is skipped: it runs through the local
-/// CodeRouter (the built-in `cmux` profile, or any profile bound to the built-in `cmux` route) and
-/// the chat is on a Cloud machine (`cloud_host`) or came over a remote connection
-/// (`remote_origin`). Such a chat stays on its own profile and its error names no fallback: a
-/// Cloud machine runs no CodeRouter, and is signed in from the Mac (Leo, 2026-10-31: "STOP USING
-/// CODEROUTER"). A Mac's own chats keep the fallback.
-pub(crate) fn coderouter_fallback_skipped(
-    cloud_host: bool,
-    remote_origin: bool,
-    to: &str,
-    profile: &crate::config::HarnessProfile,
-) -> bool {
-    let coderouter = to == crate::config::CMUX_ROUTER_PROFILE
-        || profile.env.get(crate::routes::PROFILE_ROUTE_KEY).map(String::as_str)
-            == Some(crate::routes::CMUX_ROUTE_ID);
-    coderouter && (cloud_host || remote_origin)
-}
-
 /// The key of the note in a turn error's data: a bound route's failure already puts its own
 /// `fallback` there (`route_switch.rs` `route_failure`).
 const NOTE_KEY: &str = "fallbackProfile";

@@ -12,13 +12,12 @@
 //! `posix_spawnp`, `execve`, `execv`, `execvp`), and writes each one to a
 //! log. It sees every call acpmux and its crates make (calls inside the
 //! framework itself are not interposed), in every acpmux process that keeps
-//! the variable (the daemon, its router, its agent hosts). The test fails on
+//! the variable (the daemon and its agent hosts). The test fails on
 //! any keychain call and on any `security` program start. A control program
 //! proves the dylib records a keychain call and a spawn, so an empty log
 //! means no call, not a dylib that never loaded.
 //!
-//! Covered: `acpmux router serve` (start, key mint, stop), and the daemon
-//! with the app's settings (local router on, the login shell read, the agent
+//! Covered: the daemon with the app's settings (the login shell read, the agent
 //! CLI health check with a Claude and a Codex CLI, whose sign-in checks used
 //! to run `security` and `codex login status` with a keychain login) up to a
 //! chat with a stand-in agent, then a second start that finds a login-shell
@@ -40,7 +39,6 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -356,62 +354,6 @@ impl Drop for Kill {
     }
 }
 
-fn ask(socket: &Path, request: Value) -> Value {
-    let mut stream = UnixStream::connect(socket).unwrap();
-    stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
-    stream.write_all(format!("{request}\n").as_bytes()).unwrap();
-    let mut line = String::new();
-    BufReader::new(stream).read_line(&mut line).unwrap();
-    serde_json::from_str(&line).unwrap_or_else(|e| panic!("{request}: no reply ({e}): {line:?}"))
-}
-
-fn wait_for(path: &Path, what: &str) {
-    let deadline = Instant::now() + Duration::from_secs(20);
-    while UnixStream::connect(path).is_err() {
-        assert!(Instant::now() < deadline, "{what} never opened {}", path.display());
-        std::thread::sleep(Duration::from_millis(50));
-    }
-}
-
-/// `acpmux router serve` starts, mints a key and stops with no keychain call.
-#[test]
-fn the_router_starts_mints_and_stops_with_no_keychain_call() {
-    let dir = scratch("r");
-    let dylib = interposer(&dir);
-    let log = dir.join("router.log");
-    let home = dir.join("acpmux");
-    std::fs::create_dir_all(&home).unwrap();
-    let socket = home.join("router").join("router.sock");
-    let child = daemon_env::acpmux(&dir)
-        .args(["router", "serve"])
-        .env("ACPMUX_HOME", &home)
-        .env("DYLD_INSERT_LIBRARIES", &dylib)
-        .env("KEYCHAIN_CALL_LOG", &log)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    let mut router = Kill(Some(child));
-    wait_for(&socket, "the router");
-    let status = ask(&socket, json!({"op": "status"}));
-    assert_eq!(status["install_secret"], "ephemeral", "{status}");
-    let minted = ask(
-        &socket,
-        json!({"op": "mint_key", "scope": {"harness": "fake", "session": "s1", "surfaces": [], "families": ["open_ai_chat"], "expires_at": 0}}),
-    );
-    assert!(minted["key"].is_string(), "no key minted: {minted}");
-    assert_eq!(ask(&socket, json!({"op": "shutdown"}))["stopping"], json!(true));
-    let mut child = router.0.take().unwrap();
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while child.try_wait().unwrap().is_none() {
-        assert!(Instant::now() < deadline, "the router did not stop");
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    assert_no_keychain(&log, &["acpmux"]);
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
 /// Whether a logged program start runs `security` (directly, or as a word
 /// of a shell command line).
 fn starts_security(fields: &[&str]) -> bool {
@@ -509,15 +451,13 @@ impl Rpc {
     }
 }
 
-/// The daemon in `dir` as the app starts it (local router on, the login
-/// shell read), with the interposer; returns after its readiness line.
+/// The daemon in `dir` as the app starts it (the login shell read), with the interposer; returns after its readiness line.
 fn start_daemon(dir: &Path, dylib: &Path, log: &Path) -> Kill {
     let mut child = daemon_env::command(dir, daemon_env::Agents::StandIn, &[])
         .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "info"])
         .env("SHELL", dir.join("loginsh"))
         .env("ACPMUX_HOME", dir)
         .env("ACPMUX_SOCKET", dir.join("s.sock"))
-        .env("ACPMUX_LOCAL_ROUTER", "1")
         .env("ACPMUX_CATALOG_FETCH", "0")
         .env("ACPMUX_REGISTRY_FETCH", "0")
         .env("ACPMUX_HEALTH_FETCH", "0")
@@ -575,15 +515,9 @@ fn shutdown(dir: &Path, mut daemon: Kill) {
         assert!(Instant::now() < deadline, "the daemon did not stop");
         std::thread::sleep(Duration::from_millis(20));
     }
-    // The router stops with its last owner; its calls are logged by then.
-    let socket = dir.join("router").join("router.sock");
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while UnixStream::connect(&socket).is_ok() && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(50));
-    }
 }
 
-/// The daemon's whole start (local router, login shell, agent CLI health
+/// The daemon's whole start (login shell, agent CLI health
 /// with a Claude and a Codex CLI that keeps its login in the keychain), a
 /// chat with a stand-in agent, and a second start that must decide whether
 /// Claude signs in without the login shell: no keychain call and no

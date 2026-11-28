@@ -903,9 +903,7 @@ build that includes this command; installing a newer binary does not restart the
 
 **A family resolves to exactly one profile, or fails.** Its `prefer` list, else its only
 profile, else the profile named like it. Two profiles and no preference is an error naming
-both, never a guess. By default `-m claude` is the user's own Claude login. When a CodeRouter
-route is configured (`coderouterClaudeRoute`, below), discovery sets `claude` to prefer
-`claude-cr` then `claude`. The subrouter pool (`claude-sr`) is never preferred automatically;
+both, never a guess. `-m claude` is the user's own Claude login. The subrouter pool (`claude-sr`) is never preferred automatically;
 choose it with `acpmux defaults claude prefer=claude-sr,claude` or `-m claude-sr`.
 
 **Defaults** fill in what the flag leaves out, per family or profile: model, effort, policy,
@@ -1662,15 +1660,6 @@ Stopping a session kills the agent's whole process group, so background shells t
 started stop with it. Resume afterwards is exact, but the agent no longer remembers those
 processes.
 
-## CodeRouter route (configured only)
-
-`coderouterClaudeRoute` in `config.json` (or `ACPMUX_CODEROUTER_CLAUDE_ROUTE` in the daemon or
-login environment, which wins) names a CodeRouter CLI subcommand that runs Claude Code through
-a CodeRouter route. When it is set and `coderouter` (else `cr`) is on PATH, acpmux adds a
-`claude-cr` profile (`coderouter <route>`, kind `claude-stdio`), makes it the first `claude`
-preference and the direct `claude` fallback. Unset, there is no `claude-cr`. The CLI uses its
-own login; acpmux never reads or copies a credential.
-
 ## Subrouter: Claude across many accounts (explicit choice only)
 
 [Subrouter](https://github.com/manaflow-ai/subrouter) is a local proxy that spreads Claude and
@@ -1709,7 +1698,7 @@ Harnesses found on PATH join the configured ones at every start: `claude`, `code
 }
 ```
 
-When no config exists, harnesses are imported from `~/.acpx/config.json` (its `agents` block) and from adapters on PATH. `claude`, `claude-cr` and `claude-sr` are reserved for acpmux's own Claude Code adapter (`claude-stdio`): when `claude` or `sr` is on PATH (or a CodeRouter route is configured), an `~/.acpx` entry of that name is ignored. Only `config.json` rebinds them.
+When no config exists, harnesses are imported from `~/.acpx/config.json` (its `agents` block) and from adapters on PATH. `claude` and `claude-sr` are reserved for acpmux's own Claude Code adapter (`claude-stdio`): when `claude` or `sr` is on PATH, an `~/.acpx` entry of that name is ignored. Only `config.json` rebinds them.
 
 - `permissionPolicy`: `ask` routes `session/request_permission` to attached clients and waits.
   `approve-all`, `approve-reads`, `approve-edits` (reads and edits auto, shell asks), `deny-all`, and `review`

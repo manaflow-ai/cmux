@@ -52,7 +52,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
 SHADOW_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-next-daemon-macos-shadow.yml"
 JOB_NAME = "cmux_next_ daemon tests"
 SHADOW = "cmux-next-daemon-macos-shadow"
-MAC_ONLY_TESTS = ("no_keychain", "router_no_keychain", "remote_sandbox", "remote_sandbox_canary", "idle_wakeups")
+MAC_ONLY_TESTS = ("no_keychain", "remote_sandbox", "remote_sandbox_canary", "idle_wakeups")
 
 
 def jobs() -> dict:

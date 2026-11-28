@@ -1089,9 +1089,9 @@ fn extra_prefix(key: &str) -> bool {
 
 /// Login keys the daemon itself reads (routing and installation discovery), passed to a child only
 /// when the allow-list passes them.
-const INTERNAL: [&str; 5] = [
+const INTERNAL: [&str; 4] = [
+    // The daemon's own routing and install keys (the CodeRouter route key is gone).
     "SUBROUTER_URL",
-    "ACPMUX_CODEROUTER_CLAUDE_ROUTE",
     "BUN_INSTALL_GLOBAL_DIR",
     "BUN_INSTALL_BIN",
     "XDG_CONFIG_HOME",

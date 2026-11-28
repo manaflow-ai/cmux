@@ -225,10 +225,8 @@ impl Facts {
         let mut out = self.answer();
         out.detail = one_sentence(&out.detail);
         if matches!(out.state, State::SignedOut | State::Expired | State::RouteAuthNeeded) {
-            // The route's kind names the party before the error's words do: a 401 on the cmux
-            // model router is the cmux account whatever the agent printed.
+            // The route's kind names the party before the error's words do.
             out.credential = match route_kind {
-                Some(routes::RouteKind::CmuxRouter) => Some(Credential::Cmux),
                 Some(routes::RouteKind::DirectApiKey) => Some(Credential::ApiKey),
                 _ if out.state == State::RouteAuthNeeded => None,
                 _ => out.credential.or(Some(Credential::Login)),

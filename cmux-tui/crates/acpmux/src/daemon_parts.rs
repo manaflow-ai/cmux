@@ -1,7 +1,6 @@
 //! Small daemon pieces lower modules use without the daemon itself (`daemon.rs` re-exports
 //! them): the host binary's `daemon run` prefix, the first-run
-//! dashboard address, the not-dumpable switch (`daemon/person_key.rs`) and an agent host's
-//! end of the router owner FIFO (`daemon/router_owner/fifo.rs`).
+//! dashboard address, and the not-dumpable switch (`daemon/person_key.rs`).
 
 static DAEMON_PREFIX: std::sync::OnceLock<Vec<std::ffi::OsString>> = std::sync::OnceLock::new();
 
@@ -60,16 +59,4 @@ pub(crate) fn not_dumpable() -> std::io::Result<()> {
 #[cfg(all(unix, not(target_os = "linux")))]
 pub(crate) fn not_dumpable() -> std::io::Result<()> {
     Ok(())
-}
-
-/// An agent host's owner end of the local router: held for the host's
-/// whole life (close-on-exec, so the harness never inherits it). None when
-/// no router runs (no reader: the open fails at once) or there is no FIFO.
-#[cfg(unix)]
-pub(crate) fn open_router_owner(fifo: &std::path::Path) -> Option<std::fs::File> {
-    use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
-    if !std::fs::symlink_metadata(fifo).ok()?.file_type().is_fifo() {
-        return None;
-    }
-    std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NONBLOCK).open(fifo).ok()
 }

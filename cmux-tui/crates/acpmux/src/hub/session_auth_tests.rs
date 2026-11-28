@@ -208,17 +208,6 @@ fn a_refusal_names_whose_credential_it_is() {
         "{out:?}"
     );
 
-    let mut cmux = facts(Some("auth_needed"), None, None);
-    cmux.route_kind = Some(routes::RouteKind::CmuxRouter);
-    assert_eq!(cmux.decide().credential, Some(Credential::Cmux));
-    let mut cmux = facts(None, Some(turn("failed", Some("auth.expired"), opencode, 7)), None);
-    cmux.route_kind = Some(routes::RouteKind::CmuxRouter);
-    let out = cmux.decide();
-    assert_eq!(
-        (out.credential, out.provider.as_deref()),
-        (Some(Credential::Cmux), None),
-        "{out:?}"
-    );
     // Another route's refusal is that route's, by its id.
     let out = facts(Some("auth_needed"), None, None).decide();
     assert_eq!((out.credential, out.route_id.as_deref()), (None, Some("proxy")));

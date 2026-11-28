@@ -6,7 +6,20 @@ import path from "node:path";
 import { aptUpdateCommand } from "../scripts/cmux-vm-image/apt-update";
 import * as bake from "../scripts/cmux-vm-image/bake";
 import { cmuxTuiSourceFromLock, GUEST_DIR } from "../scripts/cmux-vm-image/bake";
-import { aptDebFetchCommand, aptLocalInstallCommand, aptPins, CURRENT_BIN, PINNED_MIRROR, pinnedFetchCommand, profileCommand, programInstallCommand, readInputsLock, sq, storeEntry, UBUNTU_ARCHIVE } from "../scripts/cmux-vm-image/lock";
+import {
+  aptDebFetchCommand,
+  aptLocalInstallCommand,
+  aptPins,
+  CURRENT_BIN,
+  profileCommand,
+  programInstallCommand,
+  readInputsLock,
+  storeEntry,
+  UBUNTU_ARCHIVE,
+  PINNED_MIRROR,
+  pinnedFetchCommand,
+  sq,
+} from "../scripts/cmux-vm-image/lock";
 import { imageLeftoversCommand, programChecksCommand, programProblems, rolesOffFontsOnCommand, secretScanCommand, storeCommandPathSnippet } from "../scripts/cmux-vm-image/smoke";
 import { daemonHoldCommand, daemonUptimeProblems, forcedRebindCommand, legacyErrorFilter } from "../scripts/cmux-vm-image/daemon-uptime";
 import { GH_SHIM } from "../scripts/cmux-vm-image/github-auth";
@@ -30,13 +43,13 @@ describe("cmux VM image guest commands", () => {
       expect(command).toContain(`mv ${storeEntry(program.sha256)}.partial ${storeEntry(program.sha256)}`);
       await bashSyntax(command);
     }
-    expect(programInstallCommand(lock.programs.find((p) => p.name === "coderouter")!)).toContain("grep -qx");
+    expect(programInstallCommand(lock.programs.find((p) => p.name === "agent-desktop")!)).toContain("grep -qx");
   });
 
   test("the profile links every command into generation 1 and flips current with one rename", async () => {
     const command = profileCommand(lock);
     expect(command).toContain("mv -T /opt/cmux/.current-new /opt/cmux/current");
-    expect(command).toContain(`ln -s ${storeEntry(lock.programs.find((p) => p.name === "coderouter")!.sha256)}/coderouter /opt/cmux/profiles/1/bin/cr`);
+    expect(command).toContain(`ln -s ${storeEntry(lock.programs.find((p) => p.name === "cmux-tui")!.sha256)}/cmux-tui /opt/cmux/profiles/1/bin/acpmux`);
     await bashSyntax(command);
   });
 

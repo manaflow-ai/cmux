@@ -429,9 +429,9 @@ notes = "The work account"
         "the first prompt after fallback must run on the replacement child",
     );
 
-    // A route that cannot start (the local CodeRouter is not running) is
-    // refused before the binding changes: the original chat stays on proxy B.
-    local.ok("_acpmux/route/add", json!({"id": "local", "kind": "local-coderouter"})).await;
+    // A route that cannot start here (a Cloud connection, whose credential only a Cloud
+    // machine's agent takes) is refused before the binding changes: the chat stays on proxy B.
+    local.ok("_acpmux/route/add", json!({"id": "local", "kind": "claude-token"})).await;
     let down =
         local.err("_acpmux/chat/route.set", json!({"sessionId": id, "routeId": "local"})).await;
     assert_eq!(reason(&down), "route.unavailable", "{down}");

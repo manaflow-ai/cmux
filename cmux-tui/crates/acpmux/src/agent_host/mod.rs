@@ -263,10 +263,6 @@ pub struct SpawnSpec {
     pub socket: PathBuf,
     /// Bytes of unacknowledged entries before back-pressure.
     pub buffer_cap: usize,
-    /// The local router's owner FIFO of the daemon's home; the host holds
-    /// a write end for its whole life (`daemon::router_owner_fifo`).
-    #[serde(default)]
-    pub router_owner_fifo: Option<PathBuf>,
     /// The folder the harness must exec in, by identity: a sub-session's checked folder
     /// (`cwd_pin.rs`). The host's harness spawn fails when `cwd` leads elsewhere by then.
     #[serde(default)]

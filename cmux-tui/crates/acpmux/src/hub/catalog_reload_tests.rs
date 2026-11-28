@@ -210,7 +210,6 @@ async fn reload_applies_every_setting_read_where_it_is_used() {
     changed.auto_resume_delays_ms = Some(vec![]);
     changed.capacity_fallback_after = Some(0);
     changed.login_env_allow = vec!["RELOAD_TEST_*".into()];
-    changed.coderouter_claude_route = Some("claude".into());
     changed.btw.model.insert("claude".into(), "claude-haiku".into());
     changed.titles.generate = Some(false);
     changed.context_overrides.user = Some("from the file".into());
@@ -226,7 +225,6 @@ async fn reload_applies_every_setting_read_where_it_is_used() {
     assert_eq!(current.auto_resume_delays_ms, Some(vec![]));
     assert_eq!(current.capacity_fallback_after, Some(0));
     assert_eq!(current.login_env_allow, expected.login_env_allow);
-    assert_eq!(current.coderouter_claude_route, expected.coderouter_claude_route);
     assert_eq!(current.btw, expected.btw);
     assert_eq!(current.titles, expected.titles);
     assert_eq!(current.context_overrides, expected.context_overrides);

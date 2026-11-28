@@ -121,7 +121,7 @@ async fn a_cloud_key_is_checked_before_the_broker_relies_on_the_guest_to_accept_
     let path = home.path().join("google-key");
     let invalid = "fixture!key";
     std::fs::write(&path, invalid).unwrap();
-    crate::router_socket::owner_only(&path);
+    crate::private_file::owner_only(&path);
     let mut config = Config::default();
     config.path = Some(home.path().join("config.json"));
     config.profile_sources = crate::config::ProfileSources::none();
@@ -150,7 +150,7 @@ async fn new_keys_wait_for_cloud_opt_in_and_openrouter_never_delivers() {
     let path = home.path().join("model-key");
     let fixture = "fixture-api-key";
     std::fs::write(&path, fixture).unwrap();
-    crate::router_socket::owner_only(&path);
+    crate::private_file::owner_only(&path);
     let reference = format!("file:{}", path.display());
     let mut config = Config::default();
     config.path = Some(home.path().join("config.json"));
@@ -333,7 +333,7 @@ async fn an_in_flight_cloud_start_cannot_use_a_replaced_key_after_new_consent() 
     let reference = |name: &str| {
         let path = home.path().join(name);
         std::fs::write(&path, name).unwrap();
-        crate::router_socket::owner_only(&path);
+        crate::private_file::owner_only(&path);
         format!("file:{}", path.display())
     };
     for (provider, variable) in [("google", "GEMINI_API_KEY"), ("xai", "XAI_API_KEY")] {
@@ -426,7 +426,7 @@ async fn claude_token_add_registers_a_reference_whose_value_only_the_person_read
     let path = dir.path().join("setup-token");
     let token = "sk-ant-oat01-fixture";
     std::fs::write(&path, token).unwrap();
-    crate::router_socket::owner_only(&path);
+    crate::private_file::owner_only(&path);
     let mut config = Config::default();
     config.path = Some(dir.path().join("config.json"));
     config.profile_sources = crate::config::ProfileSources::none();

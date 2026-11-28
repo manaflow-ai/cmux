@@ -105,7 +105,6 @@
     "cmux-tui/crates/acpmux/src/daemon/cloud_handoff.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/daemon/connect.rs:rust-duration": {"count": 1, "reason": "base-red catch-up 2026-11-28: added on base while this ratchet ran only on base pushes (feat PRs skip it without full-ci); remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/daemon/login_session.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
-    "cmux-tui/crates/acpmux/src/daemon/router_owner/fifo.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/deps/remote.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/github_app_token.rs:rust-duration": {"count": 2, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/github_pool.rs:rust-duration": {"count": 1, "reason": "base-red catch-up 2026-11-28: added on base while this ratchet ran only on base pushes (feat PRs skip it without full-ci); remove or replace with liveness"},

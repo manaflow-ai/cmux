@@ -20,7 +20,6 @@ export const LOCK_SCHEMA = 1;
 export const KNOWN_PROGRAMS = [
   "cmux-tui",
   "cmux-tui-hook",
-  "coderouter",
   "claude",
   "codex",
   "opencode",

@@ -97,7 +97,6 @@ async fn a_pinned_hosted_harness_never_execs_in_a_swapped_folder() {
         socket: agent_host::socket_path(&hosts, "pinned"),
         hosts_dir: hosts,
         buffer_cap: agent_host::DEFAULT_BUFFER_CAP,
-        router_owner_fifo: None,
         cwd_pin: Some(pin),
         orphan_exit: None,
         prompt_suggestions_managed: None,
