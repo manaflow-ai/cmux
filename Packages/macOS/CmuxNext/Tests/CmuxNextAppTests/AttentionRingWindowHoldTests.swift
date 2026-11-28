@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextBridge
 @testable import CmuxNextLayout
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
