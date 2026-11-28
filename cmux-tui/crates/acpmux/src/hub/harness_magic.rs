@@ -48,9 +48,11 @@ pub(crate) const FEATURES: &[Feature] = &[
     Feature { name: "dedupe", on: crate::claude_stdio::dedupe_enabled },
     Feature { name: super::sidecars::FEATURE, on: || enabled(super::sidecars::FEATURE) },
     Feature { name: "dirRules", on: crate::claude_stdio::dir_rules_enabled },
+    Feature { name: super::idle_digest::FEATURE, on: super::idle_digest::enabled },
     Feature { name: super::turn_checkpoint::FEATURE, on: super::turn_checkpoint::enabled },
     Feature { name: "sharedCache", on: crate::ci_log_cache::enabled },
     Feature { name: "outputCaps", on: crate::harness_limits::output_caps },
+    Feature { name: super::turn_artifacts::FEATURE, on: super::turn_artifacts::enabled },
     Feature { name: "consensus", on: super::surge_triage::consensus_enabled },
 ];
 

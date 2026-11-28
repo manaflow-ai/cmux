@@ -4,6 +4,13 @@
 //! inherited provider env), in a private temp folder, with a time limit.
 //! The reply and every error are masked; a failed turn of an endpoint
 //! harness names its fix (the key, the base URL or the model).
+//!
+//! The turn speaks stream-json, as a session does (`claude_stdio::spawn_plan`): the
+//! prompt goes in as one user line on stdin, the reply is the `result` line. A
+//! launcher may accept only that shape headless: `sr2 claude2` refuses `-p PROMPT`
+//! ("runs the Claude TUI only in a cmux terminal"), so until this turn matched the
+//! session's, `cmux harness doctor claude-sr2` failed its prompt step while every
+//! claude-sr2 chat ran (cmux#57823).
 
 use super::*;
 use crate::byo_endpoint::{self, Kind};
@@ -13,6 +20,38 @@ use crate::stderr::clean_stderr_lines;
 const TURN_LIMIT: Duration = Duration::from_secs(60);
 /// Most bytes of output kept for the report.
 const DETAIL_MAX: usize = 1200;
+/// The flags after the harness's own argv: a session's stream-json shape (module docs).
+const TURN_ARGS: [&str; 8] = [
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--no-session-persistence",
+    "--strict-mcp-config",
+];
+
+/// The stdin of the turn: [`DOCTOR_PROMPT`] as one stream-json user message.
+fn prompt_line() -> String {
+    let message = json!({
+        "type": "user",
+        "message": {"role": "user", "content": [{"type": "text", "text": DOCTOR_PROMPT}]},
+    });
+    format!("{message}\n")
+}
+
+/// The turn's result object (`{type: "result", is_error, result, ...}`): the
+/// last `result` line, else the last JSON object, for a harness that prints
+/// only that.
+fn result_object(stdout: &str) -> Option<Value> {
+    let objects: Vec<Value> = stdout
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l.trim()).ok().filter(Value::is_object))
+        .collect();
+    let is_result = |v: &&Value| v.get("type").and_then(Value::as_str) == Some("result");
+    objects.iter().rev().find(is_result).or(objects.last()).cloned()
+}
 
 /// What one `claude -p` printed, and how it ended.
 struct Outcome {
@@ -43,9 +82,7 @@ pub(super) async fn run(
         .filter(|m| !m.trim().is_empty());
     let program = profile.argv.first().cloned().unwrap_or_default();
     let mut args: Vec<String> = profile.argv.iter().skip(1).cloned().collect();
-    args.extend(
-        ["-p", DOCTOR_PROMPT, "--output-format", "json", "--strict-mcp-config"].map(str::to_owned),
-    );
+    args.extend(TURN_ARGS.map(str::to_owned));
     if let Some(m) = &model {
         args.extend(["--model".to_owned(), m.clone()]);
     }
@@ -66,7 +103,7 @@ pub(super) async fn run(
             return;
         }
     };
-    cmd.stdin(std::process::Stdio::null());
+    cmd.stdin(std::process::Stdio::piped());
     let limit = opts.timeout.max(TURN_LIMIT);
     let outcome = match turn(cmd, limit).await {
         Ok(o) => o,
@@ -79,12 +116,7 @@ pub(super) async fn run(
             return;
         }
     };
-    // Claude Code's `--output-format json` result: {is_error, result, ...}.
-    let result = outcome
-        .stdout
-        .lines()
-        .rev()
-        .find_map(|l| serde_json::from_str::<Value>(l.trim()).ok().filter(Value::is_object));
+    let result = result_object(&outcome.stdout);
     let is_error = result.as_ref().and_then(|v| v.get("is_error")).and_then(Value::as_bool);
     let text = result
         .as_ref()
@@ -98,8 +130,9 @@ pub(super) async fn run(
         r.reply = Some(text.trim().to_owned());
         return;
     }
+    // Without a result, the last line: a stream's first lines are its long init record.
     let mut detail = if text.trim().is_empty() {
-        outcome.stdout.trim().to_owned()
+        outcome.stdout.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_owned()
     } else {
         text.trim().to_owned()
     };
@@ -128,9 +161,20 @@ pub(super) async fn run(
 /// Run the turn: Ok with its output when it exits within `limit`; on the
 /// limit the turn and everything it started (its process group) is killed.
 async fn turn(mut cmd: tokio::process::Command, limit: Duration) -> Result<Outcome, String> {
-    let child = cmd.spawn().map_err(|e| format!("cannot start the harness: {e}"))?;
+    let mut child = cmd.spawn().map_err(|e| format!("cannot start the harness: {e}"))?;
     let pid = child.id();
-    match tokio::time::timeout(limit, child.wait_with_output()).await {
+    let stdin = child.stdin.take();
+    let run = async move {
+        // The one prompt, then EOF, which ends a stream-json turn. A harness that
+        // exits without reading it (a refusal) closes the pipe: its own output
+        // says why, so a failed write is not the error.
+        if let Some(mut stdin) = stdin {
+            let _ = stdin.write_all(prompt_line().as_bytes()).await;
+            let _ = stdin.shutdown().await;
+        }
+        child.wait_with_output().await
+    };
+    match tokio::time::timeout(limit, run).await {
         Ok(Ok(out)) => Ok(Outcome {
             success: out.status.success(),
             stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
