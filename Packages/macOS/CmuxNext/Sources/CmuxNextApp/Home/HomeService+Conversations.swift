@@ -248,13 +248,13 @@ extension HomeService {
 
     /// Each listed Chief's avatar (`HomeChiefAvatars.faces`; its picture is `AppServices.chosenPicture(of:)`).
     var chiefFaces: [String: HomeChiefAvatar] {
-        let chiefs = Set(homeStore.rows.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) } + [HomeChiefAvatars.defaultChief])
+        let chiefs = homeStore.chiefIDs.union([HomeChiefAvatars.defaultChief])
         return HomeChiefAvatars.faces(chiefs: chiefs.union(fixtureChiefs), own: directory.chiefAvatars) { services.chosenPicture(of: $0) }
     }
 
     /// `chiefFaces[chief]` alone: the sidebar asks once per row.
     func chiefFace(of chief: String) -> HomeChiefAvatar? {
-        HomeChiefAvatars.face(of: chief, rows: homeStore.rows, extra: fixtureChiefs, own: directory.chiefAvatars) { services.chosenPicture(of: $0) }
+        HomeChiefAvatars.face(of: chief, chiefs: homeStore.chiefIDs, extra: fixtureChiefs, own: directory.chiefAvatars) { services.chosenPicture(of: $0) }
     }
 
     /// DEBUG: the sidebar fixture's Chiefs (`debugChiefs`); none in other builds.
