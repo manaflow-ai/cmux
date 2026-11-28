@@ -2,6 +2,7 @@
 import CmuxMobileDesign
 import CmuxMobileWorkspaces
 import Observation
+import QuartzCore
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -89,7 +90,17 @@ public struct PagedListLabRoot: View {
         .pagedEndLabel(direction == .up ? "Beginning of the conversation" : "You're all caught up")
         .pagedIdentifier("lab.list")
         .pagedProbe(probe)
-        .pagedNewestIndicator { [direction] newest in PagedListNewestPill(newest, direction: direction) }
+        .pagedNewestIndicator { [direction, hud] newest in
+            // The person's jump, timed on the app's clock: from the tap to the list showing its newest
+            // row again (the indicator's away state clearing), for the stress pill case.
+            PagedListNewestPill(PagedListNewest(unseen: newest.unseen, isAway: newest.isAway) {
+                hud.jumpAsked()
+                newest.jump()
+            }, direction: direction)
+            .onChange(of: newest.isAway) { _, away in
+                if !away { hud.jumpLanded() }
+            }
+        }
     }
 
     private var lab: some View {
@@ -423,6 +434,10 @@ final class PagedLabHUD {
     var slideFrames = 0
     /// Rows that arrived under a resting finger and waited for it.
     var heldRows = 0
+    /// The newest-rows indicator's last jump: from the tap to the newest row in view again (the
+    /// indicator's away state clearing), in ms; -1 before a jump, or while one has not landed.
+    var jumpMs: Double = -1
+    @ObservationIgnored private var jumpStart: CFTimeInterval?
     /// Row values in memory, rows known, rows on disk and the disk file's size.
     var inMemory = 0
     var total = 0
@@ -535,6 +550,17 @@ final class PagedLabHUD {
         heldRows += rows
     }
 
+    func jumpAsked() {
+        jumpStart = CACurrentMediaTime()
+        jumpMs = -1
+    }
+
+    func jumpLanded() {
+        guard let start = jumpStart else { return }
+        jumpStart = nil
+        jumpMs = (CACurrentMediaTime() - start) * 1000
+    }
+
     func landed(shift: CGFloat, rows: Int) {
         self.rows = rows
         landings += 1
@@ -554,7 +580,7 @@ final class PagedLabHUD {
         let ratio = seconds > 0 ? hitchMs / seconds : 0
         let samplerMean = samplerCosts.isEmpty ? 0 : samplerCosts.reduce(0, +) / Double(samplerCosts.count)
         let samplerP99 = samplerCosts.isEmpty ? 0 : samplerCosts.sorted()[min(samplerCosts.count - 1, samplerCosts.count * 99 / 100)]
-        return #"{"edge":"\#(edge)","newer":"\#(newer)","rows":\#(rows),"landings":\#(landings),"maxShift":\#(maxShift),"frameShift":\#(frameShift),"samples":\#(samples),"shiftedFrames":\#(shiftedFrames),"frames":\#(frames),"hitches":\#(hitches),"dropped":\#(dropped),"worstMs":\#(worstMs),"hitchMsPerS":\#(ratio),"changes":\#(changes),"flushes":\#(flushes),"inMemory":\#(inMemory),"total":\#(total),"onDisk":\#(onDisk),"diskBytes":\#(diskBytes),"slides":\#(slides),"slideFrames":\#(slideFrames),"held":\#(heldRows),"worstShift":"\#(worstShift)","passFrameShift":\#(passFrameShift),"passShifted":\#(passShifted),"passMidPlacement":\#(passMidPlacement),"passWorstShift":"\#(passWorstShift)","samplerMeanMs":\#(samplerMean),"samplerP99Ms":\#(samplerP99),"samplerFrames":\#(samplerCosts.count),"drawnShift":\#(drawnShift),"drawnShifted":\#(drawnShifted),"drawnWorst":"\#(drawnWorst)","neighbourShift":\#(neighbourShift),"neighbourShifted":\#(neighbourShifted),"neighbourWorst":"\#(neighbourWorst)","pushShift":\#(pushShift),"pushShifted":\#(pushShifted),"pushWorst":"\#(pushWorst)","bounded":\#(boundedFrames),"dragPushes":\#(dragPushes.count),"dragPushMax":\#(dragPushes.max() ?? 0),"dragPushP90":\#(dragPushes.isEmpty ? 0 : dragPushes.sorted()[min(dragPushes.count - 1, dragPushes.count * 9 / 10)])}"#
+        return #"{"edge":"\#(edge)","newer":"\#(newer)","rows":\#(rows),"landings":\#(landings),"maxShift":\#(maxShift),"frameShift":\#(frameShift),"samples":\#(samples),"shiftedFrames":\#(shiftedFrames),"frames":\#(frames),"hitches":\#(hitches),"dropped":\#(dropped),"worstMs":\#(worstMs),"hitchMsPerS":\#(ratio),"changes":\#(changes),"flushes":\#(flushes),"inMemory":\#(inMemory),"total":\#(total),"onDisk":\#(onDisk),"diskBytes":\#(diskBytes),"slides":\#(slides),"slideFrames":\#(slideFrames),"held":\#(heldRows),"jumpMs":\#(jumpMs),"worstShift":"\#(worstShift)","passFrameShift":\#(passFrameShift),"passShifted":\#(passShifted),"passMidPlacement":\#(passMidPlacement),"passWorstShift":"\#(passWorstShift)","samplerMeanMs":\#(samplerMean),"samplerP99Ms":\#(samplerP99),"samplerFrames":\#(samplerCosts.count),"drawnShift":\#(drawnShift),"drawnShifted":\#(drawnShifted),"drawnWorst":"\#(drawnWorst)","neighbourShift":\#(neighbourShift),"neighbourShifted":\#(neighbourShifted),"neighbourWorst":"\#(neighbourWorst)","pushShift":\#(pushShift),"pushShifted":\#(pushShifted),"pushWorst":"\#(pushWorst)","bounded":\#(boundedFrames),"dragPushes":\#(dragPushes.count),"dragPushMax":\#(dragPushes.max() ?? 0),"dragPushP90":\#(dragPushes.isEmpty ? 0 : dragPushes.sorted()[min(dragPushes.count - 1, dragPushes.count * 9 / 10)])}"#
     }
 }
 

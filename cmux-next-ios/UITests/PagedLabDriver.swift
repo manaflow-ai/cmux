@@ -187,4 +187,7 @@ struct PagedLabReading {
     var slides: Int { Int(number("slides")) }
     var slideFrames: Int { Int(number("slideFrames")) }
     var held: Int { Int(number("held")) }
+    /// The newest-rows indicator's last jump, from the tap to the newest row in view again (ms, on the
+    /// app's clock); -1 when none landed.
+    var jumpMs: Double { (values["jumpMs"] as? NSNumber)?.doubleValue ?? -1 }
 }

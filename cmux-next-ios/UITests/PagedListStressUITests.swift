@@ -107,13 +107,25 @@ final class PagedListStressUITests: XCTestCase {
         // The jump lands on the newest row within its 0.35 s, and the list keeps the newest row in view
         // while the flood lasts (the indicator shows only past a quarter screen from it): the pill goes
         // within 1 s of the tap and does not come back for 3 s (bd734f10: still showing 10 s later).
-        let gone = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !pill.exists }, object: nil)], timeout: 1.0)
-        XCTAssertEqual(gone, .completed, "\(name): the newest row was not on screen within 1 s of the jump (the pill still shows)")
+        // Read continuously, not by a predicate wait: XCTNSPredicateExpectation reads about once a
+        // second, so a 1 s wait read the pill once, at the tap (0b7d601b: timed out, with the pill gone
+        // and staying gone for the 3 s after).
+        let tapped = Date()
+        var goneAfter: TimeInterval?
+        while goneAfter == nil, Date().timeIntervalSince(tapped) < 1.0 {
+            if !pill.exists { goneAfter = Date().timeIntervalSince(tapped) }
+        }
+        XCTAssertNotNil(goneAfter, "\(name): the newest row was not on screen within 1 s of the jump (the pill still shows)")
         XCTAssertTrue(lab.staysTrue(for: 3) { !pill.exists }, "\(name): the list fell behind its newest row under the flood (the pill came back)")
         lab.attach("\(name)-jumped")
         let reading = lab.reading
         let rowsOnScreen = lab.rowsOnScreen()
-        lab.record(name, #"{"direction":"up","load":"flood","pill":true,"pillAfter":\#(pill.exists),"rowsOnScreen":\#(rowsOnScreen),"hud":\#(reading.json)}"#)
+        let goneMs = goneAfter.map { String(Int($0 * 1000)) } ?? "null"
+        lab.record(name, #"{"direction":"up","load":"flood","pill":true,"pillAfter":\#(pill.exists),"goneAfterTapMs":\#(goneMs),"rowsOnScreen":\#(rowsOnScreen),"hud":\#(reading.json)}"#)
+        // The app's own clock, from the tap to the newest row in view again (the tap's own wait for the
+        // app to settle is not in it).
+        XCTAssertGreaterThanOrEqual(reading.jumpMs, 0, "\(name): the jump never brought the newest row into view")
+        XCTAssertLessThanOrEqual(reading.jumpMs, 1000, "\(name): the newest row came into view \(reading.jumpMs) ms after the tap")
         XCTAssertEqual(reading.pushShifted, before.pushShifted,
                        "\(name): the jump the person asked for counted as \(reading.pushShifted - before.pushShifted) pushes (largest \(reading.pushShift) pt)")
         // The list follows its newest rows after the jump, and draws rows (SH-11: never a blank screen
