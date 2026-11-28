@@ -90,10 +90,12 @@ import Testing
     /// relevant when you may need to investigate/take action"), and no working animation runs for hidden children.
     @Test func aFoldedRollUpDrawsOnlyWhatNeedsThePerson() throws {
         let view = SidebarTreeRollUpView(frame: NSRect(x: 0, y: 0, width: 180, height: 22))
-        #expect(view.subviews.allSatisfy { !($0 is StatusIndicatorView) })
         view.configure(SidebarTreeRollUp(blocked: 1, failed: 2, running: 3, unread: 1, total: 7))
+        // The rows' own marks (Lawrence 2026-11-25: the red info mark, not a red dot); a count only past one.
+        let marks = view.subviews.compactMap { $0 as? StatusIndicatorView }.filter { !$0.isHidden }.map(\.state)
+        #expect(marks == [.waiting, .error])
         let counts = view.subviews.compactMap { $0 as? ChromeLabel }.filter { !$0.isHidden }.map(\.stringValue)
-        #expect(counts == ["1", "2"])
+        #expect(counts == ["2"])
         #expect(!view.isHidden)
         view.configure(SidebarTreeRollUp(running: 2, unread: 1, total: 3))
         #expect(view.isHidden, "running, unread and the hidden count are no reason to look")

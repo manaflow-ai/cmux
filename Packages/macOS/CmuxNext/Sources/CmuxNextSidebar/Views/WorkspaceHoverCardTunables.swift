@@ -20,12 +20,13 @@ public nonisolated enum WorkspaceHoverCardTitle: String, Sendable, CaseIterable,
         }
     }
 
-    /// The card shows the name: `tabTitles` are the workspace's tabs', `expanded` whether its details are open.
+    /// The card shows the name: `tabTitles` are the workspace's tabs', `expanded` whether its details are open. Show
+    /// details no longer brings back a name the one tab row already reads (Lawrence 2026-11-25: "this hover card is ugly,
+    /// make it more minimal": the name drew twice, as the header and as the tab row under it).
     public func showsTitle(_ title: String, tabTitles: [String], expanded: Bool) -> Bool {
-        if expanded { return true }
         switch self {
         case .always: return true
-        case .withDetails: return false
+        case .withDetails: return expanded
         case .unlessRepeated:
             guard tabTitles.count == 1, let only = tabTitles.first else { return true }
             return Self.normalized(only) != Self.normalized(title)
