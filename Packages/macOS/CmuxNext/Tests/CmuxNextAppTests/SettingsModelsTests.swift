@@ -1199,9 +1199,9 @@ import Testing
     }
 
     @Test func aTeamKeyKindFollowsItsShape() {
-        #expect(SettingsModels.kind(of: "sk-ant-oat01-abc") == "oauth")
-        #expect(SettingsModels.kind(of: #"{"tokens":{}}"#) == "oauth")
-        #expect(SettingsModels.kind(of: "sk-proj-abc") == "api_key")
+        #expect(ModelSecret("sk-ant-oat01-abc").kind == "oauth")
+        #expect(ModelSecret(#"{"tokens":{}}"#).kind == "oauth")
+        #expect(ModelSecret("sk-proj-abc").kind == "api_key")
     }
 
     @Test func theKeychainLineQuotesItsWords() {
@@ -1297,8 +1297,8 @@ import Testing
         // one token the terminal printed.
         let token = "sk-ant-oat01-ABCdef_0123-456789xyz"
         let pasted = "  sk-ant-oat01-ABCdef_0123\n   -456789\u{200B}xyz \r\n\t"
-        #expect(SettingsModels.withoutWhitespace(pasted) == token)
-        #expect(SettingsModels.isClaudeToken(SettingsModels.withoutWhitespace(pasted)))
+        #expect(ModelSecret(pasted).clean == token)
+        #expect(ModelSecret(pasted).claudeToken)
         let daemon = Daemon()
         let keys = Keys()
         let models = make(daemon: daemon, keys: keys)

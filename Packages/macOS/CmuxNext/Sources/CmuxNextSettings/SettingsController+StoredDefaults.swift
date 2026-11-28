@@ -20,20 +20,16 @@ extension SettingsSchema {
     /// Keys (or, ending in ".", key prefixes) whose readers fill an unset key with something other
     /// than the row's default, which the controller cannot see, with that reader. A written default
     /// stays stored for these (it is the person's override), and the launch pass keeps such copies.
-    nonisolated static let unsetIsNotDefaultKeys: [String: String] = [
-        // `editor.importFrom` (FilePageLook), `LANGUAGE_DEFAULTS` in webviews' `settingsForLanguage`
-        // (Markdown and commit messages wrap, Go and Makefiles indent with tabs), and keys that
-        // follow another (`autoClosingQuotes` follows `autoClosingBrackets`).
-        // `editor.importFrom` itself is none of these (`unsetIsNotDefault` leaves it out).
-        "editor.": "another editor's settings, the built-in per-language values, a key it follows",
-        // webviews' `resolveHarnessPlacement`: the Debug tunable `agent.harnessPlacement` fills it.
-        "agentPane.display.harnessPlacement": "the Debug tunable agent.harnessPlacement",
-    ]
+    /// Rust's `stored_defaults.unset_is_not_default_keys` lists them.
+    nonisolated static var unsetIsNotDefaultKeys: [String: String] {
+        let keys = SettingsRust.answer("stored_defaults.unset_is_not_default_keys", .object([:]))["keys"]
+        guard case .object(let members)? = keys else { return [:] }
+        return members.compactMapValues(\.stringValue)
+    }
 
-    /// Whether `unsetIsNotDefaultKeys` names `key`.
+    /// Whether `unsetIsNotDefaultKeys` names `key` (`stored_defaults.unset_is_not_default`).
     nonisolated static func unsetIsNotDefault(_ key: String) -> Bool {
-        key != EditorSettingsSchema.importFromPath.joined(separator: ".")
-            && unsetIsNotDefaultKeys.keys.contains { $0.hasSuffix(".") ? key.hasPrefix($0) : key == $0 }
+        SettingsRust.answer("stored_defaults.unset_is_not_default", ["key": .string(key)])["is"]?.boolValue ?? false
     }
 }
 
@@ -170,29 +166,24 @@ extension SettingsController {
         return report
     }
 
-    /// The record's text: what went, what stayed and the file's text before the pass.
+    /// The record's text: what went, what stayed and the file's text before the pass
+    /// (`stored_defaults.record`).
     nonisolated static func storedDefaultsRecord(_ report: StoredDefaultsReport, before: String) -> String {
-        let record: JSONValue = .object([
-            "note": .string("cmux dropped these stored copies of defaults once, so each key follows its default again. "
-                + "To keep one, set it again in Settings or copy it back from `before`."),
-            "dropped": .object(report.dropped),
-            "kept": .object(report.kept),
-            "before": .string(before),
-        ])
-        return record.prettyText() + "\n"
+        let request: JSONValue = ["dropped": .object(report.dropped), "kept": .object(report.kept), "before": .string(before)]
+        return SettingsRust.answer("stored_defaults.record", request)["text"]?.stringValue ?? ""
     }
 
-    /// `report` once the write removed only `removed`: each other candidate is kept, with its value
-    /// in `before` (the file at the write).
+    /// `report` once the write removed only `removed` (`stored_defaults.settled`).
     nonisolated static func settled(_ report: StoredDefaultsReport, candidates: [(SettingDescriptor, JSONValue)],
                                     removed: [[String]], before: String) -> StoredDefaultsReport {
-        var report = report
-        let root = try? JSONC.parse(before)
-        for (descriptor, read) in candidates where !removed.contains(descriptor.path) {
-            report.dropped[descriptor.id] = nil
-            report.kept[descriptor.id] = root?.value(at: descriptor.path) ?? read
-        }
-        return report
+        let request: JSONValue = [
+            "dropped": .object(report.dropped), "kept": .object(report.kept), "before": .string(before),
+            "candidates": .array(candidates.map { ["id": .string($0.0.id), "path": .array($0.0.path.map(JSONValue.string)), "value": $0.1] }),
+            "removed": .array(removed.map { .array($0.map(JSONValue.string)) }),
+        ]
+        let answer = SettingsRust.answer("stored_defaults.settled", request)
+        guard case .object(let dropped)? = answer["dropped"], case .object(let kept)? = answer["kept"] else { return report }
+        return StoredDefaultsReport(dropped: dropped, kept: kept)
     }
 
     /// The UserDefaults key that records `dropStrayNulls` ran on this channel.

@@ -284,7 +284,7 @@ extension SettingsModels {
 
     /// The code Claude's page showed (when it did not return to the run on its own), typed into the run.
     func claudeTokenCode(_ code: String) async throws {
-        let code = Self.withoutWhitespace(code)
+        let code = ModelSecret(code).clean
         guard let attempt = claudeTokenAttempt else { throw PageError.invalidParams("claudeTokenCode needs a Claude sign-in in progress") }
         guard !code.isEmpty, code.utf8.count <= 4096 else { throw PageError.invalidParams("claudeTokenCode needs the code Claude showed") }
         _ = try await daemon(try await requireDaemonEnvironment(), .claudeTokenCode, ["attempt": attempt, "code": code])
@@ -310,9 +310,9 @@ extension SettingsModels {
     /// Save an API key in the Keychain and send its reference to the connection owner.
     /// A refused write removes the newly saved item.
     func addKey(provider: String, key: String, label: String?, replacing: (id: String, instance: String)?, servesCloud: Bool?, checkStoredKey: Bool) async throws {
-        guard Self.providers.contains(provider) else { throw PageError.invalidParams("addKey needs a known provider") }
-        let key = Self.withoutWhitespace(key)
-        guard Self.isModelAPIKey(key) else { throw PageError.invalidParams("addKey needs a valid API key") }
+        let secret = ModelSecret(key, provider: provider), key = secret.clean
+        guard secret.providerKnown else { throw PageError.invalidParams("addKey needs a known provider") }
+        guard secret.apiKey else { throw PageError.invalidParams("addKey needs a valid API key") }
         var params: [String: any Sendable] = ["provider": provider]
         if let replacing {
             params["replace"] = replacing.id
@@ -325,12 +325,12 @@ extension SettingsModels {
 
     /// Add a Claude setup token (`claude setup-token`'s `sk-ant-oat…`, pasted after the terminal tab ran
     /// it): into the Keychain first, then `connections/claude_token.add` with its reference only. Every
-    /// whitespace character is taken out first (`withoutWhitespace`): a terminal that wrapped the token
+    /// whitespace character is taken out first (``ModelSecret``): a terminal that wrapped the token
     /// across lines or padded it with spaces still gives the one token it printed. What is left must
-    /// read as a token (`isClaudeToken`).
+    /// read as a token (`claudeToken`).
     func addClaudeToken(_ token: String, label: String?, replacing: (id: String, instance: String)?) async throws {
-        let token = Self.withoutWhitespace(token)
-        guard Self.isClaudeToken(token) else {
+        let secret = ModelSecret(token), token = secret.clean
+        guard secret.claudeToken else {
             throw PageError.invalidParams("addClaudeToken needs the sk-ant-oat token claude setup-token printed")
         }
         let reply = try await addSecret(token, store: "claude-token", method: .claudeTokenAdd, params: [:], label: label)
@@ -359,39 +359,6 @@ extension SettingsModels {
             $0["id"]?.stringValue == id && $0["credentialInstance"]?.stringValue == instance
         }) else { throw changed }
         try await mutate(.connectionsRemove, ["id": replacing.id, "instance": replacing.instance])
-    }
-
-    nonisolated static let claudeTokenPrefix = "sk-ant-oat"
-
-    nonisolated static func isModelAPIKey(_ key: String) -> Bool {
-        isOneWord(key) && !key.hasPrefix("sk-ant-oat")
-    }
-
-    /// TOKEN with every space, tab, line break and invisible space (zero-width, BOM) taken out. A setup
-    /// token never holds whitespace, so a pasted one loses only what the copy added.
-    nonisolated static func withoutWhitespace(_ secret: String) -> String {
-        String(String.UnicodeScalarView(secret.unicodeScalars.filter { scalar in
-            !scalar.properties.isWhitespace && !invisibleSpaces.contains(scalar.value)
-        }))
-    }
-
-    /// Zero-width space, non-joiner, joiner, word joiner and BOM: not whitespace to Unicode, but a paste adds them.
-    nonisolated private static let invisibleSpaces: Set<UInt32> = [0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF]
-
-    /// Whether TOKEN reads as a Claude setup token: `sk-ant-oat`, two digits, a dash, then base64url
-    /// (letters, digits, `-`, `_`), as webviews' `claudeSetupToken.ts` checks it.
-    nonisolated static func isClaudeToken(_ token: String) -> Bool {
-        guard token.hasPrefix(claudeTokenPrefix), token.utf8.count <= keyLimit else { return false }
-        let rest = Array(token.utf8.dropFirst(claudeTokenPrefix.utf8.count))
-        guard rest.count > 3, rest[0] >= 0x30, rest[0] <= 0x39, rest[1] >= 0x30, rest[1] <= 0x39, rest[2] == 0x2D else { return false }
-        return rest.dropFirst(3).allSatisfy { byte in
-            (byte >= 0x30 && byte <= 0x39) || (byte >= 0x41 && byte <= 0x5A) || (byte >= 0x61 && byte <= 0x7A) || byte == 0x2D || byte == 0x5F
-        }
-    }
-
-    /// One line of printable characters with no spaces, as a key or token is; the Keychain line must not break.
-    nonisolated static func isOneWord(_ secret: String) -> Bool {
-        !secret.isEmpty && secret.utf8.count <= keyLimit && secret.unicodeScalars.allSatisfy { $0.value >= 0x21 && $0.value <= 0x7E }
     }
 
     /// SECRET into the Keychain (as STORE), then METHOD with its reference only; a refused add takes it back out.
@@ -437,15 +404,10 @@ extension SettingsModels {
         guard !keys.busy else { throw PageError(code: "cmux.models.busy", message: "another change to the team's keys is still running") }
         if let key {
             let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-            await keys.save(agent: agent, kind: kind.flatMap { TeamAgentKeys.kinds.contains($0) ? $0 : nil } ?? Self.kind(of: trimmed), secret: trimmed)
+            await keys.save(agent: agent, kind: kind.flatMap { TeamAgentKeys.kinds.contains($0) ? $0 : nil } ?? ModelSecret(trimmed).kind, secret: trimmed)
         } else {
             await keys.remove(agent: agent)
         }
         if let code = keys.currentProblem?.code { throw PageError(code: "cmux.models.\(code)", message: TeamAgentKeys.copy(code)) }
-    }
-
-    /// A Claude setup token (`sk-ant-oat…`) or a sign-in file is a subscription; anything else an API key.
-    nonisolated static func kind(of key: String) -> String {
-        key.hasPrefix("sk-ant-oat") || key.hasPrefix("{") ? "oauth" : "api_key"
     }
 }
