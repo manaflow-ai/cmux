@@ -369,6 +369,9 @@ pub struct State {
 }
 
 /// The run's next step: one exec to run (its answer goes to [`advance`]), or its answer.
+// One Step is made per exec and handed straight back, so the larger Done variant costs nothing
+// worth a Box (which would also change the wire-facing constructors).
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "step", rename_all = "camelCase")]
 pub enum Step {

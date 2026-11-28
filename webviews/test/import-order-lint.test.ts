@@ -28,8 +28,11 @@ export const PURE_HELPERS = new Set([
   "test/support/importWithDom", // jsdom only: the fix itself
   "test/support/jsdomScroller",
   "test/support/paintedFrames", // a Playwright page script
+  // check:browser-lanes requires this as a static import above a single top-level await (scripts/check-browser-test-lanes.ts).
+  "test/support/requireBrowserLane", // bun:test and systemChrome only
   "test/support/rowPropsRenders", // no imports: counts a row's renders by its props
   "test/support/settingsCardSizes", // no imports: the settings cards' row sizes
+  "test/support/systemChrome", // node: only: which browser a host may launch
   "test/support/until",
   "test/support/virtualSizes", // no imports: gives jsdom a viewport and row heights
   // The settings pages' DOM install (a top-level `installDom()`, then `await import` of the rest). It

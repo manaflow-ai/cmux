@@ -2,6 +2,7 @@ import type { Principal } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import { encodeCursor, hitOf, prepareSearch, type SearchParams, type SearchResult } from "./home-search.ts"
 import { connectMysql, type MysqlTarget } from "./mysql-connect.ts"
+import { readResendingOnLostConnection } from "./lost-connection.ts"
 import { dt } from "./projection-mysql.ts"
 
 /**
@@ -46,15 +47,23 @@ export const homeSearchMysql = async (env: Env & { PS_MYSQL_RO?: MysqlTarget }, 
     ORDER BY s.created_at DESC, s.conversation_id DESC, s.seq DESC
     LIMIT ?`
 
-  let client: Awaited<ReturnType<typeof connectMysql>> | null = null
+  const target = env.PS_MYSQL_RO
+  // Each attempt opens its own connection, so a resend after a lost connection never reuses the dead one.
+  const read = async () => {
+    let client: Awaited<ReturnType<typeof connectMysql>> | null = null
+    try {
+      client = await connectMysql(target, { timeoutMs: 5000 })
+      const [rows] = (await client.query(sql, args)) as [Array<Record<string, unknown>>]
+      return rows
+    } finally {
+      await client?.end().catch(() => {})
+    }
+  }
   try {
-    client = await connectMysql(env.PS_MYSQL_RO, { timeoutMs: 5000 })
-    const [rows] = (await client.query(sql, args)) as [Array<Record<string, unknown>>]
+    const rows = await readResendingOnLostConnection(read)
     const hits = rows.map((r) => hitOf({ ...(r as Record<string, unknown>), created_at: utc(r.created_at) } as Parameters<typeof hitOf>[0], q))
     return { ok: true, value: { hits, ...(hits.length === limit ? { cursor: encodeCursor(hits[hits.length - 1]!) } : {}) } }
   } catch {
     return { ok: false, code: "search.unavailable", message: "search failed or timed out; try a longer query" }
-  } finally {
-    await client?.end().catch(() => {})
   }
 }
