@@ -61,14 +61,15 @@
 
   var pending = [];
   var flushing = null;
+  function flush() {
+    flushing = null;
+    send("console", { page: page, href: location.href, lines: pending.splice(0, 200) });
+    // More than one batch waiting: the rest goes next, not with the next console call (which may never come).
+    if (pending.length) flushing = setTimeout(flush, 50);
+  }
   function note(level, args) {
     pending.push({ t: Date.now(), level: level, text: Array.prototype.map.call(args, text).join(" ").slice(0, 4000) });
-    if (!flushing) {
-      flushing = setTimeout(function () {
-        flushing = null;
-        send("console", { page: page, href: location.href, lines: pending.splice(0, 200) });
-      }, 300);
-    }
+    if (!flushing) flushing = setTimeout(flush, 300);
   }
 
   ["log", "info", "warn", "error", "debug"].forEach(function (level) {
@@ -120,7 +121,10 @@
       page: page,
       href: location.href,
       title: document.title,
+      // The page's own clock (the Mac's, as the shots' mtimes): a shot takes the snapshot taken last before it.
       t: Date.now(),
+      // A hidden pane (a spare, another tab) sends snapshots too: a shot prefers the visible one.
+      visibility: document.visibilityState,
       viewport: { w: innerWidth, h: innerHeight },
       newTabContext: window.__cmuxNewTabContext !== undefined,
       boxes: SELECTORS.map(box),
@@ -128,13 +132,30 @@
       html_length: html.length,
       html: html.slice(0, MAX_HTML)
     };
-    var key = JSON.stringify([message.boxes, message.text, message.html, message.viewport, message.newTabContext]);
+    var key = JSON.stringify([message.boxes, message.text, message.html, message.viewport, message.newTabContext,
+      message.visibility]);
     if (key === last) return;
     // A page that changes faster than its snapshots go out sends the next one once the queue drains, not a backlog.
     if (queue.length > 300) return;
     last = key;
     send("dom", message);
   }
+  // On every DOM change (200 ms after the last), so the snapshot of what a shot shows is taken before the shot,
+  // which waits for the window to hold still; and once a second for what changes no node (layout, a resize).
+  var soon = null;
+  function changed(records) {
+    // The probe's own <script> requests come and go in <head>: not a change of the page.
+    if (records && records.every && records.every(function (r) { return r.target === document.head; })) return;
+    if (soon) clearTimeout(soon);
+    soon = setTimeout(function () {
+      soon = null;
+      snapshot();
+    }, 200);
+  }
+  new MutationObserver(changed).observe(document.documentElement, {
+    subtree: true, childList: true, attributes: true, characterData: true
+  });
+  document.addEventListener("visibilitychange", function () { changed(); });
   setInterval(snapshot, 1000);
   addEventListener("load", snapshot);
 })();

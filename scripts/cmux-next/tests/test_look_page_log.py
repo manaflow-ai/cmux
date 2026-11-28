@@ -115,32 +115,59 @@ class SinkTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertFalse((self.out / "page/console.jsonl").exists())
 
-    def test_each_shot_takes_the_snapshot_live_when_it_was_written(self):
-        before = self.out / "before" / "dark.png"
-        before.parent.mkdir(parents=True)
-        before.write_bytes(b"png")
-        os.utime(before, (time.time() - 60, time.time() - 60))
-        self.send("dom", {"page": "p1", "t": 1, "boxes": [{"selector": ".nt-composer", "found": False}],
-                          "text": "", "html": "<main id=\"root\"></main>"}, mid="p1-1")
-        first = self.out / "after" / "dark.png"
-        first.parent.mkdir(parents=True)
-        first.write_bytes(b"png")
-        time.sleep(0.05)
-        self.send("dom", {"page": "p1", "t": 2, "boxes": [{"selector": ".nt-composer", "found": True}],
-                          "text": "Type a question", "html": "<main id=\"root\"><form></form></main>"}, mid="p1-2")
-        later = self.out / "steps" / "new-tab.png"
-        later.parent.mkdir(parents=True)
-        later.write_bytes(b"png")
+    def dom(self, mid: str, page: str, at: float, visible: bool = True, **fields) -> None:
+        self.send("dom", {"page": page, "t": at * 1000, "visibility": "visible" if visible else "hidden",
+                          "boxes": [], "text": "", "html": "<main id=\"root\"></main>", **fields}, mid=mid)
+
+    def shot(self, name: str, at: float) -> Path:
+        png = self.out / name
+        png.parent.mkdir(parents=True, exist_ok=True)
+        png.write_bytes(b"png")
+        os.utime(png, (at, at))
+        return png
+
+    def test_each_shot_takes_the_snapshot_the_page_took_last_before_it(self):
+        now = time.time()
+        before = self.shot("before/dark.png", now - 60)
+        self.dom("p1-1", "p1", now - 30, text="")
+        # By the page's clock, not by when its last chunk came in: a big snapshot sent in 90 chunks may arrive after
+        # the shot of the DOM it holds.
+        self.dom("p1-2", "p1", now - 10, text="Type a question")
+        first = self.shot("after/dark.png", now - 20)
+        later = self.shot("steps/new-tab.png", now - 5)
         facts = self.sink.attach(self.out)
-        self.assertEqual(json.loads(first.with_suffix(".dom.json").read_text())["t"], 1)
+        self.assertEqual(json.loads(first.with_suffix(".dom.json").read_text())["text"], "")
         self.assertEqual(json.loads(later.with_suffix(".dom.json").read_text())["text"], "Type a question")
         self.assertFalse(before.with_suffix(".dom.json").exists())
         self.assertEqual(facts["shots_without_dom"], ["before/dark.png"])
         self.assertEqual(sorted(facts["shots_with_dom"]), ["after/dark.png", "steps/new-tab.png"])
         self.assertEqual((facts["console_file"], facts["dom_file"], facts["dom"]),
                          ("page/console.jsonl", "page/dom.jsonl", 2))
+        self.assertFalse(facts["overlay_start_fallback"])
         self.assertEqual(len((self.out / "page/dom.jsonl").read_text().splitlines()), 2)
         self.assertFalse((self.out / "page/.dom").exists())
+
+    def test_a_shot_prefers_the_visible_pane_over_a_hidden_spare_s_newer_snapshot(self):
+        now = time.time()
+        self.dom("shown-1", "shown", now - 20, text="New Tab")
+        self.dom("spare-1", "spare", now - 10, visible=False, text="spare")
+        png = self.shot("after/light.png", now - 5)
+        self.sink.attach(self.out)
+        kept = json.loads(png.with_suffix(".dom.json").read_text())
+        self.assertEqual(kept["text"], "New Tab")
+        self.assertEqual([o["page"] for o in kept["other_pages"]], ["spare"])
+
+    def test_nothing_lands_after_the_shots_take_their_snapshots(self):
+        self.sink.attach(self.out)
+        self.dom("late-1", "p1", time.time(), text="late")
+        self.send("console", {"page": "p1", "lines": [{"t": 1, "level": "log", "text": "late"}]}, mid="late-2")
+        self.assertFalse((self.out / "page/dom.jsonl").exists())
+        self.assertFalse((self.out / "page/console.jsonl").exists())
+
+    def test_a_sink_that_never_starts_leaves_no_page_folder(self):
+        idle = plog.Sink(self.root / "idle", self.web_dev)
+        idle.stop()
+        self.assertFalse((self.root / "idle" / "page").exists())
 
     @unittest.skipUnless(shutil.which("node"), "node runs the probe")
     def test_the_probe_s_own_requests_decode_in_the_sink(self):
@@ -150,8 +177,10 @@ class SinkTest(unittest.TestCase):
 const urls = [];
 const el = () => ({ remove() {}, set src(v) { urls.push(v); setTimeout(() => this.onload && this.onload(), 1); } });
 global.window = global; global.location = { href: "cmux-page://cmux.agent/" };
+global.MutationObserver = class { observe() {} };
 global.innerWidth = 800; global.innerHeight = 600; global.addEventListener = () => {};
 global.document = { title: "cmux Agent", head: { appendChild() {} }, body: { innerText: "Type a question é" },
+  documentElement: {}, visibilityState: "visible", addEventListener() {},
   createElement: el, getElementById: () => ({ outerHTML: "<main id=\"root\">é & 100%</main>" }),
   querySelector: () => null };
 global.getComputedStyle = () => ({});

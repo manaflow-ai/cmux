@@ -12,6 +12,11 @@ the probe and 404s every other file, so the app serves those from the overlay as
   console.jsonl          every console call, uncaught error and rejection, one JSON line each, as it comes
   dom.jsonl              each DOM snapshot's time, page, boxes and text (no HTML), as it comes
   OUT/<shot>.dom.json    with each PNG under OUT: the pane's DOM snapshot that was live when the PNG was written
+                         (by the page's own clock; the visible pane's when a hidden spare sent one too)
+
+A server in web-dev.json turns off the app's overlay-start fallback (WebDevOverride.servedInstall is nil), so a head
+whose pane never starts is shown as it is, not swapped for the NIGHTLY's bundled pane: the receipt says so
+(overlay_start_fallback false), and `look --no-page-log` keeps the old behaviour.
 """
 from __future__ import annotations
 
@@ -83,9 +88,8 @@ class Sink:
 
     def __init__(self, out: Path, token_file: Path):
         self.dir = out / "page"
-        self.dir.mkdir(parents=True, exist_ok=True)
         self.snapshots = self.dir / ".dom"
-        self.snapshots.mkdir(exist_ok=True)
+        self.closed = False
         self.token_file = token_file
         self.lock = threading.Lock()
         self.parts: dict[str, dict] = {}
@@ -102,6 +106,9 @@ class Sink:
         return value if isinstance(value, str) and TOKEN.fullmatch(value) else ""
 
     def start(self) -> int:
+        """Serves on a free loopback port (its number); OUT/page/ is made only now, so a look whose web takes
+        another way (a dev server) leaves none."""
+        self.snapshots.mkdir(parents=True, exist_ok=True)
         sink = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -141,6 +148,9 @@ class Sink:
         return f"http://127.0.0.1:{self.server.server_address[1]}/"
 
     def stop(self) -> None:
+        # A connection the app keeps alive outlives shutdown() in its handler thread: what it still sends is
+        # answered and dropped, never written after the receipt's counts.
+        self.closed = True
         if self.server is not None:
             self.server.shutdown()
             self.server.server_close()
@@ -157,6 +167,8 @@ class Sink:
         try:
             index, total = int(one("i")), int(one("n"))
         except ValueError:
+            return
+        if self.closed:
             return
         mid = one("id")[:40]
         if not CHUNK_TEXT.fullmatch(mid) or not CHUNK_TEXT.fullmatch(one("d")) or not 0 <= index < total <= MAX_PARTS:
@@ -184,6 +196,8 @@ class Sink:
         if not isinstance(message, dict):
             return
         with self.lock:
+            if self.closed:
+                return
             if kind == "console":
                 with open(self.dir / "console.jsonl", "a") as log:
                     for line in message.get("lines") or []:
@@ -197,36 +211,57 @@ class Sink:
             self.counts["dom"] += 1
             path = self.snapshots / f"{self.counts['dom']:05d}.json"
             path.write_text(json.dumps({"received": at, **message}))
-            self.taken.append((at, path))
+            page_t = message.get("t")
+            # The page's own clock (the shots' mtimes are the same Mac's), else when it came in.
+            self.taken.append((page_t / 1000 if isinstance(page_t, (int, float)) else at,
+                               str(message.get("page") or ""), message.get("visibility") == "visible", path))
             while len(self.taken) > MAX_SNAPSHOTS:
-                _, old = self.taken.pop(0)
+                old = self.taken.pop(0)[-1]
                 old.unlink(missing_ok=True)
-            summary = {k: message.get(k) for k in ("page", "href", "t", "viewport", "newTabContext", "boxes",
-                                                   "html_length")}
+            summary = {k: message.get(k) for k in ("page", "href", "t", "visibility", "viewport", "newTabContext",
+                                                   "boxes", "html_length")}
             summary["text"] = str(message.get("text") or "")[:400]
             with open(self.dir / "dom.jsonl", "a") as log:
                 log.write(json.dumps({"received": at, "file": path.name, **summary}) + "\n")
 
-    def snapshot_at(self, when: float) -> Path | None:
-        """The DOM snapshot that was live at WHEN: the last one received by then."""
+    def snapshot_at(self, when: float) -> tuple[Path | None, list[dict]]:
+        """The DOM snapshot that was live at WHEN: each page's last one taken by then, a visible page's first
+        (a hidden spare pane sends snapshots too), the newest of those; and the other pages' last ones."""
         with self.lock:
-            live = [path for at, path in self.taken if at <= when and path.is_file()]
-        return live[-1] if live else None
+            last: dict[str, tuple] = {}
+            for entry in sorted(self.taken, key=lambda e: e[0]):
+                if entry[0] <= when and entry[3].is_file():
+                    last[entry[1]] = entry
+        if not last:
+            return None, []
+        ranked = sorted(last.values(), key=lambda e: (e[2], e[0]), reverse=True)
+        others = [{"page": e[1], "visible": e[2], "t": e[0], "file": e[3].name} for e in ranked[1:]]
+        return ranked[0][3], others
 
     def attach(self, out: Path) -> dict:
         """Each PNG under OUT gets OUT/<shot>.dom.json, the snapshot live when the PNG was written; the facts for
         the receipt. The snapshots no shot took are dropped (dom.jsonl keeps their summary)."""
+        with self.lock:
+            # Nothing lands after this: the files below are the look's.
+            self.closed = True
         attached, none = [], []
         for png in sorted(out.rglob("*.png")):
             if self.dir in png.parents:
                 continue
-            found = self.snapshot_at(png.stat().st_mtime)
+            found, others = self.snapshot_at(png.stat().st_mtime)
             if found is None:
                 none.append(str(png.relative_to(out)))
                 continue
-            shutil.copyfile(found, png.with_suffix(".dom.json"))
+            snapshot = json.loads(found.read_text())
+            if others:
+                # The other pages' snapshots live then: their summaries stay in dom.jsonl under these files.
+                snapshot["other_pages"] = others
+            png.with_suffix(".dom.json").write_text(json.dumps(snapshot))
             attached.append(str(png.relative_to(out)))
         shutil.rmtree(self.snapshots, ignore_errors=True)
         return {"how": "look-page-probe.js in the overlay's agent pane, its sink as web-dev.json's server",
+                # A server in web-dev.json turns off the app's overlay-start fallback (WebDevOverride.servedInstall):
+                # a head whose pane does not start is shown as it is, not as NIGHTLY's bundled pane.
+                "overlay_start_fallback": False,
                 "console_file": "page/console.jsonl", "dom_file": "page/dom.jsonl", **self.counts,
                 "shots_with_dom": attached, "shots_without_dom": none}

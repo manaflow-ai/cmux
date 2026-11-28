@@ -2191,8 +2191,13 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began, built:
                 receipt["page_log"] = page_log.attach(out)
             except OSError as error:
                 receipt["errors"].append(f"page log: {error}")
-            if not args.watch:
-                page_log.stop()
+            page_log.stop()
+            if args.watch:
+                # The copy keeps running with no sink: web-dev.json names no server again, so its pages load the
+                # overlay with the app's own start check, as a look without a page log leaves them.
+                with contextlib.suppress(OSError, subprocess.SubprocessError, LookError):
+                    subprocess.run([str(HERE / "web-overlay.sh"), "server", "off"], env={**os.environ, **side.env()},
+                                   capture_output=True, text=True, timeout=60)
         if not args.watch:
             with phases("stop"):
                 receipt["errors"] += side.stop()
