@@ -109,6 +109,11 @@ app.notion.com
 # when: only when an agent uses that integration in your signed-in browser
 # off: don't give an agent the integration, or sign out of the site in cmux's browser
 app.slack.com
+# OpenAI sign-in when you sign Codex in; the gateway's Codex sign-in refreshes its token here (`cmux inference gateway --codex-auth`)
+# sends: your OpenAI sign-in, then the Codex refresh token to renew it
+# when: when you sign Codex in, and when the gateway's Codex sign-in renews its token
+# off: sign Codex out, or run the gateway without `--codex-auth`
+auth.openai.com
 # images in GitHub pages and agent replies
 # sends: an image request (your IP address and the image's URL)
 # when: when a GitHub page or agent reply you open shows an image
@@ -379,10 +384,10 @@ monitoring.googleapis.com
 # when: only after you turn telemetry on
 # off: `app.sendAnonymousTelemetry` off (the default)
 o4507547940749312.ingest.us.sentry.io
-# the pinned cmux-rd release download on a joined Linux machine (GitHub redirects release assets here)
-# sends: a download request for the pinned cmux-rd release (no account data)
-# when: once per pinned cmux-rd version, on an x86_64 Linux machine joined to your hub
-# off: no setting yet; it never runs on a machine that is not joined
+# the same release and log files, on GitHub's older download host; also the pinned cmux-rd release download on a joined Linux machine
+# sends: a download request for the file asked for (no account data)
+# when: when you install or update an agent or a fork's release, or once per pinned cmux-rd version on an x86_64 Linux machine joined to your hub
+# off: no setting yet; the cmux-rd download never runs on a machine that is not joined
 objects.githubusercontent.com
 # museum art for backgrounds, when you search for art
 # sends: your art search words, then image requests
@@ -429,10 +434,10 @@ raw.githubusercontent.com
 # when: when an npm-installed cmux CLI checks for a newer version, or an agent installs a package
 # off: no setting yet
 registry.npmjs.org
-# the pinned cmux-rd release download on a joined Linux machine (GitHub redirects release assets here)
-# sends: a download request for the pinned cmux-rd release (no account data)
-# when: once per pinned cmux-rd version, on an x86_64 Linux machine joined to your hub
-# off: no setting yet; it never runs on a machine that is not joined
+# a release file github.com redirects to: an agent's installer, a fork's release, or the pinned cmux-rd download on a joined Linux machine
+# sends: a download request for the file asked for (no account data); GitHub learns the file asked for
+# when: when you install or update an agent or a fork's release, or once per pinned cmux-rd version on an x86_64 Linux machine joined to your hub
+# off: no setting yet; the cmux-rd download never runs on a machine that is not joined
 release-assets.githubusercontent.com
 # shared workspace links in development builds
 # sends: the shared workspace link's contents

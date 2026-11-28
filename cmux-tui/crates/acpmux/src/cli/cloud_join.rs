@@ -147,9 +147,8 @@ pub fn parse_token_text(text: &str) -> Result<String> {
 }
 
 fn origin(value: Option<String>) -> Result<String> {
-    let value = value
-        .or_else(cmux_cloud_client::backend::platform_origin_env)
-        .unwrap_or_else(|| DEFAULT_HUB.to_owned());
+    let named = value.or_else(cmux_cloud_client::backend::platform_origin_env);
+    let value = named.clone().unwrap_or_else(|| DEFAULT_HUB.to_owned());
     let parsed =
         reqwest::Url::parse(value.trim()).map_err(|_| anyhow!("hub origin is malformed"))?;
     let loopback = matches!(parsed.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
@@ -166,8 +165,11 @@ fn origin(value: Option<String>) -> Result<String> {
         "hub origin must contain only scheme, host and port"
     );
     let origin = parsed.origin().ascii_serialization();
-    // A hub the person or the app named (a preview or self-hosted platform): a host they name.
-    cmux_egress::allow_named(&origin);
+    if named.is_some() {
+        // The person named this host (the join's hub input or env); a redirect off it is still
+        // checked.
+        cmux_egress::allow_named(&origin);
+    }
     Ok(origin)
 }
 
@@ -1697,5 +1699,14 @@ mod tests {
         drop(first);
         assert!(super::join_lock_at(dir.path()).is_ok());
         drop(inherited);
+    }
+
+    #[test]
+    fn a_named_hub_passes_the_egress_gate_and_nothing_else_does() {
+        cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+        let hub = origin(Some("https://cloud-join-named-test.org".into())).unwrap();
+        assert_eq!(hub, "https://cloud-join-named-test.org");
+        assert!(cmux_egress::check("cloud-join-named-test.org", "test").is_ok());
+        assert!(cmux_egress::check("unrelated-cloud-join-test.org", "test").is_err());
     }
 }

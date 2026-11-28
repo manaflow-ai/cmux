@@ -96,3 +96,15 @@ async fn a_timed_out_probe_is_an_observation() {
     server.await.unwrap();
     assert_eq!(answer["status"], "unreachable", "{answer}");
 }
+
+#[test]
+fn a_routes_endpoints_pass_the_egress_gate_and_nothing_else_does() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let named = route(json!({"kind": "custom-anthropic",
+                             "anthropicBaseUrl": "https://route-named-test.org/v1",
+                             "healthUrl": "https://route-health-named-test.org/h"}));
+    allow_route_hosts(&named.file);
+    assert!(cmux_egress::check("route-named-test.org", "test").is_ok());
+    assert!(cmux_egress::check("route-health-named-test.org", "test").is_ok());
+    assert!(cmux_egress::check("unrelated-route-probe-test.org", "test").is_err());
+}

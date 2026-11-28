@@ -303,6 +303,8 @@ impl ArtifactsSync {
         if base.is_empty() {
             return Err(anyhow!("artifacts sync is enabled without baseUrl"));
         }
+        // The person named this host (artifactsSync.baseUrl); a redirect off it is still checked.
+        cmux_egress::allow_named(base);
         Ok(Some(Self {
             config,
             token: access_token.map(Arc::from),

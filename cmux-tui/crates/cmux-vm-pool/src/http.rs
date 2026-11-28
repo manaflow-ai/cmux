@@ -18,6 +18,14 @@ impl std::error::Error for CallError {}
 
 pub type Result<T> = std::result::Result<T, CallError>;
 
+/// A URL the person set (an environment variable or a flag), as given: the egress gate lets its
+/// host through from now on.
+pub fn named(url: String) -> String {
+    // The person named this host (FREESTYLE_API_URL, GITHUB_API_URL, --load-url); a redirect off it is still checked.
+    cmux_egress::allow_named(&url);
+    url
+}
+
 /// Builds the shared client. reqwest rides rustls without a provider of its own: install ring once.
 pub fn client() -> Result<reqwest::Client> {
     let _ = rustls::crypto::ring::default_provider().install_default();

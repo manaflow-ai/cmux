@@ -131,6 +131,14 @@ async fn probe_once(route: &Route, home: &Path) -> Value {
     probe_once_with_timeout(route, home, PROBE_TIMEOUT).await
 }
 
+/// The person named these hosts (a route's base or health URL); a redirect off one is still
+/// checked.
+fn allow_route_hosts(file: &RouteFile) {
+    for url in [&file.anthropic_base_url, &file.openai_base_url, &file.health_url] {
+        url.as_deref().into_iter().for_each(cmux_egress::allow_named);
+    }
+}
+
 async fn probe_once_with_timeout(route: &Route, home: &Path, timeout: Duration) -> Value {
     let started = Instant::now();
     let answer = |status: ProbeStatus, message: String| {
@@ -162,6 +170,7 @@ async fn probe_once_with_timeout(route: &Route, home: &Path, timeout: Duration) 
         );
     }
     let family = probed_family(route);
+    allow_route_hosts(&route.file);
     let mut base =
         route.file.anthropic_base_url.clone().or_else(|| route.file.openai_base_url.clone());
     let mut secret = match route.file.secret.as_deref().map(resolve_reference) {

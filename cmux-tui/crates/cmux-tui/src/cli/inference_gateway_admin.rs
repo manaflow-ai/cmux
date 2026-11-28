@@ -119,7 +119,8 @@ pub(super) fn parse(
     });
     // The app runs these with its own environment, which names no API (hq#15762): the app's token says which.
     let api = match api.or_else(|| env("CMUX_CLOUD_API_URL")) {
-        Some(api) => Some(secure_origin(&api)?),
+        // The person named this API (--api or the env); a redirect off it is still checked.
+        Some(api) => Some(secure_origin(&api)?).inspect(|a| cmux_egress::allow_named(a)),
         // The held token on stdin is the app's own (`--token-stdin`): its JSON names the API that issued it.
         None if token == TokenSource::App || token == TokenSource::Stdin => None,
         None => return Err("--api (or CMUX_CLOUD_API_URL) names the cmux API".into()),

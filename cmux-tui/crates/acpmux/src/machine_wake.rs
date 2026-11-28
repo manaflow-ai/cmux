@@ -67,11 +67,7 @@ pub async fn wake(config: &MachineWakeConfig, summary: &Value) -> Result<bool> {
     if config.base_url.is_empty() {
         return Err(anyhow!("machine wake is enabled without baseUrl"));
     }
-    let url = format!(
-        "{}/v1/machines/leases/{}/wake",
-        config.base_url.trim_end_matches('/'),
-        path_segment(&lease)
-    );
+    let url = wake_url(config, &lease);
     let client =
         crate::happy_dial::http_client().default_headers(cmux_build_space::headers()?).build()?;
     let mut request = client.post(url);
@@ -83,6 +79,17 @@ pub async fn wake(config: &MachineWakeConfig, summary: &Value) -> Result<bool> {
         return Err(anyhow!("machine wake returned {}", response.status()));
     }
     Ok(true)
+}
+
+/// The wake endpoint for `lease` under `machineWake.baseUrl`.
+fn wake_url(config: &MachineWakeConfig, lease: &str) -> String {
+    // The person named this host (machineWake.baseUrl); a redirect off it is still checked.
+    cmux_egress::allow_named(&config.base_url);
+    format!(
+        "{}/v1/machines/leases/{}/wake",
+        config.base_url.trim_end_matches('/'),
+        path_segment(lease)
+    )
 }
 
 /// One `peerWake` run (`Peer::wake` runs it once per wake window, on a blocking thread):

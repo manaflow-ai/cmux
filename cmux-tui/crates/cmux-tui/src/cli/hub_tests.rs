@@ -590,3 +590,17 @@ fn hub_call_view_says_what_an_answer_did() {
     assert_eq!(outcome(json!({"status": "approval_required"})), (None, None));
     assert_eq!(outcome(json!({"status": "running"})), (None, None));
 }
+
+/// The platform the person names with `--platform` passes the egress gate in enforce
+/// mode; a host nobody named is still refused.
+#[test]
+fn the_named_platform_passes_the_gate() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let host = "platform-hub-test.org";
+    assert!(cmux_egress::check(host, "test").is_err());
+    let (common, _) =
+        parse(&words(&format!("connections --platform https://{host}")), &no_env).unwrap();
+    assert_eq!(common.platform.as_deref(), Some("https://platform-hub-test.org"));
+    assert!(cmux_egress::check(host, "test").is_ok());
+    assert!(cmux_egress::check("unrelated-platform-hub-test.org", "test").is_err());
+}

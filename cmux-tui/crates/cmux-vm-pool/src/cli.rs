@@ -175,7 +175,7 @@ fn parse(words: &[String]) -> Result<Args, String> {
             }
             "--tick" => args.tick_s = number(flag, value(flag)?)?.max(1),
             "--demand-file" => args.demand_file = Some(value(flag)?),
-            "--load-url" => args.load_url = Some(value(flag)?),
+            "--load-url" => args.load_url = Some(http::named(value(flag)?)),
             "--interval-ms" => args.interval_ms = number(flag, value(flag)?)?.max(100),
             "--label" => args.label = value(flag)?,
             "--freestyle-purpose" => args.freestyle_purpose = Some(value(flag)?),
@@ -904,3 +904,7 @@ fn put(value: &mut Value, key: &str, field: Value) {
         map.insert(key.to_owned(), field);
     }
 }
+
+#[cfg(test)]
+#[path = "cli_egress_tests.rs"]
+mod egress_tests;

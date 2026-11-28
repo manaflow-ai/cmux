@@ -206,14 +206,17 @@ pub async fn run(
 
 fn freestyle_client(env: &dyn Fn(&str) -> Option<String>) -> Result<Freestyle, String> {
     let key = freestyle_key(env)?;
-    let base =
-        nonblank(env("FREESTYLE_API_URL")).unwrap_or_else(|| freestyle::DEFAULT_BASE.to_owned());
+    let base = nonblank(env("FREESTYLE_API_URL"))
+        .map(http::named)
+        .unwrap_or_else(|| freestyle::DEFAULT_BASE.to_owned());
     Ok(Freestyle::new(&base, key.expose().to_owned(), runner::PURPOSE))
 }
 
 fn jit_client(args: &Args, env: &dyn Fn(&str) -> Option<String>) -> Result<Jit, String> {
     let token = github_token(env, &gh_auth_token)?;
-    let base = nonblank(env("GITHUB_API_URL")).unwrap_or_else(|| crate::github::API.to_owned());
+    let base = nonblank(env("GITHUB_API_URL"))
+        .map(http::named)
+        .unwrap_or_else(|| crate::github::API.to_owned());
     Ok(Jit::new(&base, token, &args.org))
 }
 

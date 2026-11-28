@@ -108,6 +108,8 @@ impl Inputs<'_> {
             .or_else(|| self.model_plane_var("CMUX_CODEROUTER_URL"))
             .or_else(|| self.image_origin_for_home_plane())
             .filter(|u| u.starts_with("https://"))
+            // The person named this host (CMUX_CODEROUTER_URL); a redirect off it is still checked.
+            .inspect(|u| cmux_egress::allow_named(u))
     }
 
     /// The image's `CMUX_CODEROUTER_URL` when the per-home file has none but its `OPENAI_BASE_URL`

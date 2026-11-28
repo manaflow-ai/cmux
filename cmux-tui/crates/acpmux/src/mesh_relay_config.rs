@@ -222,6 +222,8 @@ impl MeshRelayConfig {
             return Err("meshRelay.tokenCommand names no program".into());
         }
         let path = url.path().trim_end_matches('/');
+        // The person named this host (meshRelay.url); a redirect off it is still checked.
+        cmux_egress::allow_named(url.as_str());
         Ok(format!("{}{path}", url.origin().ascii_serialization()))
     }
 

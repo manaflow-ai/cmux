@@ -61,3 +61,19 @@ fn an_older_join_entry_runs_at_the_cap_a_join_writes_now_and_an_owner_choice_sta
     assert!(!upgrade_join_entries(&mut kept));
     assert_eq!(kept, vec![chosen]);
 }
+
+#[test]
+fn the_configured_hub_passes_the_egress_gate_and_nothing_else_does() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let config = MeshRelayConfig {
+        url: "https://mesh-relay-named-test.org/hub".into(),
+        token_command: vec!["cmux-token".into()],
+        team_messaging: true,
+        credential: None,
+        control_from: Vec::new(),
+        direct_send: false,
+    };
+    assert!(config.origin().is_ok());
+    assert!(cmux_egress::check("mesh-relay-named-test.org", "test").is_ok());
+    assert!(cmux_egress::check("unrelated-mesh-relay-test.org", "test").is_err());
+}

@@ -288,7 +288,11 @@ pub(super) fn resolve(
     if credential.is_empty() {
         return Err("the cmux credential is empty".into());
     }
-    secure_origin(api.trim()).map(|origin| (origin, credential))
+    // The person named this API (--cloud-api or the env), and it passed the origin check; a
+    // redirect off it is still checked.
+    let origin = secure_origin(api.trim())?;
+    cmux_egress::allow_named(&origin);
+    Ok((origin, credential))
 }
 
 pub(super) fn run(

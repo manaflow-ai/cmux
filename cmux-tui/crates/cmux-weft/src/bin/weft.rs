@@ -71,6 +71,14 @@ impl Args {
         self.one(name).with_context(|| format!("{name} is required"))
     }
 
+    /// The coordination server the person named with `--coord`.
+    fn coord(&self) -> anyhow::Result<String> {
+        let coord = self.need("--coord")?;
+        // The person named this host (--coord); a redirect off it is still checked.
+        cmux_egress::allow_named(&coord);
+        Ok(coord)
+    }
+
     fn arg(&self, index: usize, what: &str) -> anyhow::Result<String> {
         self.positional.get(index).cloned().with_context(|| format!("missing {what}"))
     }
@@ -88,7 +96,7 @@ async fn up(args: &Args) -> anyhow::Result<()> {
     let state = PathBuf::from(args.need("--state")?);
     let options = match args.one("--authkey") {
         Some(auth_key) => Some(JoinOptions {
-            coord: args.need("--coord")?,
+            coord: args.coord()?,
             tailnet: args.need("--tailnet")?,
             auth_key,
             name: args.one("--name").unwrap_or_else(hostname),
@@ -161,7 +169,7 @@ fn hostname() -> String {
 
 async fn admin(args: &Args) -> anyhow::Result<()> {
     let token = std::env::var("WEFT_ADMIN_TOKEN").context("WEFT_ADMIN_TOKEN")?;
-    let client = AdminClient::new(&args.need("--coord")?, &token);
+    let client = AdminClient::new(&args.coord()?, &token);
     let command = args.arg(1, "admin command")?;
     let tailnet = args.arg(2, "tailnet")?;
     let print = |value: serde_json::Value| {
@@ -232,5 +240,20 @@ async fn main() -> anyhow::Result<()> {
         }
         Some("admin") => admin(&args).await,
         _ => bail!("usage: weft up|status|rotate|keygen-authority|admin (see the crate docs)"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_named_coord_passes_the_egress_gate_and_nothing_else_does() {
+        cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+        let raw = ["admin", "--coord", "https://weft-coord-named-test.org"];
+        let args = Args::parse(raw.into_iter().map(String::from));
+        assert_eq!(args.coord().unwrap(), "https://weft-coord-named-test.org");
+        assert!(cmux_egress::check("weft-coord-named-test.org", "test").is_ok());
+        assert!(cmux_egress::check("unrelated-weft-coord-test.org", "test").is_err());
     }
 }

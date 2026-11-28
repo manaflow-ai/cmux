@@ -771,6 +771,40 @@ fn exec_without_an_api_or_credential_goes_through_the_app() {
     assert_eq!(app_exec(&new, none), None);
 }
 
+/// The cmux API the person names in `CMUX_CLOUD_API_URL` passes the egress gate in
+/// enforce mode; a host nobody named is still refused.
+#[test]
+fn the_named_cloud_api_passes_the_gate() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let host = "cloud-api-session-test.org";
+    assert!(cmux_egress::check(host, "test").is_err());
+    let command = parse(&strings(&["create", "--target", VM])).unwrap();
+    let env = |key: &str| match key {
+        API_ENV => Some(format!("https://{host}")),
+        TOKEN_ENV => Some("cred".to_owned()),
+        _ => None,
+    };
+    assert_eq!(resolve(&command, env).unwrap().0, "https://cloud-api-session-test.org");
+    assert!(cmux_egress::check(host, "test").is_ok());
+    assert!(cmux_egress::check("unrelated-cloud-api-session-test.org", "test").is_err());
+}
+
+/// A `CMUX_CLOUD_API_URL` the origin check refuses (plain http to a remote host) names
+/// nothing: its host stays refused by the egress gate.
+#[test]
+fn a_refused_cloud_api_names_nothing() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let host = "refused-cloud-api-session-test.org";
+    let command = parse(&strings(&["create", "--target", VM])).unwrap();
+    let env = |key: &str| match key {
+        API_ENV => Some(format!("http://{host}")),
+        TOKEN_ENV => Some("cred".to_owned()),
+        _ => None,
+    };
+    assert!(resolve(&command, env).is_err());
+    assert!(cmux_egress::check(host, "test").is_err());
+}
+
 #[test]
 fn a_platform_refusal_says_whether_the_same_command_may_be_retried() {
     // cmux-platform MachineGuest.ts GUEST_REFUSAL: a provider exec that threw answers 502

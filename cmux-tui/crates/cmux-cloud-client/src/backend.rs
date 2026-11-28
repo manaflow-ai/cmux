@@ -29,6 +29,14 @@ pub fn platform_origin_from(env: impl Fn(&str) -> Option<String>) -> Option<Stri
         .filter_map(&env)
         .map(|value| value.trim().to_owned())
         .find(|value| !value.is_empty())
+        // The person named this hub (CMUX_PLATFORM_ORIGIN); a redirect off it is still checked.
+        // Only an https origin passes: every caller refuses plain http to a remote hub, and a
+        // refused origin must not stay allowed (loopback is local to the gate anyway).
+        .inspect(|origin| {
+            if origin.get(..8).is_some_and(|s| s.eq_ignore_ascii_case("https://")) {
+                cmux_egress::allow_named(origin);
+            }
+        })
 }
 
 /// [`platform_origin_from`] of this process's environment.

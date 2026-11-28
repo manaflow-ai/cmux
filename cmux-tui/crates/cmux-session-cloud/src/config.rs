@@ -61,6 +61,9 @@ impl Config {
                 self.store
             );
         }
+        // The person named this host (session-cloud.json's store); a redirect off it is still
+        // checked.
+        cmux_egress::allow_named(&self.store);
         let credential = match std::env::var("CMUX_SESSION_CLOUD_TOKEN") {
             Ok(token) => token,
             Err(_) => {
@@ -77,8 +80,7 @@ impl Config {
 
 /// Whether `store` is a network origin bytes may go to: any `https://`, or plain `http://` only
 /// where the wire never leaves a trusted path: loopback (`127.0.0.1`), or a tailnet CGNAT address
-/// (`100.64.0.0/10`, WireGuard-encrypted by Tailscale), such as a fleet controller's
-/// `http://100.x.y.z:PORT`.
+/// (`100.64.0.0/10`, WireGuard-encrypted by Tailscale), as a store on another tailnet machine.
 pub(crate) fn http_store_allowed(store: &str) -> bool {
     if store.starts_with("https://") {
         return true;
@@ -97,3 +99,7 @@ pub(crate) fn http_store_allowed(store: &str) -> bool {
 #[cfg(test)]
 #[path = "config_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "config_egress_tests.rs"]
+mod egress_tests;

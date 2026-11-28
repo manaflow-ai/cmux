@@ -12,8 +12,8 @@
 //! - hosts the person named (a self-hosted server, an API endpoint, an SSH or
 //!   git host): the code that reads such a setting calls [`allow_named`];
 //! - loopback, IP literals and reserved names (`localhost`, `.test`,
-//!   `.example`, `.invalid`, `.local`), which never reach a third party by
-//!   name.
+//!   `.example`, `.invalid`, `.local`, `.lan`, `.internal`), which never reach
+//!   a third party by name.
 //!
 //! - a host a server's answer handed this process for one transfer (a
 //!   presigned object URL): the code holds [`allow_session`]'s guard for the
@@ -56,6 +56,12 @@ use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 /// The `connects` hosts of docs/privacy.md, one per line; `*` stands for one
 /// part of a name filled in at run time (`*.atlassian.net`).
 const HOSTS_TXT: &str = include_str!("../hosts.txt");
+
+/// Where github.com hands a release download by redirect. The gate checks each hop, so a
+/// release fetched from a github.com URL (an agent install, a fork's release asset, a job's
+/// log) lands on one of these; each has a `connects` row in docs/privacy.md.
+pub const GITHUB_DOWNLOAD_REDIRECTS: [&str; 2] =
+    ["release-assets.githubusercontent.com", "objects.githubusercontent.com"];
 
 /// The environment variable that picks the mode.
 pub const MODE_ENV: &str = "CMUX_EGRESS";
@@ -300,6 +306,29 @@ pub fn allow_named(host_or_url: &str) {
         && let Ok(mut set) = named().lock()
     {
         set.insert(host);
+    }
+}
+
+/// The proxy variables reqwest reads from the environment, in both cases.
+const PROXY_VARS: [&str; 6] =
+    ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"];
+
+/// Lets through the proxy the person's environment names (`HTTPS_PROXY`,
+/// `HTTP_PROXY`, `ALL_PROXY`, either case). reqwest sends a request through
+/// that proxy and the gate checks the proxy's host in place of the target's,
+/// so without this a company proxy refuses every request in enforce mode.
+/// Every gated builder calls it; it reads the environment once.
+pub fn allow_proxy_env() {
+    static READ: OnceLock<()> = OnceLock::new();
+    READ.get_or_init(|| allow_proxies_from(|key| std::env::var(key).ok()));
+}
+
+/// [`allow_proxy_env`] over `env`, read every time.
+fn allow_proxies_from(env: impl Fn(&str) -> Option<String>) {
+    for key in PROXY_VARS {
+        if let Some(value) = env(key).filter(|value| !value.trim().is_empty()) {
+            allow_named(&value);
+        }
     }
 }
 
@@ -607,6 +636,8 @@ fn gated_proxy_matcher(site: &'static str, env: Env) -> reqwest::Proxy {
 fn install_crypto_provider() {
     // reqwest is built without a default rustls provider; a client built before one is installed panics.
     let _ = rustls::crypto::ring::default_provider().install_default();
+    // Every gated builder comes through here: the person's proxy is theirs to name.
+    allow_proxy_env();
 }
 
 /// A reqwest client builder whose every connection passes the gate. `site`

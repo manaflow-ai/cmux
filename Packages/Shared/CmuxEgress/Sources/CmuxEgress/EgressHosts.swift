@@ -23,6 +23,7 @@ enum EgressHosts {
         "api.x.ai",
         "app.notion.com",
         "app.slack.com",
+        "auth.openai.com",
         "avatars.githubusercontent.com",
         "calendar.google.com",
         "camo.githubusercontent.com",

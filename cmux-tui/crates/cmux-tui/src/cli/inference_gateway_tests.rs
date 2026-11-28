@@ -510,6 +510,23 @@ fn interactive_calls_pass_when_background_used_the_unreserved_share() {
     assert!(PASS_HEADERS.contains(&PRIORITY_HEADER), "the priority goes upstream too");
 }
 
+/// The cmux API and the upstream the person names pass the egress gate in enforce mode;
+/// a host nobody named is still refused.
+#[test]
+fn the_named_api_and_upstream_pass_the_gate() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let (api_host, up_host) =
+        ("api-inference-gateway-test.org", "upstream-inference-gateway-test.org");
+    assert!(cmux_egress::check(api_host, "test").is_err());
+    assert!(cmux_egress::check(up_host, "test").is_err());
+    let (api, upstream) = (format!("https://{api_host}"), format!("https://{up_host}/v1/"));
+    let words = args(&["--api", &api, "--upstream", &upstream, "--token-file", "/t"]);
+    assert!(parse(&words, &no_env).is_ok());
+    assert!(cmux_egress::check(api_host, "test").is_ok());
+    assert!(cmux_egress::check(up_host, "test").is_ok());
+    assert!(cmux_egress::check("unrelated-inference-gateway-test.org", "test").is_err());
+}
+
 /// The 11-23 and 11-24 "at its call limit" bursts: the API's Worker never fires `request.signal` (its
 /// compatibility date predates request-signal-by-default), so a machine that walks away from a call (a timeout, an
 /// interrupt, a retry) never sends `cancel`, and the gateway still runs that call. Calls nobody cancels fill the

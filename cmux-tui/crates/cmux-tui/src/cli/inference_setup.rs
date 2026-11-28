@@ -182,6 +182,8 @@ pub(super) fn parse(
         .or_else(|| env("CMUX_CLOUD_API_URL"))
         .ok_or("--api (or CMUX_CLOUD_API_URL) names the cmux API")?;
     let api = secure_origin(&api)?;
+    // The person named this API (--api or CMUX_CLOUD_API_URL); a redirect off it is still checked.
+    cmux_egress::allow_named(&api);
     let token = token.unwrap_or_else(|| {
         if super::api_tokens::env_credential(env).is_some() {
             TokenSource::Env

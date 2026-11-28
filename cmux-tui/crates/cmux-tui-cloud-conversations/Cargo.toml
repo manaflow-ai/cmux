@@ -15,8 +15,8 @@ workspace = true
 test-support = []
 
 [dependencies]
-cmux-cloud-environment.workspace = true
 cmux-egress.workspace = true
+cmux-cloud-environment.workspace = true
 cmux-json.workspace = true
 cmux-relay-snapshot.workspace = true
 hex.workspace = true

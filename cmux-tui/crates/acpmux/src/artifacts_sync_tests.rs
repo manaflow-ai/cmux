@@ -535,3 +535,16 @@ fn config_round_trip_keeps_disabled_default_omitted() {
     let config = ArtifactsSyncConfig::default();
     assert_eq!(serde_json::to_value(&config).unwrap()["enabled"], json!(false));
 }
+
+#[test]
+fn the_configured_sync_origin_passes_the_egress_gate_and_nothing_else_does() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let config = ArtifactsSyncConfig {
+        enabled: true,
+        base_url: "https://artifacts-sync-named-test.org".into(),
+        ..Default::default()
+    };
+    assert!(ArtifactsSync::new(config, None).unwrap().is_some());
+    assert!(cmux_egress::check("artifacts-sync-named-test.org", "test").is_ok());
+    assert!(cmux_egress::check("unrelated-artifacts-sync-test.org", "test").is_err());
+}

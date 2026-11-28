@@ -34,6 +34,27 @@ fn the_platform_origin_is_one_variable_with_one_alias() {
     assert_eq!(read(None, None), None);
 }
 
+/// A hub the person names in `CMUX_PLATFORM_ORIGIN` passes the egress gate in enforce
+/// mode; a host nobody named is still refused.
+#[test]
+fn the_named_platform_origin_passes_the_gate() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let host = "hub-named-backend-test.org";
+    assert!(cmux_egress::check(host, "test").is_err());
+    let origin =
+        platform_origin_from(|key| (key == PLATFORM_ORIGIN_ENV).then(|| format!("https://{host}")));
+    assert_eq!(origin.as_deref(), Some("https://hub-named-backend-test.org"));
+    assert!(cmux_egress::check(host, "test").is_ok());
+    assert!(cmux_egress::check("unrelated-hub-backend-test.org", "test").is_err());
+    // A plain-http hub, which every caller's origin check refuses, names nothing.
+    let refused = "refused-hub-backend-test.org";
+    let origin = platform_origin_from(|key| {
+        (key == PLATFORM_ORIGIN_ENV).then(|| format!("http://{refused}"))
+    });
+    assert_eq!(origin.as_deref(), Some("http://refused-hub-backend-test.org"));
+    assert!(cmux_egress::check(refused, "test").is_err());
+}
+
 /// `/v1/machines/...` goes to the platform: an owner API maps to its own platform first (an
 /// environment override never sends a prod owner's fork to another hub), an unknown origin
 /// takes the environment's platform origin, and with neither it stays as given.

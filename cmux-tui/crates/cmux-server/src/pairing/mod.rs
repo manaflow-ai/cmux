@@ -61,6 +61,16 @@ pub trait Transport {
     }
 }
 
+/// The API origin `server pair` uses: `--api-origin` when the person gave one (the egress
+/// gate then lets its host through), else [`DEFAULT_API`]; [`api_origin`]-checked.
+pub fn named_api_origin(flag: Option<&str>) -> Result<String> {
+    let Some(flag) = flag else { return api_origin(DEFAULT_API) };
+    let api = api_origin(flag)?;
+    // The person named this host (--api-origin); a redirect off it is still checked.
+    cmux_egress::allow_named(&api);
+    Ok(api)
+}
+
 /// Canonical HTTPS origin only: no path, userinfo, query or fragment.
 pub fn api_origin(input: &str) -> Result<String> {
     let url = url::Url::parse(input).map_err(|_| Error::rejected("server.pair.invalid_api"))?;
@@ -361,3 +371,7 @@ fn verification_uri(response: &Value, begun: &Begun) -> Option<String> {
         && matches!(query.as_slice(),[(key,value)] if key.as_ref()=="c" && value.as_ref()==begun.code.as_str()))
         .then(|| uri.to_string())
 }
+
+#[cfg(test)]
+#[path = "egress_named_tests.rs"]
+mod egress_named_tests;

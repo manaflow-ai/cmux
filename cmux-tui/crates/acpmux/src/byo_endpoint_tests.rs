@@ -2071,6 +2071,14 @@ fn byo_endpoint_every_keychain_read_reads_only_its_own_item_by_exact_account() {
 }
 
 #[test]
+fn a_checked_base_url_passes_the_egress_gate_and_nothing_else_does() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    assert!(check_base_url("https://byo-endpoint-named-test.org/v1").is_ok());
+    assert!(cmux_egress::check("byo-endpoint-named-test.org", "test").is_ok());
+    assert!(cmux_egress::check("unrelated-byo-endpoint-test.org", "test").is_err());
+}
+
+#[test]
 fn byo_endpoint_private_http_stays_local() {
     for url in [
         "http://10.0.0.3/v1",

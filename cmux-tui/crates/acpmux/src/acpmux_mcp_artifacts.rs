@@ -162,6 +162,9 @@ pub fn base_url(
         .into_iter()
         .flatten()
         .find_map(|url| platform_origin(url).ok())
+        // The person named this host (the env, artifacts.baseUrl or meshRelay.url); a redirect
+        // off it is still checked.
+        .inspect(|origin| cmux_egress::allow_named(origin))
         .unwrap_or_else(|| DEFAULT_API.to_owned())
 }
 

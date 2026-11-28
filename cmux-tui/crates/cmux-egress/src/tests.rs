@@ -224,6 +224,33 @@ async fn a_websocket_to_an_unlisted_host_is_refused_before_connecting() {
     assert!(ws::checked("ws://127.0.0.1:9/x", "cmux_egress::tests").is_ok());
 }
 
+#[test]
+fn the_environments_proxy_passes_and_only_it() {
+    set_mode(Mode::Enforce);
+    let proxy = "proxy.corp-egress-proxy-test.org";
+    assert!(check(proxy, "test").is_err());
+    allow_proxies_from(|key| {
+        (key == "https_proxy").then(|| format!("http://user:secret@{proxy}:3128"))
+    });
+    assert_eq!(verdict(proxy), Verdict::Named);
+    assert!(check(proxy, "test").is_ok());
+    assert!(check("unrelated.corp-egress-proxy-test.org", "test").is_err());
+    allow_proxies_from(|_| Some("  ".to_owned()));
+    assert!(check("unrelated.corp-egress-proxy-test.org", "test").is_err());
+}
+
+/// A github.com release download redirects to GitHub's asset hosts; those hops pass in
+/// enforce mode, and another githubusercontent host does not.
+#[test]
+fn github_download_redirects_pass() {
+    set_mode(Mode::Enforce);
+    for host in GITHUB_DOWNLOAD_REDIRECTS {
+        assert_eq!(verdict(host), Verdict::Listed, "{host}");
+        assert!(check(&format!("https://{host}/x"), "cmux_egress::tests").is_ok());
+    }
+    assert_eq!(verdict("unrelated.githubusercontent.com"), Verdict::Unlisted);
+}
+
 /// NIGHTLY, DEV and staging bundles enforce; stable, rc and anything else keep the build default.
 #[test]
 fn a_bundle_id_names_its_build_channel_mode() {

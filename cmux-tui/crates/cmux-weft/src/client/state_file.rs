@@ -23,10 +23,14 @@ pub struct StateFile {
 impl StateFile {
     pub fn load(path: &Path) -> anyhow::Result<Option<Self>> {
         match std::fs::read(path) {
-            Ok(bytes) => Ok(Some(
-                serde_json::from_slice(&bytes)
-                    .with_context(|| format!("parse {}", path.display()))?,
-            )),
+            Ok(bytes) => {
+                let state: Self = serde_json::from_slice(&bytes)
+                    .with_context(|| format!("parse {}", path.display()))?;
+                // The person named this host (the enrolled --coord, saved in the state file); a
+                // redirect off it is still checked.
+                cmux_egress::allow_named(&state.coord);
+                Ok(Some(state))
+            }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error).with_context(|| format!("read {}", path.display())),
         }
@@ -48,5 +52,34 @@ impl StateFile {
         file.sync_all()?;
         std::fs::rename(&temp, path)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_saved_coord_passes_the_egress_gate_and_nothing_else_does() {
+        cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+        let dir = std::env::temp_dir().join(format!("weft-state-file-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.json");
+        let saved = StateFile {
+            coord: "https://weft-state-named-test.org".into(),
+            tailnet: "t".into(),
+            node_id: "n".into(),
+            name: "device".into(),
+            address: Ipv6Addr::LOCALHOST,
+            machine_seed: String::new(),
+            node_private: String::new(),
+        };
+        // Saved with the egress gate untouched: only the load names the host.
+        std::fs::write(&path, serde_json::to_vec(&saved).unwrap()).unwrap();
+        let loaded = StateFile::load(&path).unwrap().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(loaded.coord, "https://weft-state-named-test.org");
+        assert!(cmux_egress::check("weft-state-named-test.org", "test").is_ok());
+        assert!(cmux_egress::check("unrelated-weft-state-test.org", "test").is_err());
     }
 }

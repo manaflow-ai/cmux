@@ -246,3 +246,12 @@ fn a_cancel_a_newer_run_replaced_is_no_red() {
     };
     assert_eq!(note, "cancelled, no newer run: risk evidence");
 }
+
+#[test]
+fn a_named_github_api_passes_the_egress_gate_and_nothing_else_does() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let api = api_url(Some("https://ci-wait-named-test.org/api/v3".into()));
+    assert_eq!(api, "https://ci-wait-named-test.org/api/v3");
+    assert!(cmux_egress::check("ci-wait-named-test.org", "test").is_ok());
+    assert!(cmux_egress::check("unrelated-ci-wait-test.org", "test").is_err());
+}

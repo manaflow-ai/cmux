@@ -47,7 +47,7 @@ pub(crate) fn url() -> Option<String> {
     // Set, even empty, it is the room: an empty one reaches the bridge as `Some("")`, which
     // refuses link creation (`Bridge::configure`), rather than falling back to no room.
     if let Ok(url) = std::env::var(ENV) {
-        return Some(url.trim().to_owned());
+        return Some(named_room(&url));
     }
     // A Cloud machine's daemon has no app bundle: its room is the platform its host provisioned
     // (`CMUX_PLATFORM_ORIGIN`, from the trusted turn scope), so a Cloud chat's links go to the
@@ -60,6 +60,16 @@ pub(crate) fn url() -> Option<String> {
         crate::app_identity::AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref());
     default_for(identity.map_or(BuildKind::Unbundled, |identity| identity.build().kind()))
         .map(str::to_owned)
+}
+
+/// The room the person named in `CMUX_SHARE_ROOM_URL`, let past the egress gate; a redirect
+/// off it is still checked. An empty one names no host.
+fn named_room(url: &str) -> String {
+    let url = url.trim();
+    if !url.is_empty() {
+        cmux_egress::allow_named(url);
+    }
+    url.to_owned()
 }
 
 /// The trusted platform origin a Cloud machine's host hands its daemon (cmux-host `turn_scope`).

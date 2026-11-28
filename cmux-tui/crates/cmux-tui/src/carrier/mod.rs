@@ -372,6 +372,9 @@ fn source(args: &DialArgs) -> Result<answer::HttpSource, Failure> {
         .filter(|a| !a.trim().is_empty())
         .ok_or_else(|| ticket(format!("name the cmux API with --cloud-api URL or {API_ENV}")))?;
     let api = crate::cli::secure_cloud_origin(api.trim()).map_err(ticket)?;
+    // The person named this API (--cloud-api or the env), and it passed the origin check; a
+    // redirect off it is still checked.
+    cmux_egress::allow_named(&api);
     let credential = match (&args.token_file, std::env::var(TOKEN_ENV).ok()) {
         (Some(path), _) => answer::Credential::File(path.clone()),
         (None, Some(value)) => answer::Credential::Value(Zeroizing::new(value)),

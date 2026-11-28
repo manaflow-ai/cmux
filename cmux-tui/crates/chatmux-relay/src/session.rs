@@ -588,6 +588,16 @@ fn make_context(
     }
 }
 
+/// The relay socket for the saved pairing's backend.
+fn socket_url(config: &Config) -> String {
+    if config.managed.is_none() {
+        // The person named this host (the paired backend in the relay config); a redirect off it
+        // is still checked.
+        cmux_egress::allow_named(&config.backend);
+    }
+    websocket_url(&format!("{}/v2/relays/{}/socket", config.backend, config.device_id))
+}
+
 async fn relay_session(
     config: &mut Config,
     config_path: &Path,
@@ -600,8 +610,7 @@ async fn relay_session(
             "The relay config has no backend URL. Re-pair with: npx cmux-relay --pair",
         ));
     }
-    let socket_url =
-        websocket_url(&format!("{}/v2/relays/{}/socket", config.backend, config.device_id));
+    let socket_url = socket_url(config);
     // Reject oversized websocket messages during framing, before JSON parsing.
     let websocket_config = WebSocketConfig::default()
         .max_message_size(Some(MAX_INBOUND_FRAME_BYTES))
@@ -1308,4 +1317,23 @@ async fn relay_session(
     #[cfg(unix)]
     runtime.pty.detach_transport(&transport_id);
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_paired_backend_passes_the_egress_gate_and_nothing_else_does() {
+        cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+        let config = Config {
+            backend: "https://relay-session-named-test.org".into(),
+            device_id: "device".into(),
+            ..Default::default()
+        };
+        let url = socket_url(&config);
+        assert_eq!(url, "wss://relay-session-named-test.org/v2/relays/device/socket");
+        assert!(cmux_egress::check("relay-session-named-test.org", "test").is_ok());
+        assert!(cmux_egress::check("unrelated-relay-session-test.org", "test").is_err());
+    }
 }

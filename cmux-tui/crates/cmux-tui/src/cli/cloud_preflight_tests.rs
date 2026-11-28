@@ -100,3 +100,32 @@ fn parse_defaults_and_refusals() {
     assert!(parse(&words(&["--token-file", "/t"]), &none).is_err());
     assert!(parse(&words(&["--bogus"]), &none).is_err());
 }
+
+/// The cmux API the person names with `--api` passes the egress gate in enforce mode; a
+/// host nobody named is still refused.
+#[test]
+fn the_named_api_passes_the_gate() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let host = "api-cloud-preflight-test.org";
+    assert!(cmux_egress::check(host, "test").is_err());
+    let api = format!("https://{host}");
+    let none = |_: &str| None;
+    assert!(parse(&words(&["--api", &api, "--token-file", "/t"]), &none).is_ok());
+    assert!(cmux_egress::check(host, "test").is_ok());
+    assert!(cmux_egress::check("unrelated-api-cloud-preflight-test.org", "test").is_err());
+}
+
+/// An `--api` the origin check refuses (plain http to a remote host, or a path) is an
+/// argument error and names nothing: its host stays refused by the egress gate.
+#[test]
+fn a_refused_api_names_nothing() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let none = |_: &str| None;
+    for (host, api) in [
+        ("refused-cloud-preflight-test.org", "http://refused-cloud-preflight-test.org"),
+        ("pathed-cloud-preflight-test.org", "https://pathed-cloud-preflight-test.org/v1"),
+    ] {
+        assert!(parse(&words(&["--api", api, "--token-file", "/t"]), &none).is_err());
+        assert!(cmux_egress::check(host, "test").is_err());
+    }
+}
