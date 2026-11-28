@@ -123,12 +123,13 @@ HOSTED_PREFLIGHT_JOBS: dict[str, str] = {}
 HOSTED_DISPATCH_RUNS_ON = f"${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || '{JIT_LABEL}' }}}}"
 # A fork takes GitHub-hosted Ubuntu.
 CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
-CMUX_LINUX_JOBS = ("resolve-nightly-ghostty-cli-helper", "resolve-nightly-cmux-tui-client",
+CMUX_LINUX_JOBS = ("resolve-nightly-cmux-tui-client",
                    "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
                    "check-nightly-app-store-shelf", "published-build",
                    "check-nightly-webviews", "early-nightly-webviews")
-# A read-only lookup token a control may hold (#60803: quota-goblin's one-repo read token), job -> secrets.
-CMUX_LINUX_READ_SECRETS = {"resolve-nightly-ghostty-cli-helper": {"NIGHTLY_HELPER_LOOKUP_TOKEN"}}
+# A read-only lookup token a cmux-linux control may hold, job -> secrets. Empty: resolve-nightly-ghostty-cli-helper
+# (#60803's NIGHTLY_HELPER_LOOKUP_TOKEN) moved to the nightly-only pool with the other keyed controls.
+CMUX_LINUX_READ_SECRETS: dict[str, set[str]] = {}
 # report-nightly-shelf-red holds issues: write, so it takes the nightly-only route every nightly report job does.
 # RFD 0021 route by need: of those, the essential ones take the nightly's reserved label on the first run, before a rerun or loop retry.
 NIGHTLY_PINNED_JOBS = ("resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant",

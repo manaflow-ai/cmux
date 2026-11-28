@@ -33,7 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_nightly_never_blacksmith import JOBS, evaluate, parse_expression, sample  # noqa: E402
 from test_nightly_owned_minis_only import (HOSTED_DISPATCH_JOBS, HOSTED_LOOP_JOBS, HOSTED_PREFLIGHT_JOBS,  # noqa: E402
-                                           HOSTED_TAIL_JOBS,
+                                           HOSTED_RESTORE_JOBS, HOSTED_TAIL_JOBS,
                                            JIT_LABEL, NIGHTLY_NEXT_ONLY_OWNED, NIGHTLY_PINNED_JOBS, hosted_route)
 import workflow_jobs  # noqa: E402
 
@@ -50,7 +50,7 @@ SIGNING = {"promote-nightly-next", "build-sign-notarize-nightly", "recover-night
            # carries both it and glaeda-nightly-mini, so the two as one array would never start.
            "nightly-next-deltas"}
 VISUAL_GATE = {"route-visual-gate-nightly"}
-LINUX_POOL_JOBS = {"resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
+LINUX_POOL_JOBS = {"resolve-nightly-cmux-tui-client",
                    "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
                    "check-nightly-app-store-shelf", "published-build",
                    "check-nightly-webviews", "early-nightly-webviews"}
@@ -81,7 +81,7 @@ def want(name: str, ref: str = "refs/heads/nightly-next", attempt: object = 2, f
         return "cmux-linux"
     # A tail or loop job takes the JIT nightly label on every attempt (test_nightly_owned_minis_only.hosted_route).
     return hosted_route(name, attempt) if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or name in HOSTED_PREFLIGHT_JOBS \
-        or name in HOSTED_DISPATCH_JOBS else MINI
+        or name in HOSTED_DISPATCH_JOBS or name in HOSTED_RESTORE_JOBS else MINI
 
 
 def resolve(source: str, rng: random.Random, extra: dict | None = None) -> tuple[object, dict]:

@@ -21,9 +21,9 @@ BUILDER = "glaeda-nightly-only-m4pro-builder"
 BUILDER_VARIABLE = "vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER"
 EARLY = ("build-nightly-inputs", "build-nightly-ghostty-cli-helper")
 # The early controls decide no longer places: the two that read the routing App key stay on the
-# reservation pool, the two that hold no key take cmux-linux.
-RESERVED_CONTROLS = ("find-nightly-next-recovery", "pick-nightly-build-runner")
-LINUX_CONTROLS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper")
+# reservation pool with the helper lookup (its read token, #60803); the one that holds no key takes cmux-linux.
+RESERVED_CONTROLS = ("find-nightly-next-recovery", "pick-nightly-build-runner", "resolve-nightly-ghostty-cli-helper")
+LINUX_CONTROLS = ("resolve-nightly-cmux-tui-client",)
 VERIFY_OWNED = ("verify-signed-nightly", "verify-final-dmg-nightly")
 DOC = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())
 
