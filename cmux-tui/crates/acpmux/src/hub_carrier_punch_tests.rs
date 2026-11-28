@@ -362,7 +362,8 @@ fn the_public_address_rides_beside_the_mapping_before_ipv6_and_the_lan() {
     let reflexive: SocketAddr = "34.118.2.9:40000".parse().unwrap();
     let addresses: Vec<IpAddr> =
         ["10.128.0.7", "2001:db8::5"].iter().map(|ip| ip.parse().unwrap()).collect();
-    let candidates = local_candidates(40000, addresses, None.into_iter().chain(Some(reflexive)));
+    let candidates =
+        local_candidates(40000, addresses, None::<SocketAddr>.into_iter().chain(Some(reflexive)));
     let want: Vec<SocketAddr> = ["34.118.2.9:40000", "[2001:db8::5]:40000", "10.128.0.7:40000"]
         .iter()
         .map(|a| a.parse().unwrap())
