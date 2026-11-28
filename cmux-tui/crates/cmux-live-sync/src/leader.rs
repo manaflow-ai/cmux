@@ -550,32 +550,27 @@ impl Leader {
 
         // The VM's writes, in batches under the frame size.
         let mut outcomes: Vec<Outcome> = Vec::with_capacity(plan.ops.len());
-        let mut at = 0;
-        while at < plan.ops.len() {
-            let mut end = at;
-            let mut bytes = 0usize;
-            while end < plan.ops.len()
-                && (end == at || bytes + plan.bodies[end].len() <= proto::BATCH_BYTES)
-            {
-                bytes += plan.bodies[end].len();
-                end += 1;
+        let mut pending = plan.ops.iter().zip(&plan.bodies).peekable();
+        while pending.peek().is_some() {
+            let mut ops: Vec<WireOp> = vec![];
+            let mut body: Vec<u8> = vec![];
+            while let Some((op, b)) = pending.next_if(|(_, b)| {
+                ops.is_empty() || body.len().saturating_add(b.len()) <= proto::BATCH_BYTES
+            }) {
+                ops.push(op.clone());
+                body.extend_from_slice(b);
             }
+            let sent = ops.len();
             let id = self.id();
-            let body: Vec<u8> = plan.bodies[at..end].concat();
-            let (msg, _) = conn.request(
-                &Msg::Apply { id, ops: plan.ops[at..end].to_vec() },
-                &body,
-                id,
-                |m| self.note(m, dirty),
-            )?;
+            let (msg, _) =
+                conn.request(&Msg::Apply { id, ops }, &body, id, |m| self.note(m, dirty))?;
             let Msg::Applied { outcomes: got, .. } = msg else {
                 anyhow::bail!("apply answered with {msg:?}")
             };
-            if got.len() != end - at {
-                anyhow::bail!("apply answered {} outcomes for {} ops", got.len(), end - at);
+            if got.len() != sent {
+                anyhow::bail!("apply answered {} outcomes for {sent} ops", got.len());
             }
             outcomes.extend(got);
-            at = end;
         }
         let mut to_remote = 0usize;
         let mut ok = vec![true; plan.ops.len()];
@@ -592,7 +587,9 @@ impl Leader {
                     };
                 }
                 Outcome::Changed(now) => {
-                    ok[i] = false;
+                    if let Some(landed) = ok.get_mut(i) {
+                        *landed = false;
+                    }
                     match now {
                         Some(h) => self.remote.insert(path.clone(), h.clone()),
                         None => self.remote.remove(&path),
@@ -600,7 +597,9 @@ impl Leader {
                     dirty.insert(path);
                 }
                 Outcome::Failed(why) => {
-                    ok[i] = false;
+                    if let Some(landed) = ok.get_mut(i) {
+                        *landed = false;
+                    }
                     self.alert(format!("VM write failed for {path}: {why}"));
                     self.failed.insert(path);
                 }
@@ -610,7 +609,7 @@ impl Leader {
         // Synced moves only where every write for the path landed.
         let mut changes: Vec<(String, Option<Hash>)> = vec![];
         for (p, h, needs) in plan.moves {
-            if needs.iter().all(|&i| ok[i]) {
+            if needs.iter().all(|&i| ok.get(i).copied().unwrap_or(false)) {
                 match &h {
                     Some(h) => self.synced.insert(p.clone(), h.clone()),
                     None => self.synced.remove(&p),
