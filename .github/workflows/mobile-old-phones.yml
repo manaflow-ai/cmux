@@ -85,13 +85,14 @@ jobs:
       # The repo token's hourly quota is shared by every workflow and runs out (46116606886, 46125947911):
       # resolve then answers with the last list it read, carried here between runs. The repo's caches sit at GitHub's
       # 10 GB limit, so a list this small is evicted within the hour (46137212890's was gone for 46141489174);
-      # without one it waits for the reset. Every run that answers keeps its list (fresh or carried), so the entry
-      # stays recent and is evicted less.
+      # without one it waits for the reset. The entry is keyed by the newest build's commit (the list only moves
+      # forward) and saved from feat-cmux-next alone: a cache saved on a lane branch or pull request is read only by
+      # that ref again (tests/test_ci_no_run_scoped_cache_keys.py). Each restore counts as a use, which keeps it.
       - name: The last phone list read
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .old-phones-list
-          key: mobile-old-phones-list-${{ github.run_id }}-${{ github.run_attempt }}
+          key: mobile-old-phones-list-
           restore-keys: mobile-old-phones-list-
       - id: resolve
         env:
@@ -108,11 +109,11 @@ jobs:
             *) echo 'apis=["staging","prod"]' >> "$GITHUB_OUTPUT" ;;
           esac
       - name: Keep this phone list for the next run
-        if: ${{ steps.resolve.outputs.fresh != '' }}
+        if: ${{ steps.resolve.outputs.fresh == 'true' && steps.resolve.outputs.sha1 != '' && github.ref == 'refs/heads/feat-cmux-next' }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .old-phones-list
-          key: mobile-old-phones-list-${{ github.run_id }}-${{ github.run_attempt }}
+          key: mobile-old-phones-list-${{ steps.resolve.outputs.sha1 }}
 
   dial:
     name: Shipped iPhones vs ${{ matrix.api }} API
