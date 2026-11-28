@@ -1,5 +1,6 @@
 internal import CCmuxHomeFFI
 internal import Foundation
+internal import os
 
 /// The Swift caller of the Rust home rules (cmux-tui/crates/cmux-home-rules): one JSON op,
 /// `AREA.NAME` such as `inbox.sections`, run by cmux-app-ffi's `cmux_home_call`
@@ -43,6 +44,7 @@ public nonisolated struct HomeRules {
     public static var abiVersion: UInt32 { cmux_home_abi_version() }
 
     static func callData(_ op: String, _ request: Data) throws -> Data {
+        let meter = HomeRulesMeter.current
         var out = CmuxHomeBytes(ptr: nil, len: 0)
         let status: Int32 = op.withCString { opPointer in
             request.withUnsafeBytes { raw in
@@ -54,6 +56,7 @@ public nonisolated struct HomeRules {
                 )
             }
         }
+        meter?.record(op, request: request.count, reply: status == CMUX_HOME_OK ? out.len : 0)
         guard status == CMUX_HOME_OK else {
             throw HomeRulesError(op: op, code: HomeRulesError.Code(status: status), detail: nil)
         }
@@ -61,6 +64,56 @@ public nonisolated struct HomeRules {
         defer { cmux_home_bytes_free(out) }
         guard let pointer = out.ptr, out.len > 0 else { return Data() }
         return Data(bytes: pointer, count: out.len)
+    }
+}
+
+/// Counts what crosses the home rules bridge, per op: calls and request and reply bytes (RFD 0225 gap 1).
+/// cmux#59531 sent the ~160 KB settings file root over `cmux_home_call` once per Chief per sidebar row,
+/// and nothing measured bytes per call or calls per pass. A bench meters a pass and fails on a budget:
+///
+///     let meter = HomeRulesMeter()
+///     HomeRulesMeter.$current.withValue(meter) { fixture.remap() }
+///     #expect(meter.ops.values.map(\.maxRequestBytes).max() ?? 0 < 16_384)
+///
+/// Task-local, so only the metered task's calls count (parallel tests never mix in) and the app, which
+/// never binds one, pays one task-local read per call.
+public nonisolated final class HomeRulesMeter: Sendable {
+    /// One op's traffic while metered.
+    public nonisolated struct Op: Sendable, Equatable {
+        public var calls = 0
+        public var requestBytes = 0
+        public var replyBytes = 0
+        public var maxRequestBytes = 0
+    }
+
+    /// The meter `callData` records into; nil (the app) records nothing.
+    @TaskLocal public static var current: HomeRulesMeter?
+
+    private let state = OSAllocatedUnfairLock(initialState: [String: Op]())
+
+    public init() {}
+
+    /// Every metered op's traffic so far.
+    public var ops: [String: Op] { state.withLock { $0 } }
+    /// Calls over every op.
+    public var calls: Int { ops.values.reduce(0) { $0 + $1.calls } }
+    /// Request bytes over every op.
+    public var requestBytes: Int { ops.values.reduce(0) { $0 + $1.requestBytes } }
+    /// The largest single request and its op.
+    public var largestRequest: (op: String, bytes: Int)? {
+        ops.max { $0.value.maxRequestBytes < $1.value.maxRequestBytes }.map { ($0.key, $0.value.maxRequestBytes) }
+    }
+
+    /// Forgets what was recorded.
+    public func reset() { state.withLock { $0.removeAll() } }
+
+    func record(_ op: String, request: Int, reply: Int) {
+        state.withLock {
+            $0[op, default: Op()].calls += 1
+            $0[op]!.requestBytes += request
+            $0[op]!.replyBytes += reply
+            $0[op]!.maxRequestBytes = max($0[op]!.maxRequestBytes, request)
+        }
     }
 }
 
