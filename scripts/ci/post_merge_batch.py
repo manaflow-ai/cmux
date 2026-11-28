@@ -616,13 +616,18 @@ def hourly_kick(args: argparse.Namespace, tip: str, now: datetime, api=None) -> 
 
 
 def cmd_tick(args: argparse.Namespace) -> int:
-    # A tick that cannot read GitHub (a spent rate limit, a 5xx) skips: the next tick, 30 min on, asks again, and a
-    # red scheduled run would only pile up while the quota is drained.
+    """A tick that cannot reach GitHub (every token rate limited, a 5xx past its retries) dispatched nothing, and
+    its run goes red so someone sees it; the next tick, 30 min on, asks again. "Nothing to do" (tip already
+    covered, a batch in flight, the window not passed) stays green. Until 2026-11-28 the error was a warning and
+    the run exited 0: from 2026-11-27 23:55Z every tick for over 2 h ended "tick skipped: ... API rate limit
+    exceeded" in a green run, no batch ran, and no base row moved while every dashboard read green. A batch
+    run's judge step (--self-run-id) is continue-on-error, so a red there never fails the batch it ends.
+    Detector: tests/test_ci_post_merge_batch.py WebTickTest.test_a_tick_that_cannot_reach_github_goes_red."""
     try:
         return tick(args)
     except RuntimeError as err:
-        print(f"::warning::tick skipped: {err}")
-        return 0
+        print(f"::error::tick dispatched nothing (an error, not a decision; the next tick asks again): {err}")
+        return 1
 
 
 def tick(args: argparse.Namespace) -> int:
