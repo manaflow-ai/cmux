@@ -101,6 +101,7 @@ type HarnessOptions = {
   noMore?: boolean;
   searchField?: QuickSearchField;
   auth?: { verdict: SessionAuth; onLogin(): void };
+  cloudConnect?: () => void;
   /// The chat's routes (acpmux's list) and the sign-in acpmux reports for it.
   routes?: ChatAccountList;
   signIn?: string;
@@ -111,6 +112,7 @@ function Harness({
   noMore,
   searchField,
   auth,
+  cloudConnect,
   routes,
   signIn,
 }: { newTab: boolean } & HarnessOptions) {
@@ -141,10 +143,23 @@ function Harness({
           onModel() {},
           fast: { checked: fast, onChange: setFast },
           families: {
-            list: [family("claude", "Claude"), family("codex", "Codex")].map((entry) =>
-              noMore ? { ...entry, more: [] } : entry,
-            ),
-            current: "claude",
+            list: cloudConnect
+              ? [
+                  {
+                    id: "gemini",
+                    name: "Gemini",
+                    models: [],
+                    more: [],
+                    note: "Not connected",
+                    cloudSoon: true,
+                    logInLabel: "Connect Gemini",
+                    logIn: cloudConnect,
+                  },
+                ]
+              : [family("claude", "Claude"), family("codex", "Codex")].map((entry) =>
+                  noMore ? { ...entry, more: [] } : entry,
+                ),
+            current: cloudConnect ? "gemini" : "claude",
             onPick() {},
             onAddHarness,
           },
@@ -171,6 +186,20 @@ async function openMenu(newTab: boolean, options: HarnessOptions = {}) {
 const list = () => document.querySelector<HTMLElement>(".acpmux-quick-list")!;
 const labels = (scope: ParentNode) => [...scope.querySelectorAll(".acpmux-menu-label")].map((node) => node.textContent);
 const disclosure = () => document.querySelector<HTMLElement>(".acpmux-quick-disclosure");
+
+test("a compact Cloud Connect row invokes its Settings action and closes the menu", async () => {
+  let connections = 0;
+  await openMenu(true, { cloudConnect: () => connections++ });
+  const menu = list();
+  const connect = [...menu.querySelectorAll<HTMLElement>("[role=menuitem]")].find(
+    (item) => item.textContent === "Connect Gemini",
+  )!;
+  expect(connect.nextElementSibling?.textContent).toBe("Runs on Cloud soon");
+  await act(async () => connect.click());
+  expect(connections).toBe(1);
+  expect(document.querySelector('[data-menu="model"]')?.getAttribute("aria-expanded")).toBe("false");
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+});
 
 for (const newTab of [false, true]) {
   for (const state of ["expired", "signedOut"] as const) {
@@ -1228,9 +1257,9 @@ for (const [why, routes, signIn, shown] of [
     "API key (ANTHROPIC_API_KEY, from route Max)",
     "Max",
   ],
-] as const) {
+] satisfies [string, ChatAccountList, string | undefined, string][]) {
   test(`the Account row with ${why} names ${shown} (#63167)`, async () => {
-    await openMenu(false, { routes: routes as unknown as ChatAccountList, ...(signIn ? { signIn } : {}) });
+    await openMenu(false, { routes, ...(signIn ? { signIn } : {}) });
     await settle();
     const account = document.querySelector<HTMLElement>(".acpmux-quick-account")!;
     expect(account.textContent).toContain(shown);

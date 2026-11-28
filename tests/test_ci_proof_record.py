@@ -217,6 +217,19 @@ class Plan(unittest.TestCase):
         self.assertEqual(rec["runs"][0]["step"], "abc12345")
         self.assertEqual(pr.problems(rec), [])
 
+    def test_posted_body_scrubs_every_host_it_knows(self):
+        # #57488, #57672: a host in any field (a tail, a note, a script name) still got the proof refused.
+        rec = dict(RECORD, runs=[{"name": "script: x on huge-blue", "result": "pass", "step": "abc12345",
+                                  "note": "moved off cmux22 to aws-m4pro-7.local"}], timing={"push_to_proof_s": 212})
+        body = ios_verify.scrub_hosts(pr.render(rec, ios_verify.summary_md(rec)),
+                                      ["cmux22", "huge-blue", "aws-m4pro-7.local", "cmux2"])
+        for host in ("cmux22", "huge-blue", "aws-m4pro-7"):
+            self.assertNotIn(host, body)
+        got = pr.parse(body)
+        self.assertEqual(got["runs"][0]["note"], "moved off a fleet worker to a fleet worker")
+        self.assertEqual((got["head_sha"], got["repo"], got["verdict"]), (HEAD, "manaflow-ai/cmux", "pass"))
+        self.assertEqual(pr.problems(got), [])
+
     def test_a_base_merge_that_changes_the_loop_runs_the_merged_loop(self):
         # cmux#57582: its head predated #62103, so the loop it ran still posted the worker, and public-body-guard
         # refused the comment ("this text names fleet host 'cmux22'"). Merging the base brought the fix onto disk
@@ -305,6 +318,37 @@ class TokenFallbackTest(unittest.TestCase):
 
         self.assertEqual(pr.with_tokens(read, ["run", "pool1", "pool2"]), "read with pool1")
         self.assertEqual(seen, ["run", "pool1"])
+
+    def test_a_rate_limited_token_moves_on_without_waiting_it_out(self) -> None:
+        # Before -> after on cmux job 140783003633 (2026-11-27 23:21Z): the run token's comments read got a
+        # rate-limit 403, gh_http slept 900 s in a 5-min job, and the job was cancelled unposted. After: the
+        # pool token reads it at once; only the last token may wait, and no longer than RATE_WAIT_LAST_S.
+        import functools
+        http = pr.gh_http.deadline_http
+        limited = (403, b'{"message":"API rate limit exceeded for installation"}',
+                   http.Headers({"x-ratelimit-remaining": "0", "x-ratelimit-reset": "1900"}))
+        ok = (200, json.dumps([comment("x")]).encode(), http.Headers({}))
+        seen, slept = [], []
+
+        def fake(req, seconds, **kwargs):
+            token = req.get_header("Authorization").split()[-1]
+            seen.append(token)
+            return limited if token == "run" else ok
+
+        retrying = functools.partial(pr.gh_http.request, sleep=slept.append, now=lambda: 1000.0,
+                                     log=lambda line: None)
+        with mock.patch.object(http, "request", side_effect=fake), mock.patch.object(pr.gh_http, "request", retrying):
+            got = pr.with_tokens(lambda token: pr.pr_comments("o/r", 7, token), ["run", "pool1"])
+        self.assertEqual([c["body"] for c in got], ["x"])
+        self.assertEqual(seen, ["run", "pool1"])
+        self.assertEqual(slept, [])
+        # The last token: a limit ending past the bound is not slept on either.
+        seen.clear()
+        with mock.patch.object(http, "request", side_effect=fake), mock.patch.object(pr.gh_http, "request", retrying):
+            with self.assertRaises(pr.urllib.error.HTTPError):
+                pr.with_tokens(lambda token: pr.pr_comments("o/r", 7, token), ["run"])
+        self.assertEqual(slept, [])
+        self.assertEqual(pr._rate_wait_s.get(), pr.RATE_WAIT_LAST_S)
 
     def test_the_last_refusal_and_other_errors_raise(self) -> None:
         import urllib.error

@@ -35,7 +35,7 @@ import {
 import { useCloudPlanSubscribe, type CloudPlanSubscribeStore } from "./cloudPlanSubscribe";
 import { useGitHubPicker, type GitHubPickerStore, gitHubPickerStore, githubFullName } from "./githubRepos";
 import "./cloudStart.css";
-import { type ChecklistStep, startupChecklist, type QuietStage, quietStage, stageClock } from "./cloudStartViewModel";
+import { type ChecklistStep, type QuietStage, quietStage, startupChecklist, stageClock } from "./cloudStartViewModel";
 import { CLOUD_SIGN_IN_ANSWERS } from "./cloudSignIn";
 import { WithFacts } from "./chips/FactsHoverCard";
 
@@ -673,8 +673,7 @@ export function CloudStartView({
   onPickRepo?: (path: string) => void;
   onPickFolder?: () => void;
   onStartWithoutFolder?: () => void;
-  /// Set up Cloud's buttons (`cloud_setup_required`, cloudSetup.ts): one of Settings > Models' ways in, then
-  /// the start goes again by itself once a connection serves the model; and its Not now.
+  /// Opens Settings > Cloud > Cloud models for a missing connection. A held start resumes once the family is served.
   onSetUp?: (action: CloudSetupAction) => void;
   onSetUpDismiss?: () => void;
   /// A start refused because a chat is already starting in this tab (`unavailable_now`): a new Cloud chat with the
@@ -777,6 +776,8 @@ export function CloudStartView({
           need={setup}
           steps={setupStepsLook}
           waiting={!failed}
+          runHereLabel={planLabels.runHere}
+          {...(onRunHere ? { onRunHere } : {})}
           {...(onSetUp ? { onSetUp } : {})}
           {...(onSetUpDismiss ? { onDismiss: onSetUpDismiss } : {})}
           {...(onSetUpDismiss && !failed ? { onCancel: onSetUpDismiss } : {})}
