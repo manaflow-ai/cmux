@@ -6,6 +6,7 @@
 //! role = "lane"        # an agent lane: 5 minutes after its last activity, then pause
 //! [idle]
 //! minutes = 5          # 1 to 1439 (under the Cloud's 24 h backstop); overrides the role's window
+//! policy = "aggressive" # pause 90 s after the last activity; `minutes`, when also set, wins
 //! ```
 //!
 //! Only the `lane` role has a window of its own ([`LANE_IDLE_SECONDS`]); a file with neither a lane role nor
@@ -26,6 +27,9 @@ pub const LANE_ROLE: &str = "lane";
 /// The lane role's window: a fixed keep-alive of 5 minutes after the machine's last activity, then pause
 /// (RFD 0016, "Keep-alive policy").
 pub const LANE_IDLE_SECONDS: u64 = 300;
+/// The aggressive policy's window (`[idle] policy = "aggressive"`): pause 90 s after the machine's last activity.
+/// Selectable per machine and off unless a `machine.toml` asks; the Cloud's floor is 60 s (`readReportedIdleWindow`).
+pub const AGGRESSIVE_IDLE_SECONDS: u64 = 90;
 /// `[idle] minutes` bounds: at least a minute, and under the Cloud's 24 h backstop.
 pub const MIN_MINUTES: u64 = 1;
 pub const MAX_MINUTES: u64 = 24 * 60 - 1;
@@ -41,12 +45,16 @@ pub struct IdlePolicy {
     pub role: Option<String>,
     /// `[idle] minutes`, in seconds.
     pub declared_seconds: Option<u64>,
+    /// `[idle] policy = "aggressive"`.
+    pub aggressive: bool,
 }
 
 impl IdlePolicy {
-    /// The machine's window in seconds: `[idle] minutes` when declared, else the role's, else none.
+    /// The machine's window in seconds: `[idle] minutes` when declared, else the aggressive policy's, else the
+    /// role's, else none.
     pub fn window_seconds(&self) -> Option<u64> {
         self.declared_seconds
+            .or_else(|| self.aggressive.then_some(AGGRESSIVE_IDLE_SECONDS))
             .or_else(|| (self.role.as_deref() == Some(LANE_ROLE)).then_some(LANE_IDLE_SECONDS))
     }
 }
@@ -74,11 +82,17 @@ pub fn parse(text: &str) -> Result<IdlePolicy, String> {
         Some(toml::Value::String(r)) if role_ok(&r) => Some(r),
         Some(_) => return Err("role must match [a-z][a-z0-9-]{0,31}".to_owned()),
     };
+    let mut aggressive = false;
     let declared_seconds = match file.idle {
         None => None,
         Some(toml::Value::Table(t)) => {
-            if t.keys().any(|k| k != "minutes") {
-                return Err("[idle] takes only minutes".to_owned());
+            if t.keys().any(|k| k != "minutes" && k != "policy") {
+                return Err("[idle] takes only minutes and policy".to_owned());
+            }
+            match t.get("policy") {
+                None => {}
+                Some(toml::Value::String(p)) if p == "aggressive" => aggressive = true,
+                Some(_) => return Err("idle.policy must be \"aggressive\"".to_owned()),
             }
             match t.get("minutes") {
                 None => None,
@@ -94,7 +108,7 @@ pub fn parse(text: &str) -> Result<IdlePolicy, String> {
         }
         Some(_) => return Err("idle must be a table".to_owned()),
     };
-    Ok(IdlePolicy { role, declared_seconds })
+    Ok(IdlePolicy { role, declared_seconds, aggressive })
 }
 
 /// The window of the file the applier applied last, under `root` (`/` on a machine), or None: no file, a file
