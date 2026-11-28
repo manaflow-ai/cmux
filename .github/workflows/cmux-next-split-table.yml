@@ -140,7 +140,9 @@ jobs:
           # checkout). One bench run gives before and after, so a pull request adds no second exclusive hold on the
           # bench Mac. Each call is bounded (30-120 s); any miss leaves no before column, never a red.
           baseline=()
-          base_arg="$(python3 -I - "$client" "$out" <<'PY' || true
+          # The script goes to a file first: macOS bash 3.2 misparses a heredoc inside $(...) whose body has quotes
+          # and parentheses ("unexpected EOF while looking for matching `)'").
+          cat > "$RUNNER_TEMP/split-table-baseline.py" <<'PY'
           import base64, json, os, re, subprocess, sys, urllib.request, xml.etree.ElementTree as ET, zlib
           client, out = sys.argv[1], sys.argv[2]
           feed = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
@@ -200,7 +202,7 @@ jobs:
                   sys.exit(0)
           sys.exit("split table: no finished split-scale measurement to compare with")
           PY
-          )"
+          base_arg="$(python3 -I "$RUNNER_TEMP/split-table-baseline.py" "$client" "$out" || true)"
           if [[ -n "$base_arg" ]]; then
             baseline=("--arg=--baseline=$base_arg")
             echo "::notice title=Split table::before column: the newest measured split-scale matrix (${#base_arg} byte arg)"
