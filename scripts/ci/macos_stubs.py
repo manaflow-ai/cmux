@@ -214,14 +214,18 @@ def cmd_merge(stub_dir: Path, newer: Path) -> int:
 # The binding crates whose `extern "C"` items link one framework each. A name
 # they declare is a symbol of that framework (core-foundation-sys links
 # CoreFoundation in lib.rs, security-framework-sys Security in lib.rs,
-# system-configuration-sys SystemConfiguration from build.rs).
+# system-configuration-sys SystemConfiguration from build.rs, the objc2 framework crates theirs in
+# src/generated/mod.rs). iroh's netdev links CoreWLAN, whose crate links SecurityFoundation (#56513,
+# 2026-11-28: "framework not found for -framework CoreWLAN" failed every cross link of cmux-tui).
 SYS_CRATES = {
     "core-foundation-sys": "CoreFoundation",
+    "objc2-core-wlan": "CoreWLAN",
+    "objc2-security-foundation": "SecurityFoundation",
     "security-framework-sys": "Security",
     "system-configuration-sys": "SystemConfiguration",
 }
 SYS_CRATES_FILE = "sys-crates.txt"
-EXTERN_BLOCK = re.compile(r'extern\s+"C"\s*\{')
+EXTERN_BLOCK = re.compile(r'extern\s+"C(?:-unwind)?"\s*\{')  # objc2 crates declare in "C-unwind" blocks
 EXTERN_ITEM = re.compile(r"\b(?:static(?:\s+mut)?|fn)\s+([A-Za-z_][A-Za-z0-9_]*)")
 LOCKED = re.compile(r'^\[\[package\]\]\nname = "([^"]+)"\nversion = "([^"]+)"', re.M)
 
@@ -274,6 +278,9 @@ def cmd_sys_crates(stub_dir: Path, lock: Path, system: Path | None = None) -> in
         for name, versions in sorted(locked_versions(lock.read_text()).items()):
             framework = SYS_CRATES[name]
             path = stub_dir / f"{framework}.tbd"
+            if not path.exists():  # a framework no Mac-built binary imports yet: the link needs its stub to exist
+                install = f"/System/Library/Frameworks/{framework}.framework/Versions/A/{framework}"
+                path.write_text(render(install, {"current": "1.0.0", "compat": "1.0.0", "symbols": set()}))
             install, held = read_stub(path)
             text = path.read_text()
             cur = re.search(r"^current-version:\s+(\S+)", text, re.M).group(1)

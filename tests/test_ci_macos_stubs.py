@@ -271,6 +271,22 @@ class SysCrateCoverageTests(unittest.TestCase):
                                          "fn not_extern() {}\n")
             self.assertEqual(stubs.declared_externs(src), {"_kSecMatchSearchList", "_SecItemCopyMatching"})
 
+    def test_declared_externs_reads_c_unwind_blocks(self) -> None:
+        # objc2's framework crates (objc2-core-wlan) declare in "C-unwind" blocks.
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp)
+            (src / "CWNetwork.rs").write_text('extern "C-unwind" {\n    pub fn CWKeychainCopyWiFiEAPIdentity() -> i32;\n}\n'
+                                              'extern "C" {\n    pub static CWErrorDomain: &NSString;\n}\n')
+            self.assertEqual(stubs.declared_externs(src), {"_CWKeychainCopyWiFiEAPIdentity", "_CWErrorDomain"})
+
+    def test_every_binding_crate_framework_has_a_stub(self) -> None:
+        # iroh's netdev links CoreWLAN (and through it SecurityFoundation); with no stub file every cross link of
+        # cmux-tui failed "framework not found for -framework CoreWLAN" (cmux-tui artifacts run 46105491429).
+        for framework in sorted(set(stubs.SYS_CRATES.values())):
+            self.assertTrue((ROOT / "scripts/ci/macos-stubs" / f"{framework}.tbd").is_file(), framework)
+        held = stubs.read_stub(ROOT / "scripts/ci/macos-stubs/CoreWLAN.tbd")[1]
+        self.assertIn("_CWErrorDomain", held)
+
     def test_locked_versions_names_only_the_binding_crates(self) -> None:
         lock = ('[[package]]\nname = "security-framework-sys"\nversion = "2.17.0"\n\n'
                 '[[package]]\nname = "security-framework"\nversion = "3.7.0"\n\n'
