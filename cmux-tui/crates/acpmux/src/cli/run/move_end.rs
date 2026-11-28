@@ -98,6 +98,11 @@ pub(crate) struct MoveEnd<'a> {
 }
 
 impl<'a> MoveEnd<'a> {
+    /// How this end is reached again: for the link class its pages learn (`move_levels.rs`).
+    pub(crate) fn reach(&self) -> Option<&Reach> {
+        self.reach.as_ref()
+    }
+
     pub(crate) fn new(what: &'static str, client: &'a Client, reach: Option<Reach>) -> Self {
         let waits = (PAGE_WAIT, FINISH_WAIT);
         let reconnect_for = RECONNECT_FOR;

@@ -50,3 +50,48 @@ fn a_climb_starts_where_it_was_told_and_moves_on_measurements() {
     }
     assert!(climb.level() <= 3, "{}", climb.level());
 }
+
+#[test]
+fn a_resumed_climb_starts_at_what_the_last_copy_learned() {
+    // A copy over the relay climbs to a strong level, and keeps what it learned.
+    let mut first = Climb::new(EVENT_LOG, 3);
+    assert_eq!(first.learned(), None, "nothing measured, nothing learned");
+    for _ in 0..4 {
+        first.observe(4 << 20, 400_000, 0.0078, 4.0);
+    }
+    let learned = first.learned().expect("a measured link");
+    assert!(learned.level >= 9, "{learned:?}");
+    // The next copy over that link sends its first page at that level, not at 3.
+    let next = Climb::resume(EVENT_LOG, learned);
+    assert_eq!(next.level(), learned.level);
+    assert_eq!(next.resumed(), Some(learned.level));
+    assert_eq!(Climb::new(EVENT_LOG, 3).resumed(), None);
+    // Small writes say nothing new: it holds the learned level.
+    let mut held = next.clone();
+    held.observe(4 << 20, 1000, 0.05, 0.05);
+    assert_eq!(held.level(), learned.level);
+}
+
+#[test]
+fn a_resumed_climb_still_follows_the_link_it_finds() {
+    // Learned on the relay; this copy's link is a LAN: its own pages outweigh the prior.
+    let learned = Learned { level: 12, link: 96e3, cpu: 1.0 };
+    let mut climb = Climb::resume(EVENT_LOG, learned);
+    for _ in 0..3 {
+        climb.observe(4 << 20, 400_000, 0.0078, 0.003);
+    }
+    assert!(climb.level() <= 3, "{}", climb.level());
+    // And the other way: learned on a LAN, now on the relay.
+    let mut climb = Climb::resume(EVENT_LOG, Learned { level: 1, link: 125e6, cpu: 1.0 });
+    for _ in 0..3 {
+        climb.observe(4 << 20, 400_000, 0.0078, 4.0);
+    }
+    assert!(climb.level() >= 9, "{}", climb.level());
+}
+
+#[test]
+fn a_learned_level_out_of_range_is_clamped() {
+    let climb = Climb::resume(EVENT_LOG, Learned { level: 40, link: 0.0, cpu: -1.0 });
+    assert_eq!(climb.level(), 19);
+    assert!(climb.learned().is_some_and(|l| l.link >= 1.0 && l.cpu > 0.0));
+}

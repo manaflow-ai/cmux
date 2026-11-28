@@ -68,6 +68,16 @@ const MIN_LINK_SAMPLE: u64 = 64 << 10;
 /// A compression shorter than this is timer noise: not counted.
 const MIN_CPU_SECS: f64 = 0.000_5;
 
+/// What a climb learned of one link: the level it ended on, the link's rate (bytes/s) and this
+/// machine's compressor over the curve. Kept across copies by the caller (acpmux keeps one per
+/// link class), so the next copy over the same link starts where this one ended.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Learned {
+    pub level: i32,
+    pub link: f64,
+    pub cpu: f64,
+}
+
 /// The level for each page of a serial copy, from what the copy has measured.
 #[derive(Clone, Debug)]
 pub struct Climb {
@@ -80,12 +90,56 @@ pub struct Climb {
     secs: f64,
     /// Pages measured, and the level each new estimate chose (for the receipt).
     pages: u32,
+    /// The level it started at came from a past copy ([`Climb::resume`]).
+    resumed: Option<i32>,
+    /// `wire` and `secs` are still the past copy's rate, not yet measured here.
+    prior_link: bool,
 }
 
 impl Climb {
     /// Starts at `start` until a page is measured (the level the copy used before: no guess).
     pub fn new(curve: Curve, start: i32) -> Self {
-        Self { curve, level: start, cpu: 1.0, wire: 0.0, secs: 0.0, pages: 0 }
+        Self {
+            curve,
+            level: start,
+            cpu: 1.0,
+            wire: 0.0,
+            secs: 0.0,
+            pages: 0,
+            resumed: None,
+            prior_link: false,
+        }
+    }
+
+    /// Starts where a past copy over the same link ended: at its level, link rate and
+    /// compressor speed. Each is only a prior: this copy's first measurement of it replaces it,
+    /// as a fresh climb's first measurement replaces its start, so a link that changed since is
+    /// followed from the first measured page on.
+    pub fn resume(curve: Curve, learned: Learned) -> Self {
+        let level = learned.level.clamp(1, 19);
+        let (link, cpu) = (learned.link.max(1.0), learned.cpu.clamp(0.01, 100.0));
+        Self {
+            curve,
+            level,
+            cpu,
+            wire: link,
+            secs: 1.0,
+            pages: 0,
+            resumed: Some(level),
+            prior_link: true,
+        }
+    }
+
+    /// The level this climb started at when a past copy taught it, else `None`.
+    pub fn resumed(&self) -> Option<i32> {
+        self.resumed
+    }
+
+    /// What this climb has learned, once it has measured the link (or resumed from a copy that
+    /// had): for the next copy over the same link.
+    pub fn learned(&self) -> Option<Learned> {
+        let link = self.link()?;
+        Some(Learned { level: self.level, link, cpu: self.cpu })
     }
 
     /// The level the next page goes at.
@@ -112,6 +166,9 @@ impl Climb {
                 if self.pages == 0 { measured } else { KEEP * self.cpu + (1.0 - KEEP) * measured };
         }
         if wire >= MIN_LINK_SAMPLE && send_secs > 0.0 {
+            if std::mem::take(&mut self.prior_link) {
+                (self.wire, self.secs) = (0.0, 0.0);
+            }
             self.wire = KEEP * self.wire + wire as f64;
             self.secs = KEEP * self.secs + send_secs;
         }

@@ -340,7 +340,7 @@ pub(super) async fn precopy(
     }
     let zstd = live::lists(dst_init, target_caps, TRANSFER_LIVE);
     let resume = zstd && live::lists(&status, "/capabilities", TRANSFER_LIVE);
-    let mut pager = Pager::new(id, live.clone(), zstd);
+    let mut pager = Pager::new(id, live.clone(), zstd, dst.reach());
     // The copy `dst` still holds from the chat's last move, if any: the source prepares only
     // what came after it. A base either side refuses falls back to a full prefix.
     let base = dst.request("_acpmux/transfer_base", json!({"sessionId": id})).await.ok();
@@ -741,7 +741,7 @@ async fn copy(
     let id = field(begin, "sessionId").as_str().unwrap_or_default();
     let zstd =
         live::lists(dst_init, "/_meta/acpmux/capabilities", crate::capabilities::TRANSFER_LIVE);
-    let mut pager = Pager::new(id, Live::default(), zstd);
+    let mut pager = Pager::new(id, Live::default(), zstd, dst.reach());
     pager.begin_round("freeze", begin);
     let transfer_id = field(begin, "transferId");
     let paged =

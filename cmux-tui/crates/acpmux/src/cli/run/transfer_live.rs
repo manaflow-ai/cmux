@@ -18,13 +18,18 @@
 //!    curve and what the copy has measured so far: this machine's compressor and the link
 //!    (`cmux_bytes::serial::Climb`). A LAN keeps a fast level; a slow relay gets a stronger one
 //!    (level 12 at 96 KB/s, about 14 % fewer seconds than level 3 on the 2026-11-22 chat).
-//!    `ACPMUX_MOVE_ZSTD_LEVEL=N` pins one level.
+//!    `ACPMUX_MOVE_ZSTD_LEVEL=N` pins one level. What the climb learned is kept per link class
+//!    when the copy ends (`move_levels.rs`), and the next copy over it, the freeze's included,
+//!    starts from there instead of level 3: `zstd 12 learned` on its line.
 //! 4. Every few seconds the client tells the source where the move is (`transfer_progress`,
 //!    `session info`'s `move:` line) and prints it.
 //! 5. A copy whose estimate is past the move's bound (`Live::max_copy`, from `session move`'s
 //!    placement) stops with [`SLOW`]: the stage stays, so the move begun again goes on from it.
 
 use super::*;
+#[path = "move_levels.rs"]
+pub(crate) mod move_levels;
+
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use std::collections::HashMap;
@@ -82,6 +87,8 @@ pub(super) struct Pager {
     zstd: bool,
     /// Each page's zstd level, climbed on what the copy measures.
     climb: cmux_bytes::serial::Climb,
+    /// The target's link class and its kind (`move_levels.rs`), where the climb's result is kept.
+    link: (String, &'static str),
     pinned: Option<i32>,
     /// `pre-copy` or `freeze`.
     pub phase: &'static str,
@@ -98,12 +105,22 @@ pub(super) struct Pager {
 }
 
 impl Pager {
-    pub(super) fn new(session: &str, live: Live, zstd: bool) -> Self {
+    /// A copy to the target `reach` takes: its climb starts from what the last copy over the
+    /// same link class learned, else at [`START_LEVEL`].
+    pub(super) fn new(session: &str, live: Live, zstd: bool, reach: Option<&Reach>) -> Self {
+        use cmux_bytes::serial::{Climb, EVENT_LOG};
+        let link = move_levels::class_of(reach);
+        let learned = zstd.then(|| move_levels::recall(&link.0, link.1)).flatten();
+        let climb = match learned {
+            Some(l) => Climb::resume(EVENT_LOG, l),
+            None => Climb::new(EVENT_LOG, START_LEVEL),
+        };
         Self {
             session: session.to_owned(),
             live,
             zstd,
-            climb: cmux_bytes::serial::Climb::new(cmux_bytes::serial::EVENT_LOG, START_LEVEL),
+            climb,
+            link,
             pinned: pinned_level(),
             phase: "pre-copy",
             round: 0,
@@ -152,6 +169,12 @@ impl Pager {
         }
         if self.zstd {
             r.set("zstdLevel", json!(self.level()));
+            if self.pinned.is_none()
+                && let Some(from) = self.climb.resumed()
+            {
+                r.set("zstdLearned", json!(from));
+                r.set("linkClass", json!(self.link.0));
+            }
             if let Some(link) = self.climb.link() {
                 r.set("linkBytesPerSec", json!(link.round() as u64));
             }
@@ -196,10 +219,38 @@ impl Pager {
         self.pinned.unwrap_or_else(|| self.climb.level())
     }
 
+    /// The copy is over (done, refused as too slow, or failed): what its climb learned is kept
+    /// for the next copy over the same link class (not a pinned level's: that is a by-hand A/B,
+    /// not a measurement of the best).
+    fn keep_learned(&self) {
+        if !self.zstd || self.pinned.is_some() {
+            return;
+        }
+        let Some(learned) = self.climb.learned() else { return };
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64);
+        move_levels::keep(&self.link.0, self.link.1, learned, now_ms);
+        if self.live.verbose {
+            eprintln!(
+                "move: learned zstd {} for {} (link {}/s)",
+                learned.level,
+                self.link.0,
+                mb(learned.link as u64)
+            );
+        }
+    }
+
     /// The move is over: its report goes.
     pub(super) async fn done(&self, src: &mut MoveEnd<'_>) {
         let report = json!({"sessionId": self.session, "phase": "done"});
         let _ = src.request("_acpmux/transfer_progress", report).await;
+    }
+}
+
+impl Drop for Pager {
+    fn drop(&mut self) {
+        self.keep_learned();
     }
 }
 
@@ -378,6 +429,10 @@ pub(crate) fn progress_text(r: &Value) -> String {
     }
     if let Some(level) = r.get("zstdLevel").and_then(Value::as_u64) {
         line.push_str(&format!(", zstd {level}"));
+        if let Some(from) = r.get("zstdLearned").and_then(Value::as_u64) {
+            let class = r.get("linkClass").and_then(Value::as_str).unwrap_or("this link");
+            line.push_str(&format!(" (learned {from} on {class})"));
+        }
     }
     line.push(')');
     if let Some(eta) = r.get("etaSecs").and_then(Value::as_u64) {
