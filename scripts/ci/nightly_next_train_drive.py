@@ -45,12 +45,17 @@ from typing import Callable, Protocol
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gh_pages  # noqa: E402
 import nightly_next_train as train  # noqa: E402
+from ci_process_tree import run_bounded  # noqa: E402
 
 GATE_JOB = "nightly-next train Release compile"
 WORKFLOW = "nightly-next-train.yml"
 QUARANTINE_ISSUE = "nightly-next quarantine"
 MARKER = "<!-- nightly-next-quarantine:{car}:{sha} -->"
 DEFAULT_GUARD = "scripts/ci/nightly-next-car-guard.sh"
+# Cars guarded at once, and the bound on each. A guard past its bound is stopped with its whole tree (run_bounded):
+# subprocess.run's timeout killed only the bash script and left its car_guards.py and tests running under the next cars.
+GUARD_CARS = 8
+GUARD_TIMEOUT_S = 1800
 
 
 @dataclass
@@ -313,20 +318,27 @@ def run_car_guards(cars: list[train.Car], command: str) -> tuple[list[str], list
     if not command:
         return [], []
     out, warnings = [], []
+    # The cars share the runner: each car's guard gets its share of the CPUs, not all of them (8 cars x cpu_count
+    # tests at once made the cheap guards slow enough to hit the bound, run 46068974948), and its own deadline under
+    # GUARD_TIMEOUT_S so it ends with a verdict naming what it did not run.
+    env = {**os.environ}
+    env.setdefault("CAR_GUARDS_JOBS", str(max(2, (os.cpu_count() or 4) // GUARD_CARS)))
+    env.setdefault("CAR_GUARDS_DEADLINE", str(GUARD_TIMEOUT_S - 300))
 
     def one(car: train.Car) -> tuple[str, int, str]:
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
             json.dump(asdict(car), handle)
             path = handle.name
         try:
-            proc = subprocess.run([command, "--car-json", path], capture_output=True, text=True, timeout=1800)
+            proc = run_bounded([command, "--car-json", path], capture_output=True, text=True,
+                               timeout=GUARD_TIMEOUT_S, env=env)
             return car.id, proc.returncode, (proc.stdout + proc.stderr)[-2000:]
         except (OSError, subprocess.TimeoutExpired) as error:
             return car.id, 2, str(error)
         finally:
             os.unlink(path)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=GUARD_CARS) as pool:
         for car_id, code, tail in pool.map(one, [c for c in cars if not c.held]):
             if code == 1:
                 out.append(car_id)

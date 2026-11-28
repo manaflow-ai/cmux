@@ -18,7 +18,7 @@ import { domainExternal, recheckDomains as recheckDue, type DomainReply, type Ht
 import { nextRecheckAt } from "./domains/team-domains.ts"
 import { ssoExternal } from "./team-sso-external.ts"
 import { platformSsoJoin, type SsoJoin } from "./team-sso-join.ts"
-import { ssoCallback, ssoMaxAgeMs, ssoSessionConnection, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-login.ts"
+import { ssoCallback, ssoMaxAgeMs, ssoSamlAcs, ssoSamlMetadata, ssoSessionConnection, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-login.ts"
 import { mintHandoff, redeemHandoff, type HandoffDeps, type Minter, type RedeemAsk } from "./auth-handoff.ts"
 import { stackLowReadPace, stackReadPace, stackServer, type StackServer } from "./stack-server.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
@@ -197,19 +197,24 @@ export class TeamDO extends OwnerDO<TeamState> {
     const state = this.boundEntity() === entity ? this.boundEngine?.currentState : undefined
     const shared = vmApiTenantOf(state, entity, this.env.STACK_PROJECT_ID, purpose)
     if (shared || state?.team?.kind !== "personal" || state.team.id !== entity || (purpose !== "operate" && purpose !== "cleanup")) return shared
+    // A remote read that failed (UserDO, the Stack mirror, Stack's member list) throws: every caller takes a throw
+    // as no answer and retries (cmux-platform OwnerRpc.ts readTenant "unknown"), while null is a definite "this team
+    // has no tenant", which CloudDO turns into a final create refusal ("no Cloud provider is configured on this
+    // deployment") or a changed mesh route ("the creation or owner route is no longer active"). Staging's idle-pause
+    // probe failed both ways on 2026-11-28 (17:49Z, 20:48Z) on its personal team. Only a definite mismatch is null.
     let intent
-    try { intent = this.personalTenantStore.read() } catch { return null }
+    try { intent = this.personalTenantStore.read() } catch { return null } // a local row that does not parse: definite
     const target = personalTenantTarget(intent, entity, this.env.STACK_PROJECT_ID)
     if (!target || !intent) return null
     if (purpose === "cleanup") return target
     if (this.personalTenantOwner(entity) !== intent.marker.user) return null
-    const source = await this.personalStackUser(intent.marker.user).catch(() => null)
+    const source = await this.personalStackUser(intent.marker.user)
     if (source !== intent.marker.stack_user || userIdFor(this.env.STACK_PROJECT_ID, source) !== intent.marker.user) return null
     // The ordinary Stack mirror receives deletion webhooks even though this logical owner is personal.
     const canonical = stackTeamIdFor(this.env.STACK_PROJECT_ID, target.tenant)
     if (canonical === entity) return null
     const mirror = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(canonical))
-    const status = await mirror.vmApiTenantState(canonical).catch(() => null)
+    const status = await mirror.vmApiTenantState(canonical)
     if (status !== "unknown" && status !== "active") return null
     // Solo membership is re-read (briefly cached), not trusted from provisioning: anyone added to the
     // tenant's Stack team could otherwise reach the owner's personal VMs through the VM API.
@@ -222,8 +227,9 @@ export class TeamDO extends OwnerDO<TeamState> {
     if (this.personalSoloChecked?.key === key && now - this.personalSoloChecked.at < PERSONAL_SOLO_CACHE_MS) return true
     this.personalSoloChecked = undefined
     const stack = this.personalStack ?? personalTenantStack(this.env)
-    const members = await stack?.members(tenant).catch(() => null)
-    if (!members || members.length !== 1 || members[0] !== stackUser) return false
+    if (!stack) return false
+    const members = await stack.members(tenant)
+    if (members.length !== 1 || members[0] !== stackUser) return false
     this.personalSoloChecked = { key, at: now }
     return true
   }
@@ -839,6 +845,14 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   async ssoCallback(entity: string, state: string, code: string, pathConnection: string, iss: string | null) {
     return ssoCallback(this.loginDeps(entity), state, code, pathConnection, iss)
+  }
+
+  async ssoSamlAcs(entity: string, relayState: string, samlResponse: string, pathConnection: string, origin: string) {
+    return ssoSamlAcs(this.loginDeps(entity), relayState, samlResponse, pathConnection, origin)
+  }
+
+  async ssoSamlMetadata(entity: string, connection: string, origin: string) {
+    return ssoSamlMetadata(this.bind(entity).currentState, entity, connection, origin) ?? null
   }
 
   async ssoRedeem(entity: string, code: string, clientVerifier: string) {

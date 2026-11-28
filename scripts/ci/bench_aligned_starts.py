@@ -99,15 +99,19 @@ def frozen_aligned_starts(steps: list[dict], lines: list[str], texts: list[str],
     chosen = [starts[s] for s in reversed(own)]
     # The one choice must also agree with what the jobs API says of each workflow step that cannot fail quietly (no
     # `continue-on-error`): failed, its section has a live `##[error]` line (the runner's exit line, an action's
-    # failure); passed, it has none. A step that printed no header of its own (a "silent" step, which the runner
-    # never makes of a step it ran) would take a composite's same-second inner line for its own and with it the
-    # composite's failure: the composite's section then has no `##[error]` line, and nothing is placed
-    # (LocalCompositeCannotPose).
+    # failure); passed, it has no live runner exit line (RUNNER_EXIT_RED: a passing step may print annotations of its
+    # own). A step that printed no header of its own (a "silent" step, which the runner never makes of a step it ran)
+    # would take a composite's same-second inner line for its own and with it the composite's failure: the
+    # composite's section then has no `##[error]` line, and nothing is placed (LocalCompositeCannotPose).
+    # The agreement check is the live one's (failed_steps_log._aligned_starts): only the search above is frozen.
     edges = [*chosen, len(lines)]
     for i, step in enumerate(printing):
         if not expected[i][2] or step.get("conclusion") not in ("success", "failure"):
             continue
-        if (step.get("conclusion") == "failure") != excuse._live_red(texts, edges[i], edges[i + 1], opened=True):
+        if step.get("conclusion") == "failure":
+            if not excuse._live_red(texts, edges[i], edges[i + 1], opened=True):
+                return None
+        elif excuse._live_red(texts, edges[i], edges[i + 1], opened=True, red=excuse.steps_log.RUNNER_EXIT_RED):
             return None
     return chosen
 

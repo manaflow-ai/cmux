@@ -1,0 +1,16 @@
+{
+  "caption": "Dark favicons like GitHub's now show in New Tab's rows, and with a file attached the rows offer only Ask.",
+  "frameInterval": 0.25,
+  "launch_args": ["--showcase"],
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "A fixed window", "rpc": {"method": "debug.window_frame", "params": {"frame": [80, 80, 1200, 800]}}, "wait": 0.5},
+    {"title": "The dark theme", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 0.5},
+    {"title": "A workspace that writes the file to attach", "cmux": ["action", "run", "newTab", "--arg", "name=Launch plan", "--arg", "cwd=/tmp", "--arg", "command=/bin/sh -c \"clear; printf '# Launch plan\\n\\n- Ship the beta\\n' > /tmp/launch-plan.md; exec sleep 900\"", "--focus"], "wait": 2.5},
+    {"title": "A public GitHub page, for its dark favicon", "cmux": ["tab", "new-browser", "--url", "https://github.com/explore", "--focus"], "wait": 6},
+    {"title": "New Tab, typing github: the GitHub rows with their favicon", "rpc": {"method": "debug.new_tab", "params": {"action": "open_and_type", "text": "github"}}, "wait": 2.5, "clip": true},
+    {"title": "Attach a file: only the Ask rows stay", "rpc": {"method": "debug.agent_pane", "params": {"action": "set_files", "paths": ["/tmp/launch-plan.md"]}}, "wait": 2.5, "clip": true},
+    {"title": "End", "wait": 0.3}
+  ],
+  "crop": [0.2, 0.05, 0.75, 0.7]
+}

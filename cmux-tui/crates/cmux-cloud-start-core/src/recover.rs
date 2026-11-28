@@ -228,4 +228,6 @@ pub fn pane_step(failure: &PaneFailure) -> PaneStep {
 }
 
 #[cfg(test)]
+mod replay_tests;
+#[cfg(test)]
 mod tests;

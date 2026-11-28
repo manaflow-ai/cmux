@@ -47,10 +47,10 @@ import type {
   ModelsState,
   LibraryListing,
   HubState,
-  DeveloperTokensState,
-  AutocloudState,
   DoctorReport,
+  AutocloudState,
   ConnectionsState,
+  DeveloperTokensState,
 } from "../pages/settings/ops";
 import type { DoctorTreatment } from "../pages/settings/customizeDoctor";
 import type { MockData } from "../pages/passwords/mockProvider";
@@ -71,6 +71,9 @@ export type SettingsPageVariant = VariantBase & {
   accounts?: AccountsState;
   /** Settings > Accounts > Cloud Environments fixture state. */
   environments?: CloudEnvironmentsState;
+  /** The first READS environment refreshes find the list not read yet (`environments` as given, e.g. not available:
+   * signed in a moment ago); the next one serves THEN. */
+  environmentsLate?: { reads: number; then: CloudEnvironmentsState };
   /** Settings > Privacy and Security > Shared Links fixture state; default the mock's shares. */
   sharedLinks?: SharesState;
   /** Appearance > Customization Library fixture state; default the mock's few entries. */
@@ -97,6 +100,10 @@ export type SettingsPageVariant = VariantBase & {
   tailnet?: TailnetState | null;
   /** Settings > Models fixture state (null: a host without the part); default the mock's Mac logins. */
   models?: ModelsState | null;
+  /** Hold the connection list in flight while the Cloud page draws its loading rows. */
+  modelsLoading?: boolean;
+  /** Hold a provider check while its form draws the checking state. */
+  modelAccessChecking?: boolean;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Add > Endpoint: what the endpoint lists for Fetch Models and the hello

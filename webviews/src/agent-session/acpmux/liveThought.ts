@@ -12,11 +12,11 @@
 // (`redraw`), and once that commits the entries made before it go (`settle`).
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "./model";
-import { isThought } from "./conversation/thoughts";
+import { isQuietThought, isThought } from "./conversation/thoughts";
 import { oneRowChangeFrom } from "./rowChanges";
 import { rowsWithLiveOutput, sameButRows } from "./liveToolOutput";
 import { rowsWithStreamingRow } from "./streamingRow";
-import { drewRunningTurn, hiddenUnderFold } from "./drawnRows";
+import { drewEmptyFold, drewRunningTurn, hiddenUnderFold } from "./drawnRows";
 import { lineCalledNow } from "./liveCallLine";
 
 /// A row's thought now (`to`), and the thought item the pane's rows drew (`from`): a drawn row whose
@@ -144,7 +144,12 @@ export function thoughtOnly(
   // the current thought visible while it streams. `drewThoughts` proves that this row is the one
   // currently drawing it, so its chunks can stay on the row without redrawing the pane.
   const drawnNow = drawnThought(now.id);
-  if (drawnNow === undefined && hiddenUnderFold(next.rows, index)) return { id: now.id, before, after };
+  // Under a closed "Working for" that had nothing to open, a thought that is no longer quiet gives it
+  // work to open (turns.ts `liveFoldHidesWork`): the pane draws, so the header shows its chevron.
+  if (drawnNow === undefined && hiddenUnderFold(next.rows, index)) {
+    if (drewEmptyFold() && !isQuietThought(after)) return undefined;
+    return { id: now.id, before, after };
+  }
   if (!sameThought(drawnNow, before)) return undefined;
   return { id: now.id, before, after };
 }

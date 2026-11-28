@@ -67,7 +67,8 @@ where
 
 /// The address that last connected per `(host, port)`, for the whole process (Braid's
 /// last-good route, RFD 0164 slice B1). `CMUX_BRAID_LAST_GOOD=0` turns it off.
-static LAST_GOOD: LazyLock<LastGood<(String, u16), SocketAddr>> = LazyLock::new(LastGood::from_env);
+static LAST_GOOD: LazyLock<LastGood<(String, u16), SocketAddr>> =
+    LazyLock::new(|| LastGood::from_env().named("cmux-remote.tcp"));
 
 /// A race's losers that connected after the winner, one per `(host, port)` and address family,
 /// for the whole process (Braid's standby pool, RFD 0164 slice B3). `CMUX_BRAID_STANDBY=0`

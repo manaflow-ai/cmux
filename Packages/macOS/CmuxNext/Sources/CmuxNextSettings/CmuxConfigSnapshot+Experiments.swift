@@ -19,6 +19,14 @@ extension CmuxConfigSnapshot {
     public static var forumHiddenReason: String {
         SettingsSchema.descriptor(for: forumPath)?.title ?? forumPath.joined(separator: ".")
     }
+
+    /// The Feed's sidebar item, page and `feed.show` show: `experiments.feed` is on (off by default).
+    public var showsFeed: Bool { root.value(at: Self.feedPath)?.boolValue ?? Self.feedDefault }
+
+    /// What a refused `feed.show` says while the experiment is off: the setting's title.
+    public static var feedHiddenReason: String {
+        SettingsSchema.descriptor(for: feedPath)?.title ?? feedPath.joined(separator: ".")
+    }
 }
 
 extension SettingsSchema {

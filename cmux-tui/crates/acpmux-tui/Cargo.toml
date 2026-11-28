@@ -34,6 +34,8 @@ tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "io-util", 
 unicode-width.workspace = true
 
 [dev-dependencies]
+# The TUI's list views are held to flat per-frame work in N (cmux-view-rows src/frame_work.rs).
+cmux-view-rows = { path = "../cmux-view-rows", features = ["frame-work"] }
 # A paused clock for the bounded-wait tests (`reconnect_wait.rs`).
 tokio = { version = "1.52", features = ["test-util"] }
 uuid = { version = "1.20", features = ["v7"] }

@@ -58,6 +58,30 @@ pub(crate) const PROBE_BOUND: Duration = Duration::from_secs(5);
 // timeout: hazard is a holder that ignores SIGTERM; fallback is SIGKILL.
 pub(crate) const TERM_WAIT: Duration = Duration::from_secs(15);
 
+/// How long a holder that is stopped (SIGSTOP, state `T`) has to let go after SIGTERM before
+/// SIGKILL. A stopped process cannot run its SIGTERM handler, so the full [`TERM_WAIT`] only
+/// delays the kill; this is one scheduler pass for a process continued meanwhile (SIGCONT runs
+/// the pending SIGTERM at once). Applied only on Linux, only to a holder already past the stall rule.
+// timeout: hazard is a stopped holder that cannot handle SIGTERM; fallback is SIGKILL.
+pub(crate) const STOPPED_TERM_WAIT: Duration = Duration::from_secs(2);
+
+/// Whether `pid` is stopped (`T`/`t` in `/proc/PID/stat`): it runs no code, so it cannot answer
+/// or handle SIGTERM. Linux only; elsewhere false, so the full [`TERM_WAIT`] applies.
+pub(crate) fn is_stopped(pid: u32) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else { return false };
+        // `pid (comm) S ...`: comm may hold spaces and parens, so the state follows the last ')'.
+        stat.rsplit_once(')')
+            .is_some_and(|(_, rest)| matches!(rest.trim_start().chars().next(), Some('T' | 't')))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = pid;
+        false
+    }
+}
+
 /// How long the kernel gets to release a SIGKILL'd holder's lock before the waiter looks again.
 // timeout: hazard is a killed holder not reaped yet; fallback is the waiter's next look.
 const KILL_WAIT: Duration = Duration::from_secs(5);
@@ -291,7 +315,8 @@ pub(crate) async fn replace(home: &Path, why: &str) -> Result<u32, Refusal> {
     if !signal(pid, libc::SIGTERM) {
         tracing::warn!(pid, "SIGTERM failed: {}", std::io::Error::last_os_error());
     }
-    if super::lock::wait_for_lock_release_with_budget(lock.clone(), Some(TERM_WAIT)).await {
+    let term_wait = if is_stopped(pid) { STOPPED_TERM_WAIT } else { TERM_WAIT };
+    if super::lock::wait_for_lock_release_with_budget(lock.clone(), Some(term_wait)).await {
         tracing::info!(pid, "the lock holder let go after SIGTERM");
         return Ok(pid);
     }
@@ -307,7 +332,7 @@ pub(crate) async fn replace(home: &Path, why: &str) -> Result<u32, Refusal> {
             return Ok(pid);
         }
     }
-    tracing::warn!(pid, "the lock holder ignored SIGTERM for {}s: SIGKILL", TERM_WAIT.as_secs());
+    tracing::warn!(pid, "the lock holder ignored SIGTERM for {}s: SIGKILL", term_wait.as_secs());
     if !signal(pid, libc::SIGKILL) {
         tracing::warn!(pid, "SIGKILL failed: {}", std::io::Error::last_os_error());
     }
@@ -330,23 +355,23 @@ pub(crate) async fn answers_somewhere(home: &Path, pid: u32) -> Option<PathBuf> 
             candidates.push(socket);
         }
     }
+    // Concurrently under one probe bound: each candidate's probe is bounded, so the sum of them
+    // in turn (three candidates, 15 s) was the replace's slowest step.
     let probe = Bounds::current().probe;
-    for socket in candidates {
+    let probes = candidates.into_iter().map(|socket| async move {
         let status = async {
             let client = crate::client::Client::connect(&socket).await.ok()?;
             client.request(crate::rpc::method::MUX_STATUS, json!({})).await.ok()
         };
-        let Ok(Some(status)) = tokio::time::timeout(probe, status).await else { continue };
+        let Ok(Some(status)) = tokio::time::timeout(probe, status).await else { return None };
         let ours = status.get("pid").and_then(Value::as_u64) == Some(u64::from(pid))
             || status
                 .get("home")
                 .and_then(Value::as_str)
                 .is_some_and(|h| super::lock::same_path(Path::new(h), home));
-        if ours {
-            return Some(socket);
-        }
-    }
-    None
+        ours.then_some(socket)
+    });
+    futures::future::join_all(probes).await.into_iter().flatten().next()
 }
 
 fn wait_lock_path(home: &Path) -> PathBuf {

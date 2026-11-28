@@ -44,6 +44,22 @@ pub struct SessionMeta {
     /// it (`harness_argv` is the creation's). None before any start (#23322, review 36).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spawn_argv: Option<Vec<String>>,
+    /// The owner's selected Cloud model connection ID. The credential stays in memory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_connection: Option<String>,
+    /// The owner withdrew the delivered credential. Until redelivery, no new turn may use it,
+    /// even if an adopted host still carries it while existing work finishes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) credential_withdrawn: bool,
+    /// Model selected at launch with the delivered connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) claude_token_recovery: Option<ClaudeTokenRecovery>,
+    /// Whether a host still needs to restart on the machine login. Older recovery records
+    /// omit this field, so a recovered chat keeps the restart pending until a fresh launch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) claude_login_restart_pending: Option<bool>,
     /// `HarnessProfile::launch_digest` of the profile its agent last started from: a profile
     /// reload that changes it respawns the agent at its turn end, on the same conversation
     /// (`hub/profile_respawn.rs`). Kept on disk, so an agent host the next daemon adopts is
@@ -205,6 +221,12 @@ pub struct SessionMeta {
     /// Ephemeral so this does not change the stored session format.
     #[serde(skip)]
     pub title_thin: bool,
+    /// How this daemon run's `session/new` got its agent: `warm` (it took a pooled agent),
+    /// `cold` (a pooled shape that found none ready) or `unshaped` (a start the pool never
+    /// serves). The create's answer carries it (`startPool`), so a Cloud start's `session_new`
+    /// phase says whether it paid the agent boot (goal `cloud-instant-start`). Never stored.
+    #[serde(skip)]
+    pub start_pool: Option<&'static str>,
     #[serde(default)]
     pub last_prompt: Option<String>,
     #[serde(default)]
@@ -468,6 +490,13 @@ pub struct SessionMeta {
     /// `sessionCostUsd` its last priced turn carried. A fork starts its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_cost_usd: Option<f64>,
+    /// The last turn's context and end, and the chat's cache rebuild total so far
+    /// (`hub/cache_rebuild.rs`). A fork starts its own.
+    #[serde(
+        default,
+        skip_serializing_if = "crate::hub::cache_rebuild::CacheRebuildState::is_empty"
+    )]
+    pub cache_rebuild: crate::hub::cache_rebuild::CacheRebuildState,
     /// The pull requests this session's `gh pr create` calls printed (`hub/pull_requests.rs`),
     /// once each, oldest first. A fork starts with none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -553,6 +582,11 @@ pub struct SessionMeta {
     /// `hub/place_migrate.rs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub place_mode: Option<crate::place_mode::PlaceMode>,
+    /// What the session sees, recorded once at its first start (`session_manifest.rs`, RFD 0181
+    /// B7): a move carries it in this file and a fork copies it, so the next start reads it
+    /// instead of deriving it. None while `ACPMUX_SESSION_MANIFEST` is off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manifest: Option<crate::session_manifest::SessionManifest>,
 }
 
 /// A fork of a chat's subagent: the chat, and the subagent as its `_meta.acpmux.subagents`

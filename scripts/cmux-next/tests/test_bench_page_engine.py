@@ -342,13 +342,13 @@ class WiringTests(unittest.TestCase):
     """By a read of the text: what an entry and a bench must call. A run of an entry needs a Mac build. Each
     needle is looked for in the lines that are no comment."""
 
-    def assert_entry_asks_the_engine(self, name):
+    def assert_entry_asks_the_engine(self, name, condition='"$ask_engine" == 1'):
         lines = [line.strip() for line in code_lines(MEASURE / name)]
         self.assertIn('ask_engine="$(measure_engine_asked "$@")"', lines, name)
         asks = [index for index, line in enumerate(lines) if line == 'set -- --page-engine=cef "$@"']
         self.assertEqual(len(asks), 1, f"{name}: the line that puts --page-engine=cef first")
         # The line before it is its condition: only when the helper says so.
-        self.assertEqual(lines[asks[0] - 1], 'if [[ "$ask_engine" == 1 ]]; then', name)
+        self.assertEqual(lines[asks[0] - 1], f"if [[ {condition} ]]; then", name)
         # After the entry's own arguments are taken out, so the caller's --page-engine comes later and wins.
         rest = [index for index, line in enumerate(lines) if line.startswith("set -- ${bench_args[@]")]
         self.assertEqual(len(rest), 1, name)
@@ -369,7 +369,8 @@ class WiringTests(unittest.TestCase):
         self.assert_entry_asks_the_engine("instant-new-surfaces.sh")
 
     def test_the_chat_open_entry_asks_the_bench_for_the_default_engine_unless_webkit_is_allowed(self):
-        self.assert_entry_asks_the_engine("chat-open.sh")
+        # #62529: chat-open.sh also runs the coordinator-CPU bench (tag != chatopen), which has no --page-engine.
+        self.assert_entry_asks_the_engine("chat-open.sh", '"$ask_engine" == 1 && "$tag" == chatopen')
         bench = "\n".join(code_lines(SCRIPTS / "chat-open-bench.py"))
         for needle in ('"--page-engine"', "judge_engine(", '"page_engine_asked"'):
             self.assertIn(needle, bench, needle)

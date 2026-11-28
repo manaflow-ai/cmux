@@ -29,6 +29,7 @@ class FakeHost:
         self.heal = {}  # restarted unit -> callable
         self.step = 0.1  # seconds each command takes
         self.manager_alive = True
+        self.chats = {}  # user -> why their ~/chats is unusable
 
     def now(self):
         return self.t
@@ -75,6 +76,9 @@ class FakeHost:
 
     def linger_users(self):
         return self.linger
+
+    def chats_fault(self, user):
+        return self.chats.get(user.pw_name)
 
     def read_json(self, path):
         return json.loads(self.files[path]) if path in self.files else None
@@ -139,6 +143,32 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(h["schema"], 1)
         self.assertRegex(h["checkedAt"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
         self.assertEqual((h["problems"], h["fixed"]), ([], []))
+
+    def test_an_unusable_chats_folder_is_reported_for_its_user(self):
+        host = FakeHost()
+        host.linger = ["cmux"]
+        self.assertEqual(details(run(host)), [])
+        host.chats["cmux"] = "is writable by its group or others (mode 775)"
+        self.assertEqual(details(run(host)), ["acpmux: cmux's ~/chats is writable by its group or others (mode 775), so session starts there are refused"])
+
+    def test_the_real_host_names_each_chats_folder_fault(self):
+        with tempfile.TemporaryDirectory() as home:
+            user = SimpleNamespace(pw_name="me", pw_uid=os.getuid(), pw_dir=home)
+            real, chats = cmh.Host(), os.path.join(home, "chats")
+            self.assertIsNone(real.chats_fault(user))  # none yet: acpmux makes it
+            os.mkdir(chats, 0o700)
+            os.chmod(chats, 0o775)
+            self.assertEqual(real.chats_fault(user), "is writable by its group or others (mode 775)")
+            os.chmod(chats, 0o755)
+            self.assertIsNone(real.chats_fault(user))
+            self.assertEqual(real.chats_fault(SimpleNamespace(pw_name="other", pw_uid=os.getuid() + 1, pw_dir=home)),
+                             f"is owned by uid {os.getuid()}, not other")
+            os.rename(chats, chats + "-real")
+            os.symlink(chats + "-real", chats)
+            self.assertEqual(real.chats_fault(user), "is a symlink, not a directory")
+            os.unlink(chats)
+            open(chats, "w").close()
+            self.assertEqual(real.chats_fault(user), "is not a directory")
 
     def test_dns_heals_by_restarting_resolved_relinking_and_restarting_tailscaled_when_opted_in(self):
         host = FakeHost()

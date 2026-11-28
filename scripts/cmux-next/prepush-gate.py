@@ -62,6 +62,9 @@ entry, scripts/ci/entry_logs.py; editing the frozen sidebar-owner.md still count
 many changes to sidebar?"). CMUX_NEXT_CHECKS_SKIP_REASON does not skip it. A commit the owner logged in
 that note or an entry file (its 11-character sha) passes. CI also sweeps every commit since the check landed
 (`--only sidebar --commits`), so a push from an old hook copy or a cancelled CI run is still caught.
+A commit that adds a new kind of sidebar row (a case of SidebarRowKey, or of a fold's SidebarDoneFoldID.Kind)
+needs its Sidebar-Look quote to name that row: #49506 added an "Automatic" row under a quote that named none
+(Leo 2026-11-27: "WE NEED TO NOT HAVE THOSE THINGS MERGE").
 Also on every push: "Chrome layer look" (schemas/theme/chrome-layer-colors.json): a commit that changes that
 file (the colours ChromeLayerColorTests reads off the sidebar, footer and titlebar in the default themes, plain
 and over a picture), or a hunk of a chrome-layer token source naming a chrome token, carries a `Chrome-Look-OK:`
@@ -507,6 +510,15 @@ SIDEBAR_NOTE = "plans/cmux-next/sidebar-owner.md"
 SIDEBAR_ENTRIES = "plans/cmux-next/sidebar-owner/"
 SIDEBAR_TRAILER = re.compile(r"^Sidebar-Look:[ \t]*(\S.*)$", re.MULTILINE)
 SIDEBAR_NO_VISUAL = re.compile(r"^no visual change\b", re.IGNORECASE)
+# A new kind of sidebar row (a case added to `SidebarRowKey`, or to a fold's `SidebarDoneFoldID.Kind`) needs words in the
+# Sidebar-Look quote that name it. #49506 added an "Automatic (N)" fold row, shown by default, under a Leo quote
+# that asked for fewer sessions in the sidebar and named no row (Leo 2026-11-27: "what the hell is automatic!? ...
+# WE NEED TO NOT HAVE THOSE THINGS MERGE"); #55721 removed it. The file -> the enum whose cases are row kinds.
+SIDEBAR_ROW_KINDS = {f"{SIDEBAR_CODE}Logic/SidebarRow.swift": "SidebarRowKey",
+                     f"{SIDEBAR_CODE}Logic/SidebarLayout+DoneFold.swift": "Kind"}
+SIDEBAR_QUOTED = re.compile(r"[\"“]([^\"“”]{3,})[\"”]")
+# Words of a case name that say nothing about which row it is.
+SIDEBAR_KIND_GENERIC = frozenset(("fold", "row", "rows"))
 # The chrome layer (sidebar, footer, titlebar) keeps its colour unless Leo asks (#39984 laid a 20% black dim on the
 # sidebar for a non-Leo issue; Leo 2026-11-11: "bro why is the sidebar now a different color?", reverted by #41047).
 # ChromeLayerColorTests holds the colours each region paints in the default dark and light themes, plain and over a
@@ -3573,7 +3585,59 @@ def sidebar_owner_by_commit(repo: Path, base: str, head: str, ack_rev: str | Non
               and not any(f.startswith(SIDEBAR_ENTRIES) for f in files)):
             found.append((sha, f"{where}: a visual change (`Sidebar-Look: {trailer.group(1).strip()[:60]}`) must add its "
                                f"entry under {SIDEBAR_ENTRIES} in the same commit: the target look and the commit log."))
+        for kind in sidebar_new_row_kinds(repo, sha, files):
+            if not row_kind_named(kind, SIDEBAR_TRAILER.findall(message)):
+                found.append((sha, f"{sha[:11]} {subject[:70]}: adds a new kind of sidebar row (`{kind}`) with no "
+                                   "`Sidebar-Look:` quote that names it. A new row ships only when someone asked for "
+                                   "that row: quote their words naming it (`Sidebar-Look: Leo <date> \"<his words>\"`), "
+                                   f"or leave {', '.join(sorted(SIDEBAR_ROW_KINDS.values()))} as they are."))
     return found
+
+
+def enum_cases(text: str, name: str) -> set[str]:
+    """The case names of enum NAME in Swift TEXT (its own level only, not a nested type's)."""
+    lines = text.split("\n")
+    start = next((i for i, line in enumerate(lines) if re.search(rf"\benum\s+{re.escape(name)}\b", line)), None)
+    if start is None:
+        return set()
+    cases: set[str] = set()
+    depth, opened = 0, False
+    for line in lines[start:]:
+        code = line.split("//", 1)[0]
+        if depth == 1 and (m := re.match(r"\s*case\s+(.+)", code)):
+            # `case a, b(X)` and `case a(Y, Z)`: drop payloads, then split on commas.
+            names = re.sub(r"\([^()]*\)", "", m.group(1))
+            cases.update(n.strip().split("=")[0].strip() for n in names.split(",") if n.strip())
+        depth += code.count("{") - code.count("}")
+        opened = opened or "{" in code
+        if opened and depth <= 0:
+            break
+    return {c for c in cases if re.fullmatch(r"[A-Za-z_]\w*", c)}
+
+
+def sidebar_new_row_kinds(repo: Path, sha: str, files: list[str]) -> list[str]:
+    """Row kinds commit SHA adds: cases of a SIDEBAR_ROW_KINDS enum at SHA that its first parent lacks."""
+    added: list[str] = []
+    for path, name in sorted(SIDEBAR_ROW_KINDS.items()):
+        if path not in files:
+            continue
+        head = git(repo, "show", f"{sha}:{path}", check=False).decode(errors="replace")
+        base = git(repo, "show", f"{sha}^:{path}", check=False).decode(errors="replace")
+        before = enum_cases(base, name)
+        # A commit that makes the enum (or moves it here) adds no row: its cases were rows before it.
+        if before:
+            added += sorted(enum_cases(head, name) - before)
+    return added
+
+
+def row_kind_named(kind: str, trailers: list[str]) -> bool:
+    """Whether the quote of a Sidebar-Look trailer (its first quoted span: the words that asked) names row KIND: a
+    word of its camelCase name (`automatic`, `doneFold` -> done), stem-matched so `archive` finds "archived". Only
+    the first span, so the commit's own description of the row later in the line ("Settled (N)") does not count."""
+    words = [w.lower() for w in re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])", kind)]
+    words = [w for w in words if len(w) >= 3 and w not in SIDEBAR_KIND_GENERIC]
+    quotes = " ".join(m.group(1) for t in trailers if (m := SIDEBAR_QUOTED.search(t)))
+    return any(re.search(rf"\b{re.escape(w[:max(4, len(w) - 2)])}", quotes, re.IGNORECASE) for w in words)
 
 
 def chrome_hunks(repo: Path, sha: str, sources: list[str]) -> list[str]:
@@ -3678,6 +3742,44 @@ def deferred_ci_layers(pushed_lines: list[str]) -> frozenset[str]:
                        or ref.startswith(INTEGRATION_PUSH_PREFIXES) for ref in refs):
         return frozenset()
     return CI_LAYER_CHECKS
+
+
+# A push of only backup/* refs saves old work (the consolidate step pushes a checkout's branches to
+# backup/<dir>[--<branch>] before its folder goes); no pull request is opened from them, and a PR made later is judged
+# by its own CI. The code-quality layers (the scanners, ast-grep, SwiftFormat, SwiftLint, the crash and panic
+# ratchets, the guardrails and their arch ratchet, the compile trailer) have nothing to guard there, and they refused
+# saves of work that predates their rows (2026-11-28: backup/cmux-cg-composer, backup/cmux-cg-tower and
+# backup/cmux-tp-mutedtokens.noindex, over arch-ratchet rows). The layers about what GitHub runs for any pushed branch
+# with the repo's secrets (its workflows: they parse, each job is bounded, a reusable call stays within its caller's
+# permissions) still judge them. Checkpoint `-wip` refs are not backups: the fleet opens draft PRs from them.
+# The WIP net's backup of a checkout the gate refused is one (lane/backup/<branch>-<host>-wip, leo-workspace
+# tools/wip_checkpoint.py backup_push): under lane/ because a lane VM's broker takes no other name, ending in -wip
+# because no first-push draft is opened for such a ref (lane_gh_auto_draft.side_ref), and never the head of a PR.
+# lane/cold-activation-865-next, 2026-11-28: the arch ratchet (CmuxNextApp +13 lines) refused every
+# checkpoint of lane/cold-activation-865-next-wip from 02:00Z to 14:17Z, so 3 commits were only on that VM's disk 12 h.
+BACKUP_PUSH_PREFIX = "refs/heads/backup/"
+WIP_BACKUP_PREFIX, WIP_BACKUP_SUFFIX = "refs/heads/lane/backup/", "-wip"
+BACKUP_PUSH_LAYERS = frozenset({"workflows", "job-bounds", "reusable-perms"})
+
+
+def backup_only_push(pushed_lines: list[str]) -> bool:
+    """True when every pushed ref with commits is under refs/heads/backup/ (BACKUP_PUSH_PREFIX) or is a WIP-net backup
+    (refs/heads/lane/backup/<name>-wip); a line the gate cannot read, a push with no commits, or any other ref beside
+    them is False (every layer runs)."""
+    refs = []
+    for line in pushed_lines:
+        parts = line.split()
+        if len(parts) != 4:
+            if line.strip():
+                return False
+            continue
+        if set(parts[1]) == {"0"}:
+            continue  # a delete sends no commits
+        refs.append(parts[2])
+    return bool(refs) and all((ref.startswith(BACKUP_PUSH_PREFIX) and len(ref) > len(BACKUP_PUSH_PREFIX))
+                              or (ref.startswith(WIP_BACKUP_PREFIX) and ref.endswith(WIP_BACKUP_SUFFIX)
+                                  and len(ref) > len(WIP_BACKUP_PREFIX) + len(WIP_BACKUP_SUFFIX))
+                              for ref in refs)
 
 
 def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
@@ -4719,13 +4821,21 @@ def _main(argv: list[str] | None = None) -> int:
             log("prepush-gate: this host is loaded (load average at one runnable process per core or more): the "
                 "scanners, ast-grep and SwiftLint are left to the pull request's fast-gates CI job, which runs them "
                 "with the same refusal; every other check runs here.")
+    backup_push = args.pre_push and only is None and backup_only_push(pushed_lines)
+    if backup_push:
+        only = set(BACKUP_PUSH_LAYERS)
+        log("prepush-gate: every pushed ref is under backup/ or lane/backup/...-wip (saved work, no pull request): "
+            "the code-quality layers "
+            "and the arch ratchet are skipped; the workflow checks (" + ", ".join(sorted(BACKUP_PUSH_LAYERS))
+            + ") still run.")
     for own in ranges:
         log(f"prepush-gate: judging {own.describe()}")
     # Next to the gate, in its own process group; joined (or killed at its deadline) after the gate's own checks.
     advised = (advisory_start(repo, args.base, args.head) if args.advisory and only is None and not args.pre_push
                else None)
     # Local only: CI runs this script too (--commits, and --base/--head on pull requests), and must gain no gate.
-    local_only = not args.no_guardrails and not os.environ.get("GITHUB_ACTIONS") and only is None
+    local_only = (not args.no_guardrails and not backup_push and not os.environ.get("GITHUB_ACTIONS")
+                  and only is None)
     started_guardrails = start_guardrails(repo, ranges, trusted_scripts) if local_only else None
     # SwiftFormat only for the pre-push hook and a plain local run (no --base: CI's pull request run, the fast gates
     # and the car guards name one), never on GitHub Actions.
