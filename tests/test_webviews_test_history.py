@@ -1203,7 +1203,9 @@ class Workflow(unittest.TestCase):
         self.assertIn("check-webviews-bun-version.sh", source)
         self.assertIn("verify:tanstack-router", source)
         self.assertIn('if [ "$GITHUB_EVENT_NAME" != pull_request ]; then', source)
-        self.assertEqual(source.count("build-webviews-app.sh"), 1)
+        # One run of the app build (the non-PR path); the step's comments may name it (#63280's does).
+        commands = "\n".join(line for line in source.splitlines() if not line.lstrip().startswith("#"))
+        self.assertEqual(commands.count("build-webviews-app.sh"), 1)
 
     def test_non_pr_historical_sources_keep_their_old_build_path_when_producer_skips(self):
         import yaml
