@@ -40,3 +40,8 @@ Above `- name: Pack this workflow commit's scripts`:
 Above `- name: Record pending tree dependency`:
 
     # The selected build source can differ from this workflow's control SHA.
+
+Why its `runs-on` never names cmux-linux (2026-11-28, lane/next-guards-release-notary):
+
+    # It holds the CI pool tokens (GH_TOKEN_SPARES, c-bedbdb1917), and cmux-linux is a persistent pool PR jobs share.
+    # Attempt 1 keeps the reserved nightly label; a rerun or loop retry takes decide's nightly-only route.
