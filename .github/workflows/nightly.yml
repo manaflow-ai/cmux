@@ -7412,7 +7412,7 @@ jobs:
     environment:
       name: ${{ github.ref == 'refs/heads/nightly-next' && 'artifacts' || '' }}
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(needs.pick-nightly-next-signer.outputs.hedge_pin) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || startsWith(needs.pick-nightly-next-signer.outputs.hedge_pin, '["glaeda-trusted-next-signing",') && fromJSON(needs.pick-nightly-next-signer.outputs.hedge_pin) || 'glaeda-trusted-next-signing' }}
     timeout-minutes: 90
     permissions:
       contents: read
