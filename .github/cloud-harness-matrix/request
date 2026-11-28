@@ -2,3 +2,5 @@
 # 2026-11-26 Codex cell after the staging test sweep (hq#13934)
 # 2026-11-26 12:10Z again: run 45815017891 never started a cell (cmux-config did not compile at its base; fixed by cmux#58494)
 codex-app-start
+# 2026-11-28 agent-memory codeword row (cmux#63604), after cmux#63614 and cmux#63631 land
+claude-memory-codeword
