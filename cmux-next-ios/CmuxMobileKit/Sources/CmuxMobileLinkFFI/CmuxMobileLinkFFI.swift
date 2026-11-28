@@ -937,6 +937,183 @@ public func FfiConverterTypeAttachmentUploads_lower(_ value: AttachmentUploads) 
 
 
 /**
+ * One app's auth coordinator.
+ */
+public protocol AuthCoordinatorProtocol: AnyObject, Sendable {
+    
+    /**
+     * Applies one event (JSON) and queues its effects. A refused event
+     * changes nothing.
+     */
+    func feed(eventJson: String) throws 
+    
+    /**
+     * What the coordinator publishes now, as a JSON object.
+     */
+    func snapshot()  -> String
+    
+    /**
+     * The queued effects as a JSON array, oldest first (`[]` when none);
+     * the queue is left empty.
+     */
+    func takeEffects()  -> String
+    
+}
+/**
+ * One app's auth coordinator.
+ */
+open class AuthCoordinator: AuthCoordinatorProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_authcoordinator(self.handle, $0) }
+    }
+    /**
+     * Builds and primes the coordinator from `config_json`
+     * (`{launch?, persisted?, jitterSeed?}`; an empty string means `{}`).
+     * The priming effects wait for `take_effects`.
+     */
+public convenience init(configJson: String)throws  {
+    let handle =
+        try rustCallWithError(FfiConverterTypeCmuxMobileError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_authcoordinator_new(
+        FfiConverterString.lower(configJson),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_authcoordinator(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Applies one event (JSON) and queues its effects. A refused event
+     * changes nothing.
+     */
+open func feed(eventJson: String)throws   {try rustCallWithError(FfiConverterTypeCmuxMobileError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_method_authcoordinator_feed(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(eventJson),$0
+    )
+}
+}
+    
+    /**
+     * What the coordinator publishes now, as a JSON object.
+     */
+open func snapshot() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_authcoordinator_snapshot(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The queued effects as a JSON array, oldest first (`[]` when none);
+     * the queue is left empty.
+     */
+open func takeEffects() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_authcoordinator_take_effects(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAuthCoordinator: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = AuthCoordinator
+
+    public static func lift(_ handle: UInt64) throws -> AuthCoordinator {
+        return AuthCoordinator(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: AuthCoordinator) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AuthCoordinator {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: AuthCoordinator, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAuthCoordinator_lift(_ handle: UInt64) throws -> AuthCoordinator {
+    return try FfiConverterTypeAuthCoordinator.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAuthCoordinator_lower(_ value: AuthCoordinator) -> UInt64 {
+    return FfiConverterTypeAuthCoordinator.lower(value)
+}
+
+
+
+
+
+
+/**
  * One open chat. Every answer is the JSON of a batch: `{chat: row, records: [record],
  * caughtUp, ended, retryAfterMs}`. `records` are transcript records to draw, oldest first.
  */
@@ -29252,6 +29429,15 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_uploadobserver_on_progress() != 3294) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_authcoordinator_feed() != 35611) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_authcoordinator_snapshot() != 50831) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_authcoordinator_take_effects() != 39081) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_autochat_close() != 18716) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -29886,6 +30072,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_attachmentuploads_new() != 13417) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_authcoordinator_new() != 2496) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_autochats_new() != 34463) {

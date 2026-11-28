@@ -33,6 +33,8 @@ cmux-bundle = { path = "../../cmux-tui/crates/cmux-bundle" }
 cmux-braid-path = { path = "../../cmux-tui/crates/cmux-braid-path" }
 cmux-braid-class = { path = "../../cmux-tui/crates/cmux-braid-class" }
 cmux-build-space = { path = "../../cmux-tui/crates/cmux-build-space" }
+# The sign-in and session reducer, in the phone's process (the Mac links it through cmux-app-ffi).
+cmux-auth-coordinator = { path = "../../cmux-tui/crates/cmux-auth-coordinator" }
 cmux-output-paint = { path = "../../cmux-tui/crates/cmux-output-paint" }
 # The per-stream seq/ack/replay core of the reliable link (pure; no runtime).
 cmux-remote-protocol = { path = "../../cmux-tui/crates/cmux-remote-protocol" }

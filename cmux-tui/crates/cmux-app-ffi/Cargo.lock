@@ -257,6 +257,7 @@ dependencies = [
  "cmux-acpmux-remote-wire",
  "cmux-action-catalog",
  "cmux-agent-pane-policy",
+ "cmux-auth-coordinator",
  "cmux-background-ready",
  "cmux-chat-markdown",
  "cmux-config",
@@ -299,6 +300,14 @@ dependencies = [
  "cmux-embed",
  "cmux-json",
  "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-auth-coordinator"
+version = "0.1.0"
+dependencies = [
  "serde",
  "serde_json",
 ]

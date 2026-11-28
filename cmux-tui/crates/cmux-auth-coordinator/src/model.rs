@@ -2,15 +2,22 @@
 
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 /// The signed-in user, as the app caches and shows it (Swift `CMUXAuthUser`).
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AuthUser {
     /// The Stack Auth user id.
     pub id: String,
+    #[serde(default)]
     pub primary_email: Option<String>,
+    #[serde(default)]
     pub display_name: Option<String>,
+    #[serde(default)]
     pub profile_image_url: Option<String>,
     /// Whether the account is flagged server-side to show demonstration content.
+    #[serde(default)]
     pub demonstration_content_enabled: bool,
 }
 
@@ -40,11 +47,14 @@ impl fmt::Debug for AuthUser {
 }
 
 /// A team the signed-in user belongs to (Swift `CMUXAuthTeam`).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AuthTeam {
     pub id: String,
     pub display_name: String,
+    #[serde(default)]
     pub slug: Option<String>,
+    #[serde(default)]
     pub plan: Option<String>,
 }
 
@@ -56,7 +66,8 @@ impl AuthTeam {
 }
 
 /// The published session snapshot (Swift `CMUXAuthState`).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AuthState {
     pub is_authenticated: bool,
     pub current_user: Option<AuthUser>,
@@ -117,7 +128,8 @@ impl AuthState {
 
 /// Launch inputs that steer priming and restore (Swift `AuthLaunchOptions`,
 /// with the environment already read by the caller).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct LaunchOptions {
     /// A UI test asked for a cleared auth state (`CMUX_UITEST_CLEAR_AUTH`).
     pub clear_auth_requested: bool,
@@ -159,7 +171,8 @@ impl LaunchOptions {
 
 /// Facts about the auto-login credentials the reducer needs; the email and
 /// password stay with the caller.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AutoLoginCredentials {
     pub email_is_empty: bool,
 }
@@ -180,7 +193,8 @@ pub fn is_dev_sign_in_shortcut(
 
 /// The current account plus its session generation, without credentials
 /// (Swift `AuthenticatedSessionIdentity`).
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionIdentity {
     pub generation: u64,
     pub account_id: String,
@@ -193,7 +207,8 @@ impl fmt::Debug for SessionIdentity {
 }
 
 /// The current account and resolved team (Swift `AuthenticatedTeamScope`).
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TeamScope {
     pub session: SessionIdentity,
     pub team_id: String,
@@ -213,7 +228,8 @@ impl fmt::Debug for TeamScope {
 
 /// A persisted account and team used only to warm read-only state while the
 /// session validates (Swift `CachedTeamIdentity`).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CachedTeamIdentity {
     pub account_id: String,
     pub team_id: String,

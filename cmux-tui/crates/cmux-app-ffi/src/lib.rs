@@ -29,6 +29,8 @@
 //! what a build's first launch reads from it (include/cmux_update_prewarm.h).
 //! `health` is the app health model: which part is stuck, its repairs and the
 //! status indicator's snapshot (cmux-health-core, include/cmux_health.h).
+//! `auth_coordinator` is the sign-in and session reducer, run in the app's
+//! process as on iOS (cmux-auth-coordinator, include/cmux_auth_coordinator.h).
 //! `launch_image` is each window's last committed frame for the launch's first
 //! frame (cmux-launch-image, include/cmux_launch_image.h).
 //! `chat_markdown` is the agent chat transcript's markdown parser (cmux-chat-markdown,
@@ -100,6 +102,7 @@ pub use acpmux_client::ffi as agent_client;
 pub use cmux_acpmux_remote_wire::ffi as acpmux_remote_wire;
 pub use cmux_action_catalog::ffi as action_catalog;
 pub use cmux_agent_pane_policy::ffi as agent_pane_policy;
+pub use cmux_auth_coordinator::ffi as auth_coordinator;
 pub use cmux_background_ready::ffi as background_ready;
 pub use cmux_chat_markdown::ffi as chat_markdown;
 pub use cmux_cookie_sync::ffi as cookie_sync;

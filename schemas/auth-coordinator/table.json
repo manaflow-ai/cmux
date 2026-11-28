@@ -29,7 +29,18 @@
     "sign_out_requested",
     "sign_out_local_cleared",
     "token_read_unauthorized",
-    "dev_auth_access_token_finished"
+    "dev_auth_access_token_finished",
+    "phase_start_requested",
+    "phase_timed_out",
+    "phase_caller_cancelled",
+    "phase_operation_finished",
+    "phase_sign_out_capture_awaited",
+    "phase_stale_refresh_token_compared",
+    "phase_ended",
+    "supersede_timed_out_phases",
+    "token_read_empty",
+    "clear_auth_state_requested",
+    "available_teams_set"
   ],
   "generations": "The session generation, sign-out epoch, sign-in attempt, restore run, team read and recovery loop counters only move forward, so a ticket issued under an older one never matches again.",
   "refusals": [
@@ -384,7 +395,6 @@
         "cancel_in_flight_work",
         "notify_session_will_transition",
         "publish_session_identity",
-        "clear_phase_dampers",
         "capture_teardown_credentials_and_clear_local_session"
       ],
       "event": "sign_out_requested",
@@ -422,6 +432,86 @@
     },
     {
       "effects": [
+        "phase_started"
+      ],
+      "event": "phase_start_requested",
+      "from": "signed_out/idle/unloaded",
+      "to": "signed_out/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_timed_out",
+      "from": "signed_out/idle/unloaded",
+      "to": "signed_out/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_caller_cancelled",
+      "from": "signed_out/idle/unloaded",
+      "to": "signed_out/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_operation_finished",
+      "from": "signed_out/idle/unloaded",
+      "to": "signed_out/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_sign_out_capture_awaited",
+      "from": "signed_out/idle/unloaded",
+      "to": "signed_out/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_stale_refresh_token_compared",
+      "from": "signed_out/idle/unloaded",
+      "to": "signed_out/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_ended",
+      "from": "signed_out/idle/unloaded",
+      "to": "signed_out/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "supersede_timed_out_phases",
+      "from": "signed_out/idle/unloaded",
+      "to": "signed_out/idle/unloaded"
+    },
+    {
+      "effects": [
+        "fail_token_read"
+      ],
+      "event": "token_read_empty",
+      "from": "signed_out/idle/unloaded",
+      "to": "signed_out/idle/unloaded"
+    },
+    {
+      "effects": [
+        "log_sign_out",
+        "notify_session_will_transition",
+        "cancel_team_scope_recovery",
+        "forget_latest_sign_in_refresh_token",
+        "drop_pending_code",
+        "clear_cached_user",
+        "clear_session_cache",
+        "persist_selected_team",
+        "publish_session_identity"
+      ],
+      "event": "clear_auth_state_requested",
+      "from": "signed_out/idle/unloaded",
+      "to": "signed_out/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "available_teams_set",
+      "from": "signed_out/idle/unloaded",
+      "to": "signed_out/idle/loaded"
+    },
+    {
+      "effects": [
         "probe_stored_tokens"
       ],
       "event": "restore_launch",
@@ -610,7 +700,6 @@
         "cancel_in_flight_work",
         "notify_session_will_transition",
         "publish_session_identity",
-        "clear_phase_dampers",
         "capture_teardown_credentials_and_clear_local_session"
       ],
       "event": "sign_out_requested",
@@ -648,6 +737,86 @@
     },
     {
       "effects": [
+        "phase_started"
+      ],
+      "event": "phase_start_requested",
+      "from": "signed_out/idle/loaded",
+      "to": "signed_out/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_timed_out",
+      "from": "signed_out/idle/loaded",
+      "to": "signed_out/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_caller_cancelled",
+      "from": "signed_out/idle/loaded",
+      "to": "signed_out/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_operation_finished",
+      "from": "signed_out/idle/loaded",
+      "to": "signed_out/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_sign_out_capture_awaited",
+      "from": "signed_out/idle/loaded",
+      "to": "signed_out/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_stale_refresh_token_compared",
+      "from": "signed_out/idle/loaded",
+      "to": "signed_out/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_ended",
+      "from": "signed_out/idle/loaded",
+      "to": "signed_out/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "supersede_timed_out_phases",
+      "from": "signed_out/idle/loaded",
+      "to": "signed_out/idle/loaded"
+    },
+    {
+      "effects": [
+        "fail_token_read"
+      ],
+      "event": "token_read_empty",
+      "from": "signed_out/idle/loaded",
+      "to": "signed_out/idle/loaded"
+    },
+    {
+      "effects": [
+        "log_sign_out",
+        "notify_session_will_transition",
+        "cancel_team_scope_recovery",
+        "forget_latest_sign_in_refresh_token",
+        "drop_pending_code",
+        "clear_cached_user",
+        "clear_session_cache",
+        "persist_selected_team",
+        "publish_session_identity"
+      ],
+      "event": "clear_auth_state_requested",
+      "from": "signed_out/idle/loaded",
+      "to": "signed_out/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "available_teams_set",
+      "from": "signed_out/idle/loaded",
+      "to": "signed_out/idle/loaded"
+    },
+    {
+      "effects": [
         "join_restore"
       ],
       "event": "restore_launch",
@@ -872,7 +1041,6 @@
         "cancel_in_flight_work",
         "notify_session_will_transition",
         "publish_session_identity",
-        "clear_phase_dampers",
         "capture_teardown_credentials_and_clear_local_session"
       ],
       "event": "sign_out_requested",
@@ -907,6 +1075,86 @@
       "event": "dev_auth_access_token_finished",
       "from": "signed_out/running/unloaded",
       "to": "signed_out/running/unloaded"
+    },
+    {
+      "effects": [
+        "phase_started"
+      ],
+      "event": "phase_start_requested",
+      "from": "signed_out/running/unloaded",
+      "to": "signed_out/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_timed_out",
+      "from": "signed_out/running/unloaded",
+      "to": "signed_out/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_caller_cancelled",
+      "from": "signed_out/running/unloaded",
+      "to": "signed_out/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_operation_finished",
+      "from": "signed_out/running/unloaded",
+      "to": "signed_out/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_sign_out_capture_awaited",
+      "from": "signed_out/running/unloaded",
+      "to": "signed_out/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_stale_refresh_token_compared",
+      "from": "signed_out/running/unloaded",
+      "to": "signed_out/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_ended",
+      "from": "signed_out/running/unloaded",
+      "to": "signed_out/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "supersede_timed_out_phases",
+      "from": "signed_out/running/unloaded",
+      "to": "signed_out/running/unloaded"
+    },
+    {
+      "effects": [
+        "fail_token_read"
+      ],
+      "event": "token_read_empty",
+      "from": "signed_out/running/unloaded",
+      "to": "signed_out/running/unloaded"
+    },
+    {
+      "effects": [
+        "log_sign_out",
+        "notify_session_will_transition",
+        "cancel_team_scope_recovery",
+        "forget_latest_sign_in_refresh_token",
+        "drop_pending_code",
+        "clear_cached_user",
+        "clear_session_cache",
+        "persist_selected_team",
+        "publish_session_identity"
+      ],
+      "event": "clear_auth_state_requested",
+      "from": "signed_out/running/unloaded",
+      "to": "signed_out/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "available_teams_set",
+      "from": "signed_out/running/unloaded",
+      "to": "signed_out/running/loaded"
     },
     {
       "effects": [
@@ -1137,7 +1385,6 @@
         "cancel_in_flight_work",
         "notify_session_will_transition",
         "publish_session_identity",
-        "clear_phase_dampers",
         "capture_teardown_credentials_and_clear_local_session"
       ],
       "event": "sign_out_requested",
@@ -1175,6 +1422,86 @@
     },
     {
       "effects": [
+        "phase_started"
+      ],
+      "event": "phase_start_requested",
+      "from": "signed_out/running/loaded",
+      "to": "signed_out/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_timed_out",
+      "from": "signed_out/running/loaded",
+      "to": "signed_out/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_caller_cancelled",
+      "from": "signed_out/running/loaded",
+      "to": "signed_out/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_operation_finished",
+      "from": "signed_out/running/loaded",
+      "to": "signed_out/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_sign_out_capture_awaited",
+      "from": "signed_out/running/loaded",
+      "to": "signed_out/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_stale_refresh_token_compared",
+      "from": "signed_out/running/loaded",
+      "to": "signed_out/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_ended",
+      "from": "signed_out/running/loaded",
+      "to": "signed_out/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "supersede_timed_out_phases",
+      "from": "signed_out/running/loaded",
+      "to": "signed_out/running/loaded"
+    },
+    {
+      "effects": [
+        "fail_token_read"
+      ],
+      "event": "token_read_empty",
+      "from": "signed_out/running/loaded",
+      "to": "signed_out/running/loaded"
+    },
+    {
+      "effects": [
+        "log_sign_out",
+        "notify_session_will_transition",
+        "cancel_team_scope_recovery",
+        "forget_latest_sign_in_refresh_token",
+        "drop_pending_code",
+        "clear_cached_user",
+        "clear_session_cache",
+        "persist_selected_team",
+        "publish_session_identity"
+      ],
+      "event": "clear_auth_state_requested",
+      "from": "signed_out/running/loaded",
+      "to": "signed_out/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "available_teams_set",
+      "from": "signed_out/running/loaded",
+      "to": "signed_out/running/loaded"
+    },
+    {
+      "effects": [
         "probe_stored_tokens"
       ],
       "event": "restore_launch",
@@ -1363,7 +1690,6 @@
         "cancel_in_flight_work",
         "notify_session_will_transition",
         "publish_session_identity",
-        "clear_phase_dampers",
         "capture_teardown_credentials_and_clear_local_session"
       ],
       "event": "sign_out_requested",
@@ -1401,6 +1727,86 @@
     },
     {
       "effects": [
+        "phase_started"
+      ],
+      "event": "phase_start_requested",
+      "from": "restoring/idle/unloaded",
+      "to": "restoring/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_timed_out",
+      "from": "restoring/idle/unloaded",
+      "to": "restoring/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_caller_cancelled",
+      "from": "restoring/idle/unloaded",
+      "to": "restoring/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_operation_finished",
+      "from": "restoring/idle/unloaded",
+      "to": "restoring/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_sign_out_capture_awaited",
+      "from": "restoring/idle/unloaded",
+      "to": "restoring/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_stale_refresh_token_compared",
+      "from": "restoring/idle/unloaded",
+      "to": "restoring/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_ended",
+      "from": "restoring/idle/unloaded",
+      "to": "restoring/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "supersede_timed_out_phases",
+      "from": "restoring/idle/unloaded",
+      "to": "restoring/idle/unloaded"
+    },
+    {
+      "effects": [
+        "fail_token_read"
+      ],
+      "event": "token_read_empty",
+      "from": "restoring/idle/unloaded",
+      "to": "restoring/idle/unloaded"
+    },
+    {
+      "effects": [
+        "log_sign_out",
+        "notify_session_will_transition",
+        "cancel_team_scope_recovery",
+        "forget_latest_sign_in_refresh_token",
+        "drop_pending_code",
+        "clear_cached_user",
+        "clear_session_cache",
+        "persist_selected_team",
+        "publish_session_identity"
+      ],
+      "event": "clear_auth_state_requested",
+      "from": "restoring/idle/unloaded",
+      "to": "signed_out/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "available_teams_set",
+      "from": "restoring/idle/unloaded",
+      "to": "restoring/idle/loaded"
+    },
+    {
+      "effects": [
         "probe_stored_tokens"
       ],
       "event": "restore_launch",
@@ -1589,7 +1995,6 @@
         "cancel_in_flight_work",
         "notify_session_will_transition",
         "publish_session_identity",
-        "clear_phase_dampers",
         "capture_teardown_credentials_and_clear_local_session"
       ],
       "event": "sign_out_requested",
@@ -1624,6 +2029,86 @@
       "event": "dev_auth_access_token_finished",
       "from": "restoring/idle/loaded",
       "to": "signed_out/idle/unloaded"
+    },
+    {
+      "effects": [
+        "phase_started"
+      ],
+      "event": "phase_start_requested",
+      "from": "restoring/idle/loaded",
+      "to": "restoring/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_timed_out",
+      "from": "restoring/idle/loaded",
+      "to": "restoring/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_caller_cancelled",
+      "from": "restoring/idle/loaded",
+      "to": "restoring/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_operation_finished",
+      "from": "restoring/idle/loaded",
+      "to": "restoring/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_sign_out_capture_awaited",
+      "from": "restoring/idle/loaded",
+      "to": "restoring/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_stale_refresh_token_compared",
+      "from": "restoring/idle/loaded",
+      "to": "restoring/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_ended",
+      "from": "restoring/idle/loaded",
+      "to": "restoring/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "supersede_timed_out_phases",
+      "from": "restoring/idle/loaded",
+      "to": "restoring/idle/loaded"
+    },
+    {
+      "effects": [
+        "fail_token_read"
+      ],
+      "event": "token_read_empty",
+      "from": "restoring/idle/loaded",
+      "to": "restoring/idle/loaded"
+    },
+    {
+      "effects": [
+        "log_sign_out",
+        "notify_session_will_transition",
+        "cancel_team_scope_recovery",
+        "forget_latest_sign_in_refresh_token",
+        "drop_pending_code",
+        "clear_cached_user",
+        "clear_session_cache",
+        "persist_selected_team",
+        "publish_session_identity"
+      ],
+      "event": "clear_auth_state_requested",
+      "from": "restoring/idle/loaded",
+      "to": "signed_out/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "available_teams_set",
+      "from": "restoring/idle/loaded",
+      "to": "restoring/idle/loaded"
     },
     {
       "effects": [
@@ -1851,7 +2336,6 @@
         "cancel_in_flight_work",
         "notify_session_will_transition",
         "publish_session_identity",
-        "clear_phase_dampers",
         "capture_teardown_credentials_and_clear_local_session"
       ],
       "event": "sign_out_requested",
@@ -1886,6 +2370,86 @@
       "event": "dev_auth_access_token_finished",
       "from": "restoring/running/unloaded",
       "to": "signed_out/running/unloaded"
+    },
+    {
+      "effects": [
+        "phase_started"
+      ],
+      "event": "phase_start_requested",
+      "from": "restoring/running/unloaded",
+      "to": "restoring/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_timed_out",
+      "from": "restoring/running/unloaded",
+      "to": "restoring/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_caller_cancelled",
+      "from": "restoring/running/unloaded",
+      "to": "restoring/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_operation_finished",
+      "from": "restoring/running/unloaded",
+      "to": "restoring/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_sign_out_capture_awaited",
+      "from": "restoring/running/unloaded",
+      "to": "restoring/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_stale_refresh_token_compared",
+      "from": "restoring/running/unloaded",
+      "to": "restoring/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_ended",
+      "from": "restoring/running/unloaded",
+      "to": "restoring/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "supersede_timed_out_phases",
+      "from": "restoring/running/unloaded",
+      "to": "restoring/running/unloaded"
+    },
+    {
+      "effects": [
+        "fail_token_read"
+      ],
+      "event": "token_read_empty",
+      "from": "restoring/running/unloaded",
+      "to": "restoring/running/unloaded"
+    },
+    {
+      "effects": [
+        "log_sign_out",
+        "notify_session_will_transition",
+        "cancel_team_scope_recovery",
+        "forget_latest_sign_in_refresh_token",
+        "drop_pending_code",
+        "clear_cached_user",
+        "clear_session_cache",
+        "persist_selected_team",
+        "publish_session_identity"
+      ],
+      "event": "clear_auth_state_requested",
+      "from": "restoring/running/unloaded",
+      "to": "signed_out/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "available_teams_set",
+      "from": "restoring/running/unloaded",
+      "to": "restoring/running/loaded"
     },
     {
       "effects": [
@@ -2116,7 +2680,6 @@
         "cancel_in_flight_work",
         "notify_session_will_transition",
         "publish_session_identity",
-        "clear_phase_dampers",
         "capture_teardown_credentials_and_clear_local_session"
       ],
       "event": "sign_out_requested",
@@ -2154,6 +2717,86 @@
     },
     {
       "effects": [
+        "phase_started"
+      ],
+      "event": "phase_start_requested",
+      "from": "restoring/running/loaded",
+      "to": "restoring/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_timed_out",
+      "from": "restoring/running/loaded",
+      "to": "restoring/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_caller_cancelled",
+      "from": "restoring/running/loaded",
+      "to": "restoring/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_operation_finished",
+      "from": "restoring/running/loaded",
+      "to": "restoring/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_sign_out_capture_awaited",
+      "from": "restoring/running/loaded",
+      "to": "restoring/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_stale_refresh_token_compared",
+      "from": "restoring/running/loaded",
+      "to": "restoring/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_ended",
+      "from": "restoring/running/loaded",
+      "to": "restoring/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "supersede_timed_out_phases",
+      "from": "restoring/running/loaded",
+      "to": "restoring/running/loaded"
+    },
+    {
+      "effects": [
+        "fail_token_read"
+      ],
+      "event": "token_read_empty",
+      "from": "restoring/running/loaded",
+      "to": "restoring/running/loaded"
+    },
+    {
+      "effects": [
+        "log_sign_out",
+        "notify_session_will_transition",
+        "cancel_team_scope_recovery",
+        "forget_latest_sign_in_refresh_token",
+        "drop_pending_code",
+        "clear_cached_user",
+        "clear_session_cache",
+        "persist_selected_team",
+        "publish_session_identity"
+      ],
+      "event": "clear_auth_state_requested",
+      "from": "restoring/running/loaded",
+      "to": "signed_out/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "available_teams_set",
+      "from": "restoring/running/loaded",
+      "to": "restoring/running/loaded"
+    },
+    {
+      "effects": [
         "probe_stored_tokens"
       ],
       "event": "restore_launch",
@@ -2343,7 +2986,6 @@
         "cancel_in_flight_work",
         "notify_session_will_transition",
         "publish_session_identity",
-        "clear_phase_dampers",
         "capture_teardown_credentials_and_clear_local_session"
       ],
       "event": "sign_out_requested",
@@ -2381,6 +3023,88 @@
     },
     {
       "effects": [
+        "phase_started"
+      ],
+      "event": "phase_start_requested",
+      "from": "restoring_signed_in/idle/unloaded",
+      "to": "restoring_signed_in/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_timed_out",
+      "from": "restoring_signed_in/idle/unloaded",
+      "to": "restoring_signed_in/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_caller_cancelled",
+      "from": "restoring_signed_in/idle/unloaded",
+      "to": "restoring_signed_in/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_operation_finished",
+      "from": "restoring_signed_in/idle/unloaded",
+      "to": "restoring_signed_in/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_sign_out_capture_awaited",
+      "from": "restoring_signed_in/idle/unloaded",
+      "to": "restoring_signed_in/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_stale_refresh_token_compared",
+      "from": "restoring_signed_in/idle/unloaded",
+      "to": "restoring_signed_in/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_ended",
+      "from": "restoring_signed_in/idle/unloaded",
+      "to": "restoring_signed_in/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "supersede_timed_out_phases",
+      "from": "restoring_signed_in/idle/unloaded",
+      "to": "restoring_signed_in/idle/unloaded"
+    },
+    {
+      "effects": [
+        "fail_token_read"
+      ],
+      "event": "token_read_empty",
+      "from": "restoring_signed_in/idle/unloaded",
+      "to": "restoring_signed_in/idle/unloaded"
+    },
+    {
+      "effects": [
+        "log_sign_out",
+        "notify_session_will_transition",
+        "cancel_team_scope_recovery",
+        "forget_latest_sign_in_refresh_token",
+        "drop_pending_code",
+        "clear_cached_user",
+        "clear_session_cache",
+        "persist_selected_team",
+        "publish_session_identity"
+      ],
+      "event": "clear_auth_state_requested",
+      "from": "restoring_signed_in/idle/unloaded",
+      "to": "signed_out/idle/unloaded"
+    },
+    {
+      "effects": [
+        "publish_team_scope"
+      ],
+      "event": "available_teams_set",
+      "from": "restoring_signed_in/idle/unloaded",
+      "to": "restoring_signed_in/idle/loaded"
+    },
+    {
+      "effects": [
         "probe_stored_tokens"
       ],
       "event": "restore_launch",
@@ -2571,7 +3295,6 @@
         "notify_session_will_transition",
         "publish_team_scope",
         "publish_session_identity",
-        "clear_phase_dampers",
         "capture_teardown_credentials_and_clear_local_session"
       ],
       "event": "sign_out_requested",
@@ -2607,6 +3330,87 @@
       "event": "dev_auth_access_token_finished",
       "from": "restoring_signed_in/idle/loaded",
       "to": "signed_out/idle/unloaded"
+    },
+    {
+      "effects": [
+        "phase_started"
+      ],
+      "event": "phase_start_requested",
+      "from": "restoring_signed_in/idle/loaded",
+      "to": "restoring_signed_in/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_timed_out",
+      "from": "restoring_signed_in/idle/loaded",
+      "to": "restoring_signed_in/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_caller_cancelled",
+      "from": "restoring_signed_in/idle/loaded",
+      "to": "restoring_signed_in/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_operation_finished",
+      "from": "restoring_signed_in/idle/loaded",
+      "to": "restoring_signed_in/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_sign_out_capture_awaited",
+      "from": "restoring_signed_in/idle/loaded",
+      "to": "restoring_signed_in/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_stale_refresh_token_compared",
+      "from": "restoring_signed_in/idle/loaded",
+      "to": "restoring_signed_in/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_ended",
+      "from": "restoring_signed_in/idle/loaded",
+      "to": "restoring_signed_in/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "supersede_timed_out_phases",
+      "from": "restoring_signed_in/idle/loaded",
+      "to": "restoring_signed_in/idle/loaded"
+    },
+    {
+      "effects": [
+        "fail_token_read"
+      ],
+      "event": "token_read_empty",
+      "from": "restoring_signed_in/idle/loaded",
+      "to": "restoring_signed_in/idle/loaded"
+    },
+    {
+      "effects": [
+        "log_sign_out",
+        "notify_session_will_transition",
+        "publish_team_scope",
+        "cancel_team_scope_recovery",
+        "forget_latest_sign_in_refresh_token",
+        "drop_pending_code",
+        "clear_cached_user",
+        "clear_session_cache",
+        "persist_selected_team",
+        "publish_session_identity"
+      ],
+      "event": "clear_auth_state_requested",
+      "from": "restoring_signed_in/idle/loaded",
+      "to": "signed_out/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "available_teams_set",
+      "from": "restoring_signed_in/idle/loaded",
+      "to": "restoring_signed_in/idle/loaded"
     },
     {
       "effects": [
@@ -2834,7 +3638,6 @@
         "cancel_in_flight_work",
         "notify_session_will_transition",
         "publish_session_identity",
-        "clear_phase_dampers",
         "capture_teardown_credentials_and_clear_local_session"
       ],
       "event": "sign_out_requested",
@@ -2869,6 +3672,88 @@
       "event": "dev_auth_access_token_finished",
       "from": "restoring_signed_in/running/unloaded",
       "to": "signed_out/running/unloaded"
+    },
+    {
+      "effects": [
+        "phase_started"
+      ],
+      "event": "phase_start_requested",
+      "from": "restoring_signed_in/running/unloaded",
+      "to": "restoring_signed_in/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_timed_out",
+      "from": "restoring_signed_in/running/unloaded",
+      "to": "restoring_signed_in/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_caller_cancelled",
+      "from": "restoring_signed_in/running/unloaded",
+      "to": "restoring_signed_in/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_operation_finished",
+      "from": "restoring_signed_in/running/unloaded",
+      "to": "restoring_signed_in/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_sign_out_capture_awaited",
+      "from": "restoring_signed_in/running/unloaded",
+      "to": "restoring_signed_in/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_stale_refresh_token_compared",
+      "from": "restoring_signed_in/running/unloaded",
+      "to": "restoring_signed_in/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_ended",
+      "from": "restoring_signed_in/running/unloaded",
+      "to": "restoring_signed_in/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "supersede_timed_out_phases",
+      "from": "restoring_signed_in/running/unloaded",
+      "to": "restoring_signed_in/running/unloaded"
+    },
+    {
+      "effects": [
+        "fail_token_read"
+      ],
+      "event": "token_read_empty",
+      "from": "restoring_signed_in/running/unloaded",
+      "to": "restoring_signed_in/running/unloaded"
+    },
+    {
+      "effects": [
+        "log_sign_out",
+        "notify_session_will_transition",
+        "cancel_team_scope_recovery",
+        "forget_latest_sign_in_refresh_token",
+        "drop_pending_code",
+        "clear_cached_user",
+        "clear_session_cache",
+        "persist_selected_team",
+        "publish_session_identity"
+      ],
+      "event": "clear_auth_state_requested",
+      "from": "restoring_signed_in/running/unloaded",
+      "to": "signed_out/running/unloaded"
+    },
+    {
+      "effects": [
+        "publish_team_scope"
+      ],
+      "event": "available_teams_set",
+      "from": "restoring_signed_in/running/unloaded",
+      "to": "restoring_signed_in/running/loaded"
     },
     {
       "effects": [
@@ -3100,7 +3985,6 @@
         "notify_session_will_transition",
         "publish_team_scope",
         "publish_session_identity",
-        "clear_phase_dampers",
         "capture_teardown_credentials_and_clear_local_session"
       ],
       "event": "sign_out_requested",
@@ -3139,6 +4023,87 @@
     },
     {
       "effects": [
+        "phase_started"
+      ],
+      "event": "phase_start_requested",
+      "from": "restoring_signed_in/running/loaded",
+      "to": "restoring_signed_in/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_timed_out",
+      "from": "restoring_signed_in/running/loaded",
+      "to": "restoring_signed_in/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_caller_cancelled",
+      "from": "restoring_signed_in/running/loaded",
+      "to": "restoring_signed_in/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_operation_finished",
+      "from": "restoring_signed_in/running/loaded",
+      "to": "restoring_signed_in/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_sign_out_capture_awaited",
+      "from": "restoring_signed_in/running/loaded",
+      "to": "restoring_signed_in/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_stale_refresh_token_compared",
+      "from": "restoring_signed_in/running/loaded",
+      "to": "restoring_signed_in/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_ended",
+      "from": "restoring_signed_in/running/loaded",
+      "to": "restoring_signed_in/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "supersede_timed_out_phases",
+      "from": "restoring_signed_in/running/loaded",
+      "to": "restoring_signed_in/running/loaded"
+    },
+    {
+      "effects": [
+        "fail_token_read"
+      ],
+      "event": "token_read_empty",
+      "from": "restoring_signed_in/running/loaded",
+      "to": "restoring_signed_in/running/loaded"
+    },
+    {
+      "effects": [
+        "log_sign_out",
+        "notify_session_will_transition",
+        "publish_team_scope",
+        "cancel_team_scope_recovery",
+        "forget_latest_sign_in_refresh_token",
+        "drop_pending_code",
+        "clear_cached_user",
+        "clear_session_cache",
+        "persist_selected_team",
+        "publish_session_identity"
+      ],
+      "event": "clear_auth_state_requested",
+      "from": "restoring_signed_in/running/loaded",
+      "to": "signed_out/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "available_teams_set",
+      "from": "restoring_signed_in/running/loaded",
+      "to": "restoring_signed_in/running/loaded"
+    },
+    {
+      "effects": [
         "probe_stored_tokens"
       ],
       "event": "restore_launch",
@@ -3328,7 +4293,6 @@
         "cancel_in_flight_work",
         "notify_session_will_transition",
         "publish_session_identity",
-        "clear_phase_dampers",
         "capture_teardown_credentials_and_clear_local_session"
       ],
       "event": "sign_out_requested",
@@ -3363,6 +4327,88 @@
       "event": "dev_auth_access_token_finished",
       "from": "signed_in/idle/unloaded",
       "to": "signed_out/idle/unloaded"
+    },
+    {
+      "effects": [
+        "phase_started"
+      ],
+      "event": "phase_start_requested",
+      "from": "signed_in/idle/unloaded",
+      "to": "signed_in/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_timed_out",
+      "from": "signed_in/idle/unloaded",
+      "to": "signed_in/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_caller_cancelled",
+      "from": "signed_in/idle/unloaded",
+      "to": "signed_in/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_operation_finished",
+      "from": "signed_in/idle/unloaded",
+      "to": "signed_in/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_sign_out_capture_awaited",
+      "from": "signed_in/idle/unloaded",
+      "to": "signed_in/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_stale_refresh_token_compared",
+      "from": "signed_in/idle/unloaded",
+      "to": "signed_in/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_ended",
+      "from": "signed_in/idle/unloaded",
+      "to": "signed_in/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "supersede_timed_out_phases",
+      "from": "signed_in/idle/unloaded",
+      "to": "signed_in/idle/unloaded"
+    },
+    {
+      "effects": [
+        "fail_token_read"
+      ],
+      "event": "token_read_empty",
+      "from": "signed_in/idle/unloaded",
+      "to": "signed_in/idle/unloaded"
+    },
+    {
+      "effects": [
+        "log_sign_out",
+        "notify_session_will_transition",
+        "cancel_team_scope_recovery",
+        "forget_latest_sign_in_refresh_token",
+        "drop_pending_code",
+        "clear_cached_user",
+        "clear_session_cache",
+        "persist_selected_team",
+        "publish_session_identity"
+      ],
+      "event": "clear_auth_state_requested",
+      "from": "signed_in/idle/unloaded",
+      "to": "signed_out/idle/unloaded"
+    },
+    {
+      "effects": [
+        "publish_team_scope"
+      ],
+      "event": "available_teams_set",
+      "from": "signed_in/idle/unloaded",
+      "to": "signed_in/idle/loaded"
     },
     {
       "effects": [
@@ -3556,7 +4602,6 @@
         "notify_session_will_transition",
         "publish_team_scope",
         "publish_session_identity",
-        "clear_phase_dampers",
         "capture_teardown_credentials_and_clear_local_session"
       ],
       "event": "sign_out_requested",
@@ -3592,6 +4637,87 @@
       "event": "dev_auth_access_token_finished",
       "from": "signed_in/idle/loaded",
       "to": "signed_out/idle/unloaded"
+    },
+    {
+      "effects": [
+        "phase_started"
+      ],
+      "event": "phase_start_requested",
+      "from": "signed_in/idle/loaded",
+      "to": "signed_in/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_timed_out",
+      "from": "signed_in/idle/loaded",
+      "to": "signed_in/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_caller_cancelled",
+      "from": "signed_in/idle/loaded",
+      "to": "signed_in/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_operation_finished",
+      "from": "signed_in/idle/loaded",
+      "to": "signed_in/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_sign_out_capture_awaited",
+      "from": "signed_in/idle/loaded",
+      "to": "signed_in/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_stale_refresh_token_compared",
+      "from": "signed_in/idle/loaded",
+      "to": "signed_in/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_ended",
+      "from": "signed_in/idle/loaded",
+      "to": "signed_in/idle/loaded"
+    },
+    {
+      "effects": [],
+      "event": "supersede_timed_out_phases",
+      "from": "signed_in/idle/loaded",
+      "to": "signed_in/idle/loaded"
+    },
+    {
+      "effects": [
+        "fail_token_read"
+      ],
+      "event": "token_read_empty",
+      "from": "signed_in/idle/loaded",
+      "to": "signed_in/idle/loaded"
+    },
+    {
+      "effects": [
+        "log_sign_out",
+        "notify_session_will_transition",
+        "publish_team_scope",
+        "cancel_team_scope_recovery",
+        "forget_latest_sign_in_refresh_token",
+        "drop_pending_code",
+        "clear_cached_user",
+        "clear_session_cache",
+        "persist_selected_team",
+        "publish_session_identity"
+      ],
+      "event": "clear_auth_state_requested",
+      "from": "signed_in/idle/loaded",
+      "to": "signed_out/idle/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "available_teams_set",
+      "from": "signed_in/idle/loaded",
+      "to": "signed_in/idle/loaded"
     },
     {
       "effects": [
@@ -3819,7 +4945,6 @@
         "cancel_in_flight_work",
         "notify_session_will_transition",
         "publish_session_identity",
-        "clear_phase_dampers",
         "capture_teardown_credentials_and_clear_local_session"
       ],
       "event": "sign_out_requested",
@@ -3854,6 +4979,88 @@
       "event": "dev_auth_access_token_finished",
       "from": "signed_in/running/unloaded",
       "to": "signed_out/running/unloaded"
+    },
+    {
+      "effects": [
+        "phase_started"
+      ],
+      "event": "phase_start_requested",
+      "from": "signed_in/running/unloaded",
+      "to": "signed_in/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_timed_out",
+      "from": "signed_in/running/unloaded",
+      "to": "signed_in/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_caller_cancelled",
+      "from": "signed_in/running/unloaded",
+      "to": "signed_in/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_operation_finished",
+      "from": "signed_in/running/unloaded",
+      "to": "signed_in/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_sign_out_capture_awaited",
+      "from": "signed_in/running/unloaded",
+      "to": "signed_in/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_stale_refresh_token_compared",
+      "from": "signed_in/running/unloaded",
+      "to": "signed_in/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_ended",
+      "from": "signed_in/running/unloaded",
+      "to": "signed_in/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "supersede_timed_out_phases",
+      "from": "signed_in/running/unloaded",
+      "to": "signed_in/running/unloaded"
+    },
+    {
+      "effects": [
+        "fail_token_read"
+      ],
+      "event": "token_read_empty",
+      "from": "signed_in/running/unloaded",
+      "to": "signed_in/running/unloaded"
+    },
+    {
+      "effects": [
+        "log_sign_out",
+        "notify_session_will_transition",
+        "cancel_team_scope_recovery",
+        "forget_latest_sign_in_refresh_token",
+        "drop_pending_code",
+        "clear_cached_user",
+        "clear_session_cache",
+        "persist_selected_team",
+        "publish_session_identity"
+      ],
+      "event": "clear_auth_state_requested",
+      "from": "signed_in/running/unloaded",
+      "to": "signed_out/running/unloaded"
+    },
+    {
+      "effects": [
+        "publish_team_scope"
+      ],
+      "event": "available_teams_set",
+      "from": "signed_in/running/unloaded",
+      "to": "signed_in/running/loaded"
     },
     {
       "effects": [
@@ -4085,7 +5292,6 @@
         "notify_session_will_transition",
         "publish_team_scope",
         "publish_session_identity",
-        "clear_phase_dampers",
         "capture_teardown_credentials_and_clear_local_session"
       ],
       "event": "sign_out_requested",
@@ -4121,6 +5327,87 @@
       "event": "dev_auth_access_token_finished",
       "from": "signed_in/running/loaded",
       "to": "signed_out/running/unloaded"
+    },
+    {
+      "effects": [
+        "phase_started"
+      ],
+      "event": "phase_start_requested",
+      "from": "signed_in/running/loaded",
+      "to": "signed_in/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_timed_out",
+      "from": "signed_in/running/loaded",
+      "to": "signed_in/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_caller_cancelled",
+      "from": "signed_in/running/loaded",
+      "to": "signed_in/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_operation_finished",
+      "from": "signed_in/running/loaded",
+      "to": "signed_in/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_sign_out_capture_awaited",
+      "from": "signed_in/running/loaded",
+      "to": "signed_in/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_stale_refresh_token_compared",
+      "from": "signed_in/running/loaded",
+      "to": "signed_in/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "phase_ended",
+      "from": "signed_in/running/loaded",
+      "to": "signed_in/running/loaded"
+    },
+    {
+      "effects": [],
+      "event": "supersede_timed_out_phases",
+      "from": "signed_in/running/loaded",
+      "to": "signed_in/running/loaded"
+    },
+    {
+      "effects": [
+        "fail_token_read"
+      ],
+      "event": "token_read_empty",
+      "from": "signed_in/running/loaded",
+      "to": "signed_in/running/loaded"
+    },
+    {
+      "effects": [
+        "log_sign_out",
+        "notify_session_will_transition",
+        "publish_team_scope",
+        "cancel_team_scope_recovery",
+        "forget_latest_sign_in_refresh_token",
+        "drop_pending_code",
+        "clear_cached_user",
+        "clear_session_cache",
+        "persist_selected_team",
+        "publish_session_identity"
+      ],
+      "event": "clear_auth_state_requested",
+      "from": "signed_in/running/loaded",
+      "to": "signed_out/running/unloaded"
+    },
+    {
+      "effects": [],
+      "event": "available_teams_set",
+      "from": "signed_in/running/loaded",
+      "to": "signed_in/running/loaded"
     },
     {
       "effects": [
@@ -4312,7 +5599,6 @@
         "cancel_in_flight_work",
         "notify_session_will_transition",
         "publish_session_identity",
-        "clear_phase_dampers",
         "capture_teardown_credentials_and_clear_local_session"
       ],
       "event": "sign_out_requested",
@@ -4360,6 +5646,86 @@
       "event": "dev_auth_access_token_finished",
       "from": "signed_out/idle/unloaded/capturing",
       "to": "signed_out/idle/unloaded/capturing"
+    },
+    {
+      "effects": [
+        "phase_started"
+      ],
+      "event": "phase_start_requested",
+      "from": "signed_out/idle/unloaded/capturing",
+      "to": "signed_out/idle/unloaded/capturing"
+    },
+    {
+      "effects": [],
+      "event": "phase_timed_out",
+      "from": "signed_out/idle/unloaded/capturing",
+      "to": "signed_out/idle/unloaded/capturing"
+    },
+    {
+      "effects": [],
+      "event": "phase_caller_cancelled",
+      "from": "signed_out/idle/unloaded/capturing",
+      "to": "signed_out/idle/unloaded/capturing"
+    },
+    {
+      "effects": [],
+      "event": "phase_operation_finished",
+      "from": "signed_out/idle/unloaded/capturing",
+      "to": "signed_out/idle/unloaded/capturing"
+    },
+    {
+      "effects": [],
+      "event": "phase_sign_out_capture_awaited",
+      "from": "signed_out/idle/unloaded/capturing",
+      "to": "signed_out/idle/unloaded/capturing"
+    },
+    {
+      "effects": [],
+      "event": "phase_stale_refresh_token_compared",
+      "from": "signed_out/idle/unloaded/capturing",
+      "to": "signed_out/idle/unloaded/capturing"
+    },
+    {
+      "effects": [],
+      "event": "phase_ended",
+      "from": "signed_out/idle/unloaded/capturing",
+      "to": "signed_out/idle/unloaded/capturing"
+    },
+    {
+      "effects": [],
+      "event": "supersede_timed_out_phases",
+      "from": "signed_out/idle/unloaded/capturing",
+      "to": "signed_out/idle/unloaded/capturing"
+    },
+    {
+      "effects": [
+        "fail_token_read"
+      ],
+      "event": "token_read_empty",
+      "from": "signed_out/idle/unloaded/capturing",
+      "to": "signed_out/idle/unloaded/capturing"
+    },
+    {
+      "effects": [
+        "log_sign_out",
+        "notify_session_will_transition",
+        "cancel_team_scope_recovery",
+        "forget_latest_sign_in_refresh_token",
+        "drop_pending_code",
+        "clear_cached_user",
+        "clear_session_cache",
+        "persist_selected_team",
+        "publish_session_identity"
+      ],
+      "event": "clear_auth_state_requested",
+      "from": "signed_out/idle/unloaded/capturing",
+      "to": "signed_out/idle/unloaded/capturing"
+    },
+    {
+      "effects": [],
+      "event": "available_teams_set",
+      "from": "signed_out/idle/unloaded/capturing",
+      "to": "signed_out/idle/loaded/capturing"
     },
     {
       "effects": [
@@ -4551,7 +5917,6 @@
         "cancel_in_flight_work",
         "notify_session_will_transition",
         "publish_session_identity",
-        "clear_phase_dampers",
         "capture_teardown_credentials_and_clear_local_session"
       ],
       "event": "sign_out_requested",
@@ -4599,6 +5964,86 @@
       "event": "dev_auth_access_token_finished",
       "from": "signed_in/idle/unloaded/capturing",
       "to": "signed_out/idle/unloaded/capturing"
+    },
+    {
+      "effects": [
+        "phase_started"
+      ],
+      "event": "phase_start_requested",
+      "from": "signed_in/idle/unloaded/capturing",
+      "to": "signed_in/idle/unloaded/capturing"
+    },
+    {
+      "effects": [],
+      "event": "phase_timed_out",
+      "from": "signed_in/idle/unloaded/capturing",
+      "to": "signed_in/idle/unloaded/capturing"
+    },
+    {
+      "effects": [],
+      "event": "phase_caller_cancelled",
+      "from": "signed_in/idle/unloaded/capturing",
+      "to": "signed_in/idle/unloaded/capturing"
+    },
+    {
+      "effects": [],
+      "event": "phase_operation_finished",
+      "from": "signed_in/idle/unloaded/capturing",
+      "to": "signed_in/idle/unloaded/capturing"
+    },
+    {
+      "effects": [],
+      "event": "phase_sign_out_capture_awaited",
+      "from": "signed_in/idle/unloaded/capturing",
+      "to": "signed_in/idle/unloaded/capturing"
+    },
+    {
+      "effects": [],
+      "event": "phase_stale_refresh_token_compared",
+      "from": "signed_in/idle/unloaded/capturing",
+      "to": "signed_in/idle/unloaded/capturing"
+    },
+    {
+      "effects": [],
+      "event": "phase_ended",
+      "from": "signed_in/idle/unloaded/capturing",
+      "to": "signed_in/idle/unloaded/capturing"
+    },
+    {
+      "effects": [],
+      "event": "supersede_timed_out_phases",
+      "from": "signed_in/idle/unloaded/capturing",
+      "to": "signed_in/idle/unloaded/capturing"
+    },
+    {
+      "effects": [
+        "fail_token_read"
+      ],
+      "event": "token_read_empty",
+      "from": "signed_in/idle/unloaded/capturing",
+      "to": "signed_in/idle/unloaded/capturing"
+    },
+    {
+      "effects": [
+        "log_sign_out",
+        "notify_session_will_transition",
+        "cancel_team_scope_recovery",
+        "forget_latest_sign_in_refresh_token",
+        "drop_pending_code",
+        "clear_cached_user",
+        "clear_session_cache",
+        "persist_selected_team",
+        "publish_session_identity"
+      ],
+      "event": "clear_auth_state_requested",
+      "from": "signed_in/idle/unloaded/capturing",
+      "to": "signed_out/idle/unloaded/capturing"
+    },
+    {
+      "effects": [],
+      "event": "available_teams_set",
+      "from": "signed_in/idle/unloaded/capturing",
+      "to": "signed_in/idle/loaded/capturing"
     }
   ],
   "version": 1

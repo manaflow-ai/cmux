@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.91"
 license = "GPL-3.0-or-later"
 publish = false
-description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the staged-update pre-warm record, the app health model, the launch images, the pane pictures schedule, the chat markdown parser, the Screenshots pane rules, the cmux SDK daemon client, the agent list client, the Chrome cookie sync, live wallpapers and the background ready copy's decisions"
+description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the staged-update pre-warm record, the app health model, the auth coordinator, the launch images, the pane pictures schedule, the chat markdown parser, the Screenshots pane rules, the cmux SDK daemon client, the agent list client, the Chrome cookie sync, live wallpapers and the background ready copy's decisions"
 
 # The workspace of the app's C ABIs, with one Cargo.lock for all four: this
 # crate and the FFI crates it links, which name it in `package.workspace`.
@@ -47,6 +47,8 @@ cmux-daemon-conn-core = { path = "../cmux-daemon-conn-core" }
 cmux-cookie-sync = { path = "../cmux-cookie-sync" }
 # How the app starts and keeps its daemon (src/ffi.rs: JSON ops, the watch, stderr lines).
 cmux-daemon-launch-core = { path = "../cmux-daemon-launch-core" }
+# The sign-in and session reducer, in process as on iOS (cmux-auth-coordinator src/ffi.rs: JSON events, effects, snapshot).
+cmux-auth-coordinator = { path = "../cmux-auth-coordinator" }
 # The staged-update pre-warm record (src/ffi.rs: the marker line and the launch verdict as JSON ops).
 cmux-update-prewarm-core = { path = "../cmux-update-prewarm-core" }
 # The app health model (cmux-health-core src/ffi.rs: JSON ops, the repair ladder, the snapshot).

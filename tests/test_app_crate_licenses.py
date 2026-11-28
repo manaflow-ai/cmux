@@ -126,6 +126,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-update-prewarm-core",
                     # The app health model (cmux-health-core).
                     "cmux-health-core",
+                    # The sign-in and session reducer the app links in process (cmux#48882).
+                    "cmux-auth-coordinator",
                     # Each window's last frame for the launch's first frame (cmux-launch-image).
                     "cmux-launch-image",
                     # When a hover card's live pane thumbnail is captured again (cmux-pane-pictures).

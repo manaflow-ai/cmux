@@ -22,6 +22,7 @@ required-features = ["bindgen"]
 bindgen = ["uniffi/cli"]
 
 [dependencies]
+cmux-auth-coordinator.workspace = true
 cmux-local-url.workspace = true
 # cmux link grammar (src/cmux_link.rs) parses URLs.
 url.workspace = true

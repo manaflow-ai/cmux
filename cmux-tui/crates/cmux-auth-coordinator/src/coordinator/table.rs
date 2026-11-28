@@ -18,6 +18,7 @@ use crate::event::{
 };
 use crate::machine::Refusal;
 use crate::model::{AuthTeam, AuthUser, LaunchOptions};
+use crate::phase::{AuthPhase, PhaseDamper, TIMED_OUT_RESET};
 
 /// The session generation the sample states are in and their answers carry.
 const SESSION: u64 = 7;
@@ -109,6 +110,11 @@ impl Coordinator {
             backoff: Backoff::Clear,
             recovery: RecoveryLoop::Sleeping { id: RECOVERY, attempt: 0 },
             rng: 7,
+            phase_run_counter: 0,
+            phase_runs: BTreeMap::new(),
+            phase_damper: PhaseDamper::new(TIMED_OUT_RESET),
+            token_gates: super::phases::TokenGates::new(),
+            token_gate_reset_nanos: u64::try_from(TIMED_OUT_RESET.as_nanos()).unwrap_or(u64::MAX),
         };
         c.last_published_team_scope = c.team_scope();
         c
@@ -193,6 +199,20 @@ pub(crate) fn sample_events() -> Vec<Event> {
         Event::SignOutLocalCleared { sign_out_epoch: SIGN_OUT_EPOCH },
         Event::TokenReadUnauthorized(TokenReadKind::AccessToken),
         Event::DevAuthAccessTokenFinished { got_token: false },
+        Event::PhaseStartRequested { phase: AuthPhase::ValidateSession, now_nanos: 0 },
+        Event::PhaseTimedOut { id: 1, now_nanos: 0 },
+        Event::PhaseCallerCancelled { id: 1, now_nanos: 0 },
+        Event::PhaseOperationFinished { id: 1 },
+        Event::PhaseSignOutCaptureAwaited { id: 1 },
+        Event::PhaseStaleRefreshTokenCompared { id: 1, cleared: false },
+        Event::PhaseEnded { id: 1 },
+        Event::SupersedeTimedOutPhases,
+        Event::TokenReadEmpty { storage_was_available: true, read_failed: false },
+        Event::ClearAuthStateRequested {
+            reason: "sample".to_owned(),
+            preserve_pending_code: false,
+        },
+        Event::AvailableTeamsSet(vec![AuthTeam::new("team-a", "A")]),
     ]
 }
 
@@ -242,7 +262,7 @@ pub fn table() -> Value {
             "teams": Teams::KINDS,
         },
         "states": states,
-        "events": Event::KINDS,
+        "events": Event::KINDS.as_slice(),
         "refusals": Refusal::ALL.map(Refusal::as_str),
         "transitions": rows,
     })

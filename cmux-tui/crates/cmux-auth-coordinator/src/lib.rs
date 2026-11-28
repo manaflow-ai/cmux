@@ -13,21 +13,31 @@
 //!
 //! Each I/O effect that carries a ticket ([`RestoreTicket`], [`SignInFlow`],
 //! [`TeamRefreshTicket`]) is answered by the event carrying the same ticket.
-//! Deadlines, task cancellation and joins stay with the caller; [`AuthPhase`]
-//! says which runner and [`PhaseBudget`] which deadline each call uses, and
-//! [`PhaseDamper`] is the timed-out-phase registry.
+//! Task cancellation, joins and the clock stay with the caller; [`AuthPhase`]
+//! says which runner and [`PhaseBudget`] which deadline each call uses. Each
+//! phase run asks to start ([`Event::PhaseStartRequested`]) and reports its
+//! deadline, its caller's cancellation and its end; the reducer decides which
+//! runs start (its [`PhaseDamper`] holds timed-out phases back), which runs a
+//! sign-out or sign-in cancels, and what a run that outlived a sign-out does.
 //!
 //! The state is sum-typed (RFD 0026): each region (the published session,
 //! the restore run, the team list, the recovery loop, ...) is one enum whose
 //! variants carry the data only they have. [`Coordinator::step`] is the
 //! reducer with every no-op named as a [`Refusal`], and [`table`] is its
 //! transition table as data, committed as `schemas/auth-coordinator/table.json`.
+//!
+//! [`wire`] is the JSON both app libraries speak, in process on both
+//! platforms (iOS runs no daemon): [`ffi`] is the macOS app's C ABI
+//! (`include/cmux_auth_coordinator.h`, linked through cmux-app-ffi), and
+//! `cmux-mobile-link-ffi`'s `AuthCoordinator` the iOS app's UniFFI object.
 
 mod coordinator;
 mod event;
+pub mod ffi;
 mod machine;
 mod model;
 mod phase;
+pub mod wire;
 
 pub use coordinator::Coordinator;
 pub use coordinator::table::{table, table_text};

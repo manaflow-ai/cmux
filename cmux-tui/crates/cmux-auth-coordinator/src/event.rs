@@ -3,12 +3,15 @@
 
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+
 use crate::model::{AuthTeam, AuthUser, SessionIdentity, TeamScope};
 use crate::phase::{AuthPhase, PhaseBudget};
 
 /// A failure, already classified by the caller (the display-safe reading of
 /// a client or SDK error).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum AuthFailure {
     /// A cancellation: a newer session transition won.
     Cancelled,
@@ -20,6 +23,7 @@ pub enum AuthFailure {
     InvalidCode,
     /// The sign-in service answered 429.
     RateLimited {
+        #[serde(default, with = "crate::wire::ms_opt")]
         retry_after: Option<Duration>,
     },
     /// A transient failure the caller may retry.
@@ -28,7 +32,8 @@ pub enum AuthFailure {
 }
 
 /// What the session cache last read when the coordinator was built.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Persisted {
     pub cached_user: Option<AuthUser>,
     pub has_tokens: bool,
@@ -36,7 +41,8 @@ pub struct Persisted {
 }
 
 /// The staleness context a restore captures at entry (Swift `checkExistingSessionBody`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RestoreTicket {
     /// Which restore run this answer belongs to: one run at a time owns the
     /// restore, and the answers of a finished run are dropped.
@@ -49,7 +55,8 @@ pub struct RestoreTicket {
 
 /// The staleness context a sign-in flow captures before its first await
 /// (Swift `SignInFlowContext`), plus how it was asked for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SignInFlow {
     pub generation: u64,
     pub attempt: u64,
@@ -59,7 +66,8 @@ pub struct SignInFlow {
 }
 
 /// Which sign-in a flow runs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum SignInKind {
     /// A magic-link code against the pending nonce.
     VerifyCode,
@@ -83,7 +91,8 @@ impl SignInKind {
 }
 
 /// What runs once a team-list read finishes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum AfterTeams {
     /// Nothing: a plain refresh.
     Nothing,
@@ -94,7 +103,8 @@ pub enum AfterTeams {
 }
 
 /// The context of one team-list read (Swift `refreshTeams(generation:)`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TeamRefreshTicket {
     /// Which read this is: each read is answered once, and a repeated or
     /// unknown answer is dropped.
@@ -108,14 +118,16 @@ pub struct TeamRefreshTicket {
 }
 
 /// A team-list read's answer: the teams and the server's selected team.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TeamList {
     pub teams: Vec<AuthTeam>,
     pub server_selected_team_id: Option<String>,
 }
 
 /// Where the restore's automatic sign-in takes its credentials from.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum AutoLoginSource {
     /// The launch environment's credentials.
     Environment,
@@ -124,14 +136,16 @@ pub enum AutoLoginSource {
 }
 
 /// Which token read found nothing usable.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum TokenReadKind {
     AccessToken,
     ForceRefreshAccessToken,
 }
 
 /// How the restore was asked for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum RestoreTrigger {
     /// `start()`: launch bootstrap.
     Launch,
@@ -142,7 +156,8 @@ pub enum RestoreTrigger {
 }
 
 /// An input to the reducer.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Event {
     /// A restore entry point.
     Restore(RestoreTrigger),
@@ -249,11 +264,64 @@ pub enum Event {
     DevAuthAccessTokenFinished {
         got_token: bool,
     },
+    /// A phase run is about to start (`now_nanos`: monotonic). Answered by
+    /// [`Effect::PhaseStarted`] or [`Effect::PhaseRefused`].
+    PhaseStartRequested {
+        phase: AuthPhase,
+        now_nanos: u64,
+    },
+    /// The run's deadline won its race; the caller cancels the run's task.
+    PhaseTimedOut {
+        id: u64,
+        now_nanos: u64,
+    },
+    /// The task waiting on the run was cancelled; the caller cancels the run.
+    PhaseCallerCancelled {
+        id: u64,
+        now_nanos: u64,
+    },
+    /// The run's operation returned (with a value or an error): answered by
+    /// [`Effect::PhaseResultStands`] or the steps that end in
+    /// [`Effect::PhaseResultDropped`].
+    PhaseOperationFinished {
+        id: u64,
+    },
+    /// The sign-out credential capture [`Effect::AwaitSignOutCapture`] waited
+    /// for has ended.
+    PhaseSignOutCaptureAwaited {
+        id: u64,
+    },
+    /// [`Effect::CompareStaleRefreshToken`] ran; `cleared` when the token
+    /// store holds no refresh token after.
+    PhaseStaleRefreshTokenCompared {
+        id: u64,
+        cleared: bool,
+    },
+    /// The run's task finished, whether or not it won its race.
+    PhaseEnded {
+        id: u64,
+    },
+    /// An explicit user action reclaims every timed-out phase.
+    SupersedeTimedOutPhases,
+    /// A token read found no token: answered by [`Effect::FailTokenRead`].
+    TokenReadEmpty {
+        storage_was_available: bool,
+        read_failed: bool,
+    },
+    /// A rollback outside the reducer (a token operation or validation that
+    /// raced a sign-out) signs the app out locally.
+    ClearAuthStateRequested {
+        reason: String,
+        preserve_pending_code: bool,
+    },
+    /// A team action replaced the team list outside a refresh (a created
+    /// team merged into the list it re-read).
+    AvailableTeamsSet(Vec<AuthTeam>),
 }
 
 impl Event {
     /// Every event's name, in the table's order (a restore by its trigger).
-    pub const KINDS: [&'static str; 30] = [
+    pub const KINDS: [&'static str; 41] = [
         "restore_launch",
         "restore_foreground",
         "restore_team_scope_signal",
@@ -284,6 +352,17 @@ impl Event {
         "sign_out_local_cleared",
         "token_read_unauthorized",
         "dev_auth_access_token_finished",
+        "phase_start_requested",
+        "phase_timed_out",
+        "phase_caller_cancelled",
+        "phase_operation_finished",
+        "phase_sign_out_capture_awaited",
+        "phase_stale_refresh_token_compared",
+        "phase_ended",
+        "supersede_timed_out_phases",
+        "token_read_empty",
+        "clear_auth_state_requested",
+        "available_teams_set",
     ];
 
     /// This event's name in the table.
@@ -319,6 +398,17 @@ impl Event {
             Self::SignOutLocalCleared { .. } => "sign_out_local_cleared",
             Self::TokenReadUnauthorized(..) => "token_read_unauthorized",
             Self::DevAuthAccessTokenFinished { .. } => "dev_auth_access_token_finished",
+            Self::PhaseStartRequested { .. } => "phase_start_requested",
+            Self::PhaseTimedOut { .. } => "phase_timed_out",
+            Self::PhaseCallerCancelled { .. } => "phase_caller_cancelled",
+            Self::PhaseOperationFinished { .. } => "phase_operation_finished",
+            Self::PhaseSignOutCaptureAwaited { .. } => "phase_sign_out_capture_awaited",
+            Self::PhaseStaleRefreshTokenCompared { .. } => "phase_stale_refresh_token_compared",
+            Self::PhaseEnded { .. } => "phase_ended",
+            Self::SupersedeTimedOutPhases => "supersede_timed_out_phases",
+            Self::TokenReadEmpty { .. } => "token_read_empty",
+            Self::ClearAuthStateRequested { .. } => "clear_auth_state_requested",
+            Self::AvailableTeamsSet(..) => "available_teams_set",
         }
     }
 
@@ -352,7 +442,18 @@ impl Event {
             | Self::SignOutRequested
             | Self::SignOutLocalCleared { .. }
             | Self::TokenReadUnauthorized(..)
-            | Self::DevAuthAccessTokenFinished { .. } => None,
+            | Self::DevAuthAccessTokenFinished { .. }
+            | Self::PhaseStartRequested { .. }
+            | Self::PhaseTimedOut { .. }
+            | Self::PhaseCallerCancelled { .. }
+            | Self::PhaseOperationFinished { .. }
+            | Self::PhaseSignOutCaptureAwaited { .. }
+            | Self::PhaseStaleRefreshTokenCompared { .. }
+            | Self::PhaseEnded { .. }
+            | Self::SupersedeTimedOutPhases
+            | Self::TokenReadEmpty { .. }
+            | Self::ClearAuthStateRequested { .. }
+            | Self::AvailableTeamsSet(..) => None,
         }
     }
 
@@ -386,13 +487,25 @@ impl Event {
             | Self::SignOutRequested
             | Self::SignOutLocalCleared { .. }
             | Self::TokenReadUnauthorized(..)
-            | Self::DevAuthAccessTokenFinished { .. } => None,
+            | Self::DevAuthAccessTokenFinished { .. }
+            | Self::PhaseStartRequested { .. }
+            | Self::PhaseTimedOut { .. }
+            | Self::PhaseCallerCancelled { .. }
+            | Self::PhaseOperationFinished { .. }
+            | Self::PhaseSignOutCaptureAwaited { .. }
+            | Self::PhaseStaleRefreshTokenCompared { .. }
+            | Self::PhaseEnded { .. }
+            | Self::SupersedeTimedOutPhases
+            | Self::TokenReadEmpty { .. }
+            | Self::ClearAuthStateRequested { .. }
+            | Self::AvailableTeamsSet(..) => None,
         }
     }
 }
 
 /// An output of the reducer: I/O or a publication for the caller to run.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Effect {
     /// Runs before every session generation change the caller did not announce.
     NotifySessionWillTransition,
@@ -434,6 +547,7 @@ pub enum Effect {
     CheckTokenStorageAvailable(RestoreTicket),
     RetryProbeAfter {
         ticket: RestoreTicket,
+        #[serde(with = "crate::wire::ms")]
         delay: Duration,
     },
     /// Run a password sign-in with `sets_loading: false`, then send
@@ -448,8 +562,11 @@ pub enum Effect {
     RestoreFinished,
     SetLoading(bool),
     ClearExternalSignInFailureDetail,
-    /// Cancel and join earlier validation, token and exchange work.
-    QuiesceTokenWork(SignInFlow),
+    /// Cancel and join these earlier validation, token and exchange runs.
+    QuiesceTokenWork {
+        flow: SignInFlow,
+        runs: Vec<u64>,
+    },
     CheckOnline(SignInFlow),
     RunExchange {
         flow: SignInFlow,
@@ -468,7 +585,9 @@ pub enum Effect {
     /// Run the post-sign-in hook under [`AuthPhase::PostSignIn`].
     RunPostSignInHook(TeamRefreshTicket),
     SessionCheckRateLimited {
+        #[serde(with = "crate::wire::ms_opt")]
         retry_after: Option<Duration>,
+        #[serde(with = "crate::wire::ms")]
         backoff: Duration,
         attempt: u32,
     },
@@ -479,14 +598,16 @@ pub enum Effect {
     /// [`Effect::CancelTeamScopeRecovery`] with the same id.
     SleepTeamScopeRecovery {
         id: u64,
+        #[serde(with = "crate::wire::ms")]
         delay: Duration,
     },
     CancelTeamScopeRecovery {
         id: u64,
     },
-    /// Cancel registered exchanges, validations, post-sign-in hooks and token work.
-    CancelInFlightWork,
-    ClearPhaseDampers(&'static [AuthPhase]),
+    /// Cancel these exchange, validation, post-sign-in and token runs.
+    CancelInFlightWork {
+        runs: Vec<u64>,
+    },
     /// Read the stored access and refresh tokens with no network, forget the
     /// latest sign-in refresh token, clear the local token store, then send
     /// [`Event::SignOutLocalCleared`] with the same epoch.
@@ -494,13 +615,44 @@ pub enum Effect {
         sign_out_epoch: u64,
     },
     EndSignOutCredentialCapture,
-    WaitForPostSignInHooks,
+    /// Join these post-sign-in hook runs, bounded by the network budget.
+    WaitForPostSignInHooks {
+        runs: Vec<u64>,
+    },
     /// The bounded best-effort hook and session revocation with the captured tokens.
     ServerTeardown,
     /// Answer a token read with this failure.
     FailTokenRead(AuthFailure),
     /// Sign in with the DEBUG credentials and read an access token.
     TryDevAuthAccessToken,
+    /// Run `id`'s operation now.
+    PhaseStarted {
+        id: u64,
+        phase: AuthPhase,
+    },
+    /// The phase refuses new runs: fail the call as timed out.
+    PhaseRefused {
+        phase: AuthPhase,
+    },
+    /// Return the run's result to its caller.
+    PhaseResultStands {
+        id: u64,
+    },
+    /// The run outlived its session: fail it as cancelled.
+    PhaseResultDropped {
+        id: u64,
+    },
+    /// Wait for any sign-out credential capture to end, then send
+    /// [`Event::PhaseSignOutCaptureAwaited`].
+    AwaitSignOutCapture {
+        id: u64,
+    },
+    /// Read the stored refresh token; when it is not the latest sign-in's,
+    /// compare-clear the store with it. Then send
+    /// [`Event::PhaseStaleRefreshTokenCompared`].
+    CompareStaleRefreshToken {
+        id: u64,
+    },
 }
 
 impl Effect {
@@ -532,7 +684,7 @@ impl Effect {
             Self::RestoreFinished => "restore_finished",
             Self::SetLoading(..) => "set_loading",
             Self::ClearExternalSignInFailureDetail => "clear_external_sign_in_failure_detail",
-            Self::QuiesceTokenWork(..) => "quiesce_token_work",
+            Self::QuiesceTokenWork { .. } => "quiesce_token_work",
             Self::CheckOnline(..) => "check_online",
             Self::RunExchange { .. } => "run_exchange",
             Self::FetchUser(..) => "fetch_user",
@@ -544,16 +696,21 @@ impl Effect {
             Self::SessionCheckSucceeded => "session_check_succeeded",
             Self::SleepTeamScopeRecovery { .. } => "sleep_team_scope_recovery",
             Self::CancelTeamScopeRecovery { .. } => "cancel_team_scope_recovery",
-            Self::CancelInFlightWork => "cancel_in_flight_work",
-            Self::ClearPhaseDampers(..) => "clear_phase_dampers",
+            Self::CancelInFlightWork { .. } => "cancel_in_flight_work",
             Self::CaptureTeardownCredentialsAndClearLocalSession { .. } => {
                 "capture_teardown_credentials_and_clear_local_session"
             }
             Self::EndSignOutCredentialCapture => "end_sign_out_credential_capture",
-            Self::WaitForPostSignInHooks => "wait_for_post_sign_in_hooks",
+            Self::WaitForPostSignInHooks { .. } => "wait_for_post_sign_in_hooks",
             Self::ServerTeardown => "server_teardown",
             Self::FailTokenRead(..) => "fail_token_read",
             Self::TryDevAuthAccessToken => "try_dev_auth_access_token",
+            Self::PhaseStarted { .. } => "phase_started",
+            Self::PhaseRefused { .. } => "phase_refused",
+            Self::PhaseResultStands { .. } => "phase_result_stands",
+            Self::PhaseResultDropped { .. } => "phase_result_dropped",
+            Self::AwaitSignOutCapture { .. } => "await_sign_out_capture",
+            Self::CompareStaleRefreshToken { .. } => "compare_stale_refresh_token",
         }
     }
 }

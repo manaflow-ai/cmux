@@ -116,7 +116,7 @@ fn offline_fails_fast_without_a_spinner() {
 fn a_sign_in_that_does_not_set_loading_never_touches_the_spinner() {
     let mut d = Driver::signed_out();
     let fx = d.send(Event::SignInRequested { kind: SignInKind::Password, sets_loading: false });
-    let Some(Effect::QuiesceTokenWork(flow)) = fx.first().cloned() else {
+    let Some(Effect::QuiesceTokenWork { flow, .. }) = fx.first().cloned() else {
         panic!("expected a quiesce");
     };
     d.send(Event::TokenWorkQuiesced { flow, result: Ok(()) });

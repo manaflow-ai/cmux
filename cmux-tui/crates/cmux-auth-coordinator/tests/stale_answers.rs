@@ -274,7 +274,7 @@ fn a_late_local_clear_of_an_older_sign_out_does_not_sign_out_a_newer_session() {
     // The older capture answers while the newer one still runs: only its
     // server teardown runs, and the capture stays open for the newer one.
     let fx = d.send(Event::SignOutLocalCleared { sign_out_epoch: first_epoch });
-    assert_eq!(fx, vec![Effect::WaitForPostSignInHooks, Effect::ServerTeardown]);
+    assert_eq!(fx, vec![Effect::WaitForPostSignInHooks { runs: vec![] }, Effect::ServerTeardown]);
     assert!(d.c.session_token_transition_is_active());
     assert_eq!(d.c.published_session_identity(), None);
     let fx = d.local_cleared();
@@ -306,7 +306,7 @@ fn an_older_capture_answering_last_ends_the_capture() {
         fx,
         vec![
             Effect::EndSignOutCredentialCapture,
-            Effect::WaitForPostSignInHooks,
+            Effect::WaitForPostSignInHooks { runs: vec![] },
             Effect::ServerTeardown
         ]
     );
@@ -348,6 +348,9 @@ fn is_answer(event: &Event) -> bool {
             | Event::DebugCredentialsRemembered
             | Event::SignOutRequested
             | Event::TokenReadUnauthorized(_)
+            | Event::TokenReadEmpty { .. }
+            | Event::PhaseStartRequested { .. }
+            | Event::SupersedeTimedOutPhases
             | Event::DevAuthAccessTokenFinished { .. }
             | Event::TeamScopeRecoveryDue { .. }
             | Event::TeamScopeRecoveryCheckFinished { .. }

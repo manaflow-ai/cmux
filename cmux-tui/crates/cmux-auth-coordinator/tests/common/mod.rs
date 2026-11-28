@@ -102,7 +102,7 @@ impl Driver {
     pub fn begin_sign_in(&mut self, kind: SignInKind) -> SignInFlow {
         let fx = self.send(Event::SignInRequested { kind, sets_loading: true });
         match fx.as_slice() {
-            [Effect::QuiesceTokenWork(flow)] => *flow,
+            [Effect::QuiesceTokenWork { flow, .. }] => *flow,
             other => panic!("expected a quiesce, got {other:?}"),
         }
     }

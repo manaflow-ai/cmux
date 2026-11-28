@@ -17,11 +17,10 @@ fn sign_out_runs_local_first_in_order() {
     d.clear_log();
 
     let fx = d.send(Event::SignOutRequested);
-    assert_eq!(fx[0], Effect::CancelInFlightWork);
+    assert_eq!(fx[0], Effect::CancelInFlightWork { runs: vec![] });
     assert_eq!(fx[1], Effect::NotifySessionWillTransition);
     assert!(fx.contains(&Effect::PublishSessionIdentity(None)));
     assert!(fx.contains(&Effect::PublishTeamScope(None)));
-    assert!(fx.contains(&Effect::ClearPhaseDampers(SIGN_OUT_CLEARED_PHASES)));
     assert_eq!(
         fx.last(),
         Some(&Effect::CaptureTeardownCredentialsAndClearLocalSession {
@@ -37,7 +36,7 @@ fn sign_out_runs_local_first_in_order() {
     let fx = d.local_cleared();
     assert_eq!(fx[0], Effect::EndSignOutCredentialCapture);
     let tail: Vec<_> = fx.iter().rev().take(2).cloned().collect();
-    assert_eq!(tail, vec![Effect::ServerTeardown, Effect::WaitForPostSignInHooks]);
+    assert_eq!(tail, vec![Effect::ServerTeardown, Effect::WaitForPostSignInHooks { runs: vec![] }]);
     assert!(!d.c.is_authenticated());
     assert!(d.c.available_teams().is_empty());
     assert_eq!(d.c.selected_team_id(), None);

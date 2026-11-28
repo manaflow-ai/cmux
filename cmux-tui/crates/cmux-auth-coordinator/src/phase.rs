@@ -4,8 +4,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+
 /// The sign-in or session phase a deadline applies to (Swift `AuthPhase`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AuthPhase {
     SendCode,
     VerifyCode,
@@ -50,7 +53,13 @@ impl AuthPhase {
     pub fn runner(self) -> PhaseRunner {
         match self {
             Self::ValidateSession => PhaseRunner::Validation,
-            Self::FetchUser | Self::ListTeams => PhaseRunner::TokenTouching,
+            Self::FetchUser
+            | Self::ListTeams
+            | Self::AccessToken
+            | Self::ForceRefreshAccessToken
+            | Self::AccountDeletion => PhaseRunner::TokenTouching,
+            Self::VerifyCode | Self::PasswordSignIn | Self::Oauth => PhaseRunner::Exchange,
+            Self::PostSignIn => PhaseRunner::PostSignIn,
             other => {
                 PhaseRunner::Prompt { blocks_retries_while_timed_out: other == Self::SendCode }
             }
@@ -63,14 +72,22 @@ impl AuthPhase {
 pub enum PhaseRunner {
     /// A coordinator-owned validation task that sign-out cancels.
     Validation,
-    /// A coordinator-owned task that may refresh or write tokens.
+    /// A coordinator-owned task that may refresh or write tokens: a run its
+    /// deadline or caller left running refuses new runs of the phase until it
+    /// ends (or the reset passes after it ended).
     TokenTouching,
+    /// A sign-in credential exchange: one live run per phase, damped once
+    /// timed out; sign-out and a newer sign-in cancel it.
+    Exchange,
+    /// The post-sign-in hook: never refused; sign-out cancels and joins it.
+    PostSignIn,
     /// A plain race whose losing side is not joined.
     Prompt { blocks_retries_while_timed_out: bool },
 }
 
 /// Which of the timeout table's deadlines a call uses (Swift `AuthTimeouts`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum PhaseBudget {
     /// 300 s by default: flows with a system sign-in sheet.
     Interactive,
@@ -96,14 +113,14 @@ pub const TIMED_OUT_RESET: Duration = Duration::from_secs(30);
 /// hung on a dead connection does not get hammered by automatic retries
 /// (Swift `AuthPhaseTimeoutRegistry`). Time is passed in as monotonic
 /// nanoseconds.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PhaseDamper {
     reset_nanos: u64,
     active: BTreeMap<AuthPhase, BTreeSet<u64>>,
     timed_out: BTreeMap<AuthPhase, TimedOut>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct TimedOut {
     id: u64,
     expires_at: u64,
