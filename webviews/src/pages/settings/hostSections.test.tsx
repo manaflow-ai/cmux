@@ -93,6 +93,21 @@ test("with one space no Settings page shows a Spaces row or button; a second spa
   appearance.unmount();
 });
 
+test("with Spaces off a Settings search pick of Show Spaces still shows its switch, and only that Spaces row", async () => {
+  // https://github.com/manaflow-ai/cmux/issues/48355: Spaces off sends no spaces (host.rooms null), so the Sidebar page
+  // draws no Spaces row. Search's Return opens the page focused on the row it found: that row stays, the others do not.
+  const page = await renderPage({ path: "/settings/sidebar?focus=sidebar.showSpaces" });
+  await act(async () => {
+    page.provider.setHost({ ...page.provider.host, rooms: null });
+  });
+  await settle();
+  expect(page.container.querySelector('[data-row-key="sidebar.showSpaces"]')).not.toBeNull();
+  expect(page.container.querySelector('[data-row-key="sidebar.spacesPosition"]')).toBeNull();
+  expect(page.container.querySelector('[data-row-key="sidebar.spacesVisibility"]')).toBeNull();
+  expect(page.container.querySelector('[data-card="rooms"]')).toBeNull();
+  page.unmount();
+});
+
 test("Machines lists the saved machines; a host change updates the list without a reload", async () => {
   const page = await renderPage({ path: "/settings/machines" });
   expect(page.container.textContent).toContain("build-mac");

@@ -96,7 +96,8 @@ enum SidebarHiddenSections {
     }
 
     /// The bottom band's pieces (cx-wab7m): Hide on the piece's own menu while it shows, Show on
-    /// the band's menu while it is hidden. Hide Profile Button is on the profile button's menu only.
+    /// the band's menu while it is hidden. Hide Profile Button is on the profile button's menu only. Spaces is the
+    /// exception: hidden is Spaces off, which takes Show Spaces out of every menu (`installSpacesGate`, #48355).
     private static func bindBand(into registry: ActionRegistry, context: AppActionContext) {
         let settings = { @MainActor @Sendable in context.services.settings?.snapshot.sidebarSections ?? .defaults }
         let isProfileButton = { @MainActor @Sendable (target: ActionTargetRef?) -> Bool in

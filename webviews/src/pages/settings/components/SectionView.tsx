@@ -85,7 +85,8 @@ export function SectionView({
   const computerUseCard = [...category.lead, ...category.trail].includes("computerUse");
   // The Machines card draws appearance.machineColors: a color well on each machine's row.
   const machinesCard = [...category.lead, ...category.trail].includes("machines");
-  // With one space no row names spaces (Hide Spaces); a second space brings them back.
+  // With one space, or Spaces off, no row names spaces (Hide Spaces, #48355); a second space with Spaces on brings
+  // them back. The row the route focuses stays (a Settings search pick of Show Spaces is the way back on).
   const severalSpaces = useSeveralSpaces();
   // appearance.themeEdits is the pickers' "(custom)" themes and appearance.favoriteThemes their
   // stars, never rows of their own.
@@ -101,7 +102,7 @@ export function SectionView({
           !(pet && CHIEF_PET_ROWS.has(row.key)) &&
           !(chiefsCard && CHIEFS_ROWS.has(row.key)) &&
           !(machinesCard && row.key === MACHINE_COLORS_KEY) &&
-          !(!severalSpaces && SPACE_ROWS.has(row.key)) &&
+          !(!severalSpaces && SPACE_ROWS.has(row.key) && row.key !== focus) &&
           !(computerUseCard && COMPUTER_USE_ROWS.has(row.key)) &&
           !(densityCard && DENSITY_CARD_ROWS.has(row.key)),
       ),

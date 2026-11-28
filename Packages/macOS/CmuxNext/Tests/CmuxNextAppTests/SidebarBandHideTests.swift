@@ -112,15 +112,23 @@ import Testing
     }
 
     /// Spaces is off by default (https://github.com/manaflow-ai/cmux/issues/48355): a cmux.json without the key
-    /// draws no dots and no "+", and the band offers Show Spaces. Showing writes the key; a dot's Hide Spaces
-    /// takes it back out, since hidden is the default.
-    @Test func spacesStartHiddenTheBandShowsThemAndADotHidesThemAgain() async throws {
+    /// draws no dots and no "+", and nothing names spaces: the band offers no Show Spaces, and Show Spaces is out
+    /// of the palette and refused with the reason. Settings' switch writes the key; a dot's Hide Spaces takes it
+    /// back out, since hidden is the default.
+    @Test func spacesStartHiddenNoMenuOffersThemAndADotHidesThemAgain() async throws {
         let h = try await make()
         defer { h.tearDown() }
         #expect(h.sidebar.profileBar.isHidden, "Spaces is off by default: no dots and no + in the footer")
-        #expect(h.rightClickBand().contains("Show Spaces"))
+        #expect(!h.rightClickBand().contains("Show Spaces"), "Spaces off: the band offers no Show Spaces")
+        #expect(!h.services.registry.isAvailable("sidebar.spaces.show"), "Spaces off: Show Spaces is out of the palette")
+        #expect(h.services.registry.unavailableReason(for: "sidebar.spaces.show") == RoomStrings.spacesOff)
+        #expect(!h.services.registry.perform("sidebar.spaces.show"))
+        #expect(h.saved("showSpaces") == nil)
 
-        _ = h.services.registry.perform("sidebar.spaces.show")
+        // The way back on is the `sidebar.showSpaces` setting (Settings' switch, the palette's settings scope, cmux.json);
+        // here cmux.json gets the key, as the switch writes it.
+        try Data(#"{"sidebar":{"showSpaces":true}}"#.utf8).write(to: h.url)
+        await h.services.settings?.reload()
         await h.until { !h.sidebar.profileBar.isHidden && h.saved("showSpaces") == true }
         #expect(!h.sidebar.profileBar.isHidden)
         #expect(h.saved("showSpaces") == true)
@@ -165,15 +173,15 @@ import Testing
         #expect(h.saved("showProfileControl") == nil, "shown is the default: sidebar.showProfileControl leaves cmux.json")
     }
 
-    /// Relaunch: cmux.json still says hidden, so the band draws neither piece, and its empty
-    /// space still offers both Show rows.
+    /// Relaunch: cmux.json still says hidden, so the band draws neither piece; its empty space
+    /// offers Show Profile Button, never Show Spaces (Spaces off names no spaces, #48355).
     @Test func hiddenPiecesStayHiddenAfterARelaunch() async throws {
         let h = try await make(#"{"sidebar":{"showSpaces":false,"showProfileControl":false}}"#)
         defer { h.tearDown() }
         #expect(h.sidebar.profileBar.isHidden)
         #expect(!h.showsProfileControl)
         let band = h.rightClickBand()
-        #expect(band.contains("Show Spaces"))
+        #expect(!band.contains("Show Spaces"))
         #expect(band.contains("Show Profile Button"))
     }
 }

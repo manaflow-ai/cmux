@@ -172,9 +172,11 @@ final class SettingsWindowService: InternalPageProvider {
 
     // MARK: Host facts (the page's host lists)
 
+    /// Nil while Spaces is off (`sidebar.showSpaces`, https://github.com/manaflow-ai/cmux/issues/48355): the page then
+    /// draws no Spaces card, row or New Space button, as with one space; Settings search still finds the switch.
     var rooms: [SettingsListRow]? {
         let local = services.machines.local
-        guard local.supports(DaemonCapability.profiles.rawValue) else { return nil }
+        guard services.windows.spacesOn, local.supports(DaemonCapability.profiles.rawValue) else { return nil }
         let current = services.windows.active?.state.profileID ?? .defaultProfile
         return local.store.profiles.sorted { $0.index < $1.index }.map { room in
             SettingsListRow.space(id: room.id.rawValue, title: room.name, icon: room.icon, isActive: room.id == current)

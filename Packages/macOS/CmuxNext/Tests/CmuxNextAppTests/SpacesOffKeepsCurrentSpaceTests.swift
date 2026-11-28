@@ -45,7 +45,8 @@ struct SpacesOffKeepsCurrentSpaceTests {
 
         // Every way to make or move into a space is off, with the reason a CLI or MCP caller reads.
         let registry = fixture.services.registry
-        for id: ActionID in ["space.new", "space.newIncognito", "space.next", "space.switch", "workspace.moveToSpace", "browser.link.openInNewSpace"] {
+        for id: ActionID in ["space.new", "space.newIncognito", "space.next", "space.switch", "workspace.moveToSpace", "browser.link.openInNewSpace",
+                             "sidebar.spaces.show"] {
             #expect(!registry.isAvailable(id), "\(id.rawValue) is still offered")
             #expect(registry.unavailableReason(for: id) == RoomStrings.spacesOff)
         }
@@ -200,6 +201,24 @@ struct SpacesOffKeepsCurrentSpaceTests {
         fixture.store.apply(snapshot: Fixture.tree(pinned: ["k4": Fixture.work]))
         windows.reconcileMembership()
         #expect(fixture.shown == ["k2", "k3", "k4"], "a merged workspace is hidden in this window's space")
+    }
+
+    /// Spaces off with two spaces left from before: no Spaces UI shows. The sidebar footer's menu offers no Show
+    /// Spaces and Settings gets no spaces (so its Spaces card, rows and New Space button stay away, as with one
+    /// space). Spaces on brings both back.
+    @Test func spacesOffShowsNoSpacesUIAnywhere() async throws {
+        let fixture = try await Fixture(settings: "{}")
+        defer { fixture.close() }
+        let registry = fixture.services.registry
+        #expect(fixture.store.profileIDs.count == 2)
+        let footer = registry.makeContextMenu(for: .sidebarFooter, customize: false).items.map(\.title)
+        #expect(!footer.contains("Show Spaces"), "the footer's menu offers Show Spaces while Spaces is off: \(footer)")
+        #expect(!registry.isAvailable("sidebar.spaces.show"), "Show Spaces is in the palette while Spaces is off")
+        #expect(fixture.services.settingsWindow.rooms == nil, "Settings lists spaces while Spaces is off")
+
+        try await fixture.write(#"{"sidebar":{"showSpaces":true}}"#)
+        #expect(fixture.services.settingsWindow.rooms?.count == 2)
+        #expect(registry.unavailableReason(for: "sidebar.spaces.hide") == nil)
     }
 
     /// Spaces on again: the switcher's actions come back and the window moves between spaces as before.
