@@ -1650,7 +1650,8 @@ describe("cloud journey: leaked machines (--machines, --delete-ids)", () => {
     const now = Date.parse("2026-11-28T16:00:00Z");
     const row = (name: string, extra: object = {}) => ({ id: WAKE_ID, name, status: "running", created_at: Date.parse("2026-11-27T12:39:28Z"), last_active_at: null, ...extra });
     expect(journeyMachineEligible(row("cloud journey auto jr-mwyywwss long"), now).eligible).toBe(true);
-    expect(journeyMachineEligible(row("cloud journey auto jr-mwyywwss"), now).eligible).toBe(true);
+    // Only the wake-echo journey's `auto … long` name; a bare `auto jr-…` stays refused.
+    expect(journeyMachineEligible(row("cloud journey auto jr-mwyywwss"), now).eligible).toBe(false);
     expect(journeyMachineEligible(row("cloud journey auto jr-mwyywwss long", { created_at: now - 3_600_000 }), now).eligible).toBe(false);
     expect(journeyMachineEligible(row("cloud journey auto jr-mwyywwss long", { last_active_at: now - 60_000 }), now).eligible).toBe(false);
     for (const name of ["cloud journey kept jr-mwyywwss", "cloud journey auto jr-x long extra", "cloud journey auto kept jr-x", "my machine", ""]) {
