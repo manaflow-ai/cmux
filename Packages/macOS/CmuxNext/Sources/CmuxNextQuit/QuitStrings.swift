@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Quit text: the unsaved and failure dialogs, recovery (Resources/Quit.xcstrings).

@@ -84,10 +84,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         super.init()
     }
 
-    func applicationDidFinishLaunching(_ notification: Notification) { DebugTimings.markLaunch("app.did_finish_launching_entry"); let launchedAtLogin = AppServices.launchedAsLoginItemNow(); launchReads.shell.show(title: Strings.appName) // `app.backgroundReady`: the open event is current only now; stage 0's window, one commit
+    func applicationDidFinishLaunching(_ notification: Notification) { DebugTimings.markLaunch("app.did_finish_launching_entry"); let launchedAtLogin = AppServices.launchedAsLoginItemNow(); if !launchedAtLogin { launchReads.shell.show(title: Strings.appName) } // `app.backgroundReady`: the open event is current only now; stage 0's window, one commit
         // task-owner: cloudBootstrap; awaits stage 0's frame, then the CLI read `main` started (its cancel kills that CLI) before services, then the cache refresh after the first frame, cancelled at termination.
         cloudBootstrap = Task { [weak self, cloudEnvironment, launchedAtLogin] in
-            guard let self, let settingsTask else { return }; await launchReads.shell.framed()
+            guard let self, let settingsTask else { return }; if !launchedAtLogin { await launchReads.shell.framed() }
             let read = await launchSnapshot?.value ?? LaunchSnapshotRead(snapshot: nil, kind: .unknown); launchSnapshot = nil; self.settingsTask = nil; DebugTimings.markLaunch("app.launch_snapshot_awaited"); if read.snapshot == nil { DebugTimings.markLaunch("launch.no_snapshot") }  // suspends for the read; the daemon's start reads no file. No snapshot: maybe the bare launch (piece 8); `read.kind` says whether it is
             do {
                 let (selection, refresh) = try await withTaskCancellationHandler { try await cloudEnvironment.value } onCancel: { cloudEnvironment.cancel() }
@@ -162,7 +162,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                    heldKeyReplay: { event, _, _ in NSApp.sendEvent(event) }, work: launchReads.work, mainWork: mainWork,
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, peerApprover: PeerApprovalsApp.approver())
         AppProcessRoot.shared.adopt(services)
-        self.services = services; try services.backgroundReady.launch(settingsRead.snapshot, launchedAsLoginItem: launchedAtLogin); services.launchReveal.pages.bind(firstFrame) { DebugTimings.markLaunch($0) } // no page view before the first frame (startup-tti); `app.backgroundReady`: a login start shows nothing until its first show
+        self.services = services; try services.backgroundReady.launch(settingsRead.snapshot, launchedAsLoginItem: launchedAtLogin)
+        // A login start must decide whether it stays hidden before stage 0 can order a window front.
+        if launchedAtLogin, !services.backgroundReady.defersRestore { launchReads.shell.show(title: Strings.appName); await launchReads.shell.framed() }
+        services.launchReveal.pages.bind(firstFrame) { DebugTimings.markLaunch($0) } // no page view before the first frame (startup-tti)
         services.home.ensure.ensuresAtLaunch = true // before the restore asks: the launch waits for Home, which may start after the first frame
         // Where each agent chat rests, beside the snapshot, so a relaunch reopens it there (cx-6bgzj).
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), files: services.agentPaneStateFiles)
