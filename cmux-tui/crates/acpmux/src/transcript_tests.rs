@@ -63,8 +63,8 @@ fn index_of_user(t: &Transcript, text: &str) -> usize {
         .unwrap_or_else(|| panic!("no user row {text:?}: {:?}", t.items))
 }
 
-/// The prompt shows once, as a prompt, after the turn the steer missed; the turn it
-/// started belongs to its one row.
+/// The prompt shows once, as a prompt, where it was sent (inside the turn it missed: RFD 0215
+/// rule 1, as `rows/fold.rs` keeps it); the turn it started belongs to its one row.
 fn assert_one_relogged_prompt(t: &Transcript) {
     assert_eq!(
         user_rows(t),
@@ -74,7 +74,7 @@ fn assert_one_relogged_prompt(t: &Transcript) {
     );
     let turn_end = t.items.iter().position(|i| matches!(i, Item::TurnEnd { .. })).unwrap();
     let relogged = index_of_user(t, "also this");
-    assert!(relogged > turn_end, "the re-run prompt sits after t1's end: {:?}", t.items);
+    assert!(relogged < turn_end, "the re-run prompt stays where it was sent: {:?}", t.items);
     assert_eq!(t.turn_span(relogged), Some((1_016, None)), "t2 belongs to its row");
     assert_eq!(t.user_at.get(&relogged), Some(&1_015));
     assert_eq!(t.turn_span(index_of_user(t, "go")), Some((1_011, Some(1_014))));
@@ -257,10 +257,11 @@ fn steer_relog_behind_a_queued_prompt_shows_the_prompt_once() {
         let t = applied(&records, &echo);
         assert_eq!(
             user_rows(&t),
+            // "sea" stays where it was sent, before "bee" was delivered (RFD 0215 rule 1).
             vec![
                 ("go".into(), false, false),
-                ("bee".into(), false, false),
                 ("sea".into(), false, false),
+                ("bee".into(), false, false),
             ],
             "echo {echo:?}: {:?}",
             t.items
