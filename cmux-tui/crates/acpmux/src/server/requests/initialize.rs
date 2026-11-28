@@ -190,6 +190,7 @@ const FEATURES: &[&str] = &[
     "eventPaging",
     "eventStream",
     "harnessInventory",
+    crate::cli::last_reply::LAST_REPLY_FEATURE,
     "messageSuperseded",
     "permissionGroups",
     "personChallenge",
