@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 
+use super::super::http::worker_error;
 use super::*;
 
 #[test]

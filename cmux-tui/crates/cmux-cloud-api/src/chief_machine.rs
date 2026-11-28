@@ -54,7 +54,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use zeroize::Zeroizing;
 
 use super::chief_turn::{self, TurnCredential};
-use super::http::{Body, Http, path_text, worker_error};
+use super::http::{Body, Http, path_text};
 use super::{Auth, Failure, Request, optional_text, text};
 
 /// The sizes a Chief's own computer comes in (cmuxterm-hq RFD 0037, "Chief sizes, upgrades and
