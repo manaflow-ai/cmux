@@ -2286,6 +2286,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_app_review_gate.py
 
+      - name: Validate reusable workflow callers pass the routing App key
+        if: ${{ !cancelled() && matrix.group == 'release-ios' }}
+        run: python3 tests/test_ci_reusable_route_key_passed.py
+
       - name: Validate the iOS workflows' package path filters match the app's manifests
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ios_app_package_paths.py
@@ -2441,6 +2445,10 @@ jobs:
       - name: Validate the cmux-tui tree hand-off cap
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_tree_handoff.py
+
+      - name: Validate the cmux-tui tree request waits out the API limit
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_tree_request_waits_out_limit.py
 
       - name: Validate the hand-off of a tree owner that ended in startup_failure
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

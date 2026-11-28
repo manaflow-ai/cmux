@@ -104,21 +104,26 @@ class RigFailure(Exception):
 # CuaDriver stops a get_window_state walk after timeout_ms of wall clock, 1000 ms unless told, and answers a partial
 # tree (cmuxterm-hq docs/handbook/probe-reads-one-window.md); 8 s is the walk budget every other probe asks for.
 WALK_TIMEOUT_MS = 8000
-# A tree_markdown line: "- [12] AXButton "Runs On" ..." (the index only on rows CuaDriver indexes into `elements`).
-MARKDOWN_ROW = re.compile(r'^\s*- (?:\[\d+\] )?(AX\w+)((?: "[^"]*")*)')
+# A tree_markdown line: "- [12] AXButton "Runs On" ..." (the index only on rows CuaDriver can click). Run 46164486946
+# (NIGHTLY 4614691423701) got an empty `elements` and every row from the markdown, the composer "- [N] AXTextArea" among
+# them; dropping its [N] left nothing clickable, so it failed "no composer field in the tree" with the field on screen.
+MARKDOWN_ROW = re.compile(r'^\s*- (?:\[(\d+)\] )?(AX\w+)((?: "[^"]*")*)')
 LAST_READ: dict = {}
 
 
 def markdown_nodes(markdown: str, window_id) -> list:
-    """The nodes of a tree_markdown answer CuaDriver walked but never indexed into `elements` (page roots, rows, static
-    text): role and text, never clickable (no token)."""
+    """The nodes of a tree_markdown answer: role and text, and the row's [N] as its element_index where CuaDriver gave
+    one (that index is what its click takes); a row without [N] (page roots, static text) is never clickable."""
     found = []
     for line in markdown.splitlines():
         match = MARKDOWN_ROW.match(line)
         if match:
-            words = [w for w in re.findall(r'"([^"]*)"', match.group(2)) if w.strip()]
-            found.append({"role": match.group(1), "label": " ".join(dict.fromkeys(words)), "_window": window_id,
-                          "_markdown": True})
+            words = [w for w in re.findall(r'"([^"]*)"', match.group(3)) if w.strip()]
+            node = {"role": match.group(2), "label": " ".join(dict.fromkeys(words)), "_window": window_id,
+                    "_markdown": True}
+            if match.group(1) is not None:
+                node["element_index"] = int(match.group(1))
+            found.append(node)
     return found
 
 
