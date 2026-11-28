@@ -1405,3 +1405,45 @@ class SameRedTest(unittest.TestCase):
         text = WORKFLOW.read_text()
         self.assertIn('--step "$STEP"', text)
         self.assertIn("STEP: ${{ inputs.step }}", text)
+
+
+class JobProbeCapTest(unittest.TestCase):
+    """A suite job with POST_MERGE_JOB_PROBES_PER_DAY probes in 24 h starts no new bisect from a batch run."""
+    job = "web / Web tests (2/4)"
+
+    def judge(self, probes: int, env: dict) -> tuple[list, list[str]]:
+        now = pmb.datetime.now(pmb.timezone.utc)
+        at = (now - pmb.timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        old = (now - pmb.timedelta(hours=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        runs = [{"id": 500 + i, "display_title": f"{pmb.PROBE} web web-tests at {'c' * 40} confirm red-1", "created_at": at,
+                 "status": "completed"} for i in range(probes)]
+        runs.append({"id": 400, "display_title": f"{pmb.PROBE} web web-tests at {'c' * 40}", "created_at": old, "status": "completed"})
+        with tempfile.NamedTemporaryFile("r", suffix=".md") as out:
+            args = Namespace(mode="batch", manifest=str(pmb.MANIFEST), repo="o/r", branch="feat-cmux-next", run_id="70",
+                             sha="f" * 40, reds_dir="", dry_run=False, summary=out.name, github_output=None)
+            sent: list = []
+            with mock.patch.dict(os.environ, env), mock.patch.object(pmb, "run_jobs", return_value=[]), \
+                    mock.patch.object(pmb, "list_runs", return_value=runs), \
+                    mock.patch.object(pmb, "new_reds", return_value=([(self.job, "web", "a" * 40)], [])), \
+                    mock.patch.object(pmb, "stuck_reds", return_value=[]), \
+                    mock.patch.object(pmb, "red_states", return_value=""), \
+                    mock.patch.object(pmb, "dispatch_probe", lambda repo, branch, probe: sent.append(probe)):
+                self.assertEqual(pmb.cmd_judge(args), 0)
+            return sent, out.read().splitlines()
+
+    def test_under_the_cap_bisects(self) -> None:
+        sent, _ = self.judge(pmb.DEFAULT_JOB_PROBES_PER_DAY - 1, {})
+        self.assertEqual([p.job for p in sent], [self.job])
+
+    def test_at_the_cap_names_only(self) -> None:
+        sent, lines = self.judge(pmb.DEFAULT_JOB_PROBES_PER_DAY, {})
+        self.assertEqual(sent, [])
+        self.assertTrue(any("named only, no new bisect" in line for line in lines), lines)
+
+    def test_probes_older_than_a_day_do_not_count_and_the_var_sets_the_cap(self) -> None:
+        self.assertEqual(len(self.judge(3, {pmb.JOB_PROBES_ENV: "4"})[0]), 1)
+        self.assertEqual(self.judge(4, {pmb.JOB_PROBES_ENV: "4"})[0], [])
+
+    def test_zero_turns_the_cap_off(self) -> None:
+        sent, _ = self.judge(200, {pmb.JOB_PROBES_ENV: "0"})
+        self.assertEqual(len(sent), 1)
