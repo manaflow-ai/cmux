@@ -2321,13 +2321,28 @@ def emit(result: dict, phases, began: float, code: int) -> int:
     return code
 
 
+# Files under a Resources/ folder the complete app bundles as data, never as configuration or code: Info.plist,
+# entitlements and scripts change what the app is, so they stay an explicit build (a manifest's reason).
+RESOURCE_NOT_DATA = (".plist", ".entitlements", ".sh", ".py", ".dylib", ".so", ".a")
+
+
+def bundled_resource(path: str) -> bool:
+    """Whether PATH is a data file the complete app bundles from a Resources/ folder (a theme file, an image, a
+    JSON table). cmux#47278 changed only Resources/theme-files/*.json (Rust and web beside it): its plan named
+    `Swift, resources or manifests` with no .swift path, so no look was built and cmux/ui-proof held it pending."""
+    parts = path.split("/")
+    return ("Resources" in parts[:-1] and "bin" not in parts[:-1] and not parts[-1].startswith(".")
+            and not parts[-1].endswith(RESOURCE_NOT_DATA))
+
+
 def can_build_swift_app(planned: dict) -> bool:
     """Whether a complete fleet app can cover every build-required layer in the plan.
 
     A fleet artifact is the exact head's complete app, so it also carries web or Rust layers
-    that are live-swappable when they accompany a Swift change. The bundled helpers ride in it too: the
-    project's build phases compile them from the head's cmux-tui (only the FFI is pinned, app-ffi-pin.json).
-    Other build reasons (FFI, manifests) remain an explicit build-required result.
+    that are live-swappable when they accompany a Swift change, and the data files it bundles from
+    Resources/ (bundled_resource). The bundled helpers ride in it too: the project's build phases compile
+    them from the head's cmux-tui (only the FFI is pinned, app-ffi-pin.json). Other build reasons (FFI,
+    manifests, Info.plist) remain an explicit build-required result.
     """
     build = planned.get("build")
     if not (planned.get("needs_build") and isinstance(build, dict) and build
@@ -2339,7 +2354,8 @@ def can_build_swift_app(planned: dict) -> bool:
     copy = (lambda path: path.endswith((".xcstrings", ".strings")))
     # A Swift change that also adds or edits a crate a bundled helper uses (cmux#38466: a new cmux-conductor-import
     # crate, so Cargo.lock) planned that reason beside Swift and was refused a build, so it could get no look.
-    return all(paths and all(True if reason == HELPERS_REASON else copy(path) if reason == "strings" else swift(path)
+    return all(paths and all(True if reason == HELPERS_REASON else copy(path) if reason == "strings"
+                             else (swift(path) or bundled_resource(path))
                              for path in paths)
                for reason, paths in build.items())
 
@@ -2430,15 +2446,22 @@ def build_swift_app(repo: Path, planned: dict, source: str, out: Path) -> Path:
     bundle.mkdir(parents=True, exist_ok=True)
     artifact = subprocess.run([ci, "artifact", job, str(bundle), "--bundle"], cwd=tree,
                               capture_output=True, text=True, errors="replace", timeout=APPLY_SECONDS)
-    if artifact.returncode == 3:
+    if artifact.returncode != 0:
+        # Exit 3 is "no bundle for this job"; a Linux-pool build that published only its zip answers the bundle
+        # fetch with a 404 and exit 1 instead (cmux#47278, 2026-11-28: the look failed after a 682 s build whose
+        # zip downloaded fine). The bundle is a faster form of the same app, so any failure falls back to the zip.
+        bundle_error = why_failed(artifact.stderr or artifact.stdout, 300) or "no output"
         archive = out / "fleet-app.zip"
-        _ci_run([ci, "artifact", job, str(archive)], cwd=tree)
+        try:
+            _ci_run([ci, "artifact", job, str(archive)], cwd=tree)
+        except LookError as error:
+            raise LookError(f"cmux-ci artifact {job}: {bundle_error}; its zip: {error}") from error
+        if artifact.returncode != 3:
+            log(f"no bundle for fleet app build {job} ({bundle_error}); used its zip")
         shutil.rmtree(bundle, ignore_errors=True)
         bundle.mkdir(parents=True, exist_ok=True)
         # ditto preserves the executable modes and framework symlinks in macOS app archives.
         _ci_run(["ditto", "-x", "-k", str(archive), str(bundle)], cwd=tree)
-    elif artifact.returncode != 0:
-        raise LookError(f"cmux-ci artifact {job}: {why_failed(artifact.stderr or artifact.stdout, 500) or 'no output'}")
     return _artifact_app(bundle)
 
 
