@@ -19,6 +19,16 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 CALLER = WORKFLOWS / "cmux-next-post-merge.yml"
 KEY = "${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}"
+# The same key folded into a longer group expression (swift-acpmux-protocol.yml, #61885: the called check's sha and
+# `only` ahead of the caller run): a call is keyed by the caller run whenever inputs.sha is set.
+KEY_FOLDED = re.compile(r"inputs\.sha && format\('[^']*-call-\{(\d)\}'((?:, [\w.]+)*), github\.run_id\)")
+
+
+def keyed_by_caller_run(group: str) -> bool:
+    if KEY in group:
+        return True
+    match = KEY_FOLDED.search(group)
+    return bool(match) and int(match.group(1)) == match.group(2).count(",")
 
 
 def called_workflows() -> list[str]:
@@ -35,7 +45,7 @@ class PostMergeCallConcurrencyTest(unittest.TestCase):
                 continue  # no workflow-level group: calls never collide
             checked += 1
             with self.subTest(workflow=name):
-                self.assertIn(KEY, group)
+                self.assertTrue(keyed_by_caller_run(group), group)
         self.assertGreaterEqual(checked, 10)
 
     def test_caller_passes_sha_to_every_suite(self) -> None:

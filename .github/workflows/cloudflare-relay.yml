@@ -190,6 +190,26 @@ jobs:
       - name: Validate Wrangler deployment bundle
         run: npx --no-install wrangler deploy --dry-run --outdir "$RUNNER_TEMP/cmux-cloudflare-relay"
 
+      # RFD 0163 row 34: the edge build hashes. The Worker bundle (script and wasm) this commit builds,
+      # as sha256 lines in the run summary and in an artifact, next to the relay binaries' manifest.json
+      # hashes (cmux-tui artifacts). A client or auditor compares these with the bundle Cloudflare serves.
+      - name: Publish edge build hashes
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/cmux-cloudflare-relay"
+          mkdir -p "$RUNNER_TEMP/edge-hashes"
+          (cd "$out" && find . -type f \( -name '*.js' -o -name '*.mjs' -o -name '*.wasm' \) -print0 | sort -z | xargs -0 sha256sum) > "$RUNNER_TEMP/edge-hashes/SHA256SUMS"
+          test -s "$RUNNER_TEMP/edge-hashes/SHA256SUMS"
+          bash scripts/ci/check-edge-hashes.sh "$out" "$RUNNER_TEMP/edge-hashes/SHA256SUMS"
+          printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/edge-hashes/SOURCE_SHA"
+          { echo "### cmux-cloudflare-relay edge build hashes ($GITHUB_SHA)"; echo '```'; cat "$RUNNER_TEMP/edge-hashes/SHA256SUMS"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-cloudflare-relay-edge-hashes-${{ github.sha }}
+          path: ${{ runner.temp }}/edge-hashes
+          if-no-files-found: error
+          retention-days: 90
+
       # The built Worker under `wrangler dev`, driven over its wire by tests/relay_do_behavior.mjs: the
       # Router and both Durable Objects as the runtime runs them, which `cargo test` cannot reach. Without
       # it a Router that errors on every Register and Connect (cmux#54175, headers_mut on the runtime's

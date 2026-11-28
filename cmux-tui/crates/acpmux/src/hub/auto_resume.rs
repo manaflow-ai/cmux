@@ -1942,9 +1942,9 @@ impl Hub {
         // A capacity continuation waits at the family gate only after the quiet handoff. Holding
         // its probe permit while `prepare_retry_handoff` waits would block every other chat in
         // that harness family from probing a recovered provider.
-        let _permit = if let Some((wake, gate_reason)) = gate.as_ref() {
+        let _permit = if let Some((_, gate_reason)) = gate.as_ref() {
             let Some(permit) =
-                self.capacity_gate_admit(session, cut_turn, *gate_reason, wake).await
+                self.capacity_gate_admit(session, cut_turn, *gate_reason, fired_gen).await
             else {
                 self.finish_auto_resume(
                     session,
