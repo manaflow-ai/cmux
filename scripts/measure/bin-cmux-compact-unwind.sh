@@ -16,7 +16,7 @@ set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/compact-unwind.XXXXXX")"
 busy=()
-cleanup() { ((${#busy[@]})) && kill "${busy[@]}" 2>/dev/null; rm -rf "$scratch"; }
+cleanup() { ((${#busy[@]})) && kill ${busy[@]+"${busy[@]}"} 2>/dev/null; rm -rf "$scratch"; }
 trap cleanup EXIT
 export CMUX_GHOSTTY_SRC="${CMUX_GHOSTTY_SRC:-$root/ghostty-next}"
 # A fresh step tree may lack the ghostty-next submodule and the pinned Zig (as alloc-musl-ab.sh does).

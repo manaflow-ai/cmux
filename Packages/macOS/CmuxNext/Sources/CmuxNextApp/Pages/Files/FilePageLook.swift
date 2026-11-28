@@ -30,8 +30,8 @@ final class FilePageLook {
     /// mapped section, which editor it came from, and the files watched for a change.
     private let importSources: EditorSettingsSources
     private var imported: JSONValue = .object([:])
-    private(set) var importedFrom: ImportableEditor?
-    private var importChoice: EditorImportChoice?
+    private(set) var importedFrom: String? // the editor's name
+    private var importChoice: String?
     private var importWatchers: [ConfigFileWatcher] = []
     private var importRead: Task<Void, Never>?
 
@@ -78,7 +78,7 @@ final class FilePageLook {
     private func section() -> JSONValue {
         var value = settings()?.fileRoot[kind.section] ?? .object([:])
         if value.objectValue == nil { value = .object([:]) }
-        if kind == .editor { value = EditorSettingsImport.section(imported: imported, own: value) }
+        if kind == .editor { value = EditorSettingsSources.section(imported: imported, own: value) }
         for (path, written) in pending {
             let stored = Self.value(at: Array(path.dropFirst()), in: value)
             if stored == written { pending[path] = nil }
@@ -135,7 +135,7 @@ final class FilePageLook {
     /// Reads the chosen editor's settings again when `editor.importFrom` changed.
     private func followImportChoice() {
         guard kind == .editor else { return }
-        let choice = EditorImportChoice(setting: settings()?.fileRoot["editor"]?["importFrom"]?.stringValue)
+        let choice = EditorSettingsSources.choice(setting: settings()?.fileRoot["editor"]?["importFrom"]?.stringValue)
         guard choice != importChoice else { return }
         importChoice = choice
         importWatchers.forEach { $0.stop() }
@@ -157,7 +157,7 @@ final class FilePageLook {
         importRead = Task { [weak self] in
             let found = await Self.load(sources, choice)
             guard let self, !Task.isCancelled else { return }
-            self.importedFrom = found?.editor
+            self.importedFrom = found?.name
             let section = found?.section ?? .object([:])
             guard section != self.imported else { return }
             self.imported = section
@@ -165,7 +165,7 @@ final class FilePageLook {
         }
     }
 
-    @concurrent private static func load(_ sources: EditorSettingsSources, _ choice: EditorImportChoice) async -> EditorSettingsSources.Found? {
+    @concurrent private static func load(_ sources: EditorSettingsSources, _ choice: String) async -> EditorSettingsSources.Found? {
         // concurrency-allow: @concurrent, off the main actor
         sources.load(choice)
     }
