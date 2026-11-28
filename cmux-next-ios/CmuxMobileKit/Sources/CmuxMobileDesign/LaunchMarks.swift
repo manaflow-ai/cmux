@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileLaunchClock
 import Darwin
 import Foundation
 import Observation
@@ -14,6 +15,10 @@ import SwiftUI
 /// `ConnectTimeline`'s connect steps.
 ///
 /// The marks (cmux-next-ios/design/launch-tti.md):
+/// - `pre_main_init`, `pre_main_cpu` (with the first mark): when the main executable's first
+///   static initializer ran (dyld loaded, bound and initialized every image before it), and the CPU
+///   time the process had used by then; far below `pre_main_init`, the process waited (spawned
+///   suspended, disk), it did not compute. `pre_main_pageins` counts its page-ins (a count, not ms).
 /// - `main`: the process's entry ran (dyld and static initializers before it)
 /// - `app_init`: the App's `init` began (UIKit's start before it, after `main`)
 /// - `init_hang_watch`, `init_classic_leftovers`, `init_legacy_storage`, `init_read_first`,
@@ -60,6 +65,7 @@ public final class LaunchMarks {
     /// Takes `name` now, once per process.
     public func mark(_ name: String) {
         guard !has(name) else { return }
+        if marks.isEmpty { takePreMain() }
         let ms = Date().timeIntervalSince(Self.processStart) * 1000
         marks.append((name, ms))
         Self.signposter.emitEvent("mark", "\(name, privacy: .public)")
@@ -67,6 +73,17 @@ public final class LaunchMarks {
         #if DEBUG
         LaunchMarksBoard.shared?.update()
         #endif
+    }
+
+    /// The split of process start to `main` that a mark cannot take: read by the first static
+    /// initializer (CmuxMobileLaunchClock), recorded with the first mark.
+    private func takePreMain() {
+        let clock = cmux_launch_clock()
+        guard clock.valid != 0 else { return }
+        marks.append(("pre_main_init", clock.wall_ms))
+        marks.append(("pre_main_cpu", clock.cpu_ms))
+        marks.append(("pre_main_pageins", Double(clock.pageins)))
+        Self.log.info("timing launch pre_main_init (\(Int(clock.wall_ms.rounded()), privacy: .public)ms, cpu \(Int(clock.cpu_ms.rounded()), privacy: .public)ms, pageins \(clock.pageins, privacy: .public))")
     }
 
     /// Takes `name` when the next frame is presented (a one-shot display link),

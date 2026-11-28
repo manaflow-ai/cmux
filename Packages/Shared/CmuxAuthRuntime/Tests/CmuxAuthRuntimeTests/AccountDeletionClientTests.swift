@@ -3,7 +3,7 @@ import Foundation
 import FoundationNetworking
 #endif
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 struct AccountDeletionClientTests {
     @Test func deleteAccountSendsNativeAuthHeaders() async throws {

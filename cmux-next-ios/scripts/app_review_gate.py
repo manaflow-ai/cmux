@@ -89,6 +89,9 @@ IOS_SOURCE_DIRS = (
     "Packages/iOS/CmuxConversation/Sources",
     # Settings > Plan and the plans screen: the App Store subscriptions.
     "Packages/iOS/CmuxMobileBilling/Sources",
+    # CmuxMobileSystemUI.framework: every StoreKit, AuthenticationServices,
+    # SafariServices, PhotosUI and QuickLook call, embedded but not linked.
+    "cmux-next-ios/SystemUI",
 )
 LOCALIZABLE_GLOB = "cmux-next-ios/CmuxMobileKit/Sources/*/Resources/Localizable.xcstrings"
 # The purpose-string check reads every Swift file the app links, not only the

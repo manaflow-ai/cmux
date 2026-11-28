@@ -1,7 +1,7 @@
 import CMUXAuthCore
 import Foundation
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 /// A token store fake whose first `failingReads` reads fail with a storage
 /// error (nil plus a bumped ``tokenReadFailureCount()``, as a keychain read

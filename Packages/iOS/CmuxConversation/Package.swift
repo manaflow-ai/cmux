@@ -28,6 +28,9 @@ let package = Package(
         .package(path: "../CmuxMobileSupport"),
         // The spinner every cmux surface draws, on the shared spinner period.
         .package(path: "../../Shared/CmuxSpinner"),
+        // Photos and Quick Look through CmuxMobileSystemUI.framework, iOS only: the app
+        // loads PhotosUI and QuickLook on first use instead of linking them at launch.
+        .package(path: "../CmuxMobileSystemUIBridge"),
     ],
     targets: [
         .target(
@@ -46,6 +49,7 @@ let package = Package(
             dependencies: [
                 "CmuxConversationCore", "CmuxConversationGeometry", "CmuxConversationTranslation", .product(name: "CmuxSpinner", package: "CmuxSpinner"),
                 .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
+                .product(name: "CmuxMobileSystemUIBridge", package: "CmuxMobileSystemUIBridge", condition: .when(platforms: [.iOS])),
             ],
             resources: [.process("Resources")],
             swiftSettings: swiftSettings

@@ -1,7 +1,7 @@
 import CMUXAuthCore
 import Foundation
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 /// Team management through the coordinator: delete and rename change the
 /// membership list the whole app reads, and deleting the active team moves

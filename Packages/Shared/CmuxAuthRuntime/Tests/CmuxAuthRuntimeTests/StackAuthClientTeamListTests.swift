@@ -4,7 +4,7 @@ import FoundationNetworking
 #endif
 import StackAuth
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 /// Stack's `getUser(or: .returnNull)` answers nil for any failure, including a
 /// failed `/users/me`. A team list must not turn that into "no teams": the

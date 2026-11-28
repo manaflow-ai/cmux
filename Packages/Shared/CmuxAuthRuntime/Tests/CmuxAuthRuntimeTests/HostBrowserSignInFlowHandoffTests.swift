@@ -1,7 +1,7 @@
 import CMUXAuthCore
 import Foundation
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 /// Behavior tests for default-browser continuation after hosted-browser handoff.
 @MainActor

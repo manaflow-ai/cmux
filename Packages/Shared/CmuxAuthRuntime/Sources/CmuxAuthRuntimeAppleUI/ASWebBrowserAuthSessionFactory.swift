@@ -1,5 +1,6 @@
 #if canImport(AuthenticationServices)
 public import AuthenticationServices
+public import CmuxAuthRuntimeCore
 public import Foundation
 
 /// The production ``HostBrowserAuthSessionFactory``, backed by

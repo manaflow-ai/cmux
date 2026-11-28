@@ -2,7 +2,7 @@
 import Foundation
 import os
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 /// Token refresh cadence at the sign-in service boundary: the production
 /// Stack client and file token store against a real HTTP server.

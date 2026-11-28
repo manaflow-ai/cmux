@@ -1,6 +1,6 @@
 import CMUXAuthCore
 import Foundation
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 // MARK: - Fakes
 

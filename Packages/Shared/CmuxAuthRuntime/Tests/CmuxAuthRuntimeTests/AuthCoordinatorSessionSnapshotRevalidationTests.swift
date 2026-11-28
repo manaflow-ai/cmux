@@ -1,7 +1,7 @@
 import CMUXAuthCore
 import Foundation
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 /// Regression coverage for ``AuthCoordinator/authenticatedSessionSnapshot()``
 /// while a launch restore or foreground revalidation owns the token store.

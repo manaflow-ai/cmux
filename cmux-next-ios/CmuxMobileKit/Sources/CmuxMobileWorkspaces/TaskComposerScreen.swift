@@ -2,8 +2,8 @@
 import CmuxAgentBrands
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxMobileSystemUIBridge
 import CmuxSpinner
-import PhotosUI
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
@@ -31,7 +31,6 @@ struct TaskComposerScreen: View {
     /// A failed agent list is read again on its own (no button): the pill keeps "Loading"
     /// through a short failure; past the quiet bound it says why, with no button.
     @State private var autoRetry = AutoRetry()
-    @State private var photoItems: [PhotosPickerItem] = []
     @State private var choosingPhotos = false
     @State private var choosingFiles = false
     /// Why the last picked file wasn't added (too large, unreadable), shown under the strip.
@@ -110,8 +109,11 @@ struct TaskComposerScreen: View {
                         .accessibilityIdentifier("taskComposer.leave.delete")
                     Button("Cancel", role: .cancel) {}
                 }
-                .photosPicker(isPresented: $choosingPhotos, selection: $photoItems,
-                              maxSelectionCount: max(1, TaskDraft.imageLimit - draft.images.count), matching: .images)
+                .systemPhotoPicker(isPresented: $choosingPhotos, filter: .images,
+                                   selectionLimit: max(1, TaskDraft.imageLimit - draft.images.count)) { picks in
+                    guard !picks.isEmpty else { return }
+                    Task { await addPhotos(picks) }
+                }
                 .fileImporter(isPresented: $choosingFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
                     if case .success(let urls) = result { Task { await addFiles(urls) } }
                 }
@@ -129,11 +131,6 @@ struct TaskComposerScreen: View {
         .onChange(of: showsDrafts) { _, open in promptFocused = !open }
         // Leaving the app saves the draft (the app may not come back): Drafts has it.
         .onChange(of: scenePhase) { _, now in if now != .active, sent == nil { creator.saveTaskDraft() } }
-        .onChange(of: photoItems) { _, items in
-            guard !items.isEmpty else { return }
-            photoItems = []
-            Task { await addPhotos(items) }
-        }
     }
 
     // MARK: Canvas
@@ -689,13 +686,13 @@ struct TaskComposerScreen: View {
         }
     }
 
-    private func addPhotos(_ items: [PhotosPickerItem]) async {
+    private func addPhotos(_ items: [SystemPhotoPick]) async {
         let room = TaskDraft.imageLimit - draft.images.count
         let items = Array(items.prefix(max(0, room)))
         loadingPhotos += items.count
         for item in items {
             defer { loadingPhotos -= 1 }
-            guard let data = try? await item.loadTransferable(type: Data.self),
+            guard let data = await item.loadData(),
                   let image = await TaskImageEncoder.encode(data) else { continue }
             guard creator.taskDraft.images.count < TaskDraft.imageLimit else { continue }
             creator.taskDraft.images.append(image)

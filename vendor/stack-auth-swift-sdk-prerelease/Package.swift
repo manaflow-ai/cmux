@@ -15,6 +15,10 @@ let package = Package(
             name: "StackAuth",
             targets: ["StackAuth"]
         ),
+        .library(
+            name: "StackAuthAppleUI",
+            targets: ["StackAuthAppleUI"]
+        ),
     ],
     dependencies: [
         // Cross-platform crypto (provides CryptoKit API on Linux)
@@ -27,6 +31,11 @@ let package = Package(
                 .product(name: "Crypto", package: "swift-crypto"),
             ],
             path: "Sources/StackAuth"
+        ),
+        .target(
+            name: "StackAuthAppleUI",
+            dependencies: ["StackAuth"],
+            path: "Sources/StackAuthAppleUI"
         ),
         .testTarget(
             name: "StackAuthTests",
