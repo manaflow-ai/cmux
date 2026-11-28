@@ -12,3 +12,11 @@ fn host_hello_refusals_stay_typed_through_context() {
     assert!(!is_no_common_host_protocol(&no_common_protocol_if_refused(other)));
     assert!(!is_no_common_host_protocol(&adoption_failed(&[], false)));
 }
+
+#[test]
+fn no_common_protocol_names_version_incompatible_and_update_action() {
+    let text = NoCommonHostProtocol.to_string();
+    assert!(text.starts_with("version.incompatible:"), "{text}");
+    assert!(text.contains("update cmux"), "{text}");
+    assert_eq!(NoCommonHostProtocol::ERROR_KIND, "version.incompatible");
+}

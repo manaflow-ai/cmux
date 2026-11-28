@@ -16,6 +16,7 @@ mod parser_order;
 mod parser_queue_memory;
 mod paste_submit;
 mod persisted_format;
+mod protocol_range;
 mod pty_reader_frames;
 mod pty_reader_stack;
 mod smart_viewer_exit;
