@@ -66,7 +66,9 @@ function processFor(
     return {
       id: raw.id,
       ...(Number.isInteger(raw.exitCode) ? { exitCode: raw.exitCode as number } : {}),
-      codex: raw.harness === "codex",
+      // A task acpmux's daemon runs keeps its output in acpmux's own spool, whatever the chat's
+      // harness (acpmux hub/bg_registry.rs): only a Codex harness's own process has none.
+      codex: raw.harness === "codex" && raw.daemonTask !== true,
       running: raw.state === "running",
     };
   }

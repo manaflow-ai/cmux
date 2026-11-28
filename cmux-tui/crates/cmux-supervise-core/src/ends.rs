@@ -64,10 +64,7 @@ pub fn settle_previous(files: &Files, owned: &[String], write: Writer<'_>) -> Pr
     if prev.is_current() || prev.liveness() != Liveness::Dead {
         return Previous::Running(prev);
     }
-    let cause = StopCause::Died(format!(
-        "pid {} (epoch {}) ended without writing its end: a crash, a kill or a power loss",
-        prev.pid, prev.epoch
-    ));
+    let cause = StopCause::Died(died_reason(&prev, crate::identity::boot_id().as_deref()));
     let at_ms = now_ms();
     let death = Death {
         name: files.name.clone(),
@@ -84,6 +81,23 @@ pub fn settle_previous(files: &Files, owned: &[String], write: Writer<'_>) -> Pr
     }
     let _ = death::append(&files.deaths, &death);
     Previous::Died(death)
+}
+
+/// Why `prev` ended with no end of its own, as far as a later start can tell. A record from an
+/// earlier boot was ended by the host's restart (a reboot, a power loss, a VM restart), which is
+/// named as that, so it never reads as a crash of the process itself; otherwise the process died
+/// while this boot ran (a crash, a kill, an out-of-memory kill, a signal before its handler).
+pub fn died_reason(prev: &OwnerRecord, current_boot: Option<&str>) -> String {
+    match current_boot {
+        Some(now) if !prev.boot_id.is_empty() && now != prev.boot_id => format!(
+            "pid {} (epoch {}) ended with the host's restart (boot {} ended; now boot {now})",
+            prev.pid, prev.epoch, prev.boot_id
+        ),
+        _ => format!(
+            "pid {} (epoch {}) ended without writing its end in this boot: a crash or a kill",
+            prev.pid, prev.epoch
+        ),
+    }
 }
 
 #[cfg(test)]

@@ -182,7 +182,7 @@ The nightly-next loop's retry (Leo, 2026-11-06: one nightly at a time, the newes
 
 keep-published-dsyms:
 
-A published nightly-next build's dSYMs, kept on R2. Nothing needs it and it continues on error, so it never delays a publication. The dSYMs come from the run that compiled the published binary (its build number is that run's id and attempt). A rerun repairs a missing object; an existing one (exit 75 from --write-once) counts as kept. A loop run keeps it in the run that published, as the GitHub release. It takes the trusted signing runner (the whole Mac, after the signing is done), never GitHub-hosted Ubuntu, whose queue (39 min for the oldest job on 2026-11-08) held the next push run for as long.
+A published nightly-next build's dSYMs, kept on R2. Nothing needs it and it continues on error, so it never delays a publication. The dSYMs come from the run that compiled the published binary (its build number is that run's id and attempt). A rerun repairs a missing object; an existing one (exit 75 from --write-once) counts as kept. A loop run keeps it in the run that published, as the GitHub release. It runs on the dedicated one-job nightly JIT VM, so artifact download and R2 upload do not claim or occupy the signing Mac.
 
 ## note-26
 

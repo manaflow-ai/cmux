@@ -141,17 +141,24 @@ jobs:
           write_input_keys "$GITHUB_SHA" "$out/input-keys.json"
           cd webviews
           bun install --frozen-lockfile
-          # No ENTRIES: a state is still to be picked, from every entry's cases.
-          bun scripts/gallery/manifest.ts ${ENTRIES:+--entries "$ENTRIES"} --themes pair --widths normal \
+          # No ENTRIES: a state is still to be picked, from every entry's cases. --skip-broken: a gallery file
+          # that fails to load is left out, named in the log, so it costs only its own pictures. On 2026-11-27
+          # one duplicate `const` in ClaudeConnectRow.gallery.tsx failed 10 runs from 05:14Z to 08:18Z, and four
+          # Improved highlights shipped in nightly 4598742452601 with none (Leo, 2026-10-20: "we want things to
+          # be PRETTY!!!!").
+          bun scripts/gallery/manifest.ts ${ENTRIES:+--entries "$ENTRIES"} --skip-broken --themes pair --widths normal \
             --frame component --out "$RUNNER_TEMP/cases.json"
           # Each variant's note: a "Selected" one is the after a file picked, a "Before:" one its old look.
           # And the source files each entry covers: a highlight whose commit changed no gallery file.
-          bun scripts/gallery/notes.ts --out "$RUNNER_TEMP/notes.json" --covers "$RUNNER_TEMP/covers.json"
+          bun scripts/gallery/notes.ts ${ENTRIES:+--entries "$ENTRIES"} --skip-broken --out "$RUNNER_TEMP/notes.json" --covers "$RUNNER_TEMP/covers.json"
           # Picks the states no line names and writes them into the plan publish reads.
           python3 ../scripts/cmux-next/media/whats-new-gallery.py manifest --plan "$out/plan.json" \
             --cases "$RUNNER_TEMP/cases.json" --notes "$RUNNER_TEMP/notes.json" \
             --covers "$RUNNER_TEMP/covers.json" --out "$RUNNER_TEMP/manifest.json"
-          CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
+          # Only the entries the manifest renders (galleryEntrySubset): the whole gallery would compile the broken
+          # file left out above and fail the build. None to render: nothing is built or rendered.
+          built=$(jq -r '[.[].params.entry] | unique | join(",")' "$RUNNER_TEMP/manifest.json")
+          [ -n "$built" ] && CMUX_GALLERY_ENTRIES="$built" CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
           (cd ../scripts/gallery-matrix && bun install --frozen-lockfile)
           "$GITHUB_WORKSPACE/scripts/ci/ensure-system-chrome.sh"
           render() {
@@ -162,6 +169,27 @@ jobs:
               || echo "::warning::the render exited $?; publish takes the states that rendered"
           }
           render "$RUNNER_TEMP/manifest.json" "$RUNNER_TEMP/gallery" "$out/input-keys.json"
+          # A parent inside a base red (a source file that does not parse there) builds with that file as the
+          # base's fix-forward left it, at most 2 rounds: on 2026-11-27 (run 46069736799) parent b2f1339a had
+          # VirtualTranscript.tsx declaring layoutGeometry twice (#51044, fixed by #61071), so its highlight had
+          # no before. Only the files the build names (whats-new-gallery.py heal), never a planned overlay.
+          build_parent() {
+            local parent="$1" at="$2" entries="$3" round
+            for round in 0 1 2; do
+              (cd "$at/webviews" && CMUX_GALLERY_ENTRIES="$entries" CMUX_STRINGS_BEST_EFFORT=1 \
+                CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-$parent" bun run gallery:build 2>&1 \
+                | tee "$RUNNER_TEMP/build-$parent.log"; exit "${PIPESTATUS[0]}") && return 0
+              [ "$round" -lt 2 ] || return 1
+              python3 "$GITHUB_WORKSPACE/scripts/cmux-next/media/whats-new-gallery.py" heal --at "$at" \
+                --parent "$parent" --head "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)" \
+                --log "$RUNNER_TEMP/build-$parent.log" --plan "$out/plan.json" > "$RUNNER_TEMP/heal-$parent.txt" || return 1
+              [ -s "$RUNNER_TEMP/heal-$parent.txt" ] || return 1
+              while read -r commit path; do
+                echo "::notice title=What's New picture::before at ${parent:0:12} takes $path from its fix-forward ${commit:0:12}"
+                git -C "$at" checkout -q "$commit" -- "$path" || return 1
+              done < "$RUNNER_TEMP/heal-$parent.txt"
+            done
+          }
           # An improvement's before with no `before:` line: the same state at the commit before the
           # highlight's, from a checkout there. At most 4 commits a run; the next push plans the rest.
           for parent in $(python3 ../scripts/cmux-next/media/whats-new-gallery.py parents --plan "$out/plan.json" --limit 4); do
@@ -171,18 +199,28 @@ jobs:
               git -C "$GITHUB_WORKSPACE" worktree add -f -f --no-checkout --detach "$at" "$parent" &&
               git -C "$at" sparse-checkout set --no-cone '/*' '!/cmux-next-ios/verify/' &&
               git -C "$at" reset -q --hard &&
+              # Use the current loader in the historical source tree. The parent predates source-scoped loading,
+              # and its old manifest would import every gallery file before applying --entries.
+              cp "$GITHUB_WORKSPACE/webviews/scripts/gallery/entries.ts" "$at/webviews/scripts/gallery/entries.ts" &&
+              cp "$GITHUB_WORKSPACE/webviews/scripts/gallery/manifest.ts" "$at/webviews/scripts/gallery/manifest.ts" &&
               # A variant the highlight's commit added to a gallery file already there: that file as the commit
               # left it, so the old code draws the new state.
               python3 "$GITHUB_WORKSPACE/scripts/cmux-next/media/whats-new-gallery.py" overlays --plan "$out/plan.json" \
                 --parent "$parent" > "$RUNNER_TEMP/overlays-$parent.txt" &&
               (while read -r commit path; do git -C "$at" checkout -q "$commit" -- "$path" || exit 1; done \
                 < "$RUNNER_TEMP/overlays-$parent.txt") &&
+              # Only build the entries this parent actually renders. An unrelated broken gallery file must not
+              # suppress every authentic before image for the planned highlights.
+              entries_at=$(jq -r --arg parent "$parent" '[.[] | select(.parent == $parent) | .entry] | unique | join(",")' "$out/plan.json") &&
+              # --skip-broken only where that commit's manifest.ts knows it: a parent from before #62376 stops at
+              # "Unknown option '--skip-broken'", which on 2026-11-27 (run 46048895481) cost all 4 parents their befores.
               (cd "$at/webviews" && bun install --frozen-lockfile &&
-                bun scripts/gallery/manifest.ts --themes pair --widths normal --frame component \
+                skip=$(grep -q -- "--skip-broken" scripts/gallery/manifest.ts && echo --skip-broken || true) &&
+                bun scripts/gallery/manifest.ts --entries "$entries_at" $skip --themes pair --widths normal --frame component \
                   --out "$RUNNER_TEMP/cases-$parent.json") &&
               python3 "$GITHUB_WORKSPACE/scripts/cmux-next/media/whats-new-gallery.py" manifest --plan "$out/plan.json" \
                 --cases "$RUNNER_TEMP/cases-$parent.json" --parent "$parent" --out "$RUNNER_TEMP/manifest-$parent.json" &&
-              (cd "$at/webviews" && CMUX_STRINGS_BEST_EFFORT=1 CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-$parent" bun run gallery:build) &&
+              build_parent "$parent" "$at" "$entries_at" &&
               write_input_keys "$parent" "$out/input-keys-$parent.json" &&
               render "$RUNNER_TEMP/manifest-$parent.json" "$RUNNER_TEMP/gallery-$parent" "$out/input-keys-$parent.json"
             } || echo "::warning title=What's New picture::no gallery at $parent; its befores wait"

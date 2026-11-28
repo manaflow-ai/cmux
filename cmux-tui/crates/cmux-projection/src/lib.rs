@@ -41,10 +41,12 @@ pub mod sparse;
 #[cfg(unix)]
 pub mod state;
 pub mod store_fetch;
+pub mod tune;
 pub mod upload;
 #[cfg(unix)]
 pub mod upper;
 pub mod way_back;
+pub mod whiteouts;
 pub mod wire;
 
 #[cfg(target_os = "linux")]

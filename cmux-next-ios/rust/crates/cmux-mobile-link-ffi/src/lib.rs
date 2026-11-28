@@ -30,6 +30,7 @@ mod cmux_link;
 mod composer_outbox;
 mod feed_list_edit;
 mod follow_camera;
+mod harness_tuck;
 mod lan;
 mod last_place;
 mod link_progress;
@@ -43,6 +44,7 @@ mod pane_filter;
 mod read_store;
 mod relay_hold;
 mod row_layout;
+mod row_spill;
 mod screen;
 mod share_approval;
 mod tabs;
@@ -51,6 +53,7 @@ mod terminal_chat;
 mod terminal_fit;
 mod terminal_prediction;
 mod terminal_projection;
+mod terminal_sizing_view;
 mod vault;
 mod vnc;
 mod window_layout;
@@ -59,6 +62,7 @@ mod workspace_creation;
 mod workspace_groups;
 mod workspace_moves;
 mod workspace_row_actions;
+mod zstd_stream;
 
 pub use attachment_upload::{
     AttachmentUploads, ImagePlan, Timings, UploadObserver, UploadProgress, UploadSpec, UploadStage,
@@ -101,6 +105,7 @@ pub use pane_filter::{
     pane_filter_default, pane_filter_encode, pane_filter_shows,
 };
 pub use read_store::{PhoneReadKey, PhoneReadStore, PhoneReadStoreError};
+pub use row_spill::{RowSpillPages, row_spill_folder_name, row_spill_purge_runs};
 pub use share_approval::{ShareApprovalDraft, ShareAsk, share_approval_draft, share_approval_signed};
 pub use tabs::{TabsEvent, TabsMirror, TabsRow, TabsViewport};
 pub use task_composer::{
@@ -135,6 +140,7 @@ pub use workspace_row_actions::{
     WorkspaceRowFacts, WorkspaceRowPlacement, workspace_merge_targets, workspace_new_row_anchor,
     workspace_row_placements,
 };
+pub use zstd_stream::ZstdStreamDecoder;
 
 uniffi::setup_scaffolding!();
 
@@ -2263,6 +2269,42 @@ pub async fn network_changed(
 pub async fn reset_warm_state() {
     WarmPool::shared().reset().await;
     cmux_mobile_link::dial::wireguard::dormant::forget_all();
+}
+
+/// What [`wait_for_network_return`] ended on (`cmux_mobile_link::net_return::Return`).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct NetworkReturn {
+    /// A probe got through after one that did not: the network is back; redial now.
+    pub back: bool,
+    /// The first probe got through: the network was not down (stop watching).
+    pub never_down: bool,
+    /// With `back`: from the first failed probe to the one that got through.
+    pub down_millis: u64,
+    pub probes: u32,
+}
+
+/// Probes the cmux service at `base_url` once a second (a TCP connect, each
+/// bounded under a second) until one gets through or `max_wait_millis`
+/// passes: the network-back signal when iOS reports no path change. The app
+/// runs it only while a link is down and the app is in front.
+#[uniffi::export]
+pub async fn wait_for_network_return(base_url: String, max_wait_millis: u64) -> NetworkReturn {
+    use cmux_mobile_link::net_return::{Return, wait_for_service};
+    let got =
+        on_runtime(async move { wait_for_service(&base_url, Duration::from_millis(max_wait_millis)).await })
+            .await;
+    match got {
+        Return::Back { down_for, probes } => NetworkReturn {
+            back: true,
+            never_down: false,
+            down_millis: u64::try_from(down_for.as_millis()).unwrap_or(u64::MAX),
+            probes,
+        },
+        Return::NeverDown => NetworkReturn { back: false, never_down: true, down_millis: 0, probes: 1 },
+        Return::StillDown { probes } => {
+            NetworkReturn { back: false, never_down: false, down_millis: 0, probes }
+        }
+    }
 }
 
 /// The dial's options for `request` (the service's ICE servers; none for a hub dial).

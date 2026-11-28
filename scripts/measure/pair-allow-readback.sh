@@ -32,6 +32,16 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/pair-allow-readback.XXXXXX")"
 mnt=""
 cleanup() { [[ -n "$mnt" ]] && hdiutil detach "$mnt" >/dev/null 2>&1; rm -rf "$work"; }
 trap cleanup EXIT
+# Every call that can wait on something (the bundled CLI, cargo) runs under a bound: a 2026-11-27 run sat 6 h after the
+# plist read with no output. macOS has no timeout(1). The call runs in its own process group and the bound ends the
+# whole group (rc 142): a 2026-11-28 run's alarm ended cargo alone, its test child kept the pipe open, and the step sat
+# to the 5 h controller limit.
+bounded() {
+  perl -e 'my $s = shift; my $pid = fork // die "fork: $!";
+    if (!$pid) { setpgrp(0, 0); exec @ARGV or die "exec $ARGV[0]: $!" }
+    $SIG{ALRM} = sub { kill "TERM", -$pid; sleep 2; kill "KILL", -$pid; waitpid($pid, 0); exit 142 };
+    alarm $s; waitpid($pid, 0); exit($? & 127 ? 128 + ($? & 127) : $? >> 8)' "$@"
+}
 curl -fsSL --proto '=https' --retry 3 --retry-all-errors -o "$work/nightly.dmg" "$dmg" || { echo "PAR download failed"; exit 3; }
 mnt="$work/mnt"; mkdir -p "$mnt"
 hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$work/nightly.dmg" >/dev/null || exit 3
@@ -42,16 +52,20 @@ plist="$work/app.app/Contents/Info.plist"
 echo "PAR nightly $(plutil -extract CFBundleShortVersionString raw -o - "$plist") build $(plutil -extract CFBundleVersion raw -o - "$plist")"
 # The tests come from the step's --ref, the CLI from the NIGHTLY: name the NIGHTLY's own commit too.
 plutil -p "$plist" | grep -iE 'commit|sha|revision' | sed 's/^ */PAR nightly plist /'
-cli="$(find "$work/app.app/Contents" -type f -perm -u+x -name cmux 2>/dev/null | head -1)"
+# The CLI is Contents/Resources/bin/cmux. Contents/MacOS/cmux is the app itself: run with `mobile pair-requests` it
+# starts the GUI instead of answering (2026-11-28: NSXPC errors, then the bound).
+cli="$work/app.app/Contents/Resources/bin/cmux"
+[[ -x "$cli" ]] || cli="$(find "$work/app.app/Contents" -type f -perm -u+x -name cmux -not -path '*/Contents/MacOS/*' 2>/dev/null | head -1)"
 [[ -n "$cli" ]] || { echo "PAR no cmux CLI in the bundle"; exit 3; }
-echo "PAR cli ${cli#"$work/app.app/"}: $(HOME="$work" "$cli" --version 2>&1 | head -1)"
-HOME="$work" "$cli" mobile pair-requests --help 2>&1 | head -6 | sed 's/^/PAR help /'
+echo "PAR cli ${cli#"$work/app.app/"}: $(HOME="$work" bounded 60 "$cli" --version </dev/null 2>&1 | head -1) (rc ${PIPESTATUS[0]})"
+HOME="$work" bounded 60 "$cli" mobile pair-requests --help </dev/null 2>&1 | head -6 | sed 's/^/PAR help /'
 
 cd "$root/cmux-next-ios/rust" || exit 3
 export CARGO_TARGET_DIR="$root/.build/pair-allow-readback-target"
-CMUX_PAIR_REQUESTS_CLI="$cli" cargo test --locked -p cmux-mobile-host --test host -- lists_and_allows \
+CMUX_PAIR_REQUESTS_CLI="$cli" bounded 1800 cargo test --locked -p cmux-mobile-host --test host -- lists_and_allows \
   --nocapture --test-threads=1 2>&1 | tee "$work/test.log"
 status=${PIPESTATUS[0]}
+[[ "$status" == 142 ]] && echo "PAR cargo test passed its 1800 s bound"
 grep -E '^test .* (ok|FAILED)$|^test result' "$work/test.log" | sed 's/^/PAR /'
 echo "PAR exit=$status step $(git -C "$root" rev-parse HEAD) nightly $(plutil -extract CFBundleVersion raw -o - "$plist")"
 exit "$status"

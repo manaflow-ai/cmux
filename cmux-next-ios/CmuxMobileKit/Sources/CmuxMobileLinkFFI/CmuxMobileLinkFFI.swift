@@ -8370,6 +8370,217 @@ public func FfiConverterTypeRowLayoutMemory_lower(_ value: RowLayoutMemory) -> U
 
 
 /**
+ * One list's spill on one directory. Calls do plain file I/O under one lock: the app makes
+ * them off the main thread.
+ */
+public protocol RowSpillPagesProtocol: AnyObject, Sendable {
+    
+    /**
+     * Takes the newest page off (newest first): the rows in memory, else the top page file.
+     * Empty when the spill is.
+     */
+    func pop()  -> [Data]
+    
+    /**
+     * Keeps `rows` (newest first, all older than what the list still holds) above every row
+     * held. Whole pages go to disk, oldest first; fewer than a page stay in memory.
+     */
+    func push(rows: [Data]) 
+    
+    /**
+     * Deletes every spilled row and the directory.
+     */
+    func reset() 
+    
+    /**
+     * The rows short of a page that wait in memory, newest first (tests and measurements).
+     */
+    func rowsInMemory()  -> [Data]
+    
+    /**
+     * How many rows are held (tests and measurements; reads every page).
+     */
+    func storedCount()  -> UInt32
+    
+}
+/**
+ * One list's spill on one directory. Calls do plain file I/O under one lock: the app makes
+ * them off the main thread.
+ */
+open class RowSpillPages: RowSpillPagesProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_rowspillpages(self.handle, $0) }
+    }
+    /**
+     * The spill on `directory` (made when the first page fills), `page_size` rows a page, at
+     * most `max_rows` rows (at least one page).
+     */
+public convenience init(directory: String, pageSize: UInt32, maxRows: UInt32) {
+    let handle =
+        try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_rowspillpages_new(
+        FfiConverterString.lower(directory),
+        FfiConverterUInt32.lower(pageSize),
+        FfiConverterUInt32.lower(maxRows),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_rowspillpages(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Takes the newest page off (newest first): the rows in memory, else the top page file.
+     * Empty when the spill is.
+     */
+open func pop() -> [Data]  {
+    return try!  FfiConverterSequenceData.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowspillpages_pop(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Keeps `rows` (newest first, all older than what the list still holds) above every row
+     * held. Whole pages go to disk, oldest first; fewer than a page stay in memory.
+     */
+open func push(rows: [Data])  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowspillpages_push(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceData.lower(rows),$0
+    )
+}
+}
+    
+    /**
+     * Deletes every spilled row and the directory.
+     */
+open func reset()  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowspillpages_reset(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
+     * The rows short of a page that wait in memory, newest first (tests and measurements).
+     */
+open func rowsInMemory() -> [Data]  {
+    return try!  FfiConverterSequenceData.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowspillpages_rows_in_memory(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * How many rows are held (tests and measurements; reads every page).
+     */
+open func storedCount() -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowspillpages_stored_count(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRowSpillPages: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = RowSpillPages
+
+    public static func lift(_ handle: UInt64) throws -> RowSpillPages {
+        return RowSpillPages(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: RowSpillPages) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RowSpillPages {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: RowSpillPages, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRowSpillPages_lift(_ handle: UInt64) throws -> RowSpillPages {
+    return try FfiConverterTypeRowSpillPages.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRowSpillPages_lower(_ value: RowSpillPages) -> UInt64 {
+    return FfiConverterTypeRowSpillPages.lower(value)
+}
+
+
+
+
+
+
+/**
  * The phone's copy of the Mac's tab list for one link. Make one per Mac; it lives across
  * reconnects so a reconnect resumes from its rev instead of reading the manifest again.
  */
@@ -10343,6 +10554,149 @@ public func FfiConverterTypeVaultKeyStore_lift(_ handle: UInt64) throws -> Vault
 #endif
 public func FfiConverterTypeVaultKeyStore_lower(_ value: VaultKeyStore) -> UInt64 {
     return FfiConverterTypeVaultKeyStore.lower(value)
+}
+
+
+
+
+
+
+/**
+ * One channel's decoder. It keeps the stream's context across messages, so a failure loses
+ * it: every later call fails too and the channel must reopen.
+ */
+public protocol ZstdStreamDecoderProtocol: AnyObject, Sendable {
+    
+    /**
+     * The text of one envelope: `body` is its zstd bytes (after the 9-byte header) and
+     * `text_len` the header's text length. Refused unless it decodes to exactly `text_len`
+     * bytes, at most 64 MiB (the joiner's `maxMessage`), within a 1 MiB window.
+     */
+    func decode(body: Data, textLen: UInt32) throws  -> Data
+    
+}
+/**
+ * One channel's decoder. It keeps the stream's context across messages, so a failure loses
+ * it: every later call fails too and the channel must reopen.
+ */
+open class ZstdStreamDecoder: ZstdStreamDecoderProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_zstdstreamdecoder(self.handle, $0) }
+    }
+public convenience init() {
+    let handle =
+        try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_zstdstreamdecoder_new($0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_zstdstreamdecoder(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * The text of one envelope: `body` is its zstd bytes (after the 9-byte header) and
+     * `text_len` the header's text length. Refused unless it decodes to exactly `text_len`
+     * bytes, at most 64 MiB (the joiner's `maxMessage`), within a 1 MiB window.
+     */
+open func decode(body: Data, textLen: UInt32)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeCmuxMobileError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_method_zstdstreamdecoder_decode(
+            self.uniffiCloneHandle(),
+        FfiConverterData.lower(body),
+        FfiConverterUInt32.lower(textLen),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeZstdStreamDecoder: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = ZstdStreamDecoder
+
+    public static func lift(_ handle: UInt64) throws -> ZstdStreamDecoder {
+        return ZstdStreamDecoder(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: ZstdStreamDecoder) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ZstdStreamDecoder {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: ZstdStreamDecoder, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeZstdStreamDecoder_lift(_ handle: UInt64) throws -> ZstdStreamDecoder {
+    return try FfiConverterTypeZstdStreamDecoder.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeZstdStreamDecoder_lower(_ value: ZstdStreamDecoder) -> UInt64 {
+    return FfiConverterTypeZstdStreamDecoder.lower(value)
 }
 
 
@@ -13061,6 +13415,89 @@ public func FfiConverterTypeGroupEditRow_lower(_ value: GroupEditRow) -> RustBuf
 }
 
 
+/**
+ * What tucks on one screen.
+ */
+public struct HarnessTuck: Equatable, Hashable {
+    /**
+     * The harness the program name names; nil: not a harness (a shell, an editor), nothing tucks.
+     */
+    public var harness: TuckHarness?
+    /**
+     * The first row (0 = the screen's top) of the bottom block that only repeats status; nil:
+     * nothing tucks.
+     */
+    public var tuckFrom: UInt32?
+    /**
+     * A question the person must answer is on screen (a permission dialog, a numbered menu,
+     * a y/n): nothing tucks, and the key row stays up for its arrows and Return.
+     */
+    public var prompt: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The harness the program name names; nil: not a harness (a shell, an editor), nothing tucks.
+         */harness: TuckHarness?, 
+        /**
+         * The first row (0 = the screen's top) of the bottom block that only repeats status; nil:
+         * nothing tucks.
+         */tuckFrom: UInt32?, 
+        /**
+         * A question the person must answer is on screen (a permission dialog, a numbered menu,
+         * a y/n): nothing tucks, and the key row stays up for its arrows and Return.
+         */prompt: Bool) {
+        self.harness = harness
+        self.tuckFrom = tuckFrom
+        self.prompt = prompt
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension HarnessTuck: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHarnessTuck: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HarnessTuck {
+        return
+            try HarnessTuck(
+                harness: FfiConverterOptionTypeTuckHarness.read(from: &buf), 
+                tuckFrom: FfiConverterOptionUInt32.read(from: &buf), 
+                prompt: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HarnessTuck, into buf: inout [UInt8]) {
+        FfiConverterOptionTypeTuckHarness.write(value.harness, into: &buf)
+        FfiConverterOptionUInt32.write(value.tuckFrom, into: &buf)
+        FfiConverterBool.write(value.prompt, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHarnessTuck_lift(_ buf: RustBuffer) throws -> HarnessTuck {
+    return try FfiConverterTypeHarnessTuck.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHarnessTuck_lower(_ value: HarnessTuck) -> RustBuffer {
+    return FfiConverterTypeHarnessTuck.lower(value)
+}
+
+
 public struct ImagePlan: Equatable, Hashable {
     public var reencode: Bool
     /**
@@ -14160,6 +14597,89 @@ public func FfiConverterTypeMailboxTarget_lift(_ buf: RustBuffer) throws -> Mail
 #endif
 public func FfiConverterTypeMailboxTarget_lower(_ value: MailboxTarget) -> RustBuffer {
     return FfiConverterTypeMailboxTarget.lower(value)
+}
+
+
+/**
+ * What [`wait_for_network_return`] ended on (`cmux_mobile_link::net_return::Return`).
+ */
+public struct NetworkReturn: Equatable, Hashable {
+    /**
+     * A probe got through after one that did not: the network is back; redial now.
+     */
+    public var back: Bool
+    /**
+     * The first probe got through: the network was not down (stop watching).
+     */
+    public var neverDown: Bool
+    /**
+     * With `back`: from the first failed probe to the one that got through.
+     */
+    public var downMillis: UInt64
+    public var probes: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * A probe got through after one that did not: the network is back; redial now.
+         */back: Bool, 
+        /**
+         * The first probe got through: the network was not down (stop watching).
+         */neverDown: Bool, 
+        /**
+         * With `back`: from the first failed probe to the one that got through.
+         */downMillis: UInt64, probes: UInt32) {
+        self.back = back
+        self.neverDown = neverDown
+        self.downMillis = downMillis
+        self.probes = probes
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension NetworkReturn: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeNetworkReturn: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> NetworkReturn {
+        return
+            try NetworkReturn(
+                back: FfiConverterBool.read(from: &buf), 
+                neverDown: FfiConverterBool.read(from: &buf), 
+                downMillis: FfiConverterUInt64.read(from: &buf), 
+                probes: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: NetworkReturn, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.back, into: &buf)
+        FfiConverterBool.write(value.neverDown, into: &buf)
+        FfiConverterUInt64.write(value.downMillis, into: &buf)
+        FfiConverterUInt32.write(value.probes, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeNetworkReturn_lift(_ buf: RustBuffer) throws -> NetworkReturn {
+    return try FfiConverterTypeNetworkReturn.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeNetworkReturn_lower(_ value: NetworkReturn) -> RustBuffer {
+    return FfiConverterTypeNetworkReturn.lower(value)
 }
 
 
@@ -15629,6 +16149,388 @@ public func FfiConverterTypeShareAsk_lift(_ buf: RustBuffer) throws -> ShareAsk 
 #endif
 public func FfiConverterTypeShareAsk_lower(_ value: ShareAsk) -> RustBuffer {
     return FfiConverterTypeShareAsk.lower(value)
+}
+
+
+/**
+ * A terminal grid in cells.
+ */
+public struct SizingGrid: Equatable, Hashable {
+    public var cols: UInt32
+    public var rows: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(cols: UInt32, rows: UInt32) {
+        self.cols = cols
+        self.rows = rows
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension SizingGrid: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSizingGrid: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SizingGrid {
+        return
+            try SizingGrid(
+                cols: FfiConverterUInt32.read(from: &buf), 
+                rows: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SizingGrid, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.cols, into: &buf)
+        FfiConverterUInt32.write(value.rows, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSizingGrid_lift(_ buf: RustBuffer) throws -> SizingGrid {
+    return try FfiConverterTypeSizingGrid.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSizingGrid_lower(_ value: SizingGrid) -> RustBuffer {
+    return FfiConverterTypeSizingGrid.lower(value)
+}
+
+
+/**
+ * One Priority Order row.
+ */
+public struct SizingOrderRow: Equatable, Hashable {
+    public var token: String
+    public var title: String
+    public var symbol: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(token: String, title: String, symbol: String) {
+        self.token = token
+        self.title = title
+        self.symbol = symbol
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension SizingOrderRow: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSizingOrderRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SizingOrderRow {
+        return
+            try SizingOrderRow(
+                token: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                symbol: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SizingOrderRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.token, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.symbol, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSizingOrderRow_lift(_ buf: RustBuffer) throws -> SizingOrderRow {
+    return try FfiConverterTypeSizingOrderRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSizingOrderRow_lower(_ value: SizingOrderRow) -> RustBuffer {
+    return FfiConverterTypeSizingOrderRow.lower(value)
+}
+
+
+/**
+ * One attached view of a terminal, as the Mac's daemon publishes it.
+ */
+public struct SizingParticipant: Equatable, Hashable {
+    public var id: String
+    public var deviceKind: String
+    public var deviceName: String?
+    public var displayName: String?
+    public var deviceId: String?
+    /**
+     * The size this viewer asks for; none while its terminal is off screen.
+     */
+    public var viewport: SizingGrid?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, deviceKind: String, deviceName: String?, displayName: String?, deviceId: String?, 
+        /**
+         * The size this viewer asks for; none while its terminal is off screen.
+         */viewport: SizingGrid?) {
+        self.id = id
+        self.deviceKind = deviceKind
+        self.deviceName = deviceName
+        self.displayName = displayName
+        self.deviceId = deviceId
+        self.viewport = viewport
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension SizingParticipant: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSizingParticipant: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SizingParticipant {
+        return
+            try SizingParticipant(
+                id: FfiConverterString.read(from: &buf), 
+                deviceKind: FfiConverterString.read(from: &buf), 
+                deviceName: FfiConverterOptionString.read(from: &buf), 
+                displayName: FfiConverterOptionString.read(from: &buf), 
+                deviceId: FfiConverterOptionString.read(from: &buf), 
+                viewport: FfiConverterOptionTypeSizingGrid.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SizingParticipant, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.deviceKind, into: &buf)
+        FfiConverterOptionString.write(value.deviceName, into: &buf)
+        FfiConverterOptionString.write(value.displayName, into: &buf)
+        FfiConverterOptionString.write(value.deviceId, into: &buf)
+        FfiConverterOptionTypeSizingGrid.write(value.viewport, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSizingParticipant_lift(_ buf: RustBuffer) throws -> SizingParticipant {
+    return try FfiConverterTypeSizingParticipant.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSizingParticipant_lower(_ value: SizingParticipant) -> RustBuffer {
+    return FfiConverterTypeSizingParticipant.lower(value)
+}
+
+
+/**
+ * One Connected Devices row.
+ */
+public struct SizingRow: Equatable, Hashable {
+    public var id: String
+    public var title: String
+    /**
+     * `120×39`, or "Not showing it".
+     */
+    public var detail: String
+    public var setsSize: Bool
+    /**
+     * An SF Symbol name.
+     */
+    public var symbol: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, title: String, 
+        /**
+         * `120×39`, or "Not showing it".
+         */detail: String, setsSize: Bool, 
+        /**
+         * An SF Symbol name.
+         */symbol: String) {
+        self.id = id
+        self.title = title
+        self.detail = detail
+        self.setsSize = setsSize
+        self.symbol = symbol
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension SizingRow: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSizingRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SizingRow {
+        return
+            try SizingRow(
+                id: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                detail: FfiConverterString.read(from: &buf), 
+                setsSize: FfiConverterBool.read(from: &buf), 
+                symbol: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SizingRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.detail, into: &buf)
+        FfiConverterBool.write(value.setsSize, into: &buf)
+        FfiConverterString.write(value.symbol, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSizingRow_lift(_ buf: RustBuffer) throws -> SizingRow {
+    return try FfiConverterTypeSizingRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSizingRow_lower(_ value: SizingRow) -> RustBuffer {
+    return FfiConverterTypeSizingRow.lower(value)
+}
+
+
+/**
+ * What the view is drawn from: the daemon's size state (when there is one)
+ * and who this phone and this Mac are.
+ */
+public struct SizingViewInput: Equatable, Hashable {
+    /**
+     * False while the daemon has published no size state: no rows, no reason.
+     */
+    public var hasState: Bool
+    /**
+     * The participants that set a dimension.
+     */
+    public var owners: [String]
+    public var participants: [SizingParticipant]
+    /**
+     * This phone's participant id on the terminal.
+     */
+    public var selfParticipant: String?
+    /**
+     * The participant ids of the Mac the phone is connected to.
+     */
+    public var macParticipants: [String]
+    /**
+     * This phone's device id.
+     */
+    public var thisDeviceId: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * False while the daemon has published no size state: no rows, no reason.
+         */hasState: Bool, 
+        /**
+         * The participants that set a dimension.
+         */owners: [String], participants: [SizingParticipant], 
+        /**
+         * This phone's participant id on the terminal.
+         */selfParticipant: String?, 
+        /**
+         * The participant ids of the Mac the phone is connected to.
+         */macParticipants: [String], 
+        /**
+         * This phone's device id.
+         */thisDeviceId: String?) {
+        self.hasState = hasState
+        self.owners = owners
+        self.participants = participants
+        self.selfParticipant = selfParticipant
+        self.macParticipants = macParticipants
+        self.thisDeviceId = thisDeviceId
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension SizingViewInput: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSizingViewInput: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SizingViewInput {
+        return
+            try SizingViewInput(
+                hasState: FfiConverterBool.read(from: &buf), 
+                owners: FfiConverterSequenceString.read(from: &buf), 
+                participants: FfiConverterSequenceTypeSizingParticipant.read(from: &buf), 
+                selfParticipant: FfiConverterOptionString.read(from: &buf), 
+                macParticipants: FfiConverterSequenceString.read(from: &buf), 
+                thisDeviceId: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SizingViewInput, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.hasState, into: &buf)
+        FfiConverterSequenceString.write(value.owners, into: &buf)
+        FfiConverterSequenceTypeSizingParticipant.write(value.participants, into: &buf)
+        FfiConverterOptionString.write(value.selfParticipant, into: &buf)
+        FfiConverterSequenceString.write(value.macParticipants, into: &buf)
+        FfiConverterOptionString.write(value.thisDeviceId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSizingViewInput_lift(_ buf: RustBuffer) throws -> SizingViewInput {
+    return try FfiConverterTypeSizingViewInput.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSizingViewInput_lower(_ value: SizingViewInput) -> RustBuffer {
+    return FfiConverterTypeSizingViewInput.lower(value)
 }
 
 
@@ -23248,6 +24150,102 @@ public func FfiConverterTypeTransport_lower(_ value: Transport) -> RustBuffer {
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * A harness the phone knows by its terminal's program name.
+ */
+
+public enum TuckHarness: Equatable, Hashable {
+    
+    /**
+     * Claude Code: a ruled input box (`─` rows around `❯`), a footer under it.
+     */
+    case claude
+    /**
+     * Codex CLI: an unruled `›` line, a model and cwd footer under it, a `• Working` line above.
+     */
+    case codex
+    /**
+     * opencode: a `┃` barred box closed by a `╹▀▀` rule, a hint row under it.
+     */
+    case openCode
+    /**
+     * Gemini CLI, Amp, pi: a boxed (`╭─╮`, `╰─╯`) or ruled input box, a footer under it.
+     */
+    case boxed
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension TuckHarness: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTuckHarness: FfiConverterRustBuffer {
+    typealias SwiftType = TuckHarness
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TuckHarness {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .claude
+        
+        case 2: return .codex
+        
+        case 3: return .openCode
+        
+        case 4: return .boxed
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: TuckHarness, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .claude:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .codex:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .openCode:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .boxed:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTuckHarness_lift(_ buf: RustBuffer) throws -> TuckHarness {
+    return try FfiConverterTypeTuckHarness.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTuckHarness_lower(_ value: TuckHarness) -> RustBuffer {
+    return FfiConverterTypeTuckHarness.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
 public enum UploadStage: Equatable, Hashable {
     
@@ -24646,6 +25644,30 @@ fileprivate struct FfiConverterOptionTypeRelayCall: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeSizingGrid: FfiConverterRustBuffer {
+    typealias SwiftType = SizingGrid?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeSizingGrid.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeSizingGrid.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeTranscriptPaint: FfiConverterRustBuffer {
     typealias SwiftType = TranscriptPaint?
 
@@ -24950,6 +25972,30 @@ fileprivate struct FfiConverterOptionTypeMacRecoveryResult: FfiConverterRustBuff
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeMacRecoveryResult.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeTuckHarness: FfiConverterRustBuffer {
+    typealias SwiftType = TuckHarness?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeTuckHarness.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeTuckHarness.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -25978,6 +27024,81 @@ fileprivate struct FfiConverterSequenceTypeRowLayoutKey: FfiConverterRustBuffer 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeSizingOrderRow: FfiConverterRustBuffer {
+    typealias SwiftType = [SizingOrderRow]
+
+    public static func write(_ value: [SizingOrderRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSizingOrderRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SizingOrderRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SizingOrderRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSizingOrderRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSizingParticipant: FfiConverterRustBuffer {
+    typealias SwiftType = [SizingParticipant]
+
+    public static func write(_ value: [SizingParticipant], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSizingParticipant.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SizingParticipant] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SizingParticipant]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSizingParticipant.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSizingRow: FfiConverterRustBuffer {
+    typealias SwiftType = [SizingRow]
+
+    public static func write(_ value: [SizingRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSizingRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SizingRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SizingRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSizingRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeTabsRow: FfiConverterRustBuffer {
     typealias SwiftType = [TabsRow]
 
@@ -26907,6 +28028,27 @@ public func terminalLeanStreamCapabilities() -> [String]  {
 })
 }
 /**
+ * Probes the cmux service at `base_url` once a second (a TCP connect, each
+ * bounded under a second) until one gets through or `max_wait_millis`
+ * passes: the network-back signal when iOS reports no path change. The app
+ * runs it only while a link is down and the app is in front.
+ */
+public func waitForNetworkReturn(baseUrl: String, maxWaitMillis: UInt64)async  -> NetworkReturn  {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_func_wait_for_network_return(FfiConverterString.lower(baseUrl),FfiConverterUInt64.lower(maxWaitMillis)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeNetworkReturn_lift,
+            errorHandler: nil
+            
+        )
+}
+/**
  * Sizes a picked image to what an agent needs (design/attachment-upload.md, Next, item 2): the
  * original when its long side is <= 2048 px and it is <= 2 MiB; otherwise a JPEG (q 0.85) with
  * the long side at most 2048 px. HEIC in, JPEG out: agents read JPEG. A width or height of 0
@@ -27129,6 +28271,28 @@ public func feedStacking(items: [FeedStackItem], expanded: [String], `open`: [St
 })
 }
 /**
+ * The tuckable block of `rows` (the screen's rows, top to bottom, as text) drawn by `program`.
+ */
+public func harnessTuck(program: String, rows: [String]) -> HarnessTuck  {
+    return try!  FfiConverterTypeHarnessTuck_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_harness_tuck(
+        FfiConverterString.lower(program),
+        FfiConverterSequenceString.lower(rows),$0
+    )
+})
+}
+/**
+ * The harness a terminal's program name (its foreground process, or the agent its hook
+ * reported) names.
+ */
+public func tuckHarness(program: String) -> TuckHarness?  {
+    return try!  FfiConverterOptionTypeTuckHarness.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_tuck_harness(
+        FfiConverterString.lower(program),$0
+    )
+})
+}
+/**
  * The folder (in the app's own container) where the LAN direct path keeps
  * this phone's key and what each Mac told it; `None` turns the path off.
  * Call once at launch, before `connect`.
@@ -27136,6 +28300,17 @@ public func feedStacking(items: [FeedStackItem], expanded: [String], `open`: [St
 public func setLanMemoryDir(dir: String?)  {try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_func_set_lan_memory_dir(
         FfiConverterOptionString.lower(dir),$0
+    )
+}
+}
+/**
+ * This phone's `transport.tailnetCarrier` (`off`, `direct-only`, `on`; anything else is off).
+ * Not `off`: [`race`] adds the Mac's reported tailnet addresses as direct candidates beside
+ * the LAN ones and the relay. Call at launch and whenever the setting changes.
+ */
+public func setTailnetCarrier(mode: String)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_tailnet_carrier(
+        FfiConverterString.lower(mode),$0
     )
 }
 }
@@ -27515,7 +28690,7 @@ public func paneFilterDecode(saved: String) -> PaneFilter  {
 }
 /**
  * The overview's filter until the person picks another: agent sessions and
- * terminals, browsers behind their toggle.
+ * terminals with browsers shown.
  */
 public func paneFilterDefault() -> PaneFilter  {
     return try!  FfiConverterTypePaneFilter_lift(try! rustCall() {
@@ -27564,6 +28739,28 @@ public func rowLayoutFingerprint(text: String) -> UInt64  {
         FfiConverterString.lower(text),$0
     )
 })
+}
+/**
+ * `scope` (an account or a chat id) as one folder name: letters, digits and `-` stay, every
+ * other character is `_`; nothing left is `default`.
+ */
+public func rowSpillFolderName(scope: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_row_spill_folder_name(
+        FfiConverterString.lower(scope),$0
+    )
+})
+}
+/**
+ * Deletes every folder under `parent` but `keep`: the spills earlier runs of the app left (a
+ * killed app never deleted its spills).
+ */
+public func rowSpillPurgeRuns(parent: String, keep: String)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_row_spill_purge_runs(
+        FfiConverterString.lower(parent),
+        FfiConverterString.lower(keep),$0
+    )
+}
 }
 /**
  * Answers one `screen_*` op: `request` and the answer are the op's JSON.
@@ -27796,6 +28993,129 @@ public func terminalZoomToggle(grid: TerminalZoomGeometry, zoom: TerminalZoomSta
         FfiConverterTypeTerminalZoomState_lower(zoom),
         FfiConverterDouble.lower(focusX),
         FfiConverterDouble.lower(focusY),$0
+    )
+})
+}
+/**
+ * The priority-order token of a device id.
+ */
+public func hostSizeDeviceToken(deviceId: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_host_size_device_token(
+        FfiConverterString.lower(deviceId),$0
+    )
+})
+}
+/**
+ * The most tokens a stored priority order keeps.
+ */
+public func hostSizeMaxOrder() -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_host_size_max_order($0
+    )
+})
+}
+/**
+ * The device id a token names; none for the Mac token or a malformed one.
+ */
+public func hostSizeTokenDeviceId(token: String) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_host_size_token_device_id(
+        FfiConverterString.lower(token),$0
+    )
+})
+}
+/**
+ * A token the daemon accepts: `mac`, or `device:` and 1 to 128 bytes of
+ * `[A-Za-z0-9_.:-]`.
+ */
+public func hostSizeTokenValid(token: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_host_size_token_valid(
+        FfiConverterString.lower(token),$0
+    )
+})
+}
+/**
+ * `120×40`.
+ */
+public func terminalSizingGridLabel(grid: SizingGrid) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_sizing_grid_label(
+        FfiConverterTypeSizingGrid_lower(grid),$0
+    )
+})
+}
+/**
+ * A desktop viewer: a Mac, a cmux-tui frontend, or the desktop app on Linux
+ * or Windows.
+ */
+public func terminalSizingIsDesktop(deviceKind: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_sizing_is_desktop(
+        FfiConverterString.lower(deviceKind),$0
+    )
+})
+}
+/**
+ * The priority list to show: the stored order first, then every viewer not
+ * in it (this Mac and this iPhone first), so a reorder ranks every device in
+ * sight. Stored tokens of absent devices keep their slots; invalid and
+ * repeated tokens are dropped and the list never passes [`MAX_ORDER`].
+ */
+public func terminalSizingOrderRows(input: SizingViewInput, order: [String]) -> [SizingOrderRow]  {
+    return try!  FfiConverterSequenceTypeSizingOrderRow.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_sizing_order_rows(
+        FfiConverterTypeSizingViewInput_lower(input),
+        FfiConverterSequenceString.lower(order),$0
+    )
+})
+}
+/**
+ * Why the grid has its size. Swift formats the owning viewers' names with
+ * the system list formatter before passing them here.
+ */
+public func terminalSizingReason(reason: String, namedOwners: String?) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_sizing_reason(
+        FfiConverterString.lower(reason),
+        FfiConverterOptionString.lower(namedOwners),$0
+    )
+})
+}
+/**
+ * The order after moving the rows at `from` to before `to` (SwiftUI's
+ * `onMove`). Out-of-range indices are ignored, never a crash.
+ */
+public func terminalSizingReordered(tokens: [String], from: [UInt32], to: UInt32) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_sizing_reordered(
+        FfiConverterSequenceString.lower(tokens),
+        FfiConverterSequenceUInt32.lower(from),
+        FfiConverterUInt32.lower(to),$0
+    )
+})
+}
+/**
+ * The Connected Devices rows: every viewer, the size it asks for and
+ * whether it sets the grid. None without a size state.
+ */
+public func terminalSizingRows(input: SizingViewInput) -> [SizingRow]  {
+    return try!  FfiConverterSequenceTypeSizingRow.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_sizing_rows(
+        FfiConverterTypeSizingViewInput_lower(input),$0
+    )
+})
+}
+/**
+ * The name of a viewer as the phone shows it: "This Mac", "This iPhone",
+ * its device or display name, or what kind of device it is.
+ */
+public func terminalSizingTitle(input: SizingViewInput, participant: SizingParticipant) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_sizing_title(
+        FfiConverterTypeSizingViewInput_lower(input),
+        FfiConverterTypeSizingParticipant_lower(participant),$0
     )
 })
 }
@@ -28391,6 +29711,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_lean_stream_capabilities() != 31447) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_wait_for_network_return() != 9115) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_image_plan() != 32375) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -28448,7 +29771,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_feed_stacking() != 45213) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_harness_tuck() != 50034) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_tuck_harness() != 65008) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_lan_memory_dir() != 45946) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_tailnet_carrier() != 33287) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_held_keys_expiry() != 25051) {
@@ -28547,7 +29879,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_decode() != 25789) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_default() != 6491) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_default() != 37152) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_encode() != 63147) {
@@ -28560,6 +29892,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_row_layout_fingerprint() != 59393) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_row_spill_folder_name() != 50651) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_row_spill_purge_runs() != 11957) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_screen_json() != 9471) {
@@ -28614,6 +29952,39 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_zoom_toggle() != 6399) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_host_size_device_token() != 24714) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_host_size_max_order() != 63656) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_host_size_token_device_id() != 4104) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_host_size_token_valid() != 59424) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_sizing_grid_label() != 8414) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_sizing_is_desktop() != 63805) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_sizing_order_rows() != 36552) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_sizing_reason() != 13155) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_sizing_reordered() != 17482) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_sizing_rows() != 49057) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_sizing_title() != 35658) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_vault_scope() != 16234) {
@@ -29309,6 +30680,21 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_rowlayoutmemory_stats() != 34123) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_rowspillpages_pop() != 21658) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_rowspillpages_push() != 40061) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_rowspillpages_reset() != 27453) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_rowspillpages_rows_in_memory() != 3851) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_rowspillpages_stored_count() != 64160) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_tabsmirror_link_up() != 53128) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -29507,6 +30893,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_groupeditledger_sent() != 47637) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_zstdstreamdecoder_decode() != 4528) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_channelwritewatch_new() != 60331) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -29549,6 +30938,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_rowlayoutmemory_new() != 34891) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_rowspillpages_new() != 5551) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_tabsmirror_new() != 62444) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -29565,6 +30957,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_groupeditledger_new() != 12374) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_zstdstreamdecoder_new() != 58347) {
         return InitializationResult.apiChecksumMismatch
     }
 

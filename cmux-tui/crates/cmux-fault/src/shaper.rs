@@ -21,7 +21,9 @@
 //!   as it does on a phone). A new connection's SYN backs off from 1 s the same way;
 //! - **address change** ([`Shaper::address_change`]): the phone's address changes, so every live
 //!   connection goes silent for good (no reset reaches the phone: its peer's packets go to the
-//!   old address) and new connections stall for the profile's handoff stall, then flow;
+//!   old address) and new connections stall for the profile's handoff stall, then flow, on the
+//!   profile's `then` link when it names one (Wi-Fi to cellular). A NAT rebinding is an address
+//!   change with no stall;
 //! - **internet down** ([`Shaper::internet_down`]): the phone has two paths to the Mac, the LAN
 //!   (the shaper's own address) and the internet ([`Shaper::open_internet_path`], a second
 //!   listener to its own upstream, such as a relay). The internet path goes dead: its live
@@ -105,12 +107,34 @@ pub enum Disruption {
     /// Nothing gets through for `duration_ms`.
     Blackout { duration_ms: u64 },
     /// The address changes; new connections stall a seeded draw in `stall_ms` (inclusive).
-    AddressChange { stall_ms: [u64; 2] },
+    /// With `then`, the link becomes that named profile's link from the change on (Wi-Fi to
+    /// cellular: the old path goes dark, the new one has its own numbers).
+    AddressChange {
+        stall_ms: [u64; 2],
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        then: Option<String>,
+    },
     /// The internet path dies; the LAN path (the shaper's own address) keeps its numbers.
     InternetDown,
 }
 
 impl LinkProfile {
+    /// The profile the link becomes at the address change, if the disruption names one.
+    pub fn then(&self) -> Option<&str> {
+        match &self.disruption {
+            Some(Disruption::AddressChange { then: Some(then), .. }) => Some(then),
+            _ => None,
+        }
+    }
+
+    /// The link after the profile's address change: the `then` profile from the shipped file,
+    /// or this link unchanged.
+    pub fn after_change(&self) -> LinkProfile {
+        self.then()
+            .and_then(|then| ProfileFile::builtin().get(then).cloned())
+            .unwrap_or_else(|| self.clone())
+    }
+
     /// Whether the profile's disruption drops the LAN link the shaper's own address carries
     /// (a blackout or an address change); an internet-only outage does not.
     pub fn disrupts_lan(&self) -> bool {
@@ -137,6 +161,11 @@ impl ProfileFile {
         for profile in &file.profiles {
             if !(0.0..100.0).contains(&profile.loss_percent) {
                 return Err(format!("link profile {}: loss_percent is 0 to <100", profile.name));
+            }
+            if let Some(then) = profile.then()
+                && file.get(then).is_none()
+            {
+                return Err(format!("link profile {}: then names no profile {then}", profile.name));
             }
         }
         Ok(file)
@@ -512,7 +541,7 @@ impl Shaper {
     pub fn address_change(&self, stall: Option<Duration>) -> Instant {
         let mut link = lock(&self.link);
         let stall = stall.unwrap_or_else(|| match link.profile.disruption {
-            Some(Disruption::AddressChange { stall_ms: [lo, hi] }) => {
+            Some(Disruption::AddressChange { stall_ms: [lo, hi], .. }) => {
                 Duration::from_millis(lock(&self.rng).range(lo, hi.max(lo)))
             }
             _ => Duration::from_secs(2),
@@ -520,8 +549,15 @@ impl Shaper {
         let until = Instant::now() + stall;
         link.orphaned_below = self.counting.connections.load(Ordering::SeqCst);
         link.stalled_until = Some(until);
+        let stepped = link.profile.then().is_some().then(|| link.profile.after_change());
+        if let Some(next) = &stepped {
+            link.profile = next.clone();
+        }
         drop(link);
         self.trace.note(format!("fault address-change stall {} ms", stall.as_millis()));
+        if let Some(next) = stepped {
+            self.trace.note(format!("fault step to {} v{}", next.name, next.version));
+        }
         self.epoch.send_modify(|epoch| *epoch += 1);
         until
     }

@@ -1409,37 +1409,6 @@
           ]
         },
         {
-          "key": "agentPane.display.sessionInfo.sections.carried",
-          "name": "sessionInfoShowsCarried",
-          "note": "Whether Session Info (the chat's thread details) shows its Carried memory section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.",
-          "title": {
-            "key": "settings.agentPane.display.sessionInfo.sections.carried",
-            "text": "Session Info: Carried memory"
-          },
-          "help": {
-            "key": "settings.agentPane.display.sessionInfo.sections.carried.help",
-            "text": "The MCP servers and carried the chat has."
-          },
-          "kind": "toggle",
-          "default": true,
-          "keywords": [
-            "agent",
-            "chat",
-            "acp",
-            "display",
-            "session",
-            "info",
-            "thread",
-            "details",
-            "section",
-            "show",
-            "hide",
-            "carried",
-            "memory",
-            "instructions"
-          ]
-        },
-        {
           "key": "agentPane.display.environment.placement",
           "name": "environmentPlacement",
           "note": "The machine and folder chip below the tab row (webviews/.../header/EnvironmentLine.tsx).",
@@ -2325,6 +2294,32 @@
             "effort",
             "fast",
             "compact",
+            "claude"
+          ]
+        },
+        {
+          "key": "agentPane.display.ownHarnessUpdatesOnly",
+          "note": "Whether the model menus' update footer (webviews harnessUpdateList.ts, HarnessUpdates.tsx) offers only the chat's own agent CLI. Off, the default: every outdated agent CLI on this Mac (Leo 2026-11-12, ask-3fdf0982ec). On: the chat's own update alone, as a one-agent app's model menu (customize-app-profiles: the Claude Code app lists no Codex update in a Claude chat). A look turns it on.",
+          "title": {
+            "key": "settings.agentPane.display.ownHarnessUpdatesOnly",
+            "text": "Only This Chat's Agent Updates"
+          },
+          "help": {
+            "key": "settings.agentPane.display.ownHarnessUpdatesOnly.help",
+            "text": "The model menu offers an update for this chat's agent only, not for every agent on this Mac."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "model",
+            "picker",
+            "menu",
+            "update",
+            "updates",
+            "harness",
+            "codex",
             "claude"
           ]
         },

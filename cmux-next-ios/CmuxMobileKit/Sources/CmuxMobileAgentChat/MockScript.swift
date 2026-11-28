@@ -275,7 +275,9 @@ struct MockScript {
     }
 
     static func shortAnswer(for prompt: String) -> String {
-        """
+        // LandscapeUITests: a table far wider than a phone, even sideways, to swipe across.
+        if prompt.lowercased().contains("wide table") { return wideTableAnswer }
+        return """
         Sure. I looked at the README and the current branch. Short answer to *\(prompt.prefix(60))*:
 
         - The change is isolated to the dialer.
@@ -284,6 +286,18 @@ struct MockScript {
         Want me to open a PR?
         """
     }
+
+    /// A Markdown table of twelve columns: wider than any phone, so it scrolls sideways.
+    /// Its last header, `END-COLUMN`, is off screen until the table is swiped left.
+    static let wideTableAnswer = """
+    Every dialer run this week:
+
+    | Run | Host | Transport | Network | Connect | Retries | Relay | RTT p50 | RTT p90 | Loss | Result | END-COLUMN |
+    | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+    | 1 | mac-studio | WebRTC | wifi | 352 ms | 0 | none | 18 ms | 41 ms | 0.0% | passed | end-1 |
+    | 2 | cmux-mini-2 | WireGuard | lte | 121 ms | 1 | TeamHub | 64 ms | 120 ms | 0.4% | passed | end-2 |
+    | 3 | mac-studio | WebRTC | lossy-3 | 8.1 s | 2 | TURN | 210 ms | 640 ms | 3.0% | retried | end-3 |
+    """
 
     static let subagentAnswer = """
     The transport switch holds up. Three subagents checked it in parallel:

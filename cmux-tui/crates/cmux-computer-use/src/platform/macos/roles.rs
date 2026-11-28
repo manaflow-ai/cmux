@@ -509,7 +509,7 @@ pub fn step_tolerance(step: f64) -> f64 {
 }
 
 /// The refusal when an element that may open a menu cannot be read.
-pub const MENU_UNREAD_REFUSAL: &str = "this element could not be read well enough to tell whether it opens a menu, so nothing was done; try again, or take a screenshot and use another element";
+pub const MENU_UNREAD_REFUSAL: &str = "this element's role or menu did not answer for over a second, so whether it opens a menu is unknown and nothing was done; take a screenshot and use another element";
 
 /// What the focus guard reads after an AX focus write ([`focus_guard`]).
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -627,7 +627,7 @@ pub enum SecureField {
 }
 
 /// The refusal when a web field's facts cannot be read.
-pub const WEB_FIELD_UNREAD: &str = "this web field could not be read well enough to write its value safely, so nothing was written; try again";
+pub const WEB_FIELD_UNREAD: &str = "this web field's role, frame or state did not answer for over a second, so its value cannot be written safely and nothing was written; take a screenshot (the page may still be loading) or use another element";
 
 /// The smallest a field may be, wide and high, for its value to be its
 /// content: input helpers of terminals and code editors are styled 1 pt or
@@ -814,7 +814,7 @@ pub fn menu_bar_walk(mut role_at: impl FnMut(usize) -> Option<String>) -> Option
 
 /// The refusal when an element's place (in the menu bar or not) cannot be
 /// read, before a press that the menu bar's checks would gate.
-pub const MENU_PLACE_UNREAD: &str = "Computer Use could not read whether this element is in the menu bar, so it does not act on it (the menu checks could not be applied); try again";
+pub const MENU_PLACE_UNREAD: &str = "whether this element is in the menu bar did not answer for over a second, so the menu checks cannot be applied and nothing was done; take a screenshot and use another element";
 
 /// Whether a focused element that contains the field may hold the
 /// person's caret on it: a web area, a group or a scroll area may (the caret
@@ -878,7 +878,7 @@ pub fn agreed_front(active: Option<i32>, keyboard: Option<i32>) -> Option<i32> {
 }
 
 /// The refusal when the front app cannot be read consistently.
-pub const FRONT_UNSURE: &str = "which app is in front could not be read consistently (a panel such as Spotlight may hold the keyboard), so the click was not posted; try again, or use an element_id";
+pub const FRONT_UNSURE: &str = "which app is in front read differently from the accessibility and workspace sides for over a second (a panel such as Spotlight may hold the keyboard), so the click was not posted; use an element_id, or close the panel";
 
 /// Command-A alone: Select All.
 pub fn is_select_all(combo: &crate::keys::KeyCombo) -> bool {
@@ -1178,6 +1178,70 @@ pub fn same_item(before: Option<&str>, now: Option<&str>) -> Result<(), &'static
             "the menu item changed while it was being made available (its title is not the one checked), so nothing was pressed; read the menu again",
         ),
     }
+}
+
+/// Refusal for a menu item its app retitled while validating it, when the
+/// new title reaches a denied or protected app.
+pub const REFUSE_RETITLED_BLOCKED: &str = "the menu item changed its title while it was being made available, and the new title would reach an app on the Computer Use deny list, so nothing was pressed";
+
+/// The refusal for a new title [`menu_item_check`] did not allow: names still
+/// loading and an unplaced item keep their honest refusals.
+fn retitle_refusal(check: ItemCheck) -> &'static str {
+    match check {
+        ItemCheck::Unknown => crate::menus::APP_NAMES_LOADING,
+        ItemCheck::Unplaced => crate::menus::UNREADABLE_ITEM_REFUSAL,
+        _ => REFUSE_RETITLED_BLOCKED,
+    }
+}
+
+/// [`same_item`] for an item whose app retitles it as it validates (TextEdit's
+/// Format > "Make Rich Text" reads "Make Plain Text" once its window is key):
+/// a new, readable title is held to the deny list and the protected apps
+/// (`check`, with the item's place read before the scope) and pressed when
+/// allowed. An unreadable title, either side, is still refused. Pure.
+pub fn same_or_allowed(
+    before: Option<&str>,
+    now: Option<&str>,
+    check: impl FnOnce(&str) -> ItemCheck,
+) -> Result<(), &'static str> {
+    match (before, now) {
+        (Some(b), Some(n)) if b == n => Ok(()),
+        (Some(_), Some(n)) => match check(n) {
+            ItemCheck::Allowed => Ok(()),
+            other => Err(retitle_refusal(other)),
+        },
+        _ => same_item(before, now),
+    }
+}
+
+/// A key-equivalent match read again after its app validated it: a changed,
+/// readable title is held to the deny list (`check`) and the match takes the
+/// new title; it stays blocked if it was blocked before (a retitle never
+/// unblocks). An unreadable title is blocked, and says so (not "the deny
+/// list"). Pure.
+pub fn retitled_match(
+    m0: &ShortcutMatch,
+    now: Option<&str>,
+    check: impl FnOnce(&str) -> ItemCheck,
+) -> ShortcutMatch {
+    let mut m = m0.clone();
+    match now {
+        Some(n) if n == m0.title => {}
+        Some(n) => {
+            let c = check(n);
+            m.title = n.to_string();
+            if c != ItemCheck::Allowed {
+                m.blocked = true;
+                m.unknown = m0.unknown || c == ItemCheck::Unknown;
+                m.unplaced = m0.unplaced || c == ItemCheck::Unplaced;
+            }
+        }
+        None => {
+            m.blocked = true;
+            m.unplaced = true;
+        }
+    }
+    m
 }
 
 /// What a click may do inside a key-in-app scope (pure, for tests): only
@@ -2081,7 +2145,7 @@ pub struct ChordFacts<'a> {
 
 pub const REFUSE_TOO_DEEP: &str = "this app's menus could not all be read to check this shortcut against the Computer Use deny list; use the app's menu items in the tree";
 pub const REFUSE_LAYOUT: &str = "this shortcut cannot be checked against the Computer Use deny list on this keyboard layout; use the app's menu items in the tree";
-pub const REFUSE_SERVICES_UNREAD: &str = "the Services shortcuts could not be read yet; try again in a moment, or use the app's menu items in the tree";
+pub const REFUSE_SERVICES_UNREAD: &str = "the Services shortcuts (`pbs -dump`) could not be read within 7 s, so this chord, which a Service might take, was not posted; use the app's menu items in the tree";
 pub const REFUSE_SERVICE: &str = "this shortcut runs a Service, which can hand the selection to an app on the Computer Use deny list; use the app's menu items in the tree";
 pub const REFUSE_BLOCKED: &str =
     "the menu item for this shortcut would reach an app on the Computer Use deny list";

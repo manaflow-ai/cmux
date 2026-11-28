@@ -38,7 +38,7 @@ final class ComposerGlassColorUITests: XCTestCase {
         app.launch()
         defer { app.terminate() }
         let field = app.textViews["chat.composer.field"]
-        if !field.waitForExistence(timeout: 30) { app.buttons["Reply to Claude"].firstMatch.tap() }
+        if !field.waitForExistence(timeout: 30) { app.buttons["agentChat.composer.collapsed"].firstMatch.tap() }
         XCTAssertTrue(field.waitForExistence(timeout: 10), "chat composer field\n\(app.debugDescription)")
         if !app.keyboards.firstMatch.exists { field.tap() }
         try compare(app, field, card: app.descendants(matching: .any)["chat.composer.card"], "chat")

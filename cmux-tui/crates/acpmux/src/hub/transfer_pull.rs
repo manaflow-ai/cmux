@@ -242,12 +242,16 @@ fn named_folder(
     let text = |k: &str| folder.get(k).and_then(Value::as_str).unwrap_or("");
     let bad = |m: &str| RpcError::invalid_params(format!("move: folder {m}"));
     if folder.contains_key("home") {
+        // Empty names the home folder itself (a chat started in `~` on the source): it maps to
+        // this machine's home, never outside it. Whether the chat may work there is the guard's
+        // call (`Guard::hub_move`: only a machine that is its own VM boundary takes home).
         let rel = text("home");
-        if !plain_relative(rel) {
+        if !rel.is_empty() && !plain_relative(rel) {
             return Err(bad("`home` must be a plain path under the home folder"));
         }
         let home = dirs::home_dir().ok_or_else(|| bad("needs a home folder here"))?;
-        return Ok(Folder::Plain { cwd: home.join(rel).to_string_lossy().into_owned() });
+        let cwd = if rel.is_empty() { home } else { home.join(rel) };
+        return Ok(Folder::Plain { cwd: cwd.to_string_lossy().into_owned() });
     }
     let (repo, url, branch, subdir) = (text("repo"), text("url"), text("branch"), text("subdir"));
     let mut parts = repo.split('/');
@@ -306,6 +310,24 @@ impl Hub {
             !landed
         });
         landed.then(|| json!({"sessionId": session.id, "cwd": session.meta().cwd}))
+    }
+
+    /// The guard of a hub move landing here: this daemon's `webRoots`, and the home folder too
+    /// when this machine takes a caller's VM boundary (`vm_boundary.rs`: Linux, `vmHost` not
+    /// turned off; never a Mac). Op `move` comes only from the person's own daemons and only
+    /// where `meshRelay.controlFrom` lists it, so on a dedicated agent VM the person's own chat
+    /// may land in that VM's home, as a fleet placer moving idle chats off a full host needs:
+    /// a chat that ran in `~` or under `~/.local/state` there. Refused when it names neither.
+    pub(super) async fn hub_move_guard(&self) -> Result<Guard, RpcError> {
+        let roots = self.config.read().await.web_roots.clone();
+        let home = self.takes_vm_boundary().await;
+        if roots.is_empty() && !home {
+            return Err(pull_error(
+                "no_roots",
+                "this machine names no webRoots and is not a VM host, so no moved chat may work here",
+            ));
+        }
+        Guard::hub_move(&roots, home).await
     }
 
     /// The folder the moved chat runs in here: named outright, or made as `session move` makes
@@ -393,17 +415,8 @@ impl Hub {
         if let Some(moved) = self.pulled(session_id, transfer_id) {
             return Ok(answer(moved));
         }
-        let roots = self.config.read().await.web_roots.clone();
-        if roots.is_empty() {
-            return Err(pull_error(
-                "no_roots",
-                "this machine names no webRoots, so no moved chat may work here",
-            ));
-        }
-        // Built here, from this daemon's own config: the message names no rule. A root that
-        // fails the guard's checks is left out, not fatal to every move.
-        let guard = Guard::from_config_roots(&roots).await?;
-        let guard_value = guard.to_value();
+        // Built here, from this daemon's own config: the message names no rule.
+        let guard = self.hub_move_guard().await?;
         let cwd = self.pull_folder(&guard, body.get("folder")).await?;
         // The freeze's split, in the answer: the circuit's open (relay and handshake; none for
         // a parked one), the pages (one round trip each) and the import.
@@ -435,9 +448,8 @@ impl Hub {
         // stays theirs, and its local prompts here are owner prompts.
         let received = self
             .receive_guarded(
-                &json!({"manifest": manifest, "guard": guard_value,
-                        "stageId": body.get("stageId")}),
-                true,
+                &json!({"manifest": manifest, "stageId": body.get("stageId")}),
+                Some(guard),
             )
             .await?;
         let receive_id = received.get("receiveId").cloned().unwrap_or(Value::Null);
@@ -448,7 +460,11 @@ impl Hub {
             from.set("host", json!(host));
         }
         let pages_ms = paging.elapsed().as_millis() as u64;
-        let finish = json!({"receiveId": receive_id, "from": from, "epoch": epoch, "cwd": cwd});
+        let mut finish = json!({"receiveId": receive_id, "from": from, "epoch": epoch, "cwd": cwd});
+        // The source's folder plan: the chat's own folder here, so its manifest rebinds to it.
+        if body.get("sameFolder") == Some(&Value::Bool(true)) {
+            finish.set("sameFolder", json!(true));
+        }
         let finishing = std::time::Instant::now();
         let moved = self.transfer_finish(&finish).await?;
         let finish_ms = finishing.elapsed().as_millis() as u64;
@@ -478,6 +494,17 @@ impl Hub {
         let Some(beat) = beat else { return false };
         beat.now(within).await;
         true
+    }
+
+    /// A mesh heartbeat soon, not waited for: a chat this daemon no longer runs (moved out)
+    /// leaves the hub's address book within the heartbeat floor, not at the next timed beat.
+    pub(crate) fn unlist_on_mesh_soon(&self) {
+        let beat = self.mesh_beat.lock().unwrap_or_else(|e| e.into_inner()).upgrade();
+        if let Some(beat) = beat
+            && let Ok(runtime) = tokio::runtime::Handle::try_current()
+        {
+            runtime.spawn(async move { beat.now(MOVED_LISTED_WAIT).await });
+        }
     }
 
     /// Every file `manifest` lists, read page by page from the source's `transfer_id` and
@@ -587,8 +614,13 @@ impl Hub {
         let hub_error = |e: crate::mesh::HubError| {
             pull_error("hub", e.message.clone()).with_data(json!({"code": e.code}))
         };
-        let mut receipt = mesh.send(&message).await.map_err(hub_error)?;
+        // A hub outage inside `wait` is ridden out, not the move's failure: the send carries its
+        // idempotency key, so a send the hub took before a lost answer is one message.
         let started = tokio::time::Instant::now();
+        let deadline = started + wait;
+        let mut receipt = crate::mesh_retry::ride_out(true, deadline, || mesh.send(&message))
+            .await
+            .map_err(hub_error)?;
         loop {
             match receipt.state.as_str() {
                 "delivered" => return Ok(Ok(receipt.result)),
@@ -602,8 +634,13 @@ impl Hub {
             if left.is_zero() {
                 break;
             }
-            receipt =
-                mesh.answer(&receipt.message_id, left.min(ANSWER_WAIT)).await.map_err(hub_error)?;
+            let id = receipt.message_id.clone();
+            receipt = crate::mesh_retry::ride_out(false, deadline, || {
+                let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+                mesh.answer(&id, left.min(ANSWER_WAIT))
+            })
+            .await
+            .map_err(hub_error)?;
         }
         Err(unanswered(daemon, op))
     }

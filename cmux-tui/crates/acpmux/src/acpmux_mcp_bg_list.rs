@@ -227,7 +227,8 @@ impl Page {
         }
         let mut shared = Vec::new();
         for key in SHARED {
-            let first = page[0].get(key).cloned().unwrap_or(Value::Null);
+            let first =
+                page.first().and_then(|first| first.get(key)).cloned().unwrap_or(Value::Null);
             if first.is_null() || page.iter().any(|t| t.get(key) != Some(&first)) {
                 continue;
             }

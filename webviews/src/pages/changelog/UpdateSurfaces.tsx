@@ -458,7 +458,6 @@ export function UpdatedCard({
     the ellipsis glyph (`glyph`), a bar one line tall that a light crosses (`bar`), and the words
     (`words`). */
 export type NoteLoadingLook = "dots" | "glyph" | "bar" | "words";
-export const NOTE_LOADING_LOOKS: readonly NoteLoadingLook[] = ["dots", "glyph", "bar", "words"];
 export const SHIPPED_NOTE_LOADING: NoteLoadingLook = "dots";
 
 /** The change line while the update's notes load: the note's own box (its font, line height and

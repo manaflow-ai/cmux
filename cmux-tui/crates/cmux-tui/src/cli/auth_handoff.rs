@@ -22,12 +22,15 @@
 use std::io::{IsTerminal, Read, Write};
 use std::time::Duration;
 
+use cmux_tui_core::retry::{Attempt, Patience};
 use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode};
 
 /// The app bounds its cmux-api call at 25 s; the CLI waits a little longer for its own answer.
 const HANDOFF_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long a mint that cmux-api could not reach is asked again.
+const UNAVAILABLE_PATIENCE: Duration = Duration::from_secs(20);
 /// A code is ~73 bytes; anything past this on stdin is not a code.
 const MAX_STDIN: u64 = 4096;
 /// Longest device name, as cmux-api takes it.
@@ -214,6 +217,25 @@ pub(super) fn redeem_output(value: &Value) -> Option<Value> {
     }))
 }
 
+/// The app's answer to one request: its value or refusal, or a transport failure.
+pub(super) type AppAnswer = Result<Result<Value, Value>, String>;
+
+/// Asks again while the app answers `unavailable` (cmux-api down or unreachable), inside
+/// `patience`. `Err` is a connect failure to the app itself, which ends at once.
+pub(super) fn retry_unavailable(
+    patience: Patience,
+    mut ask: impl FnMut() -> Result<AppAnswer, Value>,
+) -> Result<AppAnswer, Value> {
+    patience
+        .run(|| {
+            let answer = ask().map_err(|error| Attempt::Fail(Err(error)))?;
+            let unavailable = matches!(&answer, Ok(Err(error))
+                if error.get("code").and_then(Value::as_str) == Some("unavailable"));
+            if unavailable { Err(Attempt::Retry(Ok(answer))) } else { Ok(answer) }
+        })
+        .or_else(|ended| ended)
+}
+
 /// `cmux auth handoff …` (`args` after `handoff`).
 pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
     match parse(args) {
@@ -258,11 +280,17 @@ fn run_invocation(global: &GlobalArgs, invocation: Invocation, stdin: std::io::S
             ("auth.handoff.redeem", redeem_params(&code, device.as_deref()), false)
         }
     };
-    let mut stream = match super::app::connect_command(global) {
-        Ok(stream) => stream,
+    // A new code costs nothing and an unused one expires by itself, so a mint cmux-api could
+    // not reach is asked again; a redeem is asked once, as a lost answer may have spent its code.
+    let total = if mint { UNAVAILABLE_PATIENCE } else { Duration::ZERO };
+    let patience = Patience::new("cmux to be reachable", total);
+    let answer = match retry_unavailable(patience, || {
+        let mut stream = super::app::connect_command(global)?;
+        Ok(super::app::request(&mut stream, method, params.clone(), HANDOFF_TIMEOUT))
+    }) {
+        Ok(answer) => answer,
         Err(error) => return super::wire::print_local_error(&error, global.output, 4),
     };
-    let answer = super::app::request(&mut stream, method, params, HANDOFF_TIMEOUT);
     match answer {
         Ok(Ok(value)) => {
             let shaped = if mint { mint_output(&value) } else { redeem_output(&value) };

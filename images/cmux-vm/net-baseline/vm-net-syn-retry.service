@@ -1,0 +1,21 @@
+# A lost first SYN costs 200 ms on this machine, where the kernel's fixed timer makes it cost 1 s. Baked into the Cloud VM image
+# by web/scripts/cmux-vm-image/net-baseline.ts (same unit as leo-workspace machines/vm-net/, which fleet VMs get).
+#
+# 2026-11-27: on a Freestyle guest, 4 of 20 probe passes had 1 or 2 of 150 new GitHub connections take 1.1 to 2.5 s,
+# each one a first SYN lost outside the guest and resent after the kernel's 1 s. The loss is not ours to remove yet;
+# the wait is. syn_retry.py attaches a 6-instruction sock_ops program to the root cgroup that answers the kernel's
+# question for each new connection's first timer (measured: 1024 ms -> 208 ms per lost SYN; its docstring has the rest).
+# Remove: `sudo systemctl disable --now vm-net-syn-retry.service` (ExecStop detaches it), or VM_NET_SYN=off for the tool.
+[Unit]
+Description=First TCP SYN is resent after 200 ms, not 1 s
+After=sys-fs-bpf.mount
+ConditionPathExists=/sys/fs/cgroup/cgroup.controllers
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/python3 -I /usr/local/lib/vm-net-baseline/syn_retry.py attach 200
+ExecStop=-/usr/bin/python3 -I /usr/local/lib/vm-net-baseline/syn_retry.py detach
+
+[Install]
+WantedBy=multi-user.target

@@ -100,17 +100,19 @@ public final class ScreenshotsModel {
     ///
     /// - Parameter newSources: the folders, in menu order.
     public func setSources(_ newSources: [ScreenshotSource]) {
-        guard newSources != sources else { return }
         let json = ScreenshotsFFI.json(newSources.map {
+            // main-actor-ok: one small rule object per screenshot folder (a handful), parsed once per sources change
             ["id": $0.id, "label": $0.label, "folder": $0.folder.path, "acceptsDrops": $0.acceptsDrops, "rule": (try? JSONSerialization.jsonObject(with: Data($0.rule.json.utf8))) ?? [:]] as [String: Any]
         })
         let plan = ScreenshotsFFI.object(ScreenshotsFFI.bytes(json) { cmux_screenshots_pane_set_sources(pane.pointer, $0, $1) })
-        for id in plan["removed"] as? [String] ?? [] {
+        guard plan["changed"] as? Bool ?? true else { return }
+        let removed = plan["removed"] as? [String] ?? []
+        for id in removed {
             scans.removeValue(forKey: id)?.cancel()
             listing.removeSource(id)
         }
         sources = newSources
-        if let selectedSourceID, !newSources.contains(where: { $0.id == selectedSourceID }) { self.selectedSourceID = nil }
+        if let selectedSourceID, removed.contains(selectedSourceID) { self.selectedSourceID = nil }
         let read = Set(plan["read"] as? [String] ?? [])
         for source in newSources where read.contains(source.id) { scheduleRescan(source) }
         applyState()

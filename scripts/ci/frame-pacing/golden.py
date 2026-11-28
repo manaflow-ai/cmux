@@ -24,6 +24,7 @@ The script uses only the standard library: it runs on the mini's system python3.
 from __future__ import annotations
 
 import json
+import os
 import socket
 import sys
 import time
@@ -31,6 +32,7 @@ from pathlib import Path
 
 import browser_resize
 import dark_load_flash
+import motion_frames
 import sidebar_content
 import split_resize
 
@@ -59,8 +61,23 @@ THRESHOLDS: dict[str, dict[str, float]] = {
     "split_resize": {},
     # Judged by dark_load_flash.py: no frame brighter than the window at rest while a page loads.
     "dark_load_flash": {},
+    # Judged by motion_frames.py: no blank frame around Cmd-Shift-Enter, Cmd-P and Cmd-W, and under
+    # Reduce Motion Cmd-Shift-Enter and Cmd-P land in one frame.
+    "motion_frames": {},
 }
 SCENARIOS = list(THRESHOLDS)
+# The modules that drive and judge a scenario of their own (drive(driver, out), judge(data, refresh), markdown_row).
+MODULES = {"browser_resize": browser_resize, "split_resize": split_resize, "dark_load_flash": dark_load_flash,
+           "motion_frames": motion_frames}
+
+
+def only_steps() -> list[str]:
+    """`GOLDEN_ONLY` (comma separated drive steps, such as `motion_frames`): run just those; empty, every step.
+
+    The `frames` suite of cmux-next-frame-pacing.yml sets it, so a pull request that touches a motion area
+    pays for that area's recordings alone.
+    """
+    return [name.strip() for name in os.environ.get("GOLDEN_ONLY", "").split(",") if name.strip()]
 
 
 # ---------------------------------------------------------------- socket
@@ -275,6 +292,9 @@ class Driver:
     def dark_load_flash(self) -> None:
         dark_load_flash.drive(self, self.out)
 
+    def motion_frames(self) -> None:
+        motion_frames.drive(self, self.out)
+
     def transcript(self) -> None:
         opened = self.call("action.run", {"action": "palette.newAgentChat"})
         # The chat opens hidden, then moves into a dock column: wait up to 10 s for a pane to show
@@ -335,16 +355,20 @@ class Driver:
             ("capture", self.capture),
             ("browser_resize", self.browser_resize),
             ("split_resize", self.split_resize),
+            ("motion_frames", self.motion_frames),
             # Last: it leaves the app in a dark theme of its own.
             ("dark_load_flash", self.dark_load_flash),
         ]
+        only = only_steps()
+        if only:
+            steps = [(name, step) for name, step in steps if name in only]
         for name, step in steps:
             try:
                 step()
             except Exception as error:  # one broken scenario must not hide the others
                 self.log.append(f"{name}: {type(error).__name__}: {error}")
         self.call("debug.motion", {"action": "reduce", "value": None})
-        self.save("drive_log", {"log": self.log})
+        self.save("drive_log", {"log": self.log, "only": only})
 
     def reduced(self) -> None:
         self.reduce_on = self.call("debug.motion", {"action": "reduce", "value": True}).get("reduce_motion") is True
@@ -480,16 +504,14 @@ def refresh_of(out: Path) -> float:
 def judge(out: Path) -> dict[str, dict]:
     refresh = refresh_of(out)
     verdicts: dict[str, dict] = {}
+    # A run limited to some steps (GOLDEN_ONLY) judges those scenarios alone: the rest were never driven.
+    only = (load(out, "drive_log") or {}).get("only") or []
     for name in SCENARIOS:
+        if only and name not in only:
+            continue
         data = load(out, name)
-        if name == "browser_resize":
-            verdicts[name] = browser_resize.judge(data or {"error": "no result file"}, refresh)
-            continue
-        if name == "split_resize":
-            verdicts[name] = split_resize.judge(data or {"error": "no result file"}, refresh)
-            continue
-        if name == "dark_load_flash":
-            verdicts[name] = dark_load_flash.judge(data or {"error": "no result file"}, refresh)
+        if name in MODULES:
+            verdicts[name] = MODULES[name].judge(data or {"error": "no result file"}, refresh)
             continue
         if data is None or ("error" in data and "samples" not in data and "scroll_top" not in data and "drags" not in data):
             verdicts[name] = {"ok": False, "problems": [f"not measured: {(data or {}).get('error', 'no result file')}"]}
@@ -611,14 +633,8 @@ def markdown(out: Path, verdicts: dict[str, dict]) -> str:
              "| scenario | result | intermediate frames | largest step | frame p95 / max | notes |",
              "|---|---|---|---|---|---|"]
     for name, verdict in verdicts.items():
-        if name == "browser_resize":
-            lines.append(browser_resize.markdown_row(verdict))
-            continue
-        if name == "split_resize":
-            lines.append(split_resize.markdown_row(verdict))
-            continue
-        if name == "dark_load_flash":
-            lines.append(dark_load_flash.markdown_row(verdict))
+        if name in MODULES:
+            lines.append(MODULES[name].markdown_row(verdict))
             continue
         limits = THRESHOLDS[name]
         bound = f"≥ {limits['min_intermediate']:g}" if "min_intermediate" in limits else f"≤ {limits['max_intermediate']:g}"

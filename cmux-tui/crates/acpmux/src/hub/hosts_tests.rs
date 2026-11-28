@@ -198,7 +198,7 @@ async fn adoption_reads_parse_only_the_records_they_fold() {
         let _ = hub.remote_host_env_current(&session, "inc");
         let after = hub.last_host_seq(&session, "inc");
         let work = hub.open_work(&session, "inc");
-        hub.rebuild_processes(&session);
+        hub.rebuild_processes_from(&session, None);
         resumed.push((after, work.turn.map(|t| t.1), work.requests.len()));
     }
     let elapsed = started.elapsed();
@@ -768,6 +768,118 @@ async fn an_adoption_resumed_from_its_checkpoint_matches_a_whole_read() {
     }
 }
 
+/// The process table an adoption rebuilds from its checkpoint's (`journal.rs` `keep_processes`)
+/// is the one a read of the whole log gives: for each log ended at every record, the table kept
+/// by an adoption then, then the rest of the log folded onto it, against a fresh read. A 4 GB
+/// chat's restart spent 712 of its 900 ms reading every segment's copy for it (cmux#51494).
+#[tokio::test]
+async fn an_adoptions_process_table_resumed_from_its_checkpoint_matches_a_whole_read() {
+    let mut logs = checkpoint_logs();
+    let mut ended = hosted_log_of(3, 2);
+    ended.push("in", "background_task_update", json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "own", "update": {"sessionUpdate": "background_task_update", "toolCallId": "bg", "taskId": "bg", "state": "completed", "command": "serve"}}}), true);
+    ended.push("in", "background_task_update", json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "own", "update": {"sessionUpdate": "background_task_update", "toolCallId": "bg2", "taskId": "bg2", "state": "running", "command": "watch"}}}), true);
+    logs.push(ended);
+    let mut kept = 0;
+    for (n, log) in logs.iter().enumerate() {
+        let last = log.records.len() as u64;
+        for split in 1..log.records.len() {
+            let head = Log { records: log.records[..split].to_vec(), host_seq: 0 };
+            let (hub, root) = hub_with(1, &head).await;
+            let session = hub.resolve("chat0").unwrap();
+            hub.recovery_work(&session, "inc", 0);
+            for record in &log.records[split..] {
+                hub.store.append("chat0", record).unwrap();
+            }
+            session.seq.store(last, Ordering::SeqCst);
+            let work = hub.recovery_work(&session, "inc", 0);
+            let whole = hub.processes_through(&session, None, last);
+            if let Some(saved) = work.processes.clone() {
+                kept += 1;
+                assert_eq!(
+                    hub.processes_through(&session, Some(saved), last),
+                    whole,
+                    "log {n} split {split}"
+                );
+            }
+            hub.shutdown_all().await;
+            let _ = std::fs::remove_dir_all(&root);
+        }
+    }
+    assert!(kept > 0, "no adoption kept a process table");
+}
+
+/// A host's first adoption resumes from a checkpoint another host's adoption saved, or the one
+/// folded in the background when it started (`prime_adoption_checkpoint`), through the folds of
+/// an incarnation not started yet, and recovers what a fold of the whole log recovers. One whose
+/// own start is in the checkpoint's records does not use it (cmux#51494).
+#[tokio::test]
+async fn a_new_hosts_adoption_resumed_from_the_unstarted_folds_matches_a_whole_read() {
+    let incarnations = ["inc", "old", "gone", "next"];
+    let saving = ["inc", "old", "gone", "next", super::checkpoint::UNSTARTED];
+    let mut transferred = 0;
+    for (n, log) in checkpoint_logs().iter().enumerate() {
+        let (hub, root) = hub_with(1, log).await;
+        let session = hub.resolve("chat0").unwrap();
+        hub.catch_up(&session);
+        let whole: Vec<String> =
+            incarnations.iter().map(|i| adoption_state(&hub, &session, i)).collect();
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&root);
+        for split in 1..log.records.len() {
+            let head = Log { records: log.records[..split].to_vec(), host_seq: 0 };
+            let (hub, root) = hub_with(1, &head).await;
+            let session = hub.resolve("chat0").unwrap();
+            let file = hub.store.session_dir("chat0").unwrap().join("adoption-checkpoint.json");
+            let mut saved = Vec::new();
+            for saver in saving {
+                let _ = std::fs::remove_file(&file);
+                if saver == super::checkpoint::UNSTARTED {
+                    hub.catch_up(&session);
+                    let settled = hub.settled_seq(&session);
+                    if let Some(point) = hub.fold_unstarted(&session, settled) {
+                        hub.save_adoption_checkpoint(&session, point);
+                    }
+                } else {
+                    hub.recovery_work(&session, saver, 0);
+                }
+                saved.push((saver, hub.store.adoption_checkpoint("chat0")));
+            }
+            for record in &log.records[split..] {
+                hub.store.append("chat0", record).unwrap();
+            }
+            session.seq.store(log.records.len() as u64, Ordering::SeqCst);
+            for (saver, bytes) in &saved {
+                let Some(bytes) = bytes else { continue };
+                for (incarnation, whole) in incarnations.iter().zip(&whole) {
+                    if incarnation == saver {
+                        continue;
+                    }
+                    let _ = std::fs::remove_file(&file);
+                    hub.store.save_adoption_checkpoint("chat0", bytes).unwrap();
+                    let inputs = hub.fold_inputs(&session);
+                    let used = hub.adoption_checkpoint(&session, incarnation, &inputs).is_some();
+                    // Its own start among the records folded: never resumed from.
+                    let started_before = log.records[..split].iter().any(|r| {
+                        r.kind == "host_started"
+                            && r.msg.get("incarnation").and_then(Value::as_str)
+                                == Some(*incarnation)
+                    });
+                    assert!(
+                        !(used && started_before),
+                        "log {n} split {split} {saver}->{incarnation}"
+                    );
+                    transferred += usize::from(used);
+                    let state = adoption_state(&hub, &session, incarnation);
+                    assert_eq!(&state, whole, "log {n} split {split} {saver}->{incarnation}");
+                }
+            }
+            hub.shutdown_all().await;
+            let _ = std::fs::remove_dir_all(&root);
+        }
+    }
+    assert!(transferred > 0, "no adoption resumed from another host's checkpoint");
+}
+
 /// A checkpoint saved with no host running (a daemon's load of the log) is resumed by the
 /// adoption of a host whose start the log holds after it, as a fold of the whole log reads it,
 /// and never by a host that started at or before it.
@@ -787,7 +899,7 @@ async fn a_checkpoint_saved_with_no_host_serves_the_hosts_started_after_it() {
             let head = Log { records: log.records[..split].to_vec(), host_seq: 0 };
             let (hub, root) = hub_with(1, &head).await;
             let session = hub.resolve("chat0").unwrap();
-            hub.save_checkpoint_now(&session, journal::UNSTARTED);
+            hub.save_checkpoint_now(&session, super::checkpoint::UNSTARTED);
             let Some(bytes) = hub.store.adoption_checkpoint("chat0") else {
                 hub.shutdown_all().await;
                 let _ = std::fs::remove_dir_all(&root);
