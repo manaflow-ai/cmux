@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.vault.keyShaped" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يبدو %@ كمفتاح. احفظه كسر حتى لا يقرأ الوكلاء قيمته أبدًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ izgleda kao ključ. Čuvajte ga kao tajnu da agenti nikad ne pročitaju vrijednost."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ligner en nøgle. Gem den som en hemmelighed, så agenter aldrig læser værdien."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ sieht nach einem Schlüssel aus. Speichere ihn als Geheimnis, damit Agenten den Wert nie lesen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ looks like a key. Keep it as a secret so agents never read its value."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ parece una clave. Guárdala como secreto para que los agentes nunca lean su valor."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ressemble à une clé. Gardez-la comme secret pour que les agents n'en lisent jamais la valeur."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ sembra una chiave. Conservala come segreto, così gli agenti non ne leggono mai il valore."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ はキーのようです。エージェントが値を読めないよう、シークレットとして保存してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ មើលទៅដូចជាកូនសោ។ រក្សាវាជាអាថ៌កំបាំង ដើម្បីកុំឱ្យភ្នាក់ងារអានតម្លៃរបស់វា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@은(는) 키처럼 보입니다. 에이전트가 값을 읽지 못하도록 시크릿으로 저장하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ser ut som en nøkkel. Lagre den som en hemmelighet så agenter aldri leser verdien."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ wygląda na klucz. Zapisz go jako sekret, aby agenci nigdy nie odczytali jego wartości."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ parece uma chave. Guarde como segredo para que os agentes nunca leiam o valor."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ похоже на ключ. Сохраните его как секрет, чтобы агенты никогда не читали значение."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ดูเหมือนคีย์ เก็บเป็นความลับเพื่อไม่ให้เอเจนต์อ่านค่าได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ bir anahtara benziyor. Ajanlar değerini asla okuyamasın diye gizli bilgi olarak saklayın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ схоже на ключ. Збережіть його як секрет, щоб агенти ніколи не читали значення."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ trông giống một khóa. Hãy lưu nó dưới dạng bí mật để tác tử không bao giờ đọc được giá trị."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 看起来像密钥。请将其保存为机密，这样代理永远读不到它的值。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 看起來像金鑰。請將其儲存為機密，這樣代理永遠讀不到它的值。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
