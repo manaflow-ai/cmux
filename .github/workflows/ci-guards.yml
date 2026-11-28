@@ -2848,6 +2848,7 @@ jobs:
           python3 tests/test_ci_warm_sources.py
           python3 tests/test_ci_cloud_journey_prod_preclaim_login.py
           python3 tests/test_ci_checkout_lean.py
+          python3 tests/test_ci_nightly_source.py
           python3 tests/test_ci_sparse_checkout_imports.py
           python3 tests/test_ci_sparse_cargo_path_deps.py
           python3 tests/test_web_cas_upload_rerun.py

@@ -190,3 +190,49 @@ fn the_floor_never_passes_51() {
     guard.after(PX, 10_000_000);
     assert_eq!(guard.before(PX, 1), MAX_QP);
 }
+
+#[test]
+fn in_motion_a_floor_a_qp_or_two_off_stays_and_each_frame_still_fits() {
+    // Scrolled text in motion: k wobbles +-15% frame to frame, which moves the wanted floor by
+    // a QP or so. Each MinAllowedFrameQP change costs the next encode about 3 ms, so the floor
+    // should change on few frames, and every frame should still fit its budget.
+    let mut guard = FrameGuard::default();
+    let budget = 20_000;
+    let wobble = [1.0, 1.15, 0.9, 1.1, 0.85, 1.05, 0.95, 1.12, 0.88, 1.0];
+    for _ in 0..3 {
+        send(&mut guard, PX, budget, TEXT_K);
+    }
+    let mut changes = 0;
+    let mut last = guard.floor();
+    for round in 0..6 {
+        for w in wobble {
+            let bytes = send(&mut guard, PX, budget, TEXT_K * w);
+            // The wobble alone (a frame up to ~1.3x the learned k) can pass the budget by a
+            // little; one QP of slack adds at most 12% on top of that.
+            assert!(bytes * 10 <= budget * 12, "round {round}: {bytes} against {budget}");
+            if guard.floor() != last {
+                changes += 1;
+                last = guard.floor();
+            }
+        }
+    }
+    assert!(changes <= 6, "the floor changed on {changes} of 60 frames");
+}
+
+#[test]
+fn a_floor_one_under_the_wanted_stays_and_two_under_rises() {
+    let mut guard = FrameGuard::default();
+    // Content that wants a floor near 30, well above the near-lossless hold and under 51.
+    guard.after(PX, 13_000);
+    let first = guard.before(PX, BUDGET);
+    assert!(first > HOLD_FLOOR_MAX && first < 40, "{first}");
+    // Content about 12% heavier wants one QP more: the floor stays.
+    let heavier = guard.k() * 1.12;
+    guard.after(PX, (PX as f64 * heavier * 2f64.powf(-f64::from(first) / 6.0)) as usize);
+    assert_eq!(guard.before(PX, BUDGET), first);
+    // Three times as heavy wants several more: it rises at once.
+    let heavy = guard.k() * 3.0;
+    guard.after(PX, (PX as f64 * heavy * 2f64.powf(-f64::from(first) / 6.0)) as usize);
+    let risen = guard.before(PX, BUDGET);
+    assert!(risen > first + RISE_SLACK, "{first} -> {risen}");
+}
