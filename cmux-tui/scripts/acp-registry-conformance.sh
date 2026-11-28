@@ -35,6 +35,12 @@ matrix() {
     && mv "$out/matrix.json.tmp" "$out/matrix.json"
 }
 
+# A `uvx` agent starts only where uvx is on PATH; a host without it gets uv in a venv here, so the row measures
+# the agent rather than this host.
+if ! command -v uvx >/dev/null 2>&1; then
+  python3 -m venv "$out/uv" && "$out/uv/bin/pip" install --quiet uv >"$out/uv.log" 2>&1 && PATH="$out/uv/bin:$PATH"
+fi
+
 # Build once; each agent's run then reuses it.
 (cd "$here" && cargo test --locked -p acpmux --lib --no-run) >"$out/build.log" 2>&1
 build=$?

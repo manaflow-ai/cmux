@@ -32,6 +32,9 @@ def rows_for(log: str, agent_id: str, version: str) -> list[dict]:
         why = "timed out" if m.group(1) in ("124", "137") else f"the run ended (exit {m.group(1)}) before this case"
     else:
         why = "no run"
+    # A failed launch ends that agent's test (the other agents run on): its later cases were never tried.
+    if seen.get("launch", ("pass",))[0] == "fail":
+        why = "not run: the launch failed"
     return [{"agent": agent_id, "version": version, "case": case,
              "result": seen.get(case, ("fail", why))[0], "detail": seen.get(case, ("fail", why))[1]}
             for case in CASES]
