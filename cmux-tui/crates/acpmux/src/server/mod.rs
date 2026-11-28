@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
@@ -515,6 +515,9 @@ pub struct Conn {
     /// The features its `initialize` listed (`client_features.rs`): a gated notification goes
     /// to it only once it listed the gate.
     client_features: client_features::ClientFeatures,
+    /// The ABI revision its hello named when older than this build's and covered by the compat
+    /// file (`abi_compat.rs`), else 0: its events and replies are written down to it.
+    abi_down: AtomicU32,
     /// Compact text chunks on its event streams (`chunk_deltas.rs`), when its `initialize` asked.
     chunk_deltas: chunk_deltas::ChunkDeltas,
     /// The client asked, in its `initialize` (`_meta.acpmux.sessionChangedDelta`), to hear a chat's
@@ -1044,7 +1047,75 @@ impl Conn {
         if crate::perf_watch::on() {
             self.perf_bytes(|| crate::rpc::method::SESSION_UPDATE.to_owned(), line.len());
         }
+        if let Some(line) = self.written_down_line(line) {
+            self.out.push(line);
+            return;
+        }
         self.out.push(line.to_owned());
+    }
+
+    /// `msg` written down to the older ABI revision this connection's hello named
+    /// (`abi_compat.rs`); none when it reads this build's messages, or no rule changes `msg`.
+    /// `reply_to` names a reply's request, whose rules a result follows.
+    fn written_down(&self, msg: &Message, reply_to: Option<&str>) -> Option<Message> {
+        let to = self.abi_down.load(Ordering::Relaxed);
+        if to == 0 {
+            return None;
+        }
+        let kind = match msg {
+            Message::Notification { method, .. } | Message::Request { method, .. } => {
+                format!("event:{method}")
+            }
+            Message::Response { .. } => format!("response:{}", reply_to?),
+        };
+        if !crate::abi_compat::changes(&kind, to) {
+            return None;
+        }
+        let mut copy = msg.clone();
+        let changed = match &mut copy {
+            Message::Notification { method, params: Some(params) }
+            | Message::Request { method, params: Some(params), .. } => {
+                crate::abi_compat::down_event(method, to, params)
+            }
+            Message::Response { result: Some(result), .. } => {
+                reply_to.is_some_and(|m| crate::abi_compat::down_result(m, to, result))
+            }
+            _ => false,
+        };
+        changed.then_some(copy)
+    }
+
+    /// [`Self::written_down`] of a shared `session/update` line, parsed only when a rule
+    /// changes that event for this connection's revision.
+    fn written_down_line(&self, line: &str) -> Option<String> {
+        // perf-hot: one atomic load for a connection at this build's revision (every one today).
+        let to = self.abi_down.load(Ordering::Relaxed);
+        if to == 0 {
+            return None;
+        }
+        let kind = format!("event:{}", crate::rpc::method::SESSION_UPDATE);
+        if !crate::abi_compat::changes(&kind, to) {
+            return None;
+        }
+        let mut value: Value = serde_json::from_str(line).ok()?;
+        let params = value.get_mut("params")?;
+        crate::abi_compat::down_event(crate::rpc::method::SESSION_UPDATE, to, params)
+            .then(|| value.to_string())
+    }
+
+    /// An already serialized `result` of a `method` request, written down like
+    /// [`Self::written_down`]; the same `Arc` when nothing changes.
+    fn written_down_result(&self, method: Option<&str>, result: Arc<String>) -> Arc<String> {
+        let to = self.abi_down.load(Ordering::Relaxed);
+        let Some(method) = method.filter(|_| to != 0) else { return result };
+        if !crate::abi_compat::changes(&format!("response:{method}"), to) {
+            return result;
+        }
+        let Ok(mut value) = serde_json::from_str::<Value>(&result) else { return result };
+        if !crate::abi_compat::down_result(method, to, &mut value) {
+            return result;
+        }
+        Arc::new(value.to_string())
     }
 
     /// The perf watch's meter (`perf_watch.rs`, on only): `what` went to this client.
@@ -1098,6 +1169,8 @@ impl Conn {
         let base = redacted.as_ref().unwrap_or(msg);
         let masked = (!self.raw_text).then(|| peer_text::masked(base)).flatten();
         let msg = masked.as_ref().unwrap_or(base);
+        let down = self.written_down(msg, reply_to);
+        let msg = down.as_ref().unwrap_or(msg);
         // No message larger than one frame (`rpc::MAX_MESSAGE_BYTES`): a reply goes as its error,
         // a notification is left out and the client reads again from its last record.
         match msg.bounded_line_replying(reply_to) {
@@ -1162,6 +1235,7 @@ impl Conn {
         claim: Option<&in_flight::Claim>,
         result: Arc<String>,
     ) -> bool {
+        let result = self.written_down_result(method, result);
         // A result past the cap alone is refused before its line is made: no copy of it.
         let (line, bytes, whole) = if result.len() > crate::rpc::MAX_MESSAGE_BYTES {
             let error = Message::err(id.clone(), RpcError::too_large(result.len())).to_line();
@@ -1214,6 +1288,8 @@ impl Conn {
         self.raise_gate();
         let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
         let msg = masked.as_ref().unwrap_or(msg);
+        let down = self.written_down(msg, None);
+        let msg = down.as_ref().unwrap_or(msg);
         let line = msg.bounded_line().map_err(RpcError::too_large)?;
         if self.out.is_closed() || !self.out.push(line) {
             return Err(RpcError::internal("the connection that would answer ended"));
