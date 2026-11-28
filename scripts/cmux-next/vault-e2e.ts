@@ -211,7 +211,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const why = String(m?.error?.code ?? m?.error ?? m?.failure ?? m?.reason ?? "no reason given").slice(0, 200);
           // Run 46137255214: staging failed a fresh machine after 323 s (Freestyle VM start capacity). A failed
           // machine is the provider's, not the vault's: delete it and try one more before naming staging.
-          if (replaced) throw new Error(`machine failed (${why}); its replacement ${replaced.trim()} failed too`);
+          if (replaced) throw new Error(`replacement ${machine} failed (${why})${replaced}`);
           const old = machine!;
           await remove(old);
           machine = report.machine = await createMachine("r");
