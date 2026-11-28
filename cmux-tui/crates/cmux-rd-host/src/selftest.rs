@@ -94,6 +94,8 @@ pub fn run(opts: &Opts) -> Res<()> {
     let workload = opts.str_or("workload", "marker");
     let kbps: u32 = opts.num_or("kbps", 8000)?;
     let profile = opts.str_or("profile", "high");
+    // A pause before each frame, as between key presses (the encoder idles in it); 0: back to back.
+    let gap_ms: u64 = opts.num_or("gap-ms", 0)?;
     let threads: u16 = opts.num_or("threads", encoder::default_threads())?;
     let convert_threads: usize = opts.num_or("convert-threads", cmux_encode::convert_threads())?;
     if width < 640 || height < 64 || width % 2 == 1 || height % 2 == 1 {
@@ -135,6 +137,9 @@ pub fn run(opts: &Opts) -> Res<()> {
                 (0, 0, 640, 32)
             }
         };
+        if gap_ms > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(gap_ms));
+        }
         let t0 = now_ns();
         bgrx_rect_to_i420(&bgrx[..dw * dh * 4], &mut converted, dx, dy, dw, dh, convert_threads);
         convert_ms.push((now_ns() - t0) as f64 / 1e6);
@@ -166,6 +171,8 @@ pub fn run(opts: &Opts) -> Res<()> {
             "workload": workload,
             "size": format!("{width}x{height}"),
             "frames": frames,
+            "gap_ms": gap_ms,
+            "power_efficient": std::env::var("CMUX_RD_VT_POWER_EFFICIENT").ok(),
             "cores": std::thread::available_parallelism().map_or(1, |n| n.get()),
             "threads": threads,
             "convert_threads": convert_threads,
