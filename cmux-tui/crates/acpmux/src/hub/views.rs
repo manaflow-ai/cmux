@@ -150,7 +150,8 @@ fn sidebar_requires_open(summary: &Value) -> bool {
 /// - `input`: a permission or question waits for the person, here or in an
 ///   open sub-session below it (`subsessionsWaiting`, `asks_below.rs`).
 /// - `working`: a turn runs.
-/// - `failed`: the last turn failed (also when the agent then exited).
+/// - `failed`: the last turn failed (also when the agent then exited), and no work the session
+///   started since it ended runs (`subagentsWorkingSince` later than `lastTurn.endedAt`).
 /// - `lost`: the agent process is gone (`disconnected`, or a peer's
 ///   `unreachable`) and the chat's last turn did not answer. A chat with
 ///   no turn yet has nothing to lose.
@@ -173,6 +174,13 @@ fn sidebar_requires_open(summary: &Value) -> bool {
 ///
 /// Reads only the summary's own fields, so a summary whose `status` changes
 /// afterwards (a peer going unreachable) is re-decided from it.
+/// Work below the turn (`subagentsWorkingSince`) began after the last turn ended, or the last
+/// turn has no end time: that work is newer than the turn.
+fn works_since_last_turn(summary: &Value) -> bool {
+    let Some(since) = summary["subagentsWorkingSince"].as_u64() else { return false };
+    summary["lastTurn"]["endedAt"].as_u64().is_none_or(|ended| since >= ended)
+}
+
 pub fn status_indicator(summary: &Value) -> Option<&'static str> {
     let status = summary["status"].as_str().unwrap_or_default();
     let last = summary["lastTurn"]["status"].as_str();
@@ -190,7 +198,10 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         _ if crate::session_liveness::blocked(summary) => Some("failed"),
         // acpmux holds a turn a capacity error cut and goes on by itself (`row_last_turn`).
         _ if last == Some("capacity") => Some("working"),
-        _ if last == Some("failed") => Some("failed"),
+        // Work the session started after its failed turn ended is newer than the failure: the
+        // chat is working again, not erroring (Leo, 2026-11-27: "this isn't leaving the tab icon
+        // even after you're not erroring anymore").
+        _ if last == Some("failed") && !works_since_last_turn(summary) => Some("failed"),
         "disconnected" | "unreachable" if last.is_some() && !answered => Some("lost"),
         "unreachable" => answered.then_some("done"),
         _ if summary["subagentsWorkingSince"].is_u64() => Some("working"),
@@ -879,6 +890,7 @@ impl Hub {
             pinned: m.pinned,
             // Background work no turn shows: an idle app update waits for it too.
             working_below: self.holds_work_below_read(session),
+            residency: serde_json::to_value(self.residency_of(session, m.status)).ok(),
             // A turn failed: the prompts that waited behind it wait for a client to resume them.
             queue_paused: session.queue_paused(),
             // A daemon start holds its queue until a person opens it (`protected_hold.rs`).
@@ -1314,7 +1326,7 @@ impl Hub {
             // Its ABI revision and the hellos heard since the start (`abi_hello.rs`).
             "abi": crate::abi_hello::status(),
             // Chats out of memory as compact rows now, and evictions and rehydrations since the
-            // start (`evict.rs`; all 0 while `ACPMUX_EVICT_IDLE_SECS` is unset).
+            // start (`evict.rs`; all 0 while `ACPMUX_EVICT_IDLE_SECS` is 0).
             "evicted": evicted,
             // The closed rows `_acpmux/sessions` lists with no filter, counted with no row built
             // (`Hub::closed_listed`): `acpmux ls` counts them on its hidden line while it reads
@@ -1369,6 +1381,9 @@ impl Hub {
             "liveAgents": live,
             // Live agent hosts still on another build than this one (`views/host_build.rs`).
             "hostsOnOtherBuilds": other_build,
+            // The idle policy and what the chats cost now: resident, busy, what a lane cap
+            // counts, hibernated (`residency.rs`, versioned `v`).
+            "residency": self.residency_status(&sessions),
             "stuckSessions": stuck,
             "disk": disk,
             // macOS: whether this daemon's agents can read the login keychain
