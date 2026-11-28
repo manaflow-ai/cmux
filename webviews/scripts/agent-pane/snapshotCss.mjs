@@ -8,7 +8,7 @@
 // shared.ts `fitsDocument`) inherit into the copy. A selector with `:focus` is left out too: the copy is
 // inert and never holds focus (the focus-ring gate adds a root selector to every `:focus-visible`).
 // build-agent-pane-web.sh writes it beside the page's
-// sheet as `pane-copy.css`, minified (about 175 KB, under the 200 KB budget agent-pane-styles.test.ts holds it
+// sheet as `pane-copy.css`, minified (about 178 KB, under the 200 KB budget agent-pane-styles.test.ts holds it
 // to, where a whole rewritten copy of the sheet was 1.9 MB).
 //
 //   bun scripts/agent-pane/snapshotCss.mjs pane.css pane-copy.css
