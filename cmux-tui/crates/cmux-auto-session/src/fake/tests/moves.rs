@@ -285,7 +285,8 @@ fn a_move_is_the_owners_and_names_a_laptop_only_to_go_local() {
         let request = MoveRequest::laptop(no_laptop);
         assert_eq!(status(ready(owner.move_(CHAT, &request))), Some(400));
     }
-    assert_eq!(status(ready(machine.move_(CHAT, &MoveRequest::local()))), Some(403));
+    // A machine moves only a chat it holds; this one is the laptop's.
+    assert_eq!(status(ready(machine.move_(CHAT, &MoveRequest::local()))), Some(404));
     assert_eq!(status(ready(owner.move_("no_chat", &MoveRequest::cloud()))), Some(404));
     assert_eq!(status(ready(owner.give(CHAT, &Fence::new(Holder::Parked, 1)))), Some(400));
     assert_eq!(code(give(&owner, &mac2(), 1)), ErrorCode::NotHolder);

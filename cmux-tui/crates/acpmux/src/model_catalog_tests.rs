@@ -246,3 +246,22 @@ fn same_model_reads_aliases_as_their_ids() {
     assert!(!same_model(Some(&c), "opus[1m]", "opus"));
     assert!(same_model(None, "m1", "m1"));
 }
+
+/// Codex's "Selected model is at capacity. Please try a different model." asks for another
+/// model; a plain overload does not. The model it moves to is its family's capacity fallback
+/// (Opus to Sonnet), else the same family one version back (`gpt-6.2-sol` -> `gpt-6.1-sol`);
+/// a model with no older one of its family stays.
+#[test]
+fn a_capacity_error_that_asks_for_another_model_moves_one_version_back() {
+    assert!(asks_for_another_model("Selected model is at capacity. Please try a different model."));
+    assert!(!asks_for_another_model("529 overloaded_error"));
+    assert!(!asks_for_another_model("Selected model is at capacity."));
+    assert!(!asks_for_another_model("try a different model: unknown id"));
+    let codex = bundled_harness("codex").expect("bundled codex entry");
+    assert_eq!(asked_fallback(&codex, "gpt-6.2-sol").as_deref(), Some("gpt-6.1-sol"));
+    assert_eq!(asked_fallback(&codex, "gpt-6.2-astra").as_deref(), Some("gpt-6-astra"));
+    assert_eq!(asked_fallback(&codex, "gpt-5.5"), None);
+    let claude = bundled_harness("claude").expect("bundled claude entry");
+    let opus = claude.models.iter().find(|m| m.id.contains("opus")).unwrap().id.clone();
+    assert_eq!(asked_fallback(&claude, &opus), capacity_fallback(&claude, &opus));
+}

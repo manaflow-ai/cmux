@@ -3,22 +3,22 @@
 // placed in the text wear the selection, Copy puts the text and each attachment on the pasteboard
 // (the host's `composer.copy`), a paste of that copy into another composer brings both back in the
 // same order, and Cut takes both out (composer/composerCopy.ts, composer/inlineNode.ts).
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { setComposerSettings } from "../src/agent-session/acpmux/composerSettings";
 import { act, createRef, type ComponentProps } from "react";
 import type { Root } from "react-dom/client";
-import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import { inlineToken, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
-import {
-  composerCopy,
-  forgetCopy,
-  pastePlan,
-  rememberCopy,
-  writeComposerCopy,
-} from "../src/agent-session/acpmux/composer/composerCopy";
+import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { inlineToken } = await importWithDom(() => import("../src/agent-session/acpmux/attachments"));
+const { composerCopy, forgetCopy, pastePlan, rememberCopy, writeComposerCopy } = await importWithDom(
+  () => import("../src/agent-session/acpmux/composer/composerCopy"),
+);
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -42,6 +42,11 @@ const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
 let root: Root | undefined;
 let host: HTMLElement;
+
+// The inline view: Select All, Copy and Cut carry the attachments with the text there. The strip
+// view (the default) keeps them apart from the text (composer-strip-view-keys.test.tsx).
+beforeEach(() => setComposerSettings({ attachmentView: "inline" }));
+afterEach(() => setComposerSettings({ attachmentView: "strip" }));
 
 beforeAll(() => {
   dom = new JSDOM("<!doctype html><div id=root></div>", {
