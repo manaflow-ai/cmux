@@ -1614,6 +1614,10 @@ async fn dispatch_request_with_identity(
         method::CHAT_FIX_FROM_LINK_PREPARE => {
             heap(|| super::fix_from_link::handle(hub, conn, params, true)).await
         }
+        // `_acpmux/ask` and `_acpmux/btw` fork a chat and start its agent (`hub/aside.rs`,
+        // `hub/btw.rs`): that chain is 1.1 MiB of poll frames in a debug build, so it must not sit
+        // under `dispatch_method`'s own 772 KiB frame (a 2 MiB tokio worker overflowed).
+        m if composer::handles(m) => heap(|| composer::handle(hub, conn, m, &params)).await,
         other => {
             heap(|| dispatch_method(hub, conn, other, params, resolved, fixed_id, received)).await
         }
@@ -3510,7 +3514,6 @@ async fn dispatch_method(
                 .await
                 .map_err(|e| RpcError::internal(format!("review brief stopped: {e}")))?
         }
-        m if composer::handles(m) => heap(|| composer::handle(hub, conn, m, &params)).await,
         // Only the person writes the library: an agent's or a remote client's save could
         // replace a prompt the person types, or shadow one from `agentPane.savedPrompts`.
         method::MUX_PROMPTS_SAVE | method::MUX_PROMPTS_DELETE if !conn.is_person() => {
