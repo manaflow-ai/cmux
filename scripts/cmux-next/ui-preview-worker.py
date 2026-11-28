@@ -174,7 +174,7 @@ PUBLISH_WINDOW_H = 25
 PUBLISH_MAX = 768 << 10
 PUBLISH_FILES = 8  # NOW asks only whether any is a UI path; the count stays as ui_files_n
 PUBLISH_FIELDS = ("repo", "head_sha", "branch", "pushed_at", "ui_files", "recipient", "recipient_host", "posted_at", "error_posted_at", "error",
-                  "synthetic")
+                  "synthetic", "before_cached", "before_s")
 # Bounds, seconds.
 FETCH_SECONDS = 180
 COLD_BUILD_SECONDS = 45 * 60
@@ -251,6 +251,14 @@ MIRROR = Path(os.environ.get("CMUX_UI_PREVIEW_MIRROR") or Path.home() / "Project
 # are each one lock). A queued request is dropped for a newer push of its branch only once it waited this long.
 LOOK_THREADS = WEB_CAP
 SUPERSEDE_AGE_S = 45
+# Warm befores (shadow-leo, 2026-11-28: "keep warm per-screen baselines refreshed on merge, re-render only mapped
+# screens"). A look shot its base's Swift scenes on every push (swift_before, under swift_lock, before the head), and
+# a push's base is a feat-cmux-next tip the worker had not shot yet. Under serve --follow a warm thread shoots each
+# new tip's Swift scenes (shots/swift/TIP, the cache swift_side reads), one scene at a time, so a push's before is a
+# cache read and its look shoots the head alone. A push queued or looking stops the warm between scenes (it goes on
+# at the next poll); the last BASE_TIPS_KEPT warmed tips' shots stay, older ones go.
+BASE_TIPS_KEPT = 8
+WARM_BASE_POLL_S = 60
 # A gallery shot waits this long for the frame's ready mark, then reloads the page and waits again, within its bound
 # (a page that loaded while vite restarted or re-optimized its deps never marks ready on its own).
 SHOT_TRY_S = 20
@@ -818,6 +826,8 @@ class Worker:
         self.prewarm_wake = threading.Event()
         self.prewarm_thread: threading.Thread | None = None
         self.prewarmed: str | None = None  # the base tip the prewarm last finished
+        self.warm_tips_path = self.state / "warm-tips.json"  # warmed BASE_BRANCH tips, newest first
+        self.warm_tips_lock = threading.Lock()
 
     # The clone and its worktrees.
     @contextlib.contextmanager
@@ -1538,6 +1548,68 @@ class Worker:
                 errors.append(f"web: {err}")
         return {"tip": tip, "stages": stages.seconds, "errors": errors}
 
+    # Warm befores: each BASE_BRANCH tip's Swift scenes, shot when the tip moves (BASE_TIPS_KEPT).
+    def warm_tips(self) -> list[str]:
+        try:
+            tips = json.loads(self.warm_tips_path.read_text())
+        except (OSError, ValueError):
+            return []
+        return [t for t in tips if isinstance(t, str) and SHA.match(t)] if isinstance(tips, list) else []
+
+    def note_warm_tip(self, tip: str) -> list[str]:
+        """TIP first in the warmed tips; the shots of tips past BASE_TIPS_KEPT go (both kinds). The kept tips."""
+        with self.warm_tips_lock:
+            tips = [tip] + [t for t in self.warm_tips() if t != tip]
+            kept, gone = tips[:BASE_TIPS_KEPT], tips[BASE_TIPS_KEPT:]
+            for old in gone:
+                for kind in ("swift", "web"):
+                    shutil.rmtree(self.state / "shots" / kind / old, ignore_errors=True)
+            tmp = self.warm_tips_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(kept))
+            os.replace(tmp, self.warm_tips_path)
+        return kept
+
+    def is_cached(self, kind: str, sha: str, scenes) -> bool:
+        """Every one of SCENES' KIND shots at SHA is in the shot cache (a look's side that shoots nothing)."""
+        scenes = list(scenes)
+        return bool(scenes) and set(scenes) <= set(self._cached(self.state / "shots" / kind / sha))
+
+    def swift_scenes_here(self) -> tuple[str, ...]:
+        return ALL_SWIFT_SCENES if (self.swift_on or self.swift_peer) else ()
+
+    def warm_base(self, tip: str, busy) -> dict:
+        """TIP's Swift scenes into the shot cache, one scene per swift_lock hold; BUSY() true (a push waits or looks)
+        stops it between scenes, unfinished, for the next poll. A finished tip joins the warmed tips."""
+        began, shot, errors = time.monotonic(), [], []
+        for scene in self.swift_scenes_here():
+            if busy():
+                return {"tip": tip, "shot": shot, "stopped": True, "s": round(time.monotonic() - began, 3)}
+            if self.is_cached("swift", tip, [scene]):
+                continue
+            try:
+                with self.swift_lock:
+                    self.swift_side(tip, [scene], BASE_BRANCH)
+                shot.append(scene)
+            except LookError as err:  # this scene's push shoots its before itself, as before the warm
+                errors.append(f"{scene}: {err}")
+        self.note_warm_tip(tip)
+        return {"tip": tip, "shot": shot, "errors": errors, "s": round(time.monotonic() - began, 3)}
+
+    def warm_bases(self, jobs: "queue.Queue", stop: threading.Event | None = None) -> None:
+        """serve --follow's warm thread: each WARM_BASE_POLL_S, BASE_BRANCH's tip; a tip not warmed yet is."""
+        while not (stop and stop.is_set()):
+            try:
+                with self.fetch_lock:
+                    self.fetch_branches(BASE_BRANCH)
+                tip = git(self.clone, "rev-parse", f"refs/remotes/origin/{BASE_BRANCH}")
+                if tip not in self.warm_tips()[:1]:
+                    done = self.warm_base(tip, lambda: jobs.unfinished_tasks > 0)
+                    if done["shot"] or done.get("errors") or done.get("stopped"):
+                        log(f"warm base: {json.dumps(done)}")
+            except (LookError, OSError, subprocess.SubprocessError) as err:
+                log(f"warm base: {err}")
+            (stop.wait if stop else time.sleep)(WARM_BASE_POLL_S)
+
     # One look.
     def new_receipt(self, req: dict) -> dict:
         receipt = {k: req.get(k) for k in ("repo", "head_sha", "base_sha", "branch", "pushed_at", "ui_files",
@@ -1594,6 +1666,9 @@ class Worker:
         receipt["stages"] = stages.seconds
         if stages.counts:
             receipt["web_cache"] = stages.counts
+        before_s = sum(stages.seconds.get(k, 0) for k in ("swift_before", "web_before"))
+        if receipt.get("before_cached"):
+            receipt["before_s"] = round(before_s, 3)
         pushed, posted = parse_ts(receipt.get("pushed_at")), parse_ts(receipt.get("posted_at"))
         if pushed and posted:
             receipt["push_to_post_s"] = round((posted - pushed).total_seconds(), 3)
@@ -1628,6 +1703,7 @@ class Worker:
             errors.append(f"swift: {', '.join(planned['swift'])} not shot: this worker ({self.host}) shoots web "
                           "scenes only")
         elif planned["swift"]:
+            receipt.setdefault("before_cached", {})["swift"] = self.is_cached("swift", base, planned["swift"])
             try:
                 with self.swift_lock:
                     with stages("swift_before"):
@@ -1659,6 +1735,7 @@ class Worker:
                         base_keys = self.content_keys(base, touched["base_inputs"], touched["everything"])
                 receipt["web_entries"] = entries
                 if entries:
+                    receipt.setdefault("before_cached", {})["web"] = self.is_cached("web", base, entries)
                     # Head first: its tree is checked out already; the base is often cached (the last push's head).
                     before, after = self.web_sides(head, base, entries, g, stages, keys, base_keys)
                     pairs += [("web", e, before.get(e), after.get(e)) for e in entries]
@@ -2242,6 +2319,8 @@ def command_serve(args) -> int:
     worker.start_prewarm()
     if args.follow:
         threading.Thread(target=follow, args=(worker, jobs), name="follow", daemon=True).start()
+        if worker.swift_scenes_here() and not args.no_warm:
+            threading.Thread(target=worker.warm_bases, args=(jobs,), name="warm-base", daemon=True).start()
 
     for n in range(LOOK_THREADS):
         threading.Thread(target=drain, args=(worker, jobs), name=f"look-{n}", daemon=True).start()
