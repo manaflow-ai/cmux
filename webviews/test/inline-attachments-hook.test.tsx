@@ -481,7 +481,8 @@ test("native lookup shows the file and movie glyphs in both views; a byte transf
   });
   expect(host.querySelectorAll(".acpmux-attachment-pending").length).toBe(4);
   expect(host.querySelectorAll(".acpmux-file-chip > svg").length).toBe(2);
-  expect(host.querySelectorAll("[data-video-shape] > svg").length).toBe(2);
+  // A video's glyph is the ready tile's play mark, in its glass (#63541: one loading look).
+  expect(host.querySelectorAll("[data-video-shape] > [data-video-glyph] > svg").length).toBe(2);
   expect(host.querySelector(".acpmux-paste-loading, .acpmux-paste-late, progress")).toBeNull();
   expect(host.querySelectorAll('[aria-busy="true"]').length).toBe(4);
   await act(async () =>
