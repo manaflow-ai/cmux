@@ -16,22 +16,14 @@
 // in one commit, and keeps them while they hold the view; the viewports of overscan apply from its
 // first scroll. So the open's frame mounts no row only to remove it before paint, and no more rows
 // than the grow-only list it replaced.
-import { useLayoutEffect, useRef, useState, type Key, type ReactElement, type ReactNode, type RefObject } from "react";
-
-/// The least height a list row draws at, in px: the rows a window can show are its height over this.
-const ROW_MIN_PX = 24;
-/// The rows mounted past each edge of the view, in viewports (a list may declare up to the most).
-export const OVERSCAN_VIEWS = 1;
-export const MAX_OVERSCAN_VIEWS = 2;
-
-/// The rows mounted past the view's edge from a list's open until its first scroll.
-export const FIRST_PAINT_OVERSCAN_ROWS = 8;
-
-/// The rows a list mounts at its open, for a window `viewHeight` px tall: as many as can show and
-/// FIRST_PAINT_OVERSCAN_ROWS under them (a list opens at its top).
-export function firstRowCount(viewHeight: number): number {
-  return Math.max(1, Math.ceil(viewHeight / ROW_MIN_PX)) + FIRST_PAINT_OVERSCAN_ROWS;
-}
+import { useLayoutEffect, useRef, useState, type ReactNode, type Key, type ReactElement, type RefObject } from "react";
+import {
+  FIRST_PAINT_OVERSCAN_ROWS,
+  firstRowCount,
+  MAX_OVERSCAN_VIEWS,
+  OVERSCAN_VIEWS,
+  ROW_MIN_PX,
+} from "./windowedRowCount";
 
 /// What the keyboard can focus in a row.
 const FOCUSABLE = 'button:not([disabled]), a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -67,6 +59,37 @@ type Pending = { index: number; edge: "first" | "last" };
 /// and `overscan` viewports of rows either side, between boxes (`li[data-rows-rest]`) as tall as the
 /// rows left out. A list that fits draws as it did, every row and no box. A windowed list's rows carry
 /// `aria-setsize` and `aria-posinset`, so a screen reader reads each row's place in the whole list.
+/// Rows `start` to `end` of `items`, as `render` draws them.
+function windowRows<T>(
+  items: readonly T[],
+  render: (item: T, index: number) => ReactNode,
+  start: number,
+  end: number,
+): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  for (let index = start; index < end; index += 1) nodes.push(render(items[index]!, index));
+  return nodes;
+}
+
+/// The keys of a window's rows by place: `nodes` from `start`, and the kept row at its own place.
+function keysByPlace(
+  nodes: readonly ReactNode[],
+  start: number,
+  kept: { index: number; node: ReactNode } | null,
+): Map<number, Key | null> {
+  const keys = new Map<number, Key | null>();
+  nodes.forEach((node, at) => keys.set(start + at, keyOf(node)));
+  if (kept) keys.set(kept.index, keyOf(kept.node));
+  return keys;
+}
+
+/// The box that stands in for the rows left out above or below the window; `next` names the row after it.
+function RowsBox({ boxRef, next }: { boxRef: RefObject<HTMLLIElement | null>; next: number | "end" }) {
+  return (
+    <li ref={boxRef} className="acpmux-session-info-rows-rest" data-rows-rest="" data-rows-next={next} aria-hidden />
+  );
+}
+
 export function WindowedRows<T>({
   items,
   render,
@@ -113,7 +136,15 @@ export function WindowedRows<T>({
   const keys = useRef(new Map<number, Key | null>());
   // What the listeners read: the window as it is in the last commit.
   const now = useRef({ start, end, total, kept: kept?.index, views });
-  now.current = { start, end, total, kept: kept?.index, views };
+  // The window's rows, and the keys of this render's rows by place (for `keys` once it commits).
+  const windowNodes = windowRows(items, render, windowed ? start : end, end);
+  const rendered = keysByPlace(windowNodes, start, kept);
+  // First of the commit's effects, so the ones below and the listeners read this commit's window.
+  const committed = { start, end, total, kept: kept?.index, views };
+  useLayoutEffect(() => {
+    now.current = committed;
+    keys.current = rendered;
+  });
 
   /// The first mounted row of the window (after the kept row above it, if there is one).
   const windowLead = () => {
@@ -180,19 +211,20 @@ export function WindowedRows<T>({
       element.style.height = `${Math.max(0, rows) * pitch.current}px`;
       element.style.display = rows > 0 ? "" : "none";
     };
-    if (!moved) {
-      // The same window: the boxes keep their heights.
-    } else if (kept && kept.index < start) {
-      size(top.current, kept.index);
-      size(gap.current, start - kept.index - 1);
-      size(bottom.current, total - end);
-    } else if (kept) {
-      size(top.current, start);
-      size(gap.current, kept.index - end);
-      size(bottom.current, total - kept.index - 1);
-    } else {
-      size(top.current, start);
-      size(bottom.current, total - end);
+    // The same window: the boxes keep their heights.
+    if (moved) {
+      if (kept && kept.index < start) {
+        size(top.current, kept.index);
+        size(gap.current, start - kept.index - 1);
+        size(bottom.current, total - end);
+      } else if (kept) {
+        size(top.current, start);
+        size(gap.current, kept.index - end);
+        size(bottom.current, total - kept.index - 1);
+      } else {
+        size(top.current, start);
+        size(bottom.current, total - end);
+      }
     }
     // The list's whole length and each mounted row's place in it, the same list's rows drawn before
     // and after these counted in.
@@ -213,8 +245,9 @@ export function WindowedRows<T>({
       after.forEach((row, index) => place(row, before.length + total + index + 1));
       if (kept) place(rowAt(kept.index), before.length + kept.index + 1);
       let row = lead && lead !== last ? lead : null;
-      for (let index = start; row && index < end; index += 1, row = row.nextElementSibling) {
+      for (let index = start; row && index < end; index += 1) {
         place(row, before.length + index + 1);
+        row = row.nextElementSibling;
       }
     }
     const wanted = pending.current;
@@ -357,37 +390,23 @@ export function WindowedRows<T>({
       host.removeEventListener("keydown", keyDown);
     };
     // The listeners read the window through `now`: set up once while the list leaves rows out.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [windowed]);
 
   if (!windowed) return <>{items.map(render)}</>;
-  keys.current.clear();
-  const box = (key: string, next: number | "end", ref: RefObject<HTMLLIElement | null>) => (
-    <li
-      key={key}
-      ref={ref}
-      className="acpmux-session-info-rows-rest"
-      data-rows-rest=""
-      data-rows-next={next}
-      aria-hidden
-    />
-  );
   const rows: ReactNode[] = [];
   if (kept && kept.index < start) {
-    keys.current.set(kept.index, keyOf(kept.node));
-    rows.push(box("\u0000rows-top", kept.index, top), kept.node, box("\u0000rows-gap", start, gap));
+    rows.push(
+      <RowsBox key={"\u0000rows-top"} boxRef={top} next={kept.index} />,
+      kept.node,
+      <RowsBox key={"\u0000rows-gap"} boxRef={gap} next={start} />,
+    );
   } else {
-    rows.push(box("\u0000rows-top", start, top));
+    rows.push(<RowsBox key={"\u0000rows-top"} boxRef={top} next={start} />);
   }
-  for (let index = start; index < end; index += 1) {
-    const node = render(items[index]!, index);
-    keys.current.set(index, keyOf(node));
-    rows.push(node);
-  }
+  rows.push(...windowNodes);
   if (kept && kept.index >= end) {
-    keys.current.set(kept.index, keyOf(kept.node));
-    rows.push(box("\u0000rows-gap-under", kept.index, gap), kept.node);
+    rows.push(<RowsBox key={"\u0000rows-gap-under"} boxRef={gap} next={kept.index} />, kept.node);
   }
-  rows.push(box("\u0000rows-bottom", "end", bottom));
+  rows.push(<RowsBox key={"\u0000rows-bottom"} boxRef={bottom} next="end" />);
   return <>{rows}</>;
 }

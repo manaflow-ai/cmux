@@ -314,7 +314,8 @@ async function openModeMenu(): Promise<string[]> {
 test("both Cloud sends start the agent and mode the chip names, for every face harness", async () => {
   const { cloudStartAgent, CLOUD_DEFAULT_AGENT, remoteStartMode } =
     await import("../src/agent-session/acpmux/harnessModes");
-  const { cloudSendAgent, clearCloudModePick } = await import("../src/agent-session/acpmux/cloudModePick");
+  const { cloudSendAgent, clearCloudModePick, cloudStartModePick } =
+    await import("../src/agent-session/acpmux/cloudModePick");
   const cases = [
     { face: "claude", family: "claude", runs: "claude", starts: "Auto", asking: "Manual" },
     { face: "codex", family: "codex", runs: "codex", starts: "Full access", asking: "Ask" },
@@ -347,8 +348,10 @@ test("both Cloud sends start the agent and mode the chip names, for every face h
     // The chat composer's send names no harness (no switch): the machine starts its default unless
     // the face is an agent it runs, which acpmux also starts first for that face (cloudStartAgent).
     expect(cloudStartAgent(family, face).harness).toBe(runs);
-    // Both carry the picked mode, the asking mode of the agent that starts, named as the chip named it.
-    expect(newTab.mode).toBe(remoteStartMode(runs, runs)!.id);
+    // Both carry the picked mode, the asking mode of the agent that starts, named as the chip named it. The
+    // chips show (and hold the mode under) the agent the machine starts (model-picker-local-cloud-state:
+    // the chip and the send name one agent), so the send reads it there.
+    expect(cloudStartModePick(runs).mode).toBe(remoteStartMode(runs, runs)!.id);
     expect(picked).toContain(remoteStartMode(runs, runs)!.name);
     expect(chipText()).toBe(asking);
   }

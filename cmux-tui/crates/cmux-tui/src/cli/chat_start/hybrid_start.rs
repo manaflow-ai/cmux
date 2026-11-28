@@ -50,6 +50,10 @@ pub(in crate::cli) const STATUS_VERB: &str = "hybrid-status";
 /// (cmux-cloud-start-core `hybrid_gui`): `cmux cloud hybrid-begin ID new|MACHINE`, the same
 /// driver a `cmux chat --on cloud` start spawns, detached; it prints `{log}`.
 pub(in crate::cli) const BEGIN_VERB: &str = "hybrid-begin";
+/// The driver's flag for a chat whose first prompt carried files (`--attach`, [`takes`]): its
+/// turn runs here whole, with no tool call held for the machine (no stage tags) and no move
+/// between tool calls, and the chat moves at the turn's end.
+pub(super) const TURN_END_FLAG: &str = "--turn-end";
 /// How long a driver runs at most: the machine's own wait (`vm new --wait`, 20 min) and a move
 /// (the app's 20 min) fit. Past it the chat stays here.
 const DRIVE_DEADLINE: Duration = Duration::from_secs(60 * 60);
@@ -71,17 +75,22 @@ const MACHINE_GRACE: Duration = Duration::from_secs(30 * 60);
 ///
 /// `--name` is taken: the Cloud start refuses it (a Cloud chat has no name of its own), but the
 /// chat here takes it (`agents chat new --name`), and its move carries the name to the machine
-/// (`transfer_in`'s `name`), so a named Cloud start runs at once instead of refusing. `--attach`
-/// stays the Cloud start's: a large file goes to the chat by upload, which a move is not known to
-/// carry.
-pub(super) fn takes(start: &Start, machine: &Machine) -> Option<String> {
+/// (`transfer_in`'s `name`), so a named Cloud start runs at once instead of refusing.
+///
+/// `--attach` is taken only when `attach` (the flag, [`attach_on`]) says so: the chat here gets the
+/// files with its first prompt (small ones inline, larger ones uploaded to it), and a move does not
+/// carry a chat's uploads. So an attached start's driver is [`TURN_END_FLAG`]'s: its first turn,
+/// the one the files came with, runs here whole (no move between tool calls, no tool call held
+/// for the machine), and the chat moves once that turn ends. Off, the Cloud start refuses the
+/// files, as before.
+pub(super) fn takes(start: &Start, machine: &Machine, attach: bool) -> Option<String> {
     let plain = start.prompt.is_some()
         && start.environment.is_none()
         && start.from_folder.is_none()
         && !start.no_folder
         && start.cwd.is_none()
         && start.repo.is_none()
-        && start.attach.is_empty()
+        && (attach || start.attach.is_empty())
         && !start.wait
         && start.timeout.is_none()
         && !start.allow_large
@@ -126,6 +135,14 @@ pub(super) fn account(
             .as_ref()
             .is_ok_and(|listed| listed.pointer("/account/signed_in") != Some(&Value::Bool(false))),
     }
+}
+
+/// Whether a hybrid start takes `--attach` ([`crate::feature_flags::hybrid_attach_enabled`]).
+fn attach_on() -> bool {
+    crate::feature_flags::hybrid_attach_enabled(
+        &|name| std::env::var(name).ok(),
+        &crate::feature_flags::disables,
+    )
 }
 
 fn flag() -> Option<bool> {
@@ -235,7 +252,7 @@ fn local_harness_of(global: &GlobalArgs, named: Option<&str>) -> (Result<(), Off
 /// Cloud start runs as before. A flag that says off reads nothing. The local harness is asked
 /// beside the account, never after it.
 pub(super) fn start(global: &GlobalArgs, start: &Start, machine: &Machine) -> Option<i32> {
-    let target = takes(start, machine)?;
+    let target = takes(start, machine, start.attach.is_empty() || attach_on())?;
     let flag = flag();
     if flag == Some(false) {
         return None;
@@ -273,7 +290,13 @@ fn begin(global: &GlobalArgs, start: &Start, target: &str, gate_ms: u64, harness
         return code;
     }
     let Some(started) = chat::last_started() else { return code };
-    let said = match spawn(global, &started.id, target, gate_ms, harness_ms) {
+    let turn_end = !start.attach.is_empty();
+    let said = match spawn(global, &started.id, target, gate_ms, harness_ms, turn_end) {
+        Ok(log) if turn_end => format!(
+            "cmux: the chat runs here while its Cloud machine starts; its attached files stay \
+             here, so it moves there once this turn ends (log: {})",
+            log.display()
+        ),
         Ok(log) => format!(
             "cmux: the chat runs here while its Cloud machine starts; it moves there between \
              turns (log: {})",
@@ -296,17 +319,26 @@ pub(super) fn here_of(start: &Start, folder: &str) -> Start {
 
 /// The words of the driver for `session` on `target` (`new` or a machine id), after the globals
 /// that reach the same app and daemon.
-/// `gate_ms`: what deciding the start cost, for the driver's log.
+/// `gate_ms`: what deciding the start cost, for the driver's log. `turn_end`: [`TURN_END_FLAG`].
 pub(super) fn drive_words(
     global: &GlobalArgs,
     session: &str,
     target: &str,
     gate_ms: u64,
+    turn_end: bool,
 ) -> Vec<String> {
     let mut words = cloud_start_chat::forwarded_globals(global);
     let gate = gate_ms.to_string();
     words.extend(["cloud", DRIVE_VERB, session, target, "--gate-ms", &gate].map(str::to_owned));
+    if turn_end {
+        words.push(TURN_END_FLAG.to_owned());
+    }
     words
+}
+
+/// Whether the words after a driver's verb ask for [`TURN_END_FLAG`].
+pub(super) fn turn_end_of(rest: &[String]) -> bool {
+    rest.iter().skip(2).any(|word| word == TURN_END_FLAG)
 }
 
 fn sessions_dir() -> Result<PathBuf, String> {
@@ -343,6 +375,7 @@ fn spawn(
     target: &str,
     gate_ms: u64,
     harness_ms: u64,
+    turn_end: bool,
 ) -> Result<PathBuf, String> {
     let path = log_path(session)?;
     if let Some(parent) = path.parent() {
@@ -359,7 +392,7 @@ fn spawn(
     let err = log.try_clone().map_err(|error| error.to_string())?;
     let exe = std::env::current_exe().map_err(|error| error.to_string())?;
     let mut child = cmux_process::Command::new(exe)
-        .args(drive_words(global, session, target, gate_ms))
+        .args(drive_words(global, session, target, gate_ms, turn_end))
         .stdin(cmux_process::Stdio::null())
         .stdout(log)
         .stderr(err)
@@ -499,6 +532,8 @@ struct Live {
     threads: Vec<std::thread::JoinHandle<()>>,
     /// The machine's start is under way: no answer from it yet.
     pending: bool,
+    /// [`TURN_END_FLAG`]: no tool watch and no stage tags.
+    turn_end: bool,
 }
 
 fn reason_of(error: &Value) -> String {
@@ -626,7 +661,7 @@ fn watch_tools(session: String, socket: Option<PathBuf>, send: mpsc::Sender<Msg>
 }
 
 impl Live {
-    fn new(global: &GlobalArgs, session: &str, target: &str) -> Self {
+    fn new(global: &GlobalArgs, session: &str, target: &str, turn_end: bool) -> Self {
         let (send, events) = mpsc::channel();
         let began = Instant::now();
         let socket = chat::app_acpmux(global);
@@ -646,10 +681,13 @@ impl Live {
                 Vec::new()
             }
         };
-        let followed = std::thread::Builder::new()
-            .name("hybrid-start-tools".into())
-            .spawn(move || watch_tools(tooled, tool_socket, tools, deadline));
-        threads.extend(followed.ok());
+        // A turn-end drive feeds no tool events, so the chat moves only between turns.
+        if !turn_end {
+            let followed = std::thread::Builder::new()
+                .name("hybrid-start-tools".into())
+                .spawn(move || watch_tools(tooled, tool_socket, tools, deadline));
+            threads.extend(followed.ok());
+        }
         Self {
             global: global.clone(),
             session: session.to_owned(),
@@ -662,6 +700,7 @@ impl Live {
             events,
             threads,
             pending: false,
+            turn_end,
         }
     }
 }
@@ -686,7 +725,11 @@ pub(super) fn end_stage(state: &State) -> Cloud {
 
 impl Live {
     /// Sets the chat's stage tags (module docs); they live until the drive could still run.
+    /// A turn-end drive sets none: its tool calls run here, where the chat's files are.
     fn tag(&self, cloud: Cloud) {
+        if self.turn_end {
+            return;
+        }
         let left = (self.deadline + MACHINE_GRACE).saturating_duration_since(Instant::now());
         let tags = boot_tags(cloud, self.machine.as_deref());
         let set = chat::acp::set_tags(
@@ -838,14 +881,16 @@ pub(super) fn drive_args(rest: &[String]) -> Option<(String, String, String)> {
 
 fn run_drive(global: &GlobalArgs, rest: &[String]) -> i32 {
     let Some((session, target, gate)) = drive_args(rest) else {
-        eprintln!("usage: cmux cloud {DRIVE_VERB} ID new|MACHINE");
+        eprintln!("usage: cmux cloud {DRIVE_VERB} ID new|MACHINE [{TURN_END_FLAG}]");
         return 2;
     };
     // The start's own cost, then the plan read again for the next start (off the start's path).
     println!("{}gate {gate} ms", hybrid::PREFIX);
     let plan = refresh_plan();
     println!("{}", json!({"plan": plan}));
-    let mut live = Live::new(global, &session, &target);
+    let turn_end = turn_end_of(rest);
+    println!("{}", json!({"turn_end": turn_end}));
+    let mut live = Live::new(global, &session, &target, turn_end);
     let state = drive(&mut live);
     live.tag(end_stage(&state));
     // A thread still waiting (a turn watch's slice) ends with this process.
@@ -857,10 +902,10 @@ fn run_drive(global: &GlobalArgs, rest: &[String]) -> i32 {
 /// The app's begin: the driver for a chat that already runs here, detached, its log's path out.
 fn run_begin(global: &GlobalArgs, rest: &[String]) -> i32 {
     let Some((session, target, _)) = drive_args(rest) else {
-        eprintln!("usage: cmux cloud {BEGIN_VERB} ID new|MACHINE");
+        eprintln!("usage: cmux cloud {BEGIN_VERB} ID new|MACHINE [{TURN_END_FLAG}]");
         return 2;
     };
-    match spawn(global, &session, &target, 0, 0) {
+    match spawn(global, &session, &target, 0, 0, turn_end_of(rest)) {
         Ok(log) => super::super::wire::print_local_success(
             &json!({"log": log.display().to_string()}),
             global.output,

@@ -26,6 +26,7 @@ import SwiftUI
 /// - `chat_composer_ready`: an agent chat's composer, or the permission bar or sudo card in its place, was on screen
 ///   (first frame presented; not a hidden chat face)
 /// - `chat_first_row_frame`: the first readable transcript row was laid out and presented
+/// - `chat_latest_output_frame`: an agent chat's transcript first presented rows while following its end (the latest output line visible)
 /// - `terminal_ready`: a terminal attached to its session presented a frame
 /// - `terminal_first_row_frame`: the first non-empty terminal output row was presented
 /// - `terminal_key_sent`: the first single printable key a terminal's session accepted

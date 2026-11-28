@@ -452,7 +452,9 @@ public final class DaemonTerminalSession: TerminalSession {
         // An ended terminal shows its last screen, not a spinner; a Mac that is
         // gone says so; a reattach that gave up (it starts again on its own)
         // shows its last screen too.
-        if attached || ended { return .attached }
+        // Parked (nobody sees the page), or attaching again after a park: the
+        // page shows its cache as it is, never "Reattaching…" for it.
+        if attached || ended || quietReattach { return .attached }
         if macOffline { return .offline(mac: macName) }
         // Plain words: the transport's error (`lastError`) goes to the log only.
         if gaveUp { return .failed(message: Self.unreachableMessage(macName)) }
@@ -507,7 +509,96 @@ public final class DaemonTerminalSession: TerminalSession {
         guard self.handler == nil else { return }
         self.handler = handler
         handler(.connection(connectionState))
+        // Parked before it started (a page built off screen): it attaches when shown.
+        guard !parked else { return }
         Task { await attach() }
+    }
+
+    // MARK: Streaming (`TerminalStreamGate`)
+
+    /// Nobody can see the page (``setStreaming(_:)``): no attach channel and
+    /// no reattach; the screen keeps what it shows as its cache.
+    private var parked = false
+    /// Parked, or attaching again after a park: the screen hears nothing of
+    /// it (its connection stays as it was), until the attach succeeds or fails.
+    private var quietReattach = false
+    /// Bumped by each park: an attach begun before it never takes the screen.
+    private var attachEpoch = 0
+    /// Parked now (tests).
+    var isParked: Bool { parked }
+
+    /// The page left the screen past its grace (false) or came back (true).
+    /// Parking closes the attach channel the way ``stop()`` does (a claimed
+    /// size is released first and answered, so the Mac never reads the
+    /// close as a dropped link) but keeps the session: no event reaches the
+    /// screen, which keeps its grid and last frame, and output on the Mac
+    /// costs the phone nothing. Shown again, one attach replays the Mac's
+    /// screen as it is now (the latest screen first, with the history the
+    /// reader had: ``historyAllowance`` is kept), at the phone's size when it
+    /// claims one.
+    public func setStreaming(_ streaming: Bool) {
+        if !streaming {
+            guard !parked else { return }
+            park()
+            return
+        }
+        guard parked else { return }
+        parked = false
+        guard handler != nil, !ended else {
+            quietReattach = false
+            return
+        }
+        log.notice("surface \(self.surface, privacy: .public): shown again, attaching to resync")
+        if gaveUp {
+            // Retries had run out before the park: try again, out loud.
+            quietReattach = false
+            reconnect()
+            return
+        }
+        guard !attached, !attaching else { return }
+        Task { await attach() }
+    }
+
+    private func park() {
+        parked = true
+        attachEpoch &+= 1
+        // A terminal that never attached still says it is connecting.
+        quietReattach = everAttached && !gaveUp
+        eventTask?.cancel()
+        eventTask = nil
+        inbox?.close()
+        inbox = nil
+        heldEvents = nil
+        reclaimDeadline?.cancel()
+        reclaimDeadline = nil
+        stopLeaseRefresh()
+        if let client {
+            log.notice("surface \(self.surface, privacy: .public): off screen past its grace, attach closed (the page keeps its cache)")
+            // A claimed size, or a release still waiting behind another
+            // request: closing cancels that request, so send one answered.
+            let release = attached && (sizeClaimed || releasesInFlight > 0
+                || outbox.contains { if case .release = $0 { true } else { false } })
+            let surface = surface
+            Task {
+                if release {
+                    _ = try? await Self.within(.seconds(2)) {
+                        try await client.request("release-surface-size", params: ["surface": surface])
+                    }
+                }
+                await client.close()
+            }
+        }
+        client = nil
+        sizeClaimed = false
+        attached = false
+        if let old = replacing {
+            replacing = nil
+            Task { await old.close() }
+        }
+        dropInputLane()
+        outbox.removeAll()
+        draining = false
+        markInputDetached()
     }
 
     public func send(_ bytes: Data) {
@@ -924,9 +1015,10 @@ public final class DaemonTerminalSession: TerminalSession {
     }
 
     /// Attaches again after a dropped link. A no-op while attached or
-    /// attaching, before `start`, and after the surface ended.
+    /// attaching, before `start`, after the surface ended, and while parked
+    /// (``setStreaming(_:)``: shown again, the page attaches then).
     public func reconnect() {
-        guard handler != nil, !attached, !ended else { return }
+        guard handler != nil, !attached, !ended, !parked else { return }
         // A first attach on a cold launch runs while the link pairs: its open can read "no
         // link" just before the link is served, and the link's own `reconnect()` of every
         // terminal landed here while that attach was still out and was dropped. The attach
@@ -1378,19 +1470,30 @@ public final class DaemonTerminalSession: TerminalSession {
     // MARK: Attach
 
     private func attach() async {
-        guard !attaching else { return }
+        guard !attaching, !parked else { return }
         // Whoever attaches now (a new link, Retry, a key) supersedes a pending self-reattach.
         autoReattach?.cancel()
         autoReattach = nil
         attaching = true
         reconnectWhileAttaching = false
         awaitingReplay = false
-        defer { attaching = false }
+        // A park closes this attach's channel; one shown again while it was
+        // still out attaches once it has settled.
+        let epoch = attachEpoch
+        defer {
+            attaching = false
+            if epoch != attachEpoch, !parked, handler != nil, !attached, !ended {
+                Task { await attach() }
+            }
+        }
         // A history fetch: the attach it replaces is live on this daemon.
         let replacement = replacing != nil
         do {
             let client = try await open()
-            guard handler != nil else { return }
+            guard handler != nil, epoch == attachEpoch else {
+                Task { await client.close() }
+                return
+            }
             self.client = client
             await client.start()
             // A reattach (or a retry) first asks where the terminal is: a Mac
@@ -1433,6 +1536,7 @@ public final class DaemonTerminalSession: TerminalSession {
                     break
                 }
             }
+            guard epoch == attachEpoch, self.client === client else { return }
             let events = client.events
             let linkProgress = linkProgress
             eventTask?.cancel()
@@ -1752,6 +1856,7 @@ public final class DaemonTerminalSession: TerminalSession {
             // Keys held past the limit (the app was suspended) are dropped and said before
             // the screen hears `.attached`, which forgets a held composer send.
             expireInput()
+            quietReattach = false
             attached = true
             for id in Array(attachmentSubmissions.keys) { attachmentSubmissions[id]?.detachedAt = nil }
             settleReclaimHold()
@@ -1810,6 +1915,14 @@ public final class DaemonTerminalSession: TerminalSession {
             Task { [weak self] in await self?.attach() }
         } catch {
             heldEvents = nil
+            // Parked under this attach: the park closed its channel, and the
+            // page attaches again when it is shown (`defer` above).
+            guard epoch == attachEpoch else { return }
+            // The attach after a park failed: the screen hears it now, as after a dropped link.
+            if quietReattach {
+                quietReattach = false
+                if handler != nil, !ended { handler?(.connection(connectionState)) }
+            }
             lastError = Self.diagnostic(error)
             log.error("attach surface \(self.surface): \(String(describing: error), privacy: .public)")
             if let old = replacing {
