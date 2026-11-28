@@ -27,6 +27,9 @@ enum Made {
     ClaudeResume,
     /// The agent's `session/fork` answer and its new session id.
     Agent(Value, String),
+    /// OpenCode's `session/fork` in the fork's own process when it starts
+    /// (`fork_own_process.rs`); no agent call now.
+    AgentInFork,
     /// A new agent session that gets acpmux's transcript of the chat with its first
     /// prompt (`rehydrate`): the agent could not fork the working chat.
     Fresh,
@@ -425,6 +428,8 @@ impl Hub {
         let sid = parent_meta
             .agent_session_id
             .clone()
+            // A fork whose own agent has not forked its chat yet holds that chat's conversation.
+            .or_else(|| session.agent_fork_parent())
             .or_else(|| (empty || target.is_some() || subagent).then(String::new))
             .ok_or_else(|| {
                 if before.is_some() {
@@ -571,6 +576,22 @@ impl Hub {
         } else {
             None
         };
+        // An OpenCode chat is forked by the fork's own agent as it starts (`fork_own_process.rs`).
+        let own_process = !empty
+            && target.is_none()
+            && cut.is_none()
+            && !is_claude
+            && super::fork_own_process::applies(
+                {
+                    let cfg = self.config.read().await;
+                    cfg.profile(&parent_meta.harness)
+                        .is_some_and(|p| super::policy_mode::is_opencode(&parent_meta, p))
+                },
+                offers_fork(session.meta().agent_capabilities.as_ref()),
+                cwd == parent_meta.cwd,
+            );
+        // The chat's input, held from the cut until the fork's agent asks for the fork.
+        let mut parent_hold = None;
         // The subagent's own conversation, copied (`fork_subagent.rs`).
         let mut sub_copy: Option<super::fork_subagent::SubagentCopy> = None;
         let made = if empty {
@@ -692,6 +713,11 @@ impl Hub {
             }
         } else if let Some(copy) = idle_codex_copy {
             Made::Copy(copy)
+        } else if own_process {
+            let handoff = session.input_handoff.clone().lock_owned().await;
+            rules_at_copy = Some(session.read_meta(rules_of));
+            parent_hold = Some(handoff);
+            Made::AgentInFork
         } else if is_claude {
             // The fork happens when the new session's process starts with
             // --resume <parent> --fork-session; no agent call now.
@@ -822,7 +848,7 @@ impl Hub {
         let (res, new_sid) = match &made {
             Made::Agent(res, sid) => (res.clone(), Some(sid.clone())),
             Made::Copy(copy) => (json!({}), Some(copy.clone())),
-            Made::ClaudeResume | Made::Fresh | Made::Empty => (json!({}), None),
+            Made::ClaudeResume | Made::AgentInFork | Made::Fresh | Made::Empty => (json!({}), None),
         };
         // An agent's `session/fork` took its cut as its request was written (above); any other
         // fork takes it now.
@@ -884,6 +910,8 @@ impl Hub {
         }
         // A fork opens under its parent's title, which its first prompt may refine (`titles.rs`).
         let (title, title_source) = super::titles::fork_title(&parent_meta);
+        // Its parent's namespace while it works in the same folder (`session_manifest.rs`).
+        let fork_manifest = crate::session_manifest::for_fork(parent_meta.manifest.as_ref(), &cwd);
         let mut meta = SessionMeta {
             schema: META_SCHEMA.into(),
             id: id.clone(),
@@ -1097,6 +1125,7 @@ impl Hub {
             }),
             // A fork is a new chat: Auto, whatever its parent was pinned to.
             place_mode: None,
+            manifest: fork_manifest,
         };
         // The subagent's name and its last prompt, as an adopted chat's past sets them.
         if let Some(c) = &sub_copy {
@@ -1147,6 +1176,11 @@ impl Hub {
         let new = self.make_session(meta);
         match made {
             Made::ClaudeResume => *new.fork_from.lock().unwrap() = Some(sid.clone()),
+            Made::AgentInFork => {
+                if let Some(hold) = parent_hold.take() {
+                    self.arm_agent_fork(&new, sid.clone(), hold);
+                }
+            }
             // Its first prompt carries the chat's transcript (`hub/turns.rs`).
             Made::Fresh => {
                 // A fork onto another harness: its agent is told it was forked from the chat, and
