@@ -104,3 +104,10 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
         self.ppid = ppid
     }
 }
+
+extension WorkstreamItem {
+    /// The agent's name as the Activity panel shows it on this item's card.
+    public var agentDisplayName: String {
+        source.displayName
+    }
+}

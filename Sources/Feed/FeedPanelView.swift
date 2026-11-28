@@ -891,6 +891,9 @@ struct FeedItemSnapshot: Equatable {
     let id: UUID
     let workstreamId: String
     let source: WorkstreamSource
+    /// The agent's name as the card shows it. `source` alone can't give
+    /// it for agents `WorkstreamSource` doesn't list.
+    let agentName: String
     let kind: WorkstreamKind
     let title: String?
     let cwd: String?
@@ -907,6 +910,7 @@ struct FeedItemSnapshot: Equatable {
         self.id = item.id
         self.workstreamId = item.workstreamId
         self.source = item.source
+        self.agentName = item.agentDisplayName
         self.kind = item.kind
         self.title = item.title
         self.cwd = item.cwd
@@ -1014,7 +1018,7 @@ struct FeedItemRow: View, Equatable {
         VStack(alignment: .leading, spacing: 10) {
             chipHeader
             if let context = displayContext {
-                FeedContextBlock(context: context, source: snapshot.source)
+                FeedContextBlock(context: context, source: snapshot.source, agentName: snapshot.agentName)
             } else if let echo = promptEcho, !echo.isEmpty {
                 Text(echo)
                     .cmuxFont(size: 11)
@@ -1088,7 +1092,7 @@ struct FeedItemRow: View, Equatable {
             Spacer(minLength: 4)
             HStack(spacing: 4) {
                 chip(
-                    text: snapshot.source.displayName,
+                    text: snapshot.agentName,
                     fg: sourceChipForeground,
                     bg: sourceChipBackground
                 )
@@ -1237,6 +1241,7 @@ struct FeedItemRow: View, Equatable {
             ExitPlanActionArea(
                 plan: plan,
                 source: snapshot.source,
+                agentName: snapshot.agentName,
                 status: snapshot.status,
                 isRowSelected: isSelected,
                 onFocusRow: onControlFocus,
@@ -1250,6 +1255,7 @@ struct FeedItemRow: View, Equatable {
             QuestionActionArea(
                 questions: questions,
                 source: snapshot.source,
+                agentName: snapshot.agentName,
                 status: snapshot.status,
                 isRowSelected: isSelected,
                 onFocusRow: onControlFocus,
@@ -1262,7 +1268,7 @@ struct FeedItemRow: View, Equatable {
             )
         case .stop:
             StopActionArea(
-                source: snapshot.source,
+                agentName: snapshot.agentName,
                 draft: $stopDraft,
                 focusRequest: $stopFocusRequest,
                 onFocusRow: onControlFocus,
@@ -1278,16 +1284,16 @@ struct FeedItemRow: View, Equatable {
     private var primaryTitle: String {
         switch snapshot.payload {
         case .permissionRequest(_, let toolName, _, _):
-            return "\(snapshot.source.displayName) · \(toolName)"
+            return "\(snapshot.agentName) · \(toolName)"
         case .exitPlan:
-            return "\(snapshot.source.displayName) · \(String(localized: "feed.kind.exitPlan", defaultValue: "Exit plan"))"
+            return "\(snapshot.agentName) · \(String(localized: "feed.kind.exitPlan", defaultValue: "Exit plan"))"
         case .question:
-            return "\(snapshot.source.displayName) · \(String(localized: "feed.kind.question", defaultValue: "Question"))"
+            return "\(snapshot.agentName) · \(String(localized: "feed.kind.question", defaultValue: "Question"))"
         default:
             if let title = snapshot.title, !title.isEmpty {
-                return "\(snapshot.source.displayName) · \(title)"
+                return "\(snapshot.agentName) · \(title)"
             }
-            return snapshot.source.displayName
+            return snapshot.agentName
         }
     }
 
@@ -1352,6 +1358,7 @@ struct FeedItemRow: View, Equatable {
 private struct FeedContextBlock: View {
     let context: WorkstreamContext
     let source: WorkstreamSource
+    let agentName: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -1386,7 +1393,7 @@ private struct FeedContextBlock: View {
     }
 
     private var agentLabel: String {
-        "\(source.displayName):"
+        "\(agentName):"
     }
 }
 
@@ -2234,6 +2241,7 @@ struct FeedButton: View {
 private struct ExitPlanActionArea: View {
     let plan: String
     let source: WorkstreamSource
+    let agentName: String
     let status: WorkstreamStatus
     let isRowSelected: Bool
     let onFocusRow: () -> Void
@@ -2271,7 +2279,7 @@ private struct ExitPlanActionArea: View {
                             localized: "feed.exitplan.feedback.placeholder",
                             defaultValue: "Tell %@ what to change…"
                         ),
-                        source.displayName
+                        agentName
                     ),
                     text: $feedback,
                     axis: .vertical
@@ -2647,6 +2655,7 @@ private struct PlanBodyView: View {
 private struct QuestionActionArea: View {
     let questions: [WorkstreamQuestionPrompt]
     let source: WorkstreamSource
+    let agentName: String
     let status: WorkstreamStatus
     let isRowSelected: Bool
     let onFocusRow: () -> Void
@@ -2704,7 +2713,7 @@ private struct QuestionActionArea: View {
     }
 
     private var agentLabel: String {
-        "\(source.displayName):"
+        "\(agentName):"
     }
 
     /// Long-form rendering: single question with rich options. Each
@@ -3670,7 +3679,7 @@ private struct FlowLayout: Layout {
 /// types the reply into the agent's terminal surface and presses
 /// Return — so the user can reply without switching focus.
 private struct StopActionArea: View {
-    let source: WorkstreamSource
+    let agentName: String
     @Binding var draft: FeedStopDraft
     @Binding var focusRequest: Int
 
@@ -3699,14 +3708,14 @@ private struct StopActionArea: View {
                 Image(systemName: "checkmark.circle")
                     .cmuxFont(size: 10)
                     .foregroundColor(.secondary)
-                Text(String(format: String(localized: "feed.stop.label", defaultValue: "%@ finished — reply to continue"), source.displayName))
+                Text(String(format: String(localized: "feed.stop.label", defaultValue: "%@ finished — reply to continue"), agentName))
                     .cmuxFont(size: 11, weight: .medium)
                     .foregroundColor(.secondary)
             }
             FeedInlineTextField(
                 text: replyBinding,
                 focusRequest: focusRequest == 0 ? nil : focusRequest,
-                placeholder: String(format: String(localized: "feed.stop.placeholder", defaultValue: "Reply to %@…"), source.displayName),
+                placeholder: String(format: String(localized: "feed.stop.placeholder", defaultValue: "Reply to %@…"), agentName),
                 isEnabled: true,
                 font: replyFont,
                 onFocus: onFocusRow,
@@ -3735,7 +3744,7 @@ private struct StopActionArea: View {
                 requestReplyFocus()
             }
             FeedButton(
-                label: String(format: String(localized: "feed.stop.send", defaultValue: "Send to %@"), source.displayName),
+                label: String(format: String(localized: "feed.stop.send", defaultValue: "Send to %@"), agentName),
                 leadingIcon: "arrow.up.circle.fill",
                 kind: canSend ? .primary : .soft,
                 size: .medium,
