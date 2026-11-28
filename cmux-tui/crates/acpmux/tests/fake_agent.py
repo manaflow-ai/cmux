@@ -2383,6 +2383,26 @@ CLAUDE_MODELS = [("default", "Default"), ("claude-opus-5-5", "Opus 5.5"), ("clau
                  ("claude-haiku-5-5", "Haiku 5.5"), ("claude-fable-5-1", "Fable 5.1")]
 
 
+def claude_models():
+    """The "model" option's rows for FAKE_PICKER_MODES=claude: CLAUDE_MODELS, or with FAKE_MODELS=<id,id>
+    (the account's models, which a profile capture sets to the Claude 5.5 family) Default and those
+    alone, named as Claude Code names them ("claude-opus-5-5" is "Opus 5.5"). Before, FAKE_MODELS fed
+    only ACP `models` and the option kept CLAUDE_MODELS, so a capture listed Fable 5.1 it never asked for."""
+    ids = [i for i in os.environ.get("FAKE_MODELS", "").split(",") if i]
+    if not ids:
+        return CLAUDE_MODELS
+    known = dict(CLAUDE_MODELS)
+
+    def name(i):
+        if i in known:
+            return known[i]
+        parts = i.split("-")
+        if parts[0] == "claude" and len(parts) >= 3 and all(p.isdigit() for p in parts[2:]):
+            return f"{parts[1].capitalize()} {'.'.join(parts[2:])}"
+        return i
+    return [("default", "Default")] + [(i, name(i)) for i in ids if i != "default"]
+
+
 HELD = []
 HELD_CANCELS = []
 
@@ -2546,7 +2566,7 @@ def main():
                 PICKER_MODELS[sid] = params.get("modelId")
             options = [effort] + ([{"id": "model", "name": "Model", "category": "model", "type": "select",
                                     "currentValue": PICKER_MODELS.get(sid, "default"),
-                                    "options": [{"value": v, "name": n} for v, n in CLAUDE_MODELS]}] if claude_like else [])
+                                    "options": [{"value": v, "name": n} for v, n in claude_models()]}] if claude_like else [])
             if m == "session/new":
                 sessions += 1
                 result = {"sessionId": f"{SESSION_PREFIX}{sessions}", "configOptions": options}
