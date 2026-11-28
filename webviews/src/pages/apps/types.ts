@@ -186,6 +186,17 @@ export interface Grants {
   app: string;
   sandboxed: boolean;
   scopes: GrantRow[];
+  /** The manifest's `server.kind` (`native`, `js`, `external`); absent without a server. */
+  server?: string;
+}
+
+/** The scope that lets an app's `js` or `external` server run (servers.rs `APPROVAL_SCOPE`). */
+export const SERVER_SCOPE = "server:execute";
+
+/** `cmux.apps.server.credential`: a new credential for the app's external server, shown once. */
+export interface ServerCredential {
+  app: string;
+  credential: string;
 }
 
 export interface LogLine {
@@ -235,6 +246,7 @@ export const AppsOps = {
   grantsGet: "cmux.apps.grants.get",
   grantSet: "cmux.apps.grant.set",
   grantRevoke: "cmux.apps.grant.revoke",
+  serverCredential: "cmux.apps.server.credential",
   hiddenSet: "cmux.apps.hidden.set",
   updatesList: "cmux.apps.updates.list",
   update: "cmux.apps.update",

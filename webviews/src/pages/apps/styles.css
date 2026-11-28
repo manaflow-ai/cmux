@@ -1391,6 +1391,18 @@ code {
   max-width: none;
 }
 
+/* The external server's credential, shown once in its grants panel (GrantsPanel.tsx). */
+.apps-server-credential-value {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.apps-server-credential-actions {
+  display: flex;
+  gap: 6px;
+}
+
 /* The Customize cmux… card above the Cloud banner (CustomizeFeature.tsx). */
 .apps-customize-feature {
   display: flex;

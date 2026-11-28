@@ -28,6 +28,10 @@ nonisolated enum PageStrings {
     static var enable: String { t("pages.confirm.apps.enable", "Turn on “%@”?") }
     static var disable: String { t("pages.confirm.apps.disable", "Turn off “%@”?") }
     static var change: String { t("pages.confirm.apps.change", "Change “%@”?") }
+    static var serverCredential: String { t("pages.confirm.apps.serverCredential", "Make a server credential for “%@”?") }
+    static var serverCredentialDetail: String {
+        t("pages.confirm.apps.serverCredentialDetail", "A program you start with it answers this app’s commands on this Mac. It is shown once, and it replaces the last one.")
+    }
     /// An app installed from a git repository: where it comes from (`%1$@`, `github.com/o/r`) and the short commit (`%2$@`).
     static var appSource: String { t("pages.confirm.apps.source", "From %1$@ at %2$@.") }
     static var appNotReviewed: String { t("pages.confirm.apps.notReviewed", "Not reviewed by cmux.") }

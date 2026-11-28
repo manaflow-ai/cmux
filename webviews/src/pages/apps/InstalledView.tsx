@@ -93,7 +93,9 @@ export function InstalledView({ snap, store, strings }: { snap: AppsSnapshot; st
                   )}
                 </div>
               </div>
-              {snap.grantsShown === app.id && grants && <GrantsPanel grants={grants} store={store} strings={strings} />}
+              {snap.grantsShown === app.id && grants && (
+                <GrantsPanel grants={grants} store={store} strings={strings} credential={snap.serverCredential} />
+              )}
               {snap.logsShown === app.id && (
                 <pre className="apps-logs selectable">
                   {logs.length === 0

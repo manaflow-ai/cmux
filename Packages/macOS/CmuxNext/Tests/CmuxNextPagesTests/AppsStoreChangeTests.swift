@@ -83,6 +83,17 @@ struct AppsStoreChangeTests {
             == .refused(code: "deploy.target_not_allowed", message: "acme/x does not deploy to team-vm"))
     }
 
+    @Test func anExternalServerCredentialAsksFirstAndReachesTheOwnerAsTheUser() async throws {
+        let owner = Owner(), presenter = Presenter(answer: true)
+        let provider = store(owner, presenter)
+        _ = try await provider.call("cmux.apps.server.credential", params: ["app": "acme/ext", "idempotency_key": "k1"],
+                                    context: PageCallContext(page: PageDescriptor.apps.id))
+        let card = try #require(presenter.shown.first)
+        #expect(card.kind == .custom && card.name.contains("Hello Deploy"))
+        let call = try #require(owner.calls.first)
+        #expect(call.op == "cmux.apps.server.credential" && call.context.origin == "user" && call.context.confirmed)
+    }
+
     @Test func aRemovalNeverCarriesADeploy() {
         let change = AppsStoreChange(kind: .remove, app: "a/b", deploy: "self-hosted:h")
         #expect(change.deploy == nil && change.op == "cmux.apps.uninstall")

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { pageError } from "../shared/pageClient";
-import { AppsOps } from "./types";
+import { AppsOps, SERVER_SCOPE } from "./types";
 import { MockAppsProvider, sampleApps } from "./mockProvider";
 import { AppsStore } from "./store";
 import { userMessage } from "../shared/userMessage";
@@ -193,6 +193,50 @@ describe("AppsStore shelves", () => {
     const store = new AppsStore(new MockAppsProvider(), "#/discover");
     await store.start();
     expect(ids(store)).toContain("someone.weather");
+    store.stop();
+  });
+});
+
+describe("AppsStore external server credential", () => {
+  // An app whose external server the person allowed (server:execute granted).
+  const externalApps = (allowed: boolean) => {
+    const data = sampleApps();
+    const grants = data.grants["cmux.github-prs"]!;
+    grants.server = "external";
+    grants.scopes.push({
+      scope: SERVER_SCOPE,
+      reason: "Answer its commands.",
+      risk: "standard",
+      optional: false,
+      granted: allowed,
+    });
+    return data;
+  };
+
+  test("makes a credential through the owner and keeps it to show once", async () => {
+    const provider = new MockAppsProvider(externalApps(true));
+    const store = new AppsStore(provider, "#/installed");
+    await store.start();
+    await store.makeServerCredential("cmux.github-prs");
+    const call = provider.calls.find((c) => c.op === AppsOps.serverCredential);
+    expect(call?.params.app).toBe("cmux.github-prs");
+    // A mutation: the routed door needs a key.
+    expect(typeof call?.key).toBe("string");
+    expect(store.getSnapshot().serverCredential).toEqual({
+      app: "cmux.github-prs",
+      credential: `cmuxsrv1_${"0".repeat(64)}`,
+    });
+    store.dismissServerCredential();
+    expect(store.getSnapshot().serverCredential).toBeUndefined();
+    store.stop();
+  });
+
+  test("a refusal shows the error and keeps no credential", async () => {
+    const store = new AppsStore(new MockAppsProvider(externalApps(false)), "#/installed");
+    await store.start();
+    await store.makeServerCredential("cmux.github-prs");
+    expect(store.getSnapshot().serverCredential).toBeUndefined();
+    expect(store.getSnapshot().error).toBeTruthy();
     store.stop();
   });
 });

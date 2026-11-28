@@ -155,7 +155,7 @@ export function AppDetailView({
   // Once installed, the permissions are switches; before, the plain list of what it asks for.
   const permissions = grants ? (
     <DetailSection title={t("store.detail.permissions")} section="permissions">
-      <GrantsPanel grants={grants} store={store} strings={strings} />
+      <GrantsPanel grants={grants} store={store} strings={strings} credential={snap.serverCredential} />
     </DetailSection>
   ) : (
     <PermissionList scopes={detail.scopes} strings={strings} />
