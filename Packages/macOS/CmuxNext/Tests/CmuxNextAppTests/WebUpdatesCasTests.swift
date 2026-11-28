@@ -1,3 +1,4 @@
+import CmuxNextDaemon
 @testable import CmuxNextUpdater
 @testable import CmuxNextWebUpdates
 import Foundation
@@ -66,6 +67,66 @@ import Testing
         let ended = await WebUpdates.runWhileLinkAllows(Self.request, watch: Self.turnsAfter { await Self.untilCancelled() }) { 7 }
         guard case .ran(let value) = ended else { Issue.record("expected ran, got \(ended)"); return }
         #expect(value == 7)
+    }
+
+    /// A real child, as `casFetcher` runs the CLI (``BundledCLIRun``): a script that writes its pid
+    /// and then holds like a fetch stalled on a slow Range GET. The link turns once the pid is on
+    /// disk; the fetch must end as `linkLost` and the child must be gone, not left running to its
+    /// own timeout (RFD 0166 F3: a path change mid-fetch).
+    @Test func aLinkLostMidFetchKillsTheRealChild() async throws {
+        let root = try WebUpdateStoreTests.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (script, pidFile) = try Self.holdingChild(in: root)
+        let ended = await WebUpdates.runWhileLinkAllows(Self.request, watch: Self.turnsAfter {
+            _ = await Self.pid(in: pidFile, within: .seconds(10))
+        }) {
+            await BundledCLIRun.run(script, [], timeout: .seconds(60))
+        }
+        guard case .linkLost = ended else { Issue.record("expected linkLost, got \(ended)"); return }
+        let pid = try #require(await Self.pid(in: pidFile, within: .seconds(1)))
+        #expect(await Self.gone(pid, within: .seconds(2)), "the CLI child \(pid) outlived its cancelled fetch")
+    }
+
+    /// The same real child under a link that holds runs to its own end and reports it.
+    @Test func aLinkThatHoldsLetsTheRealChildFinish() async throws {
+        let root = try WebUpdateStoreTests.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (script, _) = try Self.holdingChild(in: root, holdSeconds: 0)
+        let ended = await WebUpdates.runWhileLinkAllows(Self.request, watch: Self.turnsAfter { await Self.untilCancelled() }) {
+            await BundledCLIRun.run(script, [], timeout: .seconds(60))
+        }
+        guard case .ran(let result) = ended else { Issue.record("expected ran, got \(ended)"); return }
+        #expect(result?.status == 0)
+    }
+
+    /// An executable script in `root` that writes its pid to `pid` and then holds for
+    /// `holdSeconds` as that same process (`exec`), so the pid on disk is the child the run kills.
+    nonisolated static func holdingChild(in root: URL, holdSeconds: Int = 60) throws -> (URL, URL) {
+        let script = root.appending(path: "fetch.sh"), pid = root.appending(path: "fetch.pid")
+        try "#!/bin/sh\necho $$ > '\(pid.path)'\nexec /bin/sleep \(holdSeconds)\n".write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        return (script, pid)
+    }
+
+    /// The pid `file` holds once the child wrote it, nil if it did not within `bound`.
+    nonisolated static func pid(in file: URL, within bound: Duration) async -> pid_t? {
+        let clock = ContinuousClock(), end = clock.now.advanced(by: bound)
+        while clock.now < end {
+            if let text = try? String(contentsOf: file, encoding: .utf8),
+               let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)) { return pid }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return nil
+    }
+
+    /// Whether `pid` no longer exists within `bound` (ProcessRunner reaps it, so no zombie holds it).
+    nonisolated static func gone(_ pid: pid_t, within bound: Duration) async -> Bool {
+        let clock = ContinuousClock(), end = clock.now.advanced(by: bound)
+        while clock.now < end {
+            if kill(pid, 0) != 0 && errno == ESRCH { return true }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return false
     }
 
     nonisolated final class Counter: @unchecked Sendable {

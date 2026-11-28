@@ -280,6 +280,16 @@ const moved = (box: Box | null, rest: Box) =>
   Math.abs(box.height - rest.height) > SHIFT_PX;
 const shown = (box: Box | null) =>
   box ? `${Math.round(box.x)},${Math.round(box.y)} ${Math.round(box.width)}x${Math.round(box.height)}` : "gone";
+/// What the model chip reads, so a move names what changed in it (a longer label, a new detail), not only its box.
+const reads = (element: Element | null) => {
+  if (!element) return "nothing";
+  // The row's fit form for the model (composerRowFit.ts: no attribute is the full form) and its step.
+  const bar = element.closest<HTMLElement>(
+    "[data-fit-extra], [data-fit-model], .acpmux-composer-bar, .acpmux-composer-foot",
+  );
+  const form = bar?.getAttribute("data-fit-model") ?? "full";
+  return `“${textOf(element)}” (form ${form}, step ${bar?.dataset.fitExtra ?? 0}, composer ${element.ownerDocument.defaultView?.innerWidth} px)`;
+};
 
 const modelHoldsStill: Play = async (ctx) => {
   const view = ctx.document.defaultView as Frame;
@@ -303,6 +313,7 @@ const modelHoldsStill: Play = async (ctx) => {
       if (now) rest = now;
     }
   }
+  const restText = reads(ctx.document.querySelector(MODEL));
   const stripTop = () => boxOf(ctx.document.querySelector(STRIP))?.y;
   const restStrip = stripTop();
   // Each frame's model box, by the step it belongs to.
@@ -311,9 +322,12 @@ const modelHoldsStill: Play = async (ctx) => {
   let sampling = true;
   const sample = () => {
     if (!sampling) return;
-    const box = boxOf(ctx.document.querySelector(MODEL));
+    const chip = ctx.document.querySelector(MODEL);
+    const box = boxOf(chip);
     if (moved(box, rest) && problems.length < 6)
-      problems.push(`${step}: the model chip is at ${shown(box)}, it rested at ${shown(rest)}`);
+      problems.push(
+        `${step}: the model chip is at ${shown(box)} reading ${reads(chip)}, it rested at ${shown(rest)} reading ${restText}`,
+      );
     const top = stripTop();
     if (restStrip !== undefined && top !== undefined && Math.abs(top - restStrip) > SHIFT_PX && problems.length < 6)
       problems.push(`${step}: the location strip's row moved from y ${Math.round(restStrip)} to ${Math.round(top)}`);

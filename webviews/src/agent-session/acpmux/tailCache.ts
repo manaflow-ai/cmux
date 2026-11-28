@@ -152,7 +152,15 @@ export function shareReadAhead(sessionId: string): boolean {
 /// older than this one, and the client the pane makes next on a lost connection draws the map's
 /// tail while it connects (direct.ts `drawTailWhileConnecting`). Left behind, it drew the chat as
 /// it was when it was last left, then the attach drew it as it is, once per dropped connection.
-export function rememberTail(sessionId: string, tail: KeptTail, forThisPage = true, toHost = true): void {
+export function rememberTail(
+  sessionId: string,
+  tail: KeptTail,
+  forThisPage = true,
+  toHost = true,
+  /// A chat switch's hand-over of the chat it left (direct.ts `selectOnce`): it goes to the host after
+  /// the switch's frame paints, not in it (`writeHostTailSoon`).
+  hostAfterPaint = false,
+): void {
   noteShown(sessionId, tail);
   if (!forThisPage && readAheadTails.has(sessionId)) readAheadTails.set(sessionId, tail);
   if (forThisPage || keptTails.has(sessionId)) {
@@ -163,12 +171,47 @@ export function rememberTail(sessionId: string, tail: KeptTail, forThisPage = tr
     while (keptTails.size > KEPT_TAILS) keptTails.delete(keptTails.keys().next().value!);
   }
   // `toHost` false: the caller hands it over in a request of its own (`TailHandOver`).
-  if (toHost) writeHostTail(sessionId, tail);
+  if (toHost && hostAfterPaint) writeHostTailSoon(sessionId, tail);
+  else if (toHost) writeHostTail(sessionId, tail);
+}
+
+/// Hand-overs a chat switch put off until its frame painted, by chat (the newest of each), oldest first.
+const hostTailsSoon = new Map<string, KeptTail>();
+let hostTailsSoonScheduled = false;
+
+/// Hands `tail` to the host once the frame being drawn has painted. Bounding the tail for the host
+/// (`hostTailOf`: every record's JSON length) cost a long chat's switch 4-5 ms in its own task,
+/// before the chat switched to could paint (settled-page.bench.ts chat_switch). A write that goes out
+/// at once meanwhile (`writeHostTail`) sends these first, so the host never sees them out of order,
+/// and a forgotten chat's (`forgetTail`) is dropped. A hidden page paints no frame: a timeout sends them.
+function writeHostTailSoon(sessionId: string, tail: KeptTail): void {
+  hostTailsSoon.delete(sessionId);
+  hostTailsSoon.set(sessionId, tail);
+  if (hostTailsSoonScheduled) return;
+  hostTailsSoonScheduled = true;
+  const flush = () => {
+    if (!hostTailsSoonScheduled) return;
+    flushHostTailsSoon();
+  };
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => setTimeout(flush, 0));
+  setTimeout(flush, HOST_TAIL_SOON_MS);
+}
+
+/// The longest a put-off hand-over waits for a frame (a hidden page draws none).
+const HOST_TAIL_SOON_MS = 250;
+
+function flushHostTailsSoon(): void {
+  hostTailsSoonScheduled = false;
+  if (hostTailsSoon.size === 0) return;
+  const tails = [...hostTailsSoon];
+  hostTailsSoon.clear();
+  for (const [sessionId, tail] of tails) writeHostTail(sessionId, tail);
 }
 
 /// A chat whose transcript this page no longer stands behind (acpmux purged it, or an attach of it
 /// failed): its next open reads acpmux again, in this tab and in the next one.
 export function forgetTail(sessionId: string): void {
+  hostTailsSoon.delete(sessionId);
   keptTails.delete(sessionId);
   shownThrough.delete(sessionId);
   readAheadTails.delete(sessionId);
@@ -274,6 +317,9 @@ function callHost<T>(method: string, params: Record<string, unknown>): Promise<T
 /// `ifNewer` (a hover's hand-over, ``shareReadAhead``): the host keeps it only over an older tail,
 /// and a tail cut to nothing forgets nothing.
 function writeHostTail(sessionId: string, tail: KeptTail, ifNewer = false): void {
+  // A put-off hand-over of this chat is older than this one, and the others go first in order.
+  hostTailsSoon.delete(sessionId);
+  if (hostTailsSoon.size > 0) flushHostTailsSoon();
   const bounded = hostTailOf(tail);
   // Not one record of this chat fits the host's bound (a single huge paste, or a queue that fills
   // it on its own): the host forgets what it had rather than keeping an older tail under a chat

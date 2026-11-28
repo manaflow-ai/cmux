@@ -28,6 +28,10 @@ pub(super) async fn serve_connection_from(
     }
     // Counted while it is served: a daemon with none stops once unused (`daemon/unused_exit.rs`).
     let client = crate::daemon::unused_exit::client();
+    // The owner app relaunched (an update): the daemon follows it again (`owner_exit.rs`).
+    if let SocketPeer::Pid(pid) = socket_peer {
+        crate::owner_exit::adopt_if_relaunched(pid);
+    }
     let raw_text = !peer_text::masks(origin);
     let (out, gate) = outbound::start(&hub.scope, hub.store.durability(), out);
     // The upload worker's answers (`upload_frames.rs`) go into the same queue: it holds no sender
@@ -78,6 +82,7 @@ pub(super) async fn serve_connection_from(
         watch_tools: AtomicBool::new(false),
         peer_row_batches: AtomicBool::new(false),
         client_features: Default::default(),
+        abi_down: Default::default(),
         chunk_deltas: Default::default(),
         session_delta: AtomicBool::new(false),
         sent_rows: StdMutex::default(),
