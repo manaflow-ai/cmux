@@ -322,8 +322,7 @@ def plan(index: Index, paths: list[str]) -> dict:
                      "situations": sorted({s.name for s in sit_rules}),
                      "default": None if h.mapped else h.default_area})
     benches = sorted({b for a in areas.values() for b in a["benches"]})
-    tests = list(dict.fromkeys([t for a in areas.values() for t in a["tests"]]
-                               + [t for t in (self_test(h.path) for h in hits) if t]))
+    tests = list(dict.fromkeys(t for h in hits for t in _path_tests(h, areas)))
     defaults = sorted({index.match(p).default_area for p in unmapped})
     ci_steps = sorted({s.name for h in hits for s in h.steps})
     return {"schema": "cmux-bench/for-paths/v1", "paths": rows, "areas": list(areas.values()), "benches": benches,
@@ -458,6 +457,20 @@ def coverage(index: Index, changes: list[list[str]]) -> dict:
             "top_unchecked": sorted(unchecked.items(), key=lambda kv: -kv[1])[:25]}
 
 
+def _path_tests(h: Hit, areas: dict[str, dict]) -> list[str]:
+    """The narrowest tests that cover one path: a changed test file runs itself; else its [[area]]'s tests when the
+    area names any (hand-tuned, so it wins over the generated unit's whole-target command); else its unit's. Both
+    at once sent an updater change to `swift test --filter CmuxNextAppTests`, the whole app test target, beside the
+    update tests the area named (cmux#63214's files)."""
+    own = self_test(h.path)
+    if own:
+        return [own]
+    area = areas.get(h.area.name)["tests"] if h.area is not None else []
+    if area:
+        return area
+    return areas.get(h.unit.name)["tests"] if h.unit is not None else []
+
+
 SELF_TESTS = (re.compile(r"(?:.*/)?tests?/test_[^/]*\.py\Z"), re.compile(r".*\.test\.tsx?\Z"),
               re.compile(r".*/Tests/[^/]+/.*\.swift\Z"))
 
@@ -468,6 +481,10 @@ def self_test(path: str) -> str | None:
         return f"python3 -I {path}"
     if SELF_TESTS[1].match(path) and path.startswith("webviews/"):
         return f"bash scripts/ci/run-webviews-tests.sh {path.removeprefix('webviews/')}"
+    if SELF_TESTS[2].match(path):
+        pkg, _, rest = path.partition("/Tests/")
+        if (ROOT / pkg / "Package.swift").is_file():
+            return f"swift test --package-path {pkg} --filter {Path(rest).stem}"
     return None
 
 
