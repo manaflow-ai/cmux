@@ -13,7 +13,6 @@ fn announce(url: &str) -> TabAnnounce {
         title: "A".into(),
         visible: true,
         input_scale: 1.0,
-        touch: false,
     }
 }
 

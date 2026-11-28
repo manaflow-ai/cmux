@@ -177,8 +177,6 @@ impl Mux {
             ("split_id".into(), Value::String(target.1.to_string())),
             ("ratio".into(), Value::from(ratio)),
         ]);
-        // The echo names the request's transaction as its decimal form.
-        let echo = transaction.map(|(_, transaction)| Arc::<str>::from(transaction.to_string()));
         if let Some((owner, transaction)) = transaction {
             let (kind, owner) = match owner {
                 LayoutResizeOwner::ControlClient(owner) => ("control-client", owner),
@@ -211,7 +209,7 @@ impl Mux {
                 self.with_state(|state| state.resource_indexes.screens.get(&id).copied())
             })
         {
-            self.emit_layout_changed(screen, echo);
+            self.emit(MuxEvent::LayoutChanged(screen));
         }
         Ok(())
     }
@@ -324,8 +322,6 @@ impl Mux {
             .ordinary_pane_selectors(pane)
             .ok_or(ViewportWidthError::PaneNotResizable { pane })?;
         let mut fields = Map::from_iter([("width".into(), Value::from(width))]);
-        // The echo names the request's transaction as its decimal form.
-        let echo = transaction.map(|(_, transaction)| Arc::<str>::from(transaction.to_string()));
         if let Some((owner, transaction)) = transaction {
             let (kind, owner) = match owner {
                 LayoutResizeOwner::ControlClient(owner) => ("control-client", owner),
@@ -357,7 +353,7 @@ impl Mux {
                 self.with_state(|state| state.resource_indexes.screens.get(&id).copied())
             })
         {
-            self.emit_layout_changed(screen, echo);
+            self.emit(MuxEvent::LayoutChanged(screen));
         }
         Ok(())
     }

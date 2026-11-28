@@ -218,7 +218,7 @@ impl Mux {
             self.emit(MuxEvent::TreeChanged);
         }
         for screen in changed_screens {
-            self.emit_layout_changed(screen, None);
+            self.emit(MuxEvent::LayoutChanged(screen));
         }
         if !had_runtime {
             self.terminate_discovered_terminal_host(terminal_id, terminal_incarnation.as_deref());

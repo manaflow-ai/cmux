@@ -37,8 +37,6 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_agent_session_attach() {
         capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
-        capabilities
-            .push(agent_session_attach::agent_session_observe::AGENT_SESSION_OBSERVE_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_session_start() {
@@ -129,7 +127,6 @@ pub(super) fn advertised_capabilities(
         VIEWPORT_SPLITS_CAPABILITY,
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
         DOCK_COLUMNS_CAPABILITY,
-        LAYOUT_DELTA_CAPABILITY,
         EDGE_DOCKS_CAPABILITY,
         DOCK_COLUMN_ROLE_CAPABILITY,
         PERMANENT_DOCK_CAPABILITY,
@@ -266,7 +263,6 @@ pub(super) fn advertised_capabilities(
         detached_terminals::DETACHED_TERMINALS_CAPABILITY,
         close_tabs_command::CLOSE_REASON_CAPABILITY,
         conversation_tabs_wire::CONVERSATION_TAB_TRANSACTION_CAPABILITY,
-        conversation_tabs_wire::CONVERSATION_TAB_SPLIT_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
         crate::git_ops::FILES_SEARCH_CAPABILITY,
         crate::history_ops::CAPABILITY,

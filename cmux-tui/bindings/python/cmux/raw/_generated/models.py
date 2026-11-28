@@ -671,13 +671,6 @@ class ConversationTabRecord:
 
 
 @dataclass(frozen=True)
-class ConversationTabSplit:
-    __cmux_schema_path__: ClassVar[str] = 'types/ConversationTabSplit'
-    direction: str
-    pane_id: Union[str, None, MissingType] = field(default=MISSING)
-
-
-@dataclass(frozen=True)
 class ConversationTextRun:
     __cmux_schema_path__: ClassVar[str] = 'types/ConversationTextRun'
     length: int
@@ -3717,7 +3710,6 @@ class NewConversationTabRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/new-conversation-tab/request'
     pane: Union[Id, None, MissingType] = field(default=MISSING)
     workspace: Union[Id, None, MissingType] = field(default=MISSING)
-    split: Union[ConversationTabSplit, None, MissingType] = field(default=MISSING)
     agent_session: Union[AgentSessionSource, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     conversation: Union[str, None, MissingType] = field(default=MISSING)
@@ -5184,11 +5176,6 @@ class LayoutChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/layout-changed/payload'
     screen: Id
     event: Literal['layout-changed']
-    workspace: Union[Id, MissingType] = field(default=MISSING)
-    active_pane: Union[Id, MissingType] = field(default=MISSING)
-    layout: Union[Layout, MissingType] = field(default=MISSING)
-    transaction: Union[str, MissingType] = field(default=MISSING)
-    zoomed_pane: Union[Id, None, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5788,7 +5775,6 @@ __all__ = [
     'ConversationSearchHit',
     'ConversationSummary',
     'ConversationTabRecord',
-    'ConversationTabSplit',
     'ConversationTextRun',
     'ConversationThreadResolution',
     'ConversationThreadState',

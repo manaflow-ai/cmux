@@ -165,7 +165,7 @@ impl Mux {
             surface.activate_hosted_launch_stream()?;
         }
         self.emit(MuxEvent::TreeDelta(delta));
-        self.emit_layout_changed(screen_id, None);
+        self.emit(MuxEvent::LayoutChanged(screen_id));
         for surface in spawned {
             self.reap_if_dead(&surface);
         }

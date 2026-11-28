@@ -17,7 +17,6 @@ pub(super) fn tab(target_id: &str, engine: &str) -> TabAnnounce {
         title: "A".into(),
         visible: true,
         input_scale: 1.0,
-        touch: false,
     }
 }
 

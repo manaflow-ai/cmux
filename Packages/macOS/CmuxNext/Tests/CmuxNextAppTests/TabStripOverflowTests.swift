@@ -35,18 +35,17 @@ import Testing
         var unselectedWidths: [CGFloat] { strip.result.slots.filter { $0.id != selected }.map(\.width) }
     }
 
-    @Test func shrinkingTabsStopAtChromesMinimumThenScroll() throws {
+    @Test func shrinkingTabsStopAtAReadableMinimumThenScroll() throws {
         DesignSettings.shared.tabOverflow = .shrink
-        let harness = Harness(count: 60)
+        let harness = Harness(count: 40)
         defer { harness.window.orderOut(nil) }
         let metrics = harness.strip.metrics
-        // Chrome's minimums (Lawrence 2026-10-16: "chrome 32"): 32 inactive, 56 selected.
-        #expect(metrics.minInactiveTabWidth == 32 && metrics.minActiveTabWidth == 56, "\(metrics.minInactiveTabWidth) / \(metrics.minActiveTabWidth)")
+        #expect(metrics.minInactiveTabWidth >= 72, "an unpinned tab at \(metrics.minInactiveTabWidth) pt shows only its icon")
         #expect(metrics.minActiveTabWidth >= metrics.minInactiveTabWidth)
         #expect(harness.unselectedWidths.allSatisfy { $0 == metrics.minInactiveTabWidth }, "\(Set(harness.unselectedWidths))")
         let selected = try #require(harness.strip.result.slot(harness.selected))
         #expect(selected.width == metrics.minActiveTabWidth)
-        #expect(harness.strip.result.contentWidth > harness.strip.viewportWidth, "60 tabs at the minimum fit, nothing scrolls")
+        #expect(harness.strip.result.contentWidth > harness.strip.viewportWidth, "40 tabs at the minimum fit, nothing scrolls")
         let cell = try #require(harness.strip.cells[harness.selected])
         #expect(cell.frame.maxX <= harness.strip.tabsClip.bounds.maxX + 0.5, "the selected last tab is scrolled out of view")
     }

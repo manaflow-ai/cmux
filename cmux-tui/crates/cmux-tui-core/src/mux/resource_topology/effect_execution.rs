@@ -842,9 +842,6 @@ impl Mux {
         let base_row_id = row_height.map(|_| self.next_id());
         let active_at = self.next_active_at();
         let notifications = self.tree_decorations();
-        // A conversation tab's split (`conversation-tab-split-v1`): its one
-        // `pane-added` carries the client transaction.
-        let transaction = intent["fields"].as_object().and_then(frontend_browser_transaction);
         let attached = (|| -> anyhow::Result<(TreeDelta, ScreenId, CreatedTerminalEffect)> {
             let mut state = self.state.lock().unwrap();
             // A reserved pane id that became taken since preparation is
@@ -970,7 +967,7 @@ impl Mux {
                     index: Some(pane_index),
                     entity,
                     workspace_revision: None,
-                    transaction,
+                    transaction: None,
                 },
                 screen_id,
                 CreatedTerminalEffect { path },
@@ -984,7 +981,7 @@ impl Mux {
             }
         };
         self.emit_tree_delta(delta, false);
-        self.emit_layout_changed(changed_screen, None);
+        self.emit(MuxEvent::LayoutChanged(changed_screen));
         self.reap_if_dead(&surface);
         Ok(created)
     }

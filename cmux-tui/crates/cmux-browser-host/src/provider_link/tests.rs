@@ -25,7 +25,6 @@ fn tab(target_id: &str, engine: &str) -> TabAnnounce {
         title: String::new(),
         visible: true,
         input_scale: 1.0,
-        touch: false,
     }
 }
 

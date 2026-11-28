@@ -6,7 +6,6 @@
 //! the recipient so one agent cannot acknowledge another agent's message.
 
 use anyhow::{Context, Result, bail};
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -19,14 +18,14 @@ pub const MAX_METADATA_BYTES: usize = 16 * 1024;
 pub const MAX_PAGE_SIZE: usize = 100;
 const SCHEMA: &str = "acpmux.mailbox.v1";
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum DeliveryState {
     Queued,
     Acknowledged,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct MailMessage {
     pub id: String,
@@ -36,11 +35,10 @@ pub struct MailMessage {
     pub body: String,
     pub created_at: u64,
     #[serde(default)]
-    #[schemars(with = "BTreeMap<String, Value>")]
     pub metadata: BTreeMap<String, Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DeliveryReceipt {
     pub message_id: String,
