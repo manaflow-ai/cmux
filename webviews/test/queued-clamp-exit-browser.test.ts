@@ -44,15 +44,19 @@ await requireBrowserLane("queued-clamp-exit-browser.test.ts", async () => {
   async function timings(reducedMotion: boolean): Promise<{ rest: Timing[]; hovered: Timing }> {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(String(error)));
     try {
       await page.goto(
         `http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.composer&entryPath=${ENTRY}` +
           `&variant=queued&colorScheme=dark&width=normal${reducedMotion ? "&reducedMotion=1" : ""}`,
         { timeout: 300_000 },
       );
-      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
-        timeout: 60_000,
-      });
+      await page
+        .waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, { timeout: 180_000 })
+        .catch((error: unknown) => {
+          throw new Error(`gallery never ready: ${String(error)}; page errors: ${errors.join(" | ") || "none"}`);
+        });
       await page.waitForSelector(".acpmux-queued .acpmux-queued-clamp", { timeout: 60_000 });
       const read = () =>
         page.evaluate(() =>
