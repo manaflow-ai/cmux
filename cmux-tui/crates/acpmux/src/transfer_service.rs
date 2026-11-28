@@ -18,9 +18,9 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::hub::transfer_pull::{MAX_FRAME, PageSource, TransferDial};
 use crate::hub::{Hub, transfer_park};
-use crate::hub_carrier::{CircuitService, HubStream, ServiceRefusal, TransferGate};
 #[cfg(test)]
 use crate::hub_carrier::{CAPACITY_WAITS, capacity_refusal, dial_past_capacity};
+use crate::hub_carrier::{CircuitService, HubStream, ServiceRefusal, TransferGate};
 use crate::rpc::RpcError;
 
 /// How long one page request waits for its answer.
@@ -228,7 +228,8 @@ impl TransferDial for CarrierDial {
             let carrier =
                 hub.hub_carrier.get().ok_or("this daemon's hub carrier is not running")?;
             // A relay capacity refusal is waited out in the carrier's own dial, which first rides
-            // the pair's open cheap kept circuit (`hub_carrier.rs` `dial_service_report_early`).
+            // the pair's open cheap kept circuit (`hub_carrier_capacity.rs`
+            // `dial_service_report_early`).
             let stream: HubStream =
                 carrier.dial_service(daemon, CircuitService::TransferSource).await?;
             Ok(Box::new(CircuitPages::new(stream)) as Box<dyn PageSource>)
