@@ -123,6 +123,8 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     /// from `%output` (stateful across chunk boundaries) so a remote process
     /// inside the mirrored session can notify locally (issue #833).
     var notificationFilters: [Int: RemoteTmuxNotificationOSCFilter] = [:]
+    /// Each pane's find-bar full-history load (see ``fullHistorySearch(forPane:)``).
+    var fullHistorySearchByPane: [Int: RemoteTmuxFullHistorySearch] = [:]
     /// Authoritative seed bytes waiting for Ghostty's terminal grid to consume
     /// the pane's published dimensions. Surface sizing APIs expose the requested
     /// grid before Ghostty's I/O thread applies it, so seed delivery cannot use
@@ -550,12 +552,6 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         guard let windowId = windowIdContaining(pane: paneId),
               let mirror = windowMirrorByWindowId[windowId] else { return }
         mirror.updatePaneTitleMetadata(paneId)
-    }
-
-    /// Whether `surfaceId` is one of this session mirror's pane surfaces. Used to route
-    /// a pasted image to this mirror's tmux host for SSH upload.
-    func ownsSurface(_ surfaceId: UUID) -> Bool {
-        paneId(forSurfaceId: surfaceId) != nil
     }
 
     /// The tmux pane id whose mirror-owned surface is `surfaceId`, or nil if this

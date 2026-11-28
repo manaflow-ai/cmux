@@ -30,6 +30,9 @@ extension RemoteTmuxSessionMirror {
     /// Applies an authoritative snapshot independently from the logical live
     /// escape stream, then catches that stream up across the capture boundary.
     func routeSeed(paneId: Int, seed: RemoteTmuxPaneSeed) {
+        // A seed with history rows replaces the surface's scrollback, so a full-history
+        // load painted earlier is gone (a running load's own seed is ignored).
+        if seed.kind == .fullHistory { fullHistorySearchByPane[paneId]?.historyWasReseeded() }
         var liveFilter = titleFilters[paneId] ?? RemoteTmuxScreenTitleFilter()
         var liveNotificationFilter = notificationFilters[paneId]
             ?? RemoteTmuxNotificationOSCFilter()
@@ -149,6 +152,7 @@ extension RemoteTmuxSessionMirror {
         }
         deferredFullPaneReseeds.formIntersection(livePaneIDs)
         deferredFullPaneReseedAttemptsBeforeGrid.formIntersection(livePaneIDs)
+        fullHistorySearchByPane = fullHistorySearchByPane.filter { livePaneIDs.contains($0.key) }
         for paneId in Array(paneSeedFrameDemandReleases.keys)
         where !livePaneIDs.contains(paneId) {
             releasePaneSeedFrameDemand(paneId: paneId)

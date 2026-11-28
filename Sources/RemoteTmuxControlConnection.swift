@@ -190,11 +190,11 @@ final class RemoteTmuxControlConnection {
     var sessionDigestSubscribed = false
     var newWindowCompletions: [UUID: (Int?) -> Void] = [:]
     var newPaneCompletions: [UUID: (Int?) -> Void] = [:]
-    /// Completions for ``sendTracked(_:completion:)`` blocks, keyed by the
-    /// `.tracked` token in the FIFO. Guaranteed exactly one edge each: `%end`,
-    /// `%error`, or a stream reset (``failPendingTrackedSends()``) — callers
-    /// build protocol-anchored state machines on that guarantee.
+    /// Completions for ``sendTracked(_:completion:)`` blocks by `.tracked` token, and for full-history
+    /// seeds by seed id. Exactly one edge each: `%end` (or the seed painted), `%error`, or a stream
+    /// reset (``failPendingTrackedSends()``); callers build protocol-anchored state machines on that.
     var trackedSendCompletions: [UUID: (Bool) -> Void] = [:]
+    var fullHistorySeeds = RemoteTmuxFullHistorySeedState()
 
     private var process: Process?
     /// Cleanup belongs to the ended spawn, and must finish even if a replacement
@@ -535,7 +535,7 @@ final class RemoteTmuxControlConnection {
     /// mirrored pane, so the chunk cap absorbs pipe delivery jitter while the byte
     /// cap keeps worst-case memory bounded if parsing falls behind or the remote
     /// floods output. Parser byte budgets remain the control-stream corruption guard.
-    private static let maxPendingStdoutBytes = 32 * 1024 * 1024
+    static let maxPendingStdoutBytes = 32 * 1024 * 1024
     private static let maxPendingStdoutChunks = 4096
     private static let maxPendingStderrBytes = 1024 * 1024
     private static let maxPendingStderrChunks = 256

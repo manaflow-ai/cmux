@@ -165,10 +165,10 @@ extension TerminalController {
             return allowed ? args : nil
         case "display-message":
             let allowed = args.count == 5 && args[1] == "-p" && args[2] == "-t"
-                && isAtom(args[3]) && args[4] == "#{window_width}x#{window_height}"
+                && isAtom(args[3]) && ["#{window_width}x#{window_height}", "#{history_size}"].contains(args[4])
             return allowed ? args : nil
         default:
-            return nil
+            return remoteTmuxHistoryTestCommandArguments(args, isAtom: isAtom)
         }
     }
 
