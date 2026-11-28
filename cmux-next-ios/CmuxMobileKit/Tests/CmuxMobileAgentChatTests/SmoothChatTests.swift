@@ -383,12 +383,16 @@ import UIKit
         list.boundsMayHaveChanged()
         list.collectionView.layoutIfNeeded()
 
-        let before = source.earlierHistoryRequests
-        // `session-start` is the first stable row in the transcript snapshot.
+        // `session-start` is the first stable row in the transcript snapshot. Four turns are
+        // shorter than the screen, so UIKit may already have shown it during the layout above
+        // (Xcode 27's collection view displays cells in `layoutIfNeeded`): either way reaching it
+        // reads exactly one older page, and showing it again asks for no second one.
+        list.collectionView(list.collectionView, willDisplay: UICollectionViewCell(),
+                            forItemAt: IndexPath(item: 0, section: 0))
         list.collectionView(list.collectionView, willDisplay: UICollectionViewCell(),
                             forItemAt: IndexPath(item: 0, section: 0))
 
-        #expect(source.earlierHistoryRequests == before + 1)
+        #expect(source.earlierHistoryRequests == 1)
         #expect(store.isLoadingEarlier)
     }
 
@@ -412,16 +416,21 @@ import UIKit
         scroll.layoutIfNeeded()
         let visibleTop = scroll.contentOffset.y + scroll.adjustedContentInset.top
         guard let anchor = list.layout.firstRow(below: visibleTop),
-              let anchorBefore = list.layout.top(of: anchor.id) else {
+              let anchorTop = list.layout.top(of: anchor.id) else {
             Issue.record("the reader did not have an anchor below the transcript header")
             return
         }
+        // Where the reader sees the row: `reload()` keeps it there by moving the content offset
+        // when rows above it come or change (`session-start` leaves the first turn for the page's),
+        // so the row's layout coordinate itself may move.
+        let onScreenBefore = anchorTop - scroll.contentOffset.y
 
         store.apply(.earlierPage((0..<10).flatMap { SmoothChatTests.turn($0) }, hasEarlier: false))
         list.reload()
         scroll.layoutIfNeeded()
 
-        #expect(abs((list.layout.top(of: anchor.id) ?? .greatestFiniteMagnitude) - anchorBefore) < 1,
+        let onScreenAfter = (list.layout.top(of: anchor.id) ?? .greatestFiniteMagnitude) - scroll.contentOffset.y
+        #expect(abs(onScreenAfter - onScreenBefore) < 1,
                 "loading older history moved the row under the reader")
     }
 

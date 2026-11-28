@@ -25,8 +25,14 @@ import UIKit
         Data((0..<48).map { "batch \(n) line \($0) " + String(repeating: "y", count: 60) + "\r\n" }.joined().utf8)
     }
 
-    /// Batches queued on the surface's output queue at once during the flood.
-    static let inFlightLimit = 64
+    /// Batches queued on the surface's output queue at once during the flood
+    /// (4 KiB each: 4 MiB at most). Twice in ios-fast (2026-11-28) a limit of
+    /// 64 parsed exactly 64 in the second: the output queue had parsed them
+    /// all, and no main-thread completion ran before the second was over (the
+    /// main actor was busy with other suites), so the flood stopped at the
+    /// limit. A limit well above what the display can draw keeps the parse
+    /// rate off the main actor entirely.
+    static let inFlightLimit = 1024
 
     /// Batches Ghostty parsed, counted on the output queue as it parses each.
     final class Parsed: @unchecked Sendable {
