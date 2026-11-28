@@ -110,11 +110,19 @@ test("the full conversation combines real turn, file, Chief, subagent and live-w
   expect(projected.rows.find((row) => row.id === "tour-first-final")?.text).toContain("**Finding:**");
   expect(projected.rows.some((row) => row.kind === WORKED && row.status === "cancelled")).toBe(true);
   expect(projected.rows.some((row) => row.turnPhase === "running")).toBe(true);
-  expect(
-    projected.rows.some(
-      (row) => row.kind === "subagentDone" && row.subagents?.[0]?.id === "tour-settings-corner-review",
-    ),
-  ).toBe(true);
+  // A finished subagent's end folds as tool-call work (#53268; Leo, 2026-11-24: "we can indeed treat
+  // them as tool calls ... thereby we can have them be folded properly too"): opening the folds and
+  // runs over it reaches it.
+  const review = (rows: readonly { kind: string; subagents?: readonly { id: string }[] }[]) =>
+    rows.some((row) => row.kind === "subagentDone" && row.subagents?.[0]?.id === "tour-settings-corner-review");
+  let opened = projected;
+  for (let pass = 0; pass < 3 && !review(opened.rows); pass += 1)
+    opened = turnViewFrom(
+      withSubagentLines(snapshot.rows),
+      new Set(opened.rows.filter((row) => row.kind === WORKED || row.backgroundRun).map((row) => row.id)),
+      { working: snapshot.isWorking, agentFamily: "codex", now: GALLERY_NOW },
+    );
+  expect(review(opened.rows)).toBe(true);
   expect(fullConversation.variants.tour!.play).toBeDefined();
 });
 
