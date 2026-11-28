@@ -199,6 +199,96 @@ import Testing
         #expect(!hosting.isDetached)
     }
 
+    // MARK: One attach per commit at a drag's landing
+
+    /// Pages of browsers 1...n in panes of one window, whose blocks after a commit the test runs (`commit`).
+    func landingPages(_ count: Int) -> ([CEFLayerHosting], window: NSWindow, commit: @MainActor () -> Void) {
+        let window = NSWindow(contentRect: NSRect(x: -4000, y: -4000, width: 400 * CGFloat(count), height: 300),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        var committed: [@MainActor @Sendable () -> Void] = []
+        let pages = (1...count).map { index in
+            var blocks: [@MainActor @Sendable () -> Void] = []
+            let pane = NSView(frame: NSRect(x: 400 * CGFloat(index - 1), y: 0, width: 400, height: 300))
+            window.contentView?.addSubview(pane)
+            let hosting = CEFLayerHosting(isEnabled: { true }, schedule: { blocks.append($0) },
+                                          makePage: { CEFHostedPageView(frame: $0, makeLayerHost: { _ in CALayer() }) },
+                                          holdsFocus: { false }, afterCommit: { committed.append($0) })
+            hosting.view = pane
+            hosting.pageWindowCreated(browser: Int32(index), fork: fake.fork)
+            for block in blocks { block() }
+            return hosting
+        }
+        return (pages, window, {
+            let pass = committed
+            committed.removeAll()
+            for block in pass { block() }
+        })
+    }
+
+    /// A drag across three panes detached all three pages; its landing attaches one page in the landing's turn and each
+    /// other one after the next commit, so no frame pays every page's order-in (nightly 4ef8b54a0, s9-browser-w30: one
+    /// 700-1200 ms landing frame for 9 attaches).
+    @Test func aLandingAttachesOnePagePerCommit() {
+        let (pages, window, commit) = landingPages(3)
+        defer { window.close() }
+        for page in pages { page.resizeMotion(active: true) }
+        #expect(calls == ["1:detach", "2:detach", "3:detach"])
+        for page in pages { page.resizeMotion(active: false) }
+        #expect(calls.suffix(1) == ["1:attach"], "the landing's turn attached more than one page")
+        #expect(pages.map(\.isDetached) == [false, true, true])
+        commit()
+        #expect(pages.map(\.isDetached) == [false, false, true])
+        commit()
+        #expect(pages.map(\.isDetached) == [false, false, false])
+        commit()
+        #expect(calls == ["1:detach", "2:detach", "3:detach", "1:attach", "2:attach", "3:attach"])
+        // The next landing starts afresh: its first page attaches in its own turn.
+        pages[0].resizeMotion(active: true)
+        pages[0].resizeMotion(active: false)
+        #expect(calls.suffix(2) == ["1:detach", "1:attach"])
+    }
+
+    /// A page waiting its landing turn comes back at once for a focus ask, and its turn then attaches nothing.
+    @Test func aFocusAskAttachesAWaitingLandedPageAtOnce() {
+        let (pages, window, commit) = landingPages(2)
+        defer { window.close() }
+        for page in pages { page.resizeMotion(active: true) }
+        for page in pages { page.resizeMotion(active: false) }
+        #expect(pages[1].isDetached)
+        #expect(pages[1].pageTakesFocus(), "the grant must wait for the attach's commit")
+        #expect(!pages[1].isDetached)
+        commit()
+        #expect(calls == ["1:detach", "2:detach", "1:attach", "2:attach"])
+    }
+
+    /// A new drag that catches a page still waiting its landing turn keeps it detached; that drag's landing attaches it.
+    @Test func aDragThatCatchesAWaitingPageKeepsItDetachedToItsOwnLanding() {
+        let (pages, window, commit) = landingPages(2)
+        defer { window.close() }
+        for page in pages { page.resizeMotion(active: true) }
+        for page in pages { page.resizeMotion(active: false) }
+        pages[1].resizeMotion(active: true)
+        commit()
+        #expect(pages[1].isDetached, "the old landing's turn attached a page in a new drag")
+        #expect(calls == ["1:detach", "2:detach", "1:attach"])
+        pages[1].resizeMotion(active: false)
+        #expect(!pages[1].isDetached)
+        #expect(calls == ["1:detach", "2:detach", "1:attach", "2:attach"])
+    }
+
+    /// A closed page window drops a page from the landing's queue.
+    @Test func aPageClosedWhileWaitingItsLandingTurnIsSkipped() {
+        let (pages, window, commit) = landingPages(3)
+        defer { window.close() }
+        for page in pages { page.resizeMotion(active: true) }
+        for page in pages { page.resizeMotion(active: false) }
+        pages[1].stop()
+        commit()
+        #expect(calls == ["1:detach", "2:detach", "3:detach", "1:attach", "3:attach"])
+        #expect(!pages[2].isDetached)
+    }
+
     // MARK: The frame a page shows in (SWITCH STALL 5)
 
     /// A hosted page whose blocks after a commit (`commit`) and after the next display frame (`frame`) the test runs

@@ -28,8 +28,7 @@ import CmuxNextWakeups
 ///
 /// Tests drive it through ``Fork`` and the `schedule` seam, without Chromium.
 final class CEFLayerHosting {
-    /// The fork's layer hosting call: a seam, so tests run this state machine
-    /// without Chromium.
+    /// The fork's layer hosting call: a seam, so tests run this state machine without Chromium.
     struct Fork {
         /// `cmux_shim_browser_set_layer_hosting`: the page window's context
         /// id (> 0) for `enabled`, 0 when off or refused.
@@ -87,8 +86,7 @@ final class CEFLayerHosting {
 
     private enum Pending: Equatable {
         case none
-        /// A request runs at the end of this run-loop turn (`retry`: it is
-        /// the one retry after a refusal).
+        /// A request runs at the end of this run-loop turn (`retry`: it is the one retry after a refusal).
         case scheduled(retry: Bool)
         /// The fork refused; the tracker's next read schedules the retry.
         case armed
@@ -124,8 +122,7 @@ final class CEFLayerHosting {
     nonisolated static let resizeSyncReapply = ProcessInfo.processInfo.environment["CMUX_CEF_RESIZE_SYNC_REAPPLY"] == "1"
 
     weak var view: NSView?
-    /// The page's pixels in this window's layer tree; nil while the page
-    /// draws in its own window.
+    /// The page's pixels in this window's layer tree; nil while the page draws in its own window.
     private(set) var page: CEFHostedPageView?
     /// Where the page window has a hole in the web contents (`CEFTab.applyOcclusion`): the New Tab page, a blank page.
     /// The hosted page shows no pixels there either, as the page window does not (cmux-ad m37: with layer hosting the
@@ -181,7 +178,7 @@ final class CEFLayerHosting {
     /// Runs a block later on the main actor.
     typealias Scheduler = (_ block: @escaping @MainActor @Sendable () -> Void) -> Void
     /// Runs a block after this run-loop pass's frame commit (``AfterFrameCommit``); tests run it when they choose.
-    private let afterCommit: Scheduler
+    let afterCommit: Scheduler
     /// Runs a block once the window's next display frame came (a ``FrameClient`` tick on the view's window), after
     /// that pass's commit; nil uses the view's ``FrameScheduler``. Tests run it when they choose.
     private let afterFrameShown: Scheduler?
@@ -241,9 +238,8 @@ final class CEFLayerHosting {
     /// Whether a refused request waits for the tracker's next read.
     var isRetryArmed: Bool { pending == .armed }
 
-    /// A new page window over the view (a pane's Chromium window, or a docked
-    /// DevTools): the old window's context went with it. Called inside
-    /// Chromium's creation stack, so the request waits for the end of the turn.
+    /// A new page window over the view (a pane's Chromium window, or a docked DevTools): the old window's context went
+    /// with it. Called inside Chromium's creation stack, so the request waits for the end of the turn.
     func pageWindowCreated(browser: Int32, fork: Fork?) {
         dropPage()
         self.browser = browser
@@ -454,6 +450,7 @@ final class CEFLayerHosting {
     /// The hosted page's window is headless and off screen (``cmux_browser_set_detached_hosting``): a resize of the
     /// view moves no window. Only during a resize motion of the view (``resizeMotion(active:)``, a window live resize).
     private(set) var isDetached = false
+    var landingQueued = false // a drag's landing attaches this page at a later frame (``landAttach()``)
     /// Resize motions of the view that have begun and not ended: a person's divider drag of its pane, told by each tab
     /// container of the pane (``CEFTabContentView``). A key resize keeps the page attached (``CEFTabContentView/holdPage(for:)``).
     private(set) var motionHolders = 0
@@ -491,6 +488,7 @@ final class CEFLayerHosting {
     /// - Returns: Whether the page window was detached and came back now (its grant then waits for the next commit).
     @discardableResult
     func pageTakesFocus() -> Bool {
+        if landingQueued { return landedTakesFocus() }
         guard inResizeMotion else { return false }
         motionKeepsAttached = true
         return isDetached && setDetached(false)
@@ -501,10 +499,11 @@ final class CEFLayerHosting {
             // A live resize nobody drives (a display change's frame adjustment) moves the page once: no detach.
             motionKeepsAttached = holdsFocus() || (motionHolders == 0 && !liveResizeByPerson)
                 || (Self.dragKeepsAttached && !inLiveResize)
+            landingQueued = false // a page waiting its landing turn stays detached (``landAttach()``)
             if !motionKeepsAttached { setDetached(true) }
         } else {
             motionKeepsAttached = false
-            attach()
+            landAttach()
         }
     }
 
@@ -633,7 +632,7 @@ final class CEFLayerHosting {
 
     /// Attaches the detached page (``attachOwed`` when the fork refused). An ask a refused hold kept is granted after
     /// the commit that follows, once the fork ordered the window in.
-    private func attach() {
+    func attach() {
         attachOwed = !setDetached(false) && isDetached
         guard !attachOwed, owedGrant != nil else { return }
         afterCommit { [weak self] in
@@ -757,6 +756,7 @@ final class CEFLayerHosting {
         // The fork ends detached hosting when hosting goes off or the page window goes.
         isDetached = false
         attachOwed = false
+        landingQueued = false
         isParkedAway = false
         firstFrameHold = .none
         afterFirstFrame = nil
