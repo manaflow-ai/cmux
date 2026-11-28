@@ -426,7 +426,18 @@ extension AgentPaneRequest {
             if let command = AgentPaneNowPlaying.Command(params) { self = .nowPlaying(command) } else { self = .unsupported(method) }
         case "newTab.remember":
             // One input (R86): the agent pick, and the model picked on it in `folder`.
-            if let agent = params?["agent"] as? String, !agent.isEmpty, agent.count <= 128 {
+            if params?["side"] as? String == "cloud" {
+                // Cloud's own pick (agent, model, level): This Mac's pick stays as it is.
+                guard let agent = params?["agent"] as? String, !agent.isEmpty, agent.count <= 128 else {
+                    self = .unsupported(method)
+                    return
+                }
+                let model = (params?["model"] as? String).flatMap { !$0.isEmpty && $0.count <= 256 ? $0 : nil }
+                let effort = (params?["effort"] as? String).flatMap { !$0.isEmpty && $0.count <= 128 ? $0 : nil }
+                var pick = AgentPaneRememberedPick(agent: "")
+                pick.cloudAgent = AgentPaneLastPicks.CloudPick(harness: agent, model: model, effort: effort)
+                self = .rememberNewTab(pick)
+            } else if let agent = params?["agent"] as? String, !agent.isEmpty, agent.count <= 128 {
                 let model = (params?["model"] as? String).flatMap { !$0.isEmpty && $0.count <= 256 ? $0 : nil }
                 let folder = (params?["folder"] as? String).flatMap { !$0.isEmpty && $0.count <= 4096 ? $0 : nil }
                 self = .rememberNewTab(AgentPaneRememberedPick(agent: agent, model: model, folder: folder))

@@ -36,7 +36,7 @@ import { historyPages } from "../queue/historyPages";
 import type { AllChatsPage } from "../newtab/allChatsListModel";
 import { newTabScreenActions } from "../newtab/screenActions";
 import { cloudSendAgent } from "../cloudModePick";
-import { cloudAgentPick } from "../cloudAgentPick";
+import { cloudAgentPick, cloudStartPick, rememberedCloudAgentPick } from "../cloudAgentPick";
 import { jumpSide } from "../jumpPlace";
 import type { ComposerPlace } from "../composerPlace.experiment";
 import { StyleSwitch } from "../newtab/StyleSwitch";
@@ -1021,23 +1021,23 @@ export function drawPaneBody({
                               // The agent the Mode chip names and its pick: a harness with no
                               // Cloud start mode is left out, so the machine starts Claude.
                               // The agent picked for the machine (cloudAgentPick.ts), as the chips show it.
+                              // The agent, model and level the chips drew (cloudAgentPick.ts `cloudStartPick`):
+                              // Cloud's own pick, with its mode, never this Mac's.
                               ...(() => {
-                                const machine = cloudAgentPick();
-                                const agent = machine?.harness ?? harness;
+                                const family = snapshot.catalog.find((entry) => entry.id === harness)?.family;
+                                const pick = cloudStartPick({
+                                  harness,
+                                  ...(model ? { model } : {}),
+                                  ...(family ? { family } : {}),
+                                });
                                 return {
                                   ...cloudSendAgent(
-                                    snapshot.catalog.find((entry) => entry.id === agent)?.family,
-                                    agent,
-                                    // A pick of the shown agent with no model of its own (a level alone) keeps the shown model.
-                                    machine
-                                      ? (machine.model ?? (machine.harness === harness ? model : undefined))
-                                      : model,
-                                    machine !== undefined,
+                                    snapshot.catalog.find((entry) => entry.id === pick.harness)?.family ?? pick.harness,
+                                    pick.harness,
+                                    pick.model,
+                                    (cloudAgentPick() ?? rememberedCloudAgentPick()) !== undefined,
                                   ),
-                                  // The level picked with it, as the chips show it (cmux#59716).
-                                  ...(machine?.effort && machine.effort !== "default"
-                                    ? { effort: machine.effort }
-                                    : {}),
+                                  ...(pick.effort && pick.effort !== "default" ? { effort: pick.effort } : {}),
                                 };
                               })(),
                             },

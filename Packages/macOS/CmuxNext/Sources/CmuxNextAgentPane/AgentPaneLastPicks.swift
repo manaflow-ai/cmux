@@ -25,16 +25,35 @@ public nonisolated struct AgentPaneLastPicks: Codable, Sendable, Equatable {
         }
     }
 
+    /// The agent, model and level picked for chats that start on a Cloud machine (Cloud or Auto picked as
+    /// where a new chat runs). Kept apart from This Mac's ``global`` and ``folders``: a Cloud pick never
+    /// changes This Mac's, nor a pick on This Mac Cloud's, so switching between them shows each side's own
+    /// pick again (the page's cloudAgentPick.ts).
+    public nonisolated struct CloudPick: Codable, Sendable, Equatable {
+        public var harness: String
+        public var model: String?
+        public var effort: String?
+
+        public init(harness: String, model: String? = nil, effort: String? = nil) {
+            self.harness = harness
+            self.model = model
+            self.effort = effort
+        }
+    }
+
     /// The folders kept; the oldest pick goes first.
     public static let maxFolders = 50
 
     public var global: Pick?
     /// Oldest first.
     public var folders: [FolderPick]
+    /// Cloud's own pick; nil before any (an older blob has none).
+    public var cloud: CloudPick?
 
-    public init(global: Pick? = nil, folders: [FolderPick] = []) {
+    public init(global: Pick? = nil, folders: [FolderPick] = [], cloud: CloudPick? = nil) {
         self.global = global
         self.folders = folders
+        self.cloud = cloud
     }
 
     /// The model a pick of an agent's own default names.
@@ -72,6 +91,9 @@ public nonisolated struct AgentPaneRememberedPick: Sendable, Equatable {
     /// The person started a Cloud chat in this folder of this Mac or GitHub repository (`cloudStarted`,
     /// `github:owner/name`): later pages with Cloud picked default to it (cmux#53226).
     public var cloudStarted: String?
+    /// The agent, model and level the person picked for Cloud (`side: "cloud"`): Cloud's own pick, which
+    /// leaves This Mac's pick as it is.
+    public var cloudAgent: AgentPaneLastPicks.CloudPick?
 
     /// A folder (absolute) or a GitHub repository (`github:owner/name`), at most 4096 characters.
     public static func isCloudPick(_ value: String) -> Bool {

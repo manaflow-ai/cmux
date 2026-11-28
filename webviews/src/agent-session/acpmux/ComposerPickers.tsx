@@ -1015,15 +1015,21 @@ export function ComposerPickers({
   // what acpmux starts the chat on when no setting names one (its curated catalog's default for the
   // model, hub/start_defaults.rs), so the chip names it from the first frame and acpmux's answer
   // replaces it only when it differs (Lucas 2026-10-24).
+  // A Cloud start's chip (Cloud or Auto picked) names only the level held for it (`startLevel`, Cloud's
+  // own pick, which the Cloud send carries): this Mac's start level and the level this Mac's chats last
+  // showed are This Mac's, and the machine never gets them (model-picker-local-cloud-state).
+  const cloudStartChip = (snapshot.startsOnCloud === true || snapshot.cloudPicker === true) && !summary?.sessionId;
   const heldValue =
     (heldPick && heldPick.harness === chipHarness ? heldPick.value : undefined) ??
     (startLevel && startLevel.harness === chipHarness ? startLevel.value : undefined) ??
-    startEffort ??
-    heldLevels.find((choice) => choice.name === lastChips?.effort)?.id ??
-    (opensListed ? undefined : heldOption?.currentValue) ??
-    (snapshot.catalog.length === 0 && !opensListed
+    (cloudStartChip
       ? heldLevels.find((choice) => choice.id === heldModel?.defaultEffort)?.id
-      : undefined);
+      : (startEffort ??
+        heldLevels.find((choice) => choice.name === lastChips?.effort)?.id ??
+        (opensListed ? undefined : heldOption?.currentValue) ??
+        (snapshot.catalog.length === 0 && !opensListed
+          ? heldLevels.find((choice) => choice.id === heldModel?.defaultEffort)?.id
+          : undefined)));
   // The held chip steps down as the reported one does: "Med" in a narrow row (composerRowFit.ts).
   const heldChoice = heldLevels.find((choice) => choice.id === heldValue);
   const heldShort = heldChoice && heldChoice.id !== "ultracode" ? shortLevel(heldChoice, t) : undefined;
@@ -1278,10 +1284,12 @@ export function ComposerPickers({
       pendingAccessModes: pendingAccessModes.map((choice) => choice.id),
     };
   });
+  // Only a chat of this Mac's side: a Cloud chat's level is the machine's, never the one this Mac's next
+  // chat draws before it reports (model-picker-local-cloud-state).
   useEffect(() => {
-    if (!awaiting && chipHarness && summary?.sessionId && effortShown)
+    if (!awaiting && chipHarness && summary?.sessionId && effortShown && !onCloud)
       rememberLastChips(chipHarness, { effort: effortShown });
-  }, [awaiting, chipHarness, summary?.sessionId, effortShown]);
+  }, [awaiting, chipHarness, summary?.sessionId, effortShown, onCloud]);
   // The controls row's short forms (composerRowFit.ts): the model's name without its vendor
   // ("Opus 5.5": the catalog's short name, else the name less its harness's vendor word), its
   // family for a narrow row ("Opus"), and the effort level's short name ("Med").

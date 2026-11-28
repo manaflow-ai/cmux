@@ -3,7 +3,13 @@ import { type AcpmuxSnapshot } from "../model";
 import { newTabChipSnapshot } from "../newtab/chipDefaults";
 import { useHarnessesPage } from "../harnesses/harnessesPage";
 import { holdCloudModePick } from "../cloudModePick";
-import { clearCloudAgentPick, holdCloudAgentEffort, holdCloudAgentPick, useCloudAgentPick } from "../cloudAgentPick";
+import {
+  cloudPickShown,
+  holdCloudAgentEffort,
+  holdCloudAgentPick,
+  publishCloudAgentShown,
+  useCloudAgentPicked,
+} from "../cloudAgentPick";
 import { HELD_EFFORT_ID, HELD_FAST_ID, isEffortOption, isFastModeOption } from "../heldOptions";
 import { isDefaultChoice } from "../defaultChoice";
 import { useDraftActionsVersion } from "../composerDraft";
@@ -72,33 +78,65 @@ function PickerChips({
   const signIn = useSignIn();
   // acpmux has answered with its harnesses: only then can the chip say none is installed.
   const harnessesListed = useHarnessesListed();
-  // Cloud picked: the agent picked for the machine (cloudAgentPick.ts) is the one the chips show and the
-  // Cloud send names; this Mac starts no chat for it (cmux#51731).
-  const cloudPick = useCloudAgentPick();
-  // A session this Mac opened for the page (a real New Agent Chat opens one before the first send) is not
-  // the one that runs: once an agent is picked for the machine, the chips keep showing that pick until the
-  // first message, never the local session's agent alone (cmux#59716: the chip read just "Codex", a
-  // local Codex session that had named no model or level yet).
-  const onCloud =
-    snapshot.startsOnCloud === true &&
-    (!snapshot.summary?.sessionId || (cloudPick !== undefined && (snapshot.summary.turnCount ?? 0) === 0));
-  const localSession = onCloud && cloudPick !== undefined && !!snapshot.summary?.sessionId;
-  const sameAgent = snapshot.summary?.harness === cloudPick?.harness;
-  const shown: AcpmuxSnapshot =
-    onCloud && cloudPick
-      ? {
-          // The chips draw the Cloud start, which has no session yet: a local session's id, and another
-          // agent's options and modes, are not its own.
-          ...(localSession ? withoutSession(snapshot) : snapshot),
-          summary: {
-            ...snapshot.summary,
-            ...(localSession ? { sessionId: "" } : {}),
-            ...(localSession && !sameAgent ? { configOptions: undefined, modes: undefined } : {}),
-            harness: cloudPick.harness,
-            model: cloudPick.model ?? (sameAgent ? snapshot.summary?.model : undefined),
-          } as AcpmuxSnapshot["summary"],
-        }
-      : snapshot;
+  // Cloud (or Auto, which may start the chat there) picked: the chips draw Cloud's own pick
+  // (cloudAgentPick.ts), never This Mac's; this Mac starts no chat for it (cmux#51731). A session this
+  // Mac opened for the page (a real New Agent Chat opens one before the first send) is not the one that
+  // runs: until the first message the chips keep drawing the Cloud pick, never the local session's agent,
+  // model, level or modes (cmux#59716: the chip read just "Codex", a local Codex session that had named no
+  // model or level yet).
+  const picked = useCloudAgentPicked();
+  const cloudSide = snapshot.startsOnCloud === true || snapshot.cloudPicker === true;
+  const onCloud = cloudSide && (!snapshot.summary?.sessionId || (snapshot.summary.turnCount ?? 0) === 0);
+  const localHarness = snapshot.summary?.harness;
+  const thisMac = {
+    ...(localHarness ? { harness: localHarness } : {}),
+    ...(snapshot.summary?.model ? { model: snapshot.summary.model } : {}),
+    ...(() => {
+      const family = snapshot.catalog.find((entry) => entry.id === localHarness)?.family;
+      return family ? { family } : {};
+    })(),
+  };
+  const cloudAgent = onCloud ? cloudPickShown(thisMac, undefined, picked).harness : undefined;
+  const picker = usePickerCatalog(
+    snapshot.catalog,
+    onCloud
+      ? { harness: cloudAgent }
+      : {
+          harness: snapshot.summary?.harness,
+          model: snapshot.summary?.model,
+          configOptions: snapshot.summary?.configOptions,
+        },
+    snapshot.sessions,
+  );
+  // The pick drawn and sent, with the model and level a pick naming none starts on (the model catalog's
+  // default for the agent, and that model's default level), named so the start runs exactly what the
+  // chip says: the machine's own saved defaults never pick a model or level the chip did not name.
+  const cloud = onCloud
+    ? (() => {
+        const row = (harness: string) =>
+          picker.catalog.harnesses.find((entry) => (entry.acpmuxHarness ?? entry.id) === harness);
+        const pick = cloudPickShown(thisMac, (harness) => row(harness)?.defaultModel, picked);
+        if (pick.effort || !pick.model) return pick;
+        const effort = row(pick.harness)?.models.find((model) => model.id === pick.model)?.defaultEffort;
+        return effort ? { ...pick, effort } : pick;
+      })()
+    : undefined;
+  // What the chips draw is what the Cloud send sends (cloudStartPick): one source for both.
+  publishCloudAgentShown(cloud);
+  const localSession = cloud !== undefined && !!snapshot.summary?.sessionId;
+  const shown: AcpmuxSnapshot = cloud
+    ? {
+        // The chips draw the Cloud start, which has no session yet: a local session's id, options and
+        // modes are this Mac's, not its own.
+        ...(localSession ? withoutSession(snapshot) : snapshot),
+        summary: {
+          ...snapshot.summary,
+          ...(localSession ? { sessionId: "", configOptions: undefined, modes: undefined } : {}),
+          harness: cloud.harness,
+          model: cloud.model,
+        } as AcpmuxSnapshot["summary"],
+      }
+    : snapshot;
   // The page's action map (chat.new, chat.mode) is installed by the connect, after the chips first
   // draw; the chips draw again when it is installed or dropped.
   useDraftActionsVersion();
@@ -138,15 +176,6 @@ function PickerChips({
     if (!startsChat || window.cmuxAcpmuxActions?.["chat.mode"] !== undefined) return pickMode(modeId);
     return holdModePick(modeId, pickMode);
   };
-  const picker = usePickerCatalog(
-    snapshot.catalog,
-    {
-      harness: shown.summary?.harness,
-      model: shown.summary?.model,
-      configOptions: snapshot.summary?.configOptions,
-    },
-    snapshot.sessions,
-  );
   const [refreshStatus, setRefreshStatus] = useState<"idle" | "fetching" | "updated" | "error">("idle");
   const refreshCatalog = useCallback(async () => {
     setRefreshStatus("fetching");
@@ -163,7 +192,7 @@ function PickerChips({
     <ComposerPickers
       snapshot={startsChat ? newTabChipSnapshot(shown, picker.catalog) : shown}
       startsChat={startsChat}
-      {...(onCloud && cloudPick?.effort ? { startLevel: { harness: cloudPick.harness, value: cloudPick.effort } } : {})}
+      {...(cloud?.effort ? { startLevel: { harness: cloud.harness, value: cloud.effort } } : {})}
       // A New Tab pick is held whenever the chat has a harness to start (start() sends chat.new
       // first); before the page's actions are connected, `onMode` holds it until they are.
       holdsModePick={snapshot.switching !== undefined || (startsChat && !!snapshot.summary?.harness)}
@@ -179,9 +208,8 @@ function PickerChips({
           holdCloudAgentPick({ harness: cloudHarness, model: modelId });
           return;
         }
-        // A pick here is the latest: a Cloud pick made before it no longer stands for the chips, so Cloud
-        // picked again shows (and starts) this agent, never the earlier one (cmux#59716, Codex to Claude).
-        clearCloudAgentPick();
+        // This Mac's pick: Cloud's own pick stays as it was, and Cloud picked again shows it (each side
+        // keeps its own pick).
         start();
         void callNative("chat.model", { modelId });
       }}
@@ -219,7 +247,6 @@ function PickerChips({
           holdCloudAgentPick({ harness, ...(model ? { model } : {}), ...(effort ? { effort } : {}) });
           return;
         }
-        clearCloudAgentPick();
         if (startsChat) pickedHarness.current = harness;
         void (
           !startsChat && snapshot.sessionId && snapshot.canHandoff && !switchForks(snapshot)

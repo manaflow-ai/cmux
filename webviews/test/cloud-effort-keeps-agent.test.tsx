@@ -75,7 +75,7 @@ beforeAll(() => {
 });
 
 afterEach(async () => {
-  (await import("../src/agent-session/acpmux/cloudAgentPick")).clearCloudAgentPick();
+  (await import("../src/agent-session/acpmux/cloudAgentPick")).forgetCloudAgentPicksForTests();
   (await import("../src/agent-session/acpmux/cloudModePick")).clearCloudModePick();
   act(() => root?.unmount());
   root = undefined;
@@ -448,15 +448,17 @@ test("with Cloud picked, a Codex pick on a Claude page then High, elsewhere, Med
   expect(chipFace()).not.toContain("Opus");
 });
 
-// A Cloud pick of Claude made earlier on the page, then Codex picked on This Mac: the latest pick wins,
-// so Cloud picked again shows and starts Codex, never the earlier Claude.
-test("a This Mac pick of Codex drops an earlier Cloud pick of Claude", async () => {
+// A Cloud pick of Claude made earlier on the page, then Codex picked on This Mac: each side keeps its own
+// pick (model-picker-local-cloud-state), so Cloud picked again shows and starts the Claude picked for it,
+// and This Mac's pick never reaches the Cloud start.
+test("a This Mac pick of Codex leaves an earlier Cloud pick of Claude as it was", async () => {
   calls.length = 0;
   const { cloudAgentPick, holdCloudAgentPick } = await import("../src/agent-session/acpmux/cloudAgentPick");
   holdCloudAgentPick({ harness: "claude", model: "claude-opus-5-5", effort: "high" });
   await render(await newTab(false, "codex"));
   await pickFirstModel("Codex");
-  expect(cloudAgentPick()).toBeUndefined();
+  expect(cloudAgentPick()).toEqual({ harness: "claude", model: "claude-opus-5-5", effort: "high" });
   await remount();
-  expect(chipFace()).not.toContain("Opus");
+  expect(chipFace()).toContain("Opus 5.5");
+  expect(chipFace()).not.toContain("Codex");
 });

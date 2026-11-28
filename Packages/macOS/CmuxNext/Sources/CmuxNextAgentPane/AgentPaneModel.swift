@@ -109,6 +109,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onRememberNewTab: ((AgentPaneRememberedPick) -> Void)?
     /// Cloud's last pick as the app keeps it (``NewTabChoiceMemory/cloudStartedProject``, the same defaults).
     @ObservationIgnored public var cloudPick: @MainActor () -> String? = { NewTabChoiceMemory().cloudStartedProject }
+    /// Cloud's own agent pick as the app keeps it (``NewTabChoiceMemory/cloudAgent``, the same defaults).
+    @ObservationIgnored public var cloudAgentPick: @MainActor () -> AgentPaneLastPicks.CloudPick? = { NewTabChoiceMemory().cloudAgent }
     /// The new tab page's style switch picked a template.
     @ObservationIgnored public var onEditNewTab: ((AgentPaneNewTabEdit) -> Void)?
     /// The location bar picked an open tab or workspace (`tab.jump`).
@@ -519,6 +521,20 @@ public final class AgentPaneModel {
     /// runs it and runs where a session has no pasteboard server (the fleet's: every write failed there).
     @ObservationIgnored let writeClipboard: @MainActor (String) -> Bool
 
+    /// `newTab.cloudPick`'s answer: Cloud's last folder (`cloudStarted`) and its own agent pick (`cloudAgent`:
+    /// harness, model, effort), each when there is one.
+    nonisolated static func cloudPickReply(folder: String?, agent: AgentPaneLastPicks.CloudPick?) -> [String: Any] {
+        var reply: [String: Any] = [:]
+        if let folder { reply["cloudStarted"] = folder }
+        if let agent {
+            var pick: [String: Any] = ["harness": agent.harness]
+            if let model = agent.model { pick["model"] = model }
+            if let effort = agent.effort { pick["effort"] = effort }
+            reply["cloudAgent"] = pick
+        }
+        return reply
+    }
+
     /// The app's clipboard write: replaces the general pasteboard's contents with `text`.
     public static func writeGeneralClipboard(_ text: String) -> Bool {
         NSPasteboard.general.clearContents()
@@ -758,7 +774,7 @@ public final class AgentPaneModel {
             guard sessionId == nil, let newTab = newTabForPage, let object = newTabReply(newTab, always: true) else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["newTab": object])
         // Cloud's last pick names a folder of this Mac or a repository: a chat on another machine gets none.
-        case .newTabCloudPick: return AgentPaneReply.success(remoteChat ? [:] : cloudPick().map { ["cloudStarted": $0] } ?? [:])
+        case .newTabCloudPick: return AgentPaneReply.success(remoteChat ? [:] : Self.cloudPickReply(folder: cloudPick(), agent: cloudAgentPick()))
         // Another machine's chats are not this Mac's: only a local page's list warms the next page.
         case .newTabWarm(let warm): if !remoteChat { AgentPaneNewTab.warmed = warm }; return AgentPaneReply.success()
         case .newTabInputReady(let token): guard newTab?.inputToken == token else { return Self.unsupported("newTab.inputReady") }; onNewTabInputReady?(token); return AgentPaneReply.success()

@@ -21,7 +21,7 @@ import { knownRefusalText } from "../transportErrors";
 import { INSTALL_COMMANDS } from "../harnesses/harnessRows";
 import { heldPick } from "../newtab/draftFolder";
 import { startThenSend } from "./firstSend";
-import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
+import { cloudSendAgent } from "../cloudModePick";
 import { rememberStartedProject, rememberCloudPick } from "../newtab/startedProject";
 import { writePersistedDraft } from "../composerDraft";
 import { Composer, type ComposerHandle, type ComposerRelay, type ComposerWake } from "../Composer";
@@ -40,8 +40,7 @@ import { SIDE_COMMAND } from "../composer/sendMenuModel";
 import { DictationNotice } from "../DictationNotice";
 import { DATE, THINKING, WORKING } from "../conversation/turns";
 import { switchForks } from "../conversation/messageMenu";
-import { DEFAULT_PICK_MODEL, lastPick } from "../lastPick";
-import { cloudAgentPick } from "../cloudAgentPick";
+import { cloudAgentPick, cloudStartPick, rememberedCloudAgentPick } from "../cloudAgentPick";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { HarnessStatusCard } from "../HarnessStatusCard";
 import { cloudStartFolder, cloudPickExtras } from "../cloudRun";
@@ -1195,55 +1194,38 @@ export function drawPaneComposer({
                 // Each send records its complete folder, so a Retry repeats this send's folder, never an older one's.
                 cloudRetryFolder.current = folder;
                 // The agent picked for the machine (cloudAgentPick.ts) goes first: the chips show it.
-                const machinePick = cloudAgentPick();
-                const held = heldPick(composerSnapshot);
-                const shownModel = composerSnapshot.summary?.model;
-                // Before the picker has a harness (the catalog still listing), the person's last local pick
-                // goes, so a Cloud send never falls back to Claude over the agent they use here (cmux#51731).
-                const remembered = lastPick(composerSnapshot.summary?.cwd);
-                const shownHarness = held.harness || composerSnapshot.summary?.harness || healthHarness;
-                const shownAgent = {
-                  harness: shownHarness || remembered?.harness,
-                  model:
-                    held.model ??
-                    (shownModel && shownModel !== "default"
-                      ? shownModel
-                      : !shownHarness && remembered?.model !== DEFAULT_PICK_MODEL
-                        ? remembered?.model
-                        : undefined),
-                };
-                // A pick of the shown agent with no model of its own (a level alone) keeps the shown model.
-                const cloudShownAgent = machinePick
-                  ? {
-                      harness: machinePick.harness,
-                      model:
-                        machinePick.model ??
-                        (machinePick.harness === shownAgent.harness ? shownAgent.model : undefined),
-                    }
-                  : shownAgent;
+                // The agent, model and level the chips drew for this Cloud start (cloudAgentPick.ts
+                // `cloudStartPick`): Cloud's own pick, never this Mac's chat or last pick, so the start runs
+                // exactly what the chip says. Before, this send worked the agent out again from this Mac's
+                // side (a switch's pick, the local chat's agent, This Mac's last pick), so a chip showing
+                // Cloud's Codex could start the Mac's Claude, or no model and the machine's own default.
+                const localHarness = composerSnapshot.summary?.harness || healthHarness;
+                const cloudPick = cloudStartPick({
+                  ...(localHarness ? { harness: localHarness } : {}),
+                  ...(composerSnapshot.summary?.model ? { model: composerSnapshot.summary.model } : {}),
+                  ...(() => {
+                    const family = composerSnapshot.catalog.find((entry) => entry.id === localHarness)?.family;
+                    return family ? { family } : {};
+                  })(),
+                });
                 const started = sendToCloud(
                   text,
                   shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
                   {
                     ...folder,
                     ...autoSendGate.cloudStart(),
-                    // The agent and model the composer shows, as the New Tab page's Cloud send names them
-                    // (cloudSendAgent): a pick held by a switch, else the chat's, else the picker's face. Before,
-                    // only a switch's pick went, so a page showing GPT-6.1 Sol started Claude on the machine.
+                    // Its mode (the Mode chip holds it under the agent the chips show) rides with it.
                     ...cloudSendAgent(
-                      composerSnapshot.catalog.find((entry) => entry.id === cloudShownAgent.harness)?.family,
-                      cloudShownAgent.harness ?? "",
-                      cloudShownAgent.model,
-                      machinePick !== undefined,
+                      composerSnapshot.catalog.find((entry) => entry.id === cloudPick.harness)?.family ??
+                        cloudPick.harness,
+                      cloudPick.harness,
+                      cloudPick.model,
+                      // A Cloud pick was made (here, or remembered for Cloud): the start is the Cloud picker's.
+                      (cloudAgentPick() ?? rememberedCloudAgentPick()) !== undefined,
                     ),
-                    // The Mode chip holds its pick under the chat's own harness (none on a blank page): the send
-                    // reads it there too, so a pick the chip shows is never dropped for the picker face's harness.
-                    // With an agent picked for the machine the chip holds it under that agent, which
-                    // cloudSendAgent already sends: another agent's mode never rides its start (cmux#59716).
-                    ...(machinePick ? {} : cloudStartModePick(composerSnapshot.summary?.harness)),
-                    // The picker's effort and account go with its model (cmux-tui/docs/model-connections.md).
-                    // A level picked for the machine's agent goes first (cmux#59716).
-                    ...cloudPickExtras(composerSnapshot.summary, machinePick),
+                    // The level picked (or the model's default level the chip names) and the chat's account
+                    // (cmux-tui/docs/model-connections.md); never this Mac's chat's level.
+                    ...cloudPickExtras({ route: composerSnapshot.summary?.route }, cloudPick),
                   },
                 );
                 if (typeof started === "string") {

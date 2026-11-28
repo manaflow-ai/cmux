@@ -101,7 +101,8 @@ import {
   withCloudStartPick,
 } from "./newtab/draftFolder";
 import { clearCloudModePick, cloudModePickFor as cloudModeFor, useCloudModePick } from "./cloudModePick";
-import { cloudAgentPick, dropCloudAgentPickForAdoption, holdCloudAgentPick } from "./cloudAgentPick";
+import { cloudAgentPick, cloudStartPick, dropCloudAgentPickForAdoption, holdCloudAgentPick } from "./cloudAgentPick";
+import { HELD_EFFORT_ID } from "./heldOptions";
 import {
   askAppCloudPick,
   cloudPickChoices,
@@ -5351,6 +5352,29 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }, [sandbox.mode, autoArrival, newTabGeneration]);
   /// Asks the daemon where an Auto chat runs, says it, and sends there. Never an error: no daemon,
   /// no Cloud or a failure runs the chat here, and the line says why.
+  /// Auto ran the chat here: the agent, model and level the chips drew (cloudAgentPick.ts `cloudStartPick`)
+  /// start it, as a pick in the picker would (a deferred `chat.new`, which the send then queues on). Only an
+  /// agent this Mac runs; one it does not run leaves the chat on this Mac's agent.
+  const startAutoHereOnPick = () => {
+    const current = snapshotRef.current;
+    const summary = current?.summary;
+    const family = current?.catalog.find((entry) => entry.id === summary?.harness)?.family;
+    const pick = cloudStartPick({
+      ...(summary?.harness ? { harness: summary.harness } : {}),
+      ...(summary?.model ? { model: summary.model } : {}),
+      ...(family ? { family } : {}),
+    });
+    const runs = current?.catalog.some((entry) => entry.id === pick.harness && !entry.folder && !entry.unavailable);
+    if (!runs || summary?.sessionId) return;
+    const cwd = projectDraft ?? summary?.cwd;
+    void callNative("chat.new", {
+      harness: pick.harness,
+      ...(pick.model ? { model: pick.model } : {}),
+      ...(pick.effort ? { options: { [HELD_EFFORT_ID]: pick.effort } } : {}),
+      ...(cwd ? { cwd } : {}),
+      deferred: true,
+    }).catch(() => undefined);
+  };
   const decideAutoSend = () => {
     const page = newTabGeneration;
     const decision = { page };
@@ -5372,6 +5396,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       } else {
         // Auto runs this one here: the machine it leased at the pick goes back.
         cloudReservation.abandon();
+        // It starts on the pick the chips showed (Cloud's, as Auto's picker is Cloud's): never this Mac's
+        // own agent and model in its place (model-picker-local-cloud-state).
+        startAutoHereOnPick();
         if (sandbox.mode !== "persistent") {
           runModePicked.current = true;
           sandbox.setMode("persistent");
@@ -7777,6 +7804,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...(quick && { canHandoff: false }),
       // Cloud picked: the first send starts the chat on a Cloud machine, which decides its mode.
       ...(cloudPicked && { startsOnCloud: true as const }),
+      // Auto picked: Cloud's picker too (one pick for Cloud and Auto, apart from This Mac's), whichever
+      // place Auto then decides (model-picker-local-cloud-state).
+      ...(!cloudPicked && autoPicked && { cloudPicker: true as const }),
       // Its permission mode pick, for the harness the chat starts on (cloudModePick.ts).
       ...(cloudPicked &&
         cloudModeFor(cloudModePick, snapshot.summary?.harness) !== undefined && {
@@ -7811,6 +7841,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     quick,
     keptStopping,
     cloudPicked,
+    autoPicked,
     cloudModePick,
     extensionCommands,
     listShown,

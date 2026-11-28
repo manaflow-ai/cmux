@@ -49,6 +49,9 @@ public final class NewTabChoiceMemory {
         return defaults.string(forKey: Self.startedProjectKey).flatMap { $0.hasPrefix("/") ? $0 : nil }
     }
 
+    /// The agent, model and level the person last picked for Cloud (``AgentPaneLastPicks/cloud``).
+    public var cloudAgent: AgentPaneLastPicks.CloudPick? { picks?.cloud }
+
     /// The folder or GitHub repository (`github:owner/name`) the person last started a Cloud chat in (`newTab.remember`
     /// `cloudStarted`): a page with Cloud picked starts there, apart from This Mac's ``startedProject`` (cmux#53226).
     public var cloudStartedProject: String? {
@@ -66,6 +69,14 @@ public final class NewTabChoiceMemory {
         }
         if let cloud = pick.cloudStarted, AgentPaneRememberedPick.isCloudPick(cloud) {
             defaults.set(cloud, forKey: Self.cloudStartedProjectKey)
+            revision += 1
+        }
+        if let cloud = pick.cloudAgent, !cloud.harness.isEmpty, cloud.harness.count <= 128 {
+            // Cloud's own pick: This Mac's last agent and picks stay as they are.
+            var picks = picks ?? AgentPaneLastPicks()
+            picks.cloud = cloud
+            // main-actor-ok: at most AgentPaneLastPicks.maxFolders (50) folder picks plus one global and one Cloud pick.
+            if let data = try? JSONEncoder().encode(picks) { defaults.set(data, forKey: Self.picksKey) }
             revision += 1
         }
         guard !pick.agent.isEmpty, pick.agent.count <= 128 else { return }
