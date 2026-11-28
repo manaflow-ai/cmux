@@ -1,3 +1,4 @@
+import AppKit
 import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -250,6 +251,18 @@ struct CloudSidebarConsistencyTests {
         }
         #expect(TerminalTabAgentIconResolver().assetName(forStatusKey: "codex") == "AgentIcons/Codex")
         #expect(TerminalTabAgentIconResolver().assetName(forStatusKey: "gemini") == "AgentIcons/Gemini")
+    }
+
+    /// https://github.com/manaflow-ai/cmux/issues/26306: every agent mark a
+    /// custom sidebar receives as `agents[j].icon` must load from the app
+    /// bundle, or `Image(icon)` falls back to an empty SF Symbol.
+    @Test("Agent marks handed to custom sidebars load from the app bundle")
+    func customSidebarAgentIconsResolve() {
+        for definition in CmuxTaskManagerCodingAgentDefinition.builtIns {
+            guard let asset = TerminalTabAgentIconResolver().assetName(forStatusKey: definition.id) else { continue }
+            #expect(asset.hasPrefix("AgentIcons/"), "\(definition.id): \(asset)")
+            #expect(NSImage(named: asset) != nil, "\(definition.id): \(asset)")
+        }
     }
 
     @Test("A bound native tab receives canonical names, process titles, and ignores delayed graph callbacks", arguments: [false, true])

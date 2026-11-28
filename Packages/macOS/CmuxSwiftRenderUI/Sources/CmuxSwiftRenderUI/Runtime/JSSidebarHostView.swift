@@ -22,6 +22,7 @@ public struct JSSidebarHostView: View {
     private let source: String
     private let dataContext: [String: SwiftValue]
     private let dispatch: SidebarActionDispatch
+    private let imageResolver: DSLBundledImageResolver
 
     @State private var engine = JSSidebarEngine()
 
@@ -33,9 +34,14 @@ public struct JSSidebarHostView: View {
     ///     `data.<key>()` signals.
     ///   - dispatch: Runs `cmux(...)`/`openURL(...)` actions on the host.
     public init(source: String, dataContext: [String: SwiftValue], dispatch: SidebarActionDispatch) {
+        self.init(source: source, dataContext: dataContext, dispatch: dispatch, imageResolver: DSLBundledImageResolver())
+    }
+
+    init(source: String, dataContext: [String: SwiftValue], dispatch: SidebarActionDispatch, imageResolver: DSLBundledImageResolver) {
         self.source = source
         self.dataContext = dataContext
         self.dispatch = dispatch
+        self.imageResolver = imageResolver
     }
 
     public var body: some View {
@@ -43,7 +49,7 @@ public struct JSSidebarHostView: View {
             if let message = engine.errorMessage {
                 errorView(message)
             } else if let rootId = engine.rootId {
-                SceneNodeView(nodeId: rootId)
+                SceneNodeView(nodeId: rootId, imageResolver: imageResolver)
                     .environment(\.sceneStore, engine.store)
                     .environment(\.sceneEventSink, engine.eventSink)
                     .preference(

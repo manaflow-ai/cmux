@@ -318,7 +318,12 @@
     setProp(node.__nodeId, "text", text);
     return node;
   };
-  g.Image = (systemName, props) => makeNode("image", { systemName, ...(props || {}) });
+  // Image("star.fill") is an SF Symbol; Image("AgentIcons/Codex") or
+  // Image({ asset: "AgentIcons/Codex" }) is a cmux-bundled agent mark (the
+  // names agents[j].icon and tabs[k].agentIcon carry).
+  g.Image = (name, props) => (name !== null && typeof name === "object" && !name.__nodeId)
+    ? makeNode("image", { ...name, ...(props || {}) })
+    : makeNode("image", { systemName: name, ...(props || {}) });
   g.Spacer = (props) => makeNode("spacer", props || {});
   g.Divider = (props) => makeNode("divider", props || {});
   g.Circle = (props) => makeNode("circle", props || {});

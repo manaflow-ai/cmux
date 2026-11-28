@@ -10,6 +10,7 @@ import SwiftUI
 /// from the environment.
 struct RenderNodeView: View {
     let node: RenderNode
+    var imageResolver = DSLBundledImageResolver()
 
     @Environment(\.sidebarActionDispatch) private var dispatch
 
@@ -77,15 +78,15 @@ struct RenderNodeView: View {
         case .viewThatFits:
             ViewThatFits { children }
         case .hsplit:
-            ResizableHSplit(columns: node.children)
+            ResizableHSplit(columns: node.children, imageResolver: imageResolver)
         case .reorderable:
-            ReorderableList(rows: node.children, spec: node.reorder)
+            ReorderableList(rows: node.children, spec: node.reorder, imageResolver: imageResolver)
         case .text:
             Text(node.text ?? "")
         case .label:
             Label(node.text ?? "", systemImage: node.systemName ?? "circle")
         case .image:
-            styledImage(Image(systemName: node.systemName ?? "questionmark.square.dashed"))
+            styledImage(imageResolver.image(node.systemName))
         case .button:
             if node.children.isEmpty {
                 Button(node.text ?? "") {
@@ -152,7 +153,7 @@ struct RenderNodeView: View {
     @ViewBuilder
     private var children: some View {
         ForEach(Array(node.children.enumerated()), id: \.offset) { _, child in
-            RenderNodeView(node: child)
+            RenderNodeView(node: child, imageResolver: imageResolver)
         }
     }
 
@@ -390,11 +391,11 @@ struct RenderNodeView: View {
     @ViewBuilder
     private func modifierChildren(_ modifier: RenderModifier) -> some View {
         if modifier.children.count == 1 {
-            RenderNodeView(node: modifier.children[0])
+            RenderNodeView(node: modifier.children[0], imageResolver: imageResolver)
         } else {
             ZStack {
                 ForEach(Array(modifier.children.enumerated()), id: \.offset) { _, child in
-                    RenderNodeView(node: child)
+                    RenderNodeView(node: child, imageResolver: imageResolver)
                 }
             }
         }

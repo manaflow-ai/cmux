@@ -169,7 +169,10 @@ Rules of the runtime:
 - Views: `VStack` `HStack` `ZStack` `LazyVStack` `Group` `Text` `Image`
   `Button` `Spacer` `Divider` `Circle` `Capsule` `Rectangle`
   `RoundedRectangle` `ProgressView` `ForEach` `Reorderable`. Containers take
-  `(props, children)` or just `(children)`.
+  `(props, children)` or just `(children)`. `Image(name)` draws an SF Symbol,
+  or a cmux agent mark when `name` is one (`Image(() => a().icon ?? "sparkles")`,
+  `Image({ asset: "AgentIcons/Codex" })`); `.size(n)` scales the mark to an
+  n-point square.
 - Chainable props: `.font(name|size)` `.weight` `.bold()` `.italic()`
   `.monospaced()` `.color` `.secondary()` `.lineLimit` `.truncation`
   `.padding` `.paddingHorizontal` `.paddingVertical` `.background`
@@ -384,7 +387,8 @@ with:
   current working/needs-input state began), `title` (first user prompt),
   `panelId` (the hosting terminal's `tabs[k].id`), `surfaceId` (the hosting
   tab's `tabs[k].surfaceId`, accepted by `surface.focus`), `directory`,
-  `transcriptPath`, `pid`, and `children` (nested subagent runs under the
+  `transcriptPath`, `pid`, `icon` (the agent mark cmux draws for that runtime,
+  e.g. `AgentIcons/Codex`; pass it to `Image(...)`), and `children` (nested subagent runs under the
   session, oldest first; omitted when none). Each `children[k]` has `id`
   (stable for the child's lifetime), `running` (Bool), and `startedEpoch`;
   when available it adds `label` and `endedEpoch` (set when the child
@@ -401,7 +405,9 @@ with:
   `unread`, which is a count, so that `w.unread > 0` and `t.hasUnread` cannot be
   confused for one another. When available: `directory`, `branch` +
   `dirty`, `ports` (array of Int), `latestPrompt` (the prompt last submitted in
-  that surface, not a pending state) + `latestAt` (epoch). Pair `latestPrompt`
+  that surface, not a pending state) + `latestAt` (epoch), `agentIcon` (the
+  agent mark the native tab shows, e.g. `AgentIcons/Claude`; pass it to
+  `Image(...)`). Pair `latestPrompt`
   with `hasUnread` to show which of a workspace's agents is waiting, instead of
   collapsing every surface into the workspace-level `latestPrompt`.
 - `workspaceCount` — Int. `selectedTitle` — active workspace's title.
@@ -425,7 +431,9 @@ horizontal strip — vertical scrolling is automatic), and
 columns with a persisted divider).
 
 Content: `Text("...")`, `Label("Title", systemImage: "folder")`,
-`Image(systemName: "folder.fill")` (SF Symbols),
+`Image(systemName: "folder.fill")` (SF Symbols; a cmux agent mark such as
+`agents[j].icon` or `"AgentIcons/Codex"` also works; size a mark with
+`.resizable().frame(width: 14, height: 14)`, since `.font` sizes only symbols),
 `Button("Title") { <action> }` / `Button(action:){ <label> }`,
 `Menu("Title") { <items> }`, `ProgressView(value: 0.4)` / `ProgressView()`,
 `Gauge(value: 0.7)`, `Spacer()`, `Divider()`, `AnyView(<view>)`.
