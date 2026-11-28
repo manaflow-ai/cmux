@@ -26,11 +26,15 @@ export function turnSource(env: Env): TurnSource {
  * - `platform-first`: ask the platform; on a non-200, a timeout, a bad body or an
  *   empty list, warn and mint locally (which is [] without TURN_KEY_*).
  * - `platform`: the platform only, [] on any failure.
+ * Before all of these: when TURN_SELF_URLS and TURN_SELF_SECRET are set, the hub
+ *   mints for our own relay (selfTurn) and calls neither Cloudflare nor the platform.
  * Without the DEVICE_HUB_TURN_TOKEN secret or PLATFORM_TURN_ORIGIN, every mode
  * behaves as `local`. Returns [] when nothing answers; the app then uses direct
  * paths and the user's own relays.
  */
-export async function mintTurn(env: Env, opts: { timeoutMs?: number } = {}): Promise<IceServer[]> {
+export async function mintTurn(env: Env, opts: { timeoutMs?: number; now?: number } = {}): Promise<IceServer[]> {
+  const own = await selfTurn(env, ICE_TTL_S, opts.now);
+  if (own) return [own];
   const source = turnSource(env);
   const origin = platformOrigin(env.PLATFORM_TURN_ORIGIN);
   if (source === "local" || !env.DEVICE_HUB_TURN_TOKEN || !origin) return mintLocalTurn(env);
@@ -42,6 +46,29 @@ export async function mintTurn(env: Env, opts: { timeoutMs?: number } = {}): Pro
   }
   console.warn("platform turn failed, minting locally", result.reason);
   return mintLocalTurn(env);
+}
+
+/** The accepted own-relay URLs (turn:/turns: only), or undefined when the relay is not configured. */
+export function selfTurnUrls(env: Env): string[] | undefined {
+  const urls = (env.TURN_SELF_URLS ?? "").split(",").map((u) => u.trim()).filter((u) => /^turns?:/.test(u));
+  return urls.length && env.TURN_SELF_SECRET ? urls : undefined;
+}
+
+/**
+ * Our own TURN relay (RFD 0088; eturnal `credentials: ephemeral`, coturn `use-auth-secret`):
+ * the TURN REST scheme, the same as cmux-next-ios/backend/src/ice.ts `selfTurn`. Username
+ * `<expiry unix s>:cmux`, credential base64 HMAC-SHA1 of it under TURN_SELF_SECRET, so the
+ * mint is a local computation with no Cloudflare key and no platform call. Off (undefined)
+ * unless both TURN_SELF_URLS and TURN_SELF_SECRET are set.
+ */
+export async function selfTurn(env: Env, ttl: number, now = Date.now()): Promise<IceServer | undefined> {
+  const urls = selfTurnUrls(env);
+  if (!urls || !env.TURN_SELF_SECRET) return undefined;
+  const username = `${Math.floor(now / 1000) + ttl}:cmux`;
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", enc.encode(env.TURN_SELF_SECRET), { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
+  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(username)));
+  return { urls, username, credential: btoa(String.fromCharCode(...sig)) };
 }
 
 function platformOrigin(value: string | undefined): string | null {

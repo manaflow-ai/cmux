@@ -36,6 +36,14 @@ export interface Env {
   /** Bearer token for that route; missing: the hub mints locally. */
   DEVICE_HUB_TURN_TOKEN?: string;
   /**
+   * Our own TURN relay (RFD 0088): comma list of turn:/turns: URLs. With TURN_SELF_SECRET
+   * set, the hub mints REST credentials for it and skips Cloudflare and the platform.
+   * Unset (the default): no change. src/turn.ts selfTurn.
+   */
+  TURN_SELF_URLS?: string;
+  /** Shared secret of that relay (eturnal `secret`, coturn `static-auth-secret`). */
+  TURN_SELF_SECRET?: string;
+  /**
    * cmux-platform per Stack project, asked who a joined machine's credential belongs to
    * (`POST /v1/auth/machine`): comma list of `<stackProjectId>=<https origin>`. Empty: the
    * route answers 503. src/machine.ts.
