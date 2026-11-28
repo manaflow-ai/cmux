@@ -17,6 +17,7 @@ import React, {
   useState,
   useSyncExternalStore,
 } from "react";
+import type { ReactNode } from "react";
 import { useShareNudge } from "./share/shareNudgeModel";
 import { paneTipHost } from "./featureTipsModel";
 import { type CaptureMode, composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
@@ -288,7 +289,7 @@ import {
 } from "./startingSends";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { SummaryCard } from "./summary/SummaryCard";
-import { transcriptBackground } from "./summary/sessionSummary";
+import { transcriptBackground, type TranscriptBackground } from "./summary/sessionSummary";
 import { openSourceFile } from "./session-info/sourcesSectionModel";
 import { useSessionInfo } from "./session-info/useSessionInfo";
 import { toggleRemoteControl, useRemoteControl } from "./remoteControl";
@@ -764,7 +765,14 @@ import { newestTurnSummary, useFinishMoments } from "./finish/useFinishMoments";
 import { useDraftWaitOver } from "./draftSettleHold";
 import { focusRoute } from "../../ui/focusRoute";
 import { paneSnapshotEffect } from "./pane/paneSnapshot";
-import { createRowsStore, TranscriptRowsContext } from "./pane/rowsStore";
+import {
+  createRowsStore,
+  type RowsStore,
+  sameList,
+  sameShallowList,
+  TranscriptRowsContext,
+  useRowsValue,
+} from "./pane/rowsStore";
 export { VirtualTranscript } from "./VirtualTranscript";
 export type { ScrollAnchor } from "./VirtualTranscript";
 import "./pane/bridgeGlobals";
@@ -856,6 +864,49 @@ setSessionRefResolver((query) => callNative<unknown>("chat.session.resolve", { q
 const NO_STARTED: readonly StartedSession[] = [];
 const NO_SESSION_IDS: ReadonlySet<string> = new Set();
 const NO_EXPANDED: ReadonlySet<string> = new Set();
+const NO_CALLS: readonly string[] = [];
+let lastPaneClient: AcpmuxSnapshot | undefined;
+let lastWatched: Record<string, unknown> | undefined;
+
+/// The session's edit rows for the edited-files card, read from the rows store below the pane root:
+/// an edit card's row changes with each call after its edit (a command, a thought), and the root read
+/// it, so each of those drew the whole pane: 273 of 871 pane renders a replay window under load (bench
+/// replay-under-load RENDERS=1, `rows-value:edits`; goal renderer-main-busy). Now only the card's
+/// readers draw; the children are the root's, so React keeps them.
+function SessionEditsFromRows({
+  store,
+  shown,
+  client,
+  shots,
+  frames,
+  children,
+}: {
+  store: RowsStore;
+  shown: readonly AcpmuxRow[];
+  client: readonly AcpmuxRow[];
+  shots: TurnShotsReader | undefined;
+  frames: TurnFramesReader | undefined;
+  children: ReactNode;
+}) {
+  const last = useRef<SessionEdits | undefined>(undefined);
+  const select = useCallback((rows: readonly AcpmuxRow[]) => {
+    const edits = sessionEdits(rows, last.current);
+    last.current = edits;
+    return edits.edits;
+  }, []);
+  const edits = useRowsValue(store, select, Object.is, shown, client, "edits");
+  return (
+    <SessionEditsAndShots edits={edits} shots={shots} frames={frames}>
+      {children}
+    </SessionEditsAndShots>
+  );
+}
+/// The same background shells and wakeups (summary/sessionSummary.ts `transcriptBackground`), each
+/// task the same in every value: a call's record makes new task objects, and only a change in one
+/// draws the pane again.
+function sameTranscriptBackground(a: TranscriptBackground, b: TranscriptBackground): boolean {
+  return a.scheduled === b.scheduled && sameShallowList(a.tasks, b.tasks);
+}
 const NO_SPAWNED: readonly AcpmuxSessionEntry[] = [];
 const NO_SILENT: readonly SilentTurn[] = [];
 const NO_HAT_QUESTIONS: readonly HatQuestion[] = [];
@@ -1282,6 +1333,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// What the direct client (or the host) last reported; `snapshot` draws a pending harness or
   /// model switch over it (harnessSwitch.ts).
   const [clientSnapshot, setSnapshot] = useState<AcpmuxSnapshot>(() => initialChat?.snapshot ?? cachedSnapshot());
+  if (acpmuxPerf.enabled) {
+    // Debug (replay bench RENDERS=1): a pane render with a new client snapshot, or one for another reason.
+    acpmuxPerf.render(clientSnapshot === lastPaneClient ? "pane:same-snapshot" : "pane:new-snapshot");
+    lastPaneClient = clientSnapshot;
+  }
+  // The rows as a store (pane/rowsStore.ts): every `rowsRef.current =` publishes to the transcript
+  // and to the pane's readers of the rows (`useRowsValue`), which follow a record the pane skips.
+  const [rowsRef] = useState(() => createRowsStore(initialChat?.snapshot.rows ?? []));
   const [harnessSwitch] = useState(() => new HarnessSwitch());
   const switchView = useSyncExternalStore(harnessSwitch.subscribe, harnessSwitch.view, harnessSwitch.view);
   const switchViewRef = useRef(switchView);
@@ -1624,7 +1683,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }, [artifact]);
   const liveArtifact = liveDocument?.artifact ?? artifact;
   // Render cards by id (cx-ncc.94): a render that names an earlier one's id shows in that card.
-  const pages = useMemo(() => renderPages(snapshot.rows), [snapshot.rows]);
+  const pages = useRowsValue(rowsRef, renderPages, Object.is, snapshot.rows, clientSnapshot.rows, "pages");
   const artifactVersionList = useMemo(() => {
     if (!artifact) return undefined;
     // A pinned preview from another chat must not use this chat's rows: two unrelated documents
@@ -2628,13 +2687,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     workflowLabsEnabled,
     workflowTranscript.rows,
   ]);
-  // The session's edit rows for the edited-files card, the same array while they are the same rows.
-  const lastEditRows = useRef<SessionEdits | undefined>(undefined);
-  const editRows = useMemo(() => {
-    const edits = sessionEdits(snapshot.rows, lastEditRows.current);
-    lastEditRows.current = edits;
-    return edits.edits;
-  }, [snapshot.rows]);
   // The changes card names the branch under the Transcript Work Log (turnChanges/sessionRows.ts).
   useEffect(() => setSessionBranch(snapshot.summary?.branch), [snapshot.summary?.branch]);
   // Transcript Work Log (Settings > Advanced > Experiments): its recolors key off the root attribute
@@ -2644,11 +2696,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The names this chat's start calls gave its sub-sessions, for a "Sent to" row whose chat left
   // the session list (conversation/startedNames.ts); the same map while no start was added.
   const lastStartedNames = useRef<StartedNames | undefined>(undefined);
-  const subsessionNames = useMemo(() => {
-    const started = startedNames(snapshot.rows, lastStartedNames.current);
-    lastStartedNames.current = started;
-    return started.names;
-  }, [snapshot.rows]);
+  const subsessionNames = useRowsValue(
+    rowsRef,
+    useCallback((rows: readonly AcpmuxRow[]) => {
+      const started = startedNames(rows, lastStartedNames.current);
+      lastStartedNames.current = started;
+      return started.names;
+    }, []),
+    Object.is,
+    snapshot.rows,
+    clientSnapshot.rows,
+    "started",
+  );
   // The same set while it holds the same calls: it is read by memoized parts (Session Info, the
   // summary card), and the rows it is read from are new on every snapshot the pane draws.
   const askedToolCalls = useSameValue(
@@ -3121,10 +3180,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     return summary === cardSnapshot.summary ? cardSnapshot : { ...cardSnapshot, summary };
   }, [cardSnapshot, cloudMachineID]);
   const cloudRouteHostKind = cloudMachineID ? "cloud" : snapshot.summary?.hostKind;
-  const summaryHasContent = useMemo(
-    () => chatHasSummaryContent(cardRows) || chatSubsessions.rows.length > 0 || workflows.length > 0,
-    [cardRows, chatSubsessions, workflows],
+  // The card's content follows the newest rows too, so a record the pane skips (a call under the
+  // closed fold) that gives the card something to show draws the pane (paneSnapshot.ts `callOnly`).
+  const rowsHaveSummary = useRowsValue(
+    rowsRef,
+    chatHasSummaryContent,
+    Object.is,
+    cardRows,
+    clientSnapshot.rows,
+    "summary",
   );
+  const summaryHasContent = rowsHaveSummary || chatSubsessions.rows.length > 0 || workflows.length > 0;
   const [shell, setShell] = useState<HTMLElement | null>(null);
   /// The chat's bottom stack (bottomStack.css): the transcript runs under it and keeps its end above it.
   const [dock, setDock] = useState<HTMLElement | null>(null);
@@ -3461,7 +3527,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // chat sends one `_acpmux/process/list` as it opens (so a command still running from an earlier
   // turn is in the hat before the next send) and none after, unless that read finds one running.
   // The same pass finds what Session Info's Background tasks lists (the palette's Show Background Tasks).
-  const transcriptWork = useMemo(() => transcriptBackground(snapshot.rows), [snapshot.rows]);
+  const transcriptWork = useRowsValue(
+    rowsRef,
+    transcriptBackground,
+    sameTranscriptBackground,
+    snapshot.rows,
+    clientSnapshot.rows,
+    "shells",
+  );
   const transcriptTasks = transcriptWork.tasks;
   const transcriptRunning = useMemo(
     () => transcriptTasks.filter((task) => task.state === "running"),
@@ -4224,28 +4297,34 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // streaming rescans the live turn alone, and that reads only the texts that are new
   // (previewUrl.ts `turnPreviewUrl`).
   const previewTurns = useRef(new Map<string, { rows: readonly AcpmuxRow[]; url: string | undefined }>());
-  const previewUrl = useMemo(() => {
-    const rows = snapshot.rows;
-    const seen = new Map<string, { rows: readonly AcpmuxRow[]; url: string | undefined }>();
-    let found: string | undefined;
-    let end = rows.length;
-    for (let index = rows.length - 1, turns = 0; index >= 0 && turns < PREVIEW_TURNS && !found; index -= 1) {
-      const user = rows[index];
-      if (user.kind !== "user") continue;
-      const turn = rows.slice(index, end);
-      const cached = previewTurns.current.get(user.id);
-      const entry =
-        cached && cached.rows.length === turn.length && cached.rows.every((row, at) => row === turn[at])
-          ? cached
-          : { rows: turn, url: turnPreviewUrl(user, turn.slice(1)) };
-      seen.set(user.id, entry);
-      found = entry.url;
-      end = index;
-      turns += 1;
-    }
-    previewTurns.current = seen;
-    return found;
-  }, [snapshot.rows]);
+  const previewUrl = useRowsValue(
+    rowsRef,
+    useCallback((rows: readonly AcpmuxRow[]) => {
+      const seen = new Map<string, { rows: readonly AcpmuxRow[]; url: string | undefined }>();
+      let found: string | undefined;
+      let end = rows.length;
+      for (let index = rows.length - 1, turns = 0; index >= 0 && turns < PREVIEW_TURNS && !found; index -= 1) {
+        const user = rows[index];
+        if (user.kind !== "user") continue;
+        const turn = rows.slice(index, end);
+        const cached = previewTurns.current.get(user.id);
+        const entry =
+          cached && cached.rows.length === turn.length && cached.rows.every((row, at) => row === turn[at])
+            ? cached
+            : { rows: turn, url: turnPreviewUrl(user, turn.slice(1)) };
+        seen.set(user.id, entry);
+        found = entry.url;
+        end = index;
+        turns += 1;
+      }
+      previewTurns.current = seen;
+      return found;
+    }, []),
+    Object.is,
+    snapshot.rows,
+    clientSnapshot.rows,
+    "preview",
+  );
   // The summary's Changes: the turn's diff, toggled; a file of it opens the diff at that file.
   const toggleLastChanges = (path?: string) => {
     const turn = cardEdit.turn;
@@ -5526,9 +5605,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     },
     [trackBackground],
   );
-  const foreground = useMemo(
-    () => (canBackground && snapshot.isWorking ? foregroundCalls(snapshot.rows) : []),
-    [canBackground, snapshot.isWorking, snapshot.rows],
+  const foreground = useRowsValue(
+    rowsRef,
+    useCallback(
+      (rows: readonly AcpmuxRow[]) => (canBackground && snapshot.isWorking ? foregroundCalls(rows) : NO_CALLS),
+      [canBackground, snapshot.isWorking],
+    ),
+    sameList,
+    snapshot.rows,
+    clientSnapshot.rows,
+    "foreground",
   );
   foregroundNow.current = foreground;
   const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
@@ -6013,6 +6099,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // A handoff review's form is wider than the transcript's column: the chat's shift is measured against it.
     wide: reviewing,
   });
+  // A record that changes only a command's or a thought's row may skip this render once each reader of
+  // those rows follows the rows store (pane/rowsStore.ts `readersFollow`): the pane draws the client's
+  // rows as they are, and Session Info, which reads every call while open, is closed.
+  const readersFollow = snapshot.rows === clientSnapshot.rows && !sessionInfo.shown;
+  useLayoutEffect(() => {
+    rowsRef.readersFollow = readersFollow;
+  }, [rowsRef, readersFollow]);
   // The summary card is the fallback surface while the Session Info feature is disabled in the
   // header state. Its open-in-pane row enables that same panel before revealing the requested list.
   const revealSessionInfo = sessionInfo.reveal;
@@ -6561,8 +6654,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cancelOpenInWindow();
     void callNative(QUICK_MESSAGES.dismiss).catch(() => undefined);
   });
-  // The rows as a store (pane/rowsStore.ts): every `rowsRef.current =` publishes to the transcript.
-  const [rowsRef] = useState(() => createRowsStore(initialChat?.snapshot.rows ?? []));
   /// The direct client's snapshot the pane last drew; a newer one that only grows the streaming
   /// reply's text goes to that row instead (streamingRow.ts).
   const drawnSnapshot = useRef<AcpmuxSnapshot | undefined>(undefined);
@@ -6580,6 +6671,38 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The pane's transition draw of a snapshot that has not committed yet (paneSnapshotLane.ts).
   const [pendingPaneDraw] = useState(() => new PendingPaneDraw());
   useLayoutEffect(() => pendingPaneDraw.committed(clientSnapshot), [pendingPaneDraw, clientSnapshot]);
+  if (acpmuxPerf.enabled) {
+    // Debug (replay bench RENDERS=1): which of the root's own reads moved on a render that kept the snapshot.
+    const watched: Record<string, unknown> = {
+      paneView,
+      allShellRuns,
+      switchView,
+      offlineVersion,
+      pages,
+      callRelease,
+      btwSnapshot,
+      subsessionNames,
+      answered,
+      rowsHaveSummary,
+      transcriptWork,
+      previewUrl,
+      foreground,
+      sinceHasNews,
+      initialChat,
+      sessionShown: sessionInfo.shown,
+      snapshotOverlay: snapshot.rows === clientSnapshot.rows,
+    };
+    const before = lastWatched;
+    lastWatched = watched;
+    if (before && before.clientSnapshot === clientSnapshot) {
+      const moved = Object.keys(watched).filter((key) => !Object.is(before[key], watched[key]));
+      acpmuxPerf.render(`pane:same-why:${moved.join("+") || "-"}`);
+    }
+    watched.clientSnapshot = clientSnapshot;
+  }
+  useLayoutEffect(() => {
+    if (acpmuxPerf.enabled) acpmuxPerf.render("pane:commit");
+  });
   const readSendAgain = useCallback((): SendPromptAgainState => {
     const current = snapshotRef.current;
     const config = sendAgainConfig.current;
@@ -7751,7 +7874,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     heldList.current = snapshot.sessionId ? { sessionId: snapshot.sessionId, sessions: snapshot.sessions } : undefined;
   // Computer use and browser use in the `/` and `$` menus (toolMentions.ts), beside the skills.
   const toolCommands = useMemo(() => toolSlashCommands(t), [t]);
-  const composerSnapshot = useMemo(() => {
+  // The composer's commands, merged once per change to what they read: a record that moves only
+  // the rows keeps them (before, every snapshot merged the catalog again, mergedCommands 96 ms a
+  // replay window under load, goal renderer-main-busy).
+  const sideOffered = sideChatRefusal(snapshot, sidePlace) === undefined;
+  const hasSummary = snapshot.summary !== undefined && snapshot.summary !== null;
+  const composerCommands = useMemo(() => {
     const enabledCmuxActions = new Set<CmuxCommand["action"]>([
       "import",
       "model",
@@ -7763,7 +7891,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       "customize",
       "help",
     ]);
-    if (snapshot.summary) {
+    if (hasSummary) {
       enabledCmuxActions.add("status");
       enabledCmuxActions.add("mcp");
     }
@@ -7772,17 +7900,32 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (!quick) enabledCmuxActions.add("cd");
     if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
     // A working chat offers /side too: its fork is of the chat as it is now (#38042).
-    if (sideChatRefusal(snapshot, sidePlace) === undefined) enabledCmuxActions.add("side");
+    if (sideOffered) enabledCmuxActions.add("side");
     if (continueAvailable) enabledCmuxActions.add("continue");
     // Reserve /btw even with the kill switch off: it must never become a steer or queued prompt.
     if (snapshot.sessionId && !isSideSession && !quick) enabledCmuxActions.add("btw");
+    return withToolCommands(
+      withExtensionCommands(mergedCommands(snapshot.commands, enabledCmuxActions), extensionCommands),
+      toolCommands,
+    );
+  }, [
+    snapshot.commands,
+    hasSummary,
+    snapshot.sessionId,
+    quick,
+    forkable,
+    forkSeq,
+    sideOffered,
+    continueAvailable,
+    isSideSession,
+    extensionCommands,
+    toolCommands,
+  ]);
+  const composerSnapshot = useMemo(() => {
     const withCommands = {
       ...snapshot,
       ...(listShown !== snapshot.sessions && { sessions: listShown }),
-      commands: withToolCommands(
-        withExtensionCommands(mergedCommands(snapshot.commands, enabledCmuxActions), extensionCommands),
-        toolCommands,
-      ),
+      commands: composerCommands,
       ...(keptStopping && { stopping: true as const }),
       // The Quick Composer's send never forks (it has no review to show), so its model menu
       // holds no pick of another harness either (review of #37196: it drew the hold, then sent
@@ -7814,21 +7957,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     projectDraft,
     cloudStartFolderShown,
     cloudStartPickShown,
-    continueAvailable,
-    forkable,
-    forkSeq,
-    isSideSession,
+    composerCommands,
     shownStarting,
     shownQueue,
     heldRows,
-    sidePlace,
     quick,
     keptStopping,
     cloudPicked,
     cloudModePick,
-    extensionCommands,
     listShown,
-    toolCommands,
   ]);
   // What the composer draws from: the same object while nothing it shows changed (composer/composerView.ts),
   // so a tool call or another row added to the transcript does not draw the composer again.
@@ -10090,7 +10227,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   <NewestSteerContext.Provider value={snapshot.newestOwnSteer}>
                     <RunInBackgroundContext.Provider value={backgroundHint}>
                       <TurnCountsContext.Provider value={turnCountsFor}>
-                        <SessionEditsAndShots edits={editRows} shots={turnShots} frames={turnFrames}>
+                        <SessionEditsFromRows
+                          store={rowsRef}
+                          shown={snapshot.rows}
+                          client={clientSnapshot.rows}
+                          shots={turnShots}
+                          frames={turnFrames}
+                        >
                           <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
                             <OfferDefaultsContext.Provider value={offerDefaultsValue}>
                               <SubagentNavContext.Provider value={navigateSubagent}>
@@ -10350,7 +10493,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                               </SubagentNavContext.Provider>
                             </OfferDefaultsContext.Provider>
                           </SessionCwdContext.Provider>
-                        </SessionEditsAndShots>
+                        </SessionEditsFromRows>
                       </TurnCountsContext.Provider>
                     </RunInBackgroundContext.Provider>
                   </NewestSteerContext.Provider>
