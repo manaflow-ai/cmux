@@ -144,6 +144,27 @@ body {
   user-select: none;
 }
 
+/* With the native omnibar above the page, the toolbar has no file name: a full-width row held only
+   controls pushed to the right, a strip of dead space. It becomes a compact pill at the top right of
+   the document instead, taking no row of its own (the host has no height, as the find pill's). */
+.md-page[data-omnibar] > .md-toolbar-host {
+  position: relative;
+  height: 0;
+  z-index: var(--layer-overlay);
+}
+.md-page[data-omnibar] > .md-toolbar-host > .md-toolbar {
+  position: absolute;
+  top: var(--ds-space-2);
+  right: var(--ds-space-3);
+  padding: var(--grid-half-step) var(--ds-space-2);
+  border: 1px solid var(--cmux-md-border-color);
+  border-radius: var(--ds-radius-control);
+  background: var(--page-elevated);
+}
+.md-page[data-omnibar] .md-file {
+  display: none;
+}
+
 :root[data-cmux-md-toolbar="false"] .md-toolbar {
   display: none;
 }
