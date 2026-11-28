@@ -83,6 +83,7 @@ import json
 import os
 import platform
 import pwd
+import re
 import shutil
 import statistics
 import subprocess
@@ -206,8 +207,62 @@ def growth_by_process(series: dict, settle_cut: float) -> list[dict]:
         out.append({"pid": pid, "kind": entry["kind"], "group": group_of(entry["kind"]),
                     "command": entry.get("command", "")[:120], "first_mb": round(settled[0][1], 1),
                     "last_mb": round(settled[-1][1], 1), "growth_mb_per_min": slope_per_min(settled),
-                    "added_mb": round(added, 1), "steady": steady, "born_s": born, "gone_s": gone})
+                    "added_mb": round(added, 1), "steady": steady, "born_s": born, "gone_s": gone,
+                    "page": entry.get("page")})
     return sorted(out, key=lambda row: -row["added_mb"])
+
+
+def renderer_pages(pages: list[dict], commands: dict, helpers: list | None = None) -> dict[int, str]:
+    """{pid: page} for the cmux renderers that host `pages` (`renderers.list`, Release too, or `debug.cef_pages` on
+    bench and DEV builds: origin, path, hidden, renderer_clients, owner), matched by `renderers.list`'s helper
+    {pid, client} or else the renderer's `--renderer-client-id` (as bench_power.renderer_roles). Names which page a
+    renderer born mid-soak loads (RFD 0062: 3 renderers born after the settle cut on an idle first screen). Pure."""
+    by_client = {int(h["client"]): int(h["pid"]) for h in helpers or []
+                 if isinstance(h, dict) and isinstance(h.get("client"), (int, float)) and isinstance(h.get("pid"), (int, float))}
+    for pid, cmd in commands.items():
+        found = re.search(r"--renderer-client-id=(\d+)", cmd or "")
+        if found:
+            by_client.setdefault(int(found.group(1)), pid)
+    names: dict[int, set] = {}
+    for page in pages or []:
+        origin = str(page.get("origin") or "")
+        role = (origin[len("cmux-page://"):].removeprefix("cmux.") or "page") if origin.startswith("cmux-page://") \
+            else "browser-tab" if origin.startswith(("http://", "https://")) else (origin.split(":", 1)[0] or "blank")
+        role += str(page.get("path") or "") if origin.startswith("cmux-page://") and page.get("path") not in (None, "", "/") else ""
+        owner = page.get("owner") if isinstance(page.get("owner"), dict) else {}
+        role += f" [{owner['kind']} tab]" if owner.get("kind") else ""
+        role += " (hidden)" if page.get("hidden") else ""
+        for client in page.get("renderer_clients") or []:
+            if int(client) in by_client:
+                names.setdefault(by_client[int(client)], set()).add(role)
+    # An extension's renderer hosts no page the app lists (the built-in uBlock Origin's background page): name it, so
+    # a pageless renderer born mid-soak reads as an extension or as Chromium's spare (RFD 0062).
+    extensions = {int(h["pid"]) for h in helpers or [] if isinstance(h, dict) and h.get("extension")
+                  and isinstance(h.get("pid"), (int, float))}
+    extensions |= {pid for pid, cmd in commands.items() if "--extension-process" in (cmd or "")}
+    for pid in extensions:
+        names.setdefault(pid, set()).add("(extension)")
+    return {pid: " + ".join(sorted(roles)) for pid, roles in names.items()}
+
+
+def rpc(sock: str, method: str, params: dict | None = None, timeout: float = 10) -> dict:
+    """One cmux control-socket call: the result, or {"error": ...}."""
+    import socket as socketlib
+    reply = b""
+    try:
+        with socketlib.socket(socketlib.AF_UNIX, socketlib.SOCK_STREAM) as stream:
+            stream.settimeout(timeout)
+            stream.connect(sock)
+            stream.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
+            while not reply.endswith(b"\n"):
+                chunk = stream.recv(65536)
+                if not chunk:
+                    break
+                reply += chunk
+        got = json.loads(reply or b"{}")
+    except (OSError, ValueError) as error:
+        return {"error": str(error)}
+    return got.get("result") if isinstance(got.get("result"), dict) else {"error": got.get("error")}
 
 
 def growth_split(rows: list[dict], group: str, minutes: float) -> dict:
@@ -387,6 +442,7 @@ class App:
         self.bundle = self.source
         self.helper = helper
         self.instance = None
+        self.socket = None  # cmux: its control socket, to name the page each renderer hosts (debug.cef_pages)
         self.translocated = False  # quarantined launch: look for the app under AppTranslocation too
 
     def launch(self, profile: str, urls: list[str] | None = None):
@@ -404,6 +460,9 @@ class App:
                     json.dump({"updates": {"checkAutomatically": False, "downloadAutomatically": False}}, handle)
             env.update({"USER": os.environ.get("USER", ""), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                         "CMUX_NEXT_CONFIG_FILE": config, "CMUX_MOCK_KEYCHAIN": "1", "CMUX_NEXT_NO_ACTIVATE": "1"})
+            # A short path (a socket path caps at 104 bytes): the soak asks it which page a new renderer hosts.
+            self.socket = f"/tmp/rivals-{os.getpid()}-{uuid.uuid4().hex[:8]}.sock"
+            env.update({"CMUX_NEXT_SOCKET_PATH": self.socket, "CMUX_NEXT_SOCKET_MODE": "automation"})
         if self.name in CHROMIUM:
             args = [f"--user-data-dir={os.path.join(profile, 'data')}", "--password-store=basic", "--use-mock-keychain"]
         elif self.name in ELECTRON:
@@ -542,9 +601,29 @@ class Run:
             memory = app.instance.memory(per_pid=True)
             now = time.monotonic() - began
             points.append((now, memory["mb"]))
+            unnamed = []
             for row in memory.get("pids", []):
                 entry = series.setdefault(row["pid"], {"kind": row["kind"], "command": row["command"], "points": []})
                 entry["points"].append((now, row["footprint_mb"]))
+                if row["kind"] == "renderer" and "page" not in entry and entry.setdefault("asked", 0) < 3:
+                    unnamed.append(row["pid"])
+            if unnamed and app.socket:
+                # Only when a renderer is new: one socket read and one process-table read, none on a steady app.
+                listed = rpc(app.socket, "renderers.list", {"interval_ms": 0})
+                if not isinstance(listed.get("pages"), list):
+                    listed = rpc(app.socket, "debug.cef_pages") | {"first_error": listed.get("error")}
+                pages = listed.get("pages")
+                named = renderer_pages(pages, app.instance.pids(), listed.get("helpers")) if isinstance(pages, list) else {}
+                failed = None if isinstance(pages, list) else f"(no reply: {str(listed.get('first_error') or listed.get('error'))[:60]})"
+                spare = None
+                for pid in unnamed:  # a renderer with no page yet (a spare, or one still loading) is asked again, 3 times
+                    series[pid]["asked"] += 1
+                    if named.get(pid) or series[pid]["asked"] >= 3:
+                        if not named.get(pid) and not failed and spare is None:
+                            # The app's spare web window (CEFSpareWindow) when the bench build answers debug.cef.
+                            spare = str(rpc(app.socket, "debug.cef").get("spare_window") or "")
+                        series[pid]["page"] = named.get(pid) or failed or \
+                            (f"(no page; spare window {spare})" if spare else "(no page)")
             groups.append(by_group(memory["kinds"], window["kinds"]))
             if last_round:
                 last_window, detail_memory = window, memory
@@ -835,12 +914,12 @@ def growth_by_process_lines(samples: list[dict], present: list[str], top: int = 
             if row and (row["steady"] or row["churn"] or row["born"] or row["gone"]):
                 lines.append(f"| {GROUP_LABELS[group]} | {row['steady']:+.3f} | {row['churn']:+.3f} | {row['born']} | "
                              f"{row['gone']} |")
-        lines += ["", "| pid | group | kind | first (MB) | last (MB) | added (MB) | slope (MB/min) | born / gone (s) |",
-                  "|---:|---|---|---:|---:|---:|---:|---|"]
+        lines += ["", "| pid | group | kind | page | first (MB) | last (MB) | added (MB) | slope (MB/min) | born / gone (s) |",
+                  "|---:|---|---|---|---:|---:|---:|---:|---|"]
         for row in (last.get("pids") or [])[:top]:
             slope = row.get("growth_mb_per_min")
             when = " / ".join(str(v) if v is not None else "-" for v in (row.get("born_s"), row.get("gone_s")))
-            lines.append(f"| {row['pid']} | {row['group']} | {row['kind']} | {row['first_mb']:,.1f} | "
+            lines.append(f"| {row['pid']} | {row['group']} | {row['kind']} | {row.get('page') or '–'} | {row['first_mb']:,.1f} | "
                          f"{row['last_mb']:,.1f} | {row['added_mb']:+,.1f} | "
                          f"{'–' if slope is None else f'{slope:+.3f}'} | {when} |")
         lines.append("")
