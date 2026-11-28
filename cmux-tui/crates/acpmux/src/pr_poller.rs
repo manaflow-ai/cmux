@@ -785,8 +785,8 @@ impl GhFetch {
 
     /// `path` through the broker when `gh` has no login here (`said`) and `lane-gh` is found;
     /// else `said`.
-    async fn or_broker(&self, path: &str, said: String) -> Result<Reply, String> {
-        if !no_login(&said) {
+    async fn or_broker(&self, path: &str, broker: bool, said: String) -> Result<Reply, String> {
+        if !broker {
             return Err(said);
         }
         let Ok(program) = crate::cli::send_relay::find_relay_program(BROKER) else {
@@ -889,9 +889,22 @@ async fn run_gh(args: Vec<String>) -> Result<(bool, Vec<u8>, String), String> {
     if out.stdout.len() > GH_MAX_OUTPUT {
         return Err("gh answered more than the poller reads".to_owned());
     }
-    let stderr = String::from_utf8_lossy(&out.stderr);
+    // All of it: the broker client's refusal names itself in its first lines and runs past 4 KB,
+    // so a tail kept here would hide it from `no_login`. Only the message shown is clipped.
+    Ok((out.status.success(), out.stdout, String::from_utf8_lossy(&out.stderr).into_owned()))
+}
+
+/// The last 400 characters of what `gh` said, for an error message.
+fn clip(stderr: &str) -> String {
+    let stderr = stderr.trim();
     let skip = stderr.chars().count().saturating_sub(400);
-    Ok((out.status.success(), out.stdout, stderr.chars().skip(skip).collect()))
+    stderr.chars().skip(skip).collect()
+}
+
+/// When `gh api` printed no HTTP answer: whether the read goes to the broker instead (judged on
+/// all of `gh`'s stderr), and the error to show (its tail).
+fn no_answer(stderr: &str) -> (bool, String) {
+    (no_login(stderr), format!("gh api gave no HTTP answer: {}", clip(stderr)))
 }
 
 impl Fetch for GhFetch {
@@ -911,13 +924,13 @@ impl Fetch for GhFetch {
             // `gh api` exits 1 on a 304 and on HTTP errors: the status line says which.
             let (_, stdout, stderr) = match run_gh(args).await {
                 Ok(ran) => ran,
-                Err(e) => return self.or_broker(path, e).await,
+                Err(e) => return self.or_broker(path, no_login(&e), e).await,
             };
             match parse_include(&stdout) {
                 Some(reply) => Ok(reply),
                 None => {
-                    let said = format!("gh api gave no HTTP answer: {}", stderr.trim());
-                    self.or_broker(path, said).await
+                    let (broker, said) = no_answer(&stderr);
+                    self.or_broker(path, broker, said).await
                 }
             }
         })
@@ -930,7 +943,7 @@ impl Fetch for GhFetch {
                 .into();
             let (ok, stdout, stderr) = run_gh(args).await?;
             if !ok {
-                return Err(format!("gh pr view failed: {}", stderr.trim()));
+                return Err(format!("gh pr view failed: {}", clip(&stderr)));
             }
             serde_json::from_slice(&stdout).map_err(|e| format!("gh pr view gave no JSON: {e}"))
         })
