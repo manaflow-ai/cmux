@@ -9301,7 +9301,19 @@
         "ty": "json"
       }
     },
+    "request:_acpmux/chat_export": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/chat_fork": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/chat_import": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -35585,7 +35597,19 @@
         "nullable": true
       }
     },
+    "response:_acpmux/chat_export": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/chat_fork": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/chat_import": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true

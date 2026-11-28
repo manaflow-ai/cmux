@@ -178,6 +178,7 @@ pub(super) mod idle;
 mod idle_census;
 pub(super) mod residency;
 pub use residency::IdlePolicyKind;
+pub(crate) mod chat_export;
 mod idle_digest;
 mod idle_governor;
 pub(crate) mod image_size;
