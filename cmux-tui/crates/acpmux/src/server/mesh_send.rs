@@ -227,7 +227,11 @@ pub(super) async fn post_or_queue(
         Ok(made) => made,
         Err(e) => return Posted::Answered(Err(e)),
     };
-    if !hub.mesh.gate().may_try() {
+    // A shut gate is never probed by a caller: the probe that reopens it may wait the whole
+    // [`INLINE_WAIT`] on a hub that holds requests (`hubslow`), and the caller that drew it paid
+    // that on top of its own start (send p99 513 ms on the duress bench, 2026-11-28). The outbox
+    // probes for it: the queued delivery's [`relay`] asks once the gate's window ends.
+    if hub.mesh.gate().shut() {
         let why = "hub failing, retrying (backing off before it is asked again)".to_owned();
         return Posted::Queue { post: message, why, unreached: true };
     }
