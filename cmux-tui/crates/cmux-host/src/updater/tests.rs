@@ -725,6 +725,7 @@ fn a_pause_the_watch_found_starts_the_connect_hold() {
     assert!(role::hold_if_paused(&paths, &watch, &handled, resumed));
     assert_eq!(gate.held_left(resumed.1).unwrap(), Some(role::CONNECT_HOLD));
     // Handled: the next look, with the watch fresh, holds no more.
+    watch.looked(at(65 + 2404).0, false);
     assert!(!role::hold_if_paused(&paths, &watch, &handled, at(65 + 2405)));
 }
 
