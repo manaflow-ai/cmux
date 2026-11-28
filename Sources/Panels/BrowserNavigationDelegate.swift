@@ -26,6 +26,7 @@ import WebKit
     var didTerminateWebContentProcess: (@MainActor (WKWebView) -> Void)?
     var handleBlockedURLAllowlistNavigation: (@MainActor (URL, WKWebView) -> Void)?
     var openInNewTab: (@MainActor (URL) -> Void)?
+    var openLinkInMarkdownViewer: (@MainActor (URL) -> Bool)?
     var openAppLinkInBrowserSplit: (@MainActor (URL) -> Bool)?
     var requestNavigation: (@MainActor (URLRequest, BrowserInsecureHTTPNavigationIntent, (@MainActor (WKNavigation?) -> Void)?) -> Void)?
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
@@ -762,6 +763,24 @@ import WebKit
             }
             clearAttemptedRequest(discardPendingBypasses: true)
             decisionHandler(.download)
+            return
+        }
+
+        // The user's click on a link to a local Markdown file opens it in the
+        // Markdown viewer, like a link in a Markdown panel. The page's own
+        // clicks, and tabs a browser REPL session drives, keep loading it here.
+        if navigationAction.navigationType == .linkActivated,
+           navigationAction.browserReplIsUserInitiated,
+           replAttachment == nil,
+           let url = navigationAction.request.url,
+           openLinkInMarkdownViewer?(url) == true {
+#if DEBUG
+            cmuxDebugLog("browser.nav.decidePolicy.action kind=openMarkdownViewer url=\(browserNavigationDebugURL(url))")
+#endif
+            clearAttemptedRequest(discardPendingBypasses: true)
+            let reportTerminalCancellation: @MainActor () -> Void = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
+            reportTerminalCancellation()
+            decisionHandler(.cancel)
             return
         }
 

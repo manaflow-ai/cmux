@@ -3815,6 +3815,9 @@ final class BrowserPanel: Panel, ObservableObject {
         navDelegate.openInNewTab = { [weak self] url in
             self?.openLinkInNewTab(url: url)
         }
+        navDelegate.openLinkInMarkdownViewer = { [weak self] url in
+            self?.openLinkInMarkdownViewer(url: url) ?? false
+        }
         navDelegate.openAppLinkInBrowserSplit = { [weak self] url in
             self?.openAppLinkInBrowserSplit?(url) ?? false
         }
@@ -6787,6 +6790,18 @@ extension BrowserPanel {
         )
     }
 
+    /// Opens a link to a local Markdown file in a Markdown viewer tab when
+    /// `app.openMarkdownInCmuxViewer` is on, and returns whether it did.
+    func openLinkInMarkdownViewer(url: URL) -> Bool {
+        guard url.isFileURL,
+              FileRouteSettingsStore(defaults: .standard).shouldRouteMarkdown(path: url.path),
+              let appDelegate = AppDelegate.shared,
+              let target = appDelegate.browserActionTarget(for: self) else {
+            return false
+        }
+        return appDelegate.openFilePreviews([url], relativeTo: target, zone: .center)
+    }
+
     /// Routes the context-menu tab action through configured external rules.
     func openContextMenuLinkInNewTab(url: URL) {
         switch externalNavigationHandler.openConfiguredExternallyResult(
@@ -6800,7 +6815,9 @@ extension BrowserPanel {
             browserPresentExternalNavigationFailure(for: url, in: webView)
             return
         case .notConfigured:
-            openLinkInNewTab(url: url)
+            if !openLinkInMarkdownViewer(url: url) {
+                openLinkInNewTab(url: url)
+            }
         }
     }
 
