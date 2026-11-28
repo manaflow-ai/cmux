@@ -11,6 +11,10 @@
 # Prints each run's GOD-BASELINE summary, then the rows as one JSON object ({"rows": [...]}) on a line of its own: the
 # report perf-cron.py's Linux part reads (its rows are webui.daemon_restart.<shape>_home.chat_attach_ms).
 set -euo pipefail
+# The daemon refuses a state folder under a group- or world-writable ancestor that is not sticky
+# (config.rs validate_private_state_ancestors). A shell with umask 002 (lane VMs) makes every run's
+# temp folder 775, so each run failed at "create private store" with no reading.
+umask 022
 runs=3
 budget=900
 build_only=0
