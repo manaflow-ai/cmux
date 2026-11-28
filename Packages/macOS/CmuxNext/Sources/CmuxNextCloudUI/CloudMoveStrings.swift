@@ -33,6 +33,10 @@ public struct CloudMoveStrings {
     /// Why the palette's place and Evacuate actions are refused while Settings > Experiments' Cloud Toggle
     /// (`experiments.cloudToggle`, default off) is off, as the page's controls are hidden; nil while it is on.
     public static func placeOff(_ switches: [String: Bool]?) -> String? { switches?["cloudToggle"] == true ? nil : placeExperimentOff }
+    /// Why `chatPlace.set` refuses `mode`: not a mode at all, or one this chat isn't offered (Cloud is Cloud Toggle's; AutoCloud alone offers Local and Auto).
+    public static func placeModeRefused(_ mode: String?) -> String {
+        ["local", "cloud", "auto"].contains(mode ?? "") ? placeExperimentOff : "mode must be local, cloud or auto"
+    }
     public static var retry: String { String(localized: "cloud.move.retry", defaultValue: "Retry", table: "Cloud", bundle: .localizedModule) }
     /// An agent's or a socket's run of a chat place action (Local, Cloud, Auto, Evacuate, Bring Back All, Cancel, Retry).
     public static var placeIsPersons: String {

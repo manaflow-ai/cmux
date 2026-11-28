@@ -1,6 +1,6 @@
 import AppKit
-import QuartzCore
 import CmuxNextCompat
+import QuartzCore
 
 /// Window frame sync (fork API 32, `cmux_browser_resize_fence`; plans/cmux-next/cef-layer-hosting-DESIGN.md, FRAME OWNER
 /// S5): in the turn that resizes hosted pages, the window's Core Animation commit is fenced (`-[CAContext
@@ -137,9 +137,9 @@ nonisolated final class CEFFenceRight: Sendable {
 
     /// Frees the right; false when it was freed already.
     func drop() -> Bool {
-        let taken: mach_port_t = name.withLock { name in
-            defer { name = mach_port_t(MACH_PORT_NULL) }
-            return name
+        let taken: mach_port_t = name.withLock { held in
+            defer { held = mach_port_t(MACH_PORT_NULL) }
+            return held
         }
         guard taken != mach_port_t(MACH_PORT_NULL) else { return false }
         mach_port_deallocate(mach_task_self_, taken)

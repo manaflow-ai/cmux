@@ -95,7 +95,7 @@ permissions:
 concurrency:
   # A pull request's newer head supersedes its build (pr-router.yml cancels its run too). A push is never held
   # as a whole run: its stages wait in the job-level groups below, so a run's journey never holds the next build.
-  group: cmux-machine-channel-${{ github.event_name == 'push' && format('run-{0}', github.run_id) || github.ref }}
+  group: cmux-machine-channel-${{ github.event_name == 'push' && format('run-{0}', github.run_id) || github.ref }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -584,7 +584,8 @@ jobs:
     needs: [point-linux]
     if: ${{ !cancelled() && github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && needs.point-linux.result == 'success' }}
     runs-on: cmux-linux
-    timeout-minutes: 5
+    # 65: the dispatch waits for the hourly reset only when every pool below has refused it (an hour at most).
+    timeout-minutes: 65
     # No actions: write here: pr-router.yml calls this workflow with actions: read, and GitHub rejects a callee
     # that asks for more (scripts/ci/check_reusable_workflow_permissions.py). The dispatch rides the cmux-bot App.
     permissions:
@@ -617,7 +618,12 @@ jobs:
       - name: Dispatch the image roll
         env:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
-          GH_BUDGET_WAIT_MAX_SECONDS: 180
+          # Run 46154030719 (2026-11-28 14:47Z) lost its roll: the cmux-bot installation's hourly budget was
+          # spent by other jobs, and a 180 s wait cannot outlast an hourly reset. A refusal now moves the
+          # dispatch to the CI pool tokens (each its own limit, gh_budget_wait.sh GH_TOKEN_SPARES), and only
+          # when every one has refused does it wait, up to the reset, instead of dropping the build's roll.
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          GH_BUDGET_WAIT_MAX_SECONDS: 3600
         run: bash scripts/ci/gh_budget_wait.sh workflow run cloud-vm-image-roll.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f commit="$GITHUB_SHA"
 
   # The Cloud machine channel's journey verdict, minutes after point-x86_64 moves it, and its rollback to the
