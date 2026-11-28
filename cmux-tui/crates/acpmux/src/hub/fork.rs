@@ -1010,6 +1010,7 @@ impl Hub {
             title_asking: false,
             title_failures: 0,
             title_thin: false,
+            start_pool: None,
             last_prompt: if before.is_some() || subagent {
                 None
             } else {
