@@ -591,6 +591,17 @@ pub fn launched_with(env: &[(String, String)]) -> Vec<(String, String)> {
     out
 }
 
+/// The variables [`recovered_from_launch`] reads `credential` back from: [`MARKER`], its variable
+/// and, for an endpoint credential, [`ENDPOINT_MARKER`] (what [`apply`] sets for them).
+pub(crate) fn launch_pairs(credential: &AgentCredential) -> Vec<(String, String)> {
+    let mut out = vec![(MARKER.to_owned(), credential.names().collect::<Vec<_>>().join(","))];
+    out.extend(credential.env.iter().map(|(k, v)| (k.clone(), v.clone())));
+    if let Some(endpoint) = &credential.endpoint {
+        out.push((ENDPOINT_MARKER.to_owned(), serde_json::json!(endpoint).to_string()));
+    }
+    out
+}
+
 /// [`recovered`] over the variables an agent host said ([`launched_with`]).
 pub fn recovered_from_launch(env: &[(String, String)]) -> Option<AgentCredential> {
     recovered_in(&env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect())
