@@ -41,6 +41,7 @@ nightly on? what about the fixit/ignoring and fixing forward for things?" Withou
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import os
 from collections import Counter
@@ -65,6 +66,7 @@ CHECKS = (
     "check:surface-bypass",
     "check:status-outside-dot",
     "check:bundle-matrix",
+    "check:refresh-exports",
 )
 # Per check: ("lint", "") reports and is fixed forward on the nightly (--advisory-out); ("blocks", why) still fails it.
 LINT = ("lint", "")
@@ -82,6 +84,7 @@ CHECK_CLASSES = {
     "check:surface-bypass": LINT,
     "check:status-outside-dot": LINT,
     "check:bundle-matrix": ("blocks", "two pull requests each imported layoutGeometry into VirtualTranscript.tsx: green alone, red merged, 2026-11-27"),
+    "check:refresh-exports": LINT,
 }
 # Ratchets introduced together with their baseline and package script: a base without the script cannot run them.
 NEW_CHECK_SCRIPTS = {
@@ -90,6 +93,7 @@ NEW_CHECK_SCRIPTS = {
     "check:surface-bypass": "scripts/check-surface-bypass.ts",
     "check:status-outside-dot": "scripts/check-status-outside-dot.ts",
     "check:bundle-matrix": "../scripts/ci/web-bundle-matrix.sh",
+    "check:refresh-exports": "scripts/check-refresh-exports.mjs",
 }
 ADVISORY_EXCERPT = 40  # findings per check in the advisory report; the run log holds them all
 # A typecheck red only in files the app never ships (benches, tests, galleries, the dev server, scripts) says
@@ -192,8 +196,26 @@ SUMMARY = re.compile(r"^Found \d+ (?:errors? and \d+ warnings?|warnings? and \d+
 FIXIT_COMPILE = Path(__file__).resolve().parent / "oops" / "fixit_compile.py"
 
 
+# The fast-gates job's critical path is the bundle matrix's agent-pane build (105 s alone, ~200 s when the
+# other checks and gates share the runner's cores, 2026-11-28). It starts first and keeps full priority; the
+# shorter checks run at a lower priority so they take the cores it leaves idle. WEBVIEWS_CHECKS_NICE=0 turns it off.
+CRITICAL_CHECKS = ("check:bundle-matrix", "typecheck")
+
+
+def niced(argv: list[str], check: str) -> list[str]:
+    level = os.environ.get("WEBVIEWS_CHECKS_NICE", "10")
+    if check in CRITICAL_CHECKS or level in ("", "0") or not shutil.which("nice"):
+        return argv
+    return ["nice", "-n", level, *argv]
+
+
+def submit_order(checks: list[str] | tuple[str, ...]) -> list[str]:
+    """The critical checks first, then the rest in CHECKS order: a pool slot for the longest check at once."""
+    return [c for c in CRITICAL_CHECKS if c in checks] + [c for c in checks if c not in CRITICAL_CHECKS]
+
+
 def run_check(webviews: Path, check: str, fixit: bool = False) -> tuple[int, str]:
-    argv = ["bun", "run", check]
+    argv = niced(["bun", "run", check], check)
     if not (fixit and check == "typecheck" and FIXIT_COMPILE.is_file()):
         result = subprocess.run(argv, cwd=webviews, capture_output=True, text=True)
         return result.returncode, result.stdout + result.stderr
@@ -441,8 +463,14 @@ def main(argv: list[str] | None = None) -> int:
     failed = []
     shown: dict[str, list[str]] = {}  # a failed check's findings, for --advisory-out
     try:
+        # The checks are independent reads of the one installed tree: run them side by side (the serial sum was
+        # 280 s of 35 checks on 2026-11-28, the longest 63 s), then judge them in CHECKS order so the output and
+        # the base comparison read as before. WEBVIEWS_CHECKS_JOBS=1 restores the serial order.
+        jobs = max(1, int(os.environ.get("WEBVIEWS_CHECKS_JOBS") or min(os.cpu_count() or 2, 6)))
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=jobs)
+        futures = {check: pool.submit(run_check, webviews, check, True) for check in submit_order(checks)}
         for check in checks:
-            code, output = run_check(webviews, check, fixit=True)
+            code, output = futures[check].result()
             print(output, end="", flush=True)
             if code == 0:
                 continue
@@ -458,6 +486,9 @@ def main(argv: list[str] | None = None) -> int:
             script = NEW_CHECK_SCRIPTS.get(check)
             if script and not (base_webviews / script).is_file():
                 print(f"webviews checks: {check} is new; base has no command, so this transition is not charged", flush=True)
+                continue
+            if check == "check:refresh-exports" and not (base_webviews / "scripts/check-refresh-exports.mjs").is_file():
+                print("webviews checks: check:refresh-exports is new; base has no command, so this transition is not charged", flush=True)
                 continue
             base_code, base_output = run_check(base_webviews, check)
             new, old = (compare(output, base_output, str(repo), str(base_webviews.parent)) if base_code != 0
@@ -487,6 +518,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  {line}", flush=True)
                 print(f"::{'warning' if advisory else 'error'} title=webviews {check}::{line}", flush=True)
     finally:
+        pool.shutdown(wait=True, cancel_futures=True)
         if base:
             base.close()
     where = "the pull request merged with its base" if args.base else "this commit"

@@ -4,7 +4,8 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { commandLine, ElevationCard } from "./ElevationCard";
+import { ElevationCard } from "./ElevationCard";
+import { commandLine } from "./elevationCommand";
 import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;

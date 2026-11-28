@@ -491,6 +491,7 @@ jobs:
             # cmux-tui's bin crate links the cmux VM CLI by path, and cargo loads every member
             # (tests/test_ci_sparse_cargo_path_deps.py).
             /workers/cmux-vm/cli/
+            /first-party-apps/cloud/server/
             /scripts/cmux-next/
             /.gitmodules
 
