@@ -59,6 +59,25 @@ s="$(run_as "$single" runner)"
 [ ! -s "$s/env" ] && [ ! -s "$s/path" ] || fail "a single-runner host got a CARGO_HOME"
 [ ! -e "$single/runner/_work/.cargo-home" ] || fail "a single-runner host got a cargo home dir"
 
+# A single runner whose host registry holds a crate it cannot write (a pool slot's shared crate cache:
+# run 46104595002, cargo-zigbuild-0.20.0.crate Permission denied) gets a cargo home of its own.
+if [ "$(id -u)" != 0 ]; then
+  slot="$TMP/slot"
+  mkdir -p "$slot/runner" "$slot/.cargo/registry/cache/index.crates.io-x"; echo '{}' > "$slot/runner/.runner"
+  echo crate > "$slot/.cargo/registry/cache/index.crates.io-x/cargo-zigbuild-0.20.0.crate"
+  chmod 444 "$slot/.cargo/registry/cache/index.crates.io-x/cargo-zigbuild-0.20.0.crate"
+  f="$(run_as "$slot" runner)"
+  [ "$(cat "$f/env")" = "CARGO_HOME=$slot/runner/_work/.cargo-home" ] || fail "a foreign registry crate kept the shared home: $(cat "$f/env")"
+  grep -q 'cannot write (first: .*cargo-zigbuild-0.20.0.crate)' "$f/log" || fail "the reason does not name the crate: $(cat "$f/log")"
+  chmod 644 "$slot/.cargo/registry/cache/index.crates.io-x/cargo-zigbuild-0.20.0.crate"
+  # A read-only ~/.cargo itself.
+  ro="$TMP/ro"
+  mkdir -p "$ro/runner" "$ro/.cargo"; echo '{}' > "$ro/runner/.runner"; chmod 555 "$ro/.cargo"
+  r="$(run_as "$ro" runner)"
+  chmod 755 "$ro/.cargo"
+  [ -s "$r/env" ] || fail "a read-only ~/.cargo kept the shared home"
+fi
+
 # A runner with no .runner of its own (a container job) keeps its CARGO_HOME.
 c="$(run_as "$shared" container)"
 [ ! -s "$c/env" ] || fail "a job outside the runner dirs got a CARGO_HOME"
