@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { causeOf, pauseHeld, streakStop, IDLE_STREAK, earlyResume, pauseWithReconciliation, phasesOf, restoreParts, restoreSplit, runWakeEcho, settle, startWithRetry, summarize, wakeEchoMarkdown, type WakeCycle } from "./cloud-wake-echo.ts";
+import { acceptance, causeOf, timingInvalid, pauseHeld, streakStop, IDLE_STREAK, earlyResume, pauseWithReconciliation, phasesOf, restoreParts, restoreSplit, runWakeEcho, settle, startWithRetry, summarize, wakeEchoMarkdown, type WakeCycle } from "./cloud-wake-echo.ts";
 
 const cycle = (i: number, ok: boolean, marks: WakeCycle["marks_ms"]): WakeCycle => ({
   i, ok, error: ok ? "" : "boom", at: "", paused_ms: 1, answered_ms: 1, first_exec_ms: 1, offset_ms: 0, offset_rtt_ms: 1, offset_pre_ms: 0,
@@ -235,4 +235,80 @@ test("no-wake cycles do not count toward the failure streak; a long run of them 
   expect(streakStop([down, nohold, down, early, down], 3)).toBe("3 failed cycles in a row");
   expect(streakStop([down, down, { ok: true, error: "", guest: null }, down], 3)).toBe("");
   expect(streakStop(Array(IDLE_STREAK).fill(nohold), 3)).toBe(`${IDLE_STREAK} cycles in a row measured no wake`);
+});
+
+test("a mark before wake_at inside the offset's error is timing invalid, never an echo (artifact 15276659944 cycle #2)", () => {
+  // Cycle #2 there: ok with restore -1282 ms and total -1262 ms. Inside a 1400 ms error it is still no sample.
+  const m2 = { resumed: -1282, net_up: -1179, pty_attach: -1265, input: -1265, echo: -1262 };
+  const bad = timingInvalid(m2, 1400, 4520);
+  expect(bad).toMatch(/^timing invalid: resumed -1282 ms before wake_at, inside the offset's 1400 ms error/);
+  expect(bad).toContain("echo -1262 ms before wake_at");
+  expect(causeOf({ error: bad, guest: null })).toBe("timing invalid (clock)");
+  // A small negative inside the error is invalid too: the sign is the offset's, the wake's length unknown.
+  expect(timingInvalid({ resumed: -5, echo: 400 }, 50, 2000)).toMatch(/resumed -5 ms/);
+  // Positive, in order, read after the echo: valid.
+  expect(timingInvalid({ resumed: 300, net_up: 350, pty_attach: 320, input: 320, echo: 330 }, 50, 2000)).toBe("");
+  // Guest marks out of their own order (one clock, no offset between them).
+  expect(timingInvalid({ resumed: 300, pty_attach: 250, input: 250, echo: 260 }, 50, 2000)).toContain("pty_attach -50 ms before resumed");
+  // An echo the runner had not read yet when it read the result: the offset is wrong.
+  expect(timingInvalid({ resumed: 300, echo: 3000 }, 50, 2000)).toContain("after the runner read the result");
+  // Offsets that disagree past both errors: the clock moved.
+  expect(timingInvalid({ resumed: 300, echo: 400 }, 50, 2000, { pre: 0, preErr: 50, post: 500, postErr: 60 })).toContain("guest clock moved 500 ms");
+  expect(timingInvalid({ resumed: 300, echo: 400 }, 50, 2000, { pre: 0, preErr: 50, post: 100, postErr: 60 })).toBe("");
+});
+
+test("a fake guest resuming inside the offset's error fails timing invalid; a later resume echoes; summaries take only the valid one", async () => {
+  const OFF = 7_000; // guest wall clock ahead of the runner's
+  const RTT = 100; // every date exec takes at least this, so the offset's error is >= 50 ms
+  const resumeAt = [-20, 300]; // runner ms from wake_at, per cycle
+  let wakeAt = 0;
+  let seq = -1;
+  const exec = async (cmd: string) => {
+    if (cmd.includes("@@armed_at")) { seq++; return { code: 0, stdout: `@@probe ok\n@@armed_at ${Date.now() + OFF}`, stderr: "" }; }
+    if (cmd === "date +%s%3N") { await new Promise((r) => setTimeout(r, RTT)); return { code: 0, stdout: String(Date.now() - RTT / 2 + OFF), stderr: "" }; }
+    if (cmd.includes(`result.${seq}.json`)) {
+      // As a real probe: the result is there only once its echo has happened.
+      if (Date.now() < wakeAt + resumeAt[seq]! + 35) return { code: 0, stdout: "\n@@done", stderr: "" };
+      const g = wakeAt + OFF + resumeAt[seq]!;
+      return { code: 0, stdout: JSON.stringify({ seq, resumed_wall: g, wall_gap: 5000, mono_gap: 5000, net_up_at: g + 40, pty_attach_at: g + 30, input_at: g + 30, echo_at: g + 35 }) + "\n@@done", stderr: "" };
+    }
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  const cycles = await runWakeEcho({
+    exec, guest: "", netHost: "h", netPort: 443, holdMs: 0, log: () => {}, onCycle: () => {},
+    status: async () => "running", pause: async () => 0, wake: async () => { wakeAt = Date.now(); }, sleep: (ms) => new Promise((r) => setTimeout(r, Math.min(ms, 10))), failStreak: 3,
+  }, 2);
+  expect(cycles[1]!.error).toBe("");
+  expect(cycles.map((c) => c.ok)).toEqual([false, true]);
+  expect(causeOf(cycles[0]!)).toBe("timing invalid (clock)");
+  // Raw signed values stay as diagnostics, not clamped.
+  expect(cycles[0]!.phases.restore!).toBeLessThan(0);
+  expect(cycles[0]!.offset_err_ms!).toBeGreaterThanOrEqual(RTT / 2);
+  expect(cycles[1]!.phases.restore!).toBeGreaterThan(200);
+  const s = summarize(cycles, 2);
+  expect(s.rows.find((r) => r.phase === "total")!.n).toBe(1);
+  expect(s.causes).toEqual({ "timing invalid (clock)": 1 });
+  expect(s.acceptance).toMatchObject({ asked: 2, valid: 1, met: false });
+});
+
+test("acceptance is p95 over every asked cycle: failed, invalid or unrun cycles count over the bar", () => {
+  const ok = (i: number, total: number) => ({ ...cycle(i, true, { resumed: 100, echo: total }), offset_err_ms: 40 });
+  const bad = (i: number) => cycle(i, false, { resumed: -1282, echo: -1262 });
+  // Attempt 2's shape: 3 echoed of 50 asked, one of them invalid. Not met, whatever the 3 read.
+  const a2 = acceptance([ok(0, 1440), bad(1), ok(2, 2907)], 50);
+  expect(a2).toMatchObject({ asked: 50, valid: 2, met: false });
+  expect(a2.p95).toBe(Number.POSITIVE_INFINITY);
+  // 50 valid under the bar: met, +- the largest offset error.
+  const all = Array.from({ length: 50 }, (_, i) => ok(i, 600 + i * 5));
+  expect(acceptance(all, 50)).toMatchObject({ asked: 50, valid: 50, met: true, err_ms: 40, p95: 600 + 47 * 5 });
+  // 2 failed of 50 (4%) leave p95 on a real sample; 3 failed (6%) push it over.
+  expect(acceptance([...all.slice(0, 48), bad(48), bad(49)], 50).met).toBe(true);
+  expect(acceptance([...all.slice(0, 47), bad(47), bad(48), bad(49)], 50).met).toBe(false);
+  // The markdown says it, and names an unread deploy rather than an API version.
+  const md = wakeEchoMarkdown([ok(0, 900)], { asked: 50, machine: "vm_x" });
+  expect(md).toContain("1 valid of 50: **not met**");
+  expect(md).toContain("Serving deploy: not read.");
+  const md2 = wakeEchoMarkdown([ok(0, 900)], { asked: 1, deploy: { platform_before: { commit: "a803e20f0000ffff", commit_unavailable: null }, api_before: { commit: null, commit_unavailable: "/v1/health names 0.1.0, not a deploy commit" } } });
+  expect(md2).toContain("platform a803e20f0000 before, unread (not read) after; API unread (/v1/health names 0.1.0, not a deploy commit)");
+  expect(md2).toContain("p95 0.90 s +- 0.04 s, 1 valid of 1: **met**");
 });

@@ -6517,10 +6517,23 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const meta: Record<string, unknown> = { backend: backend.name, machine: created.id, asked: wakeEchoN };
       const write = () => {
         if (!outDir) return;
-        writeFileSync(path.join(outDir, "wake-echo.json"), `${scrub(JSON.stringify({ ...meta, summary: wakeEchoSummary(cycles), cycles }, null, 2), J.secrets)}\n`);
+        writeFileSync(path.join(outDir, "wake-echo.json"), `${scrub(JSON.stringify({ ...meta, summary: wakeEchoSummary(cycles, wakeEchoN), cycles }, null, 2), J.secrets)}\n`);
         writeFileSync(path.join(outDir, "wake-echo.md"), wakeEchoMarkdown(cycles, meta));
       };
       let k = 0;
+      const readDeploy = async () => {
+        const api_before = await api.raw("GET", "/v1/health", undefined, 30_000).then(preclaimHealthSnapshot, (e): PreclaimHealthSnapshot => ({ http_status: 0, outcome: "error", commit: null, commit_unavailable: `api /v1/health failed: ${short(String((e as Error)?.message ?? e))}` }));
+        const platform_before = await platformDeploy();
+        return { api_before, platform_before } as Record<string, PreclaimHealthSnapshot>;
+      };
+      const platformDeploy = async (): Promise<PreclaimHealthSnapshot> => {
+        try {
+          const origin = clientPlatformOrigin((await api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
+          return preclaimHealthSnapshot(await http("GET", `${origin}/v1/health`, undefined, {}, 30_000));
+        } catch (e) {
+          return { http_status: 0, outcome: "error", commit: null, commit_unavailable: `platform /v1/health failed: ${short(String((e as Error)?.message ?? e))}` };
+        }
+      };
       try {
         await J.step("wake-echo machine size", async () => {
           const m = await row();
@@ -6537,6 +6550,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const netHost = new URL(backend.api).hostname;
         const setup = await J.step("wake-echo probe setup", async () => ({ value: await setupProbe({ exec, guest: GUEST, netHost, netPort: 443, log }), detail: "daemon socket, terminal and dry run ok" }));
         meta.probe = { daemon: setup.daemon, version: setup.version, protocol: setup.protocol, dry_run: setup.dry_run };
+        // The deploy the run measured, by commit (the API's /v1/health names only API_VERSION "0.1.0"), and the guest
+        // daemon at both ends: run 46158958288's updater swapped it mid-run (c6cd14b5 -> d788eb8c).
+        meta.deploy = await readDeploy();
+        meta.daemon_before = bound.image?.daemon_version ?? null;
         cycles = await runWakeEcho({
           exec, guest: GUEST, netHost, netPort: 443, holdMs: wakeEchoHoldMs, log,
           deadlineAt: wakeEchoDeadline === undefined ? undefined : Number(wakeEchoDeadline) * 1000,
@@ -6577,8 +6594,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         J.record({ step: "wake-echo", status: "fail", ms: 0, detail: String((e as Error).message ?? e) });
         meta.setup_error = String((e as Error).message ?? e);
       }
+      if (meta.deploy) (meta.deploy as Record<string, PreclaimHealthSnapshot>).platform_after = await platformDeploy();
+      meta.daemon_after = (await row().catch(() => null))?.image?.daemon_version ?? null;
       write();
-      const sum = wakeEchoSummary(cycles);
+      const sum = wakeEchoSummary(cycles, wakeEchoN);
       const table = wakeEchoMarkdown(cycles, meta);
       console.log(table);
       if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n## Wake to first echo (${backend.name}, ${created.id})\n\n${table}${meta.setup_error ? `\nSetup failed: ${meta.setup_error}\n` : ""}`);
