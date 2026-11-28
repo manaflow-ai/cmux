@@ -94,7 +94,7 @@ impl Mux {
                             Some((workspace.id, workspace.screens.get(screen_index)?.id))
                         })
                         .expect("live pane belongs to a screen");
-                    let entity = crate::server::tree_entity_json(
+                    let entity = crate::tree_wire::tree_entity_json(
                         &state,
                         &notifications,
                         TreeDeltaKind::TabAdded,

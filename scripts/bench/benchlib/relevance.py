@@ -23,6 +23,7 @@ whole-table scan, kept as the oracle the property test compares against.
 """
 from __future__ import annotations
 
+import json
 import posixpath
 import random
 import re
@@ -180,6 +181,10 @@ class Index:
         self.rules = rules
         self.buckets: dict[str, list[tuple[Rule, str, int]]] = {}
         self._compiled: dict[str, list[tuple[Rule, re.Pattern[str], int]]] = {}
+        # Counted work, for the flat-at-10x test (a count, not a clock, so a loaded host cannot fail it):
+        # `probes` is glob patterns tried by match(); `compiles` is globs compiled into a bucket.
+        self.probes = 0
+        self.compiles = 0
         self.situation_by_name: dict[str, list[Rule]] = {}
         # Every rule of one (kind, name): plan() merges an area filed twice into one entry (_area_entry), read here
         # once per index rather than by a scan of every rule per matched area (the Bench tooling bench, 0.096 s).
@@ -198,6 +203,7 @@ class Index:
         if got is None:
             got = [(r, re.compile(pattern_of(g)), spec) for r, g, spec in self.buckets.get(key, ())]
             self._compiled[key] = got
+            self.compiles += len(got)
         return got
 
     def candidates(self, path: str):
@@ -216,6 +222,7 @@ class Index:
         situations: dict[str, Rule] = {}
         steps: dict[str, Rule] = {}
         for rule, pattern, spec in self.candidates(path):
+            self.probes += 1
             if not pattern.match(path):
                 continue
             if rule.kind == "situation":
@@ -600,6 +607,11 @@ def cargo_test_commands(root: Path, crate_dirs: list[str]) -> list[str]:
             for ws, names in by_ws.items()]
 
 
+TOOLING_TREES = ("scripts", "schemas", "docs", "tests", "webviews", "web", "backend", "workers", "evals", "examples",
+                 "first-party-apps", ".github", "plans", "skills", "release-notes", "design", "experiments",
+                 "Native", "ci", "persisted-formats", "Packages")
+
+
 def generate_units(root: Path = ROOT, files: list[str] | None = None) -> list[dict]:
     """One unit per testable folder of the repo layout, with the command that tests just that folder.
 
@@ -643,16 +655,34 @@ def generate_units(root: Path = ROOT, files: list[str] | None = None) -> list[di
         elif len(parts) == 3 and parts[:2] == ["webviews", "src"] and (root / d).is_dir():
             add(f"web:{parts[2]}", d, [f"bash scripts/ci/run-webviews-tests.sh src/{parts[2]}"])
         # Second-level folders of the tooling trees.
-        elif len(parts) == 2 and parts[0] in ("scripts", "schemas", "docs", "tests", "webviews", "web", "backend",
-                                              "workers", "evals", "examples", "first-party-apps", ".github",
-                                              "plans", "skills", "release-notes", "design", "experiments",
-                                              "Native", "ci", "persisted-formats") and (root / d).is_dir():
+        elif len(parts) == 2 and parts[0] in TOOLING_TREES and (root / d).is_dir():
             add(f"{parts[0].lstrip('.')}:{parts[1]}", d)
         # Rust workspace roots and language bindings.
         elif len(parts) == 2 and parts[0] == "cmux-tui" and (root / d).is_dir() and parts[1] != "crates":
             add(f"cmux-tui:{parts[1]}", d)
         elif len(parts) == 3 and parts[:2] == ["cmux-tui", "bindings"] and (root / d).is_dir():
             add(f"binding:{parts[2]}", d)
+        # Package roots: a folder with its own manifest owns everything under it that no narrower unit takes
+        # (Package.swift, Package.resolved, CEFShim/, Plugins/, Demo/, go.mod, ...), so a manifest or resources
+        # change runs that package's tests instead of falling back to its top-level folder.
+        elif (root / d / "Package.swift").is_file():
+            add(f"swiftpkg:{d}", d, [f"swift test --package-path {d}"] if (root / d / "Tests").is_dir() else [])
+        elif (root / d / "go.mod").is_file():
+            add(f"go:{d}", d, [f"cd {d} && go test ./..."])
+        elif (root / d / "Cargo.toml").is_file() and "crates" not in parts:
+            doc = _toml(root / d / "Cargo.toml")
+            add(f"cargo:{d}", d, [f"cargo test --manifest-path {d}/Cargo.toml"] if "package" in doc else [])
+        elif (root / d / "package.json").is_file() and "node_modules" not in parts:
+            try:
+                scripts_ = json.loads((root / d / "package.json").read_text(encoding="utf-8")).get("scripts") or {}
+            except (OSError, ValueError, AttributeError):
+                scripts_ = {}
+            add(f"node:{d}", d, [f"npm test --prefix {d}"] if "test" in scripts_ else [])
+    # Files directly in a tooling tree (scripts/foo.py, docs/x.md): the tree's top level, not its default.
+    for tree in TOOLING_TREES:
+        if any(f.startswith(tree + "/") and f.count("/") == 1 for f in files) and tree != "tests":
+            units.append({"name": f"{tree.lstrip('.')}:(top level)", "paths": [tree + "/*"], "tests": [],
+                          "dependents": []})
     return units
 
 

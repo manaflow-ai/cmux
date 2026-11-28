@@ -79,7 +79,7 @@ fn print_the_close_times() {
     // `tree_json::skip_entity_check_on_this_thread_for_bench()` in the open bench of `server`
     // would fail the rustc lint `unused_qualifications` (the workspace lint table in
     // `cmux-tui/Cargo.toml`; `clippy -D warnings` makes it an error).
-    crate::server::skip_tree_entity_check();
+    crate::tree_wire::skip_tree_entity_check();
     let build = if cfg!(debug_assertions) {
         "debug assertions on (the dev profile)"
     } else {
