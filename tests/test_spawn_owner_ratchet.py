@@ -307,6 +307,10 @@ class SpawnOwnerRatchet(unittest.TestCase):
         code, out = self.check("--base-ref", "HEAD")
         self.assertEqual(code, 0, out)
         self.assertIn(f"records {HUB} at 1", out)
+        # A spawn the old reading also saw is not hidden debt: still a raise.
+        self.baseline({HUB: 2})
+        code, out = self.check("--base-ref", "HEAD")
+        self.assertEqual(code, 1, out)
         # One more than the base's own file holds is still a raise.
         self.baseline({HUB: 2})
         self.write(HUB, self.MID_FILE_TEST_MODULE + "fn more() { tokio::spawn(async {}); }\n")
