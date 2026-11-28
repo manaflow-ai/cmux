@@ -690,6 +690,32 @@ class PlanTest(unittest.TestCase):
                     hv.build_swift_app(self.fx.repo, {"head": self.fx.base}, f"sha:{self.fx.base}", scratch)
                 self.assertIn(said, str(raised.exception))
 
+    def test_a_failed_fleet_app_build_says_its_error_not_the_waits_progress(self):
+        # 2026-11-28, cmux#63536: the build had failed on a link error, the look said "... still waiting".
+        scratch = Path(self.tmp.name) / "scratch"
+        progress = ("cmux-ci: job job-9 running on cmux-linux-pool-1 after 11m05s; still waiting "
+                    "(deadline 2026-11-28T08:17Z)\n")
+        failed = json.dumps({"id": "job-9", "state": "failed", "error": "exit status 1; rust_compile: tui-fetch: "
+                             "error: could not compile `cmux-tui`"})
+
+        def run(argv, **kwargs):
+            if argv[1:3] == ["build", "cmux"]:
+                return subprocess.CompletedProcess(argv, 0, '{"id":"job-9"}', "")
+            if argv[1] == "wait":
+                return subprocess.CompletedProcess(argv, 1, "", progress)
+            if argv[1] == "status":
+                return subprocess.CompletedProcess(argv, 0, failed + "\n", "")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        with unittest.mock.patch.object(hv, "_ci_client", return_value="/fake/cmux-ci"), \
+                unittest.mock.patch.object(hv.subprocess, "run", side_effect=run):
+            with self.assertRaises(hv.LookError) as raised:
+                hv.build_swift_app(self.fx.repo, {"head": self.fx.base}, f"sha:{self.fx.base}", scratch)
+        said = str(raised.exception)
+        self.assertIn("fleet app build job-9 failed: exit status 1; rust_compile", said)
+        self.assertIn("cmux-ci log job-9", said)
+        self.assertNotIn("still waiting", said)
+
     def test_swift_app_fallback_builds_a_clean_ref_with_cmux_ci(self):
         head = self.fx.change({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift": "struct App { let x = 3 }\n"})
         scratch = Path(self.tmp.name) / "scratch"

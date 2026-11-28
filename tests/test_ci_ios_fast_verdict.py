@@ -532,7 +532,7 @@ class WorkflowTest(unittest.TestCase):
         # unset switch enabled and still lets an explicit '0' disable the verdict.
         # The hosted control probe is recorded in the 2026-11-27-ios-fast-unset-switch workflow note.
         self.assertEqual(self.jobs["ios-fast-runner"]["if"],
-                         "${{ !cancelled() && !inputs.web_browser_only && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}")
+                         "${{ !cancelled() && !inputs.web_browser_only && !inputs.ios_fast_skip && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}")
 
     def test_the_picker_plans_then_picks_only_when_a_target_changed(self) -> None:
         runner = self.jobs["ios-fast-runner"]
