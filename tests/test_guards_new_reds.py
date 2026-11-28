@@ -344,6 +344,41 @@ class NewReds(unittest.TestCase):
         # No job clock: no stop.
         self.assertEqual(stop_at(0, 55, 1700, now), "")
 
+    def test_a_cut_short_head_fails_even_with_no_red_of_its_own(self):
+        # guards_reached.sh runs the head under a deadline: a step it never finished is in neither file and is never
+        # a pass, so a head with no red that was cut short is not green.
+        with tempfile.TemporaryDirectory() as tmp:
+            head, base = Path(tmp) / "head.json", Path(tmp) / "base.json"
+            head.write_text(json.dumps({"_cmux_complete": False, "finished": True}))
+            base.write_text(json.dumps({"finished": True}))
+            done = subprocess.run([sys.executable, str(SCRIPT), str(head), str(base)], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("::error title=Guard run timed out::", done.stdout)
+        self.assertIn("0 guard steps red on this change, 0 red on the base too", done.stdout)
+
+    def test_a_cut_short_head_keeps_the_verdict_of_the_reds_it_finished(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            head, base = Path(tmp) / "head.json", Path(tmp) / "base.json"
+            head.write_text(json.dumps({"_cmux_complete": False, "old": False, "mine": False}))
+            base.write_text(json.dumps({"old": False, "mine": True}))
+            done = subprocess.run([sys.executable, str(SCRIPT), str(head), str(base)], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("guard red step (base): old", done.stdout)
+        self.assertIn("guard red step (new): mine", done.stdout)
+
+    def test_complete_reads_the_runners_final_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cases = {"done": {"_cmux_complete": True, "a": True}, "plain": {"a": False},
+                     "cut": {"_cmux_complete": False, "a": True}, "junk": None}
+            codes = {}
+            for name, body in cases.items():
+                path = Path(tmp) / f"{name}.json"
+                path.write_text("{" if body is None else json.dumps(body))
+                codes[name] = subprocess.run([sys.executable, str(SCRIPT), "--complete", str(path)]).returncode
+            codes["missing"] = subprocess.run([sys.executable, str(SCRIPT), "--complete",
+                                               str(Path(tmp) / "none.json")]).returncode
+        self.assertEqual(codes, {"done": 0, "plain": 0, "cut": 1, "junk": 1, "missing": 1})
+
     def test_a_step_the_change_fixes_is_said(self):
         done = self.run_it({"lint": True}, {"lint": False})
         self.assertEqual(done.returncode, 0)

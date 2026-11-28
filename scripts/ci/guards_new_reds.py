@@ -5,6 +5,7 @@
     guards_new_reds.py --new-files [--flaky FILE] [--base-again FILE]... HEAD_RESULTS BASE_RESULTS
     guards_new_reds.py [--label NAME] --tip HEAD_RESULTS
     guards_new_reds.py --red-steps HEAD_RESULTS
+    guards_new_reds.py --complete RESULTS
 
 Each file is run_ci_guards.py --results output ({step name: passed}) from one runner: the head's
 checkout run on the head, then on the base (--root). A step red on the head that passed on the
@@ -66,6 +67,12 @@ cannot be told, and the step is the change's. Results without it (the webview te
 cmux-next-guards.yml re-runs only those steps on the base (run_ci_guards.py --step): a step green on the head is never
 charged to the change whatever the base says, so running it there too bought nothing. With release-notary in the
 compare, the full base pass doubled the job (about 9 minutes a pass, run 42001286004).
+
+--complete exits 0 when RESULTS reached its runner's final write (`_cmux_complete`), 1 when the run was cut short
+(--deadline) or the file is unreadable. guards_reached.sh reads it before it calls a head with no red step a pass.
+
+A compare whose head run was cut short fails whatever its reds: the head's unfinished steps have no verdict, and a
+step missing from HEAD_RESULTS is never a pass (guards_reached.sh runs both passes under one deadline).
 
 --tip judges a branch tip on its own (cmux-next-guards.yml, a push to feat-cmux-next that touches what the guards
 read): there is no base to compare with, so every red step fails. A push judged only against the previous tip stays
@@ -212,6 +219,8 @@ def failure_names(lines: list[str]) -> set[str]:
 
 
 def main(argv: list[str]) -> int:
+    if len(argv) == 2 and argv[0] == "--complete":
+        return 0 if load(argv[1]) is not None and result_complete(argv[1]) else 1
     if len(argv) == 2 and argv[0] == "--red-steps":
         for step in red_steps(load(argv[1]) or {}):
             print(step)
@@ -378,6 +387,12 @@ def main(argv: list[str]) -> int:
     # change red.  Keeping the job failed is what makes the merge gate read the
     # guard job and resolve its `unknown` lines against the base branch's own
     # run; returning success would let a cut replay pass without that evidence.
+    if not result_complete(argv[0]):
+        # Cut short (guards_reached.sh's deadline): the steps it never finished are in neither file, so none is a pass.
+        print(f"::error title={label} run timed out::the head's guard run was cut short after {len(head)} finished "
+              "steps; the unfinished steps have no verdict")
+        print(f"the head's {label.lower()} run was cut short: its unfinished steps have no verdict")
+        return 1
     return 1 if new or unknown else 0
 
 
