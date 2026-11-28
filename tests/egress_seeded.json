@@ -9,7 +9,7 @@
    "test": "cmux-tui/crates/acpmux/src/happy_dial_tests.rs::seeded_keys_ride_only_in_the_providers_auth_header"
   },
   "acpmux::hub::forum_hosted": {
-   "test": "cmux-tui/crates/acpmux/src/hub/forum_hosted.rs::seeded_secrets_ride_only_where_the_forum_needs_them"
+   "test": "cmux-tui/crates/acpmux/src/hub/forum_hosted_tests.rs::seeded_secrets_ride_only_where_the_forum_needs_them"
   },
   "acpmux::range_fetch": {
    "none": "GETs with only a Range header and the acpmux user-agent: a public release archive (managed Codex install) or the URL the person typed (acpmux fetch URL); no auth, cookie or person data"
@@ -55,9 +55,6 @@
   },
   "cmux_mobile_host::services::acpmux": {
    "none": "a WebSocket to the Mac's own acpmux listener only: connect_acpmux_as refuses any host that is not loopback, so its bearer never leaves the machine"
-  },
-  "cmux_mobile_link::api": {
-   "test": "cmux-next-ios/rust/crates/cmux-mobile-link/tests/seeded_secret.rs::api_bearer_rides_only_in_authorization"
   },
   "cmux_mobile_link::dial::relay": {
    "test": "cmux-next-ios/rust/crates/cmux-mobile-link/tests/seeded_secret.rs::relay_join_sends_the_token_only_in_authorization"
@@ -106,6 +103,9 @@
   },
   "cmux_tui::cli::api_tokens": {
    "test": "cmux-tui/crates/cmux-tui/src/cli/api_tokens_tests.rs::seeded_secrets_ride_only_in_their_headers"
+  },
+  "cmux_tui::cli::app::web_cas": {
+   "none": "GETs of content-addressed cas/1 web bundle objects with only a Range header and the cmux-web-cas user-agent, no redirect: no auth, cookie or person data"
   },
   "cmux_tui::cli::app::web_pieces": {
    "todo": true
