@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 import CmuxNextDesign
 
 /// Glass bar that asks the first pending prompt of the tab: a permission
@@ -15,6 +16,12 @@ final class PromptBarView: NSView {
     /// "Always allow" of a link to another app.
     private let alwaysCheck = ThemedCheckbox(checkboxWithTitle: "", target: nil, action: nil)
     private let buttons = NSStackView()
+    /// A link to another app: the app's icon and name over the question.
+    private let appIcon = NSImageView()
+    private let appName = ChromeLabel(labelWithString: "")
+    private let header = NSStackView()
+    /// The "Always allow" check on the left, the answers on the right.
+    private let footer = NSStackView()
     private let stack = NSStackView()
     private let density = DensityBinding()
     /// The bar's material: glass, or opaque under Reduce Transparency.
@@ -36,15 +43,33 @@ final class PromptBarView: NSView {
 
         buttons.setHuggingPriority(.required, for: .horizontal)
 
+        appIcon.imageScaling = .scaleProportionallyUpOrDown
+        appIcon.translatesAutoresizingMaskIntoConstraints = false
+        let names = NSStackView(views: [appName, messageLabel])
+        names.orientation = .vertical
+        names.alignment = .leading
+        names.spacing = 2
+        header.orientation = .horizontal
+        header.alignment = .centerY
+        header.addArrangedSubview(appIcon)
+        header.addArrangedSubview(names)
+
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+        footer.orientation = .horizontal
+        footer.alignment = .centerY
+        footer.addArrangedSubview(alwaysCheck)
+        footer.addArrangedSubview(spacer)
+        footer.addArrangedSubview(buttons)
+
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.addArrangedSubview(messageLabel)
+        stack.addArrangedSubview(header)
         stack.addArrangedSubview(inputField)
         stack.addArrangedSubview(userField)
         stack.addArrangedSubview(passwordField)
-        stack.addArrangedSubview(alwaysCheck)
-        stack.addArrangedSubview(buttons)
+        stack.addArrangedSubview(footer)
 
         let content = OverlayBackingView()
         content.addSubview(stack)
@@ -67,6 +92,11 @@ final class PromptBarView: NSView {
             // Preferred minimum: a pane narrower than it narrows the bar.
             density.bind(widthAnchor.constraint(greaterThanOrEqualToConstant: 0).prioritized(.init(450))) { BrowserMetrics.promptMinWidth },
         ])
+        NSLayoutConstraint.activate([
+            density.bind(footer.widthAnchor.constraint(equalTo: stack.widthAnchor)) { -BrowserMetrics.overlayPadding * 2 },
+            density.bind(appIcon.widthAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.controlHeight * 1.4 },
+            appIcon.heightAnchor.constraint(equalTo: appIcon.widthAnchor),
+        ])
         for field in [inputField, userField, passwordField] as [NSTextField] {
             NSLayoutConstraint.activate([
                 density.bind(field.widthAnchor.constraint(equalTo: stack.widthAnchor)) { -BrowserMetrics.overlayPadding * 2 },
@@ -77,6 +107,9 @@ final class PromptBarView: NSView {
             guard let self else { return }
             let padding = BrowserMetrics.overlayPadding
             messageLabel.font = BrowserMetrics.bodyFont
+            appName.font = BrowserMetrics.emphasizedFont
+            header.spacing = BrowserMetrics.itemSpacing
+            footer.spacing = BrowserMetrics.itemSpacing
             alwaysCheck.font = BrowserMetrics.bodyFont
             messageLabel.preferredMaxLayoutWidth = BrowserMetrics.promptMaxWidth - padding * 2
             for field in [inputField, userField, passwordField] as [NSTextField] {
@@ -115,7 +148,9 @@ final class PromptBarView: NSView {
             for field in [inputField, userField, passwordField] as [NSTextField] {
                 field.layer?.backgroundColor = Palette.chromeBackground.cgColor
             }
-            messageLabel.textColor = Palette.textPrimary
+            // Under an app's name the question is the secondary line.
+            messageLabel.textColor = appName.isHidden ? Palette.textPrimary : Palette.textSecondary
+            appName.textColor = Palette.textPrimary
             glass?.applyTheme()
         }
     }
@@ -131,6 +166,8 @@ final class PromptBarView: NSView {
         userField.isHidden = true
         passwordField.isHidden = true
         alwaysCheck.isHidden = true
+        appIcon.isHidden = true
+        appName.isHidden = true
 
         switch prompt.kind {
         case .permission(let kind):
@@ -182,8 +219,12 @@ final class PromptBarView: NSView {
             passwordField.isHidden = false
             addButton(Strings.cancel, prominent: false, response: .cancel)
             addButton(Strings.authSignIn, prominent: true, response: nil)
-        case .openExternalApp(let app, _):
+        case .openExternalApp(let app, let scheme):
             messageLabel.stringValue = Strings.externalAppPrompt(origin: prompt.origin, app: app)
+            appName.stringValue = app
+            appName.isHidden = false
+            appIcon.image = Self.icon(scheme: scheme)
+            appIcon.isHidden = appIcon.image == nil
             alwaysCheck.title = Strings.externalAppAlwaysAllow
             alwaysCheck.state = .off
             // A page with no origin offers no "Always allow" (BrowserExternalApps).
@@ -208,6 +249,7 @@ final class PromptBarView: NSView {
             if offer.link != nil { addButton(Strings.verificationOpenLink, prominent: offer.code == nil, response: .allowOnce) }
             if offer.code != nil { addButton(Strings.verificationFillCode, prominent: true, response: .accept) }
         }
+        applyColors()
         if !inputField.isHidden {
             FocusRoute(.system, "a page's prompt").moveKeyboard(in: window, to: inputField)
         } else if !userField.isHidden {
@@ -229,6 +271,14 @@ final class PromptBarView: NSView {
         } else {
             prompt.respond(.text(inputField.stringValue))
         }
+    }
+
+    /// The icon of the app that opens `scheme` links, else the generic app icon.
+    static func icon(scheme: String) -> NSImage? {
+        guard let url = URL(string: "\(scheme):"), let app = NSWorkspace.shared.urlForApplication(toOpen: url) else {
+            return NSWorkspace.shared.icon(for: .applicationBundle)
+        }
+        return NSWorkspace.shared.icon(forFile: app.path)
     }
 
     private func addButton(_ title: String, prominent: Bool, response: BrowserPromptResponse?) {
