@@ -172,10 +172,7 @@ export function GitHubPage({
   const more = useCallback(() => store.openOnGitHub(), [store]);
   // Once per answer: a file toggled or a merge clicked keeps the dashboard's jobs as they were.
   const rollup = pr?.checkList;
-  const checksShown = useMemo(
-    () => (dashboard ? withRollup(dashboard, rollup ?? []) : null),
-    [dashboard, rollup],
-  );
+  const checksShown = useMemo(() => (dashboard ? withRollup(dashboard, rollup ?? []) : null), [dashboard, rollup]);
   // Once the frame that draws this pull request (or its loading state) is on screen, the host hears of it.
   useEffect(() => {
     if (!target) return;
@@ -219,14 +216,7 @@ export function GitHubPage({
   const checks =
     pr &&
     (checksShown ? (
-      <ChecksDashboard
-        checks={checksShown}
-        rerun={rerun}
-        store={store}
-        strings={strings}
-        now={now}
-        open={open}
-      />
+      <ChecksDashboard checks={checksShown} rerun={rerun} store={store} strings={strings} now={now} open={open} />
     ) : (
       <Checks pr={pr} strings={strings} open={open} />
     ));
