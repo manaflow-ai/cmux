@@ -350,7 +350,16 @@ fn initial(until: &[String], filter: Filter, key: &str, c: &mut Cursor, found: &
         // A match watch looks for its text in turns that end after it was armed: the turn that
         // had already ended (the journal read from its start) is no news. Without this a watch
         // armed on a helper whose last reply held the text fired at once and was spent.
+        // It stays no news: that turn is spent, so a later status record that names it again
+        // (the agent hibernating to idle, or resuming to ready) does not wake the watch either.
+        // Without this, a one-shot `match` watch armed on a ready helper whose last reply held
+        // the text fired minutes later, at the helper's hibernation, on that old turn.
         if filter.is_some() && matches!(state, "ready" | "done") {
+            c.last_resolve = if c.turn_mark.is_empty() {
+                format!("turn:{}", s["lastTurn"]["turnId"])
+            } else {
+                c.turn_mark.clone()
+            };
             return;
         }
         let mark = if state == "closed" {

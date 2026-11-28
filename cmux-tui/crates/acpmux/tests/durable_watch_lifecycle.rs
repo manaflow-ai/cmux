@@ -295,6 +295,37 @@ async fn a_match_watch_ignores_the_turn_that_ended_before_it_was_armed() {
     a.stop().await;
 }
 
+/// That old turn stays spent when the helper hibernates and resumes after the watch was armed:
+/// its `stopped` (status idle) and `resumed` (status ready) records name the same turn again.
+/// A one-shot `match` watch, `matchIn` turn or reply, armed on a ready helper whose last final
+/// reply held the text, fired at the hibernation and again at the resume on that old turn
+/// (2026-11-28, three times in a row), and the real final reply woke no one.
+#[tokio::test]
+async fn a_match_watch_is_not_spent_by_the_old_turn_when_the_helper_hibernates_and_resumes() {
+    let mut a = Daemon::new().await;
+    let turn_sink = a.chat("turn-coordinator").await;
+    let reply_sink = a.chat("reply-coordinator").await;
+    let helper = a.chat("helper").await;
+    a.prompt(&helper, "I will send Final. after the merge").await;
+    let mut wakes = Wakes::observe(&a, &[&turn_sink, &reply_sink]).await;
+    a.watch(&turn_sink, vec![helper.clone()], "ready", true, Some("Final.")).await;
+    a.watch_in(&reply_sink, &helper, "Final.", "reply").await;
+    wakes.quiet(&turn_sink).await;
+    wakes.quiet(&reply_sink).await;
+    let paused = a.call("_acpmux/pause", json!({"sessionId": helper})).await;
+    assert_eq!(paused["paused"], true, "{paused}");
+    wakes.quiet(&turn_sink).await;
+    wakes.quiet(&reply_sink).await;
+    let woke = a.call("_acpmux/wake", json!({"sessionId": helper})).await;
+    assert_eq!(woke["woke"], true, "{woke}");
+    wakes.quiet(&turn_sink).await;
+    wakes.quiet(&reply_sink).await;
+    a.prompt(&helper, "Final. the real report").await;
+    assert!(wakes.next(&turn_sink).await.contains("the real report"));
+    assert!(wakes.next(&reply_sink).await.contains("the real report"));
+    a.stop().await;
+}
+
 /// `matchIn` picks which text of a turn a match is looked for in. `turn` (the default) is any
 /// reply text of the turn, as before; `reply` is only the final reply after the last tool call, so
 /// interim text that promises the marker does not spend the watch; `replyStart` needs the final
