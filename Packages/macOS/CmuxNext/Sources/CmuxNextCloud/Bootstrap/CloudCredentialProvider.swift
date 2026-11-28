@@ -1,4 +1,5 @@
 public import CmuxNextDaemon
+public import CmuxNextWakeups
 import Foundation
 import os
 
@@ -26,19 +27,47 @@ public final class CloudCredentialProvider {
     /// Calls in flight (tests).
     var inFlight: Int { running.count }
 
+    /// Spacing of registration retries: 0.5 s doubling, at most 30 s, jittered (as `AppsProviderChannel`).
+    public nonisolated static let registerBackoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
+
     /// Registers the family when `userOriginAllowed`; returns whether it is
-    /// registered. A refusal is logged and not retried on this connection.
-    public static func register(userOriginAllowed: Bool, send: Register) async -> Bool {
+    /// registered. A transient failure (the connection not up yet or gone, as
+    /// in a launch's daemon handoff, a timeout, or the old connection still
+    /// holding the family) is tried again with `backoff` until it lands or
+    /// the task is cancelled (the caller cancels it when the connection
+    /// changes, https://github.com/manaflow-ai/cmux/issues/65793). A refusal
+    /// is logged and not retried on this connection.
+    public static func register(userOriginAllowed: Bool, backoff: Backoff = registerBackoff, send: Register) async -> Bool {
         guard userOriginAllowed else {
             logger.info("credential provider: not the verified app connection; not registered")
             return false
         }
-        do {
-            _ = try await send(AppsProviderRegisterRequest(families: [CloudCredentialRelay.family]))
-            return true
-        } catch {
-            logger.error("credential provider: register refused: \(String(describing: error), privacy: .public)")
-            return false
+        var backoff = backoff
+        // wakeup-allow: a retry after a failed registration, never a poll: each pass awaits the request, then Backoff.wait (throws once cancelled).
+        while true {
+            do {
+                _ = try await send(AppsProviderRegisterRequest(families: [CloudCredentialRelay.family]))
+                if backoff.attempt > 0 { logger.info("credential provider: registered after \(backoff.attempt, privacy: .public) retries") }
+                return true
+            } catch {
+                guard isTransient(error) else {
+                    logger.error("credential provider: register refused: \(String(describing: error), privacy: .public)")
+                    return false
+                }
+                logger.info("credential provider: register failed: \(String(describing: error), privacy: .public); retry \(backoff.attempt + 1) after backoff")
+                // concurrency-allow: Backoff.wait is an async sleep after a failed registration, not a blocking wait.
+                do { try await backoff.wait(owner: "CloudCredentialProvider.register") } catch { return false }
+            }
+        }
+    }
+
+    /// A registration failure that another try on the same connection can fix (the codes `AppsProviderChannel`
+    /// tries again, and any refusal the daemon marks retryable).
+    nonisolated static func isTransient(_ error: any Error) -> Bool {
+        switch error as? DaemonError {
+        case .notConnected?, .connectionClosed?, .daemonShutdown?, .timedOut?: true
+        case .command(_, _, let code, _, let retryable)?: retryable == true || ["apps.provider.taken", "failed", "not_connected", "timeout"].contains(code)
+        default: false
         }
     }
 
