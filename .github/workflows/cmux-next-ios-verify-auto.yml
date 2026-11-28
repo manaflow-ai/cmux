@@ -72,14 +72,18 @@ jobs:
         run: |
           set -uo pipefail
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad head $SHA"; exit 1; }
-          for try in 1 2 3; do
+          # The usual refusal is the installation's shared REST quota (HTTP 403 "API rate limit exceeded"), which
+          # frees within minutes, so the tries spread over ~3.5 of the job's 5 minutes. All refused fails red: a
+          # green job here left cmux/ios-fast pending with no verify run and nothing to rerun (#65051, #65120).
+          for wait in 15 30 60 105 0; do
             if gh workflow run cmux-next-ios-verify-auto.yml --repo "$REPO" --ref feat-cmux-next -f pr="$PR" -f sha="$SHA"; then
               echo "### cmux ios verify requested for #$PR at ${SHA:0:12}" >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
-            sleep $((try * 10))
+            sleep "$wait"
           done
-          echo "::warning title=cmux ios verify (auto)::dispatch refused 3 times; run \`cmux ios verify --pr $PR\` by hand"
+          echo "::error title=cmux ios verify (auto)::dispatch refused 5 times over ~3.5 min; rerun this job (gh run rerun --failed) or run \`cmux ios verify --pr $PR\`"
+          exit 1
 
   # -fleet: the gateway runner's hook takes only job ids ending in it.
   verify-fleet:
