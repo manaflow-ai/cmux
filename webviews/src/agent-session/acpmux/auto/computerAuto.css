@@ -170,3 +170,21 @@
   cursor: default;
 }
 .acpmux-create-start:disabled { opacity: 0.4; }
+
+/* RFD 0144 piece 9: the read-only Size row and its one request, More room (three looks). */
+.acpmux-size-body {
+  display: flex;
+  flex: 1 1 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-2, 8px);
+  min-width: 0;
+}
+.acpmux-size-note { flex: 1 1 auto; min-width: 0; color: var(--agent-text); }
+.acpmux-size-more-room-on { flex: none; color: var(--agent-muted); }
+.acpmux-size-readonly[data-look="stacked"] .acpmux-size-body {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ds-space-1, 4px);
+}
+.acpmux-size-readonly[data-look="pill"] .acpmux-size-more-room { border-radius: var(--ds-radius-full, 999px); }

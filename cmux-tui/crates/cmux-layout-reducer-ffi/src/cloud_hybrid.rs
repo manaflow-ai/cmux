@@ -13,6 +13,8 @@
 //! driver's newest Show itself when the app names the sessions folder and sends no `start`.
 //! `cloud_autosize_rows` adds one AutoSize notice (the Cloud wire's `cloud.machine.autosize`
 //! frame) to the chat's AutoSize rows (cmux-cloud-start-core `autosize_row`, RFD 0080 piece 4).
+//! `cloud_size_row` answers the read-only Size row and whether it offers More room
+//! (cmux-cloud-start-core `size_row`, RFD 0144 piece 9; `{}` while `cloud.moreRoom` is off).
 //! `cloud_autosize_frame` feeds one Cloud wire frame into the app's one AutoSize feed, and
 //! `cloud_autosize_chat` answers a chat's machine's rows from it (`autosize_row::feed`).
 
@@ -27,6 +29,7 @@ use cmux_cloud_start_core::hybrid::{self, Account, Event, State};
 use cmux_cloud_start_core::hybrid_gui;
 use cmux_cloud_start_core::hybrid_show;
 use cmux_cloud_start_core::keep_count;
+use cmux_cloud_start_core::size_row;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -40,6 +43,7 @@ pub(crate) fn handles(operation: &[u8]) -> bool {
             b"cloud_computer_status"
                 | b"cloud_computer_status_live"
                 | b"cloud_autosize_rows"
+                | b"cloud_size_row"
                 | b"cloud_autosize_frame"
                 | b"cloud_autosize_chat"
         )
@@ -191,6 +195,14 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             }
             let facts = computer_status::live::facts(&live);
             serde_json::to_value(computer_status::status(&facts)).map_err(|_| ERR_INVALID)?
+        }
+        // The read-only Size row (RFD 0144 piece 9): `{view}`, or `{}` while the setting is off.
+        b"cloud_size_row" => {
+            let facts: size_row::Facts = read(request)?;
+            match size_row::view(&facts) {
+                Some(view) => json!({ "view": view }),
+                None => json!({}),
+            }
         }
         // One AutoSize notice added to the chat's rows: `{rows, added}`; `added` is false for a
         // wire version this build does not draw (the rows come back as they were).
