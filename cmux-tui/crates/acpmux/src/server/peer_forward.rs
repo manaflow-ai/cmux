@@ -1085,6 +1085,7 @@ async fn forward_inner(
                 | method::MUX_HISTORY
                 | method::MUX_LAST
                 | method::MUX_SESSION_SEARCH
+                | method::MUX_SESSION_RESOURCES
         ) {
             // History reads answer from the current snapshot, even during a running turn.
             // A connected link can still have a stuck handler; do not inherit its ten-minute

@@ -149,6 +149,9 @@ FAKE_CAPACITY_FILE=<path>: while <path> exists, every prompt, `/compact` too, fa
 error, in turn the provider's 529 overloaded, the SR2 gateway's 503 "no non-exhausted accounts"
 and the worker gateway's 502 "at its call limit": an overload storm. Each prompt's text is appended
 to <path>.seen, one JSON string per line, so a test sees what reached the model.
+FAKE_PROMPT_ERROR=<message>: every prompt fails with <message> as its error, as a harness's
+model call that came back with that error (a capture shows the pane's card for one exact error,
+scripts/cmux-next/media/states/turn-failure-gateway-stalled.json).
 FAKE_QUIT_429_FILE=<path>: while <path> exists, an agent started on a chat's conversation
 (session/load) answers the load, then, idle, prints <path>'s line on stderr and exits 0 on its own,
 as a CLI does that quits on its account's 429 between turns (`quit-after:` once, this at every start).
@@ -839,6 +842,9 @@ def handle_prompt(rid, params):
         return
     if os.environ.get("FAKE_UPSTREAM_URL"):
         return upstream_turn(rid, sid, text)
+    if os.environ.get("FAKE_PROMPT_ERROR"):
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": os.environ["FAKE_PROMPT_ERROR"]}})
+        return
     cap_file = os.environ.get("FAKE_CAPACITY_FILE")
     if cap_file:
         with open(cap_file + ".seen", "a") as seen:
@@ -2728,6 +2734,10 @@ def main():
             # FAKE_PLAN_MODE=claude: Claude's asking modes, "default" and a "plan" that asks.
             if os.environ.get("FAKE_PLAN_MODE") == "claude":
                 result["modes"] = {"currentModeId": "default", "availableModes": [{"id": "default", "name": "Default"}, {"id": "plan", "name": "Plan"}]}
+            # Gemini CLI's ACP approval modes; start wider so a local asking policy must settle it.
+            if os.environ.get("FAKE_GEMINI_MODES") == "1":
+                result["modes"] = {"currentModeId": "yolo", "availableModes": [
+                    {"id": mode, "name": mode} for mode in ["default", "autoEdit", "yolo", "plan"]]}
             # FAKE_FULL_ACCESS=1: a harness that also offers a full-access mode.
             if os.environ.get("FAKE_FULL_ACCESS") == "1" and "modes" in result:
                 result["modes"]["availableModes"].append({"id": "full-access", "name": "Full access"})
@@ -2902,6 +2912,9 @@ def main():
             # FAKE_SET_MODE_FAIL=1: the harness refuses every mode change (after that delay).
             if os.environ.get("FAKE_SET_MODE_FAIL") == "1" or params.get("modeId") in os.environ.get("FAKE_REFUSE_MODES", "").split(","):
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "mode change refused"}})
+                continue
+            if os.environ.get("FAKE_SET_MODE_ACTUAL"):
+                send({"jsonrpc": "2.0", "id": rid, "result": {"currentModeId": os.environ["FAKE_SET_MODE_ACTUAL"]}})
                 continue
             send({"jsonrpc": "2.0", "id": rid, "result": {}})
         elif m == "session/set_config_option":
