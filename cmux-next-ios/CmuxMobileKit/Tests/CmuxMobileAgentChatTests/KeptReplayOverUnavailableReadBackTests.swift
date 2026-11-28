@@ -51,6 +51,21 @@ import UIKit
                 window.layer.render(in: context.cgContext)
             }
         }
+        // A package test host draws no window on screen (drawHierarchy gives a blank), so the
+        // screen is also drawn by ImageRenderer, and the state it settled in is written beside it.
+        let still = ImageRenderer(content: NavigationStack { ReplayConversationScreen(store: store, player: player) }
+            .frame(width: 402, height: 874)
+            .environment(\.colorScheme, .dark)
+            .background(Color.black)
+            .drawnAsStillPicture())
+        still.scale = 3
+        if let dir = ProcessInfo.processInfo.environment["CMUX_VISUAL_OUT"], !dir.isEmpty {
+            try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            let url = URL(fileURLWithPath: dir)
+            try? still.uiImage?.pngData()?.write(to: url.appendingPathComponent("replay-kept-over-unavailable-still.png"))
+            try? Data("state=\(player.state) steps=\(player.recording.steps.count) at=\(Date())\n".utf8)
+                .write(to: url.appendingPathComponent("state.txt"))
+        }
         let png = try #require(image.pngData())
         Attachment.record(png, named: "replay-kept-over-unavailable.png")
         if let dir = ProcessInfo.processInfo.environment["CMUX_VISUAL_OUT"], !dir.isEmpty {
