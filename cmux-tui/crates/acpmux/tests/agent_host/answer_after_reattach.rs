@@ -14,10 +14,10 @@ for line in sys.stdin:\n    print(json.dumps({'jsonrpc': '2.0', 'method': 'x/got
 'params': {'line': line.strip()}}), flush=True)\n";
 
 async fn next_inbound(
-    rx: &mut tokio::sync::mpsc::Receiver<acpmux::agent::Inbound>,
+    rx: &mut tokio::sync::mpsc::Receiver<Box<acpmux::agent::Inbound>>,
     within: Duration,
 ) -> Option<acpmux::agent::Inbound> {
-    tokio::time::timeout(within, rx.recv()).await.ok().flatten()
+    tokio::time::timeout(within, rx.recv()).await.ok().flatten().map(|b| *b)
 }
 
 /// A hosted agent that runs [`ASKS_THEN_ECHOES`], once it asked: its scratch dir, host record and
@@ -75,7 +75,7 @@ async fn take_over(record: &HostRecord, agent: &acpmux::agent::ChildAgent) -> Bo
 
 /// Every line the harness reported reading, until none came for `quiet`.
 async fn lines_read(
-    rx: &mut tokio::sync::mpsc::Receiver<acpmux::agent::Inbound>,
+    rx: &mut tokio::sync::mpsc::Receiver<Box<acpmux::agent::Inbound>>,
     got: &mut Vec<String>,
     quiet: Duration,
 ) {

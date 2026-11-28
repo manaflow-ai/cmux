@@ -156,26 +156,26 @@ impl ChildAgent {
                 Message::Request { id, method, params } => {
                     let _ = cx
                         .inbound
-                        .send(Inbound::Request {
+                        .send(Box::new(Inbound::Request {
                             id,
                             method,
                             params,
                             host_seq: None,
                             host_incarnation: Some(self.direct_incarnation()),
-                        })
+                        }))
                         .await;
                 }
                 Message::Notification { method, params } => {
                     let _ = cx
                         .inbound
-                        .send(Inbound::Notification {
+                        .send(Box::new(Inbound::Notification {
                             method,
                             params,
                             host_seq: None,
                             host_incarnation: Some(self.direct_incarnation()),
                             persisted: None,
                             agent: self.generation,
-                        })
+                        }))
                         .await;
                 }
             }
@@ -235,7 +235,7 @@ impl ChildAgent {
     /// Queue [`Inbound::ReplayDone`] behind what the reader queued so far, waiting for room.
     /// False when the queue is closed.
     pub async fn queue_replay_done(&self) -> bool {
-        self.inbound.send(Inbound::ReplayDone { agent: self.generation }).await.is_ok()
+        self.inbound.send(Box::new(Inbound::ReplayDone { agent: self.generation })).await.is_ok()
     }
 
     /// Where a cancelled request's `$/cancel_request` goes ([`Abandoned`]).

@@ -56,9 +56,10 @@ pub(super) fn holding_tap(
 
 /// Inbound traffic of an entry: held until a session's channel arrives,
 /// then forwarded in order.
-pub(super) fn holding_inbound() -> (mpsc::Sender<Inbound>, oneshot::Sender<mpsc::Sender<Inbound>>) {
-    let (tx, mut rx) = mpsc::channel::<Inbound>(1024);
-    let (target_tx, mut target_rx) = oneshot::channel::<mpsc::Sender<Inbound>>();
+pub(super) fn holding_inbound()
+-> (mpsc::Sender<Box<Inbound>>, oneshot::Sender<mpsc::Sender<Box<Inbound>>>) {
+    let (tx, mut rx) = mpsc::channel::<Box<Inbound>>(1024);
+    let (target_tx, mut target_rx) = oneshot::channel::<mpsc::Sender<Box<Inbound>>>();
     tokio::spawn(async move {
         let mut held = VecDeque::new();
         let target = loop {
@@ -69,7 +70,7 @@ pub(super) fn holding_inbound() -> (mpsc::Sender<Inbound>, oneshot::Sender<mpsc:
                 },
                 m = rx.recv() => match m {
                     Some(m) => {
-                        if held.len() < HELD_CAP || !matches!(m, Inbound::Stderr(..)) {
+                        if held.len() < HELD_CAP || !matches!(*m, Inbound::Stderr(..)) {
                             held.push_back(m);
                         }
                     }

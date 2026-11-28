@@ -20,7 +20,8 @@ async fn a_durable_withdrawal_never_logs_an_unscoped_raw_cursor() -> anyhow::Res
     let pending =
         agent.on_host_entry(900, crate::agent_host::Entry::In { msg: cancel.to_value() }, &tx);
     let persist = async {
-        if let Some(Inbound::Notification { persisted: Some(done), host_seq, .. }) = rx.recv().await
+        if let Some(Inbound::Notification { persisted: Some(done), host_seq, .. }) =
+            rx.recv().await.map(|b| *b)
         {
             assert_eq!(host_seq, Some(900), "the durable marker owns the checkpoint");
             assert!(cursors.lock().unwrap_or_else(|e| e.into_inner()).is_empty());
@@ -68,7 +69,7 @@ async fn direct_children_give_withdrawals_distinct_request_owners() -> anyhow::R
         )
         .await?;
         let messages = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-            (rx.recv().await, rx.recv().await)
+            (rx.recv().await.map(|b| *b), rx.recv().await.map(|b| *b))
         })
         .await;
         agent.kill().await;

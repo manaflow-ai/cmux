@@ -205,7 +205,7 @@ const ACK_BATCH: usize = 64;
 struct Hosted {
     /// The current owner connection; replaced by `reattach`.
     link: std::sync::RwLock<Arc<crate::agent_host::link::Link>>,
-    inbound: mpsc::Sender<Inbound>,
+    inbound: mpsc::Sender<Box<Inbound>>,
     exited: std::sync::atomic::AtomicBool,
     /// Set as soon as the Exit entry is logged (before its ack is written):
     /// the agent is no longer alive, though `exited` waits for the ack.
@@ -889,7 +889,7 @@ pub struct ChildAgent {
     tap: Tap,
     /// The queue its reader hands requests and notifications to: an item sent here lands
     /// behind every one the reader already sent (a pooled agent's goes through its hold).
-    inbound: mpsc::Sender<Inbound>,
+    inbound: mpsc::Sender<Box<Inbound>>,
     pub pid: Option<u32>,
     /// This agent among every one the daemon ran, never reused: what its notifications carry
     /// (`Inbound::Notification`), so the hub knows one from an agent it already replaced.
@@ -953,7 +953,7 @@ pub struct ChildAgent {
 /// without asking the app-server (a mode change's updates).
 struct CodexLink {
     tr: Arc<crate::codex_app_server::Translator>,
-    inbound: mpsc::Sender<Inbound>,
+    inbound: mpsc::Sender<Box<Inbound>>,
     /// Held from a translator call until its lines are queued for stdin, so
     /// the reader and writers send them in the translator's order.
     order: Mutex<()>,
@@ -1160,7 +1160,7 @@ impl ChildAgent {
         name: &str,
         profile: &HarnessProfile,
         cwd: &std::path::Path,
-        inbound: mpsc::Sender<Inbound>,
+        inbound: mpsc::Sender<Box<Inbound>>,
         tap: Tap,
     ) -> Result<Arc<Self>> {
         Self::spawn_with(name, profile, cwd, inbound, tap, None, None, None).await
@@ -1172,7 +1172,7 @@ impl ChildAgent {
         name: &str,
         profile: &HarnessProfile,
         cwd: &std::path::Path,
-        inbound: mpsc::Sender<Inbound>,
+        inbound: mpsc::Sender<Box<Inbound>>,
         tap: Tap,
         command_line: Option<(String, Vec<String>)>,
         translator: Option<Arc<crate::claude_stdio::Translator>>,
@@ -1378,7 +1378,11 @@ impl ChildAgent {
                 while let Ok(Some(line)) = lines.next_line().await {
                     let line = crate::agent_credentials::redact_line(line, launch_key.as_deref());
                     let _ = inbound
-                        .send(Inbound::Stderr(line, None, Some((generation, StderrPipe::Stderr))))
+                        .send(Box::new(Inbound::Stderr(
+                            line,
+                            None,
+                            Some((generation, StderrPipe::Stderr)),
+                        )))
                         .await;
                 }
             })
@@ -1454,11 +1458,11 @@ impl ChildAgent {
                             Ok(v) => v,
                             Err(_) => {
                                 let _ = inbound
-                                    .send(Inbound::Stderr(
+                                    .send(Box::new(Inbound::Stderr(
                                         format!("[non-json stdout] {line}"),
                                         None,
                                         Some((agent_for_exit.generation, StderrPipe::Stdout)),
-                                    ))
+                                    )))
                                     .await;
                                 continue;
                             }
@@ -1493,11 +1497,11 @@ impl ChildAgent {
                             Ok(v) => v,
                             Err(_) => {
                                 let _ = inbound
-                                    .send(Inbound::Stderr(
+                                    .send(Box::new(Inbound::Stderr(
                                         format!("[non-json stdout] {line}"),
                                         None,
                                         Some((agent_for_exit.generation, StderrPipe::Stdout)),
-                                    ))
+                                    )))
                                     .await;
                                 continue;
                             }
@@ -1528,11 +1532,11 @@ impl ChildAgent {
                             Err(e) => {
                                 tracing::warn!(agent = %agent_for_exit.name, "bad line from agent: {e}: {line}");
                                 let _ = inbound
-                                    .send(Inbound::Stderr(
+                                    .send(Box::new(Inbound::Stderr(
                                         format!("[non-json stdout] {line}"),
                                         None,
                                         Some((agent_for_exit.generation, StderrPipe::Stdout)),
-                                    ))
+                                    )))
                                     .await;
                                 continue;
                             }
@@ -1551,25 +1555,25 @@ impl ChildAgent {
                             }
                             Message::Request { id, method, params } => {
                                 let _ = inbound
-                                    .send(Inbound::Request {
+                                    .send(Box::new(Inbound::Request {
                                         id,
                                         method,
                                         params,
                                         host_seq: None,
                                         host_incarnation: Some(agent_for_exit.direct_incarnation()),
-                                    })
+                                    }))
                                     .await;
                             }
                             Message::Notification { method, params } => {
                                 let _ = inbound
-                                    .send(Inbound::Notification {
+                                    .send(Box::new(Inbound::Notification {
                                         method,
                                         params,
                                         agent: agent_for_exit.generation,
                                         host_seq: None,
                                         host_incarnation: Some(agent_for_exit.direct_incarnation()),
                                         persisted: None,
-                                    })
+                                    }))
                                     .await;
                             }
                         }
@@ -1595,14 +1599,14 @@ impl ChildAgent {
                         tap(Direction::In, &m, None);
                         if let Message::Notification { method, params } = m {
                             let _ = inbound
-                                .send(Inbound::Notification {
+                                .send(Box::new(Inbound::Notification {
                                     method,
                                     params,
                                     agent: agent_for_exit.generation,
                                     host_seq: None,
                                     host_incarnation: Some(agent_for_exit.direct_incarnation()),
                                     persisted: None,
-                                })
+                                }))
                                 .await;
                         }
                     }
@@ -1625,7 +1629,11 @@ impl ChildAgent {
                     stop.agent_ended().await;
                 }
                 let _ = inbound
-                    .send(Inbound::Exited { pid: agent_for_exit.pid, code, host_seq: None })
+                    .send(Box::new(Inbound::Exited {
+                        pid: agent_for_exit.pid,
+                        code,
+                        host_seq: None,
+                    }))
                     .await;
             });
         }
@@ -1976,7 +1984,7 @@ impl ChildAgent {
                             tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000))).await;
                         }
                         let _ =
-                            hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
+                            hosted.inbound.send(Box::new(Inbound::LinkBroken { agent: reader.generation })).await;
                         return;
                     }
                     if fresh {
@@ -2026,7 +2034,7 @@ impl ChildAgent {
                     if reader.mark_link_unheard(hosted, &link, &hosted.broken).await {
                         let _ = hosted
                             .inbound
-                            .send(Inbound::LinkBroken { agent: reader.generation })
+                            .send(Box::new(Inbound::LinkBroken { agent: reader.generation }))
                             .await;
                     }
                     return;
@@ -2066,7 +2074,7 @@ impl ChildAgent {
                     // that lock can not be watched, and does nothing once a reattach replaced `link`.
                     tokio::spawn(async move { agent.fail_pending_once_host_ends(&link).await });
                 }
-                let _ = hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
+                let _ = hosted.inbound.send(Box::new(Inbound::LinkBroken { agent: reader.generation })).await;
             })
             .catch_unwind()
             .await;
@@ -2078,8 +2086,10 @@ impl ChildAgent {
             if read.is_err() {
                 tracing::error!(agent = %reader.name, "agent host reader panicked; its link stops");
                 if reader.mark_link_unheard(hosted, &link, &hosted.broken).await {
-                    let _ =
-                        hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
+                    let _ = hosted
+                        .inbound
+                        .send(Box::new(Inbound::LinkBroken { agent: reader.generation }))
+                        .await;
                 }
             }
         });

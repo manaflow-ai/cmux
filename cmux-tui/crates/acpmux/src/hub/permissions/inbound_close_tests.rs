@@ -10,7 +10,7 @@ fn exited() -> Inbound {
 
 /// The chat's own sender, its receiver, and a closed flag already set.
 fn closed_chat()
--> (mpsc::Sender<Inbound>, mpsc::Receiver<Inbound>, tokio::sync::watch::Sender<bool>) {
+-> (mpsc::Sender<Box<Inbound>>, mpsc::Receiver<Box<Inbound>>, tokio::sync::watch::Sender<bool>) {
     let (tx, rx) = mpsc::channel(8);
     (tx, rx, tokio::sync::watch::channel(true).0)
 }
@@ -26,11 +26,11 @@ async fn a_closed_chat_still_takes_the_exit_its_agent_sends_late() {
     let reader = own.clone();
     let late = tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(2)).await;
-        reader.send(exited()).await.unwrap();
+        reader.send(Box::new(exited())).await.unwrap();
         tokio::time::sleep(Duration::from_secs(1)).await;
         drop(reader);
     });
-    let item = next_inbound(&mut rx, &stop, &mut closed, &own.downgrade()).await;
+    let item = next_inbound(&mut rx, &stop, &mut closed, &own.downgrade()).await.map(|b| *b);
     assert!(matches!(item, Some(Inbound::Exited { pid: Some(7), .. })), "the late exit is handled");
     let started = tokio::time::Instant::now();
     assert!(next_inbound(&mut rx, &stop, &mut closed, &own.downgrade()).await.is_none());
@@ -57,8 +57,8 @@ async fn a_loop_that_first_runs_after_the_close_ends() {
 #[tokio::test(start_paused = true)]
 async fn a_closed_chat_drains_its_queue_first() {
     let (own, mut rx, flag) = closed_chat();
-    own.send(exited()).await.unwrap();
-    own.send(exited()).await.unwrap();
+    own.send(Box::new(exited())).await.unwrap();
+    own.send(Box::new(exited())).await.unwrap();
     let mut closed = flag.subscribe();
     let stop = tokio_util::sync::CancellationToken::new();
     assert!(next_inbound(&mut rx, &stop, &mut closed, &own.downgrade()).await.is_some());
