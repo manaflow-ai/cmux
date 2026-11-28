@@ -81,3 +81,82 @@ import Testing
                                               preferredWired: false) == "lte")
     }
 }
+
+/// Leo's phone (11-27): 2,891 Wi-Fi/cellular path changes in 15 minutes, each roaming every link.
+@Suite struct NetworkPathSettleTests {
+    static let wifi = "en0 via 192.168.1.1"
+    static let cell = "pdp_ip0 via "
+
+    /// Feeds `paths` to the settle with no settle between them (a burst inside the window), then
+    /// lets the window pass once. Returns every event delivered.
+    static func burst(_ settle: inout NetworkPathSettle, _ paths: [String]) -> [NetworkPathEvent] {
+        var events: [NetworkPathEvent] = []
+        var armed: [Int] = []
+        for path in paths {
+            switch settle.update(satisfied: true, signature: path) {
+            case .deliver(let event): events.append(event)
+            case .arm(let generation): armed.append(generation)
+            case nil: break
+            }
+        }
+        for generation in armed {
+            if let event = settle.settle(generation: generation) { events.append(event) }
+        }
+        return events
+    }
+
+    static func flapping(_ flips: Int, endingOn last: String) -> [String] {
+        var paths = (0..<flips).map { $0.isMultiple(of: 2) ? cell : wifi }
+        if paths.last != last { paths.append(last) }
+        return paths
+    }
+
+    /// The same burst through the old per-update filter: one change (one roam) per flip.
+    @Test func theFilterAloneRoamsOnEveryFlip() {
+        var filter = NetworkPathFilter()
+        _ = filter.update(satisfied: true, signature: Self.wifi)
+        let changes = Self.flapping(50, endingOn: Self.cell).compactMap { filter.update(satisfied: true, signature: $0) }
+        #expect(changes.count == 51)
+    }
+
+    @Test func aBurstEndingOnCellularIsOneChange() {
+        var settle = NetworkPathSettle()
+        _ = settle.update(satisfied: true, signature: Self.wifi)
+        #expect(Self.burst(&settle, Self.flapping(50, endingOn: Self.cell)) == [.changed(Self.cell)])
+    }
+
+    @Test func aBurstEndingBackOnTheSameWifiIsNoChange() {
+        var settle = NetworkPathSettle()
+        _ = settle.update(satisfied: true, signature: Self.wifi)
+        #expect(Self.burst(&settle, Self.flapping(50, endingOn: Self.wifi)).isEmpty)
+    }
+
+    @Test func aLoneChangeStillComesAfterTheWindow() {
+        var settle = NetworkPathSettle()
+        _ = settle.update(satisfied: true, signature: Self.wifi)
+        guard case .arm(let generation) = settle.update(satisfied: true, signature: Self.cell) else {
+            Issue.record("a change arms the settle"); return
+        }
+        #expect(settle.settle(generation: generation) == .changed(Self.cell))
+        #expect(settle.settle(generation: generation) == nil)
+    }
+
+    /// Losing the network and getting it back are told at once.
+    @Test func lostAndBackAreNotHeld() {
+        var settle = NetworkPathSettle()
+        _ = settle.update(satisfied: true, signature: Self.wifi)
+        #expect(settle.update(satisfied: false, signature: "") == .deliver(.lost))
+        #expect(settle.update(satisfied: true, signature: Self.wifi) == .deliver(.changed(Self.wifi)))
+    }
+
+    /// A loss inside a burst drops the held change: the return is the change.
+    @Test func aLossCancelsTheHeldChange() {
+        var settle = NetworkPathSettle()
+        _ = settle.update(satisfied: true, signature: Self.wifi)
+        guard case .arm(let generation) = settle.update(satisfied: true, signature: Self.cell) else {
+            Issue.record("a change arms the settle"); return
+        }
+        #expect(settle.update(satisfied: false, signature: "") == .deliver(.lost))
+        #expect(settle.settle(generation: generation) == nil)
+    }
+}

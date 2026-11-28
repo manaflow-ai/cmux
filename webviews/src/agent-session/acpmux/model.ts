@@ -280,6 +280,12 @@ export type AcpmuxBackgroundRun = {
   /// ended when they all ended alike: a run of only those reads "N subagents stopped".
   subagents?: number;
   subagentEnd?: "finished" | "stopped" | "disconnected" | "failed";
+  /// How many members are rows the harness wrote into the turn (backgroundRuns.ts `harnessWork`),
+  /// each folded as a tool call is: task notifications, messages from other agents (an inbox relay
+  /// counts its messages) and subagents' "Report from" lines.
+  notifications?: number;
+  messages?: number;
+  reports?: number;
   rows: string[];
 };
 
@@ -511,6 +517,11 @@ export type ClaimCheck = {
 /// The chat a fork came from, on the fork's "Forked from" notice row (direct.ts `forked`): its
 /// session, and its title as the row's text names it (conversation/ForkedFromLine.tsx links it).
 export type ForkedFrom = { parentId: string; chat: string };
+
+/// The person's own prompt (typed here or on another of their devices), not another agent's
+/// message, a task's result or harness bookkeeping: what prompt recall and the scroll rail keep.
+export const sentByPerson = (row: AcpmuxRow) =>
+  row.kind === "user" && !row.incoming && !row.received && !row.untyped && row.from === undefined;
 
 export type AcpmuxRow = {
   id: string;
@@ -1723,6 +1734,10 @@ export type AcpmuxSnapshot = {
       effort?: string;
       modelSource?: StartSource;
       effortSource?: StartSource;
+      /** New Tab's own start model when it differs from `model`: the same chain without the saved
+       * default a pick in a chat rewrites (Leo 2026-11-27: "it should purely just be new tab").
+       * Empty when nothing below that pick names a model. */
+      newTab?: { model?: string; modelSource?: StartSource };
     };
     /** A profile from the chat's folder (`<folder>/.cmux/harnesses/<id>.toml`), with its state:
      * enabled, waiting for the user's Enable, waiting for the folder's Trust answer, or broken
@@ -3162,8 +3177,8 @@ function fallbackRowHeight(
   // WorkflowCard: head, metadata, latest line, progress bar and focus line.
   if (row.kind === WORKFLOW_CARD) return finish(124);
   if (row.kind === SUBAGENT_ROW) return finish(row.status === "last" || row.status === "only" ? 56 : 48);
-  // Empty child copy is measured on mount; start with two body lines.
-  if (row.kind === SUBAGENT_EMPTY) return finish(2 * metrics().lineHeight);
+  // Empty child copy (blank while loading, one line after) is one body line.
+  if (row.kind === SUBAGENT_EMPTY) return finish(metrics().lineHeight);
   // The 27px disclosure line, and the live status lines in its place.
   // The running turn's line as its last row is the footer's slot (footerRow(), conversation.css
   // `.cv-worked.is-below`; transcriptGrid.ts MARK_FOOTER_SLOT), so the end-of-turn swap keeps its place.

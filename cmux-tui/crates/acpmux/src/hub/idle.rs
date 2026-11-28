@@ -146,35 +146,99 @@ impl Hub {
             || session.work_below_since.lock().is_ok_and(|v| *v != 0)
     }
 
+    /// What under `session` keeps its harness up at its idle deadline. `static`: all of
+    /// [`Self::holds_work_below`]. `adaptive-v1`: only what the harness's exit would end, its own
+    /// processes and background subagents. An open sub-session child runs in its own harness and
+    /// outlives its parent's: a parent whose turn ended while only its children work sleeps
+    /// through their work, and whatever reaches it from them (a report, a question, a send) is a
+    /// prompt, which wakes it as any prompt does. Nothing prompts a parent when a child's turn
+    /// ends (`subsession_results.rs`), awake or not, so its agent loses nothing by sleeping.
+    fn idle_holds_work(&self, session: &Session) -> bool {
+        match self.idle_policy() {
+            IdlePolicyKind::Static => self.holds_work_below(session),
+            IdlePolicyKind::AdaptiveV1 => {
+                self.any_process_running(session)
+                    || session
+                        .subagents
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .background_running()
+                        > 0
+            }
+        }
+    }
+
     pub(super) fn idle_eligible(&self, session: &Session) -> bool {
-        self.eligible(session, false)
+        self.eligible(session, false, false, false)
     }
 
     /// [`Self::idle_eligible`] for the idle reaper's own exit: a chat whose continuation is due
     /// later than `idle_governor::FAR_RESUME` sleeps too, as its period says (`idle_governor.rs`):
     /// the continuation's prompt starts it again when due.
     pub(super) fn sleep_eligible(&self, session: &Session) -> bool {
-        self.eligible(session, true)
+        self.eligible(session, true, false, false)
     }
 
-    fn eligible(&self, session: &Session, far_resume_sleeps: bool) -> bool {
+    /// The currently firing retry may replace its stale proxy process before sending its
+    /// prompt. Its own continuation is the only idle gate it may omit; all work stays protected.
+    pub(super) fn retry_restart_eligible(&self, session: &Session) -> bool {
+        self.eligible(session, false, true, false)
+    }
+
+    /// The next prompt already owns the turn. Queued prompts keep their places while the
+    /// old child exits, and the new child will take them in order.
+    pub(super) fn prompt_restart_eligible(&self, session: &Session) -> bool {
+        self.eligible(session, false, false, true)
+    }
+
+    /// A retry mark can briefly outlive its scheduler when automatic retries are disabled. The
+    /// mark is settled by that scheduler and cannot fire a continuation, so it must not keep a
+    /// required quiet restart from hibernating the old environment.
+    fn retries_disabled(&self) -> bool {
+        self.auto_resume_disabled.load(Ordering::SeqCst)
+    }
+
+    fn eligible(
+        &self,
+        session: &Session,
+        far_resume_sleeps: bool,
+        firing_retry: bool,
+        claimed_prompt: bool,
+    ) -> bool {
         // A chat its rate limit holds past its idle period sleeps through the hold, its queue
         // and its waiting continuation kept: the hold's own timer wakes it (`rate_hold.rs`
         // `sleeps_through_hold`).
         let sleeps_held = self.sleeps_through_hold(session);
+        let required_restart = session.respawn_required.load(Ordering::SeqCst)
+            && session.respawn_when_quiet.load(Ordering::SeqCst);
         !self.stopping.load(Ordering::SeqCst)
             && matches!(session.status(), SessionStatus::Ready | SessionStatus::Idle)
             && session.turn().is_none()
             && !session.harness_turn.load(Ordering::SeqCst)
             && session.asks_in_flight.load(Ordering::SeqCst) == 0
             && !self.secrets.waiting_in(&session.id)
-            && (session.queued() == 0 || sleeps_held)
+            // A firing continuation owns the aside entries held by its cut turn. They remain
+            // queued until the continuation succeeds, so treating every queued entry as a
+            // blocker would make a required quiet handoff wait for its own retry forever.
+            && (claimed_prompt
+                || session.queued() == 0
+                || sleeps_held
+                || (firing_retry && {
+                    let queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
+                    // The count also reserves prompts waiting for the turn lock, before
+                    // they have an entry. Only exempt fully accounted-for held entries;
+                    // an empty (or partly held) snapshot must not hide an arriving prompt.
+                    queue.len() as u64 == session.queued() && queue.iter().all(|q| q.aside())
+                }))
             && session.pending_permissions().is_empty()
-            && !self.holds_work_below(session)
+            && !self.idle_holds_work(session)
             // Nor one whose agent waits on a request of its own (a permission not shown yet).
             && session.agent_requests.load(Ordering::SeqCst) == 0
             // Nor one whose cut turn's automatic continuation waits or starts (`auto_resume.rs`).
-            && (!self.continuation_pending(session)
+            && (firing_retry
+                || !self.continuation_pending(session)
+                || self.retries_disabled()
+                || required_restart
                 || sleeps_held
                 || (far_resume_sleeps
                     && self.continuation_waits_far(session, super::idle_governor::FAR_RESUME)))
@@ -272,8 +336,18 @@ impl Hub {
     /// after [`quiet_respawn`] with nothing logged, under every gate an idle exit has, the census
     /// of what runs under it included, and its next prompt starts it again.
     pub(super) fn respawn_when_quiet(self: &Arc<Self>, session: &Session) {
-        session.respawn_when_quiet.store(true, Ordering::SeqCst);
+        if !session.respawn_when_quiet.swap(true, Ordering::SeqCst) {
+            session.state_seq.fetch_add(1, Ordering::SeqCst);
+            self.events.row_changed(session);
+        }
         self.wake_idle_reaper();
+    }
+
+    /// Mark a restart whose replacement environment is required by the next prompt. The
+    /// quiet mark remains shared with opportunistic stale/profile restarts for the idle reaper.
+    pub(super) fn respawn_when_quiet_required(self: &Arc<Self>, session: &Session) {
+        session.respawn_required.store(true, Ordering::SeqCst);
+        self.respawn_when_quiet(session);
     }
 
     /// A child was published: make sure the reaper runs and sees it.
@@ -339,7 +413,7 @@ impl Hub {
             .filter(|s| s.child.try_lock().map(|c| c.is_some()).unwrap_or(true))
             .map(|s| {
                 std::time::Duration::from_nanos(s.last_active.load(Ordering::Relaxed))
-                    + self.idle_period(s, idle)
+                    + self.idle_period_for(s, idle)
             })
             .min()
     }
@@ -354,7 +428,8 @@ impl Hub {
         let Some(idle) = *self.idle_child.lock().unwrap() else { return };
         let now = self.clock_now();
         // Each session's own period: shorter for one whose host moves (`host_level.rs`).
-        let period = |s: &Session| self.idle_period(s, idle).as_nanos() as u64;
+        // And under `adaptive-v1`, its own rhythm's (`residency.rs`).
+        let period = |s: &Session| self.idle_period_for(s, idle).as_nanos() as u64;
         // The live sessions past their deadline, newest first as before: only those are sorted.
         let due = newest_first(
             self.live_session_handles()
@@ -474,7 +549,7 @@ impl Hub {
             self.touch(&session);
             return;
         }
-        if !self.hibernate_held(&session, link_lost, Some(seen)).await {
+        if !self.hibernate_held(&session, link_lost, Some(seen), None).await {
             return;
         }
         if moving {
@@ -495,6 +570,7 @@ impl Hub {
                 "host-level"
             },
             idle_secs = idle_for / 1_000_000_000,
+            policy = self.idle_policy().name(),
             exit_ms = u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX),
             "hibernated: no turn, nothing queued, no question pending, nothing but its MCP \
              servers running under it; the harness and its MCP servers exited and the session \
@@ -515,13 +591,17 @@ impl Hub {
         session: &Arc<Session>,
         link_lost: bool,
         seen: Option<u64>,
+        firing_retry: Option<u64>,
     ) -> bool {
         session.hibernated_at.store(self.clock_now().max(1), Ordering::SeqCst);
         if seen.is_some_and(|seen| session.last_active.load(Ordering::SeqCst) != seen) {
             self.clear_hibernation(session);
             return false;
         }
-        self.detach_child(session).await;
+        if !self.detach_child_if_current(session, firing_retry).await {
+            self.clear_hibernation(session);
+            return false;
+        }
         if link_lost {
             self.end_unadopted_host(session).await;
         }

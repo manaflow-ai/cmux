@@ -52,6 +52,12 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var busyUnreadMark: TabBusyUnreadMark?
     /// Where a titled tab's trailing status mark sits; nil follows `TabTunables.statusMarkPlacement`.
     public var statusMarkPlacement: TabStatusMarkPlacement?
+    /// What gives way when a titled tab's trailing marks leave its title fewer than `titleMinCharacters` (Leo
+    /// 2026-11-27: "ok why dont your tabs have any names/letters showing up? that intentional?"). The default
+    /// moves the marks onto the icon, as an untitled tab draws them, so the title keeps the room.
+    public var crowdedMarks: TabCrowdedMarks = .onIcon
+    /// Characters of title a crowded tab must show, or it shows none (never a sliver beside the icon).
+    public var titleMinCharacters: CGFloat = 3
     /// `experiments.agentBadges`: an agent chat tab's count pill and its reserved slot (TabCell+CountPill). Read
     /// with the tokens, so a change relays the strip out (`startObservingTokens`).
     public var agentBadges: AgentBadgesExperiment = .off
@@ -75,23 +81,28 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// Every pill's corner radius (`Metrics.tabCornerRadius`): concentric with the card
     /// corner the strip sits in; the strip's + and a tab's hover card share it.
     public var cornerRadius: CGFloat
-    /// The x's hover and pressed fill corner: Helium's 4 pt on its 14 pt square (tab_close_button.cc's own
-    /// `RoundRectHighlightPathGenerator` radius, not nested in the pill), the same share of the square at every
-    /// density, in half points, unless the density's `closeCorner` is tuned (``BrowserChromeTuning``).
+    /// The x's hover and pressed plate's corner: Helium's 4 pt (``BrowserChromeTuning/HeliumClose``), unless the density's
+    /// `closeCorner` is tuned or set.
     public var closeCornerRadius: CGFloat
+    /// The side of the x's hover plate: Helium's 14 pt square on a tab under 32 pt, its 24 pt Spacious button from 32 pt
+    /// (``BrowserChromeTuning/HeliumClose/plateSide(row:)``), centered on the x; never wider than the x's square when a
+    /// tuned or set close size makes the square the larger.
+    public var closePlateSide: CGFloat
 
     /// The side of the x's ink box (``closeGlyphSize``): the stroke's round caps reach to it, so the path's ends sit
     /// inside it (``closeGlyphPathInset``).
     public var closeGlyphInk: CGFloat { closeGlyphSize }
 
-    /// The x's stroke: Helium's 1.5 pt on its 8 pt ink at Default, the same share of the ink at every density.
-    public var closeGlyphLineWidth: CGFloat { closeGlyphSize * 1.5 / 8 }
+    /// The x's stroke: Helium's close_weight500_custom icon, 2.25 of its 24 unit grid on 13.42 of ink, the same share of
+    /// the ink at every density.
+    public var closeGlyphLineWidth: CGFloat { closeGlyphSize * 2.25 / 13.42 }
 
     /// How far inside the ink box the x's two lines end, so their round caps meet the box's corners.
     public var closeGlyphPathInset: CGFloat { closeGlyphLineWidth / 2 * 0.5.squareRoot() }
 
-    /// Where a click or hover counts as on the x drawn at `drawn`: at least Apple's 20 x 20 pt target around it
-    /// (Lawrence 2026-10-20), as the 16 pt square with 2 pt of slack was before the x took Helium's 14.
+    /// Where a click or hover counts as on the x drawn at `drawn` (its slot): at least Apple's 20 x 20 pt target around it
+    /// (Lawrence 2026-10-20), as the 16 pt square with 2 pt of slack was before the x took Helium's 14. Not the whole
+    /// plate, so a click beside the x still mutes or selects (the audio badge sits ``titleCloseSpacing`` before it).
     public func closeHitRect(_ drawn: CGRect) -> CGRect {
         drawn.insetBy(dx: -max(2, (20 - drawn.width) / 2), dy: -max(2, (20 - drawn.height) / 2))
     }
@@ -189,8 +200,6 @@ public struct TabStripMetrics: Equatable, Sendable {
         iconSize = Metrics.tabIconSize
         closeButtonSize = TabTunables.closeButtonSize.value
         closeGlyphSize = TabTunables.closeGlyphSize.value
-        closeCornerRadius = BrowserChromeTuning.override(.closeCorner) ?? Metrics.densityToken("tabCloseCornerRadius")
-            ?? (closeButtonSize * 4 / 14 * 2).rounded() / 2
         iconTitleSpacing = TabTunables.iconTitleSpacing.value
         titleCloseSpacing = TabTunables.titleCloseSpacing.value
         titleFadeWidth = TabTunables.titleFadeWidth.value
@@ -230,6 +239,9 @@ public struct TabStripMetrics: Equatable, Sendable {
         // `appearance.tabShape` rounded: a capsule, half the tab's height (block keeps the tab's corner).
         cornerRadius = DesignSettings.shared.tabShape.fillCornerRadius(Metrics.tabCornerRadius, height: Metrics.tabHeight,
                                                                        tabHeight: Metrics.tabHeight)
+        // Helium's plate around the x's square; a tuned or set square larger than it is its own plate.
+        closePlateSide = max(closeButtonSize, BrowserChromeTuning.HeliumClose.plateSide(row: tabHeight))
+        closeCornerRadius = BrowserChromeTuning.value(.closeCorner)
         groupChipOuterInset = Metrics.space1
         groupChipPadding = TabTunables.groupChipPadding.value
         groupChipHeight = max(Metrics.space6, Metrics.tabHeight - 2 * Metrics.space2)
@@ -261,4 +273,15 @@ extension TabStripMetrics {
         guard placement != .closeSlot else { return closeMidX }
         return min(closeMidX, pillWidth - contentLeadingInset - iconSize / 2)
     }
+}
+
+/// What gives way when a crowded titled tab's trailing marks (its status, machine, profile, presence, audio and count
+/// marks) leave its title less than ``TabStripMetrics/titleMinCharacters``.
+public enum TabCrowdedMarks: String, CaseIterable, Sendable {
+    /// The marks keep the trailing cluster and the title hides (the icon and its marks only).
+    case trailing
+    /// The marks draw on the icon, as an untitled tab's do, and the title takes their room.
+    case onIcon
+    /// The badges beside the status hide; the status keeps its trailing slot.
+    case dropBadges
 }

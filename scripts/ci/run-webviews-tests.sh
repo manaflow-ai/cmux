@@ -217,6 +217,18 @@ if [ "${1:-}" = --one ]; then
     printf '%s\n' "$file" >> "$results/not-run"
     exit 0
   fi
+  # A file that exits 0 having run no test (bun's " 0 pass" and " 0 fail": every test skipped) judged nothing, and a
+  # passing file's log is never printed. 2026-11-28: a fleet run of 30 browser files read "30 files, 0 failed" while
+  # its browser files skipped (cmuxterm-hq docs/handbook/green-that-judged-nothing.md). The file's first skip reason
+  # (requireBrowserLane's guard, probeEngineOrSkip's "skipping, webkit did not launch here", a file's own
+  # `skipping chromium`) goes to ran-none: the summary names it and cmux-ci's coverage_failure reads that line.
+  ran_none=""
+  if [ "$result" = PASS ] && grep -qE '^[[:space:]]*0 pass[[:space:]]*$' "$log" && grep -qE '^[[:space:]]*0 fail[[:space:]]*$' "$log"; then
+    ran_none="$(grep -m1 -E 'browser test skipped|skipping|did not launch|[Nn]o Playwright' "$log" | tr -d '\t\r' || true)"
+    ran_none="${ran_none:0:240}"
+    ran_none="${ran_none:-every test skipped}"
+    printf '%s\t%s\n' "$file" "$ran_none" >> "$results/ran-none"
+  fi
   printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
   # CMUX_WEB_TEST_PASSED_OUT: each file that passes, as it passes, so a run a newer head cancels still leaves its passes
   # to that head's shard (ci-web.yml reuses those its change cannot reach).
@@ -226,7 +238,11 @@ if [ "${1:-}" = --one ]; then
   # The same with the verdict, for the manifest: a failed first run records no seconds (webviews_test_shards.py record).
   printf '%s %s %s\n' "$((SECONDS - started))" "$result" "$file" >> "$results/timed"
   # Keep the named verdict immediate; the complete log is emitted once in the final summary below.
-  echo "$result $file (raw log retained for the final bounded summary)"
+  if [ -n "$ran_none" ]; then
+    echo "$result $file (ran no test: $ran_none)"
+  else
+    echo "$result $file (raw log retained for the final bounded summary)"
+  fi
   exit 0
 fi
 
@@ -472,6 +488,16 @@ if [ "${CMUX_WEB_TEST_LIST_ONLY:-}" = 1 ]; then
   tr '\0' '\n' < "$results/files"
   exit 0
 fi
+# No bun, no verdicts: a runner whose toolchain setup failed stops here, before any file starts, and writes no
+# CMUX_WEB_TEST_RESULTS, so the base history records nothing for it. Without this every file "failed" in a second
+# (`timeout: failed to run command 'bun'`) as a file-level red with no test name: post-merge batch 46040477174
+# attempt 2 shard 4 (hetzner-2-28, setup-bun `EACCES: mkdir '/home/runner/.bun/bin'`) wrote 628 such reds, tick
+# 46023562151 shards 6-7 (hetzner-1-13, -11) 1,032 a shard, and those reds read as real ones to the history's flake,
+# known-red and held-red answers. Detector: tests/test_webviews_tests_per_file.py (no bun on PATH).
+if ! command -v bun > /dev/null 2>&1; then
+  echo "::error::run-webviews-tests.sh: no bun on PATH (did Setup Bun fail on this runner?); ran none of the $count files and recorded no verdicts"
+  exit 3
+fi
 xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/serial" || true
 serial="$(tr -cd '\0' < "$results/serial" | wc -c | tr -d ' ')"
 xargs -0 grep -LE --null -- "$dev_servers" < "$results/files" > "$results/parallel" || true
@@ -498,6 +524,7 @@ else pool_note="$jobs at a time, then $browser browser files $browser_jobs at a 
 echo "running $count webviews test files${shard_note}, $pool_note ($serial dev server files after, $dev_jobs at a time), ${timeout_seconds}s each"
 : > "$results/summary"
 : > "$results/not-run"
+: > "$results/ran-none"
 # warm_transforms: once per run, before the first browser or dev server file, compile the agent pane's
 # modules into the run's React Compiler cache (webviews/scripts/warm-react-compiler-cache.mjs, about
 # 35 s), so the files that start together read it instead of each compiling App.tsx at once. A base
@@ -1039,4 +1066,20 @@ fi
 while read -r result file _; do
   [ "$result" = PASS ] || echo "$result $file (limit $(file_limit "$file" "$timeout_seconds")s)"
 done < <(sort -k2 "$results/summary")
-[ "$failed" -eq 0 ] && [ ! -s "$results/not-run" ]
+# Files that passed having run no test, each with its first skip reason (a retried file is listed once). Where the
+# browser lane was asked for (CMUX_BROWSER_TESTS=1, which a Mac unsets above) an engine that did not launch fails the
+# run: the step installed the engines, so a browser file it skipped is a broken host, not a pass. Only
+# CMUX_BROWSER_SKIP_UNLAUNCHABLE=1 keeps that skip, for a laptop or VM with one engine.
+unlaunched=0
+if [ -s "$results/ran-none" ]; then
+  sort -u -o "$results/ran-none" "$results/ran-none"
+  echo "ran no test (every test skipped; a pass that judged nothing): $(grep -c . "$results/ran-none") of $count files"
+  while IFS=$'\t' read -r file why; do echo "  RAN NONE $file: $why"; done < "$results/ran-none"
+  if [ "${CMUX_BROWSER_TESTS:-}" = 1 ] && [ "${CMUX_BROWSER_SKIP_UNLAUNCHABLE:-}" != 1 ]; then
+    unlaunched="$(grep -cE 'did not launch|skipping (chromium|webkit|firefox)\b' "$results/ran-none" || true)"
+    if [ "$unlaunched" -gt 0 ]; then
+      echo "browser lane asked for (CMUX_BROWSER_TESTS=1) but an engine did not launch, so these files skipped: $unlaunched; the run fails (CMUX_BROWSER_SKIP_UNLAUNCHABLE=1 keeps the skip on a laptop or VM)"
+    fi
+  fi
+fi
+[ "$failed" -eq 0 ] && [ ! -s "$results/not-run" ] && [ "$unlaunched" -eq 0 ]

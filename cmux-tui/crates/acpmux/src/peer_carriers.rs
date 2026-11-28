@@ -727,7 +727,7 @@ impl Peer {
                     None => heard.wrap(tcp),
                 },
                 Some(crate::server::ws_config()),
-                None,
+                crate::happy_dial::tls_connector(),
             )
             .await
             .map_err(|e| {

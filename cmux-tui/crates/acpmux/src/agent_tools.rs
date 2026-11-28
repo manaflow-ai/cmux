@@ -13,7 +13,7 @@
 //!   (`--plugin-dir`) whose skills are `cmux:cmux-browser`,
 //!   `cmux:cmux-computer-use`, `cmux:cmux-customization` (settings, and a view of the
 //!   person's own that an agent writes as the customize app) and
-//!   `cmux:acpmux` (the acpmux CLI guide, for driving sessions from a shell) and
+//!   `cmux:agents` (the `cmux agent` CLI guide, for driving sessions from a shell) and
 //!   `cmux:cmux-chat` (plans, sub-sessions, links and the recap; `agent_guidance.rs`, which
 //!   also adds the person's own skills as a `cmux-user` plugin). The skill text is compiled in from `skills/` and
 //!   written once per content hash under `<ACPMUX_HOME>/agent-tools/`.
@@ -232,7 +232,7 @@ pub const CHIEF_TURN_TOOLS: &str = "agents_snapshot,agents_workspace_create,\
 /// server's `instructions` (`cmux mcp serve`, both modes). Chats start in
 /// Full access (`hub/policy_mode.rs`), and an agent there asked Leo a
 /// multiple-choice question that read "Waiting for you: allow this?" (Leo
-/// 2026-10-21: decide, say why, continue). The bundled acpmux skill and the
+/// 2026-10-21: decide, say why, continue). The bundled agents skill and the
 /// cmux skill say the same. Claude Code may cut server instructions past
 /// 2048 characters, so both compact rules stay under that.
 pub const ASKING_RULE: &str = "Asking the person: Full access already permits harness tool calls; never ask them to allow or confirm one. Decide, say why, continue. This never widens the task: respect user-only skill steps and consent cards; never bypass refusals. Ask only unresolved product taste, not permission.";
@@ -430,7 +430,7 @@ const SKILL_FILES: &[(&str, &str)] = &[
         "cmux-rich-output/templates/deck.html",
         include_str!("../skills/cmux-rich-output/templates/deck.html"),
     ),
-    ("acpmux/SKILL.md", include_str!("../skills/acpmux/SKILL.md")),
+    ("agents/SKILL.md", include_str!("../skills/agents/SKILL.md")),
     // How the chat draws a plan, sub-sessions, links and a recap (`agent_guidance.rs`).
     ("cmux-chat/SKILL.md", include_str!("../skills/cmux-chat/SKILL.md")),
     // Waiting and cleaning up without wasting the person's GitHub quota, CPU or disk: one shared
@@ -853,13 +853,29 @@ pub fn person_entry_env(
 /// (`CodexLaunch::answer`: one chat start, shared by its tool rows, its pool spec and its
 /// `session/new`; one fork), never across starts, so a config the person changes counts at the
 /// next one; how long Codex took is logged. Run it off the runtime ([`warm_codex_answer`]).
+///
+/// With the session manifest on (`session_manifest.rs`), a start, wake or fork whose profile env
+/// carries the manifest's answer (`session_manifest::CODEX_ENV`, never passed on) reads it
+/// instead of asking when the digest of what the answer depends on is the same
+/// (`codex_cmux_entry::fingerprint`); any change, or a digest that cannot be read, asks.
 pub fn persons_cmux_entry(
+    launch: CodexLaunch<'_>,
+    env: &BTreeMap<String, String>,
+) -> crate::codex_cmux_entry::CmuxEntry {
+    persons_cmux_entry_under(crate::session_manifest::on(), launch, env)
+}
+
+/// [`persons_cmux_entry`] under an explicit session manifest switch.
+pub(crate) fn persons_cmux_entry_under(
+    on: bool,
     launch: CodexLaunch<'_>,
     env: &BTreeMap<String, String>,
 ) -> crate::codex_cmux_entry::CmuxEntry {
     use crate::codex_cmux_entry::CmuxEntry;
     let ask = || {
         let mut env = env.clone();
+        let recorded = crate::session_manifest::take_codex(&mut env);
+        let unsure = |entry| Asked { entry, record: None };
         if crate::config::profiles::has_env_refs(&env)
             && crate::config::profiles::resolve_env_refs(
                 &mut env,
@@ -868,7 +884,7 @@ pub fn persons_cmux_entry(
             )
             .is_err()
         {
-            return CmuxEntry::Unknown;
+            return unsure(CmuxEntry::Unknown);
         }
         let effective = crate::login_env::effective_for(Some("codex"), &env);
         let app_server = crate::codex_app_server::is_profile_launch(launch.argv);
@@ -890,7 +906,9 @@ pub fn persons_cmux_entry(
                 })
                 .or_else(crate::managed_codex::codex_binary)
         };
-        let Some(program) = program.filter(|p| !p.is_empty()) else { return CmuxEntry::Unknown };
+        let Some(program) = program.filter(|p| !p.is_empty()) else {
+            return unsure(CmuxEntry::Unknown);
+        };
         let args: Vec<std::ffi::OsString> = if app_server {
             launch.argv.iter().skip(1).map(std::ffi::OsString::from).collect()
         } else {
@@ -898,6 +916,27 @@ pub fn persons_cmux_entry(
         };
         let child_env: Vec<(std::ffi::OsString, std::ffi::OsString)> =
             effective.iter().map(|(k, v)| (k.into(), v.into())).collect();
+        // The digest of what Codex's answer depends on, taken before it is asked: a file that
+        // changes while Codex reads it makes the next digest differ, never a stale answer read.
+        let key = if on {
+            crate::codex_cmux_entry::fingerprint(
+                std::path::Path::new(&program),
+                &args,
+                launch.cwd,
+                &child_env,
+            )
+        } else {
+            None
+        };
+        if let Some(record) = recorded.filter(|r| key.as_deref() == Some(r.key.as_str())) {
+            tracing::info!(
+                target: "acpmux::codex_cmux_entry",
+                entry = ?record.entry,
+                "codex mcp get cmux: the session manifest's answer"
+            );
+            return Asked { entry: record.entry(), record: Some(record) };
+        }
+        crate::session_manifest::count_codex_ask();
         let (entry, took) = crate::codex_cmux_entry::resolve(
             std::path::Path::new(&program),
             &args,
@@ -910,18 +949,27 @@ pub fn persons_cmux_entry(
             entry = ?entry,
             "codex mcp get cmux"
         );
-        entry
+        let record = key.and_then(|key| crate::session_manifest::CodexRecord::of(key, &entry));
+        Asked { entry, record }
     };
     match launch.answer {
-        Some(cell) => cell.get_or_init(ask).clone(),
-        None => ask(),
+        Some(cell) => cell.get_or_init(ask).entry.clone(),
+        None => ask().entry,
     }
+}
+
+/// One answer for the person's own `cmux` entry ([`persons_cmux_entry`]), and its record for the
+/// session manifest (with the manifest on and a sure answer: `session_manifest::CodexRecord`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Asked {
+    pub entry: crate::codex_cmux_entry::CmuxEntry,
+    pub record: Option<crate::session_manifest::CodexRecord>,
 }
 
 /// One start's answer for the person's own `cmux` entry ([`persons_cmux_entry`]), shared by
 /// everything that start reads it for: its tool rows, its pool spec (and the spare that spec
 /// starts), its `session/new` or `session/load`.
-pub type CodexAnswer = std::sync::Arc<std::sync::OnceLock<crate::codex_cmux_entry::CmuxEntry>>;
+pub type CodexAnswer = std::sync::Arc<std::sync::OnceLock<Asked>>;
 
 /// A start's answer ([`CodexAnswer`]) with the launch it was asked for: a later read for the same
 /// start reuses it only for that same launch (folder, argv and env), never for another. Nothing
@@ -1117,7 +1165,13 @@ pub(crate) fn claude_args_and_hooks_for(
             .for_session(session_id)
             // Claude Code has tool search unless its env or settings turn
             // it off, send it to another provider, or opt in to code mode.
-            .listing(all_tools_opted_in(env) && claude_lists_all_tools(env, cwd))
+            // The session's manifest answers when the hub marked it (`session_manifest.rs`).
+            .listing(
+                all_tools_opted_in(env)
+                    && crate::session_manifest::claude_all_tools(env, || {
+                        claude_lists_all_tools(env, cwd)
+                    }),
+            )
             .without_off(env)
             .fit_skills()
             .folded();
@@ -1972,21 +2026,5 @@ fn app_daemon_socket_for(
 }
 
 #[cfg(test)]
-mod app_daemon_socket_tests {
-    use cmux_agent_pane_policy::build_identity::BuildIdentity;
-
-    use super::app_daemon_socket_for;
-
-    /// An agent chat's Computer Use bridge reaches its own app's daemon, never `main`.
-    #[test]
-    fn a_chat_bridge_names_its_apps_daemon() {
-        let tagged =
-            BuildIdentity::new(Some("com.cmuxterm.app.debug.cu.preview2"), Some("cu-preview2"));
-        let path = app_daemon_socket_for(&tagged, None).expect("a tagged build has a daemon");
-        assert!(path.ends_with("cmux-app-cu-preview2.sock"), "{}", path.display());
-        let release = BuildIdentity::new(Some("com.cmuxterm.app"), None);
-        let path = app_daemon_socket_for(&release, None).expect("release has a daemon");
-        assert!(path.ends_with("cmux-app.sock"), "{}", path.display());
-        assert!(app_daemon_socket_for(&BuildIdentity::new(None, None), None).is_none());
-    }
-}
+#[path = "agent_tools_app_daemon_socket_tests.rs"]
+mod app_daemon_socket_tests;

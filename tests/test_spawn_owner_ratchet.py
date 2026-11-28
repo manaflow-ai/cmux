@@ -268,6 +268,56 @@ class SpawnOwnerRatchet(unittest.TestCase):
         code, out = self.check("--base-ref", "HEAD")
         self.assertEqual(code, 0, out)
 
+    MID_FILE_TEST_MODULE = "\n".join([
+        "#[cfg(test)]",
+        "pub(crate) mod seams {",
+        "    fn t() { tokio::spawn(async {}); }",
+        "    const OPEN: char = '{';",
+        "    const S: &str = \"}\";",
+        "    const R: &str = r#\"}}\"#;",
+        "    // }",
+        "}",
+        "fn live<'a>(x: &'a str) {",
+        "    tokio::spawn(async {});",
+        "}",
+        "#[cfg(test)]",
+        "mod tests {",
+        "    fn t() { tokio::spawn(async {}); }",
+        "}",
+        "",
+    ])
+
+    def test_product_code_after_a_mid_file_test_module_still_counts(self):
+        # lane/inline-tests-sweep-8 (2026-11-27): the old reading dropped everything after the first inline
+        # `#[cfg(test)] mod x {`, so agent.rs's nine live spawns behind `mod leader_wakeups` were never counted
+        # and a sweep that moved that module out read as adding them.
+        self.baseline({})
+        self.write(HUB, self.MID_FILE_TEST_MODULE)
+        code, out = self.check("--list")
+        self.assertEqual(code, 0, out)
+        self.assertEqual([l for l in out.splitlines() if "fresh.rs:" in l], [f"{HUB}:10: tokio::spawn(async {{}});"])
+
+    def test_ci_accepts_a_row_for_debt_the_base_file_already_holds(self):
+        self.git("init", "-q")
+        self.baseline({})
+        self.write(HUB, self.MID_FILE_TEST_MODULE)
+        self.git("add", "-A")
+        self.git("commit", "-qm", "base")
+        self.baseline({HUB: 1})
+        code, out = self.check("--base-ref", "HEAD")
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"records {HUB} at 1", out)
+        # A spawn the old reading also saw is not hidden debt: still a raise.
+        self.baseline({HUB: 2})
+        code, out = self.check("--base-ref", "HEAD")
+        self.assertEqual(code, 1, out)
+        # One more than the base's own file holds is still a raise.
+        self.baseline({HUB: 2})
+        self.write(HUB, self.MID_FILE_TEST_MODULE + "fn more() { tokio::spawn(async {}); }\n")
+        code, out = self.check("--base-ref", "HEAD")
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"raises {HUB} to 2", out)
+
     def test_a_known_moved_row_carries_its_base_allowance(self):
         old = "cmux-tui/crates/cmux-remote/src/identity.rs"
         moved = "cmux-tui/crates/cmux-remote/src/identity/auth_database.rs"
@@ -282,6 +332,33 @@ class SpawnOwnerRatchet(unittest.TestCase):
         code, out = self.check("--base-ref", "HEAD")
         self.assertEqual(code, 0, out)
         self.assertIn(f"carries {old} -> {moved}", out)
+
+    def split_daemon(self, new_rows, kept_spawns=1):
+        """daemon.rs with three unowned spawns at base, split (an explicit seam) into daemon/detached_spawn.rs,
+        daemon.rs keeping KEPT_SPAWNS of them and its own row (#63597)."""
+        old = "cmux-tui/crates/acpmux/src/daemon.rs"
+        new = "cmux-tui/crates/acpmux/src/daemon/detached_spawn.rs"
+        self.git("init", "-q")
+        self.baseline({old: 3})
+        self.write(old, "fn f() {\n" + "    tokio::spawn(a());\n" * 3 + "}\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "base")
+        self.write(old, "fn f() {\n" + "    tokio::spawn(a());\n" * kept_spawns + "}\n")
+        self.write(new, "fn g() {\n" + "    tokio::spawn(b());\n" * new_rows + "}\n")
+        self.baseline({old: kept_spawns, new: new_rows})
+        return old, new
+
+    def test_a_split_carries_what_its_old_row_no_longer_holds(self):
+        old, new = self.split_daemon(2)
+        code, out = self.check("--base-ref", "HEAD")
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"carries 2 of {old}'s base row 3 -> {new}", out)
+
+    def test_a_split_that_adds_a_spawn_still_fails(self):
+        _, new = self.split_daemon(3)
+        code, out = self.check("--base-ref", "HEAD")
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"raises {new} to 3 (base HEAD: 2)", out)
 
     def renamed_across_crates(self, spawns):
         """A file with two unowned spawns at base, `git mv`d to another crate with SPAWNS spawns and its row moved

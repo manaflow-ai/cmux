@@ -5,16 +5,3 @@
 /// page. A binding the user set for either action wins.
 public nonisolated enum SwapCmdTAndCmdNSetting {
 }
-
-nonisolated extension SwapCmdTAndCmdNSetting {
-    /// A missing key is the default with no diagnostic; a bad value is the
-    /// default plus a diagnostic.
-    static func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
-        guard let value = root.value(at: configPath) else { return (fallback, nil) }
-        guard let enabled = value.boolValue else {
-            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: "tabs.swapCmdTAndCmdN",
-                                                   message: "expected true or false"))
-        }
-        return (enabled, nil)
-    }
-}

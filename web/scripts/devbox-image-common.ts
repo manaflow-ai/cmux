@@ -111,10 +111,14 @@ export function deriveRowFailureAction(error: unknown, retriedRows: number): "de
  * that never answered its guest agent. Either way no VM came back, so asking
  * for a new one is safe. Rebake run 46028301324 attempt 3 (11-27) lost a
  * verify whose first machine had passed to one 409 on the second start.
+ * A 5xx counts too: Freestyle failed the start on its side and handed back no
+ * VM. Rebake runs 46168557029 and 46169870249 (11-28, both near 17:44Z) lost a
+ * passing bake and verify, and a bake's first start, to one 503 INTERNAL_ERROR
+ * each from POST /v5/vms.
  */
 export function isFreestyleStartRetryable(error: unknown): boolean {
   const e = error as { status?: unknown; code?: unknown } | null;
-  return isFreestyleOverload(error) || (e?.status === 409 && e?.code === "VM_NON_RESPONSIVE");
+  return isFreestyleTransient(error) || (e?.status === 409 && e?.code === "VM_NON_RESPONSIVE");
 }
 
 /**
@@ -147,6 +151,58 @@ export async function retryFreestyleOverload<T>(label: string, start: () => Prom
     }
   }
 }
+/**
+ * A started VM whose guest stopped answering before its daemon did: the SDK's
+ * background poll gave up (a TimeoutError after five minutes unreachable), or
+ * Freestyle answered 409 VM_NON_RESPONSIVE for an exec. The machine is the
+ * provider's fault, not the image's. Rebake run 46136757635 (11-28) lost a
+ * verify whose first machine had passed every check this way: the second
+ * start answered 409, its retry came back, then its first exec hung 15 min.
+ */
+export function isFreestyleGuestUnresponsive(error: unknown): boolean {
+  const e = error as { name?: unknown; status?: unknown; code?: unknown } | null;
+  return e?.name === "TimeoutError" || (e?.status === 409 && e?.code === "VM_NON_RESPONSIVE");
+}
+
+/**
+ * Start a VM and wait until it answers, starting a fresh one (up to
+ * `attempts` machines) when the guest stops answering before `ready`
+ * returns. Each discarded machine is deleted. Any other failure of `ready`
+ * (a daemon that answers but is wrong) is the image's and rethrows at once.
+ */
+export async function startAnsweringVm<V, R>(
+  label: string,
+  start: () => Promise<V>,
+  ready: (vm: V) => Promise<R>,
+  discard: (vm: V) => Promise<void>,
+  attempts = 3,
+): Promise<{ vm: V; ready: R }> {
+  for (let attempt = 1; ; attempt += 1) {
+    const vm = await retryFreestyleOverload(label, start);
+    try {
+      return { vm, ready: await ready(vm) };
+    } catch (error) {
+      await discard(vm).catch((e) => console.log(`${label}: deleting the unanswering machine failed: ${String(e)}`));
+      if (!isFreestyleGuestUnresponsive(error) || attempt >= attempts) throw error;
+      const e = error as { name?: unknown; code?: unknown; message?: unknown };
+      console.log(`${label}: guest stopped answering (${String(e?.code ?? e?.name)}: ${String(e?.message)}); fresh machine ${attempt + 1} of ${attempts}`);
+    }
+  }
+}
+/**
+ * A bake step's budget (detached exec, so no API cap). A step that downloads
+ * (apt, npm, curl, wget) waits on a mirror, not the guest: rebake 46141534980
+ * spent 304 s in `agents` (npm install, usually ~45 s) and died 4 s past the
+ * flat 300 s with every agent installed. Download steps get 900 s; local
+ * steps keep 300 s, so a real hang still fails fast.
+ */
+export const DEVBOX_BAKE_STEP_BUDGET_MS = 300_000;
+export const DEVBOX_BAKE_DOWNLOAD_STEP_BUDGET_MS = 900_000;
+const DOWNLOADING_COMMAND = /\b(?:apt-get\s+(?:update|install)|apt\s+install|npm\s+(?:install|i|ci)\b|curl|wget|pip3?\s+install|uv\s+(?:tool\s+)?(?:install|pip\s+install)|git\s+clone)\b/;
+export function devboxBakeStepBudgetMs(command: string): number {
+  return DOWNLOADING_COMMAND.test(command) ? DEVBOX_BAKE_DOWNLOAD_STEP_BUDGET_MS : DEVBOX_BAKE_STEP_BUDGET_MS;
+}
+
 export const repoRoot = path.resolve(webRoot, "..");
 
 /** The daemon state reservation is inside the existing guest disk, not a VM resize. */

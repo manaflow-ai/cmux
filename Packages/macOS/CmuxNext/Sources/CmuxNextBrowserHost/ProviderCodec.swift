@@ -65,6 +65,10 @@ public nonisolated struct ProviderCodec {
             o["message"] = message
         case .input(let event):
             o["event"] = event.foundationValue
+        case .leaseUser(let op, let target, let actor):
+            o["op"] = op
+            if let target { o["targetId"] = target }
+            if let actor { o["actor"] = actor }
         case .lease(let target, let lease):
             o["targetId"] = target
             o["lease"] = lease.map(leaseObject) ?? NSNull()
@@ -103,6 +107,8 @@ public nonisolated struct ProviderCodec {
         case "cdp.detach": return .cdpDetach(targetID: try f.string("targetId"))
         case "cdp": return .cdp(targetID: try f.string("targetId"), message: try f.string("message"))
         case "user.input": return .userInput(targetID: try f.string("targetId"))
+        case "lease.user":
+            return .leaseUser(op: try f.string("op"), targetID: object["targetId"] as? String, actor: object["actor"] as? String)
         case "input":
             guard let event = f.json("event"), case .object = event else { throw .missing(field: "event", in: "input") }
             return .input(event: event)

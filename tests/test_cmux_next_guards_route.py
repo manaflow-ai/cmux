@@ -37,7 +37,8 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         for name in ("fast-check-route", "security-holes", "workflow-start-lint"):
             with self.subTest(job=name):
                 runs_on = jobs[name]["runs-on"]
-                self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", runs_on)
+                # Our own persistent Linux pool, cmux-linux, since #54437 (the linux_2 pool variable is gone).
+                self.assertTrue(runs_on.endswith("|| 'cmux-linux' }}"), runs_on)
                 self.assertIn("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'", runs_on)
                 self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04'", runs_on)
 
@@ -131,12 +132,12 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
                         "((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
                         "needs.full-carry.outputs.tier != 'none' && "
                         "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
-                        "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))))) && ",
+                        "(github.event_name != 'pull_request' || !(startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || startsWith(github.event.pull_request.base.ref, 'lane/')) || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))))) && ",
                         group["if"])
         # The route feeds only the group and own-change-checks, both skipped on a pull request into feat-cmux-next
         # without full-ci, so the route skips there too (1,115 runner starts in 5.1 h of 11-25 no job read).
         self.assertIn("(github.event_name == 'pull_request' && (github.event_name != 'pull_request' || "
-                      "!startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || "
+                      "!(startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || startsWith(github.event.pull_request.base.ref, 'lane/')) || "
                       "(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))))",
                       jobs["fast-check-route"]["if"])
         steps = {step.get("name"): step for step in group["steps"]}
@@ -338,7 +339,7 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
 
         values, unresolved = workflow_jobs.runs_on_values(job)
         self.assertEqual(values, {"ubuntu-24.04", "blacksmith-4vcpu-ubuntu-2404", "cmux-linux"})
-        self.assertEqual(unresolved, {"vars.CI_OVERFLOW_LINUX"})
+        self.assertEqual(unresolved, set())
         runs = [s.get("run", "") for s in job["steps"]]
         self.assertIn("python3 -I tests/test_ci_spec_checks.py", runs)
         self.assertTrue(any('python3 -I scripts/ci/spec_checks.py run "${base[@]}"' in r and "--base HEAD^1" in r
