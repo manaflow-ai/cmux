@@ -36,6 +36,7 @@ public final class AgentPaneWebBridge {
         let channel: any LinkChannel
         var reader: Task<Void, Never>?
         var seq = 0
+        let opened = ContinuousClock.now
         init(channel: any LinkChannel) { self.channel = channel }
     }
 
@@ -79,6 +80,7 @@ public final class AgentPaneWebBridge {
                 let connection = Connection(channel: channel)
                 connections[id] = connection
                 connection.reader = Task { [weak self] in await self?.read(id, channel) }
+                log.info("agent pane: transport.open connection \(id, privacy: .public) on acpmux")
                 return Self.success(["connection": id])
             } catch {
                 log.error("agent pane transport.open failed: \(String(describing: error), privacy: .public)")
@@ -135,6 +137,10 @@ public final class AgentPaneWebBridge {
     private func push(_ id: Int, frames: [String]) {
         guard let connection = connections[id] else { return }
         connection.seq += 1
+        if connection.seq == 1 {
+            let ms = Int((ContinuousClock.now - connection.opened) / .milliseconds(1))
+            log.info("agent pane: first acpmux frame on connection \(id, privacy: .public) after \(ms, privacy: .public) ms")
+        }
         evaluate(Self.receiveScript(["connection": id, "frames": frames, "seq": connection.seq]))
     }
 

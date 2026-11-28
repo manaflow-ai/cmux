@@ -5,6 +5,9 @@ import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
+import OSLog
+
+private let paneLog = Logger(subsystem: "dev.cmux.mobile", category: "agent-pane-web")
 
 /// The Mac's React agent pane on the phone: the bundled `agent-pane/` (built by
 /// `scripts/cmux-next/build-agent-pane-web.sh`) loaded from `cmux-agent://pane/index.html`, the Mac's
@@ -43,6 +46,7 @@ public struct AgentPaneWebView: UIViewRepresentable {
         if let root { configuration.setURLSchemeHandler(AgentPaneWebSchemeHandler(root: root), forURLScheme: Self.scheme) }
         configuration.userContentController.addScriptMessageHandler(coordinator, contentWorld: .page, name: "agentSession")
         let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.navigationDelegate = coordinator
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.contentInsetAdjustmentBehavior = .never
@@ -53,6 +57,7 @@ public struct AgentPaneWebView: UIViewRepresentable {
             webView?.evaluateJavaScript(script, completionHandler: nil)
         }
         if root != nil {
+            coordinator.loadStarted = .now
             webView.load(URLRequest(url: Self.page))
         } else {
             webView.loadHTMLString(Self.missingPage, baseURL: nil)
@@ -74,8 +79,39 @@ public struct AgentPaneWebView: UIViewRepresentable {
     """
 
     /// Answers the page's `agentSession` messages; only the bundled page's main frame is heard.
-    @MainActor public final class Coordinator: NSObject, WKScriptMessageHandlerWithReply {
+    @MainActor public final class Coordinator: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDelegate {
         var bridge: AgentPaneWebBridge?
+        var loadStarted: ContinuousClock.Instant?
+
+        public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            guard let started = loadStarted else { return }
+            paneLog.info("agent pane: page loaded after \(Int((ContinuousClock.now - started) / .milliseconds(1)), privacy: .public) ms")
+            Task { @MainActor [weak webView] in
+                // When the pane first draws its composer: the log line the pairing rig reads.
+                for _ in 0..<120 {
+                    guard let webView else { return }
+                    let drawn: Bool = await withCheckedContinuation { continuation in
+                        webView.evaluateJavaScript(Self.composerProbe) { value, _ in continuation.resume(returning: value as? Bool == true) }
+                    }
+                    if drawn {
+                        paneLog.info("agent pane: composer drawn after \(Int((ContinuousClock.now - started) / .milliseconds(1)), privacy: .public) ms")
+                        return
+                    }
+                    try? await Task.sleep(for: .milliseconds(250))
+                }
+                paneLog.error("agent pane: no composer 30 s after the page loaded")
+            }
+        }
+
+        public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
+            paneLog.error("agent pane: page failed: \(String(describing: error), privacy: .public)")
+        }
+
+        public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
+            paneLog.error("agent pane: page failed: \(String(describing: error), privacy: .public)")
+        }
+
+        static let composerProbe = "document.querySelector('textarea, [contenteditable=\"true\"]') !== null"
 
         public func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage,
                                           replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void) {

@@ -39,6 +39,9 @@ public struct ShellLaunchOptions: Sendable {
     public var setupPairDemo = false
     /// DEBUG: open Settings on this page (`SettingsRoute` case name).
     public var settingsPage: String?
+    /// DEBUG: once acpmux is live, show the web agent pane (`AgentPaneWebView`) full screen, for the
+    /// pairing rig's web pane leg (`cmux_next_pair_e2e.py --web-pane`).
+    public var webPane = false
     /// A launch with no demo or forced page goes back to the workspace and
     /// tab that were open (design/terminal P10). `-cmux-mobile-no-restore` opts out.
     public var restoresLastLocation = true
@@ -57,6 +60,7 @@ public struct ShellLaunchOptions: Sendable {
         setupPairDemo = arguments.contains("-cmux-mobile-setup-pair")
         if setupPairDemo { forceSetup = true }
         settingsPage = value("-cmux-mobile-settings-page")
+        webPane = arguments.contains("-cmux-mobile-web-pane")
         restoresLastLocation = initialTab == nil && settingsPage == nil && demo == nil && !sidebarOpen
             && !arguments.contains("-CmuxMobileDemo") && DeveloperOptions.launchDemo == nil
         #endif
@@ -102,6 +106,8 @@ public struct RootView: View {
     @State private var machineInvite: MachineInvite?
     /// A chat share page the phone opened (`ChatShareOpener`), in a Safari view signed in as this account.
     @State private var chatSharePage: ChatShareOpener.Page?
+    /// DEBUG `-cmux-mobile-web-pane`: the web agent pane is up.
+    @State private var showsWebPane = false
     /// The signed-in shell's one model, kept across this view's updates (`ShellView.init`).
     @State private var shellModel = KeptModel<ShellModel>()
     /// App Store plans (Settings → Plan), built once for the process so its
@@ -340,6 +346,24 @@ public struct RootView: View {
         .sheet(item: $chatSharePage) { page in
             ChatShareSafariView(url: page.url).ignoresSafeArea()
         }
+        #if DEBUG
+        .fullScreenCover(isPresented: $showsWebPane) {
+            if let hub = live?.acpmux {
+                AgentPaneWebView(sessionID: nil, machineName: nil) { [weak hub] in
+                    guard let link = hub?.macLink else { throw LinkError(code: "offline", message: "Not connected to the Mac.") }
+                    return try await link.openChannel(service: "acpmux", args: AcpmuxConnection.channelArgs)
+                }
+                .ignoresSafeArea()
+            }
+        }
+        .task(id: live != nil) {
+            guard options.webPane else { return }
+            while !Task.isCancelled, !showsWebPane {
+                if let hub = live?.acpmux, hub.isReady, hub.macLink != nil { showsWebPane = true; return }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
+        #endif
         .onChange(of: auth.teamList.phase, initial: true) { _, _ in planSetup() }
         .onChange(of: asksNotifications) { _, _ in planSetup() }
         .task(id: auth.isSignedIn) {
