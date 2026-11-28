@@ -9,18 +9,13 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { JSDOM } from "jsdom";
 import { readShippedThemes, readWebThemeBootstrap } from "../dev-server/galleryHost";
-import { applyAgentTheme } from "../src/agent-session/shared/theme";
-import {
-  appliedTheme,
-  BASE_STATE,
-  failures,
-  glassContrast,
-  KNOBS,
-  readSurfaces,
-  runPropagationMatrix,
-} from "../src/gallery/theme/propagation";
-import { themeTokens } from "../src/gallery/theme/web";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { applyAgentTheme } = await importWithDom(() => import("../src/agent-session/shared/theme"));
+const { appliedTheme, BASE_STATE, failures, glassContrast, KNOBS, readSurfaces, runPropagationMatrix } =
+  await importWithDom(() => import("../src/gallery/theme/propagation"));
+const { themeTokens } = await importWithDom(() => import("../src/gallery/theme/web"));
 
 const themes = readShippedThemes();
 const dom = new JSDOM("<!doctype html><html><head></head><body></body></html>", {
