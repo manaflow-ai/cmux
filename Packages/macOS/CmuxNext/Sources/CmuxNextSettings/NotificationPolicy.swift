@@ -30,15 +30,13 @@ public nonisolated struct NotificationPolicy: Sendable {
         Self.clears(trigger, mode: prefs.dismissal(for: source))
     }
 
+    /// Rust `notifications.clears`, with `mode` as the whole preference.
     static func clears(_ trigger: NotificationTrigger, mode: NotificationDismissal) -> Bool {
-        switch mode {
-        case .focus: trigger != .timeout
-        case .click: [.click, .keystroke, .open].contains(trigger)
-        case .keystroke: [.keystroke, .open].contains(trigger)
-        case .explicit: trigger == .open
-        case .timeout: [.open, .timeout].contains(trigger)
-        case .never: false
-        }
+        let request: JSONValue = [
+            "prefs": ["dismissal": .string(mode.rawValue)],
+            "trigger": .string(trigger.rawValue),
+        ]
+        return SettingsRust.answer("notifications.clears", request)["clears"]?.boolValue ?? false
     }
 
     /// What the app knows when a notification arrives.

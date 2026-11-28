@@ -11,17 +11,18 @@ public nonisolated struct QuietHours: Hashable, Sendable {
         self.end = end
     }
 
-    /// Parses `"HH:MM"`.
+    /// Parses `"HH:MM"` (Rust `notifications.quiet_minutes`).
     public static func minutes(_ text: String) -> Int? {
-        let parts = text.split(separator: ":")
-        guard parts.count == 2, let hour = Int(parts[0]), let minute = Int(parts[1]),
-              (0...23).contains(hour), (0...59).contains(minute) else { return nil }
-        return hour * 60 + minute
+        SettingsRust.answer("notifications.quiet_minutes", ["text": .string(text)])["minutes"]?.intValue
     }
 
-    /// True when `minuteOfDay` lies in the window; a window may wrap past midnight.
+    /// True when `minuteOfDay` lies in the window; a window may wrap past midnight
+    /// (Rust `notifications.quiet_contains`).
     public func contains(minuteOfDay: Int) -> Bool {
-        if start == end { return false }
-        return start < end ? (start..<end).contains(minuteOfDay) : minuteOfDay >= start || minuteOfDay < end
+        let request: JSONValue = [
+            "quietHours": ["start": JSONValue(start), "end": JSONValue(end)],
+            "minuteOfDay": JSONValue(minuteOfDay),
+        ]
+        return SettingsRust.answer("notifications.quiet_contains", request)["contains"]?.boolValue ?? false
     }
 }
