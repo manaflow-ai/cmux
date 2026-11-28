@@ -193,3 +193,24 @@ async fn a_turn_counts_its_misses_by_cause_for_the_alarm() {
     let j = t.cache.take_turn_misses().to_json().unwrap();
     assert_eq!((j["callChurn"].clone(), j["callDeclared"].clone()), (json!(0), json!(1)));
 }
+
+#[tokio::test]
+async fn each_call_is_classed_as_a_cache_fault() {
+    // RFD 0182 B6: the chat's calls so far, by class, ride every main-loop update.
+    let t = Translator::new("acp-1".into(), "default", "opus", "default");
+    call(&t, usage(0, 9_000, 0), usage(0, 9_000, 0)).await;
+    call(&t, usage(9_000, 100, 0), usage(9_000, 100, 0)).await;
+    // Same model, still warm, reads nothing: the cache was evicted inside its TTL.
+    call(&t, usage(0, 9_300, 0), usage(0, 9_300, 0)).await;
+    let start = json!({"type": "stream_event", "event": {"type": "message_start", "message": {"id": "m4", "model": "claude-sonnet-5-5", "usage": usage(0, 9_400, 0)}}});
+    t.inbound(&start).await;
+    let delta = json!({"type": "stream_event", "event": {"type": "message_delta", "usage": usage(0, 9_400, 0)}});
+    let [last] = &cache_meta(&t.inbound(&delta).await)[..] else { panic!() };
+    let faults = &last["cacheFaults"];
+    assert_eq!(faults["calls"]["new"], 1, "{faults}");
+    assert_eq!(faults["calls"]["hit"], 1, "{faults}");
+    assert_eq!(faults["calls"]["conflict"], 1, "{faults}");
+    assert_eq!(faults["calls"]["compulsory"], 1, "a model switch: {faults}");
+    assert!(faults["unreadTokens"]["conflict"].as_u64().unwrap() > 9_000, "{faults}");
+    assert!(faults["medianMissGapMs"].is_u64(), "{faults}");
+}
