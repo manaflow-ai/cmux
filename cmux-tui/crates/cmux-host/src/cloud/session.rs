@@ -843,10 +843,16 @@ mod tests {
         let start = s.start(0);
         assert_eq!(start[0].params["daemon"]["version"], "0.1.0+aaaaaaaaaaaa");
         s.answered(&start[0], &ok(), 0, 0.5);
-        s.activity_stream(true, 1_000);
-        s.line(&acp(0, None), 2_000);
-        let r = s.fire(20_000);
-        s.answered(&r[0], &ok(), 20_000, 0.5);
+        // The stream going live and acpmux's count each go at once (the report that ends blind).
+        for req in s.activity_stream(true, 1_000) {
+            s.answered(&req, &ok(), 1_000, 0.5);
+        }
+        for req in s.line(&acp(0, None), 2_000).0 {
+            s.answered(&req, &ok(), 2_000, 0.5);
+        }
+        for req in s.fire(20_000) {
+            s.answered(&req, &ok(), 20_000, 0.5);
+        }
 
         // The same block (or the same one with activity capabilities) changes nothing.
         assert!(s.daemon_identified(&baked, 30_000).is_empty());
