@@ -15,6 +15,11 @@
 #   frames=1            judge each update for transition frames (ask-ad4a68e740, scripts/measure/update_frames.py): a
 #                       window log every 8 ms (update-frames/watch.swift, no grant) and a display recording (CuaDriver,
 #                       when the Mac has it); prints UCF <side> <round> {...} and the medians gain the verdicts
+#   push=1              start each update with a simulated release push (run.py --push: a NIGHTLY's path) instead of
+#                       Check for Updates; it must stage with no click. Both sides need debug.updater push.
+#   delta=1             list a Sparkle delta v1 to v2 (run.py --delta) and fail unless the delta was what downloaded
+#   With push=1 delta=1 frames=1 and base=head, one round replays a nightly's push, its incremental background
+#   download and the restart's frames in minutes (Leo 2026-11-27: "we should be abel to just sim it/signal it").
 # Prints UCA <side> <round> {...} per update and UCA-MEDIAN <side> {...} (scripts/measure/update-click-ab.py), in ms:
 # click_to_relaunch (install_clicked to will_relaunch), click_to_v1_exit, prewarm_wait, prewarm_total (the pre-warm's
 # own "N ms in all", when it ended before the relaunch), v2_first_frame and
@@ -29,8 +34,10 @@ main() {
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   # The harness and summary as of this commit, whatever the sides' trees hold.
   tools="$out/tools" && mkdir -p "$tools" && cp -R scripts/cmux-next/update-harness "$tools/" && cp scripts/measure/update-click-ab.py "$tools/" \
-    && cp scripts/cmux-next/tag_teardown.py scripts/cmux-next/state_wait.py "$tools/"  # run.py and idle_e2e.py import them from their parent folder
+    && cp scripts/cmux-next/tag_teardown.py scripts/cmux-next/state_wait.py "$tools/" \
+    && cp scripts/ci/timeout.sh "$tools/timeout.sh"  # run.py and idle_e2e.py import them from their parent folder; fetch_checkout's deadline
   local base="" head rounds=3 delay=3 stress=0 frames=0 arg rc=0 i side
+  local harness_args=()
   head="$(git rev-parse HEAD)"
   local checkout="$head"
   for arg in "$@"; do
@@ -41,6 +48,9 @@ main() {
       click_delay=*) delay="${arg#click_delay=}" ;;
       stress=*) stress="${arg#stress=}" ;;
       frames=*) frames="${arg#frames=}" ;;
+      push=1) harness_args+=(--push) ;;
+      delta=1) harness_args+=(--delta) ;;
+      push=0|delta=0) ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
@@ -52,7 +62,7 @@ main() {
   for side in base head; do
     local sha="$base"
     [[ "$side" == head ]] && sha="$head"
-    fetch_checkout "$sha" || exit 3
+    fetch_checkout "$sha" "$tools" || exit 3
     build_app "$out" "$side" || { git -c advice.detachedHead=false checkout --quiet --detach "$checkout"; exit 3; }
   done
   git -c advice.detachedHead=false checkout --quiet --detach "$checkout" || exit 3
@@ -64,7 +74,7 @@ main() {
       start_stress "$stress"
       GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$tools/update-harness/run.py" \
         --app "$out/$side/cmux DEV ucab.app" --tag ucab --out "$out/run-$side-$i" --click-at-stage --click-delay "$delay" \
-        2>&1 | tee -a "$out/run.log" | sed "s/^/[$side] /"
+        ${harness_args[@]+"${harness_args[@]}"} 2>&1 | tee -a "$out/run.log" | sed "s/^/[$side] /"
       [[ ${PIPESTATUS[0]} == 0 ]] || rc=1
       stop_stress
       [[ "$frames" == 1 ]] && stop_frames "$out/frames-$side-$i" "$out/run-$side-$i" "$tools" "$side" "$i"
@@ -148,11 +158,23 @@ stop_frames() {
 }
 
 fetch_checkout() {
-  local sha="$1" depth=()
+  local sha="$1" tools="$2" depth=() remote rc
   [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == true ]] && depth=(--depth=1) # a full clone stays full
+  git cat-file -e "$sha^{commit}" 2>/dev/null && { git -c advice.detachedHead=false checkout --quiet --detach "$sha"; return; }
   # A fleet step's origin is the fleet mirror, which holds feat-cmux-next only: a PR or lane commit comes from GitHub.
-  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --quiet ${depth[@]+"${depth[@]}"} origin "$sha" 2>/dev/null \
-    || git fetch --quiet ${depth[@]+"${depth[@]}"} https://github.com/manaflow-ai/cmux.git "$sha" || { echo "UCA cannot fetch $sha" >&2; return 3; }
+  # Each fetch is named and bounded (UCA_FETCH_TIMEOUT_S, 300 s, 0 for none): an unbounded silent fetch here was the
+  # last thing three measurements ran before the controller stopped them as hung at 45 min (146b1d956eee1058e20391c3,
+  # 71c6b617c8762dc71c3518ff, 88c862624ec2e83377cf2568, 2026-11-27), each holding an exclusive Mac for that long.
+  for remote in origin https://github.com/manaflow-ai/cmux.git; do
+    echo "UCA fetch $sha from $remote"
+    GIT_TERMINAL_PROMPT=0 "$tools/timeout.sh" --kill-after=15 "${UCA_FETCH_TIMEOUT_S:-300}" \
+      git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=20 fetch --quiet --no-tags --recurse-submodules=no \
+      ${depth[@]+"${depth[@]}"} "$remote" "$sha" 2>&1 | tail -n 3
+    rc=${PIPESTATUS[0]}
+    (( rc == 124 || rc == 137 )) && echo "UCA fetch $sha from $remote: no answer in ${UCA_FETCH_TIMEOUT_S:-300} s" >&2
+    git cat-file -e "$sha^{commit}" 2>/dev/null && break
+  done
+  git cat-file -e "$sha^{commit}" 2>/dev/null || { echo "UCA cannot fetch $sha" >&2; return 3; }
   git -c advice.detachedHead=false checkout --quiet --detach "$sha"
 }
 
