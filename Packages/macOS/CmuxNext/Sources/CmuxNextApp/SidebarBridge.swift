@@ -168,7 +168,7 @@ final class SidebarBridge {
         // The band's layout comes with the rows it projects too (cx-odqn):
         // a pinned workspace leaves the list in the turn it joins the band.
         sameTurn.observe(listsRows: true, showsFirstRunAtOnce: seededProfiles == nil, {
-            let (listed, launching, failed) = Self.passSections(services, window: windowState, feed: feed, faces: faces, rows: feed.laneRowSource(chiefAvatar: { [weak services] in SidebarChiefAvatar(home: services?.home.chiefFaces[$0]) }))
+            let (listed, launching, failed) = Self.passSections(services, window: windowState, feed: feed, faces: faces, rows: feed.laneRowSource(chiefAvatar: { [weak services] in SidebarChiefAvatar(home: services?.home.chiefFace(of: $0)) }))
             // Not the creates' rows (PendingWorkspaceRows): they draw from the press (its redraws below), and a walk reads them as it shows.
             return ((PendingWorkspaceRows.shared.listing(listed, in: windowState.id, machines: machines, doc: services.sidebarDoc), services.sidebarCustomization.rowDecorations,
                      services.sidebarDoc.store?.shownChanges, services.settings?.snapshot.sidebarSections.projection ?? .defaults), launching, failed, SidebarSpaceBar.profiles(machines.local, window: windowState.id, windows: services.windows), SidebarProfileKey(windowState.profileID.rawValue),
