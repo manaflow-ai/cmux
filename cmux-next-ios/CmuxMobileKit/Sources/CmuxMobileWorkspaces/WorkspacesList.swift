@@ -1337,15 +1337,16 @@ struct WorkspacesListRows: View {
     }
 }
 
-/// The toolbar's model (its New Workspace menu lists recent folders by the Mac's activity): its
-/// own view, so reading the workspaces for it does not re-run the page.
 /// The page's one skeleton: whether it shows reads the inbox, so it is its own view.
 struct WorkspacesSkeletonHost: View {
     let host: WorkspacesList
 
+    // placeholder-ok: nothing cached for this team (no list ever loaded); cached rows draw instead.
     var body: some View { host.skeletonHost() }
 }
 
+/// The toolbar's model (its New Workspace menu lists recent folders by the Mac's activity): its
+/// own view, so reading the workspaces for it does not re-run the page.
 struct WorkspacesToolbarHost: View {
     let host: WorkspacesList
 
