@@ -35,6 +35,35 @@ fn small_functions_answer() {
 }
 
 #[test]
+fn origins_that_take_drops_and_what_an_open_run_hears() {
+    for (origin, drops) in [
+        ("system", true),
+        ("custom", true),
+        ("tool", true),
+        ("systemPreview", false),
+        ("toolHistory", false),
+        ("nope", false),
+    ] {
+        // SAFETY: valid bytes.
+        assert_eq!(
+            unsafe { cmux_screenshots_origin_accepts_drops(origin.as_ptr(), origin.len()) },
+            drops,
+            "{origin}"
+        );
+    }
+    // SAFETY: null is allowed.
+    assert!(!unsafe { cmux_screenshots_origin_accepts_drops(std::ptr::null(), 0) });
+    let told = |persons_run, existing, listing| {
+        let answer = cmux_screenshots_open(persons_run, existing, listing);
+        (answer.opened, answer.listing, answer.note)
+    };
+    assert_eq!(told(true, true, true), (0, false, 0));
+    assert_eq!(told(false, false, true), (1, false, 1));
+    assert_eq!(told(false, true, true), (2, true, 0));
+    assert_eq!(told(false, true, false), (2, false, 2));
+}
+
+#[test]
 fn rule_handle_reads_detect_json() {
     let json = r#"{"kinds":2,"namePrefixes":["Screen Recording"],"extraImageExtensions":["SNAGX"],"depth":1,"folderPrefix":"m_"}"#;
     // SAFETY: valid bytes.
@@ -108,6 +137,13 @@ fn listing_handle_keeps_order_and_filters() {
         })
         .collect();
     assert_eq!(order, ["/s/b/Café.png", "/s/a/Shot 2.png", "/s/a/Shot 10.png"]);
+    // SAFETY: live listing.
+    let counts: serde_json::Value =
+        serde_json::from_str(&take(unsafe { cmux_screenshots_listing_counts(listing) }).unwrap())
+            .unwrap();
+    assert_eq!(counts, serde_json::json!({"a": 2, "b": 1}));
+    // SAFETY: null is allowed.
+    assert!(unsafe { cmux_screenshots_listing_counts(std::ptr::null()) }.is_null());
     // SAFETY: live listing; past the end gives null.
     assert!(
         unsafe { cmux_screenshots_listing_path_at(listing, 3, std::ptr::null_mut()) }.is_null()
