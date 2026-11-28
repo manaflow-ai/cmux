@@ -19,10 +19,9 @@ void cmux_layout_cache_string_free(char *s);
 char *cmux_layout_cache_path(const char *state_dir);
 /* The cache at path as JSON, or NULL (missing, over 512 KiB, another version, garbage). */
 char *cmux_layout_cache_read(const char *path);
-/* Atomic write of a LayoutCache JSON: 0 written, -1 bad input, -2 write failed (old file kept). */
-int32_t cmux_layout_cache_write(const char *path, const char *json);
 /* Usable JSON {windows, frames, content, reasons} for now_json {build_key, displays, now_ms}. */
-/* cmux_layout_cache_write, and on 0 the content's key in *key_out (when non-null) for
+/* Atomic write of a LayoutCache JSON: 0 written, -1 bad input, -2 write failed (old file kept);
+ * on 0 the content's key in *key_out (when non-null) for
  * cmux_layout_cache_coalescer_wrote_key: write off the coalescer's thread, clear it with no parse. */
 int32_t cmux_layout_cache_write_keyed(const char *path, const char *json, uint64_t *key_out);
 char *cmux_layout_cache_usable(const char *cache_json, const char *now_json);
@@ -48,11 +47,6 @@ bool cmux_layout_cache_coalescer_due(CmuxLayoutCacheCoalescer *c, uint64_t now_m
 int64_t cmux_layout_cache_coalescer_next_due_ms(CmuxLayoutCacheCoalescer *c);
 /* At quit: whether anything is pending. */
 bool cmux_layout_cache_coalescer_flush_now(CmuxLayoutCacheCoalescer *c);
-/* Writes unless the content equals the last write: 1 written, 0 unchanged, -1 bad input,
- * -2 write failed (still pending). */
-int32_t cmux_layout_cache_coalescer_write(CmuxLayoutCacheCoalescer *c, const char *path, const char *json);
-/* Records a write made through cmux_layout_cache_write; false for bad input. */
-bool cmux_layout_cache_coalescer_wrote(CmuxLayoutCacheCoalescer *c, const char *json);
 /* Records a write made through cmux_layout_cache_write_keyed, by its key; false for a null c. */
 bool cmux_layout_cache_coalescer_wrote_key(CmuxLayoutCacheCoalescer *c, uint64_t key);
 

@@ -49,7 +49,9 @@ import Testing
             let old = clock.measure {
                 let json = LayoutCacheFFI.json(document) ?? ""
                 if json != previous { previous = json }
-                _ = cmux_layout_cache_coalescer_wrote(coalescer, json)
+                var key: UInt64 = 0
+                _ = cmux_layout_cache_write_keyed(path, json, &key)
+                _ = cmux_layout_cache_coalescer_wrote_key(coalescer, key)
             }
             before.append(Self.ms(old))
             bytes = previous.utf8.count

@@ -25,11 +25,26 @@ fn write_read_round_trip_through_c() {
     let dir = std::env::temp_dir().join(format!("cmux-layout-cache-ffi-{}", std::process::id()));
     let path = take(unsafe { cmux_layout_cache_path(c(dir.to_str().unwrap()).as_ptr()) }).unwrap();
     let p = c(&path);
-    assert_eq!(unsafe { cmux_layout_cache_write(p.as_ptr(), c(CACHE).as_ptr()) }, 0);
+    assert_eq!(
+        unsafe {
+            cmux_layout_cache_write_keyed(p.as_ptr(), c(CACHE).as_ptr(), std::ptr::null_mut())
+        },
+        0
+    );
     let back = take(unsafe { cmux_layout_cache_read(p.as_ptr()) }).unwrap();
     assert_eq!(LayoutCache::from_json(&back), LayoutCache::from_json(CACHE));
-    assert_eq!(unsafe { cmux_layout_cache_write(p.as_ptr(), c("garbage").as_ptr()) }, BAD_INPUT);
-    assert_eq!(unsafe { cmux_layout_cache_write(std::ptr::null(), c(CACHE).as_ptr()) }, BAD_INPUT);
+    assert_eq!(
+        unsafe {
+            cmux_layout_cache_write_keyed(p.as_ptr(), c("garbage").as_ptr(), std::ptr::null_mut())
+        },
+        BAD_INPUT
+    );
+    assert_eq!(
+        unsafe {
+            cmux_layout_cache_write_keyed(std::ptr::null(), c(CACHE).as_ptr(), std::ptr::null_mut())
+        },
+        BAD_INPUT
+    );
 
     let co = cmux_layout_cache_coalescer_new();
     unsafe { cmux_layout_cache_coalescer_note(co, 1_000) };
@@ -37,13 +52,7 @@ fn write_read_round_trip_through_c() {
     assert_eq!(unsafe { cmux_layout_cache_coalescer_next_due_ms(co) }, 1_250);
     assert!(unsafe { cmux_layout_cache_coalescer_due(co, 1_250) });
     assert!(unsafe { cmux_layout_cache_coalescer_flush_now(co) });
-    assert_eq!(unsafe { cmux_layout_cache_coalescer_write(co, p.as_ptr(), c(CACHE).as_ptr()) }, 1);
-    assert_eq!(unsafe { cmux_layout_cache_coalescer_next_due_ms(co) }, -1);
-    unsafe { cmux_layout_cache_coalescer_note(co, 2_000) };
-    assert_eq!(unsafe { cmux_layout_cache_coalescer_write(co, p.as_ptr(), c(CACHE).as_ptr()) }, 0);
-    assert!(unsafe { cmux_layout_cache_coalescer_wrote(co, c(CACHE).as_ptr()) });
-    assert!(!unsafe { cmux_layout_cache_coalescer_wrote(co, c("{").as_ptr()) });
-    // The keyed write's key clears a pending change as `wrote` does, and the same content then skips.
+    // The keyed write's key clears the pending change, and the same content then reads as written.
     let mut key = 0u64;
     assert_eq!(
         unsafe { cmux_layout_cache_write_keyed(p.as_ptr(), c(CACHE).as_ptr(), &mut key) },
@@ -54,10 +63,12 @@ fn write_read_round_trip_through_c() {
         unsafe { cmux_layout_cache_write_keyed(p.as_ptr(), c("garbage").as_ptr(), &mut key) },
         BAD_INPUT
     );
-    unsafe { cmux_layout_cache_coalescer_note(co, 3_000) };
     assert!(unsafe { cmux_layout_cache_coalescer_wrote_key(co, key) });
     assert_eq!(unsafe { cmux_layout_cache_coalescer_next_due_ms(co) }, -1);
-    assert_eq!(unsafe { cmux_layout_cache_coalescer_write(co, p.as_ptr(), c(CACHE).as_ptr()) }, 0);
+    unsafe { cmux_layout_cache_coalescer_note(co, 3_000) };
+    assert!(unsafe { cmux_layout_cache_coalescer_flush_now(co) });
+    assert!(unsafe { cmux_layout_cache_coalescer_wrote_key(co, key) });
+    assert_eq!(unsafe { cmux_layout_cache_coalescer_next_due_ms(co) }, -1);
     assert!(!unsafe { cmux_layout_cache_coalescer_wrote_key(std::ptr::null_mut(), key) });
     unsafe { cmux_layout_cache_coalescer_free(co) };
     unsafe { cmux_layout_cache_coalescer_free(std::ptr::null_mut()) };
