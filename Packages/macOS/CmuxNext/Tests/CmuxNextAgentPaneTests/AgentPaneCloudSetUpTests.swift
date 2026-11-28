@@ -173,7 +173,7 @@ struct AgentPaneCloudSetUpTests {
         model.transport.gestures.record()
         let reply = await model.respond(to: AgentPaneRequest(body: ["method": "cloud.setUp", "params": ["key": key, "action": "connectChatGPT", "family": "codex"]]))
         #expect(Self.code(reply) == "cloud_setup_failed")
-        #expect((reply["error"] as? [String: Any])?["userMessage"] as? String == "this Mac could not reach the sign-in service")
+        #expect((reply["error"] as? [String: Any])?["userMessage"] as? String == "network")
         let again = AgentPaneRequest(body: ["method": "cloud.startChat", "params": ["task": "kept prompt", "key": key, "home": true, "signedIn": true]])
         #expect(Self.code(await model.respond(to: again)) == "cloud_sign_in_cancelled")
         model.transport.gestures.record()

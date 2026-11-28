@@ -681,24 +681,8 @@ public final class CloudSetup {
     }
 
     /// Why a set up ended without a connection: withdrawn (cancelled, the account changed), or the sign-in
-    /// it started in place failed with acpmux's code (`network`, `access_denied`, `timeout`, ...).
-    public enum SetUpEnd: Error, Equatable, Sendable {
-        case withdrawn
-        case failed(String)
-
-        /// The words the card shows after "Couldn't connect:"; nil when withdrawn.
-        public var failureText: String? {
-            guard case .failed(let code) = self else { return nil }
-            return switch code {
-            case "network", "unreachable": "this Mac could not reach the sign-in service"
-            case "access_denied": "the sign-in was declined"
-            case "no_chatgpt_account": "this account has no ChatGPT plan"
-            case "timed_out", "timeout": "the sign-in timed out"
-            case "port_busy": "another program is signing in to ChatGPT"
-            default: "the sign-in did not finish (\(code))"
-            }
-        }
-    }
+    /// it started in place failed with acpmux's code (`network`, `access_denied`, ...; the page words it).
+    public enum SetUpEnd: Error, Equatable, Sendable { case withdrawn, failed(String) }
 
     /// Per family, bumped by ``signInFailed(_:family:)`` with its code: a set up of that family that started
     /// its sign-in in place before it ends with it.
