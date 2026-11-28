@@ -1239,7 +1239,7 @@ impl Hub {
     fn is_peer_session(&self, params: &Value) -> bool {
         crate::server::session_key(params)
             .ok()
-            .is_some_and(|k| self.resolve(k).is_err() && self.resolve_remote(k).is_some())
+            .is_some_and(|k| self.resolve(k).is_err() && self.remote_route(k).is_some())
     }
 
     /// Whether a phone's allow (or answer) carries an enrolled approver's

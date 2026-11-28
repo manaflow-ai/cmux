@@ -12,6 +12,13 @@
 use super::*;
 use serde_json::value::RawValue;
 
+#[cfg(test)]
+thread_local! {
+    /// Whole-row parses on this thread ([`PeerRow::value`]): a lookup that only routes makes none
+    /// (`remote_route_tests.rs`).
+    pub(crate) static VALUE_PARSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
 /// A member kept apart from the row's other text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Apart {
@@ -299,6 +306,8 @@ impl PeerRow {
 
     /// The whole row, parsed: for a reader that needs more than the hot fields.
     pub fn value(&self) -> Value {
+        #[cfg(test)]
+        VALUE_PARSES.with(|n| n.set(n.get() + 1));
         serde_json::from_str(&self.text()).unwrap_or(Value::Null)
     }
 

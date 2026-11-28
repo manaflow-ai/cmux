@@ -54,7 +54,24 @@ impl Hub {
     /// failing those, the one peer session whose short name `key` is ([`remote_segment`]):
     /// `mac-ci-3` for `claude-sr2/mac-ci-3` when `key` names no session here in any way
     /// (`Hub::local_match_counts`), or `PEER/mac-ci-3` on that peer only.
+    /// The whole row comes back parsed: a caller that only routes (peer and id) or asks
+    /// whether `key` is a peer session takes [`Self::remote_route`], which parses nothing.
     pub fn resolve_remote(&self, key: &str) -> Option<(Arc<crate::peer::Peer>, String, Value)> {
+        let (peer, row) = self.remote_row(key)?;
+        Some((peer, row.receipt.mux_session_id.clone(), row.summary.value()))
+    }
+
+    /// [`Self::resolve_remote`] without the row: the peer and its session id. Rebuilds and
+    /// parses no row text, so a prompt's forward (several lookups per prompt) costs none.
+    pub fn remote_route(&self, key: &str) -> Option<(Arc<crate::peer::Peer>, String)> {
+        let (peer, row) = self.remote_row(key)?;
+        Some((peer, row.receipt.mux_session_id.clone()))
+    }
+
+    fn remote_row(
+        &self,
+        key: &str,
+    ) -> Option<(Arc<crate::peer::Peer>, Arc<RemoteSession>)> {
         let map = self.remote_sessions.read();
         let (row, name) = remote_match(&map, key)?;
         let row = Arc::clone(row);
@@ -62,7 +79,7 @@ impl Hub {
         if !name.available(self, key) {
             return None;
         }
-        Some((self.peer(&row.peer)?, row.receipt.mux_session_id.clone(), row.summary.value()))
+        Some((self.peer(&row.peer)?, row))
     }
 
     /// The names of the peer sessions whose name contains `lower` (any case), for a refusal's
