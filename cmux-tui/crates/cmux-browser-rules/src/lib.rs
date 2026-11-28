@@ -27,11 +27,11 @@
 pub mod address;
 pub mod automation_ops;
 pub mod calculator;
-pub mod input;
 pub mod cookie_backups;
 pub mod cookies;
 pub mod driver;
 pub mod frames;
+pub mod input;
 pub mod links;
 pub mod load_waits;
 pub mod ops;
@@ -45,8 +45,6 @@ mod automation_tests;
 #[cfg(test)]
 mod calculator_tests;
 #[cfg(test)]
-mod input_tests;
-#[cfg(test)]
 mod cookie_backups_tests;
 #[cfg(test)]
 mod cookies_tests;
@@ -54,6 +52,8 @@ mod cookies_tests;
 mod driver_tests;
 #[cfg(test)]
 mod frames_tests;
+#[cfg(test)]
+mod input_tests;
 #[cfg(test)]
 mod links_tests;
 #[cfg(test)]
