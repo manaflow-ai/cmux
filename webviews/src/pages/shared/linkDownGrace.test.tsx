@@ -14,7 +14,8 @@ import { teardownDom } from "../../../test/support/domTeardown";
 import { installVirtualSizes } from "../../../test/support/virtualSizes";
 import { createStrings } from "./i18n";
 
-// pretendToBeVisual: the Bookmarks tree's virtualizer reconciles its scroll on requestAnimationFrame.
+// A frame clock (`pretendToBeVisual`): the Bookmarks tree draws only its visible lines (#46207), and
+// its virtualizer reconciles a scroll to the selected row on the next animation frame, as in a browser.
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost/",
   pretendToBeVisual: true,

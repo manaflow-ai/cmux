@@ -6,8 +6,8 @@ import "./testCatalog";
 import { displayNumber, parseNumber, shownUnit, unitLabel } from "./format";
 import { hostRowsByKey, type NumberRange } from "./schema";
 
-// Page-hidden rows too: the Updates durations folded into Automatic Updates (2026-11-22) but keep
-// their ranges for cmux.json and the CLI.
+// The update timing rows are page-hidden since one Automatic Updates choice replaced them (#51125);
+// the host still takes them, with the same ranges, so their units are read from the host's rows.
 const range = (key: string): NumberRange => hostRowsByKey.get(key)!.range!;
 
 test("Check Every reads in hours and stores seconds", () => {
