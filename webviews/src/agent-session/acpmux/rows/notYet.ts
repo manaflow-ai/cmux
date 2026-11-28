@@ -8,43 +8,15 @@ export type Home = "a" | "b" | "c" | "d" | "e" | "f" | "g";
 export type Builder = "2c" | "2d" | "A0" | "row 11";
 
 /// `covers` names the FIELDS.md names the entry stands for beside its own field.
-export type NotYet = { field: string; home: Home; builder: Builder; note: string; covers?: readonly string[] };
+export type NotYet = {
+  field: string;
+  home: Home;
+  builder: Builder;
+  note: string;
+  covers?: readonly string[];
+};
 
-export const NOT_YET: readonly NotYet[] = [
-  {
-    field: "turnSummary.turnStartedAtMs",
-    home: "b",
-    builder: "2c",
-    note: "the group row's start, in ms (decision 231)",
-  },
-  { field: "tool.startedAt", home: "a", builder: "2c", note: "in ms on tool rows (decision 231)" },
-  { field: "tool.endedAt", home: "a", builder: "2c", note: "in ms on tool rows (decision 231)" },
-  {
-    field: "tool.approved",
-    home: "a",
-    builder: "2c",
-    note: "an approval reads on its call; the ask row draws no receipt for it",
-  },
-  {
-    field: "tool.provenance",
-    home: "a",
-    builder: "2c",
-    note: "Claude's tool name (`_meta.claude.tool`), with Claude's title and kind",
-    covers: ["title", "kind"],
-  },
-  // The row head's `at` is in seconds; v1 keeps the record's ms.
-  { field: "user.at", home: "a", builder: "2c", note: "the row head's `at` in ms" },
-  { field: "assistant.at", home: "a", builder: "2c", note: "the row head's `at` in ms" },
-  { field: "tool.at", home: "a", builder: "2c", note: "the row head's `at` in ms" },
-  { field: "turnSummary.at", home: "a", builder: "2c", note: "the row head's `at` in ms" },
-  {
-    field: "row:permissionRecord",
-    home: "a",
-    builder: "A0",
-    note: "an approved ask whose call has no tool row: v1 keeps its receipt, the adapter draws none (parity seq 53-54)",
-  },
-];
-
+export const NOT_YET: readonly NotYet[] = [];
 /// The fields FIELDS.md has under "Not yet" that no corpus row shows, so the parity test cannot
 /// see them differ (decision 259). Each leaves this list for `NOT_YET` when a corpus line shows it;
 /// the parity test fails while the corpus shows one still here. A key is `<kind>.<field>` for a

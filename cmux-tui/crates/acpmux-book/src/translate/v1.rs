@@ -210,6 +210,13 @@ fn mux(
             // Who sent it and how: the record's keys the message itself does not read.
             let said: super::user::Said<'_> =
                 serde_json::from_str(line.raw.get()).unwrap_or_default();
+            let mut sender = super::user::sender(&said, &msg.prompt_id);
+            if !msg.turn_id.is_empty() {
+                sender.fields.push((
+                    "turnId",
+                    serde_json::to_string(&msg.turn_id).map_err(|_| Error::InvalidJson)?,
+                ));
+            }
             state.prompt(
                 super::PromptEvent {
                     key: &msg.turn_id,
@@ -218,7 +225,7 @@ fn mux(
                     notice,
                     body: msg.text,
                     images: msg.images,
-                    sender: super::user::sender(&said, &msg.prompt_id),
+                    sender,
                     inline_parts: said.inline_parts,
                     pasted: said.pasted,
                     place,
@@ -239,10 +246,13 @@ fn mux(
             }
         }
         "turn_started" if state.turn_key.is_empty() || *state.turn_key == *msg.turn_id => {
+            state.started_event_ms = Some(state.at_ms);
             super::bounded(&msg.turn_id)?;
             state.turn_key = msg.turn_id.to_string();
             state.turn_started(out);
         }
+        // v1 keeps the provisional end's timestamp only for a result with the same named turn.
+        "turn_end" if msg.turn_id.is_empty() => state.started_event_ms = None,
         "turn_result" => {
             if !msg.turn_id.is_empty()
                 && !state.turn_key.is_empty()
@@ -252,6 +262,9 @@ fn mux(
             }
             let mut end = state.row(RowKind::Notice, out)?;
             end.field("notice", "turn_result");
+            if !msg.turn_id.is_empty() {
+                end.field("turnId", &msg.turn_id);
+            }
             // A fork names the result by its v1 seq while fork is a v1 request.
             end.fields.insert("forkable".into(), "true".into());
             end.fields.insert("seq".into(), line.seq.to_string());
@@ -411,6 +424,7 @@ fn agent(
                 ("kind", u.kind.as_ref()),
                 ("status", u.status.as_ref()),
                 ("tool", u.meta.claude.tool.as_ref()),
+                ("claudeCodeToolName", u.meta.claude_code.tool_name.as_ref()),
                 ("recipient", params.acpmux.recipient.as_ref()),
             ] {
                 if !v.is_empty() {

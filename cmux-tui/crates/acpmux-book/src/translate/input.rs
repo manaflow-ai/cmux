@@ -119,6 +119,8 @@ pub(super) struct Meta<'a> {
     pub terminal_output: Terminal<'a>,
     #[serde(borrow)]
     pub claude: ClaudeMeta<'a>,
+    #[serde(rename = "claudeCode", borrow)]
+    pub claude_code: ClaudeCodeMeta<'a>,
 }
 #[derive(Deserialize, Default)]
 #[serde(default)]
@@ -148,6 +150,12 @@ pub(super) struct Terminal<'a> {
 pub(super) struct ClaudeMeta<'a> {
     #[serde(borrow)]
     pub tool: Cow<'a, str>,
+}
+#[derive(Deserialize, Default)]
+#[serde(default)]
+pub(super) struct ClaudeCodeMeta<'a> {
+    #[serde(rename = "toolName", borrow)]
+    pub tool_name: Cow<'a, str>,
 }
 #[derive(Deserialize, Default)]
 #[serde(default)]

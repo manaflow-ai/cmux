@@ -109,6 +109,7 @@ impl Mirror {
                 self.queue.remove(hash);
             }
             Change::Queue(QueueChange::Order) => {}
+            Change::Approve { .. } => {} // Resolved by the actor against the durable book.
             Change::Body { id, field, append, source } => {
                 assert!(self.rows[id].open);
                 let s = match source {
