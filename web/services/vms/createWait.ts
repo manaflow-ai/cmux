@@ -74,3 +74,21 @@ export function nextCreateWait(state: VmCreateWaitState, previous: VmCreateWait 
 export function isCreateWaitExpired(wait: VmCreateWait, now: number): boolean {
   return now >= wait.deadline;
 }
+
+/**
+ * Client contract of the 202 `vm_create_waiting` answer (the create and
+ * workspace routes). Retry the same request with the same idempotency key
+ * after `retryAfterSeconds`; past `waitDeadline` the retry fails with
+ * `vm_create_wait_expired`.
+ */
+export type VmCreateWaitingBody = {
+  readonly error: "vm_create_waiting";
+  readonly message: string;
+  readonly retryable: true;
+  readonly retryAfterSeconds: number;
+  readonly waitState: VmCreateWaitState;
+  /** Epoch ms the create first waited. */
+  readonly waitingSince: number;
+  /** Epoch ms the wait ends. */
+  readonly waitDeadline: number;
+};
