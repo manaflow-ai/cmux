@@ -219,7 +219,7 @@ impl Leader {
                 }
                 Ok(In::Frame(Msg::Hello { .. }, _)) => {}
                 Ok(In::Frame(Msg::SyncedTree { tree, .. }, _)) => {
-                    follower_synced = Some(tree.into_iter().collect())
+                    follower_synced = Some(tree.into_iter().collect());
                 }
                 Ok(In::Frame(Msg::State { full: true, entries, alerts }, _)) => {
                     self.remote = entries.into_iter().filter_map(|(p, h)| Some((p, h?))).collect();

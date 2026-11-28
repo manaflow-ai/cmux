@@ -115,10 +115,10 @@ fn read_part(r: &mut impl Read) -> io::Result<Vec<u8>> {
 }
 
 /// Splits a body by its items' lengths.
-pub fn split_body<'a>(
-    body: &'a [u8],
+pub fn split_body(
+    body: &[u8],
     lens: impl IntoIterator<Item = u64>,
-) -> io::Result<Vec<&'a [u8]>> {
+) -> io::Result<Vec<&[u8]>> {
     let mut at = 0usize;
     let mut out = vec![];
     for len in lens {
