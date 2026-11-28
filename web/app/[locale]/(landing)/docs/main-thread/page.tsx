@@ -84,7 +84,7 @@ export default async function MainThreadPage({
         <li>{t("fixWrites")}</li>
       </ol>
 
-      <DocsHeading level={2} id="chrome">{t("chromeTitle")}</DocsHeading>
+      <DocsHeading level={2} id="browser-model">{t("chromeTitle")}</DocsHeading>
       <ul>
         <li>{t("chromeUiThread")}</li>
         <li>{t("chromeTasks")}</li>
