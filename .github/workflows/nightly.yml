@@ -7502,6 +7502,118 @@ jobs:
         run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" wipe
 
   # Delta trust boundary and topology: docs/ci/nightly-workflow-notes/2026-11-27-nightly-next-deltas-job.md
+  # The hedge compile: the signer Mac the pick did not take builds the same tree, no signing, no publish.
+  # Nothing needs it, so it never holds or reddens the nightly. Why: docs/ci/nightly-workflow-notes/2026-11-28-nightly-next-hedge.md
+  nightly-next-hedge:
+    needs: [decide, resolve-nightly-cmux-tui-client, pick-nightly-next-signer]
+    if: "!cancelled() && vars.NIGHTLY_NEXT_HEDGE != 'off' && needs.pick-nightly-next-signer.result == 'success' && needs.pick-nightly-next-signer.outputs.attempt == github.run_attempt && needs.pick-nightly-next-signer.outputs.hedge_pin != '' && needs.decide.outputs.track == 'nightly-next'"
+    continue-on-error: true
+    # The split builder's environment: no signing secret (the store key below is not passed).
+    environment:
+      name: ${{ github.ref == 'refs/heads/nightly-next' && 'artifacts' || '' }}
+      deployment: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(needs.pick-nightly-next-signer.outputs.hedge_pin) }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    outputs:
+      compile: ${{ (steps.chief-build.outcome == 'failure' || steps.mobile-host-build.outcome == 'failure' || steps.app-release-build.outcome == 'failure') && 'fail' || steps.app-release-build.outcome == 'success' && 'pass' || 'not built' }}
+    env: *one-env
+    steps:
+      - *hold-the-whole-mac
+      - *clear-stale-git-locks-self-hos-2
+      - *x8
+      - name: Checkout build ref (warm nightly-next builder)
+        if: *warm-checkout-if
+        timeout-minutes: 15
+        env:
+          BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          FETCH_TOKEN: ${{ github.token }}
+        run: *warm-checkout-script
+      - *checkout-publication-tooling-a
+      - *one-paths
+      - *x10
+      - *select-xcode-sdk-unless-resumed
+      - *x11
+      - *x13
+      - *x1
+      - *x2
+      - *one-zig-kept
+      - *one-zig-cache
+      - *one-helper-key
+      - *one-helper-cache
+      - *one-helper-build
+      - *x4
+      - *x5
+      - *one-product
+      - *x14
+      - *x15
+      - *x16
+      - *one-compile-deps
+      - *x18
+      - *x19
+      - *x20
+      - *x21
+      - *x22
+      - *x23
+      - *x24
+      - *x25
+      - *restore-bun-web-bundles
+      - *x26
+      - *restore-node-web-bundles
+      - *x27
+      - *x28
+      - *x29
+      - *x30
+      - name: Build the web bundles (cmux-next, unsigned store packages)
+        if: steps.nightly-product.outputs.hit != 'true'
+        env:
+          RESTORED: ${{ steps.app-web-r2.outputs.cache-hit }}
+        run: bash scripts/ci/nightly-steps/app-build-web-bundles.sh
+      - *x32
+      - *x33
+      - *one-release-build
+
+  # One row per signer (the build and the hedge) to the summary and an artifact; a split verdict is the flake signal.
+  nightly-next-hedge-verdict:
+    needs: [resolve-nightly-cmux-tui-client, pick-nightly-next-signer, nightly-next-one, nightly-next-hedge]
+    if: "!cancelled() && needs.nightly-next-hedge.result != 'skipped' && needs.pick-nightly-next-signer.outputs.hedge_pin != ''"
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout the verdict script at the workflow commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          sparse-checkout: scripts/ci
+      - name: Write one row per signer and flag a split verdict
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TIP_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          PRIMARY_HOST: ${{ needs.pick-nightly-next-signer.outputs.host }}
+          PRIMARY_COMPILE_RED: ${{ needs.nightly-next-one.outputs.compile_red }}
+          PRIMARY_LEFT: ${{ needs.nightly-next-one.outputs.left }}
+          PRIMARY_RESULT: ${{ needs.nightly-next-one.result }}
+          HEDGE_HOST: ${{ needs.pick-nightly-next-signer.outputs.hedge_host }}
+          HEDGE_COMPILE: ${{ needs.nightly-next-hedge.outputs.compile }}
+          ROWS_OUT: ${{ runner.temp }}/nightly-next-hedge-rows.jsonl
+        run: python3 scripts/ci/nightly_next_hedge_verdict.py
+      - name: Upload the signer rows
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-next-hedge-rows
+          path: ${{ runner.temp }}/nightly-next-hedge-rows.jsonl
+          if-no-files-found: ignore
+          retention-days: 30
+
   nightly-next-deltas:
     needs: [decide, nightly-next-one]
     if: "!cancelled() && needs.nightly-next-one.outputs.deltas == 'true' && needs.nightly-next-one.outputs.feed_written == 'true' && needs.nightly-next-one.outputs.left != 'true'"
