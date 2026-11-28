@@ -86,9 +86,6 @@ public struct RootView: View {
     /// The app's keyboard notifications, for every keyboard-pinned composer.
     @State private var keyboard = MobileKeyboardFrameTracker()
     @State private var launchFinished = false
-    #if DEBUG
-    @State private var onboardingPrototype = OnboardingPrototypesView.launchVariant()
-    #endif
     @State private var previewSweepStarted = false
     /// Live data from sign-in on (setup included); nil in mock mode.
     @State private var live: LiveCoordinator?
@@ -210,14 +207,6 @@ public struct RootView: View {
                         ? .identity
                         : .opacity.combined(with: .scale(scale: 0.92)).animation(theme.motion.snap.animation.unlessReduceMotion))
             }
-            #if DEBUG
-            // `-cmux-mobile-onboarding-prototypes [1-5]`: the onboarding prototypes over the app;
-            // its close button returns to the app underneath.
-            if let variant = onboardingPrototype {
-                OnboardingPrototypesView(initial: variant) { onboardingPrototype = nil }
-                    .zIndex(10)
-            }
-            #endif
         }
         .animation(theme.motion.gentle.animation.unlessReduceMotion, value: destination)
         .environment(\.mobileKeyboardFrameTracker, keyboard)
