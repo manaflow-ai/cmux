@@ -317,6 +317,7 @@ actions, including doctor refusal and terminal MCP denial.
 | `browser-fuzz.sh` | Seeded fuzz of URLs, navigation and tab storms (correctness). | fuzz row k | 2026-11-14 | active |
 | `browser-use-perf.sh` | cmux browser host REPL against other browser-automation tools, no model. | - | 2026-11-03 | active |
 | `pane-compile-ab.mjs` | The agent pane's JS compile before first paint, A against B, cold or with a warm code cache, in headless Chrome over http; `--attach PORT` checks a running cmux's pane for code cache consumption. | research:startup | 2026-11-23 | active |
+| `crash-report-read.sh` | A fleet Mac's cmux crash reports as image + offset per frame (crashed thread, lastExceptionBacktrace, main) with image UUIDs and load addresses, plus recent cef.log FATAL / Check failed lines, so a stripped CEF frame ("ChromeWebAppShortcutCopierMain") can be symbolicated against the CEF `-debug` asset. Read only; `--class light --target-worker HOST`. | feature-flows walk SIGTRAP (run 46185455947) | 2026-11-28 | active |
 | `cef-tab.sh` | New Chromium tab: input to visible and to page pixels. | PL-cef-tab | 2026-10-27 | active |
 | `cef-embedder.sh` | CEF fork embedder tests against an unreleased fork build. | PL-cef-fork | 2026-11-12 | active |
 | `cef-helpers.sh` | Chromium helper check: renderer and GPU helpers start, no V8 OOM. | - | 2026-11-05 | active |
