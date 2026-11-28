@@ -503,7 +503,8 @@ pub(crate) async fn prompt(
 }
 
 /// The `HOST/ID` a prompt for `key` goes to through the hub: a chat the hub lists for one of the
-/// person's other machines (`hub/mesh_book.rs`), that nothing here or on an ssh peer resolves.
+/// person's other machines (`hub/mesh_book.rs`), that nothing here or on an ssh peer resolves,
+/// by `key` as asked and by its `HOST/ID`.
 /// None for anything else, which the usual prompt path takes.
 pub(crate) fn hub_prompt_target(hub: &Hub, key: &str) -> Option<String> {
     // A chat named by its handle goes by its id (`Hub::mesh_book_handle`).
@@ -515,7 +516,11 @@ pub(crate) fn hub_prompt_target(hub: &Hub, key: &str) -> Option<String> {
         Some(_) => return None,
         None => format!("{}/{key}", hub.mesh_book_host(key)?),
     };
-    hub.mesh_may_route(&target).then_some(target)
+    // The key as asked, as `hub_only` and the reads above judge it: a bare id a live session
+    // here holds is prompted here, though the book still lists it on the machine it moved back
+    // from until that machine's next heartbeat (`hub/transfer_out.rs`). Its `HOST/ID` never
+    // resolves here, so judging that alone sent the prompt to a machine without it.
+    (hub.mesh_may_route(key) && (target == key || hub.mesh_may_route(&target))).then_some(target)
 }
 
 /// The hub client a read or prompt on `conn` goes through, and the device client when it is
