@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 public import CmuxNextDevices
+import CmuxNextWakeups
 import Observation
 
 /// What the home page asks of its owner.
@@ -142,27 +143,23 @@ final class MacScreenHomeView: MacScreenThemedView {
 
     /// When This Mac began waiting to join the device hub, and the redraw due once that wait has lasted the bound.
     private var hubJoiningSince: ContinuousClock.Instant?
-    private var hubJoiningRedraw: Task<Void, Never>?
+    private let hubJoiningRedraw = DemandTimer(owner: "macScreen.home.hubJoining")
 
     /// Whether This Mac has been joining the hub for `bound` (``NoticeTiming/connectionQuiet``): until then its
     /// note stays out of sight, and the page redraws when the bound passes.
     func hubJoiningLasted(_ joining: Bool, bound: Duration) -> Bool {
         guard joining else {
             hubJoiningSince = nil
-            hubJoiningRedraw?.cancel()
-            hubJoiningRedraw = nil
+            hubJoiningRedraw.cancel()
             return false
         }
         let now = ContinuousClock.now
         let since = hubJoiningSince ?? now
         hubJoiningSince = since
         if now - since >= bound { return true }
-        if hubJoiningRedraw == nil {
-            hubJoiningRedraw = Task { @MainActor [weak self] in
-                try? await Task.sleep(until: since + bound, clock: .continuous)
-                guard !Task.isCancelled, let self else { return }
-                self.hubJoiningRedraw = nil
-                self.render()
+        if !hubJoiningRedraw.isScheduled {
+            hubJoiningRedraw.schedule(after: bound - (now - since), reason: "hub-joining-note") { @MainActor [weak self] in
+                self?.render()
             }
         }
         return false
