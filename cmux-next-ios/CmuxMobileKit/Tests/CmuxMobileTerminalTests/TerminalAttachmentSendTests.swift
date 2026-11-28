@@ -249,18 +249,23 @@ import Testing
         #expect(progress.isCancelled)
     }
 
+    /// The load runs past one idle window in total while each step comes
+    /// well inside it. The window is 800 ms against 30 ms steps: a loaded
+    /// simulator late-ran a 30 ms sleep past the old 150 ms window, so the
+    /// idle deadline fired on a load that was advancing.
     @Test func advancingPhotoLoadOutlivesOneIdleWindowAndCompletesWithoutCancellation() async throws {
-        let progress = Progress(totalUnitCount: 10)
+        let steps = 40
+        let progress = Progress(totalUnitCount: Int64(steps))
         let value: Int = try await TerminalComposer.loadWithInactivityDeadline({ finish in
             Task {
-                for step in 1...10 {
-                    try await Task.sleep(for: .milliseconds(30))
+                for step in 1...steps {
+                    try await Task.sleep(for: .milliseconds(30)) // test: one step of a slow Photos load
                     progress.completedUnitCount = Int64(step)
                 }
                 finish(.success(42))
             }
             return progress
-        }, inactivityDeadline: .milliseconds(150), progressPoll: .milliseconds(5))
+        }, inactivityDeadline: .milliseconds(800), progressPoll: .milliseconds(5))
         #expect(value == 42)
         #expect(!progress.isCancelled)
     }
