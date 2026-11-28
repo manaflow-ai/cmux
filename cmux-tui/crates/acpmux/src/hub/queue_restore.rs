@@ -413,3 +413,136 @@ impl Hub {
         None
     }
 }
+
+impl Hub {
+    /// Runs `sessions`' restored prompts not started yet (each once: its `resume` mark). A chat
+    /// in a privacy-protected folder that no client shows waits for the person instead
+    /// (`protected_hold.rs`).
+    pub(in crate::hub) fn resume_restored(self: &Arc<Self>, sessions: &[Arc<Session>]) {
+        self.resume_restored_as(sessions, false);
+    }
+
+    /// `resume_restored`; `asked`: the person asked for these chats now, so a protected folder
+    /// holds nothing (`release_protected_hold`).
+    pub(in crate::hub) fn resume_restored_as(
+        self: &Arc<Self>,
+        sessions: &[Arc<Session>],
+        asked: bool,
+    ) {
+        for session in sessions {
+            if !asked && self.hold_in_protected_folder(session) {
+                continue;
+            }
+            // A copy's first start: no restored wait or held message goes in (`clone_boot.rs`).
+            // Its retry wait is settled for good (`restore_auto_resume` writes the skip).
+            if self.clone_of().is_some() {
+                self.restore_auto_resume(session);
+                self.start_restored(session);
+                continue;
+            }
+            // The rate-limit hold, park and strikes its log says it had, before anything of it
+            // goes on: its queue then waits for the hold, and its continuation for the park.
+            self.restore_rate_hold(session);
+            self.restore_auto_resume(session);
+            // What the restored inbox holds new goes in as it may (`inbox.rs`).
+            {
+                let (hub, session) = (self.clone(), session.clone());
+                tokio::spawn(async move {
+                    hub.wait_startup().await;
+                    hub.inbox_review(&session);
+                });
+            }
+            // Agent messages a failed turn held before the restart go in again by themselves.
+            self.retry_held_agent_messages(session);
+            self.start_restored(session);
+        }
+    }
+
+    /// Runs the chat's restored prompts not started yet (each once: its `resume` mark), and
+    /// nothing else `resume_restored` does.
+    pub(in crate::hub) fn start_restored(self: &Arc<Self>, session: &Arc<Session>) {
+        {
+            let restored: Vec<QueuedPrompt> = session
+                .queue
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .iter_mut()
+                .filter_map(|q| std::mem::take(&mut q.resume).then(|| q.clone()))
+                .collect();
+            for q in restored {
+                let hub = self.clone();
+                let session = session.clone();
+                tokio::spawn(async move {
+                    // After the login env and the catalog reload: its harness may need them.
+                    hub.wait_startup().await;
+                    let opts = PromptOptions {
+                        prompt_id: Some(q.prompt_id.clone()),
+                        message_id: q.run.message_id.clone(),
+                        control: q.run.control,
+                        cloud_mobile: q.run.cloud_mobile,
+                        trust_gate: q.run.trust_gate,
+                        // Who sent it: a queued agent message stays that agent's after a restart.
+                        provenance: q.run.provenance.clone(),
+                        message_sender: q.run.message_sender.clone(),
+                        agent: q.run.agent.clone(),
+                        class: q.run.class,
+                        display_parts: q.run.display_parts.clone(),
+                        ..PromptOptions::default()
+                    };
+                    let blocks = q.run.blocks.clone();
+                    let result = hub.run_prompt(&session, blocks, &q.client, false, opts).await;
+                    // A client that resent this prompt id waits on the entry `restore_queues` made.
+                    let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
+                    if let Some((_, outcome)) = ledger.iter().find(|(id, _)| *id == q.prompt_id) {
+                        prompt_ledger::settle_once(outcome, result.clone());
+                        super::turns::release_acceptance(&session, &q.prompt_id, outcome);
+                    }
+                    prompt_ledger::prune(&mut ledger);
+                    drop(ledger);
+                    hub.settle_restored_run(&session, &q, result);
+                });
+            }
+        }
+    }
+}
+
+impl Hub {
+    /// What a restored prompt's run `result` leaves of its queue entry (`start_restored`).
+    ///
+    /// Refused before its turn (its harness is gone, or it may not start under the chat's
+    /// control): it leaves the queue, so the prompts behind it still run, and its
+    /// `prompt_refused` says why, so it never just disappears. Taken without its turn (another
+    /// agent's message the chat's inbox, its surge or a hold took): it leaves the queue too,
+    /// logged, so the next restore does not run it again. Before, only a refusal took it out:
+    /// Mango's 66 background notices went to its inbox again at every daemon start and its queue
+    /// never drained (2026-11-25). Only this copy: a turn that ran it took it out already, and
+    /// one that ran it and failed may have put it back under a new turn id (`digest.rs`
+    /// `requeue_unread`), which waits on.
+    pub(in crate::hub) fn settle_restored_run(
+        &self,
+        session: &Arc<Session>,
+        q: &QueuedPrompt,
+        result: Result<Value, RpcError>,
+    ) {
+        // Check the restored run's identity under the same lock that removes it: an unread
+        // turn can requeue this prompt with a new turn id while its old run is settling.
+        let remove = |reason| {
+            self.remove_queued_by(session, &q.prompt_id, reason, None, false, Some(&q.turn_id))
+                .is_ok_and(|w| w == Withdrawn::Removed)
+        };
+        match result {
+            Err(e) => {
+                if remove(None) {
+                    tracing::warn!(session = %session.id, prompt = %q.prompt_id, "restored prompt refused: {}", e.message);
+                    let msg = json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "error": e.message, "data": e.data});
+                    self.append(session, "mux", "prompt_refused", msg);
+                }
+            }
+            Ok(_) => {
+                if remove(Some("taken")) {
+                    tracing::info!(session = %session.id, prompt = %q.prompt_id, "restored prompt taken without its turn: it leaves the queue");
+                }
+            }
+        }
+    }
+}

@@ -416,3 +416,18 @@ pub(crate) fn check_annotations(
 #[cfg(test)]
 #[path = "questions_tests.rs"]
 mod tests;
+
+/// True when a permission request is an agent's question (`questions.rs`): what tells the
+/// person about it says the agent asks, never that it needs a permission.
+pub(crate) fn is_question(request: &Value) -> bool {
+    needs_person(request)
+}
+
+/// The first prompt of an agent's question: the normalized copy, else Claude Code's own input.
+pub(crate) fn question_prompt(request: &Value) -> Option<&str> {
+    question(request)
+        .and_then(|q| q.pointer("/items/0/prompt"))
+        .or_else(|| request.pointer("/toolCall/rawInput/questions/0/question"))
+        .and_then(Value::as_str)
+        .filter(|p| !p.is_empty())
+}
