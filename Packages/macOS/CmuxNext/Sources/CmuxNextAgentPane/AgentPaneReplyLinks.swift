@@ -22,6 +22,23 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     }
 }
 
+/// Favicon PNGs, each `NSImage` encoded once. The favicon loader hands back the same image for a
+/// cached icon, and every reply chip of that site asked for it again on the main actor (one PNG
+/// encode per link per request). Images are held weakly, so an icon the loader drops frees its
+/// PNG too. The App owns one per pane's reply links (AgentReplySites).
+@MainActor public final class AgentPaneFaviconPNGs {
+    private let encoded = NSMapTable<NSImage, NSData>.weakToStrongObjects()
+
+    public init() {}
+
+    public func png(_ image: NSImage) -> Data? {
+        if let cached = encoded.object(forKey: image) { return cached as Data }
+        guard let data = AgentPaneReplySite.png(image) else { return nil }
+        encoded.setObject(data as NSData, forKey: image)
+        return data
+    }
+}
+
 /// The App's side of the reply link requests (``AgentPaneReplyRequest``): the settings, the
 /// favicon and title lookup, the outside-root confirmation sheet, and the effects. Each has a safe
 /// default, so a host that wires nothing shows globes and plain text and opens nothing outside.

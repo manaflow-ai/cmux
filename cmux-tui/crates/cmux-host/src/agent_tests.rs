@@ -240,8 +240,9 @@ fn only_a_sleep_far_past_its_tick_is_a_pause() {
 
 /// wake-echo run 46000366770 (2026-11-27): Freestyle pauses of 5.6 s and
 /// 7.9 s, boot clock running through, were never counted, so the updater
-/// took no resume hold and a flip replaced the session host at the wake. A
-/// stop that short is counted for the updater, but is no resume.
+/// took no resume hold; the session host was replaced at the wake, most
+/// likely by a flip (inferred, not logged). A stop that short is counted for
+/// the updater, but is no resume.
 #[test]
 fn a_short_pause_is_a_stop_but_not_a_resume() {
     let tick = i128::try_from(PAUSE_TICK.as_nanos()).unwrap();

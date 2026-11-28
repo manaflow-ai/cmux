@@ -206,6 +206,8 @@ pub(super) struct Progress {
     marks: std::sync::Mutex<Marks>,
     /// Woken once the relay allocated the attempt's first link ([`Marks::first_allocated`]).
     allocated: tokio::sync::Notify,
+    /// The relay host the attempt's answer named: the phases line's `region` (RFD 0223).
+    relay_host: std::sync::Mutex<Option<String>>,
 }
 
 /// When one attempt reached each of its steps (see [`PhaseTimes`]).
@@ -259,6 +261,16 @@ impl Progress {
 
     fn mark(&self, write: impl FnOnce(&mut Marks)) {
         write(&mut self.marks.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+    }
+
+    fn set_relay_host(&self, host: Option<&str>) {
+        *self.relay_host.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            host.map(str::to_owned);
+    }
+
+    /// The relay host the attempt's answer named, once it has one.
+    pub(super) fn relay_host(&self) -> Option<String> {
+        self.relay_host.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     /// The marks so far.
@@ -462,6 +474,7 @@ async fn attempt(
         None => plan.source.fetch(&plan.machine, Some(&key)).await.map_err(source_failure)?,
     };
     step.mark(|marks| marks.answered = Some(Instant::now()));
+    step.set_relay_host(answer.relay.host_str());
     let grant = answer
         .grant
         .clone()
@@ -830,7 +843,17 @@ where
     let mut asking = std::pin::pin!(next(Duration::ZERO));
     let mut daemon = None;
     loop {
+        // Biased, the answer first: with both ready, an answer in hand is used before the link
+        // asks again. Unbiased, tokio picks at random, so one call asked once or twice.
         tokio::select! {
+            biased;
+            answer = &mut asking, if daemon.is_none() => {
+                match answer {
+                    Ok(answer) if answer.daemon_key.is_some() => daemon = answer.daemon_key,
+                    Err(failure) if !failure.retryable => return Err(failure),
+                    Ok(_) | Err(_) => asking.set(next(every)),
+                }
+            }
             opened = &mut open => {
                 let link = opened?;
                 let daemon = match daemon {
@@ -838,13 +861,6 @@ where
                     None => pinned_daemon(&ask().await?)?,
                 };
                 return Ok((link, daemon));
-            }
-            answer = &mut asking, if daemon.is_none() => {
-                match answer {
-                    Ok(answer) if answer.daemon_key.is_some() => daemon = answer.daemon_key,
-                    Err(failure) if !failure.retryable => return Err(failure),
-                    Ok(_) | Err(_) => asking.set(next(every)),
-                }
             }
         }
     }
@@ -1013,6 +1029,7 @@ fn log_attempt(
         outcome,
         step.times(),
         elapsed,
+        step.relay_host().as_deref(),
     ));
     // Only an attempt that got its answer built routes to name.
     let marks = step.marks();

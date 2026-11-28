@@ -235,6 +235,15 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 Err(refusal) => json!({ "refusal": value(refusal)? }),
             }
         }
+        // How an agent's or a script's machine change reaches the person: `{"asks", "toast"}`.
+        b"cloud_handler_change_gate" => {
+            #[derive(Deserialize)]
+            struct Request {
+                action: String,
+            }
+            let request: Request = read(request)?;
+            value(decide::change_gate(&request.action))?
+        }
         b"cloud_handler_palette_targets" => {
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]
