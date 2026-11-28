@@ -8,7 +8,9 @@ services:
       POSTGRES_PASSWORD: ${CMUX_DB_PASSWORD}
       POSTGRES_USER: ${CMUX_DB_USER}
     ports:
-      - "${CMUX_DB_PORT}:5432"
+      # Publish on loopback only: the development credential is a known default.
+      # Set CMUX_DB_BIND_ADDRESS to expose it deliberately.
+      - "${CMUX_DB_BIND_ADDRESS:-127.0.0.1}:${CMUX_DB_PORT}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${CMUX_DB_USER} -d ${CMUX_DB_NAME}"]
       interval: 1s
