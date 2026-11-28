@@ -72,33 +72,4 @@ pub static ACTIONS: &[Action] = &[
         waits_for_result: true,
         ..Action::DEFAULT
     },
-    Action {
-        id: "accounts.connect",
-        group: GROUP,
-        title: t("AccountsActions", "action.accounts.connect", "Connect Account to CodeRouter…"),
-        keywords: &["coderouter", "link", "share", "agents", "cloud"],
-        category: "cloud",
-        symbol: "link",
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("credentials"), ..SurfacePlan::DEFAULT },
-        requires: &["signedIn"],
-        arguments: &[args::PROVIDER_2],
-        cli_name: "accounts connect",
-        waits_for_result: true,
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "accounts.remove",
-        group: GROUP,
-        title: t("AccountsActions", "action.accounts.remove", "Remove Account from CodeRouter"),
-        keywords: &["coderouter", "unlink", "delete"],
-        category: "cloud",
-        symbol: "link.badge.plus",
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("credentials"), ..SurfacePlan::DEFAULT },
-        requires: &["signedIn"],
-        arguments: &[args::ACCOUNT_2, args::CONFIRM.optional()],
-        cli_name: "accounts remove",
-        is_destructive: true,
-        waits_for_result: true,
-        ..Action::DEFAULT
-    },
 ];
