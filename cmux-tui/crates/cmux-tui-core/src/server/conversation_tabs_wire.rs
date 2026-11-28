@@ -475,8 +475,6 @@ pub(super) fn bind(
     Ok(json!({"surface": surface, "conversation": record.wire(), "replayed": replayed}))
 }
 
-pub(super) use crate::tree_wire::raw_tab_kind;
-
 /// The conversation tab capabilities one connection negotiated.
 #[derive(Default)]
 pub(super) struct NegotiatedTabs {

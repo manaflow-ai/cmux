@@ -7,12 +7,11 @@
 //! as four fractions of the screen's pane area. A client without the
 //! capability ignores the list and shows every pane tiled.
 
-use cmux_layout_reducer::floating_panes::{FloatFrame, FloatMode, Floating, Quick, QuickMode};
+use cmux_layout_reducer::floating_panes::{FloatFrame, FloatMode, QuickMode};
 
 use super::*;
 use crate::FloatPaneError;
 use crate::panic_free::JsonFields;
-pub(super) use crate::tree_wire::{floating_json, quick_terminal_json};
 
 /// `float-pane` and the optional `Screen.floating` field.
 pub(super) const FLOATING_PANES_CAPABILITY: &str = "floating-panes-v1";

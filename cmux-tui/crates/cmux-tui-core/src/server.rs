@@ -43,7 +43,7 @@ use ghostty_vt::KittyReplayState;
 use ghostty_vt::{KeyAction, Mods, sys};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
+use sha2::Digest;
 #[cfg(test)]
 use tungstenite::WebSocket;
 use zeroize::Zeroize;
@@ -71,7 +71,7 @@ use crate::browser::BrowserPointerOwner;
 use crate::browser::{BrowserAttachUpdate, BrowserFrameUpdate};
 #[cfg(test)]
 use crate::journal_kernel::JournalDocument;
-use crate::model::{Screen, State};
+use crate::model::State;
 use crate::mux::ClientSizingIdentity;
 use crate::platform::{self, transport};
 #[cfg(test)]
@@ -91,7 +91,7 @@ use crate::surface::AttachLifecycle;
 use crate::surface::{ClearHistoryDelivery, ClearHistoryFailure};
 use crate::{
     Direction, LayoutLeafSpec, LayoutRatioError, LayoutSpec, MachineUsage, Mux, MuxEvent,
-    PairingDecision, PaneId, ScreenId, SplitDir, SplitId, SurfaceId, SurfaceKind, TreeDecorations,
+    PairingDecision, PaneId, ScreenId, SplitDir, SplitId, SurfaceId, SurfaceKind,
     ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode,
 };
 // `Node`: only the tests below `server` build layout nodes; `node_json` is in `tree_wire`.
@@ -300,7 +300,7 @@ mod tab_create_wire;
 mod tab_park;
 mod tab_restart;
 mod websocket_listener;
-use crate::tree_wire::{home, node_json, raw_tab, screen_json, tree_json};
+use crate::tree_wire::{node_json, screen_json, tree_json};
 pub(crate) use cmd_subscribe::AGENT_PRESENCE_REPLAY_CAPABILITY;
 pub(crate) use cmd_subscribe::SCREEN_DEVICE_IDENTITY_CAPABILITY;
 pub(crate) use cmd_subscribe::SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY;
@@ -323,7 +323,6 @@ use responses::{
     response_error_code, send_bad_request, send_request_error, send_request_error_with_delivery,
     send_response,
 };
-use screen_json::screen_json;
 mod group_outcome_json;
 use group_outcome_json::{
     pane_tab_group_json, screen_group_outcome_json, tab_drag_outcome_json, tab_group_outcome_json,

@@ -10,6 +10,7 @@ pub(crate) mod tree_json;
 
 use std::collections::HashMap;
 
+use cmux_json::JsonSet as _;
 use cmux_layout_reducer::floating_panes::{Floating, Quick};
 use serde_json::{Value, json};
 

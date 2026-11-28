@@ -6,9 +6,7 @@
 //! terminal; the app attaches on the terminal's own session.
 
 use super::*;
-use crate::state::remote_terminal_tabs_store::{
-    REMOTE_TERMINAL_KIND, RemoteTerminalRecord, RemoteTerminalUpdate,
-};
+use crate::state::remote_terminal_tabs_store::{RemoteTerminalRecord, RemoteTerminalUpdate};
 
 #[derive(Deserialize)]
 pub(super) struct NewParams {
@@ -74,5 +72,3 @@ pub(super) fn snapshot(mux: &Arc<Mux>, params: SnapshotParams) -> anyhow::Result
     let snapshot = mux.remote_terminal_snapshot(params.surface)?;
     Ok(json!({"surface": params.surface, "snapshot": snapshot}))
 }
-
-pub(super) use crate::tree_wire::remote_terminal_tab_apply as apply;
