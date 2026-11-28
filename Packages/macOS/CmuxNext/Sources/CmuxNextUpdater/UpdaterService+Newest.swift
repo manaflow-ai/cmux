@@ -78,7 +78,7 @@ extension UpdaterService {
         if case .ready = flow.phase, let staged = stagedBuild(), !staged.isEmpty, pulledWatch.isPulled(staged) {
             // An install click decides for itself (``StagedUpdateRefresh/beforeInstall(updater:install:)``).
             guard !flow.installRequested, !stagedRefresh.clickWaits else { return }
-            if cancelStaged() {
+            if cancelStagedUpdate() {
                 if droppedPulled.insert(staged).inserted {
                     log.append("staged build \(staged) was pulled: dropping it and getting the newest build")
                     let runningPulled = pulledWatch.isPulled(identity.build)

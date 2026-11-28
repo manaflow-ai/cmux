@@ -87,6 +87,17 @@ jobs:
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # A cmux-runner-pool slot shows cargo every host thread (up to 96) under a 24 GiB memory.max, so
+      # clippy-driver/rustc on acpmux (lib test) got SIGKILLed (batch clippy job 141038960720, 2026-11-28).
+      # One cargo job per 3 GiB of the slot's memory, as cmux-tui-spec.yml clippy does (#65012).
+      - name: Cap cargo jobs at this runner's memory
+        shell: bash
+        run: |
+          s="$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh"
+          [[ -z "${CARGO_BUILD_JOBS:-}" && -f "$s" ]] || exit 0
+          jobs="$(bash "$s" 2>/dev/null || true)"
+          [[ -z "$jobs" ]] || { echo "CARGO_BUILD_JOBS=$jobs" >> "$GITHUB_ENV"; echo "CARGO_BUILD_JOBS=$jobs"; }
+
       - name: Key the seed
         id: r2-cargo-key
         run: |
@@ -151,7 +162,29 @@ jobs:
       # workspace manifest, then the panic ratchet's production targets. A red build still seeds what compiled.
       - name: cargo clippy --all-targets on the whole cmux-tui workspace
         continue-on-error: true
+        env:
+          # Which members this commit fails to compile, for clippy-changed steps on later bases (clippy-base-seed.sh verdict).
+          CMUX_CLIPPY_VERDICT_OUT: ${{ runner.temp }}/clippy-verdict-out/verdict.json
         run: python3 .github/scripts/cmux-tui-clippy-changed.py --repo "$GITHUB_WORKSPACE" --base ""
+
+      - name: Find the clippy verdict
+        id: verdict
+        run: if [[ -s "$RUNNER_TEMP/clippy-verdict-out/verdict.json" ]]; then echo "found=true" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Save the clippy verdict to R2
+        if: ${{ steps.verdict.outputs.found == 'true' }}
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: ${{ runner.temp }}/clippy-verdict-out
+          key: cmux-tui-clippy-verdict-v1-${{ github.sha }}
 
       - name: Rust panic ratchet targets on the whole cmux-tui workspace
         continue-on-error: true

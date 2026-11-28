@@ -17149,6 +17149,52 @@
     "daemon.ColorHex": {
       "type": "string"
     },
+    "daemon.ColumnDock": {
+      "properties": {
+        "allow_tabs": {
+          "type": "boolean"
+        },
+        "edge": {
+          "$ref": "#/types/daemon.ColumnDockEdge"
+        },
+        "mode": {
+          "$ref": "#/types/daemon.ColumnDockMode"
+        },
+        "permanent": {
+          "type": "boolean"
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "role": {
+          "$ref": "#/types/daemon.ColumnDockRole"
+        }
+      },
+      "required": [
+        "edge",
+        "mode"
+      ],
+      "type": "object"
+    },
+    "daemon.ColumnDockEdge": {
+      "enum": [
+        "left",
+        "right",
+        "top",
+        "bottom"
+      ]
+    },
+    "daemon.ColumnDockMode": {
+      "enum": [
+        "docked",
+        "overlay"
+      ]
+    },
+    "daemon.ColumnDockRole": {
+      "enum": [
+        "agent_chat"
+      ]
+    },
     "daemon.ColumnPin": {
       "additionalProperties": false,
       "properties": {
@@ -18103,7 +18149,7 @@
       "additionalProperties": false,
       "properties": {
         "dock": {
-          "$ref": "#/types/daemon.JsonValue",
+          "$ref": "#/types/daemon.ColumnDock",
           "x-since": 12
         },
         "id": {

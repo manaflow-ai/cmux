@@ -993,6 +993,8 @@ class GlaedaKeptLog(unittest.TestCase):
                          "failed jobs only; GitHub is the signer, so the log must come from the Actions API itself",
         "cmux_next_tree_notify.py": "not switched yet: follow-up to the glaeda job-log cache",
         "cmux_tui_tree_handoff.py": "not switched yet: follow-up to the glaeda job-log cache",
+        "cmux_tui_channel_heal.py": "not switched yet (cmux#64931 reads a failed run's job logs as "
+                                    "cmux_tui_tree_handoff does): follow-up to the glaeda job-log cache",
         "nightly_ghostty_helper_reuse.py": "not switched yet: follow-up to the glaeda job-log cache",
         "package_bisect.py": "not switched yet: follow-up to the glaeda job-log cache",
         "web_test_failure_census.py": "not switched yet: follow-up to the glaeda job-log cache",
@@ -3020,6 +3022,37 @@ class StatusOnlyChecks(unittest.TestCase):
         lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[excuse.FAST_GATES_STATUS])
         self.assertTrue(any(line.startswith(f"excused '{excuse.FAST_GATES_STATUS}': its newest status on {HEAD} "
                                             "is success") for line in lines), lines)
+        self.assertFalse([r for r in self.gh.routes if r.endswith("/actions/runs/10")])  # the status decides
+
+    def test_a_dispatch_run_named_for_the_head_tested_the_head_before_and_after(self):
+        """cmux#63955 at 3bf87e15 (2026-11-28): cmux-next-hot-verify.yml's result run is a workflow_dispatch on the
+        feat-cmux-next tip, so its head_sha is the tip, and its run name names the head it looked at. Before: tested
+        the tip ("which tested 62a30cd0, not" the head, on every base merge). After: the named head; another
+        event's name is never read for it."""
+        run = {"event": "workflow_dispatch", "head_sha": BASE_SHA,
+               "display_title": f"cmux-next hot verify PR 63955 {HEAD} result"}
+        self.assertEqual(excuse.tested_sha(run), HEAD)
+        self.assertEqual(excuse.tested_sha(dict(run, display_title=f"cmux-next hot verify PR 63955 {HEAD} merge")),
+                         HEAD)
+        self.assertEqual(excuse.tested_sha(dict(run, event="pull_request")), BASE_SHA)
+        self.assertEqual(excuse.tested_sha(dict(run, display_title="cmux-next fast gates")), BASE_SHA)
+        self.assertEqual(excuse.tested_sha(dict(run, display_title="cmux-next · " + "c" * 40)), "c" * 40)
+
+    def test_a_ui_proof_red_is_the_heads_own_never_compared_by_the_dispatch_head(self):
+        """A `cmux/ui-proof` failure is a look's verdict or no look ("UI look could not run: ... look queue was
+        full"): refused as the head's own, naming the look, before any run is read (cmux#63955)."""
+        self.status = {"context": excuse.UI_PROOF_STATUS, "state": "failure",
+                       "target_url": f"https://github.com/{REPO}/actions/runs/10",
+                       "description": "UI look could not run: step 4054f392 cancelled: the fleet's look queue was full"}
+        self.head_run = {"id": 10, "workflow_id": 7, "head_sha": BASE_SHA, "event": "workflow_dispatch",
+                         "display_title": f"cmux-next hot verify PR 63955 {HEAD} result"}
+        with self.assertRaises(excuse.Refused) as refused:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[excuse.UI_PROOF_STATUS])
+        why = str(refused.exception)
+        self.assertIn("never a base red", why)
+        self.assertIn("look queue was full", why)
+        self.assertIn("hot-verify.py look", why)
+        self.assertNotIn("which tested", why)
         self.assertFalse([r for r in self.gh.routes if r.endswith("/actions/runs/10")])  # the status decides
 
     def test_a_status_whose_run_has_no_such_job_is_refused_with_its_description(self):
@@ -8709,6 +8742,31 @@ class RiskEvidenceQuotaMarker(unittest.TestCase):
                                        "##[warning]risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)"))
         self.assertIsNone(self.case(self.MARKER, "##[warning]an unrelated warning"))
 
+    def test_reset_past_the_wait_is_still_the_quota_verdict(self):
+        """cmux#64468 run 46145858015 and #64465 run 46145944548: risk-tier.yml's own warning for a reset past
+        RATE_LIMIT_WAIT_S ended the grade step, and the classifier refused the quota red as a real failure."""
+        past = ("##[warning]risk evidence: ungraded, the soonest budget reset (12:51:43Z) is past the 420s wait; "
+                "rerun after it")
+        comments = self.MARKER.replace("pulls/7/files?per_page=100", "issues/7/comments?per_page=100")
+        captured = (
+            "gh api 'repos/o/r/issues/7/comments?per_page=100&page=1' exited 1 (GitHub API quota: structured "
+            "refusal; endpoint repos/o/r/issues/7/comments?per_page=100&page=1, HTTP 403)",
+            comments, "## Risk tier: ungraded", "",
+            "GitHub's API budget refused `repos/o/r/issues/7/comments?per_page=100&page=1` with HTTP 403; the reset "
+            "boundary is in the machine-readable marker below.",
+            "That is not a verdict on this pull request. The next push, edit or label regrades it, or rerun this job.",
+            "", "Policy: docs/ci/risk-tiers.md",
+            "##[warning]risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)",
+            "##[warning]the glaeda-route App's read failed; grading on GITHUB_TOKEN",
+            self.MARKER, "## Risk tier: ungraded",
+            "##[warning]risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)",
+            past, "##[error]Process completed with exit code 1.")
+        self.assertIn("HTTP 403", self.case(*captured) or "")
+        self.assertIn("HTTP 403", self.case(self.MARKER, past) or "")
+        for wrong in (past.replace("(12:51:43Z)", "(soon)"), past + " and a real failure"):
+            with self.subTest(wrong=wrong):
+                self.assertIsNone(self.case(self.MARKER, wrong))
+
     def test_any_malformed_marker_rejects_even_beside_a_valid_one(self):
         for payload in ('[]', 'null', '{bad}', '{"graded":false}',
                         '{"endpoint":"repos/o/r/pulls/7","graded":true,"reset":1800000000,"status":403}'):
@@ -8831,6 +8889,126 @@ jobs:
             raise excuse.Refused(f"{repo}@{ref}: {path} unread")
         return self.files[(ref, path)]
 
+
+
+class PushBranchGitHub(FakeGitHub):
+    """cmux#61489 at b5a5a3ad: "cmux-next degenerate lab" runs on pull requests and on pushes to nightly-next alone.
+    Its pull_request run 10 failed job 1; feat-cmux-next has no run of the workflow; nightly-next's push run 20 failed
+    the same job (job 2, FakeGitHub's base red)."""
+
+    PATH = ".github/workflows/cmux-next-degenerate-lab.yml"
+    WORKFLOW = """name: cmux-next degenerate lab
+on:
+  push:
+    branches:
+      - nightly-next
+  pull_request:
+    paths:
+      - scripts/cmux-next/degenerate-lab/**
+jobs:
+  run:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: python3 -I scripts/cmux-next/degenerate-lab/lab.py
+"""
+
+    def __init__(self, *, workflow=WORKFLOW, push_conclusion="failure"):
+        super().__init__()
+        self.files = {("feat-cmux-next", self.PATH): workflow}
+        self.run_record = {"id": 10, "workflow_id": 7, "event": "pull_request", "path": self.PATH, "head_sha": HEAD,
+                           "name": "cmux-next degenerate lab", "status": "completed", "conclusion": "failure"}
+        self.push_runs = [{"id": 20, "event": "push", "head_branch": "nightly-next", "status": "completed",
+                           "conclusion": push_conclusion, "head_sha": BASE_SHA, "path": self.PATH,
+                           "name": "cmux-next degenerate lab"}]
+        if push_conclusion != "failure":
+            self.jobs[2] = dict(self.jobs[2], conclusion=push_conclusion)
+            self.jobs[2]["steps"] = [dict(step, conclusion="success") for step in self.jobs[2]["steps"]]
+            self.logs[2] = log(SWIFT, TEST_STEP, "all tests passed")
+
+    def json(self, route, *, paginate=False):
+        if route.endswith("/actions/runs/10"):
+            self.routes.append(route)
+            return copy.deepcopy(self.run_record)
+        if "/actions/workflows/7/runs?" in route:
+            self.routes.append(route)
+            if "branch=nightly-next" in route:
+                runs = copy.deepcopy(self.push_runs)
+                if "&event=" in route:
+                    event = route.split("&event=", 1)[1].split("&", 1)[0]
+                    runs = [run for run in runs if run.get("event") == event]
+                return {"workflow_runs": runs}
+            assert "branch=feat-cmux-next" in route, route
+            return {"workflow_runs": []}
+        if "/pulls?head=" in route:
+            self.routes.append(route)
+            return []
+        if f"/compare/nightly-next...{HEAD}" in route:
+            self.routes.append(route)
+            return {"merge_base_commit": {"sha": BASE_SHA}, "files": []}
+        return super().json(route, paginate=paginate)
+
+    def run(self, args):
+        raise excuse.Refused("GraphQL refused (the broker's mark)")
+
+    def blob(self, repo, ref, path):
+        if (ref, path) not in self.files:
+            raise excuse.Refused(f"{repo}@{ref}: {path} unread")
+        return self.files[(ref, path)]
+
+
+class PushBranchIsTheBase(unittest.TestCase):
+    """A workflow that never runs on the PR's base is judged against the branches it runs on pushes to (its literal
+    `on.push.branches`, push_branch_verdicts): cmux#61489's degenerate-lab reds were refused as "no feat-cmux-next run
+    of its workflow has a verdict for it to compare with" while nightly-next's push runs failed the same jobs."""
+
+    def judge(self, github):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def test_cmux_61489_a_red_shared_with_the_push_branch_is_excused(self):
+        github = PushBranchGitHub()
+        said = self.judge(github)
+        self.assertIn("base for 'cmux-next swift test': workflow 'cmux-next degenerate lab' "
+                      "(cmux-next-degenerate-lab.yml) never runs on feat-cmux-next (no feat-cmux-next run has a "
+                      "verdict for it) but runs on pushes to nightly-next", said)
+        self.assertIn("excused 'cmux-next swift test'", said)
+        self.assertIn("nightly-next run 20", said)
+        self.assertTrue(any("branch=nightly-next" in route for route in github.routes))
+
+    def test_a_pass_on_the_push_branch_is_the_heads_own_red(self):
+        with self.assertRaisesRegex(excuse.Refused, "is not red on nightly-next run 20"):
+            self.judge(PushBranchGitHub(push_conclusion="success"))
+
+    def test_no_verdict_on_the_push_branch_names_it_in_the_refusal(self):
+        github = PushBranchGitHub()
+        github.push_runs = []
+        with self.assertRaisesRegex(excuse.Refused, r"no feat-cmux-next run of its workflow has a verdict for it .*"
+                                                    r"nor on its push branches \(nightly-next\)"):
+            self.judge(github)
+
+    def test_only_literal_push_branches_other_than_the_base_are_read(self):
+        for branches, expected in (("[nightly-next]", ["nightly-next"]),
+                                   ("[feat-cmux-next, nightly-next]", ["nightly-next"]),
+                                   ("['release/*', '!x', nightly-next]", ["nightly-next"]),
+                                   ("[feat-cmux-next]", [])):
+            with self.subTest(branches=branches):
+                workflow = PushBranchGitHub.WORKFLOW.replace("    branches:\n      - nightly-next",
+                                                             f"    branches: {branches}")
+                github = PushBranchGitHub(workflow=workflow)
+                self.assertEqual(excuse.push_branches(REPO, "feat-cmux-next", github.run_record, github), expected)
+        no_push = PushBranchGitHub.WORKFLOW.replace("  push:\n    branches:\n      - nightly-next\n", "")
+        github = PushBranchGitHub(workflow=no_push)
+        self.assertEqual(excuse.push_branches(REPO, "feat-cmux-next", github.run_record, github), [])
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow has a verdict"):
+            self.judge(github)
+
+    def test_the_pr_heads_copy_never_picks_the_branch_compared_with(self):
+        # A pull request that adds `on.push.branches` to its own copy chooses no base: only BASE's copy is read.
+        github = PushBranchGitHub()
+        github.files = {(HEAD, PushBranchGitHub.PATH): PushBranchGitHub.WORKFLOW}
+        self.assertEqual(excuse.push_branches(REPO, "feat-cmux-next", github.run_record, github), [])
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow has a verdict"):
+            self.judge(github)
+        self.assertFalse(any("branch=nightly-next" in route for route in github.routes))
 
 
 class RedFromTheOldBaseAfterRetarget(unittest.TestCase):
@@ -18951,6 +19129,8 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-next-react-doctor.yml",
             # The tab switch check: a display Mac measures the pull request head's tab switches (advisory).
             "cmux-next-tab-switch.yml",
+            # The scale fixture gate (#63279): a display Mac times main-thread blocks at 1,100 workspaces (advisory).
+            "cmux-next-scale-fixture.yml",
             # iPhone DEV built ahead (#51721): an advisory fleet build per PR head; never a required check.
             "cmux-next-ios-try-ahead.yml",
             # cmux ios verify per iOS PR head (ask-292c9fdd30): dispatches the protected-branch run that posts the

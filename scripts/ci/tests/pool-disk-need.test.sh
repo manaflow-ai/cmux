@@ -5,6 +5,7 @@
 # - enough free: the hook never runs;
 # - short, and the hook frees enough: the hook ran "started" with this leg's need as job and floor bytes;
 # - short, and the hook frees too little: a ::warning:: with the numbers, exit 0 all the same;
+# - on a pool VM the need is declared in bytes to CMUX_JOB_NEED_FILE for the meter, enough free or not; off one, not;
 # - a bad argument: exit 2.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -26,9 +27,9 @@ chmod +x "$TMP/bin/df" "$TMP/hook"
 G=$((1 << 30))
 
 run() { # <hook path> <need gib>: stdout+stderr to $TMP/log, status to $TMP/status
-  rm -f "$TMP/called"; : > "$TMP/summary"
+  rm -f "$TMP/called" "$TMP/need"; : > "$TMP/summary"
   set +e
-  PATH="$TMP/bin:$PATH" CMUX_DISK_FLOOR_HOOK="$1" GITHUB_STEP_SUMMARY="$TMP/summary" bash "$script" "$2" > "$TMP/log" 2>&1
+  PATH="$TMP/bin:$PATH" CMUX_JOB_NEED_FILE="$TMP/need" CMUX_DISK_FLOOR_HOOK="$1" GITHUB_STEP_SUMMARY="$TMP/summary" bash "$script" "$2" > "$TMP/log" 2>&1
   echo $? > "$TMP/status"
   set -e
 }
@@ -38,11 +39,13 @@ run "$TMP/no-such-hook" 45
 [[ "$(cat "$TMP/status")" == 0 ]] || fail "no hook: exit $(cat "$TMP/status")"
 [[ ! -e "$TMP/called" ]] || fail "no hook: something ran"
 grep -q 'not a pool VM' "$TMP/log" || fail "no hook: $(cat "$TMP/log")"
+[[ ! -e "$TMP/need" ]] || fail "no hook: declared a need off a pool VM"
 
 echo $((60 * G)) > "$TMP/free"
 run "$TMP/hook" 45
 [[ ! -e "$TMP/called" ]] || fail "enough free: the hook ran"
 grep -q '60.0 GiB free.*45 GiB: ok' "$TMP/log" || fail "enough free: $(cat "$TMP/log")"
+[[ "$(cat "$TMP/need" 2>&1)" == "$((45 * G))" ]] || fail "enough free: need file $(cat "$TMP/need" 2>&1)"
 
 echo $((20 * G)) > "$TMP/free"; echo $((50 * G)) > "$TMP/freed"
 run "$TMP/hook" 45
@@ -56,6 +59,7 @@ run "$TMP/hook" 45
 [[ "$(cat "$TMP/status")" == 0 ]] || fail "still short: exit $(cat "$TMP/status")"
 grep -q '::warning::.*20.0 -> 30.0 GiB free.*need 45 GiB' "$TMP/log" || fail "still short: $(cat "$TMP/log")"
 grep -q ', short' "$TMP/summary" || fail "still short: summary $(cat "$TMP/summary")"
+[[ "$(cat "$TMP/need" 2>&1)" == "$((45 * G))" ]] || fail "still short: need file $(cat "$TMP/need" 2>&1)"
 
 run "$TMP/hook" lots
 [[ "$(cat "$TMP/status")" == 2 ]] || fail "bad argument: exit $(cat "$TMP/status")"
