@@ -126,6 +126,39 @@ async fn a_per_home_file_that_kept_only_the_openai_pair_still_routes_claude() {
     assert_eq!(pair(&m, &[], true).await, None);
 }
 
+/// The 2026-11-28 production probe rows from 07:45Z ("Claude's model route isn't available on
+/// that machine"): an explicit Cloud start requires the team pair, and the same origin-less
+/// per-home file hid the image's origin from it, so the start refused instead of routing.
+#[tokio::test]
+async fn a_required_team_start_routes_past_a_per_home_file_without_the_origin() {
+    let m = machine("owner");
+    std::fs::write(
+        m.root.join("etc/cmux/model-plane.env"),
+        "export OPENAI_BASE_URL='https://coderouter.cmux.internal/v1'\n\
+         export CMUX_CODEROUTER_URL='https://coderouter.cmux.internal'\n",
+    )
+    .unwrap();
+    let dir = m.home.join(".config/cmux");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("model-plane.env"),
+        "export OPENAI_BASE_URL='https://coderouter.cmux.internal/v1'\n\
+         export OPENAI_API_KEY='cmux-vm-edge-placeholder'\n",
+    )
+    .unwrap();
+    let var = |_: &str| None;
+    let inputs = Inputs { root: &m.root, home: &m.home, var: &var, broker: false };
+    let got = required_team_pair(&inputs, |_| async { true }).await.expect("team");
+    assert_eq!(
+        got[0],
+        ("ANTHROPIC_BASE_URL".to_owned(), "https://coderouter.cmux.internal".to_owned())
+    );
+    assert_eq!(got[1], ("ANTHROPIC_API_KEY".to_owned(), PLACEHOLDER_KEY.to_owned()));
+    // Another plane's per-home file still gets no team route from the image.
+    std::fs::write(dir.join("model-plane.env"), "export OPENAI_BASE_URL='https://x/v1'\n").unwrap();
+    assert_eq!(required_team_pair(&inputs, |_| async { true }).await, None);
+}
+
 #[tokio::test]
 async fn a_sign_in_a_choice_or_a_persons_pair_keeps_own() {
     let m = machine("owner");
