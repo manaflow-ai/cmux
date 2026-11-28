@@ -1,0 +1,15 @@
+[package]
+name = "cmux-app-workspace-creation"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux NEXT's workspace creation rules, out of its Swift: the spawn's arguments, folder, name, environment and placement, the create's route and requests, the half-created close and the session tab refusals. Pure: the app reports the facts and applies the result"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
