@@ -8,6 +8,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
+import { SENT_IMAGE } from "../transcriptSelectors";
 import { promptText, withoutAttachedFileNotes, type ComposerAttachment } from "../attachments";
 import { setChipHost } from "../chips/host";
 import { WHOLE_THUMB_DENSITY, wholeThumbScale } from "../composer/imageWork";
@@ -124,11 +125,11 @@ test("a sent image keeps its own shape: its style sets a width, an aspect ratio 
       </ImageViewerContext.Provider>,
     );
   });
-  for (let turn = 0; turn < 50 && !container.querySelector("img.cv-user__image"); turn++)
+  for (let turn = 0; turn < 50 && !container.querySelector(SENT_IMAGE); turn++)
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-  const image = container.querySelector<HTMLImageElement>("img.cv-user__image");
+  const image = container.querySelector<HTMLImageElement>(SENT_IMAGE);
   expect(image).not.toBeNull();
   // The `height` attribute is the image's natural height; the style's `auto` must win over it, so a
   // CSS rule that misses this band can never draw it at that height beside a thumbnail's width.

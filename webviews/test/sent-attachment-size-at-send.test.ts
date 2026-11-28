@@ -22,6 +22,7 @@ import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
+import { SENT_IMAGE } from "../src/agent-session/acpmux/transcriptSelectors";
 
 type Box = { width: number; height: number };
 type Frame = { tiles: Box[]; bubble?: Box; row?: number };
@@ -107,7 +108,7 @@ await requireBrowserLane("sent-attachment-size-at-send.test.ts", async () => {
       await page.keyboard.type("what are these two");
       // From here, every painted frame: the sent prompt's tiles (a placeholder or the image), its
       // bubble and its row.
-      await page.evaluate(() => {
+      await page.evaluate((sentImage) => {
         const frames: Frame[] = [];
         (window as ProbeWindow).__frames = frames;
         const size = (element: Element) => {
@@ -118,7 +119,7 @@ await requireBrowserLane("sent-attachment-size-at-send.test.ts", async () => {
           const user = document.querySelector(".cv-user");
           if (!user) return void frames.push({ tiles: [] });
           const tiles = [
-            ...user.querySelectorAll(".cv-user__image-placeholder, img.cv-user__image, .cv-user__image-failed"),
+            ...user.querySelectorAll(`.cv-user__image-placeholder, ${sentImage}, .cv-user__image-failed`),
           ].map(size);
           const bubble = user.querySelector(".cv-user__bubble");
           const row = user.closest(".acpmux-row");
@@ -128,9 +129,9 @@ await requireBrowserLane("sent-attachment-size-at-send.test.ts", async () => {
             row: row ? Math.round(row.getBoundingClientRect().height * 2) / 2 : undefined,
           });
         });
-      });
+      }, SENT_IMAGE);
       await page.keyboard.press("Enter");
-      await page.locator("img.cv-user__image").nth(1).waitFor({ timeout: 15_000 });
+      await page.locator(SENT_IMAGE).nth(1).waitFor({ timeout: 15_000 });
       // The turn runs to its end, and some frames more.
       const stop = page.getByRole("button", { name: "Stop" });
       await stop.waitFor({ state: "detached", timeout: 30_000 }).catch(() => {});
