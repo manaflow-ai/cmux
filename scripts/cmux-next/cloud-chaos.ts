@@ -1136,6 +1136,53 @@ export function restartTimelineCommand(sinceMs: number): string {
 }
 
 /**
+ * Each chat's own life on the machine, from the whole daemon.log (not only from the kill): the lines that say a chat was
+ * put to sleep ("hibernated"), woken, started on a delivered credential or with none, or had its credential held again
+ * at adoption, and the restart's session counts. The daemon logs credential names only, never a value. Filtered to
+ * those lines and to `sessions`, so the restart timeline's budget is not spent on them.
+ */
+export const SESSION_LIFE_PATTERN =
+  "hibernated|woke|wake failed|launches on the owner's credential|no delivered credential|held again|credentials\\.managed_route|another family|loaded [0-9]+ (sessions|the chat logs)";
+
+export function sessionLifeCommand(sessions: string[]): string {
+  const ids = sessions.filter((s) => /^[0-9A-Za-z-]+$/.test(s));
+  const only = ids.length ? `grep -E 'session=(${ids.join("|")})|loaded [0-9]+ '` : "cat";
+  return `echo "@@now $(date +%s%3N)"; tail -n 20000 "$HOME"/.acpmux/daemon.log "$HOME"/.cmux/acpmux/daemon.log 2>/dev/null | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' | grep -E "${SESSION_LIFE_PATTERN}" | ${only} | tail -n 60 | cut -c1-260`;
+}
+
+/** Whether `session` was asleep at `killAtMs` (epoch ms, this runner's clock): its last sleep or wake line before it. */
+export type AtKill = "asleep" | "awake" | "unknown";
+
+/**
+ * `sessionLifeCommand`'s answer as each session's lines (`+ms text` from the kill) and its state at the kill: asleep
+ * when its newest "hibernated" line before the kill is newer than its newest "woke" or start line, awake when a start
+ * or wake is newer, unknown when neither shows.
+ */
+export function sessionLife(stdout: string, sessions: string[], killAtMs: number, readAtMs = Number.NaN): Map<string, { atKill: AtKill; lines: string[] }> {
+  const now = Number(/@@now (\d+)/.exec(stdout)?.[1]);
+  const skew = Number.isFinite(now) && Number.isFinite(readAtMs) ? now - readAtMs : 0;
+  const zero = killAtMs + skew;
+  const out = new Map<string, { atKill: AtKill; lines: string[] }>();
+  for (const id of sessions) out.set(id, { atKill: "unknown", lines: [] });
+  const last = new Map<string, { at: number; asleep: boolean }>();
+  for (const raw of stdout.split("\n")) {
+    const m = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\s+(.*)$/.exec(raw.replace(/\x1b\[[0-9;]*m/g, "").trim());
+    if (!m) continue;
+    const at = Math.round(Date.parse(m[1]) - zero);
+    const text = m[2].replace(/\s+/g, " ");
+    for (const id of sessions) {
+      if (!id || !text.includes(`session=${id}`)) continue;
+      const row = out.get(id)!;
+      row.lines.push(`${at >= 0 ? "+" : ""}${at} ms ${text.slice(0, 160)}`);
+      const asleep = /hibernated/.test(text) ? true : /woke|launches on the owner's credential|no delivered credential|managed_route|another family/.test(text) ? false : null;
+      if (asleep !== null && at < 0) last.set(id, { at, asleep });
+    }
+  }
+  for (const [id, l] of last) out.get(id)!.atKill = l.asleep ? "asleep" : "awake";
+  return out;
+}
+
+/**
  * The new daemon's startup phases (`gauges.startup` in its status: each phase's start from the daemon's birth, and how
  * long it took), each as a timeline line at the time it started: which phase held "startup complete" back.
  */
@@ -1355,6 +1402,13 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
         const tries = felt.reattachLog.filter((r) => r.at >= injectedAt).map((r) => ({ at: r.at - injectedAt, text: r.text.replace(/ \(try of \d+ ms\)$/, "") }));
         ctx.log?.(`chaos: ${f.name}: the felt chat's re-attach from the kill: ${tries.length ? refusalTrail(tries) : "none"}; tries: ${felt.reattachLog.filter((r) => r.at >= injectedAt).map((r) => `+${r.at - injectedAt} ${/try of (\d+) ms/.exec(r.text)?.[1] ?? "?"} ms`).join(", ")}`);
         ctx.log?.(`chaos: ${f.name}: the machine's acpmux journal from the kill: ${restartTimeline(tl.stdout, injectedAt, Date.now()) || `nothing read (${tl.stdout.trim().slice(-200)})`}`);
+        // Each chat's sleeps, wakes, starts and held credential names over the whole run: was the felt chat asleep
+        // (its sent login then in no running agent to read back) when the daemon was killed?
+        const ids = [chat.session, felt.session];
+        const lifeOut = await ctx.exec(`${ctx.guest}${sessionLifeCommand(ids)}`, 45_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
+        const life = sessionLife(lifeOut.stdout, ids, injectedAt, Date.now());
+        for (const [id, row] of life) ctx.log?.(`chaos: ${f.name}: ${id === felt.session ? "felt" : "counting"} chat ${id} at the kill: ${row.atKill}; its lines: ${row.lines.slice(-12).join(" | ") || "none"}`);
+        if (!ok) result.detail += `; the felt chat was ${life.get(felt.session)?.atKill ?? "unknown"} at the kill, the counting chat ${life.get(chat.session)?.atKill ?? "unknown"}`;
       }
       ctx.log?.(`chaos: ${f.name}: ${result.detail}`);
       out.push(result);

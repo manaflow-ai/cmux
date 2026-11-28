@@ -560,6 +560,11 @@ impl Hub {
             }
             applied
         } else {
+            if credential.is_none() && !requires_claude_team && !requires_claude_login {
+                // A start with no delivered login (a restart's sleeping chat lost its memory-only
+                // one): the line the carrier chaos probe reads to tell that start apart.
+                tracing::info!(session = %meta.id, "agent launches with no delivered credential: it keeps this machine's route");
+            }
             false
         };
         // An explicit Cloud Claude auth choice takes precedence over a saved route binding.
