@@ -87,6 +87,13 @@ struct AgentPaneVideoInfoTests {
         await model.respond(to: AgentPaneRequest(body: ["method": method, "params": params]))
     }
 
+    /// A reply carried out of an `async let` child: the dictionary is read only after the child is awaited.
+    private struct Reply: @unchecked Sendable { let value: [String: Any] }
+
+    private static func askBoxed(_ model: AgentPaneModel, _ method: String, _ params: [String: Any]) async -> Reply {
+        Reply(value: await ask(model, method, params))
+    }
+
     private static func errorCode(_ reply: [String: Any]) -> String? {
         (reply["error"] as? [String: Any])?["code"] as? String
     }
@@ -641,8 +648,8 @@ struct AgentPaneVideoInfoTests {
                     let info = await Self.ask(model, "video.info", ["src": src])
                     #expect((info["value"] as? [String: Any])?["width"] as? Int == 1920, "\(info)")
                     log.posters[name] = ms(started)
-                    async let probes = Self.ask(model, "video.probes", ["src": src])
-                    async let speech = Self.ask(model, "video.transcript", ["src": src])
+                    async let probes = Self.askBoxed(model, "video.probes", ["src": src])
+                    async let speech = Self.askBoxed(model, "video.transcript", ["src": src])
                     _ = await probes
                     let frames = await Self.ask(model, "video.frames", ["src": src, "times": picked])
                     #expect(((frames["value"] as? [String: Any])?["frames"] as? [Any])?.count == 16, "\(frames)")
