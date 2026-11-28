@@ -279,6 +279,7 @@ dependencies = [
  "cmux-pane-pictures",
  "cmux-process",
  "cmux-rd-ffi",
+ "cmux-rollout",
  "cmux-screenshots",
  "cmux-sdk-ffi",
  "cmux-sign-clone-sweep",
@@ -777,6 +778,14 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-rollout"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "sha2",
 ]
 
 [[package]]

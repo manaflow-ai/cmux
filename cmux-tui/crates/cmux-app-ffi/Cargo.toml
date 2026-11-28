@@ -87,6 +87,9 @@ serde_json = "1"
 plist = "1"
 # A web update's tree and archive digests (src/updater/web_updates.rs).
 sha2 = "0.10"
+# A web update pointer's staged rollout: the one bucket every channel reader uses (hq RFD 0224;
+# src/updater/web_updates.rs).
+cmux-rollout = { path = "../cmux-rollout" }
 libc = "0.2"
 # Text caps count grapheme clusters, as Swift does (src/system_calendar.rs).
 unicode-segmentation = "1"

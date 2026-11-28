@@ -106,4 +106,23 @@ struct WebUpdatePointerTests {
         #expect(try WebUpdatePointer.verified(Self.envelope(payload), keys: Self.keys, channel: "every-merge").cas == nil)
         #expect(try WebUpdatePointer.verified(Self.scriptEnvelope, keys: Self.keys, channel: "every-merge").cas == nil)
     }
+
+    /// A staged pointer (hq RFD 0224 `rollout.pct`, read in Rust with cmux-rollout's bucket): at 0
+    /// no Mac takes it, and the refusal keeps the app serving what it has, quietly; at 100 every
+    /// Mac does.
+    @Test func aStagedPointerOutsideItsShareIsRefusedQuietly() throws {
+        var payload = Self.payload()
+        payload["rollout"] = ["pct": 0]
+        #expect {
+            try WebUpdatePointer.verified(Self.envelope(payload), keys: Self.keys, channel: "every-merge")
+        } throws: { error in
+            guard case .staged? = error as? WebUpdateRefusal else { return false }
+            return true
+        }
+        #expect(WebUpdater.keepsServing(.staged("staged rollout at 0%")))
+        #expect(!WebUpdater.keepsServing(.unsigned))
+        payload["rollout"] = ["pct": 100]
+        #expect(try WebUpdatePointer.verified(Self.envelope(payload), keys: Self.keys, channel: "every-merge").commit
+            == String(repeating: "1", count: 40))
+    }
 }

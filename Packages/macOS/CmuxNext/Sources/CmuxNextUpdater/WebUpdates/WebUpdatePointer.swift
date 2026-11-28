@@ -174,6 +174,9 @@ nonisolated public enum WebUpdateRefusal: Error, Equatable, Sendable {
     /// The channel's switch file of web pieces refuses this update (`cmux app web-pieces
     /// refused`): it is never made active.
     case refusedBySwitchFile
+    /// The pointer's staged rollout (hq RFD 0224, `rollout.pct`) does not cover this Mac yet:
+    /// the app keeps the web it serves until a later pointer raises the share (why, from Rust).
+    case staged(String)
 
     /// A refusal Rust answered (`{kind, detail}`, cmux-app-ffi src/updater/web_updates.rs).
     init(rust refusal: Any?) {
@@ -183,6 +186,7 @@ nonisolated public enum WebUpdateRefusal: Error, Equatable, Sendable {
         case "wrongChannel": self = .wrongChannel(detail)
         case "integrity": self = .integrity(detail)
         case "malformed": self = .malformed(detail)
+        case "staged": self = .staged(detail)
         default: self = .malformed("the updater library did not answer")
         }
     }

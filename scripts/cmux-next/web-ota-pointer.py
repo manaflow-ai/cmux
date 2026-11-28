@@ -130,6 +130,12 @@ def make_payload(args):
     }
     if args.cas:
         payload["cas"] = cas_field(args.cas)
+    # RFD 0224's staged rollout: the share of apps that take this pointer, bucketed by the Mac and
+    # the commit (cmux-rollout). Left out, the payload names no `rollout` and every app takes it.
+    if args.rollout_pct is not None:
+        if not 0 <= args.rollout_pct <= 100:
+            fail(f"--rollout-pct {args.rollout_pct} is not 0..100")
+        payload["rollout"] = {"pct": args.rollout_pct}
     with open(args.out, "wb") as out:
         out.write(compact(payload))
 
@@ -383,6 +389,7 @@ def main(argv):
     for name in ("--manifest", "--abi-file", "--channel", "--commit", "--committed-at", "--out"):
         p.add_argument(name, required=True)
     p.add_argument("--cas", help="cas.json from cas-publish: add the cas/1 manifest and pack (RFD 0166)")
+    p.add_argument("--rollout-pct", type=int, help="staged rollout: the share of apps, 0..100, that take it (RFD 0224)")
     s = sub.add_parser("sign")
     for name in ("--payload", "--key", "--keys", "--out"):
         s.add_argument(name, required=True)

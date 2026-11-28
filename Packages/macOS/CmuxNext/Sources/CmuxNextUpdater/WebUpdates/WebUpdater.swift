@@ -361,8 +361,7 @@ public final class WebUpdater {
             }.value
         } catch let refusal as WebUpdateRefusal {
             lastRefusal = refusal
-            phase = refusal == .notNewer || refusal == .refusedBySwitchFile || Self.isAppTooOld(refusal)
-                ? .idle : .failed(String(describing: refusal))
+            phase = Self.keepsServing(refusal) ? .idle : .failed(String(describing: refusal))
         } catch {
             phase = .failed(error.localizedDescription)
         }
@@ -572,6 +571,15 @@ public final class WebUpdater {
     static func isAppTooOld(_ refusal: WebUpdateRefusal) -> Bool {
         if case .abiMismatch = refusal { return true }
         return false
+    }
+
+    /// A refusal after which the app keeps serving what it has with nothing wrong: nothing newer,
+    /// the switch file, an app too old for the update, a staged rollout not at this Mac yet.
+    static func keepsServing(_ refusal: WebUpdateRefusal) -> Bool {
+        switch refusal {
+        case .notNewer, .refusedBySwitchFile, .staged: true
+        default: isAppTooOld(refusal)
+        }
     }
 
     /// Downloads to a temporary file the caller removes.

@@ -7,10 +7,13 @@
 //!
 //! The ops (`call`, through `updater::call`):
 //!
-//! - `web_updates.read_pointer` `{payload, channel}` → `{"pointer": {...}}` or
+//! - `web_updates.read_pointer` `{payload, channel, host?}` → `{"pointer": {...}}` or
 //!   `{"refusal": {kind, detail?}}`: a signed payload (UTF-8 JSON) read as a
 //!   pointer of `channel`, checked field by field. `pointer` uses the payload's
 //!   own keys (`committed_at`, `published_at`), with a malformed `cas` dropped.
+//!   A pointer whose staged `rollout` (hq RFD 0224) does not cover this Mac yet
+//!   is refused as `staged`: the app keeps the web it serves, as for one that is
+//!   not newer. `host` stands in for this Mac's id (tests); the app sends none.
 //! - `web_updates.tree_digest` `{root}` → `{"digest"}` or `{"refusal"}`:
 //!   web-bundle-key.py's `--outputs` digest of an unpacked tree. Blocking.
 //! - `web_updates.archive_digest` `{file}` → `{size, sha256}` or `{"refusal"}`:
@@ -46,6 +49,8 @@ pub enum Refusal {
     Malformed(String),
     WrongChannel(String),
     Integrity(String),
+    /// The pointer's staged rollout does not cover this Mac yet (why).
+    Staged(String),
 }
 
 /// `cas`: a manifest and a pack under `prefix` on the archive's host.
@@ -86,6 +91,11 @@ pub struct Pointer {
     pub published_at: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cas: Option<Cas>,
+    /// The share of Macs that take this pointer (hq RFD 0224's staged rollout,
+    /// [`cmux_rollout::Rollout::takes`] by this Mac and `commit`: the one bucket
+    /// every channel reader uses). Missing on older pointers: every Mac.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rollout: Option<cmux_rollout::Rollout>,
 }
 
 impl Pointer {
@@ -103,8 +113,38 @@ impl Pointer {
         if !is_hex(&self.commit, 40) || self.abi <= 0 || self.committed_at <= 0 {
             return bad("commit or abi");
         }
+        if let Some(rollout) = self.rollout {
+            rollout.checked().map_err(Refusal::Malformed)?;
+        }
         Ok(())
     }
+
+    /// `Err(Staged)` while the pointer's rollout leaves out the Mac `host` (its
+    /// id; `None`, a Mac that names none, waits for 100%).
+    pub fn staged_for(&self, host: Option<&str>) -> Result<(), Refusal> {
+        match self.rollout.unwrap_or_default().held_back(host, &self.commit) {
+            Some(why) => Err(Refusal::Staged(why)),
+            None => Ok(()),
+        }
+    }
+}
+
+/// This Mac's id for a staged rollout: its host UUID (`gethostuuid`, the
+/// IOPlatformUUID every build and user on the Mac reads alike), as hex. It is
+/// only hashed into the bucket here; it never leaves the app.
+#[cfg(target_os = "macos")]
+pub fn this_mac() -> Option<String> {
+    let mut uuid = [0u8; 16];
+    let timeout = libc::timespec { tv_sec: 5, tv_nsec: 0 };
+    // SAFETY: gethostuuid writes exactly 16 bytes into `uuid`.
+    let status = unsafe { libc::gethostuuid(uuid.as_mut_ptr(), &timeout) };
+    (status == 0 && uuid.iter().any(|b| *b != 0)).then(|| hex(&uuid))
+}
+
+/// Off macOS (the crate's tests) there is no Mac: a staged pointer waits.
+#[cfg(not(target_os = "macos"))]
+pub fn this_mac() -> Option<String> {
+    None
 }
 
 /// A signed payload read as `channel`'s pointer. The signature over `payload`
@@ -244,6 +284,8 @@ pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
     struct ReadPointer {
         payload: String,
         channel: String,
+        #[serde(default)]
+        host: Option<String>,
     }
     #[derive(Deserialize)]
     struct Root {
@@ -255,8 +297,12 @@ pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
     }
     Ok(match op {
         "web_updates.read_pointer" => {
-            let ReadPointer { payload, channel } = de(request)?;
-            match read_pointer(&payload, &channel) {
+            let ReadPointer { payload, channel, host } = de(request)?;
+            let read = read_pointer(&payload, &channel).and_then(|pointer| {
+                pointer.staged_for(host.or_else(this_mac).as_deref())?;
+                Ok(pointer)
+            });
+            match read {
                 Ok(pointer) => json!({ "pointer": pointer }),
                 Err(r) => refusal(r),
             }
