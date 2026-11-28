@@ -123,3 +123,67 @@ fn a_table_held_whole_is_not_shrunk_again() {
     whole.shrink(true);
     assert_eq!(whole.processes.len(), 10_000);
 }
+
+#[test]
+fn a_shrunk_table_keeps_no_room_for_the_rows_it_dropped() {
+    let mut partial = table(100_000);
+    let grown = partial.by_id.capacity();
+    partial.shrink(true);
+    let held = partial.processes.len();
+    assert!(held < 2 * HELD_ENDED, "{held}");
+    // A cleared map keeps its room: every row the history ever held (4 MB at 1 GB).
+    assert!(partial.by_id.capacity() < 4 * held, "{} of {grown}", partial.by_id.capacity());
+    assert!(partial.by_tool.capacity() < 4 * held);
+}
+
+/// A chat whose log holds `shells` background shells, each started then ended, with a harness
+/// exit between some: the records `fold_processes` folds.
+async fn logged_chat(shells: usize) -> (Arc<Hub>, Arc<Session>) {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut cfg: crate::config::Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let session = hub.new_session(req).await.unwrap();
+    let update = |id: usize, state: &str| {
+        json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "own", "update": {
+            "sessionUpdate": "background_task_update", "toolCallId": format!("call-{id}"),
+            "taskId": format!("task-{id}"), "state": state, "command": format!("step {id}")}}})
+    };
+    for id in 0..shells {
+        hub.append(&session, "in", "background_task_update", update(id, "running"));
+        if id % 7 != 3 {
+            hub.append(&session, "in", "background_task_update", update(id, "completed"));
+        }
+        if id % 50 == 49 {
+            hub.append(&session, "mux", "exited", json!({"code": 0}));
+        }
+        hub.append(&session, "in", "agent_message_chunk", json!({"text": "between"}));
+    }
+    (hub, session)
+}
+
+#[tokio::test]
+async fn a_fold_read_a_window_at_a_time_is_the_fold_read_whole() {
+    let (hub, session) = logged_chat(300).await;
+    let fold = |after: u64, before: u64, window: u64| {
+        let mut table = ProcessTable { loaded: true, ..ProcessTable::default() };
+        assert!(hub.fold_processes_by(&session, &mut table, after, before, window));
+        table.into_saved()
+    };
+    let whole = fold(0, u64::MAX, u64::MAX);
+    assert!(whole.rows.len() >= 300, "{}", whole.rows.len());
+    for window in [1, 2, 3, 17, 64, 1000] {
+        assert_eq!(fold(0, u64::MAX, window), whole, "window {window}");
+    }
+    // A bounded read, from part way, as a checkpoint's catch-up reads.
+    for (after, before) in [(0, 40), (11, 400), (200, 201), (350, u64::MAX)] {
+        assert_eq!(fold(after, before, 5), fold(after, before, u64::MAX), "{after} {before}");
+    }
+    hub.shutdown_all().await;
+}
