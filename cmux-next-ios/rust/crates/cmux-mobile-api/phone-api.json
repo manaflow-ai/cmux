@@ -11622,6 +11622,7 @@
         "topic": true,
         "via": true,
         "vmBoundary": true,
+        "waitForLink": true,
         "waitStart": true,
         "workflowAllowedTools": true,
         "workspaceId": true,

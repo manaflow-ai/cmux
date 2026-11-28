@@ -3,10 +3,11 @@
 // image change is pinned, baked and gated with no hand PR, then made production's first boot image by a bot
 // commit, and taken back out by one when the production smoke after that commit's deploy is red.
 //
-//   bun images/cmux-vm/auto-roll.ts plan --event dispatch|build|push [--commit <40-hex>] [--before <sha>]
+//   bun images/cmux-vm/auto-roll.ts plan --event dispatch|build|push|newest [--commit <40-hex>] [--before <sha>]
 //       [--dry-run auto|true|false] [--tip <ref>] [--repo <checkout>] [--channel <url|file>]
 //     A push roll pins the commit the Cloud machine channel serves (RFD 0224 phase 4: the image carries the binary
 //     running VMs take), else the newest published build when the channel is unreadable or its commit fails a guard.
+//     A newest roll (the cadence tick) picks its build the same way, then plans it as a build roll.
 //     Prints what to roll as JSON: roll (true|false), reason, pin (the cmux-tui commit to pin, or ""),
 //     dryRun, and the fix commits (sha, merged-at, subject) the roll carries. Reads git and files.cmux.com only.
 //     Fails closed (exits non-zero) on a shallow checkout or a pinned commit the checkout lacks: the guard that
@@ -685,6 +686,16 @@ async function plan(opts: { event: string; commit: string; before: string; dryRu
     const newer = (await channelPin(pinned, opts.tip, opts.lock, opts.channel)) ?? (await newestPublished(pinned, opts.tip, opts.lock));
     const reason = `image inputs changed in ${range}; ${newer.why}`;
     return { roll: true, reason, pin: newer.pin, cmuxTui: newer.pin || pinned, dryRun, fixes, fixesTruncated: fixes.length >= FIX_LIMIT };
+  }
+  if (opts.event === "newest") {
+    // The cadence tick (main's cloud-vm-image-roll-tick-dispatch.yml, every 20 min): the newest build, picked as a
+    // push roll picks it, then every guard of a build roll below. A roll started only by a build's dispatch or an
+    // image push left the lock where the last good roll put it when a roll failed or a request never came:
+    // 2026-11-28 the lock pinned c6cd14b5 from 09:21Z to 18:48Z (11.2 h behind at promotion) and 11 of 19 rolls
+    // failed with nothing to retry them until the next trigger. Nothing newer: nothing rolls.
+    const newer = (await channelPin(pinned, opts.tip, opts.lock, opts.channel)) ?? (await newestPublished(pinned, opts.tip, opts.lock));
+    if (newer.pin === "") return none(newer.why);
+    opts = { ...opts, commit: newer.pin };
   }
   if (opts.commit === "") {
     if (opts.event !== "dispatch") return none("no commit");
