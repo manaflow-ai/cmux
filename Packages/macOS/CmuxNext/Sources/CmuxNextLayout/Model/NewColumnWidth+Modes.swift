@@ -18,20 +18,18 @@ extension NewColumnWidth {
     /// `pinned-dock-alone-v1`) gives the new column the whole strip right of
     /// the dock: width 1. A dock's width is a share of the window, not of
     /// the strip, so copying it left half the strip empty.
+    ///
+    /// Run by cmux-layout-reducer (`layout_model_new_column_plan`; `schemas/layout-model/vectors.json`).
     public static func plan(mode: NewColumnWidthMode, columns: [LayoutColumn], anchor: ColumnID?, visible: [ColumnID],
                             fixedWidth: Double, removing: PaneID? = nil) -> NewColumnPlan {
-        let scrollingStays = columns.contains { $0.dock == nil && $0.root.panes.contains { $0 != removing } }
-        if !columns.isEmpty, !scrollingStays { return NewColumnPlan(width: 1) }
-        switch mode {
-        case .fixed:
-            return plan(width: fixedWidth)
-        case .matchCurrent:
-            return plan(width: anchor.flatMap { id in columns.first { $0.id == id }?.width } ?? 1.0)
-        case .fitScreen:
-            let scrolling = Set(columns.filter { $0.dock == nil }.map(\.id))
-            var shared = visible.filter(scrolling.contains)
-            if let anchor, scrolling.contains(anchor), !shared.contains(anchor) { shared.append(anchor) }
-            return plan(width: 1.0 / Double(shared.count + 1))
+        struct Request: Encodable {
+            var mode: String, columns: [LayoutColumn], anchor: ColumnID?, visible: [ColumnID], fixedWidth: Double
+            var removing: PaneID?
         }
+        struct Reply: Decodable { var width: Double }
+        let reply: Reply? = LayoutRules.call("layout_model_new_column_plan",
+                                             Request(mode: mode.rawValue, columns: columns, anchor: anchor,
+                                                     visible: visible, fixedWidth: fixedWidth, removing: removing))
+        return plan(width: reply?.width ?? fixedWidth)
     }
 }

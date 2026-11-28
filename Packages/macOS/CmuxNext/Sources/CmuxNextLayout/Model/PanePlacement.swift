@@ -18,7 +18,7 @@ public struct PanePlacement {
     }
 
     /// The pane Auto Layout splits and the axis.
-    public nonisolated struct Split: Hashable, Sendable {
+    public nonisolated struct Split: Hashable, Sendable, Decodable {
         public var pane: PaneID
         public var axis: SplitAxis
     }
@@ -41,27 +41,16 @@ public struct PanePlacement {
     /// scrolling pane is shown, the most recent scrolling pane (else the
     /// first) splits along its width. Nil only when the screen has no
     /// scrolling pane at all.
+    /// Run by cmux-layout-reducer (`layout_model_auto_split`; `schemas/layout-model/vectors.json`).
     public nonisolated func autoSplit(layout: ScreenLayout, frames: [PaneID: CGRect], recent: [PaneID]) -> Split? {
-        let candidates: [PaneID] = switch layout {
-        case .splits(let root): root.panes
-        case .columns(let columns): columns.filter { $0.dock == nil }.flatMap(\.root.panes)
+        struct Frame: Encodable { var x, y, width, height: Double }
+        struct Request: Encodable { var layout: ScreenLayout, frames: [String: Frame], recent: [PaneID] }
+        struct Reply: Decodable { var split: Split? }
+        var shown: [String: Frame] = [:]
+        for (pane, frame) in frames {
+            shown[pane.rawValue] = Frame(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height)
         }
-        var best: (pane: PaneID, frame: CGRect, rank: Int)?
-        for (order, pane) in candidates.enumerated() {
-            guard let frame = frames[pane], frame.width > 0, frame.height > 0 else { continue }
-            // Lower rank wins a tie: recent panes first, then visual order.
-            let rank = recent.firstIndex(of: pane) ?? (recent.count + order)
-            let area = frame.width * frame.height
-            if let current = best {
-                let currentArea = current.frame.width * current.frame.height
-                guard area > currentArea || (area == currentArea && rank < current.rank) else { continue }
-            }
-            best = (pane, frame, rank)
-        }
-        if let best {
-            return Split(pane: best.pane, axis: best.frame.width >= best.frame.height ? .horizontal : .vertical)
-        }
-        guard let fallback = recent.first(where: candidates.contains) ?? candidates.first else { return nil }
-        return Split(pane: fallback, axis: .horizontal)
+        let reply: Reply? = LayoutRules.call("layout_model_auto_split", Request(layout: layout, frames: shown, recent: recent))
+        return reply?.split
     }
 }
