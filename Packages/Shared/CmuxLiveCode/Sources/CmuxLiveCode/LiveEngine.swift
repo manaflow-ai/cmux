@@ -29,6 +29,13 @@ public actor LiveEngine {
     private var current: [String: UnsafeRawPointer] = [:]
     /// The applied patches, oldest first: an undo takes the last one off.
     private var applied: [(patch: Interposer.Applied, record: LivePatchRecord)] = []
+    /// Each image this process loaded, by its patch's source key: a patch whose code is already
+    /// loaded reuses that image instead of mapping another copy. No image is ever closed (Swift
+    /// images do not unload, and an undo goes back to an earlier one), so without this every save,
+    /// even one back to code loaded before, kept one more image for the life of the process, and
+    /// each load and each image's memory grew with them (cmux#56326: 6096 patches, 469 MB/h).
+    private var images: [String: (handle: Int, path: String)] = [:]
+    private var reused = 0
     private var generation = 0
     private var lastError: String?
     /// After each applied or undone patch, with the new generation: the app redraws (on its main
@@ -131,10 +138,17 @@ public actor LiveEngine {
             try DevicePatchSignature.check(copy.path, signer: deviceSigner)
             #endif
             phases.end("sign")
-            let handle = try Interposer.load(copy.path)
-            phases.end("open")
-            let patched = try Interposer.apply(handle: handle, dylib: copy.path, current: &current, phases: &phases)
             let sidecar = folder.sidecar(name)
+            let image: (handle: Int, path: String)
+            if let source = sidecar?.source, let loaded = images[source] {
+                image = loaded
+                reused += 1
+            } else {
+                image = (try Interposer.load(copy.path), copy.path)
+                if let source = sidecar?.source { images[source] = image }
+            }
+            phases.end("open")
+            let patched = try Interposer.apply(handle: image.handle, dylib: image.path, current: &current, phases: &phases)
             let record = LivePatchRecord(name: name, commit: sidecar?.commit, files: sidecar?.files,
                                          functions: patched.after.count, appliedAt: Date().timeIntervalSince1970)
             applied.append((patched, record))
@@ -142,7 +156,7 @@ public actor LiveEngine {
             // Harnesses read up to at=; the phases after it say where load_ms went, and images= how
             // many images this process holds (each applied patch stays loaded), so a load that grows
             // with them names its phase (the duress run on cmux#56326: 13 ms at 0 patches, 124 at 6000).
-            changed("applied \(name) functions=\(record.functions) load_ms=\(ms) at=\(Date().timeIntervalSince1970) \(phases.line) images=\(_dyld_image_count())")
+            changed("applied \(name) functions=\(record.functions) load_ms=\(ms) at=\(Date().timeIntervalSince1970) \(phases.line) images=\(_dyld_image_count()) reused=\(reused)")
         } catch {
             refused(name, error)
         }

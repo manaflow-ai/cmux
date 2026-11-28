@@ -34,6 +34,7 @@ compile, the link and signing, the move into the live folder.
 """
 import argparse
 import concurrent.futures
+import hashlib
 import json
 import os
 import re
@@ -167,6 +168,23 @@ def source_commit(edited):
 def sidecar_record(edited):
     """What `cmux live-code status` shows of a patch: its commit and files."""
     return {"commit": source_commit(edited), "files": [os.path.relpath(p, source_root(edited) or "/") for p in edited]}
+
+
+def source_key(target, optimize, modules):
+    """What the patch was built from: the target, -O or not, and each module's edited files with their bytes.
+
+    The app keeps every patch it loaded mapped (Swift images never unload), so it reuses the image it
+    already holds for a patch with this key instead of loading the same code again (LiveEngine.apply).
+    Each module's command is fixed for the running build, so the files are the rest of what the bytes depend on.
+    """
+    digest = hashlib.sha256(f"{target}\0{int(optimize)}\0".encode())
+    for module in sorted(modules):
+        for path in sorted(modules[module]):
+            with open(path, "rb") as f:
+                body = f.read()
+            digest.update(f"{module}\0{path}\0{len(body)}\0".encode())
+            digest.update(body)
+    return digest.hexdigest()
 
 
 def checkout_root(files, module):
@@ -368,6 +386,8 @@ def main():
     objects, argv, frontend = [], None, None
     # Every module's edited files, for the sidecar.
     all_edited = []
+    # Each module's edited files, real paths, for the source key.
+    compiled_files = {}
     for module, edited in modules.items():
         looked = time.time()
         frontend, filelist = module_commands(opts.log, module)
@@ -412,6 +432,7 @@ def main():
             sys.exit(f"patch.py: the compile of {module} failed (command in {module_work}/command)")
         objects += module_objects
         all_edited += edited
+        compiled_files[module] = list(edited)
     compiled = time.time()
     kept = 0
     if opts.all:
@@ -450,6 +471,7 @@ def main():
     # The sidecar first (`cmux live-code status` shows its commit and files), then the dylib.
     record = sidecar.result() if sidecar else sidecar_record(all_edited)
     sidecar_pool.shutdown(wait=False)
+    record["source"] = source_key(target, opts.optimize, compiled_files)
     with open(os.path.join(opts.live, name[:-len(".dylib")] + ".json"), "w") as f:
         json.dump(record, f)
     # Moved into place in one step, so the app never reads a half-written file.
