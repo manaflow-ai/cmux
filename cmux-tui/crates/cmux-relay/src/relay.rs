@@ -13,8 +13,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use cmux_remote_protocol::{
-    CircuitId, LaneToken, ProtocolRange, REMOTE_PROTOCOL_VERSION, RelayControl, RelayPermission,
-    RelayRole, RelayTicketClaims,
+    CircuitId, LaneToken, ProtocolRange, RelayControl, RelayPermission, RelayRole,
+    RelayTicketClaims,
 };
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
@@ -1810,6 +1810,7 @@ mod tests {
     use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
     use super::*;
+    use cmux_remote_protocol::REMOTE_PROTOCOL_VERSION;
 
     const RELAY_CONTROL_CONFORMANCE: &str =
         include_str!("../../cmux-remote-protocol/tests/fixtures/relay-control-v1.jsonl");
