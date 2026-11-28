@@ -186,8 +186,8 @@ peer_port=4180
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
 # The Xcode this source pins for this host, as import-set-xcode.sh does, unless the worker exported one.
-# Without it the build follows xcode-select, which on Macs with only versioned apps (cmux17, cmux18,
-# cmux19, cmux20-bench) names a missing /Applications/Xcode.app: run 46098219666 failed in cargo's
+# Without it the build follows xcode-select, which on Macs with only versioned apps
+# names a missing /Applications/Xcode.app: run 46098219666 failed in cargo's
 # build scripts with "xcrun: error: missing DEVELOPER_DIR path". Exported here, the launcher app gets it too.
 if [[ -z "${DEVELOPER_DIR:-}" && "$(uname -s)" == Darwin && -f scripts/select-ci-xcode.sh ]]; then
   xcode_env="$(mktemp)"
