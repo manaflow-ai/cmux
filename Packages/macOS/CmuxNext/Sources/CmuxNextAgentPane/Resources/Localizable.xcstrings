@@ -12007,7 +12007,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux couldn't start its agent service. Quit and reopen cmux to try again."
+            "value": "cmux couldn't start its agent service. Quit and reopen cmux."
           }
         }
       }

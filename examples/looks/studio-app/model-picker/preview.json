@@ -1,0 +1,10 @@
+{
+  "cmuxProfile": 1,
+  "name": "studio-app-model-picker",
+  "description": "Pick a model and effort while typing.",
+  "created_ms": 0,
+  "settings": {},
+  "files": {
+    "customize/cmux-app.json": "{\n  \"$schema\": \"https://cmux.dev/schemas/cmux-app/2.json\",\n  \"manifestVersion\": 2,\n  \"id\": \"local/customize\",\n  \"name\": {\n    \"en\": \"Model and reasoning picker\"\n  },\n  \"version\": \"1.0.0\",\n  \"description\": \"Pick a model and effort while typing.\",\n  \"engines\": {\n    \"cmux\": \"^2.0\"\n  },\n  \"implements\": {\n    \"cmux.composer.model.picker/1\": {\n      \"options\": {\n        \"modelMenu\": \"search\",\n        \"reasoningMenu\": \"column\"\n      }\n    }\n  }\n}\n"
+  }
+}

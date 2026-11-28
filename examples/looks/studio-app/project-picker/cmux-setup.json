@@ -1,0 +1,16 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/studio-app-project-picker",
+  "name": "Project picker",
+  "description": "Search projects and start a chat there.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "screenshots": [
+    "screenshots/project-picker.png"
+  ],
+  "cmuxProfile": 1,
+  "settings": {
+    "sidebar.showProjects": true,
+    "sidebar.showNewWorkspaceChooser": true
+  }
+}
