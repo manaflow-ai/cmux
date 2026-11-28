@@ -27,6 +27,11 @@ extension SidebarBridge {
             if !services.windows.reslotCreates(ids.map(\.rawValue), at: position, in: state.id, sections: model.sections) { resync() }
             return
         }
+        // A chat dropped on another machine moves there (``ChatMoveDrop``); a refused move or any other row there snaps back.
+        if let moved = ChatMoveDrop(host: services).drop(intent) {
+            if !moved { resync() }
+            return
+        }
         if CloudCreationRows.handle(intent, bridge: self, state: state) || services.sidebarDoc.handle(intent, bridge: self) { return }
         // A section's collapse is window view state (sidebar snapshot), never a daemon command.
         if case .toggleCollapse(.section) = intent {

@@ -18,7 +18,8 @@ bench() {
 }
 bench AFTER
 [ -n "$base" ] || exit 0
-git cat-file -e "$base^{commit}" 2>/dev/null || git fetch -q --no-recurse-submodules --depth=1 origin "$base"
+source ../scripts/measure/fetch-commit.sh
+measure_fetch_commit . "$base" || exit 1
 src=crates/acpmux/src
 saved=$(mktemp -d)
 cp -R "$src" "$saved/"

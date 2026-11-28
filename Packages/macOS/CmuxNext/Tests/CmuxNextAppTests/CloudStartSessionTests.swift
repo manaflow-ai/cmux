@@ -3,9 +3,11 @@ import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHostedChief
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -57,7 +59,7 @@ struct CloudStartSessionTests {
         let services = Self.fixture().services
         let start = CloudStartSession(services: services)
         var deleted = 0
-        func run(made: Bool, _ error: any Error, delete: @escaping () async throws -> Void = {}) async -> (any Error)? {
+        func run(made: Bool, _ error: any Error, delete: @escaping @MainActor () async throws -> Void = {}) async -> (any Error)? {
             do {
                 _ = try await start.releasing(made: made, name: "chat-1", id: "vm-chat-1", account: services.cloud.account, delete: { deleted += 1; try await delete() }) { () async throws -> Int in throw error }
                 return nil
@@ -71,6 +73,62 @@ struct CloudStartSessionTests {
         #expect(deleted == 1, "a found machine or a cancelled start's machine was deleted")
         let kept = await run(made: true, failure) { throw ActionFailure(message: "delete refused") } as? ActionFailure
         #expect(kept?.message.hasPrefix(failure.message) == true && kept?.message.contains("kill-machine --target machine:vm-chat-1") == true, "\(String(describing: kept))")
+    }
+
+    @Test func aTargetlessStartChecksTheResolvedMachinesComputerHold() async throws {
+        let (services, session) = Self.fixture()
+        session.machine.displayName = "cloud-chats"
+        _ = try services.cloud.computerControl.perform(.takeOver, machine: session.machineID, byPerson: true)
+        let invocation = Self.invocation(["agent": .string("claude")])
+        let request = try CloudStartSession.request(invocation)
+        #expect(request.machineID == nil && request.name == nil)
+
+        services.cloud.setup.read = { .init(personal: [], organization: []) }
+        services.cloud.setup.gateway = { [] }
+        services.cloud.setup.loadCloudMachines = nil
+        services.cloud.setup.claudeMachines = { [session.machine] }
+        services.cloud.setup.readClaudeMachineLogin = { _ in false }
+        let start = CloudStartSession(services: services)
+        let context = AppActionContext(services: services)
+        do {
+            _ = try await start.run(request, invocation, context, account: services.cloud.account, byPerson: false)
+            Issue.record("the automatic destination's hold was ignored")
+        } catch let failure as ActionFailure {
+            #expect(failure.message.hasPrefix("computer.human_has_control"))
+            #expect(session.daemon.connection == nil)
+        }
+
+        _ = try services.cloud.computerControl.perform(.handBack, machine: session.machineID, byPerson: true)
+        do {
+            _ = try await start.run(request, invocation, context, account: services.cloud.account, byPerson: false)
+            Issue.record("the signed-out fallback started without a connection")
+        } catch let failure as ActionFailure {
+            #expect(failure.message.contains("settings/cloud/claude?machine=\(session.machineID)"))
+            #expect(failure.message.contains("`cmux cloud start-session --agent claude`"))
+            #expect(session.daemon.connection == nil)
+        }
+    }
+
+    @Test func aPlannedClaudeDestinationIsKeptWhileWaitingForSignIn() {
+        let setup = CloudMachineRoute.NeedsClaudeLogin(machine: "vm_planned")
+        #expect(setup.machine == "vm_planned")
+        #expect(!CloudMoveCLI.StartChatPlan.strands(setup))
+    }
+
+    @Test func reportedRunnersRequireTheLiveCredentialCapability() {
+        #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: nil, subscription: false) == nil)
+        var identity = DaemonIdentity(capabilities: [
+            "agent-session-start-endpoint-harness:gemini", "agent-session-start-endpoint-harness:opencode",
+        ], generation: "runner-test")
+        #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: identity, subscription: false) == nil)
+        #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: identity, subscription: true) == nil)
+        identity.capabilities.append(AgentSessionAttachClient.startEndpointCredentialsCapability)
+        #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: identity, subscription: false) == nil)
+        identity.capabilities.append(AgentSessionAttachClient.boundCredentialsCapability)
+        #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: identity, subscription: false) == ["gemini"])
+        #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: identity, subscription: true) == nil)
+        identity.capabilities.append(AgentSessionAttachClient.startSubscriptionCredentialsCapability)
+        #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: identity, subscription: true) == ["gemini", "opencode"])
     }
 
     @Test func itIsACLIVerbAndAnMCPToolThatWaitsForThePerson() throws {
@@ -158,9 +216,9 @@ struct CloudStartSessionTests {
 
     @Test func aScriptRunWithoutAMachineSaysHowToNameOne() throws {
         let services = Self.fixture().services
-        let refusal = try Self.refusal(services, Self.invocation(["agent": .string("claude")]))
-        #expect(refusal == CloudStartSessionStrings.needsMachine(agent: "claude"))
-        #expect(refusal?.contains("cmux cloud start-session --target machine:<id> --agent claude") == true)
+        let refusal = try Self.refusal(services, Self.invocation(["agent": .string("codex")]))
+        #expect(refusal == CloudStartSessionStrings.needsMachine(agent: "codex"))
+        #expect(refusal?.contains("cmux cloud start-session --target machine:<id> --agent codex") == true)
     }
 
     @Test func anAgentOutsideAChatIsRefusedBeforeAnyCard() async throws {
@@ -183,6 +241,86 @@ struct CloudStartSessionTests {
         ActionRunScope.$current.withValue(ActionRunScope(origin: .mcp, allowsViewChange: false)) {
             #expect(CloudStartSession.isAgent(inner))
         }
+    }
+
+    @Test func claudePreflightUsesTheSameReadyMachineForExplicitAndAutomaticStarts() async throws {
+        let setup = CloudSetup(read: { .init(personal: [], organization: []) })
+        setup.claudeMachines = { [CloudMachine(id: "vm_a"), CloudMachine(id: "vm_b", displayName: "B")] }
+        setup.readClaudeMachineLogin = { $0 == "vm_b" }
+        let first = CloudStartSession.Request(agent: "claude")
+        let automatic = try await first.preflight(setup: setup, scheme: "cmux")
+        #expect(automatic.machineID == "vm_b")
+        var targeted = first
+        targeted.machineID = "vm_b"
+        #expect(try await targeted.preflight(setup: setup, scheme: "cmux") == targeted)
+        targeted.machineID = "vm_a"
+        #expect(try await targeted.preflight(setup: setup, scheme: "cmux") == targeted)
+        var named = first
+        named.name = "B"
+        #expect(try await named.preflight(setup: setup, scheme: "cmux") == named)
+        var refused = try #require(await setup.refusal(harness: "claude", model: nil))
+        refused.localLogin = true
+        #expect(targeted.setupRequired(refused, scheme: "cmux", machine: "vm_a").contains("cmux://settings/cloud/claude?machine=vm_a"))
+        named.name = "new Claude"
+        let namedSetup = named.setupRequired(refused, scheme: "cmux", machine: nil)
+        #expect(namedSetup.contains("machineName=new%20Claude"))
+        #expect(namedSetup.contains("--name 'new Claude'"))
+        #expect(!namedSetup.contains("Cloud needs a Claude setup token"))
+    }
+
+    @Test func aNamedCLIStartUsesTheFreshListsMachineAfterPreflight() async throws {
+        let now = ContinuousClock.now, account = Self.account
+        var loadedAt = now - .seconds(60)
+        var machines = [CloudMachine(id: "vm_a", displayName: "dev"), CloudMachine(id: "vm_b", displayName: "other")]
+        let setup = CloudSetup(read: { .init(personal: [], organization: []) })
+        setup.gateway = { ["claude"] }
+        setup.claudeMachines = { machines }
+        setup.readClaudeMachineLogin = { $0 == "vm_a" }
+        let invocation = Self.invocation(["agent": .string("claude"), "name": .string("dev")])
+        let request = try CloudStartSession.request(invocation)
+        #expect(setup.claudeMachine(named: request.destinationName) == "vm_a")
+        let preflight = try await request.preflight(setup: setup, scheme: "cmux")
+        try #require(preflight.machineID == nil)
+        #expect(preflight.name == "dev")
+        let machine = try await preflight.freshNamedMachine(
+            isFresh: { CloudListFreshness.isCurrent(loadedAt: loadedAt, loadedFor: account, account: account, now: now, within: CloudStartSession.listFresh) },
+            refresh: {
+                machines = [CloudMachine(id: "vm_a", displayName: "renamed"), CloudMachine(id: "vm_b", displayName: "dev")]
+                loadedAt = now
+            },
+            check: {},
+            find: { name in machines.first { $0.title == name } }
+        )
+        #expect(machine?.id == "vm_b")
+    }
+
+    @Test func aNamedClaudeStartRefreshesBeforeRefusingMissingSetup() async throws {
+        var machine = CloudMachine(id: "vm_b", displayName: "old-name")
+        var fresh = false
+        let setup = CloudSetup(read: { .init(personal: [], organization: []) })
+        setup.claudeMachines = { [machine] }
+        setup.readClaudeMachineLogin = { $0 == "vm_b" }
+        let request = CloudStartSession.Request(name: "dev", agent: "claude")
+        #expect(setup.claudeMachine(named: "dev") == nil)
+        let preflight = try await request.preflight(setup: setup, scheme: "cmux", refreshNamed: {
+            try await request.requireFreshNamedList(isFresh: { fresh }, refresh: {
+                machine = CloudMachine(id: "vm_b", displayName: "dev")
+                fresh = true
+            }, check: {})
+        })
+        #expect(preflight == request)
+        #expect(await preflight.launchReadiness(setup: setup, machine: "vm_b").choice == .claudeMachineLogin)
+    }
+
+    @Test func anAutomaticCLIStartOnlyPinsAReadyClaudeMachineForItsLogin() async throws {
+        let setup = CloudSetup(read: { .init(personal: [], organization: []) })
+        setup.claudeMachines = { [CloudMachine(id: "vm_a", displayName: "dev")] }
+        setup.readClaudeMachineLogin = { $0 == "vm_a" }
+        let request = CloudStartSession.Request(agent: "claude")
+        setup.gateway = { ["claude"] }
+        #expect(try await request.preflight(setup: setup, scheme: "cmux").machineID == nil)
+        setup.gateway = { [] }
+        #expect(try await request.preflight(setup: setup, scheme: "cmux").machineID == "vm_a")
     }
 
     @Test func theCommandToRunAgainKeepsEveryArgument() {
@@ -500,6 +638,12 @@ struct CloudStartSessionTests {
         let cli = CloudStartSession.startFailure(refused, name: "devbox-3", id: "vm-devbox3", agent: "carrier-drill")
         #expect(cli.contains("permission.denied"), "\(cli)")
         #expect(refusal(["reason": .string("some prose, not a code")]).userMessage == "devbox-3 refused to start the agent chat (agent_session.refused).")
+    }
+
+    @Test func aTeamStartExplainsWhyClaudeSettingsWithACredentialWereRefused() {
+        let refused = AgentRemoteStartRefusal(code: "agent_session.refused", machine: "devbox-3", reason: "route.settings_secret")
+        let message = CloudStartSession.startFailure(refused, name: "devbox-3", id: "vm-devbox3", agent: "claude")
+        #expect(message == CloudStartSessionStrings.claudeSettingsSecret)
     }
 
     @Test(arguments: [AgentRemoteStartRefusal.folderNeededCode, "agent_session.home_unconfirmed", "agent_session.above_home"])

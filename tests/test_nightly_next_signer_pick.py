@@ -13,6 +13,7 @@ import datetime as dt
 import gzip
 import importlib.util
 import json
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -171,8 +172,45 @@ class EvaluateTests(unittest.TestCase):
         api = Api(runs, {1: [one("in_progress", "cmux15-glaeda")]})
         host, pin, why = pick_mod.evaluate(env(), api, now=NOW)
         self.assertEqual(host, "ultra1", why)
-        self.assertEqual(len(api.paths), 3, api.paths)
-        self.assertFalse(any("/runs/500/" in p or "/runs/3/" in p or "/runs/4/" in p for p in api.paths), api.paths)
+        # the listing, the two open loop runs, and the one finished loop run (its last outcome)
+        self.assertEqual(len(api.paths), 4, api.paths)
+        self.assertFalse(any("/runs/500/" in p or "/runs/4/" in p for p in api.paths), api.paths)
+
+    def test_a_host_whose_last_build_failed_goes_after_a_free_healthy_one(self):
+        """2026-11-27: four picks in a row sent nightly-next-one to ultra1 while each crashed Xcode there
+        (runs 46074261734, 46076637784, 46079235693). cmux15 normally goes first; a failed last build on it sends
+        the next build to ultra1, and a failed ultra1 keeps cmux15."""
+        def failed(runner_name):
+            return dict(one("completed", runner_name), conclusion="failure")
+        def passed(runner_name):
+            return dict(one("completed", runner_name), conclusion="success")
+        runs = [loop_run(7, status="completed"), loop_run(6, status="completed"), loop_run(5, status="completed")]
+        host, _, why = pick_mod.evaluate(env(), Api(runs, {7: [failed("cmux15-glaeda")]}), now=NOW)
+        self.assertEqual(host, "ultra1", why)
+        host, _, why = pick_mod.evaluate(env(), Api(runs, {7: [failed("ultra1-glaeda")]}), now=NOW)
+        self.assertEqual(host, "cmux15", why)
+        # the newest outcome per host wins: cmux15 failed earlier, then built green
+        api = Api(runs, {7: [passed("cmux15-glaeda")], 6: [failed("cmux15-glaeda")]})
+        host, _, why = pick_mod.evaluate(env(), api, now=NOW)
+        self.assertEqual(host, "cmux15", why)
+        self.assertFalse(any("/runs/5/" in p for p in api.paths), "reads at most RECENT_DONE finished runs")
+
+    def test_the_only_free_signer_is_picked_even_when_its_last_build_failed(self):
+        runners = fleet(cmux15_glaeda=runner("cmux15-glaeda", status="offline"),
+                        cmux15_glaeda_1=runner("cmux15-glaeda-1", status="offline"))
+        host, pin, why = pick_mod.pick(runners, [], {"ultra1"})
+        self.assertEqual(host, "ultra1", why)
+        self.assertIn("no healthy signer is free", why)
+
+    def test_a_failed_last_outcome_read_keeps_the_pick(self):
+        class Flaky(Api):
+            def __call__(self, path):
+                if "/runs/9/" in path:
+                    raise OSError("boom")
+                return super().__call__(path)
+        host, _, why = pick_mod.evaluate(env(), Flaky([loop_run(9, status="completed")], {}), now=NOW)
+        self.assertEqual(host, "cmux15", why)
+        self.assertNotIn("pick failed", why)
 
     def test_a_census_as_old_as_the_run_reads_it_still_picks(self):
         """vars are read when the run starts and the pick runs after resolve (~13 min); runs 44990363506,
@@ -200,6 +238,24 @@ class EvaluateTests(unittest.TestCase):
             with self.subTest(name):
                 host, pin, why = pick_mod.evaluate(environment, api, now=NOW)
                 self.assertEqual((host, pin), ("cmux15", LABEL_ONLY), why)
+
+    def test_the_spare_token_reads_first_and_a_403_moves_to_github_token(self):
+        import io
+        import urllib.error
+        from unittest import mock
+        seen = []
+
+        def fake(request, timeout, follow_redirects=False, raise_errors=False):
+            token = request.headers["Authorization"].split()[-1]
+            seen.append(token)
+            if token == "spare":
+                raise urllib.error.HTTPError(request.full_url, 403, "Forbidden", {}, io.BytesIO(b""))
+            return 200, json.dumps({"workflow_runs": []}).encode(), {}
+        with mock.patch.object(pick_mod.deadline_http, "request", side_effect=fake):
+            host, pin, why = pick_mod.evaluate(env(SPARE_READ_TOKEN="spare", GITHUB_TOKEN="gh"), now=NOW)
+        self.assertEqual(seen, ["spare", "gh"])
+        self.assertEqual(host, "cmux15")
+        self.assertNotIn("pick failed", why)
 
     def test_main_writes_host_and_pin(self):
         import os
@@ -229,11 +285,14 @@ class WorkflowTests(unittest.TestCase):
         cls.one = cls.jobs["nightly-next-one"]
         cls.pick = cls.jobs["pick-nightly-next-signer"]
 
-    def test_the_pick_reads_no_secret_and_runs_before_the_build(self):
+    def test_the_pick_uses_only_the_protected_routing_key_before_the_build(self):
         import yaml
         text = yaml.safe_dump(self.pick)
-        self.assertNotIn("secrets.", text)
-        self.assertNotIn("environment", self.pick)
+        # One secret: the glaeda-route App key for a read-only (contents, actions) token, as decide mints on the same
+        # runner, so the pick has its own API budget (run 45575194160's pick 403d on github.token's).
+        self.assertEqual(set(re.findall(r"secrets\.\w+", text)), {"secrets.GLAEDA_ROUTE_APP_KEY"})
+        self.assertEqual(self.pick["environment"], {"name": "ci-routing-agent", "deployment": False})
+        self.assertIn("github.ref == 'refs/heads/nightly-next'", self.pick["if"])
         self.assertEqual(self.pick.get("permissions"), {"actions": "read", "contents": "read"})
         self.assertIn("pick-nightly-next-signer", self.one["needs"])
         self.assertIn("vars.CI_NIGHTLY_MINI == ''", self.pick["if"])

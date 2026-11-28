@@ -14,7 +14,7 @@ struct MacScreenHostEndTests {
     /// any other reason is the host stopping, and a stop this viewer sent stays its own.
     @Test func theHostsFailedEndKeepsItsReason() {
         var handshake = RemoteRdHandshake(service: "desktop")
-        handshake.receive(.ended(reason: "failed: capture: no frame from the display"))
+        handshake.receive(Data(#"{"t":"ended","reason":"failed: capture: no frame from the display"}"#.utf8))
         #expect(handshake.phase == .ended(.hostFailed(reason: "capture: no frame from the display")))
 
         #expect(RemoteRdHandshake.hostEnd("failed") == .hostFailed(reason: ""))
@@ -23,7 +23,7 @@ struct MacScreenHostEndTests {
 
         var stopped = RemoteRdHandshake(service: "desktop")
         stopped.viewerStopped()
-        stopped.receive(.ended(reason: "failed: capture"))
+        stopped.receive(Data(#"{"t":"ended","reason":"failed: capture"}"#.utf8))
         #expect(stopped.phase == .ended(.stoppedByViewer))
     }
 
@@ -72,10 +72,10 @@ struct MacScreenFailedCardTests {
         #expect(!host.contains("awake"))
         let bare = MacScreenPaneModel.failedDetail(relayErrors: [], relayOnly: false, hubTab: true, name: "Air Blue", cause: .host(""))
         #expect(bare.contains("Air Blue") && bare != generic)
-        // This Mac's own hub link down still says so first.
+        // This Mac's own hub socket being down never hides the host's reason.
         let offline = MacScreenPaneModel.failedDetail(relayErrors: [], relayOnly: false, hubTab: true, name: "Air Blue",
                                                       hubOnline: false, cause: .host("x"))
-        #expect(!offline.contains("x"))
+        #expect(offline == MacScreenPaneModel.hostFailedText("x", name: "Air Blue"))
         #expect(generic.contains("awake"))
     }
 

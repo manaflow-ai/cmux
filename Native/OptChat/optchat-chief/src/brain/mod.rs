@@ -392,6 +392,12 @@ pub enum Input {
     PeerChiefNote {
         text: String,
     },
+    /// A background spawn's start lines (`Spawner::background_start`):
+    /// steered into the running main turn; after it, only logged (the view
+    /// shows each subagent), so it never starts a turn of its own.
+    SpawnStartNote {
+        text: String,
+    },
     /// `escalate_auth` from subagent `agent` (control.rs): an urgent note.
     EscalateAuth {
         agent: String,
@@ -661,7 +667,7 @@ impl std::fmt::Debug for Engine {
 pub struct Settings {
     /// The constant working directory of every turn session.
     pub session_dir: PathBuf,
-    /// `MUX_HARNESS` (default claude, or a configured claude-cr).
+    /// `MUX_HARNESS` (default claude).
     pub harness: String,
     /// `MUX_POLICY` (default approve-all).
     pub policy: String,
@@ -892,6 +898,9 @@ pub(crate) struct MachineLimit {
     pub(crate) load: Box<dyn Fn() -> Option<String> + Send + Sync>,
 }
 
+/// A running turn's keep check (`Brain::keep_pending`): its key, session shape, and view identity.
+type KeepPending = (String, u64, Vec<(optchat_core::NodeId, bool)>);
+
 pub struct Brain {
     chat: Arc<OptChat>,
     agents: Arc<dyn AgentPort>,
@@ -1001,8 +1010,8 @@ pub struct Brain {
     prewarm_ours: Option<bool>,
     /// The turn session the last turn kept (`Settings::keep_turn_session`).
     kept: Option<turns::KeptTurn>,
-    /// The running turn's keep check: its key and the session shape.
-    keep_pending: Option<(String, u64)>,
+    /// The running turn's keep check: its key, session shape, and view identity.
+    keep_pending: Option<KeepPending>,
     /// This turn's TTL differs from `prewarm_ttl` (cache.ttl changed).
     ttl_stale: Arc<std::sync::atomic::AtomicBool>,
 
@@ -1983,6 +1992,14 @@ impl Brain {
             }
             Input::WatchFired(fired) => self.watch_fired(*fired),
             Input::PeerChiefNote { text } => self.peer_chief_note(text),
+            Input::SpawnStartNote { text } => {
+                if self.phase == Phase::Running && self.turn_side().is_none() {
+                    self.queue(text, Source::Note);
+                    self.interrupt_for_newer();
+                } else {
+                    (self.log)(&format!("spawn start note after its turn: {text}"));
+                }
+            }
             Input::EscalateAuth {
                 agent,
                 request,
@@ -2133,7 +2150,20 @@ impl Brain {
     /// cx-oqnw3: a compactor fault is a system notice (the app reads
     /// `state/compactor.json`), never a Chief message; a good probe removes
     /// it, and retracts a notice an older build posted as a message (cx-1hpt).
+    ///
+    /// A compactor that cannot run because the turns' own agent is not installed is no fault: the
+    /// Set Up card already says that agent is missing, with its Install button. First-run findings:
+    /// a clean Mac's Chief conversation showed "Chief memory summaries are paused. The Chief still
+    /// answers." under the card from the first launch on. A compactor whose other agent is missing
+    /// (a Codex Chief that compacts on Claude Code) still posts its notice.
     fn compactor_status(&mut self, status: Result<(), String>) {
+        let status = match status {
+            Err(text) if crate::harness_gate::turn_agent_missing(&text, self.turn_harness()) => {
+                (self.log)(&text);
+                Ok(())
+            }
+            status => status,
+        };
         self.stuck_fault = false;
         self.probe_fault = status.is_err();
         if let Some(settle) = &self.settle_status {
@@ -2143,6 +2173,13 @@ impl Brain {
             Err(text) => self.post_compactor_notice(COMPACTOR_NOTICE, text),
             Ok(()) => self.retract_compactor_notice(),
         }
+    }
+
+    /// The harness the Chief's turns run on: the last turn's, else the configured one.
+    pub(super) fn turn_harness(&self) -> &str {
+        self.turn_engine
+            .as_ref()
+            .map_or(self.settings.harness.as_str(), |e| e.harness.as_str())
     }
 
     /// A stuck line's notice (`Input::CompactorStuck`): posted like the

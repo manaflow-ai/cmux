@@ -20,6 +20,15 @@ pub const LAUNCH_KEY_NAMES: [&str; 8] = [
     "CMUX_UITEST_STACK_PASSWORD",
 ];
 
+/// cmux NEXT's folder under `~/.config` (`cmux_config::location::NEXT_DIR`): `cmux-next` on macOS,
+/// where `cmux` is cmux Classic's, `cmux` elsewhere.
+const NEXT_DIR: &str = if cfg!(target_os = "macos") { "cmux-next" } else { "cmux" };
+
+/// The machine owner's declared dev account, one email: `<home>/.config/<NEXT_DIR>/dev-account`.
+pub fn dev_account_path(home: &str) -> String {
+    format!("{home}/.config/{NEXT_DIR}/dev-account")
+}
+
 /// The auth launch keys of `environment`.
 pub fn launch_keys(environment: &BTreeMap<String, String>) -> BTreeMap<String, String> {
     environment
@@ -61,7 +70,7 @@ pub struct Credentials {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Refusal {
-    /// No `~/.config/cmux/dev-account` and no `CMUX_DEV_AUTH_ACCOUNT`.
+    /// No [`dev_account_path`] file and no `CMUX_DEV_AUTH_ACCOUNT`.
     NoDeclaredAccount,
     /// The account found is not the machine owner's declared one.
     AccountMismatch { found: String, declared: String },
@@ -82,7 +91,7 @@ pub fn credential_paths(environment: &BTreeMap<String, String>, home: &str) -> V
     match environment.get("CMUX_AUTH_CREDENTIALS_FILE").filter(|path| !path.is_empty()) {
         Some(explicit) => vec![explicit.clone()],
         None => vec![
-            format!("{home}/.config/cmux/dev-account"),
+            dev_account_path(home),
             format!("{home}/.secrets/cmuxterm-dev.env"),
             format!("{home}/.secrets/cmux.env"),
         ],
@@ -108,7 +117,7 @@ pub struct Reads {
 /// (`CMUX_AUTH_CREDENTIALS_FILE`) is taken as given, unless `CMUX_DEV_AUTH_ACCOUNT` names another
 /// account. The ambient files (`~/.secrets/cmuxterm-dev.env`, `~/.secrets/cmux.env`) and exports
 /// sign in only the machine's declared owner account (`CMUX_DEV_AUTH_ACCOUNT`, else
-/// `~/.config/cmux/dev-account`): a machine's secrets file can name another person.
+/// [`dev_account_path`]): a machine's secrets file can name another person.
 /// `CMUX_DEV_AUTH_PROFILE` picks `personal` (dogfood keys) or `agent` (uitest keys).
 pub fn decide(reads: &Reads) -> Decision {
     let environment = &reads.environment;
@@ -141,7 +150,7 @@ pub fn decide(reads: &Reads) -> Decision {
     let declared = expected.cloned().or_else(|| {
         reads
             .files
-            .get(&format!("{home}/.config/cmux/dev-account"))
+            .get(&dev_account_path(home))
             .map(|text| text.trim().to_owned())
             .filter(|email| !email.is_empty())
     });
@@ -426,7 +435,9 @@ pub struct LaunchLogin {
 pub fn launch_login(sign_in: &LaunchSignIn, decision: Option<&Decision>) -> LaunchLogin {
     let credentials = decision.and_then(|d| d.credentials.clone());
     let refusal_log = decision.and_then(|d| d.refusal.as_ref()).map(|refusal| match refusal {
-        Refusal::NoDeclaredAccount => "dev auto sign-in off: no declared account (~/.config/cmux/dev-account or CMUX_DEV_AUTH_ACCOUNT)".to_owned(),
+        Refusal::NoDeclaredAccount => format!(
+            "dev auto sign-in off: no declared account (~/.config/{NEXT_DIR}/dev-account or CMUX_DEV_AUTH_ACCOUNT)"
+        ),
         Refusal::AccountMismatch { found, declared } => {
             format!("dev auto sign-in off: {} is not the declared {}", mask(found), mask(declared))
         }

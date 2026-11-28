@@ -9,17 +9,19 @@ those on by default and htat i was following them by default? where's it all at?
 `cmux customize doctor` (cmux-customize `library/doctor.rs`) finds everything: layers still on, a web-dev
 overlay, files that do not load, skipped files and keys, overridden values, leftovers, unknown keys,
 wrong folders, layers pinning code the app has, files outside the usual settings that still change cmux
-(`override`), and settings that hide something the default shows (`not-default`: Leo's
-`appearance.surfaces.splitDivider.opacity` = 0, "Follow default"). It words each finding and its fixes
-and plans one way back (`recover`). Swift and web only show the report.
+(`override`). It words each finding and its fixes and plans one way back (`recover`). Swift and web
+only show the report. Your own values are not findings (Leo, 2026-11-25, on "You are not following the
+default for sidebar.priorityView.shown and 49 more": "what is this and why is it so ugly"), and only
+warnings, which break something now, are problems: the count, the line and the toast are the warnings;
+info findings (an unknown key, a stray file) are listed under them, never counted or toasted.
 
 ## Start and end states
 
-The start state is the ordinary app: no card, no notice. When the report has a finding that is not
+The start state is the ordinary app: no card, no notice. When the report has a warning that is not
 dismissed, Personalization draws **Customization Problems** above the Customization Library, and one
-quiet line says so. The end state is the start state: when the last finding is fixed or dismissed, the
+quiet line says so. The end state is the start state: when the last warning is fixed or dismissed, the
 card and the line leave together in one frame. Nothing changes on its own: every fix and Recover… run
-only on a click (Follow default keeps a copy of the settings file). Remove, Restore and Recover ask first,
+only on a click. Remove, Restore and Recover ask first,
 inline, Cancel focused, and say what is kept. A dismissed finding stays, muted, until it changes.
 
 ## The notice: two treatments
@@ -28,8 +30,9 @@ Web gallery `pages.settings-customize-doctor`, variants `treatment-banner` and `
 Choosing one is one line (`customizeDoctor.ts` `treatment`).
 
 - **inline** (shipped): the count and the line in the card's own header, nothing else. Quiet and never
-  in the way; outside Settings the native toast on launch (`customize.doctorNotice`, default on) is
-  what tells the person.
+  in the way. The native toast on launch (`customize.doctorNotice`) is off by default (Leo 2026-11-25:
+  "make it stop showing the customization not applied/reviewd and shit popup tosts"); the card is
+  where the findings show, and the toast comes back for whoever turns Customization notices on.
 - **banner**: ui/Notice's warning banner with Review (and Recover…) across the top of the Settings
   column. Nobody misses it, but a warning stays until resolved, so a finding the person chose to leave
   (an `info` leftover) pushes every Settings page down until they dismiss it, and it competes with the
@@ -50,5 +53,5 @@ the CLI's own words ("Not changed: …"). No animation of its own; held buttons 
 ## Page op
 
 `cmux.settings.customize.library` `{verb, id?, fix?}`: `doctor`, `doctor-fix` {id, fix: off, remove,
-restore, follow-default}, `doctor-dismiss` {id}, `doctor-open` {id} (the host opens the path),
+restore}, `doctor-dismiss` {id}, `doctor-open` {id} (the host opens the path),
 `doctor-recover`; all but `doctor` need a gesture. Link: `?focus=card.customizeDoctor` (`.recover`).

@@ -79,9 +79,15 @@ export type CloudStartProgress = {
   repository?: string;
   /// The environment whose setup status is being reported by cmux-platform.
   environmentId?: string;
+  /// The environment selected for this start. Kept separately from `environmentId` because a failed
+  /// plan may not have returned the resolved id yet; Retry must still name the same target.
+  environment?: string;
   /// Client-side timing for the machine and harness phases. Milliseconds since epoch.
   machineStartedAt?: number;
   machineFinishedAt?: number;
+  /// The machine step waits out a pause or a resume in flight (the host's `waking`, decided by Rust's
+  /// `cloud_move_settle`, ask-259986a6c4): the card says "Waking machine".
+  waking?: boolean;
   harnessStartedAt?: number;
   harnessFinishedAt?: number;
   /// The git-seed status, forwarded from `git.seed.status`.
@@ -111,6 +117,10 @@ export type CloudStartProgress = {
   /// The folder needs a larger machine than the plan includes (`cloud_size_locked`): the card names the size and
   /// offers the plan that includes it (none: the largest plan already), This Mac and Retry.
   sizeLocked?: CloudSizeLocked;
+  /// The host opened the chat on its machine (`cloud.startChat` answered ok) while this page carries it (a start in
+  /// place re-homes the page, cmux-cloud-start-core `one_pane`): the card, with the sent prompt, stays until the
+  /// Cloud chat's first page is drawn, so the pane never blanks between the two (cloudStartOpened.ts).
+  opened?: true;
 };
 
 /// The host's `cloud_folder_too_big` details (CloudMoveCLI.StartChatPreflightRefusal `details`).
@@ -264,6 +274,7 @@ export function cloudStartBegun(
   signingIn?: boolean,
   cloudSetup?: CloudSetupNeed,
   pick?: CloudStartPick,
+  environment?: string,
 ): CloudStartProgress {
   const whole = cwd?.replace(/\/+$/, "");
   const folder = whole?.split("/").pop();
@@ -276,6 +287,7 @@ export function cloudStartBegun(
     ...(home ? { home: true } : {}),
     ...(signingIn ? { signingIn: true } : {}),
     ...(cloudSetup ? { cloudSetup } : {}),
+    ...(environment ? { environment } : {}),
     ...(pick ? { pick } : {}),
   };
 }
@@ -285,6 +297,11 @@ export function cloudStartBegun(
 /// platform's own `cloud_plan_required`.
 export function cloudStartPlanHeld(key: string, task: string, cwd: string | undefined): CloudStartProgress {
   return { ...cloudStartBegun(key, task, cwd), state: "failed", code: "cloud_plan_required", refusedHere: true };
+}
+
+/// A setup remains the held send's while the panel is waiting on Settings.
+export function heldCloudSetup(start: CloudStartProgress | undefined): CloudSetupNeed | undefined {
+  return start?.state === "failed" || start?.signingIn ? start.cloudSetup : undefined;
 }
 
 /// Start `key`'s sign-in came back signed in and the start goes on: the card leaves its waiting for
@@ -392,6 +409,8 @@ function pushedFields(current: CloudStartProgress | undefined, push: unknown): C
   const directMachineFinished = number(fields.machineFinishedAt ?? fields.machine_finished_at);
   const directHarnessStarted = number(fields.harnessStartedAt ?? fields.harness_started_at);
   const directHarnessFinished = number(fields.harnessFinishedAt ?? fields.harness_finished_at);
+  if (fields.waking === true) next.waking = true;
+  if (fields.waking === false) delete next.waking;
   if (directMachineStarted !== undefined) next.machineStartedAt = directMachineStarted;
   if (directMachineFinished !== undefined) next.machineFinishedAt = directMachineFinished;
   if (directHarnessStarted !== undefined) next.harnessStartedAt = directHarnessStarted;

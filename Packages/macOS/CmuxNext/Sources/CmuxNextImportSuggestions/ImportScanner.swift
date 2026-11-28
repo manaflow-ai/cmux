@@ -2,6 +2,11 @@ public import CmuxNextBrowserImport
 import CmuxNextCompat
 public import Foundation
 
+/// What Classic's file metadata and NEXT's migration ledger establish before consent.
+public nonisolated enum ClassicImportAvailability: Sendable {
+    case unavailable, available, alreadyImported
+}
+
 /// Finds what this Mac has that cmux can bring over, cheaply and without
 /// asking: folder listings and file existence for browsers and agents, one
 /// small property list for iTerm2. It never opens a browser's databases,
@@ -16,14 +21,15 @@ public nonisolated struct ImportScanner: Sendable {
     public var variables: [String: String]
     /// Browser profiles imported before (`<browser>/<profile folder>`, `ImportSourceRecord.sourceKey`): left out.
     public var importedProfiles: Set<String>
-    /// cmux Classic's saved workspaces on this Mac that are not here yet: nil when Classic has no
-    /// saved session, 0 when all of it already came over (Settings › Import still offers it again).
-    public var classicWorkspaces: @Sendable () -> Int?
+    /// The daemon's metadata-only probe for Classic.
+    public var classicAvailability: ClassicImportAvailability
     /// Opens a file to learn whether it can be read (Safari's privacy-protected folder).
     public var probe: @Sendable (URL) -> FileAccess
     /// Asked before each browser and each other source: true ends the scan there, with what it found
     /// so far (`browser.import.enabled` turned off while it ran).
     public var shouldStop: @Sendable () -> Bool
+    /// Whether the Move this Mac to AutoCloud card is offered (`cloud.autoCloud`, off by default).
+    public var offersAutoCloud: Bool
 
     /// The most entries one folder listing counts, so a huge session folder costs a bounded scan.
     public static let listingLimit = 20_000
@@ -31,22 +37,23 @@ public nonisolated struct ImportScanner: Sendable {
     public static let maximumPreferencesBytes = 16 * 1024 * 1024
 
     public init(home: URL, environment: ImportEnvironment, variables: [String: String] = [:],
-                importedProfiles: Set<String> = [], classicWorkspaces: @escaping @Sendable () -> Int? = { nil },
+                importedProfiles: Set<String> = [], classicAvailability: ClassicImportAvailability = .unavailable,
                 probe: @escaping @Sendable (URL) -> FileAccess = FileAccess.probe,
-                shouldStop: @escaping @Sendable () -> Bool = { false }) {
+                shouldStop: @escaping @Sendable () -> Bool = { false }, offersAutoCloud: Bool = false) {
         self.home = home
         self.environment = environment
         self.variables = variables
         self.importedProfiles = importedProfiles
-        self.classicWorkspaces = classicWorkspaces
+        self.classicAvailability = classicAvailability
         self.probe = probe
         self.shouldStop = shouldStop
+        self.offersAutoCloud = offersAutoCloud
     }
 
     /// Every source found, browsers first in the order people most often come from.
     public func scan() -> [ImportFinding] {
         var findings = browsers()
-        let others: [() -> ImportFinding?] = [claudeCode, codex, classic, conductor, iterm2, ghostty]
+        let others: [() -> ImportFinding?] = [claudeCode, codex, classic, conductor, iterm2, ghostty] + (offersAutoCloud ? [autoCloud] : [])
         for source in others {
             if shouldStop() { break }
             if let found = source() { findings.append(found) }
@@ -191,8 +198,9 @@ public nonisolated struct ImportScanner: Sendable {
     // MARK: Terminals and cmux Classic
 
     func classic() -> ImportFinding? {
-        guard let workspaces = classicWorkspaces() else { return nil }
-        return ImportFinding(id: "cmux.classic", kind: .cmuxClassic, name: "cmux Classic", count: workspaces)
+        guard classicAvailability != .unavailable else { return nil }
+        return ImportFinding(id: "cmux.classic", kind: .cmuxClassic, name: "cmux Classic",
+                             count: classicAvailability == .alreadyImported ? 0 : nil)
     }
 
     /// Conductor's workspaces, one folder each under `~/conductor/workspaces/<repo>`, when its
@@ -207,6 +215,24 @@ public nonisolated struct ImportScanner: Sendable {
         }
         guard workspaces > 0 || size(database) > 0 else { return nil }
         return ImportFinding(id: "agents.conductor", kind: .conductor, name: "Conductor", count: workspaces)
+    }
+
+    /// The folders `cmux migrate plan laptop` looks in for checkouts (cmux-migrate `laptop.rs`
+    /// `DEFAULT_ROOTS`), each under home.
+    public static let checkoutRoots = ["code", "src", "Projects", "Developer", "dev", "work", "repos", "github"]
+
+    /// This Mac's git checkouts, one level under each of ``checkoutRoots``: a folder holding `.git`.
+    /// Folder listings and file existence only; what each one becomes (its machine, setup, local
+    /// changes) is `cmux migrate plan laptop`'s dry run, read when the person presses Review.
+    func autoCloud() -> ImportFinding? {
+        var checkouts = 0
+        for root in Self.checkoutRoots {
+            let folder = home.appending(path: root, directoryHint: .isDirectory)
+            checkouts += subfolders(folder).count(where: { exists(folder.appending(path: $0, directoryHint: .isDirectory).appending(path: ".git")) })
+            if checkouts >= Self.listingLimit { break }
+        }
+        guard checkouts > 0 else { return nil }
+        return ImportFinding(id: "cloud.moveThisMac", kind: .autoCloud, name: ImportSuggestionStrings.moveToAutoCloud, count: min(checkouts, Self.listingLimit))
     }
 
     /// Ghostty's config: cmux terminals read it as it is, so it is listed as already in use.

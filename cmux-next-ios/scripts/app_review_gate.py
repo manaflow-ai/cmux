@@ -1455,7 +1455,9 @@ def cmd_lint(args: argparse.Namespace) -> int:
 
 def asc_findings(path: Path) -> list[dict]:
     """`asc validate --output json`: every check that is blocking (or any
-    warning under --strict) is a blocker for us; Apple's own tool says so."""
+    warning under --strict) is a blocker for us; Apple's own tool says so,
+    except asc's advice (ASC_ADVISORY) and, on a version Apple already has,
+    its state and its locked listing text (SUBMITTED_STATES)."""
     raw = path.read_text()
     try:
         body = json.loads(raw)
@@ -1478,18 +1480,46 @@ def asc_findings(path: Path) -> list[dict]:
                 collect(value)
 
     collect(body)
+    submitted_state = ""
+    for c in checks:
+        code = str(c.get("code") or c.get("id") or c.get("checkId") or c.get("check") or "")
+        state = re.search(r'non-editable state "?([A-Z_]+)', str(c.get("message") or "")) if code == ASC_EDITABLE else None
+        if state and state.group(1) in SUBMITTED_STATES:
+            submitted_state = state.group(1)
     out = []
     seen: set[tuple[str, str, str]] = set()
     for c in checks:
         sev = str(c.get("severity", "")).lower()
         blocking = c.get("blocking") in (True, "true") or sev in ("error", "warning")
         code = str(c.get("code") or c.get("id") or c.get("checkId") or c.get("check") or "")
+        message = str(c.get("message") or c.get("title") or "")
+        severity = "blocker" if blocking else "info"
+        if code == ASC_EDITABLE and submitted_state:
+            # asc's "Use an editable version state before submission" is advice
+            # for a submit; a version Apple already has is no blocker. Run
+            # 45615832158 read 1.0.0 WAITING_FOR_REVIEW as one, so readiness
+            # stayed red for the whole review.
+            severity = "info"
+        elif blocking and code in ASC_ADVISORY:
+            # Not an App Review requirement (ASC_ADVISORY): shown, never blocking.
+            severity = "warning"
+        elif blocking and submitted_state and code.startswith(ASC_LOCKED_LISTING):
+            # The listing text of a submitted version cannot be edited until it
+            # leaves review, so no edit clears this today; the repository's
+            # listing test (asc's rules, ported in #58083) guards the next push.
+            severity = "warning"
+            message = f"{message} (listing locked while the version is {submitted_state}; fix it in the repository's listing for the next editable version)"
+        where = str(c.get("resource") or c.get("resourceId") or "")
+        if where in RETIRED_SUBSCRIPTIONS and code.startswith("subscriptions."):
+            # A retired subscription App Store Connect cannot delete is never
+            # sold, so nothing on it blocks a review (RETIRED_SUBSCRIPTIONS).
+            severity = "info"
         finding = {
             "rule": f"asc.{code or 'check'}",
             "guideline": guideline_for_asc(code),
-            "severity": "blocker" if blocking else "info",
+            "severity": severity,
             "source": f"asc ({path.stem})",
-            "message": c.get("message") or c.get("title") or json.dumps(c)[:200],
+            "message": message or json.dumps(c)[:200],
             "where": c.get("resource") or c.get("resourceId") or "",
         }
         # asc prints each check under both remediation.steps and checks.
@@ -1499,6 +1529,37 @@ def asc_findings(path: Path) -> list[dict]:
         seen.add(key)
         out.append(finding)
     return out
+
+
+ASC_EDITABLE = "version.state.editable"
+# asc checks that are advice, not App Review requirements, so they show as
+# warnings and never block. A subscription promotional image is needed only to
+# promote it on the App Store, for offer-code pages or win-back offers (asc's
+# own remediation says so; the App Review screenshot is the review one). A
+# keyword that repeats a subtitle term wastes keyword space; no guideline
+# rejects it. Readiness run 45874464871 counted 10 such blockers on 1.0.0.
+ASC_ADVISORY = frozenset({
+    "subscriptions.images.recommended",
+    "metadata.keywords.overlap_subtitle",
+})
+# asc check prefixes on a version's listing text (description, keywords,
+# subtitle, URLs): App Store Connect locks it while the version is submitted.
+ASC_LOCKED_LISTING = ("legal.", "metadata.")
+# Subscriptions on the App Store record that are retired: App Store Connect
+# cannot delete a subscription, these are never sold (no paywall offers them),
+# so asc's findings on them (no promotional image, READY_TO_SUBMIT) are notes,
+# never blockers. Run 45748224089 counted two such blockers on the trial.
+# cmux-next-ios/AppStoreReview/subscriptions/records.json lists the same ids
+# under "retired", and asc_subscription_records.py never writes them.
+RETIRED_SUBSCRIPTIONS = {
+    "6822947304": "com.cmux.app.pro.trial.monthly",
+}
+# A version in one of these states is submitted: Apple has it, nothing on it
+# can be edited, and asc's editable-state check only says so.
+SUBMITTED_STATES = frozenset({
+    "WAITING_FOR_REVIEW", "IN_REVIEW", "PENDING_DEVELOPER_RELEASE", "PENDING_APPLE_RELEASE",
+    "PROCESSING_FOR_APP_STORE", "READY_FOR_SALE", "READY_FOR_DISTRIBUTION",
+})
 
 
 # An App Store version in one of these states has been on sale: after it,

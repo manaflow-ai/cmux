@@ -42,6 +42,13 @@ test("the copy stage says the copy's own progress when the host reports it", () 
   });
 });
 
+test("a GitHub repository's start says it clones from GitHub, never that it copies the project (cmux#53226)", () => {
+  const cloning = { ...base, step: "folder", cwd: "github:manaflow-ai/cmuxterm-hq", folder: "cmuxterm-hq" } as const;
+  expect(stage(cloning)).toMatchObject({ id: "clone", label: "Cloning from GitHub" });
+  // A folder of this Mac is still copied.
+  expect(stage({ ...base, step: "folder", cwd: "/Users/dev/paint" })).toMatchObject({ label: "Copying your project" });
+});
+
 test("setup counts only once the host reports it, and a cached snapshot is quick", () => {
   const cloned = { ...base, hasRepository: true, clone: { state: "done" } } as const;
   // No setup reported: the next stage is the agent's.
@@ -118,9 +125,20 @@ test("the checklist rows' durations use the same clock: seconds, then m:ss", () 
     "en",
   );
   expect(rows.map((row) => [row.id, row.duration])).toEqual([
-    ["machine", "<1s"],
+    ["machine", "0s"],
     ["clone", "1:15"],
     ["setup", "12s"],
     ["harness", undefined],
   ]);
+});
+
+test("a machine waking from a pause or a resume says Waking machine, on its row and as the stage", () => {
+  const waking = { ...base, step: "machine", waking: true } as const;
+  const rows = startupChecklist(waking, undefined, 20_000, "en");
+  expect(rows[0]).toMatchObject({ id: "machine", status: "running", detail: "Waking machine" });
+  expect(stage(waking)).toMatchObject({ id: "machine", label: "Waking machine" });
+  // Once the machine is up the row is done and says nothing of waking.
+  const up = startupChecklist({ ...waking, step: "folder" }, undefined, 20_000, "en");
+  expect(up[0].detail).toBeUndefined();
+  expect(stage({ ...base, step: "machine" })).toMatchObject({ label: "Starting your Cloud machine" });
 });

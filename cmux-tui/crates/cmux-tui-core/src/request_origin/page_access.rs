@@ -430,6 +430,7 @@ const fn access(operation: Op) -> Access {
         | Op::ThemeSchemeConvert
         | Op::ThemeSchemeExport
         | Op::ThemeSchemeFromImage
+        | Op::ThemeSlotsResolve
         // A page never reads or writes the person's conversations.
         | Op::ConversationList
         | Op::ConversationGet
@@ -456,6 +457,7 @@ const fn access(operation: Op) -> Access {
         | Op::CloudVmProvisionApi
         | Op::CloudVmPublicationApiKeys
         | Op::CloudVmRevokePublicationApiKey
+        | Op::CloudVmAgentKeyCreate
         | Op::CloudRunsCreate
         | Op::CloudRunsStart
         | Op::CloudRunsWait
@@ -472,6 +474,12 @@ const fn access(operation: Op) -> Access {
         | Op::CloudOwnerGithubApp
         | Op::CloudOwnerGithubRepos
         | Op::CloudOwnerGithubConnect
+        | Op::CloudOwnerOp
+        | Op::CloudOwnerGithubComplete
+        | Op::CloudOwnerGithubList
+        | Op::CloudOwnerGithubCloneToken
+        | Op::CloudOwnerSlack
+        | Op::CloudOwnerSlackAwake
         | Op::CloudOwnerTurnCheckpoint
         | Op::CloudOwnerTurnRewind
         | Op::CloudOwnerTurns
@@ -482,6 +490,7 @@ const fn access(operation: Op) -> Access {
         | Op::CloudMachineShareChat
         | Op::CloudMachineChiefStart
         | Op::CloudMachineChiefResize
+        | Op::CloudMachineSetupDesktop
         | Op::CloudMachineFork
         => Access::Denied(Denied::NotAllowed),
     }

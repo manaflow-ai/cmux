@@ -16,9 +16,9 @@ use futures::future::BoxFuture;
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::hub::Hub;
 use crate::hub::transfer_pull::{MAX_FRAME, PageSource, TransferDial};
-use crate::hub_carrier::{CircuitService, HubStream, ServiceRefusal, TransferGate};
+use crate::hub::{Hub, transfer_park};
+use crate::hub_carrier::{CircuitLane, CircuitService, HubStream, ServiceRefusal, TransferGate};
 use crate::rpc::RpcError;
 
 /// How long one page request waits for its answer.
@@ -47,13 +47,29 @@ pub async fn read_frame<R: AsyncRead + Unpin>(io: &mut R) -> Option<Value> {
     serde_json::from_slice(&bytes).ok()
 }
 
-/// Serves the requests of one circuit from `from` on `io`, by `hub`, until it closes.
+/// Serves the requests of one circuit from `from` on `io`, by `hub`, until it closes. A
+/// pre-copy's target parks it with `await_move` and answers the move it is handed with `moved`
+/// (`hub/transfer_park.rs`); a circuit that closes before that answer leaves the move unknown.
 pub async fn serve_pages<S: AsyncRead + AsyncWrite + Unpin>(hub: &Arc<Hub>, from: &str, mut io: S) {
+    let mut answering: Option<(String, Answer)> = None;
     while let Some(request) = read_frame(&mut io).await {
         let id = request.get("id").cloned().unwrap_or(Value::Null);
         let method = request.get("method").and_then(Value::as_str).unwrap_or("");
         let params = request.get("params").cloned().unwrap_or(Value::Null);
-        let answer = match hub.transfer_source_page(from, method, &params).await {
+        let answered = match method {
+            "await_move" => match await_move(hub, from, &params, &mut io).await {
+                Parked::Closed => return,
+                Parked::Moving(handoff) => {
+                    let transfer_id = handoff.body.get("transferId").and_then(Value::as_str);
+                    answering = Some((transfer_id.unwrap_or("").to_owned(), handoff.answer));
+                    Ok(json!({"body": handoff.body}))
+                }
+                Parked::Answered(answered) => answered,
+            },
+            "moved" => transfer_park::take_moved(&mut answering, &params),
+            _ => hub.transfer_source_page(from, method, &params).await,
+        };
+        let answer = match answered {
             Ok(result) => json!({"id": id, "result": result}),
             Err(error) => {
                 json!({"id": id, "error": {"code": error.code, "message": error.message}})
@@ -62,6 +78,52 @@ pub async fn serve_pages<S: AsyncRead + AsyncWrite + Unpin>(hub: &Arc<Hub>, from
         if write_frame(&mut io, &answer).await.is_err() {
             return;
         }
+    }
+}
+
+type Answer = tokio::sync::oneshot::Sender<Result<Value, transfer_park::Unmoved>>;
+
+enum Parked {
+    /// The circuit closed while parked.
+    Closed,
+    /// A move's body to hand over.
+    Moving(transfer_park::Handoff),
+    /// `{none}`, or a refusal of the wait.
+    Answered(Result<Value, RpcError>),
+}
+
+/// One `await_move`: a move handed over within [`transfer_park::PARK_WAIT`], or `{none}`.
+async fn await_move<S: AsyncRead + Unpin>(
+    hub: &Arc<Hub>,
+    from: &str,
+    params: &Value,
+    io: &mut S,
+) -> Parked {
+    let mut parking = match hub.park_move(from, params) {
+        Ok(parking) => parking,
+        Err(e) => return Parked::Answered(Err(e)),
+    };
+    // The target sends nothing while parked: a record or a close ends the circuit.
+    let (mut handed, closed) = tokio::select! {
+        got = tokio::time::timeout(transfer_park::PARK_WAIT, &mut parking.hand) => {
+            (got.ok().and_then(Result::ok), false)
+        }
+        _ = read_frame(io) => (None, true),
+    };
+    hub.unpark_move(&parking.stage_id, parking.id);
+    if handed.is_none() {
+        // Closed to new hand-offs; one handed over before that is taken here.
+        parking.hand.close();
+        handed = parking.hand.try_recv().ok();
+    }
+    match (handed, closed) {
+        (Some(handoff), true) => {
+            let _ = handoff.answer.send(Err(transfer_park::Unmoved::NotSent));
+            Parked::Closed
+        }
+        (None, true) => Parked::Closed,
+        (Some(handoff), false) => Parked::Moving(handoff),
+        (None, false) => Parked::Answered(Ok(json!({"none": true}))),
     }
 }
 
@@ -163,23 +225,105 @@ impl TransferDial for CarrierDial {
             let hub = self.hub.upgrade().ok_or("stopping")?;
             let carrier =
                 hub.hub_carrier.get().ok_or("this daemon's hub carrier is not running")?;
-            let stream: HubStream =
-                carrier.dial_service(daemon, CircuitService::TransferSource).await?;
+            // The slot hands out an owned carrier; both closures borrow it, as they run again.
+            let carrier = &carrier;
+            let stream: HubStream = dial_past_capacity(
+                move || carrier.dial_service(daemon, CircuitService::TransferSource),
+                move || async move {
+                    // The pair's cheap kept circuit, when open, carries the pages as one more
+                    // stream: the relay allocates nothing for it.
+                    if !carrier.kept_live(daemon, CircuitLane::Cheap) {
+                        return None;
+                    }
+                    Some(
+                        carrier
+                            .dial_service_on(
+                                daemon,
+                                CircuitService::TransferSource,
+                                CircuitLane::Cheap,
+                            )
+                            .await,
+                    )
+                },
+                &CAPACITY_WAITS,
+            )
+            .await?;
             Ok(Box::new(CircuitPages::new(stream)) as Box<dyn PageSource>)
         })
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// How a relay words a circuit it refused for the far machine's slot capacity: the slot's circuit
+/// quota or its allocation rate (relay `abuse.rs`, code `slot-circuit-capacity`), or a busy slot
+/// (`slot-busy`). The relay marks both retryable; a lease, a pending join or the minute's window
+/// frees room within seconds.
+const CAPACITY_CODES: [&str; 2] = ["(relay code slot-circuit-capacity)", "(relay code slot-busy)"];
 
-    #[tokio::test]
-    async fn a_record_round_trips_and_an_oversized_one_closes_the_reader() {
-        let (mut a, mut b) = tokio::io::duplex(1 << 16);
-        write_frame(&mut a, &json!({"id": 1, "method": "read"})).await.unwrap();
-        assert_eq!(read_frame(&mut b).await, Some(json!({"id": 1, "method": "read"})));
-        a.write_u32((MAX_FRAME + 1) as u32).await.unwrap();
-        assert_eq!(read_frame(&mut b).await, None);
+/// The waits between a move's tries to dial its source while the relay answers with a capacity
+/// refusal: about 16 s in all, inside the move's own wait (`hub/transfer_pull.rs` `MOVE_WAIT`).
+/// Before, the first refusal failed the move (`transfer.unreachable: ... slot-circuit-capacity`,
+/// a lane VM's round-trip probe, 2026-11-27).
+pub(crate) const CAPACITY_WAITS: [Duration; 6] = [
+    Duration::from_millis(250),
+    Duration::from_millis(500),
+    Duration::from_secs(1),
+    Duration::from_secs(2),
+    Duration::from_secs(4),
+    Duration::from_secs(8),
+];
+
+/// Whether `error` is the relay's capacity refusal ([`CAPACITY_CODES`]).
+pub(crate) fn capacity_refusal(error: &str) -> bool {
+    CAPACITY_CODES.iter().any(|code| error.contains(code))
+}
+
+/// `dial`, and on a capacity refusal ([`capacity_refusal`]): first `kept`, a stream on a kept
+/// circuit already open (None: there is none), then `dial` again after each of `waits`. Any other
+/// error is the dial's answer at once. A refusal past the last wait says how long it was retried.
+pub(crate) async fn dial_past_capacity<T, D, DF, K, KF>(
+    mut dial: D,
+    mut kept: K,
+    waits: &[Duration],
+) -> Result<T, String>
+where
+    D: FnMut() -> DF,
+    DF: std::future::Future<Output = Result<T, String>>,
+    K: FnMut() -> KF,
+    KF: std::future::Future<Output = Option<Result<T, String>>>,
+{
+    let mut waited = Duration::ZERO;
+    let mut waits = waits.iter();
+    loop {
+        let error = match dial().await {
+            Ok(stream) => return Ok(stream),
+            Err(error) if capacity_refusal(&error) => error,
+            Err(error) => return Err(error),
+        };
+        match kept().await {
+            Some(Ok(stream)) => {
+                tracing::info!(
+                    "transfer: the relay refused a circuit for capacity ({error}); the pages ride \
+                     the kept circuit"
+                );
+                return Ok(stream);
+            }
+            Some(Err(why)) => {
+                tracing::debug!("transfer: the kept circuit took no pages stream: {why}");
+            }
+            None => {}
+        }
+        let Some(wait) = waits.next() else {
+            return Err(format!(
+                "{error}; refused again after {} ms of retries",
+                waited.as_millis()
+            ));
+        };
+        tracing::info!("transfer: the relay refused a circuit for capacity; again in {wait:?}");
+        tokio::time::sleep(*wait).await;
+        waited += *wait;
     }
 }
+
+#[cfg(test)]
+#[path = "transfer_service_tests.rs"]
+mod tests;

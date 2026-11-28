@@ -202,6 +202,15 @@ impl Lower {
         }
     }
 
+    /// The SHA-256 the Mac listed for file `id`, when it did (the full manifest's once extended).
+    #[must_use]
+    pub fn hash(&self, id: u32) -> Option<&[u8; 32]> {
+        match self.ext.get() {
+            Some(ext) => ext.full.hash(ext_index(ext, id)?),
+            None => self.head.hash(id),
+        }
+    }
+
     /// The id of the folder holding `id` ([`ROOT`] for the folder itself).
     #[must_use]
     pub fn parent(&self, id: u32) -> Option<u32> {

@@ -140,7 +140,7 @@ extension FeedStore {
             Measured on the iOS 26 simulator: first paint of a cell is under one frame once the pool is warm, and scrolling 40 events shows no dropped frames.
             """, quote: .init("how will the feed render markdown without jank?"), ago: 3600, now: now),
             codex("f-agent-quote", .response, """
-            Done. I kept the old `/v1/pricing` route as a redirect so cached links still work.
+            Done. I kept the old `/v1/pricing` route as a redirect so cached links still work. The rules are in [Cloudflare's redirect docs](https://developers.cloudflare.com/rules/url-forwarding/).
             """, quote: .init("Should I keep the old route as a redirect?", author: .agent), ago: 5400, now: now),
         ]
     }

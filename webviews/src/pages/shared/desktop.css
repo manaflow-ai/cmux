@@ -114,6 +114,7 @@ body {
   --ds-radius-card: 14px; /* today's card radius; grid.md moves it to 12 after a gallery comparison */
   --ds-radius-composer: 18px; /* today's composer radius; grid.md moves it to 12 after a gallery comparison */
   --ds-radius-menu: var(--cmux-menu-highlight-radius); /* AppKit's menu highlight (menu-metrics) */
+  --ds-radius-full: 999px; /* a capsule at any height: the 999px the app's round tracks and badges draw; Tailwind's own rounded-full stays as it is */
   /* glass chrome (level): chrome docked on the window where no native glass is under the page: panes, bars, rails, side tabs, sticky headers and the minimap; over the App's own window glass the page draws text only (design/glass-system.md, rule 1) */
   --ds-glass-chrome-tint: 62%;
   --ds-glass-chrome-blur: blur(20px) saturate(1.6);
@@ -291,7 +292,7 @@ body {
    (--tooltip-*, below; Leo, 2026-10-14): frosted glass under a tint the primary ink reads on, a
    one-device-pixel separator rim and a small tight shadow. One look everywhere (Lawrence 2026-11-20,
    on the composer's "Select effort ⌃⇧M"): regular text at the detail size in the primary ink, then
-   the shortcut's keys on a small keycap plate (.ui-tooltip-hint), and an optional detail line below
+   the shortcut as plain glyphs (.ui-tooltip-hint, ui/KeyHint), and an optional detail line below
    in dimmer ink; the numbers are the native ones (CmuxNextDesign/Tooltip/TooltipMetrics.swift,
    test/tooltip-metrics.test.ts holds the two in step). It shows and goes in one frame, with no fade
    and no rise, as do hover cards (.ui-card, the context window card) on the same surface (Leo,
@@ -310,7 +311,8 @@ body {
     calc(var(--tooltip-pad-inline) - var(--tooltip-rim-layout-width));
   border: var(--tooltip-rim-width) solid
     var(--cmux-separator, color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent));
-  border-radius: calc(var(--role-tooltip-radius) * var(--cmux-interface-scale, 1)); /* concentric-allow: a tooltip holds text and a keycap, no buttons; the keycap nests in it */
+  border-radius: var(--cmux-tooltip-radius, calc(var(--role-tooltip-radius) * var(--cmux-interface-scale, 1))); /* concentric-allow: a tooltip holds text and a plain shortcut, nothing nested */
+  /* one-material-allow: the tooltip's fallback for a page that loads no glass.css; on .ui-glass (Tooltip.tsx, titleTooltips.ts) glass.css's .ui-tooltip.ui-glass replaces this fill, frost and shadow with the glass's, so one material either way */
   background: var(--tooltip-tint);
   -webkit-backdrop-filter: var(--tooltip-blur);
   backdrop-filter: var(--tooltip-blur);
@@ -328,7 +330,7 @@ body {
   pointer-events: none;
 }
 
-/* One line: the text ends in an ellipsis at the widest tooltip, after the floated keycap. */
+/* One line: the text ends in an ellipsis at the widest tooltip, after the floated shortcut. */
 .ui-tooltip:not(.ui-card),
 .ui-title-tooltip {
   white-space: nowrap;
@@ -390,6 +392,7 @@ body {
 
 .ui-hint {
   border-width: var(--tooltip-rim-width);
+  /* one-material-allow: the toolbar hint's fallback for a page that loads no glass.css; on .ui-glass (LazyCard) glass.css's .ui-hint.ui-card.ui-glass replaces it */
   background: var(--tooltip-tint);
   -webkit-backdrop-filter: var(--tooltip-blur);
   backdrop-filter: var(--tooltip-blur);
@@ -414,29 +417,15 @@ body {
   font-weight: var(--weight-regular);
 }
 
-/* The shortcut's keys on a keycap plate (the dialogs' Linear keycap, CmuxDialogKeycapStyle.linearKbd):
-   the text's ink at 10% under the keys in the secondary ink, emphasized at the caption size. It
-   floats to the end of the first line (it comes first in the tooltip) and reaches into the end's
-   padding, so it sits --tooltip-keycap-inset from the tooltip's top, bottom and end and its corner
-   nests in the tooltip's. */
+/* The shortcut (ui/KeyHint, the one key hint: plain glyphs in the secondary ink, no plate). It floats
+   to the end of the first line (it comes first in the tooltip), --tooltip-keycap-gap after the text,
+   on the text's line box so the two share a center. Only placement here; the look is keyHint.css. */
 .ui-tooltip-hint {
   float: inline-end;
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: var(--tooltip-keycap-height);
-  height: var(--tooltip-keycap-height);
-  margin-block-start: calc(var(--tooltip-keycap-inset) - var(--tooltip-pad-block));
-  margin-inline: var(--tooltip-keycap-gap) calc(var(--tooltip-keycap-inset) - var(--tooltip-pad-inline));
-  padding-inline: var(--tooltip-keycap-pad);
-  border-radius: calc(var(--role-tooltip-radius) * var(--cmux-interface-scale, 1) - var(--tooltip-keycap-inset)); /* concentric-allow: nested in the tooltip's corner at its inset */
-  background: color-mix(in srgb, var(--cmux-tooltip-ink, var(--cmux-text, CanvasText)) 10%, transparent);
+  margin-inline-start: var(--tooltip-keycap-gap);
+  line-height: var(--tooltip-line-height);
+  /* The tooltip's secondary ink, as the native tooltip's hint (TooltipStyle.hint). */
   color: var(--cmux-text-secondary, color-mix(in srgb, var(--cmux-text, CanvasText) 64%, transparent));
-  font-size: var(--text-caption);
-  font-weight: var(--weight-emphasis);
-  line-height: 1;
-  white-space: nowrap;
 }
 
 img,
@@ -452,7 +441,7 @@ a {
   -webkit-user-select: text;
   user-select: text;
 }
-:where(.selectable, .selectable *) {
+:where(.selectable) {
   cursor: auto;
 }
 
@@ -480,17 +469,21 @@ input[type="range"] {
    hand). Zero specificity (:where), so a surface's own meaningful cursor still wins: text in a
    field, a resize or drag cursor, zoom-in on an image. No sheet sets `cursor: pointer`
    (clickable-cursor.test.ts, scripts/cmux-next/check-default-cursor.py).
-   What is inside a clickable thing takes its cursor (`inherit`): the arrow inside selectable text,
-   where `.selectable *` would give its label the I-beam, and a surface's own cursor on the
-   clickable thing too, so a sent or queued image's thumbnail keeps the button's zoom-in. This rule
-   comes first so a clickable thing nested in another still gets the arrow.
-   What is inside any label takes the label's cursor too: a choice's arrow (the label's own rule
-   below), a locked choice's arrow, a field label's I-beam in selectable text. A field inside keeps
-   the text cursor (its own rule outranks this one). Never `label:has(...) *` here, nor any `:has()`
-   before a combinator whose last compound has no class or attribute (`*`, `:not(...)`): Chromium
-   then restyles the whole page on every node inserted anywhere under the elements it tracks for
-   `:has()`, about 850 elements per streamed row or rail tick in the agent pane
-   (pane-has-restyle.browser.test.ts). */
+   What is inside a clickable thing takes its cursor by inheritance (`cursor` inherits): the arrow
+   over its label inside selectable text, since only `.selectable` itself sets the I-beam's `auto`
+   (above), not its descendants, and a surface's own cursor on the clickable thing too, so a sent or
+   queued image's thumbnail keeps the button's zoom-in. A selectable box inside a clickable thing
+   inherits its cursor as well (the rule below). What is inside any label takes the label's cursor
+   the same way: a choice's arrow, a locked choice's arrow, a field label's I-beam in selectable
+   text. A field inside keeps the text cursor (its own rule outranks this one).
+   Never a rule whose subject is `*` under ancestors Chromium cannot look up by class, id, tag or
+   attribute (`:where(button, a[href], ...) *`, `:disabled *`): every element styled anywhere then
+   walks all its ancestors trying each one, about 230 ms of style recalc for 24 older pages of a long
+   chat (transcript-scroll-up.bench.ts TRACE=3; descendant-universal-rules.test.ts). Nor
+   `label:has(...) *`, nor any `:has()` before a combinator whose last compound has no class or
+   attribute (`*`, `:not(...)`): Chromium then restyles the whole page on every node inserted
+   anywhere under the elements it tracks for `:has()`, about 850 elements per streamed row or rail
+   tick in the agent pane (pane-has-restyle.browser.test.ts). */
 :where(
     button,
     a[href],
@@ -508,7 +501,7 @@ input[type="range"] {
     summary,
     label
   )
-  * {
+  :where(.selectable) {
   cursor: inherit;
 }
 :where(
@@ -565,7 +558,10 @@ input:is(
 [aria-disabled="true"],
 [aria-disabled="true"] *,
 :disabled:not(fieldset),
-:disabled:not(fieldset) *,
+button:disabled *,
+select:disabled *,
+optgroup:disabled *,
+option:disabled *,
 fieldset:disabled,
 fieldset:disabled > :not(legend:first-of-type):not(:is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"])),
 fieldset:disabled > :not(legend:first-of-type) :not(:is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]), :is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]) *),
@@ -766,16 +762,14 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --tooltip-shadow: var(--elevation-1);
   --tooltip-max-width: calc(var(--grid-base) * 80);
   /* TooltipMetrics.swift's numbers, on the 4px grid, following interface zoom: 12/16 text, 4px above
-     and below it, 8px before it, an 8px corner; the keycap 16px tall, 4px in from the top, bottom and
-     end, 4px each side of its keys, 8px after the text. */
+     and below it, 8px before it, an 8px corner; the shortcut 8px after the text. */
   --tooltip-edge: var(--grid-base);
   --tooltip-font-size: var(--text-detail);
   --tooltip-line-height: var(--text-detail--line-height);
-  --tooltip-pad-block: var(--grid-base);
-  --tooltip-pad-inline: calc(var(--grid-base) * 2);
-  --tooltip-keycap-height: calc(var(--grid-base) * 4);
-  --tooltip-keycap-inset: var(--grid-base);
-  --tooltip-keycap-pad: var(--grid-base);
+  /* A look re-skins the tooltip's padding and corner with the component tokens (ui/README.md
+     "Component tokens"); unset, the native numbers. */
+  --tooltip-pad-block: var(--cmux-tooltip-padding-block, var(--grid-base));
+  --tooltip-pad-inline: var(--cmux-tooltip-padding-inline, calc(var(--grid-base) * 2));
   --tooltip-keycap-gap: calc(var(--grid-base) * 2);
   --tooltip-detail-gap: calc(var(--grid-base) / 2);
 }
@@ -855,6 +849,22 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   /* One turn of every spinner (`cmux-spin`); not a transition. */
   --cmux-spinner-period: 2000ms;
 }
+/* Off or reduced motion keeps cmux's own durations and easings, whatever a look sets. */
+:root[data-agent-motion="off"],
+:root[data-agent-motion="reduced"],
+:root[data-cmux-motion="off"],
+:root[data-cmux-motion="reduced"] {
+  --cmux-motion-quick: 80ms;
+  --cmux-motion-micro: 120ms;
+  --cmux-motion-standard: 180ms;
+  --cmux-motion-large: 240ms;
+  --cmux-motion-settle: 180ms;
+  --cmux-motion-send: 0ms;
+  --cmux-ease-out: cubic-bezier(0, 0, 0.58, 1);
+  --cmux-ease-spring: linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0.985 46%, 1 54.57%, 1);
+  --cmux-ease-settle: cubic-bezier(0.16, 1, 0.3, 1);
+  --cmux-ease-send: cubic-bezier(0.16, 1, 0.3, 1);
+}
 /* motion-scale:end */
 /* Hover reveal: a control shown while the pointer is over its row (a message's time and Copy, a
    tool row's check, a code card's corner buttons, a list row's ⋯) follows how long the pointer stays,
@@ -912,6 +922,8 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --grid-icon-box-comfortable: calc(20px * var(--cmux-interface-scale, 1)); /* Comfortable sidebar and Home list icon box only. */
   --grid-glyph: calc(12px * var(--cmux-interface-scale, 1)); /* Small glyph centered inside its icon box. */
   --grid-gap: calc(8px * var(--cmux-interface-scale, 1)); /* Space after an icon or control box. */
+  --grid-chevron-gap: calc(4px * var(--cmux-interface-scale, 1)); /* Least ink-to-ink space between a label and its chevron, either side (docs/cmux-next/ui-guidelines.md). */
+  --grid-hit-min: calc(24px * var(--cmux-interface-scale, 1)); /* Least width and height of a clickable icon, chevron or icon-only button (docs/cmux-next/ui-guidelines.md). */
   --grid-row: calc(28px * var(--cmux-interface-scale, 1)); /* Compact row height. */
   --grid-row-comfortable: calc(32px * var(--cmux-interface-scale, 1)); /* Comfortable row height. */
   --grid-pill-inset: calc(2px * var(--cmux-interface-scale, 1)); /* Vertical inset above and below a row highlight. */

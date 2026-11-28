@@ -112,14 +112,14 @@ const RETRY = "/home/dev/atlas/src/retry.ts";
 test("a card for one file opens its diff flat on the card, not in a second box", async () => {
   const container = await render(card(turn([write(RETRY, "export const tries = 3;\n", "export const tries = 1;\n")])));
   await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-edited-toggle")!.click());
-  const diff = container.querySelector(".acpmux-edited-diff > .cv-edit-diff");
+  const diff = container.querySelector(".acpmux-edited-stack .cv-edit-diff");
   expect(diff?.hasAttribute("data-flat")).toBe(true);
   // Its header and actions (Wrap, copy, Open in Changes) stay, now on the card itself.
   for (const action of [".cv-edit-diff__wrap", ".cv-edit-diff__copy", ".acpmux-edited-open"])
     expect(diff?.querySelector(`.cv-edit-diff__header ${action}`)).not.toBeNull();
 });
 
-test("each file row of a card for several files opens its diff flat too", async () => {
+test("a card for several files stacks every file's diff flat in the one box", async () => {
   const container = await render(
     card(
       turn([
@@ -130,10 +130,9 @@ test("each file row of a card for several files opens its diff flat too", async 
   );
   const toggle = container.querySelector<HTMLButtonElement>(".acpmux-edited-toggle");
   if (toggle?.getAttribute("aria-expanded") === "false") await act(async () => toggle.click());
-  await act(async () => container.querySelector<HTMLButtonElement>("button.acpmux-edited-file")!.click());
-  const diffs = [...container.querySelectorAll(".acpmux-edited-entry .acpmux-edited-diff > .cv-edit-diff")];
-  expect(diffs).toHaveLength(1);
-  expect(diffs[0]!.hasAttribute("data-flat")).toBe(true);
+  const diffs = [...container.querySelectorAll(".acpmux-edited-stack .acpmux-edited-section > .cv-edit-diff")];
+  expect(diffs).toHaveLength(2);
+  for (const diff of diffs) expect(diff.hasAttribute("data-flat")).toBe(true);
 });
 
 test("a flat diff draws no ring, corner, fill or inset of its own; an edit call's diff keeps its box", () => {
@@ -146,4 +145,87 @@ test("a flat diff draws no ring, corner, fill or inset of its own; an edit call'
   // The card no longer pads the diff in from its edges.
   expect(rule(edited, ".acpmux-edited .acpmux-edited-diff")).toBe("");
   expect(edited).not.toMatch(/\.acpmux-edited-diff > \.cv-edit-diff \{[^}]*margin/);
+});
+
+// A row id of its own: the card's open state is kept per row id across test files, which number theirs alike.
+const own = (name: string, row: AcpmuxRow): AcpmuxRow => ({ ...row, id: `edits-flat-${name}` }) as AcpmuxRow;
+
+test("each file in an opened card folds to its name and opens again, from its name or its header", async () => {
+  const container = await render(
+    card(
+      own(
+        "fold",
+        turn([
+          write(RETRY, "export const tries = 3;\n", "export const tries = 1;\n"),
+          write("/home/dev/atlas/src/wait.ts", "export const wait = 50;\n", "export const wait = 10;\n"),
+        ]),
+      ),
+    ),
+  );
+  const toggle = container.querySelector<HTMLButtonElement>(".acpmux-edited-toggle");
+  if (toggle?.getAttribute("aria-expanded") === "false") await act(async () => toggle.click());
+  const [first, second] = [...container.querySelectorAll<HTMLElement>(".acpmux-edited-section > .cv-edit-diff")];
+  const name = first!.querySelector<HTMLButtonElement>(".cv-edit-diff__toggle")!;
+  const body = first!.querySelector<HTMLElement>(".cv-edit-diff__body")!;
+  expect(name.getAttribute("aria-expanded")).toBe("true");
+  expect(body.hidden).toBe(false);
+
+  await act(async () => name.click());
+  expect(name.getAttribute("aria-expanded")).toBe("false");
+  expect(first!.hasAttribute("data-collapsed")).toBe(true);
+  expect(body.hidden).toBe(true);
+  // Only that file folds.
+  expect(second!.querySelector<HTMLElement>(".cv-edit-diff__body")!.hidden).toBe(false);
+
+  // The header's bare space opens it again; its own buttons (Copy) keep their click.
+  const header = first!.querySelector<HTMLElement>(".cv-edit-diff__header")!;
+  await act(async () => header.dispatchEvent(new window.MouseEvent("click", { bubbles: true, button: 0 })));
+  expect(body.hidden).toBe(false);
+  await act(async () => first!.querySelector<HTMLButtonElement>(".cv-edit-diff__copy")!.click());
+  expect(body.hidden).toBe(false);
+});
+
+test("the file stack hands the wheel on at its ends and insets a drawn scrollbar below the sticky name", async () => {
+  const container = await render(
+    card(own("stack", turn([write(RETRY, "export const tries = 3;\n", "export const tries = 1;\n")]))),
+  );
+  await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-edited-toggle")!.click());
+  expect(container.querySelector(".acpmux-edited-stack")?.hasAttribute("data-cmux-inset-scroller")).toBe(true);
+  const stack = rule(css("./EditedFilesCard.css"), ".acpmux-edited .acpmux-edited-stack");
+  expect(stack).toContain("overscroll-behavior: auto");
+  expect(stack).toContain("--cmux-inset-scroller-start:");
+});
+
+test("the head says View changes only on a fresh hover: never while open, never right after a click toggles it", async () => {
+  const container = await render(
+    card(own("quiet", turn([write(RETRY, "export const tries = 3;\n", "export const tries = 1;\n")]))),
+  );
+  const head = container.querySelector<HTMLElement>(".acpmux-edited-head")!;
+  const label = () => container.querySelector(".acpmux-edited-hover-label");
+  const click = async () =>
+    act(async () => head.dispatchEvent(new window.MouseEvent("click", { bubbles: true, button: 0, detail: 1 })));
+  const toggle = container.querySelector<HTMLButtonElement>(".acpmux-edited-toggle")!;
+  if (toggle.getAttribute("aria-expanded") === "true") await act(async () => toggle.click());
+  expect(label()).not.toBeNull();
+  expect(head.hasAttribute("data-hover-quiet")).toBe(false);
+
+  // Opened, the head keeps its counts: no "Hide changes".
+  await click();
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  expect(label()).toBeNull();
+  // Closed again under the same pointer: the label is back in the DOM but quiet until the pointer leaves.
+  await click();
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(head.hasAttribute("data-hover-quiet")).toBe(true);
+  await act(async () =>
+    head.dispatchEvent(
+      new window.MouseEvent("pointerout", { bubbles: true, relatedTarget: container.ownerDocument.body }),
+    ),
+  );
+  expect(head.hasAttribute("data-hover-quiet")).toBe(false);
+  // The hover swap skips a quiet head.
+  const sheet = css("./EditedFilesCard.css");
+  expect(sheet).toContain(
+    ".acpmux-edited:not([data-open]) .acpmux-edited-head[data-interactive]:not([data-hover-quiet])",
+  );
 });

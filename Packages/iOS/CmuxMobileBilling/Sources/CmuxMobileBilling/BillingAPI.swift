@@ -16,4 +16,18 @@ public protocol BillingAPI: Sendable {
     /// - Throws: ``BillingAPIError``; any throw means the server did not
     ///   accept the transaction and it must not be finished.
     func submitTransaction(signedTransactionInfo: String) async throws -> BillingTransactionReceipt
+
+    /// `GET /api/billing/plan`'s `paymentPastDue`: the web (Stripe)
+    /// subscription that grants the plan failed its latest renewal. The same
+    /// field the Mac's Cloud page reads.
+    /// - Returns: True only for a JSON `true`; a missing field (an older
+    ///   server) or another type is false.
+    /// - Throws: ``BillingAPIError``.
+    func paymentPastDue() async throws -> Bool
+}
+
+public extension BillingAPI {
+    /// A server that reports no failed payment, for conformances that serve
+    /// only the App Store routes.
+    func paymentPastDue() async throws -> Bool { false }
 }

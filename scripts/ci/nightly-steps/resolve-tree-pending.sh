@@ -45,14 +45,18 @@ if (( rc != 1 )); then
 fi
 fallback_out="$(mktemp)"
 fallback_err="$(mktemp)"
+fallback_cache="$(mktemp -d)"
 # The first look covers the last CMUX_TUI_TREE_SEARCH_COMMITS (default 50) commits, as before. On a miss
 # a second look reaches CMUX_TUI_TREE_FALLBACK_SEARCH_COMMITS (default 300); the 24 h age bound
 # (CMUX_TUI_TREE_MAX_AGE_HOURS) still ends it first. Each look stops at its first published tree, so a
 # hit in the last 50 costs what it did. Run 45097887921 (2026-11-23) found no fallback: the newest
 # published tree was 87 commits back (two hours of trees that did not compile, at about 40 merges an
 # hour), so "Bundle the cmux-tui client" waited the full 45 min for a tree nothing published and failed.
+# Both looks share one CMUX_TUI_TREE_PROBE_CACHE (pin-cmux-tui.sh), so the second keeps the first's
+# tree keys and "not published" verdicts for its first 50 commits instead of computing and probing
+# them again. Run 45941175424 (2026-11-27) spent 217 s here, ahead of the signer.
 fallback_search() {
-  CMUX_TUI_TREE_TIP_WAIT_SECONDS=0 CMUX_TUI_TREE_SAME_PATHS="" CMUX_TUI_TREE_DISPATCH="" GITHUB_STEP_SUMMARY="" \
+  CMUX_TUI_TREE_PROBE_CACHE="$fallback_cache" CMUX_TUI_TREE_TIP_WAIT_SECONDS=0 CMUX_TUI_TREE_SAME_PATHS="" CMUX_TUI_TREE_DISPATCH="" GITHUB_STEP_SUMMARY="" \
     CMUX_TUI_TREE_SEARCH_COMMITS="$1" bash scripts/cmux-next/pin-cmux-tui.sh resolve-newest-published </dev/null
 }
 set -m
@@ -64,6 +68,7 @@ fallback_began=$SECONDS
 end_fallback() {
   if [[ -n "${fallback_pid:-}" ]]; then kill -TERM -- "-$fallback_pid" 2>/dev/null || true; wait "$fallback_pid" 2>/dev/null || true; fi
   rm -f "$fallback_out" "$fallback_err"
+  rm -rf -- "$fallback_cache"
 }
 trap end_fallback EXIT
 phase() { echo "phase $1: $(( SECONDS - $2 ))s"; }
@@ -86,10 +91,10 @@ case "$publisher" in
 esac
 if [[ -n "$why" ]]; then
   echo "tree_pending=false" >> "$GITHUB_OUTPUT"
-  echo "::warning title=cmux-tui tree::tree $key of the tip is not published and nothing will publish it in time ($why); the resolver builds the newest commit whose tree is published"
+  echo "::warning title=cmux-tui tree::tree $key of the tip is not published and nothing will publish it in time ($why); the resolver builds the tip with the newest published tree whose daemon-capabilities.json matches (older-tree-for-tip.sh), else the newest commit whose tree is published"
   {
     echo "### Nightly build commit"
-    echo "- the tip \`$TIP_SHA\`: its cmux-tui tree \`$key\` is not published and nothing will publish it in time ($why); building the newest published tree instead"
+    echo "- the tip \`$TIP_SHA\`: its cmux-tui tree \`$key\` is not published and nothing will publish it in time ($why); the resolver picks an older published tree"
   } >> "$GITHUB_STEP_SUMMARY"
   exit 0
 fi
@@ -116,8 +121,10 @@ fi
 # (exit 2: the commit's objects are not here and one fetch did not bring them) keeps the fallback.
 if [[ -n "$fallback" && "${fallback_source:-}" =~ ^[0-9a-f]{40}$ ]]; then
   began=$SECONDS
+  fallback_depth=()
+  [[ "$(git rev-parse --is-shallow-repository)" == true ]] && fallback_depth=(--depth=1)
   git cat-file -e "$fallback_source^{commit}" 2>/dev/null \
-    || bash scripts/ci/timeout.sh 90 git fetch -q --no-tags --depth=1 origin "$fallback_source" 2>/dev/null || true
+    || bash scripts/ci/timeout.sh 90 git fetch -q --no-tags ${fallback_depth[@]+"${fallback_depth[@]}"} origin "$fallback_source" 2>/dev/null || true
   covers_rc=0
   covers="$(python3 scripts/ci/nightly_fallback_covers.py --app-commit "$TIP_SHA" --client-commit "$fallback_source" 2>/dev/null)" || covers_rc=$?
   missing="$(sed -n 's/^missing=//p' <<<"$covers" | head -1)"

@@ -5,57 +5,6 @@ import CmuxMobileMarkdown
 import CmuxSpinner
 import SwiftUI
 
-/// SPEC 6.7 plan card with live step glyphs.
-struct PlanCard: View {
-    let entries: [ACPPlanEntry]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: "list.bullet.clipboard")
-                Text("Plan").font(.headline)
-                Spacer()
-                Text("\(entries.count { $0.status == .completed }) of \(entries.count)")
-                    .font(.footnote.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .contentTransition(.numericText())
-            }
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        glyph(entry.status)
-                        Text(InlineMarkdownCache.shared.attributed(entry.content))
-                            .font(.subheadline)
-                            .foregroundStyle(entry.status == .completed ? .secondary : .primary)
-                            .strikethrough(entry.status == .completed, color: .secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
-        }
-        .padding(16)
-        .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))
-        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: entries)
-        .accessibilityElement(children: .combine)
-    }
-
-    @ViewBuilder
-    private func glyph(_ status: ACPPlanEntry.Status) -> some View {
-        switch status {
-        case .pending:
-            Image(systemName: "circle").foregroundStyle(.tertiary)
-        case .inProgress:
-            Image(systemName: "circle.dotted")
-                .foregroundStyle(.primary)
-                .symbolEffect(.rotate, options: .repeat(.continuous))
-        case .completed:
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(Color.cmuxMobileSuccess)
-                .transition(.symbolEffect(.appear))
-        }
-    }
-}
-
 /// SPEC 6.5 permission card in the transcript; resolved requests collapse to a summary row.
 struct PermissionCard: View {
     let record: PermissionRecord
@@ -105,7 +54,7 @@ struct PermissionCard: View {
                 }
             }
             .padding(16)
-            .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))
+            .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 20, style: .continuous))
             .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
         }
     }
@@ -313,7 +262,7 @@ public struct QuestionCard: View {
             }
         }
         .padding(16)
-        .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))
+        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 20, style: .continuous))
         .clipShape(.rect(cornerRadius: 20, style: .continuous))
     }
 
@@ -473,7 +422,7 @@ struct AnsweredSummary: View {
                         .font(.subheadline)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
-                        .background(Color.cmuxMobileBubble, in: .rect(cornerRadius: 16, style: .continuous))
+                        .background(Color.cmuxMobileChatBubble, in: .rect(cornerRadius: 16, style: .continuous))
                 }
             }
         }
@@ -512,6 +461,7 @@ struct FailureCard: View {
                 .tint(.secondary)
             }
             HStack(spacing: 8) {
+                // retry-prompt-ok: re-runs the failed turn (spends tokens; the cause may need fixing first)
                 Button(leadsWithContinue ? "Continue" : "Retry", action: retry)
                     .buttonStyle(CmuxMobileCapsuleButtonStyle(.primary, size: .large))
                     .disabled(!canRetry)

@@ -36,7 +36,9 @@
 //! temporary file goes.
 //!
 //! Readers that open a segment by path go through [`open_segment`]: forward scans, `scan_back`,
-//! the kind and text copies (none for a cold segment), the v2 raw reader (`log_bytes.rs`),
+//! the kind copies (a cold segment's named by its bytes, `kind_index::Stamp::cold`, and carried
+//! over from its `.ndjson` at the commit) and text copies (none for a cold segment), the v2 raw
+//! reader (`log_bytes.rs`),
 //! `tail_after`, and the journal's repair reads. What writes a segment in place refuses a cold one
 //! by design: retention leaves it as it is and a cut that reaches into it fails
 //! (`store/compact.rs`); the journal's repair skips its write-back (its bytes are the archive's,
@@ -290,6 +292,11 @@ impl ColdFile {
         Ok(fallback)
     }
 
+    /// Its index: what names its bytes (`kind_index::Stamp::cold`).
+    pub(crate) fn index(&self) -> &Index {
+        &self.index
+    }
+
     /// The segment's first seq, from its index: nothing decoded.
     pub(crate) fn first_seq(&self) -> Option<u64> {
         self.index.chunks.first().map(|c| c[4]).filter(|s| *s > 0)
@@ -343,6 +350,8 @@ fn decode_chunk(file: &mut File, chunk: &[u64; 5]) -> std::io::Result<Vec<u8>> {
             ),
         ));
     }
+    #[cfg(test)]
+    DECODED.with(|n| n.set(n.get() + raw_len));
     let mut comp = vec![0u8; comp_len as usize];
     file.seek(SeekFrom::Start(comp_off))?;
     file.read_exact(&mut comp)?;
@@ -499,6 +508,8 @@ thread_local! {
     pub(crate) static DISK_FULL_AFTER: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
     /// Tests: this thread flips a byte of the temporary archive before it is checked.
     pub(crate) static FLIP_BEFORE_CHECK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Tests: the raw bytes of the chunks this thread decoded.
+    pub(crate) static DECODED: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     /// Tests: a warm on this thread stops once its `.ndjson` is in place beside its index and
     /// archive, before the index goes.
     pub(crate) static HOLD_WARM_PLACED: super::log_sync::HoldSlot =
@@ -875,6 +886,10 @@ impl LocalStore {
             let Some(s) = staged.segments.get_mut(at) else { break };
             let (index, src, len, file) = (s.index, s.src.clone(), s.len, s.file);
             let (raw_len, comp_len, ms) = (s.doc.raw_len, s.doc.comp_len, s.doc.compress_ms);
+            let cold_stamp = super::kind_index::Stamp::cold(&s.doc);
+            // The segment as it is now, held open so its copy can be carried over once it is
+            // gone; only the file the commit checks below (same device, inode and length).
+            let held = crate::config::private_state_file(&src).ok();
             let doc = serde_json::to_vec(&s.doc)?;
             let tmp = s.tmp.take();
             let dst = zst_path(&session, index);
@@ -948,6 +963,9 @@ impl LocalStore {
                 return Err(Crash.into());
             }
             sync_directory(&events)?;
+            if let Some(held) = held {
+                self.carry_copy_cold(id, index, &held, (len, file), &cold_stamp);
+            }
             moved.segments += 1;
             moved.raw += raw_len;
             moved.comp += comp_len;
@@ -964,6 +982,31 @@ impl LocalStore {
             }
         }
         Ok(moved)
+    }
+
+    /// The copy of the kinds (`store/kind_index.rs`) of segment `index`, which `held` was until
+    /// it went cold, keyed again by the cold segment's bytes (`cold`), whose bytes are the
+    /// segment's (the stage checked them against its SHA-256 and the commit that the segment
+    /// was unchanged since). Without it the first read back over the chat's history after a
+    /// move decoded every cold segment to make the copy again. Nothing when `held` is not the
+    /// file the commit checked or its copy is not whole: the first read makes one then.
+    fn carry_copy_cold(
+        &self,
+        id: &str,
+        index: u32,
+        held: &File,
+        (len, file): (u64, (u64, u64)),
+        cold: &super::kind_index::Stamp,
+    ) {
+        let Ok(meta) = held.metadata() else { return };
+        if meta.len() != len || file_of(&meta) != file {
+            return;
+        }
+        let Ok(stamp) = super::kind_index::Stamp::of(held) else { return };
+        let Some(copy) = self.read_kind_index(id, index, &stamp) else { return };
+        if let Err(e) = self.write_kind_index(id, index, cold, copy.len, copy.parsed, &copy.lines) {
+            tracing::debug!(session = %id, segment = index, "carrying a cold segment's kind copy failed: {e}");
+        }
     }
 
     /// Finishes what a crash left of a move (module docs). Nothing for a chat with no

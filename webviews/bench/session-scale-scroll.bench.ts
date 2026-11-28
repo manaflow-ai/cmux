@@ -41,6 +41,7 @@ import type { CDPSession, Page } from "playwright";
 import { warmViteServer } from "../test/support/warmDevServer";
 import { requireProductionReact, installReactWatch } from "./support/benchPage";
 import { perfRow, TARGET_MS } from "./perfRow";
+import { printProfile, type CpuProfile } from "./support/profile";
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => {
@@ -332,9 +333,12 @@ async function openPage(
       const mock = globalThis as {
         cmuxAcpmuxMockListSize?: number;
         cmuxAcpmuxMockListShape?: string;
+        cmuxAcpmuxMockPaged?: boolean;
         __cmuxNewTabContext?: unknown;
       };
       mock.cmuxAcpmuxMockListSize = count;
+      // The list in pages of the client's `limit`, as acpmux sends it (mock.ts `listPage`).
+      mock.cmuxAcpmuxMockPaged = true;
       mock.cmuxAcpmuxMockListShape = shape;
       // A New Tab page as the app opens one: the host injects its context before the first render.
       if (newTab) mock.__cmuxNewTabContext = {};
@@ -368,53 +372,6 @@ const taskMs = async (cdp: CDPSession) => {
 };
 const round1 = (value: number) => Math.round(value * 10) / 10;
 const renderCount = (counts: Record<string, number>) => Object.values(counts).reduce((sum, value) => sum + value, 0);
-
-type Profile = {
-  nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number }; children?: number[] }[];
-  samples?: number[];
-  timeDeltas?: number[];
-};
-/// --profile: the functions with the most self time per second of the scroll, over every page the renderer
-/// runs (its pages share one V8 isolate).
-function printProfile(profile: Profile, label: string, wallMs: number) {
-  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
-  const self = new Map<string, number>();
-  (profile.samples ?? []).forEach((id, index) => {
-    const frame = byId.get(id)?.callFrame;
-    if (!frame || frame.functionName === "(idle)" || frame.functionName === "(program)") return;
-    const key = `${frame.functionName || "(anon)"} ${frame.url.split("/").slice(-2).join("/").split("?")[0]}:${frame.lineNumber + 1}`;
-    self.set(key, (self.get(key) ?? 0) + (profile.timeDeltas?.[index + 1] ?? 0) / 1000);
-  });
-  const top = [...self]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 30)
-    .map(([key, ms]) => `  ${((ms * 1000) / wallMs).toFixed(1).padStart(7)} ms/s  ${key}`)
-    .join("\n");
-  console.log(`PROFILE ${label} self:\n${top}`);
-  // Inclusive time of the pane's own functions (a frame counted once per sample however deep it recurses): what each
-  // path costs with its callees, so a store's rebuild reads as one number.
-  const parent = new Map<number, number>();
-  for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id);
-  const inclusive = new Map<string, number>();
-  (profile.samples ?? []).forEach((id, index) => {
-    const ms = (profile.timeDeltas?.[index + 1] ?? 0) / 1000;
-    const seen = new Set<string>();
-    for (let at: number | undefined = id; at !== undefined; at = parent.get(at)) {
-      const frame = byId.get(at)?.callFrame;
-      if (!frame || !frame.url || frame.url.includes("/deps/") || frame.url.includes("node_modules")) continue;
-      const key = `${frame.functionName || "(anon)"} ${frame.url.split("/").slice(-2).join("/").split("?")[0]}:${frame.lineNumber + 1}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      inclusive.set(key, (inclusive.get(key) ?? 0) + ms);
-    }
-  });
-  const totals = [...inclusive]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 40)
-    .map(([key, ms]) => `  ${((ms * 1000) / wallMs).toFixed(1).padStart(7)} ms/s  ${key}`)
-    .join("\n");
-  console.log(`PROFILE ${label} inclusive (pane source):\n${totals}`);
-}
 
 process.env.NODE_ENV = "production";
 const { createServer } = await import("vite");
@@ -509,7 +466,11 @@ try {
           streaming.map((page) => page.evaluate(() => (window as any).__stream.state().frames as number)),
         );
         if (PROFILE)
-          printProfile(((await cdp.send("Profiler.stop")) as { profile: Profile }).profile, `n=${size} ${mode}`, wall);
+          printProfile(
+            ((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile,
+            `n=${size} ${mode}`,
+            wall,
+          );
         const until = await scrolled.evaluate(() => performance.now());
         const renders = (await Promise.all(
           pages.map((page) => page.evaluate(() => (window as any).cmuxAcpmuxDebug.renders())),

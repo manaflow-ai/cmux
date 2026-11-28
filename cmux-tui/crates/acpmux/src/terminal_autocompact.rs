@@ -4,9 +4,9 @@
 //! like").
 //!
 //! An agent chat starts with its profile's command line, so a profile that names
-//! `--autocompact N` (157125 on Leo's machines) compacts there; one that names none gets
-//! acpmux's window ([`crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW`]). A terminal's `claude`
-//! read neither: it got the window only, and under `sr2 claude` not even that, because sr2
+//! `--autocompact N` (157125 on Leo's machines) compacts there; one that names none gets the
+//! window the cmux settings name, if any ([`crate::harness_limits::claude_autocompact_window`]).
+//! A terminal's `claude` read neither: it got the window only, and under `sr2 claude` not even that, because sr2
 //! prepends its own `--autocompact`, drawn from 380k-420k per launch, and the window yields to
 //! any `--autocompact`. Such a session then re-read about 250k tokens a turn and
 //! compacted only near 386k.

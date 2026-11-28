@@ -28,9 +28,15 @@ const KEYS = [
 ];
 
 beforeEach(() => {
-  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
+  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
+    url: "http://localhost/",
+    // The window draws frames (requestAnimationFrame): the windowed lists (ui/VirtualList) ask it.
+    pretendToBeVisual: true,
+  });
   for (const key of KEYS) saved.set(key, scope[key]);
   const w = dom.window as unknown as Record<string, unknown>;
+  // A list viewport tall enough for every row here: the base picker's list is windowed.
+  Object.defineProperty(dom.window.HTMLElement.prototype, "offsetHeight", { configurable: true, get: () => 800 });
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -51,6 +57,10 @@ beforeEach(() => {
       },
     IS_REACT_ACT_ENVIRONMENT: true,
   });
+  // The cloud repository list is windowed (ui/VirtualList): jsdom has no layout, so its viewport
+  // gets a height and width, or no row would be in view.
+  Object.defineProperty(dom.window.HTMLElement.prototype, "offsetHeight", { configurable: true, get: () => 260 });
+  Object.defineProperty(dom.window.HTMLElement.prototype, "offsetWidth", { configurable: true, get: () => 344 });
 });
 
 afterEach(async () => {

@@ -3,7 +3,7 @@
 //! Leo (2026-11-05): "you should be able to just change your app without going through all this
 //! hoopla", and on how people find it: "it should just be blasted, like, hey, you can edit your
 //! thing and just do this". `start` runs a checkout's webviews dev server and points the running
-//! app at it (`~/.config/cmux/web-dev.json`), so a saved edit to cmux's web UI shows in every
+//! app at it (`~/.config/cmux-next/web-dev.json`), so a saved edit to cmux's web UI shows in every
 //! open page and chat, in WebKit and Chromium, with no build and no relaunch
 //! (docs/cmux-next/hot-reload.md). The work is `scripts/cmux-next/web-overlay.sh` in that
 //! checkout: the dev server comes from its tree, so the script that starts it is the tree's own.
@@ -334,6 +334,11 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     if matches!(command, Command::Start { .. }) {
         process.args(["--worktree".as_ref(), tree.as_os_str()]);
     }
+    // The script writes web-dev.json beside this file. Passing the app's own path keeps a checkout's
+    // script from before NEXT moved to ~/.config/cmux-next (#53567) from writing a file no app reads.
+    // Same rule as the app's CmuxConfigFile.defaultURL: CMUX_NEXT_CONFIG_FILE (a DEV build's own), else
+    // ~/.config/cmux-next/cmux-next.json (https://github.com/manaflow-ai/cmux/issues/56156).
+    process.env(cmux_config::CONFIG_OVERRIDE, cmux_config::config_path());
     if matches!(command, Command::Status { .. }) {
         // The script's own `cmux settings get` reached no app this command was pointed at
         // (`--app-socket`), and the `cmux` on a GUI app's `PATH` may be none at all.

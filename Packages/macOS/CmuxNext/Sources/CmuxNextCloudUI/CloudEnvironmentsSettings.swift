@@ -1,3 +1,4 @@
+import CmuxNextCloud
 public import Foundation
 public import Observation
 
@@ -5,6 +6,12 @@ public import Observation
 /// environments through the Cloud app server (`cloud.environment.*` on CloudDO), on the cmux-next
 /// Cloud path only. Save is a plain mutation; Build and Delete are money and destructive ops, so the
 /// person confirms natively first. The list is read on open and on Refresh; nothing polls.
+///
+/// Settings > Cloud > Default Image (`cloud.defaultImage`, cmux#51731) rebuilds by itself: the image's
+/// snapshot goes stale when the base image it was built on is rebaked (its build digest, the design's
+/// section 3), as it is when the agents a Cloud machine carries change. A read that finds the Default
+/// Image stale builds it again with no confirmation (picking it as the Default Image is the person's
+/// ask for it to stay current), once per stale read; any other environment's Build still asks.
 ///
 /// The app passes JSON (`Data`) through its seams, so this type needs no wire or daemon types:
 ///
@@ -21,6 +28,8 @@ public final class CloudEnvironmentsSettings {
     public struct State: Encodable, Equatable, Sendable {
         /// False on the classic Cloud path or while signed out: the card explains instead.
         public var available = false
+        /// The Cloud app server does not serve environments in this version.
+        public var unsupported = false
         public var loading = false
         public var environments: [CloudEnvironmentRow] = []
         /// The last refresh's failure.
@@ -48,15 +57,22 @@ public final class CloudEnvironmentsSettings {
     private let save: Save
     private let approvedCall: ApprovedCall
     private let confirm: Confirm
+    /// Settings > Cloud > Default Image's environment id; nil (or `auto`) for none.
+    private let defaultImage: @MainActor () -> String?
+    /// The Default Image ids a read found stale and rebuilt: one build per stale snapshot, so a failed or
+    /// still-stale answer never builds again in a loop. A read that finds it no longer stale forgets it.
+    private var rebuilt: Set<String> = []
     private let strings = CloudEnvironmentStrings()
 
     public init(available: @escaping @MainActor () -> Bool, list: @escaping List, save: @escaping Save,
-                approvedCall: @escaping ApprovedCall, confirm: @escaping Confirm) {
+                approvedCall: @escaping ApprovedCall, confirm: @escaping Confirm,
+                defaultImage: @escaping @MainActor () -> String? = { nil }) {
         self.available = available
         self.list = list
         self.save = save
         self.approvedCall = approvedCall
         self.confirm = confirm
+        self.defaultImage = defaultImage
     }
 
     /// Runs one gesture, then reads the list again.
@@ -85,10 +101,27 @@ public final class CloudEnvironmentsSettings {
                 if !sent { return Result() }
             }
             try await refresh()
+            await rebuildStaleDefaultImage()
             return Result()
         } catch {
             return Result(error: String(describing: error))
         }
+    }
+
+    /// Builds the Default Image again when the last read found its snapshot stale (see the type's notes), then reads again.
+    /// A refused build is the Cloud Environments card's to show (its row reads failed); the read it ran on still answers.
+    private func rebuildStaleDefaultImage() async {
+        guard let id = defaultImage(), !id.isEmpty, id != "auto",
+              let row = state.environments.first(where: { $0.id == id }) else { return }
+        switch row.status {
+        case "stale": break
+        // Still building (or a stale answer of a read that began before the build): nothing to do and nothing to forget.
+        case "building": return
+        default: rebuilt.remove(id); return
+        }
+        guard rebuilt.insert(id).inserted else { return }
+        guard (try? await approvedCall("cloud.environment.build", id, { true })) == true else { return }
+        try? await refresh()
     }
 
     private struct ListAnswer: Decodable { var environments: [CloudEnvironmentRow] }
@@ -99,9 +132,12 @@ public final class CloudEnvironmentsSettings {
         do {
             let answer = try JSONDecoder().decode(ListAnswer.self, from: try await list())
             state = State(available: true, environments: answer.environments)
+        } catch let failure as CloudAppOpFailure
+            where failure.code == "cmux.cloud.unsupported" || failure.code == "cmux.cloud.unknown_op"
+                || failure.message == "cloud.environment.list is not available yet" {
+            state = State(unsupported: true)
         } catch {
-            state.available = true
-            state.error = String(describing: error)
+            state = State(available: true, environments: state.environments, error: String(describing: error))
             throw error
         }
     }

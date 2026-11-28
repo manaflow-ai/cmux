@@ -29,10 +29,35 @@ public enum HomeTeamSeatImpact: Equatable, Sendable {
     ///   - memberLimit: A fixed member cap, nil without one.
     /// - Returns: What the confirmation line says.
     public static func of(canInvite: Bool, planID: String?, hasSubscription: Bool, memberCount: Int, memberLimit: Int?) -> Self {
-        guard canInvite else { return .notAllowed }
-        if let memberLimit { return .capped(members: memberCount, limit: memberLimit) }
-        if hasSubscription, planID?.lowercased() == "team" { return .paidSeat(members: memberCount) }
-        if hasSubscription { return .unknown }
-        return .free(members: memberCount)
+        let request = SeatRequest(canInvite: canInvite, planID: planID, hasSubscription: hasSubscription,
+                                  memberCount: memberCount, memberLimit: memberLimit)
+        let reply: SeatReply = HomeComposeRules().call("team.seatImpact", request, fallback: SeatReply(impact: .init(kind: "unknown")))
+        let impact = reply.impact
+        return switch impact.kind {
+        case "notAllowed": .notAllowed
+        case "capped": .capped(members: impact.members ?? memberCount, limit: impact.limit ?? memberLimit ?? 0)
+        case "paidSeat": .paidSeat(members: impact.members ?? memberCount)
+        case "free": .free(members: impact.members ?? memberCount)
+        default: .unknown
+        }
     }
+}
+
+/// `compose.team.seatImpact`'s request and reply.
+private nonisolated struct SeatRequest: Encodable {
+    var canInvite: Bool
+    var planID: String?
+    var hasSubscription: Bool
+    var memberCount: Int
+    var memberLimit: Int?
+}
+
+private nonisolated struct SeatReply: Decodable {
+    struct Impact: Decodable {
+        var kind: String
+        var members: Int?
+        var limit: Int?
+    }
+
+    var impact: Impact
 }

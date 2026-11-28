@@ -8,6 +8,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Notice } from "./Notice";
 import { Button } from "./Button";
+import { KeyHint } from "./KeyHint";
 
 type Specimen = "menu" | "popover" | "tooltip" | "toast" | "dialog";
 const SPECIMENS: Specimen[] = ["menu", "popover", "tooltip", "toast", "dialog"];
@@ -96,8 +97,8 @@ export function FloatingRoles() {
           </div>
         </Card>
         <Card specimen="tooltip">
-          <div className="ui-tooltip ui-glass" role="tooltip">
-            <span className="ui-tooltip-hint">⌘W</span>
+          <div className="ui-tooltip ui-glass" role="tooltip" data-host-glass="chip">
+            <KeyHint keys="⌘W" className="ui-tooltip-hint" />
             <span className="ui-tooltip-text">Close tab</span>
           </div>
         </Card>
@@ -110,7 +111,7 @@ export function FloatingRoles() {
           />
         </Card>
         <Card specimen="dialog">
-          <div className="ui-dialog ui-glass" style={{ position: "static" }}>
+          <div className="ui-dialog ui-glass" style={{ position: "static" }} data-host-glass="popover">
             <h2 className="ui-dialog-title">Delete this chat?</h2>
             <p className="ui-dialog-description">Its transcript stays in History.</p>
             <div className="ui-dialog-actions">

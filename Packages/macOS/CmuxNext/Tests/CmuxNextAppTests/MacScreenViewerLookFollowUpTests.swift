@@ -95,7 +95,7 @@ struct MacScreenViewerLookFollowUpTests {
         defer { pane.close() }
         let toolbar = pane.view.chrome.toolbar
         #expect(!toolbar.isHidden)
-        #expect(toolbar.frame.width >= toolbar.floatingWidth - 1 || toolbar.frame.width >= 1280 - 2 * MacScreenViewerStyle.lookA.toolbarInset - 1)
+        #expect(toolbar.frame.width >= toolbar.floatingWidth - 1 || toolbar.frame.width >= 1280 - 2 * MacScreenViewerLook.a.style.toolbarInset - 1)
         let labels = Self.labels(in: toolbar).filter { !$0.isHiddenOrHasHiddenAncestor }
         let name = try #require(labels.first { $0.stringValue == "Studio MacBook Pro" })
         let stats = try #require(labels.first { $0.accessibilityIdentifier() == "macScreen.stats" })

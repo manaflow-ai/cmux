@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "placeAuto.rule" : {
+      "comment" : "Agent pane: the one line that says what Auto does for a chat",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moves to a Cloud VM if this Mac sleeps, runs low, you're away 10 min or a turn runs 15 min; returns when idle."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ينتقل إلى Cloud VM إذا نام هذا الـ Mac أو انخفضت موارده أو غبت 10 دقائق أو استمر الدور 15 دقيقة؛ ويعود عند الخمول."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prelazi na Cloud VM ako ovaj Mac spava, ponestaje mu resursa, odsutan si 10 min ili potez traje 15 min; vraća se kad miruje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flytter til en Cloud VM, hvis denne Mac sover, løber tør, du er væk i 10 min eller en tur varer 15 min; vender tilbage ved inaktivitet."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wechselt auf eine Cloud VM, wenn dieser Mac schläft, knapp wird, du 10 Min. weg bist oder ein Durchlauf 15 Min. dauert; kehrt im Leerlauf zurück."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pasa a una Cloud VM si este Mac se suspende, se queda sin recursos, te ausentas 10 min o un turno dura 15 min; vuelve cuando está inactivo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Passe sur une Cloud VM si ce Mac se met en veille, manque de ressources, si vous êtes absent 10 min ou si un tour dure 15 min ; revient au repos."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Passa a una Cloud VM se questo Mac va in stop, è a corto di risorse, sei via da 10 min o un turno dura 15 min; torna quando è inattivo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この Mac がスリープ、リソース不足、10 分間の離席、またはターンが 15 分続くと Cloud VM に移動し、アイドル時に戻ります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ផ្លាស់ទៅ Cloud VM ប្រសិនបើ Mac នេះដេក ខ្វះធនធាន អ្នកចាកចេញ 10 នាទី ឬវេនមួយដំណើរការ 15 នាទី; ត្រឡប់មកវិញពេលទំនេរ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 Mac이 잠자기, 리소스 부족, 10분 자리 비움, 또는 턴이 15분 지속되면 Cloud VM으로 이동하고 유휴 시 돌아옵니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flytter til en Cloud VM hvis denne Macen sover, går tom, du er borte i 10 min eller en tur varer 15 min; kommer tilbake ved inaktivitet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Przenosi się na Cloud VM, gdy ten Mac śpi, brakuje mu zasobów, nie ma cię 10 min lub tura trwa 15 min; wraca w bezczynności."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vai para uma Cloud VM se este Mac dormir, ficar sem recursos, você se ausentar 10 min ou um turno durar 15 min; volta quando ocioso."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переходит на Cloud VM, если этот Mac спит, ему не хватает ресурсов, вас нет 10 мин или ход идёт 15 мин; возвращается в простое."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ย้ายไป Cloud VM หาก Mac นี้หลับ ทรัพยากรเหลือน้อย คุณไม่อยู่ 10 นาที หรือเทิร์นนาน 15 นาที และกลับมาเมื่อว่าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu Mac uyursa, kaynakları azalırsa, 10 dk uzakta kalırsanız veya bir tur 15 dk sürerse Cloud VM'e geçer; boştayken döner."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переходить на Cloud VM, якщо цей Mac спить, бракує ресурсів, вас немає 10 хв або хід триває 15 хв; повертається в простої."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chuyển sang Cloud VM nếu Mac này ngủ, sắp cạn tài nguyên, bạn vắng 10 phút hoặc một lượt chạy 15 phút; quay lại khi rảnh."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "若这台 Mac 睡眠、资源不足、你离开 10 分钟或某回合运行 15 分钟，就移到 Cloud VM；空闲时返回。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "若這台 Mac 睡眠、資源不足、你離開 10 分鐘或某回合執行 15 分鐘，就移到 Cloud VM；閒置時返回。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

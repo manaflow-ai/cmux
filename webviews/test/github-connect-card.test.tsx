@@ -71,6 +71,21 @@ test("git's and gh's refusal line ask for a connect with no repository; the MCP 
   expect(githubConnectCall(mcp(mcpRefusal()))).toEqual({ reason: "not-connected", repo: "acme/web" });
   expect(githubConnectCall(mcp(mcpRefusal("needs_reauth")))).toEqual({ reason: "needs-reauth", repo: "acme/web" });
   expect(githubConnectCall(mcp(mcpRefusal("policy.denied")))).toEqual({ reason: "not-covered", repo: "acme/web" });
+  // The App asked for more (contents: read & write) and this installation has not accepted it yet.
+  expect(githubConnectCall(mcp(mcpRefusal("github.permissions_pending")))).toEqual({
+    reason: "permissions-pending",
+    repo: "acme/web",
+  });
+  expect(
+    githubConnectCall(
+      shell(
+        gitRefusal.replace(
+          "integration.not_found: no GitHub connection",
+          "github.permissions_pending: GitHub needs you to accept cmux's updated permissions",
+        ),
+      ),
+    ),
+  ).toEqual({ reason: "permissions-pending" });
   // The structured error alone (a harness that keeps only structuredContent), the repository from the call's args.
   const structured = JSON.parse(mcpRefusal()).structuredContent;
   expect(
@@ -392,4 +407,71 @@ test("settings_ask for GitHub draws the card for its org or repository; anything
   expect(settingsAskCall(ask({ target: "github:-evil-" }))?.org).toBeUndefined();
   const turn = [row("u-ask", "user", { text: "Push it" }), calls(ask({ target: "github:manaflow-ai" })), answer, end];
   expect(githubConnectNeed(turn)).toEqual({ reason: "asked", org: "manaflow-ai", callId: "call-ask" });
+});
+
+// Leo, 2026-11-25: "what about just a simple styled consistently popover for that specific setting?
+// a la something similar to needs you or whatever". The settings-ask-card experiment's `popover`
+// arm: a chip under the turn, and a Needs you popover anchored to it with just the one control.
+test("popover arm: the ask opens a Needs you popover once, its Connect names the org; put away, the chip opens it again", async () => {
+  const before = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { ...before, "settings-ask-card": "popover" };
+  try {
+    const orgs: (string | undefined)[] = [];
+    const actions = {
+      githubConnect: {
+        connect: async (_repo: string | undefined, org?: string) => void orgs.push(org),
+        continue: async () => undefined,
+      },
+    };
+    const askRow = (): AcpmuxRow => ({
+      ...footer(),
+      githubConnect: {
+        reason: "asked",
+        org: "manaflow-ai",
+        callId: "call-ask",
+      },
+    });
+    const row = askRow();
+    const draw = () =>
+      act(async () =>
+        root.render(
+          <TurnActionsContext.Provider value={actions}>
+            <TurnFooter row={row} />
+          </TurnActionsContext.Provider>,
+        ),
+      );
+    await draw();
+    const chip = () => host.querySelector<HTMLButtonElement>(".cv-settings-ask-chip");
+    const popup = () => dom.window.document.querySelector(".cv-settings-ask-popover");
+    expect(host.querySelector("[data-settings-ask]")?.getAttribute("data-settings-ask")).toBe("popover");
+    expect(chip()?.textContent).toContain("Connect GitHub");
+    // Opened by itself, with the Needs you header and the one control, no focus taken.
+    expect(popup()).not.toBeNull();
+    expect(popup()!.textContent).toContain("Needs you");
+    expect(popup()!.textContent).toContain("manaflow-ai");
+    expect(popup()!.contains(dom.window.document.activeElement)).toBe(false);
+    const connectButton = [...popup()!.querySelectorAll("button")].find((b) => b.textContent === "Connect GitHub")!;
+    await act(async () => connectButton.click());
+    expect(orgs).toEqual(["manaflow-ai"]);
+    expect(popup()!.textContent).toContain("Finish on GitHub");
+    // Escape puts it away; drawing the turn again keeps it away; the chip opens it again.
+    await act(
+      async () =>
+        void dom.window.document.dispatchEvent(
+          new dom.window.KeyboardEvent("keydown", {
+            key: "Escape",
+            bubbles: true,
+          }),
+        ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(popup()).toBeNull();
+    await act(async () => root.render(<div />));
+    await draw();
+    expect(popup()).toBeNull();
+    await act(async () => chip()!.click());
+    expect(popup()).not.toBeNull();
+  } finally {
+    globalThis.cmuxExperiments = before;
+  }
 });

@@ -1,0 +1,15 @@
+/.github/
+/scripts/
+/tests/
+/cmux-tui/
+/Packages/macOS/CmuxNext/
+/Packages/*/*/Package.swift
+/vendor/stack-auth-swift-sdk-prerelease/Package.swift
+/cmux.xcodeproj/project.pbxproj
+/AGENTS.md
+/.gitmodules
+/first-party-apps/cloud/
+/workers/cmux-vm/cli/
+!/Packages/macOS/CmuxNext/**/*.xcstrings
+!/Packages/macOS/CmuxNext/**/*.avif
+!/Packages/macOS/CmuxNext/**/*.png

@@ -2,11 +2,14 @@ import { runInDurableObject } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it, vi } from "vitest"
 import vectors from "../../../cmux-tui/crates/cmux-transport/tests/vectors/relay-frames.json"
+import taggedVectors from "../../../cmux-tui/crates/cmux-transport/tests/vectors/relay-tagged-frames.json"
+import hopVectors from "../../../cmux-tui/crates/cmux-transport/tests/vectors/hop-frames.json"
+import { seqNewer, TaggedQueue } from "../src/relay-coalesce.ts"
 import type { Env } from "../src/env.ts"
 import type { LinkRelay } from "../src/link-relay.ts"
 import { relayRoomName } from "../src/placement.ts"
-import { checkFrame } from "../src/relay-frame.ts"
-import { linkStatLine, userHubName, uuidToBytes } from "../src/team-hub.ts"
+import { checkFrame, splitTagged } from "../src/relay-frame.ts"
+import { linkStatLine, uuidToBytes, userHubName } from "../src/team-hub.ts";
 import { connect, register, sockOf, token, worker, type Sock } from "./helpers.ts"
 
 // PROTOCOL.md "WebSocket relay": the last way a WireGuard link reaches its peer, WireGuard datagrams in relay
@@ -594,6 +597,185 @@ describe("relay frame (shared golden vectors with cmux-transport)", () => {
   })
 })
 
+/** One hop/1 DATA record: `[class][flags][u32 key, u32 seq if tagged][u16 len][data]`. */
+const rec = (cls: number, data: number[], tag?: [number, number]) => {
+  const head = [cls, tag ? 1 : 0]
+  if (tag) for (const v of tag) head.push((v >>> 24) & 255, (v >>> 16) & 255, (v >>> 8) & 255, v & 255)
+  return new Uint8Array([...head, data.length >> 8, data.length & 255, ...data])
+}
+const tagged = (records: Uint8Array[], peer = new Uint8Array(16).fill(0xee)) => new Uint8Array([1, 4, ...peer, ...records.flatMap((r) => [...r])])
+
+describe("tagged-datagrams frame (shared golden vectors with cmux-transport)", () => {
+  interface Case {
+    readonly name: string
+    readonly valid: "yes" | "no"
+    readonly hex: string
+    readonly kind?: string
+    readonly error?: string
+    readonly records?: string
+  }
+  const cases = (taggedVectors as { cases: ReadonlyArray<Case> }).cases
+
+  it("accepts every valid vector with its records and refuses every invalid one with the expected error", () => {
+    expect(cases.filter((c) => c.valid === "yes").length).toBeGreaterThanOrEqual(5)
+    for (const c of cases) {
+      const bytes = hex(c.hex)
+      const checked = checkFrame(bytes)
+      if (c.valid === "no") {
+        expect(checked, c.name).toEqual({ ok: false, error: c.error })
+        continue
+      }
+      expect(checked, c.name).toEqual({ ok: true, kind: c.kind })
+      const got = splitTagged(bytes.subarray(18))!.map((r) => {
+        const body = r.raw.subarray(r.tag ? 12 : 4)
+        return `${r.class}:${r.tag ? `${r.tag[0].toString(16).padStart(8, "0")}.${r.tag[1].toString(16).padStart(8, "0")}` : "-"}:${toHex(body)}`
+      })
+      expect(got.join(","), c.name).toBe(c.records)
+    }
+  })
+
+  it("agrees with hop's own vectors: every DATA body (hex after the 6-byte header) is accepted or refused as hop does", () => {
+    let valid = 0
+    let invalid = 0
+    for (const c of hopVectors.cases as { name: string; valid: string; hex: string }[]) {
+      if (!c.hex.startsWith("c101")) continue
+      const got = splitTagged(hex(c.hex.slice(12)))
+      if (c.valid === "yes") {
+        valid++
+        expect(got, c.name).toBeDefined()
+      } else {
+        invalid++
+        expect(got, c.name).toBeUndefined()
+      }
+    }
+    expect(valid).toBeGreaterThanOrEqual(4)
+    expect(invalid).toBeGreaterThanOrEqual(10)
+  })
+})
+
+describe("TaggedQueue (R5 latest-wins, as far as a Durable Object can do it)", () => {
+  const one = (cls: number, data: number, tag?: [number, number]) => splitTagged(rec(cls, [data], tag))![0]!
+  const dataOf = (q: TaggedQueue) => q.drain(new Uint8Array(16), 4).flatMap((f) => (splitTagged(f.subarray(18)) ?? []).map((r) => r.raw[r.raw.length - 1]))
+
+  it("replaces an older class-1 record of the same key, keeps other keys, and drops a stale arrival", () => {
+    const q = new TaggedQueue()
+    q.add(one(1, 1, [7, 1]))
+    q.add(one(1, 2, [8, 1]))
+    expect(q.add(one(1, 3, [7, 2]))).toBe(1)
+    expect(q.add(one(1, 4, [7, 1]))).toBe(1)
+    expect(dataOf(q)).toEqual([2, 3])
+  })
+
+  it("never drops or reorders control, input, bulk, media or untagged class 1", () => {
+    const q = new TaggedQueue()
+    const input = [one(0, 1), one(1, 2, [7, 1]), one(2, 3), one(1, 9), one(3, 4), one(4, 5), one(1, 6, [7, 2]), one(0, 7), one(2, 8)]
+    for (const r of input) q.add(r)
+    // Only the superseded tagged class 1 (data 2) is gone.
+    expect(dataOf(q)).toEqual([1, 3, 9, 4, 5, 6, 7, 8])
+  })
+
+  it("compares sequence numbers modulo 2^32", () => {
+    expect(seqNewer(2, 1)).toBe(true)
+    expect(seqNewer(1, 2)).toBe(false)
+    expect(seqNewer(1, 1)).toBe(false)
+    expect(seqNewer(0, 0xffffffff)).toBe(true)
+  })
+
+  it("packs a long queue into frames of at most 16 KiB, in order", () => {
+    const q = new TaggedQueue()
+    for (let i = 0; i < 40; i++) q.add(one(3, i & 255))
+    const big = splitTagged(rec(3, new Array(5000).fill(1)))![0]!
+    for (let i = 0; i < 6; i++) q.add(big)
+    const frames = q.drain(new Uint8Array(16), 4)
+    expect(frames.length).toBeGreaterThan(1)
+    for (const f of frames) expect(f.length - 18).toBeLessThanOrEqual(16 * 1024)
+    expect(frames.flatMap((f) => splitTagged(f.subarray(18))!).length).toBe(46)
+  })
+})
+
+describe("link relay: tagged-datagrams", () => {
+  it("forwards tagged frames with the peer rewritten, and an old plain frame still crosses unchanged", async () => {
+    const { tok, phone, mac, sessionId } = await session()
+    const a = await joined(tok, sessionId, phone)
+    const b = await joined(tok, sessionId, mac)
+    await a.until((x) => x.frames.some((f) => f.type === "peer" && f.online === true))
+    const sent = tagged([rec(1, [1, 2, 3], [5, 1]), rec(0, [9])])
+    a.ws.send(sent)
+    await b.until((x) => x.binary.length === 1)
+    const got = b.binary[0]!
+    expect([got[0], got[1]]).toEqual([1, 4])
+    expect(toHex(got.subarray(2, 18))).toBe(toHex(uuidToBytes(phone)))
+    expect(toHex(got.subarray(18))).toBe(toHex(sent.subarray(18)))
+    // Old sender, new relay: a plain datagrams frame is forwarded as before.
+    a.ws.send(frame([new Uint8Array([4, 0, 0, 0, 5])]))
+    await b.until((x) => x.binary.length === 2)
+    expect([b.binary[1]![0], b.binary[1]![1]]).toEqual([1, 1])
+    a.ws.close()
+    b.ws.close()
+  })
+
+  it("coalesces frames that arrive in one turn, drops superseded class-1 records, and keeps order", async () => {
+    const { tok, phone, mac, sessionId } = await session()
+    const a = await joined(tok, sessionId, phone)
+    const b = await joined(tok, sessionId, mac)
+    await a.until((x) => x.frames.some((f) => f.type === "peer" && f.online === true))
+    // The session's first frame waits on the owner's first budget grant (a hub round trip), and frames that arrive
+    // meanwhile resume across turns; warm the grant so the frames below arrive in one turn, as on a live link.
+    a.ws.send(frame([new Uint8Array([0xbb])]))
+    await b.until((x) => x.binary.length === 1)
+    b.binary.length = 0
+    a.ws.send(tagged([rec(0, [1])]))
+    a.ws.send(tagged([rec(1, [2], [7, 1])]))
+    a.ws.send(tagged([rec(1, [3], [7, 2]), rec(2, [4])]))
+    a.ws.send(tagged([rec(1, [9], [7, 1])]))
+    // A plain frame behind them never overtakes what is queued.
+    a.ws.send(frame([new Uint8Array([0xaa])]))
+    await b.until((x) => x.binary.length >= 2)
+    await new Promise((r) => setTimeout(r, 100))
+    const order = b.binary.flatMap((f) => (f[1] === 4 ? (splitTagged(f.subarray(18)) ?? []).map((r) => r.raw[r.raw.length - 1]!) : [0xaa]))
+    // 2 is superseded by 3 (same key, newer seq), and the late seq 1 is stale.
+    expect(order).toEqual([1, 3, 4, 0xaa])
+    // Fewer frames than were sent: the tagged ones were merged.
+    expect(b.binary.length).toBeLessThan(5)
+    a.ws.close()
+    b.ws.close()
+  })
+
+  it("refuses a tagged frame whose records do not tile, and an unknown kind with the notice an old relay sends", async () => {
+    const { tok, phone, mac, sessionId } = await session()
+    const a = await joined(tok, sessionId, phone)
+    const b = await joined(tok, sessionId, mac)
+    const bad = tagged([rec(1, [1, 2], [5, 1])])
+    a.ws.send(bad.subarray(0, bad.length - 1))
+    await a.until((x) => x.frames.some((f) => f.type === "error" && f.code === "bad_frame:bad_batch"))
+    // The notice a sender falls back on (cmux_transport RelaySender): kind byte the relay does not know.
+    const unknown = tagged([rec(0, [1])])
+    unknown[1] = 9
+    b.ws.send(unknown)
+    await b.until((x) => x.frames.some((f) => f.type === "error" && f.code === "bad_frame:kind"))
+    expect(b.binary.length + a.binary.length).toBe(0)
+    a.ws.close()
+    b.ws.close()
+  })
+
+  it("reports per-leg counters on request", async () => {
+    const { tok, phone, mac, sessionId } = await session()
+    const a = await joined(tok, sessionId, phone)
+    const b = await joined(tok, sessionId, mac)
+    await a.until((x) => x.frames.some((f) => f.type === "peer" && f.online === true))
+    // One frame with a record and its successor (deterministic: separate frames share a turn only sometimes).
+    a.ws.send(tagged([rec(1, [1], [7, 1]), rec(1, [2], [7, 2])]))
+    await b.until((x) => x.binary.length >= 1)
+    a.ws.send("stats")
+    await a.until((x) => x.frames.some((f) => f.type === "stats"))
+    const stats = a.frames.find((f) => f.type === "stats")!
+    expect(stats.leg).toMatchObject({ framesIn: 1, recordsIn: 2, recordsSuperseded: 1 })
+    expect(stats.peer).toMatchObject({ framesOut: 1 })
+    a.ws.close()
+    b.ws.close()
+  })
+})
+
 describe("netcheck targets (PROTOCOL.md \"Relay placement\")", () => {
   const probe = (tok: string | null, region: string, upgrade = true) =>
     worker.fetch(`https://api.test/v1/netcheck/${region}`, { headers: { ...(upgrade ? { Upgrade: "websocket" } : {}), ...(tok ? { authorization: `Bearer ${tok}` } : {}) } })
@@ -829,6 +1011,8 @@ describe("relay prewarm (RFD 0142 C4, PROTOCOL.md \"Relay placement\")", () => {
     expect(await until(async () => (await prewarmedAt("alice", sessionId, spaceName)) !== undefined)).toBe(true)
     // The stable space's object of the same session was never made.
     expect(await prewarmedAt("alice", sessionId)).toBeUndefined()
+    // The Mac answers, so both devices are the session's parties with their own relay tickets.
+    await exchange(p, phone, m, mac, sessionId)
     const a = await joined(tok, sessionId, phone, space)
     // The join reached the very object the hub prewarmed: it holds the joiner's socket now.
     expect(await runInDurableObject(relayOf("alice", sessionId, spaceName), (_r: LinkRelay, state) => state.getWebSockets(phone).length)).toBe(1)

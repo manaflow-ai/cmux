@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Three publication checks for the NEXT nightly, run just before anything is uploaded or a feed changes.
 
-  nightly_publish_guard.py webview-verdict --source own|recovered --result R --checked-sha S --build-sha B
-                                           [--run-id N] [--repo OWNER/REPO]
+  nightly_publish_guard.py webview-verdict --source own|recovered|run --result R --checked-sha S --build-sha B
+                                           [--run-id N] [--repo OWNER/REPO] [--wait-seconds N]
       Whether the build's tree passed the webview checks (check-nightly-webviews in nightly.yml: the pieces of
       webviews' `bun run check` that gate feat-cmux-next, scripts/ci/fast_gate_webviews_checks.py, which include
       the type check). An own build needs this run's job green on the exact build commit; a recovered build needs
-      the same job green in the run that built it. Prints one line; exits 0 (green) or 3 (refuse: publish nothing).
+      the same job green in the run that built it; run reads it as shelf-verdict does. Prints one line; exits 0 (green) or 3 (refuse: publish nothing).
 
   nightly_publish_guard.py shelf-verdict --source own|recovered|run --result R --checked-sha S --build-sha B
                                          [--run-id N] [--repo OWNER/REPO] [--wait-seconds N]
@@ -96,11 +96,15 @@ def job_verdict(job: str, what: str, source: str, result: str, checked_sha: str,
 
 
 def webview_verdict(source: str, result: str, checked_sha: str, build_sha: str,
-                    recovered_jobs: Optional[Callable[[], list]] = None) -> tuple[bool, str]:
-    """(ok, line). recovered_jobs lists the jobs of the run that built a recovered build (latest attempt)."""
-    if source not in ("own", "recovered"):
+                    recovered_jobs: Optional[Callable[[], list]] = None, wait_seconds: int = 0,
+                    sleep: Callable[[float], None] = time.sleep,
+                    clock: Callable[[], float] = time.monotonic) -> tuple[bool, str]:
+    """(ok, line). recovered_jobs lists the jobs of the run that built a recovered build (latest attempt), or this
+    run's jobs for source run (NIGHTLY_COMPONENT_GATES=block, where publish-nightly no longer needs the check)."""
+    if source not in ("own", "recovered", "run"):
         return False, f"unknown build source '{source}'"
-    return job_verdict(WEBVIEW_JOB, "webview checks", source, result, checked_sha, build_sha, recovered_jobs)
+    return job_verdict(WEBVIEW_JOB, "webview checks", source, result, checked_sha, build_sha, recovered_jobs,
+                       wait_seconds, sleep, clock)
 
 
 def shelf_verdict(source: str, result: str, checked_sha: str, build_sha: str,
@@ -261,6 +265,7 @@ def main(argv: list[str] | None = None) -> int:
     web.add_argument("--build-sha", required=True)
     web.add_argument("--run-id", default="")
     web.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", ""))
+    web.add_argument("--wait-seconds", type=int, default=0)
     shelf = sub.add_parser("shelf-verdict")
     shelf.add_argument("--source", required=True)
     shelf.add_argument("--result", default="")
@@ -280,7 +285,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "webview-verdict":
         ok, line = webview_verdict(args.source, args.result, args.checked_sha, args.build_sha,
-                                   lambda: run_jobs(args.repo, args.run_id))
+                                   lambda: run_jobs(args.repo, args.run_id), args.wait_seconds)
         print(line)
         return 0 if ok else 3
     if args.command == "shelf-verdict":

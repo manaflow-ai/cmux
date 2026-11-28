@@ -63,7 +63,22 @@ def fetch(url, timeout):
         return code, None, after
 
 
-def judge(record, sha, repo, want_steps):
+HOME_RENDER = "Packages/Shared/CmuxHomeRender"
+CMUX_NEXT = "Packages/macOS/CmuxNext"
+
+
+def registry_suites(entries):
+    """The public endpoint accepts exactly these two packages; other registries need the gateway."""
+    by_package = {}
+    for entry in entries:
+        if entry["kind"] == "swift":
+            by_package.setdefault(entry["package"], []).append(entry["filter"])
+    if by_package.keys() != {HOME_RENDER, CMUX_NEXT}:
+        raise ValueError("the public fast-tier route does not cover these packages: " + ", ".join(by_package))
+    return {package: ",".join(filters) for package, filters in by_package.items()}
+
+
+def judge(record, sha, repo, want_steps, expected_suites=None):
     """(state, reasons): the record's verdict for this head, or unavailable for a record that is not this head's
     fast tier. want_steps is how many steps the read asked for."""
     if not isinstance(record, dict):
@@ -95,11 +110,13 @@ def judge(record, sha, repo, want_steps):
         # A verdict only from a step that ran this head.
         if st in ("pass", "fail") and ref != sha:
             return "unavailable", reasons + [f"{name}: its step tested {ref or 'no commit'}, not {sha}"]
+    if expected_suites is not None and {s.get("package"): s.get("suites") for s in steps} != expected_suites:
+        return "unavailable", reasons + ["the receipt does not cover the requested packages and suites"]
     return state, reasons
 
 
 def read(sha, repo, ffi_repin=False, home_render="", cmux_next="", wait=2400, queue_wait=1200, no_record=300,
-         results=RESULTS, fetch=fetch, now=time.monotonic, sleep=time.sleep, gap=15):
+         results=RESULTS, fetch=fetch, now=time.monotonic, sleep=time.sleep, gap=15, expected_suites=None):
     """Wait up to `wait` s for the verdict; (word, reasons)."""
     q = {"repo": repo, "phase": PHASE}
     if ffi_repin:
@@ -126,7 +143,7 @@ def read(sha, repo, ffi_repin=False, home_render="", cmux_next="", wait=2400, qu
         pause = gap
         if code == 200:
             down_since = busy_since = None
-            state, last = judge(body, sha, repo, want)
+            state, last = judge(body, sha, repo, want, expected_suites)
             if state in ("pass", "fail", "unavailable"):
                 return state, last
             if state == "queued" and now() - start >= queue_wait:
@@ -161,6 +178,7 @@ def main(argv=None):
     p.add_argument("--ffi-repin", action="store_true")
     p.add_argument("--home-render", default="")
     p.add_argument("--cmux-next", default="")
+    p.add_argument("--registry", help="Request every Swift suite in this batch registry")
     p.add_argument("--wait", type=int, default=2400)
     p.add_argument("--queue-wait", type=int, default=1200)
     p.add_argument("--no-record", type=int, default=300)
@@ -169,12 +187,26 @@ def main(argv=None):
         print(f"fleet fast tier: bad sha {a.sha!r}", file=sys.stderr)
         print("unavailable")
         return 0
+    expected = None
+    if a.registry:
+        if a.ffi_repin or a.home_render or a.cmux_next:
+            p.error("--registry supplies the complete suite selection")
+        with open(a.registry, encoding="utf-8") as registry:
+            entries = json.load(registry)["entries"]
+        try:
+            expected = registry_suites(entries)
+        except ValueError as exc:
+            print(f"fleet fast tier: {exc}", file=sys.stderr)
+            print("unavailable")
+            return 0
+        a.home_render, a.cmux_next = expected[HOME_RENDER], expected[CMUX_NEXT]
     for v in (a.home_render, a.cmux_next):
         if v and not SUITES.match(v):
             print(f"fleet fast tier: suites must be names joined by commas: {v!r}", file=sys.stderr)
             print("unavailable")
             return 0
-    word, reasons = read(a.sha, a.repo, a.ffi_repin, a.home_render, a.cmux_next, a.wait, a.queue_wait, a.no_record)
+    word, reasons = read(a.sha, a.repo, a.ffi_repin, a.home_render, a.cmux_next, a.wait, a.queue_wait, a.no_record,
+                         expected_suites=expected)
     for r in reasons:
         print(f"fleet fast tier: {r}", file=sys.stderr)
     print(word)

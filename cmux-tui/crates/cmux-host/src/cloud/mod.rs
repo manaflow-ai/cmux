@@ -50,6 +50,9 @@ pub mod additions;
 mod additions_tests;
 #[cfg(target_os = "linux")]
 pub mod additions_thread;
+pub mod agent_home_pull;
+#[cfg(test)]
+mod agent_home_pull_tests;
 #[cfg(target_os = "linux")]
 mod agent_socket;
 pub mod apps_call;
@@ -81,6 +84,7 @@ pub mod github_minter;
 pub mod github_repos;
 pub mod github_status;
 pub mod handoff;
+pub mod machine_request;
 pub mod mcp_call;
 #[cfg(all(test, unix))]
 mod mcp_call_tests;
@@ -104,6 +108,8 @@ pub mod wake_echo;
 #[cfg(test)]
 mod wake_echo_tests;
 pub mod wire;
+#[cfg(test)]
+mod wire_origin_tests;
 pub mod workload;
 
 #[cfg(all(test, unix))]

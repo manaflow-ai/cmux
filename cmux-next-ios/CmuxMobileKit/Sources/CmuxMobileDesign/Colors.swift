@@ -81,10 +81,15 @@ private func token(_ dark: String, _ light: String, darkAlpha: Double = 1, light
 /// white) until a Mac sends its theme: with Match Mac theme on (the default) the surfaces, text,
 /// fills and status colors are the Mac's (`CmuxMobileMacTheme`, ask-87d30da8e5). The accent is the user's choice (Settings > Appearance > Accent
 /// color, `CmuxMobileAccentTheme`); its Default is the foreground color.
+///
+/// The shell screen grounds (``bg``, ``bgGrouped``) stay stock whatever the Mac's theme: black in
+/// dark, white (grouped: system grey) in light, so tabs, pages and sheets share one ground
+/// (2026-11-25, "for now just make every background black"; the options were PR #53342). The agent
+/// chat owns its received Mac ground and picture through ``CmuxMobileChatBackdrop``.
 public struct CmuxMobileColors: Sendable {
-    public var bg: CmuxMobileColorToken { mac(Self.stockBg) { $0.bg } }
+    public var bg: CmuxMobileColorToken { Self.stockBg }
     static let stockBg = token("#000000", "#FFFFFF")
-    public var bgGrouped: CmuxMobileColorToken { mac(Self.stockBgGrouped) { $0.bg } }
+    public var bgGrouped: CmuxMobileColorToken { Self.stockBgGrouped }
     static let stockBgGrouped = token("#000000", "#F2F2F7")
     public var surface: CmuxMobileColorToken { mac(Self.stockSurface) { $0.surface } }
     static let stockSurface = token("#1C1C1E", "#FFFFFF")

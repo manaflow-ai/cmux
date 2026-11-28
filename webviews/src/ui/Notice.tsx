@@ -7,14 +7,17 @@
 //   so an agent's permission-type card can default to doing the thing and still let the person ask.
 // - `error`: something failed; Retry leads, always first and the one filled button. Never red slabs:
 //   the kind shows in a small mark and the title, the card stays quiet glass (Leo 2026-10-29 on
-//   recovery cards).
+//   recovery cards). retry-prompt-ok: `retry` is only for a retry with a cost or side effect the person
+//   chooses (a session start, a re-sent message); a read that asking again clears gets no Retry, it asks
+//   again on its own (agent-session/acpmux/autoRetry.ts; Leo 2026-11-22: "vacuous decisions like that
+//   should be just done").
 //
 // A notice opens in one frame and may fade out (menus and popovers have no fade-in; rulings.md). It
 // never moves the caret: it takes focus only when the person tabs into it. Escape inside it dismisses
 // it when it can be dismissed. Native calls forward into the same card through the host's cards
 // (toolCards) rather than drawing their own.
 import { Checkbox } from "@base-ui/react/checkbox";
-import { useId, type KeyboardEvent, type ReactNode, useRef } from "react";
+import { useId, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { Spinner } from "../agent-session/acpmux/conversation/Spinner";
 import { Button } from "./Button";
 import { cx } from "./cx";
@@ -64,7 +67,7 @@ export interface NoticeProps {
   message?: ReactNode;
   /** Before the text: the kind's mark by default; a spinner while working. */
   leading?: ReactNode;
-  /** An error's Retry: always the first button and the filled one. */
+  /** An error's Retry: always the first button and the filled one. retry-prompt-ok: only for a costly retry. */
   retry?: { label: string; onRetry(): void; disabled?: boolean; hint?: string };
   actions?: readonly NoticeAction[];
   check?: NoticeCheck;
@@ -80,11 +83,13 @@ export interface NoticeProps {
   count?: number;
   /** Work it tracks: the lead is a spinner while working, then a check or the error's mark. */
   state?: NoticeState;
-  /** The toasts-v2 experiment's arm (toastsV2.experiment.ts); `off` draws today's card. */
+  /** The toasts-v2 experiment's arm (toastsV2.experiment.ts); `off` draws today's card.
+   * @status experimental */
   look?: ToastLook;
   /** A stack toast's glass is the App's own toast glass under the page (glass/hostGlass.ts), as its
    * native toasts are drawn; false (the default) keeps the page's floating material. NoticeStack
-   * passes the toast-glass experiment's arm (`experiments.toastGlass`, off by default). */
+   * passes the toast-glass experiment's arm (`experiments.toastGlass`, off by default).
+   * @status experimental */
   hostGlass?: boolean;
 }
 
@@ -183,6 +188,15 @@ export function Notice({
       data-placement={placement}
       data-state={state}
       data-look={v2 ? look : undefined}
+      // One material per surface: a notice without the App's toast glass keeps the page's material,
+      // and says which (ui/glass/hostGlass.ts).
+      data-page-glass={
+        floats
+          ? undefined
+          : placement === "stack"
+            ? "a stack toast on the page's floating material (experiments.toastGlass off)"
+            : "an inline or banner notice in its page's flow, not floating"
+      }
       role={role}
       aria-live={role === "group" ? "polite" : undefined}
       aria-labelledby={title ? titleId : message ? messageId : undefined}

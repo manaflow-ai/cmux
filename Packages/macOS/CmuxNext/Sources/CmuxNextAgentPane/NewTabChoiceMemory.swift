@@ -17,6 +17,7 @@ public final class NewTabChoiceMemory {
     private static let picksKey = "newTab.lastPicks"
     private static let harnessHintKey = "newTab.harnessHintDismissed"
     private static let startedProjectKey = "newTab.startedProject"
+    private static let cloudStartedProjectKey = "newTab.cloudStartedProject"
     @ObservationIgnored private let defaults: UserDefaults
     /// Bumped by each remembered pick, so an observer (the iPhone host's sync of the last
     /// picks to acpmux) reads ``agent`` and ``picks`` again.
@@ -33,6 +34,7 @@ public final class NewTabChoiceMemory {
 
     public var picks: AgentPaneLastPicks? {
         _ = revision
+        // main-actor-ok: a UserDefaults blob of at most AgentPaneLastPicks.maxFolders (50) folder picks plus one global pick.
         return defaults.data(forKey: Self.picksKey).flatMap { try? JSONDecoder().decode(AgentPaneLastPicks.self, from: $0) }
     }
 
@@ -47,6 +49,13 @@ public final class NewTabChoiceMemory {
         return defaults.string(forKey: Self.startedProjectKey).flatMap { $0.hasPrefix("/") ? $0 : nil }
     }
 
+    /// The folder or GitHub repository (`github:owner/name`) the person last started a Cloud chat in (`newTab.remember`
+    /// `cloudStarted`): a page with Cloud picked starts there, apart from This Mac's ``startedProject`` (cmux#53226).
+    public var cloudStartedProject: String? {
+        _ = revision
+        return defaults.string(forKey: Self.cloudStartedProjectKey).flatMap { AgentPaneRememberedPick.isCloudPick($0) ? $0 : nil }
+    }
+
     /// A value the page should never send (empty, too long) is ignored. Every agent pick, also on its
     /// own default, is the next New Tab's; one naming no model keeps the last pick's model on that agent.
     public func remember(_ pick: AgentPaneRememberedPick) {
@@ -55,12 +64,25 @@ public final class NewTabChoiceMemory {
             defaults.set(started, forKey: Self.startedProjectKey)
             revision += 1
         }
+        if let cloud = pick.cloudStarted, AgentPaneRememberedPick.isCloudPick(cloud) {
+            defaults.set(cloud, forKey: Self.cloudStartedProjectKey)
+            revision += 1
+        }
         guard !pick.agent.isEmpty, pick.agent.count <= 128 else { return }
         defaults.set(pick.agent, forKey: Self.agentKey)
         defer { revision += 1 }
         var picks = picks ?? AgentPaneLastPicks()
         let model = pick.model ?? picks.lastModel(harness: pick.agent, folder: pick.folder) ?? AgentPaneLastPicks.defaultModel
         picks.record(.init(harness: pick.agent, model: model), folder: pick.folder)
+        // main-actor-ok: at most AgentPaneLastPicks.maxFolders (50) folder picks plus one global pick.
         if let data = try? JSONEncoder().encode(picks) { defaults.set(data, forKey: Self.picksKey) }
+    }
+}
+
+public extension AgentPaneNewTab {
+    /// The page starting where the person last started a chat, per mode: This Mac's project and Cloud's own last
+    /// pick (cmux#53226). nil (another machine's page) names neither.
+    @MainActor func startingIn(_ choices: NewTabChoiceMemory?) -> AgentPaneNewTab {
+        startingIn(choices?.startedProject, cloud: choices?.cloudStartedProject)
     }
 }

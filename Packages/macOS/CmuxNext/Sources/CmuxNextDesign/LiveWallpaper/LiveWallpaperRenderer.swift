@@ -14,7 +14,7 @@ import QuartzCore
 /// the frame rate instead of queueing frames. The command
 /// buffer's GPU start and end times go back to the view for the scheduler's GPU strikes.
 // The layer is configured on main before the first frame, then touched only on `queue`.
-// crash-allow: `layer` after setup only on the serial `queue` (drawableSize, nextDrawable); `gpu` immutable; `busy` a Mutex.
+// crash-allow: `layer` after setup and `sceneTexture` only on the serial `queue` (drawableSize, nextDrawable, the image upload); `gpu` immutable; `busy` a Mutex.
 nonisolated final class LiveWallpaperRenderer: @unchecked Sendable {
     private let layer: CAMetalLayer
     private let gpu: LiveWallpaperGPU
@@ -22,6 +22,8 @@ nonisolated final class LiveWallpaperRenderer: @unchecked Sendable {
     private let queue: DispatchQueue
     // concurrency-allow: one flag, set by the main thread and cleared by the render queue or Metal's completion thread; no I/O under it.
     private let busy = Mutex(false)
+    /// The scene image's texture, uploaded once per image (``LiveWallpaperSceneImage/id``); only on `queue`.
+    private var sceneTexture: (id: UUID, texture: any MTLTexture)?
 
     init(layer: CAMetalLayer, gpu: LiveWallpaperGPU, queue: DispatchQueue) {
         self.layer = layer
@@ -29,10 +31,11 @@ nonisolated final class LiveWallpaperRenderer: @unchecked Sendable {
         self.queue = queue
     }
 
-    /// Queues one frame of `uniform` (``LiveWallpaperFrame/floats`` floats) at `drawableSize` pixels. False when the previous
+    /// Queues one frame of `uniform` (``LiveWallpaperFrame/floats`` floats), and for a motion scene its
+    /// Scene block and image (`scene`; nil for a program), at `drawableSize` pixels. False when the previous
     /// frame is still in flight (nothing is queued). `completed` gets the frame's GPU time in
     /// milliseconds, or nil when it could not be drawn, on a thread of Metal's or the render queue.
-    func draw(_ uniform: [Float], pipeline: LiveWallpaperPipeline, drawableSize: CGSize,
+    func draw(_ uniform: [Float], scene: LiveWallpaperSceneInputs?, pipeline: LiveWallpaperPipeline, drawableSize: CGSize,
               completed: @escaping @Sendable (Double?) -> Void) -> Bool {
         let claimed = busy.withLock { inFlight -> Bool in
             guard !inFlight else { return false }
@@ -41,7 +44,7 @@ nonisolated final class LiveWallpaperRenderer: @unchecked Sendable {
         }
         guard claimed else { return false }
         queue.async { [self] in
-            guard encode(uniform, pipeline: pipeline, drawableSize: drawableSize, completed: completed) else {
+            guard encode(uniform, scene: scene, pipeline: pipeline, drawableSize: drawableSize, completed: completed) else {
                 busy.withLock { $0 = false }
                 completed(nil)
                 return
@@ -50,7 +53,7 @@ nonisolated final class LiveWallpaperRenderer: @unchecked Sendable {
         return true
     }
 
-    private func encode(_ uniform: [Float], pipeline: LiveWallpaperPipeline, drawableSize: CGSize,
+    private func encode(_ uniform: [Float], scene: LiveWallpaperSceneInputs?, pipeline: LiveWallpaperPipeline, drawableSize: CGSize,
                         completed: @escaping @Sendable (Double?) -> Void) -> Bool {
         if layer.drawableSize != drawableSize {
             // An explicit transaction: this thread has no run loop to commit an implicit one.
@@ -66,7 +69,7 @@ nonisolated final class LiveWallpaperRenderer: @unchecked Sendable {
         pass.colorAttachments[0].loadAction = .dontCare
         pass.colorAttachments[0].storeAction = .store
         guard let encoder = commands.makeRenderCommandEncoder(descriptor: pass) else { return false }
-        Self.encodeFrame(encoder, uniform: uniform, pipeline: pipeline)
+        Self.encodeFrame(encoder, uniform: uniform, scene: scene, image: scene?.image.flatMap { texture(for: $0) }, gpu: gpu, pipeline: pipeline)
         commands.addCompletedHandler { [self] buffer in
             let milliseconds = buffer.status == .completed ? (buffer.gpuEndTime - buffer.gpuStartTime) * 1000 : nil
             busy.withLock { $0 = false }
@@ -77,13 +80,33 @@ nonisolated final class LiveWallpaperRenderer: @unchecked Sendable {
         return true
     }
 
+    /// `image`'s texture: the one this renderer uploaded for it, else uploaded now. On `queue` only.
+    private func texture(for image: LiveWallpaperSceneImage) -> (any MTLTexture)? {
+        if let sceneTexture, sceneTexture.id == image.id { return sceneTexture.texture }
+        guard let texture = image.texture(device: gpu.device) else { return nil }
+        sceneTexture = (image.id, texture)
+        return texture
+    }
+
     /// The one draw: the pipeline, the Frame uniform at buffer 0 of both stages, a full-screen triangle.
-    static func encodeFrame(_ encoder: any MTLRenderCommandEncoder, uniform: [Float], pipeline: LiveWallpaperPipeline) {
+    /// A motion scene also binds its Scene block at fragment buffer 1 (2048 bytes, under
+    /// `setFragmentBytes`' 4 KiB), its image's texture (`image`) at fragment texture 0 (`gpu`'s 1x1
+    /// clear texture when it shows none) and `gpu`'s image sampler at fragment sampler 0.
+    static func encodeFrame(_ encoder: any MTLRenderCommandEncoder, uniform: [Float], scene: LiveWallpaperSceneInputs?,
+                            image: (any MTLTexture)?, gpu: LiveWallpaperGPU, pipeline: LiveWallpaperPipeline) {
         encoder.setRenderPipelineState(pipeline.state)
         uniform.withUnsafeBytes { bytes in
             guard let base = bytes.baseAddress else { return }
             encoder.setVertexBytes(base, length: bytes.count, index: 0)
             encoder.setFragmentBytes(base, length: bytes.count, index: 0)
+        }
+        if let scene, let sampler = gpu.sceneSampler, let clear = gpu.sceneClear {
+            scene.block.withUnsafeBytes { bytes in
+                guard let base = bytes.baseAddress else { return }
+                encoder.setFragmentBytes(base, length: bytes.count, index: 1)
+            }
+            encoder.setFragmentTexture(image ?? clear, index: 0)
+            encoder.setFragmentSamplerState(sampler, index: 0)
         }
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         encoder.endEncoding()
@@ -93,7 +116,7 @@ nonisolated final class LiveWallpaperRenderer: @unchecked Sendable {
     /// wallpaper's still (its picker thumbnail, the light field's picture). Never on the main
     /// thread's time: the GPU's completion resumes it.
     @concurrent
-    static func still(_ uniform: [Float], pipeline: LiveWallpaperPipeline, width: Int, height: Int) async -> CGImage? {
+    static func still(_ uniform: [Float], scene: LiveWallpaperSceneInputs?, pipeline: LiveWallpaperPipeline, width: Int, height: Int) async -> CGImage? {
         guard width > 0, height > 0, let gpu = LiveWallpaperGPU.shared else { return nil }
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: LiveWallpaperGPU.pixelFormat, width: width,
                                                                   height: height, mipmapped: false)
@@ -108,7 +131,8 @@ nonisolated final class LiveWallpaperRenderer: @unchecked Sendable {
         pass.colorAttachments[0].loadAction = .dontCare
         pass.colorAttachments[0].storeAction = .store
         guard let encoder = commands.makeRenderCommandEncoder(descriptor: pass) else { return nil }
-        encodeFrame(encoder, uniform: uniform, pipeline: pipeline)
+        let image = scene?.image.flatMap { $0.texture(device: gpu.device) }
+        encodeFrame(encoder, uniform: uniform, scene: scene, image: image, gpu: gpu, pipeline: pipeline)
         guard let blit = commands.makeBlitCommandEncoder() else { return nil }
         blit.copy(from: texture, sourceSlice: 0, sourceLevel: 0, sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
                   sourceSize: MTLSize(width: width, height: height, depth: 1), to: readback, destinationOffset: 0,

@@ -353,7 +353,7 @@ fn machine_list_relays_disk_health_to_the_app() {
 
     let page = s.handle(&Request::new("cloud.machine.list", json!({}))).expect("list");
     // The relay adds the disk bar: 12 of 16 GB used, no split reported.
-    let mut relayed = disk_health.clone();
+    let mut relayed = disk_health;
     relayed["bar"] = page["machines"][0]["disk_health"]["bar"].clone();
     assert_eq!(relayed["bar"]["label"], "12 / 16 GB");
     assert_eq!(page["machines"][0]["disk_health"], relayed);
@@ -742,6 +742,13 @@ fn snapshots_plan_billing_migration_and_upgrade() {
     assert_eq!(plan["limits"]["max_active"], 5);
     assert_eq!(plan["usage"]["active"], 2, "usage folds into the plan");
     assert_eq!(plan["upgrade_plan"], "max", "the plan that lifts the limits (See plans)");
+    let allotment = s.handle(&Request::new("cloud.allotment.get", json!({})));
+    assert!(allotment.is_ok(), "{allotment:?}");
+    let allotment = allotment.unwrap();
+    assert_eq!(allotment["decision"]["position"], "up");
+    // Micros are JSON numbers the wire types hold as f64.
+    assert_eq!(allotment["decision"]["members"][0]["month_micros"].as_f64(), Some(96_000_000.0));
+    assert_eq!(allotment["names"]["user_vec_2"], "Sam", "the directory's names ride along");
     let usage = s.handle(&Request::new("cloud.usage.current", json!({})));
     assert!(usage.is_ok(), "{usage:?}");
     let usage = usage.unwrap();

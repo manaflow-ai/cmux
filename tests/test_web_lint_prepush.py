@@ -179,14 +179,17 @@ class WebLintPrePushTests(unittest.TestCase):
             "scripts/web-lint.sh",
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
+            "scripts/merge-cargo-lock.py",
             "scripts/merge-baseline.py",
             "scripts/merge-daemon-capabilities.py",
             "scripts/merge-insertions.py",
+            "scripts/merge-cargo-lock.py",
             "scripts/ci/merge_main_resolver.py",
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
             "scripts/ci/workload_entrypoints.py",
             "scripts/ci/workflow_job_bounds.py",
+            "scripts/ci/check_reusable_workflow_permissions.py",
             "scripts/normalize-pbxproj.py",
             "scripts/webviews_bun_version.py",
             "scripts/lint_swift_namespaces.py",
@@ -1002,6 +1005,36 @@ class WebLintPrePushTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("::warning title=web lint (base)::webviews: sh check-lanes.sh", result.stderr)
+
+    def test_new_only_reruns_the_base_reds_side_by_side(self):
+        # 2026-11-26: a webviews pull request over a base red on 13 checks reran them on the base one at a time, 128 s
+        # of a 290 s fast gates job, while the head's run had them side by side. Each check here, red on the base,
+        # logs its start, sleeps a second and logs its end: on the base tree the two reruns overlap.
+        if len(os.sched_getaffinity(0)) < 2 if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1) < 2:
+            self.skipTest("one core: the checks run one at a time by design")
+        spans = self.root / "spans.log"
+        for name in ("one", "two"):
+            self.write(f"webviews/check-{name}.sh",
+                       "#!/bin/sh\nif grep -rl 'BAD_LANE' src >/dev/null 2>&1; then\n"
+                       f'  echo "start {name} $(pwd)" >> "$SPANS"; sleep 1; echo "end {name} $(pwd)" >> "$SPANS"\n'
+                       f"  echo 'src/old.ts:1:1: error {name}'; exit 1\nfi\n")
+        self.write("webviews/package.json", WEBVIEWS_PACKAGE.replace(
+            '"sh check-lanes.sh && sh check-format.sh"', '"sh check-one.sh && sh check-two.sh"'))
+        self.write("webviews/src/old.ts", "export const old = BAD_LANE;\n")
+        self.commit("a base red on two checks")
+        self.write("webviews/src/app.ts", "export const app = 9;\n")
+        self.commit("a clean change on it")
+        self.env["SPANS"] = str(spans)
+
+        result = self.lint_range("--new-only")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = spans.read_text().splitlines()
+        head = str((self.repo / "webviews").resolve())
+        base = [line for line in lines if line.split(" ", 2)[2] != head]  # the reruns, in the base lint tree
+        self.assertEqual(len(base), 4, lines)
+        self.assertEqual([line.split()[0] for line in base[:2]], ["start", "start"],
+                         f"the base reruns ran one after the other: {lines}")
 
     def test_new_only_hands_the_checks_the_changed_files_and_a_full_lint_none(self):
         # check:compiler-bails compiled every agent-chat file on every pull request (65 s of the fast gates' step,
@@ -2501,6 +2534,40 @@ class CheckPiecesTests(unittest.TestCase):
         for script in ("check-system-blue.py", "check-attachment-caps.py"):
             with self.subTest(script=script):
                 self.assertEqual(lint.declared_inputs((SOURCE / "scripts/cmux-next" / script).read_text()), ())
+
+
+class NewCheckTransitionTests(unittest.TestCase):
+    """--new-only on a ratchet that lands with its own script: the base cannot run it (cmux#49989, whose merge was
+    charged 25 findings of a baseline row the base had moved, against a base with no check-surface-bypass.ts)."""
+
+    def charge(self, base_has_script: bool):
+        import contextlib
+        lint = load_lint(SOURCE)
+        holder = Path(tempfile.mkdtemp(prefix="cmux-new-check-"))
+        self.addCleanup(shutil.rmtree, holder, True)
+        if base_has_script:
+            (holder / "webviews/scripts").mkdir(parents=True)
+            (holder / "webviews/scripts/check-surface-bypass.ts").write_text("// base copy\n")
+        result = lint.Result("webviews", "bun run check:surface-bypass", 1,
+                             "new surface bypass (21 > 20): a.css own-shell\n", 4.0)
+        plan = lint.Plan(script_pieces={"webviews": ["check:surface-bypass"]})
+        reran = []
+        with mock.patch.object(lint, "tree_of", lambda *a, **k: contextlib.nullcontext(holder)), \
+                mock.patch.object(lint, "run", lambda *a, **k: reran.append(a) or lint.Result(
+                    "webviews", a[1], 1, "", 1.0)), \
+                mock.patch.object(lint, "package_env", lambda *a, **k: {}):
+            lint.charge_new_only(SOURCE, "b" * 40, plan, SOURCE, [result])
+        return result, reran
+
+    def test_a_check_the_base_has_no_script_for_is_not_charged(self):
+        result, reran = self.charge(base_has_script=False)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(reran, [], "the base cannot run a script it does not have")
+
+    def test_a_check_the_base_has_is_compared_as_before(self):
+        result, reran = self.charge(base_has_script=True)
+        self.assertEqual(len(reran), 1)
+        self.assertEqual(result.returncode, 1)
 
 
 class TrustBoundaryTests(unittest.TestCase):
