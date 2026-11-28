@@ -394,7 +394,7 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 trace_format: String,
             }
             let request: Request = read(request)?;
-            json!({"text": error::text(&request.error, &request.trace_format), "code": error::code(&request.error)})
+            json!({"text": error::text(&request.error, &request.trace_format), "code": error::code(&request.error), "retryable": error::retryable(&request.error)})
         }
         b"cloud_model_provisioned_api_fields" => {
             #[derive(Deserialize)]

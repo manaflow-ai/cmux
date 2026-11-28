@@ -258,3 +258,29 @@ fn the_json_is_the_apps_enum_encoding() {
         }
     );
 }
+
+#[test]
+fn a_timeout_an_unreached_cloud_and_a_gateway_failure_are_retryable() {
+    assert!(retryable(&ApiError::TimedOut { path: "/api/vm".into() }));
+    assert!(retryable(&ApiError::Transport { text: "offline".into() }));
+    for status in [502, 503, 504] {
+        assert!(retryable(&http(status, "x", "y")), "{status}");
+    }
+    assert!(retryable(&http(409, "owner.timed_out", "The owner did not answer.")));
+    assert!(retryable(&http(409, "owner.unreachable", "The owner is unreachable.")));
+}
+
+#[test]
+fn a_refusal_a_sign_in_and_a_plan_are_not_retryable() {
+    assert!(!retryable(&http(409, "vm_create_cap", "At the cap.")));
+    assert!(!retryable(&http(429, "rate_limited", "Slow down.")));
+    assert!(!retryable(&http(500, "internal", "Broke.")));
+    assert!(!retryable(&ApiError::NotSignedIn {}));
+    assert!(!retryable(&ApiError::NoBackend { url: "http://127.0.0.1".into() }));
+    assert!(!retryable(&ApiError::Decoding { text: "x".into() }));
+    assert!(!retryable(&ApiError::PlanRequired {
+        message: None,
+        upgrade_url: None,
+        plan: "pro".into()
+    }));
+}

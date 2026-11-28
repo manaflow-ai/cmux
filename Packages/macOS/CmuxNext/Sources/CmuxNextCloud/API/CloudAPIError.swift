@@ -39,7 +39,12 @@ public enum CloudAPIError: Error, Sendable, Equatable, Codable, CustomStringConv
         return false
     }
 
-    private struct Words: Decodable { var text: String, code: String }
+    /// Whether the same call may well go through if it is made again, with nothing for a person to do first: Cloud
+    /// did not answer in time or was not reached, a 502, 503 or 504, or the owner it relays to timed out or was
+    /// unreachable (`owner.timed_out`, `owner.unreachable`). Decided by cmux-cloud-machine `error.rs` `retryable`.
+    public var isRetryable: Bool { words(trace: "(trace %@)")?.retryable ?? false }
+
+    private struct Words: Decodable { var text: String, code: String, retryable: Bool? }
 
     private func words(trace: String) -> Words? {
         struct Request: Encodable { var error: CloudAPIError, traceFormat: String }

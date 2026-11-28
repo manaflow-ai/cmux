@@ -180,5 +180,23 @@ pub fn code(error: &ApiError) -> String {
     }
 }
 
+/// Whether the same call may well go through if it is made again, with nothing for a person to do
+/// first: Cloud did not answer in time or was not reached, its front answered 502, 503 or 504, or
+/// the owner it relays to timed out or was unreachable (`owner.timed_out`, `owner.unreachable`).
+/// A keyed call (a chat start) made again under its key is the same call, so its Retry is safe.
+pub fn retryable(error: &ApiError) -> bool {
+    match error {
+        ApiError::TimedOut { .. } | ApiError::Transport { .. } => true,
+        ApiError::Http { status, code, .. } => {
+            matches!(status, 502..=504)
+                || matches!(code.as_deref(), Some("owner.timed_out" | "owner.unreachable"))
+        }
+        ApiError::NotSignedIn {}
+        | ApiError::NoBackend { .. }
+        | ApiError::PlanRequired { .. }
+        | ApiError::Decoding { .. } => false,
+    }
+}
+
 #[cfg(test)]
 mod tests;
