@@ -4,7 +4,7 @@
  */
 import { env } from "cloudflare:workers";
 import { afterEach, expect, it, vi } from "vitest";
-import { durableObjectCreateAdmission, type CreateAdmissionSettings } from "../../src/limits/create-admission.ts";
+import { backgroundCap, durableObjectCreateAdmission, type CreateAdmissionSettings } from "../../src/limits/create-admission.ts";
 import { bearer } from "../support/endpoints.ts";
 import { makeHarness } from "../support/harness.ts";
 
@@ -14,6 +14,8 @@ afterEach(async () => { await current?.dispose(); current = undefined; });
 
 const N = 30;
 const M = 3;
+/** One tenant holds at most its share of the M slots (#64283), so a single team's burst sends this many. */
+const SHARE = backgroundCap(M);
 const QUEUE_WAIT_MS = 1_000;
 
 /** One queue object per test: a fresh name, so tests never share slots. */
@@ -48,7 +50,7 @@ const lines = (event: string) => {
   return { seen, restore: () => spy.mockRestore() };
 };
 
-it(`answers a burst of ${N} creates with at most ${M} sent, and a quick named retryable 503 for the rest; the same keys then create`, async () => {
+it(`answers a burst of ${N} creates from one team with at most its share of ${M} sent, and a quick named retryable 503 for the rest; the same keys then create`, async () => {
   const t = (current = await makeHarness({ createAdmission: admission({ cap: M, queueWaitMs: QUEUE_WAIT_MS, leaseMs: 130_000 }) }));
   const key = await t.addKey("team_alpha", ["vm:write"]);
   const provider = gatedProvider(t);
@@ -57,11 +59,11 @@ it(`answers a burst of ${N} creates with at most ${M} sent, and a quick named re
   try {
     const started = Date.now();
     const answers = Array.from({ length: N }, (_, index) => create(index).then(async (response) => ({ index, status: response.status, body: await response.text(), ms: Date.now() - started })));
-    // Everything but the 3 sent creates answers while those 3 are still held by the provider.
+    // Everything but the sent creates answers while those are still held by the provider.
     const refused: Array<{ index: number; status: number; body: string; ms: number }> = [];
     for (const answer of answers) void answer.then((done) => { refused.push(done); });
-    await vi.waitFor(() => { expect(refused.length).toBe(N - M); }, { timeout: QUEUE_WAIT_MS * 10, interval: 20 });
-    expect(provider.peak).toBe(M);
+    await vi.waitFor(() => { expect(refused.length).toBe(N - SHARE); }, { timeout: QUEUE_WAIT_MS * 10, interval: 20 });
+    expect(provider.peak).toBe(SHARE);
     expect(provider.hung).toBe(0);
     for (const answer of refused) {
       expect(answer.status).toBe(503);
@@ -69,16 +71,17 @@ it(`answers a burst of ${N} creates with at most ${M} sent, and a quick named re
       // At once, or at the end of the bounded wait: never the provider's 120 s.
       expect(answer.ms).toBeLessThan(QUEUE_WAIT_MS + 5_000);
     }
-    expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(M);
+    expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(SHARE);
     provider.open();
     const sent = (await Promise.all(answers)).filter((answer) => answer.status !== 503);
-    expect(sent.map((answer) => answer.status)).toEqual([201, 201, 201]);
+    expect(sent.map((answer) => answer.status)).toEqual(Array.from({ length: SHARE }, () => 201));
+    // Over its share a team's create is refused at once (queue_full) or after the bounded wait (wait_expired).
     const refusedLines = log.seen.filter((line) => line["admission"] !== undefined);
-    expect(refusedLines.length).toBe(N - M);
-    expect(refusedLines.every((line) => typeof line["admitWaitMs"] === "number" && line["createMs"] === null && line["admission"] === "queue_full")).toBe(true);
+    expect(refusedLines.length).toBe(N - SHARE);
+    expect(refusedLines.every((line) => typeof line["admitWaitMs"] === "number" && line["createMs"] === null && (line["admission"] === "queue_full" || line["admission"] === "wait_expired"))).toBe(true);
     // The refused keys retry, a few at a time as their slots free, and each makes one VM.
-    for (let index = 0; index < N; index += M) {
-      const batch = await Promise.all(Array.from({ length: Math.min(M, N - index) }, (_, offset) => create(index + offset)));
+    for (let index = 0; index < N; index += SHARE) {
+      const batch = await Promise.all(Array.from({ length: Math.min(SHARE, N - index) }, (_, offset) => create(index + offset)));
       expect(batch.map((response) => response.status).every((status) => status === 201 || status === 200)).toBe(true);
     }
     expect(t.upstream.vms.size).toBe(N);
@@ -105,14 +108,17 @@ it("queues a create behind a full queue and sends it when a slot frees within th
   expect(provider.peak).toBe(1);
 });
 
-it("sends creates as before when the queue cannot be reached", async () => {
+it("refuses a create with a retryable 503 when the queue cannot be reached, and sends nothing", async () => {
   const unreachable = { admit: () => Promise.reject(new Error("queue object unavailable")), release: () => Promise.resolve() };
   const t = (current = await makeHarness({ createAdmission: unreachable }));
   const key = await t.addKey("team_alpha", ["vm:write"]);
   const log = lines("vm_create_admission_unavailable");
   try {
     const made = await t.request("/v1/vms", bearer(key), { method: "POST", body: { labels: { role: "burst" } } });
-    expect(made.status).toBe(201);
+    // #64283: an unreachable gate answers a retryable refusal rather than bypassing it.
+    expect(made.status).toBe(503);
+    expect(await made.json()).toMatchObject({ message: "The cmux VM service is temporarily unavailable (vm-provider.createQueueFull)" });
+    expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(0);
     expect(log.seen).toHaveLength(1);
   } finally {
     log.restore();

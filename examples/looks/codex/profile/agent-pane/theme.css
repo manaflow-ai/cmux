@@ -28,4 +28,8 @@
   --cmux-ease-spring: linear(0, 0.086, 0.2539, 0.428, 0.5786, 0.698, 0.7879, 0.8534, 0.8998, 0.9323, 0.9546, 0.9697, 0.98, 0.9868, 0.9913, 0.9943, 0.9963, 0.9976, 0.9985, 1);
   /* A fold settling into its height: its disclosure curve. */
   --cmux-ease-settle: cubic-bezier(0.22, 1, 0.36, 1);
+  /* A reply's newest words fading in: its live streaming fade, 0.7 s (held at the 600 ms look bound). */
+  --cmux-motion-stream: 600ms;
+  /* ...on its streaming-text curve. */
+  --cmux-ease-stream: cubic-bezier(0.37, 0.55, 0.86, 0.88);
 }
