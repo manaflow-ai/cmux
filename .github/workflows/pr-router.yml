@@ -145,6 +145,9 @@ jobs:
             ci/steps.toml
             .github/workflows/
             .gitmodules
+            cmux-next-ios/rust/Cargo.toml
+            cmux-next-ios/rust/**/Cargo.toml
+            cmux-tui/**/Cargo.toml
           sparse-checkout-cone-mode: false
       # A workflow whose reusable-workflow call asks for more permissions than its caller grants fails at startup on
       # every run, and a startup failure posts no check: #55503 merged green over two such calls to base-coalesce.yml

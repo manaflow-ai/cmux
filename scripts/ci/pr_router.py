@@ -161,8 +161,76 @@ ENTRY = ROOT / ".github" / "workflows" / "pr-router.yml"
 FULL_CI = "full-ci"
 
 
+def _manifest_path_deps(manifest: Path, root: Path) -> set[Path] | None:
+    """The directories of every crate MANIFEST reaches through `path` dependencies (transitively, any
+    dependency table, `[workspace.dependencies]` and workspace members included), as ROOT-relative paths,
+    the manifest's own directory first. None when a manifest cannot be read (the caller fails open)."""
+    import tomllib  # noqa: PLC0415 - only a callee with `cargo_deps` needs it
+
+    seen: set[Path] = set()
+    todo = [manifest.parent]
+    while todo:
+        directory = todo.pop()
+        if directory in seen:
+            continue
+        seen.add(directory)
+        try:
+            data = tomllib.loads((root / directory / "Cargo.toml").read_text())
+        except (OSError, ValueError):
+            return None
+        tables = []
+
+        def collect(node):
+            for key in ("dependencies", "dev-dependencies", "build-dependencies"):
+                if isinstance(node.get(key), dict):
+                    tables.append(node[key])
+            for target in (node.get("target") or {}).values():
+                if isinstance(target, dict):
+                    collect(target)
+
+        collect(data)
+        workspace = data.get("workspace") or {}
+        if isinstance(workspace.get("dependencies"), dict):
+            tables.append(workspace["dependencies"])
+        for member in workspace.get("members") or []:
+            if "*" in member:
+                return None
+            todo.append(Path(os.path.normpath(directory / member)))
+        for table in tables:
+            for spec in table.values():
+                if isinstance(spec, dict) and isinstance(spec.get("path"), str):
+                    todo.append(Path(os.path.normpath(directory / spec["path"])))
+    return seen
+
+
+def expand_cargo_deps(config: dict, root: Path | None = None) -> dict:
+    """A callee's `cargo_deps` (ROOT-relative Cargo.toml paths) adds `<crate dir>/**` and the manifest's
+    Cargo.lock for every crate the manifest's workspace reaches by `path`, to both its `paths` and its `affects`:
+    a change to any crate the workspace compiles runs the callee, and a crate the workspace starts depending on is
+    covered with no list to edit. A manifest that cannot be read adds `cargo_deps_fallback_globs` (a broad
+    directory) instead: the router routes more, never less."""
+    manifests = config.get("cargo_deps")
+    if not manifests:
+        return config
+    root = root or ROOT
+    extra: list[str] = []
+    for manifest in manifests:
+        found = _manifest_path_deps(Path(manifest), root)
+        if found is None:
+            extra += config.get("cargo_deps_fallback_globs") or []
+            continue
+        extra += [f"{d.as_posix()}/**" for d in sorted(found)]
+        extra.append((Path(manifest).parent / "Cargo.lock").as_posix())
+    out = dict(config)
+    for key in ("paths", "affects"):
+        if key in out:
+            out[key] = list(dict.fromkeys([*out[key], *extra]))
+    return out
+
+
 def load_manifest(path: Path = MANIFEST) -> dict:
-    return json.loads(path.read_text())["callees"]
+    callees = json.loads(path.read_text())["callees"]
+    return {name: expand_cargo_deps(config) for name, config in callees.items()}
 
 
 def changed_files(cwd: str | None = None) -> list[str] | None:
