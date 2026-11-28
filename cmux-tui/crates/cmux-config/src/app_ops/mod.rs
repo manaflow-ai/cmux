@@ -19,8 +19,8 @@
 //!   different places and merge cleanly; no area answers another's op, so
 //!   the order is only for merging.
 
-pub mod build_defaults;
 pub mod backdrop_switch;
+pub mod build_defaults;
 pub mod chrome_theme;
 pub mod controller;
 pub mod custom;
