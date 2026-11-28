@@ -5,7 +5,7 @@
 // the pane's `setSnapshot`. Nothing reads it to draw yet, so the pane behaves as before. Later stages
 // move the row derivations under it (find, marks, cards, minimap, header counts) and then let a
 // record that changes only the rows skip the pane's own render.
-import { createContext, useContext, useMemo, useRef, useSyncExternalStore } from "react";
+import { createContext, useContext, useMemo, useState, useSyncExternalStore } from "react";
 import type { AcpmuxRow } from "../model";
 import { acpmuxPerf } from "../perf";
 import { settledRead, whenSettled } from "../paneSettle";
@@ -64,6 +64,11 @@ export function useTranscriptRows(): readonly AcpmuxRow[] {
   return useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot);
 }
 
+type KeptRead<T> = { rows: readonly AcpmuxRow[]; select: (rows: readonly AcpmuxRow[]) => T; value: T };
+
+/// Each `useRowsValue` reader's last read, by the reader's own key.
+const keptReads = new WeakMap<object, KeptRead<unknown>>();
+
 /// What `select` reads off the rows, subscribed to `store`: the component renders only when that value
 /// changes (`same`), not on every rows change. Stage 2 of the pane split: the pane's own readers of the
 /// rows (the Summary card's rows, Run in background, started sessions, background shells, render cards,
@@ -82,22 +87,25 @@ export function useRowsValue<T>(
   client: readonly AcpmuxRow[],
   label = "",
 ): T {
-  const kept = useRef<{ rows: readonly AcpmuxRow[]; select: typeof select; value: T } | undefined>(undefined);
+  // The reader's last read lives in `keptReads` under this key, not in a ref: `read` runs while React
+  // renders, and a ref read there makes the React Compiler skip the hook (check:compiler-bails).
+  const [reader] = useState(() => ({}));
   // While the pane's draw is pending a reader keeps the value it read (paneSettle.ts `settledRead`).
   const read = useMemo(
     () =>
       settledRead(() => {
         const newest = store.snapshot();
         const rows = newest === client ? shown : newest;
-        const last = kept.current;
+        const last = keptReads.get(reader) as KeptRead<T> | undefined;
         if (last && last.rows === rows && last.select === select) return last.value;
         const value = select(rows);
         if (acpmuxPerf.enabled && last && !same(last.value, value)) acpmuxPerf.render(`rows-value:${label}`);
         // The same value as before keeps its object: React sees no change and does not render.
-        kept.current = { rows, select, value: last && same(last.value, value) ? last.value : value };
-        return kept.current.value;
+        const next = { rows, select, value: last && same(last.value, value) ? last.value : value };
+        keptReads.set(reader, next);
+        return next.value;
       }),
-    [store, select, same, shown, client, label],
+    [reader, store, select, same, shown, client, label],
   );
   return useSyncExternalStore(store.subscribe, read, read);
 }
