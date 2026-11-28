@@ -96,10 +96,16 @@ pub fn reached(answer: &Value) -> bool {
         .any(|key| answer.get(*key).and_then(Value::as_bool) == Some(true))
 }
 
-/// Leaves the mark for `socket` and `token` when `answer` says the chat is reached, and drops
-/// marks older than [`MARK_TTL`]. Best effort: a mark not written only costs another ask.
+/// Whether the daemon's `answer` says this process gets no code from another ask: reached, or
+/// an automatic code already went to the chat (`offered`), so a later prompt has nothing to ask.
+pub fn settled(answer: &Value) -> bool {
+    reached(answer) || answer.get("offered").and_then(Value::as_bool).is_some()
+}
+
+/// Leaves the mark for `socket` and `token` when `answer` is [`settled`], and drops marks older
+/// than [`MARK_TTL`]. Best effort: a mark not written only costs another ask.
 pub(crate) fn mark_if_reached(home: &Path, socket: &str, token: &str, answer: &Value) {
-    if !reached(answer) {
+    if !settled(answer) {
         return;
     }
     let path = mark_path(home, socket, token);
@@ -170,6 +176,21 @@ mod tests {
             .map(|&(k, v)| (k, if k == "CLAUDE_CODE_MESSAGING_TOKEN" { "tok2" } else { v }))
             .collect();
         assert!(hook_args(env(&restarted), Some(SESSION), "cosmic-gray", home.path()).is_some());
+    }
+
+    /// Repro (Lawrence, 2026-11-28): the hook asked at every prompt of a chat that let its code
+    /// expire, and each ask after ten minutes delivered a new one. Once the daemon says a code
+    /// already went (`offered`), this Claude Code process asks no more.
+    #[test]
+    fn a_chat_that_already_got_its_code_is_not_asked_again() {
+        let home = tempfile::tempdir().unwrap();
+        let sock = "/tmp/cc-socks/77.sock";
+        mark_if_reached(home.path(), sock, "tok", &json!({"offered": true, "name": "x"}));
+        assert_eq!(hook_args(env(&TERMINAL), Some(SESSION), "h", home.path()), None);
+        let other = tempfile::tempdir().unwrap();
+        mark_if_reached(other.path(), sock, "tok", &json!({"offered": false, "reason": "r"}));
+        assert_eq!(hook_args(env(&TERMINAL), Some(SESSION), "h", other.path()), None);
+        assert!(!settled(&json!({"pending": true, "resent": false})));
     }
 
     #[test]

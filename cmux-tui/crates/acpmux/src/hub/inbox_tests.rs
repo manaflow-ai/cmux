@@ -528,6 +528,9 @@ async fn inbox_accepts_a_new_notice_while_configuration_is_being_written() {
     let blocks = [json!({"type": "text", "text": "command finished"})];
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let mut accept = |notice| tx.send(notice).unwrap();
+    // A caller that reads the reply and stays connected: its send waits past the acceptance
+    // (one that reads nothing ends once delivered, `inbox.rs`).
+    let (_connected, reader) = tokio::sync::watch::channel(false);
     let prompt = hub.inbox_accept(
         &session,
         &blocks,
@@ -539,7 +542,7 @@ async fn inbox_accepts_a_new_notice_while_configuration_is_being_written() {
         None,
         false,
         false,
-        None,
+        Some(reader),
         &mut accept,
     );
     tokio::pin!(prompt);
@@ -1912,6 +1915,154 @@ async fn a_held_result_is_delivered_at_its_deadline_while_the_receivers_wait_han
             panic!("the deadline timer never delivered the held result")
         }
     }
+}
+
+// ---- inbox_fold.rs: the fold, the archive, and a thread read at 10k threads ----
+
+fn notice_text(src: &str, level: &str, body: &str) -> String {
+    format!("[notice from {src} on cmux16 \u{b7} {level}] {body}")
+}
+
+/// One `ws-check-coverage` FIRE names eight PRs; it opened a thread per first PR it named.
+/// Same source and kind is one thread now, whichever PR leads its first line.
+#[test]
+fn a_notice_of_one_source_and_kind_is_one_thread_whatever_pull_request_it_names() {
+    let a =
+        notice_text("ws-check-coverage", "FIRE", "8 open PR head(s): #9423 7ace (62 min), #10349");
+    let b = notice_text("ws-check-coverage", "FIRE", "8 open PR head(s): #9898 ca09 (60 min)");
+    let warn = notice_text("ws-check-coverage", "WARN", "#9898 slow");
+    let key = |t: &str| thread_key(None, "cmux16/ws-check-coverage", t);
+    assert_eq!(key(&a), "from:cmux16/ws-check-coverage/fire");
+    assert_eq!(key(&a), key(&b));
+    assert_ne!(key(&a), key(&warn), "another kind is another thread");
+    // A message that is no notice keeps its pull request thread.
+    assert_eq!(key("merged #27133"), "from:cmux16/ws-check-coverage/pr:27133");
+    // A thread journaled before the fold reads as the new one.
+    assert_eq!(
+        fold::refolded("from:cmux16/ws-check-coverage/pr:9423".into(), &a),
+        "from:cmux16/ws-check-coverage/fire"
+    );
+    assert_eq!(fold::refolded("pr:7".into(), &a), "pr:7");
+    assert_eq!(fold::refolded("from:lane-a/pr:7".into(), "plain words #7"), "from:lane-a/pr:7");
+}
+
+#[test]
+fn a_new_notice_folds_the_older_ones_of_its_thread_and_the_thread_counts_them() {
+    let thread = "from:src/fire";
+    let mut inbox = Inbox::default();
+    for n in 0..6u64 {
+        inbox.items.push(item(
+            &format!("n-{n}"),
+            thread,
+            "src",
+            PromptClass::Fyi,
+            100 + n,
+            &notice_text("src", "FIRE", &format!("state {n}")),
+        ));
+    }
+    // A person's message, a carried notice and a waited-on notice in the same thread stay.
+    inbox.items.push(item("person", thread, "leo", PromptClass::Result, 50, "do this"));
+    inbox.items[1].asker = Some("someone".into());
+    inbox.in_flight = Some(("notice".into(), vec!["n-2".into()]));
+    inbox.items.push(item("other", "from:x", "x", PromptClass::Fyi, 1, "keep"));
+    let gone = fold::fold_thread(&mut inbox, thread);
+    let left: Vec<&str> = inbox.items.iter().map(|i| i.prompt_id.as_str()).collect();
+    assert_eq!(left, ["n-1", "n-2", "n-5", "person", "other"]);
+    assert_eq!(gone, 3);
+    assert_eq!(inbox.folded.get(thread), Some(&3));
+    assert!(inbox.trimmed.contains("n-0"), "a resend of a folded one answers from the log");
+    // The restore's pass folds the same.
+    let mut again = Inbox::default();
+    for n in 0..6u64 {
+        again.items.push(item(
+            &format!("n-{n}"),
+            thread,
+            "src",
+            PromptClass::Fyi,
+            100 + n,
+            &notice_text("src", "FIRE", "s"),
+        ));
+    }
+    assert_eq!(fold::fold_all(&mut again), 5);
+    assert_eq!(again.items.len(), 1);
+    assert_eq!(again.items[0].prompt_id, "n-5");
+}
+
+#[test]
+fn a_read_message_past_the_cutoff_goes_to_the_archive_and_a_thread_read_finds_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let day = 24 * 60 * 60 * 1000u64;
+    let now = 100 * day;
+    let mut inbox = Inbox::default();
+    let mut old_read = item("old-read", "t-old", "a", PromptClass::Fyi, now - 10 * day, "old");
+    (old_read.read, old_read.noticed) = (true, true);
+    let mut old_unread =
+        item("old-unread", "t-old", "a", PromptClass::Fyi, now - 10 * day, "unread");
+    old_unread.noticed = true;
+    let mut old_person =
+        item("old-fire", "t-fire", "a", PromptClass::Block, now - 10 * day, "FIRE: pick");
+    (old_person.read, old_person.noticed) = (true, true);
+    let mut young = item("young", "t-old", "a", PromptClass::Fyi, now - day, "young");
+    (young.read, young.noticed) = (true, true);
+    inbox.items = vec![old_read, old_unread, old_person, young];
+    let n = fold::age_out(&mut inbox, now, fold::ARCHIVE_AGE_MS);
+    let left: Vec<&str> = inbox.items.iter().map(|i| i.prompt_id.as_str()).collect();
+    assert_eq!(n, 1, "only the read, aged one with no person behind it");
+    assert!(left.contains(&"old-unread") && left.contains(&"young") && left.contains(&"old-fire"));
+    assert!(inbox.archived_threads.contains("t-old"));
+    let lines = std::mem::take(&mut inbox.archive_pending);
+    fold::append_archive(dir.path(), &lines).unwrap();
+    fold::append_archive(dir.path(), &lines).unwrap(); // idempotent by prompt id
+    let read = fold::archived_thread(dir.path(), "t-old");
+    assert_eq!(read.len(), 1);
+    assert_eq!(read[0]["promptId"], "old-read");
+    assert_eq!(read[0]["text"], "old");
+    assert!(fold::archived_thread(dir.path(), "t-none").is_empty());
+}
+
+/// A coordinator's inbox at 10k threads: the list and one thread read stay under 200 ms.
+#[tokio::test]
+async fn a_thread_read_at_ten_thousand_threads_takes_under_200_ms() {
+    let (hub, session) = hub_with_chat("ten-k");
+    {
+        let mut inbox = session.inbox();
+        for n in 0..10_000u64 {
+            for m in 0..2u64 {
+                let mut i = item(
+                    &format!("m-{n}-{m}"),
+                    &format!("from:src-{n}/pr:{n}"),
+                    "src",
+                    PromptClass::Fyi,
+                    1_000 + n * 2 + m,
+                    &format!("message {n} {m}"),
+                );
+                (i.noticed, i.read) = (true, m == 0);
+                inbox.items.push(i);
+            }
+        }
+    }
+    let t = std::time::Instant::now();
+    let thread = hub.inbox_thread_whole(&session, "from:src-777/pr:777", false).unwrap();
+    let read_ms = t.elapsed().as_millis();
+    assert_eq!(thread["messages"].as_array().unwrap().len(), 2);
+    let t = std::time::Instant::now();
+    let whole = hub.inbox_threads(&session);
+    let whole_ms = t.elapsed().as_millis();
+    assert_eq!(whole["threads"].as_array().unwrap().len(), 10_000);
+    let t = std::time::Instant::now();
+    let list = hub.inbox_threads_page(&session, Some(50), None);
+    let list_ms = t.elapsed().as_millis();
+    assert_eq!(list["threads"].as_array().unwrap().len(), 50);
+    assert_eq!(list["total"], 10_000);
+    let cursor = list["more"].as_u64().expect("a full page names the next");
+    let next = hub.inbox_threads_page(&session, Some(50), Some(cursor));
+    assert_eq!(next["threads"].as_array().unwrap().len(), 50);
+    assert!(next["threads"][0]["newestAt"].as_u64().unwrap() < cursor);
+    eprintln!(
+        "INBOX10K after: thread read {read_ms} ms, whole list {whole_ms} ms, list page {list_ms} ms"
+    );
+    assert!(read_ms < 200, "thread read {read_ms} ms");
+    assert!(list_ms < 200, "list page {list_ms} ms");
 }
 
 /// A notice relayed as text (the lane-gh broker, no notice provenance) is read in Rust
