@@ -3,6 +3,7 @@ import { translate, useT, type StringKey, type Translate } from "../i18n";
 import type { HeaderCheck, HeaderPullRequest } from "./headerState";
 import { readyToMerge } from "./pullRequestMergeModel";
 import type { Merging, MergeResult } from "./PullRequestMerge";
+import { usePullRequestActions, type PullRequestAction } from "./usePullRequestActions";
 
 export function checkPresentation(check: HeaderCheck, t: Translate = translate): string {
   const marker = check.state === "failed" ? "✕" : check.state === "pending" ? "…" : "✓";
@@ -61,6 +62,10 @@ export interface HeaderOperationAction {
   run(): void;
 }
 export interface PullRequestOps {
+  actions?: (HeaderOperationAction & { id: string })[];
+  displayed?: HeaderPullRequest;
+  headSha?: string;
+  actionMessages?: string[];
   identity: string;
   merging: Merging;
   start?: HeaderOperationAction;
@@ -109,11 +114,14 @@ export function runPullRequestMerge(
 export function usePullRequestOps(
   pr: HeaderPullRequest | undefined,
   merge?: (pr: { number: number; url: string }) => Promise<MergeResult>,
+  action?: PullRequestAction,
+  scope?: string,
 ): PullRequestOps {
+  const actions = usePullRequestActions(pr, action, scope);
   const t = useT();
   const [, changed] = useState(0);
   const alive = useRef(true);
-  const identity = pr ? JSON.stringify([pr.url, pr.number]) : "";
+  const identity = pr ? JSON.stringify([scope, pr.url, pr.number, actions.headSha ?? pr.headSha]) : "";
   const live = useRef({ identity, state: { step: "idle" } as Merging });
   if (live.current.identity !== identity) live.current = { identity, state: { step: "idle" } };
   const target = live.current;
@@ -129,12 +137,14 @@ export function usePullRequestOps(
     changed((n) => n + 1);
   };
   const state = target.state;
-  if (!pr || !merge) return { identity, merging: state, messages: [] };
-  const view = mergeView(pr, state, t);
+  if (!pr || !merge) return { identity, merging: state, messages: [], ...actions };
+  const displayed = actions.displayed ?? pr;
+  const view = mergeView(displayed, state, t);
   const current = () => alive.current && live.current === target;
   return {
     identity,
     merging: state,
+    ...actions,
     messages: view.message ? [view.message] : [],
     ...(view.confirming
       ? {
@@ -143,7 +153,7 @@ export function usePullRequestOps(
             label: view.confirm,
             enabled: state.step === "confirm",
             run: () => {
-              if (current() && target.state.step === "confirm") runPullRequestMerge(pr, set, merge, t);
+              if (current() && target.state.step === "confirm") runPullRequestMerge(displayed, set, merge, t);
             },
           },
           cancel: {
