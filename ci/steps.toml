@@ -4502,6 +4502,8 @@ python3 -I scripts/cmux-next/fast-tier.py --root "${CMUX_MAC_ROOT:-$PWD}" --kind
 
 [step.phone-speed-icount]
 job = "linux"
+# push: it needs Rust and valgrind; the landing head runs it at the full tier (pr_router.py phone speed gate).
+tier = "push"
 pr_scope = false
 timeout = 300
 title = "Phone terminal instruction budgets"

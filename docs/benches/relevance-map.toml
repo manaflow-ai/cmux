@@ -616,26 +616,6 @@ paths = ["Packages/Shared/CmuxInstallAuthCore/Tests/CmuxInstallAuthCoreTests/**"
 tests = ["swift test --package-path Packages/Shared/CmuxInstallAuthCore --filter CmuxInstallAuthCoreTests"]
 
 [[unit]]
-name = "swift:CmuxIrohTransport"
-paths = ["Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/**"]
-tests = ["swift test --package-path Packages/Shared/CmuxIrohTransport --filter CmuxIrohTransportTests"]
-
-[[unit]]
-name = "swift:CmuxIrohTransportTests"
-paths = ["Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/**"]
-tests = ["swift test --package-path Packages/Shared/CmuxIrohTransport --filter CmuxIrohTransportTests"]
-
-[[unit]]
-name = "swift:CmuxIrxTransport"
-paths = ["Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/**"]
-tests = ["swift test --package-path Packages/Shared/CmuxIrxTransport --filter CmuxIrxTransportTests"]
-
-[[unit]]
-name = "swift:CmuxIrxTransportTests"
-paths = ["Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/**"]
-tests = ["swift test --package-path Packages/Shared/CmuxIrxTransport --filter CmuxIrxTransportTests"]
-
-[[unit]]
 name = "swift:CmuxLiveCode"
 paths = ["Packages/Shared/CmuxLiveCode/Sources/CmuxLiveCode/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxLiveCode --filter CmuxLiveCodeTests"]
@@ -2673,6 +2653,11 @@ paths = ["cmux-tui/crates/cmux-encode/**"]
 tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-encode"]
 
 [[unit]]
+name = "rust:cmux-error-journal"
+paths = ["cmux-tui/crates/cmux-error-journal/**"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-error-journal"]
+
+[[unit]]
 name = "rust:cmux-extension-sdk"
 paths = ["cmux-tui/crates/cmux-extension-sdk/**"]
 tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-extension-sdk"]
@@ -2916,6 +2901,11 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-mobile-last-pla
 name = "rust:cmux-motion"
 paths = ["cmux-tui/crates/cmux-motion/**"]
 tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-motion"]
+
+[[unit]]
+name = "rust:cmux-nat-probe"
+paths = ["cmux-tui/crates/cmux-nat-probe/**"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-nat-probe"]
 
 [[unit]]
 name = "rust:cmux-netwatch"
@@ -3333,6 +3323,11 @@ paths = ["cmux-tui/crates/cmux-update-prewarm-core/**"]
 tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-update-prewarm-core"]
 
 [[unit]]
+name = "rust:cmux-upstream-error"
+paths = ["cmux-tui/crates/cmux-upstream-error/**"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-upstream-error"]
+
+[[unit]]
 name = "rust:cmux-url-input"
 paths = ["cmux-tui/crates/cmux-url-input/**"]
 tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-url-input"]
@@ -3346,6 +3341,11 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-usage-patterns"
 name = "rust:cmux-usage-share"
 paths = ["cmux-tui/crates/cmux-usage-share/**"]
 tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-usage-share"]
+
+[[unit]]
+name = "rust:cmux-vault-e2e"
+paths = ["cmux-tui/crates/cmux-vault-e2e/**"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-vault-e2e"]
 
 [[unit]]
 name = "rust:cmux-vault-egress"
@@ -3935,6 +3935,10 @@ name = "schemas:layout-motion"
 paths = ["schemas/layout-motion/**"]
 
 [[unit]]
+name = "schemas:layout-state"
+paths = ["schemas/layout-state/**"]
+
+[[unit]]
 name = "schemas:link-token"
 paths = ["schemas/link-token/**"]
 
@@ -4023,6 +4027,10 @@ name = "schemas:sidebar-pending-records"
 paths = ["schemas/sidebar-pending-records/**"]
 
 [[unit]]
+name = "schemas:sidebar-region-layout"
+paths = ["schemas/sidebar-region-layout/**"]
+
+[[unit]]
 name = "schemas:sidebar-row"
 paths = ["schemas/sidebar-row/**"]
 
@@ -4103,6 +4111,10 @@ name = "schemas:whats-new"
 paths = ["schemas/whats-new/**"]
 
 [[unit]]
+name = "schemas:window-registry"
+paths = ["schemas/window-registry/**"]
+
+[[unit]]
 name = "schemas:window-rules-swift-out"
 paths = ["schemas/window-rules-swift-out/**"]
 
@@ -4150,6 +4162,10 @@ tests = ["swift test --package-path scripts/ci/pr-media-ocr-tests --filter PRMed
 [[unit]]
 name = "scripts:cmux-next"
 paths = ["scripts/cmux-next/**"]
+
+[[unit]]
+name = "scripts:cmux-vmd"
+paths = ["scripts/cmux-vmd/**"]
 
 [[unit]]
 name = "scripts:dev-profiles"

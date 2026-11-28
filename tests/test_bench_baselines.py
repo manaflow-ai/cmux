@@ -53,7 +53,13 @@ class Store:
             def log_message(self, *a):
                 pass
 
-        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        class Server(http.server.ThreadingHTTPServer):
+            # socketserver's listen backlog is 5 and fetch() opens up to 16 connections at once: on a loaded runner
+            # whose accept thread falls behind, the kernel can drop the extra SYNs and a client retries only after
+            # its 1 s SYN timeout (bench-relevance-map once read "20 areas took 1039 ms"). A real store has no such cap.
+            request_queue_size = 64
+
+        self.server = Server(("127.0.0.1", 0), Handler)
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
