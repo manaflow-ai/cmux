@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46193251546",
+  "recorded_at": "2026-11-28T21:59:47Z",
+  "reason": "image inputs changed in e2351fa689b47945460e66b399403ad71fd40536..e785b0c473acc8fb8187b789f64afa186b8419a9; cmux-tui b579b62ce2c9, the commit the Cloud machine channel serves (pinned 0d1e69fa1ee6)",
+  "dry_run": false,
+  "cmux_tui": "b579b62ce2c987f3bc53801715acd0c953200b18",
+  "fixes": [
+    {
+      "sha": "e785b0c473acc8fb8187b789f64afa186b8419a9",
+      "mergedAt": "2026-11-28T21:45:55Z",
+      "subject": "cmux-vm image roll: a newest roll (cadence tick) retries a failed or never-requested roll on the newest build (#65580)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-28T21:59:47Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
