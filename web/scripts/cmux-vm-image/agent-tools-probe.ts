@@ -616,6 +616,17 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
   }
   const mcpBrowser = await readGuest(vm, `${PROBE_DIR}/mcp-cmux.json`).catch(() => "");
   check("browser-page-title", mcpBrowser.includes(PAGE_TITLE), `the browser host ${mcpBrowser.includes(PAGE_TITLE) ? "returned" : "did not return"} "${PAGE_TITLE}"`);
+  // A red browser call keeps what the VM knew, since the VM is deleted: the browser processes with their
+  // state and kernel wait channel, and the journal's browser lines (the host's stderr reaches the daemon's).
+  if (!mcpBrowser.includes(PAGE_TITLE)) {
+    const facts = await run(vm, [
+      "ps -eo pid,ppid,user,stat,wchan:32,etimes,args --sort=start_time | grep -E '[c]hrome|[c]mux-browser-host|[c]mux-tui server' | cut -c1-400",
+      "echo '== journal'",
+      "journalctl -m --no-pager -o short-monotonic --since -10min | grep -iE 'browser|chrom|cdp|setPermission' | tail -200 | cut -c1-400",
+      "echo '== load'; cat /proc/loadavg; nproc; free -m",
+    ].join("; "), 60_000).catch((error) => ({ stdout: `unreadable: ${String(error).slice(0, 200)}` }));
+    writeFileSync(path.join(outDir, "browser-failure.txt"), facts.stdout);
+  }
   await pngCheck(vm, check, result, outDir, "browser");
   await pngCheck(vm, check, result, outDir, "cua", AGENT_DISPLAY_SIZE);
   const host = await run(vm, `pgrep -u ${DEVBOX_WORK_USER} -f '[c]mux-browser-host serve' | wc -l; tr '\\0' ' ' < /proc/$(pgrep -u ${DEVBOX_WORK_USER} -f '[c]hrome-linux64/chrome' | head -1)/cmdline 2>/dev/null | grep -cE -- '--no-sandbox|--disable-setuid-sandbox' || true`);
