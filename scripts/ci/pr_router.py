@@ -42,6 +42,8 @@ pr_router.json lists each routed workflow ("callee") with what used to start it:
              event adding ready-to-land or full-ci, which land-judge pulses at the head it lands) and the merge
              train's tip, not on each push or base merge of a labelled PR. $CI_NIGHTLY_PR_BUILD_AT_LAND=0 starts
              it on every landing head again (land_ask_only_on);
+  trunk_only true for a callee that runs on the feat-cmux-next tip instead (its own coalesced push trigger): it
+             starts on no pull request unless $CI_NIGHTLY_PR_BUILD_PER_PR=1 (per_pr_on);
   draft      true for a workflow that also runs on a draft head (scripts/ci/head_tier.py's cheap tier);
              any other callee starts on a draft only with full-ci, and runs when the PR is marked ready
              for review, so every callee must listen to `ready_for_review` (`check` says so).
@@ -116,6 +118,18 @@ def handoff_label_skip() -> bool:
 # PRs that had not merged by 21Z, 56% on base-merge heads of labelled PRs, 25% on pushes after the label, and 31%
 # repeated an input key already compiled. Leo, 2026-11-27: "whatever we need to cut, we cut. whatever we can
 # reuse, we reuse." The repository variable CI_NIGHTLY_PR_BUILD_AT_LAND=0 turns this off (passed in by pr-router.yml).
+
+
+# A trunk_only callee (nightly-pr-build.yml) runs once per 30-minute window on the feat-cmux-next tip, coalesced by
+# base-coalesce.yml, and base-red-watch bisects a red to name the PR. At 00Z 2026-11-28, after the land-ask cut above,
+# it still took ~690 runner-min/h (~16.5k/day) on ~28 PR heads an hour, while the Nightly compiles the same
+# configuration on the tip every 15 minutes. Leo: "de facto, im asking for 99% fewer minutes of ci time, period."
+# The repository variable CI_NIGHTLY_PR_BUILD_PER_PR=1 starts it on pull requests again (passed in by pr-router.yml).
+
+
+def per_pr_on() -> bool:
+    """Whether a trunk_only callee also starts on pull requests ($CI_NIGHTLY_PR_BUILD_PER_PR, off unless 1)."""
+    return os.environ.get("CI_NIGHTLY_PR_BUILD_PER_PR", "0").strip() == "1"
 
 
 def land_ask_only_on() -> bool:
@@ -258,6 +272,10 @@ def route(event: dict, callees: dict, files: list[str] | None,
         if action not in config["types"]:
             why[name] = f"does not listen to '{action}'"
             continue
+        if config.get("trunk_only") and not per_pr_on():
+            why[name] = ("trunk only: runs once per 30-minute window on the feat-cmux-next tip (base-red-watch bisects a "
+                         "red); $CI_NIGHTLY_PR_BUILD_PER_PR=1 starts it on pull requests too")
+            continue
         if config.get("land_handoff_only") and train_tip and action in ("opened", "reopened", "synchronize"):
             # The merge train's combined tip is the tree its last member squashes to: the one head whose build a
             # merge can take when every member's own head is behind the base (cmux_machine_channel_pr_head.py).
@@ -292,6 +310,7 @@ def route(event: dict, callees: dict, files: list[str] | None,
             why[name] = (f"{head_tier.RERUN_REASON}: this base merge's previous head ran it green; only what was "
                          f"red there runs again ({FULL_CI} or the land runs it)")
             continue
+        gates, gate_reason = landing_gates(config, files) if landing_affected else ([], "")
         if (name == IOS_VERDICT_CALLEE and head_tier.land_affected((tier, tier_reason)) and ios_verdict_on()
                 and ios_touched(files)):
             # A landing head on the affected tier starts no full-tier job, so without this nothing iOS compiles
@@ -299,17 +318,13 @@ def route(event: dict, callees: dict, files: list[str] | None,
             start.append(name)
             why[name] = (f"{head_tier.LAND_AFFECTED_REASON}, iOS-affecting: the ios fast verdict alone (no table job) "
                          f"compiles the changed iOS targets before the merge")
-            gates = nightly_gates(config, files) if nightly_gate_on() else []
-            why[name] += f"; nightly gate: runs only {', '.join(gates)}" if gates else ""
+            why[name] += f"; {gate_reason}" if gates else ""
             continue
-        gates = nightly_gates(config, files) if landing_affected and nightly_gate_on() else []
         if gates:
-            # A landing head on the affected tier starts no full-tier job, so a check the nightly also runs first ran
-            # at the nightly, hours after the merge (NIGHTLY_GATE_JOBS). Only those steps run (main's `only`).
+            # A landing head on the affected tier otherwise starts no full-tier job. Run just the explicit
+            # landing detectors, using the existing step-table subset (main's `only`).
             start.append(name)
-            why[name] = (f"{head_tier.LAND_AFFECTED_REASON}, nightly gate: runs only "
-                         f"{', '.join(gates)} (steps the nightly also runs or a base red put on the land gate, "
-                         f"ci/steps.toml `nightly`, `land_gate`)")
+            why[name] = f"{head_tier.LAND_AFFECTED_REASON}, {gate_reason}"
             continue
         if cheap and fast and not config.get("draft"):
             why[name] = "fast-track: runs after the merge (post-merge batch and push runs)"
@@ -427,6 +442,29 @@ def nightly_gates(config: dict, files: list[str] | None, table: Path | None = No
         return ci_steps.nightly_gate_steps(ci_steps.load(table or ci_steps.TABLE), files, jobs)
     except Exception:  # noqa: BLE001
         return []
+
+
+def landing_gates(config: dict, files: list[str] | None, table: Path | None = None) -> tuple[list[str], str]:
+    """The narrow detectors run before affected-tier landings, with their step-table inputs unchanged.
+
+    Phone instruction budgets are an explicit PR gate (Leo: "Run them cheap and gate the PR where they're fast"),
+    independent of the optional nightly mirror. Do not start the rest of the full-tier Linux suite for them.
+    """
+    gates = nightly_gates(config, files, table) if nightly_gate_on() else []
+    reasons = [f"nightly gate: runs only {', '.join(gates)}"] if gates else []
+    if "linux" in config.get("table_jobs", []):
+        name = "phone-speed-icount"
+        try:
+            step = ci_steps.load(table or ci_steps.TABLE).steps.get(name)
+            phone = step is not None and step.job == "linux" and ci_steps.routed(step, files)
+        except Exception:  # noqa: BLE001
+            # Let the runner report a broken table, rather than silently losing this required detector.
+            phone = True
+        if phone:
+            if name not in gates:
+                gates.append(name)
+            reasons.append(f"phone speed gate: runs only {name}")
+    return gates, "; ".join(reasons)
 
 
 def ios_verdict_on() -> bool:
@@ -601,11 +639,12 @@ def land_status(event: dict, decided: tuple[str, str]) -> str:
     """The `cmux/land-tier` commit status for EVENT's head (pr-router.yml posts it): `pending` while the land rule holds
     it on the cheap tier (or idle), `success` once it runs the full tier, lands on the affected tier (the hourly
     full tier rule), or the land carry rule or the full-ci base merge carry rule carries its previous head's run
-    (head_tier.carried, head_tier.full_carried), empty where the land rule does not apply."""
+    (head_tier.carried, head_tier.full_carried) or the same-head land carry rule its own head's
+    (head_tier.same_head_carried), empty where the land rule does not apply."""
     if (os.environ.get("CI_LAND_TIER", "1").strip() in ("0", "")) or not head_tier.land_rule_applies(event):
         return ""
     return ("success" if decided[0] == "full" or head_tier.carried(decided) or head_tier.land_affected(decided)
-            or head_tier.full_carried(decided) else "pending")
+            or head_tier.full_carried(decided) or head_tier.same_head_carried(decided) else "pending")
 
 
 def ios_status(event: dict, files: list[str] | None, start: list[str], land: str) -> tuple[str, str]:
@@ -665,12 +704,12 @@ def plan_for(decided: tuple[str, str], facts: dict | None, callees: dict) -> tup
 def nightly_gate_table(callees: dict, files: list[str] | None, decided: tuple[str, str], start: list[str],
                        table: list[str]) -> tuple[list[str], list[str]]:
     """(the table jobs pr-pipeline.yml starts, the steps its jobs run only): on a landing head of the affected tier
-    whose change routes a nightly-mirroring step (nightly_gates), that step's job joins TABLE and runs only those
+    whose change routes a nightly mirror or phone speed detector, that step's job joins TABLE and runs only those
     steps. Any other head: (TABLE, []), its jobs run their whole route."""
-    if not head_tier.land_affected(decided) or not nightly_gate_on():
+    if not head_tier.land_affected(decided):
         return table, []
     only = [step for name, config in sorted(callees.items()) if name in start
-            for step in nightly_gates(config, files)]
+            for step in landing_gates(config, files)[0]]
     jobs = [job for job in NIGHTLY_GATE_JOBS if only and job not in table]
     return (table + jobs, only) if jobs else (table, [])
 
