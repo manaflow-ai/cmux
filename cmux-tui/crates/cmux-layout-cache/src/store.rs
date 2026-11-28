@@ -132,7 +132,7 @@ impl WriteCoalescer {
     /// Whether `cache` differs from what was last written (by content, `written_at_ms` aside).
     /// A false answer clears the pending change: nothing needs writing.
     pub fn needs_write(&mut self, cache: &LayoutCache) -> bool {
-        let changed = self.last_written != Some(content_hash(&cache.capped_content()));
+        let changed = self.last_written != Some(cache.content_key());
         if !changed {
             self.first_unwritten_ms = None;
         }
@@ -142,7 +142,13 @@ impl WriteCoalescer {
     /// Records that `cache` reached disk: the pending change is cleared and later identical
     /// content skips its write.
     pub fn wrote(&mut self, cache: &LayoutCache) {
-        self.last_written = Some(content_hash(&cache.capped_content()));
+        self.wrote_key(cache.content_key());
+    }
+
+    /// `wrote`, from the content's key (`LayoutCache::content_key`) taken where the write ran, so
+    /// the coalescer's thread (the app's main thread) does not parse the cache a second time.
+    pub fn wrote_key(&mut self, key: u64) {
+        self.last_written = Some(key);
         self.first_unwritten_ms = None;
     }
 
@@ -161,6 +167,11 @@ impl WriteCoalescer {
 impl LayoutCache {
     fn capped_content(&self) -> Vec<u8> {
         self.clone().capped().content_bytes()
+    }
+
+    /// What the coalescer compares (`written_at_ms` aside): equal keys skip a write.
+    pub fn content_key(&self) -> u64 {
+        content_hash(&self.capped_content())
     }
 }
 

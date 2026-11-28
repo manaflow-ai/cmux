@@ -143,11 +143,29 @@ def build_stack(base: str, prs: list[PullRequest]) -> Stack:
 
 # ---- GitHub ----
 
-def gh(*args: str, input_text: str | None = None) -> str:
-    return subprocess.run(["gh", *args], capture_output=True, text=True, check=True, input=input_text).stdout
+def gh(*args: str, input_text: str | None = None, token: str | None = None) -> str:
+    """gh, failing loudly: a refused call prints GitHub's reason (run 46080212141, 2026-11-27, failed the ref create
+    with only "exit status 1" because stderr was captured and dropped)."""
+    env = {**os.environ, "GH_TOKEN": token} if token else None
+    done = subprocess.run(["gh", *args], capture_output=True, text=True, check=False, input=input_text, env=env)
+    if done.returncode != 0:
+        print(f"yolo: gh {' '.join(args[:4])} failed ({done.returncode}): {done.stderr.strip()[-2000:]}",
+              file=sys.stderr)
+        raise subprocess.CalledProcessError(done.returncode, ["gh", *args], done.stdout, done.stderr)
+    return done.stdout
 
 
 PR_FIELDS = "number title headRefOid isCrossRepository state"
+
+
+def dispatch_builder(sha: str, base: str, **seams) -> None:
+    """The nightly trigger's dispatch (ios_internal_builder.cmd_dispatch): waits out a spent API limit and tries
+    GH_FALLBACK_TOKEN, where a bare `gh workflow run` lost a pushed stack to one 403 (run 46103940180, 2026-11-28:
+    "API rate limit exceeded for installation"). Raises when it never got through, so the job stays red."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import ios_internal_builder as builder
+    if builder.cmd_dispatch(sha, base, **seams) != 0:
+        raise RuntimeError(f"yolo: the builder dispatch of {sha[:12]} never got through")
 
 
 def read_prs(numbers: list[int] | None) -> list[PullRequest]:
@@ -176,9 +194,9 @@ def push_branch(branch: str, base: str, head: str) -> None:
     """Create the branch at base through the API, then fast-forward it: a new branch pushed with the job token is
     compared with main's workflows and refused; created at base, the push carries only the stacked PRs
     (next_batch.py's push does the same)."""
+    token = os.environ.get("YOLO_PUSH_TOKEN") or os.environ.get("GH_TOKEN", "")
     gh("api", "-X", "POST", f"repos/{REPO}/git/refs", "--input", "-",
-       input_text=json.dumps({"ref": f"refs/heads/{branch}", "sha": base}))
-    token = os.environ.get("GH_TOKEN", "")
+       input_text=json.dumps({"ref": f"refs/heads/{branch}", "sha": base}), token=token or None)
     auth = []
     if token:
         import base64
@@ -227,8 +245,7 @@ def cmd_run(prs_text: str, dry_run: bool) -> int:
     dispatched = False
     if stack.included and not dry_run:
         push_branch(branch, base, stack.head)
-        gh("workflow", "run", BUILDER_WORKFLOW, "--repo", REPO, "--ref", BUILDER_BRANCH,
-           "-f", f"sha={stack.head}", "-f", f"base={base}")
+        dispatch_builder(stack.head, base)
         dispatched = True
         prune(now)
     run_url = f"{os.environ.get('GITHUB_SERVER_URL', 'https://github.com')}/{REPO}/actions/runs/" \
