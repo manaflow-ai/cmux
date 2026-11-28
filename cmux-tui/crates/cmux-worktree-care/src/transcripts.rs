@@ -288,7 +288,7 @@ fn verify(archive: &Path, original: &Path) -> Result<(), String> {
     loop {
         let n = read_full(&mut decoded, &mut a)?;
         let m = read_full(&mut source, &mut b)?;
-        if n != m || a[..n] != b[..m] {
+        if n != m || a.get(..n) != b.get(..m) {
             return Err("archive does not match the transcript".into());
         }
         if n == 0 {
@@ -300,9 +300,10 @@ fn verify(archive: &Path, original: &Path) -> Result<(), String> {
 fn read_full(reader: &mut impl Read, buf: &mut [u8]) -> Result<usize, String> {
     let mut filled = 0;
     while filled < buf.len() {
-        match reader.read(&mut buf[filled..]) {
+        let Some(rest) = buf.get_mut(filled..) else { break };
+        match reader.read(rest) {
             Ok(0) => break,
-            Ok(n) => filled += n,
+            Ok(n) => filled = filled.saturating_add(n),
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
             Err(e) => return Err(e.to_string()),
         }
