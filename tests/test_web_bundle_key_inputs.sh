@@ -102,7 +102,8 @@ ci_lists = []
 for blk in filters:
     items = []
     for line in blk.splitlines()[1:]:
-        m = re.match(r"^\s+- (\S+)$", line)
+        # A YAML comment may follow an item (`- a/**  # why`): GitHub reads the item, so does this.
+        m = re.match(r"^\s+- (\S+)(?:\s+#.*)?$", line)
         if m:
             items.append(gh_glob(m.group(1).strip('"')))
         elif line.strip() and not line.strip().startswith("#"):

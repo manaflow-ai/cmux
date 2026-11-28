@@ -7,127 +7,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Another app is using the sign-in port. Close it and try again."
+            "value" : "Another app is using the sign-in port; close it."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "يستخدم تطبيق آخر منفذ تسجيل الدخول. أغلقه وحاول مجددًا."
+            "value" : "يستخدم تطبيق آخر منفذ تسجيل الدخول؛ أغلقه."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Druga aplikacija koristi port za prijavu. Zatvorite je i pokušajte ponovo."
+            "value" : "Druga aplikacija koristi port za prijavu; zatvorite je."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "En anden app bruger loginporten. Luk den, og prøv igen."
+            "value" : "En anden app bruger login-porten; luk den."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Eine andere App verwendet den Anmeldeport. Schließe sie und versuche es erneut."
+            "value" : "Eine andere App nutzt den Anmeldeport; schließe sie."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Otra app está usando el puerto de inicio de sesión. Ciérrala y vuelve a intentarlo."
+            "value" : "Otra app está usando el puerto de inicio de sesión; ciérrala."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Une autre app utilise le port de connexion. Fermez-la et réessayez."
+            "value" : "Une autre app utilise le port de connexion ; fermez-la."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un'altra app usa la porta di accesso. Chiudila e riprova."
+            "value" : "Un'altra app usa la porta di accesso; chiudila."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "別のアプリがサインイン用のポートを使用しています。そのアプリを閉じてやり直してください。"
+            "value" : "別のアプリがサインイン用ポートを使用中です。そのアプリを閉じてください。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "កម្មវិធីផ្សេងកំពុងប្រើច្រកចូល។ បិទវា ហើយព្យាយាមម្តងទៀត។"
+            "value" : "កម្មវិធីផ្សេងកំពុងប្រើច្រកចូលគណនី; សូមបិទវា។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "다른 앱이 로그인 포트를 사용 중입니다. 앱을 닫고 다시 시도하세요."
+            "value" : "다른 앱이 로그인 포트를 사용 중입니다. 해당 앱을 닫으세요."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "En annen app bruker påloggingsporten. Lukk den og prøv igjen."
+            "value" : "En annen app bruker påloggingsporten; lukk den."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Inna aplikacja używa portu logowania. Zamknij ją i spróbuj ponownie."
+            "value" : "Inna aplikacja używa portu logowania; zamknij ją."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Outro app está usando a porta de login. Feche-o e tente novamente."
+            "value" : "Outro app está usando a porta de login; feche-o."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Другое приложение использует порт для входа. Закройте его и повторите попытку."
+            "value" : "Порт входа занят другим приложением; закройте его."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "แอปอื่นกำลังใช้พอร์ตลงชื่อเข้าใช้ ปิดแอปนั้นแล้วลองอีกครั้ง"
+            "value" : "แอปอื่นกำลังใช้พอร์ตลงชื่อเข้าใช้ ปิดแอปนั้น"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Başka bir uygulama oturum açma bağlantı noktasını kullanıyor. Uygulamayı kapatıp tekrar deneyin."
+            "value" : "Giriş bağlantı noktasını başka bir uygulama kullanıyor; onu kapatın."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Інша програма використовує порт для входу. Закрийте її та спробуйте ще раз."
+            "value" : "Порт входу зайнятий іншою програмою; закрийте її."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Một ứng dụng khác đang dùng cổng đăng nhập. Hãy đóng ứng dụng đó rồi thử lại."
+            "value" : "Một ứng dụng khác đang dùng cổng đăng nhập; hãy đóng nó."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "另一个应用正在使用登录端口。请关闭该应用后重试。"
+            "value" : "另一个应用正在使用登录端口，请将其关闭。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "另一個應用程式正在使用登入連接埠。請關閉後再試一次。"
+            "value" : "另一個 App 正在使用登入連接埠，請將其關閉。"
           }
         }
       }

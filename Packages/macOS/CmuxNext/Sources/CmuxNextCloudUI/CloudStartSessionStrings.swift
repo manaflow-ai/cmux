@@ -190,7 +190,9 @@ public struct CloudStartSessionStrings {
 
     /// A team launch would expose a credential from the machine's Claude settings file.
     package static var claudeSettingsSecret: String {
-        String(localized: "cloud.startSession.claudeSettingsSecret", defaultValue: "Claude could not start on the team route because its settings file contains a credential that would be copied into the launch. Remove the credential from the settings file and try again.", table: "CloudSessions", bundle: .localizedModule)
+        // retry-prompt-ok: the start can only work after the person edits their settings file; an unchanged retry
+        // would be refused the same way and each start spends a new machine.
+        String(localized: "cloud.startSession.claudeSettingsSecret", defaultValue: "Claude's settings file holds a credential the team launch would copy. Remove it from the file and try again.", table: "CloudSessions", bundle: .localizedModule)
     }
 
     /// A named refusal (`namedRefusals`) in the run's words. `agentName`: the agent as a person reads it; `expired`:
@@ -282,7 +284,7 @@ public struct CloudStartSessionStrings {
     /// The list read itself failed (`reason`), so the start stopped before any create: name that failure, not a guess
     /// that a machine by the name exists.
     public static func listFailed(_ asked: Asked, reason: String) -> String {
-        String(format: String(localized: "cloud.startSession.listFailed", defaultValue: "Couldn't read your Cloud machines, so %2$@ didn't start on %1$@: %4$@. Check `cmux cloud list-machines`, then run `%3$@` again.", table: "CloudSessions", bundle: .localizedModule), asked.machine, asked.agent, asked.command, reason)
+        String(format: String(localized: "cloud.startSession.listFailed", defaultValue: "Couldn't read your Cloud machines; %2$@ didn't start on %1$@: %4$@. Check `cmux cloud list-machines`, then run `%3$@` again.", table: "CloudSessions", bundle: .localizedModule), asked.machine, asked.agent, asked.command, reason)
     }
 
     public static func listUnread(_ asked: Asked) -> String {
