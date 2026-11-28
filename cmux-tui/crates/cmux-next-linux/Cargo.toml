@@ -19,6 +19,7 @@ default = ["window"]
 window = ["dep:tao", "dep:wry"]
 
 [dependencies]
+cmux-process = { path = "../cmux-process" }
 getrandom = "0.3"
 tao = { version = "0.34", optional = true }
 wry = { version = "0.53", optional = true }
