@@ -59,7 +59,7 @@ done
 cleanup() {
   "$side" remove "$name" >/dev/null 2>&1 || true
   [[ -n "${mnt:-}" ]] && hdiutil detach "$mnt" >/dev/null 2>&1
-  for file in "${harness_files[@]}"; do
+  for file in ${harness_files[@]+"${harness_files[@]}"}; do
     [[ -f "$file" ]] && grep -q "^id = \"$harness\"" "$file" && rm -f "$file"
   done
   rm -rf "$work"
@@ -70,7 +70,7 @@ trap 'exit 143' TERM
 
 fake="$root/cmux-tui/crates/acpmux/tests/fake_agent.py"
 [[ -f "$fake" ]] || { echo "TRP FAIL rig: no $fake" >&2; exit 3; }
-for file in "${harness_files[@]}"; do
+for file in ${harness_files[@]+"${harness_files[@]}"}; do
   mkdir -p "$(dirname "$file")"
   printf 'schema = 1\nid = "%s"\nname = "Stand-in agent"\nprotocol = "acp"\ncommand = "/usr/bin/python3"\nargs = ["%s"]\n' \
     "$harness" "$fake" >"$file"
