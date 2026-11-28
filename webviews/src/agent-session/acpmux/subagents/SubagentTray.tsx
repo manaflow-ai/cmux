@@ -741,6 +741,9 @@ export const SubagentTray = memo(function SubagentTray({
       peeked={peekItem ? peeked : undefined}
       onPeek={peeks ? setPeeked : noPeek}
       onOpenItem={openItem}
+      // The one line names each background command and gives it a time and a stop (cmux#65782).
+      nameOf={lineDeck === "trail" ? (item) => itemName(t, item) : undefined}
+      stopCommand={stopProcess ? (command) => commandStop(command, stopProcess) : undefined}
     />
   ) : null;
   // The top rim drags the list taller or shorter (trayResize.ts): it stays under the cursor, settles
@@ -1643,6 +1646,15 @@ const NO_PARTS: readonly TrayHeadPart[] = [];
 const NO_FACES: readonly HatFace[] = [];
 /// How many names a kind's hover lists; the rest are a count.
 const PART_NAMES = 8;
+
+/// A command's stop, where it has one: only a registry process can be killed.
+function commandStop(
+  command: BackgroundCommand,
+  stopProcess: (processId: string) => Promise<unknown>,
+): (() => Promise<unknown>) | undefined {
+  const { processId } = command;
+  return processId === undefined ? undefined : () => stopProcess(processId);
+}
 
 /// An item's name, as its line and the folded header name it.
 function itemName(t: Translate, item: TrayItem): string {

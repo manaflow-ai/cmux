@@ -128,13 +128,26 @@ describe("the one-line hat's marks", () => {
     try {
       expect(marks().length).toBe(3);
       const deck = host.querySelector(".acpmux-hat-deck")!;
-      // After the words the deck keeps every slot, empty ones too, so the bar never re-lays out (#61105).
-      expect(deck.querySelectorAll(".acpmux-hat-deck__mark").length).toBe(DECK_MARKS);
+      // After the words a deck of marks keeps every slot, empty ones too, so the bar never re-lays out
+      // (#61105); one with a command's chip (cmux#65782), which has its own width, keeps none.
+      expect(deck.querySelectorAll(".acpmux-hat-deck__mark").length).toBe(3);
+      expect(deck.querySelectorAll("[data-command-chip]").length).toBe(1);
       expect(deck.getAttribute("data-at")).toBe("trail");
       const title = host.querySelector(".acpmux-running-tray__title")!;
       expect(title.compareDocumentPosition(deck) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(host.querySelector(".acpmux-hat-hide")).toBeNull();
       expect(host.querySelector(".acpmux-running-tray__tuck")).not.toBeNull();
+    } finally {
+      await done();
+    }
+  });
+
+  test("a deck of marks alone keeps every slot after the sentence (#61105)", async () => {
+    const { host, done } = await mount("trail", { items: trayItems([reviewer], [], [port], false) });
+    try {
+      const deck = host.querySelector(".acpmux-hat-deck")!;
+      expect(deck.querySelectorAll(".acpmux-hat-deck__mark").length).toBe(DECK_MARKS);
+      expect(deck.querySelectorAll("[data-command-chip]").length).toBe(0);
     } finally {
       await done();
     }
