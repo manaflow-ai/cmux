@@ -102,7 +102,7 @@ pub(super) const RECIPES: &[Recipe] = &[
     Recipe {
         ask: "Start Claude (or Codex) in a new pane and give it a task.",
         commands: &[
-            "cmux --json agent start alpha --cmd 'sr2 claude' --no-focus",
+            "cmux --json agent start alpha --cmd claude --no-focus",
             "cmux --json terminal alpha send --text 'Fix the failing test' --wait idle --timeout 15m",
         ],
         read: "agent start splits your pane (the new pane takes its width only from yours; \
