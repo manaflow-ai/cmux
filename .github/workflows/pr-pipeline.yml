@@ -90,10 +90,14 @@ jobs:
     # Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
     if: ${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'linux')) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
-    # Cover setup, tool downloads, shared steps in two-step waves, and every `alone` step.
-    # tests/test_ci_step_table.py derives this worst-case bound from ci/steps.toml;
-    # the runner reports an individual slow step before this job-wide deadline.
-    timeout-minutes: 662
+    # Above setup (10 min), the tool downloads (3 min), the waves of the slowest step (6 min; steps two at
+    # once on 2 CPUs) and the `alone` steps (ci-artifact-worker, web-production-build, the package conventions gate
+    # and the four web test shards 6 min each, the cmux_next_ daemon tests 65 min, the cmux_next_ tests of acpmux,
+    # cmux-tui-core and cmux-tui 45 min each, the iOS matrix protocol 45 min, the App Store shelf 45 min, the acpmux
+    # instruction counts 40 min, the compile canary 30 min, the Rust notices 20 min, the cmux VM Rust clients 30 min, the nightly and cmux-tui
+    # release guards 20 min, the cmux cloud CLI 15 min): 674 min with 57 shared steps (29 waves) and the setup and
+    # tool bounds, so a slow step is reported by the runner, not cut here.
+    timeout-minutes: 674
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
@@ -202,7 +206,7 @@ jobs:
           [ "${CI_PR_PIPELINE_LINUX_PR_SCOPE:-0}" = 1 ] && scope=(--pr-scope)
           # The router's nightly gate (a landing head of the affected tier): only the steps the nightly also runs.
           if [ -n "${ROUTER_ONLY:-}" ]; then
-            echo "Nightly gate: running only ${ROUTER_ONLY} (the steps the nightly also runs that this change routes)."
+            echo "Nightly gate: running only ${ROUTER_ONLY} (the steps the nightly also runs, or ci/steps.toml land_gate steps, that this change routes)."
             exec ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"} --only "$ROUTER_ONLY" "${scope[@]}"
           fi
           # The routed linux steps less tooling-tests-N; a route that cannot be read runs every step (fails open).

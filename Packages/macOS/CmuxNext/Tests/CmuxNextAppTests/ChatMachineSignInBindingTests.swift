@@ -1,8 +1,9 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextBrowserCore
 import CmuxNextBrowserTabs
-import CmuxNextDaemon
+@testable import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextRemoteLocalhostService
 import CmuxNextTestSupport
