@@ -3,37 +3,11 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextFocus
 import CmuxNextOnboarding
 import CmuxNextSidebar
 import CmuxNextWakeups
 import Foundation
-
-/// What `workspace.importClassic` opened and what it left in classic.
-struct ClassicImportSummary: Equatable {
-    var opened = 0
-    var settingsOnly = false
-    /// Cloud VM workspaces: cmux-next cannot reach a classic VM.
-    var leftCloudVMs = false
-    /// SSH workspaces whose host did not connect.
-    var leftSSH = false
-    /// Scrollback of SSH terminals: their shells run on the host, where this
-    /// Mac's replay file is not.
-    var leftSSHScrollback = false
-    /// Markdown and file preview tabs: nothing here shows them.
-    var leftTabs = false
-    /// Classic workspaces an earlier run brought over that are still open here.
-    var alreadyHere = 0
-
-    /// Adds what `other` (one workspace's import) opened and left.
-    mutating func merge(_ other: ClassicImportSummary) {
-        opened += other.opened
-        leftCloudVMs = leftCloudVMs || other.leftCloudVMs
-        leftSSH = leftSSH || other.leftSSH
-        leftSSHScrollback = leftSSHScrollback || other.leftSSHScrollback
-        leftTabs = leftTabs || other.leftTabs
-        alreadyHere += other.alreadyHere
-    }
-}
 
 /// Classic cmux session import (Leo, cx-aha.5): one workspace at a time, for
 /// `workspace.importClassic` (cx-rwlb, cx-1uacm) and for the one-time
@@ -85,7 +59,10 @@ extension AppOnboardingServices {
         // only pages on a daemon without browser tabs) is not opened.
         let browsers = daemon.supports(DaemonCapability.frontendBrowserTabs.rawValue)
         if saved.leftOutPanels { summary.leftTabs = true }
-        guard let layout = saved.layout.keeping({ browsers || $0.url == nil }) else { return nil }
+        // A markdown or file tab opens its file on this Mac: only in a local workspace, only while the file is there.
+        let keepsFile: (ClassicSessionFile) -> Bool = { browsers && saved.remote == nil && FileManager.checked.fileExists(atPath: $0.path) }
+        if saved.layout.tabs.contains(where: { $0.file.map { !keepsFile($0) } ?? false }) { summary.leftTabs = true }
+        guard let layout = saved.layout.keeping({ tab in tab.file.map(keepsFile) ?? (browsers || tab.url == nil) }) else { return nil }
         if saved.remote != nil, layout.tabs.contains(where: { $0.scrollback != nil }) { summary.leftSSHScrollback = true }
         var node = WorkspaceBlueprint.Node.pane([])
         do {
@@ -107,7 +84,11 @@ extension AppOnboardingServices {
             let placed = try await restoreClassicTitles(layout, workspaceID: id, daemon: daemon, connection: connection)
             // Adopted chats run in this Mac's acpmux, which has only this
             // Mac's sessions: an SSH workspace's agent stays a terminal.
-            if daemon.isLocal { await openClassicChats(placed, on: daemon, connection: connection) }
+            if daemon.isLocal {
+                await openClassicChats(placed, on: daemon, connection: connection)
+                await openClassicFiles(placed, on: daemon, connection: connection)
+            }
+            await restoreClassicPanes(layout, workspaceID: id, daemon: daemon, connection: connection)
             // The run sets the workspace's classic group next. A slot placement still queued would land after
             // that, take the workspace out of the group again and delete the group it emptied (#26153).
             await Self.placementLanded(listed, queue: services.personalPlacements, doc: services.sidebarDoc)
@@ -229,7 +210,9 @@ extension AppOnboardingServices {
             // An agent's terminal holds its place until its chat opens, and
             // replays nothing: its chat has the session's own history.
             return .pane(pane.tabs.map { tab in
-                tab.url.map { .browser(url: $0, engine: nil) }
+                // A file tab holds its place as the file's own preview (an image or PDF stays one).
+                if let file = tab.file { return .browser(url: file.url.absoluteString, engine: FilePageOpener.tabEngine(for: file.url).flatMap(BrowserEngine.init(rawValue:))) }
+                return tab.url.map { .browser(url: $0, engine: nil) }
                     ?? .terminal(cwd: tab.agent?.workingDirectory ?? tab.workingDirectory,
                                  replay: replays && tab.agent == nil ? replayFile(tab.scrollback) : nil)
             })
@@ -248,24 +231,11 @@ extension AppOnboardingServices {
     private func replayFile(_ scrollback: String?) -> String? {
         guard let scrollback, !scrollback.isEmpty else { return nil }
         do {
-            return try Self.writeReplay(scrollback).path
+            return try ClassicScrollbackReplay.write(scrollback).path
         } catch {
             services.daemon.logger.error("classic scrollback not written: \(String(describing: error), privacy: .public)")
             return nil
         }
-    }
-
-    /// Writes `text` to a new file only this user can read, in a folder only this user can open,
-    /// under `directory` (the user's temporary folder).
-    nonisolated static func writeReplay(_ text: String, in directory: URL = FileManager.default.temporaryDirectory) throws -> URL {
-        let folder = directory.appendingPathComponent("cmux-next-scrollback", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
-        let file = folder.appendingPathComponent(UUID().uuidString.lowercased())
-        guard FileManager.default.createFile(atPath: file.path, contents: Data(text.utf8), attributes: [.posixPermissions: 0o600]) else {
-            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: file.path])
-        }
-        return file
     }
 
     /// Names each tab as classic did and returns where each one landed (read from the store, never the whole tree).
@@ -279,7 +249,8 @@ extension AppOnboardingServices {
         }
         for (index, tab) in layout.tabs.enumerated() where index < placed.count {
             placed[index].tab = tab
-            guard let title = tab.title, !title.isEmpty else { continue }
+            // A file tab's page names itself after its file.
+            guard tab.file == nil, let title = tab.title, !title.isEmpty else { continue }
             // A page whose tab takes no name keeps the page's title.
             if tab.url != nil { try? await connection.renameTab(placed[index].surface, to: title) }
             else { try await daemon.renameTab(placed[index].surface, to: title, in: WorkspaceKey(rawValue: workspaceID), on: connection) }
@@ -311,9 +282,43 @@ extension AppOnboardingServices {
             }
         }
     }
-}
 
-extension AppOnboardingServices {
+    /// Replaces each classic markdown tab, and each text file's preview, with its markdown or editor page in its place
+    /// (as ``openClassicChats(_:on:connection:)`` does); an image, PDF or media file, or one not open in 10 s, keeps its page.
+    func openClassicFiles(_ placed: [ClassicPlacedTab], on daemon: DaemonService, connection: DaemonConnection) async {
+        let services = services
+        guard let window = services.windows.active ?? services.windows.controllersActingFirst.first else { return }
+        for slot in placed {
+            guard let file = slot.tab?.file, let kind = FilePageOpener.kind(for: file.url),
+                  let model = daemon.store.pane(slot.pane) else { continue }
+            let pages = kind == .markdown ? services.viewers.markdownPages : services.viewers.editorPages
+            let made = FirstOutcome<SurfaceID?>()
+            guard pages.open(file.url, parkedIn: model, of: daemon, window: window, userChose: false,
+                             created: { made.resolve($0) }) else { continue }
+            let bound = DemandTimer(owner: "ClassicImport.filePage"); bound.schedule(after: .seconds(10)) { made.resolve(nil) }
+            let surface = await made.value(); bound.cancel()
+            guard let surface, (try? await connection.moveTab(surface, to: slot.pane, index: slot.index)) != nil else { continue }
+            try? await connection.closeTab(slot.surface)
+        }
+    }
+
+    /// Each pane as classic left it (pins, selected tab in every window, focus); panes and tabs match by order.
+    func restoreClassicPanes(_ layout: ClassicSessionLayout, workspaceID: String, daemon: DaemonService, connection: DaemonConnection) async {
+        let key = WorkspaceKey(rawValue: workspaceID)
+        guard layout.restoresPanes, let built = try? await daemon.shape(of: key, after: connection)?.screens.first else { return }
+        for surface in layout.pinned(in: built.orderedPanes) { _ = try? await connection.setTabPinned(surface, true) }
+        // Read again: the pins moved their tabs to the front.
+        guard let screen = try? await daemon.shape(of: key, after: connection)?.screens.first else { return }
+        for pane in layout.selections(in: screen.orderedPanes) {
+            guard let model = daemon.store.pane(pane.pane) else { continue }
+            let tab = pane.selected.flatMap { surface in model.tabs.first { $0.surface == surface } }
+            for controller in services.windows.controllers {
+                if let tab { controller.state.selection.select(tab.id, in: model.id) }
+                if pane.focused { controller.state.selection.focus(model.id, in: workspaceID); controller.focus.send(.restoredPane(model.id, workspace: workspaceID)) }
+            }
+        }
+    }
+
     /// What this Mac's acpmux would do with `adopt` (Open Chat's plan); nil
     /// when acpmux is not available.
     fileprivate func classicChatPlan(_ adopt: AgentPaneAdopt, cwd: String?) async throws -> AcpmuxChatOpenPlan? {
@@ -321,14 +326,6 @@ extension AppOnboardingServices {
         guard let environment = QuitAgents.environment(services) else { return nil }
         return try await environment.chatOpenPlan(key: "\(adopt.harness):\(adopt.agentSessionId)", cwd: cwd)
     }
-}
-
-/// A classic tab and the daemon tab made for it.
-private struct ClassicPlacedTab {
-    var pane: PaneID
-    var index: Int
-    var surface: SurfaceID
-    var tab: ClassicSessionTab?
 }
 
 private enum ClassicImportFailure: Error {

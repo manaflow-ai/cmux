@@ -282,6 +282,9 @@ public struct ClassicSessionGroup: Decodable, Sendable, Equatable {
 /// One classic workspace.
 public struct ClassicSessionWorkspace: Decodable, Sendable, Equatable {
     public var name: String
+    /// Whether ``name`` is the one the person gave it in classic (`customTitle`); nil from a daemon before it, read
+    /// as not: a made name (from its tabs or folder) stays automatic.
+    public var named: Bool?
     public var workingDirectory: String
     public var layout: ClassicSessionLayout
     /// The SSH host its terminals ran on; nil for a local workspace.
@@ -294,10 +297,15 @@ public struct ClassicSessionWorkspace: Decodable, Sendable, Equatable {
     public var color: String?
     public var pinned: Bool
     public var groupID: String?
+    /// The person's description (classic's `customDescription`); nil for none or an older daemon.
+    public var description: String?
+    /// The task lane the person pinned it to (`todo`, `working`, `needs-attention`, `review`, `done`); nil is automatic.
+    public var taskStatus: String?
 
     enum CodingKeys: String, CodingKey {
-        case name, workingDirectory = "working_directory", layout, remote, cloudVM = "cloud_vm",
-             leftOutPanels = "left_out_panels", key, color, pinned, groupID = "group_id"
+        case name, named, workingDirectory = "working_directory", layout, remote, cloudVM = "cloud_vm",
+             leftOutPanels = "left_out_panels", key, color, pinned, groupID = "group_id", description,
+             taskStatus = "task_status"
     }
 }
 
@@ -326,7 +334,18 @@ public struct ClassicSessionAgent: Decodable, Sendable, Equatable {
     enum CodingKeys: String, CodingKey { case harness, sessionID = "session_id", workingDirectory = "working_directory" }
 }
 
-/// A terminal or browser tab.
+/// The file a classic markdown or file preview tab showed.
+public struct ClassicSessionFile: Decodable, Sendable, Equatable {
+    /// Its absolute path on this Mac.
+    public var path: String
+    /// A markdown viewer; else a file preview.
+    public var markdown: Bool
+
+    /// The `file://` URL of ``path``.
+    public var url: URL { URL(fileURLWithPath: path) }
+}
+
+/// A terminal, browser, markdown or file preview tab.
 public struct ClassicSessionTab: Decodable, Sendable, Equatable {
     public var workingDirectory: String?
     public var title: String?
@@ -336,16 +355,57 @@ public struct ClassicSessionTab: Decodable, Sendable, Equatable {
     /// What the terminal prints once above its first prompt: classic's scrollback, already
     /// cut to classic's limits and stripped to text and color by the daemon.
     public var scrollback: String?
+    /// A markdown or file preview tab's file; nil for a terminal or page (and from an older daemon).
+    public var file: ClassicSessionFile?
+    /// Pinned in its pane.
+    public var pinned: Bool
 
-    enum CodingKeys: String, CodingKey { case workingDirectory = "working_directory", title, url, agent, scrollback }
+    enum CodingKeys: String, CodingKey { case workingDirectory = "working_directory", title, url, agent, scrollback, file, pinned }
+
+    public init(workingDirectory: String? = nil, title: String? = nil, url: String? = nil, agent: ClassicSessionAgent? = nil,
+                scrollback: String? = nil, file: ClassicSessionFile? = nil, pinned: Bool = false) {
+        self.workingDirectory = workingDirectory
+        self.title = title
+        self.url = url
+        self.agent = agent
+        self.scrollback = scrollback
+        self.file = file
+        self.pinned = pinned
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        workingDirectory = try container.decodeIfPresent(String.self, forKey: .workingDirectory)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        url = try container.decodeIfPresent(String.self, forKey: .url)
+        agent = try container.decodeIfPresent(ClassicSessionAgent.self, forKey: .agent)
+        scrollback = try container.decodeIfPresent(String.self, forKey: .scrollback)
+        file = try container.decodeIfPresent(ClassicSessionFile.self, forKey: .file)
+        pinned = try container.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
+    }
 }
 
 /// A pane and its tabs.
 public struct ClassicSessionPane: Decodable, Sendable, Equatable {
     public var tabs: [ClassicSessionTab]
     public var selectedTab: Int
+    /// The pane classic focused in its workspace.
+    public var focused: Bool
 
-    enum CodingKeys: String, CodingKey { case tabs, selectedTab = "selected_tab" }
+    enum CodingKeys: String, CodingKey { case tabs, selectedTab = "selected_tab", focused }
+
+    public init(tabs: [ClassicSessionTab], selectedTab: Int, focused: Bool = false) {
+        self.tabs = tabs
+        self.selectedTab = selectedTab
+        self.focused = focused
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        tabs = try container.decode([ClassicSessionTab].self, forKey: .tabs)
+        selectedTab = try container.decode(Int.self, forKey: .selectedTab)
+        focused = try container.decodeIfPresent(Bool.self, forKey: .focused) ?? false
+    }
 }
 
 /// The classic split tree: `{"pane": {...}}` or `{"split": {orientation, ratio, first, second}}`.
@@ -380,7 +440,7 @@ public indirect enum ClassicSessionLayout: Decodable, Sendable, Equatable {
             let tabs = pane.tabs.filter(keep)
             guard !tabs.isEmpty else { return nil }
             let selected = pane.tabs.dropFirst(pane.selectedTab).first
-            return .pane(ClassicSessionPane(tabs: tabs, selectedTab: selected.flatMap { tabs.firstIndex(of: $0) } ?? 0))
+            return .pane(ClassicSessionPane(tabs: tabs, selectedTab: selected.flatMap { tabs.firstIndex(of: $0) } ?? 0, focused: pane.focused))
         case .split(let orientation, let ratio, let first, let second):
             switch (first.keeping(keep), second.keeping(keep)) {
             case (let a?, let b?): return .split(orientation: orientation, ratio: ratio, first: a, second: b)
@@ -394,6 +454,14 @@ public indirect enum ClassicSessionLayout: Decodable, Sendable, Equatable {
         switch self {
         case .pane(let pane): pane.tabs
         case .split(_, _, let first, let second): first.tabs + second.tabs
+        }
+    }
+
+    /// Panes in order, first side first: the order the daemon's layout lists the panes made from them.
+    public var panes: [ClassicSessionPane] {
+        switch self {
+        case .pane(let pane): [pane]
+        case .split(_, _, let first, let second): first.panes + second.panes
         }
     }
 }

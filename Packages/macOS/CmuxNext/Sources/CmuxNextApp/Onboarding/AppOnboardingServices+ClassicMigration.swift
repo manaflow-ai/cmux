@@ -389,7 +389,7 @@ extension AppOnboardingServices {
         return made
     }
 
-    /// The workspace's classic color, pin and group, on its new cmux-next workspace.
+    /// The workspace's classic color, pin, description, task lane and group, on its new cmux-next workspace.
     fileprivate func applyClassicIdentity(_ saved: ClassicSessionWorkspace, to id: String, groups: [String: WorkspaceGroupID]) async {
         let local = services.machines.local
         let store = local.store
@@ -400,11 +400,13 @@ extension AppOnboardingServices {
             return
         }
         do {
-            if let color = saved.color {
-                try await connection.state.setWorkspaceIdentity(key, resource: store.stateResourceID(workspace: key), color: .set(color))
-            }
-            if saved.pinned, local.supports(DaemonCapability.workspacePin.rawValue) {
-                _ = try await connection.setWorkspaceMetadata(key, pinned: true)
+            if let color = saved.color.flatMap(ClassicImportColor.palette) { try await connection.state.setWorkspaceIdentity(key, resource: store.stateResourceID(workspace: key), color: .set(color)) }
+            if saved.named == true { _ = try await connection.renameWorkspace(key, to: saved.name) } // the person's own: auto-naming keeps it
+            if saved.pinned, local.supports(DaemonCapability.workspacePin.rawValue) { _ = try await connection.setWorkspaceMetadata(key, pinned: true) }
+            let description = local.supports(DaemonCapability.workspaceDescription.rawValue) ? saved.description : nil // and its lane: none on a daemon without them
+            let status = local.supports(DaemonCapability.workspaceStatus.rawValue) ? saved.taskStatus.flatMap(WorkspaceTaskStatus.init(rawValue:)) : nil
+            if description != nil || status != nil, let resource = store.stateResourceID(workspace: key) {
+                try await connection.state.updateWorkspace(resource, description: description.map { .set($0) } ?? .unchanged, taskStatus: status.map { .set($0) } ?? .unchanged)
             }
             if let session = store.registryID, store.servesStateResources, case let group = saved.groupID.flatMap({ groups[$0] }) {
                 try await connection.state.placePersonalWorkspace(session: session, key: key, resource: store.personalStateID(session: session, key: key), group: group.map { .set($0) } ?? .clear,

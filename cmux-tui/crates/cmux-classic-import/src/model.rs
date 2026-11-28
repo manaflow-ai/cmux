@@ -99,6 +99,10 @@ pub struct Group {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Workspace {
     pub name: String,
+    /// Whether `name` is the one the person gave it (`customTitle`): cmux NEXT keeps it as theirs, so its
+    /// automatic naming never renames it after the tab in front. False for a name made from its tabs or folder.
+    #[serde(default)]
+    pub named: bool,
     pub working_directory: String,
     pub layout: Layout,
     /// The SSH host its terminals ran on; none for a local workspace.
@@ -113,6 +117,13 @@ pub struct Workspace {
     pub color: Option<String>,
     pub pinned: bool,
     pub group_id: Option<String>,
+    /// The person's description of it (`customDescription`).
+    #[serde(default)]
+    pub description: Option<String>,
+    /// The task lane the person pinned it to (`taskStatusOverride`): `todo`,
+    /// `working`, `needs-attention`, `review` or `done`; none is automatic.
+    #[serde(default)]
+    pub task_status: Option<String>,
 }
 
 impl Workspace {
@@ -163,7 +174,16 @@ pub struct Agent {
     pub working_directory: Option<String>,
 }
 
-/// A terminal or browser tab.
+/// A file a classic markdown or file preview tab showed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct File {
+    /// The file's absolute path on this Mac.
+    pub path: String,
+    /// A markdown viewer (`markdown`); else a file preview (`filePreview`).
+    pub markdown: bool,
+}
+
+/// A terminal, browser, markdown or file preview tab.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tab {
     pub working_directory: Option<String>,
@@ -174,6 +194,12 @@ pub struct Tab {
     pub agent: Option<Agent>,
     /// The terminal's saved scrollback text, with its colors.
     pub scrollback: Option<String>,
+    /// A markdown or file preview tab's file; none for a terminal or page.
+    #[serde(default)]
+    pub file: Option<File>,
+    /// Pinned in its pane (`isPinned`).
+    #[serde(default)]
+    pub pinned: bool,
 }
 
 /// A pane and its tabs, in classic's order.
@@ -181,6 +207,9 @@ pub struct Tab {
 pub struct Pane {
     pub tabs: Vec<Tab>,
     pub selected_tab: usize,
+    /// The pane classic focused in its workspace (`focusedPanelId` is one of its tabs).
+    #[serde(default)]
+    pub focused: bool,
 }
 
 /// A split's axis.
@@ -214,7 +243,7 @@ impl Layout {
                     .get(pane.selected_tab)
                     .and_then(|chosen| tabs.iter().position(|tab| tab == chosen))
                     .unwrap_or(0);
-                Some(Layout::Pane(Pane { tabs, selected_tab: selected }))
+                Some(Layout::Pane(Pane { tabs, selected_tab: selected, focused: pane.focused }))
             }
             Layout::Split { orientation, ratio, first, second } => {
                 match (first.keeping(keep), second.keeping(keep)) {
@@ -247,6 +276,7 @@ impl Layout {
                     })
                     .collect(),
                 selected_tab: pane.selected_tab,
+                focused: pane.focused,
             }),
             Layout::Split { orientation, ratio, first, second } => Layout::Split {
                 orientation: *orientation,

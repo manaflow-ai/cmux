@@ -1,6 +1,138 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "classicImport.toast.otherTabsStay": {
+      "comment": "Added to the Import Workspaces from Classic cmux toast when classic cmux (the older app) had tabs cmux-next does not open: simulator or project tabs, or markdown and file preview tabs whose file no longer exists. Markdown and file preview tabs whose file exists do come over.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator and project tabs, and tabs whose file is gone, stay in classic cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator- und Projekt-Tabs sowie Tabs, deren Datei fehlt, bleiben im klassischen cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les onglets Simulateur et Projet, ainsi que ceux dont le fichier a disparu, restent dans cmux classique."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبقى علامات تبويب المحاكي والمشروع، والعلامات التي لم يعد ملفها موجودًا، في cmux الكلاسيكي."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las pestañas de simulador y de proyecto, y las pestañas cuyo archivo ya no existe, se quedan en cmux clásico."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模擬器與專案分頁，以及檔案已不存在的分頁，會留在經典版 cmux。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟器和项目标签页，以及文件已不存在的标签页，会留在经典版 cmux。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시뮬레이터 및 프로젝트 탭과 파일이 없어진 탭은 클래식 cmux에 남습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シミュレータとプロジェクトのタブ、およびファイルがなくなったタブはクラシック版 cmux に残ります。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartice simulatora i projekta, kao i kartice čija datoteka više ne postoji, ostaju u klasičnom cmux-u."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Simulator- og projektfaner samt faner, hvis fil er væk, bliver i klassisk cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le schede Simulatore e Progetto, e le schede il cui file non esiste più, restano in cmux classico."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំង Simulator និងគម្រោង ព្រមទាំងផ្ទាំងដែលឯកសាររបស់វាបាត់ នៅតែក្នុង cmux បុរាណ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Simulator- og prosjektfaner, og faner der filen er borte, blir værende i klassisk cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karty symulatora i projektu oraz karty, których plik zniknął, pozostają w klasycznym cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abas de simulador e de projeto, e abas cujo arquivo não existe mais, ficam no cmux clássico."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладки симулятора и проекта, а также вкладки, файл которых пропал, остаются в классическом cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บซิมูเลเตอร์และแท็บโปรเจกต์ รวมถึงแท็บที่ไฟล์หายไปแล้ว ยังคงอยู่ใน cmux แบบคลาสสิก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Simülatör ve proje sekmeleri ile dosyası artık olmayan sekmeler klasik cmux'ta kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладки симулятора й проєкту, а також вкладки, файл яких зник, залишаються в класичному cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các thẻ trình mô phỏng và dự án, cùng các thẻ có tệp không còn nữa, vẫn ở lại cmux cổ điển."
+          }
+        }
+      }
+    },
     "classicImport.toast.settingsComplete": {
       "comment": "Shown when the accepted Classic import finishes with settings and no saved workspaces.",
       "extractionState": "manual",
@@ -261,138 +393,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Các terminal SSH mở ra mà không có lịch sử cuộn cũ."
-          }
-        }
-      }
-    },
-    "classicImport.toast.tabsStay": {
-      "comment": "Added to the Import Workspaces from Classic cmux toast when classic cmux (the older app) had markdown viewer or file preview tabs, which cmux-next does not open.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Markdown and file preview tabs stay in classic cmux."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Markdown- und Dateivorschau-Tabs bleiben im klassischen cmux."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les onglets Markdown et d’aperçu de fichier restent dans cmux classique."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تبقى علامات تبويب Markdown ومعاينة الملفات في cmux الكلاسيكي."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Las pestañas de Markdown y de vista previa de archivos se quedan en cmux clásico."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Markdown 與檔案預覽分頁會留在經典版 cmux。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Markdown 和文件预览标签页会留在经典版 cmux。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Markdown 및 파일 미리 보기 탭은 클래식 cmux에 남습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Markdown とファイルプレビューのタブはクラシック版 cmux に残ります。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kartice za Markdown i pregled datoteka ostaju u klasičnom cmux-u."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Faner med Markdown og filvisning bliver i klassisk cmux."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le schede Markdown e di anteprima dei file restano in cmux classico."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ផ្ទាំង Markdown និងផ្ទាំងមើលឯកសារជាមុន នៅតែក្នុង cmux បុរាណ។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Faner for Markdown og forhåndsvisning av filer blir værende i klassisk cmux."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Karty Markdown i podglądu plików pozostają w klasycznym cmux."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Abas de Markdown e de pré-visualização de arquivos ficam no cmux clássico."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вкладки Markdown и предпросмотра файлов остаются в классическом cmux."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แท็บ Markdown และแท็บแสดงตัวอย่างไฟล์ยังคงอยู่ใน cmux แบบคลาสสิก"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Markdown ve dosya önizleme sekmeleri klasik cmux'ta kalır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вкладки Markdown і попереднього перегляду файлів залишаються в класичному cmux."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Các tab Markdown và xem trước tệp vẫn ở lại trong cmux cổ điển."
           }
         }
       }

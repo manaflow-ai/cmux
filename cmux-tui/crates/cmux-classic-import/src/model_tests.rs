@@ -7,6 +7,8 @@ fn tab(dir: &str) -> Tab {
         url: None,
         agent: None,
         scrollback: None,
+        file: None,
+        pinned: false,
     }
 }
 
@@ -24,13 +26,22 @@ fn a_side_with_no_tab_kept_closes_up_and_the_selection_follows_its_tab() {
     let layout = Layout::Split {
         orientation: Orientation::Vertical,
         ratio: 0.3,
-        first: Box::new(Layout::Pane(Pane { tabs: vec![tab("/drop")], selected_tab: 0 })),
+        first: Box::new(Layout::Pane(Pane {
+            tabs: vec![tab("/drop")],
+            selected_tab: 0,
+            focused: false,
+        })),
         second: Box::new(Layout::Pane(Pane {
             tabs: vec![tab("/drop"), tab("/a"), tab("/b")],
             selected_tab: 2,
+            focused: true,
         })),
     };
-    let kept = layout.keeping(&|tab| tab.working_directory.as_deref() != Some("/drop")).unwrap();
-    assert_eq!(kept, Layout::Pane(Pane { tabs: vec![tab("/a"), tab("/b")], selected_tab: 1 }));
+    let kept =
+        layout.keeping(&|tab| tab.working_directory.as_deref() != Some("/drop")).unwrap();
+    assert_eq!(
+        kept,
+        Layout::Pane(Pane { tabs: vec![tab("/a"), tab("/b")], selected_tab: 1, focused: true })
+    );
     assert_eq!(layout.keeping(&|_| false), None);
 }

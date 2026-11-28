@@ -22,6 +22,16 @@ import Testing
 ///   (`cloudVM`). The capture mini had no credentials for either.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct ClassicImportTests {
+    /// Classic's `#RRGGBB` workspace colors become the palette color the sidebar draws; palette names pass through.
+    @Test func classicColorsBecomePaletteColors() {
+        #expect(ClassicImportColor.palette("#7C3AED") == GroupColor.nearest(rgb: 0x7C3AED).rawValue)
+        #expect(ClassicImportColor.palette("#0EA5E9") == GroupColor.nearest(rgb: 0x0EA5E9).rawValue)
+        #expect(ClassicImportColor.palette(" Blue ") == "blue")
+        #expect(ClassicImportColor.palette("#7C3AE") == nil)
+        #expect(ClassicImportColor.palette("+7C3AED") == nil)
+        #expect(ClassicImportColor.palette("teal") == nil)
+    }
+
     private static func fixture(_ name: String) -> URL {
         var root = URL(fileURLWithPath: #filePath)
         for _ in 0..<6 { root.deleteLastPathComponent() }

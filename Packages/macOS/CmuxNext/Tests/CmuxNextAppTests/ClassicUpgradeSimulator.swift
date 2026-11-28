@@ -457,7 +457,8 @@ final class ClassicUpgradeSimulator {
                 if !profile.legacyKeys {
                     #expect(here.pinned == workspace.pinned, "\(label): \(here.name) pin", sourceLocation: sourceLocation)
                     if let color = workspace.color {
-                        #expect(here.color?.uppercased().hasPrefix(color.uppercased()) == true,
+                        // Classic's hex becomes its nearest palette color.
+                        #expect(here.color == ClassicImportColor.palette(color),
                                 "\(label): \(here.name) color \(String(describing: here.color))", sourceLocation: sourceLocation)
                     }
                 }
