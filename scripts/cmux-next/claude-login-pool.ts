@@ -151,3 +151,27 @@ export function rotationLine(pick: LoginPick): string {
   const answers = pick.rotation.map((r) => `slot ${r.slot} ${r.status} (${r.reason})`).join("; ");
   return pick.slot === null ? `no usable slot of ${pick.candidates}: ${answers}` : `slot ${pick.slot} of ${pick.candidates}: ${answers}`;
 }
+
+/**
+ * Every slot spent: the real leg falls back to team mode, the app's default for a person who passes no login of
+ * their own. No login is copied; the agent's model calls take the team's route (the edge's gateway rule or the
+ * team's coderouter upstream), the same no-login real leg cloud-journey.ts runs without CLAUDE_CODE_OAUTH_TOKEN
+ * (#63318) and cloud-claude-matrix.ts's sr2 row. CMUX_JOURNEY_TEAM_FALLBACK=0 keeps the older all-spent failure.
+ */
+export function teamFallback(pick: LoginPick | null, env: Record<string, string | undefined>): boolean {
+  return Boolean(pick && pick.login === null && pick.candidates > 0 && env.CMUX_JOURNEY_TEAM_FALLBACK !== "0");
+}
+
+/** The team route's own "no route" answers: coderouter's 403 with no upstream account, and a gateway mode with no gateway up. */
+const TEAM_ROUTE_MISSING = /No Claude upstream account is configured|No cmux inference gateway is online|gateway mode with no gateway online|has no model route/i;
+
+/**
+ * A team-mode fallback run that failed because its team has no model route: an infra row, not a product red. The
+ * detail keeps Claude Code's limit words first (every login really is spent; cmuxterm-hq's agent_quota reads them as a
+ * skip), then says the fallback's upstream is missing. Any other failure stays the product's: null.
+ */
+export function teamRouteInfra(spentDetail: string, failed: { step: string; detail: string } | undefined): string | null {
+  if (!failed || !TEAM_ROUTE_MISSING.test(failed.detail)) return null;
+  const why = `${failed.step}: ${failed.detail}`.replace(/\s+/g, " ").slice(0, 160);
+  return `${spentDetail.replace(/; no machine was created$/, "")}; team-mode fallback: infra: team upstream missing (${why})`;
+}
