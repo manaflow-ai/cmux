@@ -25,11 +25,15 @@ ocr_host_crop="" ocr_viewer_crop="" ocr_calibration=""
 video_path="" video_sha=""
 netem_rtt_ms="" netem_loss_pct=0 netem_seed=1
 stage_table="" seed_grants=0
+iphone_renderer=""
 for arg in "$@"; do
   case "$arg" in
     targets=*) targets="${arg#targets=}" ;;
     samples=*) samples="${arg#samples=}" ;;
     repeats=*) repeats="${arg#repeats=}" ;;
+    # iphone-renderer=layer (iphone-sim): the app renders the share with AVSampleBufferDisplayLayer from
+    # the decode thread instead of RTCMTLVideoView (CMUX_MOBILE_SS_RENDERER); empty keeps the app default.
+    iphone-renderer=*) iphone_renderer="${arg#iphone-renderer=}" ;;
     # Two Macs on one LAN (README.md, "Two Macs"): this Mac hosts at LAN address lan=, and the step on
     # the other Mac runs viewer-of=THAT_ADDRESS; both get the same peer-token= (64 hex).
     lan=*) lan="${arg#lan=}" ;;
@@ -102,7 +106,8 @@ PY
 then
   exit 2
 fi
-export EVAL_RD_INPUT_FRAME_NOW="$input_frame_now" EVAL_RD_LTR="$ltr"
+[[ "$iphone_renderer" =~ ^(|layer|metal)$ ]] || { echo "screen-stream-eval.sh: iphone-renderer= is layer or metal" >&2; exit 2; }
+export EVAL_RD_INPUT_FRAME_NOW="$input_frame_now" EVAL_RD_LTR="$ltr" EVAL_IPHONE_RENDERER="$iphone_renderer"
 export EVAL_NETEM_RTT_MS="$netem_rtt_ms" EVAL_NETEM_LOSS_PCT="$netem_loss_pct" EVAL_NETEM_SEED="$netem_seed"
 if [[ -n "$prebuilt" ]]; then
   prebuilt="$(cd "$prebuilt" 2>/dev/null && pwd)" || { echo "screen-stream-eval.sh: prebuilt= is not a directory" >&2; exit 2; }
