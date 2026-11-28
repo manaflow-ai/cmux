@@ -360,6 +360,70 @@ class GitCowTests(unittest.TestCase):
         self.assertTrue(target.is_dir())
 
 
+def load_tool():
+    spec = importlib.util.spec_from_file_location("cmux_worktree_under_test", TOOL)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # its dataclasses look their module up by name
+    spec.loader.exec_module(module)
+    return module
+
+
+@unittest.skipUnless(Path("/proc/self/fd").is_dir(), "reads holders from /proc")
+class MountHolderTests(unittest.TestCase):
+    """A lazy `umount -l` leaves the overlay alive until its holders let go: git cow names them, never silently."""
+
+    def test_names_the_processes_with_a_cwd_or_an_open_file_inside(self) -> None:
+        tool_module = load_tool()
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp).resolve() / "lane--held"
+            (target / "sub").mkdir(parents=True)
+            (target / "open.txt").write_text("x\n")
+            outside = Path(tmp).resolve() / "lane--held-not"  # a sibling whose name starts with TARGET's
+            outside.mkdir()
+            in_cwd = subprocess.Popen(["sleep", "60"], cwd=target / "sub")
+            out_cwd = subprocess.Popen(["sleep", "60"], cwd=outside)
+            with open(target / "open.txt", encoding="utf-8") as handle:
+                in_fd = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"],
+                                         pass_fds=(handle.fileno(),), cwd=tmp)
+            try:
+                time.sleep(0.2)  # sleep-ok: let the children exec before /proc is read
+                held, _ = tool_module.mount_holders(target)
+            finally:
+                for child in (in_cwd, out_cwd, in_fd):
+                    child.kill()
+                    child.wait()
+        text = "\n".join(held)
+        self.assertIn(f"{in_cwd.pid} (sleep: cwd)", text)
+        self.assertRegex(text, rf"{in_fd.pid} \([^:]+: fd \d+\)")
+        self.assertNotIn(f"{out_cwd.pid} (", text)
+
+    def test_counts_the_processes_it_could_not_read(self) -> None:
+        if os.geteuid() == 0:
+            self.skipTest("root reads every process")
+        tool_module = load_tool()
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = Path(tmp) / "proc"
+            hidden = proc / "4242"
+            (hidden / "fd").mkdir(parents=True)
+            os.chmod(hidden / "fd", 0)
+            try:
+                held, unreadable = tool_module.mount_holders(Path("/no/such/lane"), proc=proc)
+            finally:
+                os.chmod(hidden / "fd", 0o700)
+        self.assertEqual((held, unreadable), ([], 1))
+
+    def test_the_lazy_note_says_umount_l_and_names_holders_or_says_it_could_not_look(self) -> None:
+        tool_module = load_tool()
+        target = Path("/w/lane--x")
+        named = tool_module.lazy_unmount_note(target, ["17 (zsh: cwd)"], 0)
+        self.assertIn("umount -l", named)
+        self.assertIn("still held by 17 (zsh: cwd)", named)
+        blind = tool_module.lazy_unmount_note(target, [], 3)
+        self.assertIn("no holder this user can see", blind)
+        self.assertIn("3 process(es) this user cannot read", blind)
+        self.assertIn(f"fuser -vm {target}", blind)
+
+
 @unittest.skipUnless(DARWIN, "dedupe needs APFS clones")
 class DedupeTests(unittest.TestCase):
     def test_dedupe_clones_unchanged_files_and_leaves_changed_ones(self) -> None:
