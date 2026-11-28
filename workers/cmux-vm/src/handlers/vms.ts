@@ -241,8 +241,13 @@ const createFailureOf = (exit: Exit.Exit<unknown, unknown>, provider: UpstreamEr
  * that recovered a VM from a snapshot its entry no longer lists); null without one. `oversized`: a large boot answered
  * bigger than was asked and was refused. `admit*` (only with the provider create queue on, limits/create-admission.ts):
  * how long the create waited for a send slot, the creates sent and waiting when it was answered, and, on a refusal,
- * `admission` (queue_full or wait_expired) with the estimated wait; a refused create has no createMs. A failed create
- * names its step: `failedStep` (createSendUncertain, createQueueFull, createVm, ...) and `failedStatus`.
+ * `admission` (queue_full or wait_expired) with the estimated wait; a refused create has no createMs.
+ * Why a sent create failed, numbers and fixed tokens only: `failStatus` the provider's HTTP status ("none": no answer),
+ * `failKind` its classification (capacity_overloaded), `createCut` given up unanswered at CREATE_SEND_TIMEOUT_MS, and
+ * `send` what the provider answered the POST (live-http.ts CallTrail: first status and ms, a cut's timeout or network
+ * error, a 202's polls). A recovered create keeps the failure it recovered from.
+ * A failed create also names the step that failed: `failedStep` (createSendUncertain, createQueueFull, createVm, ...)
+ * and `failedStatus`, including a failure before any provider call.
  */
 const vmCreateLine = (phases: TimedPhases, request: { readonly ok: boolean; readonly enteredAt: number; readonly preMs: number; readonly totalMs: number; readonly meshId: string | null; readonly failure: ReturnType<typeof createFailureOf> }) => ({
   vmId: phases["vmId"] ?? null,
@@ -260,6 +265,8 @@ const vmCreateLine = (phases: TimedPhases, request: { readonly ok: boolean; read
     ...(phases["admission"] === undefined ? {} : { admission: phases["admission"], admitRetryAfterMs: phases["admitRetryAfterMs"] ?? null }),
   } : {}),
   createMs: phases["createMs"] ?? null,
+  ...("send" in phases ? { send: phases["send"] } : {}),
+  ...("failStatus" in phases ? { failStatus: phases["failStatus"], ...(phases["failKind"] === undefined ? {} : { failKind: phases["failKind"] }), createCut: phases["createCut"] ?? false } : {}),
   recoverAfterMs: phases["recoverAfterMs"] ?? null,
   resizeMs: phases["resizeMs"] ?? null,
   recordMs: phases["recordMs"] ?? null,
