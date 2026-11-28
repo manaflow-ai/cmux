@@ -4318,6 +4318,7 @@ inputs = [
   "cmux-tui/crates/cmux-egress/**",
   "cmux-tui/crates/cmux-fault/**",
   "cmux-tui/crates/cmux-hop-relay/**",
+  "cmux-tui/crates/cmux-json/**",
   "cmux-tui/crates/cmux-message-preview/**",
   "cmux-tui/crates/cmux-mobile-core/**",
   "cmux-tui/crates/cmux-output-paint/**",
