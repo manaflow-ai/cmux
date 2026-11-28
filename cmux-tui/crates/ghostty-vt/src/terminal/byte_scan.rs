@@ -137,6 +137,75 @@ mod wide {
     pub(super) fn find<const ESC: bool>(_data: &[u8], from: usize) -> usize {
         from
     }
+
+    /// The index of the first byte at or after `from` that is not a CSI
+    /// parameter byte (`0-9 : ;`, 0x30..=0x3b), 16 bytes a step, or the
+    /// start of the last block shorter than 16 bytes, which the caller's
+    /// byte loop finishes. An SGR like `38;5;123` is then one block test
+    /// instead of a branch a byte.
+    #[cfg(target_arch = "x86_64")]
+    #[inline(always)]
+    pub(super) fn param_run_end(data: &[u8], from: usize) -> usize {
+        use std::arch::x86_64::{
+            _mm_cmpeq_epi8, _mm_loadu_si128, _mm_min_epu8, _mm_movemask_epi8, _mm_set1_epi8,
+            _mm_sub_epi8,
+        };
+        let mut at = from;
+        // SAFETY: SSE2 is in the x86_64 baseline, and every load reads the 16
+        // bytes at `at`, which the loop condition keeps inside `data`.
+        unsafe {
+            let zero = _mm_set1_epi8(b'0' as i8);
+            let last = _mm_set1_epi8(11);
+            while at + 16 <= data.len() {
+                let block = _mm_loadu_si128(data.as_ptr().add(at).cast());
+                // byte - '0' as unsigned is at most 11 exactly for a parameter
+                // byte; min(x, 11) == x tests that.
+                let offset = _mm_sub_epi8(block, zero);
+                let params = _mm_cmpeq_epi8(_mm_min_epu8(offset, last), offset);
+                let others = !(_mm_movemask_epi8(params) as u32) & 0xffff;
+                if others != 0 {
+                    return at + others.trailing_zeros() as usize;
+                }
+                at += 16;
+            }
+        }
+        at
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[inline(always)]
+    pub(super) fn param_run_end(data: &[u8], from: usize) -> usize {
+        use std::arch::aarch64::{
+            vcgtq_u8, vdupq_n_u8, vget_lane_u64, vld1q_u8, vreinterpret_u64_u8,
+            vreinterpretq_u16_u8, vshrn_n_u16, vsubq_u8,
+        };
+        let mut at = from;
+        // SAFETY: NEON is in the aarch64 baseline, and every load reads the 16
+        // bytes at `at`, which the loop condition keeps inside `data`.
+        unsafe {
+            let zero = vdupq_n_u8(b'0');
+            let last = vdupq_n_u8(11);
+            while at + 16 <= data.len() {
+                let block = vld1q_u8(data.as_ptr().add(at));
+                // 0xff where byte - '0' > 11: not a parameter byte.
+                let others = vcgtq_u8(vsubq_u8(block, zero), last);
+                let mask = vget_lane_u64::<0>(vreinterpret_u64_u8(vshrn_n_u16::<4>(
+                    vreinterpretq_u16_u8(others),
+                )));
+                if mask != 0 {
+                    return at + (mask.trailing_zeros() / 4) as usize;
+                }
+                at += 16;
+            }
+        }
+        at
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    #[inline(always)]
+    pub(super) fn param_run_end(_data: &[u8], from: usize) -> usize {
+        from
+    }
 }
 
 /// Whether `byte` is a CSI final no tracker acts on (cursor motion, erase,
@@ -152,6 +221,13 @@ fn is_inert_csi_final(byte: u8) -> bool {
     )
 }
 
+/// Whether `byte` is a CSI parameter byte the inert scan accepts: `0-9 : ;`,
+/// the one range 0x30..=0x3b.
+#[inline(always)]
+fn is_csi_param(byte: u8) -> bool {
+    byte.wrapping_sub(b'0') < 12
+}
+
 /// Length of the complete inert CSI sequence at `data[at..]` (`ESC [`,
 /// parameters from `0-9 ; :` only, then a final [`is_inert_csi_final`] accepts),
 /// or 0 when the bytes there are not one.
@@ -160,8 +236,8 @@ fn inert_csi_len(data: &[u8], at: usize) -> usize {
     if data.get(at + 1) != Some(&b'[') {
         return 0;
     }
-    let mut end = at + 2;
-    while end < data.len() && matches!(data[end], b'0'..=b'9' | b';' | b':') {
+    let mut end = wide::param_run_end(data, at + 2);
+    while end < data.len() && is_csi_param(data[end]) {
         end += 1;
     }
     match data.get(end) {

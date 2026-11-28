@@ -149,6 +149,52 @@ fn the_wide_scans_find_the_first_match_at_every_position() {
     }
 }
 
+/// The 16-byte parameter scan plus its byte loop stops at the first byte
+/// outside `0-9 : ;` at every offset, for every one of the 256 byte values
+/// there, and `inert_csi_len` agrees with a plain byte walk.
+#[test]
+fn the_wide_parameter_scan_stops_at_the_first_non_parameter_byte() {
+    const PARAMS: &[u8] = b"0123456789;:";
+    for len in 0..40usize {
+        for hit in 0..=len {
+            for stop in 0..=255u8 {
+                if hit < len && is_csi_param(stop) {
+                    continue;
+                }
+                let mut data: Vec<u8> = (0..len).map(|i| PARAMS[i % PARAMS.len()]).collect();
+                if hit < len {
+                    data[hit] = stop;
+                }
+                for from in 0..=len {
+                    let plain = data[from..]
+                        .iter()
+                        .position(|byte| !matches!(byte, b'0'..=b'9' | b';' | b':'))
+                        .map_or(len, |offset| from + offset);
+                    let mut end = wide::param_run_end(&data, from);
+                    assert!(end <= plain, "{data:?} {from}");
+                    while end < data.len() && is_csi_param(data[end]) {
+                        end += 1;
+                    }
+                    assert_eq!(end, plain, "{data:?} {from}");
+                }
+                let mut csi = vec![0x1b, b'['];
+                csi.extend_from_slice(&data);
+                let plain_len = {
+                    let mut end = 2;
+                    while end < csi.len() && matches!(csi[end], b'0'..=b'9' | b';' | b':') {
+                        end += 1;
+                    }
+                    match csi.get(end) {
+                        Some(&fin) if is_inert_csi_final(fin) => end + 1,
+                        _ => 0,
+                    }
+                };
+                assert_eq!(inert_csi_len(&csi, 0), plain_len, "{csi:?}");
+            }
+        }
+    }
+}
+
 /// Random bytes from ESC, CSI pieces, ASCII and UTF-8 lead, continuation
 /// and invalid bytes, from every start: the escape scan ends where the byte
 /// walk ends.
