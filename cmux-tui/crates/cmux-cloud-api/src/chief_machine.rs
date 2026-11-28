@@ -795,7 +795,7 @@ fn chief_reply(reply: &super::http::Reply, path: &str) -> Result<Value, Failure>
             Ok(o["value"].clone())
         }
         _ => {
-            let mut error = super::http::worker_error_with_retry_after(
+            let mut error = super::turns::refusal_with(
                 reply.status,
                 object.as_ref(),
                 reply.retry_after.as_deref(),
