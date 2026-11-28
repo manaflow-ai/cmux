@@ -22,6 +22,12 @@ on:
   # Started only by pr-router.yml (one router per push, RFD 0023) when the change touches a motion
   # area: scripts/ci/pr_router.json `areas` (and `affects`, this workflow's own files).
   workflow_call:
+    secrets:
+      CMUX_BOT_APP_KEY:
+        description: >-
+          The cmux-bot App's key: the dispatch runs on that App's token, whose REST budget is its own, not the
+          repository's GITHUB_TOKEN budget every workflow shares (cmux#63849: four 403s in 15 minutes on it)
+        required: false
 
 permissions: {}
 
@@ -31,24 +37,63 @@ jobs:
       ${{ github.repository == 'manaflow-ai/cmux' && github.event.pull_request.head.repo.full_name == github.repository
       && !github.event.pull_request.draft }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 5
+    # The dispatch waits out a spent installation rate limit for up to MOTION_FRAMES_RESET_WAIT_S, so 20.
+    timeout-minutes: 20
     permissions:
       actions: write # starts cmux-next-frame-pacing.yml on this pull request's branch
     steps:
+      # The dispatch goes out on the cmux-bot App's token, as pr-router.yml's land tier status post does: the job's
+      # GITHUB_TOKEN draws on the repository's shared budget, which was spent at each reset on cmux#63849
+      # (2026-11-28 03:36-03:50Z). The GITHUB_TOKEN stays the fallback when the App is not set up or minting fails.
+      - name: Mint the dispatch token
+        id: dispatch-token
+        if: ${{ vars.CMUX_BOT_APP_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: write
       - name: Start the motion frame checks on this branch
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.dispatch-token.outputs.token || github.token }}
           BRANCH: ${{ github.head_ref }}
+          # A dispatch refused for a spent installation rate limit waits for its reset this long at most, then
+          # tries once more (cmux#63849, 2026-11-28 03:36Z and 03:41Z: two 403s left the PR unmeasured).
+          MOTION_FRAMES_RESET_WAIT_S: "900"
         run: |
           set -euo pipefail
-          # Fail open: a refused dispatch warns and passes.
-          if ! gh workflow run cmux-next-frame-pacing.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH" \
-            -f ref="$BRANCH" -f suites=frames; then
-            echo "::warning title=Motion frames::could not start the frames run on $BRANCH; not measured"
-            exit 0
-          fi
           query="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote("branch:" + sys.argv[1]))' "$BRANCH")"
           url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/workflows/cmux-next-frame-pacing.yml?query=$query"
+          err="$(mktemp)"
+          dispatch() {
+            gh workflow run cmux-next-frame-pacing.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH" \
+              -f ref="$BRANCH" -f suites=frames 2>"$err" || { cat "$err" >&2; return 1; }
+          }
+          # Fail open (Leo, 2026-11-27: "If the baseline is missing, no Mac is free or the infrastructure is
+          # flaky, the check posts a warning and passes"): the warning also goes to the step summary, so a
+          # pull request that was not measured says so where its checks are read.
+          not_measured() {
+            echo "::warning title=Motion frames::could not start the frames run on $BRANCH; not measured: $1"
+            printf '## Motion frames\n\n**Not measured**: could not start the `frames` run on %s: %s. The check fails open and passes.\n' \
+              "$BRANCH" "$1" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          }
+          if ! dispatch; then
+            grep -qi 'rate limit' "$err" || not_measured "$(tail -n 1 "$err")"
+            # The rate_limit endpoint costs no request against the limit it reports.
+            reset="$(gh api rate_limit --jq '.resources.core.reset' 2>/dev/null || echo 0)"
+            wait_s=$(( ${reset:-0} - $(date +%s) + 5 ))
+            [ "${reset:-0}" -gt 0 ] || not_measured "rate limit spent and its reset time unreadable"
+            [ "$wait_s" -le "$MOTION_FRAMES_RESET_WAIT_S" ] \
+              || not_measured "rate limit spent; it resets in ${wait_s}s, past the ${MOTION_FRAMES_RESET_WAIT_S}s bound"
+            echo "Rate limit spent; waiting ${wait_s}s for its reset, then dispatching once more."
+            [ "$wait_s" -le 0 ] || sleep "$wait_s"
+            dispatch || not_measured "rate limit still refused after waiting ${wait_s}s for its reset"
+          fi
           echo "::notice title=Motion frames::Started on $BRANCH (fails open): $url"
           printf '## Motion frames\n\nStarted a `frames` run on %s: blank or late frames around Cmd-Shift-Enter, Cmd-P and Cmd-W. It runs only while an owned Mac is free and gates nothing: [runs](%s).\n' \
             "$BRANCH" "$url" >> "$GITHUB_STEP_SUMMARY"

@@ -447,3 +447,44 @@ async fn the_owners_phone_forks_a_chat_the_mac_started() {
     assert_eq!(reason(&r), "remote.local_claude_session", "{r}");
     let _ = std::fs::remove_dir_all(&d);
 }
+
+/// A prompt the owner's own phone sends through this machine's cmux-tui: the unix socket,
+/// stamped `via: cloud-mobile` (Cloud mobile's owner-scoped client, the Mac's mobile relay).
+fn cloud_mobile_prompt(s: &str, id: &str) -> Value {
+    json!({
+        "sessionId": s,
+        "prompt": [{"type": "text", "text": "from the phone"}],
+        "_meta": {"acpmux": {"promptId": id, "via": "cloud-mobile"}},
+    })
+}
+
+/// The phone starts a Claude chat on its Cloud VM and prompts it (HQ cloud-start-matrix row
+/// "Phone start", run 46073596651, refused `remote.local_claude_session`): the chat is this
+/// machine's own (cmux-tui's `session/new`), and the phone's prompt comes over the unix socket,
+/// so it runs, in a mode that asks. In a mode that does not ask it is still refused, by the
+/// Cloud mobile floor, not D13; a Web client that claims the marker is still refused by D13.
+#[tokio::test]
+async fn the_owners_phone_prompts_the_claude_chat_it_started_through_cmux_tui() {
+    let d = dir("cloud-mobile-own");
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local);
+    let s = local.new_session(&d, "fakeclaude").await;
+    let r = local.call("session/set_mode", json!({"sessionId": s, "modeId": "default"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = local.call("session/prompt", cloud_mobile_prompt(&s, "phone-1")).await;
+    assert_eq!(r["result"]["stopReason"], "end_turn", "{r}");
+    let r = local
+        .call("session/set_mode", json!({"sessionId": s, "modeId": "bypassPermissions"}))
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = local.call("session/prompt", cloud_mobile_prompt(&s, "phone-2")).await;
+    assert!(r.get("error").is_some(), "a phone prompt ran in bypassPermissions: {r}");
+    assert_ne!(reason(&r), "remote.local_claude_session", "{r}");
+    assert!(local.prompt(&s, "mine").await.get("error").is_none());
+    let r = local.call("session/set_mode", json!({"sessionId": s, "modeId": "default"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r =
+        Client::new(&hub, Origin::Web).call("session/prompt", cloud_mobile_prompt(&s, "w-1")).await;
+    assert_eq!(reason(&r), "remote.local_claude_session", "{r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
