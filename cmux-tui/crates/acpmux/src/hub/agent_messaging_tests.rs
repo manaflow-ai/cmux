@@ -335,3 +335,22 @@ async fn a_prompt_queued_behind_the_ending_turn_is_work_coming() {
     assert_eq!(done["stopReason"], "end_turn", "{done}");
     assert!(!hub.work_coming(&s.id), "nothing more comes once it ran");
 }
+
+/// A queued prompt leaves the queue once it holds the turn lock (`queue.rs` `queue_turn`, then
+/// `take_queued`), and its turn shows only after awaits (`start_turn`). In between the queue is
+/// empty and no turn runs: its turn is still coming, so a `wait until ready` does not answer
+/// there (CI run 46089658670, `transfer_cli` session_move: the wait answered before "b" ran).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_prompt_that_took_the_turn_before_it_shows_is_work_coming() {
+    let (hub, s) = chat().await;
+    assert!(!hub.work_coming(&s.id), "an idle chat has nothing coming");
+    let lock = s.turn_lock.lock().await;
+    let claimed = super::subsession_runs::ClaimedTurn::new(&s, lock);
+    assert!(s.queue().is_empty() && s.turn().is_none(), "the handoff: out of the queue, no turn");
+    assert!(hub.work_coming(&s.id), "the claimed prompt's turn is still coming");
+    let mut row = hub.session_summaries_of(&[s.id.clone()]).remove(&s.id).expect("its row");
+    crate::no_panic::JsonExt::set(&mut row, crate::server::wait::WORK_COMING, json!(true));
+    assert!(!crate::server::wait::Until::Ready.matches(&row), "not ready across the handoff");
+    drop(claimed);
+    assert!(!hub.work_coming(&s.id), "the claim released, nothing comes");
+}
