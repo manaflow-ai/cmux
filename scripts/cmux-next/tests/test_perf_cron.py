@@ -5533,6 +5533,75 @@ class UnreadPartFirstTests(unittest.TestCase):
         d = cron.decide(state, at(1.2), None, None, self.supported, None, newest=self.NEW)
         self.assertEqual(d["action"], "finish")
 
+    # Tip cdf458ee's stored switch report (2026-11-28, state artifact 15274910873): the app trapped at launch
+    # (cmux#59517's `home rules op chiefs_tab: unknownOp`), both benches exited 1 within 8 s, no row measured.
+    LAUNCH_DEAD_REPORT = {"rows": [], "counts": {"expected": 2, "measured": 0, "unsupported": 0, "failed": 0, "incomplete": 2},
+                          "runs": {"tab_switch": {"exit": 1, "seconds": 6.4}, "palette": {"exit": 1, "seconds": 7.4}}}
+
+    def test_a_report_whose_benches_all_died_at_launch_is_launch_dead(self):
+        self.assertIn("tab_switch: exit 1 in 6.4 s", cron.launch_dead_report(self.LAUNCH_DEAD_REPORT))
+        slow = json.loads(json.dumps(self.LAUNCH_DEAD_REPORT))
+        slow["runs"]["palette"]["seconds"] = 120.0
+        self.assertEqual(cron.launch_dead_report(slow), "", "a bench that ran a while is a bench failure, not a launch")
+        slow["runs"]["palette"]["tail"] = ['BENCH-LAUNCH {"ok": false, "reason": "crashed", "exit": -5}']
+        self.assertTrue(cron.launch_dead_report(slow), "split-spring's crashed launch line counts at any length")
+        measured = json.loads(json.dumps(self.LAUNCH_DEAD_REPORT))
+        measured["counts"]["measured"] = 1
+        self.assertEqual(cron.launch_dead_report(measured), "", "a row measured: the app launched")
+        ok = json.loads(json.dumps(self.LAUNCH_DEAD_REPORT))
+        ok["runs"]["palette"]["exit"] = 0
+        self.assertEqual(cron.launch_dead_report(ok), "")
+        self.assertEqual(cron.launch_dead_report({"runs": 20, "counts": {"measured": 0}}), "", "hot-swap's runs is a count")
+
+    def launch_dead_tip_state(self, history=None):
+        state = cron.empty_state(T0)
+        state["part_stored"] = {n: {"sha": self.OLD, "at": cron.iso(T0), "rows": 1} for n in ALL if n != "build"}
+        state["history"] = history or []
+        cron.decide(state, T0, self.OLD, None, self.supported, None)
+        cur = state["current"]
+        cron.record_part(cur, "build", {"state": "done", "worker": cron.BENCH_WORKER}, "u", T0)
+        cron.record_part(cur, "switch", {"state": "done", "worker": cron.BENCH_WORKER}, "u", T0)
+        d = tempfile.mkdtemp()
+        os.makedirs(os.path.join(d, "parts"))
+        with open(os.path.join(d, "parts", "switch.json"), "w") as f:
+            json.dump({"measurement": cron.measurement_id(cur), "report": self.LAUNCH_DEAD_REPORT}, f)
+        self.assertTrue(cron.mark_launch_dead(cur, d))
+        self.assertFalse(cron.mark_launch_dead(cur, d), "marked once")
+        return state
+
+    def test_a_tip_whose_app_crashed_at_launch_frees_the_mac_for_a_newer_tip(self):
+        # Before: tip cdf458ee kept its 19 Mac parts yielding toward ABANDON_WALL_HOURS (48 h), every one launching the
+        # same crashing app. After: the next tick with a newer measurable tip ends it, as for a failed build.
+        state = self.launch_dead_tip_state()
+        self.assertEqual(cron.launch_dead_tip(state["current"]), ["switch"])
+        cron.decide(state, at(1), None, None, self.supported, None, newest=None)
+        self.assertNotIn("superseded", state["current"], "no newer commit: it keeps going")
+        d = cron.decide(state, at(1), None, None, self.supported, None, newest=self.NEW)
+        self.assertEqual(d["action"], "finish")
+        self.assertIn(cron.LAUNCH_DEAD_MARK, d["reason"])
+        self.assertEqual(state["current"]["parts"]["tabs"]["state"], "superseded")
+        cron.finish_measurement(state, {}, 8.33, None, "u", at(1), budgets_mod)
+        self.assertEqual(state["history"][-1]["launch_dead"], ["switch"])
+        self.assertTrue(cron.last_tip_launch_dead(state))
+
+    def test_a_launch_dead_tip_makes_the_tick_look_up_a_newer_tip(self):
+        # Before: the plan's newest gate lacked launch_dead_tip, so a launch-dead tip with no unread part never looked
+        # up a newer tip and supersede_for_unread's launch-dead branch could not fire. After: the gate asks for one.
+        state = self.launch_dead_tip_state()
+        self.assertTrue(cron.wants_newest(state, state["current"], self.NEW))
+        fresh = cron.empty_state(T0)
+        fresh["part_stored"] = {n: {"sha": self.OLD, "at": cron.iso(T0), "rows": 1} for n in ALL if n != "build"}
+        cron.decide(fresh, T0, self.OLD, None, self.supported, None)
+        self.assertFalse(cron.wants_newest(fresh, fresh["current"], self.NEW), "a healthy tip needs no newer tip")
+        self.assertFalse(cron.wants_newest(fresh, {}, self.NEW))
+
+    def test_a_second_tip_in_a_row_that_crashed_at_launch_keeps_its_parts(self):
+        # The base is likely broken: the next tip would crash the same way, so the measurement keeps going.
+        state = self.launch_dead_tip_state(history=[{"sha": "e" * 40, "kind": "tip", "launch_dead": ["motion"]}])
+        cron.decide(state, at(1), None, None, self.supported, None, newest=self.NEW)
+        self.assertNotIn("superseded", state["current"])
+        self.assertIn("tabs", state["current"]["parts_todo"])
+
     def test_a_bisect_step_whose_build_failed_is_not_superseded(self):
         cur = {"kind": "bisect", "sha": self.OLD, "parts": {"wake": {"state": "build_failed"}}}
         self.assertFalse(cron.build_failed_tip(cur), "a bisect step skips the commit when it ends (drop_dead_measurement)")
@@ -6075,6 +6144,40 @@ class BatchTests(unittest.TestCase):
         self.assertIn("fetch-result --each", text)
         self.assertIn('for part in $RESULT_PARTS; do results+=(--result "$part=$RUNNER_TEMP/perf-cron-result/$part"); done', text)
 
+
+
+class PartOutcomes(unittest.TestCase):
+    """note_part_outcomes: every finished part says how it ended and why, also when it stored no row (goal
+    hot-swap-fast's rows read blank for 4 days while its part failed with no reason anywhere NOW reads)."""
+
+    def cur(self):
+        return {"sha": "a" * 40, "kind": "tip", "parts": {}, "parts_todo": []}
+
+    def test_an_incomplete_report_names_its_reasons_and_host(self):
+        state, cur = {}, self.cur()
+        report = {"rows": [], "incomplete": ["graceful-swap-fleet.py exited 1", "focused: no latency receipt"]}
+        cron.note_part_outcomes(state, cur, "hot-swap", {"state": "done", "step_id": "s1"}, report, "cmux10", T0)
+        got = state["part_outcomes"]["hot-swap"]
+        self.assertEqual(got["state"], "incomplete")
+        self.assertIn("graceful-swap-fleet.py exited 1", got["why"])
+        self.assertEqual((got["worker"], got["sha"], got["step_id"]), ("cmux10", "a" * 40, "s1"))
+
+    def test_a_failed_part_keeps_its_why_and_a_done_one_has_none(self):
+        state, cur = {}, self.cur()
+        cron.note_part_outcomes(state, cur, "hot-swap", {"state": "failed", "why": "Traceback: boom"}, None, "m1", T0)
+        self.assertEqual(state["part_outcomes"]["hot-swap"]["why"], "Traceback: boom")
+        cron.note_part_outcomes(state, cur, "hot-swap", {"state": "done"}, {"rows": [{"name": "x"}]}, "m1", at(1))
+        self.assertEqual(state["part_outcomes"]["hot-swap"]["state"], "done")
+        self.assertIsNone(state["part_outcomes"]["hot-swap"]["why"])
+
+    def test_a_yield_is_no_outcome_and_a_failed_build_ends_the_other_mac_parts(self):
+        state, cur = {}, self.cur()
+        cron.note_part_outcomes(state, cur, "hot-swap", {"state": "yielded"}, None, "m1", T0)
+        self.assertNotIn("hot-swap", state.get("part_outcomes") or {})
+        cur["parts"] = {"build": {"state": "failed"}, "hot-swap": {"state": "build_failed"}}
+        cron.note_part_outcomes(state, cur, "build", {"state": "failed", "why": "BUILD FAILED"}, None, "m1", T0)
+        self.assertEqual(state["part_outcomes"]["hot-swap"]["state"], "build_failed")
+        self.assertEqual(state["part_outcomes"]["hot-swap"]["why"], "the app did not build at this tip")
 
 if __name__ == "__main__":
     unittest.main()

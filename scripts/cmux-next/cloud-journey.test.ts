@@ -3909,6 +3909,11 @@ while True:
             break
         if m['method'] == '_acpmux/resolve':
             send({'jsonrpc': '2.0', 'id': m['id'], 'result': {'session': {'sessionId': 's-1', 'name': m['params']['query']}}})
+            continue
+        if m['method'] == 'agent/credentials.update':
+            # The restarted daemon kept no launch credential (runs 46154019193, 46161132759): the adopt sends it again.
+            seen[-1] += ':' + m['params']['sessionId'] + ':' + json.dumps(m['params']['env'], sort_keys=True)
+            send({'jsonrpc': '2.0', 'id': m['id'], 'result': {'sessionId': m['params']['sessionId'], 'restart': 'now'}})
             done = True
             break
         if m['method'] == 'session/new':
@@ -3999,6 +4004,7 @@ open(out, 'w').write(json.dumps(seen))
     expect(r.status).toBe(0);
     expect(seen.filter((m) => m === "session/new")).toHaveLength(2);
     expect(seen.filter((m) => m === "_acpmux/resolve")).toHaveLength(1);
+    expect(seen.filter((m) => m.startsWith("agent/credentials.update"))).toEqual(['agent/credentials.update:s-1:{"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-x"}']);
   });
   test("a taken name with no cut start before it stays a failed start", { timeout: 30_000 }, () => {
     const { r, seen } = runRestarting("taken");
@@ -4015,6 +4021,7 @@ open(out, 'w').write(json.dumps(seen))
     expect(r.stdout).toContain("@@session s-1");
     expect(r.status).toBe(0);
     expect(seen.filter((m) => m === "_acpmux/resolve")).toHaveLength(1);
+    expect(seen.filter((m) => m.startsWith("agent/credentials.update:s-1:"))).toHaveLength(1);
   });
   test("the first prompt's promptId is the session name's, so a second run of the start never runs it twice", () => {
     const a = launchCredentialStartProgram("journey-jr-1", "claude", null, null, "hi");
