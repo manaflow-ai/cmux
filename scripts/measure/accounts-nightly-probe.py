@@ -62,13 +62,18 @@ class ComputerUse:
                 # The first retained line may begin inside a credential. Drop it entirely.
                 retained = retained.partition(b"\n")[2]
             detail = retained.decode("utf-8", errors="replace")
+            secrets = set()
             for name, value in os.environ.items():
                 if value and (name in SECRET_NAMES or
                               re.search(r"password|secret|token|credential|key", name, re.I)):
                     # Redact individual lines too: truncation can remove a multiline value's prefix.
                     for part in [value, *value.splitlines()]:
                         if part:
-                            detail = detail.replace(part, "[redacted]")
+                            secrets.add(part)
+            if secrets:
+                # A login may prefix a password. Match longest first, once, without rewriting markers.
+                pattern = "|".join(re.escape(part) for part in sorted(secrets, key=len, reverse=True))
+                detail = re.sub(pattern, "[redacted]", detail)
             detail = re.sub(r"(?i)(bearer\s+)\S+", r"\1[redacted]", detail)
             raise ProbeError(f"Computer Use startup failed ({self.executable}, "
                              f"exit={self.process.returncode}): {error}; "

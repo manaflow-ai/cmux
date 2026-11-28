@@ -60,6 +60,17 @@ class TransportTests(unittest.TestCase):
         self.assertIn("startup-tail", str(caught.exception))
         self.assertLess(len(str(caught.exception)), 4600)
 
+    def test_overlapping_credentials_are_redacted_longest_first(self):
+        self.fake_cmux("import os, sys\nsys.stdin.readline()\n"
+                       "sys.stderr.write(os.environ['CMUX_GITHUB_TEST_PASSWORD'] + '\\n')\n"
+                       "sys.exit(21)\n")
+        with mock.patch.dict(os.environ, {"CMUX_GITHUB_TEST_LOGIN": "alice",
+                                         "CMUX_GITHUB_TEST_PASSWORD": "alice-private-suffix"}):
+            with self.assertRaises(PROBE.ProbeError) as caught:
+                PROBE.ComputerUse()
+        self.assertNotIn("alice", str(caught.exception))
+        self.assertNotIn("private-suffix", str(caught.exception))
+
     def test_truncation_drops_partial_secret_and_redacts_multiline_remainder(self):
         self.fake_cmux("import os, sys\nsys.stdin.readline()\n"
                        "sys.stderr.write(os.environ['TEST_PASSWORD'] + '\\nworker unavailable\\n')\n"
