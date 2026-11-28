@@ -117,6 +117,14 @@ fn the_allowlist_is_what_the_page_sends() {
         "the page now sends _acpmux/move_targets: drop this line"
     );
     sent.insert("_acpmux/move_targets".to_owned());
+    // The banner that read host load is gone (#55840), but a page from an older build still polls
+    // `_acpmux/host_overload`; the relay keeps allowing it so those pages get the daemon's method
+    // not found instead of a relay refusal (scripts/ci/protocol_skew_check.py rule 3).
+    assert!(
+        !sent.contains("_acpmux/host_overload"),
+        "the page sends _acpmux/host_overload again: drop this line"
+    );
+    sent.insert("_acpmux/host_overload".to_owned());
     assert_eq!(sent, p.requests, "requests the page sends vs policy.json requests");
     // A frame the page writes itself: `jsonrpc: "2.0",` then its `method:`.
     let notifications: BTreeSet<String> = direct

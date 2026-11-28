@@ -208,7 +208,6 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_START_MODE, Run(json!({"harness": "fake", "cwd": "$CWD"}))),
         ("_acpmux/set_default_policy", Run(json!({"policy": "ask"}))),
         ("_acpmux/peers", Run(json!({}))),
-        ("_acpmux/host_overload", Run(json!({}))),
         (
             "_acpmux/wireguard_admit",
             Any(
@@ -381,6 +380,80 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             method::MUX_AGENT_LOGIN_API_KEY,
             Skip("writes the agent's credential store or runs a real codex login"),
         ),
+        (method::MUX_AGENT_LOGIN_RECOVER_START, Skip("starts a real claude or codex sign-in")),
+        (
+            method::MUX_AGENT_LOGIN_RECOVER_FINISH,
+            Any(
+                json!({"loginId": "lso-none"}),
+                "no sign-in can start here, so the id is unknown (invalid params)",
+            ),
+        ),
+        (method::MUX_AGENT_LOGIN_STATUS, Any(json!({}), "reads the agent's sign-in state")),
+        (
+            method::MUX_AGENT_LOGIN_LOGOUT,
+            Skip("signs the agent's real login out (its credential store)"),
+        ),
+        (
+            method::MUX_BG_REARM,
+            Any(
+                json!({"version": 1, "sessionId": "$S", "waits": []}),
+                "re-arms waits another hub holds; this one may refuse the version or the chat",
+            ),
+        ),
+        (
+            method::MUX_CONNECTIONS_CHATGPT_DEVICE_BEGIN,
+            Skip("asks OpenAI for a device code (network, a real account)"),
+        ),
+        (
+            method::MUX_CONNECTIONS_CHATGPT_DEVICE_WAIT,
+            Skip("polls OpenAI until the device code is approved (network)"),
+        ),
+        (
+            method::MUX_CONNECTIONS_CHATGPT_DEVICE_CANCEL,
+            Any(
+                json!({"attempt": "lso-no-attempt"}),
+                "no device sign-in is open, so the id is unknown",
+            ),
+        ),
+        (
+            method::MUX_CONNECTIONS_SUBSCRIPTION_BEGIN,
+            Skip("starts a provider sign-in (network, a real account)"),
+        ),
+        (method::MUX_CONNECTIONS_SUBSCRIPTION_WAIT, Skip("waits on a provider sign-in (network)")),
+        (
+            method::MUX_CONNECTIONS_SUBSCRIPTION_CANCEL,
+            Any(json!({"attempt": "lso-no-attempt"}), "no sign-in is open, so the id is unknown"),
+        ),
+        (method::MUX_CONNECTIONS_GROK_HOOK, Skip("installs a hook into the person's Grok config")),
+        (method::MUX_CONNECTIONS_SECRET_STORE, Skip("writes the system keychain")),
+        (method::MUX_CONNECTIONS_SECRET_DELETE, Skip("deletes from the system keychain")),
+        (
+            method::MUX_LAST,
+            Any(json!({"count": 1}), "reads other chats; this hub may refuse the caller"),
+        ),
+        (
+            method::MUX_SESSION_RESOURCES,
+            Any(
+                json!({"sessionId": "$S"}),
+                "reads a chat's process resources; the stand-in has none",
+            ),
+        ),
+        (
+            method::MUX_TEAM_CUSTOMIZATION,
+            Any(json!({}), "the team-messaging gate refuses a hub with no team"),
+        ),
+        (
+            method::MUX_TEAM_CUSTOMIZE,
+            Any(json!({}), "the team-messaging gate refuses a hub with no team"),
+        ),
+        (
+            method::MUX_TEAM_HANDOFF,
+            Any(json!({}), "the team-messaging gate refuses a hub with no team"),
+        ),
+        (
+            method::MUX_WATCHDOG_HOLD,
+            Any(json!({}), "reads the watchdog's hold; this connection may be refused"),
+        ),
         (
             method::MUX_HARNESS_ADD,
             Run(json!({"command": "python3", "id": "lso-probe", "args": ["$FAKE"]})),
@@ -446,7 +519,13 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             Run(json!({"provider": "anthropic", "secret": "not-an-anthropic-key"})),
         ),
         (method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD, Run(json!({"secret": "keychain:lso-token"}))),
-        (method::MUX_CONNECTIONS_REMOVE, Run(json!({"id": "anthropic-key"}))),
+        (
+            method::MUX_CONNECTIONS_REMOVE,
+            Any(
+                json!({"id": "anthropic-key", "instance": "lso-no-instance"}),
+                "the connection's own check refuses an instance that is not the saved one (invalid params)",
+            ),
+        ),
         (method::MUX_CONNECTIONS_CHATGPT_BEGIN, Run(json!({"id": "lso-no-connection"}))),
         (method::MUX_CONNECTIONS_CHATGPT_WAIT, Run(json!({"attempt": "lso-no-attempt"}))),
         (method::MUX_CONNECTIONS_CHATGPT_CANCEL, Run(json!({"attempt": "lso-no-attempt"}))),

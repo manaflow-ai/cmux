@@ -9,6 +9,16 @@
       "until": "2027-01-25"
     },
     {
+      "key": "agentPane.display.sessionInfo.sections.carried",
+      "reason": "Session Info no longer has a Carried memory section",
+      "why": "Leo: \"session info \\\"carried memory\\\" wtf get rid of it\". The section (session-info/CarriedSection.tsx) was removed, so its show/hide toggle has nothing to switch."
+    },
+    {
+      "key": "agents.modelRouter.model",
+      "reason": "the cmux model router is gone; chats use your own model login or API key",
+      "why": "Leo, 2026-11-25: \"For cmux next, just rip it out for now then.\" The cmux model router profile (cmux) this row chose a model for was removed with CodeRouter (cmux#57348)."
+    },
+    {
       "key": "status.working",
       "reason": "choose the working indicator in Debug Settings",
       "why": "The app reads this preference from the current build's debug-tunables.json. A copy in the shared settings file had no effect."

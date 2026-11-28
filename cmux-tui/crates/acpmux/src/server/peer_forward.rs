@@ -5,7 +5,9 @@
 use super::*;
 
 mod link_wait;
+mod prompt_order;
 pub(super) use link_wait::{PROMPT_LINK_WAIT, await_link};
+use prompt_order::gated;
 
 use link_wait::*;
 
@@ -402,54 +404,6 @@ pub(super) async fn forward(
         return reply.map(|r| r.map_err(super::redact::hide_unreachable_peer));
     }
     reply
-}
-
-/// [`forward_inner`], for a prompt to a peer after its link's restores are decided: run first, it
-/// would take the seqs they need (`hub/peer_snapshot/restore.rs`). It goes on the link the
-/// decision was of, or not at all (review of #37284 at 4dcbe192, F2): a link that replaced it
-/// meanwhile refuses it, and it goes back through the gate, of the new link, a few times at most.
-async fn gated(
-    hub: &Arc<Hub>,
-    conn: &Arc<Conn>,
-    m: &str,
-    params: &Value,
-) -> Option<Result<Value, RpcError>> {
-    let remote = (m == method::SESSION_PROMPT)
-        .then(|| session_key(params).ok())
-        .flatten()
-        .and_then(|key| target(hub, m, key));
-    let Some((peer, id, _, _)) = remote else {
-        return forward_inner(hub, conn, m, params, None).await.transpose();
-    };
-    let mut hold = None;
-    'held: loop {
-        match wait_for_prompt_link(hub, conn, &peer, params, &mut hold).await {
-            Ok(Some(queued)) => return Some(Ok(queued)),
-            Ok(None) => {}
-            Err(e) => return Some(Err(e)),
-        }
-        let mut tries = 0;
-        loop {
-            tries += 1;
-            let link = match hub.peer_snapshots.restores_done(&peer, &id).await {
-                Ok(link) => link,
-                Err(e) if holds_again(conn, &peer, hold.as_ref(), &e) => continue 'held,
-                Err(e) => return Some(Err(e)),
-            };
-            let reply = forward_inner(hub, conn, m, params, link).await.transpose();
-            let moved = link.is_some_and(|l| (peer.generation, peer.link_epoch()) != l);
-            if tries < 4 && moved && matches!(&reply, Some(Err(e)) if unsent(e)) && peer.ready() {
-                continue;
-            }
-            // The link went again before the prompt left: it is held again, not refused.
-            if let Some(Err(e)) = &reply
-                && holds_again(conn, &peer, hold.as_ref(), e)
-            {
-                continue 'held;
-            }
-            return reply;
-        }
-    }
 }
 
 /// What a request refused because `peer`'s link is down asks of the peer: a message (from any
