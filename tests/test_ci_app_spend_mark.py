@@ -228,7 +228,8 @@ class Workflows(unittest.TestCase):
                 self.assertEqual(start["id"], "app-spend")
                 self.assertEqual(start["run"], f"python3 {script} start {tag}" + (f" --floor {floor}" if floor else ""))
                 self.assertTrue(start["continue-on-error"] and end["continue-on-error"])
-                self.assertEqual(end["if"], "always()")
+                # always(), or always() plus the job's own skip (the janitor's fresh snapshot).
+                self.assertTrue(end["if"] == "always()" or end["if"].startswith("always() && "), end["if"])
                 mint = next(i for i, s in enumerate(all_steps) if s.get("id") in ("cmux-bot-token", "read-token"))
                 self.assertLess(mint, all_steps.index(start))
                 # The script is checked out before it runs.

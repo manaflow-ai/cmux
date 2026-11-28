@@ -397,7 +397,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Read the cmux-bot budget after this job
-        if: always()
+        if: always() && steps.fresh.outputs.skip != 'true'
         continue-on-error: true
         timeout-minutes: 1
         env:
