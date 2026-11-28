@@ -125,8 +125,10 @@ jobs:
     # Only where a root job below would run on this event: with full-ci (or CI_LAND_FULL_PER_PR, which runs the full
     # tier on ready-to-land); otherwise those jobs skip anyway and this job's runner decides nothing.
     if: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && (contains(github.event.pull_request.labels.*.name, 'full-ci') || vars.CI_LAND_FULL_PER_PR == '1') && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft != true) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 3
+    env:
+      GH_HTTP_DEADLINE_S: "120"  # head_tier.py reads through gh_http: give up inside timeout-minutes
     continue-on-error: true
     permissions:
       actions: read
@@ -1298,14 +1300,20 @@ jobs:
   # (cmux#61127 fixed it; the nightly feed stood still). This runs the same script the nightly runs
   # (scripts/ci/app-store-shelf-check.sh) at the pull request's own head, draft or ready
   # (tests/test_head_tier.py KEEP_ON_EVERY_HEAD). A change that reaches no shelf input ends after a checkout and a diff.
+  # Heavy-at-land rule (scripts/ci/head_tier.py, CI_HEAVY_AT_LAND, on unless 0; Leo, 2026-11-21: "whatever we need to
+  # cut, we cut."): on a pull request it runs on the `labeled` event that adds ready-to-land or full-ci, at that head
+  # (land-judge pulses ready-to-land at the head it lands), so the head that merges is still checked, which is what
+  # cmux#46903 lacked; earlier pushes skip it. On 11-28 07Z..11:30Z it spent ~1.8k runner-min/day on every head that
+  # reached a shelf input. CI_HEAVY_AT_LAND=0: every such head again.
   app-store-shelf-pr:
     needs: [coalesce, workflow-start-lint]
     name: cmux-next App Store shelf (every listing installs and shows something)
-    if: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' && !cancelled() && needs.coalesce.outputs.run != 'false' && (needs.workflow-start-lint.outputs.app_store_shelf != 'false' || vars.APP_STORE_SHELF_EVERY_HEAD == '1') && !(github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' && !cancelled() && needs.coalesce.outputs.run != 'false' && (needs.workflow-start-lint.outputs.app_store_shelf != 'false' || vars.APP_STORE_SHELF_EVERY_HEAD == '1') && ((github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) || ((vars.CI_HEAVY_AT_LAND || '1') == '0' && github.event.action != 'labeled')) && !(github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
     permissions:
       contents: read
+      actions: read
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
       CMUX_GHOSTTY_SRC: ""
@@ -1344,10 +1352,24 @@ jobs:
       # merged into the base in between: run 46051655127 (cmux#62280, no shelf input) diffed fb1aef0c against a
       # merge onto 6efe6629 and built the shelf for 26 min. 186 of 1,013 runs on 11-27 16-20Z ran the full job,
       # 2,615 of the job's 2,965 min. No first parent (an unreadable checkout) runs the shelf.
+      # A reopen, ready-to-land or other event at a head this job already passed (same head sha, this workflow file
+      # unchanged on the base since) runs nothing past here: scripts/ci/same_head_job.py, the PR router's same-head
+      # rule (cmux#64125) for a job on its own trigger. About 900 runner-min a day of shelf reruns at a passed head in
+      # the 24 h to 11-28 03Z. full-ci or vars.CI_SAME_HEAD_RERUN_ONLY_RED=0 runs it; anything unread runs it.
+      - name: Same head already passed
+        id: same
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_SAME_HEAD_RERUN_ONLY_RED: ${{ vars.CI_SAME_HEAD_RERUN_ONLY_RED }}
+        run: python3 scripts/ci/same_head_job.py --job "cmux-next App Store shelf (every listing installs and shows something)"
+
       - name: Changed shelf inputs
         id: inputs
         run: |
           set -euo pipefail
+          if [ "${{ steps.same.outputs.skip }}" = true ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
           if ! base="$(git rev-parse --verify -q 'HEAD^1^{commit}')"; then
             echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
@@ -1361,8 +1383,7 @@ jobs:
           if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
             echo "clang libclang-dev pkg-config: already installed"
           else
-            sudo apt-get update
-            sudo apt-get install -y clang libclang-dev pkg-config
+            bash scripts/ci/apt-retry.sh -y clang libclang-dev pkg-config
           fi
 
       - name: Init the ghostty-next submodule (libghostty-vt for cmux-tui-core)
@@ -1936,7 +1957,7 @@ jobs:
     needs: [coalesce, tooling-tests-base-red, full-carry]
     # Runs on pull requests into feat-cmux-next too (it was Tier A, skipped; scripts/ci/affected-jobs.json says why it
     # is not now): setup-tooling-route below limits a pull request to the steps its diff can fail. On a pull request
-    # into feat-cmux-next (not the docs-only fallback's call) it runs only tt-remote-p10k, tt-webviews-tests-per-file,
+    # into feat-cmux-next (not the docs-only fallback's call) it runs only tt-remote-p10k, tt-cli-path-folder-access, tt-webviews-tests-per-file,
     # tt-web-lint-prepush and tt-tailnet; ci/steps.toml's tooling-tests-1..5 run the rest.
     if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && ((!cancelled() && needs.coalesce.outputs.run != 'false') && needs.full-carry.outputs.tier != 'none' && needs.tooling-tests-base-red.outputs.base_red != 'true') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
@@ -2073,7 +2094,7 @@ jobs:
             all=true
             grep -qx 'tooling_all=false' "$RUNNER_TEMP/tooling.out" && all=false
             keep=" "
-            for id in tt-remote-p10k tt-webviews-tests-per-file tt-web-lint-prepush tt-tailnet; do
+            for id in tt-remote-p10k tt-cli-path-folder-access tt-webviews-tests-per-file tt-web-lint-prepush tt-tailnet; do
               if [ "$all" = true ] || [[ "$routed" == *" $id "* ]]; then keep="$keep$id "; fi
             done
             printf 'tooling_all=false\ntooling_steps=%s\n' "$keep" > "$RUNNER_TEMP/tooling.out"
@@ -2186,6 +2207,16 @@ jobs:
           fi
           python3 tests/test_issue_4148_remote_p10k_keyboard_reset.py
 
+      # First-run findings row 18: a folder macOS refuses (Desktop after Don't Allow) gets a hint that says where to allow it.
+      - name: The app's zsh layer says where to allow a folder macOS refused
+        id: tt-cli-path-folder-access
+        if: ${{ success() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-cli-path-folder-access ')) }}
+        run: |
+          if ! command -v zsh >/dev/null 2>&1; then
+            bash scripts/ci/apt-ensure.sh zsh
+          fi
+          bash scripts/cmux-next/tests/cli-path-folder-access.test.sh
+
       - name: The fast gates workflow and its merge and gate script
         id: tt-fast-gates
         if: ${{ success() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-fast-gates ')) }}
@@ -2285,6 +2316,14 @@ jobs:
         id: tt-swift-test-coverage-tests
         if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-swift-test-coverage-tests ')) }}
         run: python3 -I tests/test_swift_test_coverage.py
+
+      # A Swift file under CmuxNext/Sources that builds a Cloud HTTP or WebSocket request and is not in
+      # scripts/cmux-next/swift-cloud-http-allow.txt fails, and so does a listed file that no longer builds one:
+      # the Mac app's Cloud calls go through the Rust app server (cmuxterm-hq goals/cloud-client-swift-to-rust.md).
+      - name: No new Swift Cloud networking in CmuxNext (swift-cloud-http.py --check)
+        id: tt-swift-cloud-http
+        if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-swift-cloud-http ')) }}
+        run: python3 -I scripts/cmux-next/swift-cloud-http.py --check
 
       - name: The Swift Cloud networking count's own tests (swift-cloud-http.py)
         id: tt-swift-cloud-http-tests

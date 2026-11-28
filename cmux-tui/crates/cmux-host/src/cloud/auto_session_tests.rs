@@ -174,6 +174,8 @@ fn calls() -> Vec<(Call, &'static str, String)> {
         (Call::page(Kind::Inbox, "as_1", 3, None), "GET", at("/inbox?after=3")),
         (Call::write(Kind::InboxAck, "as_1", ack), "POST", at("/inbox/ack")),
         (Call::write(Kind::AssignmentAck, "as_1", fence()), "POST", at("/assignment/ack")),
+        (Call::write(Kind::Move, "as_1", json!({ "to": "local" })), "POST", at("/move")),
+        (Call::write(Kind::Keep, "as_1", json!({ "keepInCloud": false })), "POST", at("/keep")),
     ]
 }
 
@@ -372,6 +374,10 @@ fn calls_are_checked_before_they_reach_the_api() {
         json!({ "call": "lease", "session": "as_1", "body": { "holder": "vm:a b", "epoch": 4 } }),
         json!({ "call": "lease", "session": "as_1", "body": { "holder": holder(), "epoch": -1 } }),
         json!({ "call": "lease", "session": "as_1", "body": { "holder": holder(), "epoch": "4" } }),
+        json!({ "call": "move", "session": "as_1" }),
+        json!({ "call": "move", "session": "as_1", "body": { "to": "mars" } }),
+        json!({ "call": "move", "session": "as_1", "body": { "to": "local", "device": "vm:a" } }),
+        json!({ "call": "keep", "session": "as_1", "body": { "keepInCloud": "yes" } }),
         json!({ "call": "events", "session": "as_1", "after": -1 }),
         json!({ "call": "events", "session": "as_1", "after": 1, "limit": 0 }),
         json!({ "call": "inbox", "session": "as_1", "after": "1" }),

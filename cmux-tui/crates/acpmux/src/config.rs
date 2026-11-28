@@ -2126,7 +2126,8 @@ pub(crate) use nested_env::inherited_caller_scoped_keys;
 pub(crate) use nested_env::nested_claude_keys;
 pub use nested_env::{
     CHIEF_CREDENTIAL_ENV, LAUNCH_CREDENTIAL_ENV, scrub_nested_claude_env,
-    scrub_nested_claude_env_for, scrub_nested_claude_env_tokio, scrub_nested_claude_env_tokio_for,
+    scrub_nested_claude_env_for, scrub_nested_claude_env_process, scrub_nested_claude_env_tokio,
+    scrub_nested_claude_env_tokio_for,
 };
 pub use nested_env::{is_caller_scoped_key, is_nested_claude_key};
 mod launchers;
@@ -2148,7 +2149,7 @@ mod start_check;
 mod store_config;
 pub use store_config::{StoreConfig, StoreMode};
 mod pool;
-pub use pool::{PoolConfig, spare_personal_enabled};
+pub use pool::{PoolConfig, spare_personal_enabled, spare_warm_enabled};
 mod btw;
 pub use btw::BtwConfig;
 mod auto_evacuate;

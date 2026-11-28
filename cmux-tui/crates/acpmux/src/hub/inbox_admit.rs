@@ -229,6 +229,7 @@ impl Hub {
                             class,
                             report: is_report(provenance),
                             waited,
+                            gather: super::super::cold_wake::requested(provenance),
                             at: now,
                             within: crate::prompt_provenance::within(provenance),
                             text: text.clone(),
@@ -240,6 +241,7 @@ impl Hub {
                             answer: Some(tx.clone()),
                             reader: reader.clone(),
                         });
+                        fold::fold_thread(&mut inbox, &thread);
                         trim(&mut inbox);
                         true
                     }
@@ -304,9 +306,24 @@ impl Hub {
         accepted.set("dueAt", json!(crate::prompt_class::due_at(class, now_ms(), within)));
         accept(accepted);
         self.inbox_review(session);
-        let answer = match rx.wait_for(Option::is_some).await {
-            Ok(answer) => answer.clone().unwrap_or_else(|| Err(RpcError::internal("no answer"))),
-            Err(_) => Err(super::super::queue::closing_error()),
+        // Delivered: the message is in the inbox (held or not). Only a caller that reads the
+        // reply waits on for the notice's answer, and only while it is connected; every other
+        // request ends here, so none outlives its delivery (`inbox.rs`, module docs). A resend
+        // already answered (`resent`) answers with that.
+        let answer = match reader {
+            None => rx.borrow().clone().unwrap_or_else(|| Ok(delivered(prompt_id, held))),
+            Some(mut reader) => tokio::select! {
+                biased;
+                answer = rx.wait_for(Option::is_some) => match answer {
+                    Ok(answer) => {
+                        answer.clone().unwrap_or_else(|| Err(RpcError::internal("no answer")))
+                    }
+                    Err(_) => Err(super::super::queue::closing_error()),
+                },
+                // Its connection ended or it cancelled (`server/prompt_cancel.rs`): nobody reads
+                // the answer, and the notice's reply goes where an unread one goes.
+                _ = reader.wait_for(|gone| *gone) => Ok(delivered(prompt_id, held)),
+            },
         };
         answer.map(|mut v| {
             merge_mux_meta(
@@ -369,6 +386,7 @@ impl Hub {
                     class: PromptClass::Result,
                     report: true,
                     waited: false,
+                    gather: false,
                     at,
                     within: None,
                     text: text.to_owned(),
@@ -620,6 +638,9 @@ impl Hub {
                                 i.fire
                                     || matches!(i.class, PromptClass::Block | PromptClass::Question)
                             });
+                            let gather = new.iter().any(|i| {
+                                i.gather && !i.surge_held && i.verdict.is_none() && !quiet(i)
+                            });
                             if fyi_only {
                                 inbox.held_by_person = false;
                             }
@@ -634,22 +655,29 @@ impl Hub {
                                     None => end,
                                 }
                             };
-                            let cold = if blocker || waking.is_none() {
-                                None
-                            } else {
+                            // A bridge can explicitly join the cold batch even when its class
+                            // alone would wait for the inbox deadline. Keep page and reader holds.
+                            // An open batch keeps its deadline after compaction warms the cache;
+                            // cold_batch_due rejects warm chats only when no batch exists.
+                            let cold = if !blocker && (waking.is_some() || gather) {
                                 self.cold_batch_due(session, &meta, now)
+                            } else {
+                                None
                             };
                             let due = if inbox.held_by_person || inbox.due_now {
                                 now
                             } else {
-                                waking.map_or(flush, |at| {
-                                    let burst = if holds {
-                                        hold_end(at)
-                                    } else {
-                                        at.saturating_add(WAKE_DEBOUNCE_MS)
-                                    };
-                                    cold.unwrap_or(burst).min(flush)
+                                cold.or_else(|| {
+                                    waking.map(|at| {
+                                        if holds {
+                                            hold_end(at)
+                                        } else {
+                                            at.saturating_add(WAKE_DEBOUNCE_MS)
+                                        }
+                                    })
                                 })
+                                .unwrap_or(flush)
+                                .min(flush)
                             };
                             let retry = match inbox.refused_at {
                                 0 => 0,
@@ -696,4 +724,15 @@ impl Hub {
             Next::Wake => self.deliver_notice(session, false),
         }
     }
+}
+
+/// The answer of an inbox message delivered to a caller that does not wait for the notice that
+/// carries it: it is in the inbox (`heldInInbox` when nothing wakes the chat for it yet). Its
+/// later outcome is the inbox's and the log's (`inbox_answered`), never a request's.
+fn delivered(prompt_id: &str, held: bool) -> Value {
+    let mut mux = json!({"promptId": prompt_id, "inbox": true, "status": "delivered"});
+    if held {
+        mux.set(crate::cli::output::HELD_IN_INBOX, json!(true));
+    }
+    json!({"stopReason": Value::Null, "_meta": {"acpmux": mux}})
 }

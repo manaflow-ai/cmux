@@ -667,6 +667,9 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         .as_ref()
         .map(|ui| ui.recoverable_workspaces().into_iter().cloned().collect::<Vec<_>>())
         .unwrap_or_default();
+    // Per-frame work (cmux-view-rows frame_work): every recoverable workspace is copied.
+    #[cfg(test)]
+    cmux_view_rows::frame_work::cloned(recoverable.len());
     let body_rows = (app.tree.workspaces().len() + recoverable.len()) * metrics.stride;
     let selected_body = (app.workspace_sidebar_focused() && app.workspace_rail_follow_selection)
         .then(|| match app.workspace_rail_selection {
@@ -744,8 +747,12 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         ));
     }
     for (i, ws) in app.tree.workspaces().iter().enumerate() {
+        #[cfg(test)]
+        cmux_view_rows::frame_work::walked(1);
         let span = rail::RowSpan::new(i * metrics.stride, metrics.height);
         let Some(y) = viewport.body_y(span) else { continue };
+        #[cfg(test)]
+        cmux_view_rows::frame_work::built(1);
         let active = i == app.tree.active_workspace;
         let focused_selection = app.workspace_sidebar_focused()
             && app.workspace_rail_selection == WorkspaceRailSelection::Workspace

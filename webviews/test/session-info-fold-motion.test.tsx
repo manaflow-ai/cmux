@@ -9,8 +9,10 @@ import path from "node:path";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { useFoldMotion } from "../src/agent-session/acpmux/session-info/foldMotion";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { useFoldMotion } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/foldMotion"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

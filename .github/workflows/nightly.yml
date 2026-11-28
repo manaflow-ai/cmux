@@ -361,6 +361,7 @@ jobs:
           UNSIGNED_ATTEMPT: ${{ inputs.nightly_next_unsigned_attempt }}
           LOOP_RETRY: ${{ inputs.nightly_next_loop_retry }}
           NIGHTLY_NEXT_ONE_JOB: ${{ vars.NIGHTLY_NEXT_ONE_JOB || '' }}
+          NIGHTLY_NEXT_SKIP_HOT_APPLY: ${{ vars.NIGHTLY_NEXT_SKIP_HOT_APPLY || '' }}
           CONTINUE_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && 'true' || 'false' }}
           REPUBLISH_RUN: ${{ inputs.nightly_next_republish_run }}
           REPUBLISH_ATTEMPT: ${{ inputs.nightly_next_republish_attempt }}
@@ -669,9 +670,15 @@ jobs:
             // schedule still publishes main HEAD as a backstop.
             let unchangedBuildInputs = false;
             let buildInputReason = null;
+            // nightly-next (default off: repo variable NIGHTLY_NEXT_SKIP_HOT_APPLY=1) skips the signed
+            // rebuild when every change since the published commit is hot-apply only (live_apply.py:
+            // no-app or web-live). A push to nightly-next also runs cmux-next-web-bundle-publish, which
+            // signs the `nightly` web update pointer, so the running NIGHTLY takes the web change
+            // without a new app, and the signer stays free for a build that needs it.
+            const nextHotApplySkip = isNextRef && process.env.NIGHTLY_NEXT_SKIP_HOT_APPLY === '1';
             if (
               shouldBuild &&
-              isMainRef &&
+              (isMainRef || nextHotApplySkip) &&
               nightlySha &&
               !forceBuild &&
               !buildOnly &&
@@ -703,6 +710,23 @@ jobs:
                   files.length > 0 &&
                   files.length < 300
                 ) {
+                  if (nextHotApplySkip) {
+                    // A rename is a delete of the old path and an add of the new one.
+                    const lines = files.flatMap((file) => [
+                      `${file.status === 'removed' ? 'D' : file.status === 'added' || file.previous_filename ? 'A' : 'M'}\t${file.filename}`,
+                      ...(file.previous_filename ? [`D\t${file.previous_filename}`] : []),
+                    ]);
+                    const verdict = await exec.getExecOutput(
+                      'python3',
+                      ['scripts/cmux-next/live_apply.py', '--paths-from', '-'],
+                      { input: Buffer.from(`${lines.join('\n')}\n`) },
+                    );
+                    const decision = JSON.parse(verdict.stdout.trim());
+                    unchangedBuildInputs = decision.hot_apply_only === true;
+                    buildInputReason = unchangedBuildInputs
+                      ? `hot-apply only (${decision.verdict}, ${files.length} files): web ships via the signed nightly web update pointer`
+                      : `needs a new app (${decision.verdict})`;
+                  } else {
                   const paths = files.flatMap((file) =>
                     [file.filename, file.previous_filename].filter(Boolean));
                   const classified = await exec.getExecOutput(
@@ -713,6 +737,7 @@ jobs:
                   const decision = JSON.parse(classified.stdout.trim());
                   unchangedBuildInputs = decision.build_inputs_changed === false;
                   buildInputReason = decision.reason;
+                  }
                 }
               } catch (error) {
                 core.warning(`Could not prove the Nightly build inputs unchanged; building: ${error.message}`);
@@ -1470,6 +1495,9 @@ jobs:
 
   # Why: docs/ci/nightly-workflow-notes/2026-11-26-refresh-test-compilation-cache-1.md
   resolve-nightly-ghostty-cli-helper:
+    environment:
+      name: ci-routing-agent
+      deployment: false
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.one_job != 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
@@ -1720,8 +1748,28 @@ jobs:
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 150 || 30 }}
     steps:
       - *github-token-for-git
+      # This run's pack of the build source (resolve-nightly-cmux-tui-client): 0 github.com fetches.
+      # actions/checkout below runs only when it is missing. PREPARE_REUSED: prepare's reuse step found the app.
+      - &nightly-source-download
+        name: Download the build source
+        id: nightly-source-get
+        if: env.PREPARE_REUSED != 'true'
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: nightly-source-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          path: ${{ runner.temp }}/nightly-source
+      - &nightly-source-unpack
+        name: Check out the build source from this run's pack
+        id: nightly-source
+        if: steps.nightly-source-get.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 5
+        run: bash "$RUNNER_TEMP/nightly-source/unpack.sh" unpack "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}" "$RUNNER_TEMP/nightly-source"
       - &checkout-build-ref
         name: Checkout build ref
+        if: steps.nightly-source.outputs.ok != 'true'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -2812,6 +2860,9 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && !env.LEFT_SLOT
         env:
           GH_TOKEN: ${{ github.token }}
+          # RATE_LIMIT_MOVES_TO_A_SPARE (pin-cmux-tui.sh github_get): the tree wait's runs reads move
+          # to the CI pool's tokens when the installation's hour is spent (nightly 46095639816).
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           CMUX_TUI_CLIENT_COMMIT: ${{ needs.resolve-nightly-cmux-tui-client.outputs.commit }}
           CMUX_TUI_CLIENT_KEY: ${{ needs.resolve-nightly-cmux-tui-client.outputs.key }}
           CMUX_TUI_CLIENT_CACHE: ${{ runner.temp }}/cmux-tui-client
@@ -2987,8 +3038,10 @@ jobs:
         run: echo "The original run's daemon assets were retained by the unsigned resume."
 
       - *github-token-for-git
+      - *nightly-source-download
+      - *nightly-source-unpack
       - name: Checkout build ref
-        if: inputs.nightly_next_unsigned_run == ''
+        if: inputs.nightly_next_unsigned_run == '' && steps.nightly-source.outputs.ok != 'true'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -3104,6 +3157,9 @@ jobs:
 
   # Why: docs/ci/nightly-workflow-notes/2026-11-26-resolve-nightly-cmux-tui-client.md
   resolve-nightly-cmux-tui-client:
+    environment:
+      name: ci-routing-agent
+      deployment: false
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
     # retry-nightly-next dispatches a new run at attempt 1. Use the rerun pool for those dispatches too.
@@ -3132,6 +3188,10 @@ jobs:
       superseded: ${{ steps.superseded.outputs.superseded }}
       # The build number (<run id><attempt>) for both side-by-side jobs, the app and the daemon.
       daemon_build: ${{ steps.daemon-build.outputs.build }}
+    env:
+      # A second path for every gh call (c-bedbdb1917): a refused github.token hour moves to a CI pool's own
+      # hour at once (gh_budget_wait.sh); a write the read-only pool cannot do goes back and waits as before.
+      GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
     steps:
       - name: Fix this run's build number
         id: daemon-build
@@ -3218,6 +3278,26 @@ jobs:
           SHOULD_PUBLISH: ${{ needs.decide.outputs.should_publish }}
           FORCE_BUILD: ${{ needs.decide.outputs.force }}
         run: bash scripts/ci/nightly-steps/resolve-choose-build-commit.sh
+      # The build commit's source once per run, from this mirror-served checkout: later jobs unpack it
+      # instead of fetching from github.com (scripts/ci/nightly-source.sh).
+      - name: Pack the build source for later jobs
+        id: source-pack
+        if: steps.build.outputs.build_sha != '' && steps.build.outputs.already_published != 'true'
+        continue-on-error: true
+        timeout-minutes: 5
+        run: bash scripts/ci/nightly-source.sh pack "${{ steps.build.outputs.build_sha }}" "$RUNNER_TEMP/nightly-source"
+      - name: Upload the build source
+        if: steps.source-pack.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-source-${{ steps.build.outputs.build_sha }}
+          path: ${{ runner.temp }}/nightly-source
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 1
+          compression-level: 0
       # The selected build source can differ from this workflow's control SHA.
       - name: Record pending tree dependency
         id: tree-source
@@ -3275,11 +3355,9 @@ jobs:
       fixit_nofix: ${{ steps.fixit-nofix.outputs.nofix }}
     steps:
       - *github-token-for-git
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
-          submodules: false
+      - *nightly-source-download
+      - *nightly-source-unpack
+      - *checkout-build-ref
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -3334,11 +3412,9 @@ jobs:
       sha: ${{ steps.shelf.outcome == 'success' && needs.resolve-nightly-cmux-tui-client.outputs.build_sha || '' }}
     steps:
       - *github-token-for-git
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
-          submodules: false
+      - *nightly-source-download
+      - *nightly-source-unpack
+      - *checkout-build-ref
       - name: Install Linux build dependencies
         run: |
           # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
@@ -3470,7 +3546,7 @@ jobs:
             echo "::warning::could not list this run's prepared artifacts; preparing the variant here"
             count=0
           fi
-          if [ "$count" -gt 0 ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
+          if [ "$count" -gt 0 ]; then { echo "exists=true" >> "$GITHUB_OUTPUT"; echo PREPARE_REUSED=true >> "$GITHUB_ENV"; }; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
 
       - &clear-stale-git-locks-self-hos-3
         name: Clear stale git locks (self-hosted reused workspace)
@@ -3488,9 +3564,11 @@ jobs:
 
 
       - *github-token-for-git
+      - *nightly-source-download
+      - *nightly-source-unpack
       - &checkout-build-ref-2
         name: Checkout build ref
-        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
+        if: (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && steps.nightly-source.outputs.ok != 'true'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -3703,18 +3781,20 @@ jobs:
           set -euo pipefail
           # Every primary leg uploaded its prepared app; no API call, so a spent
           # installation rate limit cannot fail this no-op leg.
-          if [ "$PRIMARY_RESULT" = success ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ "$PRIMARY_RESULT" = success ]; then { echo "exists=true" >> "$GITHUB_OUTPUT"; echo PREPARE_REUSED=true >> "$GITHUB_ENV"; }; exit 0; fi
           # This read runs before the checkout (no budget wait yet); a refused one prepares here.
           if ! count="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$ARTIFACT&per_page=20" --jq '[.artifacts[] | select(.expired == false)] | length')"; then
             echo "::warning::could not list this run's prepared artifacts; preparing the variant here"
             count=0
           fi
-          if [ "$count" -gt 0 ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
+          if [ "$count" -gt 0 ]; then { echo "exists=true" >> "$GITHUB_OUTPUT"; echo PREPARE_REUSED=true >> "$GITHUB_ENV"; }; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
 
       - *clear-stale-git-locks-self-hos-3
 
 
       - *github-token-for-git
+      - *nightly-source-download
+      - *nightly-source-unpack
       - *checkout-build-ref-2
 
 
@@ -3964,7 +4044,10 @@ jobs:
 
 
       - *github-token-for-git
+      - *nightly-source-download
+      - *nightly-source-unpack
       - name: Checkout build ref
+        if: steps.nightly-source.outputs.ok != 'true'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -4607,6 +4690,8 @@ jobs:
       NIGHTLY_COMPONENT_GATES: ${{ vars.NIGHTLY_COMPONENT_GATES }}
     steps:
       - *github-token-for-git
+      - *nightly-source-download
+      - *nightly-source-unpack
       - *checkout-build-ref
 
       # nightly-next's license check reads ghostty-next/build.zig.zon.
@@ -4707,6 +4792,8 @@ jobs:
       CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
     steps:
       - *github-token-for-git
+      - *nightly-source-download
+      - *nightly-source-unpack
       - *checkout-build-ref
 
       # Publication tooling from this workflow's own commit (see publish-nightly).
@@ -5936,7 +6023,8 @@ jobs:
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-next-download.sh
 
       # Why: docs/ci/nightly-workflow-notes/2026-11-26-publish-nightly-write-the-build-manifest-for-this-app-input-.md
-      - name: Write the build manifest for this app-input digest
+      - &x91m
+        name: Write the build manifest for this app-input digest
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && steps.next_downloads.outcome == 'success' && !env.LEFT_SLOT
         continue-on-error: true
         timeout-minutes: 2
@@ -6347,11 +6435,13 @@ jobs:
       - name: Download the published build's dSYMs from the run that compiled it (parallel)
         id: dsyms-parallel
         continue-on-error: true
-        timeout-minutes: 10
+        # Off the publish path: waits up to an hour for github.token's reset when every spare is spent or dead (run 46125411693).
+        timeout-minutes: 65
         env:
           GITHUB_TOKEN: ${{ github.token }}
           # Spent hour: download-run-artifact.py moves to a CI pool's token at once (run 45823496118).
           GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          CMUX_ARTIFACT_RETRY_BUDGET_SECONDS: "3600"
           DSYMS_ARTIFACT: ${{ steps.producer.outputs.artifact }}
           DSYMS_RUN: ${{ steps.producer.outputs.run }}
         run: python3 .publish-tooling/scripts/ci/download-run-artifact.py --artifact-id "$DSYMS_ARTIFACT" --run-id "$DSYMS_RUN" --out "$RUNNER_TEMP/published-dsyms/dSYMs" --connections 32
@@ -6386,7 +6476,7 @@ jobs:
       contents: read
       actions: read
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
-    timeout-minutes: 45
+    timeout-minutes: 75
     env:
       BUILD: ${{ needs.published-build.outputs.publish_build }}
       BUILD_SHA: ${{ needs.published-build.outputs.publish_build_sha }}
@@ -6394,14 +6484,39 @@ jobs:
       - *github-token-for-git
       - *checkout-publication-tooling-a
 
+      # 2026-11-28 06:29Z (Finish run 46116773791): this job's first gh call died on "API rate limit exceeded for
+      # installation" because it had no waiter and no spare pool, while keep-published-dsyms beside it had both.
+      # No release App token here: its secrets live only in release/release-next, not this job's environment.
+      - *wait-through-github-api-rate-l-2
+
       - name: Find the attempt that compiled the published build
         id: producer
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           DSYMS_NAMES: nightly-next-dsyms nightly-next-cmux-tui-dsyms
         run: bash .publish-tooling/scripts/ci/nightly-steps/dsyms-find-attempt.sh
 
+      # The action below cannot wait through a limit itself: wait here until the budget has room for its calls.
+      - name: Wait for API budget before the dSYM download
+        run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --reserve 100
+
+      # 2026-11-28 10:53Z (run 46137161280): the action below died on "API rate limit exceeded for installation"
+      # with no retry. The script waits through the reset (and tries the spares first); the action stays as fallback.
+      - name: Download the build's dSYMs (parallel, waits through a rate limit)
+        id: dsyms-parallel
+        continue-on-error: true
+        timeout-minutes: 65
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          CMUX_ARTIFACT_RETRY_BUDGET_SECONDS: "3600"
+          DSYMS_ARTIFACTS: ${{ steps.producer.outputs.artifacts }}
+          DSYMS_RUN: ${{ steps.producer.outputs.run }}
+        run: python3 .publish-tooling/scripts/ci/download-run-artifact.py --artifact-id "$DSYMS_ARTIFACTS" --run-id "$DSYMS_RUN" --out "$RUNNER_TEMP/dsyms" --connections 32
+
       - name: Download the build's dSYMs
+        if: steps.dsyms-parallel.outcome != 'success'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           artifact-ids: ${{ steps.producer.outputs.artifacts }}
@@ -6418,6 +6533,9 @@ jobs:
 
   # Why: docs/ci/nightly-workflow-notes/2026-11-26-sentry-dsyms-nightly-1.md
   build-nightly-deltas:
+    environment:
+      name: ci-routing-agent
+      deployment: false
     needs: [published-build]
     if: always() && needs.published-build.outputs.should_publish == 'true' && needs.published-build.outputs.fast_build != 'true' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_source != 'recovered' && needs.published-build.outputs.publish_refused != 'true' && vars.NIGHTLY_DELTAS != 'off' && needs.published-build.outputs.run_tail == 'true'
     permissions:
@@ -6452,6 +6570,10 @@ jobs:
           ref: ${{ github.sha }}
           path: .publish-tooling
           sparse-checkout: scripts
+      # 2026-11-28 06:30Z (Finish run 46116773791): "Download published variant" died on the installation's spent
+      # hour, in the parallel downloader (no spare pool) and then in the action (no wait): the same pair
+      # publish-nightly already has.
+      - *wait-through-github-api-rate-l-2
       # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-nightly-deltas-select-xcode.md
       - name: Select Xcode
         run: ./.publish-tooling/scripts/select-ci-xcode.sh
@@ -6463,8 +6585,14 @@ jobs:
         timeout-minutes: 10
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          # Spent hour: download-run-artifact.py moves to a CI pool's token at once (run 45823496118).
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           SOURCE_RUN: ${{ needs.published-build.outputs.source_run || github.run_id }}
         run: python3 .publish-tooling/scripts/ci/download-run-artifact.py --name "cmux-nightly-variant-$NIGHTLY_VARIANT" --run-id "$SOURCE_RUN" --out "$RUNNER_TEMP/nightly-delta/input" --connections 32
+
+      - name: Wait for API budget before the variant download action
+        if: steps.variant-parallel.outcome != 'success'
+        run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --reserve 100
 
       - name: Download published variant
         if: steps.variant-parallel.outcome != 'success'
@@ -6889,12 +7017,18 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           SOURCE_RUN: ${{ needs.published-build.outputs.source_run || github.run_id }}
         run: python3 .publish-tooling/scripts/ci/download-run-artifact.py --name "cmux-nightly-variant-$NIGHTLY_VARIANT" --run-id "$SOURCE_RUN" --out nightly-pkg/input --connections 32
+      # The managed keychain, made in its own step so only this step holds the certificate;
+      # next-pkg.sh signs from it (NEXT_PKG_KEYCHAIN_READY) and the always() cleanup deletes it.
+      - name: Import signing cert for the .pkg
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: ./scripts/ci/signing-keychain.sh create
       # From the build ref: build-pkg.sh and the postinstall match the app they package.
       - name: Build, sign, notarize and upload the pre-warming .pkg
         timeout-minutes: 50
         env:
-          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          NEXT_PKG_KEYCHAIN_READY: "1"
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
@@ -6968,6 +7102,8 @@ jobs:
       # Left before nightly-next moved: wake-nightly-next-tick retries this commit unless it moves.
       left_pending: ${{ steps.one-leave.outputs.pending }}
     env:
+      # GH_TOKEN_SPARES (c-bedbdb1917) sits on this job's github.token gh steps, not here: a signing job holds no
+      # secret at job level, or every bundle step sees the pool tokens (test_ci_signing_keychain_is_deleted_before_bundle_code.py).
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
       # Warm in one tree per Mac under $HOME, by flag (nightly_build_state.py); no shared compiler store or host root.
@@ -7040,6 +7176,7 @@ jobs:
         if: github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '')
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           TIP_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.tip_sha }}
           REPOSITORY: ${{ github.repository }}
           LOOP_RETRY: ${{ inputs.nightly_next_loop_retry }}
@@ -7362,6 +7499,7 @@ jobs:
         if: steps.recheck.outputs.already_published != 'true' && !env.LEFT_SLOT
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           WRITER_TOKEN: ${{ steps.writer-token.outputs.token }}
           REQUIRED: ${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}
           SOURCE: own
@@ -7374,6 +7512,7 @@ jobs:
       - *x89
       - *x90
       - *x91
+      - *x91m
       - *x92
       - *x92b
       - *x93
@@ -7614,6 +7753,9 @@ jobs:
 
   # nightly-next-one's end asks main's tick at once. Why: docs/ci/nightly-workflow-notes.md#note-19
   wake-nightly-next-tick:
+    environment:
+      name: ci-routing-agent
+      deployment: false
     needs: [decide, resolve-nightly-cmux-tui-client, nightly-next-one, early-nightly-webviews]
     if: "always() && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.one_job == 'true' && (needs.nightly-next-one.result != 'skipped' || needs.early-nightly-webviews.outputs.red_sha != '')"
     # The one-job JIT VM (published-in's), not the mini or a PR-shared Linux runner: the job holds App keys (below).
@@ -7790,6 +7932,9 @@ jobs:
 
   # Why: docs/ci/nightly-workflow-notes.md#note-22
   published-build:
+    environment:
+      name: ci-routing-agent
+      deployment: false
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly, nightly-next-one]
     if: "always() && (github.event_name == 'workflow_dispatch' && inputs.nightly_next_restore_notes == '' && github.ref == 'refs/heads/nightly-next' && inputs.nightly_next_post_publish != '' || needs.decide.outputs.should_publish == 'true' && (needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' || needs.nightly-next-one.result == 'success' && needs.nightly-next-one.outputs.left != 'true' && needs.nightly-next-one.outputs.refused != 'true'))"
     # Why: docs/ci/nightly-workflow-notes/2026-11-26-published-build.md
@@ -7841,6 +7986,9 @@ jobs:
       comment: ${{ steps.record.outputs.comment }}
       run_tail: ${{ steps.record.outputs.cross_run == 'true' || steps.record.outputs.track != 'nightly-next' || github.event_name != 'push' && inputs.nightly_next_loop_retry == '' }}
     env:
+      # A second path for every gh call (c-bedbdb1917): a refused github.token hour moves to a CI pool's own
+      # hour at once (gh_budget_wait.sh); a write the read-only pool cannot do goes back and waits as before.
+      GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
       SOURCE: ${{ inputs.nightly_next_post_publish }}
       NEEDS: ${{ toJSON(needs) }}
       RUN_ID: ${{ github.run_id }}
@@ -7892,6 +8040,9 @@ jobs:
 
   # Why: docs/ci/nightly-workflow-notes.md#note-49
   dispatch-published-in:
+    environment:
+      name: ci-routing-agent
+      deployment: false
     # The build jobs too: the record says whether any of them failed (push_clean).
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-sign-notarize-nightly, resolve-nightly-cmux-tui-client, publish-nightly, published-build, publish-nightly-next-github, nightly-next-one]
     if: "!cancelled() && (needs.publish-nightly.result == 'success' || needs.nightly-next-one.result == 'success') && needs.published-build.result == 'success' && needs.published-build.outputs.run_tail != 'true'"

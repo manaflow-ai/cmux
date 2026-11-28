@@ -413,6 +413,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // Cloud API calls carry the caller's access token;
                         // `cmux cloud` reaches them through its own stdin
                         // request, not a CLI verb per op.
+                        | "cloud.artifacts.read"
                         | "cloud.machine.chat_access"
                         | "cloud.machine.io"
                         | "cloud.machine.share_chat"
@@ -458,6 +459,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "cloud.vm.publication_api_keys"
                         | "cloud.vm.publications"
                         | "cloud.vm.revoke_publication_api_key"
+                        | "cloud.vm.agent_key_create"
                         | "cloud.vm.scp_endpoint"
                         | "cloud.vm.tunnel_attach"
                         | "cloud.vm.tunnel_detach"

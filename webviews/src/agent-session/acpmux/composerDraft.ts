@@ -17,11 +17,6 @@ function daemonDraft(result: unknown): string | undefined {
   return composerDraft(result);
 }
 
-/** The composer text once a draft arrives: the draft, unless the user already typed something. */
-export function seededText(current: string, draft: string | undefined): string {
-  return draft && !current ? draft : current;
-}
-
 /**
  * The prompt once a saved draft (acpmux's, the tab's kept unsent text, the page's remount cache)
  * meets text the composer already holds, typed before this page ever read the chat's draft (the
