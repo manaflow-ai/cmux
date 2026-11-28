@@ -21,7 +21,7 @@
 #     the gateway runner it holds goes back to required compiles.
 # A step that has started is never cancelled here.
 #
-# Env: REF, BASE (full shas), RUN_ID, GITHUB_REPOSITORY, WORKFLOW_FILE,
+# Env: REF (full SHA), BASE (full SHA or --all), RUN_ID, GITHUB_REPOSITORY, WORKFLOW_FILE,
 # GITHUB_TOKEN; CMUX_CI_CLIENT (default ~/.local/bin/cmux-ci);
 # TIP_QUEUE_LIMIT_SECONDS (2700), TIP_POLL_SECONDS (30), TIP_STEP_TIMEOUT
 # (2400); TIP_GH_API (a command taking an API path and printing its JSON;
@@ -109,8 +109,10 @@ errors() {
   grep -E '^/.*\.swift:[0-9]+:[0-9]+: error:' "$log" | sed -E 's|^.*/(Packages/)|\1|' | sort -u | head -n 30
 }
 if grep -q "$marker" "$log"; then
+  scope="changes since \`$BASE\`"
+  [ "$BASE" != --all ] || scope="all test targets"
   {
-    echo "Test targets that did not compile at \`$REF\` (changes since \`$BASE\`):"
+    echo "Test targets that did not compile at \`$REF\` ($scope):"
     echo
     echo '```'
     grep -E '^[A-Za-z0-9_]+ +[^ ]+ +FAILED' "$log" || true
