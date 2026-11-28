@@ -262,7 +262,7 @@ jobs:
         if: ${{ github.event_name == 'push' }}
         env:
           BEFORE: ${{ github.event.before }}
-        run: git fetch --no-tags --depth=1 origin "$BEFORE" || echo "push base $BEFORE unavailable; every billing job runs"
+        run: git fetch --no-recurse-submodules --no-tags --depth=1 origin "$BEFORE" || echo "push base $BEFORE unavailable; every billing job runs"
 
       - name: Route billing jobs
         id: route

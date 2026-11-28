@@ -177,7 +177,7 @@ jobs:
           # The token goes on this one fetch's command line, never into .git/config: the head's scripts run in a
           # worktree that shares it.
           auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
-          git -c "http.https://github.com/.extraheader=$auth" fetch -q --filter=blob:none origin "$SHA"
+          git -c "http.https://github.com/.extraheader=$auth" fetch --no-recurse-submodules -q --filter=blob:none origin "$SHA"
           # The fleet Macs keep this checkout across jobs but empty $RUNNER_TEMP, so an earlier job's worktree is
           # still registered with its folder gone, and `worktree add` refuses the path (exit 128; runs 46184455907,
           # 46184441265 on 11-28). prune drops only registrations whose folder is missing.

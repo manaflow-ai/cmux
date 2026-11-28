@@ -79,7 +79,7 @@ jobs:
           TABLE_JOB: ${{ matrix.job }}
         run: |
           recorded=""
-          if timeout 60 git fetch --quiet --no-tags --depth=1 origin "refs/cmux-ci/base-$TABLE_JOB-tip/$GITHUB_REF_NAME" 2>/dev/null; then
+          if timeout 60 git fetch --no-recurse-submodules --quiet --no-tags --depth=1 origin "refs/cmux-ci/base-$TABLE_JOB-tip/$GITHUB_REF_NAME" 2>/dev/null; then
             recorded="$(git show FETCH_HEAD:tip 2>/dev/null | head -c 40 || true)"
           fi
           if [[ "$recorded" =~ ^[0-9a-f]{40}$ ]]; then
@@ -117,7 +117,7 @@ jobs:
             since="$PUSH_BEFORE"
             from="tip before this push (the last green run could not be read)"
           fi
-          if [[ "$since" =~ ^[0-9a-f]{40}$ ]] && git fetch --quiet --no-tags --depth=1 origin "$since"; then
+          if [[ "$since" =~ ^[0-9a-f]{40}$ ]] && git fetch --no-recurse-submodules --quiet --no-tags --depth=1 origin "$since"; then
             git diff --name-only --no-renames -z "$since" HEAD > "$RUNNER_TEMP/changed-paths.txt"
             echo "PATHS_FILE=$RUNNER_TEMP/changed-paths.txt" >> "$GITHUB_ENV"
             echo "SINCE_SHA=$since" >> "$GITHUB_ENV"

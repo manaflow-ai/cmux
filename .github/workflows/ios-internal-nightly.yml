@@ -199,7 +199,7 @@ jobs:
           git config remote.origin.promisor true
           git config remote.origin.partialclonefilter blob:none
           git sparse-checkout set --no-cone --stdin <<< "$ARCHIVE_PATHS"
-          git fetch \
+          git fetch --no-recurse-submodules \
             --no-tags --no-recurse-submodules --depth=1 --filter=blob:none origin "$SHA"
           git checkout -q --detach "$SHA"
           [[ "$(git rev-parse HEAD)" == "$SHA" && ! -e "$mirror/glaeda-repair-pending" ]]
@@ -453,7 +453,7 @@ jobs:
           # feat-cmux-next's history without blobs, not fetch-depth 0's every
           # branch and tag (205 s of this job, job 141000547805); then the build's commit.
           scripts/ci/fetch_branch_history.sh feat-cmux-next
-          git fetch -q --no-tags --filter=blob:none origin "$SHA"
+          git fetch --no-recurse-submodules -q --no-tags --filter=blob:none origin "$SHA"
           mkdir -p "$RUNNER_TEMP/notes"
           python3 -I scripts/ci/ios_internal_notes.py notes --sha "$SHA" --base "$BASE" --asc-ref "$ASC_REF" \
             --out "$RUNNER_TEMP/notes/what-to-test.txt"
@@ -512,7 +512,7 @@ jobs:
       - name: Fetch the built commit
         run: |
           set -euo pipefail
-          git fetch --no-tags --depth=1 origin "$SHA"
+          git fetch --no-recurse-submodules --no-tags --depth=1 origin "$SHA"
           git cat-file -e "$SHA^{commit}"
 
       - name: Check the builder branch carries the signing script

@@ -64,10 +64,10 @@ echo "UPL nightly $nightly commit=$commit"
 
 # The plan against NIGHTLY: what the look will do, and whether a swap carries its build.
 for sha in "$commit" "$head"; do
-  git -C "$root" cat-file -e "$sha^{commit}" 2>/dev/null || git -C "$root" fetch -q --no-tags origin "$sha" \
-    || git -C "$root" fetch -q --no-tags https://github.com/manaflow-ai/cmux.git "$sha" || { echo "UPL cannot fetch $sha"; exit 3; }
+  git -C "$root" cat-file -e "$sha^{commit}" 2>/dev/null || git -C "$root" fetch --no-recurse-submodules -q --no-tags origin "$sha" \
+    || git -C "$root" fetch --no-recurse-submodules -q --no-tags https://github.com/manaflow-ai/cmux.git "$sha" || { echo "UPL cannot fetch $sha"; exit 3; }
 done
-git -C "$root" merge-base "$commit" "$head" >/dev/null 2>&1 || git -C "$root" fetch -q --no-tags --unshallow origin 2>/dev/null || true
+git -C "$root" merge-base "$commit" "$head" >/dev/null 2>&1 || git -C "$root" fetch --no-recurse-submodules -q --no-tags --unshallow origin 2>/dev/null || true
 python3 "$hv" plan --source "sha:$head" --app "$app" --json >"$out/plan.json" 2>"$out/plan.err" || { cat "$out/plan.err"; exit 3; }
 read -r carried onto rust <<<"$(python3 -I - "$out/plan.json" "$head" <<'PY'
 import json, sys

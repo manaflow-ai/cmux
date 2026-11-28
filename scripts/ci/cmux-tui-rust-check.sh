@@ -274,7 +274,7 @@ if [[ -n "$affected_base" ]]; then
   depth=()  # --depth only in a checkout that is already shallow, so a full clone stays full
   [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=200)
   git -C "$root" cat-file -e "$affected_base^{commit}" 2>/dev/null \
-    || git -C "$root" fetch --quiet --no-tags ${depth[@]+"${depth[@]}"} origin "$affected_base" 2>/dev/null \
+    || git -C "$root" fetch --no-recurse-submodules --quiet --no-tags ${depth[@]+"${depth[@]}"} origin "$affected_base" 2>/dev/null \
     || echo "affected: cannot fetch $affected_base"
   if git -C "$root" merge-base "$affected_base" HEAD >/dev/null 2>&1 \
       && affected_args="$(python3 "$root/scripts/ci/cargo_affected.py" --root "$root" --base "$affected_base")"; then

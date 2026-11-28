@@ -189,7 +189,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "$PUSH_BASE" ] && [ "$PUSH_BASE" != "0000000000000000000000000000000000000000" ] \
-              && git fetch --no-tags --depth=1 origin "$PUSH_BASE"; then
+              && git fetch --no-recurse-submodules --no-tags --depth=1 origin "$PUSH_BASE"; then
             python3 scripts/web_lint_prepush.py --base "$PUSH_BASE" --head "$GITHUB_SHA" --timings
           else
             echo "::notice title=web lint::push base unknown; linting every package"

@@ -69,8 +69,8 @@ echo "==> free disk ${free_gb} GB"
 for c in "$base" "$head"; do
   # A cmux-ci step checkout may have no origin remote; a commit on a pushed side
   # branch is then fetched from the public repository by its SHA.
-  git cat-file -e "$c^{commit}" 2>/dev/null || git fetch --quiet --no-tags origin "$c" 2>/dev/null \
-    || git fetch --quiet --no-tags https://github.com/manaflow-ai/cmux.git "$c" \
+  git cat-file -e "$c^{commit}" 2>/dev/null || git fetch --no-recurse-submodules --quiet --no-tags origin "$c" 2>/dev/null \
+    || git fetch --no-recurse-submodules --quiet --no-tags https://github.com/manaflow-ai/cmux.git "$c" \
     || { echo "nightly-cas-identity.sh: cannot fetch $c" >&2; exit 1; }
 done
 git worktree add --quiet --detach "$src" "$head"

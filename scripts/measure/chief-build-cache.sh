@@ -30,8 +30,8 @@ export CMUX_NEXT_OPTCHAT_CHIEF_ARCHS=arm64
 
 for sha in "$base" "$head"; do
   # A cmux-ci step checkout may have no origin remote; fetch from the public repository then.
-  git -C "$repo" cat-file -e "$sha^{commit}" 2>/dev/null || git -C "$repo" fetch --quiet --no-tags origin "$sha" 2>/dev/null \
-    || git -C "$repo" fetch --quiet --no-tags https://github.com/manaflow-ai/cmux.git "$sha" \
+  git -C "$repo" cat-file -e "$sha^{commit}" 2>/dev/null || git -C "$repo" fetch --no-recurse-submodules --quiet --no-tags origin "$sha" 2>/dev/null \
+    || git -C "$repo" fetch --no-recurse-submodules --quiet --no-tags https://github.com/manaflow-ai/cmux.git "$sha" \
     || { echo "chief-build-cache.sh: cannot fetch $sha" >&2; exit 1; }
 done
 echo "host: $(uname -m) $(sw_vers -productVersion 2>/dev/null || true) cpus=$(sysctl -n hw.ncpu 2>/dev/null || nproc)"

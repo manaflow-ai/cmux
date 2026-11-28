@@ -153,7 +153,7 @@ main() {
     local depth=()
     [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
     if ! git cat-file -e "$source_sha^{commit}" 2>/dev/null; then
-      git fetch -q --no-tags ${depth[@]+"${depth[@]}"} https://github.com/manaflow-ai/cmux.git "$source_sha" ||
+      git fetch --no-recurse-submodules -q --no-tags ${depth[@]+"${depth[@]}"} https://github.com/manaflow-ai/cmux.git "$source_sha" ||
         { echo "rust-test-bench.sh: could not fetch $source_sha" >&2; exit 3; }
     fi
     git checkout -q --detach "$source_sha"

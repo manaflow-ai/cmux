@@ -703,7 +703,7 @@ PY
     remote=origin tree="$state/follow" repo="$ROOT"
     # Fetch into the repo that owns the checkout, which another clone may have made.
     [[ -e "$tree/.git" ]] && repo="$tree"
-    git -C "$repo" fetch -q "$remote" "refs/pull/$pr/head"
+    git -C "$repo" fetch --no-recurse-submodules -q "$remote" "refs/pull/$pr/head"
     head="$(git -C "$repo" rev-parse FETCH_HEAD)"
     # The dev server runs the head's own code (its Vite config and dev-server plugins) on this Mac.
     # A branch of the repo needs push access; a fork's head is anyone's code, so it needs --fork

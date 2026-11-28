@@ -115,7 +115,7 @@ git remote get-url origin >/dev/null 2>&1 || remote="${CMUX_MOBILE_FFI_PIN_REMOT
 if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
   depth=()
   [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
-  git fetch --quiet ${depth[@]+"${depth[@]}"} "$remote" "$sha" \
+  git fetch --no-recurse-submodules --quiet ${depth[@]+"${depth[@]}"} "$remote" "$sha" \
     || { echo "error: pinned source sha $sha is not available from $remote" >&2; exit 1; }
 fi
 behind_since() {
@@ -123,7 +123,7 @@ behind_since() {
   for _ in 1 2 3 4 5 6 7 8; do
     git merge-base --is-ancestor "$sha" HEAD 2>/dev/null && break
     [[ "$(git rev-parse --is-shallow-repository)" == true ]] || return 1
-    git fetch --quiet --deepen=50 "$remote" "$(git rev-parse HEAD)" 2>/dev/null || return 1
+    git fetch --no-recurse-submodules --quiet --deepen=50 "$remote" "$(git rev-parse HEAD)" 2>/dev/null || return 1
   done
   git merge-base --is-ancestor "$sha" HEAD 2>/dev/null || return 1
   first="$(git log --reverse --format=%ct "$sha..HEAD" -- "${specs[@]}")" || return 1

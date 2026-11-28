@@ -122,7 +122,7 @@ jobs:
           # synced, often many merges behind on a busy base, so requiring it left the git listing
           # unusable (language-boundaries.yml's, cmux#41500 at d059d7bd, 2026-11-11). The diff from
           # whichever base GitHub merged with is still what the PR changes there.
-          if git fetch --no-tags --filter=blob:none --depth=2 \
+          if git fetch --no-recurse-submodules --no-tags --filter=blob:none --depth=2 \
                origin "+refs/pull/$PR/merge:refs/guard/merge" \
              && git rev-parse --verify --quiet refs/guard/merge^1 > /dev/null \
              && [ "$(git rev-parse refs/guard/merge^2)" = "$HEAD_SHA" ] \

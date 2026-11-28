@@ -21,7 +21,7 @@ depth=()
 if [[ "$EVENT_NAME" == pull_request ]]; then
   base_ref=HEAD^1
 elif [[ "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ ]] \
-  && { git cat-file -e "$BEFORE^{commit}" 2>/dev/null || git fetch --no-tags ${depth[@]+"${depth[@]}"} origin "$BEFORE"; }; then
+  && { git cat-file -e "$BEFORE^{commit}" 2>/dev/null || git fetch --no-recurse-submodules --no-tags ${depth[@]+"${depth[@]}"} origin "$BEFORE"; }; then
   base_ref="$BEFORE"
 fi
 if [[ -z "$base_ref" ]]; then

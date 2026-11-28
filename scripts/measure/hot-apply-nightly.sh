@@ -35,8 +35,8 @@ for arg in "$@"; do
 done
 [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "give sha=<40-hex merged commit>" >&2; exit 2; }
 # hot-apply.py diffs the nightly's commit against SHA: both must be in this checkout's history.
-git fetch -q origin "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next"
-[[ "$(git rev-parse --is-shallow-repository)" == true ]] && git fetch -q --unshallow origin
+git fetch --no-recurse-submodules -q origin "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next"
+[[ "$(git rev-parse --is-shallow-repository)" == true ]] && git fetch --no-recurse-submodules -q --unshallow origin
 if [[ -z "$dmg" ]]; then
   dmg="$(curl -fsSL --retry 3 --retry-all-errors https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
     | grep -oE 'url="https://[^"]+-macos-arm64-[0-9]+\.dmg"' | head -1 | cut -d'"' -f2)"

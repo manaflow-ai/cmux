@@ -87,7 +87,7 @@ maybe_update_checkout() {
     warn_checkout "helper checkout $checkout_root is not on main; not auto-updating"
     return 0
   fi
-  if ! git -C "$checkout_root" fetch --quiet origin main 2>/dev/null; then
+  if ! git -C "$checkout_root" fetch --no-recurse-submodules --quiet origin main 2>/dev/null; then
     warn_checkout "could not fetch origin/main for helper checkout $checkout_root; not auto-updating"
     return 0
   fi
@@ -335,7 +335,7 @@ git_patches() {
   if ! git -C "$repo_dir" cat-file -e "$sha^{commit}" 2>/dev/null; then
     remote=$(git -C "$repo_dir" remote -v | awk '$2 ~ /github.com[/:]manaflow-ai\/cmux([.]git)?/ {print $1; exit}')
     [ -n "$remote" ] || return 1
-    timeout "${GH_MERGE_GREEN_GIT_TIMEOUT:-20}" git -C "$repo_dir" fetch -q "$remote" "refs/pull/$num/head" || return 1
+    timeout "${GH_MERGE_GREEN_GIT_TIMEOUT:-20}" git -C "$repo_dir" fetch --no-recurse-submodules -q "$remote" "refs/pull/$num/head" || return 1
     git -C "$repo_dir" cat-file -e "$sha^{commit}" 2>/dev/null || return 1
   fi
   git -C "$repo_dir" show --format= --find-renames "$sha"
@@ -924,7 +924,7 @@ merged_head_checks() {
       "review that code, then rerun with --trust-fork-head $sha; only teamleaderleo/cmux is owner-trusted"
   fi
   repo_dir="${GH_MERGE_GREEN_REPO_DIR:-$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null || true)}"
-  if [ -z "$repo_dir" ] || ! git -C "$repo_dir" fetch --quiet origin \
+  if [ -z "$repo_dir" ] || ! git -C "$repo_dir" fetch --no-recurse-submodules --quiet origin \
       "+refs/heads/$base:refs/gh-merge-green/base" "+refs/pull/$num/head:refs/gh-merge-green/head" 2>/dev/null; then
     refuse \
       "not merged: cannot fetch $base and $ref to check the merged head" \

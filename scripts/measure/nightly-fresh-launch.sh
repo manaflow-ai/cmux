@@ -150,7 +150,7 @@ build_ab() {
     [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == true ]] && depth=(--depth=1) # a full clone stays full
     # A fleet step's warm checkout comes from the fleet mirror and has no `origin` remote: fetch from the repository's URL.
     git cat-file -e "$base^{commit}" 2>/dev/null \
-      || git fetch --quiet ${depth[@]+"${depth[@]}"} https://github.com/manaflow-ai/cmux.git "$base" \
+      || git fetch --no-recurse-submodules --quiet ${depth[@]+"${depth[@]}"} https://github.com/manaflow-ai/cmux.git "$base" \
       || { echo "NFL cannot fetch base $base" >&2; exit 3; }
     git -c advice.detachedHead=false checkout --quiet --detach "$base" || exit 3
     build_dmg "$out" base "$config"; rc=$?

@@ -103,7 +103,7 @@ for p in "${phones[@]}"; do
     # Only a shallow checkout fetches shallow: a full clone must not turn shallow (tests/test_ci_no_shallow_dev_fetch.py).
     depth=()
     [[ "$(git -C "$repo" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
-    git -C "$repo" cat-file -e "$sha^{commit}" 2>/dev/null || git -C "$repo" fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin "$sha"
+    git -C "$repo" cat-file -e "$sha^{commit}" 2>/dev/null || git -C "$repo" fetch --no-recurse-submodules -q --no-tags ${depth[@]+"${depth[@]}"} origin "$sha"
     git -C "$repo" worktree add -q --detach "$work/phone-$sha" "$sha"
     src="$work/phone-$sha"
   fi

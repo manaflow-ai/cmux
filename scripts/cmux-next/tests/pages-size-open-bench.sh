@@ -61,7 +61,7 @@ for variant in baseline candidate; do
   STAGE="$variant source"
   # A missing pin comes from origin into the real checkout (not a fixture repo; it needs the user's git auth).
   # Auto maintenance stays off so no detached gc is still writing .git while the bench runs.
-  if ! git -C "$ROOT" cat-file -e "$pin^{commit}" 2>/dev/null; then git -C "$ROOT" -c maintenance.auto=false fetch origin "$pin"; fi
+  if ! git -C "$ROOT" cat-file -e "$pin^{commit}" 2>/dev/null; then git -C "$ROOT" -c maintenance.auto=false fetch --no-recurse-submodules origin "$pin"; fi
   git -C "$ROOT" rev-parse "$pin" "$pin^{tree}" > "$OUT/$variant-source.txt"
   mkdir -p "$WORK/$variant" "$OUT/$variant/metafiles"
   git -C "$ROOT" archive "$pin" | tar -x -C "$WORK/$variant"

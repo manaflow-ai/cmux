@@ -74,7 +74,7 @@ main() {
 }
 
 read_tip() {
-  git fetch --quiet --no-tags ${depth[@]+"${depth[@]}"} "$remote" "refs/heads/$branch" >&2 || return 1
+  git fetch --no-recurse-submodules --quiet --no-tags ${depth[@]+"${depth[@]}"} "$remote" "refs/heads/$branch" >&2 || return 1
   git rev-parse FETCH_HEAD
 }
 

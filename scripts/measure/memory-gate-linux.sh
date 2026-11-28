@@ -29,10 +29,10 @@ root="$(git rev-parse --show-toplevel)"
 cd "$root"
 if [ -z "$base" ]; then
   if [ -n "${GITHUB_BASE_SHA:-}" ]; then
-    git cat-file -e "$GITHUB_BASE_SHA^{commit}" 2>/dev/null || git fetch -q origin "$GITHUB_BASE_SHA" || true
+    git cat-file -e "$GITHUB_BASE_SHA^{commit}" 2>/dev/null || git fetch --no-recurse-submodules -q origin "$GITHUB_BASE_SHA" || true
     base="$(git merge-base "$GITHUB_BASE_SHA" HEAD 2>/dev/null || echo "$GITHUB_BASE_SHA")"
   else
-    git fetch -q origin feat-cmux-next 2>/dev/null || true
+    git fetch --no-recurse-submodules -q origin feat-cmux-next 2>/dev/null || true
     base="$(git merge-base origin/feat-cmux-next HEAD 2>/dev/null || true)"
   fi
 fi

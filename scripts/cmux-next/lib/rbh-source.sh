@@ -24,12 +24,12 @@ rbh_fetch_source() {
       return 0
     fi
     if net_retry "fetch the remote browser host source $rev beside this checkout's objects" \
-      git -C "$dir" fetch --quiet --no-tags "$remote" "$rev"; then
+      git -C "$dir" fetch --no-recurse-submodules --quiet --no-tags "$remote" "$rev"; then
       echo "remote browser host source $rev: fetched beside this checkout's objects"
       return 0
     fi
     echo "warn: fetching $rev beside this checkout's objects failed; fetching it alone" >&2
     rm -rf "$dir" && git init --quiet "$dir"
   fi
-  net_retry "fetch the remote browser host source $rev" git -C "$dir" fetch --quiet --depth 1 "$remote" "$rev"
+  net_retry "fetch the remote browser host source $rev" git -C "$dir" fetch --no-recurse-submodules --quiet --depth 1 "$remote" "$rev"
 }

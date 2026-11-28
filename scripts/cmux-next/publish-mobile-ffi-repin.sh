@@ -51,7 +51,7 @@ commit_pin() { # commit_pin MESSAGE
 route=pr
 why=""
 for attempt in 1 2 3 4 5; do
-  git fetch --quiet "$remote" "+refs/heads/$branch:refs/remotes/pin-base/$branch"
+  git fetch --no-recurse-submodules --quiet "$remote" "+refs/heads/$branch:refs/remotes/pin-base/$branch"
   git checkout --quiet --force --detach "refs/remotes/pin-base/$branch"
   tip="$(git rev-parse HEAD)"
   git merge-base --is-ancestor "$SOURCE" "$tip" \

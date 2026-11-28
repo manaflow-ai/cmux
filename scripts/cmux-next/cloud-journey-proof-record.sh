@@ -57,7 +57,7 @@ for attempt in $(seq 1 "$attempts"); do
     continue
   fi
   if [ -n "$heads" ]; then
-    if ! git -C "$work" fetch -q --depth 1 origin "refs/heads/${branch}"; then
+    if ! git -C "$work" fetch --no-recurse-submodules -q --depth 1 origin "refs/heads/${branch}"; then
       echo "cloud journey proof: fetch of ${branch} failed (attempt ${attempt})"
       continue
     fi

@@ -84,8 +84,8 @@ fetch_checkout() {
   local sha="$1" depth=()
   [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == true ]] && depth=(--depth=1) # a full clone stays full
   # A fleet step's origin is the fleet mirror, which holds feat-cmux-next only: a PR or lane commit comes from GitHub.
-  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --quiet ${depth[@]+"${depth[@]}"} origin "$sha" 2>/dev/null \
-    || git fetch --quiet ${depth[@]+"${depth[@]}"} https://github.com/manaflow-ai/cmux.git "$sha" || { echo "UMIG cannot fetch $sha" >&2; return 3; }
+  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --no-recurse-submodules --quiet ${depth[@]+"${depth[@]}"} origin "$sha" 2>/dev/null \
+    || git fetch --no-recurse-submodules --quiet ${depth[@]+"${depth[@]}"} https://github.com/manaflow-ai/cmux.git "$sha" || { echo "UMIG cannot fetch $sha" >&2; return 3; }
   git -c advice.detachedHead=false checkout --quiet --detach "$sha"
 }
 

@@ -99,7 +99,7 @@ fetch_tree() {
   git init -q "$tree" || return 1
   for source in "${CMUX_FLEET_GIT_MIRROR:-/Users/Shared/cmux-build-fleet/git/cmux.git}" "$root" https://github.com/manaflow-ai/cmux.git; do
     [[ "$source" == https://* || -d "$source" ]] || continue
-    if git -C "$tree" fetch -q --depth 1 "$source" "$commit" 2>>"$out/fetch.log"; then
+    if git -C "$tree" fetch --no-recurse-submodules -q --depth 1 "$source" "$commit" 2>>"$out/fetch.log"; then
       echo "AGENT-LOOP tree from $source"
       git -C "$tree" -c advice.detachedHead=false checkout -q FETCH_HEAD
       return

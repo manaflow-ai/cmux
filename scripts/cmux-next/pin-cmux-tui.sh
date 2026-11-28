@@ -1834,7 +1834,7 @@ resolve_channel_tree() {
   [[ "${commit:-}" =~ ^[0-9a-f]{40}$ && "${key:-}" =~ ^[0-9a-f]{40}$ ]] \
     || { echo "channel $channel: no commit and key; no channel fallback" >&2; return 1; }
   if ! git cat-file -e "$commit^{commit}" 2>/dev/null; then
-    git fetch -q --no-tags --depth=1 origin "$commit" 2>/dev/null || true
+    git fetch --no-recurse-submodules -q --no-tags --depth=1 origin "$commit" 2>/dev/null || true
   fi
   rev_time="$(git log -1 --format=%ct "$commit" 2>/dev/null)" \
     || { echo "channel $channel: commit ${commit:0:12} is not readable here; no channel fallback" >&2; return 1; }
@@ -1898,7 +1898,7 @@ resolve_newest_published_tree() {
   # this commit's history: a bare `fetch --deepen` deepens every branch of
   # origin, which outlasted path routing's 5 minutes (#18698).
   if [[ "$(git rev-parse --is-shallow-repository)" == true ]] && (( $(git rev-list --count HEAD) < limit )); then
-    git fetch -q --no-tags --deepen="$limit" origin "$tip" 2>/dev/null \
+    git fetch --no-recurse-submodules -q --no-tags --deepen="$limit" origin "$tip" 2>/dev/null \
       || echo "warning: could not deepen the shallow checkout; searching the history it has" >&2
   fi
   temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-tui-tree.XXXXXX")"
@@ -2355,10 +2355,10 @@ PY
       fallback_refs+=("$(git -C "$repo_root" rev-parse HEAD)")
       [[ -z "$(git -C "$repo_root" rev-parse -q --verify "$fallback_base^{commit}")" ]] \
         || fallback_refs+=("+refs/heads/${fallback_base#origin/}:refs/remotes/$fallback_base")
-      git -C "$repo_root" fetch -q --no-tags --depth="$fallback_depth" "$fallback_remote" "${fallback_refs[@]}" \
+      git -C "$repo_root" fetch --no-recurse-submodules -q --no-tags --depth="$fallback_depth" "$fallback_remote" "${fallback_refs[@]}" \
         || echo "fallback-key: could not deepen the shallow checkout; using the history it has" >&2
     elif (( ${#fallback_refs[@]} )); then
-      git -C "$repo_root" fetch -q --no-tags "$fallback_remote" "${fallback_refs[@]}" \
+      git -C "$repo_root" fetch --no-recurse-submodules -q --no-tags "$fallback_remote" "${fallback_refs[@]}" \
         || echo "fallback-key: could not fetch $fallback_base" >&2
     fi
     if ! fallback_rev="$(git -C "$repo_root" merge-base HEAD "$fallback_base" 2>/dev/null)"; then

@@ -98,7 +98,7 @@ esac
 # script of the branch tip"); a worker that cannot fetch it uses the commit's own. A full fetch: a shallow one would
 # make the worker's warm clone shallow.
 cron="$root/scripts/cmux-next/perf-cron.py"
-if timeout 300 git fetch --no-tags origin feat-cmux-next 2>/dev/null \
+if timeout 300 git fetch --no-recurse-submodules --no-tags origin feat-cmux-next 2>/dev/null \
     && git show FETCH_HEAD:scripts/cmux-next/perf-cron.py > "$work/perf-cron-tip.py" 2>/dev/null \
     && grep -q "\"name\": \"$part\"" "$work/perf-cron-tip.py"; then
   cp "$work/perf-cron-tip.py" scripts/cmux-next/perf-cron-tip.py && cron="$root/scripts/cmux-next/perf-cron-tip.py"

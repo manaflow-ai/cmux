@@ -159,7 +159,7 @@ if [[ "$bench" == daemon ]]; then
   if [[ -n "$before" ]]; then
     depth=()
     [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
-    git fetch -q ${depth[@]+"${depth[@]}"} "$fetch_url" "$before"
+    git fetch --no-recurse-submodules -q ${depth[@]+"${depth[@]}"} "$fetch_url" "$before"
     git worktree add -q --detach "$work/before-src" "$before"
     trap 'git -C "$root" worktree remove --force "$work/before-src" 2>/dev/null || true' EXIT
     perf before "$work/before-src" || before_rc=$?
@@ -200,7 +200,7 @@ if [[ -n "$before" ]]; then
   # --depth only in an already-shallow checkout; it would make a full clone shallow.
   depth=()
   [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
-  git fetch -q ${depth[@]+"${depth[@]}"} "$fetch_url" "$before"
+  git fetch --no-recurse-submodules -q ${depth[@]+"${depth[@]}"} "$fetch_url" "$before"
   git worktree add -q --detach "$work/before-src" "$before"
   trap 'git -C "$root" worktree remove --force "$work/before-src" 2>/dev/null || true' EXIT
   (cd "$work/before-src" && git submodule update --init --depth 1 ghostty-next && scripts/cmux-next/build-acpmux.sh --output "$work/before/acpmux")

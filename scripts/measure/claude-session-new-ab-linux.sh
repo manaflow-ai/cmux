@@ -40,7 +40,7 @@ fi
 echo "claude-session-new-ab: $(claude --version)"
 depth=()
 [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=50)
-git fetch -q ${depth[@]+"${depth[@]}"} origin "${base#origin/}" 2>/dev/null || true
+git fetch --no-recurse-submodules -q ${depth[@]+"${depth[@]}"} origin "${base#origin/}" 2>/dev/null || true
 base_sha="$(git rev-parse "$base")"
 echo "claude-session-new-ab: A=$base ($base_sha) B=HEAD ($(git rev-parse HEAD))"
 cd "$root/cmux-tui"

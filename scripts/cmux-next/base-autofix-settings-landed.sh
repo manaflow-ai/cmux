@@ -27,11 +27,11 @@ while IFS= read -r cmux_next_export; do exports+=("$cmux_next_export"); done < <
   sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$(dirname "${BASH_SOURCE[0]}")/settings-exports.txt")
 (( ${#exports[@]} )) || { echo "::error::scripts/cmux-next/settings-exports.txt lists no export" >&2; exit 1; }
 guard="$(git rev-parse --show-toplevel)/scripts/ci/defaults_guard.py"
-git fetch --quiet --no-tags "$remote" "refs/heads/$branch"
+git fetch --no-recurse-submodules --quiet --no-tags "$remote" "refs/heads/$branch"
 tip="$(git rev-parse FETCH_HEAD)"
 depth=()
 [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
-git cat-file -e "$made^{commit}" 2>/dev/null || git fetch --quiet --no-tags ${depth[@]+"${depth[@]}"} "$remote" "$made" || true
+git cat-file -e "$made^{commit}" 2>/dev/null || git fetch --no-recurse-submodules --quiet --no-tags ${depth[@]+"${depth[@]}"} "$remote" "$made" || true
 if ! made_stamp="$(python3 "$guard" source-stamp --ref "$made")" \
   || ! tip_stamp="$(python3 "$guard" source-stamp --ref "$tip")"; then
   echo "::error::cannot derive the settings source stamps of ${made:0:12} and ${tip:0:12}; the next run makes the exports again"

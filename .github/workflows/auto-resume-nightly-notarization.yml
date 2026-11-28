@@ -1183,7 +1183,7 @@ jobs:
               # one file it reads): a shallow checkout cannot prove ancestry.
               unshallow=()
               if [ "$(git rev-parse --is-shallow-repository)" = true ]; then unshallow=(--unshallow); fi
-              git fetch --no-tags --filter=blob:none "${unshallow[@]}" origin "$SOURCE_HEAD_SHA" "$published_sha"
+              git fetch --no-recurse-submodules --no-tags --filter=blob:none "${unshallow[@]}" origin "$SOURCE_HEAD_SHA" "$published_sha"
               if [ "$CHANNEL" = rc ]; then
                 marketing_version() {
                   local project versions

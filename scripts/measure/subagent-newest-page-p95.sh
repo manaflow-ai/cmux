@@ -9,7 +9,7 @@ root="$(git rev-parse --show-toplevel)"
 test_file=cmux-tui/crates/acpmux/src/hub/paging_tests.rs
 start="/// The subagent pane's open as \`readSubagentLog\` makes it"
 before="${1:-$(git -C "$root" merge-base HEAD origin/feat-cmux-next 2>/dev/null)}"
-[ -n "$before" ] || { git -C "$root" fetch -q origin feat-cmux-next && before="$(git -C "$root" merge-base HEAD FETCH_HEAD)"; }
+[ -n "$before" ] || { git -C "$root" fetch --no-recurse-submodules -q origin feat-cmux-next && before="$(git -C "$root" merge-base HEAD FETCH_HEAD)"; }
 scratch="$(mktemp -d)"
 burners=()
 cleanup() {

@@ -166,7 +166,7 @@ write_markers() {
   if [[ -n "$tip_branch" ]]; then
     local depth=()
     [[ "$(git -C "$repo_root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth="$((window + 1))")
-    if git -C "$repo_root" fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin "refs/heads/$tip_branch" 2>/dev/null; then
+    if git -C "$repo_root" fetch --no-recurse-submodules -q --no-tags ${depth[@]+"${depth[@]}"} origin "refs/heads/$tip_branch" 2>/dev/null; then
       tip="$(git -C "$repo_root" rev-parse FETCH_HEAD)"
     else
       echo "warning: could not fetch $tip_branch; marking from this run's commit only" >&2

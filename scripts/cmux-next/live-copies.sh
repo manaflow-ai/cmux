@@ -103,13 +103,13 @@ add_copy() {
   branch="live-copy/$set_name/$k"
   if [[ -n "$pr" ]]; then
     # Its own branch at the PR's head: keeping it never pushes onto the PR, whoever owns that.
-    git -C "$ROOT" fetch -q origin "pull/$pr/head" || die "could not fetch PR #$pr"
+    git -C "$ROOT" fetch --no-recurse-submodules -q origin "pull/$pr/head" || die "could not fetch PR #$pr"
     ref="$(git -C "$ROOT" rev-parse FETCH_HEAD)"
     echo "https://github.com/$REPO_SLUG/pull/$pr" >"$copy/pr"
   else
     # A ref this clone has (a sha, HEAD, a tag, a local or origin/ branch), else origin's branch of that name.
     if git -C "$ROOT" rev-parse -q --verify "$source^{commit}" >/dev/null 2>&1; then ref="$source"
-    elif git -C "$ROOT" fetch -q origin "refs/heads/$source:refs/remotes/origin/$source" 2>/dev/null; then ref="origin/$source"
+    elif git -C "$ROOT" fetch --no-recurse-submodules -q origin "refs/heads/$source:refs/remotes/origin/$source" 2>/dev/null; then ref="origin/$source"
     else die "no such PR, branch or ref: $source"; fi
   fi
   git -C "$ROOT" worktree add -q -b "$branch" "$tree" "$ref"
@@ -249,7 +249,7 @@ case "$cmd" in
     done
     [[ "$page" == /* ]] || page="/$page"
     if [[ ${#sources[@]} -eq 0 ]]; then
-      git -C "$ROOT" fetch -q origin "refs/heads/$BASE_BRANCH:refs/remotes/origin/$BASE_BRANCH" || true
+      git -C "$ROOT" fetch --no-recurse-submodules -q origin "refs/heads/$BASE_BRANCH:refs/remotes/origin/$BASE_BRANCH" || true
       sources=("origin/$BASE_BRANCH")
     fi
     if [[ -n "$count" && ${#sources[@]} -eq 1 ]]; then

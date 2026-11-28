@@ -92,7 +92,7 @@ jobs:
               echo "Refusing to verify Go ref $RELEASE_REF; expected $expected_ref." >&2
               exit 1
             }
-            git fetch --force origin main --tags
+            git fetch --no-recurse-submodules --force origin main --tags
             git tag --list 'cmux-sdk-v*' | \
               python3 cmux-tui/bindings/validate_release_version.py \
                 --version "$version" \

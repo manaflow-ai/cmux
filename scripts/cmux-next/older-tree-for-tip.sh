@@ -40,7 +40,7 @@ signed_pointer_tree() {
   curl -fsS -m 20 "https://files.cmux.com/cmux-tui/channels/linux-feat-cmux-next.json?t=$(date +%s)" -o "$dir/p.json" 2>/dev/null || return 1
   read -r commit < <(python3 -c 'import base64,json,sys; d=json.load(open(sys.argv[1])); print(json.loads(base64.b64decode(d["payload"])).get("commit") or "-")' "$dir/p.json" 2>/dev/null) || return 1
   [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || return 1
-  git cat-file -e "$commit^{commit}" 2>/dev/null || git fetch -q --no-tags --depth=1 origin "$commit" 2>/dev/null || return 1
+  git cat-file -e "$commit^{commit}" 2>/dev/null || git fetch --no-recurse-submodules -q --no-tags --depth=1 origin "$commit" 2>/dev/null || return 1
   if [[ "$(git rev-parse --is-shallow-repository)" != true ]]; then git merge-base --is-ancestor "$commit" "$tip" || return 1; fi
   rev_time="$(git log -1 --format=%ct "$commit")" tip_time="$(git log -1 --format=%ct "$tip")"
   (( tip_time - rev_time <= ${CMUX_TUI_TREE_MAX_AGE_HOURS:-24} * 3600 )) || return 1

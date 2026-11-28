@@ -47,7 +47,7 @@ fi
 if ! git cat-file -e "$base_sha^{commit}" 2>/dev/null; then
   depth=()
   [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == true ]] && depth=(--depth=1)
-  git fetch --quiet --no-tags ${depth[@]+"${depth[@]}"} --filter=blob:none origin "$base_sha" >/dev/null 2>&1 || true
+  git fetch --no-recurse-submodules --quiet --no-tags ${depth[@]+"${depth[@]}"} --filter=blob:none origin "$base_sha" >/dev/null 2>&1 || true
 fi
 if git cat-file -e "$base_sha:plans/cmux-next" 2>/dev/null; then
   echo true

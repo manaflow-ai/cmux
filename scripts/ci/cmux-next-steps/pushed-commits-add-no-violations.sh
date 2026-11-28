@@ -12,9 +12,9 @@ sweep=0
 # 10 on a push (401 s measured from a fresh depth-2 clone; blobless: 27 s). Same history as before.
 # --deepen on a full clone is a no-op fetch; only a shallow checkout deepens.
 if [[ "$(git rev-parse --is-shallow-repository)" == true ]]; then
-  git fetch --no-tags --quiet --filter=blob:none --deepen=2000 origin "$GITHUB_SHA" || true
+  git fetch --no-recurse-submodules --no-tags --quiet --filter=blob:none --deepen=2000 origin "$GITHUB_SHA" || true
 else
-  git fetch --no-tags --quiet --filter=blob:none origin "$GITHUB_SHA" || true
+  git fetch --no-recurse-submodules --no-tags --quiet --filter=blob:none origin "$GITHUB_SHA" || true
 fi
 # A pull request is judged on its own commits (HEAD^1..HEAD of the merge): a base commit without the
 # owner's record is a warning naming it here, and stays an error on every push sweep of the branch.
@@ -33,7 +33,7 @@ range="HEAD^1..HEAD"
 if [[ -n "$BEFORE" && "$BEFORE" != 0000000000000000000000000000000000000000 ]]; then
   depth=()
   [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=200)
-  git fetch --no-tags --quiet --filter=blob:none ${depth[@]+"${depth[@]}"} origin "$GITHUB_SHA" "$BEFORE" || true
+  git fetch --no-recurse-submodules --no-tags --quiet --filter=blob:none ${depth[@]+"${depth[@]}"} origin "$GITHUB_SHA" "$BEFORE" || true
   if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then range="$BEFORE..HEAD"; fi
 fi
 python3 -I scripts/cmux-next/prepush-gate.py --commits "$range" | tee -a "$GITHUB_STEP_SUMMARY"

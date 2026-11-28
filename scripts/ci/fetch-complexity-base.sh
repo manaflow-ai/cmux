@@ -16,6 +16,6 @@ if ! git cat-file -e "${revision}^{commit}" 2>/dev/null; then
   # .git/shallow and truncates history for every worktree sharing it.
   depth=()
   [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
-  git -c protocol.version=2 fetch --no-tags ${depth[@]+"${depth[@]}"} origin "$revision"
+  git -c protocol.version=2 fetch --no-recurse-submodules --no-tags ${depth[@]+"${depth[@]}"} origin "$revision"
 fi
 git cat-file -e "${revision}^{commit}"

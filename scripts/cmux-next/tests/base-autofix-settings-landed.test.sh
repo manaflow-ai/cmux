@@ -42,7 +42,7 @@ PY
   mkdir -p "$tmp/exports/schemas/settings" && echo "schema new" > "$tmp/exports/$schema"
   git init -q "$tmp/bot"
   git -C "$tmp/bot" remote add origin "file://$tmp/remote.git"
-  git -C "$tmp/bot" fetch -q --depth=1 origin "+$run:refs/remotes/origin/feat"
+  git -C "$tmp/bot" fetch --no-recurse-submodules -q --depth=1 origin "+$run:refs/remotes/origin/feat"
   git -C "$tmp/bot" checkout -q -B feat refs/remotes/origin/feat
 }
 lane_commit() { # <file> <text>

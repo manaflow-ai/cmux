@@ -152,7 +152,7 @@ main() {
   for sha in "$source_sha" "$restore_sha"; do
     [[ -n "$sha" ]] || continue
     if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
-      git fetch -q --no-tags ${depth[@]+"${depth[@]}"} https://github.com/manaflow-ai/cmux.git "$sha" ||
+      git fetch --no-recurse-submodules -q --no-tags ${depth[@]+"${depth[@]}"} https://github.com/manaflow-ai/cmux.git "$sha" ||
         { echo "swift-test-bench.sh: could not fetch $sha" >&2; exit 3; }
     fi
   done

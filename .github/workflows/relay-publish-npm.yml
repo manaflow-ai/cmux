@@ -58,7 +58,7 @@ jobs:
             exit 1
           }
           version="${GITHUB_REF_NAME#cmux-relay-v}"
-          git fetch --force origin main
+          git fetch --no-recurse-submodules --force origin main
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
             echo "release tag $GITHUB_REF_NAME is not an ancestor of protected main" >&2
             exit 1
