@@ -3383,6 +3383,24 @@
     },
     "Tree": {
       "$comment": "The daemon tree's snapshot types (list-workspaces). The schema's Tree objects are checked against the serializer by cmux-tui-core server/tree_schema_tests.rs. LivePane, Tree and WorkspaceGroup stay hand-written until the schema has dead, saved_tab_groups and the group profile fields.",
+      "enums": {
+        "ColumnDockEdge": {
+          "doc": [
+            "The viewport edge a column is docked to (`columns[].dock.edge`)."
+          ]
+        },
+        "ColumnDockMode": {
+          "doc": [
+            "How a docked column shows (`columns[].dock.mode`): `docked` takes its width out of the scrolling",
+            "area, `overlay` floats above the scrolling columns."
+          ]
+        },
+        "ColumnDockRole": {
+          "doc": [
+            "What the column is for (`dock-column-role-v1`): the agent chat column."
+          ]
+        }
+      },
       "objects": {
         "TabSnapshot": {
           "type": "Tab",
@@ -4571,24 +4589,6 @@
           "omit": [
             "kind",
             "url"
-          ]
-        }
-      },
-      "enums": {
-        "ColumnDockEdge": {
-          "doc": [
-            "The viewport edge a column is docked to (`columns[].dock.edge`)."
-          ]
-        },
-        "ColumnDockMode": {
-          "doc": [
-            "How a docked column shows (`columns[].dock.mode`): `docked` takes its width out of the scrolling",
-            "area, `overlay` floats above the scrolling columns."
-          ]
-        },
-        "ColumnDockRole": {
-          "doc": [
-            "What the column is for (`dock-column-role-v1`): the agent chat column."
           ]
         }
       }

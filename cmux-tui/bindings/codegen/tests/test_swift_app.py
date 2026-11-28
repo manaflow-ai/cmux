@@ -1201,6 +1201,14 @@ class RepositoryBindingsTests(unittest.TestCase):
         ))
         self.assertIn("Layout/SetColumnWidthRequest.generated.swift", files)
 
+    def test_a_duplicate_key_is_refused_not_last_one_wins(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "bindings.json"
+            path.write_text('{"families": {"Creation": {"enums": {"ColumnSide": {}}, "requests": {}, '
+                            '"enums": {"ColumnDockEdge": {}}}}}', encoding="utf-8")
+            with self.assertRaisesRegex(BindingError, "duplicate key 'enums'"):
+                generate.load_bindings(path)
+
     def test_create_terminal_omits_the_detached_selector_but_keeps_workspace(self) -> None:
         bindings = generate.load_bindings(generate.DEFAULT_BINDINGS)
         files = render(load_ir(generate.DEFAULT_SCHEMA), bindings)
