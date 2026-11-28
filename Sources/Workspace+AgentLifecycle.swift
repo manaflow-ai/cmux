@@ -517,6 +517,7 @@ extension Workspace {
                 noteAgentWakeAgentReported(panelId: panelId, statusKey: key)
             }
         }
+        syncTerminalTabAgentIconAsset(forPanelId: targetPanelId)
     }
 
     @discardableResult
@@ -524,6 +525,7 @@ extension Workspace {
         var didClear = false
         let recordsHibernationActivity = !AgentHibernationLifecycleStatusKeys.isManualKey(key)
         let panelIds = panelId.map { [$0] } ?? Array(agentLifecycleStatesByPanelId.keys)
+        var changedPanelIds = Set<UUID>()
         for panelId in panelIds {
             guard agentLifecycleStatesByPanelId[panelId]?[key] != nil else { continue }
             agentLifecycleStatesByPanelId[panelId]?.removeValue(forKey: key)
@@ -535,6 +537,10 @@ extension Workspace {
             if recordsHibernationActivity {
                 recordAgentLifecycleChange(panelId: panelId)
             }
+            changedPanelIds.insert(panelId)
+        }
+        for panelId in changedPanelIds {
+            syncTerminalTabAgentIconAsset(forPanelId: panelId)
         }
         return didClear
     }
@@ -567,6 +573,7 @@ extension Workspace {
             }
         }
         recordAgentLifecycleChange(panelId: panelId)
+        syncTerminalTabAgentIconAsset(forPanelId: panelId)
     }
 
     func clearAllAgentLifecycleStates() {
@@ -575,6 +582,7 @@ extension Workspace {
         agentLifecycleStatesByPanelId.removeAll()
         for panelId in panelIds {
             recordAgentLifecycleChange(panelId: panelId)
+            syncTerminalTabAgentIconAsset(forPanelId: panelId)
         }
     }
 
