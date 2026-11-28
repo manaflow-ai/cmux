@@ -411,6 +411,7 @@ jobs:
     timeout-minutes: 120
     environment: ios-e2e
     permissions:
+      actions: read
       contents: read
       id-token: write
     env:
@@ -534,6 +535,32 @@ jobs:
           xcrun simctl bootstatus "$udid" -b
           echo "CMUX_E2E_SIM_UDID=$udid" >> "$GITHUB_ENV"
           echo "simulator: $udid ($devtype, $runtime)"
+
+      # A push whose cmux-tui artifacts run skipped its build because a newer
+      # branch head landed never publishes its own tree, so reload.sh's fetch
+      # fails with "no cmux-tui artifacts run will publish tree" (run
+      # 46180311876). This job tests the Mac/iOS pairing, not cmux-tui: wait
+      # for this commit's tree as before, and only for a superseded commit
+      # bundle the newest published tree in its history (the nightly's
+      # resolve-newest-published, and cmux-next's CMUX_TUI_TREE_BASE_FALLBACK).
+      - name: Resolve the cmux-tui tree
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && github.sha || '' }}
+        run: |
+          set -euo pipefail
+          out="$(mktemp)"
+          GITHUB_OUTPUT="$out" scripts/cmux-next/pin-cmux-tui.sh wait
+          grep -qx 'superseded=true' "$out" || exit 0
+          resolved="$(scripts/cmux-next/pin-cmux-tui.sh resolve-newest-published)"
+          key="$(awk -F= '$1 == "key" { print $2 }' <<<"$resolved")"
+          [[ "$key" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::[infra-preflight] this commit was superseded and no cmux-tui tree in its recent history is published"
+            exit 1
+          }
+          echo "CMUX_TUI_TREE_KEY=$key" >> "$GITHUB_ENV"
+          echo "::notice title=cmux-tui tree::superseded commit; bundling the newest published tree $key"
+          echo "cmux-tui: superseded commit, bundled newest published tree \`$key\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build and launch Mac app
         run: |
