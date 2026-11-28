@@ -49,14 +49,23 @@ pub(super) fn manifest(id: &str, info: &Value) -> Value {
     if let Some(family) = info.get("family").and_then(Value::as_str).filter(|f| !f.is_empty()) {
         manifest.set("harnessFamily", json!(family));
     }
+    // The env names its first start had that it does not carry, and its preset: the target
+    // names those a start there would lack (RFD 0181 B7, `session_manifest::env_to_ask`).
+    if let Some(env) = info.get("manifestEnv").filter(|e| e["names"].is_array()) {
+        manifest.set("env", env["names"].clone());
+        if let Some(preset) = env["preset"].as_str() {
+            manifest.set("preset", json!(preset));
+        }
+    }
     manifest
 }
 
 /// What the target said of the chat.
 #[derive(Debug, PartialEq)]
 pub(super) enum Answer {
-    /// It would take it.
-    Takes,
+    /// It would take it. `lacking`: the recorded env names a start there would lack (none from
+    /// a target older than the question, or with the manifest off there).
+    Takes { lacking: Vec<String> },
     /// Its acpmux is older than the question: it could not be asked.
     Unasked,
 }
@@ -74,10 +83,30 @@ pub(super) async fn ask(
         params.set("asHarness", json!(name));
     }
     match dst.request("_acpmux/transfer_preflight", params).await {
-        Ok(_) => Ok(Answer::Takes),
+        Ok(answer) => Ok(Answer::Takes { lacking: lacking(&answer) }),
         Err(e) if unasked(&e) => Ok(Answer::Unasked),
         Err(e) => Err(e),
     }
+}
+
+/// The preflight answer's `envLacking` names.
+fn lacking(answer: &Value) -> Vec<String> {
+    answer["envLacking"]
+        .as_array()
+        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .unwrap_or_default()
+}
+
+/// The line a move prints when its target lacks recorded env: the chat would start there
+/// without it (its first turn may fail on a missing key). A statement, never a gate.
+pub(super) fn lacking_text(chat: &str, target: &str, lacking: &[String]) -> Option<String> {
+    (!lacking.is_empty()).then(|| {
+        format!(
+            "{chat}: {target} lacks env its agent started with here: {} (set it in that \
+             machine's harness profile or preset, or the chat starts there without it)",
+            lacking.join(", ")
+        )
+    })
 }
 
 /// Whether the error is a daemon that does not know the request (JSON-RPC method not found).

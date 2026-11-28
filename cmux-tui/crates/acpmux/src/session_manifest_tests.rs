@@ -410,3 +410,21 @@ fn a_move_or_fork_start_names_the_env_it_lacks() {
     let other = forked(&there, "/home/b/other");
     assert!(other.manifest.is_none());
 }
+
+#[test]
+fn a_move_asks_only_the_names_the_chat_does_not_carry_or_each_start_sets() {
+    let mut m = meta("/w/app");
+    m.manifest = Some(SessionManifest {
+        folder: "/w/app".into(),
+        env: vec!["CLAUDE_CONFIG_DIR".into(), "GITHUB_TOKEN".into(), "MY_FLAG".into()],
+        ..Default::default()
+    });
+    let carried = env(&["MY_FLAG"]);
+    assert_eq!(env_to_ask_with(true, m.manifest.as_ref(), &m.cwd, &carried), ["GITHUB_TOKEN"]);
+    assert!(env_to_ask_with(false, m.manifest.as_ref(), &m.cwd, &carried).is_empty());
+    assert!(env_to_ask_with(true, m.manifest.as_ref(), Path::new("/w/other"), &carried).is_empty());
+
+    let asked: Vec<String> = vec!["B".into(), "A".into(), "C".into(), "CODEX_HOME".into()];
+    assert_eq!(env_lacking(&asked, &env(&["C"])), ["A", "B"]);
+    assert!(env_lacking(&asked, &env(&["A", "B", "C"])).is_empty());
+}

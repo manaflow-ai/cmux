@@ -13,7 +13,10 @@
 //! from its own profile, preset and login env as before. A later start (after a move, or a fork's
 //! first) that lacks a recorded name is logged with the names it lacks and counted
 //! ([`env_missing`]), so a move to a machine without the chat's key shows up at its start, not as
-//! an agent that fails its first turn. Ports come next.
+//! an agent that fails its first turn. A move asks its target about those names before it freezes
+//! anything ([`env_to_ask`], [`env_lacking`]): the target builds the env a start of the chat
+//! would get there and names what it lacks, and the move says so before it begins. Ports come
+//! next.
 //!
 //! Off unless [`SWITCH_ENV`] is `1`: then the record is kept and read. Off, nothing is recorded
 //! and every start derives as before; the counter still counts, so the before number is the same
@@ -304,6 +307,73 @@ pub fn check_env(
     env: &BTreeMap<String, String>,
 ) -> Vec<String> {
     check_env_with(on(), manifest, cwd, env)
+}
+
+static ENV_LACKING_AT_MOVE: AtomicU64 = AtomicU64::new(0);
+
+/// How many move preflights in this process found a target lacking a recorded name
+/// ([`env_lacking`]).
+pub fn env_lacking_at_move() -> u64 {
+    ENV_LACKING_AT_MOVE.load(Ordering::Relaxed)
+}
+
+/// Names each start sets from its own machine and the chat's own state, never from the person's
+/// setup there: the sr2 person mark, the cmux tools answer, the display mark, cmux-harness's
+/// store folders and the chat's store home. A target never lacks one, so a move never asks.
+pub const SET_BY_EACH_START: [&str; 8] = [
+    crate::sr2_priority::PERSON_ENV,
+    crate::agent_tools::TOOLS_ANSWER_ENV,
+    crate::agent_displays::WORKSPACE_KEY,
+    "CMUX_HARNESS_SESSION_DIR",
+    "CMUX_HARNESS_SESSION_STORE_DIR",
+    "CLAUDE_CONFIG_DIR",
+    "CODEX_HOME",
+    "XDG_DATA_HOME",
+];
+
+/// The recorded names a move asks its target about (`cli/run/session_move_target_ask.rs`): the
+/// manifest's for `cwd`, without those the chat carries itself (`carried`, its session env,
+/// which `session.json` takes along) and those every start sets ([`SET_BY_EACH_START`]). Empty
+/// while off, for another folder, or with nothing recorded.
+pub fn env_to_ask_with(
+    on: bool,
+    manifest: Option<&SessionManifest>,
+    cwd: &Path,
+    carried: &BTreeMap<String, String>,
+) -> Vec<String> {
+    let Some(m) = manifest.filter(|m| on && m.folder == cwd) else { return Vec::new() };
+    m.env
+        .iter()
+        .filter(|k| !carried.contains_key(*k) && !SET_BY_EACH_START.contains(&k.as_str()))
+        .cloned()
+        .collect()
+}
+
+/// [`env_to_ask_with`] under this daemon's switch.
+pub fn env_to_ask(
+    manifest: Option<&SessionManifest>,
+    cwd: &Path,
+    carried: &BTreeMap<String, String>,
+) -> Vec<String> {
+    env_to_ask_with(on(), manifest, cwd, carried)
+}
+
+/// The `asked` names a start's env here (`has`, as `Hub::spawn_profile_for` builds it from this
+/// machine's profile, defaults and preset) lacks: what a move's target answers before the source
+/// freezes anything (`hub/transfer_env_ask.rs`). A preflight that finds any is counted
+/// ([`env_lacking_at_move`]). Names only, never a value.
+pub fn env_lacking(asked: &[String], has: &BTreeMap<String, String>) -> Vec<String> {
+    let mut lacking: Vec<String> = asked
+        .iter()
+        .filter(|k| !has.contains_key(*k) && !SET_BY_EACH_START.contains(&k.as_str()))
+        .cloned()
+        .collect();
+    lacking.sort();
+    lacking.dedup();
+    if !lacking.is_empty() {
+        ENV_LACKING_AT_MOVE.fetch_add(1, Ordering::Relaxed);
+    }
+    lacking
 }
 
 /// A fork's manifest: its parent's while it works in the same folder; a fork into another
