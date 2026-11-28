@@ -59,6 +59,22 @@ class Record(unittest.TestCase):
         self.assertTrue(body.startswith(f"<!-- cmux-proof-record ios-flows {HEAD} -->"))
         self.assertEqual(pr.parse(body), RECORD)
 
+    def test_a_big_record_still_fits_one_comment(self):
+        # cmux#38466: 201 screens rendered 38365 characters, the broker refused it and the gate never saw the proof.
+        big = copy.deepcopy(RECORD)
+        big["captures"] = [{"name": f"{i:08X}-4C8B-4892-AAAB-66BEE93F5ACA.png", "sha256": f"{i:064x}",
+                            "diff_ratio": 0.0008, "verdict": "same"} for i in range(201)]
+        big["visual"] = {"screens": 201, "changed": [c["name"] for c in big["captures"][:100]]}
+        self.assertGreater(len(json.dumps(big, indent=1)), pr.COMMENT_BUDGET)
+        body = pr.render(big, "summary")
+        self.assertLessEqual(len(body), pr.COMMENT_BUDGET)
+        back = pr.parse(body)
+        self.assertEqual(back["verdict"], "pass")
+        self.assertEqual(len(back["captures"]), 201)
+        self.assertEqual(pr.gate(back, "ios-flows")[0], "success")
+        self.assertEqual(back["captures"][0]["sha256"], f"{0:012x}")
+        self.assertIn('\n "kind"', pr.render(RECORD))  # a small record keeps the readable indented form
+
     def test_problems(self):
         self.assertEqual(pr.problems(RECORD), [])
         bad = copy.deepcopy(RECORD)
@@ -148,7 +164,9 @@ class Plan(unittest.TestCase):
             self.assertEqual(key, dispatch())
         self.assertNotEqual(key, dispatch(head=HEAD[:-1] + "b"))
         self.assertNotEqual(key, dispatch(args=["pair-e2e", "reconnect-drops=10,60"]))
-        self.assertNotEqual(key, dispatch(worker="cmux23"))
+        # The same work on another worker is one step (dedupes in the queue) unless the run is pinned strict.
+        self.assertEqual(key, dispatch(worker="aws-m4pro-4"))
+        self.assertNotEqual(dispatch(strict=True), dispatch(strict=True, worker="cmux23"))
         self.assertNotEqual(key, dispatch(strict=True))
         self.assertNotEqual(key, dispatch(attempt="2"))
         self.assertEqual(dispatch(attempt="2"), dispatch(attempt="2"))
@@ -166,6 +184,9 @@ class Plan(unittest.TestCase):
         moved = [ios_verify.step_key(s, OTHER, 7) for s in steps]
         self.assertFalse(set(keys) & set(moved))
         self.assertTrue(all(HEAD[:12] in k for k in keys))
+        # A newer head's key differs only in its head field, so cmux-ci's supersede (commits aside) replaces
+        # the older queued step instead of queueing both.
+        self.assertEqual([k.replace(HEAD, "") for k in keys], [k.replace(OTHER, "") for k in moved])
 
     def test_shards_across_workers_with_video(self):
         steps = ios_verify.plan(self.selection(), [], ["cmux22", "cmux23"], "auto")
@@ -183,8 +204,7 @@ class Plan(unittest.TestCase):
         self.assertEqual(len(steps), 3)
         keys = []
         for step in steps:
-            result = ios_verify.subprocess.CompletedProcess([], 0, stdout="step abc12345", stderr="")
-            with mock.patch.object(ios_verify.subprocess, "run", return_value=result) as run:
+            with mock.patch.object(ios_verify, "stream", return_value=(0, "step abc12345")) as run:
                 receipt = ios_verify.run_step(step, HEAD, 7, False)
             cmd = run.call_args.args[0]
             self.assertNotIn("--target-worker", cmd)
@@ -200,8 +220,7 @@ class Plan(unittest.TestCase):
         step = {"name": "sim 1/1", "mode": "test", "args": ["test"], "worker": "cmux23"}
         for strict in (False, True):
             with self.subTest(strict=strict):
-                result = ios_verify.subprocess.CompletedProcess([], 0, stdout="", stderr="")
-                with mock.patch.object(ios_verify.subprocess, "run", return_value=result) as run:
+                with mock.patch.object(ios_verify, "stream", return_value=(0, "")) as run:
                     ios_verify.run_step(step, HEAD, 7, strict)
                 cmd = run.call_args.args[0]
                 self.assertEqual(cmd[cmd.index("--target-worker") + 1], "cmux23")
