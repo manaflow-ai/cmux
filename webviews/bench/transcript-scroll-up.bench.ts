@@ -143,6 +143,8 @@ type Frame = {
   /// Of `mounted`, rows whose id had been mounted before in the run, and the rows in the DOM after the frame.
   again: number;
   live: number;
+  /// MOUNT_RUNS=1 only: the mounted rows' positions as runs, `first-last:px`.
+  runs?: string;
   shifted: number;
 };
 
@@ -285,6 +287,10 @@ async function run(name: string, engine: BrowserType) {
         }),
     );
     console.log(`transcript-scroll-up ${name} idleFrameP95: ${idleP95.toFixed(1)}`);
+    if (process.env.MOUNT_RUNS === "1")
+      await page.evaluate(() => {
+        (window as { __mountRuns?: boolean }).__mountRuns = true;
+      });
     // The thumb and long tasks, read after every painted frame for the whole run.
     await page.evaluate(() => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -306,6 +312,38 @@ async function run(name: string, engine: BrowserType) {
       } catch {
         observer = undefined;
       }
+      // MOUNT_RUNS=1: each painted frame's mounted rows as runs of positions, with their summed height.
+      const mountRuns = (root: HTMLElement) => {
+        const at = [...root.querySelectorAll<HTMLElement>(".acpmux-row")]
+          .map((row) => [Number(row.getAttribute("aria-posinset")), row.getBoundingClientRect().height] as const)
+          .sort((a, b) => a[0] - b[0]);
+        const out: string[] = [];
+        let start = -1;
+        let prev = -2;
+        let px = 0;
+        for (const [pos, h] of at) {
+          if (pos !== prev + 1) {
+            if (start >= 0) out.push(`${start}-${prev}:${Math.round(px)}`);
+            start = pos;
+            px = 0;
+          }
+          px += h;
+          prev = pos;
+        }
+        if (start >= 0) out.push(`${start}-${prev}:${Math.round(px)}`);
+        const edge = root.getBoundingClientRect();
+        const shown = [...root.querySelectorAll<HTMLElement>(".acpmux-row")]
+          .filter((row) => {
+            const box = row.getBoundingClientRect();
+            return box.bottom > edge.top && box.top < edge.bottom;
+          })
+          .map((row) => Number(row.getAttribute("aria-posinset")));
+        return `${out.join(" ")} view=${Math.min(...shown)}-${Math.max(...shown)}`;
+      };
+      // MOUNT_RUNS=1: each scroll event's offset in the frame, so a correction's step shows beside the fling's.
+      let events: number[] = [];
+      if ((window as { __mountRuns?: boolean }).__mountRuns)
+        scroller.addEventListener("scroll", () => events.push(Math.round(scroller.scrollTop)), { passive: true });
       // Rows mounted since the last painted frame: each `.acpmux-row` added under the scroller.
       let mounted = 0;
       let shifted = 0;
@@ -356,7 +394,11 @@ async function run(name: string, engine: BrowserType) {
           shifted,
           again,
           live,
+          runs: (window as { __mountRuns?: boolean }).__mountRuns
+            ? `${mountRuns(scroller)} events=${events.join(",")}`
+            : undefined,
         });
+        events = [];
         again = 0;
         mounted = 0;
         shifted = 0;
@@ -486,6 +528,11 @@ async function run(name: string, engine: BrowserType) {
         longtasks: holder.__longtasks,
       };
     });
+    if (process.env.MOUNT_RUNS === "1")
+      for (const [index, frame] of watched.frames.entries())
+        console.log(
+          `mount-runs ${index} top=${Math.round(frame.scrollTop)} h=${frame.clientHeight} mounted=${frame.mounted} ${frame.runs ?? ""}`,
+        );
     // The DOM after the fling: a style pass's cost follows the elements it may have to match, so a count that
     // grows with the chat (not the mounted rows) names an O(n) restyle. Printed as `census` lines.
     const census = await page.evaluate(() => {

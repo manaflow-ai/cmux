@@ -290,6 +290,7 @@ import {
   restingAnchor,
   warmAnchor,
   warmAnchorTop,
+  heldWarmAnchor,
   heldReaderPlace,
 } from "./transcript/scrollAnchors";
 import { jumpToLatestWith, placeViewWith, pressUpWith } from "./transcript/jumpWiring";
@@ -4517,9 +4518,10 @@ function TranscriptView({
   const liveWarmAt = Math.round((renderScroll.top - origin) / warmStep) * warmStep;
   const warmOutrun = Math.abs(unplacedScroll.delta) * SCROLL_LEAD_STEPS > height * WARM_VIEWPORTS;
   const heldWarmBefore = heldWarmAt.current;
+  // A held place whose row is gone is held as no place (heldWarmAnchor, `warmLost` below).
   const warmAt =
     warmOutrun && heldWarmAt.current !== undefined
-      ? heldWarmAt.current
+      ? heldWarmAnchor(layout, rows, heldWarmAt.current)
       : warmAnchor(layout, rows, liveWarmAt, warmStep);
   heldWarmAt.current = sessionSwitched ? undefined : warmAt;
   flingMount.current = warmOutrun && !sessionSwitched;
@@ -4566,6 +4568,11 @@ function TranscriptView({
   }, [showingView]);
   const deferredWarmTop = warmAnchorTop(layout, rows, useDeferredValue(warmAt));
   const warmTop = deferredWarmTop ?? liveWarmAt;
+  // A scroll that outruns the warm rows with no held place for them mounts none. Falling back to the
+  // live offset built 4.7 viewports of rows around each frame of a fling once its first older page
+  // landed: 105 rows mounted where 18 drew the view, and 18.6 rows a 1,000 px against 8 in a chat
+  // that never pages (bench/transcript-scroll-up.bench.ts MOUNT_RUNS=1, 100,000 rows against 1,000).
+  const warmLost = warmOutrun && deferredWarmTop === undefined;
   // Above the view the warm rows reach HISTORY_VIEWPORTS: history to scroll up into, built between
   // frames as the rest of them are.
   const warm = visibleLayoutRange(
@@ -4583,7 +4590,9 @@ function TranscriptView({
       ? visibleLayoutRange(layout, shownTop - height * HISTORY_VIEWPORTS, height * HISTORY_VIEWPORTS, 0)
       : undefined;
   const scrolledRanges = mergeRowRanges([
-    ...(deferHistory || showingView || warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]),
+    ...(deferHistory || showingView || warmLost || warm.last < range.first || warm.first > range.last
+      ? ahead
+      : [...ahead, warm]),
     ...(history ? [history] : []),
   ]);
   // A held row (gutterSelect.ts) is at its index, or as far from the end as it was when older history
@@ -7762,7 +7771,9 @@ function TranscriptView({
     const run = lead.find((each) => each.first <= inView.first && inView.first < each.last) ?? inView;
     const liveAt = Math.round((top - at) / warmStep) * warmStep;
     const outrun = Math.abs(delta) * SCROLL_LEAD_STEPS > height * WARM_VIEWPORTS;
-    const anchor = outrun && held !== undefined ? held : warmAnchor(layout, rows, liveAt, warmStep);
+    const anchor =
+      outrun && held !== undefined ? heldWarmAnchor(layout, rows, held) : warmAnchor(layout, rows, liveAt, warmStep);
+    const lost = outrun && deferredWarmTop === undefined;
     const warmRun = visibleLayoutRange(
       layout,
       (deferredWarmTop ?? liveAt) - height * HISTORY_VIEWPORTS - warmStep / 2,
@@ -7774,7 +7785,7 @@ function TranscriptView({
         ? visibleLayoutRange(layout, shown - height * HISTORY_VIEWPORTS, height * HISTORY_VIEWPORTS, 0)
         : undefined;
     const mounted = mergeRowRanges([
-      ...(deferred || warmRun.last < run.first || warmRun.first > run.last ? lead : [...lead, warmRun]),
+      ...(deferred || lost || warmRun.last < run.first || warmRun.first > run.last ? lead : [...lead, warmRun]),
       ...(past ? [past] : []),
     ]);
     const left = layout.totalHeight - height - (top - at);

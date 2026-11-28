@@ -47,6 +47,19 @@ export function warmAnchorTop(
   return index < 0 ? undefined : layoutGeometry(placed).topAt(index) + Number(offset);
 }
 
+/// A held warm place (warmAnchor) while a fast scroll outruns the warm rows: itself while its row is
+/// among `shown`, else "", no place. Its row gone (older history paged in above and the window let
+/// the newer pages go), it was looked for across every row each frame, and the warm rows fell back to
+/// the live offset: a viewport and more either side of every frame of a fling (VirtualTranscript
+/// `warmLost`).
+export function heldWarmAnchor(
+  placed: Parameters<typeof visibleLayoutRange>[0],
+  shown: readonly { id: string }[],
+  held: string,
+) {
+  return held === "" || warmAnchorTop(placed, shown, held) !== undefined ? held : "";
+}
+
 /// Where a view whose reader's place is held (`heldPlace`) goes in this pass: the place itself once
 /// its row is back among the rows (`found`); until then the oldest row held, where older pages come
 /// in toward the reader's row, never the end. Undefined: nothing to place (no rows yet).
