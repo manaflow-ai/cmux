@@ -18,6 +18,8 @@ await requireBrowserLane("page-commands-palette.test.ts", async () => {
   // A chat with a subagent and a command still running in the background: Session Info has rows in
   // Subagents and Background tasks.
   let busy: Awaited<ReturnType<typeof papercutPane>>;
+  // A chat whose turn edited a file: Open Last Turn's Changes (Command-J G) has a diff to open.
+  let edited: Awaited<ReturnType<typeof papercutPane>>;
   beforeAll(async () => {
     browser = await chromium.launch({ headless: true });
     pane = await papercutPane(() => browser, {
@@ -83,12 +85,31 @@ await requireBrowserLane("page-commands-palette.test.ts", async () => {
         ],
       ],
     });
+    edited = await papercutPane(() => browser, {
+      turns: 1,
+      running: false,
+      extra: [
+        [
+          "in",
+          "tool_call",
+          update({
+            sessionUpdate: "tool_call",
+            toolCallId: "e1",
+            title: "Edit notes.md",
+            kind: "edit",
+            status: "completed",
+            content: [{ type: "diff", path: "/home/dev/cmux/notes.md", oldText: "one\n", newText: "two\n" }],
+          }),
+        ],
+      ],
+    });
   });
   afterAll(async () => {
     await browser?.close();
     await pane?.close();
     await running?.close();
     await busy?.close();
+    await edited?.close();
   });
 
   // The App's side of `pane.commandAvailability` and `pane.action`: recorded, in every actions map
@@ -324,6 +345,29 @@ await requireBrowserLane("page-commands-palette.test.ts", async () => {
         PAPERCUT_CHAT,
       );
       await shown.locator('[data-section="subagents"][data-revealed]').first().waitFor({ timeout: 10_000 });
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("Open Last Turn's Changes is offered once a turn edited files, and opens its diff beside the chat", async () => {
+    const page = await edited.open({ width: 1200, height: 760 }, record);
+    try {
+      await offers(page, "openLastTurnChanges,toggleFiles,toggleQueueing,toggleSideTabs").catch(
+        async (error: unknown) => {
+          const last = (await calls(page, "pane.commandAvailability")).at(-1)?.params.commands;
+          throw new Error(`offered ${String(last)}`, { cause: error });
+        },
+      );
+      await page.evaluate(
+        (session) => window.cmuxAcpmuxBridge!.command!(`header:openLastTurnChanges|${session}`),
+        PAPERCUT_CHAT,
+      );
+      await made(page, "pane.action", 1);
+      const [opened] = (await calls(page, "pane.action")).map((call) => call.params);
+      // The header's Changes action, opened (never toggled shut) on this turn: its checkpoint pair or its patch.
+      expect(opened).toMatchObject({ id: "openDiffViewer", cwd: "/home/dev/cmux", mode: "open" });
+      expect("turn" in opened! || "patch" in opened!).toBe(true);
     } finally {
       await page.close();
     }
