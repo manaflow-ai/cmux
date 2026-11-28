@@ -9,11 +9,14 @@ differ by arch and are stable; the Swift job runs check-release-compile.sh with 
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -70,15 +73,27 @@ class Route(unittest.TestCase):
         repo = {"full_name": "manaflow-ai/cmux"}
         pr = {"draft": False, "head": {"repo": repo}, "base": {"ref": "feat-cmux-next", "repo": repo},
               "labels": [{"name": "ready-to-land"}]}
-        for action in ("synchronize", "labeled"):
+        # The land handoff starts it; a push of a labelled PR waits for land's ask unless the switch is 0.
+        for action, at_land, starts in (("labeled", "1", True), ("synchronize", "1", False),
+                                        ("labeled", "0", True), ("synchronize", "0", True)):
             event = {"action": action, "label": {"name": "ready-to-land"}, "pull_request": pr}
             tier = pr_router.head_tier.tier("pull_request", event, land_switch="1", land_full_switch="0")
             self.assertTrue(pr_router.head_tier.land_affected(tier))
-            for path, expected in ((npb.WORKFLOW, True), ("Packages/macOS/CmuxNext/Sources/X.swift", True),
+            for path, expected in ((npb.WORKFLOW, starts), ("Packages/macOS/CmuxNext/Sources/X.swift", starts),
                                    ("docs/readme.md", False)):
-                with self.subTest(action=action, path=path):
-                    start, _ = pr_router.route(event, callees, [path], decided=tier)
-                    self.assertEqual(name in start, expected)
+                with self.subTest(action=action, at_land=at_land, path=path), \
+                        mock.patch.dict(os.environ, {"CI_NIGHTLY_PR_BUILD_AT_LAND": at_land}):
+                    start, why = pr_router.route(event, callees, [path], decided=tier)
+                    self.assertEqual(name in start, expected, why[name])
+        # full-ci (a lane VM's handoff pulse) is land's ask too; the merge train's tip builds on its push.
+        event = {"action": "labeled", "label": {"name": "full-ci"}, "pull_request": pr}
+        tier = pr_router.head_tier.tier("pull_request", event, land_switch="1", land_full_switch="0")
+        self.assertIn(name, pr_router.route(event, callees, [npb.WORKFLOW], decided=tier)[0])
+        tip = {**pr, "head": {"repo": repo, "ref": pr_router.TRAIN_TIP}}
+        event = {"action": "synchronize", "pull_request": tip}
+        tier = pr_router.head_tier.tier("pull_request", event, land_switch="1", land_full_switch="0")
+        if pr_router.head_tier.land_affected(tier):
+            self.assertIn(name, pr_router.route(event, callees, [npb.WORKFLOW], decided=tier)[0])
         for changes in ({"draft": True}, {"labels": []}):
             event = {"action": "synchronize", "pull_request": {**pr, **changes}}
             tier = pr_router.head_tier.tier("pull_request", event, land_switch="1", land_full_switch="0")
@@ -95,6 +110,32 @@ class Route(unittest.TestCase):
             path = pattern.replace("*", "Example")
             self.assertTrue(npb.route([path])["swift"], path)
             self.assertTrue(pr_router.matches_filter(config, [path]) and pr_router.affects(config, [path]), path)
+
+
+class Record(unittest.TestCase):
+    """A detached compile's green verdict saves the key the compile job looks up (#62619 stopped saving it)."""
+
+    def test_recorder_saves_the_lookup_key_on_a_green_verdict(self) -> None:
+        record = (ROOT / ".github/workflows/nightly-pr-build-record.yml").read_text()
+        compile_job = (ROOT / npb.WORKFLOW).read_text()
+        self.assertIn("check_run:", record)
+        self.assertIn("conclusion == 'success'", record)
+        self.assertIn("CI_NIGHTLY_PR_BUILD_RECORD", record)
+        # Same cache path and key function as the compile job's lookup and its wait-mode save.
+        self.assertIn("path: ${{ runner.temp }}/nightly-pr-build-pass", record)
+        self.assertIn("nightly_pr_build.py keys", record)
+        self.assertIn("nightly_pr_build.py keys", compile_job)
+        name = re.search(r"REPORT_CHECK: (.*)", compile_job).group(1).replace("${{ matrix.arch }}", "ARCH")
+        self.assertTrue(name.startswith("nightly app compile ") and name.endswith(" fleet verdict (advisory)"))
+        self.assertIn("startsWith(github.event.check_run.name, 'nightly app compile ')", record)
+        self.assertIn("' fleet verdict (advisory)'", record)
+
+    def test_recorder_key_matches_the_compile_job_key(self) -> None:
+        key = npb.keys("HEAD")["arm64"]
+        self.assertTrue(key.startswith("nightly-pr-build-arm64-"))
+        self.assertEqual(key, json.loads(subprocess.check_output(
+            [sys.executable, str(ROOT / "scripts/ci/nightly_pr_build.py"), "keys", "--rev", "HEAD"],
+            text=True, cwd=ROOT).split("keys=", 1)[1])["arm64"])
 
 
 class Keys(unittest.TestCase):
@@ -135,6 +176,13 @@ class Workflow(unittest.TestCase):
         self.assertIn("--script scripts/cmux-next/check-release-compile.sh", text)
         self.assertIn("--arg=--nightly", text)
         self.assertIn("arch: [arm64, x86_64]", text)
+        # One arch's red cancels the other arch's wait (the reds are arch-independent).
+        self.assertIn("fail-fast: true", text)
+        # A cancelled arch cancels its fleet step too, so it does not build for nobody.
+        self.assertIn(
+            "if: ${{ cancelled() && steps.cache.outputs.cache-hit != 'true' && steps.verdict.outputs.passed != 'true' }}", text
+        )
+        self.assertIn('"$client" cancel "$step" --reason "nightly pr build: job cancelled"', text)
         self.assertEqual(sorted(npb.ARCHS), ["arm64", "x86_64"])
         # The gateway runner refuses any job whose id does not end in -fleet.
         gateway = re.findall(r"^  ([a-z0-9_-]+):\n(?:    .*\n)*?    runs-on: \$\{\{ vars.CI_EVAL_STEP_GATEWAY", text, re.M)
@@ -172,6 +220,40 @@ class Workflow(unittest.TestCase):
         self.assertIsNotNone(timeout)
         self.assertLessEqual(int(timeout.group(1)), 90)
 
+    def test_swift_job_detaches_and_the_fleet_posts_the_verdict(self) -> None:
+        # Leo, 2026-11-27: "de facto, im asking for 99% fewer minutes of ci time, period." The job held a runner
+        # ~20 min per arch while its step sat queued (run 46030977376 job 140614747339), ~20k runner-min/day.
+        text = (ROOT / npb.WORKFLOW).read_text()
+        self.assertIn("DETACH: ${{ vars.CI_NIGHTLY_PR_BUILD_DETACH || '1' }}", text)
+        self.assertIn('detach=(--report-check "$REPORT_CHECK" --detach)', text)
+        self.assertIn('${detach[@]+"${detach[@]}"}', text)  # empty-array safe under set -u on macOS bash 3.2
+        name = re.search(r"REPORT_CHECK: (.*)$", text, re.M)
+        self.assertIsNotNone(name)
+        self.assertIn("(advisory)", name.group(1))
+        # report_check.go reportCheckName, with the matrix expression standing in for the arch.
+        self.assertRegex(name.group(1).replace("${{ matrix.arch }}", "arm64"), r"^[A-Za-z0-9][A-Za-z0-9 ._()/:+-]{0,99}$")
+
+
+    def test_a_head_whose_fleet_verdict_passed_is_not_compiled_again(self) -> None:
+        # Leo, 2026-11-27: "we should probably just get these cuts in asap and stuff". A detached run never
+        # records the input-key pass, so a ready-to-land or full-ci re-run on the same head compiled it again:
+        # 17 of 74 head-arch pairs, 392 of 1,468 job-min (20:05-21:34Z). A success verdict is the pass.
+        text = (ROOT / npb.WORKFLOW).read_text()
+        job = text.split("\n  swift-fleet:\n", 1)[1].split("\n  helpers:\n", 1)[0]
+        self.assertIn("    permissions:\n      checks: read\n", job)
+        self.assertIn("/commits/$SHA/check-runs?check_name=$name&filter=all", job)
+        self.assertIn('r.get("conclusion") == "success"', job)
+        verdict = job.index("id: verdict")
+        compile_ = job.index("id: compile")
+        self.assertLess(verdict, compile_)
+        self.assertIn(
+            "if: ${{ steps.cache.outputs.cache-hit != 'true' && steps.verdict.outputs.passed != 'true' }}", job
+        )
+        self.assertIn("if: ${{ steps.compile.outputs.passed == 'true' || steps.verdict.outputs.passed == 'true' }}", job)
+        # The caller grants what the callee asks for (check_reusable_workflow_permissions.py).
+        router = (ROOT / ".github/workflows/pr-router.yml").read_text()
+        caller = router.split("\n  nightly-pr-build:\n", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("      checks: read", caller)
 
 if __name__ == "__main__":
     unittest.main()

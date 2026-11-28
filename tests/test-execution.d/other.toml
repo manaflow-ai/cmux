@@ -2,6 +2,10 @@
 # Keep entries sorted by path; scripts/ci/test_execution_registry.py says how it is split.
 
 [[test]]
+path = "tests/test_accounts_nightly_transport.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_actions_artifact_prune.py"
 lane = "linux-guard"
 
@@ -36,6 +40,10 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 
 [[test]]
 path = "tests/test_attachment_caps_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_auto_journal_nightly_artifact.py"
 lane = "linux-guard"
 
 [[test]]
@@ -413,6 +421,11 @@ path = "tests/test_hosted_queue_wait.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_hot_apply_abi_read_error.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_hot_apply_abi_read_error.py"
+
+[[test]]
 path = "tests/test_hung_test_watchdog.py"
 lane = "linux-guard"
 
@@ -443,6 +456,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_intent_familiar_warning.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_iphone_clips_priority.py"
 lane = "linux-guard"
 
 [[test]]
@@ -724,6 +741,10 @@ path = "tests/test_pairing_scheme_lint.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_pattern_download_layout_hint.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_payload_advisories.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_payload_advisories.py"
@@ -947,6 +968,10 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_rust_panic_ratchet_base_broken.py"
 
 [[test]]
+path = "tests/test_rust_workspaces_pr_diff_gate.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_same_tree_reuse.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). Checks that every pull-request job in scripts/ci/same_tree_reuse.json reuses a same-tree pass or is denied with a reason, and that scripts/ci/same_tree_reuse.py keys, decides and writes receipts as the workflows call it; run python3 tests/test_same_tree_reuse.py yourself after changing same_tree_reuse.py, its map or a workflow it covers (a few seconds, no build)."
@@ -1049,6 +1074,11 @@ lane = "legacy"
 path = "tests/test_ssvp_host_early_exit_ends_viewer.py"
 lane = "manual"
 reason = "Run by the lane that changes screen-share-vs-pair.sh: python3 tests/test_ssvp_host_early_exit_ends_viewer.py; needs only bash and python3 (a second)."
+
+[[test]]
+path = "tests/test_ssvp_launch_refused_half.py"
+lane = "manual"
+reason = "Run by the lane that changes screen-share-vs-pair-launch.sh: python3 tests/test_ssvp_launch_refused_half.py; needs only bash, git, openssl and python3 (a second)."
 
 [[test]]
 path = "tests/test_stable_next.py"
@@ -1199,10 +1229,6 @@ lane = "manual"
 reason = "Run by the lane that changes tests/unittest_shard.py (kept manual under the 2026-10-23 no-new-CI rule, since lifted): python3 -I tests/test_unittest_shard.py; needs only python3."
 
 [[test]]
-path = "tests/test_update_release_tag.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_vendored_cmux_agent_cursor.py"
 lane = "linux-guard"
 
@@ -1258,6 +1284,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_whats_new_clips.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_whats_new_gallery_triggers.py"
 lane = "linux-guard"
 
 [[test]]

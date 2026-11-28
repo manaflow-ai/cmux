@@ -554,6 +554,13 @@ CmuxScreenEvalLauncher in System Settings > Privacy & Security. The first run li
 macOS 15 and later may ask again, after some weeks, to keep allowing screen capture. A run blocked
 again on a mini that ran before is that prompt waiting at its console.
 
+On a dedicated fleet Mac the step can skip that console visit: `seed-grants=1`, inside a fleet console
+step only (`CMUX_CI_CONSOLE_SESSION=1` with `CMUX_CI_STEP_KEY`, after `person_guard.py` has refused a
+person's Mac), runs `launcher/seed-grants.sh`. It writes the two rows that console grant makes into the system
+TCC database with `sudo -n sqlite3`, keyed to the launcher's designated requirement. That is the same write the
+zero-touch screen-share probe makes for the app's helper. The step log prints one
+`SCREEN-STREAM-EVAL-LAUNCHER-SEED` line with each grant `held`, `seeded` or `refused: WHY`.
+
 **Trust.** The app holds both grants and runs the harness for any process of its user that asks:
 the path check only guards against a wrong path, since that user can edit its own checkout anyway.
 That matches the boundary a measure mini already has: a dedicated console user with no personal
