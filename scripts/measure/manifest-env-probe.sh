@@ -24,8 +24,8 @@ linkage() { # DD
 }
 build() { # DD [ENV...]
   local dd="$1"; shift
-  (cd "$work/pkg" && env "$@" xcodebuild -scheme exe -configuration Release -destination 'generic/platform=macOS' \
-    -derivedDataPath "$dd" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build >"$dd.log" 2>&1) || echo "build failed: $(grep -m3 error: "$dd.log")" >&2
+  (cd "$work/pkg" && for kv in "$@"; do export "$kv"; done && xcodebuild -scheme exe -configuration Release -destination 'generic/platform=macOS' \
+    -derivedDataPath "$dd" ${LD_EXPORT_SYMBOLS:+LD_EXPORT_SYMBOLS=$LD_EXPORT_SYMBOLS} ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build >"$dd.log" 2>&1) || echo "build failed: $(grep -m3 error: "$dd.log")" >&2
 }
 for app in /Applications/Xcode*.app; do
   dev="$app/Contents/Developer"; [[ -x "$dev/usr/bin/xcodebuild" ]] || continue
@@ -36,5 +36,14 @@ for app in /Applications/Xcode*.app; do
   kept="$work/kept"; rm -rf "$kept"
   build "$kept"; before="$(linkage "$kept")"
   build "$kept" PROBE_LIVE=1; after="$(linkage "$kept")"
+  # The live code build's export check (scripts/live-code/lib/two-pass.sh live_code_ours) greps
+  # dyld_info -exports for mangled _$s names: its format on this Xcode, on an exported static link.
+  build "$work/exp" PROBE_LIVE=1 LD_EXPORT_SYMBOLS=YES
+  exe="$(find "$work/exp/Build/Products" -name exe -type f -perm -u+x | head -1)"
+  if [[ -n "$exe" ]]; then
+    echo "manifest-env-probe: $ver: dyld_info -exports, first Lib lines:"; xcrun dyld_info -exports "$exe" | grep -i 'probeHello\|3Lib' | head -5
+    echo "manifest-env-probe: $ver: live_code_ours-style matches: $(xcrun dyld_info -exports "$exe" | grep -oE '_\$s[^ ]*' | grep -cE '[0-9]Lib')"
+  fi
+  rm -rf "$work/exp"
   echo "manifest-env-probe: $ver: live cold=$cold (want static); unset=$before (want dynamic), then live on kept DerivedData=$after (want static)"
 done
