@@ -1,0 +1,52 @@
+{
+  "about": "paired-macs.sqlite3 as the first schema (user_version 1) wrote it: one table of Macs keyed by device id, with an upper-case UUID that v7 canonicalizes, and a Tailscale route that v8 turns into a migration grant. Seeded into a fresh paired-macs.sqlite3 (each `sql` statement, then PRAGMA user_version), opened through MobilePairedMacStore, and read with loadAll(): `macs` is what it must return, newest last_seen_at first. `newer_build_sql`, run on top, stands in for a build after this one (a new column, table and route kind): the same Macs must still read, and this build's next route write keeps the route it cannot read. Test: MobilePairedMacPersistedFormatTests (pairedMacStoreFixturesLoad).",
+  "user_version": 1,
+  "sql": [
+    "CREATE TABLE paired_macs (mac_device_id TEXT PRIMARY KEY NOT NULL, display_name TEXT, stack_user_id TEXT, created_at REAL NOT NULL, last_seen_at REAL NOT NULL, is_active INTEGER NOT NULL DEFAULT 0)",
+    "CREATE INDEX idx_macs_stack_user ON paired_macs(stack_user_id)",
+    "CREATE TABLE mac_routes (id INTEGER PRIMARY KEY AUTOINCREMENT, mac_device_id TEXT NOT NULL, route_id TEXT NOT NULL, kind TEXT NOT NULL, endpoint_json TEXT NOT NULL, priority INTEGER NOT NULL DEFAULT 0, FOREIGN KEY (mac_device_id) REFERENCES paired_macs(mac_device_id) ON DELETE CASCADE)",
+    "CREATE INDEX idx_routes_device ON mac_routes(mac_device_id)",
+    "INSERT INTO paired_macs (mac_device_id, display_name, stack_user_id, created_at, last_seen_at, is_active) VALUES ('A1B2C3D4-0000-4000-8000-0000000000AA', 'Old Mac', 'alice', 1700000000.0, 1700003600.0, 1)",
+    "INSERT INTO paired_macs (mac_device_id, display_name, stack_user_id, created_at, last_seen_at, is_active) VALUES ('mac-anon-v1', NULL, NULL, 1690000000.0, 1690000000.0, 0)",
+    "INSERT INTO mac_routes (mac_device_id, route_id, kind, endpoint_json, priority) VALUES ('A1B2C3D4-0000-4000-8000-0000000000AA', 'ts', 'tailscale', '{\"id\":\"ts\",\"kind\":\"tailscale\",\"endpoint\":{\"type\":\"host_port\",\"host\":\"100.64.0.9\",\"port\":8443},\"priority\":0}', 0)"
+  ],
+  "newer_build_sql": [],
+  "macs": [
+    {
+      "macDeviceID": "a1b2c3d4-0000-4000-8000-0000000000aa",
+      "displayName": "Old Mac",
+      "stackUserID": "alice",
+      "teamID": null,
+      "instanceTag": null,
+      "customName": null,
+      "customColor": null,
+      "customIcon": null,
+      "isActive": true,
+      "createdAt": 1700000000.0,
+      "lastSeenAt": 1700003600.0,
+      "connectionMethod": null,
+      "directAddresses": null,
+      "routeIDs": [
+        "ts"
+      ],
+      "legacyTailscaleRoutes": 1
+    },
+    {
+      "macDeviceID": "mac-anon-v1",
+      "displayName": null,
+      "stackUserID": null,
+      "teamID": null,
+      "instanceTag": null,
+      "customName": null,
+      "customColor": null,
+      "customIcon": null,
+      "isActive": false,
+      "createdAt": 1690000000.0,
+      "lastSeenAt": 1690000000.0,
+      "connectionMethod": null,
+      "directAddresses": null,
+      "routeIDs": [],
+      "legacyTailscaleRoutes": 0
+    }
+  ]
+}
