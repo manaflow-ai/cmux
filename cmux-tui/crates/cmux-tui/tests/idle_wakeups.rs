@@ -759,21 +759,56 @@ fn cmux_next_daemon_idle_ignores_writes_to_unread_files_in_a_watched_project_fol
     });
 }
 
+/// The terminal sits in a repository that other programs read all the time
+/// (`git status`, a prompt, an editor, a CI runner reading its checkout). The
+/// git HEAD watch holds the repository's `.git`; a read there changes no HEAD
+/// and must not wake the daemon. notify's inotify watcher asks for every open,
+/// so each read woke its thread and `git-head-watch` in every window
+/// (cmux-tui artifacts runs 46128450939 and 46132247802, the terminal in the
+/// runner's checkout).
+#[test]
+fn cmux_next_daemon_idle_ignores_reads_of_the_terminals_repository() {
+    let daemon = Daemon::start("repo-reads");
+    let repo = daemon.dir.join("repo");
+    let git = repo.join(".git");
+    fs::create_dir_all(git.join("refs/heads")).unwrap();
+    fs::write(git.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+    fs::write(git.join("config"), "[core]\n\tbare = false\n").unwrap();
+    assert_idle_in(&daemon, Some(&repo), move || {
+        // About 20 rounds of reads a second through the windows, as `git
+        // status` reads HEAD, config and the index.
+        let end = Instant::now() + WINDOW * WINDOWS - Duration::from_millis(100);
+        while Instant::now() < end {
+            for name in ["HEAD", "config"] {
+                fs::read(git.join(name)).unwrap();
+            }
+            let _ = fs::read_dir(&git).unwrap().count();
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    });
+}
+
 /// Starts a terminal, keeps the app's streams open, settles, then runs
 /// `during` across the quiet windows and fails when the daemon or a terminal
 /// host woke up (see [`woke`]).
 fn assert_idle(daemon: &Daemon, during: impl FnOnce() + Send + 'static) {
-    let created = request(
-        &daemon.socket,
-        serde_json::json!({
-            "id": 1,
-            "cmd": "run",
-            "argv": ["/bin/cat"],
-            "new_workspace": true,
-            "name": "idle",
-        }),
-    )
-    .expect("run /bin/cat");
+    assert_idle_in(daemon, None, during);
+}
+
+/// [`assert_idle`] with the terminal in `cwd` (else the test's own working
+/// directory).
+fn assert_idle_in(daemon: &Daemon, cwd: Option<&Path>, during: impl FnOnce() + Send + 'static) {
+    let mut run = serde_json::json!({
+        "id": 1,
+        "cmd": "run",
+        "argv": ["/bin/cat"],
+        "new_workspace": true,
+        "name": "idle",
+    });
+    if let Some(cwd) = cwd {
+        run["cwd"] = serde_json::json!(cwd);
+    }
+    let created = request(&daemon.socket, run).expect("run /bin/cat");
     assert!(created["terminal_id"].is_string(), "{created}");
     let tree = request(&daemon.socket, serde_json::json!({"id": 2, "cmd": "list-workspaces"}))
         .expect("list-workspaces");
