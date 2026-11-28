@@ -721,7 +721,7 @@ export function QuickModelMenu({
   // information beyond the trigger and is intentionally omitted.
   const modelRows = (
     <>
-      {rows.length === 0 ? (
+      {rows.length === 0 && (query || !shown?.cloudSoon) ? (
         <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
           {query
             ? t(families ? "picker.noMatchesFor" : "picker.noMatchesForQuery", { query })
@@ -740,9 +740,14 @@ export function QuickModelMenu({
           </MenuItem>
         )
       )}
-      {!query && shown?.note && shown.logIn && (
+      {!query && shown?.logIn && (
         <MenuItem className="acpmux-quick-item" onSelect={() => shown.logIn?.()}>
-          <span className="acpmux-menu-label">{t("harness.logIn")}</span>
+          <span className="acpmux-menu-label">{shown.logInLabel ?? t("harness.logIn")}</span>
+        </MenuItem>
+      )}
+      {!query && shown?.cloudSoon && (
+        <MenuItem disabled className="acpmux-quick-item acpmux-quick-note" data-cloud-coming-soon="">
+          {t("picker.cloud.comingSoon")}
         </MenuItem>
       )}
       {!query && shown?.note && shown.setUp && (
@@ -1210,7 +1215,7 @@ export function QuickModelMenu({
                       // harness and whether this chat ran it.
                       // tooltip-allow: the rail tab shows only the harness's mark.
                       title={[name, family.note, ownTab ? t("picker.usedHere") : undefined].filter(Boolean).join(" · ")}
-                      className="acpmux-quick-rail-tab"
+                      className={`acpmux-quick-rail-tab${family.note && family.logInLabel ? " opacity-50" : ""}`}
                       // ui-allow: the rail is no row of the menu; ArrowLeft and ArrowRight move along it, so Up and Down stay in the list.
                       tabIndex={-1}
                       // Every harness tab moves along the rail; Starred stays first (railReorder.ts).
