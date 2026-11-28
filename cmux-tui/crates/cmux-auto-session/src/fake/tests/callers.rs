@@ -66,7 +66,10 @@ fn each_caller_has_its_routes() {
     // The owner's routes are not a machine's.
     assert_eq!(status(ready(machine.put(CHAT, &put_request("mac")))), Some(403));
     assert_eq!(status(ready(machine.list(None, None))), Some(403));
-    assert_eq!(status(ready(machine.keep(CHAT, true))), Some(403));
+    // The holder machine keeps the chat; a chat it does not hold is not there for it.
+    ready(machine.keep(CHAT, true)).expect("the holder keeps it");
+    assert!(chat(&owner).keep_in_cloud);
+    assert_eq!(status(ready(machine.keep("chat_2", true))), Some(404));
     assert_eq!(status(ready(machine.machine())), Some(403));
     assert_eq!(status(ready(machine.set_machine(&machine_setting()))), Some(403));
     assert_eq!(status(ready(machine.wait(CHAT, 0, 0))), Some(403));
