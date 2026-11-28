@@ -616,7 +616,7 @@ class SharedWebArtifact(unittest.TestCase):
             if step.get('name') in {
                 'Restore pinned Bun 1.4.4 from the CI cache bucket',
                 'Setup Bun', 'Give this job its own bun',
-                'Restore pinned Node 24.22.1 from the CI cache bucket',
+                'Restore pinned Node from the CI cache bucket',
                 'Setup Node', 'Restore the webviews Bun package cache',
                 'Build the web bundles (the build NIGHTLY runs)',
             }

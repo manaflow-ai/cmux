@@ -212,6 +212,7 @@
     "labeled"
    ],
    "affects": [
+    ".node-version",
     "webviews/**",
     "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
     "schemas/**",
