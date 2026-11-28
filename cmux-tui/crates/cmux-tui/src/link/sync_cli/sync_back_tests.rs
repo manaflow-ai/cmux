@@ -137,7 +137,7 @@ fn sync_pull_and_project_back_refuse_a_folder_turned_off_before_they_dial() {
         let status = std::process::Command::new(std::env::current_exe().unwrap())
             .arg("sync_pull_and_project_back_refuse_a_folder_turned_off_before_they_dial")
             .env("CMUX_TUI_STATE_DIR", state.path())
-            .env_remove(POLICY_ENV)
+            .env_remove(rule::POLICY_ENV)
             .env("CMUX_SYNC_BACK_TEST_FOLDER", folder.path())
             .env(CHILD, want)
             .status()
