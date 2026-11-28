@@ -577,6 +577,25 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
     expect(wait).toContain("acpmux's harness check did not finish");
   });
 
+  test("acpmux-login-env warms the login shell, retries the restart, and names the daemon's log on failure (roll 46173290720)", async () => {
+    const cmd = bake.acpmuxLoginEnvRefreshCommand();
+    const restart = cmd.indexOf("systemctl --user restart acpmux.service");
+    // The first login shell's one-time work runs before acpmux's own 3 s read, as acpmux runs it.
+    expect(cmd.indexOf('"$login_shell" -l -i -c true')).toBeGreaterThanOrEqual(0);
+    expect(cmd.indexOf('"$login_shell" -l -i -c true')).toBeLessThan(restart);
+    // Each try removes the cache, restarts, and waits by wall time; a later try is a fresh read.
+    expect(cmd).toContain(`while [ "$try" -lt ${bake.ACPMUX_LOGIN_READ_TRIES} ]`);
+    expect(bake.ACPMUX_LOGIN_READ_TRIES).toBeGreaterThan(1);
+    expect(cmd).toContain("t0=$(date +%s)");
+    expect(cmd).toContain('journalctl _SYSTEMD_USER_UNIT=acpmux.service');
+    // The exec outlasts the warm shell and every try's restart and wait.
+    expect(bake.acpmuxLoginEnvRefreshStepMs()).toBeGreaterThan((60 + bake.ACPMUX_LOGIN_READ_TRIES * (90 + 30)) * 1000);
+    expect(source()).toContain('L.step(vm, "acpmux-login-env", acpmuxLoginEnvRefreshCommand(), acpmuxLoginEnvRefreshStepMs())');
+    const result = await runChild("bash", ["-n"], { input: cmd, timeout: 20_000 });
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+  });
+
   test("acpmux-probes-quiet is bounded by wall time and its exec outlasts the bound (roll 46067232978)", () => {
     const cmd = bake.acpmuxProbesQuietCommand();
     expect(cmd).toContain("t0=$(date +%s)");

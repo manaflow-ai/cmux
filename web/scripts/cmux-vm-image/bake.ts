@@ -1191,7 +1191,7 @@ async function writeModelPlane(ctx: Ctx): Promise<void> {
   // --now: a clone resumes this running system (no boot); the builder never binds, so no pass runs here.
   await L.step(vm, "agent-model-route-path", `test ! -e ${AGENT_MODEL_ROUTE_TRIGGER} && systemd-analyze verify /etc/systemd/system/${AGENT_MODEL_ROUTE_UNIT}.service /etc/systemd/system/${AGENT_MODEL_ROUTE_UNIT}.path && systemctl daemon-reload && systemctl enable --now --quiet ${AGENT_MODEL_ROUTE_UNIT}.path && systemctl is-active ${AGENT_MODEL_ROUTE_UNIT}.path`);
   await L.step(vm, "model-plane-env", `sh -n ${VM_GUEST_MODEL_PLANE_ENV_PATH} && bash -n /etc/cmux/agent-config.sh && ! grep -q crt_ ${VM_GUEST_MODEL_PLANE_ENV_PATH} && grep -q "^export OPENAI_BASE_URL='https://" ${VM_GUEST_MODEL_PLANE_ENV_PATH} && echo model-plane-env-baked`);
-  await L.step(vm, "acpmux-login-env", acpmuxLoginEnvRefreshCommand());
+  await L.step(vm, "acpmux-login-env", acpmuxLoginEnvRefreshCommand(), acpmuxLoginEnvRefreshStepMs());
   await L.step(vm, "acpmux-harness-checks", acpmuxHarnessChecksDoneCommand());
   await L.step(vm, "acpmux-probes-quiet", acpmuxProbesQuietCommand(), acpmuxProbesQuietStepMs());
 }
@@ -1202,7 +1202,22 @@ async function writeModelPlane(ctx: Ctx): Promise<void> {
  * so nothing re-reads it: Codex started without the edge's placeholder key (gateway-e2e run 42382330319). Drop the
  * cache and restart acpmux so the snapshot holds a daemon that read the final login shell; clean.py then drops the
  * cache this read writes, so a cold boot reads its own. `grep -q` checks the key's name only, never a value.
+ *
+ * acpmux gives one login shell read 3 s (login_env.rs TIMEOUT) and a read that fails writes no cache and is not
+ * retried until an agent spawns. The first login shell after writeModelPlane does one-time work (agent-config.sh
+ * merges the Codex config with python3), and on a loaded builder that passed 3 s: roll 46173290720 (every step
+ * 5-10x its green time) waited 60 s for a cache no read would write. So one login shell runs first, as acpmux runs it
+ * (`$SHELL -l -i -c`), outside acpmux's bound; then up to ACPMUX_LOGIN_READ_TRIES restarts, each waited on by wall
+ * time; a final failure prints the daemon's login-env log lines, so the red names its own cause.
  */
+export const ACPMUX_LOGIN_READ_TRIES = 3;
+const ACPMUX_LOGIN_READ_WAIT_S = 30;
+
+/** The exec bound for acpmuxLoginEnvRefreshCommand: the warm shell (60 s) and each try's restart (90 s) and wait, plus slack. */
+export function acpmuxLoginEnvRefreshStepMs(): number {
+  return (60 + ACPMUX_LOGIN_READ_TRIES * (90 + ACPMUX_LOGIN_READ_WAIT_S + 5) + 60) * 1000;
+}
+
 export function acpmuxLoginEnvRefreshCommand(): string {
   const user = 'XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER"';
   return [
@@ -1211,12 +1226,13 @@ export function acpmuxLoginEnvRefreshCommand(): string {
     'cache="$CMUX_TUI_HOME/.acpmux/login-env.json"',
     // acpmuxHarnessChecksDoneCommand waits for this start's harness check to write it again.
     'health="$CMUX_TUI_HOME/.acpmux/harness-health.json"',
-    'rm -f "$cache" "$health"',
-    `${user} systemctl --user restart acpmux.service`,
-    'i=0; while [ "$i" -lt 60 ] && [ ! -s "$cache" ]; do i=$((i + 1)); sleep 1; done',
-    'test -s "$cache" || { echo "acpmux did not read the login shell after its restart" >&2; exit 1; }',
+    // The one-time work of the first login shell, outside acpmux's 3 s read.
+    'login_shell="$(getent passwd "$CMUX_TUI_USER" | cut -d: -f7)"; [ -x "$login_shell" ] || login_shell=/bin/bash',
+    `w0=$(date +%s); ${user} SHELL="$login_shell" timeout 60 "$login_shell" -l -i -c true </dev/null >/dev/null 2>&1 || true; warm=$(( $(date +%s) - w0 ))`,
+    `try=0; while [ "$try" -lt ${ACPMUX_LOGIN_READ_TRIES} ]; do try=$((try + 1)); rm -f "$cache" "$health"; ${user} timeout 90 systemctl --user restart acpmux.service || { echo "acpmux restart failed (try $try)" >&2; exit 1; }; t0=$(date +%s); while [ $(( $(date +%s) - t0 )) -lt ${ACPMUX_LOGIN_READ_WAIT_S} ] && [ ! -s "$cache" ]; do sleep 1; done; [ -s "$cache" ] && break; echo "try $try: no login-env.json ${ACPMUX_LOGIN_READ_WAIT_S}s after the restart" >&2; done`,
+    `test -s "$cache" || { echo "acpmux did not read the login shell after its restart (${ACPMUX_LOGIN_READ_TRIES} tries; warm login shell \${warm}s)" >&2; journalctl _SYSTEMD_USER_UNIT=acpmux.service --since "-10min" --no-pager -o cat 2>/dev/null | grep -i -E "login shell|login env" | tail -n 20 >&2; exit 1; }`,
     'grep -q OPENAI_API_KEY "$cache" || { echo "acpmux login environment lacks OPENAI_API_KEY" >&2; exit 1; }',
-    "echo acpmux-login-env-fresh",
+    'echo "acpmux-login-env-fresh try $try warm ${warm}s"',
   ].join(" && ");
 }
 
