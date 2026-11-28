@@ -302,6 +302,90 @@ struct TerminalSurfaceMountOwnershipTests {
     }
 
     @MainActor
+    @Test("a mounted terminal without a stream reclaims it when the connection returns")
+    func mountedTerminalWithoutStreamReclaimsItWhenConnectionReturns() async throws {
+        let store = MobileShellComposite.preview()
+        let workspace = try #require(store.workspaces.first { !$0.terminals.isEmpty })
+        let terminal = try #require(workspace.terminals.first)
+        let surfaceID = terminal.id.rawValue
+        let coordinator = GhosttySurfaceRepresentable.Coordinator(
+            workspaceID: workspace.id.rawValue,
+            surfaceID: surfaceID,
+            store: store,
+            artifactFilesEnabled: false,
+            terminalFolderTapEnabled: false,
+            terminalFilesChipEnabled: false,
+            sessionArtifactCountEnabled: false,
+            visibleArtifactCount: 0,
+            onArtifactFilesRequested: { _ in },
+            onArtifactPathTapped: { _ in },
+            onVisibleArtifactCountChanged: { _ in },
+            onArtifactGalleryRefreshSignal: { _ in }
+        )
+        let surfaceView = GhosttySurfaceView(
+            runtime: try GhosttyRuntime.shared(),
+            delegate: coordinator
+        )
+        surfaceView.stopDisplayLink()
+        let host = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        coordinator.attach(surfaceView: surfaceView)
+        defer {
+            surfaceView.removeFromSuperview()
+            coordinator.detach()
+            surfaceView.prepareForDismantle()
+            window.isHidden = true
+        }
+
+        surfaceView.frame = host.view.bounds
+        host.view.addSubview(surfaceView)
+        coordinator.ghosttySurfaceView(
+            surfaceView,
+            didResize: TerminalGridSize(
+                columns: 72,
+                rows: 61,
+                pixelWidth: 1_296,
+                pixelHeight: 2_135
+            ),
+            reportID: 1
+        )
+        #expect(await waitUntil {
+            store.terminalOutputStreamTokensBySurfaceID[surfaceID] != nil
+        })
+
+        // A launch that mounts before the Mac connection is up can leave the
+        // visible surface without an output stream and nothing that would
+        // remount it. Model that stranded mount, then the reconnect.
+        coordinator.setConnectionLive(false)
+        coordinator.setTerminalPresentationActive(false)
+        coordinator.terminalPresentationIsActive = true
+        #expect(await waitUntil {
+            store.terminalOutputStreamTokensBySurfaceID[surfaceID] == nil
+        })
+        coordinator.setConnectionLive(true)
+        // The remount asks UIKit for a fresh geometry callback; deliver it.
+        // Without a remount there is no open output gate or scheduler, so
+        // this callback alone cannot register a stream.
+        let mountReportID = try #require(coordinator.outputStartMinimumViewportReportID)
+        coordinator.ghosttySurfaceView(
+            surfaceView,
+            didResize: TerminalGridSize(
+                columns: 72,
+                rows: 61,
+                pixelWidth: 1_296,
+                pixelHeight: 2_135
+            ),
+            reportID: mountReportID
+        )
+
+        #expect(await waitUntil {
+            store.terminalOutputStreamTokensBySurfaceID[surfaceID] != nil
+        })
+    }
+
+    @MainActor
     @Test("a terminated output stream is reclaimed while the surface remains mounted")
     func terminatedOutputStreamIsReclaimedWhileSurfaceRemainsMounted() async throws {
         let store = MobileShellComposite.preview()
