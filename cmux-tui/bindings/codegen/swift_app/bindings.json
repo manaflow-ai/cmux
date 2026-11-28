@@ -2387,6 +2387,105 @@
               ]
             }
           }
+        },
+        "TerminalResourceProcess": {
+          "type": "TerminalResourceProcess",
+          "doc": [
+            "One process in a `terminal-resources` tree, or the terminal host."
+          ],
+          "order": [
+            "pid",
+            "ppid",
+            "name",
+            "cpu_ns",
+            "memory_bytes"
+          ],
+          "fields": {
+            "pid": {
+              "type": "Int32"
+            },
+            "ppid": {
+              "type": "Int32",
+              "optional": true
+            },
+            "name": {
+              "optional": true
+            },
+            "cpu_ns": {
+              "name": "cpuNanos",
+              "doc": [
+                "Cumulative user plus system CPU time."
+              ]
+            },
+            "memory_bytes": {
+              "doc": [
+                "Physical footprint on macOS, resident memory on Linux."
+              ]
+            }
+          }
+        },
+        "TerminalResources": {
+          "type": "TerminalResources",
+          "doc": [
+            "One terminal's process tree in `terminal-resources` data."
+          ],
+          "omit": [
+            "terminal_id"
+          ],
+          "order": [
+            "surface",
+            "pid",
+            "host",
+            "processes",
+            "truncated"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            },
+            "pid": {
+              "type": "Int32"
+            },
+            "host": {
+              "type": "TerminalResourceProcess",
+              "doc": [
+                "The `__terminal-host` process that owns the PTY; nil for PTYs",
+                "inside the daemon."
+              ]
+            },
+            "processes": {
+              "default": "[]"
+            },
+            "truncated": {
+              "default": "false"
+            }
+          }
+        },
+        "TerminalResourcesResult": {
+          "result": "terminal-resources",
+          "doc": [
+            "`terminal-resources` data."
+          ],
+          "order": [
+            "sampled_at_ns",
+            "terminals",
+            "missing"
+          ],
+          "fields": {
+            "sampled_at_ns": {
+              "name": "sampledAtNanos",
+              "doc": [
+                "Monotonic nanoseconds on the daemon host's clock."
+              ]
+            },
+            "terminals": {
+              "default": "[]"
+            },
+            "missing": {
+              "type": "[SurfaceID]",
+              "default": "[]"
+            }
+          }
         }
       }
     },
