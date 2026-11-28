@@ -17,6 +17,8 @@ use acpmux::mesh::{
 use acpmux::server::mesh_relay::{RefuseControl, deliver};
 use futures::future::BoxFuture;
 
+const B_KEY: &str = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=";
+
 /// A hub that keeps what it is sent, refusing a key it would not take with its 400.
 #[derive(Default)]
 struct Hub400 {
@@ -69,7 +71,7 @@ async fn a_prompt_for_a_chat_that_moved_is_forwarded_under_a_key_the_hub_takes()
     let begin = c
         .request(
             "_acpmux/transfer_begin",
-            json!({"sessionId": id, "interrupt": true, "to": {"hub": "B", "host": "machine-b"}}),
+            json!({"sessionId": id, "interrupt": true, "to": {"hub": B_KEY, "host": "machine-b"}}),
         )
         .await
         .unwrap();
