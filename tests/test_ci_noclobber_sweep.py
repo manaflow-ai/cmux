@@ -175,7 +175,7 @@ ALLOWED = {
         "a path in the Cloud machine the run made, a single-account VM of its own, run through its exec route",
     ("scripts/cmux-next/cloud-scenarios.ts", "> /tmp/${name}.log", 1):
         "a path in the Cloud machine the scenario made, a single-account VM of its own, run through its exec route",
-    ("scripts/cmux-next/cloud-scenarios.ts", "> /tmp/${name}.log", 2):
+    ("scripts/cmux-next/cloud-scenarios.ts", "echo $? > /tmp/${name}.rc"):
         "a path in the Cloud machine the scenario made, a single-account VM of its own, run through its exec route",
     ("scripts/cmux-next/cloud-scenarios.ts", "rm -f /tmp/${name}.rc"):
         "a path in the Cloud machine the scenario made, a single-account VM of its own, run through its exec route",
