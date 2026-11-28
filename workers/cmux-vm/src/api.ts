@@ -310,6 +310,10 @@ export const WriteFileParams = Schema.Struct({
 const teamHeader = { "x-cmux-team-id": Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(128))) };
 
 export const TeamHeaders = Schema.Struct(teamHeader);
+const PowerHeaders = Schema.Struct({
+  ...teamHeader,
+  "x-cmux-create-priority": Schema.optional(Schema.Literal("background")),
+});
 
 export const ReadFileHeaders = Schema.Struct({
   ...teamHeader,
@@ -359,7 +363,7 @@ export class HealthGroup extends HttpApiGroup.make("health").add(
 const vmAction = <const Name extends string>(endpointName: Name, path: `/v1/vms/:vmId/${string}`, summary: string, details: string) =>
   HttpApiEndpoint.post(endpointName, path)
     .setPath(VmPath)
-    .setHeaders(TeamHeaders)
+    .setHeaders(PowerHeaders)
     .addSuccess(Vm)
     .addError(NotFound)
     .addError(Conflict)

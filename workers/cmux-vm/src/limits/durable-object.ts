@@ -36,7 +36,7 @@ export class TenantLimitsObject extends DurableObject {
   /** Used only by the object named PROVIDER_CREATE_QUEUE_NAME: the environment's provider create queue. */
   private readonly createQueue = new CreateAdmissionQueue(storageOf(this.ctx.storage));
 
-  admitCreate(holder: string, cap: number, queueWaitMs: number, leaseMs: number, background?: boolean): Promise<CreateAdmission> { return this.createQueue.admit(holder, { cap, queueWaitMs, leaseMs }, background === true); }
+  admitCreate(holder: string, cap: number, queueWaitMs: number, leaseMs: number, background?: boolean, tenant?: string): Promise<CreateAdmission> { return this.createQueue.admit(holder, { cap, queueWaitMs, leaseMs }, background === true, tenant); }
   releaseCreate(holder: string): Promise<void> { return this.createQueue.release(holder); }
 
   meshCreation(command: MeshCreationCommand, nowMs: number): Promise<MeshCreationResult> { return this.ledger.meshCreation(command, nowMs); }
