@@ -285,10 +285,11 @@ def crate_source(name: str, version: str, scratch: Path) -> Path:
         if (root / leaf / "src").is_dir():
             return root / leaf
     import tarfile
-    import urllib.request
     archive = scratch / f"{leaf}.crate"
-    with urllib.request.urlopen(f"https://static.crates.io/crates/{name}/{leaf}.crate", timeout=60) as response:
-        archive.write_bytes(response.read())
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import deadline_http
+    _, body, _ = deadline_http.request(f"https://static.crates.io/crates/{name}/{leaf}.crate", 60, raise_errors=True)
+    archive.write_bytes(body)
     with tarfile.open(archive) as tar:
         tar.extractall(scratch, filter="data")
     return scratch / leaf

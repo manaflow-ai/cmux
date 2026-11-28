@@ -2790,9 +2790,7 @@ impl Underlay for HybridUnderlay {
         if let Some(rtt_us) = self.paths.take_turn_quiet()
             && let Some(turn) = self.turn.as_ref()
         {
-            // Two silence windows of the quiet route's smoothed RTT
-            // (max(8 x srtt, 200 ms)): the server's leg is part of that round trip.
-            turn.check_server(cmux_wg::silence_window(rtt_us) * 2);
+            turn.check_server(paths::Paths::turn_server_bound(rtt_us));
         }
         due
     }
