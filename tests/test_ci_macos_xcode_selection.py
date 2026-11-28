@@ -38,6 +38,8 @@ BELOW_FLOOR = "CMUX_CI_XCODE_ALLOW_BELOW_FLOOR"
 EXEMPT = {
     ("nightly-next-update-e2e.yml", "update"):
         "compiles nothing: it downloads and runs the published Nightly app (scripts/cmux-next/update-e2e.py)",
+    ("stable-next-update-e2e.yml", "update"):
+        "compiles nothing: it downloads and runs the published Stable app (scripts/cmux-next/update-e2e.py --channel stable)",
     ("build-ghosttykit.yml", "build-ghosttykit"):
         "Zig-only GhosttyKit xcframework build on the background lane; it takes "
         "the image's SDK, and moving it changes a published artifact",
