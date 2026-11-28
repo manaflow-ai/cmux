@@ -129,8 +129,9 @@ if (import.meta.main) {
   }
   const { ratios, max } = curveRatios(points);
   // Each round's own curve: how far the rounds spread around the medians' ratio.
-  const perRound = Array.from({ length: rounds }, (_, round) =>
-    curveRatios(turnsList.map((turns) => ({ turns, rows: samples.get(turns)![round]! }))).max,
+  const perRound = Array.from(
+    { length: rounds },
+    (_, round) => curveRatios(turnsList.map((turns) => ({ turns, rows: samples.get(turns)![round]! }))).max,
   );
   console.log(`god-length-curve: each round's ratio_max: ${perRound.map((r) => r.toFixed(3)).join(", ")}`);
   for (const metric of METRICS)
