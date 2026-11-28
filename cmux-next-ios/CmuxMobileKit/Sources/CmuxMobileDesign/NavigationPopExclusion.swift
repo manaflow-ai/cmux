@@ -34,6 +34,27 @@ public final class NavigationPopExclusion {
         return false
     }
 
+    /// Whether a back swipe that started at `point` began on a view with its
+    /// own sideways drag, which the swipe must leave alone: text being edited
+    /// (a caret or selection drag, a long draft's scroll), a scroll view wider
+    /// than its bounds (code, a wide terminal), or a web page (its own history
+    /// swipe and horizontal scrolling). Only the full-width content pop asks:
+    /// the edge pop starts at the screen edge, where none of these live.
+    public static func startsOnOwnDrag(_ point: CGPoint, in window: UIWindow?) -> Bool {
+        guard let window, let hit = window.hitTest(point, with: nil) else { return false }
+        var view: UIView? = hit
+        while let current = view, current !== window {
+            if current is UITextView || current is UITextField, current.isFirstResponder { return true }
+            if let scroll = current as? UIScrollView, scroll.isScrollEnabled,
+               scroll.contentSize.width > scroll.bounds.width + 1 {
+                return true
+            }
+            if NSStringFromClass(type(of: current)).hasPrefix("WK") { return true }
+            view = current.superview
+        }
+        return false
+    }
+
     /// The start of a pan that has already travelled (UIKit asks a pop
     /// recognizer once the finger moved past its slop).
     public static func startPoint(of recognizer: UIGestureRecognizer, in window: UIWindow?) -> CGPoint {
