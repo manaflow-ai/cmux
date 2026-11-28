@@ -424,10 +424,18 @@ final class MobileTerminalRenderObserver {
             guard !Task.isCancelled, let self else { return }
             self.pacerFlushTasksBySurfaceID[surfaceID] = nil
             guard var pacer = self.framePacersBySurfaceID[surfaceID] else { return }
-            let shouldEmit = pacer.flushFired(now: ContinuousClock.now)
+            let outcome = pacer.flushFired(now: ContinuousClock.now)
             self.framePacersBySurfaceID[surfaceID] = pacer
-            guard shouldEmit,
-                  MobileHostService.hasEventSubscribers(topic: "terminal.render_grid") else { return }
+            switch outcome {
+            case .idle:
+                return
+            case .wait(let deadline):
+                self.schedulePacerFlush(surfaceID: surfaceID, deadline: deadline)
+                return
+            case .emit:
+                break
+            }
+            guard MobileHostService.hasEventSubscribers(topic: "terminal.render_grid") else { return }
             self.emitRenderGrid(
                 surfaceID: surfaceID,
                 anchors: self.currentRenderGridAnchors(),
