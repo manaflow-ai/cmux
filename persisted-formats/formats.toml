@@ -31,25 +31,35 @@
 file = "Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/DiagnosticReport.swift"
 const = "currentHumanReadableFormatVersion"
 name = "DiagnosticReport#currentHumanReadableFormatVersion"
-policy = "unreviewed"
+policy = "rebuild"
+why = "not stored: the version of the plain-language text a person reads in a diagnostic export; nothing reads it back"
 
 [[format]]
 file = "Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/DiagnosticReport.swift"
 const = "currentSchemaVersion"
 name = "DiagnosticReport#currentSchemaVersion"
-policy = "unreviewed"
+policy = "migrate"
+fixtures = "diagnostic-report"
+test = "diagnosticReportFixturesLoad"
+floor = 1
 
 [[format]]
 file = "Packages/iOS/CmuxConversation/Sources/CmuxConversationCore/ConversationHistoryDatabase.swift"
 const = "schemaVersion"
 name = "ConversationHistoryDatabase#schemaVersion"
-policy = "unreviewed"
+policy = "migrate"
+fixtures = "conversation-history-database"
+test = "conversationHistoryFixturesLoad"
+floor = 1
 
 [[format]]
 file = "Packages/iOS/CmuxMobilePairedMac/Sources/CmuxMobilePairedMac/MobilePairedMacStore.swift"
 const = "currentSchemaVersion"
 name = "MobilePairedMacStore#currentSchemaVersion"
-policy = "unreviewed"
+policy = "migrate"
+fixtures = "mobile-paired-mac-store"
+test = "pairedMacStoreFixturesLoad"
+floor = 1
 
 [[format]]
 file = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/IconPicker/IconPickerPrefsStore.swift"
