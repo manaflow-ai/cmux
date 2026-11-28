@@ -772,6 +772,7 @@ async fn async_main(parsed: Parsed) -> Result<()> {
         // No daemon: what this binary serves (`capabilities.rs`).
         Some(Command::RunElsewhereCarrier(args)) => {
             match crate::cli::run_elsewhere_carrier::run(args).await {
+                // crash-allow: the run-elsewhere bg task's shell reads the far run's own exit code
                 Ok(code) => std::process::exit(code),
                 Err(e) => errors::exit_with(&e, cli.json),
             }
