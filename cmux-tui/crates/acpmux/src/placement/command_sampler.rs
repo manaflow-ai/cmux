@@ -680,6 +680,29 @@ fn read_procs(roots: &[u32]) -> Option<Procs> {
     }
 }
 
+/// The TCP ports the processes under `roots` listen on, with the pid holding each: the same
+/// bounded walk down from held roots as the sampler's, never a process listing. None elsewhere
+/// than Linux. What a move would interrupt reads it (`hub/move_interrupts.rs`, RFD 0063 item 6).
+pub fn listening_under(roots: &[u32]) -> Option<Vec<(u16, u32)>> {
+    let procs = read_procs(roots)?;
+    let mut out = Vec::new();
+    #[cfg(target_os = "linux")]
+    if !procs.listening.is_empty() {
+        let mut pids: Vec<u32> = procs.rows.keys().copied().collect();
+        pids.sort_unstable();
+        for pid in pids {
+            for inode in sockets_of(pid) {
+                if let Some(port) = procs.listening.get(&inode) {
+                    out.push((*port, pid));
+                }
+            }
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = procs;
+    Some(out)
+}
+
 /// The socket inodes `pid` holds (`/proc/<pid>/fd`).
 #[cfg(target_os = "linux")]
 fn sockets_of(pid: u32) -> Vec<u64> {

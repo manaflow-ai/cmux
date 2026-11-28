@@ -180,6 +180,51 @@ class GitLedgerTests(unittest.TestCase):
                 os.environ.update(old)
 
 
+class UnreachableLedgerTests(unittest.TestCase):
+    """A lane VM's broker serves no git for the ledger repo: the run is kept in pending, never nowhere (11-28)."""
+
+    def _env(self, tmp: str, remote: str) -> dict:
+        return git_fixture_env.fixture_env({**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@e",
+                                            "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@e",
+                                            "CMUX_BENCH_CACHE": str(Path(tmp) / "cache" / "ledger"),
+                                            "CMUX_BENCH_PENDING": str(Path(tmp) / "cache" / "pending"),
+                                            "CMUX_BENCH_LEDGER_REMOTE": remote})
+
+    def test_import_with_no_clone_exits_nonzero_and_push_sends_it_later(self):
+        cli = str(BENCH_DIR / "cmux-bench")
+        with tempfile.TemporaryDirectory() as tmp:
+            listing = Path(tmp) / "listing.json"
+            listing.write_text(json.dumps({"app": "cmux", "download_bytes": 1, "files": [["cmux.app/x", 1]]}))
+            gone = str(Path(tmp) / "no-such-remote.git")
+            env = self._env(tmp, gone)
+            env.pop("CMUX_BENCH_LEDGER", None)
+            # Before: exit 0 and "the run is kept in the local ledger" while nothing kept it.
+            res = subprocess.run([sys.executable, cli, "bundle", "--import", str(listing)], text=True,
+                                 capture_output=True, env=env)
+            self.assertEqual(res.returncode, 3, res.stderr)
+            self.assertIn("NOT RECORDED", res.stderr)
+            pending = list((Path(tmp) / "cache" / "pending").glob("*.jsonl"))
+            self.assertEqual(len(pending), 1, res.stderr)
+            self.assertFalse((Path(tmp) / "cache" / "ledger").exists())
+            # The ledger becomes reachable: `ledger push` sends the kept run.
+            remote = Path(tmp) / "remote.git"
+            git_fixture_env.init_repo(remote, "--bare")
+            env = self._env(tmp, str(remote))
+            res = subprocess.run([sys.executable, cli, "ledger", "push"], text=True, capture_output=True, env=env)
+            self.assertEqual(res.returncode, 0, res.stderr)
+            self.assertEqual(list((Path(tmp) / "cache" / "pending").glob("*.jsonl")), [])
+            check = Ledger(root=Path(tmp) / "check", remote=str(remote))
+            old = dict(os.environ)
+            os.environ.clear()
+            os.environ.update(env)
+            try:
+                check.pull()
+                self.assertEqual(len(check.runs()), 1)
+            finally:
+                os.environ.clear()
+                os.environ.update(old)
+
+
 class FleetStepTests(unittest.TestCase):
     def test_a_fleet_step_outside_actions_passes_a_key(self):
         """`cmux-ci run` refuses a step with no --key outside Actions; every fleet bench then read an empty log."""

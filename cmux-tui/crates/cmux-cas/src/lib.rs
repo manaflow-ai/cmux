@@ -27,6 +27,7 @@ pub mod id;
 pub mod lazy;
 pub mod manifest;
 pub mod pack;
+pub mod patch;
 pub mod peer;
 pub mod plan;
 pub mod pointer;

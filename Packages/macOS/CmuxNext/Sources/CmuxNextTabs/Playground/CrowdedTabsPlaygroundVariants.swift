@@ -32,10 +32,29 @@ struct CrowdedTabsPlaygroundVariants {
             variant(String(localized: "tabs.playground.crowded.noFragments", defaultValue: "74 pt, no title under 30 pt: icon only", bundle: .localizedModule)) {
                 $0.titleMinVisibleWidth = 30
             },
+            // Leo 2026-11-27: "ok why dont your tabs have any names/letters showing up? that intentional?" Crowded agent
+            // tabs (a spinner and a machine badge on every other tab): what gives way so the title keeps its letters.
+            agentVariant(String(localized: "tabs.playground.crowded.agentsOnIcon", defaultValue: "Agent tabs: marks move onto the icon, title keeps its letters (shipped)", bundle: .localizedModule)) { _ in },
+            agentVariant(String(localized: "tabs.playground.crowded.agentsTrailing", defaultValue: "Agent tabs: marks keep their place, title hides (before)", bundle: .localizedModule)) {
+                $0.crowdedMarks = .trailing
+            },
+            agentVariant(String(localized: "tabs.playground.crowded.agentsDropBadges", defaultValue: "Agent tabs: badges hide, status stays beside the title", bundle: .localizedModule)) {
+                $0.crowdedMarks = .dropBadges
+            },
+            agentVariant(String(localized: "tabs.playground.crowded.agentsOneLetter", defaultValue: "Agent tabs: marks on the icon, a title down to its first letter", bundle: .localizedModule)) {
+                $0.titleMinCharacters = 1.5
+            },
             TabBarPlaygroundVariant(name: String(localized: "tabs.playground.crowded.compact", defaultValue: "Compact tabs: one fixed width", bundle: .localizedModule)) { count in
                 TabBarPlaygroundBar(strip: fixture.strip(count: count, style: .compact))
             },
         ]
+    }
+
+    private func agentVariant(_ name: String, adjust: @escaping (inout TabStripMetrics) -> Void) -> TabBarPlaygroundVariant {
+        let fixture = fixture
+        return TabBarPlaygroundVariant(name: name) { count in
+            TabBarPlaygroundBar(strip: fixture.strip(count: count, agentMarks: true, adjust: adjust))
+        }
     }
 
     private func variant(_ name: String, shipped: Bool = false, adjust: @escaping (inout TabStripMetrics) -> Void) -> TabBarPlaygroundVariant {

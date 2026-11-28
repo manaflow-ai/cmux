@@ -12,6 +12,10 @@ const HEADER: usize = 5;
 /// The zstd level chunks are written at: 19 is what `cmux-session-pack` ships at; the
 /// producer pays once, every client reads it.
 pub const LEVEL: i32 = 19;
+/// The zstd level [`Store::put`] writes a chunk the client made itself at (seeded from a held
+/// tree, rebuilt from a patch): the store is a local cache, and level 19 there cost a web update
+/// minutes of CPU for bytes only this disk holds. Packs and peers' chunk files keep [`LEVEL`].
+pub const PUT_LEVEL: i32 = 3;
 
 /// A chunk file of `bytes`: the smaller of zstd and the bytes as they are.
 pub fn encode(bytes: &[u8], level: i32) -> Result<Vec<u8>> {
@@ -72,12 +76,12 @@ impl Store {
         decode(&std::fs::read(self.path(id))?, id)
     }
 
-    /// Store `bytes` as `id` (checked), compressed at [`LEVEL`].
+    /// Store `bytes` as `id` (checked), compressed at [`PUT_LEVEL`].
     pub fn put(&self, id: &Id, bytes: &[u8]) -> Result<()> {
         if Id::of(bytes) != *id {
             return Err(format!("bytes are not chunk {id}").into());
         }
-        self.put_file(id, &encode(bytes, LEVEL)?)
+        self.put_file(id, &encode(bytes, PUT_LEVEL)?)
     }
 
     /// Store a chunk file received from a peer or a pack, after checking it decodes to `id`.
