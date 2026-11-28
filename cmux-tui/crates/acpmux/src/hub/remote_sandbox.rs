@@ -1381,7 +1381,8 @@ impl Hub {
             let (program, args, routed) =
                 subrouter_plan(profile, plan.args, claude, route).map_err(refused)?;
             (crate::claude_stdio::SpawnPlan { program, args }, routed)
-        } else if sr2::is_sr2(&profile.argv) { // fleet-only-ok: only an sr2 harness
+        } else if sr2::is_sr2(&profile.argv) {
+            // fleet-only-ok: only an sr2 harness
             // fleet-only-ok: sr2 blocks before its main in the sandbox (`fleet/remote_sandbox_sr2.rs`).
             let claude = self
                 .config
