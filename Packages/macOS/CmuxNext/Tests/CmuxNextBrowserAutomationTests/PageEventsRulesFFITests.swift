@@ -38,27 +38,29 @@ import Testing
         #expect(DialogBroker.describe(.openExternalApp(app: "Zoom", scheme: "zoommtg")) == nil)
     }
 
-    private func respond(_ params: [String: Any], held: BrowserPromptKind?, resolved: Bool = false) -> DriverJSON? {
+    /// `held` is the held dialog's wire form (``DialogBroker/wire(_:)``): the test target does not import
+    /// CmuxNextBrowserCore, so it cannot name BrowserPromptKind.
+    private func respond(_ params: [String: Any], held: [String: Any]?, resolved: Bool = false) -> DriverJSON? {
         var request: [String: Any] = ["params": params, "resolved": resolved]
-        if let held { request["held"] = DialogBroker.wire(held) }
+        if let held { request["held"] = held }
         return BrowserRulesFFI.call("dialog_respond", request)
     }
 
     @Test func respondAnswersAsTheSwiftCopyDid() {
-        #expect(respond(["dialogId": "1", "accept": true, "promptText": "hi"], held: .textInput(message: "n", defaultText: "d"))
+        #expect(respond(["dialogId": "1", "accept": true, "promptText": "hi"], held: DialogBroker.wire(.textInput(message: "n", defaultText: "d")))
             == .object(["answer": .object(["kind": .string("text"), "text": .string("hi")])]))
-        #expect(respond(["dialogId": "1", "accept": true], held: .textInput(message: "n", defaultText: "d"))
+        #expect(respond(["dialogId": "1", "accept": true], held: DialogBroker.wire(.textInput(message: "n", defaultText: "d")))
             == .object(["answer": .object(["kind": .string("text"), "text": .string("d")])]))
-        #expect(respond(["dialogId": "1", "accept": true], held: .confirm(message: "c"))
+        #expect(respond(["dialogId": "1", "accept": true], held: DialogBroker.wire(.confirm(message: "c")))
             == .object(["answer": .object(["kind": .string("accept")])]))
-        #expect(respond(["dialogId": "1"], held: .textInput(message: "n", defaultText: "d"))
+        #expect(respond(["dialogId": "1"], held: DialogBroker.wire(.textInput(message: "n", defaultText: "d")))
             == .object(["answer": .object(["kind": .string("cancel")])]))
     }
 
     @Test func respondToAGoneDialogIsNotFound() {
         let gone = DriverJSON.object(["error": .object(["code": .string("not_found"), "message": .string("Dialog 7 is gone")])])
         #expect(respond(["dialogId": "7", "accept": true], held: nil) == gone)
-        #expect(respond(["dialogId": "7", "accept": true], held: .alert(message: "a"), resolved: true) == gone)
+        #expect(respond(["dialogId": "7", "accept": true], held: DialogBroker.wire(.alert(message: "a")), resolved: true) == gone)
         guard case .object(let reply)? = respond([:], held: nil), case .object(let error)? = reply["error"] else {
             Issue.record("no error for a missing dialogId")
             return
