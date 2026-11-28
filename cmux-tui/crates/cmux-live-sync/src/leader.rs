@@ -126,13 +126,15 @@ impl Leader {
 
     /// Sessions until `stop` fires: dial, sync, and on a drop dial again with backoff (100 ms
     /// doubling to 5 s; a wake or resume reconnects within that).
-    pub fn run<R, W>(
+    /// `dial` returns the read half, the write half and the link's close (see [`Leader::session`]).
+    pub fn run<R, W, C>(
         &mut self,
-        mut dial: impl FnMut() -> std::io::Result<(R, W)>,
+        mut dial: impl FnMut() -> std::io::Result<(R, W, C)>,
         stop: &Receiver<()>,
     ) where
-        R: Read + Send + 'static,
+        R: Read + Send,
         W: Write,
+        C: FnOnce(),
     {
         let mut backoff = Duration::from_millis(100);
         loop {
@@ -140,7 +142,7 @@ impl Leader {
                 return;
             }
             match dial() {
-                Ok((r, w)) => match self.session(r, w, stop) {
+                Ok((r, w, close)) => match self.session(r, w, close, stop) {
                     End::Stopped => return,
                     End::Dropped(reason) => {
                         let _ = self.events.send(Event::Offline { reason });
@@ -161,43 +163,60 @@ impl Leader {
     }
 
     /// One connection, until it drops or `stop` fires.
-    pub fn session<R: Read + Send + 'static, W: Write>(
+    ///
+    /// `close` must end a read blocked on `reader` (shut the stream down). It runs as the
+    /// connection ends, so the reader thread is joined here and never outlives its connection.
+    pub fn session<R: Read + Send, W: Write>(
         &mut self,
         reader: R,
         writer: W,
+        close: impl FnOnce(),
         stop: &Receiver<()>,
     ) -> End {
-        match self.session_inner(reader, writer, stop) {
+        match self.session_inner(reader, writer, close, stop) {
             Ok(()) => End::Stopped,
             Err(e) => End::Dropped(first_line(&format!("{e:#}"))),
         }
     }
 
-    fn session_inner<R: Read + Send + 'static, W: Write>(
+    fn session_inner<R: Read + Send, W: Write>(
         &mut self,
         reader: R,
         writer: W,
+        close: impl FnOnce(),
+        stop: &Receiver<()>,
+    ) -> anyhow::Result<()> {
+        std::thread::scope(|scope| {
+            let (tx, rx) = unbounded::<In>();
+            scope.spawn(move || {
+                let mut r = BufReader::new(reader);
+                loop {
+                    match proto::read_frame(&mut r) {
+                        Ok((m, b)) => {
+                            if tx.send(In::Frame(m, b)).is_err() {
+                                return;
+                            }
+                        }
+                        Err(e) => {
+                            let _ = tx.send(In::Closed(e.to_string()));
+                            return;
+                        }
+                    }
+                }
+            });
+            let _close = crate::CloseOnDrop(Some(close));
+            self.session_link(writer, rx, stop)
+        })
+    }
+
+    fn session_link<W: Write>(
+        &mut self,
+        writer: W,
+        rx: Receiver<In>,
         stop: &Receiver<()>,
     ) -> anyhow::Result<()> {
         let started = Instant::now();
         let mut w = BufWriter::new(writer);
-        let (tx, rx) = unbounded::<In>();
-        std::thread::spawn(move || {
-            let mut r = BufReader::new(reader);
-            loop {
-                match proto::read_frame(&mut r) {
-                    Ok((m, b)) => {
-                        if tx.send(In::Frame(m, b)).is_err() {
-                            return;
-                        }
-                    }
-                    Err(e) => {
-                        let _ = tx.send(In::Closed(e.to_string()));
-                        return;
-                    }
-                }
-            }
-        });
         let (synced_id, _) = self.state.load()?;
         proto::write_frame(
             &mut w,

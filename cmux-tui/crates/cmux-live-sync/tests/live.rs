@@ -47,7 +47,10 @@ impl Pair {
             let mut f = Follower::new(vm_root, vm_state).unwrap();
             for s in conn_rx {
                 let r = s.try_clone().unwrap();
-                let _ = f.serve(r, s);
+                let c = s.try_clone().unwrap();
+                let _ = f.serve(r, s, move || {
+                    let _ = c.shutdown(std::net::Shutdown::Both);
+                });
             }
         });
         let online = Arc::new(AtomicBool::new(true));
@@ -66,7 +69,10 @@ impl Pair {
                     let (a, b) = UnixStream::pair()?;
                     *slot.lock().unwrap() = Some(a.try_clone()?);
                     conn_tx.send(b).map_err(std::io::Error::other)?;
-                    Ok((a.try_clone()?, a))
+                    let c = a.try_clone()?;
+                    Ok((a.try_clone()?, a, move || {
+                        let _ = c.shutdown(std::net::Shutdown::Both);
+                    }))
                 },
                 &stop_rx,
             );

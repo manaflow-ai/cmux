@@ -33,7 +33,10 @@ fn main() -> anyhow::Result<()> {
     thread::spawn(move || {
         let mut f = Follower::new(vm_root, vm_state).unwrap();
         let r = vm_end.try_clone().unwrap();
-        let _ = f.serve(r, vm_end);
+        let c = vm_end.try_clone().unwrap();
+        let _ = f.serve(r, vm_end, move || {
+            let _ = c.shutdown(std::net::Shutdown::Both);
+        });
     });
     let (ev_tx, ev_rx) = unbounded();
     let (_stop_tx, stop_rx) = unbounded::<()>();
@@ -44,7 +47,10 @@ fn main() -> anyhow::Result<()> {
         l.run(
             || {
                 let s = link.take().ok_or_else(|| std::io::Error::other("one link only"))?;
-                Ok((s.try_clone()?, s))
+                let c = s.try_clone()?;
+                Ok((s.try_clone()?, s, move || {
+                    let _ = c.shutdown(std::net::Shutdown::Both);
+                }))
             },
             &stop_rx,
         );
