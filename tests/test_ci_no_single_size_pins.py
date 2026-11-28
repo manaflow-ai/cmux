@@ -64,6 +64,16 @@ SELECTIONS_KEPT_LITERAL = {
         "adds a System keychain trust root as root: it needs a one-job Mac, and no macOS pool is ephemeral_only, so a "
         "pool could name an owned mini where its sudo fails (tests/test_ci_owned_mac_jobs_no_sudo.py)"
     ),
+    ("ci-macos.yml", "jobs.swift-package-tests.runs-on"): (
+        "needs the macOS 15 image itself: its SDK 15 Ghostty helper Xcode exists only there, and the macos_15 pool "
+        "fails over to macOS 26 when the 15 label stalls (#64925), so a pool read would run it where the helper is "
+        "missing"
+    ),
+    ("ios-e2e.yml", "jobs.mac-ios-e2e.runs-on"): (
+        "joins the tailnet as a fresh host: it takes a macos_26 member only when that is a Blacksmith label, else "
+        "blacksmith-6vcpu-macos-26, because an owned Mac already runs Tailscale and require-fresh-tailnet-host.sh "
+        "stops the job (jobs 141021960654, 141038548635; #65333)"
+    ),
     ("machine-vault-e2e.yml", "jobs.e2e.runs-on"): (
         "adds a macOS user as root: it needs a one-job Mac, and no macOS pool is ephemeral_only, so a pool could name "
         "an owned mini where its sudo fails (tests/test_ci_owned_mac_jobs_no_sudo.py)"
