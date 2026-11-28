@@ -171,14 +171,29 @@ final class GroupHeaderRowView: SidebarRowView {
         onUnpin = nil
     }
 
+    /// What the header shows of its group, its row and the settings: a change to nothing here (a member's progress
+    /// tick, a member's title) configures nothing. It held the whole group, members included, so each status tick of a
+    /// member configured its group's header in full (the chevron's raster, the member count's localized words,
+    /// VoiceOver's label): in the fleet's 400-workspace sidebar with 15 agents ticking, 441 samples across the
+    /// workspace switch matrix and 127 while ticking, for headers that showed nothing new.
     private struct Content: Hashable {
-        var group: SidebarGroup
+        var id: GroupID
+        var name: String
+        var color: GroupColor
+        var custom: String?
+        var isPinned: Bool
+        var isArchived: Bool
+        var icon: WorkspaceIcon?
+        var machine: SidebarMachine?
+        var look: SidebarHostGroupLook
         var childCount: Int
         var collapsed: Bool
         var fontSize: CGFloat
         var details: GroupHeaderDetails
-        var status: StatusIndicatorState?
-        var look: SidebarHostGroupLook
+        /// The status mark the header shows.
+        var status: StatusIndicatorState
+        /// The unread total its badge shows; 0 shows none.
+        var unread: Int
     }
 
     /// Shows `group`. A collapsed header shows its loading spinner on the right; `details` turns
@@ -188,9 +203,15 @@ final class GroupHeaderRowView: SidebarRowView {
     /// of the group and its subgroups); nil rolls up `group`'s own members.
     func configure(_ group: SidebarGroup, row: SidebarRow, details: GroupHeaderDetails = GroupHeaderDetails(),
                    status rollUp: StatusIndicatorState? = nil, animated: Bool) {
-        let content = Content(group: group, childCount: row.childCount, collapsed: row.isCollapsed,
-                              fontSize: SidebarStyle.headerFont.pointSize, details: details, status: rollUp,
-                              look: group.hostLook)
+        let folded = row.isCollapsed
+        // Lawrence 2026-10-20: "All we care about is the loading"; msg 11983: and blue, orange and red.
+        let status = folded && details.otherStates ? group.aggregateActivity : rollUp ?? group.statusRollUp(collapsed: folded)
+        let unread = details.unreadCount && folded ? group.unreadTotal : 0
+        let content = Content(id: group.id, name: group.name, color: group.color, custom: group.custom,
+                              isPinned: group.isPinned, isArchived: group.isArchived, icon: group.icon,
+                              machine: group.machine, look: group.hostLook, childCount: row.childCount,
+                              collapsed: folded, fontSize: SidebarStyle.headerFont.pointSize, details: details,
+                              status: status, unread: unread)
         guard needsConfigure(content) else { return }
         tint = group.tint
         backgroundStyle = details.background
@@ -212,8 +233,6 @@ final class GroupHeaderRowView: SidebarRowView {
         chevron.setImage(NSImage.icon(.disclosureCollapsed, size: SidebarStyle.rowSymbolSide)) // the + ⋮ and Unpin's size (#49583)
         chevron.setOpen(!collapsed, animated: animated && configuredOnce)
         configuredOnce = true
-        // Lawrence 2026-10-20: "All we care about is the loading"; msg 11983: and blue, orange and red.
-        let status = collapsed && details.otherStates ? group.aggregateActivity : rollUp ?? group.statusRollUp(collapsed: collapsed)
         if status.isVisible {
             activityEnding = false
             activity.configure(status)
@@ -221,8 +240,7 @@ final class GroupHeaderRowView: SidebarRowView {
             activityEnding = true
         }
         fadesNextActivity = animated
-        let unread = group.unreadTotal
-        badge.configure(details.unreadCount && collapsed && unread > 0 ? .count(unread) : .none)
+        badge.configure(unread > 0 ? .count(unread) : .none)
         setAccessibilityElement(true)
         setAccessibilityRole(.disclosureTriangle)
         setAccessibilityLabel(group.machine.map { "\(group.name), \(SectionHeaderRowView.statusWords($0.status))" }
