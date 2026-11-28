@@ -91,7 +91,7 @@ pub(crate) fn command_with(doc: Option<&Value>) -> Vec<String> {
         .and_then(|v| v.as_array().cloned())
         .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect());
     match named {
-        Some(argv) if !argv.is_empty() && !argv[0].trim().is_empty() => argv,
+        Some(argv) if argv.first().is_some_and(|a| !a.trim().is_empty()) => argv,
         _ => vec!["claude".into(), "-p".into(), "--output-format".into(), "text".into()],
     }
 }
@@ -100,7 +100,7 @@ pub(crate) fn command_with(doc: Option<&Value>) -> Vec<String> {
 pub(crate) fn cap(s: &str, max: usize) -> String {
     match s.char_indices().nth(max) {
         None => s.to_owned(),
-        Some((at, _)) => format!("{}\n[... cut at {max} characters]", &s[..at]),
+        Some((at, _)) => format!("{}\n[... cut at {max} characters]", s.get(..at).unwrap_or(s)),
     }
 }
 
@@ -132,7 +132,7 @@ pub(crate) fn findings(output: &str) -> Option<Vec<String>> {
         // not part of the finding.
         let marked = upper.strip_prefix("BLOCKING").and_then(|after| {
             let after = after.trim_start_matches(['*', '_', '`']);
-            after.strip_prefix(':').map(|_| &t[t.len() - after.len() + 1..])
+            after.strip_prefix(':').and_then(|rest| t.get(t.len().saturating_sub(rest.len())..))
         });
         if let Some(rest) = marked {
             let rest = rest.trim().trim_matches(['*', '_', '`']).trim();
@@ -191,12 +191,12 @@ fn run_blocking(dir: &Path, argv: &[String], stdin: &str, bound: Duration) -> Op
             Some(Ran { ok: status.success(), text, slow: false })
         }
         Ok(None) => {
-            // SAFETY: signals the process group this call made (`process_group(0)`); its pid is
-            // not reaped yet, so the id is still this run's.
             #[cfg(unix)]
-            unsafe {
-                libc::kill(-(child.id() as i32), libc::SIGKILL)
-            };
+            if let Some(group) = i32::try_from(child.id()).ok().and_then(i32::checked_neg) {
+                // SAFETY: signals the process group this call made (`process_group(0)`); its pid
+                // is not reaped yet, so the id is still this run's.
+                unsafe { libc::kill(group, libc::SIGKILL) };
+            }
             #[cfg(not(unix))]
             let _ = child.kill();
             let _ = child.wait();
@@ -302,7 +302,7 @@ impl Hub {
         let argv = command_with(settings_doc().as_ref());
         let started = Instant::now();
         let ran = run(&task.cwd, argv, brief(&task.ask, &diff), REVIEW_BOUND).await;
-        let ms = started.elapsed().as_millis() as u64;
+        let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let (verdict, found) = match &ran {
             None => ("failed", Vec::new()),
             Some(r) if r.slow => ("slow", Vec::new()),

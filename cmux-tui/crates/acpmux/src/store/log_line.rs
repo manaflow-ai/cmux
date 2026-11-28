@@ -163,46 +163,69 @@ pub(super) fn offset_of_seq<F: Read + std::io::Seek + ?Sized>(
     before: u64,
 ) -> Result<u64> {
     use std::io::SeekFrom;
+    // The search narrows to a 64 KiB window, but a probe needs only one line's header: it reads
+    // [`HEAD`] bytes first, and the whole window only when no line starts in them (a line over
+    // 8 KiB). Every probe read 64 KiB before: a segment of 8 MiB (every chat past one segment)
+    // took 7 of them where a 1 MB chat's took 4, 190 KiB more per older page whatever the page
+    // held, and a deep scroll at 1 GB cost 1.30-1.34x the 1 MB chat's (goal infinite-chats).
     const PROBE: usize = 64 * 1024;
+    const HEAD: usize = 8 * 1024;
     let len = file.seek(SeekFrom::End(0))?;
     let mut buf = vec![0u8; PROBE];
-    // A segment whose last record is before `before` (every older segment of a page) needs no
-    // search: its end is the offset.
-    if len > PROBE as u64 {
-        file.seek(SeekFrom::Start(len - PROBE as u64))?;
-        file.read_exact(&mut buf)?;
-        let body = buf.strip_suffix(b"\n").unwrap_or(&buf);
-        if let Some(nl) = body.iter().rposition(|&b| b == b'\n')
-            && body.get(nl + 1..).and_then(record_seq).is_some_and(|seq| seq < before)
-        {
-            return Ok(len);
-        }
-    }
-    // The first line starting at or after `pos`: its offset and seq; None past the end, or when
-    // no line starts in the probe (a line over 64 KiB) or its header does not read.
-    let mut line_at = |pos: u64| -> Result<Option<(u64, Option<u64>)>> {
+    // Fills `buf` from `pos` up to `want` bytes (fewer at the end): the bytes read.
+    let fill = |file: &mut F, buf: &mut [u8], pos: u64, want: usize| -> Result<usize> {
         file.seek(SeekFrom::Start(pos))?;
         let mut filled = 0;
-        while let Some(rest) = buf.get_mut(filled..).filter(|rest| !rest.is_empty()) {
+        while let Some(rest) = buf.get_mut(filled..want).filter(|rest| !rest.is_empty()) {
             let n = file.read(rest)?;
             if n == 0 {
                 break;
             }
             filled += n;
         }
-        let data = buf.get(..filled).unwrap_or_default();
-        let start = if pos == 0 {
-            0
-        } else {
-            match data.iter().position(|&b| b == b'\n') {
-                Some(nl) => nl + 1,
-                None => return Ok(None),
+        Ok(filled)
+    };
+    // A segment whose last record is before `before` (every older segment of a page) needs no
+    // search: its end is the offset. Its last line is read from the last `HEAD` bytes, or the last
+    // 64 KiB when it is longer.
+    if len > PROBE as u64 {
+        for want in [HEAD, PROBE] {
+            let from = len - want as u64;
+            let filled = fill(file, &mut buf, from, want)?;
+            let data = buf.get(..filled).unwrap_or_default();
+            let body = data.strip_suffix(b"\n").unwrap_or(data);
+            if let Some(nl) = body.iter().rposition(|&b| b == b'\n') {
+                if body.get(nl + 1..).and_then(record_seq).is_some_and(|seq| seq < before) {
+                    return Ok(len);
+                }
+                break;
             }
-        };
-        if start >= data.len() {
+        }
+    }
+    // The first line starting at or after `pos`: its offset and seq; None past the end, or when
+    // no line starts in the probe (a line over 64 KiB) or its header does not read.
+    let mut line_at = |pos: u64| -> Result<Option<(u64, Option<u64>)>> {
+        let mut found = None;
+        for want in [HEAD, PROBE] {
+            let filled = fill(file, &mut buf, pos, want)?;
+            let data = buf.get(..filled).unwrap_or_default();
+            let start = if pos == 0 {
+                Some(0)
+            } else {
+                data.iter().position(|&b| b == b'\n').map(|nl| nl + 1)
+            };
+            // A line that starts in the head but whose header runs past it reads again whole.
+            let seq = start.and_then(|start| data.get(start..)).and_then(record_seq);
+            found = start.map(|start| (start, seq, data.len()));
+            if seq.is_some() || filled < want {
+                break;
+            }
+        }
+        let Some((start, seq, filled)) = found else { return Ok(None) };
+        if start >= filled {
             return Ok(None);
         }
-        Ok(Some((pos + start as u64, data.get(start..).and_then(record_seq))))
+        Ok(Some((pos + start as u64, seq)))
     };
     let (mut lo, mut hi, mut end) = (0u64, len, len);
     while hi - lo > PROBE as u64 {
@@ -384,3 +407,7 @@ pub(super) fn first_seq(path: &Path) -> Result<Option<u64>> {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "log_line_tests.rs"]
+mod tests;

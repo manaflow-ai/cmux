@@ -51,9 +51,9 @@ class CmuxNextBaseWebVerdict(unittest.TestCase):
             "    # A yielded coalesce job (a newer push's run checks these commits) runs no checks.\n"
             "    if: ${{ needs.coalesce.outputs.run != 'false' }}\n"
             "    # actions: read: the webview base replay reads the base's flake history artifact (ci-web.yml).\n"
-            "    permissions:\n      contents: read\n      actions: read\n"
+            "    permissions:\n      contents: read\n      actions: read\n      id-token: write\n"
             "    uses: ./.github/workflows/ci-web.yml\n    with:\n"
-            "      web: ${{ 'true' }}\n      macos: ${{ 'false' }}\n      agent_session_web: ${{ 'true' }}\n",
+            "      web: ${{ 'true' }}\n      macos: ${{ 'false' }}\n      agent_session_web: ${{ 'true' }}\n      push_base:",
             self.text,
         )
 
@@ -272,7 +272,7 @@ class WebValidationTests(unittest.TestCase):
         # and the shards holding a touched test on a pull request.
         self.assertIn("include: ${{ fromJSON(needs.web-subarea-scope.outputs.react_shards) }}", block)
         scope = workflow[workflow.index("  web-subarea-scope:"):workflow.index("  web-typecheck:")]
-        self.assertEqual(int(re.search(r'^          REACT_APPS_SHARDS: "(\d+)"$', scope, re.MULTILINE).group(1)), 8)
+        self.assertEqual(int(re.search(r'^          REACT_APPS_SHARDS: "(\d+)"$', scope, re.MULTILINE).group(1)), 12)
         self.assertIn("react_shards: ${{ steps.react-shards.outputs.matrix }}", scope)
         self.assertRegex(block, r"(fromJSON\(vars\.RUNNER_POOLS\)\.linux_4|'cmux-linux') }}")
         base_start = workflow.index("  react-apps-base-check:")
