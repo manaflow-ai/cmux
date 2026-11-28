@@ -30,7 +30,8 @@ CONFIG = ROOT / ".github" / "actionlint.yaml"
 # Files actionlint is allowed to skip a rule in. An entry here is a deferred
 # defect, not an exemption: the reason belongs beside it in actionlint.yaml.
 # cloud-mvp-nightly-readback.yml: environment.deployment, which actionlint 1.7.7 predates (1.7.12 knows it).
-SUPPRESSED = {".github/workflows/cloud-mvp-nightly-readback.yml", ".github/workflows/test-ios.yml"}
+# ui-proof-stale-sweep.yml: the same key.
+SUPPRESSED = {".github/workflows/cloud-mvp-nightly-readback.yml", ".github/workflows/test-ios.yml", ".github/workflows/ui-proof-stale-sweep.yml"}
 
 failures: list[str] = []
 
