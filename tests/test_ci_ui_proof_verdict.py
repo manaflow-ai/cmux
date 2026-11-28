@@ -485,6 +485,35 @@ class LookFailedTest(unittest.TestCase):
         self.assertTrue(desc.startswith(u.LOOK_FAILED + ": no look result within 6 h"))
         self.assertTrue(stale[0]["posted"])
 
+    def test_open_prs_reads_every_page_newest_updated_first(self) -> None:
+        # 4859 open PRs on 2026-11-28: a 10-page cap read 1000 of them, so cmux#63752's pending was never swept.
+        pages, queries = 49, []
+
+        def api(path, token, method="GET", body=None):
+            queries.append(body)
+            n = len(queries)
+            return {"data": {"repository": {"pullRequests": {
+                "pageInfo": {"hasNextPage": n < pages, "endCursor": f"c{n}"},
+                "nodes": [{"number": n * 1000 + i} for i in range(100)]}}}}
+
+        with mock.patch.object(u, "api", side_effect=api):
+            nodes = u.open_prs("manaflow-ai/cmux", "t")
+        self.assertEqual(len(nodes), pages * 100)
+        self.assertEqual(len(queries), pages)
+        self.assertIn("orderBy: {field: UPDATED_AT, direction: DESC}", queries[0]["query"])
+        self.assertEqual(queries[1]["variables"]["after"], "c1")
+
+    def test_open_prs_stops_at_page_cap_and_says_so(self) -> None:
+        def api(path, token, method="GET", body=None):
+            return {"data": {"repository": {"pullRequests": {
+                "pageInfo": {"hasNextPage": True, "endCursor": "c"}, "nodes": [{"number": 1}]}}}}
+
+        err = io.StringIO()
+        with mock.patch.object(u, "api", side_effect=api), contextlib.redirect_stderr(err):
+            nodes = u.open_prs("manaflow-ai/cmux", "t", max_pages=3)
+        self.assertEqual(len(nodes), 3)
+        self.assertIn("page cap 3 reached", err.getvalue())
+
     def test_post_status_falls_through_a_refused_token_and_says_why(self) -> None:
         calls = []
 
