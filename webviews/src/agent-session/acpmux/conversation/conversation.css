@@ -473,6 +473,15 @@
   margin-inline-end: -4px;
   margin-bottom: calc(var(--cv-user-attachment-gap) - var(--grid-half-step));
 }
+/* The inline view draws an unplaced prompt's attachments at the end of its bubble, under its text
+   (UserBubble.tsx `legacyInBubble`): the bubble's width, from its start, the band's gap above. */
+.cv-user__images.cv-user__images--in-bubble,
+.cv-user__files.cv-user__files--in-bubble {
+  justify-content: flex-start;
+  max-width: 100%;
+  margin-top: var(--cv-user-attachment-gap);
+  margin-bottom: 0;
+}
 /* A tile in the strip lays its thumbnail out as a flex box, not on a text line: a line adds the
    font's descent (3px) under the thumbnail, so the gap to the bubble would be 9px, not the 6px
    model.ts reserves. */
@@ -7525,7 +7534,8 @@ a.cv-sha:focus-visible {
  * read as lag (Leo, 2026-11-09: "thinking, tool calls, etc... cannot lag nor can they take long").
  * A zero token (motion off, the minimal motion under load) makes it zero. */
 .cv-fresh {
-  animation: cv-enter-fade var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
+  animation: cv-enter-fade var(--cmux-motion-stream, var(--agent-motion-in, 120ms))
+    var(--cmux-ease-stream, var(--agent-ease-out, ease-out)) both;
 }
 
 /* Footnotes (Markdown.tsx): a superscript number that scrolls to its note, and the notes
