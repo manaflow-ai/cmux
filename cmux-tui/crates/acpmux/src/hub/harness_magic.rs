@@ -42,15 +42,20 @@ pub(crate) const FEATURES: &[Feature] = &[
         on: crate::claude_stdio::path_rules_enabled,
     },
     Feature { name: "verify", on: super::verify::enabled },
+    Feature { name: crate::model_router::FEATURE, on: crate::model_router::enabled },
     Feature { name: "prefetch", on: super::prefetch::enabled },
     Feature { name: "surgery", on: super::surgery::enabled },
     Feature { name: "dedupe", on: crate::claude_stdio::dedupe_enabled },
+    Feature { name: super::sidecars::FEATURE, on: || enabled(super::sidecars::FEATURE) },
     Feature { name: "dirRules", on: crate::claude_stdio::dir_rules_enabled },
     Feature { name: super::turn_checkpoint::FEATURE, on: super::turn_checkpoint::enabled },
     Feature { name: "sharedCache", on: crate::ci_log_cache::enabled },
     Feature { name: "outputCaps", on: crate::harness_limits::output_caps },
     Feature { name: "consensus", on: super::surge_triage::consensus_enabled },
 ];
+
+/// The features the shared gate reads off unless their setting is `true` (opinionated nudges).
+pub(crate) const DEFAULT_OFF: &[&str] = &[super::sidecars::FEATURE];
 
 /// The settings key of `feature`'s off switch.
 pub(crate) fn setting_key(feature: &str) -> String {
@@ -70,7 +75,7 @@ pub(crate) fn env_key(feature: &str) -> String {
 
 /// Whether `feature` is on, given the settings file (`doc`, `None` when missing or unreadable)
 /// and an environment lookup: on unless its setting is `false` or its kill switch is `0`,
-/// `false` or `off`.
+/// `false` or `off`; a [`DEFAULT_OFF`] feature is off unless its setting is `true`.
 pub(crate) fn enabled_in(
     feature: &str,
     doc: Option<&Value>,
@@ -84,7 +89,7 @@ pub(crate) fn enabled_in(
     }
     doc.and_then(|d| crate::user_settings::value(d, &setting_key(feature)))
         .and_then(|v| v.as_bool())
-        .unwrap_or(true)
+        .unwrap_or(!DEFAULT_OFF.contains(&feature))
 }
 
 /// Whether `feature` is on now (the settings file read at each call, as every daemon setting is).
