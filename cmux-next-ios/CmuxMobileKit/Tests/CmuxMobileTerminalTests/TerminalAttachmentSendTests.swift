@@ -107,6 +107,18 @@ import Testing
         ComposerAttachment(kind: .video, name: "clip.mov", data: Data(repeating: 1, count: 64))
     }
 
+    /// A Photos load the test steps from the monitor's own polls.
+    final class DrivenLoad<T: Sendable>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var steps = 0
+        private var stored: (@Sendable (Result<T?, Error>) -> Void)?
+        var finish: (@Sendable (Result<T?, Error>) -> Void)? {
+            get { lock.withLock { stored } }
+            set { lock.withLock { stored = newValue } }
+        }
+        func step() -> Int { lock.withLock { steps += 1; return steps } }
+    }
+
     static func settle() async {
         for _ in 0..<5 { await Task.yield() }
     }
@@ -250,17 +262,18 @@ import Testing
     }
 
     @Test func advancingPhotoLoadOutlivesOneIdleWindowAndCompletesWithoutCancellation() async throws {
+        // Polls are driven, not slept: the window is 3 quiet polls, the load advances on each of
+        // 10 polls (outliving three windows) and then finishes. No wall clock to race.
         let progress = Progress(totalUnitCount: 10)
+        let load = DrivenLoad<Int>()
         let value: Int = try await TerminalComposer.loadWithInactivityDeadline({ finish in
-            Task {
-                for step in 1...10 {
-                    try await Task.sleep(for: .milliseconds(30))
-                    progress.completedUnitCount = Int64(step)
-                }
-                finish(.success(42))
-            }
+            load.finish = finish
             return progress
-        }, inactivityDeadline: .milliseconds(150), progressPoll: .milliseconds(5))
+        }, inactivityDeadline: .seconds(3), progressPoll: .seconds(1), nextPoll: {
+            let step = load.step()
+            if step <= 10 { progress.completedUnitCount = Int64(step) }
+            if step == 10 { load.finish?(.success(42)) }
+        })
         #expect(value == 42)
         #expect(!progress.isCancelled)
     }
@@ -376,21 +389,28 @@ import Testing
     }
 
     /// The base prestager starts all legacy picks early; a late cancelled path must never submit.
-    @Test func removingALegacyPickDiscardsLatePathsAndRetryKeepsOnlyRemainingTiles() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func removingALegacyPickDiscardsLatePathsAndRetryKeepsOnlyRemainingTiles() async throws {
         let session = QuietSession()
         let model = Self.model(session: session)
         let first = ComposerAttachment(kind: .video, name: "first.mov", data: Data([1]))
         let second = ComposerAttachment(kind: .video, name: "second.mov", data: Data([2]))
         var waiting: CheckedContinuation<String, Never>?
+        // The upload signals when it reaches the uploader: the test waits for that event, not a
+        // 2 s wall-clock spin (a loaded simulator once scheduled the upload task later than that).
+        let (reached, reachedSignal) = AsyncStream<Void>.makeStream()
         model.uploader = { _, name in
-            if name == "first.mov" { return await withCheckedContinuation { waiting = $0 } }
+            if name == "first.mov" {
+                return await withCheckedContinuation { waiting = $0; reachedSignal.yield() }
+            }
             return "/mac/" + name
         }
         model.addAttachment(first)
         model.addAttachment(second)
         model.composerText = "keep"
         model.send()
-        try #require(await Self.waitFor { waiting != nil })
+        var reachedFirst = reached.makeAsyncIterator()
+        _ = await reachedFirst.next()
         model.removeAttachment(first.id)
         let late = try #require(waiting)
         late.resume(returning: "/mac/late")

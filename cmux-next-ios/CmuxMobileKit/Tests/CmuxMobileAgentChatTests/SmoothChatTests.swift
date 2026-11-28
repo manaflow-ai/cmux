@@ -416,16 +416,21 @@ import UIKit
         scroll.layoutIfNeeded()
         let visibleTop = scroll.contentOffset.y + scroll.adjustedContentInset.top
         guard let anchor = list.layout.firstRow(below: visibleTop),
-              let anchorBefore = list.layout.top(of: anchor.id) else {
+              let anchorTop = list.layout.top(of: anchor.id) else {
             Issue.record("the reader did not have an anchor below the transcript header")
             return
         }
+        // Where the reader sees the row: `reload()` keeps it there by moving the content offset
+        // when rows above it come or change (`session-start` leaves the first turn for the page's),
+        // so the row's layout coordinate itself may move.
+        let onScreenBefore = anchorTop - scroll.contentOffset.y
 
         store.apply(.earlierPage((0..<10).flatMap { SmoothChatTests.turn($0) }, hasEarlier: false))
         list.reload()
         scroll.layoutIfNeeded()
 
-        #expect(abs((list.layout.top(of: anchor.id) ?? .greatestFiniteMagnitude) - anchorBefore) < 1,
+        let onScreenAfter = (list.layout.top(of: anchor.id) ?? .greatestFiniteMagnitude) - scroll.contentOffset.y
+        #expect(abs(onScreenAfter - onScreenBefore) < 1,
                 "loading older history moved the row under the reader")
     }
 
