@@ -351,6 +351,9 @@ pub(super) fn moving_begin_token(transfer_id: &str) -> Option<String> {
 #[path = "auto_startup_tests.rs"]
 mod auto_startup_tests;
 #[cfg(test)]
+#[path = "move_out_unlist_tests.rs"]
+mod move_out_unlist_tests;
+#[cfg(test)]
 #[path = "restore_freeze_tests.rs"]
 mod restore_freeze_tests;
 #[path = "transfer_history.rs"]
@@ -1127,6 +1130,12 @@ impl Hub {
         self.note_shipped(session, transfer_id);
         transfer_precopy::forget_prepared(&dir);
         let _ = crate::home_fs::remove_dir_all(transfers_dir().join(transfer_id));
+        // Unlisted from the hub's address book now, as the arriving side lists it before its
+        // pull answers (`transfer_pull.rs`). Else the hub keeps this closed copy's row until the
+        // next heartbeat (~30 s): a bare-id control for the chat then finds two rows
+        // (`mesh.ambiguous`), as a purge right after a move back home did. Not waited for: the
+        // commit ends the move's freeze, and a heartbeat waits up to its floor (2.5 s).
+        self.unlist_on_mesh_soon();
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "committed": true}))
     }
 
