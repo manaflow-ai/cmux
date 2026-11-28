@@ -1,5 +1,7 @@
 # sha256 of the upstream archives scripts/ci/toolchain-r2.sh mirrors in the CI cache bucket, sha256sum format.
 # Copied from the SHASUMS256.txt of each release (nodejs.org/dist/vVERSION, github.com/oven-sh/bun bun-vVERSION).
+# The darwin lines serve the self-hosted nightly Macs (TOOLCHAIN_R2_ALL restores in nightly.yml); the Linux seeder
+# stores them under macOS-ARM64 / macOS-X64.
 # A copy in the bucket is used only when it matches its line here; a version with no line here is never mirrored.
 # Pins stay the workflows': add a line when a setup-node or setup-bun step moves to a version listed nowhere here.
 33c37be234ba8bee041961047b19160f4d7d0f164e8e246f78bdd10feff148b3  node-v24.22.1-linux-arm64.tar.gz
@@ -12,3 +14,11 @@ a08b513de673853ca16395ec461a104a99bf0e941ebb7baedb98b30cd221d8cc  node-v20.19.5-
 58a5ff5cc8f2200e458bea22e329d5c1994aa1b111d499ca46ec2411d58239ca  node-v24.11.1-linux-x64.tar.gz
 baa6bb36f51d6e58561e02bbea825038a9df454f673d6d776e8bbf86f8c7850e  bun-v1.4.4-linux-aarch64.zip
 bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c  bun-v1.4.4-linux-x64.zip
+c240d7f0ccb90c263a849fcdb09b7ee62630d921348ed6aafda86b9d577bc510  bun-v1.4.4-darwin-aarch64.zip
+50a3491f73abc2fe81673171a85762d3bc2cc1680ccecadd983de99adf77977e  bun-v1.4.4-darwin-x64.zip
+89c682593d76cd44233fa53b1563264e7de9cbb189cad169135c5b4fadfbc0a7  node-v24.22.1-darwin-arm64.tar.gz
+d132557e7ee2b85af08b0c8c34338e65c6430f2238d01f727728ef42dc83b035  node-v24.22.1-darwin-x64.tar.gz
+c9e1dbc748b33ed2d14f42445191ecaf14c56259c7a9a26d0042c49ec2b66428  node-v22.23.4-darwin-arm64.tar.gz
+efcc2b0db6f94bf53eddb038fe2b370277a042bd29e4f19b8f8e23598795b819  node-v22.23.4-darwin-x64.tar.gz
+b05aa3a66efe680023f930bd5af3fdbbd542794da5644ca2ad711d68cbd4dc35  node-v24.11.1-darwin-arm64.tar.gz
+096081b6d6fcdd3f5ba0f5f1d44a47e83037ad2e78eada26671c252fe64dd111  node-v24.11.1-darwin-x64.tar.gz

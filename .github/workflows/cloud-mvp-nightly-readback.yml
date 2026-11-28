@@ -102,6 +102,12 @@ jobs:
           fi
           echo "fleet step ${step:-none} exited $status; report: $([[ -s "$out/report.tgz" ]] && echo returned || echo none)"
           grep -E '^(CMR |CLOUD_MVP_READBACK )' "$out/step.log" >> "$GITHUB_STEP_SUMMARY" || true
+          # No step id means the controller never took the step (a refusal, no route): that is the rig, whatever the
+          # client's exit code. Run 46086119436 reported a refused step (HTTP 400) as a product failure.
+          if [[ -z "$step" && "$status" != 0 ]]; then
+            echo "::error::Cloud MVP readback: the fleet took no step (client exit $status); the rig could not run it"
+            exit 3
+          fi
           case "$status" in
             0) echo "Cloud MVP readback passed (build ${BUILD:-newest})" >> "$GITHUB_STEP_SUMMARY" ;;
             1) echo "::error::Cloud MVP readback: a product step failed (exit 1)" ;;
