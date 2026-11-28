@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "6558219fc95c08d3a088c88dbc9c81015f042cad7dacb50a02c64d081d016c7b";
+pub const ir_sha256 = "74beb3c44d7ab5668589b1d8d81888144d3c926d53cfc2eaeaf1b71e79f5dd31";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -2173,12 +2173,18 @@ pub const SavedTabGroupMember = struct {
 pub const SavedTabGroupRecord = struct {
     /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
     color: []const u8,
+    /// tab-group-icon-v1: the saved group's icon string; absent for none.
+    icon: ?[]const u8 = null,
     id: []const u8,
     members: []const SavedTabGroupMember,
     name: []const u8,
     /// The room whose bar shows the saved group (`default` for groups saved by these commands).
     room: []const u8,
     updated_at_ms: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "icon",
+    };
 };
 
 pub const Screen = struct {

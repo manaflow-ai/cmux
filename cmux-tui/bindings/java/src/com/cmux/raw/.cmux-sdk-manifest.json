@@ -2367,7 +2367,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "edd20a5a9f62753b6d81d5bed1c4baea9cd2a4509b4c5520b515872a38ec9a67",
+      "sha256": "1ca104d870a3e3a01609c7a5fe55a10f0014c8262596fe82ead6917848728f46",
       "size": 8753
     },
     {
@@ -2717,8 +2717,8 @@
     },
     {
       "path": "SavedTabGroupRecord.java",
-      "sha256": "4022b0d9d136ffa7dd22afff1710ab28d9d8dc69bdc2ae0f1025788bc367cd24",
-      "size": 6597
+      "sha256": "12995856335d51f84ec4c0e8f1fb60c24d5c43ddffcc562077c42a88476e2455",
+      "size": 7241
     },
     {
       "path": "Screen.java",
@@ -3967,7 +3967,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "6558219fc95c08d3a088c88dbc9c81015f042cad7dacb50a02c64d081d016c7b",
+  "ir_sha256": "74beb3c44d7ab5668589b1d8d81888144d3c926d53cfc2eaeaf1b71e79f5dd31",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "6558219fc95c08d3a088c88dbc9c81015f042cad7dacb50a02c64d081d016c7b";
+inline constexpr std::string_view kProtocolIrSha256 = "74beb3c44d7ab5668589b1d8d81888144d3c926d53cfc2eaeaf1b71e79f5dd31";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -3910,6 +3910,7 @@ struct SavedTabGroupMember {
 
 struct SavedTabGroupRecord {
     std::string color{};
+    std::optional<std::string> icon{};
     std::string id{};
     std::vector<SavedTabGroupMember> members{};
     std::string name{};

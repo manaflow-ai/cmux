@@ -24395,6 +24395,9 @@
         "ty": "string",
         "required": true
       },
+      "/data/saved_groups/*/icon": {
+        "ty": "string"
+      },
       "/data/saved_groups/*/id": {
         "ty": "string",
         "required": true

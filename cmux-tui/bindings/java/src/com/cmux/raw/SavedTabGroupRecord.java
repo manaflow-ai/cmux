@@ -13,6 +13,8 @@ import java.util.Objects;
 public final class SavedTabGroupRecord implements WireValue {
     /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
     private final String color;
+    /** tab-group-icon-v1: the saved group's icon string; absent for none. */
+    private final Field<String> icon;
     private final String id;
     private final List<SavedTabGroupMember> members;
     private final String name;
@@ -24,6 +26,7 @@ public final class SavedTabGroupRecord implements WireValue {
     private SavedTabGroupRecord(Builder builder) {
         if (!builder.colorSet) throw new IllegalArgumentException("color is required");
         this.color = Wire.nonNull(builder.color, "color");
+        this.icon = builder.icon;
         if (!builder.idSet) throw new IllegalArgumentException("id is required");
         this.id = Wire.nonNull(builder.id, "id");
         if (!builder.membersSet) throw new IllegalArgumentException("members is required");
@@ -40,6 +43,7 @@ public final class SavedTabGroupRecord implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public String color() { return color; }
+    public Field<String> icon() { return icon; }
     public String id() { return id; }
     public List<SavedTabGroupMember> members() { return members; }
     public String name() { return name; }
@@ -52,6 +56,10 @@ public final class SavedTabGroupRecord implements WireValue {
         Builder builder = builder();
         Object rawColor = Wire.required(object, "color");
         builder.color(Wire.string(rawColor, "SavedTabGroupRecord.color"));
+        Object rawIcon = Wire.optional(object, "icon");
+        if (!Wire.isMissing(rawIcon)) {
+            builder.icon(Wire.string(rawIcon, "SavedTabGroupRecord.icon"));
+        }
         Object rawId = Wire.required(object, "id");
         builder.id(Wire.string(rawId, "SavedTabGroupRecord.id"));
         Object rawMembers = Wire.required(object, "members");
@@ -62,7 +70,7 @@ public final class SavedTabGroupRecord implements WireValue {
         builder.room(Wire.string(rawRoom, "SavedTabGroupRecord.room"));
         Object rawUpdatedAtMs = Wire.required(object, "updated_at_ms");
         builder.updatedAtMs(Wire.uint64(rawUpdatedAtMs, "SavedTabGroupRecord.updated_at_ms"));
-        List<String> known = List.of("color", "id", "members", "name", "room", "updated_at_ms");
+        List<String> known = List.of("color", "icon", "id", "members", "name", "room", "updated_at_ms");
         object.forEach((key, item) -> { if (!known.contains(key)) builder.putAdditional(key, Wire.immutableJson(item)); });
         return builder.build();
     }
@@ -71,6 +79,7 @@ public final class SavedTabGroupRecord implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "color", color);
+        Wire.put(object, "icon", icon);
         Wire.put(object, "id", id);
         Wire.put(object, "members", members);
         Wire.put(object, "name", name);
@@ -83,11 +92,11 @@ public final class SavedTabGroupRecord implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof SavedTabGroupRecord that)) return false;
-        return Objects.equals(color, that.color) && Objects.equals(id, that.id) && Objects.equals(members, that.members) && Objects.equals(name, that.name) && Objects.equals(room, that.room) && Objects.equals(updatedAtMs, that.updatedAtMs) && Objects.equals(additionalProperties, that.additionalProperties);
+        return Objects.equals(color, that.color) && Objects.equals(icon, that.icon) && Objects.equals(id, that.id) && Objects.equals(members, that.members) && Objects.equals(name, that.name) && Objects.equals(room, that.room) && Objects.equals(updatedAtMs, that.updatedAtMs) && Objects.equals(additionalProperties, that.additionalProperties);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(color, id, members, name, room, updatedAtMs, additionalProperties); }
+    public int hashCode() { return Objects.hash(color, icon, id, members, name, room, updatedAtMs, additionalProperties); }
 
     @Override
     public String toString() { return "SavedTabGroupRecord" + toWire(); }
@@ -95,6 +104,7 @@ public final class SavedTabGroupRecord implements WireValue {
     public static final class Builder {
         private String color;
         private boolean colorSet;
+        private Field<String> icon = Field.omitted();
         private String id;
         private boolean idSet;
         private List<SavedTabGroupMember> members;
@@ -110,6 +120,10 @@ public final class SavedTabGroupRecord implements WireValue {
         public Builder color(String value) {
             this.color = value;
             this.colorSet = true;
+            return this;
+        }
+        public Builder icon(String value) {
+            this.icon = Field.of(value);
             return this;
         }
         public Builder id(String value) {
