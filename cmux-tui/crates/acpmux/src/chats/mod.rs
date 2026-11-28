@@ -73,6 +73,8 @@ pub struct ChatService {
     /// What was said in each chat, for a window's search by it (`text.rs`); filled by the thread
     /// [`Self::start`] starts.
     text: text::ChatText,
+    /// Each query window's palette ranker, kept between keystrokes ([`window::RankCache`]).
+    ranks: window::RankCache,
 }
 
 struct State {
@@ -120,6 +122,7 @@ impl ChatService {
             changes,
             watching: Mutex::new((0, HashMap::new())),
             text,
+            ranks: window::RankCache::default(),
         });
         // Watch first: a file written during the scan is applied after it.
         service.rewatch();
@@ -227,7 +230,7 @@ impl ChatService {
         if !state.settings.enabled {
             return WindowRows::default();
         }
-        window::rows(spec, &state.index, activity, Some(&self.text))
+        window::rows(spec, &state.index, activity, Some(&self.text), Some(&self.ranks))
     }
 
     /// `_acpmux/chat_projects`: each harness's project folders, every absolute chat folder with

@@ -248,24 +248,80 @@ pub fn ranked(
     history: Option<(f64, cmux_palette_ranker::Frecency)>,
 ) -> Vec<usize> {
     let count = i64::try_from(entries.len()).unwrap_or(i64::MAX);
-    let (now, frecency) =
-        history.map_or((None, None), |(now, frecency)| (Some(now), Some(frecency)));
-    let request = cmux_palette_ranker::RankRequest {
-        operation: "rank".to_owned(),
-        query: Some(query.to_owned()),
-        frecency,
-        now,
-        row_limit: Some(count),
-        highlight_limit: Some(0),
-        entries: Some(entries),
-        ..Default::default()
-    };
+    let request = rank_request(query, Some(entries), count, history);
     let mut rows: Vec<(i64, usize)> = Vec::new();
     for section in cmux_palette_ranker::rank_request(&request) {
         rows.extend(section.rows.into_iter().map(|row| (row.score, row.index)));
     }
     // Every entry is in section 0, so this is the ranker's own order; kept stable by position.
     rows.into_iter().map(|(_, index)| index).collect()
+}
+
+/// A request for every one of `count` entries the query finds, without highlights.
+fn rank_request(
+    query: &str,
+    entries: Option<Vec<cmux_palette_ranker::Entry>>,
+    count: i64,
+    history: Option<(f64, cmux_palette_ranker::Frecency)>,
+) -> cmux_palette_ranker::RankRequest {
+    let (now, frecency) =
+        history.map_or((None, None), |(now, frecency)| (Some(now), Some(frecency)));
+    cmux_palette_ranker::RankRequest {
+        operation: "rank".to_owned(),
+        query: Some(query.to_owned()),
+        frecency,
+        now,
+        row_limit: Some(count),
+        highlight_limit: Some(0),
+        entries,
+        ..Default::default()
+    }
+}
+
+/// Each query window's palette ranker with its chats installed. A keystroke over the same chats
+/// reuses it, so the ranker prepares the chats once rather than on every key, and a query that
+/// extends the last one scores only the rows that one could still lead to
+/// ([`cmux_palette_ranker::Ranker`]). The answer is the one [`ranked`] gives.
+#[derive(Default)]
+pub struct RankCache(
+    std::sync::Mutex<HashMap<String, (Vec<cmux_palette_ranker::Entry>, cmux_palette_ranker::Ranker)>>,
+);
+
+/// The windows a [`RankCache`] keeps rankers for; past it, the cache starts over.
+const RANK_CACHE_WINDOWS: usize = 8;
+
+impl RankCache {
+    /// [`ranked`], through `window`'s kept ranker, installed again only when `entries` differ
+    /// from the ones it holds.
+    pub fn ranked(
+        &self,
+        window: &str,
+        query: &str,
+        entries: Vec<cmux_palette_ranker::Entry>,
+        history: Option<(f64, cmux_palette_ranker::Frecency)>,
+    ) -> Vec<usize> {
+        let mut windows = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !windows.contains_key(window) && windows.len() >= RANK_CACHE_WINDOWS {
+            windows.clear();
+        }
+        let (kept, ranker) = windows.entry(window.to_owned()).or_default();
+        if *kept != entries {
+            ranker.install(0, entries.clone());
+            *kept = entries;
+        }
+        let count = i64::try_from(kept.len()).unwrap_or(i64::MAX);
+        let request = cmux_palette_ranker::RankRequest {
+            version: Some(0),
+            ..rank_request(query, None, count, history.clone())
+        };
+        match ranker.rank(&request) {
+            Ok(sections) => {
+                sections.into_iter().flat_map(|section| section.rows).map(|row| row.index).collect()
+            }
+            // Installed above, so not reached; rank in full rather than show nothing.
+            Err(_) => ranked(query, kept.clone(), history),
+        }
+    }
 }
 
 /// The rows of `spec` in `index`: one walk of the index in its order (newest first) that stops
@@ -276,6 +332,7 @@ pub fn rows(
     index: &ChatIndex,
     activity: &ChatActivity,
     text: Option<&ChatText>,
+    ranks: Option<&RankCache>,
 ) -> WindowRows {
     let decorated = |chat: &IndexedChat| row_value(chat, activity);
     if let Some(keys) = &spec.keys {
@@ -289,7 +346,7 @@ pub fn rows(
         return WindowRows { rows, ..WindowRows::default() };
     }
     if let Some(query) = &spec.query {
-        return ranked_rows(spec, query, index, activity, text);
+        return ranked_rows(spec, query, index, activity, text, ranks);
     }
     let mut window = WindowRows::default();
     // The index's kept order: a window that stops at its page reads the page, not every chat.
@@ -337,6 +394,7 @@ fn ranked_rows(
     index: &ChatIndex,
     activity: &ChatActivity,
     text: Option<&ChatText>,
+    ranks: Option<&RankCache>,
 ) -> WindowRows {
     let home = dirs::home_dir().map(|home| home.to_string_lossy().trim_end_matches('/').to_owned());
     let mut candidates: Vec<(String, &IndexedChat)> = Vec::new();
@@ -366,7 +424,11 @@ fn ranked_rows(
         ));
         candidates.push((key, chat));
     }
-    let order = ranked(query, entries, spec.history.as_ref().map(|h| (h.now, h.frecency.clone())));
+    let history = spec.history.as_ref().map(|h| (h.now, h.frecency.clone()));
+    let order = match ranks {
+        Some(ranks) => ranks.ranked(&spec.window, query, entries, history),
+        None => ranked(query, entries, history),
+    };
     let mut total = order.len();
     let mut rows: Vec<Row> = order
         .iter()
