@@ -1820,7 +1820,9 @@ function sentHeader(sent: AcpmuxRow, line: AcpmuxRow, expanded: Folds): AcpmuxRo
   if (experimentArm(liveTurnClock) !== "top" || !headsOwnTurn(sent)) return [];
   line.untimed = true;
   const header: AcpmuxRow = { id: turnHeaderId(sent.id), version: 1, at: sent.at, kind: WORKED, turnPhase: "running" };
-  if (experimentArm(liveTurnWork) === "folded") header.foldOpen = expanded.has(turnHeaderId(sent.id));
+  // No turn yet, so no work under it to open.
+  if (experimentArm(liveTurnWork) === "folded")
+    Object.assign(header, { foldOpen: expanded.has(turnHeaderId(sent.id)), foldEmpty: true });
   return [header];
 }
 
@@ -3827,7 +3829,10 @@ function shapeLiveRows(
     turnPhase: "running",
     ...(clock.durationMs !== undefined && clock.answered && { durationMs: clock.durationMs }),
   };
-  if (folds) header.foldOpen = workOpen;
+  if (folds) {
+    header.foldOpen = workOpen;
+    if (!liveFoldHidesWork(drawn, named?.tool.id)) header.foldEmpty = true;
+  }
   // A /compact the person steered into: the stretch before the steer is the compaction alone, which
   // the ended turn draws with no fold (`compactOnly`, shapedTurn), so the line stands under the
   // steer, where that turn's one "Worked for" lands, one row from the start: it never stands over
@@ -4038,6 +4043,18 @@ function codexLiveTurn(
     if (compactPrompt(user)) {
       line.liveState = "compacting";
       line.doingAt = sentTime(user, clockOffset) + clockOffset;
+    } else {
+      // Nothing yet after the prompt (a fresh send, or a steer that landed in the running turn): the
+      // line still gets the silence clock, from the prompt, so past SILENT_MS with nothing heard it
+      // names its wait ("Waiting on the model's first reply 2m"), never a bare "Thinking" that stays
+      // for good. Without it a turn whose daemon went quiet right after a steer read "Thinking" for
+      // 20 minutes (Leo, 2026-11-27: "mango has been "thinking" for an inordinate amount of time. i
+      // think they're bugged and we need to fix this bug").
+      Object.assign(line, liveClock([user], start, clockOffset), {
+        turnTotal: true,
+        heardKey: `0:${user.id}:${user.version}`,
+        liveWait: liveWait(drawn, user),
+      });
     }
     return [...rows, line];
   }
@@ -4557,6 +4574,80 @@ function earlierRun(row: AcpmuxRow, named: string | undefined, fold = true): Acp
   return out;
 }
 
+/// Whether the `folded` arm's "Working for" has work to open: a row `open` draws of the running
+/// stretch that `line` leaves out, with a step the transcript shows (`hidesEveryCall`: a run of
+/// discovery calls alone draws nothing). None before the turn's first step, or while its only step
+/// is the call in flight, which the live line names: the header then shows no chevron that opens
+/// nothing. Read from the end back to the stretch's summary, as `codexRuns` shapes the same rows, and
+/// done at the first row that shows: the newest finished step answers it in O(that run).
+function liveFoldHidesWork(rows: AcpmuxRow[], named: string | undefined): boolean {
+  let latest = rows.length - 1;
+  // ends: `latest` falls by one each pass, to 0 at most
+  while (latest > 0 && rows[latest]!.kind === STARTED_SESSIONS) latest -= 1;
+  const shows = (row: AcpmuxRow) => !hidesEveryCall(row);
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]!;
+    if (row.kind === "turnSummary") return false;
+    // Not activity, or a run that keeps its own row (`keepsRow`): `line` draws it as `open` does.
+    if (row.kind !== "activity" || keepsRow(row)) continue;
+    if (index !== latest) {
+      if (earlierRun(row, named, false).some(shows)) return true;
+      continue;
+    }
+    const all = row.items ?? [];
+    // The calls still running in earlier runs matter only to a running call of this run.
+    const carried = all.some((item) => item.tool && item.tool.id !== named && isRunning(item.tool))
+      ? runningBeforeLastRun(rows)
+      : undefined;
+    const items = latestRunSteps(all, named, carried);
+    if (items.length && shows({ ...row, items })) return true;
+  }
+  return false;
+}
+
+/// A run with a file change still waiting for its permission, or a call that keeps its own row
+/// while it runs: `codexRuns` leaves it as it is under every arm.
+const keepsRow = (row: AcpmuxRow) =>
+  (row.items ?? []).some((item) => awaitsPermission(item.tool) || (keepsOwnRow(item.tool) && isRunning(item.tool!)));
+
+/// The latest run's steps (`codexRuns`): what is happening now leaves it for the live line, so the
+/// run holds only finished steps and never grows a stack of live rows (Leo 2026-10-20: "rows pile up
+/// instead of replacing each other").
+function latestRunSteps(
+  all: readonly AcpmuxActivity[],
+  named: string | undefined,
+  carried: ReadonlySet<string> | undefined,
+): AcpmuxActivity[] {
+  // A thought still coming stays in the run from its first words, not only once the next step
+  // ends it (Leo, 2026-11-09: "we can be a bit more optimistic with, like, the displaying of the
+  // thinking ... I only started seeing your thinking bit, like, seven seconds in"). It draws as it
+  // will once done, its folded line (ThoughtRow, not `streaming`: the row is not `live`), so the
+  // row neither grows under the reader as it streams nor shrinks when it ends (Leo, 2026-11-07:
+  // "the jumps are jarring. We want to minimize the jumps"); the live line under it says
+  // Thinking. Not while it is still quiet by
+  // the rule a finished thought draws by (thoughts.ts `isQuietThought`): its text and its time only
+  // grow, so one shown here never leaves when it ends, and a short thought that has run a second
+  // shows now, as it does once the turn ends or the chat reloads (Leo, 2026-11-09: "oh i guess the
+  // service or something must have crashed in between cuz now i see it").
+  const tail = all.at(-1);
+  const steps = (shows: boolean) =>
+    all.filter((item, at) =>
+      item.tool
+        ? !isRunning(item.tool) || (carried?.has(item.tool.id) === true && item.tool.id !== named)
+        : !(at === all.length - 1 && item.kind !== "tool" && !shows),
+    );
+  const thinking =
+    tail !== undefined &&
+    isThought(tail) &&
+    !isQuietThought(tail) &&
+    // A thought that is the run's first step waits out its first chunks (FIRST_THOUGHT_MS of them,
+    // by their own times): its run arrives with the turn's Working line (`shapeLiveTurn`) and the
+    // reply's last text, and the two rows landing in one frame moved the rows above by 29 px
+    // (test/turn-transition-jumps.test.ts burst-thought). One later step in, it arrives alone.
+    (steps(false).length > 0 || (thoughtDuration(tail) ?? FIRST_THOUGHT_MS) >= FIRST_THOUGHT_MS);
+  return steps(thinking);
+}
+
 function codexRuns(
   rows: AcpmuxRow[],
   named?: string,
@@ -4579,9 +4670,7 @@ function codexRuns(
     // it ends. One with a file change still waiting for its permission stays as it is, so the change
     // it asks about stays in sight (an ended turn's folded run keeps it in sight too: TurnRows.tsx
     // `staysInSight`).
-    if (
-      (row.items ?? []).some((item) => awaitsPermission(item.tool) || (keepsOwnRow(item.tool) && isRunning(item.tool!)))
-    ) {
+    if (keepsRow(row)) {
       let own = keptRuns.get(row);
       if (!own) keptRuns.set(row, (own = { ...row, foldRun: false, version: row.version * RUN_STATES }));
       return [own];
@@ -4591,38 +4680,8 @@ function codexRuns(
     const fold = !open || index <= ended;
     // An earlier run draws no call that has nothing to show yet; its row comes with its input.
     if (index !== latest) return earlierRun(row, named, fold);
-    // The latest run: what is happening now leaves it for the live line, so the run holds only
-    // finished steps and never grows a stack of live rows (Leo 2026-10-20: "rows pile up instead
-    // of replacing each other").
-    const all = row.items ?? [];
-    // A thought still coming stays in the run from its first words, not only once the next step
-    // ends it (Leo, 2026-11-09: "we can be a bit more optimistic with, like, the displaying of the
-    // thinking ... I only started seeing your thinking bit, like, seven seconds in"). It draws as it
-    // will once done, its folded line (ThoughtRow, not `streaming`: the row is not `live`), so the
-    // row neither grows under the reader as it streams nor shrinks when it ends (Leo, 2026-11-07:
-    // "the jumps are jarring. We want to minimize the jumps"); the live line under it says
-    // Thinking. Not while it is still quiet by
-    // the rule a finished thought draws by (thoughts.ts `isQuietThought`): its text and its time only
-    // grow, so one shown here never leaves when it ends, and a short thought that has run a second
-    // shows now, as it does once the turn ends or the chat reloads (Leo, 2026-11-09: "oh i guess the
-    // service or something must have crashed in between cuz now i see it").
-    const tail = all.at(-1);
-    const steps = (shows: boolean) =>
-      all.filter((item, at) =>
-        item.tool
-          ? !isRunning(item.tool) || (carried?.has(item.tool.id) === true && item.tool.id !== named)
-          : !(at === all.length - 1 && item.kind !== "tool" && !shows),
-      );
-    const thinking =
-      tail !== undefined &&
-      isThought(tail) &&
-      !isQuietThought(tail) &&
-      // A thought that is the run's first step waits out its first chunks (FIRST_THOUGHT_MS of them,
-      // by their own times): its run arrives with the turn's Working line (`shapeLiveTurn`) and the
-      // reply's last text, and the two rows landing in one frame moved the rows above by 29 px
-      // (test/turn-transition-jumps.test.ts burst-thought). One later step in, it arrives alone.
-      (steps(false).length > 0 || (thoughtDuration(tail) ?? FIRST_THOUGHT_MS) >= FIRST_THOUGHT_MS);
-    const items = steps(thinking);
+    // The latest run: only its finished steps (`latestRunSteps`).
+    const items = latestRunSteps(row.items ?? [], named, carried);
     if (!items.length) return [];
     // Whether it shows its thought is the row's own (its text and its chunks' times, not the
     // clock), so the version it has says it: state 1 either way, never an ended fold's 3.

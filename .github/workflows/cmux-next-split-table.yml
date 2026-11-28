@@ -52,7 +52,7 @@ jobs:
       ${{ github.repository == 'manaflow-ai/cmux' && vars.CI_EVAL_STEP_GATEWAY != ''
       && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository
       && !github.event.pull_request.draft)) }}
-    runs-on: glaeda-gateway-xcode-26.6 # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    runs-on: mac-gateway # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     timeout-minutes: 120
     permissions: {}
     steps:
@@ -62,6 +62,12 @@ jobs:
           SHA: ${{ inputs.ref || github.event.pull_request.head.sha }}
           # The measure script's own build config (split-spring.sh --config=...): a bench build for the fleet step, never a shipped one.
           MEASURE_CONFIG: bench
+          # The longest this job holds its Mac mini gateway runner while the step waits in the exclusive queue. It was
+          # 3600 s: of the 19 "successful" runs in 16:43-21:15Z on 2026-11-27, 13 held a gateway runner 60-64 min
+          # waiting it out and returned no report (run 46063032927: step 5fef8fd13e39246893d2ef5a never left the
+          # queue; that class's p90 queue wait was 1124 min). 1200 s matches cmux-next-tab-switch.yml and
+          # nightly-pr-build.yml; past it the step is cancelled, so it gives its place back.
+          QUEUE_WAIT_S: "1200"
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
@@ -76,18 +82,38 @@ jobs:
           out="$RUNNER_TEMP/split-table"
           mkdir -p "$out"
           log="$out/run.log"
+          status=0
           "$client" run --class exclusive --measurement --label bench --display \
-            --script scripts/measure/split-spring.sh --ref "$SHA" --timeout 5400 --queue-timeout 3600 \
+            --script scripts/measure/split-spring.sh --ref "$SHA" --timeout 5400 --queue-timeout "$QUEUE_WAIT_S" \
             --key "split-table-$SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
             --artifact artifacts/split-spring/report.json \
             --arg=--suite=split-scale --arg=--config=$MEASURE_CONFIG --arg=--quick --arg=--vdisplay=120 \
-            2>&1 | tee "$log" || echo "::warning title=Split table::the fleet step did not finish (report-only: nothing fails)"
+            2>&1 | tee "$log" || status=${PIPESTATUS[0]}
+          [[ "$status" == 0 ]] || echo "::warning title=Split table::the fleet step did not finish (exit $status; report-only: nothing fails)"
           step="$(grep -o -E '\b[0-9a-f]{24}\b' "$log" | head -1)"
+          if [[ "$status" == 75 && -n "$step" ]]; then
+            # Not started within QUEUE_WAIT_S: a queued step keeps its place after the client stops waiting and later
+            # runs on the bench Mac for nobody, ahead of every later measurement (cmux-next-tab-switch.yml does the same).
+            "$client" cancel "$step" --reason "split table: not started within ${QUEUE_WAIT_S}s" || true
+          fi
           if [[ -n "$step" ]]; then
             "$client" artifact "$step" "$out/report.json" || "$client" artifact --failed "$step" "$out/report.json" || true
           fi
           echo "fleet step ${step:-none}; report $([[ -s "$out/report.json" ]] && echo returned || echo none)"
           exit 0
+      # A newer push cancels this run (concurrency above), but the fleet step it queued keeps its place and later runs
+      # on the bench Mac for nobody. Cancel it too: the client prints the step id as soon as it is queued.
+      - name: Cancel the superseded fleet step
+        if: ${{ cancelled() }}
+        timeout-minutes: 2
+        run: |
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          log="$RUNNER_TEMP/split-table/run.log"
+          step="$( [[ -r "$log" ]] && grep -o -E '\b[0-9a-f]{24}\b' "$log" | head -1 || true)"
+          if [[ -x "$client" && -n "$step" ]]; then
+            "$client" cancel "$step" --reason "split table: superseded (run $GITHUB_RUN_ID cancelled)" || true
+          fi
       - name: Upload the report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -170,6 +170,8 @@ public final class LayoutModel {
     /// follows the marks, not the chrome's parked state: a pane that rang while its workspace was parked has its ring
     /// on the chrome before the switch reads it, or the ring never shows at all (cmux#56125).
     public internal(set) var attentionWhileHeld: [PaneID: AttentionMark] = [:]
+    /// Which hold a release lets go (``LayoutRootView/releaseHeldAttention(after:)``): a newer hold or a park voids an older one.
+    @ObservationIgnored var attentionHold: UInt64 = 0
     /// Reads the ringing `pane` the person just went into (the focus entered it, or a click with `true`),
     /// when they look at this layout and the policy reads its ring so; true when it did
     /// (``enterAttention(_:click:)``). Set by the App.
@@ -216,12 +218,9 @@ public final class LayoutModel {
     @ObservationIgnored var paneCloses: [PaneID: PaneCloseHold] = [:]
     /// The last pending close's order (`PaneCloseHold.sequence`).
     @ObservationIgnored var paneCloseSequence = 0
-    /// Fit-screen widths of shown column closes that landed while another close on their screen was
-    /// pending, not sent yet (`flushLandedCloseSizes`).
-    @ObservationIgnored var landedCloseWidths: [ColumnID: Double] = [:]
-    /// Even ratios of shown closes that landed while another close on their screen was pending, not
-    /// sent yet (`flushLandedCloseSizes`).
-    @ObservationIgnored var landedCloseRatios: [SplitID: Double] = [:]
+    /// Even ratios and fit-screen widths of shown closes that landed while another close on their
+    /// screen was pending, not sent yet (`flushLandedCloseSizes`).
+    @ObservationIgnored var landedCloseSizes = LandedCloseSizes()
     /// Until this uptime, a ratio-only change is an explicit equalize the screens spring (Lawrence 2026-10-16).
     @ObservationIgnored public internal(set) var explicitReflowUntil: TimeInterval = 0
     static let explicitReflowWindow: TimeInterval = 0.6
