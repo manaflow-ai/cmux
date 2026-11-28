@@ -9,28 +9,31 @@ import Testing
         try DriverParams(method: "page.goto", json: .object(fields))
     }
 
-    private func message(_ body: () throws(DriverError) -> Void) -> String? {
-        do throws(DriverError) {
+    /// Untyped `throws`: a trailing closure's thrown type is inferred as `any Error`.
+    private func message(_ body: () throws -> Void) -> String? {
+        do {
             try body()
             return nil
-        } catch {
+        } catch let error as DriverError {
             return error.message
+        } catch {
+            return "unexpected error: \(error)"
         }
     }
 
     @Test func paramsMustBeAnObjectOrNull() throws {
-        #expect(message { _ = try DriverParams(method: "page.goto", json: .string("x")) } == "page.goto: params must be an object")
+        #expect(message { () throws(DriverError) in _ = try DriverParams(method: "page.goto", json: .string("x")) } == "page.goto: params must be an object")
         let empty = try DriverParams(method: "page.goto", json: .null)
         #expect(!empty.has("url"))
     }
 
     @Test func readsNameTheMethodFieldAndType() throws {
         let call = try params(["url": .number(1), "flag": .string("yes"), "list": .array([.string("a"), .number(2)])])
-        #expect(message { _ = try call.string("url") } == "page.goto: url: expected a string, got a number")
-        #expect(message { _ = try call.string("missing") } == "page.goto: missing: expected a string")
-        #expect(message { _ = try call.bool("flag") } == "page.goto: flag: expected a boolean, got a string")
-        #expect(message { _ = try call.strings("list") } == "page.goto: list: expected an array of strings, got an array")
-        #expect(message { _ = try call.array("flag") } == "page.goto: flag: expected an array, got a string")
+        #expect(message { () throws(DriverError) in _ = try call.string("url") } == "page.goto: url: expected a string, got a number")
+        #expect(message { () throws(DriverError) in _ = try call.string("missing") } == "page.goto: missing: expected a string")
+        #expect(message { () throws(DriverError) in _ = try call.bool("flag") } == "page.goto: flag: expected a boolean, got a string")
+        #expect(message { () throws(DriverError) in _ = try call.strings("list") } == "page.goto: list: expected an array of strings, got an array")
+        #expect(message { () throws(DriverError) in _ = try call.array("flag") } == "page.goto: flag: expected an array, got a string")
     }
 
     @Test func nullReadsAsAbsent() throws {
@@ -56,8 +59,8 @@ import Testing
 
     @Test func aNonFiniteNumberIsRefused() throws {
         let call = try params(["n": .number(.nan), "timeoutMs": .number(.infinity)])
-        #expect(message { _ = try call.number("n") } == "page.goto: n: expected a finite number, got a number")
-        #expect(message { _ = try call.timeout() } == "page.goto: timeoutMs: expected a finite number, got a number")
+        #expect(message { () throws(DriverError) in _ = try call.number("n") } == "page.goto: n: expected a finite number, got a number")
+        #expect(message { () throws(DriverError) in _ = try call.timeout() } == "page.goto: timeoutMs: expected a finite number, got a number")
     }
 
     @Test func theTimeoutMessageNamesItsSeconds() {

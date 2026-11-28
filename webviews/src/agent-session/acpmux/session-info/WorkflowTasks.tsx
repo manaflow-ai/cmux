@@ -17,7 +17,8 @@
 import { Fragment, useId, useLayoutEffect, useRef, useState } from "react";
 import { compactTokens } from "../conversation/compactionNoteModel";
 import { Spinner } from "../conversation/icons";
-import { CountLine, type CountPart } from "../summary/LiveCount";
+import { CountLine } from "../summary/LiveCount";
+import { type CountPart } from "../summary/countParts";
 import { Markdown } from "../conversation/Markdown";
 import { formatDuration, spanDuration } from "../conversation/turns";
 import { useT, type Translate } from "../i18n";

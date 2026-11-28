@@ -673,6 +673,7 @@ markdown.theme
 media.pictureInPicture.enabled
 mobile.allowIPhoneConnections
 mobile.autoApprovePhones
+mobile.siteDataHandoff
 mobile.terminalSizing
 mobile.terminalSizingOrder
 models.spreadUsage
