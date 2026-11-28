@@ -189,4 +189,65 @@ struct TabHoverCardFactsTests {
         #expect(shown.contains("~/Projects/site") || shown.contains { $0.hasSuffix("Projects/site") }, "its folder: \(shown)")
         #expect(shown.contains("Memory \(ResourceFormat.memory(46 << 20))"), "the chat page's memory: \(shown)")
     }
+
+    /// Leo 2026-11-27 ("this hover preview is a bit shit"): a chat's card read as a big title, a spinner and a thumbnail
+    /// too small to read. It now says what the chat is on in words: the running turn's prompt, else its last message.
+    private func chatItem(turn: [String: Any]?, lastMessage: String?, state: String) throws -> TabItem {
+        let started = UInt64(Date().addingTimeInterval(-60).timeIntervalSince1970 * 1000)
+        var summary: [String: Any] = ["sessionId": "s-latest", "model": "Opus 5.5", "cwd": "/Users/someone/Projects/site",
+                                      "lane": ["state": state, "since": started]]
+        summary["turn"] = turn
+        let turns = AgentTurnStateStore()
+        turns.localHost = Self.host
+        turns.apply(session: "s-latest", state: nil, lastMessage: lastMessage, muted: false, title: nil,
+                    detail: try #require(AgentChatDetail.of(summary: summary)))
+        var snapshot = TabSnapshot(surface: SurfaceID(rawValue: 9), kind: .conversation, title: "Site")
+        snapshot.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: Self.host, session: "s-latest", harness: "claude"))
+        return TabItemMapping.shared.item(TabModel(snapshot), fallbackTitle: "Agent", turns: turns)
+    }
+
+    @Test func aWorkingChatsCardShowsItsPromptOnOneLine() throws {
+        let started = UInt64(Date().addingTimeInterval(-60).timeIntervalSince1970 * 1000)
+        let item = try chatItem(turn: ["startedAt": started, "prompt": "fix the build\n\n  then   push"], lastMessage: "older reply",
+                                state: "working")
+        #expect(lines(item, report: nil).contains("fix the build then push"), "the prompt, whitespace collapsed: \(lines(item, report: nil))")
+    }
+
+    @Test func anIdleChatsCardShowsItsLastMessage() throws {
+        let item = try chatItem(turn: nil, lastMessage: "Merged the fix.", state: "idle")
+        #expect(lines(item, report: nil).contains("Merged the fix."), "the last message: \(lines(item, report: nil))")
+    }
+
+    @Test func anInboxNoticeIsNeverTheChatsLatestWords() throws {
+        let started = UInt64(Date().addingTimeInterval(-60).timeIntervalSince1970 * 1000)
+        let item = try chatItem(turn: ["startedAt": started, "prompt": "[acpmux inbox] 3 new", "notice": true],
+                                lastMessage: "Merged the fix.", state: "working")
+        let shown = lines(item, report: nil)
+        #expect(!shown.contains { $0.contains("acpmux inbox") }, "no notice: \(shown)")
+        #expect(shown.contains("Merged the fix."), "the last message instead: \(shown)")
+    }
+
+    @Test func aLongPromptIsCut() {
+        let line = TabHoverCardLines.oneLine(String(repeating: "word ", count: 200))
+        #expect(line?.count == TabHoverCardLines.maxLatest)
+        #expect(line?.hasSuffix("…") == true)
+        #expect(TabHoverCardLines.oneLine(" \n\t ") == nil)
+    }
+
+    @Test func aTabsCardDrawsNoSecondSpinnerByItsTitle() {
+        var item = TabItem(id: TabID("t-spin"), title: "Chat", subtitle: "~/x", icon: .icon(.agentChat))
+        item.indicator = .working
+        item.hover = TabHoverFacts(kind: .agentChat, activity: .working, since: Date(), model: "Opus 5.5")
+        let card = TabHoverCardView()
+        card.configure(.tab(item))
+        #expect(card.activity.isHidden, "the tab draws the spinner; the card shows a dot on its status row")
+    }
+
+    @Test func anAgentChatsCardShowsNoThumbnail() {
+        var item = TabItem(id: TabID("t-thumb"), title: "Chat", subtitle: "~/x", icon: .icon(.agentChat))
+        item.hover = TabHoverFacts(kind: .agentChat)
+        #expect(TabHoverCardController.isAgentChat(.tab(item)))
+        item.hover = TabHoverFacts(kind: .terminal)
+        #expect(!TabHoverCardController.isAgentChat(.tab(item)))
+    }
 }

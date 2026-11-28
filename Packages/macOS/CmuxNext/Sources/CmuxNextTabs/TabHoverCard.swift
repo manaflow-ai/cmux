@@ -193,7 +193,8 @@ final class TabHoverCardController: HoverCardSource {
         self.body = body
         body.configure(content)
         // Compact previews (Debug Settings `tabs.hoverPreviews`) show the facts without a thumbnail.
-        let full = TabTunables.hoverPreviews.value == .full
+        // An agent chat's card shows its latest words instead: its page at card size was unreadable (Leo 2026-11-27).
+        let full = TabTunables.hoverPreviews.value == .full && !Self.isAgentChat(content)
         if case .tab = content {
             body.setResources(resources.report ?? lastReport(for: tab))
             // Full previews: every tab's card has the picture frame, whether its picture is known yet
@@ -213,6 +214,12 @@ final class TabHoverCardController: HoverCardSource {
                              retarget: move) { [weak body] in
             body?.applyColors()
         }
+    }
+
+    /// A tab card for an agent chat, which shows no thumbnail.
+    static func isAgentChat(_ content: TabHoverCardContent) -> Bool {
+        if case .tab(let item) = content { return item.hover.kind == .agentChat }
+        return false
     }
 
     func hoverCardActivated(_ id: HoverTargetID) {
