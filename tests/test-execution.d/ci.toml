@@ -438,6 +438,10 @@ path = "tests/test_ci_hot_verify_mirror_seed.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_hot_verify_paths_cover_visual.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_hot_verify_posts_proof_record.py"
 lane = "linux-guard"
 
@@ -595,6 +599,11 @@ reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). A workflow g
 [[test]]
 path = "tests/test_ci_next_macos_cascade.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_nightly_bundle_time_fallback.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_nightly_bundle_time_fallback.py"
 
 [[test]]
 path = "tests/test_ci_nightly_cmux_tui_client_download.py"
@@ -1454,8 +1463,3 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_xcodebuild_noninteractive_helper.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_nightly_bundle_time_fallback.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_nightly_bundle_time_fallback.py"
