@@ -6,15 +6,25 @@
 // says which of the chat's repositories has it.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { act } from "react";
-import { UiProvider } from "../src/ui/UiProvider";
-import { VirtualTranscript } from "../src/agent-session/acpmux/App";
-import { setChipHost } from "../src/agent-session/acpmux/chips/host";
-import { resetLinkStore } from "../src/agent-session/acpmux/chips/linkStore";
-import { resetPullRequestStore } from "../src/agent-session/acpmux/chips/pullRequestStore";
-import { resetReferenceExistence } from "../src/agent-session/acpmux/chips/referenceExistence";
-import { newReferenceScopeCache, referenceScopes } from "../src/agent-session/acpmux/conversation/bareReferences";
-import { setMessageOpened } from "../src/agent-session/acpmux/conversation/incomingOpened";
-import { useDom } from "./support/unknownWrite";
+import { importWithDom } from "./support/importWithDom";
+
+const { UiProvider } = await importWithDom(() => import("../src/ui/UiProvider"));
+const { VirtualTranscript } = await importWithDom(() => import("../src/agent-session/acpmux/App"));
+const { setChipHost } = await importWithDom(() => import("../src/agent-session/acpmux/chips/host"));
+const { resetLinkStore } = await importWithDom(() => import("../src/agent-session/acpmux/chips/linkStore"));
+const { resetPullRequestStore } = await importWithDom(
+  () => import("../src/agent-session/acpmux/chips/pullRequestStore"),
+);
+const { resetReferenceExistence } = await importWithDom(
+  () => import("../src/agent-session/acpmux/chips/referenceExistence"),
+);
+const { newReferenceScopeCache, referenceScopes } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/bareReferences"),
+);
+const { setMessageOpened } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/incomingOpened"),
+);
+const { useDom } = await importWithDom(() => import("./support/unknownWrite"));
 
 const dom = useDom();
 beforeAll(() => {

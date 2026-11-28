@@ -380,8 +380,22 @@ def run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
 PROFILE = os.environ.get("CMUX_RUST_LIVE_PROFILE") or "dev"
 
 
+# Codegen units for the two crates a cmux-tui-core edit rebuilds, in this build only (RFD 0174 slice 5).
+# At 1024 instead of the dev profile's 256, an edit's incremental rebuild has less to redo per unit:
+# 28.65 s -> 27.86 s p50 (fleet Linux, 32 cores, 12 edits per arm in two interleaved runs, job
+# e8cd7525058d39c377835ce2; scripts/measure/tui-core-edit-levers.py). 16 units took 92.7 s. Passed as
+# --config, so [profile.dev] and every other dev build keep their settings, and dependencies keep
+# their build. The first rust-live build after a plain `cargo build` redoes these two crates once.
+# CMUX_RUST_LIVE_CODEGEN_UNITS="" leaves the profile's own.
+CODEGEN_UNITS = os.environ.get("CMUX_RUST_LIVE_CODEGEN_UNITS", "1024")
+EDITED_CRATES = ("cmux-tui-core", "cmux-tui")
+
+
 def cargo_args(daemons: list[str], target: str | None) -> list[str]:
     argv = ["cargo", "build", "--message-format=short", "--profile", PROFILE]
+    if CODEGEN_UNITS:
+        for crate in EDITED_CRATES:
+            argv += ["--config", f'profile.{PROFILE}.package."{crate}".codegen-units={int(CODEGEN_UNITS)}']
     if target:
         argv += ["--target", target]
     for package in daemons:
@@ -804,6 +818,7 @@ class Swapper:
                 self.previous = new
                 return self.swap_acpmux(built, steps)
             restart = self.cli(new, "server", "restart")
+            self.marks["restarted"] = time.monotonic()
             if restart.returncode == 0:
                 steps["cmux-tui"] = "server restart"
             else:
@@ -819,6 +834,14 @@ class Swapper:
                                        + ("; the previous build is back" if back and back.returncode == 0 else ""))
                 steps["cmux-tui"] = "server stop + ensure"
             steps["cmux-tui_secs"] = round(time.monotonic() - t0, 3)
+            # Where the swap's time went (owner lookup, then the new build's first runs): a new executable's
+            # first exec on macOS waits for its malware scan, about 5 ms per MB (scripts/measure/macos-first-exec.sh).
+            self.marks["done"] = time.monotonic()
+            steps["trace"] = self.handoff_trace()
+            try:
+                steps["cmux-tui_bytes"] = new.stat().st_size
+            except OSError:
+                pass
             self.previous = new
         return self.swap_acpmux(built, steps)
 
@@ -875,6 +898,16 @@ class Loop:
                 except OSError:
                     pass
         return found
+
+    def restat(self, found: dict[str, int], paths: list[str]) -> dict[str, int]:
+        """`found` with `paths` (keys of `scan`, relative to cmux-tui/) stat'ed again; a path gone is dropped."""
+        later = dict(found)
+        for rel in paths:
+            try:
+                later[rel] = os.stat(self.root / rel).st_mtime_ns
+            except OSError:
+                later.pop(rel, None)
+        return later
 
     def record(self, entry: dict) -> None:
         self.state.mkdir(parents=True, exist_ok=True)
@@ -954,10 +987,13 @@ class Loop:
             changed, removed = changes(files, now)
             if not (changed or removed):
                 continue
-            # An editor's save can be several writes: wait for them to settle.
+            # An editor's save can be several writes: wait for them to settle. Only the changed files are
+            # looked at again (a stat each), not the tree: a whole scan is 13,000 files, 0.4 s on a loaded
+            # 8 vCPU lane VM, and it was a second scan on every save (the daemon loop's fs_event stage,
+            # 459 ms against a 12 ms floor on a fleet Mac). A file saved meanwhile is the next scan's.
             while True:
                 time.sleep(SETTLE_SECS)
-                later = self.scan()
+                later = self.restat(now, changed)
                 if later == now:
                     break
                 now = later
