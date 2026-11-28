@@ -227,6 +227,17 @@ jobs:
         with:
           persist-credentials: false
 
+      # Every job that mints cmux-bot reads its pool after the mint and at the end, so its spend lands in the
+      # app-spend ledger (tests/test_ci_app_spend_mark.py holds every minting job to it).
+      - name: Read the cmux-bot budget before this job
+        id: app-spend
+        if: steps.fresh.outputs.skip != 'true'
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/app_spend_mark.py start ci-queue-janitor/sweep
+
       # The sweep's GET reads (run pages, every in-flight run's job listing: up to 2,000 a sweep) go on a quota-goblin
       # CI pool token (quota-goblin-9008/9009, pushed as CI_POOL_TOKEN_1/2 by the key home), not on the routing
       # App's (5067688) one hour that the build controller and the runner scaler share: at 04:01Z on 2026-11-28 it
@@ -279,10 +290,12 @@ jobs:
         if: vars.GLAEDA_ROUTE_APP_ID != '' && steps.fresh.outputs.skip != 'true'
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
@@ -384,3 +397,11 @@ jobs:
           path: ${{ runner.temp }}/macos-pool-load.json
           retention-days: 1
           if-no-files-found: ignore
+
+      - name: Read the cmux-bot budget after this job
+        if: always() && steps.fresh.outputs.skip != 'true'
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/app_spend_mark.py end ci-queue-janitor/sweep

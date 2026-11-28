@@ -8,8 +8,8 @@ name: Machine join E2E (development)
 # A dispatch runs the file at --ref, so feat-cmux-next's inputs and jobs win;
 # these inputs only mirror them for the Actions form.
 #
-# schedule: every 6 h the `share` job dispatches feat-cmux-next's copy with
-# share=true. The HQ probe screen-share-zero-touch reads the newest run's
+# schedule: every 6 h the `share` job dispatches feat-cmux-next's machine-vault-e2e.yml
+# (suite=machine-join; #62080 folded this workflow into it) with share=true. The HQ probe screen-share-zero-touch reads the newest run's
 # evidence artifact (share.view.lumaVariance, share.hubApproval) for its
 # mac-linux row and calls it stale past 72 h; with only manual dispatch the
 # row went stale whenever nobody ran it. GitHub runs schedules only from the
@@ -73,7 +73,7 @@ jobs:
       group: machine-join-e2e-schedule
       cancel-in-progress: false
     permissions:
-      actions: write # dispatch machine-join-e2e.yml on feat-cmux-next
+      actions: write # dispatch machine-vault-e2e.yml on feat-cmux-next
       contents: read
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || contains(fromJSON('["cmux-gcp-secret-jit-x64","cmux-gcp-nightly-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'cmux-gcp-nightly-jit-x64' }}
     timeout-minutes: 20
@@ -108,10 +108,10 @@ jobs:
           private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-actions: write
           permission-contents: read
-      - name: Dispatch machine-join-e2e.yml share=true on feat-cmux-next
+      - name: Dispatch machine-vault-e2e.yml suite=machine-join share=true on feat-cmux-next
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           set -euo pipefail
-          gh workflow run machine-join-e2e.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next -f share=true
-          echo "Dispatched machine-join-e2e.yml share=true on feat-cmux-next; its run writes the machine-join-e2e-evidence artifact screen-share-zero-touch reads." >> "$GITHUB_STEP_SUMMARY"
+          gh workflow run machine-vault-e2e.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next -f suite=machine-join -f share=true
+          echo "Dispatched machine-vault-e2e.yml suite=machine-join share=true on feat-cmux-next; its run writes the machine-join-e2e-evidence artifact screen-share-zero-touch reads." >> "$GITHUB_STEP_SUMMARY"
