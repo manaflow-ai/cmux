@@ -99,6 +99,9 @@ fn two_harness_setup(no_fork: bool) -> (Arc<Hub>, Config) {
     };
     cfg.store.mode = StoreMode::Memory;
     cfg.permission_policy = PermissionPolicy::ApproveAll;
+    // The other harness asks in its `normal` mode, as a real one lists its asking modes: a fork
+    // onto a harness with no mode that asks is refused (`hold_mode`).
+    cfg.web_asking_modes.insert("other".into(), vec!["normal".into()]);
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     (Hub::new(cfg.clone(), store), cfg)
 }
@@ -235,6 +238,7 @@ async fn a_chat_forked_onto_another_harness_keeps_its_effort() {
         argv: vec!["python3".into(), fake.into()],
         env: BTreeMap::from([
             ("FAKE_PICKER".to_owned(), "1".to_owned()),
+            ("FAKE_PICKER_MODES".to_owned(), "1".to_owned()),
             ("FAKE_SESSION_PREFIX".to_owned(), prefix.to_owned()),
             ("FAKE_CALLS".to_owned(), calls.to_string_lossy().into_owned()),
         ]),
@@ -256,6 +260,7 @@ async fn a_chat_forked_onto_another_harness_keeps_its_effort() {
     };
     cfg.store.mode = StoreMode::Memory;
     cfg.permission_policy = PermissionPolicy::ApproveAll;
+    cfg.web_asking_modes.insert("other".into(), vec!["normal".into()]);
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
     let mut c = client(&hub).await;
