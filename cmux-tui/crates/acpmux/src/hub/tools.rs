@@ -2,7 +2,8 @@
 //! the pane's tool list: cmux's own (`agent_tools.rs`), recorded at each
 //! spawn as the spawn gives them (none for a session they leave out), then
 //! the MCP servers, plugins and skills Claude Code's system/init reports.
-//! The user's own harness config files are never read here.
+//! Claude config is consulted only to recognize the builtin server's legacy launch name;
+//! the person's other servers enter the inventory through harness reports.
 //!
 //! `_acpmux/set_tools` turns one MCP server off or on again for one chat.
 //! Only Claude Code can: the chat's choice is kept in its meta
@@ -40,6 +41,37 @@ fn same_builtin_id(left: &str, right: &str) -> bool {
             .strip_prefix("mcp:")
             .zip(right.strip_prefix("mcp:"))
             .is_some_and(|(left, right)| crate::acpmux_mcp_names::same_server(left, right))
+}
+
+/// Apply the chat's off choices to the profile before it is frozen for spawn. Recording the
+/// new inventory happens later and cannot repair argv/env that already carry an old ID.
+/// `builtin_name` is the name the current config resolves for cmux's own agent server.
+pub(super) fn apply_off_choices(
+    profile: &mut HarnessProfile,
+    tools: &ToolInventory,
+    builtin_name: &str,
+) {
+    let mut launch_tools = tools.clone();
+    let builtin_id = format!("mcp:{builtin_name}");
+    for row in launch_tools.rows.iter_mut().filter(|row| {
+        row.source == "cmux"
+            && row.id.strip_prefix("mcp:").is_some_and(crate::acpmux_mcp_names::is_server_name)
+    }) {
+        for off in &mut launch_tools.off {
+            if *off == row.id {
+                *off = builtin_id.clone();
+            }
+        }
+        row.id = builtin_id.clone();
+        row.name = builtin_name.to_owned();
+    }
+    profile.argv.extend(disallowed_args(&launch_tools));
+    // Folded builtins must also leave the cmux server's upstream list.
+    let off: Vec<&str> = launch_tools.off.iter().filter_map(|id| id.strip_prefix("mcp:")).collect();
+    profile.env.remove(crate::agent_tools::OFF_ENV);
+    if !off.is_empty() {
+        profile.env.insert(crate::agent_tools::OFF_ENV.to_owned(), off.join(","));
+    }
 }
 
 impl Hub {
@@ -425,7 +457,7 @@ pub(super) fn disallowed_args(tools: &ToolInventory) -> Vec<String> {
         // Only deny the resolved wire identity. An unreported legacy name could belong
         // to an unrelated server, so the mere absence of a competing row proves nothing.
         let resolved = tool_row(&tools.rows, id).map(|row| row.id.as_str()).unwrap_or(id);
-        let server = resolved.strip_prefix("mcp:").unwrap();
+        let Some(server) = resolved.strip_prefix("mcp:") else { continue };
         let mut name: String = server
             .chars()
             .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
@@ -517,5 +549,50 @@ mod alias_tests {
         let tools =
             ToolInventory { rows: rows.into(), off: vec!["mcp:cmux-agent".into()], mutable: true };
         assert_eq!(disallowed_args(&tools), ["--disallowedTools", "mcp__cmux-agent"]);
+    }
+
+    fn launch_profile() -> HarnessProfile {
+        serde_json::from_value(json!({"argv": ["claude"], "kind": "claude-stdio"})).unwrap()
+    }
+
+    #[test]
+    fn first_spawn_keeps_a_pre_rename_builtin_disabled_before_recording_new_rows() {
+        let old = ToolInventory {
+            rows: vec![row("acpmux", "cmux")].into(),
+            off: vec!["mcp:acpmux".into()],
+            mutable: true,
+        };
+        let mut profile = launch_profile();
+        apply_off_choices(&mut profile, &old, "cmux-agent");
+        assert_eq!(profile.argv, ["claude", "--disallowedTools", "mcp__cmux-agent"]);
+        assert_eq!(profile.env[crate::agent_tools::OFF_ENV], "cmux-agent");
+        assert_eq!(old.off, ["mcp:acpmux"], "migration must work before meta is recorded");
+        assert_eq!(old.rows[0].id, "mcp:acpmux");
+
+        // Config can still resolve the builtin under its legacy name on another launch.
+        let current = ToolInventory {
+            rows: vec![row("cmux-agent", "cmux")].into(),
+            off: vec!["mcp:cmux-agent".into()],
+            mutable: true,
+        };
+        let mut profile = launch_profile();
+        apply_off_choices(&mut profile, &current, "acpmux");
+        assert_eq!(profile.argv, ["claude", "--disallowedTools", "mcp__acpmux"]);
+        assert_eq!(profile.env[crate::agent_tools::OFF_ENV], "acpmux");
+    }
+
+    #[test]
+    fn first_spawn_keeps_coexisting_user_and_builtin_off_choices_separate() {
+        for name in ["acpmux", "cmux-agent"] {
+            let old = ToolInventory {
+                rows: vec![row("cmux-agent", "cmux"), row("acpmux", "claude")].into(),
+                off: vec![format!("mcp:{name}")],
+                mutable: true,
+            };
+            let mut profile = launch_profile();
+            apply_off_choices(&mut profile, &old, "cmux-agent");
+            assert_eq!(profile.argv, ["claude", "--disallowedTools", &format!("mcp__{name}")]);
+            assert_eq!(profile.env[crate::agent_tools::OFF_ENV], name);
+        }
     }
 }

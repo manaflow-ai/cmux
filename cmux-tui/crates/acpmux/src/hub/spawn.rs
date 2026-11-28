@@ -1007,15 +1007,16 @@ impl Hub {
         }
         // The MCP servers this chat turned off (`tools.rs`): Claude Code never calls their tools.
         if profile.kind == crate::config::HarnessKind::ClaudeStdio {
-            p.argv.extend(super::tools::disallowed_args(&meta.tools));
-            // cmux's own servers run behind the cmux server (code mode), so
-            // they leave its fold instead (`agent_tools::OFF_ENV`).
-            let off: Vec<&str> =
-                meta.tools.off.iter().filter_map(|id| id.strip_prefix("mcp:")).collect();
-            p.env.remove(crate::agent_tools::OFF_ENV);
-            if !off.is_empty() {
-                p.env.insert(crate::agent_tools::OFF_ENV.to_owned(), off.join(","));
-            }
+            #[cfg(unix)]
+            let legacy = if !crate::agent_tools::left_out(meta.remote_origin, &p.env, &p.argv) {
+                crate::agent_tools::shared_servers::claude_leftover(&p.env, &meta.cwd)
+            } else {
+                None
+            };
+            #[cfg(not(unix))]
+            let legacy: Option<String> = None;
+            let builtin_name = legacy.as_deref().unwrap_or(crate::acpmux_mcp_names::SERVER_NAME);
+            super::tools::apply_off_choices(&mut p, &meta.tools, builtin_name);
         }
         // OpenCode asked to ask (`opencode_ask.rs`, `policy_mode.rs`), never by a profile's own marker.
         p.env.remove(crate::opencode_ask::MARKER);
