@@ -182,7 +182,7 @@ import { acpmuxPerf } from "./perf";
 import { type PerfSend } from "./perfReporter";
 import { startFromContext } from "./newtab/startHint";
 import { useSameValue } from "./session-info/sameValue";
-import { drawsAsIs, setStreamingRowBlocked, streamingRowBlocked, textOnlyRow } from "./streamingRow";
+import { drawsAsIs, setStreamingRowBlocked, streamingRowBlocked, textOnlyRow, textOnlyRowPast } from "./streamingRow";
 import { liveToolOutput } from "./liveToolOutput";
 import { liveThought } from "./liveThought";
 import { remoteComposer } from "./remoteEditing";
@@ -868,15 +868,17 @@ export const currentRegistry = (): NativeRegistry => ({
 /// keeps the same objects while they do not change (direct.ts `publishedSummary`, `NO_CATALOG`,
 /// subagentFold.ts `views`), so this is O(fields + rows), with no serialization. Drawn only while
 /// the transcript draws that row as the client holds it (`drawsAsIs`) and no view that reads the
-/// pane's rows is open (`streamingRowBlocked`).
-export function streamedOnly(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot): number {
+/// pane's rows is open (`streamingRowBlocked`). `received`, the last snapshot the client gave,
+/// counts when other live stores took changes since the draw (streamingRow.ts `textOnlyRowPast`).
+export function streamedOnly(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot, received?: AcpmuxSnapshot): number {
   const before = drawn as unknown as Record<string, unknown>;
   const after = next as unknown as Record<string, unknown>;
   const keys = Object.keys(after);
   if (keys.length !== Object.keys(before).length) return -1;
   for (const key of keys) if (key !== "rows" && !Object.is(before[key], after[key])) return -1;
   if (streamingRowBlocked()) return -1;
-  const at = textOnlyRow(drawn.rows, next.rows);
+  let at = textOnlyRow(drawn.rows, next.rows);
+  if (at < 0 && received && received.rows !== drawn.rows) at = textOnlyRowPast(drawn.rows, received.rows, next.rows);
   return at >= 0 && drawsAsIs(drawn.rows[at]!) ? at : -1;
 }
 

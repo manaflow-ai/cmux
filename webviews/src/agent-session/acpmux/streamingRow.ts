@@ -181,3 +181,28 @@ export function textOnlyRow(previous: readonly AcpmuxRow[], next: readonly Acpmu
   }
   return changed;
 }
+
+/// `textOnlyRow` after the pane let other live changes through without a redraw: a running
+/// command's output (liveToolOutput.ts) or a thought (liveThought.ts) moved `received` past `drawn`.
+/// The one row `next` changes from `received` must be the streaming reply's, and against the row
+/// the pane drew, it must still only have grown its text: the other rows' changes stay with the
+/// stores that already hold them. Without this, every streamed chunk that follows a command's
+/// output redrew the whole pane (WebKit L3: AcpmuxPane at 34 renders a second).
+export function textOnlyRowPast(
+  drawn: readonly AcpmuxRow[],
+  received: readonly AcpmuxRow[],
+  next: readonly AcpmuxRow[],
+): number {
+  if (drawn.length !== next.length) return -1;
+  const at = textOnlyRow(received, next);
+  if (at < 0) return -1;
+  const before = drawn[at]!;
+  const after = next[at]!;
+  return before.id === after.id &&
+    typeof before.text === "string" &&
+    typeof after.text === "string" &&
+    after.text.startsWith(before.text) &&
+    sameButText(before, after)
+    ? at
+    : -1;
+}

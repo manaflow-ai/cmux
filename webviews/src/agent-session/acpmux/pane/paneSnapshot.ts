@@ -1376,7 +1376,9 @@ export function paneSnapshotEffect({
           // running turn's closed fold, and those that still redraw the pane (drawnRows.ts).
           const hiddenChange = acpmuxPerf.enabled && received !== undefined && changeHidden(received, next);
           if (hiddenChange) acpmuxPerf.render("record:row-hidden");
-          const at = drawn ? streamedOnly(drawn, next) : -1;
+          // After a command's output or a thought went to its own store, `received` holds it and
+          // `drawn` does not; the chunk that follows is still only text (`textOnlyRowPast`).
+          const at = drawn ? streamedOnly(drawn, next, pendingPaneDraw.pending ? undefined : received) : -1;
           if (drawn && at >= 0) {
             streamingRow.set(next.rows[at]!, drawn.rows[at]!);
             liveCallLine.follow(received, next);
