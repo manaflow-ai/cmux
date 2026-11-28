@@ -219,12 +219,13 @@ test("a same-target recheck keeps known refusal, while A-B-A discards the old se
     return null;
   }
   // A new selection reads its sign-in after the frame that draws it (#49246), so each render lets
-  // that frame pass: jsdom paints none, so the read goes out at afterNextPaint's cap.
-  const render = (sessionId: string) =>
-    act(async () => {
-      root.render(createElement(Probe, { sessionId }));
-      await new Promise((resolve) => setTimeout(resolve, AFTER_PAINT_CAP_MS + 20));
-    });
+  // that frame pass: jsdom paints none, so the read goes out at afterNextPaint's cap. act renders
+  // when its callback returns, so the wait is a second act.
+  const frame = () => act(() => new Promise((resolve) => setTimeout(resolve, AFTER_PAINT_CAP_MS + 20)));
+  const render = async (sessionId: string) => {
+    await act(async () => root.render(createElement(Probe, { sessionId })));
+    await frame();
+  };
   try {
     await render("A");
     expect(pending[0]!.refresh).toBe(true);
@@ -268,11 +269,13 @@ test("old-daemon and wrong-host target replies settle unknown without blocking",
     return null;
   }
   try {
-    const frame = () => new Promise((resolve) => setTimeout(resolve, AFTER_PAINT_CAP_MS + 20));
-    await act(async () => (root.render(createElement(Probe, { epoch: 0 })), frame()));
+    const frame = () => act(() => new Promise((resolve) => setTimeout(resolve, AFTER_PAINT_CAP_MS + 20)));
+    await act(async () => (root.render(createElement(Probe, { epoch: 0 })), Promise.resolve()));
+    await frame();
     expect([result?.auth.state, result?.pending]).toEqual(["unknown", false]);
     reply = { state: "signedOut", source: "turn", evidenceAt: 1, host: "other" };
-    await act(async () => (root.render(createElement(Probe, { epoch: 1 })), frame()));
+    await act(async () => (root.render(createElement(Probe, { epoch: 1 })), Promise.resolve()));
+    await frame();
     expect([result?.auth.state, result?.pending]).toEqual(["unknown", false]);
   } finally {
     await act(async () => root.unmount());

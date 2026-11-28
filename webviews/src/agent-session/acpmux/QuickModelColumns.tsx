@@ -1762,6 +1762,7 @@ function Columns({
               natural?.effort ? ({ "--acpmux-cols-tune-fit": `${natural.effort}px` } as React.CSSProperties) : undefined
             }
             data-tune-fit={natural?.effort}
+            data-card={card ? "" : undefined}
           >
             <div className="acpmux-cols-search">
               <span className="acpmux-cols-corner">
