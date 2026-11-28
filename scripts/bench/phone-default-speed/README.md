@@ -1,8 +1,7 @@
 # Default-grid Ghostty instruction detector
 
-> Unvalidated draft: no baseline or native measurement exists. The standalone
-> build exceeded its 600s and 1800s bounds; the provisional CI route must not land.
-> Integration must reuse an existing production compilation and demonstrate its cost.
+> Draft: native measurements and baseline are pending. Do not merge until the
+> managed study proves warm reuse, mutation rejection and acceptable CPU/wall cost.
 
 Leo: “these feel extremely mockable to be de facto enough”.
 
@@ -15,9 +14,8 @@ protocol-v7 styled render-command generation, with fixture setup excluded.
 
 The gate rejects instruction counts over baseline +10%, a long-history cost
 over short-history +20%, missing instrumentation and malformed baselines.
-`update` is explicit and refused in CI. Dependency versions, sources and checksums
-must match identities in the production workspace lock; optional dependencies
-enabled only by other workspace features are not required. The Zig CPU is pinned to `baseline`
+`update` is explicit and refused in CI. The example uses the production Cargo workspace and lock directly; its optional
+`phone-speed` feature enables Valgrind only for explicit detector builds. The Zig CPU is pinned to `baseline`
 so different CI processors do not select different optimized instruction sets.
 
 ## What this proves
@@ -50,9 +48,19 @@ hardware-speed flow coverage or an end-to-end phone performance claim.
 `python3 ci/run run --job linux --only phone-default-speed-icount`
 
 Import its receipt using `scripts/bench/cmux-bench phone-default-speed --import LOG`.
-The harness has a small standalone Cargo workspace; native Ghostty compilation
-is required on a cold cache. The CI step retains Zig's local objects in its global
-cache, matching the repository's existing setup-zig/cache pattern, so checkout
-cleanup does not discard native compilation. Its 30-minute step timeout is a cold
-ceiling, not a measured duration or a claim that a cold build is cheap. Measured run and setup cost will be recorded with
-the first baseline before this detector is enabled as a PR gate.
+The detector is `ghostty-vt`'s `phone_default_speed` example, built in the normal
+dev/test profile (Ghostty itself remains ReleaseFast). PRs restore the existing
+workspace target cache. The base cache producer runs the exact same narrow
+example invocation before saving, including baseline CPU, profile, optional
+feature and tool environment. A second build must report `Fresh ghostty-vt-sys`;
+a native rebuild on that warm invocation fails. Initial setup cost is recorded
+separately and must be judged from the managed receipt.
+The Rust wrapper's dev optimization is part of the instruction baseline.
+
+The explicit developer study uses a fresh target, records wall/user/system CPU,
+then runs a warm build, both repeated checks, excess-work and no-op mutations,
+and an unchanged-original check. Mutations use a separate example and leave the
+production source intact. Invoke `scripts/bench/phone-default-speed/study.py`
+through `cmux-ci test`, with `/tmp/phone-default-speed-receipt` as the artifact.
+It records a candidate baseline only in study mode, never in the gating path.
+Cold/warm costs and the actual baseline receipt must be added before merging.

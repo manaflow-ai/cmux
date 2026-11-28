@@ -1,0 +1,42 @@
+== 3496031: done (02:09:16Z, waited 666s)
+cmux-ci test: the fleet route does not need an open PR, so the PR was not read; origin's lane/phone-default-speed is at 19834f1bd501f32e380edd7109422ab3d7206b21 (a branch-tip read, no API quota); running on the fleet's Linux pool, no Actions dispatch
+cmux-ci test (fleet): the controller did not say whether this ran before
+cmux-ci test (fleet): request key lane-test-manaflow-ai-cmux-19834f1bd501-2fef1341 (saved in /home/cmux/.cache/cmux-ci-fleet/request-keys/lane-test-manaflow-ai-cmux-19834f1bd501-3c6a4d79e11ff8e0.key before the submit); if this run loses the controller's answer, cmux-ci status --request-key lane-test-manaflow-ai-cmux-19834f1bd501-2fef1341 reads the job and a rerun reuses the key
+Traceback (most recent call last):
+  File "/home/cmux/.local/bin/cmux-ci", line 1343, in <module>
+    the whole step)."""
+             ^^^^^^^^^^^
+  File "/home/cmux/.local/bin/cmux-ci", line 1294, in main
+    sys.stdout.write(view.get("log") or "")
+               ^^^^^^^^^^^^^^^^^^^^
+  File "/home/cmux/.local/bin/cmux-ci", line 869, in run_test
+    client = fleet_client()
+       ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/cmux/.local/bin/cmux-ci", line 926, in run_routes
+    print(piped, file=sys.stderr, flush=True)
+           ^^^^^^^
+  File "/home/cmux/.local/bin/cmux-ci", line 918, in fleet
+    f"(followed to its verdict): cmux-ci run {shlex.join(words)}", file=sys.stderr, flush=True)
+     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/cmux/Projects/leo-workspace/tools/lane_fleet_test.py", line 1002, in run_test
+    if paths is None:
+                 ^^^^^
+  File "/home/cmux/Projects/leo-workspace/tools/lane_fleet_test.py", line 1073, in send_base
+    a client without --public; a partial clone without the base's blobs): the caller sends the whole source."""
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/cmux/Projects/leo-workspace/tools/lane_fleet_test.py", line 837, in base_parts
+    pack_objects(top, tree_objects(top, base, run), build / "base.pack", run, "--window=0", "--no-reuse-object")
+  File "/home/cmux/Projects/leo-workspace/tools/lane_fleet_test.py", line 800, in pack_objects
+    got = run(["git", "-c", "core.hooksPath=/dev/null", "-C", top, "pack-objects", "--stdout", "-q", *pack_args],
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/subprocess.py", line 550, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/subprocess.py", line 1209, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/subprocess.py", line 2116, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+  File "/usr/lib/python3.12/subprocess.py", line 1253, in _check_timeout
+    raise TimeoutExpired(
+subprocess.TimeoutExpired: Command '['git', '-c', 'core.hooksPath=/dev/null', '-C', '/mnt/lane-data/checkouts/cmux/lane--phone-default-speed', 'pack-objects', '--stdout', '-q', '--window=0', '--no-reuse-object']' timed out after 1800 seconds

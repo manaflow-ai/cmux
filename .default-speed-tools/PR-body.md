@@ -4,7 +4,17 @@ The default phone terminal uses the Mac grid, so the projection detector does no
 
 This is a relative terminal-core detector. Rust styled-command generation additionally covers host protocol output; it does not exercise UIKit/Metal/font rendering. Floor-device calibration is pending and no device-time conversion or complete hardware-speed coverage is claimed.
 
-Verification pending native build. Focused router and Linux bound tests14/14 passed; dependency parity tests3/3 passed. The general router checker reports pre-existing head-fail-fast.yml missing route; config hashes match base e5b661bfd811b810e38728afeff9361b8dd5b8b5. Native cold/warm cost and actual mutation rejection must be recorded before publishing or enabling this gate.
+Draft: baseline and native measurements are pending. Do not merge yet.
+
+The detector is a `ghostty-vt` workspace example, using the normal dev/test profile, production lock and baseline native CPU. The base target-cache producer seeds the exact same narrow example invocation the PR restores. Its managed study records cold/warm wall and CPU, requires `Fresh ghostty-vt-sys`, and rejects excess render work and no-op updates. Mutations use a separate example and leave production source intact. No test skip, native stub, or fabricated measurement is used.
+
+Validation so far: 15 routing/budget tests pass; owned-descendant cleanup test passes with an explicit startup handshake, including a descendant in a separate process group. Native study, baseline, mutation receipts and producer-to-consumer cache evidence remain pending.
+
+## Changelog
+
+Add a relative instruction-count detector for the default phone terminal core, pending native measurement and calibration.
+
+No port: this test gates the NEXT phone/Mac terminal path on feat-cmux-next; main does not ship that path.
 
 🤖 Generated with [Codex](https://openai.com/codex)
 

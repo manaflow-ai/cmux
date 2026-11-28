@@ -61,6 +61,9 @@ on:
         value: ${{ jobs.ios-fast-runner.outputs.run }}
       ios_fast_summary:
         value: ${{ jobs.ios-fast-runner.outputs.summary }}
+      # false when the plan builds only to test the fast verdict's own files: no ios-flows proof applies.
+      ios_fast_proof:
+        value: ${{ jobs.ios-fast-runner.outputs.proof }}
       ios_fast_verdict:
         value: ${{ jobs.ios-fast.outputs.verdict }}
     secrets:
@@ -87,11 +90,10 @@ jobs:
     # Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
     if: ${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'linux')) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
-    # Covers setup/tools, shared-step waves and every isolated step (including
-    # the default-grid detector's 30-minute cold-build ceiling). The exact bound
-    # is derived by PipelineTest.test_the_job_timeout_covers_setup_and_every_wave
-    # from ci/steps.toml, so a step reports its timeout before the job is cut off.
-    timeout-minutes: 686
+    # Covers setup/tools, shared-step waves and every isolated step.
+    # PipelineTest.test_the_job_timeout_covers_setup_and_every_wave derives
+    # this bound from ci/steps.toml, including the default-grid detector.
+    timeout-minutes: 692
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
@@ -193,13 +195,14 @@ jobs:
           # tooling-tests-1..5 leave a step only a wide reach selects to the post-merge batch, as the job does.
           CI_TOOLING_TESTS_PR_SCOPE: ${{ vars.CI_TOOLING_TESTS_PR_SCOPE || '1' }}
           TOOLING_TESTS_BASE_RED: ${{ steps.tooling-tests-base-red.outputs.base_red }}
+          TIER: ${{ (vars.CI_PR_PIPELINE_TIER || 'pr') != 'full' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && 'pr' || 'full' }}
           ROUTER_ONLY: ${{ inputs.only }}
         run: |
           scope=()
           [ "${CI_PR_PIPELINE_LINUX_PR_SCOPE:-0}" = 1 ] && scope=(--pr-scope)
           # The router's nightly gate (a landing head of the affected tier): only the steps the nightly also runs.
           if [ -n "${ROUTER_ONLY:-}" ]; then
-            echo "Nightly gate: running only ${ROUTER_ONLY} (the steps the nightly also runs that this change routes)."
+            echo "Nightly gate: running only ${ROUTER_ONLY} (the steps the nightly also runs, or ci/steps.toml land_gate steps, that this change routes)."
             exec ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"} --only "$ROUTER_ONLY" "${scope[@]}"
           fi
           # The routed linux steps less tooling-tests-N; a route that cannot be read runs every step (fails open).
@@ -212,7 +215,7 @@ jobs:
               exit 0
             fi
           fi
-          ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"} ${only:+--only "$only"} "${scope[@]}"
+          ci/run run --job linux --tier "$TIER" ${PATHS_FILE:+--paths-file "$PATHS_FILE"} ${only:+--only "$only"} "${scope[@]}"
       # A type check (the `web-typecheck` step) whose every error had one safe language-service fix, and passed with
       # them: the patch fixit_compile.py wrote to $RUNNER_TEMP/fixit-compile, for the cmuxterm-hq fixit-compile
       # reconciler (tools/ci-oops/fixit_push.py, which reads a run's `fixit-compile-*` artifacts) to push onto a
@@ -439,7 +442,8 @@ jobs:
           CI_WEBVIEWS_PUSH_CLASSES: ${{ vars.CI_WEBVIEWS_PUSH_CLASSES || '1' }}
           CI_WEBVIEWS_CI_EDIT_SAMPLE: ${{ vars.CI_WEBVIEWS_CI_EDIT_SAMPLE || '1' }}
           CI_WEBVIEWS_NARROW_SELECTION: ${{ vars.CI_WEBVIEWS_NARROW_SELECTION || '1' }}
-        run: ci/run run --job web-browser ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
+          TIER: ${{ (vars.CI_PR_PIPELINE_TIER || 'pr') != 'full' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && 'pr' || 'full' }}
+        run: ci/run run --job web-browser --tier "$TIER" ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
       - name: Write the green receipt for later heads (pr_receipt.py)
         id: record
         if: ${{ success() && steps.receipt.outputs.key != '' && steps.receipt.outputs.run == '' }}
@@ -777,6 +781,7 @@ jobs:
   # pipeline needs fast-gates, which skips on a landing head (cmux#57755, router run 45952045688).
   ios-fast-runner:
     name: ios fast verdict runner
+    # Why: docs/ci/cmux-next-workflow-notes/2026-11-27-ios-fast-unset-switch.md
     if: ${{ !cancelled() && !inputs.web_browser_only && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
@@ -786,6 +791,7 @@ jobs:
     outputs:
       run: ${{ steps.plan.outputs.run }}
       plan: ${{ steps.plan.outputs.plan }}
+      proof: ${{ steps.plan.outputs.proof }}
       summary: ${{ steps.plan.outputs.summary }}
       runs_on: ${{ steps.pool.outputs.runs_on }}
       retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
@@ -974,8 +980,22 @@ jobs:
           path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
           enableCrossOsArchive: true
           key: ${{ steps.xcf-key.outputs.fleet_key }}
+      # The same entry in R2 (ios-link-ffi-cache-seed.yml's r2 job): a Blacksmith Mac's actions/cache reads a store of its
+      # own, which the seed's cmux-linux save never reaches, so the GitHub-store restore above misses there.
+      - name: Restore the fleet-built CmuxMobileLinkFFI.xcframework from R2
+        id: xcf-r2-restore
+        if: ${{ steps.xcf-key.outputs.fleet_key != '' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          CI_CACHE_R2_NAMESPACE: any
+        with:
+          backend: r2
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          key: ${{ steps.xcf-key.outputs.fleet_key }}
       - name: Mark the restored CmuxMobileLinkFFI.xcframework as this job's copy
-        if: ${{ steps.xcf-fleet-restore.outputs.cache-hit == 'true' }}
+        if: ${{ steps.xcf-fleet-restore.outputs.cache-hit == 'true' || steps.xcf-r2-restore.outputs.cache-hit == 'true' }}
         continue-on-error: true
         run: |
           set -euo pipefail

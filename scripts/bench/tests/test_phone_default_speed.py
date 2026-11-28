@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-import importlib.util
 import sys
+import importlib.util
+import os
+import select
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -13,41 +16,50 @@ from benches.phone_default_speed import BENCH
 FIXTURE = Path(__file__).parent / "fixtures" / "phone-default-speed" / "check.log"
 
 
-LOCK_SCRIPT = Path(__file__).resolve().parents[1] / "phone-default-speed/check_lock.py"
-spec = importlib.util.spec_from_file_location("phone_default_speed_lock", LOCK_SCRIPT)
-lock = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(lock)
+MEASURE_PATH = Path(__file__).resolve().parents[1] / "phone-default-speed/measure.py"
+spec = importlib.util.spec_from_file_location("phone_default_measure", MEASURE_PATH)
+measure = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(measure)
 
 
 class PhoneDefaultSpeedTest(unittest.TestCase):
     def context(self):
         return Context(bench=BENCH, build={"channel": "local"}, host_role="fleet")
 
-    def test_production_dependency_drift_is_rejected(self):
-        root = {"name": "ghostty-vt", "version": "0.1.0", "dependencies": ["unicode-width"]}
-        dependency = {"name": "unicode-width", "version": "0.2.2", "checksum": "a"}
-        changed = dict(dependency, version="0.2.3")
-        self.assertNotEqual(lock.closure([root, dependency], root["name"]),
-                            lock.closure([root, changed], root["name"]))
-        with self.assertRaises(ValueError):
-            lock.closure([root], root["name"])
+    @unittest.skipUnless(sys.platform == "linux", "process ownership uses Linux proc")
+    def test_timeout_stops_owned_descendant_and_inherits_outer_group(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            child_file = output / "child"
+            ready_read, ready_write = os.pipe()
+            program = ("import os,subprocess,sys,time; from pathlib import Path; "
+                       "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'], start_new_session=True); "
+                       f"Path({str(child_file)!r}).write_text(str(p.pid)+' '+str(os.getpgrp())); "
+                       f"os.write({ready_write}, b'1'); "
+                       "time.sleep(30)")
+            real_popen = measure.subprocess.Popen
 
-    def test_workspace_optional_features_do_not_require_unmeasured_dependencies(self):
-        root = {"name": "ghostty-vt", "version": "0.1.0", "dependencies": ["bitflags"]}
-        flags = {"name": "bitflags", "version": "2.13.2", "checksum": "same"}
-        optional = {"name": "serde_core", "version": "1.0.229"}
-        production = [root, dict(flags, dependencies=["serde_core"]), optional]
-        lock.compare_locks([production, [root, flags]], {"bitflags"})
-        for change in ({"version": "2.14.0"}, {"checksum": "other"}, {"source": "other"}):
-            with self.subTest(change=change), self.assertRaisesRegex(ValueError, "dependency drift"):
-                lock.compare_locks([production, [root, dict(flags, **change)]], {"bitflags"})
+            def started_popen(*args, **kwargs):
+                process = real_popen(*args, **kwargs, pass_fds=(ready_write,))
+                if not select.select([ready_read], [], [], 10)[0]:
+                    measure.stop_tree(process.pid)
+                    process.wait()
+                    self.fail("child tree did not become ready within 10 seconds")
+                self.assertEqual(os.read(ready_read, 1), b"1")
+                return process
 
-    def test_lock_scope_includes_renamed_target_and_build_dependencies(self):
-        manifest = {"dependencies": {"width": {"package": "unicode-width"}},
-                    "dev-dependencies": {"ghostty-vt": {}},
-                    "target": {"cfg(unix)": {"dependencies": {"libc": "1"}}},
-                    "build-dependencies": {"cc": "1"}}
-        self.assertEqual(lock.runtime_names(manifest), {"unicode-width", "libc", "cc"})
+            try:
+                with mock.patch.object(measure.subprocess, "Popen", side_effect=started_popen):
+                    with self.assertRaisesRegex(RuntimeError, "unexpected exit 124"):
+                        measure.run("timeout", [sys.executable, "-c", program], output, dict(os.environ), timeout=2)
+            finally:
+                os.close(ready_read)
+                os.close(ready_write)
+            child, group = map(int, child_file.read_text().split())
+            self.assertEqual(group, os.getpgrp())
+            stat = Path(f"/proc/{child}/stat")
+            if stat.exists():
+                self.assertEqual(stat.read_text().split()[2], "Z", "descendant still executes")
 
     def test_actual_run_has_every_case(self):
         context = self.context()

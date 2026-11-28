@@ -17,7 +17,7 @@ class PhoneDefaultSpeed(Bench):
     units = "count"
     owner = "phone-connect-rootcause"
     hosts = ("fleet",)
-    harness = "scripts/bench/phone-default-speed/src/main.rs"
+    harness = "cmux-tui/crates/ghostty-vt/examples/phone_default_speed.rs"
     version = "1"
 
     def run(self, ctx: Context) -> None:

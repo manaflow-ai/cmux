@@ -1,0 +1,7 @@
+timeout: {"command": ["/opt/freestyle/python/bin/python3", "-c", "import os,subprocess,sys,time; from pathlib import Path; p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'], start_new_session=True); Path('/tmp/acpmux-1001/t/8ca84dc7/01a21d90-08a3-7631-915c-b0ab9306e994/tmp2jxr80sq/child').write_text(str(p.pid)+' '+str(os.getpgrp())); os.write(4, b'1'); time.sleep(30)"], "exit": 124, "cpu_complete": false, "cpu_scope": "waited child processes; external cache daemons excluded", "wall_seconds": 3.190862282004673, "user_seconds": 0.322305, "system_seconds": 0.16963399999999998}
+
+.
+----------------------------------------------------------------------
+Ran 1 test in 3.321s
+
+OK

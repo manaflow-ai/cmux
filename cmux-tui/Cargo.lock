@@ -131,6 +131,7 @@ dependencies = [
  "rusqlite",
  "rustls",
  "schemars 1.2.2",
+ "security-framework",
  "serde",
  "serde_json",
  "sha1",
@@ -1603,9 +1604,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-egress",
  "getrandom 0.3.4",
  "reqwest",
  "ring",
+ "rustls",
  "serde",
  "serde_json",
  "tokio",
@@ -1779,6 +1782,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -3872,6 +3876,7 @@ version = "0.1.0"
 dependencies = [
  "arc-swap",
  "cmux-config",
+ "cmux-json",
  "cmux-tui-platform",
  "getrandom 0.3.4",
  "libc",
@@ -4310,6 +4315,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5ca28b0ae3115b884660db4118d803791fd6756b6e88f39c0f3f7859060d7566"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "crabgrind"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54036bb8d52f1ad7f0a1e89d234073355e9d91d03b09ba59136a1e06e8cbbb34"
+dependencies = [
+ "cc",
+ "object 0.39.1",
+ "pkg-config",
+ "rustversion",
 ]
 
 [[package]]
@@ -5532,6 +5549,7 @@ name = "ghostty-vt"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "crabgrind",
  "ghostty-vt-sys",
  "memchr",
  "png",

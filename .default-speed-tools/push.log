@@ -1,0 +1,23 @@
+wt push: format: 2 changed Rust/web file(s)
+wt push: lane receipt: running the fast gates on 3bd1d231a3cb merged with feat-cmux-next here, before the push (up to 1800 s; log /home/cmux/.cache/wt-push/receipts/3bd1d231a3cb32c543471ad8f67c9d6e99b9d7c7.log). Green records a receipt the PR's gates take instead of re-running; WT_PUSH_RECEIPT=0 skips it
+wt push: lane receipt: no verdict on the gates (exit 1); pushing without a receipt, the PR's gates run:
+fatal: the remote end hung up unexpectedly
+warning: fetch normally indicates which branches had a forced update,
+but that check has been disabled; to re-enable, use '--show-forced-updates'
+flag or run 'git config fetch.showForcedUpdates true'
+fatal: Could not write new index file.
+pre-push: pr-overlap skipped (load 100.06 on 32 cores is past 2 per core); run tools/pr_overlap.py for the open PRs this branch overlaps
+{"started_at": "2026-11-28T01:40:55.793208+00:00", "checks": [{"name": "tier", "status": "deferred", "detail": "4s budget exhausted or no result"}], "head": "6802734c6c53f9993f4b0409259bdf6774383a20", "elapsed_ms": 4590.33, "status": "deferred"}
+pre-push: linting 6802734c6c5 over e5b661bfd81: 8 own commit(s); origin/feat-cmux-next could not be fetched (an earlier check of this push was stopped mid-fetch), so what a base merge brought in past this clone's copy counts as the push's own: run `git fetch origin feat-cmux-next` and push again
+pre-push: another push on this host is running the type check; this one leaves it to CI.
+prepush-gate: this host is loaded (load average at one runnable process per core or more): the scanners, ast-grep and SwiftLint are left to the pull request's fast-gates CI job, which runs them with the same refusal; every other check runs here.
+prepush-gate: judging 6802734c6c5 over e5b661bfd81: 8 own commit(s)
+pre-push: cmux-next gate ran past its 180s limit (CMUX_PREPUSH_GATE_TIMEOUT_SECONDS); stopped it and every process it started. The push goes on; CI's `cmux-next checks` job checks it.
+pre-push: hook times: queue 0s, setup 2s, extras 1s, checks-refresh 1s, fast-tier 7s, web-lint 26s, cmux-next-gate 181s, base-merge-warning 1s; total 219s
+pre-push: passed. git now packs and uploads: a failure after this line is git or GitHub, not a check. Retry it as AGENTS.md says ("Retry a failed push": git push -q, at most 3 retries, 30, 60, then 120 s apart).
+To https://github.com/manaflow-ai/cmux.git (through lane-gh push)
+   6802734c6c53  HEAD -> lane/phone-default-speed
+branch 'lane/phone-default-speed' set up to track 'origin/lane/phone-default-speed'.
+session-footer: added this session's agent link to the pr_create body (tools/lane-gh session_footer)
+note: opened draft https://github.com/manaflow-ai/cmux/pull/63738 for lane/phone-default-speed (pr-in-an-hour counts from the first commit). gh pr create --title T --body-file F still works: it fills this draft in and marks it ready (PR_AUTO_DRAFT=0 turns this off)
+wt push: pushed: origin/lane/phone-default-speed is now 3bd1d231a3cb (manaflow-ai/cmux)
