@@ -930,6 +930,45 @@ name = "Native:OptChat"
 paths = ["Native/OptChat/**"]
 
 [[unit]]
+name = "cargo:Native/OptChat/chief-kernel"
+paths = ["Native/OptChat/chief-kernel/**"]
+tests = ["cargo test --manifest-path Native/OptChat/chief-kernel/Cargo.toml"]
+
+[[unit]]
+name = "cargo:Native/OptChat/chief-turn"
+paths = ["Native/OptChat/chief-turn/**"]
+tests = ["cargo test --manifest-path Native/OptChat/chief-turn/Cargo.toml"]
+
+[[unit]]
+name = "cargo:Native/OptChat/optchat-chief"
+paths = ["Native/OptChat/optchat-chief/**"]
+tests = ["cargo test --manifest-path Native/OptChat/optchat-chief/Cargo.toml"]
+
+[[unit]]
+name = "cargo:Native/OptChat/optchat-core"
+paths = ["Native/OptChat/optchat-core/**"]
+tests = ["cargo test --manifest-path Native/OptChat/optchat-core/Cargo.toml"]
+
+[[unit]]
+name = "cargo:Native/OptChat/optchat-host"
+paths = ["Native/OptChat/optchat-host/**"]
+tests = ["cargo test --manifest-path Native/OptChat/optchat-host/Cargo.toml"]
+
+[[unit]]
+name = "cargo:Native/OptChat/optchat-wasm"
+paths = ["Native/OptChat/optchat-wasm/**"]
+tests = ["cargo test --manifest-path Native/OptChat/optchat-wasm/Cargo.toml"]
+
+[[unit]]
+name = "Packages:Shared"
+paths = ["Packages/Shared/**"]
+
+[[unit]]
+name = "swiftpkg:Packages/Shared/CMUXAuthCore"
+paths = ["Packages/Shared/CMUXAuthCore/**"]
+tests = ["swift test --package-path Packages/Shared/CMUXAuthCore"]
+
+[[unit]]
 name = "swift:CMUXAuthCore"
 paths = ["Packages/Shared/CMUXAuthCore/Sources/CMUXAuthCore/**"]
 tests = ["swift test --package-path Packages/Shared/CMUXAuthCore --filter CMUXAuthCoreTests"]
@@ -938,6 +977,11 @@ tests = ["swift test --package-path Packages/Shared/CMUXAuthCore --filter CMUXAu
 name = "swift:CMUXAuthCoreTests"
 paths = ["Packages/Shared/CMUXAuthCore/Tests/CMUXAuthCoreTests/**"]
 tests = ["swift test --package-path Packages/Shared/CMUXAuthCore --filter CMUXAuthCoreTests"]
+
+[[unit]]
+name = "swiftpkg:Packages/Shared/CMUXMobileCore"
+paths = ["Packages/Shared/CMUXMobileCore/**"]
+tests = ["swift test --package-path Packages/Shared/CMUXMobileCore"]
 
 [[unit]]
 name = "swift:CMUXMobileCore"
@@ -950,12 +994,25 @@ paths = ["Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/**"]
 tests = ["swift test --package-path Packages/Shared/CMUXMobileCore --filter CMUXMobileCoreTests"]
 
 [[unit]]
+name = "swiftpkg:Packages/Shared/CmuxAPIClient"
+paths = ["Packages/Shared/CmuxAPIClient/**"]
+
+[[unit]]
 name = "swift:CmuxAPIClient"
 paths = ["Packages/Shared/CmuxAPIClient/Sources/CmuxAPIClient/**"]
 
 [[unit]]
+name = "swiftpkg:Packages/Shared/CmuxAgentBrands"
+paths = ["Packages/Shared/CmuxAgentBrands/**"]
+
+[[unit]]
 name = "swift:CmuxAgentBrands"
 paths = ["Packages/Shared/CmuxAgentBrands/Sources/CmuxAgentBrands/**"]
+
+[[unit]]
+name = "swiftpkg:Packages/Shared/CmuxAgentCursor"
+paths = ["Packages/Shared/CmuxAgentCursor/**"]
+tests = ["swift test --package-path Packages/Shared/CmuxAgentCursor"]
 
 [[unit]]
 name = "swift:CmuxAgentCursor"
@@ -968,6 +1025,11 @@ paths = ["Packages/Shared/CmuxAgentCursor/Tests/CmuxAgentCursorTests/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxAgentCursor --filter CmuxAgentCursorTests"]
 
 [[unit]]
+name = "swiftpkg:Packages/Shared/CmuxAgentQuestion"
+paths = ["Packages/Shared/CmuxAgentQuestion/**"]
+tests = ["swift test --package-path Packages/Shared/CmuxAgentQuestion"]
+
+[[unit]]
 name = "swift:CmuxAgentQuestion"
 paths = ["Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxAgentQuestion --filter CmuxAgentQuestionTests"]
@@ -978,8 +1040,17 @@ paths = ["Packages/Shared/CmuxAgentQuestion/Tests/CmuxAgentQuestionTests/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxAgentQuestion --filter CmuxAgentQuestionTests"]
 
 [[unit]]
+name = "swiftpkg:Packages/Shared/CmuxAppAttest"
+paths = ["Packages/Shared/CmuxAppAttest/**"]
+
+[[unit]]
 name = "swift:CmuxAppAttest"
 paths = ["Packages/Shared/CmuxAppAttest/Sources/CmuxAppAttest/**"]
+
+[[unit]]
+name = "swiftpkg:Packages/Shared/CmuxAuthRuntime"
+paths = ["Packages/Shared/CmuxAuthRuntime/**"]
+tests = ["swift test --package-path Packages/Shared/CmuxAuthRuntime"]
 
 [[unit]]
 name = "swift:CmuxAuthRuntime"
@@ -996,6 +1067,11 @@ paths = ["Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxAuthRuntime --filter CmuxAuthRuntimeTests"]
 
 [[unit]]
+name = "swiftpkg:Packages/Shared/CmuxChiefList"
+paths = ["Packages/Shared/CmuxChiefList/**"]
+tests = ["swift test --package-path Packages/Shared/CmuxChiefList"]
+
+[[unit]]
 name = "swift:CmuxChiefList"
 paths = ["Packages/Shared/CmuxChiefList/Sources/CmuxChiefList/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxChiefList --filter CmuxChiefListTests"]
@@ -1004,6 +1080,11 @@ tests = ["swift test --package-path Packages/Shared/CmuxChiefList --filter CmuxC
 name = "swift:CmuxChiefListTests"
 paths = ["Packages/Shared/CmuxChiefList/Tests/CmuxChiefListTests/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxChiefList --filter CmuxChiefListTests"]
+
+[[unit]]
+name = "swiftpkg:Packages/Shared/CmuxChiefVoiceCore"
+paths = ["Packages/Shared/CmuxChiefVoiceCore/**"]
+tests = ["swift test --package-path Packages/Shared/CmuxChiefVoiceCore"]
 
 [[unit]]
 name = "swift:CmuxChiefVoiceCore"
@@ -1016,6 +1097,11 @@ paths = ["Packages/Shared/CmuxChiefVoiceCore/Tests/CmuxChiefVoiceCoreTests/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxChiefVoiceCore --filter CmuxChiefVoiceCoreTests"]
 
 [[unit]]
+name = "swiftpkg:Packages/Shared/CmuxConnectivityTelemetry"
+paths = ["Packages/Shared/CmuxConnectivityTelemetry/**"]
+tests = ["swift test --package-path Packages/Shared/CmuxConnectivityTelemetry"]
+
+[[unit]]
 name = "swift:CmuxConnectivityTelemetry"
 paths = ["Packages/Shared/CmuxConnectivityTelemetry/Sources/CmuxConnectivityTelemetry/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxConnectivityTelemetry --filter CmuxConnectivityTelemetryTests"]
@@ -1024,6 +1110,11 @@ tests = ["swift test --package-path Packages/Shared/CmuxConnectivityTelemetry --
 name = "swift:CmuxConnectivityTelemetryTests"
 paths = ["Packages/Shared/CmuxConnectivityTelemetry/Tests/CmuxConnectivityTelemetryTests/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxConnectivityTelemetry --filter CmuxConnectivityTelemetryTests"]
+
+[[unit]]
+name = "swiftpkg:Packages/Shared/CmuxDeviceHub"
+paths = ["Packages/Shared/CmuxDeviceHub/**"]
+tests = ["swift test --package-path Packages/Shared/CmuxDeviceHub"]
 
 [[unit]]
 name = "swift:CmuxDeviceHub"
@@ -1036,6 +1127,11 @@ paths = ["Packages/Shared/CmuxDeviceHub/Tests/CmuxDeviceHubTests/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxDeviceHub --filter CmuxDeviceHubTests"]
 
 [[unit]]
+name = "swiftpkg:Packages/Shared/CmuxEgress"
+paths = ["Packages/Shared/CmuxEgress/**"]
+tests = ["swift test --package-path Packages/Shared/CmuxEgress"]
+
+[[unit]]
 name = "swift:CmuxEgress"
 paths = ["Packages/Shared/CmuxEgress/Sources/CmuxEgress/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxEgress --filter CmuxEgressTests"]
@@ -1044,6 +1140,11 @@ tests = ["swift test --package-path Packages/Shared/CmuxEgress --filter CmuxEgre
 name = "swift:CmuxEgressTests"
 paths = ["Packages/Shared/CmuxEgress/Tests/CmuxEgressTests/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxEgress --filter CmuxEgressTests"]
+
+[[unit]]
+name = "swiftpkg:Packages/Shared/CmuxFeedPushCore"
+paths = ["Packages/Shared/CmuxFeedPushCore/**"]
+tests = ["swift test --package-path Packages/Shared/CmuxFeedPushCore"]
 
 [[unit]]
 name = "swift:CmuxFeedPushCore"
@@ -1056,8 +1157,17 @@ paths = ["Packages/Shared/CmuxFeedPushCore/Tests/CmuxFeedPushCoreTests/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxFeedPushCore --filter CmuxFeedPushCoreTests"]
 
 [[unit]]
+name = "swiftpkg:Packages/Shared/CmuxGhosttyKit"
+paths = ["Packages/Shared/CmuxGhosttyKit/**"]
+
+[[unit]]
 name = "swift:CmuxGhosttyKitLink"
 paths = ["Packages/Shared/CmuxGhosttyKit/Sources/CmuxGhosttyKitLink/**"]
+
+[[unit]]
+name = "swiftpkg:Packages/Shared/CmuxHomeCore"
+paths = ["Packages/Shared/CmuxHomeCore/**"]
+tests = ["swift test --package-path Packages/Shared/CmuxHomeCore"]
 
 [[unit]]
 name = "swift:CmuxHomeCore"
@@ -1075,6 +1185,11 @@ paths = ["Packages/Shared/CmuxHomeCore/Tests/CmuxHomeCoreTests/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxHomeCore --filter CmuxHomeCoreTests"]
 
 [[unit]]
+name = "swiftpkg:Packages/Shared/CmuxHomeRender"
+paths = ["Packages/Shared/CmuxHomeRender/**"]
+tests = ["swift test --package-path Packages/Shared/CmuxHomeRender"]
+
+[[unit]]
 name = "swift:CmuxHomeRender"
 paths = ["Packages/Shared/CmuxHomeRender/Sources/CmuxHomeRender/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxHomeRender --filter CmuxHomeRenderTests"]
@@ -1083,6 +1198,11 @@ tests = ["swift test --package-path Packages/Shared/CmuxHomeRender --filter Cmux
 name = "swift:CmuxHomeRenderTests"
 paths = ["Packages/Shared/CmuxHomeRender/Tests/CmuxHomeRenderTests/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxHomeRender --filter CmuxHomeRenderTests"]
+
+[[unit]]
+name = "swiftpkg:Packages/Shared/CmuxInstallAuthCore"
+paths = ["Packages/Shared/CmuxInstallAuthCore/**"]
+tests = ["swift test --package-path Packages/Shared/CmuxInstallAuthCore"]
 
 [[unit]]
 name = "swift:CmuxInstallAuthCore"
@@ -1095,6 +1215,11 @@ paths = ["Packages/Shared/CmuxInstallAuthCore/Tests/CmuxInstallAuthCoreTests/**"
 tests = ["swift test --package-path Packages/Shared/CmuxInstallAuthCore --filter CmuxInstallAuthCoreTests"]
 
 [[unit]]
+name = "swiftpkg:Packages/Shared/CmuxLiveCode"
+paths = ["Packages/Shared/CmuxLiveCode/**"]
+tests = ["swift test --package-path Packages/Shared/CmuxLiveCode"]
+
+[[unit]]
 name = "swift:CmuxLiveCode"
 paths = ["Packages/Shared/CmuxLiveCode/Sources/CmuxLiveCode/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxLiveCode --filter CmuxLiveCodeTests"]
@@ -1103,6 +1228,11 @@ tests = ["swift test --package-path Packages/Shared/CmuxLiveCode --filter CmuxLi
 name = "swift:CmuxLiveCodeTests"
 paths = ["Packages/Shared/CmuxLiveCode/Tests/CmuxLiveCodeTests/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxLiveCode --filter CmuxLiveCodeTests"]
+
+[[unit]]
+name = "swiftpkg:Packages/Shared/CmuxMessagesLab"
+paths = ["Packages/Shared/CmuxMessagesLab/**"]
+tests = ["swift test --package-path Packages/Shared/CmuxMessagesLab"]
 
 [[unit]]
 name = "swift:MessagesLabHome"
@@ -1125,6 +1255,11 @@ paths = ["Packages/Shared/CmuxMessagesLab/Tests/MessagesLabSidebarTests/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxMessagesLab --filter MessagesLabSidebarTests"]
 
 [[unit]]
+name = "swiftpkg:Packages/Shared/CmuxPagePushBound"
+paths = ["Packages/Shared/CmuxPagePushBound/**"]
+tests = ["swift test --package-path Packages/Shared/CmuxPagePushBound"]
+
+[[unit]]
 name = "swift:CmuxPagePushBound"
 paths = ["Packages/Shared/CmuxPagePushBound/Sources/CmuxPagePushBound/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxPagePushBound --filter CmuxPagePushBoundTests"]
@@ -1135,18 +1270,25 @@ paths = ["Packages/Shared/CmuxPagePushBound/Tests/CmuxPagePushBoundTests/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxPagePushBound --filter CmuxPagePushBoundTests"]
 
 [[unit]]
+name = "swiftpkg:Packages/Shared/CmuxScreenKit"
+paths = ["Packages/Shared/CmuxScreenKit/**"]
+
+[[unit]]
+name = "swift:CCmuxScreenKit"
+paths = ["Packages/Shared/CmuxScreenKit/Sources/CCmuxScreenKit/**"]
+
+[[unit]]
 name = "swift:CmuxScreenKit"
 paths = ["Packages/Shared/CmuxScreenKit/Sources/CmuxScreenKit/**"]
-tests = ["swift test --package-path Packages/Shared/CmuxScreenKit --filter CmuxScreenKitTests"]
 
 [[unit]]
 name = "swift:CmuxScreenKitUI"
 paths = ["Packages/Shared/CmuxScreenKit/Sources/CmuxScreenKitUI/**"]
 
 [[unit]]
-name = "swift:CmuxScreenKitTests"
-paths = ["Packages/Shared/CmuxScreenKit/Tests/CmuxScreenKitTests/**"]
-tests = ["swift test --package-path Packages/Shared/CmuxScreenKit --filter CmuxScreenKitTests"]
+name = "swiftpkg:Packages/Shared/CmuxSentryTelemetry"
+paths = ["Packages/Shared/CmuxSentryTelemetry/**"]
+tests = ["swift test --package-path Packages/Shared/CmuxSentryTelemetry"]
 
 [[unit]]
 name = "swift:CmuxSentryReporting"
@@ -1169,6 +1311,11 @@ paths = ["Packages/Shared/CmuxSentryTelemetry/Tests/CmuxSentryScrubbingTests/**"
 tests = ["swift test --package-path Packages/Shared/CmuxSentryTelemetry --filter CmuxSentryScrubbingTests"]
 
 [[unit]]
+name = "swiftpkg:Packages/Shared/CmuxSpinner"
+paths = ["Packages/Shared/CmuxSpinner/**"]
+tests = ["swift test --package-path Packages/Shared/CmuxSpinner"]
+
+[[unit]]
 name = "swift:CmuxSpinner"
 paths = ["Packages/Shared/CmuxSpinner/Sources/CmuxSpinner/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxSpinner --filter CmuxSpinnerTests"]
@@ -1177,6 +1324,11 @@ tests = ["swift test --package-path Packages/Shared/CmuxSpinner --filter CmuxSpi
 name = "swift:CmuxSpinnerTests"
 paths = ["Packages/Shared/CmuxSpinner/Tests/CmuxSpinnerTests/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxSpinner --filter CmuxSpinnerTests"]
+
+[[unit]]
+name = "swiftpkg:Packages/Shared/CmuxTerminalSizing"
+paths = ["Packages/Shared/CmuxTerminalSizing/**"]
+tests = ["swift test --package-path Packages/Shared/CmuxTerminalSizing"]
 
 [[unit]]
 name = "swift:CmuxTerminalSizing"
@@ -1189,6 +1341,11 @@ paths = ["Packages/Shared/CmuxTerminalSizing/Tests/CmuxTerminalSizingTests/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxTerminalSizing --filter CmuxTerminalSizingTests"]
 
 [[unit]]
+name = "swiftpkg:Packages/Shared/CmuxTerminalStream"
+paths = ["Packages/Shared/CmuxTerminalStream/**"]
+tests = ["swift test --package-path Packages/Shared/CmuxTerminalStream"]
+
+[[unit]]
 name = "swift:CmuxTerminalStream"
 paths = ["Packages/Shared/CmuxTerminalStream/Sources/CmuxTerminalStream/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxTerminalStream --filter CmuxTerminalStreamTests"]
@@ -1197,6 +1354,11 @@ tests = ["swift test --package-path Packages/Shared/CmuxTerminalStream --filter 
 name = "swift:CmuxTerminalStreamTests"
 paths = ["Packages/Shared/CmuxTerminalStream/Tests/CmuxTerminalStreamTests/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxTerminalStream --filter CmuxTerminalStreamTests"]
+
+[[unit]]
+name = "swiftpkg:Packages/Shared/CmuxTextConfirmCore"
+paths = ["Packages/Shared/CmuxTextConfirmCore/**"]
+tests = ["swift test --package-path Packages/Shared/CmuxTextConfirmCore"]
 
 [[unit]]
 name = "swift:CmuxTextConfirmCore"
@@ -1209,8 +1371,17 @@ paths = ["Packages/Shared/CmuxTextConfirmCore/Tests/CmuxTextConfirmCoreTests/**"
 tests = ["swift test --package-path Packages/Shared/CmuxTextConfirmCore --filter CmuxTextConfirmCoreTests"]
 
 [[unit]]
+name = "swiftpkg:Packages/Shared/CmuxTheme"
+paths = ["Packages/Shared/CmuxTheme/**"]
+
+[[unit]]
 name = "swift:CmuxTheme"
 paths = ["Packages/Shared/CmuxTheme/Sources/CmuxTheme/**"]
+
+[[unit]]
+name = "swiftpkg:Packages/Shared/CmuxVNC"
+paths = ["Packages/Shared/CmuxVNC/**"]
+tests = ["swift test --package-path Packages/Shared/CmuxVNC"]
 
 [[unit]]
 name = "swift:CmuxVNC"
@@ -1236,6 +1407,11 @@ paths = ["Packages/Shared/CmuxVNC/Tests/CmuxVNCTests/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxVNC --filter CmuxVNCTests"]
 
 [[unit]]
+name = "swiftpkg:Packages/Shared/CmuxVNCWebRTC"
+paths = ["Packages/Shared/CmuxVNCWebRTC/**"]
+tests = ["swift test --package-path Packages/Shared/CmuxVNCWebRTC"]
+
+[[unit]]
 name = "swift:CmuxVNCWebRTC"
 paths = ["Packages/Shared/CmuxVNCWebRTC/Sources/CmuxVNCWebRTC/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxVNCWebRTC --filter CmuxVNCWebRTCTests"]
@@ -1248,6 +1424,11 @@ paths = ["Packages/Shared/CmuxVNCWebRTC/Sources/cmux-vnc-host/**"]
 name = "swift:CmuxVNCWebRTCTests"
 paths = ["Packages/Shared/CmuxVNCWebRTC/Tests/CmuxVNCWebRTCTests/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxVNCWebRTC --filter CmuxVNCWebRTCTests"]
+
+[[unit]]
+name = "swiftpkg:Packages/Shared/CmuxVisibleRows"
+paths = ["Packages/Shared/CmuxVisibleRows/**"]
+tests = ["swift test --package-path Packages/Shared/CmuxVisibleRows"]
 
 [[unit]]
 name = "swift:CmuxVisibleRows"
@@ -1264,6 +1445,11 @@ paths = ["Packages/Shared/CmuxVisibleRows/Tests/CmuxVisibleRowsTests/**"]
 tests = ["swift test --package-path Packages/Shared/CmuxVisibleRows --filter CmuxVisibleRowsTests"]
 
 [[unit]]
+name = "swiftpkg:Packages/Shared/GlassHost"
+paths = ["Packages/Shared/GlassHost/**"]
+tests = ["swift test --package-path Packages/Shared/GlassHost"]
+
+[[unit]]
 name = "swift:GlassHost"
 paths = ["Packages/Shared/GlassHost/Sources/GlassHost/**"]
 tests = ["swift test --package-path Packages/Shared/GlassHost --filter GlassHostTests"]
@@ -1272,6 +1458,15 @@ tests = ["swift test --package-path Packages/Shared/GlassHost --filter GlassHost
 name = "swift:GlassHostTests"
 paths = ["Packages/Shared/GlassHost/Tests/GlassHostTests/**"]
 tests = ["swift test --package-path Packages/Shared/GlassHost --filter GlassHostTests"]
+
+[[unit]]
+name = "Packages:iOS"
+paths = ["Packages/iOS/**"]
+
+[[unit]]
+name = "swiftpkg:Packages/iOS/CmuxConversation"
+paths = ["Packages/iOS/CmuxConversation/**"]
+tests = ["swift test --package-path Packages/iOS/CmuxConversation"]
 
 [[unit]]
 name = "swift:CmuxConversationCore"
@@ -1320,6 +1515,11 @@ paths = ["Packages/iOS/CmuxConversation/Tests/CmuxConversationMacUITests/**"]
 tests = ["swift test --package-path Packages/iOS/CmuxConversation --filter CmuxConversationMacUITests"]
 
 [[unit]]
+name = "swiftpkg:Packages/iOS/CmuxMobileBilling"
+paths = ["Packages/iOS/CmuxMobileBilling/**"]
+tests = ["swift test --package-path Packages/iOS/CmuxMobileBilling"]
+
+[[unit]]
 name = "swift:CmuxMobileBilling"
 paths = ["Packages/iOS/CmuxMobileBilling/Sources/CmuxMobileBilling/**"]
 tests = ["swift test --package-path Packages/iOS/CmuxMobileBilling --filter CmuxMobileBillingTests"]
@@ -1332,6 +1532,11 @@ paths = ["Packages/iOS/CmuxMobileBilling/Sources/CmuxMobileBillingUI/**"]
 name = "swift:CmuxMobileBillingTests"
 paths = ["Packages/iOS/CmuxMobileBilling/Tests/CmuxMobileBillingTests/**"]
 tests = ["swift test --package-path Packages/iOS/CmuxMobileBilling --filter CmuxMobileBillingTests"]
+
+[[unit]]
+name = "swiftpkg:Packages/iOS/CmuxMobilePairedMac"
+paths = ["Packages/iOS/CmuxMobilePairedMac/**"]
+tests = ["swift test --package-path Packages/iOS/CmuxMobilePairedMac"]
 
 [[unit]]
 name = "swift:CmuxMobilePairedMac"
@@ -1348,6 +1553,11 @@ paths = ["Packages/iOS/CmuxMobilePairedMac/Tests/CmuxMobilePairedMacTests/**"]
 tests = ["swift test --package-path Packages/iOS/CmuxMobilePairedMac --filter CmuxMobilePairedMacTests"]
 
 [[unit]]
+name = "swiftpkg:Packages/iOS/CmuxMobileRPC"
+paths = ["Packages/iOS/CmuxMobileRPC/**"]
+tests = ["swift test --package-path Packages/iOS/CmuxMobileRPC"]
+
+[[unit]]
 name = "swift:CmuxMobileRPC"
 paths = ["Packages/iOS/CmuxMobileRPC/Sources/CmuxMobileRPC/**"]
 tests = ["swift test --package-path Packages/iOS/CmuxMobileRPC --filter CmuxMobileRPCTests"]
@@ -1356,6 +1566,11 @@ tests = ["swift test --package-path Packages/iOS/CmuxMobileRPC --filter CmuxMobi
 name = "swift:CmuxMobileRPCTests"
 paths = ["Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/**"]
 tests = ["swift test --package-path Packages/iOS/CmuxMobileRPC --filter CmuxMobileRPCTests"]
+
+[[unit]]
+name = "swiftpkg:Packages/iOS/CmuxMobileSSH"
+paths = ["Packages/iOS/CmuxMobileSSH/**"]
+tests = ["swift test --package-path Packages/iOS/CmuxMobileSSH"]
 
 [[unit]]
 name = "swift:CmuxMobileSSH"
@@ -1368,6 +1583,11 @@ paths = ["Packages/iOS/CmuxMobileSSH/Tests/CmuxMobileSSHTests/**"]
 tests = ["swift test --package-path Packages/iOS/CmuxMobileSSH --filter CmuxMobileSSHTests"]
 
 [[unit]]
+name = "swiftpkg:Packages/iOS/CmuxMobileShellModel"
+paths = ["Packages/iOS/CmuxMobileShellModel/**"]
+tests = ["swift test --package-path Packages/iOS/CmuxMobileShellModel"]
+
+[[unit]]
 name = "swift:CmuxMobileShellModel"
 paths = ["Packages/iOS/CmuxMobileShellModel/Sources/CmuxMobileShellModel/**"]
 tests = ["swift test --package-path Packages/iOS/CmuxMobileShellModel --filter CmuxMobileShellModelTests"]
@@ -1376,6 +1596,11 @@ tests = ["swift test --package-path Packages/iOS/CmuxMobileShellModel --filter C
 name = "swift:CmuxMobileShellModelTests"
 paths = ["Packages/iOS/CmuxMobileShellModel/Tests/CmuxMobileShellModelTests/**"]
 tests = ["swift test --package-path Packages/iOS/CmuxMobileShellModel --filter CmuxMobileShellModelTests"]
+
+[[unit]]
+name = "swiftpkg:Packages/iOS/CmuxMobileSupport"
+paths = ["Packages/iOS/CmuxMobileSupport/**"]
+tests = ["swift test --package-path Packages/iOS/CmuxMobileSupport"]
 
 [[unit]]
 name = "swift:CmuxMobileSupport"
@@ -1388,6 +1613,11 @@ paths = ["Packages/iOS/CmuxMobileSupport/Tests/CmuxMobileSupportTests/**"]
 tests = ["swift test --package-path Packages/iOS/CmuxMobileSupport --filter CmuxMobileSupportTests"]
 
 [[unit]]
+name = "swiftpkg:Packages/iOS/CmuxMobileTunnel"
+paths = ["Packages/iOS/CmuxMobileTunnel/**"]
+tests = ["swift test --package-path Packages/iOS/CmuxMobileTunnel"]
+
+[[unit]]
 name = "swift:CmuxMobileTunnel"
 paths = ["Packages/iOS/CmuxMobileTunnel/Sources/CmuxMobileTunnel/**"]
 tests = ["swift test --package-path Packages/iOS/CmuxMobileTunnel --filter CmuxMobileTunnelTests"]
@@ -1396,6 +1626,11 @@ tests = ["swift test --package-path Packages/iOS/CmuxMobileTunnel --filter CmuxM
 name = "swift:CmuxMobileTunnelTests"
 paths = ["Packages/iOS/CmuxMobileTunnel/Tests/CmuxMobileTunnelTests/**"]
 tests = ["swift test --package-path Packages/iOS/CmuxMobileTunnel --filter CmuxMobileTunnelTests"]
+
+[[unit]]
+name = "swiftpkg:Packages/iOS/CmuxPushRegistration"
+paths = ["Packages/iOS/CmuxPushRegistration/**"]
+tests = ["swift test --package-path Packages/iOS/CmuxPushRegistration"]
 
 [[unit]]
 name = "swift:CmuxPushRegistration"
@@ -1408,6 +1643,11 @@ paths = ["Packages/iOS/CmuxPushRegistration/Tests/CmuxPushRegistrationTests/**"]
 tests = ["swift test --package-path Packages/iOS/CmuxPushRegistration --filter CmuxPushRegistrationTests"]
 
 [[unit]]
+name = "swiftpkg:Packages/iOS/CmuxTabsKit"
+paths = ["Packages/iOS/CmuxTabsKit/**"]
+tests = ["swift test --package-path Packages/iOS/CmuxTabsKit"]
+
+[[unit]]
 name = "swift:CmuxTabsKit"
 paths = ["Packages/iOS/CmuxTabsKit/Sources/CmuxTabsKit/**"]
 tests = ["swift test --package-path Packages/iOS/CmuxTabsKit --filter CmuxTabsKitTests"]
@@ -1416,6 +1656,15 @@ tests = ["swift test --package-path Packages/iOS/CmuxTabsKit --filter CmuxTabsKi
 name = "swift:CmuxTabsKitTests"
 paths = ["Packages/iOS/CmuxTabsKit/Tests/CmuxTabsKitTests/**"]
 tests = ["swift test --package-path Packages/iOS/CmuxTabsKit --filter CmuxTabsKitTests"]
+
+[[unit]]
+name = "Packages:macOS"
+paths = ["Packages/macOS/**"]
+
+[[unit]]
+name = "swiftpkg:Packages/macOS/CmuxNext"
+paths = ["Packages/macOS/CmuxNext/**"]
+tests = ["swift test --package-path Packages/macOS/CmuxNext"]
 
 [[unit]]
 name = "swift:CCmuxScreenshots"
@@ -2281,6 +2530,11 @@ paths = ["Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceRepairTests/**"]
 tests = ["swift test --package-path Packages/macOS/CmuxNext --filter CmuxNextWorkspaceRepairTests"]
 
 [[unit]]
+name = "swift:CmuxScreenKitTests"
+paths = ["Packages/macOS/CmuxNext/Tests/CmuxScreenKitTests/**"]
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter CmuxScreenKitTests"]
+
+[[unit]]
 name = "swift:Fixtures"
 paths = ["Packages/macOS/CmuxNext/Tests/Fixtures/**"]
 tests = ["swift test --package-path Packages/macOS/CmuxNext --filter Fixtures"]
@@ -2296,6 +2550,11 @@ paths = ["Packages/macOS/CmuxNext/Tests/Support/**"]
 tests = ["swift test --package-path Packages/macOS/CmuxNext --filter Support"]
 
 [[unit]]
+name = "swiftpkg:Packages/macOS/CmuxPhonePush"
+paths = ["Packages/macOS/CmuxPhonePush/**"]
+tests = ["swift test --package-path Packages/macOS/CmuxPhonePush"]
+
+[[unit]]
 name = "swift:CmuxPhonePush"
 paths = ["Packages/macOS/CmuxPhonePush/Sources/CmuxPhonePush/**"]
 tests = ["swift test --package-path Packages/macOS/CmuxPhonePush --filter CmuxPhonePushTests"]
@@ -2304,6 +2563,11 @@ tests = ["swift test --package-path Packages/macOS/CmuxPhonePush --filter CmuxPh
 name = "swift:CmuxPhonePushTests"
 paths = ["Packages/macOS/CmuxPhonePush/Tests/CmuxPhonePushTests/**"]
 tests = ["swift test --package-path Packages/macOS/CmuxPhonePush --filter CmuxPhonePushTests"]
+
+[[unit]]
+name = "swiftpkg:Packages/macOS/CmuxRemote"
+paths = ["Packages/macOS/CmuxRemote/**"]
+tests = ["swift test --package-path Packages/macOS/CmuxRemote"]
 
 [[unit]]
 name = "swift:CCmuxComputerUse"
@@ -2341,6 +2605,11 @@ paths = ["Packages/macOS/CmuxRemote/Tests/CmuxRemoteProcessTests/**"]
 tests = ["swift test --package-path Packages/macOS/CmuxRemote --filter CmuxRemoteProcessTests"]
 
 [[unit]]
+name = "swiftpkg:Packages/macOS/CmuxUpdater"
+paths = ["Packages/macOS/CmuxUpdater/**"]
+tests = ["swift test --package-path Packages/macOS/CmuxUpdater"]
+
+[[unit]]
 name = "swift:CmuxUpdater"
 paths = ["Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/**"]
 tests = ["swift test --package-path Packages/macOS/CmuxUpdater --filter CmuxUpdaterTests"]
@@ -2366,6 +2635,15 @@ paths = ["Packages/macOS/CmuxUpdater/Tests/CmuxUpdaterTests/**"]
 tests = ["swift test --package-path Packages/macOS/CmuxUpdater --filter CmuxUpdaterTests"]
 
 [[unit]]
+name = "swiftpkg:Prototypes/UiLayerHost"
+paths = ["Prototypes/UiLayerHost/**"]
+tests = ["swift test --package-path Prototypes/UiLayerHost"]
+
+[[unit]]
+name = "swift:UiCloudHost"
+paths = ["Prototypes/UiLayerHost/Sources/UiCloudHost/**"]
+
+[[unit]]
 name = "swift:UiHomeHost"
 paths = ["Prototypes/UiLayerHost/Sources/UiHomeHost/**"]
 
@@ -2378,16 +2656,48 @@ name = "swift:UiLayerSourceWatcher"
 paths = ["Prototypes/UiLayerHost/Sources/UiLayerSourceWatcher/**"]
 
 [[unit]]
+name = "swift:UiSettingsHost"
+paths = ["Prototypes/UiLayerHost/Sources/UiSettingsHost/**"]
+
+[[unit]]
 name = "swift:UiShellShootKit"
 paths = ["Prototypes/UiLayerHost/Sources/UiShellShootKit/**"]
+
+[[unit]]
+name = "swiftpkg:Prototypes/ViewShell"
+paths = ["Prototypes/ViewShell/**"]
 
 [[unit]]
 name = "swift:ViewShell"
 paths = ["Prototypes/ViewShell/Sources/ViewShell/**"]
 
 [[unit]]
+name = "node:agent-chat"
+paths = ["agent-chat/**"]
+tests = ["npm test --prefix agent-chat"]
+
+[[unit]]
+name = "node:backend"
+paths = ["backend/**"]
+tests = ["npm test --prefix backend"]
+
+[[unit]]
 name = "backend:apps"
 paths = ["backend/apps/**"]
+
+[[unit]]
+name = "node:backend/apps/api"
+paths = ["backend/apps/api/**"]
+tests = ["npm test --prefix backend/apps/api"]
+
+[[unit]]
+name = "node:backend/apps/dashboard"
+paths = ["backend/apps/dashboard/**"]
+
+[[unit]]
+name = "node:backend/apps/home-server"
+paths = ["backend/apps/home-server/**"]
+tests = ["npm test --prefix backend/apps/home-server"]
 
 [[unit]]
 name = "backend:catalog"
@@ -2402,6 +2712,10 @@ name = "backend:chief-opencode"
 paths = ["backend/chief-opencode/**"]
 
 [[unit]]
+name = "node:backend/chief-opencode/plugin"
+paths = ["backend/chief-opencode/plugin/**"]
+
+[[unit]]
 name = "backend:db"
 paths = ["backend/db/**"]
 
@@ -2410,12 +2724,46 @@ name = "backend:packages"
 paths = ["backend/packages/**"]
 
 [[unit]]
+name = "node:backend/packages/home-core"
+paths = ["backend/packages/home-core/**"]
+tests = ["npm test --prefix backend/packages/home-core"]
+
+[[unit]]
+name = "node:backend/packages/ownership"
+paths = ["backend/packages/ownership/**"]
+tests = ["npm test --prefix backend/packages/ownership"]
+
+[[unit]]
+name = "node:backend/packages/protocol"
+paths = ["backend/packages/protocol/**"]
+tests = ["npm test --prefix backend/packages/protocol"]
+
+[[unit]]
+name = "node:backend/packages/saml"
+paths = ["backend/packages/saml/**"]
+tests = ["npm test --prefix backend/packages/saml"]
+
+[[unit]]
 name = "backend:scripts"
 paths = ["backend/scripts/**"]
 
 [[unit]]
 name = "ci:proof-record"
 paths = ["ci/proof-record/**"]
+
+[[unit]]
+name = "node:clients/ts/cloud"
+paths = ["clients/ts/cloud/**"]
+tests = ["npm test --prefix clients/ts/cloud"]
+
+[[unit]]
+name = "node:cmux-next-exact"
+paths = ["cmux-next-exact/**"]
+
+[[unit]]
+name = "swiftpkg:cmux-next-ios/CmuxMobileKit"
+paths = ["cmux-next-ios/CmuxMobileKit/**"]
+tests = ["swift test --package-path cmux-next-ios/CmuxMobileKit"]
 
 [[unit]]
 name = "swift:CmuxMobileAgentChat"
@@ -2620,6 +2968,21 @@ paths = ["cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileWorkspacesTests/**"]
 tests = ["swift test --package-path cmux-next-ios/CmuxMobileKit --filter CmuxMobileWorkspacesTests"]
 
 [[unit]]
+name = "node:cmux-next-ios/backend"
+paths = ["cmux-next-ios/backend/**"]
+tests = ["npm test --prefix cmux-next-ios/backend"]
+
+[[unit]]
+name = "cargo:cmux-next-ios/rust"
+paths = ["cmux-next-ios/rust/**"]
+
+[[unit]]
+name = "rust:cmux-mobile-api"
+paths = ["cmux-next-ios/rust/crates/cmux-mobile-api/**"]
+tests = ["cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-api", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host"]
+dependents = ["cmux-mobile-host"]
+
+[[unit]]
 name = "rust:cmux-mobile-auto"
 paths = ["cmux-next-ios/rust/crates/cmux-mobile-auto/**"]
 tests = ["cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-auto", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-link-ffi"]
@@ -2654,6 +3017,10 @@ paths = ["cmux-next-ios/rust/crates/cmux-region-pick/**"]
 tests = ["cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-region-pick"]
 
 [[unit]]
+name = "cargo:cmux-screen"
+paths = ["cmux-screen/**"]
+
+[[unit]]
 name = "rust:cmux-screen-host"
 paths = ["cmux-screen/crates/cmux-screen-host/**"]
 tests = ["cargo test --manifest-path cmux-screen/Cargo.toml -p cmux-screen-host"]
@@ -2665,12 +3032,22 @@ tests = ["cargo test --manifest-path cmux-screen/Cargo.toml -p cmux-screen-proto
 dependents = ["cmux-screen-host"]
 
 [[unit]]
+name = "cargo:cmux-tui"
+paths = ["cmux-tui/**"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml"]
+
+[[unit]]
 name = "cmux-tui:.config"
 paths = ["cmux-tui/.config/**"]
 
 [[unit]]
 name = "cmux-tui:apps"
 paths = ["cmux-tui/apps/**"]
+
+[[unit]]
+name = "swiftpkg:cmux-tui/apps/macos/TerminalBytesDemo"
+paths = ["cmux-tui/apps/macos/TerminalBytesDemo/**"]
+tests = ["swift test --package-path cmux-tui/apps/macos/TerminalBytesDemo"]
 
 [[unit]]
 name = "cmux-tui:bindings"
@@ -2681,6 +3058,16 @@ name = "binding:bootstrap"
 paths = ["cmux-tui/bindings/bootstrap/**"]
 
 [[unit]]
+name = "cargo:cmux-tui/bindings/bootstrap/rust-sdk"
+paths = ["cmux-tui/bindings/bootstrap/rust-sdk/**"]
+tests = ["cargo test --manifest-path cmux-tui/bindings/bootstrap/rust-sdk/Cargo.toml"]
+
+[[unit]]
+name = "cargo:cmux-tui/bindings/bootstrap/rust-sidebar"
+paths = ["cmux-tui/bindings/bootstrap/rust-sidebar/**"]
+tests = ["cargo test --manifest-path cmux-tui/bindings/bootstrap/rust-sidebar/Cargo.toml"]
+
+[[unit]]
 name = "binding:codegen"
 paths = ["cmux-tui/bindings/codegen/**"]
 
@@ -2689,12 +3076,42 @@ name = "binding:conformance"
 paths = ["cmux-tui/bindings/conformance/**"]
 
 [[unit]]
+name = "cargo:cmux-tui/bindings/conformance/adapters/rust"
+paths = ["cmux-tui/bindings/conformance/adapters/rust/**"]
+tests = ["cargo test --manifest-path cmux-tui/bindings/conformance/adapters/rust/Cargo.toml"]
+
+[[unit]]
 name = "binding:cpp"
 paths = ["cmux-tui/bindings/cpp/**"]
 
 [[unit]]
 name = "binding:examples"
 paths = ["cmux-tui/bindings/examples/**"]
+
+[[unit]]
+name = "go:cmux-tui/bindings/examples/go-terminal-bot"
+paths = ["cmux-tui/bindings/examples/go-terminal-bot/**"]
+tests = ["cd cmux-tui/bindings/examples/go-terminal-bot && go test ./..."]
+
+[[unit]]
+name = "cargo:cmux-tui/bindings/examples/rust-agent-dashboard"
+paths = ["cmux-tui/bindings/examples/rust-agent-dashboard/**"]
+tests = ["cargo test --manifest-path cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.toml"]
+
+[[unit]]
+name = "cargo:cmux-tui/bindings/examples/rust-agent-screen-detection"
+paths = ["cmux-tui/bindings/examples/rust-agent-screen-detection/**"]
+tests = ["cargo test --manifest-path cmux-tui/bindings/examples/rust-agent-screen-detection/Cargo.toml"]
+
+[[unit]]
+name = "cargo:cmux-tui/bindings/examples/rust-sidebar-monitor"
+paths = ["cmux-tui/bindings/examples/rust-sidebar-monitor/**"]
+tests = ["cargo test --manifest-path cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.toml"]
+
+[[unit]]
+name = "node:cmux-tui/bindings/examples/typescript-browser-controller"
+paths = ["cmux-tui/bindings/examples/typescript-browser-controller/**"]
+tests = ["npm test --prefix cmux-tui/bindings/examples/typescript-browser-controller"]
 
 [[unit]]
 name = "binding:go"
@@ -2840,8 +3257,8 @@ dependents = ["acpmux", "cmux-app-ffi", "cmux-build-space", "cmux-tui", "cmux-tu
 [[unit]]
 name = "rust:cmux-api-compat"
 paths = ["cmux-tui/crates/cmux-api-compat/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-api-compat", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-tui -p cmux-tui-core"]
-dependents = ["acpmux", "cmux-tui", "cmux-tui-core"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-api-compat", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-tui -p cmux-tui-core", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host"]
+dependents = ["acpmux", "cmux-mobile-host", "cmux-tui", "cmux-tui-core"]
 
 [[unit]]
 name = "rust:cmux-app-ffi"
@@ -2855,10 +3272,21 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-host", "car
 dependents = ["cmux-config", "cmux-extension-sdk", "cmux-tui", "cmux-tui-core"]
 
 [[unit]]
+name = "node:cmux-tui/crates/cmux-app-host/app-test"
+paths = ["cmux-tui/crates/cmux-app-host/app-test/**"]
+tests = ["npm test --prefix cmux-tui/crates/cmux-app-host/app-test"]
+
+[[unit]]
 name = "rust:cmux-app-manifest"
 paths = ["cmux-tui/crates/cmux-app-manifest/**"]
 tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-manifest", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-customize -p cmux-extension-sdk -p cmux-tui -p cmux-tui-core"]
 dependents = ["cmux-customize", "cmux-extension-sdk", "cmux-tui", "cmux-tui-core"]
+
+[[unit]]
+name = "rust:cmux-app-workspace-creation"
+paths = ["cmux-tui/crates/cmux-app-workspace-creation/**"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-app-workspace-creation", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-reducer-ffi"]
+dependents = ["cmux-layout-reducer-ffi"]
 
 [[unit]]
 name = "rust:cmux-apps"
@@ -3219,14 +3647,13 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-error-journal",
 dependents = ["cmux-layout-reducer-ffi"]
 
 [[unit]]
-name = "rust:cmux-error-journal"
-paths = ["cmux-tui/crates/cmux-error-journal/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-error-journal"]
-
-[[unit]]
 name = "rust:cmux-extension-sdk"
 paths = ["cmux-tui/crates/cmux-extension-sdk/**"]
 tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-extension-sdk"]
+
+[[unit]]
+name = "node:cmux-tui/crates/cmux-extension-sdk/typescript"
+paths = ["cmux-tui/crates/cmux-extension-sdk/typescript/**"]
 
 [[unit]]
 name = "rust:cmux-fault"
@@ -3495,6 +3922,11 @@ paths = ["cmux-tui/crates/cmux-mobile-ffi/**"]
 tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-mobile-ffi"]
 
 [[unit]]
+name = "swiftpkg:cmux-tui/crates/cmux-mobile-ffi/swift"
+paths = ["cmux-tui/crates/cmux-mobile-ffi/swift/**"]
+tests = ["swift test --package-path cmux-tui/crates/cmux-mobile-ffi/swift"]
+
+[[unit]]
 name = "rust:cmux-mobile-host-core"
 paths = ["cmux-tui/crates/cmux-mobile-host-core/**"]
 tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-mobile-host-core", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-reducer-ffi"]
@@ -3518,15 +3950,15 @@ paths = ["cmux-tui/crates/cmux-nat-probe/**"]
 tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-nat-probe"]
 
 [[unit]]
-name = "rust:cmux-nat-probe"
-paths = ["cmux-tui/crates/cmux-nat-probe/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-nat-probe"]
-
-[[unit]]
 name = "rust:cmux-netwatch"
 paths = ["cmux-tui/crates/cmux-netwatch/**"]
 tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-netwatch", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-remote"]
 dependents = ["acpmux", "cmux-remote"]
+
+[[unit]]
+name = "rust:cmux-next-linux"
+paths = ["cmux-tui/crates/cmux-next-linux/**"]
+tests = ["cargo test --manifest-path cmux-tui/crates/cmux-next-linux/Cargo.toml -p cmux-next-linux"]
 
 [[unit]]
 name = "rust:cmux-no-checkout"
@@ -3575,11 +4007,6 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-phone-core", "c
 dependents = ["cmux-layout-reducer-ffi"]
 
 [[unit]]
-name = "rust:cmux-phone-core"
-paths = ["cmux-tui/crates/cmux-phone-core/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-phone-core"]
-
-[[unit]]
 name = "rust:cmux-phone-page"
 paths = ["cmux-tui/crates/cmux-phone-page/**"]
 tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-phone-page", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tui"]
@@ -3600,8 +4027,8 @@ dependents = ["acpmux", "cmux-tui-core"]
 [[unit]]
 name = "rust:cmux-process"
 paths = ["cmux-tui/crates/cmux-process/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-process", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-agent-customize -p cmux-apps -p cmux-autocloud -p cmux-browser-host -p cmux-cas -p cmux-computer-use -p cmux-files-host -p cmux-follow-cam -p cmux-git-cache -p cmux-holder -p cmux-host -p cmux-hub-host -p cmux-link -p cmux-nat-probe -p cmux-no-checkout -p cmux-pool-pod -p cmux-projection -p cmux-pty -p cmux-remote -p cmux-repro -p cmux-signed-bundle -p cmux-supervise-core -p cmux-tailnet-local -p cmux-tui -p cmux-tui-core -p cmux-tui-platform -p cmux-vmd", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi", "cargo test --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml -p cmux-rd-host", "cargo test --manifest-path cmux-tui/crates/cmux-remote-browser-host/Cargo.toml -p cmux-remote-browser-host", "cargo test --manifest-path cmux-tui/crates/coord-sim/Cargo.toml -p coord-sim"]
-dependents = ["acpmux", "cmux-agent-customize", "cmux-app-ffi", "cmux-apps", "cmux-autocloud", "cmux-browser-host", "cmux-cas", "cmux-computer-use", "cmux-files-host", "cmux-follow-cam", "cmux-git-cache", "cmux-holder", "cmux-host", "cmux-hub-host", "cmux-link", "cmux-nat-probe", "cmux-no-checkout", "cmux-pool-pod", "cmux-projection", "cmux-pty", "cmux-rd-host", "cmux-remote", "cmux-remote-browser-host", "cmux-repro", "cmux-signed-bundle", "cmux-supervise-core", "cmux-tailnet-local", "cmux-tui", "cmux-tui-core", "cmux-tui-platform", "cmux-vmd", "coord-sim"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-process", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-agent-customize -p cmux-apps -p cmux-autocloud -p cmux-browser-host -p cmux-cas -p cmux-computer-use -p cmux-files-host -p cmux-follow-cam -p cmux-git-cache -p cmux-holder -p cmux-host -p cmux-hub-host -p cmux-link -p cmux-nat-probe -p cmux-no-checkout -p cmux-pool-pod -p cmux-projection -p cmux-pty -p cmux-remote -p cmux-repro -p cmux-signed-bundle -p cmux-supervise-core -p cmux-tailnet-local -p cmux-tui -p cmux-tui-core -p cmux-tui-platform -p cmux-vmd", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi", "cargo test --manifest-path cmux-tui/crates/cmux-next-linux/Cargo.toml -p cmux-next-linux", "cargo test --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml -p cmux-rd-host", "cargo test --manifest-path cmux-tui/crates/cmux-remote-browser-host/Cargo.toml -p cmux-remote-browser-host", "cargo test --manifest-path cmux-tui/crates/coord-sim/Cargo.toml -p coord-sim"]
+dependents = ["acpmux", "cmux-agent-customize", "cmux-app-ffi", "cmux-apps", "cmux-autocloud", "cmux-browser-host", "cmux-cas", "cmux-computer-use", "cmux-files-host", "cmux-follow-cam", "cmux-git-cache", "cmux-holder", "cmux-host", "cmux-hub-host", "cmux-link", "cmux-nat-probe", "cmux-next-linux", "cmux-no-checkout", "cmux-pool-pod", "cmux-projection", "cmux-pty", "cmux-rd-host", "cmux-remote", "cmux-remote-browser-host", "cmux-repro", "cmux-signed-bundle", "cmux-supervise-core", "cmux-tailnet-local", "cmux-tui", "cmux-tui-core", "cmux-tui-platform", "cmux-vmd", "coord-sim"]
 
 [[unit]]
 name = "rust:cmux-projection"
@@ -4029,11 +4456,6 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-upstream-error"
 dependents = ["acpmux"]
 
 [[unit]]
-name = "rust:cmux-upstream-error"
-paths = ["cmux-tui/crates/cmux-upstream-error/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-upstream-error"]
-
-[[unit]]
 name = "rust:cmux-url-input"
 paths = ["cmux-tui/crates/cmux-url-input/**"]
 tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-url-input", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tui-core"]
@@ -4056,11 +4478,6 @@ name = "rust:cmux-vault-e2e"
 paths = ["cmux-tui/crates/cmux-vault-e2e/**"]
 tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-vault-e2e", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-link-ffi", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tui"]
 dependents = ["cmux-mobile-link-ffi", "cmux-tui"]
-
-[[unit]]
-name = "rust:cmux-vault-e2e"
-paths = ["cmux-tui/crates/cmux-vault-e2e/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-vault-e2e"]
 
 [[unit]]
 name = "rust:cmux-vault-egress"
@@ -4153,6 +4570,14 @@ name = "cmux-tui:dist"
 paths = ["cmux-tui/dist/**"]
 
 [[unit]]
+name = "node:cmux-tui/dist/npm/cmux"
+paths = ["cmux-tui/dist/npm/cmux/**"]
+
+[[unit]]
+name = "node:cmux-tui/dist/npm/cmux-relay"
+paths = ["cmux-tui/dist/npm/cmux-relay/**"]
+
+[[unit]]
 name = "cmux-tui:docs"
 paths = ["cmux-tui/docs/**"]
 
@@ -4165,12 +4590,22 @@ name = "cmux-tui:frontends"
 paths = ["cmux-tui/frontends/**"]
 
 [[unit]]
+name = "node:cmux-tui/frontends/web"
+paths = ["cmux-tui/frontends/web/**"]
+tests = ["npm test --prefix cmux-tui/frontends/web"]
+
+[[unit]]
 name = "cmux-tui:persisted-formats"
 paths = ["cmux-tui/persisted-formats/**"]
 
 [[unit]]
 name = "cmux-tui:relays"
 paths = ["cmux-tui/relays/**"]
+
+[[unit]]
+name = "cargo:cmux-tui/relays/cloudflare-do"
+paths = ["cmux-tui/relays/cloudflare-do/**"]
+tests = ["cargo test --manifest-path cmux-tui/relays/cloudflare-do/Cargo.toml"]
 
 [[unit]]
 name = "cmux-tui:scripts"
@@ -4183,6 +4618,26 @@ paths = ["cmux-tui/spec/**"]
 [[unit]]
 name = "cmux-tui:vendor"
 paths = ["cmux-tui/vendor/**"]
+
+[[unit]]
+name = "cargo:cmux-tui/vendor/crossterm"
+paths = ["cmux-tui/vendor/crossterm/**"]
+tests = ["cargo test --manifest-path cmux-tui/vendor/crossterm/Cargo.toml"]
+
+[[unit]]
+name = "cargo:cmux-tui/vendor/smoltcp"
+paths = ["cmux-tui/vendor/smoltcp/**"]
+tests = ["cargo test --manifest-path cmux-tui/vendor/smoltcp/Cargo.toml"]
+
+[[unit]]
+name = "cargo:cmux-tui/vendor/terminput-crossterm"
+paths = ["cmux-tui/vendor/terminput-crossterm/**"]
+tests = ["cargo test --manifest-path cmux-tui/vendor/terminput-crossterm/Cargo.toml"]
+
+[[unit]]
+name = "go:daemon/remote"
+paths = ["daemon/remote/**"]
+tests = ["cd daemon/remote && go test ./..."]
 
 [[unit]]
 name = "design:agent-icons"
@@ -4317,12 +4772,97 @@ name = "examples:customize-demo"
 paths = ["examples/customize-demo/**"]
 
 [[unit]]
+name = "cargo:examples/customize-demo/looks/check"
+paths = ["examples/customize-demo/looks/check/**"]
+tests = ["cargo test --manifest-path examples/customize-demo/looks/check/Cargo.toml"]
+
+[[unit]]
 name = "examples:customize-showcase"
 paths = ["examples/customize-showcase/**"]
 
 [[unit]]
 name = "examples:extensions"
 paths = ["examples/extensions/**"]
+
+[[unit]]
+name = "node:examples/extensions/activity"
+paths = ["examples/extensions/activity/**"]
+
+[[unit]]
+name = "node:examples/extensions/agent-pet"
+paths = ["examples/extensions/agent-pet/**"]
+
+[[unit]]
+name = "node:examples/extensions/agent-standup"
+paths = ["examples/extensions/agent-standup/**"]
+
+[[unit]]
+name = "node:examples/extensions/changes"
+paths = ["examples/extensions/changes/**"]
+
+[[unit]]
+name = "node:examples/extensions/design-system"
+paths = ["examples/extensions/design-system/**"]
+
+[[unit]]
+name = "node:examples/extensions/json-render"
+paths = ["examples/extensions/json-render/**"]
+
+[[unit]]
+name = "node:examples/extensions/json-render/generate"
+paths = ["examples/extensions/json-render/generate/**"]
+
+[[unit]]
+name = "node:examples/extensions/media-player"
+paths = ["examples/extensions/media-player/**"]
+
+[[unit]]
+name = "node:examples/extensions/newtab-launcher"
+paths = ["examples/extensions/newtab-launcher/**"]
+
+[[unit]]
+name = "node:examples/extensions/pr-card"
+paths = ["examples/extensions/pr-card/**"]
+
+[[unit]]
+name = "node:examples/extensions/recent-prs"
+paths = ["examples/extensions/recent-prs/**"]
+
+[[unit]]
+name = "node:examples/extensions/weather"
+paths = ["examples/extensions/weather/**"]
+
+[[unit]]
+name = "node:examples/extensions/web-pane"
+paths = ["examples/extensions/web-pane/**"]
+
+[[unit]]
+name = "node:examples/extensions/widget-calendar"
+paths = ["examples/extensions/widget-calendar/**"]
+
+[[unit]]
+name = "node:examples/extensions/widget-clock"
+paths = ["examples/extensions/widget-clock/**"]
+
+[[unit]]
+name = "node:examples/extensions/widget-todo"
+paths = ["examples/extensions/widget-todo/**"]
+
+[[unit]]
+name = "node:examples/extensions/widget-weather"
+paths = ["examples/extensions/widget-weather/**"]
+
+[[unit]]
+name = "node:examples/extensions/workspace-list"
+paths = ["examples/extensions/workspace-list/**"]
+
+[[unit]]
+name = "node:examples/extensions/workspace-notes"
+paths = ["examples/extensions/workspace-notes/**"]
+
+[[unit]]
+name = "node:examples/extensions/world-clock"
+paths = ["examples/extensions/world-clock/**"]
 
 [[unit]]
 name = "examples:gallery"
@@ -4349,6 +4889,10 @@ name = "experiments:cmux-vnc-ios"
 paths = ["experiments/cmux-vnc-ios/**"]
 
 [[unit]]
+name = "node:experiments/cmux-vnc-ios/signal"
+paths = ["experiments/cmux-vnc-ios/signal/**"]
+
+[[unit]]
 name = "experiments:voice-room"
 paths = ["experiments/voice-room/**"]
 
@@ -4367,6 +4911,11 @@ paths = ["first-party-apps/caffeinate/**"]
 [[unit]]
 name = "first-party-apps:cloud"
 paths = ["first-party-apps/cloud/**"]
+
+[[unit]]
+name = "cargo:first-party-apps/cloud/server"
+paths = ["first-party-apps/cloud/server/**"]
+tests = ["cargo test --manifest-path first-party-apps/cloud/server/Cargo.toml"]
 
 [[unit]]
 name = "first-party-apps:codemirror"
@@ -4445,6 +4994,11 @@ name = "first-party-apps:worktree-cleanup"
 paths = ["first-party-apps/worktree-cleanup/**"]
 
 [[unit]]
+name = "swiftpkg:ios/CmuxiOS"
+paths = ["ios/CmuxiOS/**"]
+tests = ["swift test --package-path ios/CmuxiOS"]
+
+[[unit]]
 name = "swift:CmuxHomeUI"
 paths = ["ios/CmuxiOS/Sources/CmuxHomeUI/**"]
 tests = ["swift test --package-path ios/CmuxiOS --filter CmuxHomeUITests"]
@@ -4493,6 +5047,32 @@ paths = ["ios/CmuxiOS/Tests/CmuxiOSTerminalTests/**"]
 tests = ["swift test --package-path ios/CmuxiOS --filter CmuxiOSTerminalTests"]
 
 [[unit]]
+name = "node:libs/integrations-core"
+paths = ["libs/integrations-core/**"]
+tests = ["npm test --prefix libs/integrations-core"]
+
+[[unit]]
+name = "node:libs/svix-webhook"
+paths = ["libs/svix-webhook/**"]
+
+[[unit]]
+name = "node:mux"
+paths = ["mux/**"]
+tests = ["npm test --prefix mux"]
+
+[[unit]]
+name = "persisted-formats:conversation-history-database"
+paths = ["persisted-formats/conversation-history-database/**"]
+
+[[unit]]
+name = "persisted-formats:diagnostic-report"
+paths = ["persisted-formats/diagnostic-report/**"]
+
+[[unit]]
+name = "persisted-formats:mobile-paired-mac-store"
+paths = ["persisted-formats/mobile-paired-mac-store/**"]
+
+[[unit]]
 name = "plans:cmux-next"
 paths = ["plans/cmux-next/**"]
 
@@ -4515,6 +5095,11 @@ paths = ["plans/finder-parity/**"]
 [[unit]]
 name = "release-notes:next"
 paths = ["release-notes/next/**"]
+
+[[unit]]
+name = "cargo:samples/apps/ssh-terminal/server"
+paths = ["samples/apps/ssh-terminal/server/**"]
+tests = ["cargo test --manifest-path samples/apps/ssh-terminal/server/Cargo.toml"]
 
 [[unit]]
 name = "schemas:agent-bridge"
@@ -4627,6 +5212,10 @@ paths = ["schemas/focus-ui-creation-hold/**"]
 [[unit]]
 name = "schemas:focus-ui-guards"
 paths = ["schemas/focus-ui-guards/**"]
+
+[[unit]]
+name = "schemas:focus-ui-keys"
+paths = ["schemas/focus-ui-keys/**"]
 
 [[unit]]
 name = "schemas:gallery"
@@ -4869,6 +5458,11 @@ name = "scripts:bench"
 paths = ["scripts/bench/**"]
 
 [[unit]]
+name = "cargo:scripts/bench/phone-speed"
+paths = ["scripts/bench/phone-speed/**"]
+tests = ["cargo test --manifest-path scripts/bench/phone-speed/Cargo.toml"]
+
+[[unit]]
 name = "scripts:cas"
 paths = ["scripts/cas/**"]
 
@@ -4885,6 +5479,15 @@ name = "scripts:ci"
 paths = ["scripts/ci/**"]
 
 [[unit]]
+name = "node:scripts/ci/attest-offline"
+paths = ["scripts/ci/attest-offline/**"]
+
+[[unit]]
+name = "swiftpkg:scripts/ci/pr-media-ocr-tests"
+paths = ["scripts/ci/pr-media-ocr-tests/**"]
+tests = ["swift test --package-path scripts/ci/pr-media-ocr-tests"]
+
+[[unit]]
 name = "swift:PRMediaOCRTests"
 paths = ["scripts/ci/pr-media-ocr-tests/Tests/PRMediaOCRTests/**"]
 tests = ["swift test --package-path scripts/ci/pr-media-ocr-tests --filter PRMediaOCRTests"]
@@ -4892,6 +5495,16 @@ tests = ["swift test --package-path scripts/ci/pr-media-ocr-tests --filter PRMed
 [[unit]]
 name = "scripts:cmux-next"
 paths = ["scripts/cmux-next/**"]
+
+[[unit]]
+name = "node:scripts/cmux-next/release"
+paths = ["scripts/cmux-next/release/**"]
+tests = ["npm test --prefix scripts/cmux-next/release"]
+
+[[unit]]
+name = "cargo:scripts/cmux-next/rust-change-class"
+paths = ["scripts/cmux-next/rust-change-class/**"]
+tests = ["cargo test --manifest-path scripts/cmux-next/rust-change-class/Cargo.toml"]
 
 [[unit]]
 name = "scripts:cmux-vmd"
@@ -4938,6 +5551,11 @@ name = "scripts:journeys"
 paths = ["scripts/journeys/**"]
 
 [[unit]]
+name = "cargo:scripts/journeys/tui-kit/rust"
+paths = ["scripts/journeys/tui-kit/rust/**"]
+tests = ["cargo test --manifest-path scripts/journeys/tui-kit/rust/Cargo.toml"]
+
+[[unit]]
 name = "scripts:lib"
 paths = ["scripts/lib/**"]
 
@@ -4948,6 +5566,11 @@ paths = ["scripts/live-code/**"]
 [[unit]]
 name = "scripts:measure"
 paths = ["scripts/measure/**"]
+
+[[unit]]
+name = "cargo:scripts/measure/workspace-factory"
+paths = ["scripts/measure/workspace-factory/**"]
+tests = ["cargo test --manifest-path scripts/measure/workspace-factory/Cargo.toml"]
 
 [[unit]]
 name = "scripts:media"
@@ -4996,6 +5619,11 @@ paths = ["scripts/tests/**"]
 [[unit]]
 name = "scripts:whats-new"
 paths = ["scripts/whats-new/**"]
+
+[[unit]]
+name = "cargo:services/iroh-relay-minter"
+paths = ["services/iroh-relay-minter/**"]
+tests = ["cargo test --manifest-path services/iroh-relay-minter/Cargo.toml"]
 
 [[unit]]
 name = "skills:cmux"
@@ -5178,6 +5806,16 @@ name = "tests:ui-structure"
 paths = ["tests/ui-structure/**"]
 
 [[unit]]
+name = "go:vault"
+paths = ["vault/**"]
+tests = ["cd vault && go test ./..."]
+
+[[unit]]
+name = "swiftpkg:vendor/stack-auth-swift-sdk-prerelease"
+paths = ["vendor/stack-auth-swift-sdk-prerelease/**"]
+tests = ["swift test --package-path vendor/stack-auth-swift-sdk-prerelease"]
+
+[[unit]]
 name = "swift:StackAuth"
 paths = ["vendor/stack-auth-swift-sdk-prerelease/Sources/StackAuth/**"]
 tests = ["swift test --package-path vendor/stack-auth-swift-sdk-prerelease --filter StackAuthTests"]
@@ -5186,6 +5824,11 @@ tests = ["swift test --package-path vendor/stack-auth-swift-sdk-prerelease --fil
 name = "swift:StackAuthTests"
 paths = ["vendor/stack-auth-swift-sdk-prerelease/Tests/StackAuthTests/**"]
 tests = ["swift test --package-path vendor/stack-auth-swift-sdk-prerelease --filter StackAuthTests"]
+
+[[unit]]
+name = "node:web"
+paths = ["web/**"]
+tests = ["npm test --prefix web"]
 
 [[unit]]
 name = "web:app"
@@ -5250,6 +5893,11 @@ paths = ["web/tools/**"]
 [[unit]]
 name = "web:types"
 paths = ["web/types/**"]
+
+[[unit]]
+name = "node:webviews"
+paths = ["webviews/**"]
+tests = ["npm test --prefix webviews"]
 
 [[unit]]
 name = "webviews:bench"
@@ -5457,6 +6105,10 @@ name = "workers:cmux-vm"
 paths = ["workers/cmux-vm/**"]
 
 [[unit]]
+name = "cargo:workers/cmux-vm/cli"
+paths = ["workers/cmux-vm/cli/**"]
+
+[[unit]]
 name = "rust:cmux-vm"
 paths = ["workers/cmux-vm/cli/crates/cmux-vm/**"]
 tests = ["cargo test --manifest-path workers/cmux-vm/cli/Cargo.toml -p cmux-vm", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tui"]
@@ -5474,6 +6126,24 @@ paths = ["workers/cmux-vm/cli/crates/cmux-vm-codegen/**"]
 tests = ["cargo test --manifest-path workers/cmux-vm/cli/Cargo.toml -p cmux-vm-codegen"]
 
 [[unit]]
+name = "go:workers/cmux-vm/mesh/validation/wgprobe"
+paths = ["workers/cmux-vm/mesh/validation/wgprobe/**"]
+tests = ["cd workers/cmux-vm/mesh/validation/wgprobe && go test ./..."]
+
+[[unit]]
+name = "node:workers/cmux-vm/sdk"
+paths = ["workers/cmux-vm/sdk/**"]
+
+[[unit]]
+name = "node:workers/cmux-vm/sdk/codegen"
+paths = ["workers/cmux-vm/sdk/codegen/**"]
+
+[[unit]]
+name = "node:workers/cmux-vm/upstream/sdk"
+paths = ["workers/cmux-vm/upstream/sdk/**"]
+tests = ["npm test --prefix workers/cmux-vm/upstream/sdk"]
+
+[[unit]]
 name = "workers:device-hub"
 paths = ["workers/device-hub/**"]
 
@@ -5488,3 +6158,47 @@ paths = ["workers/iroh-v2/**"]
 [[unit]]
 name = "workers:presence"
 paths = ["workers/presence/**"]
+
+[[unit]]
+name = "scripts:(top level)"
+paths = ["scripts/*"]
+
+[[unit]]
+name = "docs:(top level)"
+paths = ["docs/*"]
+
+[[unit]]
+name = "webviews:(top level)"
+paths = ["webviews/*"]
+
+[[unit]]
+name = "web:(top level)"
+paths = ["web/*"]
+
+[[unit]]
+name = "backend:(top level)"
+paths = ["backend/*"]
+
+[[unit]]
+name = "first-party-apps:(top level)"
+paths = ["first-party-apps/*"]
+
+[[unit]]
+name = "github:(top level)"
+paths = [".github/*"]
+
+[[unit]]
+name = "skills:(top level)"
+paths = ["skills/*"]
+
+[[unit]]
+name = "design:(top level)"
+paths = ["design/*"]
+
+[[unit]]
+name = "ci:(top level)"
+paths = ["ci/*"]
+
+[[unit]]
+name = "persisted-formats:(top level)"
+paths = ["persisted-formats/*"]
