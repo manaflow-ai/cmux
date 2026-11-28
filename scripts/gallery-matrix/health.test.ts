@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { brokenReason, brokenStates, judge, stateKey, summary } from "./health";
+import { brokenReason, brokenStates, judge, shardStates, stateKey, summary } from "./health";
 
 const ready = { id: "a", params: { entry: "ui.select", variant: "open" }, ready: "1" };
 
@@ -73,4 +73,20 @@ test("every allowlisted state names an entry and variant and says why it waits",
     expect(state).toMatch(/^[\w.-]+#[\w.-]+$/);
     expect(typeof reason === "string" && reason.trim().length > 10).toBe(true);
   }
+});
+
+test("a shard holds the same states whatever cases come before them", () => {
+  // By position (shardCases), one case added ahead moved every later state to another leg, so a bisect probe of
+  // `health (8)` judged other states than the batch's leg 8 (batch run 46040477174).
+  const at = (entry: string, variant: string, theme: string) => ({ id: `${entry}#${variant}-${theme}`, params: { entry, variant, theme } });
+  const before = ["a", "b", "c", "d", "e", "f", "g", "h"].flatMap((v) => [at("x", v, "dark"), at("x", v, "light")]);
+  const after = [at("new", "one", "dark"), ...before];
+  for (let leg = 0; leg < 3; leg++) {
+    const was = shardStates(before, 3, leg).map((item) => item.id);
+    expect(shardStates(after, 3, leg).map((item) => item.id).filter((id) => !id.startsWith("new"))).toEqual(was);
+  }
+  // Each state's cases share a leg, and every case lands in exactly one.
+  const legs = [0, 1, 2].map((leg) => shardStates(after, 3, leg));
+  expect(legs.flat().length).toBe(after.length);
+  for (const leg of legs) for (const item of leg) expect(leg.filter((o) => stateKey(o) === stateKey(item)).length).toBe(2 - Number(item.params.entry === "new"));
 });
