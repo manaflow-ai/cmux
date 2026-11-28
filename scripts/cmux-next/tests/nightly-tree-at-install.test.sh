@@ -504,17 +504,18 @@ done
 
 # The bundle step's choice (app-bundle-cmux-tui-client.sh), with the installer and the wait stubbed:
 # STUB_EXACT is what one look (WAIT_SECONDS=0) finds; STUB_WAIT_EXACT what a bounded wait (a set
-# WAIT_SECONDS) finds; STUB_LATE_EXACT what only the unbounded default wait finds; STUB_INSTALL_FAIL a
-# commit the installer refuses.
+# WAIT_SECONDS) finds; STUB_LATE_EXACT what only a second wait finds (after a refused fallback);
+# STUB_INSTALL_FAIL a commit the installer refuses. Every wait has a set WAIT_SECONDS: the step's one
+# budget (CMUX_TUI_TREE_BUNDLE_WAIT_BUDGET_SECONDS), never await-tree-client.sh's own 2700 s default.
 B="$TMP/bundle"; mkdir -p "$B/scripts/ci/nightly-steps" "$B/scripts/cmux-next" "$B/build-universal/Build/Products/Release/cmux.app"
 cp "$ROOT/scripts/ci/nightly-steps/app-bundle-cmux-tui-client.sh" "$B/scripts/ci/nightly-steps/"
 cat > "$B/scripts/cmux-next/await-tree-client.sh" <<'STUB'
 #!/usr/bin/env bash
-echo "await wait=${CMUX_TUI_TREE_CLIENT_WAIT_SECONDS:-default} $*" >> "$STUB_LOG"
+echo "await wait=${CMUX_TUI_TREE_CLIENT_WAIT_SECONDS:-default} unreadable=${CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS:-unset} rebuild_ends=${CMUX_TUI_TREE_CLIENT_REBUILD_ENDS:-unset} $*" >> "$STUB_LOG"
 w="${CMUX_TUI_TREE_CLIENT_WAIT_SECONDS:-default}"
 if [[ "$w" == 0 ]]; then [[ -n "${STUB_EXACT:-}" ]] && { echo "$STUB_EXACT"; exit 0; }; exit 1; fi
 found="${STUB_EXACT:-${STUB_WAIT_EXACT:-}}"
-[[ "$w" == default && -z "$found" ]] && found="${STUB_LATE_EXACT:-}"
+[[ -z "$found" && $(grep -c '^await ' "$STUB_LOG") -ge 2 ]] && found="${STUB_LATE_EXACT:-}"
 [[ -n "$found" ]] && { echo "$found"; exit 0; }; exit 1
 STUB
 cat > "$B/scripts/install-cmux-tui-client.sh" <<'STUB'
@@ -554,12 +555,22 @@ check '[[ $status == 0 ]] && grep -qx "tree=fallback" "$TMP/bundle-out" && grep 
 bundle CMUX_TUI_TREE_CLIENT_FALLBACK_WAIT_SECONDS=soon
 check '[[ $status == 2 ]]' "a fallback wait that is not whole seconds is refused"
 bundle TREE_FALLBACK="" STUB_WAIT_EXACT="$app"
-check '[[ $status == 0 ]] && grep -qx "commit=$app" "$TMP/bundle-out" && grep -qx "tree=exact" "$TMP/bundle-out" && grep -q "await wait=default" "$TMP/bundle-log"' \
-  "with no fallback tree the bundle waits for the build commit's tree as before"
+check '[[ $status == 0 ]] && grep -qx "commit=$app" "$TMP/bundle-out" && grep -qx "tree=exact" "$TMP/bundle-out" && grep -q "^await wait=1500 unreadable=2 rebuild_ends=1 " "$TMP/bundle-log" && ! grep -q "await wait=default" "$TMP/bundle-log"' \
+  "with no fallback tree the bundle waits for the build commit's tree within the step's budget and checks"
+# NIGHTLY 46157002388 (2026-11-28) held the signing Mac past 50 min in this step: the no-fallback wait
+# used await-tree-client.sh's own bound. With no tree in time and none to fall back to, it fails.
+bundle TREE_FALLBACK=""
+check '[[ $status == 1 ]] && grep -q "^await wait=1500 " "$TMP/bundle-log" && ! grep -q "await wait=default" "$TMP/bundle-log"' \
+  "with no fallback tree and no tree in the budget the step fails instead of waiting on"
+bundle CMUX_TUI_TREE_BUNDLE_WAIT_BUDGET_SECONDS=0 STUB_LATE_EXACT="$app" STUB_INSTALL_FAIL="$base"
+check '[[ $status == 1 ]] && [[ $(grep -c "^await wait=0 " "$TMP/bundle-log") == 2 ]] && ! grep -q "^await wait=[1-9]" "$TMP/bundle-log"' \
+  "a spent budget leaves every later wait one look"
+bundle CMUX_TUI_TREE_BUNDLE_WAIT_BUDGET_SECONDS=later
+check '[[ $status == 2 ]]' "a wait budget that is not whole seconds is refused"
 bundle CMUX_TUI_TREE_CLIENT_FALLBACK=off STUB_WAIT_EXACT="$app"
 check '[[ $status == 0 ]] && grep -qx "tree=exact" "$TMP/bundle-out" && ! grep -q "await wait=0 " "$TMP/bundle-log"' "CMUX_TUI_TREE_CLIENT_FALLBACK=off keeps the wait"
 bundle STUB_LATE_EXACT="$app" STUB_INSTALL_FAIL="$base"
-check '[[ $status == 0 ]] && grep -qx "commit=$app" "$TMP/bundle-out" && grep -qx "key=$key" "$TMP/bundle-out" && grep -qx "tree=exact" "$TMP/bundle-out" && grep -qx "install $base" "$TMP/bundle-log" && grep -qx "install $app" "$TMP/bundle-log"' \
+check '[[ $status == 0 ]] && grep -qx "commit=$app" "$TMP/bundle-out" && grep -qx "key=$key" "$TMP/bundle-out" && grep -qx "tree=exact" "$TMP/bundle-out" && grep -qx "install $base" "$TMP/bundle-log" && grep -qx "install $app" "$TMP/bundle-log" && ! grep -q "await wait=default" "$TMP/bundle-log"' \
   "a fallback tree the installer refuses falls back to waiting for the build commit's tree"
 bundle STUB_LATE_EXACT="$app" STUB_CAPS_FAIL="$base"
 check '[[ $status == 0 ]] && grep -qx "commit=$app" "$TMP/bundle-out" && grep -qx "tree=exact" "$TMP/bundle-out" && grep -qx "caps $base" "$TMP/bundle-log" && grep -qx "install $app" "$TMP/bundle-log" && grep -qx "caps $app" "$TMP/bundle-log"' \

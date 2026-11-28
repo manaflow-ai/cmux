@@ -89,14 +89,29 @@ def test_the_wait_reads_the_publishers_jobs_and_bounds_a_stall() -> None:
         "the runner stall bound must end the wait well before its limit")
 
 
+def _bundle_await_tree(bundle: str) -> str:
+    # Every tree wait in the signer step goes through await_tree(), which sets the step's limits: the
+    # no-fallback wait and the wait after a refused fallback once used await-tree-client.sh's own
+    # 2700 s bound plus its rebuild grace (NIGHTLY 46157002388 held ultra1 past 50 min, 2026-11-28).
+    body = re.search(r"^await_tree\(\) \{\n(.*?)^\}", bundle, re.S | re.M)
+    assert body, "the bundle step must define await_tree()"
+    calls = [line for line in bundle.splitlines()
+             if "scripts/cmux-next/await-tree-client.sh" in line and not line.lstrip().startswith("#")]
+    assert len(calls) == 1 and calls[0] in body.group(1), (
+        "only await_tree() may call await-tree-client.sh, so no wait runs on its default bound")
+    assert 'CMUX_TUI_TREE_CLIENT_WAIT_SECONDS="$(wait_left)"' in body.group(1), (
+        "each wait must get what is left of the step's one budget")
+    return body.group(1)
+
+
 def test_the_signer_bundle_step_bounds_an_unreadable_runs_list() -> None:
     # The bundle step runs inside nightly-next-one on the one signing Mac; with a fallback tree in
     # hand an unreadable runs list must not hold that Mac for the whole bound (2026-11-28, NIGHTLY
     # 46105117438 held it 1568 s on five "could not all be read" checks).
     bundle = (ROOT / "scripts/ci/nightly-steps/app-bundle-cmux-tui-client.sh").read_text()
-    fallback = bundle.split('tree_used=fallback', 1)[0].rsplit("CMUX_TUI_TREE_CLIENT_FALLBACK", 1)[1]
-    assert 'CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS="$unreadable_checks"' in fallback, (
-        "the fallback-capable wait must set an unreadable-checks limit")
+    await_tree = _bundle_await_tree(bundle)
+    assert 'CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS="$unreadable_checks"' in await_tree, (
+        "every tree wait in the signer step must set an unreadable-checks limit")
     limit = re.search(r'CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS:-(\d+)', bundle)
     assert limit and 0 < int(limit.group(1)) <= 2, "the signer step's unreadable-checks limit must be 1 or 2"
     wait = AWAIT.read_text()
@@ -108,9 +123,9 @@ def test_the_signer_bundle_step_does_not_wait_out_a_macos_rebuild() -> None:
     # fallback tree in hand the signer step must not hold the one signing Mac for it (2026-11-28,
     # NIGHTLY 46123570780 held it 1869 s, then bundled the fallback tree anyway).
     bundle = (ROOT / "scripts/ci/nightly-steps/app-bundle-cmux-tui-client.sh").read_text()
-    fallback = bundle.split('tree_used=fallback', 1)[0].rsplit("CMUX_TUI_TREE_CLIENT_FALLBACK", 1)[1]
-    assert 'CMUX_TUI_TREE_CLIENT_REBUILD_ENDS="$rebuild_ends"' in fallback, (
-        "the fallback-capable wait must end on a rebuilding publisher")
+    await_tree = _bundle_await_tree(bundle)
+    assert 'CMUX_TUI_TREE_CLIENT_REBUILD_ENDS="$rebuild_ends"' in await_tree, (
+        "every tree wait in the signer step must end on a rebuilding publisher")
     assert re.search(r'CMUX_TUI_TREE_CLIENT_REBUILD_ENDS:-1\}', bundle), "the signer step must default it on"
     wait = AWAIT.read_text()
     assert '"$rebuilding" == true && "$rebuild_ends" == 1' in wait, "the wait must end on a rebuild when asked"
