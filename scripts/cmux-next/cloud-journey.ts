@@ -132,7 +132,7 @@ import { constants as osConstants, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
-import { codeword, deviceHome as memoryDeviceHome, PROMPT as MEMORY_PROMPT, push as memoryPush, PUSH_STEP as MEMORY_PUSH_STEP, REPLY_STEP as MEMORY_REPLY_STEP, replyNamesCodeword } from "./cloud-memory-codeword.ts";
+import { codeword, deviceHome as memoryDeviceHome, follow as memoryFollow, PROMPT as MEMORY_PROMPT, push as memoryPush, PUSH_STEP as MEMORY_PUSH_STEP, REPLY_STEP as MEMORY_REPLY_STEP, replyNamesCodeword } from "./cloud-memory-codeword.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
 import { parseRepoSeed, REPO_SEED_STEP, repoSeedDetail, repoSeedRuns, repoSeedScripts } from "./cloud-journey-repo-seed.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
@@ -6129,9 +6129,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       await J.step(MEMORY_PUSH_STEP, async () => {
         const platform = clientPlatformOrigin((await api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
         const { home, record } = memoryDeviceHome(memoryCodeword);
+        const f = await memoryFollow(platform, install.token);
+        if (!f.ok) throw new Error(scrub(f.detail, J.secrets));
         const r = memoryPush(cmux!, platform, install.token, home, record);
         if (!r.ok) throw new Error(scrub(r.detail, J.secrets));
-        return { value: null, detail: `${r.detail} at ${platform} (user CLAUDE.md, codeword ${memoryCodeword})` };
+        return { value: null, detail: `${f.detail}; ${r.detail} at ${platform} (user CLAUDE.md, codeword ${memoryCodeword})` };
       }).catch(() => undefined);
     }
     const created = reuse

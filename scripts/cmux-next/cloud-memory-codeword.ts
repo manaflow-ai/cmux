@@ -67,3 +67,13 @@ export function push(cmux: string, platform: string, token: string, home: string
   const r = spawnSync(cmux, ["link", "memory", "push", "--head", platform, "--home", home, "--record", record, "--device", "cloud journey probe"], { env, encoding: "utf8", timeout: 60_000 });
   return pushDetail(r.status, r.stdout ?? "", r.stderr ?? "");
 }
+
+/** The person's follow switch (cloud.agentMemory.follow): a machine pulls the head only for a person who follows it. */
+export async function follow(platform: string, token: string, fetcher: typeof fetch = fetch): Promise<{ ok: boolean; detail: string }> {
+  const r = await fetcher(new URL("/v1/agent-home/follow", platform), {
+    method: "PUT", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ follow: true }), signal: AbortSignal.timeout(30_000),
+  });
+  const text = await r.text().catch(() => "");
+  return { ok: r.ok, detail: r.ok ? "follow on" : `follow PUT ${r.status}: ${text.slice(0, 200) || "(empty)"}` };
+}
