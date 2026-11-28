@@ -631,6 +631,7 @@ test("a recording the host makes for the chat loads at the caret and stays there
   } finally {
     watch.disconnect();
   }
+  for (const h of inStrip.slice(0, 2)) { const i = h.indexOf("acpmux-attachments"); console.log("DBG strip", inStrip.length, h.slice(Math.max(0, i - 200), i + 1500)); }
   expect(inStrip).toHaveLength(0);
   expect(composer.current!.wakeState().attachments![0]!.path).toBe("/remote/Recording.wav");
 });
