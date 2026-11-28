@@ -254,6 +254,10 @@ struct Costs {
     restart_read: f64,
     restart_ms: f64,
     restart_after_read: f64,
+    /// The next start over the same home, once the first wrote its restore point: what every
+    /// start after the first reads. NaN when the store did not open again.
+    again_read: f64,
+    again_after_read: f64,
     open_read: f64,
     open_reply: f64,
     open_ms: f64,
@@ -278,7 +282,7 @@ fn costs(bytes: u64) -> Costs {
     let log_mb = log_bytes as f64 / (1 << 20) as f64;
     let runtime =
         tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
-    let costs = runtime.block_on(async {
+    let mut costs = runtime.block_on(async {
         // Restart: the store opened again and the daemon's hub over it, its restore included.
         let (anon_before, file_before) = rss_split();
         let (read, wall) = (process_read(), Instant::now());
@@ -395,6 +399,8 @@ fn costs(bytes: u64) -> Costs {
         Costs {
             log_mb,
             restart_read,
+            again_read: f64::NAN,
+            again_after_read: f64::NAN,
             restart_ms,
             restart_after_read,
             open_read,
@@ -425,10 +431,12 @@ fn costs(bytes: u64) -> Costs {
             Ok(store) => {
                 let wall = Instant::now();
                 let again = Hub::new(cfg.clone(), store);
+                costs.again_read = (process_read() - read) as f64;
+                let ms = wall.elapsed().as_secs_f64() * 1e3;
+                costs.again_after_read = settle().await as f64;
                 eprintln!(
-                    "STRESS god chat second restart: read={:.0} B in {:.1} ms",
-                    (process_read() - read) as f64,
-                    wall.elapsed().as_secs_f64() * 1e3
+                    "STRESS god chat second restart: read={:.0} B in {ms:.1} ms, then {:.0} B in the background",
+                    costs.again_read, costs.again_after_read
                 );
                 drop(again);
             }
@@ -489,11 +497,19 @@ fn god_chat_alone() {
     let flat = |what: &str, small: f64, god: f64, floor: f64| {
         assert_flat_with_size(&format!("god chat {what}"), small, god, floor)
     };
-    flat("restart bytes read", small.restart_read, god.restart_read, 1024.0 * 1024.0);
+    // The first start below is the one a restore point is written by, so it reads a share of the
+    // history (FIRST_START_BYTES); flat is judged on the start after it, the daemon's every restart.
+    // Judged on the first start, this failed every lab run since #51055 (god 11.9 MB over small
+    // 4.4 MB at a 20 MB log, ratio 2.71): the bound and the doc above already said why.
+    assert!(
+        !god.again_read.is_nan() && !small.again_read.is_nan(),
+        "the store opened for the second restart"
+    );
+    flat("restart bytes read", small.again_read, god.again_read, 1024.0 * 1024.0);
     flat(
         "restart background bytes read",
-        small.restart_after_read,
-        god.restart_after_read,
+        small.again_after_read,
+        god.again_after_read,
         1024.0 * 1024.0,
     );
     // A first start (no restore point yet, no scan ever made a copy) reads each filled segment's
