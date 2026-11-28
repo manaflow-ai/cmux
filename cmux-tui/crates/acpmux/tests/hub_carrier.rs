@@ -4646,6 +4646,7 @@ async fn hub_carrier_sends_to_a_chat_moving_around_a_ring_arrive_exactly_once() 
         max_in_flight: 4,
         on_reconnect: None,
         capacity_every: None,
+        ..RelayOptions::default()
     };
     let _relays: Vec<_> = (0..3)
         .map(|me| {
