@@ -482,14 +482,22 @@ impl Hub {
         let claude_wrapper = crate::config::derive_family(&meta.harness, &p) == "claude"
             && !crate::claude_cloud_auth::launches_claude_itself(&p.argv);
         let requires_claude_team = requested_claude_team && !claude_wrapper;
-        let requires_claude_login = launch_requires_claude_machine_login(meta);
+        // Claude applies managed provider settings (a Cloud image's gateway login) over every
+        // launch env, so neither the machine's Claude login nor a delivered Anthropic key can
+        // take effect. Such a chat starts on that managed route instead of being refused.
+        let managed_route = crate::config::derive_family(&meta.harness, &p) == "claude"
+            && crate::claude_cloud_auth::managed_provider_override(&self.vm_marker_root());
+        let asked_claude_login = launch_requires_claude_machine_login(meta);
+        let requires_claude_login = asked_claude_login && !managed_route;
+        if asked_claude_login && managed_route {
+            tracing::warn!(session = %meta.id, code = "credentials.managed_route", "managed provider settings outrank the machine's Claude login: the agent keeps this machine's route");
+        }
         p.env.remove(crate::claude_cloud_auth::REQUIRED_TEAM);
         if requires_claude_team {
             p.env.insert("CMUX_CLAUDE_AUTH".into(), "team".into());
         } else if requires_claude_login {
             if crate::config::derive_family(&meta.harness, &p) != "claude"
                 || !crate::claude_cloud_auth::launches_claude_itself(&p.argv)
-                || crate::claude_cloud_auth::managed_provider_override(&self.vm_marker_root())
             {
                 return Err(claude_route_unavailable());
             }
@@ -512,18 +520,13 @@ impl Hub {
         {
             c.check_launch_destination()?;
             let family = crate::config::derive_family(&meta.harness, &p);
-            if c.uses_direct_anthropic_credential()
-                && family == "claude"
-                && crate::claude_cloud_auth::managed_provider_override(&self.vm_marker_root())
-            {
-                return Err(RpcError::invalid_params(
-                    "managed provider settings prevent this endpoint launch",
-                )
-                .with_data(serde_json::json!({"reason": "credentials.endpoint_unavailable"})));
-            }
-            let applied = crate::agent_credentials::apply(c, &family, &mut p.argv, &mut p.env);
             let names: Vec<&str> = c.names().collect();
-            if applied {
+            let outranked = c.uses_direct_anthropic_credential() && managed_route;
+            let applied =
+                !outranked && crate::agent_credentials::apply(c, &family, &mut p.argv, &mut p.env);
+            if outranked {
+                tracing::warn!(session = %meta.id, ?names, code = "credentials.managed_route", "managed provider settings outrank the delivered credential: the agent keeps this machine's route");
+            } else if applied {
                 tracing::info!(session = %meta.id, ?names, "agent launches on the owner's credential");
             } else if meta.credential_connection.is_some() {
                 return Err(RpcError::invalid_params(

@@ -4,6 +4,7 @@ use super::*;
 use crate::heap_future::heap;
 use crate::no_panic::{JsonExt, LockExt};
 
+mod brief_start;
 mod briefs;
 pub(super) mod cancel_refused;
 mod composer;
@@ -455,6 +456,7 @@ async fn dispatch_brief(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     mut params: Value,
+    start: &mut Option<(brief_start::Pending, Value)>,
 ) -> Result<Value, RpcError> {
     if hub.briefs.load_failed() {
         return Err(RpcError::internal(
@@ -788,102 +790,23 @@ async fn dispatch_brief(
         }
         return Box::pin(workflow_dispatch::local(hub, conn, &params, &id, new_params, row)).await;
     }
-    let created =
-        match Box::pin(dispatch_request(hub, conn, method::SESSION_NEW, new_params, None)).await {
-            Ok(created) => created,
-            Err(error) => {
-                hub.briefs.release(&id);
-                return Err(error);
-            }
-        };
-    let sid = created
-        .get("sessionId")
-        .and_then(Value::as_str)
-        .ok_or_else(|| RpcError::internal("dispatch session/new returned no sessionId"))?
-        .to_owned();
-    let session = hub.resolve(&sid)?;
-    let mut record = json!({"briefId":id,"title":title,"brief":brief,"from":from,"to":to,"target":selected,"host":match params.get("host").and_then(Value::as_str) { None => json!("local"), Some("auto") if !forwarded => json!("local"), Some(h) => json!(h) },"stopCondition":stop,"status":"running","sessionId":sid,"harness":session.meta().harness,"model":session.meta().model_request});
-    if let Some(key) = idempotency {
-        record.set("idempotencyKey", json!(key));
-    }
-    if let Some(caller) = conn.caller() {
-        record.set("fromSession", json!(caller)); // its result card's chat (`hub/tasks.rs`)
-    }
-    let row = hub.briefs.put(record);
-    let mut prompt = json!({"sessionId":session.id,"text":row.get("brief"),"_meta":{"acpmux":{"briefId":id,"fromAgent":row.get("from")}}});
-    if let Some(via) = params.pointer("/_meta/acpmux/via").cloned() {
-        prompt.set_path(&["_meta", "acpmux", "via"], via);
-    }
-    let task_hub = hub.clone();
-    let task_conn = conn.clone();
-    let task_id = id.clone();
-    let task_session = session.clone();
-    let task_via = params.pointer("/_meta/acpmux/via").cloned();
-    let task_agent = row.get("from").and_then(Value::as_str).map(str::to_owned);
-    let task_device = super::remote_guard::sending_device(conn, &prompt);
-    tokio::spawn(async move {
-        let mut blocks =
-            vec![json!({"type":"text","text":prompt.get("text").cloned().unwrap_or(Value::Null)})];
-        let web = super::trust_gate::for_web(task_conn.origin, &prompt);
-        if let Err(error) = task_hub
-            .prompt_with(
-                &task_session,
-                std::mem::take(&mut blocks),
-                &task_conn.label(),
-                false,
-                crate::hub::PromptOptions {
-                    control: super::remote_guard::control_of(
-                        task_conn.origin,
-                        task_conn.auth,
-                        &prompt,
-                    ),
-                    trust_gate: task_via.is_some() || web,
-                    agent: task_agent,
-                    full_access_device: task_device,
-                    ..Default::default()
-                },
-            )
-            .await
-        {
-            let _ = task_hub.briefs.update(&task_id, |r| {
-                r["status"] = json!("reported");
-                r["error"] = json!(error.message);
-            });
-        }
-    });
-    let pressure = hub
-        .status()
-        .await
-        .pointer("/host_pressure/warning")
-        .and_then(Value::as_str)
-        .map(str::to_owned);
-    // Another host only when it has room: an overloaded pick is no better a place (`placement.rs`).
-    // A peer daemon's connection hears that this host is over its budget, and of no other host.
-    let suggestion = match &pressure {
-        Some(_) if !from_peer => {
-            let v = super::place::pick(hub, super::place::brief_work(&brief)).await;
-            let flag = |k: &str| v.get(k).and_then(Value::as_bool) == Some(true);
-            (!flag("overloaded") && !flag("local"))
-                .then(|| v.get("pick").and_then(Value::as_str).map(str::to_owned))
-                .flatten()
-        }
-        _ => None,
-    }
-    .filter(|host| row.get("host").and_then(Value::as_str) != Some(host));
-    let row = hub
-        .briefs
-        .update(&id, |r| {
-            if let Some(warning) = &pressure {
-                r["warning"] = json!(warning);
-            }
-            if let Some(host) = &suggestion {
-                r["suggestedHost"] = json!(host);
-            }
-        })
-        .unwrap_or(row);
-    Ok(
-        json!({"brief":row,"event":crate::hub::dispatch::event("dispatch", &row),"status":"running","warning":pressure,"suggestedHost":suggestion}),
-    )
+    *start = Some((
+        brief_start::Pending {
+            idempotency: idempotency.map(str::to_owned),
+            id,
+            title,
+            brief,
+            from,
+            to,
+            selected,
+            stop,
+            forwarded,
+            from_peer,
+            params,
+        },
+        new_params,
+    ));
+    Ok(Value::Null)
 }
 
 // The tag that marks a side chat, valued with its chat's session (`hub/btw.rs`).
@@ -1615,7 +1538,7 @@ async fn dispatch_request_with_identity(
     // These methods can dispatch session/new or session/prompt while their poll is on the worker
     // stack. Enter the large method match only for the child, after ordinary routing above.
     match m {
-        method::MUX_DISPATCH => heap(|| dispatch_brief(hub, conn, params)).await,
+        method::MUX_DISPATCH => brief_start::run(hub, conn, params).await,
         method::MUX_STEER => heap(|| briefs::steer(hub, conn, params)).await,
         method::SESSION_FORK => heap(|| fork_session(hub, conn, params, resolved)).await,
         method::CHAT_FIX_FROM_LINK => {
@@ -1624,6 +1547,7 @@ async fn dispatch_request_with_identity(
         method::CHAT_FIX_FROM_LINK_PREPARE => {
             heap(|| super::fix_from_link::handle(hub, conn, params, true)).await
         }
+        m if composer::handles(m) => heap(|| composer::handle(hub, conn, m, &params)).await,
         other => {
             heap(|| dispatch_method(hub, conn, other, params, resolved, fixed_id, received)).await
         }
@@ -3527,7 +3451,6 @@ async fn dispatch_method(
                 .await
                 .map_err(|e| RpcError::internal(format!("review brief stopped: {e}")))?
         }
-        m if composer::handles(m) => heap(|| composer::handle(hub, conn, m, &params)).await,
         // Only the person writes the library: an agent's or a remote client's save could
         // replace a prompt the person types, or shadow one from `agentPane.savedPrompts`.
         method::MUX_PROMPTS_SAVE | method::MUX_PROMPTS_DELETE if !conn.is_person() => {

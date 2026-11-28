@@ -51,6 +51,12 @@ log="$log_dir/cmux-next-tests.txt"
 # every other member. Falls back to --workspace.
 read -r -a members <<<"$(../scripts/ci/cmux-next-daemon-test-packages.sh)"
 echo "cmux_next_ test members: ${members[*]}"
+# One job per 6 GiB of a memory-capped runner (scripts/ci/cargo-mem-jobs.sh; -j4 in 14 GiB was still SIGKILLed): a `cmux-linux` pool slot shows 8
+# threads under memory.max 14 GiB, and the test compile at -j8 had the kernel SIGKILL the cmux-tui-core, acpmux
+# and cmux-tui rustc on all three attempts (job 140997699588, run 46151055767, 2026-11-28), so no tree got its
+# daemon-tests marker and the feat-cmux-next channel stayed at 02b3b98c from 03:41Z. A caller's CARGO_BUILD_JOBS wins.
+CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(bash ../scripts/ci/cargo-mem-jobs.sh || true)}"
+if [[ -n "$CARGO_BUILD_JOBS" ]]; then export CARGO_BUILD_JOBS; echo "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"; else unset CARGO_BUILD_JOBS; fi
 status=1
 for attempt in 1 2 3; do
   rm -f "$log"
@@ -71,6 +77,12 @@ for attempt in 1 2 3; do
     exit 1
   fi
   if [[ "$attempt" -lt 3 ]]; then
+    # A rustc the kernel SIGKILLed (no error[...] line) fails the same way at the same -j: halve the jobs.
+    if grep -q 'signal: 9, SIGKILL' "$log"; then
+      jobs="${CARGO_BUILD_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
+      export CARGO_BUILD_JOBS=$(((jobs + 1) / 2))
+      echo "cmux_next_ daemon tests: a rustc was SIGKILLed (out of memory); attempt $((attempt + 1)) runs CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS" >&2
+    fi
     echo "cmux_next_ daemon tests failed on attempt $attempt/3; retrying Cargo registry and build fetches" >&2
     sleep $((attempt * 10))
   fi
