@@ -837,6 +837,7 @@ terminal <selector> show|status|write|keys|mouse|copy|move|project|attach|close
 terminal <selector> close [--if-unplaced]
 terminal <term_id> keep on|off
 terminal <term_id>|current pin-tail on|off
+terminal <term_id>|current notify-when-done on|off
 terminal <selector> focus <in|out>
 terminal <selector> screen read [--unwrap] [--lines <n>]
 terminal <selector> screen wait --pattern <regex> [--new] [--timeout-ms <n>]

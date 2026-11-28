@@ -6,7 +6,7 @@ package raw
 const (
 	SDKSchemaVersion   = 2
 	MuxProtocolVersion = 12
-	SDKIRSHA256        = "6558219fc95c08d3a088c88dbc9c81015f042cad7dacb50a02c64d081d016c7b"
+	SDKIRSHA256        = "5fdc054b5bf4934815d3a1930410000325871a7e7ab17c90b7560966c6f8e114"
 )
 
 type Authority string
@@ -329,6 +329,7 @@ var commandMetadata = map[string]CommandMetadata{
 	"set-terminal-command-history":       {Name: "set-terminal-command-history", GoMethod: "SetTerminalCommandHistory", Authority: AuthorityLocalAdmin, Since: 12, Capability: "terminal-command-history-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"set-terminal-idle-policy":           {Name: "set-terminal-idle-policy", GoMethod: "SetTerminalIdlePolicy", Authority: AuthorityControl, Since: 12, Capability: "terminal-idle-close-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"set-terminal-keep":                  {Name: "set-terminal-keep", GoMethod: "SetTerminalKeep", Authority: AuthorityControl, Since: 12, Capability: "terminal-reap-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
+	"set-terminal-notify-when-done":      {Name: "set-terminal-notify-when-done", GoMethod: "SetTerminalNotifyWhenDone", Authority: AuthorityControl, Since: 12, Capability: "terminal-notify-when-done-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"set-terminal-tail-pin":              {Name: "set-terminal-tail-pin", GoMethod: "SetTerminalTailPin", Authority: AuthorityControl, Since: 12, Capability: "terminal-tail-pin-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"set-viewport-pane-width":            {Name: "set-viewport-pane-width", GoMethod: "SetViewportPaneWidth", Authority: AuthorityControl, Since: 9, Capability: "viewport-column-resize-v1", Stream: "", FieldSince: map[string]uint32{"transaction": 9}, FieldCapabilities: map[string]string{"transaction": "layout-undo-v1"}},
 	"set-window-title":                   {Name: "set-window-title", GoMethod: "SetWindowTitle", Authority: AuthorityControl, Since: 6, Capability: "", Stream: "", FieldSince: nil, FieldCapabilities: nil},
@@ -528,7 +529,7 @@ func ProfileInfo(name Profile) (ProfileMetadata, bool) {
 }
 
 func AllCommandMetadata() []CommandMetadata {
-	result := make([]CommandMetadata, 0, 316)
+	result := make([]CommandMetadata, 0, 317)
 	result = append(result, cloneCommandMetadata(commandMetadata["ack-tab-notifications"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["add-screens-to-screen-group"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["add-tabs-to-tab-group"]))
@@ -796,6 +797,7 @@ func AllCommandMetadata() []CommandMetadata {
 	result = append(result, cloneCommandMetadata(commandMetadata["set-terminal-command-history"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["set-terminal-idle-policy"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["set-terminal-keep"]))
+	result = append(result, cloneCommandMetadata(commandMetadata["set-terminal-notify-when-done"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["set-terminal-tail-pin"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["set-viewport-pane-width"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["set-window-title"]))

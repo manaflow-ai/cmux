@@ -2065,6 +2065,13 @@ class SetTerminalKeepResult:
 
 
 @dataclass(frozen=True)
+class SetTerminalNotifyWhenDoneResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/SetTerminalNotifyWhenDoneResult'
+    on: bool
+    terminal: str
+
+
+@dataclass(frozen=True)
 class SetTerminalTailPinResult:
     __cmux_schema_path__: ClassVar[str] = 'types/SetTerminalTailPinResult'
     pinned: bool
@@ -5469,6 +5476,14 @@ class SetTerminalKeepRequest:
 
 
 @dataclass(frozen=True)
+class SetTerminalNotifyWhenDoneRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-terminal-notify-when-done/request'
+    on: bool
+    surface: Union[Id, None, MissingType] = field(default=MISSING)
+    terminal: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SetTerminalTailPinRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-terminal-tail-pin/request'
     pinned: bool
@@ -7239,6 +7254,7 @@ __all__ = [
     'SetSizePolicyResult',
     'SetTerminalIdlePolicyResult',
     'SetTerminalKeepResult',
+    'SetTerminalNotifyWhenDoneResult',
     'SetTerminalTailPinResult',
     'ShownProgramStatus',
     'ShutdownDaemonResult',
@@ -7624,6 +7640,7 @@ __all__ = [
     'SetTerminalCommandHistoryRequest',
     'SetTerminalIdlePolicyRequest',
     'SetTerminalKeepRequest',
+    'SetTerminalNotifyWhenDoneRequest',
     'SetTerminalTailPinRequest',
     'SetViewportPaneWidthRequest',
     'SetWindowTitleRequest',

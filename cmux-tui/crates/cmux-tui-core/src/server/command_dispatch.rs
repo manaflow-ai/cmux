@@ -396,6 +396,9 @@ fn dispatch_command(
         Command::SetTerminalTailPin { surface, terminal, pinned } => {
             cmd_terminals::set_terminal_tail_pin(mux, surface, terminal, pinned)
         }
+        Command::SetTerminalNotifyWhenDone(args) => {
+            cmd_terminals::set_terminal_notify_when_done(mux, args)
+        }
         Command::TerminalLastCommand { surface, terminal_id } => {
             cmd_terminals::terminal_last_command(mux, surface, terminal_id)
         }

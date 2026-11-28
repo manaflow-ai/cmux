@@ -5927,6 +5927,43 @@ Result:
 object{terminal:string, pinned:bool}
 ```
 
+### set-terminal-notify-when-done
+
+| Field | Value |
+| --- | --- |
+| name | `set-terminal-notify-when-done` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `terminal-notify-when-done-v1` |
+
+Arms (`on:true`) or disarms one terminal's one-shot command-finish watch. While
+armed, the terminal record carries `extra.notify_when_done: true`. The next
+command the terminal's shell finishes (OSC 133 `D`, or a prompt that ends a
+running command without one) posts one terminal notification, then the watch
+disarms: title `Command finished` (exit 0 or no status) or `Command failed`
+(level error, any other exit code), body the exit code and run time (`exit 1
+after 3m 12s`). It goes the way every terminal notification goes: the owner's
+per-terminal rate limit, the notification store, desktop and paired-phone
+delivery, the tab's unread mark. Armed at a prompt, it waits for the next
+command. A shell without integration never fires it. The watch lives in the
+owner's memory: an owner restart drops it, so it never fires twice.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` or null | exactly one of `surface`/`terminal` | A PTY surface |
+| `terminal` | string or null | exactly one of `surface`/`terminal` | Public `term_` id of a terminal with a tab |
+| `on` | boolean | required | true arms, false disarms |
+
+Errors: `surface_not_found`, `terminal_not_found` (no tab shows the terminal),
+`not_a_terminal`, and `bad request` when both or neither target is given.
+
+Result:
+
+```text
+object{terminal:string, on:bool}
+```
+
 ### terminal-last-command
 
 | Field | Value |

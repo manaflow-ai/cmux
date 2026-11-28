@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "6558219fc95c08d3a088c88dbc9c81015f042cad7dacb50a02c64d081d016c7b";
+inline constexpr std::string_view kProtocolIrSha256 = "5fdc054b5bf4934815d3a1930410000325871a7e7ab17c90b7560966c6f8e114";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -214,6 +214,7 @@ struct SetSizeCountsResult;
 struct SetSizePolicyResult;
 struct SetTerminalIdlePolicyResult;
 struct SetTerminalKeepResult;
+struct SetTerminalNotifyWhenDoneResult;
 struct SetTerminalTailPinResult;
 struct ShownProgramStatus;
 struct ShutdownDaemonResult;
@@ -604,6 +605,7 @@ struct SetTabPinnedRequest;
 struct SetTerminalCommandHistoryRequest;
 struct SetTerminalIdlePolicyRequest;
 struct SetTerminalKeepRequest;
+struct SetTerminalNotifyWhenDoneRequest;
 struct SetTerminalTailPinRequest;
 struct SetViewportPaneWidthRequest;
 struct SetWindowTitleRequest;
@@ -6069,6 +6071,19 @@ struct SetTerminalKeepResult {
     friend bool operator==(const SetTerminalKeepResult&, const SetTerminalKeepResult&) = default;
 };
 
+struct SetTerminalNotifyWhenDoneRequest {
+    bool on{};
+    Field<Id> surface{};
+    Field<std::string> terminal{};
+    friend bool operator==(const SetTerminalNotifyWhenDoneRequest&, const SetTerminalNotifyWhenDoneRequest&) = default;
+};
+
+struct SetTerminalNotifyWhenDoneResult {
+    bool on{};
+    std::string terminal{};
+    friend bool operator==(const SetTerminalNotifyWhenDoneResult&, const SetTerminalNotifyWhenDoneResult&) = default;
+};
+
 struct SetTerminalTailPinRequest {
     bool pinned{};
     Field<Id> surface{};
@@ -8273,6 +8288,12 @@ template <>
 struct Codec<SetTerminalKeepResult> {
     static Result<Json> encode(const SetTerminalKeepResult& value);
     static Result<SetTerminalKeepResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetTerminalNotifyWhenDoneResult> {
+    static Result<Json> encode(const SetTerminalNotifyWhenDoneResult& value);
+    static Result<SetTerminalNotifyWhenDoneResult> decode(const Json& value);
 };
 
 template <>
@@ -10613,6 +10634,12 @@ template <>
 struct Codec<SetTerminalKeepRequest> {
     static Result<Json> encode(const SetTerminalKeepRequest& value);
     static Result<SetTerminalKeepRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetTerminalNotifyWhenDoneRequest> {
+    static Result<Json> encode(const SetTerminalNotifyWhenDoneRequest& value);
+    static Result<SetTerminalNotifyWhenDoneRequest> decode(const Json& value);
 };
 
 template <>

@@ -623,3 +623,47 @@ fn cmux_next_terminal_notification_osc9_progress_text_is_still_retained() {
     assert_eq!(metadata.osc_progress(), "4;1;50");
     assert!(notes(&mut metadata).is_empty());
 }
+
+#[test]
+fn an_armed_notify_when_done_watch_posts_one_notification_then_disarms() {
+    let mut metadata = TerminalMetadata::default();
+    metadata.observe_output(b"\x1b]133;A\x07$ \x1b]133;C\x07");
+    metadata.activity.set_notify_when_done(true);
+    assert!(metadata.activity.notify_when_done());
+    metadata.observe_output(b"building\r\n");
+    assert!(metadata.take_notifications().is_empty(), "nothing before the command ends");
+
+    metadata.observe_output(b"\x1b]133;D;2\x07\x1b]133;A\x07$ ");
+    let posted = metadata.take_notifications();
+    assert_eq!(posted.len(), 1);
+    assert_eq!(posted[0].title, "Command failed");
+    assert!(posted[0].body.starts_with("exit 2 after "), "{}", posted[0].body);
+    assert_eq!(posted[0].level, crate::NotificationLevel::Error);
+    assert!(!metadata.activity.notify_when_done(), "one shot: it disarms");
+
+    // The next command posts nothing: the watch fired once.
+    metadata.observe_output(b"\x1b]133;C\x07ok\r\n\x1b]133;D;0\x07\x1b]133;A\x07");
+    assert!(metadata.take_notifications().is_empty());
+}
+
+#[test]
+fn a_watch_armed_at_the_prompt_waits_for_the_next_command_and_a_bare_prompt_ends_it() {
+    let mut metadata = TerminalMetadata::default();
+    metadata.observe_output(b"\x1b]133;A\x07$ ");
+    metadata.activity.set_notify_when_done(true);
+    // Another prompt with no command running is not a finished command.
+    metadata.observe_output(b"\x1b]133;A\x07$ ");
+    assert!(metadata.take_notifications().is_empty());
+    // A command ended by ^C: a prompt without `D`, status unknown.
+    metadata.observe_output(b"\x1b]133;C\x07sleep\r\n^C\x1b]133;A\x07$ ");
+    let posted = metadata.take_notifications();
+    assert_eq!(posted.len(), 1);
+    assert_eq!(posted[0].title, "Command finished");
+    assert!(posted[0].body.starts_with("after "), "{}", posted[0].body);
+
+    // Disarmed before the command ends: nothing.
+    metadata.activity.set_notify_when_done(true);
+    metadata.activity.set_notify_when_done(false);
+    metadata.observe_output(b"\x1b]133;C\x07\x1b]133;D;0\x07");
+    assert!(metadata.take_notifications().is_empty());
+}
