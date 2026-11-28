@@ -2124,6 +2124,28 @@ impl HybridUnderlay {
         }
     }
 
+    /// A handshake response we just sent on a direct route goes through the
+    /// relays too. It is the one copy of the answer: the initiator's repeats
+    /// (and its relayed copies) carry the same timestamp, which boringtun
+    /// refuses as a replay, so nothing answers them. The selector's route
+    /// was chosen by probes up to a probe interval old; a direct path that
+    /// flaps (Leo's phone, 2026-11-25: Direct and TURN every 2 to 5 s) drops
+    /// the answer while it still holds the route, and the initiator waits
+    /// out its REKEY_TIMEOUT (5 s) and starts over, every rekey. The copies
+    /// cost one 92-byte datagram per relay per handshake, and the one that
+    /// arrives second is refused by the initiator (no handshake waits on it).
+    fn send_response_on_relays(&mut self, datagram: &[u8], class: SendClass) {
+        if cmux_transport::classify(datagram) != cmux_transport::DatagramClass::WireGuardResponse {
+            return;
+        }
+        if self.paths.suspect() || !self.direct.is_some_and(|route| self.is_direct(route)) {
+            // Sprayed on every route already, or it went on a relay.
+            return;
+        }
+        tracing::debug!("WireGuard sends its handshake response through the relays too");
+        self.send_on_relays(datagram, class);
+    }
+
     /// Through our TURN allocation, and plain UDP to the peer's relayed
     /// addresses (its TURN allocation).
     fn send_on_relays(&mut self, datagram: &[u8], class: SendClass) {
@@ -2674,6 +2696,7 @@ impl Underlay for HybridUnderlay {
         let class = send_class(datagram);
         self.record(datagram, class);
         self.transmit(datagram, class);
+        self.send_response_on_relays(datagram, class);
         self.assist_send(datagram, class);
         self.note_initiation(datagram, class);
     }
@@ -2683,6 +2706,7 @@ impl Underlay for HybridUnderlay {
         let class = send_class_of(datagram, priority);
         self.record(datagram, class);
         self.transmit(datagram, class);
+        self.send_response_on_relays(datagram, class);
         self.assist_send(datagram, class);
         self.note_initiation(datagram, class);
     }
@@ -4265,6 +4289,155 @@ mod tests {
             .expect("the spray reaches the learned address")
             .unwrap();
         assert_eq!(&buffer[..len], b"stream datagram");
+    }
+
+    /// Leo's Mac and phone (2026-11-25, "so between mac and ios connections
+    /// something broke"): the path flipped between Direct and TURN every 2
+    /// to 5 s and WireGuard died with REKEY_TIMEOUT. The selector holds a
+    /// direct path its probes proved, the peer's handshake initiation
+    /// arrives through TURN (the direct path just dropped), and the answer
+    /// went on the direct route alone. The initiator's repeats carry the
+    /// same timestamp, which boringtun refuses, so that lost answer cost a
+    /// 5 s REKEY_TIMEOUT per try. The answer also goes through the relays.
+    #[tokio::test]
+    async fn a_handshake_response_on_a_direct_route_also_goes_through_the_relays() {
+        let direct = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let relay = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        direct.set_nonblocking(true).unwrap();
+        relay.set_nonblocking(true).unwrap();
+        let (direct_addr, relay_addr) = (direct.local_addr().unwrap(), relay.local_addr().unwrap());
+        let (reach_out, _reaches) = mpsc::unbounded_channel();
+        let (_control, control) = mpsc::unbounded_channel();
+        let mut underlay = HybridUnderlay::new(
+            UnderlaySpec {
+                socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                peer_endpoints: &[direct_addr.to_string(), relay_addr.to_string()],
+                peer_relayed: &[relay_addr.to_string()],
+                peer_relayed_tls: &[],
+                peer_version: WG_VERSION,
+                turn: None,
+                reach_out,
+                path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
+                control,
+                relay_shared: Default::default(),
+            },
+            &DialOptions::default(),
+        );
+        underlay.socket.writable().await.unwrap();
+        let start = Instant::now();
+        for (path, probe) in underlay.poll_probes(start).pings {
+            underlay.on_pong(path, probe, start + Duration::from_millis(1));
+        }
+        let direct_route = Route { carrier: Carrier::Udp, addr: direct_addr };
+        assert_eq!(underlay.paths.current(), Some(direct_route), "the selector holds the direct path");
+        underlay.transmit(b"settle", SendClass::Bulk);
+        assert_eq!(underlay.direct, Some(direct_route));
+        let response = {
+            let mut response = vec![0u8; cmux_transport::classify::WG_RESPONSE_LEN];
+            response[0] = 2;
+            response
+        };
+        let got = |socket: &std::net::UdpSocket| {
+            let mut buffer = [0u8; 2048];
+            std::iter::from_fn(|| socket.recv(&mut buffer).ok().map(|len| buffer[..len].to_vec()))
+                .filter(|datagram| *datagram == response)
+                .count()
+        };
+        let _ = (got(&direct), got(&relay));
+        // The initiation came through the peer's TURN relay; boringtun answers it.
+        underlay.authenticated(Origin { path: UDP_PATH, addr: Some(relay_addr) });
+        underlay.send(&response);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(got(&direct), 1, "the selected direct route carries the answer");
+        assert!(got(&relay) >= 1, "the answer went on the direct route alone; a flap loses it");
+        // Data keeps to the selected route: no relay copy.
+        underlay.send(&[4, 0, 0, 0, 9, 9, 9, 9]);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let mut buffer = [0u8; 2048];
+        assert!(relay.recv(&mut buffer).is_err(), "data went through the relay too");
+    }
+
+    /// The flap itself, in paused time: for two minutes the direct path
+    /// answers for 1 s and drops everything for the next 1.5 s, the relay
+    /// carries every datagram, and the session sends data every 10 ms. A
+    /// handshake initiation arrives through the relay every 1.7 s (a rekey
+    /// lands anywhere in the flap). Each answer that reaches the peer on no
+    /// route is a handshake the initiator restarts after REKEY_TIMEOUT
+    /// (5 s), since its repeats are refused as replays. None may be lost.
+    #[tokio::test(start_paused = true)]
+    async fn a_flapping_direct_path_loses_no_handshake_response() {
+        let direct = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let relay = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        direct.set_nonblocking(true).unwrap();
+        relay.set_nonblocking(true).unwrap();
+        let (direct_addr, relay_addr) = (direct.local_addr().unwrap(), relay.local_addr().unwrap());
+        let (reach_out, _reaches) = mpsc::unbounded_channel();
+        let (_control, control) = mpsc::unbounded_channel();
+        let mut underlay = HybridUnderlay::new(
+            UnderlaySpec {
+                socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                peer_endpoints: &[direct_addr.to_string(), relay_addr.to_string()],
+                peer_relayed: &[relay_addr.to_string()],
+                peer_relayed_tls: &[],
+                peer_version: WG_VERSION,
+                turn: None,
+                reach_out,
+                path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
+                control,
+                relay_shared: Default::default(),
+            },
+            &DialOptions::default(),
+        );
+        underlay.socket.writable().await.unwrap();
+        let mut response = vec![0u8; cmux_transport::classify::WG_RESPONSE_LEN];
+        response[0] = 2;
+        let delivered = |socket: &std::net::UdpSocket, up: bool| {
+            let mut buffer = [0u8; 2048];
+            let mut count = 0;
+            while let Ok(len) = socket.recv(&mut buffer) {
+                count += usize::from(up && buffer[..len] == response[..]);
+            }
+            count
+        };
+        let step = Duration::from_millis(10);
+        let start = Instant::now();
+        let (mut handshakes, mut lost, mut direct_held_at_loss) = (0, 0, 0);
+        let mut next_handshake = start + Duration::from_millis(3000);
+        while Instant::now() < start + Duration::from_secs(120) {
+            let now = Instant::now();
+            let up = (now - start).as_millis() % 2500 < 1000;
+            let due = underlay.poll_probes(now).pings;
+            for (path, probe) in due {
+                let on_direct = underlay.paths.route_of(path).is_some_and(|route| route.addr == direct_addr);
+                if up || !on_direct {
+                    underlay.on_pong(path, probe, now + Duration::from_millis(300));
+                }
+            }
+            underlay.send(&[4, 0, 0, 0, 1, 2, 3, 4]);
+            let _ = (delivered(&direct, false), delivered(&relay, false));
+            if now >= next_handshake {
+                next_handshake = now + Duration::from_millis(370);
+                handshakes += 1;
+                let held = underlay.direct;
+                underlay.authenticated(Origin { path: UDP_PATH, addr: Some(relay_addr) });
+                underlay.send(&response);
+                if delivered(&direct, up) + delivered(&relay, true) == 0 {
+                    lost += 1;
+                    direct_held_at_loss += usize::from(held.is_some_and(|route| route.addr == direct_addr));
+                }
+            }
+            tokio::time::advance(step).await;
+        }
+        eprintln!(
+            "flap: {handshakes} handshakes, {lost} answers lost ({direct_held_at_loss} on the held direct route)"
+        );
+        assert!(handshakes >= 60);
+        assert_eq!(
+            lost, 0,
+            "{lost} of {handshakes} handshake answers lost: each a 5 s REKEY_TIMEOUT restart"
+        );
     }
 
     /// A liveness pong expects nothing back, so the quiet after it does not
