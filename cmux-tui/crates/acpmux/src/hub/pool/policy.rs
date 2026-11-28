@@ -66,6 +66,10 @@ pub struct PoolKey {
     pub model: Option<String>,
     /// The effort a Claude Code agent was started on (its `--effort`), as `model`.
     pub effort: Option<String>,
+    /// The owner's connection binding its delivered credential carries (`AgentCredential::
+    /// connection`), never a secret: a withdrawal of that binding (Cloud opt-out, Disconnect)
+    /// ends the entry as it ends the chats bound to it (`pool_withdraw_bindings`).
+    pub binding: Option<String>,
 }
 
 impl PoolKey {
@@ -93,6 +97,7 @@ impl PoolKey {
         check("settingsFile", self.settings_file == other.settings_file);
         check("model", self.model == other.model);
         check("effort", self.effort == other.effort);
+        check("binding", self.binding == other.binding);
         out
     }
 
@@ -580,6 +585,26 @@ impl<T> Pool<T> {
             .filter(|e| e.spare && matches!(e.slot, Slot::Empty))
             .map(|e| e.key.clone())
             .collect()
+    }
+
+    /// Remove every entry whose key `pick` chooses, whatever it holds: a start still warming
+    /// for one finds its key gone and its session comes back to be ended (`complete`).
+    /// Returns the ready sessions, to end.
+    pub fn remove_keys(&mut self, pick: impl Fn(&PoolKey) -> bool) -> Vec<T> {
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < self.entries.len() {
+            if !pick(&self.entries[i].key) {
+                i += 1;
+                continue;
+            }
+            let e = self.entries.remove(i);
+            e.settle();
+            if let Slot::Ready(t) = e.slot {
+                out.push(t);
+            }
+        }
+        out
     }
 
     /// Empty the pool (config reload, shutdown); returns every ready session.

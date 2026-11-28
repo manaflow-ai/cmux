@@ -20,6 +20,7 @@ fn key(cwd: &str, harness: &str) -> PoolKey {
         settings_file: PathBuf::new(),
         model: None,
         effort: None,
+        binding: None,
     }
 }
 
@@ -222,4 +223,26 @@ fn a_taken_reserved_entry_is_reserved_no_more_and_leaves_room_for_the_next_folde
     let generation = pool.want(Role::Reserved, r2.clone(), now).start.expect("a start");
     assert!(pool.complete(&r2, generation, "second", now).is_none());
     assert!(matches!(pool.take(&r2), Take::Ready("second")));
+}
+
+/// A withdrawn binding ends its entries whatever they hold: a ready one comes back to be ended,
+/// and a start still warming finds its key gone, so its session comes back from `complete`.
+#[test]
+fn removing_a_bindings_keys_ends_its_ready_and_warming_entries_only() {
+    let mut pool = Pool::new(IDLE);
+    let now = Duration::from_secs(1);
+    // One harness each: the hinted cap per harness keeps each entry.
+    let bound = |cwd: &str, harness: &str| PoolKey {
+        binding: Some("claude-token:x".into()),
+        ..key(cwd, harness)
+    };
+    assert!(hint_ready(&mut pool, bound("/a", "claude"), 1, "bound-ready").is_empty());
+    let warming = bound("/b", "codex");
+    let generation = pool.want(Role::Hinted, warming.clone(), now).start.expect("a start");
+    let other = PoolKey { binding: Some("claude-token:y".into()), ..key("/c", "opencode") };
+    assert!(hint_ready(&mut pool, other, 1, "other").is_empty());
+    let ended = pool.remove_keys(|k| k.binding.as_deref() == Some("claude-token:x"));
+    assert_eq!(ended, vec!["bound-ready"]);
+    assert_eq!(pool.complete(&warming, generation, "late", now), Some("late"));
+    assert_eq!(cwds(&pool), vec!["/c".to_owned()]);
 }

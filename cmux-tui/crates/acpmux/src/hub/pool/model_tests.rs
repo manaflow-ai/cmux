@@ -43,6 +43,7 @@ fn key_for(profile: &HarnessProfile, model: Option<&str>) -> PoolKey {
         settings_file: PathBuf::new(),
         model,
         effort,
+        binding: None,
     }
 }
 
