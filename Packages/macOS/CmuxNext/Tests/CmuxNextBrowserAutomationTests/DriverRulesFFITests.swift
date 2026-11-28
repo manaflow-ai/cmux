@@ -9,12 +9,16 @@ import Testing
         try DriverParams(method: "page.goto", json: .object(fields))
     }
 
-    private func message(_ body: () throws(DriverError) -> Void) -> String? {
-        do throws(DriverError) {
+    /// The driver error's text, or nil when `body` did not throw. The closure is untyped: without
+    /// FullTypedThrows a closure literal infers `throws(any Error)`, which a `throws(DriverError)` parameter refuses.
+    private func message(_ body: () throws -> Void) -> String? {
+        do {
             try body()
             return nil
-        } catch {
+        } catch let error as DriverError {
             return error.message
+        } catch {
+            return "not a DriverError: \(error)"
         }
     }
 
