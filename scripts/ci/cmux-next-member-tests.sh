@@ -23,24 +23,54 @@ if [[ -n "$only_test" ]]; then
   # The gate's own target only, so the gate's saved target covers it and a red here is a red there.
   [[ " ${args[*]} " == *" --test $only_test "* ]] || { echo "::error::$member's gate targets (${args[*]}) have no --test $only_test"; exit 2; }
   [[ "$filter" == *cmux_next_* ]] || { echo "::error::filter $filter selects tests the gate does not run (it holds no cmux_next_)"; exit 2; }
-  # Select the gate's packages, not the member's alone: cargo resolves features over the packages one command names,
-  # and `-p cmux-tui` alone gives proc-macro2 (span-locations), syn, num-traits and 29 more crates other features
-  # than the gate's 10-package command, other hashes, so a "hit" on the gate's saved target still rebuilt 384 crates:
-  # cmux-next-idle-wakeups' cargo test took 1665-2329 s on 46 landing heads in 6 h (2026-11-28 05-11Z, 1,768
-  # runner-min, about 7,000 a day; jobs 140885307870, 140948193539). `--test NAME` builds and runs that target of
-  # whichever selected package declares it (cmux-tui alone has `it`), so the tests run are the same.
-  read -r -a gate <<<"$(../scripts/ci/cmux-next-daemon-test-packages.sh)"
-  selected=()
-  for ((i = 0; i < ${#gate[@]}; i++)); do
-    case "${gate[i]}" in
-      -p) selected+=(-p "${gate[i + 1]}"); i=$((i + 1)) ;;
-      --workspace) selected+=(--workspace) ;;
-    esac
-  done
-  [[ " ${selected[*]} " == *" ${args[1]} "* || " ${selected[*]} " == *" --workspace "* ]] \
-    || selected=("${args[0]}" "${args[1]}")
-  args=("${selected[@]}" --test "$only_test")
+  args=("${args[0]}" "${args[1]}" --test "$only_test")
 fi
+# Select the gate's packages, not the member's alone: cargo resolves features over the packages one command names, and
+# one member alone gives 27 (cmux-tui), 67 (cmux-tui-core) or 82 (acpmux) crates, proc-macro2 (span-locations), syn
+# and num-traits among them, other features than the gate's 10-package command, other hashes, so a "hit" on the gate's
+# saved target still rebuilt it: cargo test took 1665-2410 s (cmux-tui `it`, 46 landing heads in 6 h, 2026-11-28
+# 05-11Z, 1,768 runner-min; jobs 140885307870, 140948193539), 2162 s (cmux-tui, job 140926948698), 1613-1620 s
+# (cmux-tui-core, jobs 140926948698, 140911041297) and 1048 s (acpmux, job 140900588167).
+pkg="${args[1]}"
+targets=("${args[@]:2}")
+read -r -a gate <<<"$(../scripts/ci/cmux-next-daemon-test-packages.sh)"
+selected=()
+for ((i = 0; i < ${#gate[@]}; i++)); do
+  case "${gate[i]}" in
+    -p) selected+=(-p "${gate[i + 1]}"); i=$((i + 1)) ;;
+    --workspace) selected+=(--workspace) ;;
+  esac
+done
+[[ " ${selected[*]} " == *" -p $pkg "* ]] || selected=(-p "$pkg")
+args=("${selected[@]}" "${targets[@]}")
+# `--test NAME` builds only the selected packages that declare NAME (`it` is cmux-tui's alone), so cargo test runs the
+# member's tests. `--lib`/`--bins` would select every package's, so then the gate's packages build (--no-run) and only
+# the member's test binaries run, as cargo test runs them: from the member's directory, with its CARGO_* env.
+lone=1
+[[ " ${targets[*]} " == *" --lib "* || " ${targets[*]} " == *" --bins "* ]] && [[ ${#selected[@]} -gt 2 ]] && lone=0
+member_tests() {
+  if [ "$lone" -eq 1 ]; then cargo test "${args[@]}" --locked "$filter"; return; fi
+  local built rc=0
+  built="$(mktemp /tmp/cmux-next-member-build.XXXXXX.json)"
+  cargo test "${args[@]}" --locked --no-run --message-format=json-render-diagnostics >"$built" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    while IFS=$'\t' read -r version exe; do
+      echo "     Running $exe"
+      (cd "$repo/cmux-tui/$member" && CARGO="$(command -v cargo)" CARGO_MANIFEST_DIR="$PWD" CARGO_PKG_NAME="$pkg" \
+        CARGO_PKG_VERSION="$version" CARGO_CRATE_NAME="${pkg//-/_}" "$exe" "$filter") || { rc=$?; break; }
+    done < <(python3 -I - "$built" "$repo/cmux-tui/$member/Cargo.toml" <<'EOF'
+import json, sys
+manifest = sys.argv[2]
+for line in open(sys.argv[1]):
+    m = json.loads(line) if line.startswith("{") else {}
+    if m.get("reason") == "compiler-artifact" and m.get("executable") and m["profile"]["test"] and m["manifest_path"] == manifest:
+        print(m["package_id"].rsplit("@", 1)[-1], m["executable"], sep="\t")
+EOF
+    )
+  fi
+  rm -f "$built"
+  return "$rc"
+}
 channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
 rustup toolchain install "$channel" --profile minimal --component clippy,rustfmt
 # cmux-next-daemon-tests' env, word for word: the saved target's fingerprints hold it.
@@ -58,7 +88,7 @@ for attempt in 1 2 3; do
   # set -e would end the script on a failing pipeline: keep it off for the test so the retry, the timing line and the
   # daemon cleanup below still run.
   set +e
-  cargo test "${args[@]}" --locked "$filter" 2>&1 | tee "$log"
+  member_tests 2>&1 | tee "$log"
   status=${PIPESTATUS[0]}
   set -e
   if [ "$status" -ne 0 ] && python3 ../scripts/cmux-next/cargo-locks.py explain "$log"; then break; fi
