@@ -275,7 +275,6 @@ await requireBrowserLane("reply-settle-frames-real-browser.test.ts", async () =>
         : "F5: a retained row that skips offscreen motion still covers a visible fold ghost",
       async () => {
         const page = await browser.newPage({ viewport: { width: 600, height: 400 } });
-        page.on("response", async (r) => { if (r.status() >= 400) console.log("FETCH", r.status(), r.url(), (await r.text()).slice(0, 2000)); });
         try {
           const origin = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
           const blank = await vite!.transformIndexHtml("/blank.html", "<!doctype html><html><body></body></html>");

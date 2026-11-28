@@ -1656,6 +1656,7 @@ export function playTurnEnd(
       next: Moving,
       keyframes: () => Keyframe[][],
       timing: KeyframeAnimationOptions = {},
+      coverMotion: "move" | "jump" | "start" | "end" = "move",
     ) => {
       /// Nothing plays on a row drawn outside the view at the moment it would start: the row is already laid out
       /// at its place, so not animating it IS its final state, drawn once, full ink (Leo, 2026-11-22:
@@ -1685,10 +1686,23 @@ export function playTurnEnd(
       /// still lays the page out once (never a rect per row between `animate()` writes:
       /// chat-render-pipeline R2).
       if (!startsInView(node, band.from, band.height)) return;
-      const cover =
-        store === moving && was.has(node.dataset.rowId!) && Math.abs(next.delta) >= 0.5
-          ? coverClip({ ...band, padTop: 0, padBottom: 0 }, atRest, Math.max(0, next.clip ?? 0), 0)
+      // A swap draws two stationary boxes; a dissolve jumps only once its ink has faded.
+      // Coverage follows that geometry while the visibility gate keeps the captured band.
+      const coverBand = {
+        ...band,
+        ...(coverMotion === "start" && { to: band.from }),
+        ...(coverMotion === "end" && { from: band.to }),
+        padTop: 0,
+        padBottom: 0,
+      };
+      const endpoints =
+        store === moving && (was.has(node.dataset.rowId!) || coverMotion === "start") && Math.abs(next.delta) >= 0.5
+          ? coverClip(coverBand, atRest, Math.max(0, next.clip ?? 0), 0)
           : undefined;
+      const cover =
+        endpoints && coverMotion === "jump"
+          ? [endpoints[0], { ...endpoints[0], offset: 0.35 }, { ...endpoints[1], offset: 0.35 }, endpoints[1]]
+          : endpoints;
       next.covered = cover ? JSON.stringify(cover) : undefined;
       const last = store.get(node);
       if (
@@ -1892,9 +1906,15 @@ export function playTurnEnd(
         const order = [...snapshots.values()].indexOf(snapshot);
         // Where the slide starts the row (`from`): its drawn top, carried with the rows mounted above since.
         snapshotPlaces.push([snapshot, from - snapshotTops[order]!]);
-        restart(node, moving, band, { delta, fades: true, animations: [] }, () => [[{ opacity: 0 }, { opacity: 1 }]], {
-          easing: MOTION_EASE_OUT,
-        });
+        restart(
+          node,
+          moving,
+          band,
+          { delta, fades: true, animations: [] },
+          () => [[{ opacity: 0 }, { opacity: 1 }]],
+          { easing: MOTION_EASE_OUT },
+          "end",
+        );
         // The snapshot is drawn where the row started and fades there, so the move's band is its band too.
         restart(
           snapshot,
@@ -1903,6 +1923,7 @@ export function playTurnEnd(
           { delta, fades: true, animations: [] },
           () => [[{ opacity: 1 }, { opacity: 0 }]],
           { easing: EASE_IN, fill: "both" },
+          "start",
         );
         return;
       }
@@ -1921,6 +1942,7 @@ export function playTurnEnd(
             ],
           ],
           { easing: "linear" },
+          "jump",
         );
         return;
       }
