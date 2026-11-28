@@ -1075,9 +1075,10 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
   box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
 }
 
-/* The row's actions, as ChatGPT and Codex show them (ComposerQueue.tsx): Steer is its ↪ glyph and its
-   word, then the trash can and ⋯, plain glyphs with the soft pill on hover only (styles.css
-   .acpmux-queued-action). The ⋯ menu wears the composer menus' look (modelPicker.css). */
+/* The row's actions (ComposerQueue.tsx): Steer is its ↪ glyph and its word, then the pencil and the
+   trash can, plain glyphs with the soft pill on hover only (styles.css .acpmux-queued-action). The
+   ⋯ menu of another agent's queued message card (QueuedMessageCard.tsx) wears the composer menus'
+   look (modelPicker.css). */
 .acpmux-queued-action.acpmux-queued-steer {
   width: auto;
   gap: 4px;

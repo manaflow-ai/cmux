@@ -713,10 +713,9 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           GH_TOKEN: ${{ github.token }}
           STALE: ${{ steps.stale.outputs.stale }}
-          # Only defer to a publisher queued on the current daemon-test runner.
-          # Both pools the gate can take: cmux-linux, and the nightly spill pool an
-          # attempt-2+ rerun on a nightly ref moves to (#64136).
-          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux,cmux-gcp-nightly-x64' }}
+          # Only defer to a publisher queued on a current daemon-test runner: the nightly path takes the one-job JIT
+          # label, anything else follows the Linux overflow switch.
+          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || format('{0},cmux-gcp-nightly-jit-x64', vars.CI_OVERFLOW_LINUX || 'cmux-linux') }}
         run: |
           set -euo pipefail
           superseded=false
@@ -1238,10 +1237,9 @@ jobs:
           GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
           TREE_READY: ${{ needs.tree-preflight.outputs.tree_ready }}
           DAEMON_TESTED: ${{ needs.tree-preflight.outputs.daemon_tested }}
-          # Only defer to a publisher queued on the current daemon-test runner.
-          # Both pools the gate can take: cmux-linux, and the nightly spill pool an
-          # attempt-2+ rerun on a nightly ref moves to (#64136).
-          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux,cmux-gcp-nightly-x64' }}
+          # Only defer to a publisher queued on a current daemon-test runner: the nightly path takes the one-job JIT
+          # label, anything else follows the Linux overflow switch.
+          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || format('{0},cmux-gcp-nightly-jit-x64', vars.CI_OVERFLOW_LINUX || 'cmux-linux') }}
           # How long a live owner holds its key before a feat-cmux-next push
           # takes it over. On 2026-10-28 a healthy owner published about 20
           # minutes after it started, and owners hung for up to an hour in a Zig
@@ -1691,19 +1689,17 @@ jobs:
           needs.tree-preflight.outputs.run_macos == 'true' &&
           (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
     needs: [tree-preflight, tree-owner-wait]
-    # FEAT_BUILD_COALESCED: a feat-cmux-next push's first attempt shares one build group (feat-push) with no
-    # cancel-in-progress: GitHub keeps one build running and one pending, and a newer push replaces only the
-    # pending one, so an intermediate trunk tip no longer builds beside the tip (on 2026-11-27 12-22Z up to 6
-    # feat-cmux-next builds ran at once; replaying those runs with one running and one pending drops about
-    # 1,750 of their 3,870 build and daemon-test min). The tip is never the replaced one, so latest/ and the channels still track the
-    # newest commit, as tree-preflight's --trunk-tip-only skip already decides at preflight. A replaced
-    # run's notify-unpublished-tree hands its key to a run that deferred to it; a takeover run, a re-run
-    # (cmux-tui-tree-request.yml's repair of one commit's tree) and a dispatch keep their per-run group, so
-    # no repair is replaced. Leo: "de facto, im asking for 99% fewer minutes of ci time, period."
-    # One group per run, and one per branch on other branches' pushes, as `build` (cx-73f2,
-    # BRANCH_BUILD_SUPERSEDED).
+    # SPLIT_PAIR_STARVED: a feat-cmux-next push's Linux build keeps one group per run, so the darwin `build`'s
+    # feat-push group (FEAT_BUILD_COALESCED) is the run's one admission point. Both legs used to share a
+    # feat-push group each, and a newer window replaced each leg's pending slot on its own, so no run held
+    # both: run 46184033844 (20:00Z window, 2026-11-28) held darwin from 20:28Z while its pending Linux was
+    # replaced at 21:00Z; run 46189288797 (21:00Z) ran Linux with darwin pending behind it. publish needs
+    # both, so no window published or requested an image roll from about 09:00Z. A window's Linux now always
+    # finishes beside its own darwin; a run whose darwin is replaced spends one Linux build (one window an
+    # hour, base-coalesce.yml), and the pending darwin still coalesces to the newest window.
+    # One group per branch on other branches' pushes, as `build` (cx-73f2, BRANCH_BUILD_SUPERSEDED).
     concurrency:
-      group: cmux-tui-build-linux-${{ (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && needs.tree-owner-wait.outputs.takeover != 'true') && 'feat-push' || (((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && format('ref-{0}', github.ref) || format('{0}-{1}', needs.tree-preflight.outputs.key, github.run_id)) }}
+      group: cmux-tui-build-linux-${{ ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && format('ref-{0}', github.ref) || format('{0}-{1}', needs.tree-preflight.outputs.key, github.run_id) }}
       cancel-in-progress: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
     permissions:
       contents: read
@@ -2243,7 +2239,7 @@ jobs:
     # want no smoke tests"). Leo, 2026-10-26: "I THOUGHT THESE
     # COULD JUST GO ON LINUX". None of the cmux_next_ tests is gated to macOS
     # and cmux-tui.yml's Linux job runs the whole workspace, so every attempt
-    # of every event takes Blacksmith Linux at 32 vCPU: no owned-Mac queue
+    # of every event takes owned Linux: no owned-Mac queue
     # (side-std held these jobs 20+ min on 2026-10-26) and no share of the
     # promote mini the Release compile needs. The tests that need macOS
     # (Keychain, Seatbelt, wakeup counters) run in their own workflow,
@@ -2254,9 +2250,21 @@ jobs:
     # its name's "cmux_next_ daemon tests" prefix, so older runs' names with
     # a runner suffix still count. Leo, 2026-10-27: "ok do NOT label stuff as
     # os=linux...": the name, steps and marker name no runner OS.
-    # A rerun leaves the pool that failed it: 2026-11-28 run 46107444639 failed this job on hetzner-2
-    # (cargo registry EACCES), and with no retry runner a promote waits on that one pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
+    # The nightly path (dispatch, nightly-next, feat-cmux-next) takes the nightly's one-job on-demand JIT label on
+    # every attempt: a whole VM, not a cmux-linux pool slot. The acpmux lib test rustc alone outgrows a slot's 14 GiB
+    # memory.max: job 141082665250 (run 46178446718, 2d0f28f5, 2026-11-28) was SIGKILLed at CARGO_BUILD_JOBS=3, 2
+    # and 1 (one rustc at a time) over 49 min, as were jobs 140997699588 and 141050286394's builds that day, so no
+    # tree after 1708b0ea got its marker and nightly-next stayed there. The retry route waited on a rerun that never
+    # came (none of those runs had an attempt 2). Not cmux-gcp-nightly-x64: spot pool VMs serve it too
+    # (linux_retry_runner above), and a pool slot is the 14 GiB that failed. A rerun leaves the pool that failed it
+    # (run 46107444639, cargo registry EACCES on one cmux-linux box) the same way.
+    # The overflow switch (vars.CI_OVERFLOW_LINUX, scripts/ci/one_linux_label.py) moves pr-pipeline.yml's linux job too,
+    # so the feat-cmux-next push that saves the test target (scripts/ci/cmux-tui-test-target.sh) builds where the pull
+    # requests restore it: its key holds the workspace path, /home/runner/work on the pool, /home/runner/_work on
+    # Blacksmith. 2026-11-28 08:30-11:40Z: every overflow PR missed (a cold 20 min), and every push's job on the pool
+    # was cut by a runner shutdown 18-23 min in (cmuxterm-hq#36618) before its save, so pool PRs kept restoring the
+    # 04:00Z save with 686-887 files changed and compiled 28-40 min.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-jit-x64' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # 60 was the green run's whole length: job 137409209815 (7d439038, 2026-11-23,
     # cmux-runner-pool) took 59:56: setup 11 min (runner 2:20, checkout 2,
     # supersede check 1:40, Zig packages 2:16), the test compile 22:40 on a
@@ -2550,7 +2558,7 @@ jobs:
           rm -rf "$home"
 
       # A feat-cmux-next push only, after a red test too (the compile is still good), before
-      # rust-cache's post step prunes the workspace crates: at most one save a 4-hour window.
+      # rust-cache's post step prunes the workspace crates: at most one save an hour.
       - name: Save the cargo build to the CI cache bucket
         if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true' }}
         continue-on-error: true

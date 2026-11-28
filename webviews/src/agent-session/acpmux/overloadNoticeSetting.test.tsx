@@ -8,7 +8,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { DEFAULT_COMPOSER, setComposerSettings } from "./composerSettings";
 import { NoticeSlot } from "./NoticeSlot";
-import { OverloadNotice, usePaneHostOverload } from "./OverloadNotice";
+import { OverloadNotice } from "./OverloadNotice";
+import { usePaneHostOverload } from "./useHostOverload";
 import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;

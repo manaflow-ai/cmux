@@ -104,14 +104,14 @@ fn attach_at(mut command: Command, path: &mut Vec<String>, front_door: bool) -> 
             arg
         });
     }
-    let names: Vec<String> =
-        command.get_subcommands().map(|sub| sub.get_name().to_owned()).collect();
-    for name in names {
-        path.push(name.clone());
-        command = command.mut_subcommand(name, |sub| attach_at(sub, path, front_door));
+    // One pass over the children: `mut_subcommand` by name removes and re-pushes each, which is
+    // quadratic in a group's size (the root has about a hundred).
+    command.mut_subcommands(|sub| {
+        path.push(sub.get_name().to_owned());
+        let sub = attach_at(sub, path, front_door);
         path.pop();
-    }
-    command
+        sub
+    })
 }
 
 #[cfg(test)]

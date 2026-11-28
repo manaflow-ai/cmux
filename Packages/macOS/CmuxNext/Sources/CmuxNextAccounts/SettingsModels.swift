@@ -99,6 +99,9 @@ public final class SettingsModels {
     /// Called each time this Mac's connections are read or change (a run's answer, a watched change): a
     /// Cloud chat waiting on Set up Cloud checks again (``CloudSetup/connectionsChanged()``, set by the app).
     @ObservationIgnored public var onConnections: (@MainActor () -> Void)?
+    /// Called when a sign-in this object started ends with an error: its family (`codex` for ChatGPT,
+    /// `claude`) and acpmux's code. A Cloud chat waiting on it stops waiting (``CloudSetup/signInFailed(_:family:)``).
+    @ObservationIgnored public var onSignInFailed: (@MainActor (_ family: String, _ code: String) -> Void)?
 
     nonisolated deinit {
         cloudClaudeAccountWatch?.cancel()
@@ -597,7 +600,12 @@ public final class SettingsModels {
         guard line.isPerson, let reply = await line.call(method.rawValue, request) else {
             throw PageError.unavailable("the local acpmux could not check model access")
         }
-        return try JSONValue.parse(JSONSerialization.data(withJSONObject: reply))
+        return try Self.replyValue(reply)
+    }
+
+    /// acpmux's reply object as a ``JSONValue``.
+    nonisolated static func replyValue(_ reply: [String: Any]) throws -> JSONValue {
+        try JSONValue.parse(JSONSerialization.data(withJSONObject: reply))
     }
 
     func requireDaemonEnvironment() async throws -> AcpmuxEnvironment { try await requireDaemon() }

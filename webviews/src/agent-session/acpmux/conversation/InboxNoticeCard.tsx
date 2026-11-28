@@ -55,7 +55,7 @@ import { NoticeMark } from "./NoticeMark";
 import { noticeRepeatClock } from "./noticeRowModel";
 import { useNoticeRowLook } from "./noticeRowLook";
 import { Markdown } from "./Markdown";
-import { inboxHover } from "./MessageGroupHover";
+import { inboxHover } from "./messageGroupHoverModel";
 import { withoutRelayEnvelope } from "./relayEnvelope";
 import { bareSender } from "./senderIdentity";
 import { SentFromLine } from "./SentFromLine";
