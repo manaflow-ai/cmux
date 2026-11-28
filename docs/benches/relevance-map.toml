@@ -20,8 +20,86 @@
 #                run (Linux bench commands `for-paths --run` runs), budget_s (seconds; over it fails the run)
 # [[situation]]  name, paths, template (docs/benches/templates/<name>.md: the minimal check this kind of change needs)
 # [[unit]]       generated: one per Rust crate, Swift module or test target, webviews/src folder, tooling folder
+# [[live_rule]]  name, class, pattern, reason, why: ordered path rules live_apply.py's hot-swap verdict reads (below)
 
 schema = "cmux-bench/relevance-map/v1"
+
+# ---- live rules: what a running cmux NEXT app takes from a changed path without a new build ---------------
+#
+# One table, two consumers: `cmux-bench for-paths` (which benches and tests a path needs) and
+# scripts/cmux-next/live_apply.py (whether the running app hot-swaps it, try-pr.sh and nightly.yml's
+# landings-skip-rebuild). A path takes the `class` of the first [[live_rule]] whose `pattern` (a Python regular
+# expression, re.search) matches it; a path none matches goes on to live_apply's Swift diff rules (swift-live or
+# rebuild), then `no-app` when deleted, else `rebuild`. `reason` is the rebuild reason live_apply reports.
+# Edit here, then `scripts/bench/cmux-bench for-paths --write` regenerates live_apply.py's rule block (the
+# literal `NAME = re.compile(...)` lines cmuxterm-hq now_code_shape.py parses); tests/test_bench_relevance_map.py
+# fails when the two differ. Classes: no-app, web-live, strings, daemon, rebuild, ios-only.
+
+[[live_rule]]
+name = "IOS"
+class = "ios-only"
+pattern = '^(ios|cmux-next-ios|Packages/iOS)/'
+
+[[live_rule]]
+name = "NOAPP_PATH"
+class = "no-app"
+why = '''
+Folders and files that never ship in the app, checked before everything but IOS. images/ is the Cloud
+machine image (its bot's image rolls); ci-target-graph.json is CI's test-target map. Root examples/ holds
+sample extensions only a lint reads; cmux-tui/bindings/examples/ is built into the app, so the rule is anchored.
+A *-gallery.html page is a design gallery. The root .gitattributes only sets merge drivers and Linguist
+labels; evals/ (cueval's computer-use tasks) and Native/*/evals/ (the Chief's eval cases, which only its tests,
+examples and backend/scripts read: no include_str! in src/, nothing in build.rs) are eval inputs; dogfood/ held
+scenario files whose runner is gone. design/ holds the sources generators read (design/icons, design/agent-icons:
+their outputs are committed where the app reads them, cmux-icons.json, AgentBrandCatalog+Generated.swift, brand.rs)
+and design pages. vault/ is the cmux-vault Go service (its own go.mod; the app's Rust uses cmux-vault-egress);
+capture-scratch/ holds screenshot replay output. No Xcode phase, Package.swift resource or build script copies any of them.
+'''
+pattern = '(^|/)(docs?|plans|research|\.github|tests?|Tests|UITests|scripts|skills|release-notes|schemas|fixtures|bench|benchmarks|tools|build-fleet)(/|$)|^(web|backend|workers|services|images|examples|cmux-tui/relays|evals|dogfood|design|vault|capture-scratch)/|^Native/.+/evals/|^\.gitattributes$|(^|/)ci-target-graph\.json$|-gallery\.html$|(^|/)CHANGELOG|LICENSE|\.gitignore$|\.test\.(ts|tsx)$|\.gallery\.(ts|tsx|css)$|/gallery/'
+
+[[live_rule]]
+name = "WEB"
+class = "web-live"
+why = '''
+clients/ts and config/vite-plus hold TypeScript that only the web bundles import (the Cloud page's wire types,
+clients/ts/cloud/src/generated.ts) or lint with: nothing native reads them (cmux_next_route.py BUNDLE_INPUTS).
+'''
+pattern = '^(webviews|cmux-tui/frontends/web|clients/ts|config/vite-plus)/'
+
+[[live_rule]]
+name = "STRINGS"
+class = "strings"
+why = '''
+String catalogs: gen-strings.mjs builds the web pages' strings from them, and a Swift string shows its source
+text without the compiled table, so trying the change needs no build; only the translations do.
+'''
+pattern = '\.xcstrings$'
+
+[[live_rule]]
+name = "REBUILD_FILE"
+class = "rebuild"
+reason = "resource or manifest"
+why = '''
+C, Objective-C and Zig sources need a new app, except under cmux-tui/: the cmux-tui tree build compiles those (a
+companion's shim, the Zig binding), so they are daemon, as hot-apply.py applies them; its linked_rust still leaves
+an app FFI crate's to the ffi part (hot-apply-more-kinds.md in cmuxterm-hq docs/design).
+'''
+pattern = '\.(strings|xcassets|plist|entitlements|pbxproj|xcconfig|storyboard|xib|metal|png|pdf|car|icns)$|(^|/)Package\.(swift|resolved)$|Contents\.json$|\.xcodeproj/|/Resources/|^ghostty|^(?!cmux-tui/).*\.(c|h|m|mm|zig)$'
+
+[[live_rule]]
+name = "RUST"
+class = "daemon"
+pattern = '\.rs$|(^|/)Cargo\.toml$|^cmux-tui/|^acpmux/'
+
+[[live_rule]]
+name = "NOAPP_EXT"
+class = "no-app"
+why = '''
+Extensions that change nothing in the app, checked after the web, resource and Rust rules, so a
+Cargo.lock, a bundled Resources/x.sh or webviews' vite.config.mjs still counts.
+'''
+pattern = '\.(md|txt|yml|yaml|toml|lock|sh|py|mjs)$'
+
 
 # ---- situations: the check a kind of change needs, whatever its area -------------------------------------------
 
