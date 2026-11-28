@@ -25,3 +25,4 @@ acpmux protocol: 0 of 2 files written to src/agent-session/acpmux/protocol/gener
 2:13:58 AM [vite+] (client) Re-optimizing dependencies because vite config has changed
 2:13:58 AM [vite+] server restarted.
 2:13:59 AM [vite+] (client) [optimizer] scanning dependencies...
+error: script "dev" exited with code 137

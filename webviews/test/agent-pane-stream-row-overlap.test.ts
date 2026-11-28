@@ -420,7 +420,7 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
                         return `${[...new Set(props)].join("+")}@${Math.round((effect?.getComputedTiming().progress ?? 0) * 100)}`;
                       })
                       .join(",") +
-                    `|tr=${getComputedStyle(row).translate}|top=${row.style.top}|clip=${getComputedStyle(row).clipPath}|ink=${JSON.stringify(pairIndex === 0 ? upperInk : lowerInk)}`,
+                    `|tr=${getComputedStyle(row).translate}|top=${row.style.top}|clip=${getComputedStyle(row).clipPath}|ink=${JSON.stringify(pairIndex === 0 ? upperInk : lowerInk)}|box=${JSON.stringify(row.getBoundingClientRect())}|layout=${row.offsetTop},${row.offsetHeight}|transform=${getComputedStyle(row).transform}|margin=${getComputedStyle(row).marginTop}|frames=${JSON.stringify(row.getAnimations().map((animation) => (animation.effect as KeyframeEffect).getKeyframes()))}`,
                 )
                 .join(" ; "),
             });
