@@ -182,8 +182,8 @@ class NightlyGateTest(unittest.TestCase):
                             ("rust-notices", ["scripts/cmux-next/generate-third-party-notices.sh"])):
             with self.subTest(name):
                 self.assertTrue(steps[name].nightly)
-                # next-state-roots (a land_gate step) also scans scripts/cmux-next/*.sh for Classic ids; the idle daemon
-                # tests (land_gate, cmux#63822) keep Cargo.lock.
+                # next-state-roots (a land_gate step) also scans scripts/cmux-next/*.sh for Classic ids, and
+                # cmux-next-idle-wakeups (a land_gate step) takes the workspace manifests (a notify bump).
                 self.assertEqual([n for n in ci_steps.nightly_gate_steps(ci_steps.load(), paths)
                                   if n not in ("next-state-roots", "cmux-next-idle-wakeups")], [name])
 
@@ -210,7 +210,7 @@ class NightlyGateTest(unittest.TestCase):
         self.assertIn("nightly gate", why["pr-pipeline.yml"])
         self.assertEqual(jobs, ["linux"])
         # page.tsx routes web-typecheck, a `land_gate` step; a plain web step (web-lint, web tests) stays off.
-        # Cargo.lock is also a workspace manifest the idle daemon tests keep (land_gate, cmux#63822).
+        # Cargo.lock also reaches the idle daemon tests (cmux-next-idle-wakeups, a land_gate step).
         self.assertEqual(only, ["web-typecheck", "cmux-next-idle-wakeups", "rust-notices", "phone-speed-icount"])
         start, why, (jobs, only) = self.landing(["scripts/cmux-next/generate-third-party-notices.sh"])
         self.assertIn("nightly gate: runs only next-state-roots, rust-notices", why["pr-pipeline.yml"])
@@ -269,10 +269,12 @@ class NightlyGateTest(unittest.TestCase):
                 self.assertIn("pr-pipeline.yml", start)
                 self.assertIn("phone speed gate", why["pr-pipeline.yml"])
                 self.assertEqual(jobs, ["linux"])
-                # land_gate steps a crate source or the lockfile also reach: persisted-formats (cmux#63842) and
-                # next-state-roots (cmux#63853) scan crate sources; the idle daemon tests (cmux#63822) keep Cargo.lock.
-                expected = {"cmux-tui/crates/cmux-terminal-projection/src/lib.rs": ["persisted-formats", "next-state-roots", "phone-speed-icount"],
-                            "cmux-tui/Cargo.lock": ["cmux-next-idle-wakeups", "rust-notices", "phone-speed-icount"]}.get(path, ["phone-speed-icount"])
+                # A crate's Rust source also reaches the persisted-formats registry and next-state-roots (land_gate
+                # steps on every cmux-tui/crates/*/src .rs); Cargo.lock reaches the idle daemon tests.
+                expected = {"cmux-tui/crates/cmux-terminal-projection/src/lib.rs":
+                                ["persisted-formats", "next-state-roots", "phone-speed-icount"],
+                            "cmux-tui/Cargo.lock": ["cmux-next-idle-wakeups", "rust-notices", "phone-speed-icount"]
+                            }.get(path, ["phone-speed-icount"])
                 self.assertEqual(only, expected)
 
     def test_phone_speed_does_not_depend_on_the_nightly_mirror_switch(self) -> None:
@@ -1174,8 +1176,7 @@ class SetupTest(unittest.TestCase):
     def test_the_tables_tool_steps_are_push_tier_and_the_workflow_runs_the_pr_tier(self) -> None:
         # web-tests-affected (cmux#63314) is the one pull request tier step with a tool: it runs only the web tests a
         # change reaches, so it exists for the pull request tier; a push runs every web test in the push-tier shards.
-        # phone-speed-icount (cmux#63285) gates a landing head before it lands, so it runs on the pull request tier too.
-        pr_tier_tool_steps = {"web-tests-affected", "phone-speed-icount"}
+        pr_tier_tool_steps = {"web-tests-affected"}
         for step in ci_steps.load().steps.values():
             if step.job == "linux" and step.needs:
                 self.assertEqual(step.tier, "pr" if step.name in pr_tier_tool_steps else "push", step.name)
@@ -1426,7 +1427,6 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(router["jobs"]["pipeline"]["with"], {
             "jobs": "${{ needs.route.outputs.table || '' }}",
             "only": "${{ needs.route.outputs.only || '' }}", "defer_web_browser": True,
-            # cmux#64172: the pipeline skips the ios fast verdict runner where the router's plan answers run=false.
             "ios_fast_skip": "${{ needs.route.outputs.ios_fast_skip == 'true' }}"})
 
     def test_browser_suites_run_on_a_pr_only_with_full_ci(self) -> None:

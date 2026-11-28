@@ -3120,6 +3120,7 @@ inputs = [
   "cmux-tui/persisted-formats/*",
   "cmux-tui/persisted-formats/agent-host-record/*",
   "cmux-tui/persisted-formats/terminal-host-record/*",
+  "cmux-tui/crates/acpmux/src/server/pull_request_actions/*",
 ]
 run = '''
 python3 -I tests/test_ci_daemon_pr_member_steps.py
@@ -4679,6 +4680,7 @@ python3 -I scripts/cmux-next/fast-tier.py --root "${CMUX_MAC_ROOT:-$PWD}" --kind
 
 [step.phone-speed-icount]
 job = "linux"
+tier = "push"
 pr_scope = false
 timeout = 300
 title = "Phone terminal instruction budgets"
