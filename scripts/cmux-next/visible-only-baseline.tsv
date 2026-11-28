@@ -83,7 +83,6 @@ cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/TeamSidebar.swift	visible-on
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Artifacts/ArtifactsSheet.swift	visible-only-eager-stack-in-scroll	1
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Composer/TerminalComposer.swift	visible-only-eager-stack-in-scroll	1
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/KeyBar/TerminalKeyBar.swift	visible-only-foreach-unstable-id	2
-cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Screen/TerminalConnectingView.swift	visible-only-foreach-unstable-id	1
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Screen/TerminalTabPage.swift	visible-only-foreach-unstable-id	1
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/PanesScreen.swift	visible-only-foreach-unstable-id	1
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/TaskComposerScreen.swift	visible-only-eager-stack-in-scroll	3
