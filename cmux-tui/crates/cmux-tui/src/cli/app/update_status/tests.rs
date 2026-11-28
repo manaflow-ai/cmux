@@ -37,7 +37,6 @@ fn running() -> Value {
             "network_constrained": false,
             "network_expensive": false,
             "network_pending": false,
-            "download_held_for_deltas": false,
             "off_managed_channel": false,
             "managed_policy_disables": false,
             "required_minimum_version": null,

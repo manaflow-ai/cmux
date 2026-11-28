@@ -23,7 +23,6 @@ nonisolated public struct UpdateAutomationFacts: Sendable, Equatable {
     public var networkExpensive: Bool
     /// No path event yet: the link counts as metered until one arrives.
     public var networkPending: Bool
-    public var downloadHeldForDeltas: Bool
     public var offManagedChannel: Bool
     public var managedPolicyDisables: Bool
     public var requiredMinimumVersion: String?
@@ -47,7 +46,6 @@ extension UpdaterService {
             networkConstrained: network.constrained,
             networkExpensive: network.expensive,
             networkPending: networkPending,
-            downloadHeldForDeltas: downloadHeldForDeltas,
             offManagedChannel: isOffManagedChannel,
             managedPolicyDisables: policy.disablesUpdates,
             requiredMinimumVersion: requiredMinimumVersion,
@@ -73,7 +71,6 @@ extension UpdateAutomationFacts {
             "network_constrained": .bool(networkConstrained),
             "network_expensive": .bool(networkExpensive),
             "network_pending": .bool(networkPending),
-            "download_held_for_deltas": .bool(downloadHeldForDeltas),
             "off_managed_channel": .bool(offManagedChannel),
             "managed_policy_disables": .bool(managedPolicyDisables),
             "required_minimum_version": requiredMinimumVersion.map(JSONValue.string) ?? .null,

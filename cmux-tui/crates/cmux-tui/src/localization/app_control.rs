@@ -399,7 +399,6 @@ pub(crate) struct UpdateStatusMessages {
     pub network_pending: &'static str,
     pub low_data: &'static str,
     pub expensive_link: &'static str,
-    pub held_for_deltas: &'static str,
     pub downloads_off: &'static str,
 }
 
@@ -532,7 +531,6 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         network_pending: "the network has not reported its kind yet",
         low_data: "Low Data Mode defers downloads",
         expensive_link: "an expensive link (cellular, a hotspot) defers downloads",
-        held_for_deltas: "the download waits for a smaller delta update",
         downloads_off: "automatic downloads are off",
     },
     version: VersionLabels {

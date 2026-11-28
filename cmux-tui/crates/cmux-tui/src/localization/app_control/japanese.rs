@@ -117,7 +117,6 @@ pub(in super::super) const JAPANESE: AppControlMessages = AppControlMessages {
         network_pending: "ネットワークの種類がまだ報告されていません",
         low_data: "低データモードのためダウンロードを延期しています",
         expensive_link: "従量制の回線 (モバイル通信、テザリング) のためダウンロードを延期しています",
-        held_for_deltas: "ダウンロードはより小さい差分アップデートを待っています",
         downloads_off: "自動ダウンロードはオフです",
     },
     version: VersionLabels {

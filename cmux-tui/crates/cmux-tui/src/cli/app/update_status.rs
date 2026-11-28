@@ -161,9 +161,6 @@ fn download_reasons(facts: Option<&Value>, messages: &UpdateStatusMessages) -> V
             reasons.push(reason("expensive_link", "network", messages.expensive_link));
         }
     }
-    if flag("download_held_for_deltas") {
-        reasons.push(reason("held_for_deltas", "app", messages.held_for_deltas));
-    }
     if reasons.is_empty() {
         reasons.push(reason("downloads_off", "app", messages.downloads_off));
     }
