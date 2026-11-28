@@ -423,7 +423,22 @@ async fn async_main(parsed: Parsed) -> Result<()> {
             allow_dev_origin,
             dev,
             take_over,
+            handoff_lock_fd,
+            handoff_unix_fd,
+            handoff_ws_fd,
+            handoff_count,
         }) => {
+            // Any of them: this start is a restart's exec in place (`daemon/handoff.rs`).
+            let handoff = (handoff_lock_fd.is_some()
+                || handoff_unix_fd.is_some()
+                || handoff_ws_fd.is_some()
+                || handoff_count.is_some())
+            .then(|| crate::daemon::HandoffOptions {
+                lock_fd: handoff_lock_fd,
+                unix_fd: handoff_unix_fd,
+                ws_fd: handoff_ws_fd,
+                count: handoff_count.unwrap_or(0),
+            });
             let logs = tracing_subscriber::fmt()
                 .with_env_filter(
                     tracing_subscriber::EnvFilter::try_new(&log).unwrap_or_else(|_| "info".into()),
@@ -473,6 +488,7 @@ async fn async_main(parsed: Parsed) -> Result<()> {
                     dev_origins: allow_dev_origin,
                     dev,
                     take_over,
+                    handoff,
                 },
                 &exit_tasks,
             )
@@ -503,7 +519,24 @@ async fn async_main(parsed: Parsed) -> Result<()> {
             // (a launcher `--version` check can take 20 s); 74 when its store
             // asked for a restart (`daemon::EXIT_REPAIR`).
             crate::heap_profile::finish();
-            std::process::exit(crate::daemon::exit_status())
+            // A restart request armed an exec in place: the installed build runs as this pid with
+            // the kept listeners and lock. Back here only when the exec failed: that status.
+            #[cfg(unix)]
+            let status =
+                crate::daemon::handoff::exec_if_armed().unwrap_or_else(crate::daemon::exit_status);
+            #[cfg(not(unix))]
+            let status = crate::daemon::exit_status();
+            std::process::exit(status)
+        }
+        // No lock and no home: what a restart's exec in place asks the installed build.
+        #[cfg(unix)]
+        Some(Command::DaemonHandoffCheck) => {
+            println!("{}", crate::daemon::handoff::check_line());
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        Some(Command::DaemonHandoffCheck) => {
+            Err(anyhow::anyhow!("daemon handoff-check runs only on Unix"))
         }
         Some(Command::CliAgent {
             last_block,
@@ -686,7 +719,9 @@ async fn async_main(parsed: Parsed) -> Result<()> {
         }
         // A heavy shell call the Bash hook sent to a run VM (`placement/run_vm.rs`): no daemon.
         // A CI log through the shared cache (`ci_log_cache.rs`): no daemon.
-        Some(cmd @ (Command::RunVm { .. } | Command::CiLogCache { .. })) => {
+        Some(
+            cmd @ (Command::RunVm { .. } | Command::CiLogCache { .. } | Command::SpecServe { .. }),
+        ) => {
             let code = match cmd {
                 Command::RunVm { shim, command } => {
                     let ran = match shim {
@@ -704,6 +739,7 @@ async fn async_main(parsed: Parsed) -> Result<()> {
                     }
                 }
                 Command::CiLogCache { command } => crate::ci_log_cache::main(&command),
+                Command::SpecServe { command } => crate::spec_exec::main(&command),
                 _ => 1,
             };
             // crash-allow: the agent's shell reads the command's own exit code, as if it ran here
