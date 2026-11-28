@@ -59,6 +59,22 @@ class Record(unittest.TestCase):
         self.assertTrue(body.startswith(f"<!-- cmux-proof-record ios-flows {HEAD} -->"))
         self.assertEqual(pr.parse(body), RECORD)
 
+    def test_a_big_record_still_fits_one_comment(self):
+        # cmux#38466: 201 screens rendered 38365 characters, the broker refused it and the gate never saw the proof.
+        big = copy.deepcopy(RECORD)
+        big["captures"] = [{"name": f"{i:08X}-4C8B-4892-AAAB-66BEE93F5ACA.png", "sha256": f"{i:064x}",
+                            "diff_ratio": 0.0008, "verdict": "same"} for i in range(201)]
+        big["visual"] = {"screens": 201, "changed": [c["name"] for c in big["captures"][:100]]}
+        self.assertGreater(len(json.dumps(big, indent=1)), pr.COMMENT_BUDGET)
+        body = pr.render(big, "summary")
+        self.assertLessEqual(len(body), pr.COMMENT_BUDGET)
+        back = pr.parse(body)
+        self.assertEqual(back["verdict"], "pass")
+        self.assertEqual(len(back["captures"]), 201)
+        self.assertEqual(pr.gate(back, "ios-flows")[0], "success")
+        self.assertEqual(back["captures"][0]["sha256"], f"{0:012x}")
+        self.assertIn('\n "kind"', pr.render(RECORD))  # a small record keeps the readable indented form
+
     def test_problems(self):
         self.assertEqual(pr.problems(RECORD), [])
         bad = copy.deepcopy(RECORD)
@@ -154,6 +170,45 @@ class Plan(unittest.TestCase):
         self.assertNotEqual(key, dispatch(strict=True))
         self.assertNotEqual(key, dispatch(attempt="2"))
         self.assertEqual(dispatch(attempt="2"), dispatch(attempt="2"))
+
+    def test_a_leased_worker_falls_to_the_next_placement(self):
+        refusal = ("refused: fleet registry reservation lease-abc holds this worker for another account: nothing is "
+                   "moved to or tested on it; omit target_worker so the job places on the rest of the fleet")
+        step = {"name": "sim 1/2: test only=K1", "mode": "test", "worker": "w1", "args": ["test"]}
+
+        def run(outputs, strict=False, leased=None, workers=("w1", "w2")):
+            with mock.patch.object(ios_verify, "stream", side_effect=outputs) as s, \
+                    mock.patch.object(ios_verify, "xcode_label", return_value=None):
+                out = ios_verify.run_step(dict(step), HEAD, 7, strict, "1", list(workers), leased or set())
+            cmds = [c.args[0] for c in s.call_args_list]
+            pins = [c[c.index("--target-worker") + 1] if "--target-worker" in c else None for c in cmds]
+            return out, pins, [c[c.index("--key") + 1] for c in cmds]
+
+        # Refused for a lease: the next named worker, then unpinned placement; each retry gets its own key.
+        out, pins, keys = run([(1, refusal), (1, refusal), (0, "ok")])
+        self.assertEqual(pins, ["w1", "w2", None])
+        self.assertEqual(len(set(keys)), 3)
+        self.assertEqual((out["result"], out["worker"], out["refused_workers"]), ("pass", None, ["w1", "w2"]))
+        self.assertNotIn("refused_workers", ios_verify.public_runs([out])[0])
+        # A lease read up front skips the worker without a refused submission.
+        _, pins, _ = run([(0, "ok")], leased={"w1"})
+        self.assertEqual(pins, ["w2"])
+        # Any other failure is the PR's result, not a reason to move.
+        out, pins, _ = run([(1, "test failed: K1")])
+        self.assertEqual((pins, out["result"]), (["w1"], "fail"))
+        # --pin-strict never falls back off its worker.
+        out, pins, _ = run([(1, refusal)], strict=True, leased={"w1"})
+        self.assertEqual((pins, out["result"]), (["w1"], "fail"))
+
+    def test_leased_hosts_reads_the_active_leases(self):
+        done = mock.Mock(returncode=0, stdout=json.dumps(
+            {"leases": [{"hosts": ["w1.tail", "w2"]}, {"hosts": None}], "view": "active"}))
+        with mock.patch.object(ios_verify.subprocess, "run", return_value=done):
+            self.assertEqual(ios_verify.leased_hosts(), {"w1", "w2"})
+        with mock.patch.object(ios_verify.subprocess, "run", side_effect=OSError("no cmux-ci")):
+            self.assertEqual(ios_verify.leased_hosts(), set())
+        with mock.patch.object(ios_verify.subprocess, "run", return_value=mock.Mock(returncode=1, stdout="")):
+            self.assertEqual(ios_verify.leased_hosts(), set())
 
     def selection(self, **kw):
         base = {"ios": True, "compile": False, "flows": ["smoke-launch-sign-in"], "kit": ["K1", "K2"],
