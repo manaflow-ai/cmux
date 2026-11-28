@@ -1,6 +1,6 @@
 /// One row of a column: a horizontal band of the column's vertical strip
 /// holding one split tree (plans/cmux-next/rows.md).
-public nonisolated struct LayoutRow: Hashable, Sendable, Identifiable {
+public nonisolated struct LayoutRow: Hashable, Sendable, Identifiable, Codable {
     public var id: RowID
     /// Permille of the column's viewport height, 100...1000 (G1, G2).
     public var height: Int

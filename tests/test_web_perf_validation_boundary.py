@@ -19,6 +19,26 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WebPerfValidationBoundaryTests(unittest.TestCase):
+    def test_manual_suites_do_not_run_during_registration_or_each_other(self):
+        workflow = yaml.load(
+            (ROOT / ".github/workflows/cmux-next-web-perf.yml").read_text(),
+            Loader=yaml.BaseLoader,
+        )
+        self.assertEqual(workflow["on"]["push"]["paths"], [".github/workflows/cmux-next-web-perf.yml"])
+        inputs = workflow["on"]["workflow_dispatch"]["inputs"]
+        self.assertEqual(inputs["suite"]["default"], "chromium")
+        self.assertEqual(inputs["suite"]["options"], ["chromium", "stress"])
+        jobs = workflow["jobs"]
+        for name in ("measure", "validate", "stress-measure"):
+            self.assertIn("github.event_name == 'workflow_dispatch'", jobs[name]["if"])
+        for name in ("measure", "validate"):
+            self.assertIn("inputs.suite != 'stress'", jobs[name]["if"])
+        self.assertIn("inputs.suite == 'stress'", jobs["stress-measure"]["if"])
+        self.assertEqual(jobs["stress-compare"]["needs"], "stress-measure")
+        self.assertIn("needs.stress-measure.result != 'skipped'", jobs["stress-compare"]["if"])
+        self.assertIn("inputs.suite != 'stress'", workflow["concurrency"]["cancel-in-progress"])
+        self.assertIn("manual-bench-register-", workflow["concurrency"]["group"])
+
     def test_policy_evaluation_has_its_own_fresh_hosted_runner_and_base_checkout(self):
         workflow = yaml.load(
             (ROOT / ".github/workflows/cmux-next-web-perf.yml").read_text(),

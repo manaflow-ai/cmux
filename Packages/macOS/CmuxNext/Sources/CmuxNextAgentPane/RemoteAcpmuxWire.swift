@@ -117,13 +117,14 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// read): its `initialize` names `agent_login` before the first send made a session, so the
     /// first failed turn already offers Sign in. A wire with a session asks its client instead.
     private let servesLogin: Bool
-    /// False for a chat on a Cloud machine: it reaches models through the machine's edge and holds no
-    /// provider login, so its page never offers the on-machine sign-in, whatever its daemon serves.
+    /// Whether this pane can use the machine's sign-in. For a Cloud machine the App checks ownership.
     private let machineSignIn: Bool
     /// A new chat's sign-in on its machine while it has no session (a start refused because its
     /// agent is not signed in there): its `initialize` names `agent_login_machine`, and a login step
     /// that names no session goes here. Nil for a machine whose daemon cannot.
     private let machineLogin: MachineLogin?
+    /// Tells the App that the machine completed a Claude sign-in.
+    private let claudeSignedIn: (@Sendable () async -> Void)?
     /// A new chat's machine opens side chats (`agent-session-side-v1`, the host's own daemon read).
     private let servesSide: Bool
     private let cloudRepositoryRequest: CloudRepository?
@@ -140,8 +141,8 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// The wire of the chat `session` (its store record), through `client`.
     public init(client: any AgentSessionRemoteClient, session: String, host: String? = nil, linksAlias: String? = nil,
                 trust: Trust? = nil, ownerCloud: OwnerCloud? = nil, cloudRepository: CloudRepository? = nil,
-                cloudRepositoryStart: CloudRepositoryStart? = nil, machineSignIn: Bool = true, chatNoted: ChatNoted? = nil,
-                chatOwned: ChatOwned? = nil) {
+                cloudRepositoryStart: CloudRepositoryStart? = nil, machineSignIn: Bool = true,
+                claudeSignedIn: (@Sendable () async -> Void)? = nil, chatNoted: ChatNoted? = nil, chatOwned: ChatOwned? = nil) {
         start = nil
         self.chatNoted = chatNoted
         self.chatOwned = chatOwned
@@ -149,6 +150,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         servesLogin = false
         self.machineSignIn = machineSignIn
         machineLogin = nil
+        self.claudeSignedIn = claudeSignedIn
         servesSide = false
         self.host = host
         self.linksAlias = linksAlias
@@ -164,15 +166,16 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     public init(start: @escaping Start, host: String? = nil, linksAlias: String? = nil, trust: Trust? = nil,
                 ownerCloud: OwnerCloud? = nil, cloudRepository: CloudRepository? = nil,
                 cloudRepositoryStart: CloudRepositoryStart? = nil, servesLogin: Bool = false, servesSide: Bool = false,
-                machineSignIn: Bool = true, machineLogin: MachineLogin? = nil, milestone: Milestone? = nil, chatNoted: ChatNoted? = nil,
-                chatOwned: ChatOwned? = nil) {
+                machineSignIn: Bool = true, machineLogin: MachineLogin? = nil,
+                claudeSignedIn: (@Sendable () async -> Void)? = nil, milestone: Milestone? = nil,
+                chatNoted: ChatNoted? = nil, chatOwned: ChatOwned? = nil) {
         self.start = start
         self.chatNoted = chatNoted
         self.chatOwned = chatOwned
         self.milestone = milestone
         self.servesLogin = servesLogin && machineSignIn
         self.machineSignIn = machineSignIn
-        // A Cloud machine holds no provider login, so it never offers the on-machine sign-in.
+        self.claudeSignedIn = claudeSignedIn
         self.machineLogin = machineSignIn ? machineLogin : nil
         self.servesSide = servesSide
         self.host = host
@@ -388,6 +391,9 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                     let answer = try await step()
                     let object = (try? JSONSerialization.jsonObject(with: answer)) as? [String: Any]
                     guard let refused = object?["refused"] as? [String: Any] else {
+                        if op == "finish", object?["agent"] as? String == "claude", object?["signedIn"] as? Bool == true {
+                            await self?.claudeSignedIn?()
+                        }
                         self?.emit(id.map { #"{"jsonrpc":"2.0","id":\#($0),"result":"# + String(decoding: answer, as: UTF8.self) + "}" })
                         return
                     }
