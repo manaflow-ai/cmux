@@ -349,6 +349,33 @@ class GuardTests(unittest.TestCase):
             self.assertNotIn(leak, text)
         self.assertEqual(logs.window_needle(["cloud.snapshot.census"]), "cloud.snapshot.census")
 
+    def test_team_read_keeps_a_machines_cleanup_events_with_tagged_ids_only(self):
+        # cmux-platform CloudCore.ts: test reap, retention and purge write `{"event": ...}` lines; staging run
+        # 46197588168 kept 0 rows while its header counted 433 cloud.machine.test_reaped among the dropped.
+        stream = "cloud:" + TEAM
+        reaped = event({"level": "warn", "event": "cloud.machine.test_reaped", "stream": stream, "team": TEAM,
+                        "machine": VM, "name": "hunter2 box", "created_at": 1795721451000,
+                        "expires_at": 1795721452000, "origin": "Hunter2 CI"})
+        due = event({"level": "warn", "event": "cloud.machine.test_reap_due", "stream": stream, "team": TEAM,
+                     "machine": VM, "name": "hunter2", "created_at": 1795721451000, "hours": 6, "mode": "warn"})
+        purged = event({"event": "cloud.machine.purged", "reason": "cloud.quota.vm_limit", "stream": stream, "team": TEAM,
+                        "machine": VM, "deleted_at": 1795721451000, "status": "paused", "refused": None})
+        evict = event({"level": "warn", "event": "cloud.machine.evict_due", "stream": stream, "team": TEAM,
+                       "machine": VM, "reason": "Hunter2 words", "evict_at": 1795721451000, "mode": "sometimes"})
+        head, rows = logs.publish([reaped, due, purged, evict], ["cloud.machine"], TEAM)
+        tags = {"team": logs.base.tag(TEAM), "machine": logs.base.tag(VM), "stream": logs.base.tag(stream)}
+        self.assertEqual([r["log"] for r in rows], [
+            {"event": "cloud.machine.test_reaped", **tags, "has_expiry": True},
+            {"event": "cloud.machine.test_reap_due", **tags, "hours": 6, "mode": "warn"},
+            {"event": "cloud.machine.purged", **tags, "reason": "cloud.quota.vm_limit", "status": "paused"},
+            {"event": "cloud.machine.evict_due", **tags},
+        ])
+        self.assertNotIn("unlisted_msgs", head)
+        text = json.dumps(rows) + json.dumps(head)
+        for leak in (TEAM, VM, stream, "hunter2", "Hunter2", "1795721451000", "1795721452000"):
+            self.assertNotIn(leak, text)
+        self.assertEqual(logs.window_needle(["cloud.machine.test_reaped"]), "cloud.machine.test_reaped")
+
     def test_cmux_vm_window_keeps_the_create_queues_fields(self):
         # cmux#61073 limits/create-admission.ts: a refused create's line and a create sent without the queue.
         refused = event({"event": "vm_create", "vmId": VM, "ok": False, "preMs": 4, "admitWaitMs": 61, "admitQueueMs": 0,
