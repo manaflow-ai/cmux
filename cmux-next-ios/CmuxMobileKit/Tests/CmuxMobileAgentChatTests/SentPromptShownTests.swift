@@ -7,6 +7,12 @@ import Testing
 /// of the prompt came back a round trip later. A prompt into an idle chat is drawn at once, and
 /// the Mac's record takes that same turn over: its rows keep their ids (no pop), it is never
 /// doubled, and one the Mac does not run goes back to the composer as before.
+///
+/// Since #57933 (0338a1ec3da4, "keep chats visible and reconnect without connection notices") a
+/// send draws a waiting bubble (`AgentTurn.localSend`): the transcript draws no prompt row for it
+/// (`OutgoingMessagesView` draws the bubble), it is not a running turn, it stays below the Mac's
+/// turns until its record lands, and a steer shows in the running turn at once. #56958 kept its
+/// row keys on top of that design; these tests follow it.
 @MainActor
 @Suite struct SentPromptShownTests {
     final class Recorder: AgentSessionSource {
@@ -31,16 +37,19 @@ import Testing
         let source = Recorder()
         let store = AgentChatStore(source: source)
         store.send(prompt: "  run the tests\nand summarize  ")
+        // Read at once: the window is a second, and a loaded simulator can spend that building rows.
+        let justSent = store.justSentRowKey()
         let id = try Self.promptID(source)
+        #expect(justSent == AgentChatStore.localTurnID(id))
+        #expect(store.justSentRowKey(now: ProcessInfo.processInfo.systemUptime + 2) == nil, "only a moment after the send")
         let shown = try #require(store.turns.last)
         #expect(store.turns.count == 1)
         #expect(shown.isUnconfirmed)
+        #expect(shown.localSend == .sending)
         #expect(shown.prompt == "run the tests\nand summarize")
-        #expect(store.isRunning)
-        let before = Self.rowIDs(store)
-        #expect(before.contains("u-\(AgentChatStore.localTurnID(id))"))
-        #expect(store.justSentRowKey() == AgentChatStore.localTurnID(id))
-        #expect(store.justSentRowKey(now: ProcessInfo.processInfo.systemUptime + 2) == nil, "only a moment after the send")
+        #expect(!store.isRunning, "a waiting bubble is not a running turn (#57933)")
+        // The waiting bubble is `OutgoingMessagesView`'s; the transcript has no prompt row for it yet.
+        #expect(Self.rowIDs(store) == ["session-start"])
 
         store.apply(.userMessage(text: "run the tests\nand summarize", promptId: id, turnId: "t1", attachments: [], at: Date()))
         store.apply(.turnStarted(turnId: "t1", at: Date()))
@@ -49,7 +58,9 @@ import Testing
         #expect(turn.id == "t1")
         #expect(!turn.isUnconfirmed)
         #expect(turn.rowKey == AgentChatStore.localTurnID(id))
-        #expect(Self.rowIDs(store) == before, "same rows: nothing is taken out and put in again")
+        let recorded = Self.rowIDs(store)
+        #expect(recorded.contains("u-\(AgentChatStore.localTurnID(id))"), "the record keeps the sent bubble's row key")
+        #expect(!recorded.contains("u-t1"), "never drawn again under the Mac's id")
 
         // The turn goes on under the Mac's id: its answer and its end land in it.
         store.apply(.update(.agentMessageChunk(text: "All green.", messageId: "m1")))
@@ -107,22 +118,30 @@ import Testing
         // The Mac ran another prompt first: its updates must not land in the shown bubble's turn.
         store.apply(.userMessage(text: "from the Mac", promptId: "other", turnId: "t1", attachments: [], at: Date()))
         store.apply(.update(.agentMessageChunk(text: "Working on it.", messageId: "m1")))
-        #expect(store.turns.map(\.id) == ["t1"])
-        #expect(store.turns.last?.answerMarkdown == "Working on it.")
+        // The waiting bubble stays below the Mac's turns until its own record lands.
+        #expect(store.turns.map(\.id) == ["t1", AgentChatStore.localTurnID(id)])
+        #expect(store.turns.first?.answerMarkdown == "Working on it.")
+        #expect(store.turns.last?.answerMarkdown == "")
         store.apply(.turnResult(turnId: "t1", status: .completed, errorText: nil, at: Date()))
         store.apply(.userMessage(text: "mine", promptId: id, turnId: "t2", attachments: [], at: Date()))
         #expect(store.turns.map(\.id) == ["t1", "t2"], "each once, in the Mac's order")
         #expect(store.turns.last?.prompt == "mine")
     }
 
-    @Test func aMessageIntoARunningTurnWaitsForTheMac() throws {
+    /// #57933: a steer shows in the running turn at once, under its prompt id, not a turn of its own.
+    @Test func aMessageIntoARunningTurnShowsInItAtOnce() throws {
         let source = Recorder()
         let store = AgentChatStore(source: source)
         store.apply(.userMessage(text: "first", promptId: "p1", turnId: "t1", attachments: [], at: Date()))
         #expect(store.isRunning)
         store.send(prompt: "and the docs", steer: true)
-        #expect(store.turns.count == 1)
-        #expect(store.turns.last?.items.isEmpty == true)
+        let id = try Self.promptID(source)
+        #expect(store.turns.map(\.id) == ["t1"])
+        let steers = store.turns.last?.items.compactMap { item -> SteeredMessage? in
+            if case .steer(let message) = item { message } else { nil }
+        } ?? []
+        #expect(steers.map(\.promptID) == [id])
+        #expect(steers.map(\.text) == ["and the docs"])
     }
 
     @Test func aSentPromptKeepsItsAttachmentsThroughTheRecord() throws {
