@@ -35,7 +35,7 @@ jobs:
     name: heal the feat-cmux-next acpmux channel
     if: github.repository == 'manaflow-ai/cmux' && (vars.CMUX_TUI_CHANNEL_HEAL || '1') != '0'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds an actions-write token to rerun or dispatch the artifacts workflow; the repair pool, as cmux-next-package-deps-heal.yml
-    timeout-minutes: 5
+    timeout-minutes: 8
     permissions:
       actions: write
       contents: read
@@ -56,3 +56,19 @@ jobs:
           set -euo pipefail
           git update-ref refs/remotes/origin/feat-cmux-next HEAD
           python3 scripts/ci/cmux_tui_channel_heal.py $DRY | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # CLOUD_MACHINE: the Cloud machine channel (cloud-machine.json), which only cmux-machine-channel.yml's point
+      # jobs move, on push. A failed build held it at f3ac175f for about 3 h on 2026-11-28 (the acpmux rustc
+      # OOM-killed on both legs, runs 46151055654 and 46154021183; bound 60 min). Past 25 min of cmux-tui/ lag this
+      # reruns the newest built run's failed build jobs once; it runs after the step above even when that one's alarm
+      # is red.
+      - name: Heal the Cloud machine channel
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: feat-cmux-next
+          DRY: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: |
+          set -euo pipefail
+          git update-ref refs/remotes/origin/feat-cmux-next HEAD
+          python3 scripts/ci/cmux_tui_channel_heal.py --cloud-machine $DRY | tee -a "$GITHUB_STEP_SUMMARY"
