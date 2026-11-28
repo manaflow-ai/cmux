@@ -568,7 +568,13 @@ impl AskLedger {
             if !enabled && !path.exists() {
                 return None;
             }
-            store::fold(&path, &mut state);
+            if let Err(e) = store::fold(&path, &mut state) {
+                tracing::warn!(
+                    "asks: recovery failed for {}; persistence disabled: {e}",
+                    path.display()
+                );
+                return None;
+            }
             store::spawn_writer(dir, path)
         });
         let (writer, thread) = match spawned {

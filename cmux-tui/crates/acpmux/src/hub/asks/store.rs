@@ -20,24 +20,31 @@ pub(crate) enum Work {
 
 /// Folds `path` into `state`. A line that does not parse is skipped; a last line with no
 /// newline (a write torn by a crash) is cut off, so the next append starts a line of its own.
-pub(crate) fn fold(path: &Path, state: &mut State) {
-    let Ok(file) = File::open(path) else { return };
-    fold_reader(path, BufReader::new(file), state);
+pub(crate) fn fold(path: &Path, state: &mut State) -> std::io::Result<()> {
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    fold_reader(path, BufReader::new(file), state)
 }
 
-fn fold_reader(path: &Path, mut reader: impl BufRead, state: &mut State) {
+fn fold_reader(path: &Path, mut reader: impl BufRead, state: &mut State) -> std::io::Result<()> {
+    // Publish only a complete replay: a prefix may omit a later purge or capture.
+    let mut recovered = State::default();
     let mut buf = Vec::new();
     let mut whole: u64 = 0;
     loop {
         buf.clear();
-        match reader.read_until(b'\n', &mut buf) {
-            Ok(0) => break,
-            Ok(_) if buf.last() != Some(&b'\n') => break,
-            Ok(n) => whole = whole.saturating_add(n as u64),
-            Err(e) => {
-                tracing::warn!("asks: read {}: {e}", path.display());
+        match reader.read_until(b'\n', &mut buf)? {
+            0 => break,
+            _ if buf.last() != Some(&b'\n') => {
+                // read_until returned successfully at EOF: only this is a torn tail.
+                // If cutting it fails, the caller must not append or compact this store.
+                crate::home_fs::OpenOptions::new().write(true).open(path)?.set_len(whole)?;
                 break;
             }
+            n => whole = whole.saturating_add(n as u64),
         }
         let Ok(text) = std::str::from_utf8(&buf) else { continue };
         if text.trim().is_empty() {
@@ -45,28 +52,20 @@ fn fold_reader(path: &Path, mut reader: impl BufRead, state: &mut State) {
         }
         match serde_json::from_str::<Line>(text) {
             Ok(Line::Ask(ask)) => {
-                state.add_ask(ask);
+                recovered.add_ask(ask);
             }
             Ok(Line::Pr(pr)) => {
-                state.put_pr(pr);
+                recovered.put_pr(pr);
             }
             Ok(Line::Event(event)) => {
-                state.add_event(event);
+                recovered.add_event(event);
             }
-            Ok(Line::Purge { sid }) => state.remove_session(&sid),
+            Ok(Line::Purge { sid }) => recovered.remove_session(&sid),
             Err(e) => tracing::debug!("asks: skipped a line: {e}"),
         }
     }
-    let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(whole);
-    if size > whole {
-        let cut = crate::home_fs::OpenOptions::new()
-            .write(true)
-            .open(path)
-            .and_then(|f| f.set_len(whole));
-        if let Err(e) = cut {
-            tracing::warn!("asks: cannot cut a torn line off {}: {e}", path.display());
-        }
-    }
+    *state = recovered;
+    Ok(())
 }
 
 fn encode(line: &Line) -> Option<String> {
@@ -252,10 +251,22 @@ mod tests {
         for prefix in [first.clone(), format!("{first}{{\"Ask\":")] {
             let input = std::io::Cursor::new(prefix.into_bytes()).chain(ReadFailure);
             let mut state = State::default();
-            fold_reader(&path, BufReader::new(input), &mut state);
+            assert!(fold_reader(&path, BufReader::new(input), &mut state).is_err());
             assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
             assert!(state.asks.is_empty(), "incomplete replay must not publish partial state");
         }
+    }
+
+    #[test]
+    fn failed_tail_repair_does_not_publish_recovered_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(FILE);
+        std::fs::create_dir(&path).unwrap();
+        let input = format!("{}torn", encode(&Line::Ask(ask("first"))).unwrap());
+        let mut state = State::default();
+        assert!(fold_reader(&path, std::io::Cursor::new(input), &mut state).is_err());
+        assert!(state.asks.is_empty());
+        assert!(path.is_dir());
     }
 
     #[test]
@@ -290,7 +301,7 @@ mod tests {
         Writer { dir: dir.path().to_owned(), path: path.clone(), file: None }.run(rx);
 
         let mut restarted = State::default();
-        fold(&path, &mut restarted);
+        fold(&path, &mut restarted).unwrap();
         assert!(!restarted.asks.contains_key(&gone.id), "a failed rewrite must not undo a purge");
         assert_eq!(restarted.asks.get(&kept.id), Some(&kept), "pending captures must survive");
 
@@ -300,7 +311,7 @@ mod tests {
         assert!(writer.rewrite(&crate::hub::asks::snapshot(&restarted)));
         assert!(!std::fs::read_to_string(&path).unwrap().contains(&gone.text));
         let mut compacted = State::default();
-        fold(&path, &mut compacted);
+        fold(&path, &mut compacted).unwrap();
         assert_eq!(compacted.asks.get(&kept.id), Some(&kept));
         assert!(!compacted.asks.contains_key(&gone.id));
     }

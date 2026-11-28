@@ -36,3 +36,9 @@ fixtures must satisfy the shared scanner's entropy rules. The detectors are
 `the_hubs_append_path_records_the_persons_prompts_only` and
 `capture_masks_credentials_before_truncating`; the latter also crosses the
 1,000-character boundary with multibyte text to detect truncation before masking.
+
+Recovery publishes state and starts persistence only after the whole file was read
+and any torn EOF tail was successfully cut. I/O errors preserve the original file;
+no writer may compact an incomplete replay. The detectors are
+`a_read_error_preserves_the_unread_suffix_and_discards_partial_state` and
+`an_unreadable_store_never_starts_a_writer`; the restart test retains torn-tail coverage.
