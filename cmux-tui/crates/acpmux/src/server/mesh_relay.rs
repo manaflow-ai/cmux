@@ -1552,9 +1552,17 @@ fn gone_reason(why: &str, next: &super::outbox::Next) -> String {
 /// plain prompt (`peer_forward::name_sender` names only a proven caller).
 fn names_no_sender(message: &InMessage) -> bool {
     let blank = |v: Option<&str>| v.is_none_or(|v| v.trim().is_empty());
+    // A name that is no relay name (`Claude Code on HOST · 03214b87`, the harness label a
+    // shell's env gives a send with no session, e.g. a systemd timer under a user manager that
+    // imported an agent's env) names no program: the sending daemon made no relay record of it
+    // (`mesh_send::program_relay`), and the receiver reads the sender as the machine the hub
+    // proved. Counting it as a sender filed the prompt as an unclassed result, which does not
+    // wake a moved chat (`turn_count > 0`), on those runs only.
+    let names_a_program =
+        |v: Option<&str>| v.map(str::trim).is_some_and(crate::prompt_provenance::harness_fits);
     let from = &message.from;
     blank(from.session_id.as_deref())
-        && blank(from.name.as_deref())
+        && !names_a_program(from.name.as_deref())
         && blank(from.team_address.as_deref())
         && from.relay.is_none()
 }
@@ -1779,6 +1787,12 @@ mod tests {
         let mut session = bare.clone();
         session.from.session_id = Some("s-1".into());
         assert!(!names_no_sender(&session));
+        // A harness label is no program's name: still a plain send, as without it.
+        let mut harness = bare.clone();
+        harness.from.name = Some("Claude Code on lane-vm \u{b7} 03214b87".into());
+        assert!(names_no_sender(&harness), "a harness label names no program");
+        harness.from.name = Some("glaeda-land".into());
+        assert!(!names_no_sender(&harness), "a program's name");
         let mut relayed = bare.clone();
         relayed.from.relay = Some(json!({"by": "lane-gh", "machine": "h"}));
         assert!(!names_no_sender(&relayed));

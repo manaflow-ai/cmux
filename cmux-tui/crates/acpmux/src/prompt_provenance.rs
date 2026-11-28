@@ -996,7 +996,7 @@ fn fits(value: &str, max_bytes: usize) -> bool {
 }
 
 /// A harness family as acpmux names one: 1 to 64 letters, digits, `.`, `-` or `_`.
-fn harness_fits(value: &str) -> bool {
+pub(crate) fn harness_fits(value: &str) -> bool {
     (1..=MAX_NAME_CHARS).contains(&value.len())
         && value.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
 }
