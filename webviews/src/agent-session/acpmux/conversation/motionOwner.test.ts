@@ -74,4 +74,11 @@ describe("transition", () => {
     expect(run.anchor).toBeUndefined();
     expect(log).toEqual([]);
   });
+  test("the list reads where the rows are drawn before the change applies", () => {
+    const { motion, log } = list();
+    motion.capture = (anchor, rows) => log.push(`capture ${anchor} ${rows.join(",")}`);
+    const { timers } = fakeTimers();
+    transition(motion, { cause: "disclosure", anchorRow: "a", ms: 10, apply: () => log.push("apply") }, timers);
+    expect(log.slice(0, 2)).toEqual(["capture a b,c", "apply"]);
+  });
 });
