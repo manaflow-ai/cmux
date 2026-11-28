@@ -227,9 +227,7 @@ cmux-tui/crates/cmux-rd-core/include/cmux_screen_kit.h	cmux_screen_trackpad_touc
 cmux-tui/crates/cmux-rd-core/include/cmux_screen_kit.h	cmux_screen_trackpad_touch_up
 cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_receiver_note_frame_decode
 cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_session_clock
-cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_session_note_connect_started
 cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_session_note_frame_decode
-cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_session_report
 cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_session_stalled
 cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_upstream_target_bps
 cmux-tui/crates/cmux-sdk-ffi/include/cmux_sdk_ffi.h	cmux_sdk_bytes_free
