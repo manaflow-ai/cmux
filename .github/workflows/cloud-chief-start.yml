@@ -121,5 +121,6 @@ jobs:
           path: |
             ${{ runner.temp }}/cloud-chief-start/journey.json
             ${{ runner.temp }}/cloud-chief-start/summary.md
+            ${{ runner.temp }}/cloud-chief-start/failure-evidence.txt
           if-no-files-found: warn
           retention-days: 3

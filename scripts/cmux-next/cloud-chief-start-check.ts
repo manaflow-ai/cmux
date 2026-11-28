@@ -26,7 +26,8 @@
  */
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { Api, directExec, Journey, listAllMachines, passwordSignIn, resolveBackend, scrub, STACK, type Exec } from "./cloud-journey";
 
 const NAME_PREFIX = "cmux-test-";
@@ -111,6 +112,15 @@ const replyEvidence = (exec: Exec) =>
     ),
     60_000,
   ).then((r) => `${r.stdout.trim()}\n${r.stderr.trim().slice(-500)}`, (e) => `(evidence failed: ${String(e).slice(0, 300)})`);
+
+/** Keep the bounded guest evidence outside the step/error summaries, which truncate at 1000/2000 characters. */
+export async function saveReplyEvidence(exec: Exec, outDir: string | null, secrets: string[]): Promise<string> {
+  const evidence = scrub(await replyEvidence(exec), secrets);
+  if (!outDir) return evidence;
+  const file = join(outDir, "failure-evidence.txt");
+  writeFileSync(file, `${evidence}\n`);
+  return `guest evidence: ${file}`;
+}
 
 const REPLY_DEADLINE_MS = 240_000;
 const rowText = (m: any): string =>
@@ -310,7 +320,7 @@ async function main(): Promise<number> {
       const sentAt = Date.now();
       await api.op("message.send", { conversation, client_msg_id: `chief-start-${run}-app`, parts: [{ type: "text", text: `Reply with only the word ${word}` }] }, `chief-start-${run}-app`);
       const reply = await chiefReply(api, conversation, chief, seen, word, REPLY_DEADLINE_MS, J.secrets);
-      if (!reply) throw new Error(`no reply from ${chief} in ${REPLY_DEADLINE_MS / 1000} s; newest rows ${await rowsSeen(api, conversation)}\n${await replyEvidence(exec)}`);
+      if (!reply) throw new Error(`no reply from ${chief} in ${REPLY_DEADLINE_MS / 1000} s; newest rows ${await rowsSeen(api, conversation)}`);
       return { value: null, detail: `reply in ${Math.round((Date.now() - sentAt) / 1000)} s: ${JSON.stringify(reply.text.slice(0, 200))}` };
     });
     await J.step("a message from the phone's web page gets the reply (POST /v1/chief/messages with chiefId)", async () => {
@@ -328,6 +338,10 @@ async function main(): Promise<number> {
     return J.steps.some((s) => s.status === "fail") ? 1 : 0;
   } catch (e) {
     console.error(`cloud-chief-start-check: ${scrub(String((e as Error)?.message ?? e), J.secrets).slice(0, 2000)}`);
+    if (machine) {
+      await saveReplyEvidence(directExec(api, machine, J), outDir, J.secrets)
+        .then((evidence) => console.error(evidence), (error) => console.error(`guest evidence unavailable: ${scrub(String(error), J.secrets).slice(0, 300)}`));
+    }
     return 1;
   } finally {
     if (chief) {

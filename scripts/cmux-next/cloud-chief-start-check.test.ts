@@ -1,5 +1,23 @@
 import { expect, test } from "bun:test";
-import { chiefReply, chiefStartAuth } from "./cloud-chief-start-check";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { chiefReply, chiefStartAuth, saveReplyEvidence } from "./cloud-chief-start-check";
+
+test("guest evidence preserves late daemon diagnostics and scrubs credentials before saving", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "chief-evidence-"));
+  try {
+    const stdout = "startup\n".repeat(400) + "\nconversation source: cloud\nowner-secret-value\n== traces\nturn dispatch failed";
+    await saveReplyEvidence(async () => ({ code: 0, stdout, stderr: "owner-secret-value" }), dir, ["owner-secret-value"]);
+    const saved = readFileSync(join(dir, "failure-evidence.txt"), "utf8");
+    expect(saved).toContain("conversation source: cloud");
+    expect(saved).toContain("turn dispatch failed");
+    expect(saved).not.toContain("owner-secret-value");
+    expect(saved).toContain("[secret]");
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
+});
 
 const row = (id: string, text: string, author = "chief") => ({
   row: { id, author, parts: [{ type: "text", text }] },
