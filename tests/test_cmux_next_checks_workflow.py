@@ -4691,7 +4691,10 @@ esac
         self.assertEqual(evaluate(ref, {"github.event_name": "pull_request", "github.sha": self.REF,
                                         "github.event.pull_request.head.sha": self.OTHER}), self.REF)
         self.assertEqual(evaluate(ref, {"github.event_name": "push", "github.sha": self.REF}), self.REF)
-        self.assertIn("--no-supersede", step["run"])
+        # A newer head replaces an older queued fleet step. This keeps the
+        # feat-cmux-next queue bounded while a step already claimed by a worker
+        # continues to run and reports its exact commit.
+        self.assertNotIn("--no-supersede", step["run"])
 
     def test_the_client_runs_every_gating_swift_entry_of_the_fast_tier(self):
         registry = json.loads((ROOT / "scripts/cmux-next/fast-tier.json").read_text(encoding="utf-8"))
