@@ -89,6 +89,133 @@ CASE = re.compile(r"^ {4}(\t)?case\s+\w+|^\tcase\s+\w+")
 ORDER = ["rebuild", "swift-live", "daemon", "web-live", "strings", "ios-only", "no-app"]
 
 
+# The keyword and name of a type declaration (TYPE_DECL's line): `struct Reply`, `extension CloudWait.State`.
+TYPE_NAME = re.compile(r"\b(struct|class|enum|actor|protocol|extension)\s+([A-Za-z_][\w.]*)")
+# A head line that only continues the one above it (`where T: P`, `) -> X`, `: Equatable`).
+CONTINUES = re.compile(r"^(where\b|[:,&)>]|->|throws\b|async\b|rethrows\b)")
+NOT_TYPE_NAMES = {"func", "var", "let", "subscript", "init", "override", "final", "private", "fileprivate", "public",
+                  "internal", "package", "open", "static", "nonisolated", "required", "convenience"}
+
+
+def _scope_of(head):
+    """The scope a `{` opens, from the code since the last `{`, `}` or `;`: ("type", kind, name) for a type's or
+    extension's body, else ("code", head line): a function, initializer, computed property, accessor or closure."""
+    lines = [line.strip() for line in head.split("\n") if line.strip()]
+    while len(lines) > 1 and CONTINUES.match(lines[-1]):
+        lines.pop()
+    last = lines[-1] if lines else ""
+    named = TYPE_NAME.search(last)
+    if TYPE_DECL.match(last) and named and named.group(2) not in NOT_TYPE_NAMES:
+        return ("type", named.group(1), named.group(2), ":" in last[named.end():] or " where " in last[named.end():])
+    return ("code", " ".join(last.split()))
+
+
+def swift_scopes(text):
+    """For each line of a Swift file (index 0 is line 1): (the scopes open where it starts, the scopes it opens).
+    A scope is a `_scope_of` tuple. Braces inside comments and string literals are skipped; a string's
+    interpolation is read as part of the string. A sketch of Swift's grammar, not a parser: it only has to tell
+    a type's body from code, which a brace and the declaration before it do."""
+    starts, opens = [()], [[]]
+    stack, head = [], []
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == "\n":
+            head.append(c)
+            starts.append(tuple(stack))
+            opens.append([])
+            i += 1
+        elif text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+        elif text.startswith("/*", i):
+            depth, i = 1, i + 2
+            while i < n and depth:
+                if text.startswith("/*", i):
+                    depth, i = depth + 1, i + 2
+                elif text.startswith("*/", i):
+                    depth, i = depth - 1, i + 2
+                else:
+                    if text[i] == "\n":
+                        starts.append(tuple(stack))
+                        opens.append([])
+                    i += 1
+        elif c == '"' or (c == "#" and text.startswith('#"', i)):
+            hashes = 0
+            while text.startswith("#", i + hashes):
+                hashes += 1
+            j = i + hashes
+            quote = '"""' if text.startswith('"""', j) else '"'
+            close = quote + "#" * hashes
+            j += len(quote)
+            while j < n and not text.startswith(close, j):
+                if text[j] == "\\" and not hashes:
+                    j += 1
+                elif text[j] == "\n":
+                    if quote == '"':
+                        break  # an unclosed one-line string: stop at its line's end
+                    starts.append(tuple(stack))
+                    opens.append([])
+                j += 1
+            head.append("_")
+            i = j + (len(close) if text.startswith(close, j) else 0)
+        elif c == "{":
+            scope = _scope_of("".join(head))
+            stack.append(scope)
+            opens[-1].append(tuple(stack))
+            head = []
+            i += 1
+        elif c == "}":
+            if stack:
+                stack.pop()
+            head = []
+            i += 1
+        elif c == ";":
+            head = []
+            i += 1
+        else:
+            head.append(c)
+            i += 1
+    return list(zip(starts, opens))
+
+
+def _type_paths(scopes):
+    """Every type scope's path from the file's top, a type known by its kind and name (not its conformances) and code
+    by its head line: `struct Reply` in `func load()` is another type than `struct Reply` in `func save()`."""
+    def path(stack):
+        return tuple(s[:3] if s[0] == "type" else s for s in stack)
+    return {path(stack[:k + 1]) for start, opened in scopes for stack in [start, *opened]
+            for k in range(len(stack)) if stack[k][0] == "type"}, path
+
+
+def line_kinds(old_text, new_text):
+    """(old kinds, new kinds), one per line, for swift_reasons: "new" (in or opening a type the other side does not
+    have), "code" (inside a function body, initializer, accessor or closure), "local" (a member of a type that is
+    declared inside code), or "member" (a type's member or a file-level declaration)."""
+    old, new = swift_scopes(old_text), swift_scopes(new_text)
+    (old_types, path), (new_types, _) = _type_paths(old), _type_paths(new)
+
+    def kinds(scopes, others):
+        out = []
+        for start, opened in scopes:
+            fresh = any(path(stack[:k + 1]) not in others for stack in [start, *opened]
+                        for k in range(len(stack)) if stack[k][0] == "type")
+            # A conformance a running type lacks is not new code: a new `extension Old: P` stays a rebuild.
+            fresh = fresh and not any(stack[-1][0] == "type" and stack[-1][1] == "extension" and stack[-1][3]
+                                      and path(stack[:-1]) + (stack[-1][:2] + (stack[-1][2],),) not in others
+                                      and len(stack) == len(start) + 1 for stack in opened)
+            if fresh:
+                out.append("new")
+            elif start and start[-1][0] == "code":
+                out.append("code")
+            elif any(s[0] == "code" for s in start):
+                out.append("local")
+            else:
+                out.append("member")
+        return out
+    return kinds(old, new_types), kinds(new, old_types)
+
+
 def swift_reasons(lines, added_file):
     """Why a Swift file's change needs a rebuild; empty when it only changes function bodies.
     `lines` are the diff's ("+" or "-", text) pairs."""
@@ -99,13 +226,25 @@ def swift_reasons(lines, added_file):
         return ["new entry point"] if any(sign == "+" and ENTRY.match(text) for sign, text in lines) else []
     reasons = set()
     removed, added = [], []
-    for sign, line in lines:
+    for sign, line, *where in lines:
+        kind = where[0] if where else "member"  # see line_kinds; a pair without one is read as before
         body = line.rstrip()
         if not body.strip() or COMMENT.match(body):
             continue
         indent = len(body) - len(body.lstrip(" "))
         if ENTRY.match(body) and sign == "+":
             reasons.add("new entry point")
+        elif kind in ("new", "code"):
+            continue  # a type only the patch has, or a function's body: the patch carries both
+        elif kind == "local":
+            # A member of a type declared in a function: only that function (patched whole) uses it, but the loader
+            # still compares a type's layout when the build defines it too.
+            if STORED.match(body) and not body.endswith("{"):
+                reasons.add("stored property")
+            elif CASE.match(body.lstrip(" ").rjust(len(body.lstrip(" ")) + 4)):
+                reasons.add("enum case")
+            elif TYPE_DECL.match(body):
+                reasons.add("type or conformance")
         elif TYPE_DECL.match(body):
             reasons.add("type or conformance")
         elif (STATIC_LET.match(body) and indent <= 4) or (FILE_LET.match(body) and indent == 0):
@@ -182,9 +321,13 @@ def parse_name_status(text):
     return files
 
 
-def parse_diff(text):
-    """path -> ("+" or "-", text) pairs, from a unified diff."""
-    diffs, current = {}, None
+HUNK = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+
+
+def parse_diff(text, numbered=False):
+    """path -> ("+" or "-", text) pairs, from a unified diff; with `numbered`, (sign, text, line number in that
+    side) triples."""
+    diffs, current, numbers = {}, None, {"-": 0, "+": 0}
     for line in text.splitlines():
         if line.startswith("+++ "):
             current = line[6:] if line.startswith("+++ b/") else None
@@ -192,8 +335,15 @@ def parse_diff(text):
                 diffs.setdefault(current, [])
         elif line.startswith("--- "):
             continue
+        elif current and (hunk := HUNK.match(line)):
+            numbers = {"-": int(hunk.group(1)), "+": int(hunk.group(2))}
         elif current and line[:1] in ("+", "-"):
-            diffs[current].append((line[0], line[1:]))
+            sign = line[0]
+            diffs[current].append((sign, line[1:], numbers[sign]) if numbered else (sign, line[1:]))
+            numbers[sign] += 1
+        elif current and line[:1] == " ":
+            numbers["-"] += 1
+            numbers["+"] += 1
     return diffs
 
 
@@ -219,8 +369,29 @@ def classify_range(repo, base, head):
                               errors="replace").stdout
     files = parse_name_status(git("diff", "--name-status", "--no-renames", base, head))
     swift = [p for s, p in files if p.endswith(".swift") and s != "D"]
-    diffs = parse_diff(git("diff", "-U0", "--no-renames", base, head, "--", *swift)) if swift else {}
+    diffs = parse_diff(git("diff", "-U0", "--no-renames", base, head, "--", *swift), numbered=True) if swift else {}
+    changed = {p for s, p in files if s == "M"}
+    for path, lines in diffs.items():
+        if path in changed:
+            try:
+                kinds = line_kinds(git("show", f"{base}:{path}"), git("show", f"{head}:{path}"))
+            except subprocess.CalledProcessError:
+                kinds = None
+            diffs[path] = with_kinds(lines, kinds)
+        else:
+            diffs[path] = [(sign, text) for sign, text, _ in lines]
     return classify(files, diffs)
+
+
+def with_kinds(lines, kinds):
+    """parse_diff(numbered=True)'s triples as swift_reasons reads them: (sign, text, line_kinds' kind of that line in
+    its side), or pairs when the files could not be read."""
+    if kinds is None:
+        return [(sign, text) for sign, text, _ in lines]
+    old, new = kinds
+    side = {"-": old, "+": new}
+    return [(sign, text, side[sign][number - 1] if 0 < number <= len(side[sign]) else "member")
+            for sign, text, number in lines]
 
 
 def main(argv=None):
