@@ -47,11 +47,14 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 
 use crate::proxy::{Body, Upstream};
 
+/// Whether requests to `host`, `port` are held.
+pub type Applies = Arc<dyn Fn(&str, u16) -> bool + Send + Sync>;
+
 /// Which requests are held, and for how long.
 #[derive(Clone)]
 pub struct Hold {
-    /// The hosts (`host`, `port`) whose model requests are held: the hub's.
-    pub applies: Arc<dyn Fn(&str, u16) -> bool + Send + Sync>,
+    /// The hosts whose model requests are held: the hub's.
+    pub applies: Applies,
     pub timings: Timings,
 }
 
@@ -239,15 +242,15 @@ pub(crate) async fn run(
     loop {
         tries += 1;
         let sent = tokio::select! {
-            sent = upstream.send(request(&parts, &body)) => sent,
+            sent = upstream.send(request(&parts, &body), true) => sent,
             () = sink.closed() => return,
         };
         let (last, hint) = match sent {
             Ok(response) if !retryable(response.status()) => {
                 if let Some(first) = first_fail {
                     tracing::info!(
-                        code = "vault.egress_held_ok", host = %host, status = response.status().as_u16(),
-                        tries, held_s = first.elapsed().as_secs_f64(), stream, "held request answered"
+                        host = %host, status = response.status().as_u16(),
+                        tries, held_s = first.elapsed().as_secs_f64(), stream, "vault.egress_held_ok"
                     );
                 }
                 deliver(response, sink).await;
@@ -267,7 +270,7 @@ pub(crate) async fn run(
                 let backoff = t.floor.saturating_mul(1 << refusals.saturating_sub(1).min(16));
                 (Last::Refused(rparts, bytes), hint.unwrap_or(backoff).clamp(t.floor, t.step))
             }
-            Err(()) => (Last::Net, t.net_step),
+            Err(_) => (Last::Net, t.net_step),
         };
         let now = Instant::now();
         let first = *first_fail.get_or_insert(now);
@@ -278,28 +281,30 @@ pub(crate) async fn run(
         };
         if now + wait >= first + budget {
             tracing::warn!(
-                code = "vault.egress_hold_give_up", host = %host, status, tries,
+                host = %host, status, tries,
                 held_s = (now - first).as_secs_f64(), budget_s = budget.as_secs_f64(), stream,
-                committed = matches!(sink, Sink::Stream(_)), "hold ran out"
+                committed = matches!(sink, Sink::Stream(_)), "vault.egress_hold_give_up"
             );
             give_up(last, sink).await;
             return;
         }
         tracing::info!(
-            code = "vault.egress_hold", host = %host, status, tries, wait_s = wait.as_secs_f64(),
-            budget_s = budget.as_secs_f64(), stream, "holding a model request"
+            host = %host, status, tries, wait_s = wait.as_secs_f64(),
+            budget_s = budget.as_secs_f64(), stream, "vault.egress_hold"
         );
-        if stream && now + wait - first >= t.commit && let Sink::Head(tx) = sink {
+        if stream && now + wait - first >= t.commit && matches!(sink, Sink::Head(_)) {
             let (body_tx, body_rx) = mpsc::channel(16);
             let mut response = Response::new(Channel(body_rx).boxed());
             let headers = response.headers_mut();
             headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
             headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
             headers.insert("x-cmux-egress", HeaderValue::from_static("held"));
-            if tx.send(response).is_err() {
+            if let Sink::Head(tx) = std::mem::replace(&mut sink, Sink::Stream(body_tx))
+                && tx.send(response).is_err()
+            {
                 return;
             }
-            sink = Sink::Stream(body_tx);
+            tracing::info!(host = %host, tries, stream, "vault.egress_stream_commit");
         }
         if !wait_out(&mut sink, wait, t.ping).await {
             return;
@@ -378,7 +383,8 @@ async fn give_up(last: Last, sink: Sink) {
         }
         (Sink::Head(tx), Last::Net) => {
             let mut response = Response::new(full(overloaded("the hub could not be reached")));
-            *response.status_mut() = StatusCode::from_u16(529).unwrap_or(StatusCode::SERVICE_UNAVAILABLE);
+            *response.status_mut() =
+                StatusCode::from_u16(529).unwrap_or(StatusCode::SERVICE_UNAVAILABLE);
             let headers = response.headers_mut();
             headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
             headers.insert(header::RETRY_AFTER, HeaderValue::from_static(GIVE_UP_RETRY_AFTER));

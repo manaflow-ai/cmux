@@ -21,6 +21,9 @@ x509-parser = { version = "0.18", default-features = false }
 rustls.workspace = true
 # Upstream servers are verified against the OS trust store.
 rustls-native-certs = "0.8"
+# Whether a held model request is a stream (`"stream": true`), and its SSE error events.
+serde.workspace = true
+serde_json.workspace = true
 time = { workspace = true, features = ["std"] }
 tokio = { workspace = true, features = ["net", "io-util", "rt", "sync", "time", "macros"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }

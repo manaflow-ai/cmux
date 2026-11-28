@@ -55,7 +55,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use cmux_vault_egress::{Authority, Config, HostPattern, Policy, Resolver, Secret, placeholder};
+use cmux_vault_egress::{
+    Authority, Config, Hold, HostPattern, Policy, Resolver, Secret, Timings, placeholder,
+};
 
 use super::Given;
 
@@ -344,6 +346,7 @@ fn start(home: &Path) -> Result<Running, &'static str> {
         authority,
         upstream_tls,
         resolver: Resolver::Dns,
+        hold: Some(Hold { applies: Arc::new(toward_hub), timings: Timings::default() }),
     });
     let accepting = runtime.spawn(async move {
         let result = match tokio::net::TcpListener::from_std(listener) {
@@ -497,6 +500,16 @@ fn replace(path: &Path, text: &str) -> std::io::Result<()> {
     let tmp = path.with_extension("tmp");
     crate::home_fs::write(&tmp, text)?;
     crate::home_fs::rename(&tmp, path)
+}
+
+/// Whether `host:port` is the joined hub the machine credential goes to: its model requests
+/// are held through 429s, 5xx and resets instead of failing the agent's turn
+/// (`cmux_vault_egress::Hold`; the fs lanes' api_errors, 11-28).
+fn toward_hub(host: &str, port: u16) -> bool {
+    policy_now().secrets().iter().any(|s| {
+        s.name() == crate::joined_model_plane::CREDENTIAL_NAME
+            && s.hosts().iter().any(|h| h.matches(host, port))
+    })
 }
 
 /// The secrets the proxy serves now (at most [`POLICY_TTL`] old): the

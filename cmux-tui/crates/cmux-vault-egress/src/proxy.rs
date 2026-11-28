@@ -12,13 +12,16 @@ use bytes::Bytes;
 use http::{HeaderValue, Method, Request, Response, StatusCode, header};
 use http_body_util::{BodyExt, Full, combinators::BoxBody};
 use hyper::body::Incoming;
+use hyper::client::conn::http1::SendRequest;
 use hyper::service::service_fn;
 use hyper_util::rt::{TokioIo, TokioTimer};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::{Mutex, Semaphore, oneshot};
+use tokio::task::AbortHandle;
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 
 use crate::ca::Authority;
+use crate::hold::Hold;
 use crate::substitute::{Policy, dns_name};
 
 const HEADER_TIMEOUT: Duration = Duration::from_secs(30);
@@ -43,6 +46,14 @@ pub struct Config {
     /// The upstream TLS client: OS roots ([`upstream_tls_from_os`]).
     pub upstream_tls: Arc<rustls::ClientConfig>,
     pub resolver: Resolver,
+    /// Model requests to these hosts are held through refusals ([`Hold`]).
+    pub hold: Option<Hold>,
+}
+
+impl Config {
+    fn holds(&self, host: &str, port: u16) -> bool {
+        self.hold.as_ref().is_some_and(|h| (h.applies)(host, port))
+    }
 }
 
 /// A TLS client verifying servers against the OS trust store, HTTP/1.1.
@@ -117,7 +128,7 @@ pub async fn serve(listener: TcpListener, config: Arc<Config>) -> io::Result<()>
     }
 }
 
-type Body = BoxBody<Bytes, hyper::Error>;
+pub(crate) type Body = BoxBody<Bytes, hyper::Error>;
 
 fn status(code: StatusCode, reason: &'static str) -> Response<Body> {
     let mut response = Response::new(
@@ -153,11 +164,14 @@ async fn connect(
         return Ok(status(StatusCode::BAD_REQUEST, "invalid CONNECT target\n"));
     };
     let intercept = dns_name(&host) && (config.policy)().intercepts(&host, port);
+    // A held host unreachable now is still accepted: its requests wait for it ([`Hold`]).
+    let held = intercept && config.holds(&host, port);
     let upstream = match open(&config.resolver, &host, port, intercept).await {
-        Ok(stream) => stream,
+        Ok(stream) => Some(stream),
         Err(Refused::Denied) => {
             return Ok(status(StatusCode::FORBIDDEN, "destination is not a public address\n"));
         }
+        Err(Refused::Unreachable) if held => None,
         Err(Refused::Unreachable) => {
             return Ok(status(StatusCode::BAD_GATEWAY, "destination unreachable\n"));
         }
@@ -166,10 +180,9 @@ async fn connect(
         let Ok(upgraded) = hyper::upgrade::on(req).await else { return };
         let client = TokioIo::new(upgraded);
         if intercept {
-            let _ = intercepted(client, upstream, host, port, config).await;
-        } else {
+            let _ = intercepted(client, upstream, held, host, port, config).await;
+        } else if let Some(mut upstream) = upstream {
             let mut client = client;
-            let mut upstream = upstream;
             let _ = tokio::io::copy_bidirectional(&mut client, &mut upstream).await;
         }
     });
@@ -277,41 +290,131 @@ async fn open(
 }
 
 /// The intercepted connection: upstream TLS first (a failure closes the
-/// client before it sends anything), then the client handshake with this
-/// host's leaf, then one request at a time, rewritten and forwarded.
+/// client before it sends anything, unless the host is held), then the client
+/// handshake with this host's leaf, then one request at a time, rewritten and
+/// forwarded.
 async fn intercepted(
     client: TokioIo<hyper::upgrade::Upgraded>,
-    upstream: TcpStream,
+    upstream: Option<TcpStream>,
+    held: bool,
     host: String,
     port: u16,
     config: Arc<Config>,
 ) -> io::Result<()> {
-    let name = rustls::pki_types::ServerName::try_from(host.clone()).map_err(io::Error::other)?;
-    let upstream = tokio::time::timeout(
-        TLS_TIMEOUT,
-        TlsConnector::from(config.upstream_tls.clone()).connect(name, upstream),
-    )
-    .await
-    .map_err(io::Error::other)??;
+    let host = Arc::new(host);
+    let mut link =
+        Upstream { sender: None, task: None, host: host.clone(), port, config: config.clone() };
+    if let Some(tcp) = upstream {
+        match link.handshake(tcp).await {
+            Ok(()) => {}
+            Err(_) if held => link.reset(),
+            Err(e) => return Err(e),
+        }
+    }
     let leaf = config.authority.server_config(&host)?;
     let client = tokio::time::timeout(TLS_TIMEOUT, TlsAcceptor::from(leaf).accept(client))
         .await
         .map_err(io::Error::other)??;
-    let (sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(upstream))
-        .await
-        .map_err(io::Error::other)?;
-    let upstream_task = tokio::spawn(connection);
-    let sender = Arc::new(Mutex::new(sender));
-    let host = Arc::new(host);
+    let link = Arc::new(Mutex::new(link));
     let service =
-        service_fn(move |req| forward(req, sender.clone(), host.clone(), port, config.clone()));
-    let served = hyper::server::conn::http1::Builder::new()
+        service_fn(move |req| forward(req, link.clone(), host.clone(), port, config.clone()));
+    hyper::server::conn::http1::Builder::new()
         .timer(TokioTimer::new())
         .header_read_timeout(HEADER_TIMEOUT)
         .serve_connection(TokioIo::new(client), service)
-        .await;
-    upstream_task.abort();
-    served.map_err(io::Error::other)
+        .await
+        .map_err(io::Error::other)
+}
+
+/// The upstream side of an intercepted connection: one HTTP/1.1 connection,
+/// dialed again when a held request needs it ([`Hold`]).
+pub(crate) struct Upstream {
+    sender: Option<SendRequest<Body>>,
+    task: Option<AbortHandle>,
+    host: Arc<String>,
+    port: u16,
+    config: Arc<Config>,
+}
+
+impl Upstream {
+    /// TLS and HTTP/1.1 on `tcp`.
+    async fn handshake(&mut self, tcp: TcpStream) -> io::Result<()> {
+        self.reset();
+        let name = rustls::pki_types::ServerName::try_from(self.host.as_str().to_owned())
+            .map_err(io::Error::other)?;
+        let tls = tokio::time::timeout(
+            TLS_TIMEOUT,
+            TlsConnector::from(self.config.upstream_tls.clone()).connect(name, tcp),
+        )
+        .await
+        .map_err(io::Error::other)??;
+        let (sender, connection) = tokio::time::timeout(
+            TLS_TIMEOUT,
+            hyper::client::conn::http1::handshake(TokioIo::new(tls)),
+        )
+        .await
+        .map_err(io::Error::other)?
+        .map_err(io::Error::other)?;
+        self.task = Some(tokio::spawn(connection).abort_handle());
+        self.sender = Some(sender);
+        Ok(())
+    }
+
+    /// A fresh connection, through the same address checks as a `CONNECT`.
+    async fn dial(&mut self) -> io::Result<()> {
+        let tcp = open(&self.config.resolver, &self.host, self.port, true)
+            .await
+            .map_err(|_| io::Error::other("upstream unreachable"))?;
+        self.handshake(tcp).await
+    }
+
+    /// Drop the connection; the next held send dials a new one.
+    pub(crate) fn reset(&mut self) {
+        self.sender = None;
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
+    }
+
+    /// Send `req`; with `redial`, on a new connection when this one is gone.
+    /// `Err` is a transport failure: no answer came.
+    pub(crate) async fn send(
+        &mut self,
+        req: Request<Body>,
+        redial: bool,
+    ) -> Result<Response<Incoming>, Gone> {
+        if let Some(sender) = self.sender.as_mut()
+            && sender.ready().await.is_err()
+        {
+            self.reset();
+        }
+        if self.sender.is_none() && (!redial || self.dial().await.is_err()) {
+            return Err(Gone::Closed);
+        }
+        let Some(sender) = self.sender.as_mut() else { return Err(Gone::Closed) };
+        match sender.send_request(req).await {
+            Ok(response) => Ok(response),
+            Err(_) => {
+                self.reset();
+                Err(Gone::Failed)
+            }
+        }
+    }
+}
+
+impl Drop for Upstream {
+    fn drop(&mut self) {
+        self.reset();
+    }
+}
+
+/// Why an upstream send got no answer.
+#[derive(Debug)]
+pub(crate) enum Gone {
+    /// No connection, or it closed before the request went.
+    Closed,
+    /// The connection failed while the request was out.
+    Failed,
 }
 
 /// Whether `text` (a Host header or request-target authority) names
@@ -326,7 +429,7 @@ fn same_authority(text: &str, host: &str, port: u16) -> bool {
 
 async fn forward(
     mut req: Request<Incoming>,
-    sender: Arc<Mutex<hyper::client::conn::http1::SendRequest<Incoming>>>,
+    upstream: Arc<Mutex<Upstream>>,
     host: Arc<String>,
     port: u16,
     config: Arc<Config>,
@@ -382,13 +485,31 @@ async fn forward(
     for secret in &used {
         tracing::info!(secret = %secret, host = %host, port, "vault.egress_substituted");
     }
-    let mut sender = sender.lock().await;
-    if sender.ready().await.is_err() {
-        return Ok(status(StatusCode::BAD_GATEWAY, "upstream closed\n"));
+    if let Some(hold) = config.hold.as_ref()
+        && hold.wants(req.method(), req.uri().path(), &host, port)
+        && let Some(length) = req
+            .headers()
+            .get(header::CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<usize>().ok())
+        && length <= hold.timings.max_body
+    {
+        let timings = hold.timings;
+        let (parts, body) = req.into_parts();
+        let Ok(body) = body.collect().await.map(|c| c.to_bytes()) else {
+            return Ok(status(StatusCode::BAD_REQUEST, "request body failed\n"));
+        };
+        let (head, answer) = oneshot::channel();
+        tokio::spawn(crate::hold::run(upstream, parts, body, timings, head, host));
+        return Ok(answer
+            .await
+            .unwrap_or_else(|_| status(StatusCode::BAD_GATEWAY, "upstream request failed\n")));
     }
-    match sender.send_request(req).await {
+    let mut upstream = upstream.lock().await;
+    match upstream.send(req.map(BodyExt::boxed), false).await {
         Ok(response) => Ok(response.map(BodyExt::boxed)),
-        Err(_) => Ok(status(StatusCode::BAD_GATEWAY, "upstream request failed\n")),
+        Err(Gone::Closed) => Ok(status(StatusCode::BAD_GATEWAY, "upstream closed\n")),
+        Err(Gone::Failed) => Ok(status(StatusCode::BAD_GATEWAY, "upstream request failed\n")),
     }
 }
 
