@@ -92,6 +92,9 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 mod cancel_owner;
+mod chat_folder;
+pub(crate) use chat_folder::CHAT_FOLDER_REASON;
+use chat_folder::{ChatFolderFault, chat_folder_fault, repair_writable};
 pub(super) mod hint;
 mod peer_folder;
 pub(super) use hint::POLICY_REFUSED;
@@ -213,6 +216,11 @@ pub(super) fn sending_device(conn: &super::Conn, params: &Value) -> Option<Strin
     }
     if conn.auth == super::ConnAuth::Device {
         return conn.device.clone();
+    }
+    // The owner's own phone through this machine's cmux-tui (Cloud mobile or the Mac relay):
+    // only the unix socket, which controls every chat here already (`pairing::CLOUD_MOBILE_OWNER`).
+    if conn.origin == super::Origin::Local && conn.auth.authenticated() && cloud_mobile(params) {
+        return Some(crate::pairing::CLOUD_MOBILE_OWNER.to_owned());
     }
     let (device, ..) = vouched_claim(conn, params)?;
     Some(crate::pairing::vouched_phone_id(&conn.id, device))
@@ -1487,26 +1495,19 @@ pub(crate) fn cloud_chat_folder_under(
 ) -> Result<PathBuf, RpcError> {
     let chats = home.join("chats");
     let dir = chats.join(name);
+    // A host-side fault, named as such (`CHAT_FOLDER_REASON`), so the machine that placed the
+    // start passes this host over for a while (`placement/reach.rs` `refused_start`).
     let failed = |why: String| {
         RpcError::invalid_params(format!("the Cloud chat folder could not be made: {why}"))
-    };
-    let safe_dir = |metadata: &std::fs::Metadata| {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt as _;
-            metadata.is_dir()
-                && metadata.uid() == unsafe { libc::geteuid() }
-                && metadata.mode() & 0o022 == 0
-        }
-        #[cfg(not(unix))]
-        {
-            metadata.is_dir()
-        }
+            .with_data(serde_json::json!({"reason": CHAT_FOLDER_REASON}))
     };
     for path in [&chats, &dir] {
         match std::fs::symlink_metadata(path) {
-            Ok(metadata) if safe_dir(&metadata) => {}
-            Ok(_) => return Err(failed(format!("{} is not a directory", path.display()))),
+            Ok(metadata) => match chat_folder_fault(&metadata) {
+                None => {}
+                Some(ChatFolderFault::Writable(_)) if repair_writable(path) => {}
+                Some(fault) => return Err(failed(fault.describe(path))),
+            },
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 let mut builder = std::fs::DirBuilder::new();
                 #[cfg(unix)]

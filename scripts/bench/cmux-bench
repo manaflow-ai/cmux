@@ -26,7 +26,10 @@
   cmux-bench baselines record [--out DIR] [--sha SHA] [--areas A,B]
                                                  run every area's benches (3 repeats) and write one baseline
                                                  object per area under DIR (the nightly uploads DIR to R2)
-  cmux-bench baselines fetch AREA... [--from URL|DIR] [--json]
+  cmux-bench baselines from-log LOG [--out DIR] [--sha SHA]
+                                                 the Mac-only benches a fleet step printed (3 repeats in
+                                                 one step) as baseline objects; exit 1 when none recorded
+  cmux-bench baselines fetch AREA... [--from URL|DIR] [--class C] [--json]
                                                  read those areas' baselines and say how long it took
   cmux-bench for-paths --self-bench N [--scale K] seconds for load + plan on N tracked paths, K times the rules
   cmux-bench for-paths --coverage [--days 7]     % of the paths merged in the last N days a mapping covers
@@ -48,7 +51,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from benchlib import compare as cmp  # noqa: E402
 from benchlib.bench import BenchError, Context, parse_build, resolve_nightly  # noqa: E402
-from benchlib.ledger import Ledger, LedgerError  # noqa: E402
+from benchlib.ledger import Ledger, LedgerError, LedgerUnsent  # noqa: E402
 from benchlib.registry import load_all  # noqa: E402
 from benchlib.schema import SchemaError  # noqa: E402
 
@@ -126,6 +129,8 @@ def run_bench(name: str, build_spec: str | None, host: str | None, kv: dict[str,
     for key in ("version", "sha"):
         if kv.get(f"build_{key}"):
             build[key] = kv[f"build_{key}"]
+    if host_name and import_path:
+        kv.setdefault("capture_host", host_name)  # the machine the file came from
     ctx = Context(bench=bench, build=build, host_role=host, args=kv, dry_run=dry_run)
     if host_name:
         ctx.host["name"] = host_name
@@ -161,12 +166,23 @@ def cmd_run(name: str, argv: list[str]) -> int:
         print(f"cmux-bench: {name} produced no rows", file=sys.stderr)
         return 1
     where = None
+    unsent = 0
     if not a.no_ledger:
         try:
             where = Ledger().append(ctx.rows)
+        except LedgerUnsent as err:
+            if err.committed:
+                print(f"cmux-bench: ledger: not pushed ({err.cause}); the run is committed in the local clone at "
+                      f"{err.kept}; `cmux-bench ledger push` retries", file=sys.stderr)
+            else:
+                # Nothing holds the run but this file: exit nonzero so no caller takes it as recorded.
+                print(f"cmux-bench: ledger: NOT RECORDED: no ledger clone ({err.cause}). The run is kept at "
+                      f"{err.kept}; `cmux-bench ledger push` sends it once the ledger is reachable (a lane VM: run "
+                      "it on a fleet host, or set CMUX_BENCH_LEDGER=DIR for a local-only ledger)", file=sys.stderr)
+                unsent = 3
         except LedgerError as err:
-            print(f"cmux-bench: ledger: {err} (the run is kept in the local ledger; `cmux-bench ledger push` retries)",
-                  file=sys.stderr)
+            print(f"cmux-bench: ledger: NOT RECORDED: {err}", file=sys.stderr)
+            unsent = 3
     if a.json:
         print(json.dumps(ctx.rows, indent=2))
     else:
@@ -177,7 +193,7 @@ def cmd_run(name: str, argv: list[str]) -> int:
             print(f"  {r['metric']}{lab}: {cmp._fmt(r['value'])} {r['unit']}{extra}")
         if where:
             print(f"recorded: {where}")
-    return 0
+    return unsent
 
 
 def _ledger_runs(pull: bool = True) -> list[dict]:
@@ -297,11 +313,14 @@ def cmd_ledger(a: argparse.Namespace) -> int:
     led = Ledger()
     if a.action == "path":
         print(led.root)
-    elif a.action == "pull":
-        led.pull()
-    elif a.action == "push":
-        led._ensure_clone()
-        led.push()
+    try:
+        if a.action == "pull":
+            led.pull()
+        elif a.action == "push":
+            led.push()  # also sends the runs kept in the pending folder
+    except LedgerError as err:
+        print(f"cmux-bench: ledger {a.action}: {err}", file=sys.stderr)
+        return 3
     return 0
 
 
@@ -358,6 +377,9 @@ def cmd_for_paths(argv: list[str]) -> int:
     p.add_argument("--repeats", type=int, default=1, help="--run: measure each bench N times (the baseline rule takes 3)")
     p.add_argument("--baselines", nargs="?", const="", default=None, metavar="URL|DIR",
                    help="--run: compare with the areas' nightly baselines (default store: CMUX_BENCH_BASELINES or R2)")
+    p.add_argument("--base-ref", default="", metavar="REF",
+                   help="--baselines: a bench with no baseline for this machine class also runs at REF (a git "
+                        "worktree on this runner) and compares with it; a notice, never a red")
     p.add_argument("--self-bench", type=int, metavar="N", help="time load + plan on N tracked paths")
     p.add_argument("--scale", type=int, default=1, help="--self-bench: K times the map's rules")
     a = p.parse_args(argv)
@@ -365,15 +387,33 @@ def cmd_for_paths(argv: list[str]) -> int:
         print(f"bench_seconds={relevance.self_bench(a.self_bench, max(1, a.scale)):.4f}")
         return 0
     if a.write or a.check:
+        # Two generated pieces: the map's [[unit]] section, and live_apply.py's path rule block (the map's
+        # [[live_rule]] table: one table, two consumers). Each is checked on its own, so one stale piece never
+        # hides the other.
+        stale = 0
         before = a.map.read_text(encoding="utf-8")
         changed = relevance.rewrite(a.map)
         if a.check and changed:
             a.map.write_text(before, encoding="utf-8")
             print(f"cmux-bench: {a.map} [[unit]] section is stale: run scripts/bench/cmux-bench for-paths --write",
                   file=sys.stderr)
+            stale = 1
+        else:
+            print(("wrote " if changed else "fresh: ") + str(a.map))
+        live_before = relevance.LIVE_APPLY.read_text(encoding="utf-8")
+        try:
+            live_changed = relevance.rewrite_live_apply(a.map)
+        except relevance.MapError as err:
+            print(f"cmux-bench: {err}", file=sys.stderr)
             return 1
-        print(("wrote " if changed else "fresh: ") + str(a.map))
-        return 0
+        if a.check and live_changed:
+            relevance.LIVE_APPLY.write_text(live_before, encoding="utf-8")
+            print(f"cmux-bench: {relevance.LIVE_APPLY} live rules differ from the map's [[live_rule]] table: "
+                  "run scripts/bench/cmux-bench for-paths --write", file=sys.stderr)
+            stale = 1
+        else:
+            print(("wrote " if live_changed else "fresh: ") + str(relevance.LIVE_APPLY))
+        return stale
     try:
         index = relevance.load(a.map)
     except (OSError, relevance.MapError) as err:
@@ -432,8 +472,61 @@ def cmd_for_paths(argv: list[str]) -> int:
         for name, why in sorted(missing.items()):
             print(f"cmux-bench: for-paths: warning: {name}: {why}; its benches pass on budget_s alone (fail open)",
                   file=sys.stderr)
-    return _report_runs(relevance.run_benches(plan, a.timeout, repeats=a.repeats, baseline_docs=docs),
-                        a.markdown, a.json)
+    base_root = None
+    tmp = None
+    try:
+        if docs is not None and a.base_ref and any(
+                not docs.get(ar["name"]) for ar in plan["areas"] if ar.get("run")):
+            tmp, why = _base_worktree(a.base_ref, _base_dirs(plan))
+            if tmp is None:
+                print(f"cmux-bench: for-paths: warning: no worktree at {a.base_ref}: {why}; benches with no "
+                      f"baseline pass on budget_s alone (fail open)", file=sys.stderr)
+            else:
+                base_root = Path(tmp)
+                print(f"cmux-bench: for-paths: benches with no baseline for this machine class compare with "
+                      f"{a.base_ref} on this runner", file=sys.stderr)
+        results = relevance.run_benches(plan, a.timeout, repeats=a.repeats, baseline_docs=docs, base_root=base_root)
+    finally:
+        if tmp is not None:
+            subprocess.run(["git", "worktree", "remove", "--force", tmp], cwd=relevance.ROOT, capture_output=True)
+    return _report_runs(results, a.markdown, a.json)
+
+
+def _base_dirs(plan: dict) -> list[str]:
+    """The top folders a base run needs: scripts/ and docs/ (the bench tooling and its map), each matched path's,
+    and each path a bench command names. A sparse worktree of these takes seconds; the whole tree takes ~30."""
+    from benchlib import relevance
+
+    dirs = {"scripts", "docs"}
+    for ar in plan["areas"]:
+        if not ar.get("run"):
+            continue
+        dirs.update(p.split("/", 1)[0] for p in ar.get("paths") or () if "/" in p)
+        for cmd in ar["run"]:
+            dirs.update(t.split("/", 1)[0] for t in cmd.split() if "/" in t and not t.startswith(("/", "-"))
+                        and (relevance.ROOT / t.split("/", 1)[0]).is_dir())
+    return sorted(dirs)
+
+
+def _base_worktree(ref: str, dirs: list[str]) -> tuple[str | None, str]:
+    """A detached sparse worktree of REF (only DIRS, cone mode) in a fresh temp directory, or None and why
+    (fail open)."""
+    import shutil
+    import tempfile
+
+    from benchlib import relevance
+
+    tmp = tempfile.mkdtemp(prefix="cmux-bench-base-")
+    steps = (["worktree", "add", "--detach", "--no-checkout", "--quiet", tmp, ref],
+             ["-C", tmp, "sparse-checkout", "set", "--cone", *dirs],
+             ["-C", tmp, "checkout", "--quiet", "--detach"])
+    for args in steps:
+        res = subprocess.run(["git", *args], cwd=relevance.ROOT, capture_output=True, text=True, timeout=600)
+        if res.returncode != 0:
+            subprocess.run(["git", "worktree", "remove", "--force", tmp], cwd=relevance.ROOT, capture_output=True)
+            shutil.rmtree(tmp, ignore_errors=True)
+            return None, (res.stderr.strip().splitlines() or [f"exit {res.returncode}"])[-1][:200]
+    return tmp, ""
 
 
 def _report_runs(results: list[dict], markdown: bool, as_json: bool) -> int:
@@ -451,6 +544,8 @@ def _report_runs(results: list[dict], markdown: bool, as_json: bool) -> int:
             budget = f" / budget {r['budget_s']:g} s" if r["budget_s"] is not None else " (no budget_s)"
             if r.get("verdict"):
                 base_s = f"{r['baseline_s']:.3f} s" if r.get("baseline_s") else "none"
+                if r.get("baseline_source") == "base":
+                    base_s += " at base, this runner"
                 reps = ", ".join(f"{x:.3f}" for x in r.get("repeats_s") or [])
                 budget += f" / baseline {base_s} ({r['verdict']}; repeats {reps or '-'})"
             line = f"{r['status']:12s} {took}{budget}  {r['cmd']}" + (f"  ({r['detail']})" if r["detail"] else "")
@@ -462,6 +557,10 @@ def _report_runs(results: list[dict], markdown: bool, as_json: bool) -> int:
         elif r["status"] == relevance.OVER:
             print(f"cmux-bench: for-paths: {r['cmd']} took {r['seconds']} s, over its {r['budget_s']:g} s budget "
                   f"({', '.join(r['areas'])})", file=sys.stderr)
+        elif r.get("verdict") == "slower-than-base":
+            print(f"::notice title=Bench vs base::{r['cmd']}: every repeat ({r['repeats_s']}) is more than 15% over "
+                  f"its base on this runner ({r['baseline_s']} s; base repeats {r['base_repeats_s']}); no nightly "
+                  f"baseline for this machine class, so this is a notice, not a red", file=sys.stderr)
         elif r["status"] == relevance.REGRESSED:
             print(f"cmux-bench: for-paths: {r['cmd']}: every repeat ({r['repeats_s']}) is over the "
                   f"{r['baseline_area']} baseline {r['baseline_s']} s by more than 15%", file=sys.stderr)
@@ -480,12 +579,19 @@ def cmd_baselines(argv: list[str]) -> int:
     rec.add_argument("--timeout", type=float, default=300)
     rec.add_argument("--repeats", type=int, default=baselines.REPEATS)
     rec.add_argument("--map", type=Path, default=relevance.MAP)
+    flog = sub.add_parser("from-log", help="record the Mac-only benches a fleet step printed (baselines.LOG_BENCHES)")
+    flog.add_argument("log", type=Path)
+    flog.add_argument("--out", type=Path, default=Path("bench-baselines-out"))
+    flog.add_argument("--sha", default="")
+    flog.add_argument("--map", type=Path, default=relevance.MAP)
     fet = sub.add_parser("fetch")
     fet.add_argument("areas", nargs="+")
     fet.add_argument("--from", dest="where", default=None)
     fet.add_argument("--json", action="store_true")
+    fet.add_argument("--class", dest="mclass", default="",
+                     help="another machine class's objects (the fleet Mac's: macos-arm64-fleet-light)")
     a = p.parse_args(argv)
-    mclass = baselines.machine_class()
+    mclass = baselines.slug(a.mclass) if getattr(a, "mclass", "") else baselines.machine_class()
     if a.action == "fetch":
         docs, missing, took = baselines.fetch(a.areas, mclass, a.where)
         if a.json:
@@ -500,6 +606,18 @@ def cmd_baselines(argv: list[str]) -> int:
                 print(f"  {name}: {why}")
         return 0
     rules = relevance.load_rules(a.map)
+    if a.action == "from-log":
+        results = baselines.from_log(a.log.read_text(errors="replace"), rules)
+        docs = baselines.documents(results, mclass, a.sha)
+        for r in results:
+            print(f"  {r['status']}: {r['cmd']}  repeats {r['repeats_s']}  ({', '.join(r['areas'])}) {r['detail']}")
+        for path in baselines.write_dir(docs, a.out):
+            print(f"wrote {path}")
+        if not docs:
+            print(f"cmux-bench: baselines: no Mac bench printed all {baselines.REPEATS} repeats in {a.log}",
+                  file=sys.stderr)
+            return 1
+        return 0
     want = {x.strip() for x in a.areas.split(",") if x.strip()}
     areas = [{"name": r.name, "run": list(r.run), "budget_s": r.budget_s} for r in rules
              if r.kind == "area" and r.run and (not want or r.name in want)]

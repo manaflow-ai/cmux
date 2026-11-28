@@ -1,5 +1,5 @@
 //! `_acpmux/paused_files` (RFD 0144 piece 2, capability `paused-reads-v1`): the app's or phone's
-//! file tree and search of a paused machine, answered from its replica and write journal
+//! file tree, file open, diff and search of a paused machine, answered from its replica and write journal
 //! (`hub/paused_fs.rs`, `write_journal/browse.rs`) with no wake. Off unless
 //! `writeJournal.servePausedReads` (and `writeJournal.enabled`) is on.
 //!
@@ -8,6 +8,9 @@
 //! `"notText"`: only the machine can answer, so the client wakes it as before. A client of a
 //! daemon without this method hears `method_not_found` and does the same; a daemon never asks a
 //! client for anything new, so old clients see no change.
+//!
+//! Ops `read` and `diff` came after `list` and `search` under the same capability: a daemon from
+//! before them answers `invalid_params`, which a client takes as not answered and wakes as before.
 //!
 //! The person only (their app on this machine or a paired phone): what is on a machine's disk is
 //! theirs, as with `_acpmux/review_brief`.
@@ -21,8 +24,10 @@ use super::Conn;
 use crate::hub::Hub;
 use crate::rpc::{RpcError, method};
 use crate::write_journal::browse::{ListOutcome, SearchOutcome};
+use crate::write_journal::diff::{DiffOutcome, PauseDiff};
 use crate::write_journal::paused::Routed;
 use crate::write_journal::replica::NeedsMachine;
+use crate::write_journal::replica::ReadOutcome;
 
 /// Most hits one search returns.
 pub const MAX_HITS: usize = 1000;
@@ -32,6 +37,8 @@ pub const MAX_HITS: usize = 1000;
 pub(super) enum Ask {
     List { machine: String, path: PathBuf },
     Search { machine: String, root: PathBuf, query: String, max_hits: usize },
+    Read { machine: String, path: PathBuf },
+    Diff { machine: String, root: PathBuf },
 }
 
 fn bad(message: impl Into<String>) -> RpcError {
@@ -55,7 +62,8 @@ fn absolute(params: &Value, key: &str) -> Result<PathBuf, RpcError> {
 }
 
 /// `{"op": "list", "machine": M, "path": DIR}` or
-/// `{"op": "search", "machine": M, "root": DIR, "query": Q, "maxHits": N}`.
+/// `{"op": "search", "machine": M, "root": DIR, "query": Q, "maxHits": N}`,
+/// `{"op": "read", "machine": M, "path": FILE}` or `{"op": "diff", "machine": M, "root": DIR}`.
 pub(super) fn parse(params: &Value) -> Result<Ask, RpcError> {
     let machine = text(params, "machine")?.to_owned();
     match params.get("op").and_then(Value::as_str) {
@@ -72,7 +80,11 @@ pub(super) fn parse(params: &Value) -> Result<Ask, RpcError> {
                 max_hits,
             })
         }
-        other => Err(bad(format!("op must be \"list\" or \"search\", not {other:?}"))),
+        Some("read") => Ok(Ask::Read { machine, path: absolute(params, "path")? }),
+        Some("diff") => Ok(Ask::Diff { machine, root: absolute(params, "root")? }),
+        other => Err(bad(format!(
+            "op must be \"list\", \"search\", \"read\" or \"diff\", not {other:?}"
+        ))),
     }
 }
 
@@ -121,6 +133,44 @@ pub(super) fn search_reply(routed: Routed<SearchOutcome>) -> Value {
     }
 }
 
+pub(super) fn read_reply(routed: Routed<ReadOutcome>) -> Value {
+    match routed {
+        Routed::NotPaused => not_answered("notPaused"),
+        Routed::NeedsMachine(why) | Routed::Answered(ReadOutcome::NeedsMachine(why)) => needs(why),
+        Routed::Answered(ReadOutcome::NotFound) => json!({"answered": true, "found": false}),
+        Routed::Answered(ReadOutcome::Text(text)) => {
+            json!({"answered": true, "found": true, "text": text})
+        }
+    }
+}
+
+/// `atPause` is the folder's `git diff HEAD` when the pause could read it, else
+/// `atPauseMissing` says why (`notGit`, `tooLarge`, `timedOut`, `failed`) and only that part
+/// needs the machine. `sincePause` is the agent's changes since, which the daemon always has.
+pub(super) fn diff_reply(routed: Routed<DiffOutcome>) -> Value {
+    match routed {
+        Routed::NotPaused => not_answered("notPaused"),
+        Routed::NeedsMachine(why) | Routed::Answered(DiffOutcome::NeedsMachine(why)) => needs(why),
+        Routed::Answered(DiffOutcome::Diff { at_pause, since_pause, changed, truncated }) => {
+            let mut reply = json!({
+                "answered": true,
+                "sincePause": since_pause,
+                "changedSincePause": changed,
+                "sincePauseTruncated": truncated,
+            });
+            match at_pause {
+                PauseDiff::Captured { text, untracked, untracked_truncated } => {
+                    reply["atPause"] = json!(text);
+                    reply["untrackedAtPause"] = json!(untracked);
+                    reply["untrackedTruncated"] = json!(untracked_truncated);
+                }
+                PauseDiff::Missing(why) => reply["atPauseMissing"] = json!(why),
+            }
+            reply
+        }
+    }
+}
+
 pub(super) async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     if !conn.is_person() {
         return Err(RpcError::method_not_found(method::MUX_PAUSED_FILES));
@@ -133,83 +183,15 @@ pub(super) async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Resul
         Ask::Search { machine, root, query, max_hits } => {
             hub.paused_search(&machine, &root, &query, max_hits).await.map(search_reply).map_err(io)
         }
+        Ask::Read { machine, path } => {
+            hub.paused_open(&machine, &path).await.map(read_reply).map_err(io)
+        }
+        Ask::Diff { machine, root } => {
+            hub.paused_diff(&machine, &root).await.map(diff_reply).map_err(io)
+        }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::write_journal::browse::{Hit, ListEntry};
-
-    #[test]
-    fn parse_checks_op_machine_and_absolute_paths() {
-        assert_eq!(
-            parse(&json!({"op": "list", "machine": "vm", "path": "/w"})).unwrap(),
-            Ask::List { machine: "vm".into(), path: "/w".into() }
-        );
-        assert_eq!(
-            parse(&json!({"op": "search", "machine": "vm", "root": "/w", "query": "fn", "maxHits": 99999}))
-                .unwrap(),
-            Ask::Search { machine: "vm".into(), root: "/w".into(), query: "fn".into(), max_hits: MAX_HITS }
-        );
-        for bad in [
-            json!({"op": "list", "path": "/w"}),
-            json!({"op": "list", "machine": "vm", "path": "w"}),
-            json!({"op": "search", "machine": "vm", "root": "/w"}),
-            json!({"op": "read", "machine": "vm", "path": "/w"}),
-        ] {
-            assert!(parse(&bad).is_err(), "{bad}");
-        }
-    }
-
-    #[test]
-    fn replies_say_whether_they_answered() {
-        assert_eq!(
-            list_reply(Routed::NotPaused),
-            json!({"answered": false, "reason": "notPaused"})
-        );
-        assert_eq!(list_reply(Routed::NeedsMachine(NeedsMachine::Stale))["reason"], json!("stale"));
-        assert_eq!(
-            list_reply(Routed::Answered(ListOutcome::NeedsMachine(NeedsMachine::MachineOnly)))["reason"],
-            json!("machineOnly")
-        );
-        assert_eq!(
-            list_reply(Routed::Answered(ListOutcome::Entries(vec![ListEntry {
-                name: "a.rs".into(),
-                is_dir: false,
-                size: 3
-            }]))),
-            json!({"answered": true, "found": true, "entries": [{"name": "a.rs", "isDir": false, "size": 3}]})
-        );
-        assert_eq!(
-            search_reply(Routed::Answered(SearchOutcome::Hits {
-                hits: vec![Hit { path: "a.rs".into(), line: 2, text: "fn x".into() }],
-                truncated: false
-            })),
-            json!({"answered": true, "truncated": false, "hits": [{"path": "a.rs", "line": 2, "text": "fn x"}]})
-        );
-    }
-
-    /// Old and new on the wire: a new client of an old daemon finds no `paused-reads-v1` and
-    /// never sends the method (it wakes the machine, as before); a new daemon lists it, and an old
-    /// client that does not know the id ignores it, since ids are opaque strings.
-    #[test]
-    fn paused_reads_id_is_listed_by_a_new_daemon_and_absent_from_an_old_one() {
-        let new_ids = crate::capabilities::ids();
-        assert!(new_ids.contains(&crate::capabilities::PAUSED_READS));
-        let old_ids: Vec<&str> =
-            new_ids.iter().copied().filter(|id| *id != crate::capabilities::PAUSED_READS).collect();
-        let client_sends = |ids: &[&str]| ids.contains(&crate::capabilities::PAUSED_READS);
-        assert!(client_sends(&new_ids));
-        assert!(!client_sends(&old_ids));
-        #[cfg(feature = "hub-carrier")]
-        assert_eq!(
-            crate::capabilities::PAUSED_READS,
-            serde_json::to_value(cmux_remote_protocol::RemoteCapability::PausedReadsV1)
-                .unwrap()
-                .as_str()
-                .unwrap(),
-            "acpmux and the cmux protocol name the surface the same"
-        );
-    }
-}
+#[path = "paused_files_tests.rs"]
+mod tests;

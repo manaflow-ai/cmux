@@ -271,6 +271,36 @@ describe("the vm_create and vm_start lines", () => {
     expect(typeof lines[0]!["recoverAfterMs"]).toBe("number");
   });
 
+  // Staging 2026-11-28 15:14-15:29Z (cmuxterm-hq#37692): 45 of 69 creates failed at createMs ~44 s with no field saying
+  // whether the provider held the POST, accepted it and never finished, or refused it. Each line now says which.
+  it("says why a create failed: the provider's status, and what it answered the POST", async () => {
+    const key = await h.addKey(TEAM, ["vm:write"]);
+    h.upstream.fail("create", 503);
+    const lines = await linesOf("vm_create", async () => { expect((await create(key, {})).status).toBe(503); });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ ok: false, recovered: false, failStatus: 503, createCut: false, send: { sendStatus: 503 } });
+    expect(Number(record(lines[0]!["send"])["sendMs"])).toBeGreaterThanOrEqual(0);
+    expect(record(lines[0]!["send"])).not.toHaveProperty("polls");
+    expect(lines[0]).not.toHaveProperty("failKind");
+  });
+
+  it("says a create with no answer was cut, by a network error, and keeps that on the line of the VM it recovered", async () => {
+    const key = await h.addKey(TEAM, ["vm:write"]);
+    h.upstream.faults.lostCreateResponses = 1;
+    const lines = await linesOf("vm_create", async () => { expect((await create(key, {})).status).toBe(201); });
+    expect(lines[0]).toMatchObject({ ok: true, recovered: true, failStatus: "none", createCut: true, send: { sendStatus: "none", sendError: "network" } });
+  });
+
+  it("counts the polls of a create the provider answered 202, and a successful create names no failure", async () => {
+    const key = await h.addKey(TEAM, ["vm:write"]);
+    h.upstream.faults.slowCreates = 1;
+    h.upstream.faults.slowCreatePolls = 2;
+    const lines = await linesOf("vm_create", async () => { expect((await create(key, {})).status).toBe(201); });
+    expect(lines[0]).toMatchObject({ ok: true, recovered: false, send: { sendStatus: 202, polls: 3, lastPollStatus: 201 } });
+    expect(record(lines[0]!["send"])).not.toHaveProperty("pollFails");
+    for (const field of ["failStatus", "failKind", "createCut"]) expect(lines[0], field).not.toHaveProperty(field);
+  });
+
   it("logs nothing for a create refused before it reached the provider", async () => {
     const key = await h.addKey(TEAM, ["vm:read"]);
     const lines = await linesOf("vm_create", async () => { expect((await create(key, {})).status).toBe(403); });
@@ -291,6 +321,10 @@ describe("the vm_create and vm_start lines", () => {
     for (const line of lines) {
       expect(Number(line["startMs"])).toBeGreaterThanOrEqual(0);
       expect(Number(line["totalMs"])).toBeGreaterThanOrEqual(Number(line["startMs"]));
+      // Where the rest of totalMs went: entry to proven ownership, and a budgeted key's running/spend check.
+      for (const field of ["ownMs", "gateMs"]) expect(Number(line[field]), field).toBeGreaterThanOrEqual(0);
+      expect(Number(line["totalMs"])).toBeGreaterThanOrEqual(Number(line["ownMs"]) + Number(line["gateMs"]) + Number(line["startMs"]));
+      expect(line).not.toHaveProperty("enteredAt");
     }
   });
 

@@ -112,6 +112,25 @@ resolve CMUX_TUI_TREE_SEARCH_COMMITS=2
 [[ "$status" != 0 ]] || fail "a bounded search with no published tree must fail, got:" "$out"
 grep -q 'no published cmux-tui tree in the last 2 commits' <<<"$err" || fail "the miss needs a clear message:" "$err"
 
+# The window counts commits, not hours (nightly 46157002388: the newest published tree was 384
+# commits back, past the 300-commit look, under 24 h). CMUX_TUI_TREE_CHANNEL_LOOK=1 ends a miss
+# with the channel's tree, verified like any candidate; without a channel file it still fails.
+resolve CMUX_TUI_TREE_SEARCH_COMMITS=2 CMUX_TUI_TREE_CHANNEL_LOOK=1
+[[ "$status" != 0 ]] || fail "no channel file: the channel look must miss, got:" "$out"
+mkdir -p "$cdn/channels"
+printf '{"commit": "%s", "key": "%s"}\n' "$published" "$(key "$published")" > "$cdn/channels/feat-cmux-next.json"
+resolve CMUX_TUI_TREE_SEARCH_COMMITS=2
+[[ "$status" != 0 ]] || fail "the channel look is off by default, got:" "$out"
+resolve CMUX_TUI_TREE_SEARCH_COMMITS=2 CMUX_TUI_TREE_CHANNEL_LOOK=1
+if ! { [[ "$status" == 0 ]] && grep -qx "key=$(key "$published")" <<<"$out" && grep -qx "commit=$published" <<<"$out" \
+  && grep -qx "source_commit=$published" <<<"$out"; }; then
+  fail "a window miss must take the channel's verified tree (exit $status):" "$out" "$err"
+fi
+printf '{"commit": "%s", "key": "%s"}\n' "$mismatch" "$(key "$mismatch")" > "$cdn/channels/feat-cmux-next.json"
+resolve CMUX_TUI_TREE_SEARCH_COMMITS=2 CMUX_TUI_TREE_CHANNEL_LOOK=1
+[[ "$status" != 0 ]] || fail "a channel tree whose manifest disagrees must not resolve, got:" "$out"
+rm -f "$cdn/channels/feat-cmux-next.json"
+
 # A bad bound is a usage error.
 resolve CMUX_TUI_TREE_SEARCH_COMMITS=x
 [[ "$status" == 2 ]] || fail "CMUX_TUI_TREE_SEARCH_COMMITS=x must exit 2, got $status:" "$err"

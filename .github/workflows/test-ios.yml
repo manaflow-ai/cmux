@@ -134,7 +134,7 @@ env:
 # would leave the branch with no iOS result at 30 pushes an hour), and GitHub
 # replaces the one waiting run with the newest push.
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('test-ios-pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && format('test-ios-push-{0}', github.ref_name) || format('test-ios-{0}', github.run_id) }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  group: ${{ github.event_name == 'pull_request' && format('test-ios-pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && format('test-ios-push-{0}', github.ref_name) || format('test-ios-{0}', github.run_id) }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   # Full-ci base merge carry (scripts/ci/head_tier.py, full_carry): a full-ci or ready-to-land label on a head that
@@ -147,8 +147,10 @@ jobs:
     # Only where a root job below would run on this event: with full-ci (or CI_LAND_FULL_PER_PR, which runs the full
     # tier on ready-to-land); otherwise those jobs skip anyway and this job's runner decides nothing.
     if: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && (contains(github.event.pull_request.labels.*.name, 'full-ci') || vars.CI_LAND_FULL_PER_PR == '1') && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft != true) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 3
+    env:
+      GH_HTTP_DEADLINE_S: "120"  # head_tier.py reads through gh_http: give up inside timeout-minutes
     continue-on-error: true
     permissions:
       actions: read
@@ -176,7 +178,7 @@ jobs:
     # detect-ios-changes says should_run: a pull request with no iOS-owned
     # file skips the pool pick too.
     needs: detect-ios-changes
-    if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) && needs.detect-ios-changes.outputs.should_run == 'true' }}
+    if: ${{ !cancelled() && !failure() && needs.detect-ios-changes.result == 'success' && ((github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) && needs.detect-ios-changes.outputs.should_run == 'true') }}
     environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     # The macOS pool ios-simulator-build runs on.
     # ios_runner_pool.py still sizes the simulator need for the deleted
@@ -507,25 +509,29 @@ jobs:
           # behind its new path; without it both paths are listed, so the
           # greps below stay conservative.
           git diff --name-only --no-renames HEAD^1 HEAD > "${RUNNER_TEMP}/changed-files.txt"
-          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/ci/ios_runner_pool\.py$|scripts/ci/select_ios_simulator\.py$|scripts/ci/ios_simulator_inputs\.py$|scripts/cmux-next/notices/|\.github/workflows/test-ios\.yml$)' "${RUNNER_TEMP}/changed-files.txt"; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            if [ "${{ (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}" = "true" ]; then
-              ios_build=true
-              echo "Full-ci label present; retaining the simulator build."
-            else
-              ios_build="$(python3 scripts/ci/ios_simulator_inputs.py --changed-files "${RUNNER_TEMP}/changed-files.txt" | sed -n 's/^run=//p')"
-            fi
+          # Only iOS candidates go to the Xcode graph. Unrelated files in the
+          # same diff must not turn an unlinked package into a direct app input.
+          ios_inputs="${RUNNER_TEMP}/ios-inputs.txt"
+          should_run=false
+          ios_build=false
+          if grep -E '^(ios/|Packages/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/ci/ios_runner_pool\.py$|scripts/ci/select_ios_simulator\.py$|scripts/ci/ios_simulator_inputs\.py$|scripts/cmux-next/notices/|\.github/workflows/test-ios\.yml$)' "${RUNNER_TEMP}/changed-files.txt" > "$ios_inputs"; then
+            classifier_output="$(python3 scripts/ci/ios_simulator_inputs.py --changed-files "$ios_inputs")"
+            printf '%s\n' "$classifier_output"
+            ios_build="$(sed -n 's/^run=//p' <<< "$classifier_output")"
             if [ -z "$ios_build" ]; then
               echo "::warning::iOS simulator input classifier returned no verdict; running the build"
               ios_build=true
             fi
-            echo "should_build=$ios_build" >> "$GITHUB_OUTPUT"
-            python3 scripts/ci/ios_simulator_inputs.py --changed-files "${RUNNER_TEMP}/changed-files.txt"
-          else
-            echo "No iOS-owned files changed; skipping iOS tests."
-            echo "should_run=false" >> "$GITHUB_OUTPUT"
-            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            # Shared and iOS packages retain Linux coverage even when unlinked.
+            if [ "$ios_build" = "true" ] || grep -Eq '^(Packages/(Shared|iOS)/|vendor/)' "$ios_inputs"; then
+              should_run=true
+              if [ "${{ (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}" = "true" ]; then
+                ios_build=true
+              fi
+            fi
           fi
+          echo "should_run=$should_run" >> "$GITHUB_OUTPUT"
+          echo "should_build=$ios_build" >> "$GITHUB_OUTPUT"
           # The conventions lint (free-function ban, namespace-type rule, ...)
           # covers every package, so it runs for any Packages/ change too. It
           # scans only .swift files, so other files under ios/, Packages/ and
@@ -542,7 +548,7 @@ jobs:
     # A pull request into feat-cmux-next runs ci/steps.toml's package-conventions-tests and
     # package-conventions-gate steps in pr-pipeline.yml's linux job instead (warn-only there, as here); the
     # iOS jobs below run on its skip because style_guards is warn.
-    if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (needs.detect-ios-changes.outputs.should_lint == 'true') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) && (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}
+    if: ${{ !cancelled() && !failure() && needs.detect-ios-changes.result == 'success' && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (needs.detect-ios-changes.outputs.should_lint == 'true') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) && (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # The scan alone takes about 5 minutes on cmux-linux: at 5, a passing run
     # was cancelled after printing its pass (#52110, twice).
