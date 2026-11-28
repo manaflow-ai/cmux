@@ -411,6 +411,11 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_guards_new_reds.py"
 
 [[test]]
+path = "tests/test_guards_reached.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). Pins scripts/ci/guards_reached.sh (ci/steps.toml's guard-steps-reached): the base pass runs beside the head's under one budget and a cut-short head is never a pass, in a scratch repository with a stub guard runner; run python3 tests/test_guards_reached.py yourself after changing it (about 10 s)."
+
+[[test]]
 path = "tests/test_head_tier.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 -m unittest tests/test_head_tier.py yourself after adding a pull_request workflow to its GATED set or editing a gated workflow's job conditions."
