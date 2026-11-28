@@ -147,5 +147,50 @@ class FetchRunsRetryTest(unittest.TestCase):
         self.assertIn("x-ratelimit-remaining=0", str(cm.exception))
         self.assertIn("rate limit", str(cm.exception))
 
+class ResolveCacheTest(unittest.TestCase):
+    # Runs 46116606886 and 46125947911 died at resolve: "API rate limit exceeded for installation".
+    RUNS = [{"id": 9, "conclusion": "success", "created_at": "2026-11-28T05:17:48Z",
+             "display_title": "cmux-next-ios INTERNAL " + "a" * 40}]
+
+    @staticmethod
+    def refused(repo, token):
+        raise SystemExit("::error::GitHub answered 403 for the ios-internal-nightly runs (x-ratelimit-remaining=0)")
+
+    def test_fresh_read_fills_the_cache(self):
+        with tempfile.TemporaryDirectory() as d:
+            cache = Path(d) / "c" / "phones.txt"
+            lines, fresh = mop.resolve("o/r", "t", 3, cache, fetch=lambda r, t: self.RUNS)
+            self.assertTrue(fresh)
+            self.assertEqual(lines, ["a" * 40 + " 9 2026-11-28T05:17:48Z"])
+            self.assertEqual(cache.read_text(), lines[0] + "\n")
+
+    def test_rate_limited_read_answers_from_the_cache(self):
+        with tempfile.TemporaryDirectory() as d:
+            cache = Path(d) / "phones.txt"
+            cache.write_text("b" * 40 + " 8 2026-11-28T00:49:41Z\n")
+            lines, fresh = mop.resolve("o/r", "t", 3, cache, fetch=self.refused)
+            self.assertFalse(fresh)
+            self.assertEqual(lines, ["b" * 40 + " 8 2026-11-28T00:49:41Z"])
+
+    def test_rate_limited_read_without_a_cache_still_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(SystemExit):
+                mop.resolve("o/r", "t", 3, Path(d) / "none.txt", fetch=self.refused)
+
+
+class CleanupTrapTest(unittest.TestCase):
+    """The EXIT trap runs under set -e: a helper that returns nonzero there ends cleanup early,
+    so registered phone devices are never deleted and an all-ok run exits 1."""
+
+    def test_stop_host_with_no_host_running_lets_cleanup_finish(self):
+        import subprocess
+        script = (ROOT / "scripts/ci/mobile-old-phones.sh").read_text()
+        stop = next(line for line in script.splitlines() if line.startswith("stop_host()"))
+        probe = f"set -euo pipefail\n{stop}\nafter() {{ stop_host; echo cleanup-finished; }}\ntrap after EXIT\nexit 0\n"
+        r = subprocess.run(["bash", "-c", probe], capture_output=True, text=True)
+        self.assertEqual(r.stdout.strip(), "cleanup-finished", r.stderr)
+        self.assertEqual(r.returncode, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
