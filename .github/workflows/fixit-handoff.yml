@@ -1,4 +1,5 @@
 name: fixit-handoff
+run-name: fixit-handoff ${{ inputs.sha }} ${{ inputs.check }}
 
 # A feat-cmux-next type check that fixit-compile could not fix (no machine fix) is reverted, not left for a fix
 # agent. Leo, 2026-11-22: "should've been caught and fixed faster. hell, maybe even should've been automatic." and
@@ -34,7 +35,7 @@ concurrency:
 
 jobs:
   find:
-    if: ${{ vars.FIXIT_HANDOFF != '0' && github.ref_name == 'feat-cmux-next' }}
+    if: ${{ (vars.FIXIT_HANDOFF || '1') != '0' && github.ref_name == 'feat-cmux-next' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     # About 15 type checks at most (a bisect over up to 64 commits, the tip, the revert), each an install and a check.
     timeout-minutes: 45
@@ -79,7 +80,7 @@ jobs:
 
   land:
     needs: find
-    if: ${{ vars.FIXIT_HANDOFF != '0' && github.ref_name == 'feat-cmux-next' && needs.find.outputs.culprit != '' }}
+    if: ${{ (vars.FIXIT_HANDOFF || '1') != '0' && github.ref_name == 'feat-cmux-next' && needs.find.outputs.culprit != '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     environment: ci-routing-agent
