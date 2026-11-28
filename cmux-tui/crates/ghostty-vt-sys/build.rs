@@ -64,7 +64,11 @@ fn main() {
     {
         let tried: Vec<(String, Option<String>)> =
             zig_candidates.iter().map(|z| (z.clone(), version_of(z))).collect();
-        panic!("{}", build_support::pin_unmet_message(required, &tried));
+        // `cargo::error` fails the build with the message and no panic backtrace.
+        for line in build_support::pin_unmet_message(required, &tried).lines() {
+            println!("cargo::error={line}");
+        }
+        return;
     }
     // No build fetches from a third-party host: every package this build
     // fetches comes from our mirror first (scripts/ci/zig-packages.lock), and in
