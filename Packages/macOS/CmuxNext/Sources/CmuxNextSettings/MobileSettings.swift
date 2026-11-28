@@ -2,8 +2,10 @@
 /// (on by default since 2026-11-20, cmux#13742) lets the app run its cmux iPhone host while an
 /// account is signed in, so the cmux app on the same account's iPhone
 /// can open this Mac's workspaces, terminals and agent chats once the person allowed that phone.
-/// `autoApprovePhones` (off by default) skips that Allow for the account's own phones. Only the
-/// person changes either (agent policy `userOnly`).
+/// `siteDataHandoff` (off by default) shares the current Mac browser tab's cookies and site storage
+/// when the person opens that tab on an iPhone. Only the person changes these switches (agent policy
+/// `userOnly`).
+/// `autoApprovePhones` (off by default) skips that Allow for the account's own phones.
 ///
 /// `terminalSizing` and `terminalSizingOrder` are this Mac's terminal sizing
 /// policy (cmux-next-ios/PROTOCOL.md "Terminal sizing policy"): which viewer's
@@ -12,6 +14,8 @@
 /// the daemon (`set-host-size-policy`), and this page shows the mode.
 public nonisolated struct MobileSettings: Sendable, Equatable {
     public var allowIPhoneConnections = MobileSettings.allowIPhoneConnectionsDefault
+    /// Share the current tab's cookies and site storage when opening it on an iPhone.
+    public var siteDataHandoff = MobileSettings.siteDataHandoffDefault
     /// A new phone of the signed-in account pairs without the "Allow … to connect?" prompt.
     public var autoApprovePhones = MobileSettings.autoApprovePhonesDefault
     /// How a terminal shown on several devices is sized (`MobileTerminalSizing`).
@@ -25,6 +29,7 @@ public nonisolated struct MobileSettings: Sendable, Equatable {
         var settings = Self()
         guard var reader = ConfigFieldReader(root, at: ["mobile"], diagnostics: &diagnostics) else { return settings }
         if let value = reader.bool("allowIPhoneConnections") { settings.allowIPhoneConnections = value }
+        if let value = reader.bool("siteDataHandoff") { settings.siteDataHandoff = value }
         if let value = reader.bool("autoApprovePhones") { settings.autoApprovePhones = value }
         if let value = reader.choice("terminalSizing", MobileTerminalSizing.self) { settings.terminalSizing = value }
         diagnostics = reader.diagnostics

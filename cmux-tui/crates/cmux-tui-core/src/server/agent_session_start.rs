@@ -62,7 +62,7 @@
 //! The answer also carries `timings_ms`, this machine's own clock for each
 //! phase of the start ([`StartTimings`]): the keyed gate, the acpmux connect
 //! (and whether it had to start acpmux), the checks before the agent, the
-//! harness's `session/new`, the mode settle and the bind. The app logs it
+//! harness's `session/new` (and whether acpmux gave it a warm agent), the mode settle and the bind. The app logs it
 //! beside its own start steps, so a Cloud start's `start` step splits into
 //! the harness launch and everything around it (cmuxterm-hq probe rows).
 //! Durations only: no folder, harness or session value is in it.
@@ -477,10 +477,23 @@ pub(crate) struct StartTimings {
     total: Option<u64>,
     /// The agent home pull, from the start's beginning to its answer (owner Cloud VM only).
     agent_home: Option<u64>,
+    /// acpmux's `startPool` for the `session/new`: true when the agent came warm from its pool,
+    /// false when a pooled shape found none ready (it paid the agent boot), None when acpmux
+    /// does not say or the start is one its pool never serves.
+    session_new_warm: Option<bool>,
     /// The phase the start was in last ([`StartTimings::at`]): a bare `refused` names it in
     /// `data.step`, so its reader knows which call acpmux refused (the 2026-11-27T20:12Z
     /// notify-banner-click row said only "acpmux refused the request").
     step: Option<&'static str>,
+}
+
+/// acpmux's `startPool` in a `session/new` answer (`StartTimings::session_new_warm`).
+fn session_new_warm(created: &Value) -> Option<bool> {
+    match created.pointer("/_meta/acpmux/startPool").and_then(Value::as_str)? {
+        "warm" => Some(true),
+        "cold" => Some(false),
+        _ => None,
+    }
 }
 
 /// Milliseconds since `since`, saturating.
@@ -497,7 +510,9 @@ impl StartTimings {
     /// `data` of a refusal with the phase it came from: a bare `refused` only (every other
     /// refusal names its own cause), and never over a `step` already there.
     fn refusal_data(&self, refusal: Refusal, data: Option<Value>) -> Option<Value> {
-        let (Refusal::Refused, Some(step)) = (refusal, self.step) else {
+        let (Refusal::Refused | Refusal::Unavailable | Refusal::Timeout, Some(step)) =
+            (refusal, self.step)
+        else {
             return data;
         };
         let mut data = match data {
@@ -527,6 +542,9 @@ impl StartTimings {
             }
         }
         out.insert("acpmux_started".to_owned(), json!(self.acpmux_started));
+        if let Some(warm) = self.session_new_warm {
+            out.insert("session_new_warm".to_owned(), json!(warm));
+        }
         Value::Object(out)
     }
 }
@@ -899,14 +917,17 @@ fn run(
     let until = checks + START_PATIENCE.ceiling;
     let cwd = params.cwd.as_deref().ok_or((Refusal::BadRequest, None))?;
     timings.at("catalog");
-    let (link, catalog) = ready_catalog(&socket, link, cwd, params.harness.as_deref(), until)
+    let (mut link, catalog) = ready_catalog(&socket, link, cwd, params.harness.as_deref(), until)
         .map_err(|r| (r, None))?;
     timings.at("keyed");
     let mut pulled = None;
     let result = still_keyed(&link, &params).and_then(|()| {
         then_spawn(home, &mut pulled, || {
-            start_and_bind(mux, client, &link, &catalog, &params, phone, checks, until, timings)
-                .map_err(|StartRefused(refusal, data)| (refusal, data))
+            let link = &mut link;
+            start_and_bind(
+                mux, client, &socket, link, &catalog, &params, phone, checks, until, timings,
+            )
+            .map_err(|StartRefused(refusal, data)| (refusal, data))
         })
     });
     link.close();
@@ -936,25 +957,119 @@ fn ready_catalog(
     // answers (acpmux `hub/rediscover.rs`), so a harness its startup PATH missed is in this
     // catalog and the start is not refused `harness_missing` (`start_family`) for it.
     let params = json!({"cwd": cwd, "forStart": true, "harness": harness});
+    let catalog = ask_again(socket, &mut link, until, "_acpmux/harnesses", params)?;
+    Ok((link, catalog))
+}
+
+/// A read-only call of a start (the catalog, the mode table, the trust answer), asked again on a
+/// new link when acpmux went away under it: a restarting acpmux (a self-update, a handoff, a
+/// crash-restart) closes every connection, and a start that refused on that close told the
+/// person "this daemon has no acpmux to attach to" while acpmux was back in seconds (a Cloud
+/// spare's claude start, cmux run 46175571694, refused 16.7 s in). Asking twice changes
+/// nothing; an acpmux that stays down past [`RECONNECT_WAIT`] is gone.
+fn ask_again(
+    socket: &std::path::Path,
+    link: &mut Arc<AcpmuxLink>,
+    until: Instant,
+    method: &str,
+    params: Value,
+) -> Result<Value, Refusal> {
     loop {
-        match ask(&link, until, "_acpmux/harnesses", params.clone()) {
-            Ok(catalog) => return Ok((link, catalog)),
+        match ask(link, until, method, params.clone()) {
+            Ok(answer) => return Ok(answer),
             Err(LinkError::Closed) if Instant::now() < until => link.close(),
             Err(error) => {
                 link.close();
                 return Err(Refusal::of(error));
             }
         }
-        // A restart brings its acpmux up in seconds; one that stays down is gone.
-        let back_by = until.min(Instant::now() + RECONNECT_WAIT);
-        link = loop {
-            std::thread::sleep(RECONNECT_PAUSE);
-            match AcpmuxLink::connect(socket, |_| {}) {
-                Ok(link) => break link,
-                Err(_) if Instant::now() < back_by => {}
-                Err(_) => return Err(Refusal::Unavailable),
+        *link = reconnect(socket, until).ok_or(Refusal::Unavailable)?;
+    }
+}
+
+/// A new link to an acpmux that closed this start's (restarting): a restart brings its acpmux up
+/// in seconds; one that stays down past [`RECONNECT_WAIT`] (or the start's `until`) is gone.
+/// It never runs the starter again: the restart brings its own acpmux, and a second start here
+/// would race it.
+fn reconnect(socket: &std::path::Path, until: Instant) -> Option<Arc<AcpmuxLink>> {
+    let back_by = until.min(Instant::now() + RECONNECT_WAIT);
+    loop {
+        std::thread::sleep(RECONNECT_PAUSE);
+        match AcpmuxLink::connect(socket, |_| {}) {
+            Ok(link) => return Some(link),
+            Err(_) if Instant::now() < back_by => {}
+            Err(_) => return None,
+        }
+    }
+}
+
+/// How many times a start sends its `session/new` again after acpmux closed under it.
+const CREATE_RESENDS: usize = 3;
+
+/// This machine's acpmux keeps create keys (`createKey` in its initialize's
+/// `_meta.acpmux.features`, acpmux `hub/create_key.rs`), asked on a link of its own so the
+/// start's link stays as it was. Anything else (no answer, an older acpmux) reads as no.
+fn keeps_create_keys(socket: &std::path::Path) -> bool {
+    let Ok(probe) = AcpmuxLink::connect(socket, |_| {}) else { return false };
+    let hello = json!({"protocolVersion": 1,
+        "clientInfo": {"name": "cmux-agent-session", "version": "1"}, "clientCapabilities": {}});
+    let reply = probe.call("initialize", hello, CALL_TIMEOUT);
+    probe.close();
+    reply.ok().is_some_and(|reply| {
+        reply
+            .pointer("/_meta/acpmux/features")
+            .and_then(Value::as_array)
+            .is_some_and(|features| features.iter().any(|f| f.as_str() == Some(CREATE_KEY)))
+    })
+}
+const CREATE_KEY: &str = "createKey";
+
+/// The start's `session/new`, sent again with the same create key after acpmux closed under it
+/// (restarting): the create may have happened or not, and the key makes the next acpmux answer
+/// with the session the first one made, or make it once (acpmux `hub/create_key.rs`, the CLI's
+/// own resend). Without a key (an acpmux that keeps none, or a restart into one) a close stays
+/// the start's refusal: sending again could make a second agent.
+fn create_session(
+    socket: &std::path::Path,
+    link: &mut Arc<AcpmuxLink>,
+    mut new: Value,
+    until: Instant,
+) -> Result<Value, LinkError> {
+    let key = keeps_create_keys(socket).then(|| uuid::Uuid::new_v4().to_string());
+    if let (Some(key), Some(meta)) = (&key, new.pointer_mut("/_meta/acpmux")) {
+        meta.insert(CREATE_KEY, json!(key));
+    }
+    let mut resends = 0;
+    loop {
+        // acpmux goes on spawning the agent after a start stops waiting: a session it makes
+        // later is bound to no tab, so it ends as soon as its answer comes.
+        let sent = link.call_while_alive_or_late(
+            "session/new",
+            new.clone(),
+            START_PATIENCE,
+            until,
+            LATE_SESSION_GRACE,
+            |link, late| {
+                if let Some(session) = late.get("sessionId").and_then(Value::as_str) {
+                    let kill = json!({"sessionId": session, "purge": true});
+                    let _ = link.call("_acpmux/kill", kill, CALL_TIMEOUT);
+                }
+            },
+        );
+        match sent {
+            Err(LinkError::Closed)
+                if key.is_some() && resends < CREATE_RESENDS && Instant::now() < until =>
+            {
+                link.close();
+                *link = reconnect(socket, until).ok_or(LinkError::Closed)?;
+                // The acpmux it came back as keeps keys too, or the resend could make a second.
+                if !keeps_create_keys(socket) {
+                    return Err(LinkError::Closed);
+                }
+                resends += 1;
             }
-        };
+            other => return other,
+        }
     }
 }
 
@@ -1127,7 +1242,8 @@ impl StartRefused {
 fn start_and_bind(
     mux: &Arc<Mux>,
     client: u64,
-    link: &Arc<AcpmuxLink>,
+    socket: &std::path::Path,
+    link: &mut Arc<AcpmuxLink>,
     catalog: &Value,
     params: &StartParams,
     phone: bool,
@@ -1145,7 +1261,7 @@ fn start_and_bind(
     // holds Cloud mobile prompts to it, a family the floor has a mode for, and that mode before
     // the start answers.
     timings.at("web_modes");
-    let table = ask(link, until, "_acpmux/web_modes", json!({})).map_err(Refusal::of)?;
+    let table = ask_again(socket, link, until, "_acpmux/web_modes", json!({}))?;
     if phone && table.get("cloudMobileStrictFloor").and_then(Value::as_u64) != Some(1) {
         return Err(Refusal::NotAsking.into());
     }
@@ -1175,7 +1291,7 @@ fn start_and_bind(
     // acpmux over its unix socket, which acpmux's trust gate does not hold;
     // only the person answers it (`agent-session-trust`, from the app).
     timings.at("trust");
-    let trust = ask(link, until, "acp.trust.get", json!({"cwd": cwd})).map_err(Refusal::of)?;
+    let trust = ask_again(socket, link, until, "acp.trust.get", json!({"cwd": cwd}))?;
     // The caller's own Cloud VM's work folder reads trusted (no question).
     let trust = super::agent_session_trust::owner_cloud_trust(
         super::agent_session_trust::callers_own_cloud_vm(mux, &params.vm_kind),
@@ -1233,25 +1349,11 @@ fn start_and_bind(
     timings.checks = Some(ms_since(checks));
     let spawn = Instant::now();
     timings.at("session_new");
-    // acpmux goes on spawning the agent after a start stops waiting: a session it makes later is
-    // bound to no tab, so it ends as soon as its answer comes.
-    let created = link
-        .call_while_alive_or_late(
-            "session/new",
-            new,
-            START_PATIENCE,
-            until,
-            LATE_SESSION_GRACE,
-            |link, late| {
-                if let Some(session) = late.get("sessionId").and_then(Value::as_str) {
-                    let kill = json!({"sessionId": session, "purge": true});
-                    let _ = link.call("_acpmux/kill", kill, CALL_TIMEOUT);
-                }
-            },
-        )
+    let created = create_session(socket, link, new, until)
         .map_err(|error| StartRefused::of_session_new(error).naming(params.harness.as_deref()));
     timings.session_new = Some(ms_since(spawn));
     let created = created?;
+    timings.session_new_warm = session_new_warm(&created);
     let settle = Instant::now();
     timings.at("settle");
     let session = created

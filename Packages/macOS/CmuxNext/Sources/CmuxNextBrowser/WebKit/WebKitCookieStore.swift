@@ -13,7 +13,7 @@ struct WebKitCookieStore {
     func cookies() async -> [BrowserCookie] {
         await store.allCookies().map { cookie in
             BrowserCookie(name: cookie.name, value: cookie.value, domain: cookie.domain, path: cookie.path,
-                          expires: cookie.expiresDate, secure: cookie.isSecure, httpOnly: cookie.isHTTPOnly)
+                          expires: cookie.expiresDate, secure: cookie.isSecure, httpOnly: cookie.isHTTPOnly, sameSite: cookie.sameSitePolicy?.rawValue)
         }
     }
 
