@@ -380,7 +380,7 @@ export const stagingRunsGraphql = async (limit = 30): Promise<Array<StagingRun>>
   let after: string | null = null
   let listed = 0
   for (let page = 0; page < GRAPHQL_RUN_PAGES && listed < limit; page++) {
-    const runs = (await ghGraphql(STAGING_RUNS_QUERY, { id: BACKEND_WORKFLOW_NODE, after }))?.node?.runs
+    const runs: any = (await ghGraphql(STAGING_RUNS_QUERY, { id: BACKEND_WORKFLOW_NODE, after }))?.node?.runs
     if (!runs) throw new Error("GitHub GraphQL: backend.yml's runs are missing")
     for (const run of runs.nodes as Array<any>) {
       const suite = run?.checkSuite

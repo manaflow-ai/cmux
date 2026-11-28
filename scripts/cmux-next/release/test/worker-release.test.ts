@@ -213,17 +213,24 @@ describe("gitFetchRetrying (advance's fetch; run 45740936781 died on one \"Opera
 describe("backend deployment lock wiring", () => {
   const workflow = Bun.YAML.parse(readFileSync(new URL("../../../../.github/workflows/backend.yml", import.meta.url), "utf8")) as any
   it("separates trusted NEXT push runs while preserving complete environment locks", () => {
-    expect(workflow.concurrency.group).toContain("github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('-{0}', github.sha)")
-    expect(workflow.concurrency["cancel-in-progress"]).toBe(false)
+    // #57227 (2026-11-25) coalesces feat-cmux-next push runs into one group; the deploy jobs' own locks keep them ordered.
+    expect(workflow.concurrency.group).toContain("github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && '-push'")
+    // Only a pull request run cancels; a push run never does.
+    expect(workflow.concurrency["cancel-in-progress"]).toStartWith("${{ github.event_name == 'pull_request' && ")
     expect(workflow.jobs["vitess-development"].concurrency).toEqual({ group: "cmux-next-vitess-development", queue: "max", "cancel-in-progress": false })
     for (const environment of ["development", "staging"]) {
       const job = workflow.jobs[`deploy-${environment}`]
-      expect(job.concurrency).toEqual({ group: `cmux-next-deploy-${environment}`, queue: "max", "cancel-in-progress": false })
+      // A non-landing label run gets its own lock suffix (format('-label-{0}', run_id)); every other run shares the environment's.
+      expect(job.concurrency.group).toStartWith(`cmux-next-deploy-${environment}`)
+      expect(job.concurrency.group.slice(`cmux-next-deploy-${environment}`.length)).toMatch(/^(|\$\{\{.*format\('-label-\{0\}', github\.run_id\).*\}\})$/)
+      expect(job.concurrency.queue).toBe("max")
+      expect(job.concurrency["cancel-in-progress"]).toBe(false)
       const guard = job.steps.findIndex((s: any) => s.id === "source")
       expect(guard).toBeGreaterThan(0)
       expect(job.steps[guard].env).toBeUndefined()
       expect(job.steps[guard].run).toContain("advance --branch feat-cmux-next")
-      const mutations = job.steps.slice(guard + 1).filter((s: any) => s.name !== "Newer deployment inputs already queued; skip")
+      // Buildx setup changes nothing outside the runner, so it may run unconditionally.
+      const mutations = job.steps.slice(guard + 1).filter((s: any) => s.name !== "Newer deployment inputs already queued; skip" && !String(s.name).startsWith("Set up Docker Buildx"))
       expect(mutations.length).toBeGreaterThan(2)
       for (const step of mutations) expect(step.if).toContain("steps.source.outputs.deploy == 'true'")
       const smoke = mutations.find((s: any) => s.name.startsWith("Smoke the API Worker"))
