@@ -1,6 +1,14 @@
 import { expect, it } from "vitest";
-import { ADMIT_TTL_MS, admitAgentSlot, bindAgentCreation, forgetAgentVm, HELD_TTL_MS, settleAgentSlot } from "../../src/limits/agent-slots.ts";
-import { memoryLedgerStorage } from "../../src/limits/ledger.ts";
+import {
+  ADMIT_TTL_MS,
+  admitAgentSlot,
+  bindAgentCreation,
+  forgetAgentVm,
+  HELD_TTL_MS,
+  settleAgentSlot,
+  describeAgentSlots,
+} from "../../src/limits/agent-slots.ts";
+import { creationNeverSent, memoryLedgerStorage } from "../../src/limits/ledger.ts";
 
 const agent = "key:ak_1";
 
@@ -48,4 +56,48 @@ it("holds the slot of a create that may exist upstream unrecorded until a retry 
   // A held slot left alone lapses after HELD_TTL_MS.
   await settleAgentSlot(storage, agent, "s4", { held: "ck_2", vmId: "vm_y" }, 0);
   expect(await admitAgentSlot(storage, agent, 1, [], HELD_TTL_MS + 1, "s5")).toBe(true);
+});
+
+it("drops a held slot whose creation provably sent nothing, and keeps one whose send began or has no receipt", async () => {
+  const storage = memoryLedgerStorage();
+  const progress = (dispatch: unknown) => ({ phase: "creating", vmId: "vm_00000000000000000000000001", reservationId: "slot", context: "provider", createdBy: "key:owner", ...(dispatch === undefined ? {} : { dispatch }) });
+  const record = (dispatch: unknown) => ({ fingerprint: "f", leaseUntilMs: 0, expiresMs: HELD_TTL_MS * 2, progress: progress(dispatch) });
+  // Slots held before the settle fix: a queue-refused create (dispatch ready) held as if it might exist.
+  for (const [ck, dispatch] of [["ck_ready", { state: "ready", token: "t" }], ["ck_rejected", { state: "rejected", token: "t" }], ["ck_sent", { state: "sent", token: "t", at: 0 }], ["ck_legacy", undefined]] as const) {
+    await storage.put(`idem:${ck}`, record(dispatch));
+    await storage.put(`agentslot:${agent}:${ck}`, { expiresMs: HELD_TTL_MS, creationKey: ck, vmId: `vm_${ck}` });
+  }
+  expect(await creationNeverSent(storage, "ck_ready")).toBe(true);
+  expect(await creationNeverSent(storage, "ck_rejected")).toBe(true);
+  expect(await creationNeverSent(storage, "ck_sent")).toBe(false);
+  expect(await creationNeverSent(storage, "ck_legacy")).toBe(false);
+  expect(await creationNeverSent(storage, "ck_missing")).toBe(false);
+  // Budget 3: the sent and legacy slots still count (2), the never-sent two are dropped, so one create fits.
+  expect(await admitAgentSlot(storage, agent, 3, [], 1, "s1", creationNeverSent)).toBe(true);
+  expect(await admitAgentSlot(storage, agent, 3, [], 1, "s2", creationNeverSent)).toBe(false);
+  expect(await storage.get(`agentslot:${agent}:ck_ready`)).toBeUndefined();
+  expect(await storage.get(`agentslot:${agent}:ck_sent`)).toBeDefined();
+});
+
+it("lapses a run-capped key's held slot once the run cap plus grace has passed, and only then", async () => {
+  const storage = memoryLedgerStorage();
+  const bound = 900_000 + 600_000;
+  expect(await admitAgentSlot(storage, agent, 1, [], 0, "s1")).toBe(true);
+  await settleAgentSlot(storage, agent, "s1", { held: "ck_1", vmId: "vm_x" }, 1);
+  // Inside the run cap a VM the create made may still run: the held slot counts.
+  expect(await admitAgentSlot(storage, agent, 1, [], bound, "s2", undefined, bound)).toBe(false);
+  // A key without a run cap keeps it for HELD_TTL_MS.
+  expect(await admitAgentSlot(storage, agent, 1, [], bound + 1, "s3")).toBe(false);
+  // Past the cap the run cap has paused and deleted any such VM: the slot holds nothing.
+  expect(await admitAgentSlot(storage, agent, 1, [], bound + 1, "s4", undefined, bound)).toBe(true);
+});
+
+it("the cap refusal names what holds the budget: listed VMs, creates in flight, held creates and their state", async () => {
+  const storage = memoryLedgerStorage();
+  const agent = "key:ak_holders";
+  expect(await admitAgentSlot(storage, agent, 3, ["vm_a"], 0, "inflight-1")).toBe(true);
+  expect(await admitAgentSlot(storage, agent, 3, ["vm_a"], 0, "held-1")).toBe(true);
+  await settleAgentSlot(storage, agent, "held-1", { held: "ck_1", vmId: "vm_h" }, 0);
+  const lines = await describeAgentSlots(storage, agent, ["vm_a"], 60_000, async (_tx, key) => `state of ${key}`);
+  expect(lines).toEqual(["vm_a listed", "vm_h held as may-exist (state of ck_1), 1499 min left", "a create in flight (inflight), 14 min left"]);
 });

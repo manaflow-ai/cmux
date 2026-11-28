@@ -116,6 +116,10 @@ pub struct Source {
     pub argv: Option<Vec<String>>,
     /// The env its harness starts with (profile, preset, chat store, the chat's own).
     pub env: BTreeMap<String, String>,
+    /// No turn ran on this chat here and it carries no conversation from elsewhere (not
+    /// adopted, watched, resumed or forked): its harness has written no transcript yet, so
+    /// none found means it spent nothing, not that it went unmeasured.
+    pub unprompted: bool,
 }
 
 impl Source {
@@ -249,6 +253,14 @@ impl Tracker {
     /// Reads what the chat's harness appended since the last refresh and returns the stats as
     /// of `now`; None while its transcript is not found, plain or compressed.
     pub fn refresh(&mut self, source: &Source, now: u64, models: &Models) -> Option<UsageStats> {
+        // The file this tracker read is gone (compressed in place to FILE.jsonl.zst, or moved):
+        // start over as a new tracker would, locating it again. Holding the dead path left every
+        // count null for as long as the daemon ran, so the chat read as unmetered
+        // (2026-11-28: a closed chat's transcript compressed under its tracker).
+        // The minutes it counted go too: a moved file is read again from its start, never twice.
+        if self.main.as_ref().is_some_and(|t| !t.path.exists()) {
+            *self = Tracker { limits: self.limits, ..Tracker::default() };
+        }
         if self.main.is_none() && now >= self.look_again_at {
             match locate(source, ".jsonl") {
                 Some(path) => {
