@@ -504,8 +504,9 @@ impl<T> Pool<T> {
     }
 
     /// Keep the ready sessions' RSS (`rss`, bytes) at or under `cap`: the
-    /// entry that became ready first is evicted first. Returns the evicted.
-    pub fn enforce_cap(&mut self, cap: u64, rss: impl Fn(&T) -> u64) -> Vec<T> {
+    /// entry that became ready first is evicted first. Returns the evicted, each with whether it
+    /// held the spare role (its spare is held then, `spare_guard.rs`).
+    pub fn enforce_cap(&mut self, cap: u64, rss: impl Fn(&T) -> u64) -> Vec<(T, bool)> {
         let mut out = Vec::new();
         loop {
             let total: u64 = self
@@ -532,9 +533,14 @@ impl<T> Pool<T> {
             let e = self.entries.remove(i);
             e.settle();
             if let Slot::Ready(t) = e.slot {
-                out.push(t);
+                out.push((t, e.spare));
             }
         }
+    }
+
+    /// An entry holds or is starting a session for `key`.
+    pub fn holds(&self, key: &PoolKey) -> bool {
+        self.entries.iter().any(|e| &e.key == key && !matches!(e.slot, Slot::Empty))
     }
 
     /// Mutable access to every ready session (RSS updates).

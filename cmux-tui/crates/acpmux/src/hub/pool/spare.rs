@@ -31,11 +31,15 @@
 //! one) that finds a remembered harness without a spare wants it (`spare_on_person_request`),
 //! so a daemon relaunched while the person was away has one ready for their next new chat. The
 //! idle exit keeps its meaning: an unused spare still ends after `pool.spareIdleMinutes`, and
-//! nothing starts it again until the person shows up. Only a session that could have taken a pooled agent
+//! nothing starts it again until the person shows up. A spare the RSS cap ended is held: only
+//! the person's next session of its harness starts it again, and the daemon's own spare starts
+//! are rate limited per harness (`spare_guard.rs`), so many harnesses under a small cap settle
+//! instead of looping start, evict, start. Only a session that could have taken a pooled agent
 //! (no env, route, disallowed tools or extra folders of its own) is remembered,
 //! with its model request. Off with `pool.spare: false` or
 //! `ACPMUX_SPARE_HARNESS=0` in the daemon's environment.
 
+use super::spare_guard::{Start, Verdict};
 use super::*;
 
 /// A remembered harness older than this starts no spare at daemon start.
@@ -224,20 +228,58 @@ impl Hub {
             };
             // The newest shape, so two quick sessions never leave the older one's spare.
             if let Some(r) = list.into_iter().find(|r| r.harness == harness) {
-                hub.spare_want(r).await;
+                hub.spare_want(r, Start::Used).await;
             }
         });
     }
 
-    /// Want the spare for this shape (its start runs in the background).
-    async fn spare_want(self: &Arc<Self>, r: Remembered) {
+    /// Want the spare for this shape (its start runs in the background), when the guard lets
+    /// `who` start it (`spare_guard.rs`). Returns whether it was wanted.
+    async fn spare_want(self: &Arc<Self>, r: Remembered, who: Start) -> bool {
         let Remembered { harness, preset, cwd, model, .. } = r;
         match self
             .pool_spec_in(Some(harness.clone()), preset, cwd, Some(model), &PrewarmShape::default())
             .await
         {
-            Ok(spec) => self.pool_want(Role::Spare, spec).await,
-            Err(e) => tracing::debug!(%harness, "no spare: {}", e.message),
+            Ok(spec) if self.spare_admit(&spec.key, who) => {
+                self.pool_want(Role::Spare, spec).await;
+                true
+            }
+            Ok(_) => false,
+            Err(e) => {
+                tracing::debug!(%harness, "no spare: {}", e.message);
+                false
+            }
+        }
+    }
+
+    /// May a spare of `key` start, wanted by `who`? An entry already holding or starting `key`
+    /// is only kept (no start, nothing counted). A spare the RSS cap ended waits for the person's
+    /// next session of its harness, and the daemon's own starts are rate limited per harness, so
+    /// no start, evict, start loop can run (`spare_guard.rs`).
+    fn spare_admit(&self, key: &PoolKey, who: Start) -> bool {
+        if lock(&self.pool.pool).holds(key) {
+            return true;
+        }
+        let now = lock(&self.clock).now();
+        let harness = &key.harness;
+        match lock(&self.pool.spare_guard).admit(harness, who, now) {
+            Verdict::Start => true,
+            Verdict::Held => {
+                tracing::debug!(%harness, "no spare: the RSS cap ended it and the harness was not used since");
+                false
+            }
+            Verdict::Tripped { first } => {
+                if first {
+                    tracing::warn!(
+                        %harness,
+                        max = super::spare_guard::MAX_STARTS,
+                        window_s = super::spare_guard::WINDOW.as_secs(),
+                        "spare starts for this harness hit their limit; none start until the window passes"
+                    );
+                }
+                false
+            }
         }
     }
 
@@ -277,6 +319,7 @@ impl Hub {
                 .await
             {
                 Ok(spec) if &spec.key == reserved => {}
+                Ok(spec) if !self.spare_admit(&spec.key, Start::Auto) => {}
                 Ok(spec) => {
                     tracing::info!(%harness, "a personal spare starts in the reserved home folder");
                     wanted.push(spec.key.clone());
@@ -315,8 +358,9 @@ impl Hub {
                 continue;
             }
             let harness = r.harness.clone();
-            tracing::info!(%harness, "a spare starts: {why}");
-            self.spare_want(r).await;
+            if self.spare_want(r, Start::Auto).await {
+                tracing::info!(%harness, "a spare starts: {why}");
+            }
             all &= lock(&self.pool.pool).has_spare(&harness);
         }
         all
@@ -427,8 +471,10 @@ impl Hub {
             }
             let shapes = lock(&self.pool.spares).clone().unwrap_or_default();
             for r in shapes.into_iter().filter(|r| harnesses.contains(&r.harness)) {
-                tracing::info!(harness = %r.harness, "a spare whose agent died starts again");
-                self.spare_want(r).await;
+                let harness = r.harness.clone();
+                if self.spare_want(r, Start::Auto).await {
+                    tracing::info!(%harness, "a spare whose agent died starts again");
+                }
             }
         }
     }
