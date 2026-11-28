@@ -206,5 +206,43 @@ class EndToEnd(unittest.TestCase):
         self.assertIn("unreachable", res.stderr)
 
 
+class MacFleetLog(unittest.TestCase):
+    """record-mac-fleet: SidebarChiefLagTests run 3 times in one fleet step; its log lines become the sidebar
+    areas' objects under the fleet class, fetch reads them back, and a log with no bench line exits 1."""
+
+    LINES = "\n".join(
+        f"SIDEBAR-CHIEF-LAG ticks before n=1104 frames=120 p50_ms=1.0 p95_ms=9.90 max_ms=5 over16ms=0\n"
+        f"SIDEBAR-CHIEF-LAG ticks after n=1104 frames=120 p50_ms=1.5 p95_ms={t} max_ms=9 over16ms=0 chiefs=5\n"
+        f"SIDEBAR-CHIEF-LAG scroll after n=1104 frames=60 p50_ms=4.0 p95_ms={s} max_ms=12 over16ms=0\n"
+        f"SIDEBAR-CHIEF-LAG remap after n=1104 full_pass_ms={r} avatar_calls=1104"
+        for t, s, r in ((3.0, 8.0, 40.0), (3.2, 8.4, 42.0), (2.9, 8.1, 39.0)))
+
+    def test_log_lines_become_the_sidebar_baselines(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "step.log"
+            log.write_text("cmux-ci: step abcdef123 queued\n" + self.LINES + "\n")
+            env = {**os.environ, "CMUX_BENCH_MACHINE_CLASS": "macos-arm64-fleet-light"}
+            out = Path(tmp) / "out"
+            got = subprocess.run([sys.executable, "-I", str(CLI), "baselines", "from-log", str(log), "--out", str(out),
+                                  "--sha", "abc"], capture_output=True, text=True, env=env)
+            self.assertEqual(got.returncode, 0, got.stderr)
+            docs, missing, _ = bl.fetch(["Sidebar row feed and flush"], "macos-arm64-fleet-light", str(out))
+            self.assertEqual(missing, {})
+            benches = docs["Sidebar row feed and flush"]["benches"]
+            ticks = benches[bl.bench_id("SidebarChiefLagTests ticks after p95_ms")]
+            self.assertEqual(ticks["repeats_s"], [0.003, 0.0032, 0.0029])  # the "after" line only, in seconds
+            self.assertEqual(ticks["value_s"], 0.003)
+            self.assertEqual(len(benches), 3)
+
+    def test_a_log_with_no_bench_line_is_red(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "step.log"
+            log.write_text("error: build failed\n")
+            got = subprocess.run([sys.executable, "-I", str(CLI), "baselines", "from-log", str(log), "--out",
+                                  str(Path(tmp) / "out")], capture_output=True, text=True)
+            self.assertEqual(got.returncode, 1)
+            self.assertFalse((Path(tmp) / "out").exists())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
