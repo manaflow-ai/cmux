@@ -251,6 +251,12 @@ const variants: Record<string, AgentPaneVariant> = {
       await ctx.waitFor(() => stack.scrollTop > 0);
     },
   },
+  // Closed, as six-files is: the summary card's Outputs list reads this turn (sources-changes.test.ts).
+  "fourteen-files": {
+    note: "Fourteen edited files, closed: still one row.",
+    height: 520,
+    snapshot: turn(FOURTEEN, "Move the retry policy into its own module"),
+  },
   "fourteen-files-open": {
     note: "Fourteen files opened: every diff in the one capped box.",
     height: 900,

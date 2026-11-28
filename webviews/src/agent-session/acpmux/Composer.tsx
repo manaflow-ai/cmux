@@ -3641,9 +3641,12 @@ function ComposerFrame({
           className: shell
             ? "acpmux-composer-prompt is-hidden"
             : `acpmux-composer-prompt${dictating ? " is-dictating" : ""}${agentSuggested && suggestionLook === "italic" ? " is-suggestion-italic" : ""}${cloudStarting && startLook === "dimmed" ? " is-cloud-starting" : ""}`,
-          // The editor updates its own content for each key. This value is the frame's last drawn
-          // snapshot, so the box only renders when the prompt's visible facts change.
-          value: facts.text,
+          // The editor updates its own content for each key, and the box only renders when the
+          // prompt's visible facts change. The field takes the prompt's text as it is now, not
+          // facts.text: facts are the snapshot from the last fact change, so two writes in one task
+          // (a restored draft's text, then its trailing space) rendered the older text and the field
+          // rewrote its document with it, dropping the space so "/re" read as "fix it/re".
+          value: promptText.getText(),
           selectionKey: sessionId,
           placeholder: dictating ? t("dictation.listening") : (startingPlaceholder ?? suggested ?? placeholderText),
           placeholderKey:

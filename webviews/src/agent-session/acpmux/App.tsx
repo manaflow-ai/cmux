@@ -2769,7 +2769,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The transcript's sub-session cards read each sub-session's state from one store, so a session
   // changing never redraws a turn (subagents/subsessions.ts); a name opens its chat beside this one.
   const subsessionStore = useRef<SubsessionStore | null>(null);
-  subsessionStore.current ??= new SubsessionStore();
+  if (!subsessionStore.current) {
+    // Made holding the first snapshot's list: the effect below runs after the transcript's first
+    // render, and a received line fixes its sender machine's slot when it is drawn (SenderChip,
+    // #50242), so a store filled only by the effect left every line drawn at open without its
+    // machine. Nothing reads the store yet, so this notifies no one.
+    subsessionStore.current = new SubsessionStore();
+    subsessionStore.current.set(snapshot.sessions);
+  }
   useLayoutEffect(() => {
     subsessionStore.current!.set(snapshot.sessions);
   }, [snapshot.sessions]);

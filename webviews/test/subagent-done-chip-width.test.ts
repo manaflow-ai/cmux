@@ -97,7 +97,7 @@ await requireBrowserLane("subagent-done-chip-width.test.ts", async () => {
     }
   };
 
-  test("a long name in a wide pane: the chip is wider than the old 40% cap, cut with an ellipsis", async () => {
+  test("a long name in a wide pane: the chip is wider than the old 40% cap, cut with a fade", async () => {
     const [line] = await lines("long-title", 900);
     expect(line).toBeDefined();
     expect(line!.chip.width).toBeGreaterThan(line!.sentence * 0.4 + 1);
@@ -105,7 +105,9 @@ await requireBrowserLane("subagent-done-chip-width.test.ts", async () => {
     expect(line!.chevron).toBeNull();
     expect(line!.time - line!.chip.right).toBeLessThan(80);
     expect(line!.chip.cut).toBe(true);
-    expect(line!.chip.ellipsis).toBe("ellipsis");
+    // The line's last cut part fades out under the hover controls instead of ending in an ellipsis
+    // (#54401, Leo 2026-11-24: "show the whole line before ellipsis-ing"; subagents.css).
+    expect(line!.chip.ellipsis).toBe("clip");
   });
 
   test("a failure with a long error: on the grid, the reason is cut and the title keeps its whole name", async () => {
