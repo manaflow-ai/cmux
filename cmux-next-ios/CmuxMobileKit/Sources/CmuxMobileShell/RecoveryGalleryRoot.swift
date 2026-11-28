@@ -158,7 +158,9 @@ public struct RecoveryGalleryRoot: View {
     /// `terminal` (or `terminal-loading`), the skeleton inside ``TerminalLoadWatch/bound``;
     /// `terminal-saved`, the Mac's screen as last kept, drawn as it is; `terminal-stalled`, no
     /// saved copy past the bound: Retry; `terminal-offline`, the Mac offline, with the link's
-    /// own line as the reason.
+    /// own line as the reason; `terminal-a`, `-b`, `-c`, `-before`, the skeleton's looks
+    /// (``TerminalSkeletonStyle``: A prompt, the one the page shows; B cursor; C fade; the one before)
+    /// over a stand-in composer.
     @ViewBuilder private var terminalCover: some View {
         let saved = """
         ~/Projects $ git status
@@ -178,8 +180,44 @@ public struct RecoveryGalleryRoot: View {
         case "offline":
             TerminalLoadStalledPanel(state: .offline(mac: "Mac Studio"), linkStatus: "This network blocks the connection",
                                      retry: {}).background(Color.black)
+        case "a", "b", "c", "before":
+            // Aziz, 2026-11-26: "the loading terminal placeholder shouldnt leak under the composer
+            // bar and to be frank can look better". Each look over a stand-in composer, so a
+            // shot shows where the cover ends.
+            let style: TerminalSkeletonStyle = switch variant {
+            case "b": .cursor
+            case "c": .fade
+            case "before": .before
+            default: .prompt
+            }
+            terminalSkeleton(style)
         default:
-            TerminalConnectingView(topInset: 60).background(Color.black)
+            terminalSkeleton(.prompt)
+        }
+    }
+
+    /// The skeleton in `style` with nothing cached, resting on a stand-in composer and key row
+    /// (`composerLift` tall, as the page's `rowsLift`).
+    private func terminalSkeleton(_ style: TerminalSkeletonStyle) -> some View {
+        let composerLift: CGFloat = 112
+        return ZStack(alignment: .bottom) {
+            Color.black
+            TerminalConnectingView(topInset: 60, lastFrame: nil, showsPlaceholder: true, screenText: nil,
+                                   rowsLift: composerLift, rows: nil, rowsMeasured: true, skeletonStyle: style)
+            VStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    ForEach(["esc", "tab", "ctrl", "↑", "↓"], id: \.self) { key in
+                        Text(verbatim: key).font(.footnote.monospaced()).foregroundStyle(.white.opacity(0.8))
+                            .frame(minWidth: 40, minHeight: 30).background(.white.opacity(0.12), in: Capsule())
+                    }
+                }
+                Text(verbatim: "Type a command")
+                    .font(.body).foregroundStyle(.white.opacity(0.4))
+                    .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading).padding(.horizontal, 14)
+                    .background(.white.opacity(0.1), in: Capsule())
+            }
+            .padding(.horizontal, 12).padding(.bottom, 30)
+            .frame(height: composerLift, alignment: .bottom)
         }
     }
 

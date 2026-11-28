@@ -94,6 +94,18 @@ import UIKit
         #expect(TerminalConnectingView.coverBottom(height: 100, rowsLift: 300) == 0)
     }
 
+    /// Aziz, 2026-11-26: "to be frank can look better". The page's skeleton is the quiet one:
+    /// a few rows of scrollback over the live prompt, never more rows than fit above the composer.
+    @Test func theSkeletonIsAFewRowsOverThePrompt() {
+        #expect(TerminalSkeleton.shipped == .prompt)
+        #expect(TerminalSkeleton.shownRows(.prompt, room: 40).count == 4)
+        #expect(TerminalSkeleton.shownRows(.prompt, room: 2) == Array(TerminalSkeleton.rows.suffix(2)))
+        #expect(TerminalSkeleton.shownRows(.cursor, room: 40).isEmpty)
+        #expect(TerminalSkeleton.shownRows(.before, room: 40) == TerminalSkeleton.rows)
+        #expect(TerminalSkeleton.shownRows(.fade, room: 3).count == 3)
+        #expect(TerminalSkeleton.shownRows(.prompt, room: -1).isEmpty)
+    }
+
     /// Connection changes keep the cached frame (only drawn live rows replace it).
     @Test func connectionChangesKeepTheCachedFrame() {
         let model = makeModel()

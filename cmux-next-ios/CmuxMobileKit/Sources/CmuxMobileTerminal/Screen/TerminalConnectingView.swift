@@ -32,10 +32,20 @@ public struct TerminalConnectingView: View {
     /// The still's rows (``TerminalFrameRows``) and whether they were measured yet.
     let rows: TerminalFrameRows?
     let rowsMeasured: Bool
+    /// The skeleton's look (``TerminalSkeleton/Style``); the gallery draws each one.
+    let skeletonStyle: TerminalSkeletonStyle
 
     public init(topInset: CGFloat = 0, lastFrame: UIImage? = nil, showsPlaceholder: Bool = true,
                 screenText: String? = nil,
                 rowsLift: CGFloat? = nil, rows: TerminalFrameRows? = nil, rowsMeasured: Bool = true) {
+        self.init(topInset: topInset, lastFrame: lastFrame, showsPlaceholder: showsPlaceholder, screenText: screenText,
+                  rowsLift: rowsLift, rows: rows, rowsMeasured: rowsMeasured, skeletonStyle: TerminalSkeleton.shipped)
+    }
+
+    /// The gallery's: one ``TerminalSkeletonStyle`` drawn.
+    public init(topInset: CGFloat, lastFrame: UIImage?, showsPlaceholder: Bool, screenText: String?,
+                rowsLift: CGFloat?, rows: TerminalFrameRows?, rowsMeasured: Bool, skeletonStyle: TerminalSkeletonStyle) {
+        self.skeletonStyle = skeletonStyle
         self.topInset = topInset
         self.lastFrame = lastFrame
         self.showsPlaceholder = showsPlaceholder
@@ -120,7 +130,7 @@ public struct TerminalConnectingView: View {
                 }
                 .accessibilityHidden(true)
             case .skeleton:
-                TerminalSkeleton(topInset: topInset, rowsLift: rowsLift)
+                TerminalSkeleton(topInset: topInset, rowsLift: rowsLift, style: skeletonStyle)
             case .nothing:
                 EmptyView()
             }
@@ -225,13 +235,35 @@ public struct TerminalLoadStalledPanel: View {
 }
 
 /// A terminal never opened on this phone, until its Mac's rows arrive: the shape of a
-/// terminal (SPEC 7.1), not a list of grey bars. Rows at the terminal's own line pitch, a
-/// prompt's `$` at each command line's start, output lines of uneven length, and the last
-/// row a prompt with the cursor block, resting on the composer as the live rows do. The
-/// shimmer runs over the text, never over the prompt's cursor.
+/// terminal (SPEC 7.1), not a list of grey bars, resting on the composer as the live rows do
+/// and never drawn under it (Aziz, 2026-11-26: "the loading terminal placeholder shouldnt leak
+/// under the composer bar and to be frank can look better").
+///
+/// ``Style`` picks the look (gallery `-cmux-mobile-recovery-gallery terminal-a|b|c|before`):
+/// - `prompt` (A, the one the page shows): the last few rows of a session, fading out
+///   toward the top so the page reads as quiet scrollback, not a list, and the live prompt
+///   with a slowly blinking cursor at the composer's top. The text breathes; no shimmer band.
+/// - `cursor` (B): the live prompt and its blinking cursor alone.
+/// - `fade` (C): the page full of rows as before, under the same fade, shimmer kept.
+/// - `before`: the page full of rows with `$` marks and the shimmer, as it shipped to 11-27.
+public enum TerminalSkeletonStyle: String, CaseIterable, Sendable {
+    case prompt
+    case cursor
+    case fade
+    case before
+}
+
 struct TerminalSkeleton: View {
+    typealias Style = TerminalSkeletonStyle
+
+    /// The look every terminal page draws.
+    static let shipped: Style = .prompt
+
     let topInset: CGFloat
     let rowsLift: CGFloat?
+    var style: Style = TerminalSkeleton.shipped
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// One row: a command line (the prompt's `$` then a command) or output, as fractions of
     /// the width. Oldest first; the newest row (the live prompt) is drawn after them.
@@ -245,6 +277,20 @@ struct TerminalSkeleton: View {
         .command(0.46), .output(0.9), .output(0.58), .output(0.0), .command(0.28), .output(0.7), .output(0.52),
     ]
 
+    /// How many of ``rows`` the style draws at most (the newest), before the live prompt.
+    static func rowLimit(_ style: Style) -> Int {
+        switch style {
+        case .prompt: 4
+        case .cursor: 0
+        case .fade, .before: rows.count
+        }
+    }
+
+    /// The rows a page `room` rows tall draws above the prompt, newest last.
+    static func shownRows(_ style: Style, room: Int) -> [Row] {
+        Array(rows.suffix(max(0, min(room, rowLimit(style)))))
+    }
+
     static let font = UIFont.monospacedSystemFont(ofSize: 13, weight: .regular)
     static var pitch: CGFloat { ceil(font.lineHeight) + 2 }
     static let barHeight: CGFloat = 9
@@ -256,15 +302,10 @@ struct TerminalSkeleton: View {
             let bottom = TerminalConnectingView.coverBottom(height: proxy.size.height, rowsLift: rowsLift)
             // As many of the rows as fit between the top bar and the composer, newest last.
             let room = max(0, Int((bottom - topInset - 8) / pitch) - 1)
-            let shown = Array(Self.rows.suffix(room))
+            let shown = Self.shownRows(style, room: room)
             let textWidth = proxy.size.width - 2 * Self.inset
             VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(shown.enumerated()), id: \.offset) { _, row in
-                        line(row, width: textWidth)
-                    }
-                }
-                .cmuxMobileShimmer()
+                history(shown, width: textWidth)
                 prompt
             }
             .padding(.horizontal, Self.inset)
@@ -273,32 +314,94 @@ struct TerminalSkeleton: View {
         .accessibilityHidden(true)
     }
 
+    @ViewBuilder private func history(_ shown: [Row], width: CGFloat) -> some View {
+        let column = VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(shown.enumerated()), id: \.offset) { _, row in
+                line(row, width: width)
+            }
+        }
+        switch style {
+        case .before:
+            column.cmuxMobileShimmer()
+        case .fade:
+            column.mask(Self.fadeMask).cmuxMobileShimmer()
+        case .prompt:
+            column.mask(Self.fadeMask).modifier(Breathing(still: reduceMotion))
+        case .cursor:
+            EmptyView()
+        }
+    }
+
+    /// Older rows fade toward the top: scrollback trailing off, not a block of bars.
+    private static var fadeMask: LinearGradient {
+        LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.75)],
+                       startPoint: .top, endPoint: .bottom)
+    }
+
     @ViewBuilder private func line(_ row: Row, width: CGFloat) -> some View {
         HStack(spacing: 6) {
             switch row {
             case .command(let fraction):
-                Text("$").font(Font(Self.font)).foregroundStyle(Color.white.opacity(0.28))
-                bar(width: width * fraction, opacity: 0.14)
+                if style == .before {
+                    Text("$").font(Font(Self.font)).foregroundStyle(Color.white.opacity(0.28))
+                    bar(width: width * fraction, opacity: 0.14)
+                } else {
+                    // A command reads brighter than its output, as it does in a shell.
+                    bar(width: width * fraction, opacity: 0.16)
+                }
             case .output(let fraction):
-                bar(width: width * fraction, opacity: 0.08)
+                bar(width: width * fraction, opacity: style == .before ? 0.08 : 0.07)
             }
         }
         .frame(height: Self.pitch, alignment: .leading)
     }
 
     private func bar(width: CGFloat, opacity: Double) -> some View {
-        RoundedRectangle(cornerRadius: 3, style: .continuous)
+        RoundedRectangle(cornerRadius: style == .before ? 3 : 2, style: .continuous)
             .fill(Color.white.opacity(opacity))
-            .frame(width: max(0, width), height: Self.barHeight)
+            .frame(width: max(0, width), height: style == .before ? Self.barHeight : Self.barHeight - 2)
     }
 
     /// The live prompt: `$` and the cursor block, where the shell's prompt will be.
     private var prompt: some View {
         HStack(spacing: 6) {
-            Text("$").font(Font(Self.font)).foregroundStyle(Color.white.opacity(0.4))
+            Text("$").font(Font(Self.font)).foregroundStyle(Color.white.opacity(style == .before ? 0.4 : 0.5))
             Rectangle().fill(Color.white.opacity(0.55)).frame(width: 8, height: ceil(Self.font.lineHeight) - 2)
+                .modifier(CursorBlink(still: style == .before || reduceMotion))
         }
         .frame(height: Self.pitch, alignment: .leading)
+    }
+}
+
+/// The skeleton's rows dimming and brightening slowly, a page that is waiting rather than a
+/// sweeping band. Still under Reduce Motion.
+private struct Breathing: ViewModifier {
+    let still: Bool
+    @State private var dim = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(still ? 1 : (dim ? 0.55 : 1))
+            .onAppear {
+                guard !still else { return }
+                withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) { dim = true }
+            }
+    }
+}
+
+/// A terminal cursor's blink, eased so it reads as alive without flicker. Still under Reduce
+/// Motion.
+private struct CursorBlink: ViewModifier {
+    let still: Bool
+    @State private var off = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(still ? 1 : (off ? 0.15 : 1))
+            .onAppear {
+                guard !still else { return }
+                withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) { off = true }
+            }
     }
 }
 #endif
