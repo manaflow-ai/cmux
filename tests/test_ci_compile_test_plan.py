@@ -547,7 +547,7 @@ class AdvisoryVerdictTests(unittest.TestCase):
             self.assertEqual(out.read_text(), "packages=CmuxNext CmuxUpdater\n")
 
     def test_advisory_fallback_keeps_its_separate_enable_switch(self) -> None:
-        # #54437 froze gateway labels. The advisory fallback now shares that runner,
+        # #54437 froze gateway labels (#61222: they read the unified mac-gateway label). The advisory fallback now shares that runner,
         # but only its own enable switch can queue it after a missing Linux verdict.
         text = WORKFLOW.read_text()
         self.assertNotIn("CI_COMPILE_CHECK_GATEWAY", text.split("\njobs:\n", 1)[1])
@@ -556,7 +556,7 @@ class AdvisoryVerdictTests(unittest.TestCase):
         condition = re.search(r"^    if: (.*)$", fallback, re.M).group(1)
         self.assertEqual(
             runs_on.split(" #", 1)[0],
-            "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }}",
+            "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }}",
         )
         self.assertIn("needs.compile.outputs.verdict == 'none'", condition)
         self.assertIn("vars.CI_TEST_COMPILE_GATEWAY != ''", condition)
