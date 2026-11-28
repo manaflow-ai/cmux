@@ -134,9 +134,16 @@ extension LiveCoordinator {
         session.workspaces.onNotification = { [weak session] post in session?.terminalFeed.notificationPosted(post) }
         let outputMac = session.macID
         session.workspaces.onTerminalOutput = { [weak self] tab in self?.onTerminalOutput?(tab, outputMac) }
-        session.acpmux.onWatchEvent = { [weak session] event in
+        session.acpmux.onWatchEvent = { [weak self, weak session] event in
             guard let session else { return }
             let hub = session.acpmux
+            // The chats are ready the moment the list is in, which is before `bind` returns (it
+            // still seeds the pending prompts): a failure the bind before left says nothing from
+            // here on, not only once this bind returns (#46669's follow made that gap a read).
+            if hub.isReady, session.chatsError != nil {
+                session.chatsError = nil
+                self?.phaseChanged(session)
+            }
             session.feed.handle(event, sessions: hub.sessions)
             // One chat's event updates that chat's entries; only a whole list rebuilds them. Each
             // event used to rebuild both maps over every chat on the main actor (about 30,000
