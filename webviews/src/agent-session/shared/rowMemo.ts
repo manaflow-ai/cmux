@@ -1,3 +1,6 @@
+import { experimentArm } from "../../experiments/experiment";
+import { hiddenMeasureCaches } from "../acpmux/hiddenMeasureCaches.experiment";
+
 /// A memo keyed by object, as a WeakMap is, whose table stays bounded however many keys pass
 /// through it.
 ///
@@ -15,10 +18,21 @@ export class RowMemo<K extends object, V> {
   #young = new WeakMap<K, V>();
   #old = new WeakMap<K, V>();
   #writes = 0;
-  readonly #limit: number;
+  readonly #limit: number | undefined;
 
-  constructor(limit = ROW_MEMO_LIMIT) {
+  /// `limit` writes a table; unset, ROW_MEMO_LIMIT (HIDDEN_ROW_MEMO_LIMIT on the
+  /// `hidden-measure-caches` experiment's `dropped` arm).
+  constructor(limit?: number) {
     this.#limit = limit;
+    memos.add(new WeakRef(this as RowMemo<object, unknown>));
+    if (!hideHookInstalled) installHideHook();
+  }
+
+  /// Forgets every value: both tables start over empty.
+  clear(): void {
+    this.#young = new WeakMap();
+    this.#old = new WeakMap();
+    this.#writes = 0;
   }
 
   get(key: K): V | undefined {
@@ -36,7 +50,7 @@ export class RowMemo<K extends object, V> {
 
   set(key: K, value: V): this {
     this.#young.set(key, value);
-    if (++this.#writes >= this.#limit) {
+    if (++this.#writes >= (this.#limit ?? HIDDEN_ROW_MEMO_LIMIT) && this.#writes >= limitNow(this.#limit)) {
       this.#old = this.#young;
       this.#young = new WeakMap();
       this.#writes = 0;
@@ -56,3 +70,36 @@ export class RowMemo<K extends object, V> {
 /// More than a chat holds at once (direct.ts HELD_RECORDS, 4000 records, makes fewer rows), so the
 /// rows one pass reads all stay between two retirements.
 export const ROW_MEMO_LIMIT = 8192;
+
+/// On the `hidden-measure-caches` experiment's `dropped` arm: a table's writes, still more than the
+/// rows a chat holds at once (direct/heldRecords.ts HELD_RECORDS, 1000 records), and each memo drops
+/// both tables when its page hides (a hidden page reads no rows; the shown one computes them again).
+/// The default arm keeps ROW_MEMO_LIMIT and the tables. A memo's 8192-entry table was about 0.13 MB,
+/// and a hidden 10k-row chat page held 18 of them (cmuxterm-hq goals/chats-flat-at-any-length.md).
+export const HIDDEN_ROW_MEMO_LIMIT = 2048;
+
+function limitNow(limit: number | undefined): number {
+  if (limit !== undefined) return limit;
+  return experimentArm(hiddenMeasureCaches) === "dropped" ? HIDDEN_ROW_MEMO_LIMIT : ROW_MEMO_LIMIT;
+}
+
+// Every memo of this module copy (each bundle that includes this file has its own copy, its own set
+// and its own hide hook), held weakly so a memo made and dropped (a test's) goes.
+const memos = new Set<WeakRef<RowMemo<object, unknown>>>();
+let hideHookInstalled = false;
+
+/// Clears every memo of this module copy when `doc` is hidden on the `dropped` arm. True when it did.
+export function dropRowMemosWhenHidden(doc: Pick<Document, "visibilityState"> | undefined): boolean {
+  if (doc?.visibilityState !== "hidden" || experimentArm(hiddenMeasureCaches) !== "dropped") return false;
+  for (const ref of memos) {
+    const memo = ref.deref();
+    if (memo) memo.clear();
+    else memos.delete(ref);
+  }
+  return true;
+}
+
+function installHideHook(doc: Document | undefined = globalThis.document): void {
+  hideHookInstalled = true;
+  doc?.addEventListener?.("visibilitychange", () => void dropRowMemosWhenHidden(doc));
+}
