@@ -17,16 +17,20 @@ fn personal_mux() -> Arc<Mux> {
 }
 
 fn revision(mux: &Arc<Mux>) -> u64 {
-    run(mux, json!({"cmd":"list-personal"})).unwrap()["personal_revision"].as_u64().unwrap()
+    run(mux, json!({"cmd":"list-personal"})).unwrap()["personal_revision"]
+        .as_u64()
+        .unwrap()
 }
 
 #[test]
 fn personal_state_starts_with_the_default_room_following_this_session() {
     let mux = personal_mux();
     let identity = run(&mux, json!({"cmd":"identify"})).unwrap();
-    assert!(
-        identity["capabilities"].as_array().unwrap().iter().any(|value| value == "profiles-v1")
-    );
+    assert!(identity["capabilities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value == "profiles-v1"));
     let own = identity["registry_id"].as_str().unwrap().to_string();
     let personal = run(&mux, json!({"cmd":"list-personal"})).unwrap();
     assert_eq!(personal["profiles"][0]["id"], "default");
@@ -60,14 +64,19 @@ fn rooms_round_trip_over_the_wire() {
         MuxEvent::PersonalChanged { personal_revision } if personal_revision == revision_after_create
     )));
     // A retry with the same id and name changes nothing.
-    let retried =
-        run(&mux, json!({"cmd":"create-profile","profile":"prof_work","name":"Work"})).unwrap();
+    let retried = run(
+        &mux,
+        json!({"cmd":"create-profile","profile":"prof_work","name":"Work"}),
+    )
+    .unwrap();
     assert_eq!(retried["changed"], false);
     assert_eq!(revision(&mux), revision_after_create);
     // Absent fields stay, null clears.
-    let updated =
-        run(&mux, json!({"cmd":"update-profile","profile":"prof_work","theme":null,"icon":"👩‍💻"}))
-            .unwrap();
+    let updated = run(
+        &mux,
+        json!({"cmd":"update-profile","profile":"prof_work","theme":null,"icon":"👩‍💻"}),
+    )
+    .unwrap();
     assert!(updated["profile"]["theme"].is_null());
     assert_eq!(updated["profile"]["color"], "green");
     assert_eq!(updated["profile"]["icon"], "👩‍💻");
@@ -80,10 +89,17 @@ fn rooms_round_trip_over_the_wire() {
     ] {
         assert!(run(&mux, bad.clone()).is_err(), "{bad} must fail");
     }
-    let flag =
-        run(&mux, json!({"cmd":"update-profile","profile":"prof_work","icon":"🇯🇵"})).unwrap();
+    let flag = run(
+        &mux,
+        json!({"cmd":"update-profile","profile":"prof_work","icon":"🇯🇵"}),
+    )
+    .unwrap();
     assert_eq!(flag["profile"]["icon"], "🇯🇵");
-    let moved = run(&mux, json!({"cmd":"move-profile","profile":"prof_work","index":0})).unwrap();
+    let moved = run(
+        &mux,
+        json!({"cmd":"move-profile","profile":"prof_work","index":0}),
+    )
+    .unwrap();
     assert_eq!(moved["profile"]["index"], 0);
     assert_eq!(moved["changed"], true);
     let follows = run(
@@ -97,7 +113,11 @@ fn rooms_round_trip_over_the_wire() {
 #[test]
 fn pins_groups_and_room_deletion() {
     let mux = personal_mux();
-    run(&mux, json!({"cmd":"create-profile","profile":"prof_work","name":"Work"})).unwrap();
+    run(
+        &mux,
+        json!({"cmd":"create-profile","profile":"prof_work","name":"Work"}),
+    )
+    .unwrap();
     // A key that exists on no session yet can be pinned.
     let pinned = run(
         &mux,
@@ -117,8 +137,10 @@ fn pins_groups_and_room_deletion() {
         json!({"cmd":"set-personal-workspace","session_id":"remote-1","workspace_key":"future-key","theme":"Nord"}),
     )
     .unwrap();
-    let count =
-        run(&mux, json!({"cmd":"list-personal"})).unwrap()["workspaces"].as_array().unwrap().len();
+    let count = run(&mux, json!({"cmd":"list-personal"})).unwrap()["workspaces"]
+        .as_array()
+        .unwrap()
+        .len();
     assert_eq!(row["workspace"]["index"], count - 1);
     assert_eq!(row["workspace"]["theme"], "Nord");
     let group = run(
@@ -149,9 +171,16 @@ fn pins_groups_and_room_deletion() {
         json!({"cmd":"set-personal-workspace","session_id":"remote-1","workspace_key":"future-key","group":"grp_a"}),
     )
     .unwrap();
-    run(&mux, json!({"cmd":"update-personal-group","group":"grp_a","profile":"default"})).unwrap();
-    run(&mux, json!({"cmd":"update-personal-group","group":"grp_a","profile":"prof_work"}))
-        .unwrap();
+    run(
+        &mux,
+        json!({"cmd":"update-personal-group","group":"grp_a","profile":"default"}),
+    )
+    .unwrap();
+    run(
+        &mux,
+        json!({"cmd":"update-personal-group","group":"grp_a","profile":"prof_work"}),
+    )
+    .unwrap();
     let listed = run(&mux, json!({"cmd":"list-personal"})).unwrap();
     assert_eq!(
         listed["pins"],
@@ -161,7 +190,9 @@ fn pins_groups_and_room_deletion() {
     let deleted = run(&mux, json!({"cmd":"delete-profile","profile":"prof_work"})).unwrap();
     assert!(deleted["moved_to"].is_null());
     // Delete Space is one reopenable closed group (SPACE-DELETE-CLOSES-ITS-WORKSPACES).
-    assert!(deleted["closed_id"].as_str().is_some_and(|id| id.starts_with("closed_")));
+    assert!(deleted["closed_id"]
+        .as_str()
+        .is_some_and(|id| id.starts_with("closed_")));
     assert_eq!(
         deleted["unpinned"],
         json!([{"session_id":"remote-1","workspace_key":"future-key"}])
@@ -171,32 +202,45 @@ fn pins_groups_and_room_deletion() {
     assert_eq!(listed["groups"], json!([]));
     assert!(listed["workspaces"][0]["group"].is_null());
     // Delete with a target moves pins and groups.
-    run(&mux, json!({"cmd":"create-profile","profile":"prof_b","name":"B"})).unwrap();
-    run(&mux, json!({"cmd":"create-personal-group","group":"grp_b","name":"G","profile":"prof_b"}))
-        .unwrap();
+    run(
+        &mux,
+        json!({"cmd":"create-profile","profile":"prof_b","name":"B"}),
+    )
+    .unwrap();
+    run(
+        &mux,
+        json!({"cmd":"create-personal-group","group":"grp_b","name":"G","profile":"prof_b"}),
+    )
+    .unwrap();
     run(
         &mux,
         json!({"cmd":"pin-workspace","session_id":"s","workspace_key":"k","profile":"prof_b"}),
     )
     .unwrap();
-    let moved =
-        run(&mux, json!({"cmd":"delete-profile","profile":"prof_b","move_to":"default"})).unwrap();
+    let moved = run(
+        &mux,
+        json!({"cmd":"delete-profile","profile":"prof_b","move_to":"default"}),
+    )
+    .unwrap();
     assert_eq!(moved["moved_to"], "default");
     assert_eq!(moved["unpinned"], json!([]));
     let listed = run(&mux, json!({"cmd":"list-personal"})).unwrap();
     assert_eq!(listed["groups"][0]["profile"], "default");
-    assert!(
-        listed["pins"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|pin| pin["profile"] == "default" && pin["workspace_key"] == "k")
-    );
+    assert!(listed["pins"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|pin| pin["profile"] == "default" && pin["workspace_key"] == "k"));
     let removed = run(&mux, json!({"cmd":"delete-personal-group","group":"grp_b"})).unwrap();
     assert_eq!(removed["group"], "grp_b");
     // The raw delete is the same recoverable delete as workspace_group.delete.
-    let closed = mux.read_registry_state(crate::state::closed_history_store::closed_items).unwrap();
-    assert_eq!(closed[0]["group"]["id"], "grp_b", "the raw delete is recorded: {closed:?}");
+    let closed = mux
+        .read_registry_state(crate::state::closed_history_store::closed_items)
+        .unwrap();
+    assert_eq!(
+        closed[0]["group"]["id"], "grp_b",
+        "the raw delete is recorded: {closed:?}"
+    );
 }
 
 /// Delete Space into another space moves the space's sidebar document items
@@ -208,7 +252,11 @@ fn pins_groups_and_room_deletion() {
 fn deleting_a_space_into_another_moves_its_document_items_in_the_same_commit() {
     use cmux_layout_reducer::sidebar_doc::{Body, PINNED_SECTION_ID};
     let mux = personal_mux();
-    run(&mux, json!({"cmd":"create-profile","profile":"prof_b","name":"B"})).unwrap();
+    run(
+        &mux,
+        json!({"cmd":"create-profile","profile":"prof_b","name":"B"}),
+    )
+    .unwrap();
     mux.state_sidebar_apply(
         &WorkspaceMutation::local("space-delete-test", crate::Actor::local_user()),
         "sidebar.apply",
@@ -226,7 +274,11 @@ fn deleting_a_space_into_another_moves_its_document_items_in_the_same_commit() {
         .unwrap(),
     )
     .unwrap();
-    run(&mux, json!({"cmd":"delete-profile","profile":"prof_b","move_to":"default"})).unwrap();
+    run(
+        &mux,
+        json!({"cmd":"delete-profile","profile":"prof_b","move_to":"default"}),
+    )
+    .unwrap();
     let doc = mux
         .read_registry_state(|connection| {
             crate::state::sidebar_doc_store::with_doc(connection, |doc| Ok(doc.clone()))
@@ -238,7 +290,11 @@ fn deleting_a_space_into_another_moves_its_document_items_in_the_same_commit() {
         Some(json!("default")),
         "the space's link stayed in the deleted space"
     );
-    assert_eq!(room("itm_other"), Some(json!("prof_other")), "another space's link moved");
+    assert_eq!(
+        room("itm_other"),
+        Some(json!("prof_other")),
+        "another space's link moved"
+    );
     match &doc.item("itm_grp").unwrap().body {
         Body::Group { profile, .. } => {
             assert_eq!(
@@ -254,7 +310,11 @@ fn deleting_a_space_into_another_moves_its_document_items_in_the_same_commit() {
 #[test]
 fn sessions_register_import_once_and_forget() {
     let mux = personal_mux();
-    run(&mux, json!({"cmd":"create-profile","profile":"prof_work","name":"Work"})).unwrap();
+    run(
+        &mux,
+        json!({"cmd":"create-profile","profile":"prof_work","name":"Work"}),
+    )
+    .unwrap();
     let put = run(
         &mux,
         json!({"cmd":"put-session","session_id":"remote-1","machine_name":"build-box","session_name":"main",
@@ -265,9 +325,18 @@ fn sessions_register_import_once_and_forget() {
     assert_eq!(put["session"]["migrated"], false);
     let listed = run(&mux, json!({"cmd":"list-personal"})).unwrap();
     let follows_of = |id: &str| {
-        listed["profiles"].as_array().unwrap().iter().find(|profile| profile["id"] == id).unwrap()["follows"].clone()
+        listed["profiles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|profile| profile["id"] == id)
+            .unwrap()["follows"]
+            .clone()
     };
-    assert!(follows_of("default").as_array().unwrap().contains(&json!("remote-1")));
+    assert!(follows_of("default")
+        .as_array()
+        .unwrap()
+        .contains(&json!("remote-1")));
     assert_eq!(follows_of("prof_work"), json!(["remote-1"]));
     let refreshed = run(
         &mux,
@@ -293,21 +362,28 @@ fn sessions_register_import_once_and_forget() {
         .clone();
     assert_eq!(w1["group"], "grp_shared");
     run(&mux, json!({"cmd":"pin-workspace","session_id":"remote-1","workspace_key":"w1","profile":"prof_work"})).unwrap();
-    assert!(run(&mux, json!({"cmd":"forget-session","session_id":"remote-1"})).is_err());
-    let forgotten =
-        run(&mux, json!({"cmd":"forget-session","session_id":"remote-1","force":true})).unwrap();
+    assert!(run(
+        &mux,
+        json!({"cmd":"forget-session","session_id":"remote-1"})
+    )
+    .is_err());
+    let forgotten = run(
+        &mux,
+        json!({"cmd":"forget-session","session_id":"remote-1","force":true}),
+    )
+    .unwrap();
     assert_eq!(forgotten["changed"], true);
     let listed = run(&mux, json!({"cmd":"list-personal"})).unwrap();
-    assert!(
-        listed["sessions"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|session| session["session_id"] != "remote-1")
-    );
-    assert!(
-        listed["workspaces"].as_array().unwrap().iter().all(|row| row["session_id"] != "remote-1")
-    );
+    assert!(listed["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|session| session["session_id"] != "remote-1"));
+    assert!(listed["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|row| row["session_id"] != "remote-1"));
     assert_eq!(listed["pins"], json!([]));
 }
 
@@ -327,14 +403,18 @@ fn repeated_session_puts_emit_no_personal_changed() {
         assert_eq!(repeated["session"], first["session"]);
     }
     assert_eq!(revision(&mux), before);
-    assert!(!events.try_iter().any(|event| matches!(event, MuxEvent::PersonalChanged { .. })));
+    assert!(!events
+        .try_iter()
+        .any(|event| matches!(event, MuxEvent::PersonalChanged { .. })));
     let mut changed = request;
     changed["machine_name"] = json!("renamed-box");
     let updated = run(&mux, changed).unwrap();
     assert_eq!(updated["session"]["machine_name"], "renamed-box");
     assert_eq!(updated["created"], false);
     assert_eq!(revision(&mux), before + 1);
-    assert!(events.try_iter().any(|event| matches!(event, MuxEvent::PersonalChanged { .. })));
+    assert!(events
+        .try_iter()
+        .any(|event| matches!(event, MuxEvent::PersonalChanged { .. })));
 }
 
 /// The app records each connected session with the capabilities its
@@ -363,19 +443,45 @@ fn put_session_records_this_daemons_whole_capability_list() {
     assert_eq!(recorded["capabilities"], capabilities);
 }
 
+/// A daemon advertises one `agent-session-start-endpoint-harness:NAME`
+/// capability per harness it can start with an endpoint credential. The
+/// registry refused the `:` ("must be 1-64 of [a-z0-9._-]"), so the app's
+/// `put-session` failed on every such daemon and the machine was left out of
+/// the restore registry.
+#[test]
+fn put_session_accepts_endpoint_harness_capabilities() {
+    let mux = personal_mux();
+    let capabilities = json!([
+        "agent-session-start-endpoint-harness:gemini",
+        "agent-session-start-endpoint-harness:opencode",
+        "profiles-v1"
+    ]);
+    let put = run(
+        &mux,
+        json!({"cmd":"put-session","session_id":"remote-1","transport":{"kind":"ssh","host":"build-box"},
+               "capabilities":capabilities}),
+    )
+    .expect("put-session accepts a harness capability with a colon");
+    assert_eq!(put["session"]["capabilities"], capabilities);
+    let refused = run(
+        &mux,
+        json!({"cmd":"put-session","session_id":"remote-2","transport":{"kind":"ssh","host":"build-box"},
+               "capabilities":[":leading-colon"]}),
+    );
+    assert!(refused.is_err(), "a token still starts with a letter");
+}
+
 /// `personal-mixed-order-v1`: groups and loose workspaces share one
 /// personal order (`workspace_group.update {top_index}`).
 #[test]
 fn identify_advertises_the_mixed_personal_order() {
     let mux = personal_mux();
     let identity = run(&mux, json!({"cmd":"identify"})).unwrap();
-    assert!(
-        identity["capabilities"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|value| value == "personal-mixed-order-v1")
-    );
+    assert!(identity["capabilities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value == "personal-mixed-order-v1"));
 }
 
 /// `workspace-group-icon-v1`: a personal workspace group has an icon
@@ -384,13 +490,11 @@ fn identify_advertises_the_mixed_personal_order() {
 fn identify_advertises_workspace_group_icons() {
     let mux = personal_mux();
     let identity = run(&mux, json!({"cmd":"identify"})).unwrap();
-    assert!(
-        identity["capabilities"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|value| value == "workspace-group-icon-v1")
-    );
+    assert!(identity["capabilities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value == "workspace-group-icon-v1"));
 }
 
 /// `workspace-group-pin-v1`: a personal workspace group can be pinned
@@ -399,13 +503,11 @@ fn identify_advertises_workspace_group_icons() {
 fn identify_advertises_workspace_group_pins() {
     let mux = personal_mux();
     let identity = run(&mux, json!({"cmd":"identify"})).unwrap();
-    assert!(
-        identity["capabilities"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|value| value == "workspace-group-pin-v1")
-    );
+    assert!(identity["capabilities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value == "workspace-group-pin-v1"));
 }
 
 /// cx-d0d.41 (`personal-remote-localhost-v1`): a workspace's own
@@ -446,17 +548,34 @@ fn a_personal_workspace_keeps_its_own_remote_localhost_choice() {
     };
 
     let row = set(json!({"theme":"Nord"}));
-    assert!(row["workspace"]["remote_localhost"].is_null(), "a new row follows the setting");
+    assert!(
+        row["workspace"]["remote_localhost"].is_null(),
+        "a new row follows the setting"
+    );
     let row = set(json!({"remote_localhost": false}));
     assert_eq!(row["changed"], true);
     assert_eq!(row["workspace"]["remote_localhost"], false);
     assert_eq!(listed(&mux)["remote_localhost"], false);
-    assert_eq!(listed(&mux)["theme"], "Nord", "the choice changed another field");
+    assert_eq!(
+        listed(&mux)["theme"],
+        "Nord",
+        "the choice changed another field"
+    );
     let before = revision(&mux);
     assert_eq!(set(json!({"remote_localhost": false}))["changed"], false);
-    assert_eq!(revision(&mux), before, "an unchanged choice committed a revision");
-    assert_eq!(set(json!({"remote_localhost": true}))["workspace"]["remote_localhost"], true);
+    assert_eq!(
+        revision(&mux),
+        before,
+        "an unchanged choice committed a revision"
+    );
+    assert_eq!(
+        set(json!({"remote_localhost": true}))["workspace"]["remote_localhost"],
+        true
+    );
     let cleared = set(json!({"remote_localhost": null}));
-    assert!(cleared["workspace"]["remote_localhost"].is_null(), "null does not clear the choice");
+    assert!(
+        cleared["workspace"]["remote_localhost"].is_null(),
+        "null does not clear the choice"
+    );
     assert_eq!(listed(&mux)["theme"], "Nord");
 }

@@ -13,9 +13,9 @@
 use std::collections::{BTreeMap, HashMap};
 
 use anyhow::Context;
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use super::JournalSubject;
 pub(crate) mod blobs;
@@ -115,7 +115,11 @@ pub(crate) fn create_personal_schema(transaction: &Transaction<'_>) -> anyhow::R
     )?;
     add_group_top_position(transaction)?;
     add_group_column(transaction, "icon", "TEXT")?;
-    add_group_column(transaction, "pinned", "INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1))")?;
+    add_group_column(
+        transaction,
+        "pinned",
+        "INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1))",
+    )?;
     add_workspace_remote_localhost(transaction)?;
     // `session-icon-v1`: a session's (machine's) icon, the shared icon
     // string. Added before the open-time blob sweep reads it.
@@ -180,9 +184,16 @@ pub(crate) fn migrate_personal_v1(
     super::personal_browser_profiles::create_browser_profile_schema(&tx)?;
     super::personal_bookmarks::create_bookmark_schema(&tx)?;
     blobs::open_blob_store(&tx)?;
-    tx.execute("INSERT OR IGNORE INTO meta(key, value) VALUES(?1, '0')", [REVISION_META_KEY])?;
+    tx.execute(
+        "INSERT OR IGNORE INTO meta(key, value) VALUES(?1, '0')",
+        [REVISION_META_KEY],
+    )?;
     let migrated = tx
-        .query_row("SELECT 1 FROM meta WHERE key = ?1", [MIGRATED_META_KEY], |_| Ok(()))
+        .query_row(
+            "SELECT 1 FROM meta WHERE key = ?1",
+            [MIGRATED_META_KEY],
+            |_| Ok(()),
+        )
         .optional()?
         .is_some();
     if migrated {
@@ -217,7 +228,9 @@ pub(crate) fn migrate_personal_v1(
              ORDER BY w.position ASC",
         )?;
         statement
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)))?
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+            })?
             .collect::<Result<Vec<_>, _>>()?
     };
     let mut position = next_workspace_position(&tx)?;
@@ -228,7 +241,10 @@ pub(crate) fn migrate_personal_v1(
             params![registry_id, key, position, group],
         )? as i64;
     }
-    tx.execute("INSERT INTO meta(key, value) VALUES(?1, '1')", [MIGRATED_META_KEY])?;
+    tx.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, '1')",
+        [MIGRATED_META_KEY],
+    )?;
     tx.commit()?;
     Ok(())
 }
@@ -371,7 +387,10 @@ pub fn validate_personal_workspace_key(value: &str) -> anyhow::Result<()> {
 }
 
 pub fn validate_theme(value: &str) -> anyhow::Result<()> {
-    anyhow::ensure!(!value.trim().is_empty(), "bad request: theme cannot be empty");
+    anyhow::ensure!(
+        !value.trim().is_empty(),
+        "bad request: theme cannot be empty"
+    );
     anyhow::ensure!(
         value.chars().count() <= MAX_THEME_CHARS,
         "bad request: theme exceeds {MAX_THEME_CHARS} characters"
@@ -415,7 +434,7 @@ pub fn validate_personal_json(
     Ok(text)
 }
 
-/// A session's capability list: unique tokens of `[a-z][a-z0-9._-]`, each at
+/// A session's capability list: unique tokens of `[a-z][a-z0-9._:-]`, each at
 /// most [`MAX_CAPABILITY_TOKEN_BYTES`], at most
 /// [`MAX_SESSION_CAPABILITIES_BYTES`] as JSON. Returns the stored text.
 pub fn validate_session_capabilities(value: &Value) -> anyhow::Result<String> {
@@ -434,11 +453,14 @@ pub fn validate_session_capabilities(value: &Value) -> anyhow::Result<String> {
                 && bytes.iter().all(|byte| {
                     byte.is_ascii_lowercase()
                         || byte.is_ascii_digit()
-                        || matches!(byte, b'.' | b'_' | b'-')
+                        || matches!(byte, b'.' | b'_' | b'-' | b':')
                 }),
-            "bad request: capability {token:?} must be 1-{MAX_CAPABILITY_TOKEN_BYTES} of [a-z0-9._-], starting with a letter"
+            "bad request: capability {token:?} must be 1-{MAX_CAPABILITY_TOKEN_BYTES} of [a-z0-9._:-], starting with a letter"
         );
-        anyhow::ensure!(seen.insert(token), "bad request: capability {token} is listed twice");
+        anyhow::ensure!(
+            seen.insert(token),
+            "bad request: capability {token} is listed twice"
+        );
     }
     let text = serde_json::to_string(value)?;
     anyhow::ensure!(
@@ -477,7 +499,10 @@ pub fn validate_profile_defaults(value: &Value) -> anyhow::Result<String> {
         crate::mux::validate_terminal_env(&env)?;
     }
     let text = serde_json::to_string(value)?;
-    anyhow::ensure!(text.len() <= 256 * 1024 + 8192, "bad request: defaults is too large");
+    anyhow::ensure!(
+        text.len() <= 256 * 1024 + 8192,
+        "bad request: defaults is too large"
+    );
     Ok(text)
 }
 
@@ -504,9 +529,11 @@ fn parse_json(text: Option<String>) -> anyhow::Result<Option<Value>> {
 
 pub(crate) fn personal_revision(connection: &Connection) -> anyhow::Result<u64> {
     let value = connection
-        .query_row("SELECT value FROM meta WHERE key = ?1", [REVISION_META_KEY], |row| {
-            row.get::<_, String>(0)
-        })
+        .query_row(
+            "SELECT value FROM meta WHERE key = ?1",
+            [REVISION_META_KEY],
+            |row| row.get::<_, String>(0),
+        )
         .optional()?;
     Ok(value.map(|value| value.parse()).transpose()?.unwrap_or(0))
 }
@@ -576,15 +603,18 @@ pub(crate) fn read_session(
     connection: &Connection,
     id: &str,
 ) -> anyhow::Result<Option<PersonalSession>> {
-    Ok(read_sessions_where(connection, Some(id))?.into_iter().next())
+    Ok(read_sessions_where(connection, Some(id))?
+        .into_iter()
+        .next())
 }
 
 fn read_follows(connection: &Connection) -> anyhow::Result<HashMap<String, Vec<String>>> {
     let mut statement = connection.prepare(
         "SELECT profile_id, session_id FROM profile_follows ORDER BY profile_id, session_id",
     )?;
-    let rows =
-        statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+    let rows = statement.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
     let mut follows: HashMap<String, Vec<String>> = HashMap::new();
     for row in rows {
         let (profile, session) = row?;
@@ -634,7 +664,9 @@ pub(crate) fn read_profile(
     connection: &Connection,
     id: &str,
 ) -> anyhow::Result<Option<PersonalProfile>> {
-    Ok(read_profiles(connection)?.into_iter().find(|profile| profile.id == id))
+    Ok(read_profiles(connection)?
+        .into_iter()
+        .find(|profile| profile.id == id))
 }
 
 pub(crate) fn read_pins(connection: &Connection) -> anyhow::Result<Vec<PersonalPin>> {
@@ -697,7 +729,9 @@ pub(crate) fn read_group(
     connection: &Connection,
     id: &str,
 ) -> anyhow::Result<Option<PersonalGroup>> {
-    Ok(read_groups(connection)?.into_iter().find(|group| group.id == id))
+    Ok(read_groups(connection)?
+        .into_iter()
+        .find(|group| group.id == id))
 }
 
 pub(crate) fn read_workspaces(connection: &Connection) -> anyhow::Result<Vec<PersonalWorkspace>> {
@@ -850,7 +884,10 @@ pub(crate) fn bump_personal_revision(transaction: &Transaction<'_>) -> anyhow::R
 }
 
 pub(crate) fn subject(kind: &str, id: &str) -> JournalSubject {
-    JournalSubject { kind: kind.into(), id: id.to_string() }
+    JournalSubject {
+        kind: kind.into(),
+        id: id.to_string(),
+    }
 }
 
 /// Rewrite `position` of the rows of `table` keyed by `column` to follow
@@ -871,5 +908,10 @@ pub(crate) fn write_order(
 /// Insertion-point semantics of `move-workspace`: `index` is a slot in the
 /// list before removal. Returns the final index.
 pub(crate) fn insertion_final_index(old_index: usize, index: usize, count: usize) -> usize {
-    if index > old_index { index.saturating_sub(1) } else { index }.min(count.saturating_sub(1))
+    if index > old_index {
+        index.saturating_sub(1)
+    } else {
+        index
+    }
+    .min(count.saturating_sub(1))
 }

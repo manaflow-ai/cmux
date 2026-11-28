@@ -47,22 +47,8 @@ final class WindowManager {
     private var loadObservation: Task<Void, Never>?
     var membershipObservation: Task<Void, Never>?
     /// Records connected sessions in the home session (rooms, data-model.md 1.1).
-    /// A refused record shows once as a toast on the front window (the machine is not saved for restore).
-    private(set) lazy var sessionRegistrar = SessionRegistrar(machines: services.machines, notice: { [weak self] session, message in
-        guard let window = self?.active?.window ?? NSApp.mainWindow else { return false }
-        // Until closed or taken back: it is the person's only sign that this machine will not be restored.
-        let older = self?.notSavedToasts[session]
-        let handle = CmuxToastCenter.shared.show(CmuxToast(id: "session-registration.not-saved.\(session)", message: message,
-                                                           duration: CmuxToast.untilClosed), in: window)
-        self?.notSavedToasts[session] = handle
-        // A toast with the same id replaces the older one only in the same window.
-        if older !== handle { older?.dismiss() }
-        return true
-    }, withdraw: { [weak self] session in
-        self?.notSavedToasts.removeValue(forKey: session)?.dismiss()
-    })
-    /// The "not saved for restore" toast shown for each session, so it can be taken back.
-    private var notSavedToasts: [String: CmuxToastHandle] = [:]
+    /// A refused record is logged and counted, not shown (the person cannot act on it).
+    private(set) lazy var sessionRegistrar = SessionRegistrar(machines: services.machines)
     /// New workspaces windows asked for before the daemon reported them (`WorkspaceClaims`).
     var claims = WorkspaceClaims()
     /// Spaces off (#48355): a workspace moved into a window on another space, selected there once its pin shows it while the
@@ -195,8 +181,6 @@ final class WindowManager {
 
     func didActivate(_ controller: WindowController) {
         lastActive = controller
-        // A "not saved for restore" notice that came while no window could show it shows now.
-        sessionRegistrar.showPendingNotices()
         if keepsOrder { return }
         registry.apply { $0.activate(controller.state.id); return WindowRegistry.Changes() }
     }
