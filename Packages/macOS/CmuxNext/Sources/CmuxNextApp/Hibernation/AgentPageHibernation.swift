@@ -342,7 +342,7 @@ extension AgentPageHibernation {
     ///    each pane still selecting its chat shows it again through the normal show path, and the pools refill.
     /// 4. ``recycleSettleDelay`` later one notice in `app.hibernation` gives the resident size before and after.
     ///
-    /// Started only when `CMUX_NEXT_CHAT_RENDERER_RECYCLE=1` (``AppServices/startHibernation(settings:)``).
+    /// Started unless `CMUX_NEXT_CHAT_RENDERER_RECYCLE=0` (``AppServices/startHibernation(settings:)``).
     func startRendererRecycle(services: AppServices) {
         recycleServices = services
         services.cache.cef.afterPageRendererChecks { [weak self] in await self?.checkChatRenderer() }

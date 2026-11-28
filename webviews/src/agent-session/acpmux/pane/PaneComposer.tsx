@@ -42,6 +42,7 @@ import { DATE, THINKING, WORKING } from "../conversation/turns";
 import { switchForks } from "../conversation/messageMenu";
 import { DEFAULT_PICK_MODEL, lastPick } from "../lastPick";
 import { cloudAgentPick } from "../cloudAgentPick";
+import { cloudLastPick } from "../cloudLastPick";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { HarnessStatusCard } from "../HarnessStatusCard";
 import { cloudStartFolder, cloudPickExtras } from "../cloudRun";
@@ -51,7 +52,7 @@ import { rememberNewChatPlace } from "../lastNewChatPlace";
 import { HarnessHealthNotice } from "../HarnessHealthNotice";
 import { Notice } from "../NoticeSlot";
 import { AutoResumeNotice } from "../AutoResumeNotice";
-import { MoveDock, AutoSizeDock } from "../place/PlaceMounts";
+import { AutoSizeDock, MoveDock } from "../place/PlaceMounts";
 import { OverloadNotice } from "../OverloadNotice";
 import type { HostOverload } from "../overloadNoticeModel";
 import { liveAutoResume, type TurnPhase } from "../turnPhase";
@@ -1198,7 +1199,8 @@ export function drawPaneComposer({
                 // Each send records its complete folder, so a Retry repeats this send's folder, never an older one's.
                 cloudRetryFolder.current = folder;
                 // The agent picked for the machine (cloudAgentPick.ts) goes first: the chips show it.
-                const machinePick = cloudAgentPick();
+                // With none held, Cloud's own last pick (cloudLastPick.ts) before anything of This Mac's.
+                const machinePick = cloudAgentPick() ?? cloudLastPick();
                 const held = heldPick(composerSnapshot);
                 const shownModel = composerSnapshot.summary?.model;
                 // Before the picker has a harness (the catalog still listing), the person's last local pick

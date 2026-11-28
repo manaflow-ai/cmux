@@ -40,6 +40,8 @@ public final class AgentChatsModel {
     public private(set) var reconnecting = false
     /// The rows shown are the last ones read: the Mac stayed unreachable past the bound.
     public private(set) var stale = false
+    /// The rows shown came from the Mac's reply in this list's life, not from what the phone kept.
+    public private(set) var listedByMac = false
     @ObservationIgnored private var interruptedSince: ContinuousClock.Instant?
     @ObservationIgnored private var retryAttempt = 0
     @ObservationIgnored private var retryTask: Task<Void, Never>?
@@ -123,6 +125,7 @@ public final class AgentChatsModel {
             chats = page.chats
             nextCursor = page.nextCursor
             phase = .loaded
+            listedByMac = true
             reconnecting = false
             stale = false
             interruptedSince = nil
@@ -355,6 +358,8 @@ struct AgentChatsScreen: View {
             ForEach(rows) { chat in
                 row(chat)
             }
+            // R1/R2: rows kept on this phone, until the Mac's first page lists them.
+            .firstContentMark("chats_list", hasContent: !rows.isEmpty, cached: !model.listedByMac)
             if model.nextCursor != nil {
                 Section {
                     Button {

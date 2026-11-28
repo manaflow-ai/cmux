@@ -50,16 +50,16 @@ case "$JOBS" in ''|*[!0-9]*|0) echo "error: --jobs wants a positive number, got 
 
 # Cheap checks first, so a red they find comes back in seconds; then the builds, longest first. Commands run from the repository root.
 W='cd webviews && export PATH="$PWD/node_modules/.bin:$PATH" &&'
-JOB_NAMES=(lint-redeclare router-security store-packages inspector typecheck bundle:webviews-app bundle:pages bundle:agent-pane bundle:agent-activity)
+JOB_NAMES=(lint-redeclare router-security store-packages inspector typecheck bundle:agent-pane bundle:pages bundle:webviews-app bundle:agent-activity)
 JOB_CMDS=(
   "$W vp lint --config scripts/lint/bundle-breakers.json src"
   "$W node scripts/verify-tanstack-router-security.mjs"
   '[ ! -f scripts/cmux-next/sync-app-runtime.sh ] || scripts/cmux-next/sync-app-runtime.sh --store'
   'scripts/cmux-next/build-optchat-inspector-web.sh --check'
   "$W python3 -I ../scripts/ci/web_bundle_typecheck.py"
-  'scripts/build-webviews-app.sh --skip-checks --out "$OUT/bundles/webviews-app"'
-  'scripts/cmux-next/build-pages-web.sh --out "$OUT/bundles/pages"'
   'scripts/cmux-next/build-agent-pane-web.sh --out "$OUT/bundles/agent-pane"'
+  'scripts/cmux-next/build-pages-web.sh --out "$OUT/bundles/pages"'
+  'scripts/build-webviews-app.sh --skip-checks --out "$OUT/bundles/webviews-app"'
   'scripts/cmux-next/build-agent-activity-web.sh --out "$OUT/bundles/agent-activity"'
 )
 
@@ -144,7 +144,12 @@ start_job() { # <index>
   (
     cd "$ROOT" || exit 2
     s="$(date +%s)"
-    bash -c "${JOB_CMDS[$i]}" > "$log" 2>&1
+    # The two longest builds keep full priority; the rest run niced so they take idle cores, not theirs.
+    case "$name" in
+      bundle:agent-pane|bundle:pages|typecheck) nice_cmd=() ;;
+      *) nice_cmd=(); [ "${CMUX_WEB_MATRIX_NICE:-10}" != 0 ] && command -v nice >/dev/null && nice_cmd=(nice -n "${CMUX_WEB_MATRIX_NICE:-10}") ;;
+    esac
+    ${nice_cmd[@]+"${nice_cmd[@]}"} bash -c "${JOB_CMDS[$i]}" > "$log" 2>&1
     rc=$?
     echo "$rc $(( $(date +%s) - s ))" > "$OUT/logs/${name//[:\/]/-}.status"
     exit "$rc"

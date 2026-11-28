@@ -1,0 +1,44 @@
+name: fixture
+on: push
+jobs:
+  tests:
+    name: tests
+    runs-on: fixture
+    steps:
+      - name: "Checkout"
+        uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
+      - name: "Pick the tests this PR can affect"
+        id: "select"
+        if: "github.event_name == 'pull_request'"
+        continue-on-error: true
+        run: "set -uo pipefail"
+      - name: "Loop-ledger cross-repo pin \u2014 unchecked (lw is private)"
+        continue-on-error: true
+        run: "python3 tools/fleet-reconcilers/loop_ledger_pin_check.py"
+      - name: "fleet-reconcilers suite"
+        if: "steps.select.outputs.run_fleet != 'false'"
+        run: "git config --global user.email ci@example.invalid"
+      - name: "condition-trigger checks suite"
+        if: "${{ !cancelled() && steps.select.outputs.run_triggers != 'false' }}"
+        run: "python3 -m unittest discover -s triggers/checks -p 'test_*.py' -v $K"
+      - name: "cloud golden-path suite"
+        if: "${{ !cancelled() && steps.select.outputs.run_golden_path != 'false' }}"
+        run: "python3 -m unittest discover -s tools/cloud-golden-path -p 'test_*.py' -v $K"
+      - name: "freestyle-lane-vms suite"
+        if: "${{ !cancelled() && steps.select.outputs.run_freestyle != 'false' }}"
+        run: "python3 -m unittest discover -s tools/freestyle-lane-vms -p 'test_*.py' -v $K"
+      - name: "screen-share-e2e suite"
+        if: "${{ !cancelled() && steps.select.outputs.run_screenshare != 'false' }}"
+        run: "python3 -m unittest discover -s tools/screenshare-e2e -p 'test_*.py' -v $K"
+      - name: "own-machines suite"
+        if: "${{ !cancelled() && steps.select.outputs.run_own_machines != 'false' }}"
+        run: "python3 -m unittest discover -s tools/own-machines -p 'test_*.py' -v $K"
+      - name: "runner-pool self-deploy suite"
+        if: "${{ !cancelled() && steps.select.outputs.run_runner_pool != 'false' }}"
+        run: "python3 -m unittest discover -s build-fleet/runner-pool/service -p '*_test.py' -v $K"
+      - name: "codex-lane-reconciler suite"
+        if: "${{ !cancelled() && steps.select.outputs.run_codex_lane != 'false' }}"
+        run: "python3 -m unittest discover -s build-fleet/codex-lane-reconciler -p '*_test.py' -v $K"
+      - name: "actionlint the reconciler workflows"
+        if: "${{ !cancelled() && steps.select.outputs.actionlint != 'false' }}"
+        run: "set -euo pipefail"

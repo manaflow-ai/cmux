@@ -14,7 +14,7 @@ use base64::Engine as _;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
-use super::{GlobalArgs, Outcome, caller, new_call_id, print, with_machine};
+use super::{GlobalArgs, Outcome, call_once, print, with_machine};
 
 /// What `record` was asked to do.
 #[derive(Debug, Clone, PartialEq)]
@@ -127,7 +127,7 @@ fn save(
                 json!({"action": "read", "recording_id": id, "offset": offset}),
                 machine,
             );
-            let piece = match caller(global).call("record", &args, &new_call_id()) {
+            let piece = match call_once(global, "record", &args) {
                 Outcome::Output(piece) if !piece.is_error => piece.body,
                 Outcome::Output(piece) => {
                     let message = piece.body.get("error").and_then(Value::as_str);
@@ -174,7 +174,7 @@ fn stop_and_save(global: &GlobalArgs, out: &str, id: Option<&str>, machine: Opti
         args.set("recording_id", json!(id));
     }
     let args = with_machine(args, machine);
-    match caller(global).call("record", &args, &new_call_id()) {
+    match call_once(global, "record", &args) {
         Outcome::Output(done) if !done.is_error => {
             let mut body = done.body;
             let bytes = match save(global, &body, out, machine) {
@@ -204,7 +204,7 @@ pub(super) fn run(global: &GlobalArgs, request: RecordRequest) -> i32 {
         RecordRequest::Start { mut options, machine } => {
             options.set("action", json!("start"));
             let args = with_machine(options, machine.as_deref());
-            print(global, caller(global).call("record", &args, &new_call_id()))
+            print(global, call_once(global, "record", &args))
         }
         RecordRequest::Stop { out, id, machine } => {
             stop_and_save(global, &out, id.as_deref(), machine.as_deref())
@@ -219,7 +219,7 @@ pub(super) fn run(global: &GlobalArgs, request: RecordRequest) -> i32 {
             options.set("action", json!("start"));
             options.set("max_seconds", json!(seconds));
             let args = with_machine(options, machine.as_deref());
-            let id = match caller(global).call("record", &args, &new_call_id()) {
+            let id = match call_once(global, "record", &args) {
                 Outcome::Output(started) if !started.is_error => started
                     .body
                     .get("recording_id")

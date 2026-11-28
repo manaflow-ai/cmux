@@ -243,8 +243,14 @@ impl Hub {
         // (`inbox_deadline.rs`), else they wait for a turn nothing starts.
         let any_new = inbox.items.iter().any(|i| !i.noticed && !folded(i));
         let point = carry.then(|| inbox_point::InboxPoint::of(&inbox, through, counts, seen));
+        // Not `archive_aged_inbox`: it reads `session.inbox()`, which waits on `inbox_load`, held
+        // by the caller of this restore (`Session::inbox`): that call never returns, and every
+        // later reader of the chat's inbox waits behind it on a runtime worker.
+        let archive = self.age_out_restored(session, &mut inbox);
         drop(inbox);
-        self.archive_aged_inbox(session);
+        if let Some((dir, lines)) = archive {
+            self.write_archive(session, &dir, lines);
+        }
         if let Some(point) = point {
             self.save_inbox_point(session, point);
         }
