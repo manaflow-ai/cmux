@@ -1405,7 +1405,15 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         }
         applies += 1
         lastReconfigured = changed.count
-        let anchor = surface.following || !loaded ? nil : layout.firstRow(below: collectionView.contentOffset.y + collectionView.adjustedContentInset.top)
+        let visibleTop = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
+        // A subagent transcript keeps the rows on screen where they are through this reload's apply,
+        // following its end or not: the apply lays the cells out at the offset the collection view
+        // has, and a chunk put in above them (a running transcript's older rows) left that offset on
+        // the new rows, which were laid out on the main thread for that one pass before the end was
+        // followed again (#47189 r9: 23 rows at a running open, its first chunk 14.5 ms).
+        let holdsInPlace = loaded && source.window != nil
+        let anchor = holdsInPlace || surface.following || !loaded ? nil : layout.firstRow(below: visibleTop)
+        let heldAnchor = holdsInPlace ? layout.firstRow(below: visibleTop) : nil
         // Before the rows are laid out: the controller notes where the transcript is now.
         #if DEBUG
         if !sent.isEmpty { ChatSendTrace.log("list: \(sent.count) sent rows new, \(sentRowsArrived == nil ? "no" : "a") controller") }
@@ -1424,6 +1432,10 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             #endif
         } else {
             layout.setItems(items)
+        }
+        if let heldAnchor, let top = layout.top(of: heldAnchor.id), abs(top - heldAnchor.top) > 0.5 {
+            collectionView.contentSize = layout.collectionViewContentSize
+            collectionView.contentOffset.y += top - heldAnchor.top
         }
         #if DEBUG
         sectionTimes["setItems", default: .zero] += setStart.duration(to: .now)

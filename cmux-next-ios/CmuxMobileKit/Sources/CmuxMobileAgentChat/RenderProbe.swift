@@ -15,6 +15,10 @@ final class RenderProbe {
     /// The rows evaluated, by name, since the test last cleared it.
     var subagentRowNames: [String] = []
     var subagentClockTicks = 0
+    /// While set, the call stacks of the first evaluations of rows other than this one (tests: why
+    /// a row whose subagent did not change was evaluated).
+    var subagentRowStacksExcept: String?
+    var subagentRowStacks: [String] = []
 }
 
 private struct RenderProbeKey: EnvironmentKey {

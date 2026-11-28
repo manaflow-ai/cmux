@@ -73,9 +73,12 @@ struct ChatTranscriptSource {
 /// A 2000-item transcript's open weighed every row on the main thread (#47189 r3, subagent-2000).
 @MainActor
 final class SubagentRowWindow {
-    /// Rows at the open, and per chunk after it.
+    /// Rows at the open, and per chunk after it. A chunk a display frame, each at most half of it on
+    /// the main thread (eachChunkFitsAFrame): 150 took 2.6-7.4 ms per chunk on a fleet simulator
+    /// (#47189 r9, 4856a725), too near the 8 ms bar; 100 takes a third less of the part that grows
+    /// with the chunk (building and weighing its rows), over 4 more frames for 2000 items.
     static let first = 60
-    static var chunk = 150
+    static var chunk = 100
     /// The open is at the end (a running transcript) or the top.
     var atEnd = false
     /// Off: every row, as one turn (a list no host fills, as tests and the golden rows build one).

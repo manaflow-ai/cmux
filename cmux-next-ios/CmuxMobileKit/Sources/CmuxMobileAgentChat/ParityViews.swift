@@ -163,16 +163,15 @@ struct SubagentsScreen: View {
     let store: AgentChatStore
     let surface: AgentChatSurface
     @State private var selected: String?
-    @State private var order = SubagentOrderMemo()
+    /// The rows, each observed on its own (`SubagentListModel`): this body reads only their order.
+    @State private var model = SubagentListModel()
 
     var body: some View {
+        let entries = model.entries(for: store)
         List {
-            ForEach(order.ordered(store.subagents), id: \.agent.id) { entry in
-                Button { selected = entry.agent.id } label: {
-                    // Plain values only: SwiftUI compares them and skips the rows that did not change.
-                    SubagentRow(name: entry.agent.name, subtitle: subtitle(entry.agent), state: entry.agent.state,
-                                startedAt: entry.agent.startedAt, endedAt: entry.agent.endedAt, depth: entry.depth)
-                        .equatable()
+            ForEach(entries) { entry in
+                Button { selected = entry.id } label: {
+                    SubagentListRow(row: entry.row, depth: entry.depth)
                 }
                 .buttonStyle(.cmuxPressFill)
             }
@@ -180,7 +179,7 @@ struct SubagentsScreen: View {
         .listStyle(.plain)
         .contentMargins(.top, 8, for: .scrollContent)
         .overlay {
-            if store.subagents.isEmpty {
+            if model.isEmpty {
                 ContentUnavailableView("No subagents", systemImage: "person.2.wave.2",
                                        description: Text("Each subagent has its own transcript."))
             }
@@ -192,11 +191,127 @@ struct SubagentsScreen: View {
             SubagentTranscriptScreen(store: store, surface: surface, subagentID: id)
         }
     }
+}
 
-    private func subtitle(_ agent: AgentSubagent) -> String {
+/// The Subagents list's rows, each its own observed value. A change to one subagent sets only the
+/// fields of its row that changed, so only that row's view is evaluated; the list's body reads the
+/// order, which changes only with the set of subagents and their parents (`SubagentOrderMemo`).
+/// The list read `store.subagents` itself, so every change to any subagent updated the whole list,
+/// and in some runs SwiftUI then evaluated every row on screen, its equality notwithstanding
+/// (#47189: 9 rows per change in r6, r7b, r8 and diag 2, 1 in r5, diag 1 and r9, the same view code).
+@MainActor
+@Observable
+final class SubagentListModel {
+    /// What one subagent's row draws.
+    @MainActor
+    @Observable
+    final class Row {
+        let id: String
+        private(set) var name: String
+        private(set) var subtitle: String
+        private(set) var state: AgentSubagent.State
+        private(set) var startedAt: Date
+        private(set) var endedAt: Date?
+
+        init(_ agent: AgentSubagent) {
+            id = agent.id
+            name = agent.name
+            subtitle = SubagentListModel.subtitle(agent)
+            state = agent.state
+            startedAt = agent.startedAt
+            endedAt = agent.endedAt
+        }
+
+        /// The fields that changed only: a set notifies the row's view even with the same value.
+        func update(_ agent: AgentSubagent) {
+            let subtitle = SubagentListModel.subtitle(agent)
+            if name != agent.name { name = agent.name }
+            if self.subtitle != subtitle { self.subtitle = subtitle }
+            if state != agent.state { state = agent.state }
+            if startedAt != agent.startedAt { startedAt = agent.startedAt }
+            if endedAt != agent.endedAt { endedAt = agent.endedAt }
+        }
+    }
+
+    /// A row in the list's order, with its nesting depth.
+    struct Entry: Identifiable, Equatable {
+        let id: String
+        let row: Row
+        let depth: Int
+
+        nonisolated static func == (a: Entry, b: Entry) -> Bool { a.id == b.id && a.row === b.row && a.depth == b.depth }
+    }
+
+    /// Set only when the order does (a subagent added or removed, or its parent changed).
+    private(set) var entries: [Entry] = []
+    /// No subagents at all ("No subagents").
+    private(set) var isEmpty = true
+    @ObservationIgnored private var rows: [String: Row] = [:]
+    private let order = SubagentOrderMemo()
+    @ObservationIgnored private weak var store: AgentChatStore?
+
+    /// The rows of `store`'s subagents, made on the first read and kept by the store's changes.
+    func entries(for store: AgentChatStore) -> [Entry] {
+        if self.store !== store {
+            self.store = store
+            sync()
+        }
+        return entries
+    }
+
+    /// Reads the subagents and watches them: a change syncs again once it has landed.
+    private func sync() {
+        guard let store else { return }
+        let agents = withObservationTracking {
+            store.subagents
+        } onChange: { [weak self] in
+            // Called before the change lands: sync once it has, later in this turn of the main queue.
+            Task { @MainActor [weak self] in self?.sync() }
+        }
+        update(agents)
+    }
+
+    /// The rows as `agents` are. O(n): each row compares what it draws; the order is rebuilt only
+    /// when the set of subagents or a parent changed.
+    func update(_ agents: [AgentSubagent]) {
+        let builds = order.builds
+        let ordered = order.ordered(agents)
+        if order.builds != builds || ordered.count != entries.count {
+            var kept: [String: Row] = [:]
+            kept.reserveCapacity(ordered.count)
+            let next = ordered.map { agent, depth in
+                let row = rows[agent.id] ?? Row(agent)
+                row.update(agent)
+                kept[agent.id] = row
+                return Entry(id: agent.id, row: row, depth: depth)
+            }
+            rows = kept
+            if next != entries { entries = next }
+        } else {
+            for (agent, _) in ordered { rows[agent.id]?.update(agent) }
+        }
+        if isEmpty != agents.isEmpty { isEmpty = agents.isEmpty }
+    }
+
+    /// "<action> · <task>" while it runs, "<state> · <task>" once it ended (the task left out when it
+    /// is the name).
+    nonisolated static func subtitle(_ agent: AgentSubagent) -> String {
         let status = agent.state == .running ? (agent.action ?? "Working") : agent.state.label
         guard let task = agent.task, task != agent.name else { return status }
         return "\(status) · \(task)"
+    }
+}
+
+/// A Subagents row drawn from its observed fields: evaluated when its own subagent changes.
+struct SubagentListRow: View {
+    let row: SubagentListModel.Row
+    let depth: Int
+
+    var body: some View {
+        // Plain values: SwiftUI compares them and skips a row whose drawn values did not change.
+        SubagentRow(name: row.name, subtitle: row.subtitle, state: row.state, startedAt: row.startedAt,
+                    endedAt: row.endedAt, depth: depth)
+            .equatable()
     }
 }
 
@@ -255,7 +370,13 @@ struct SubagentRow: View, Equatable {
 
     var body: some View {
         #if DEBUG
-        let _ = probe.map { $0.subagentRowBodies += 1; $0.subagentRowNames.append(name) }
+        let _ = probe.map { probe in
+            probe.subagentRowBodies += 1
+            probe.subagentRowNames.append(name)
+            if let except = probe.subagentRowStacksExcept, except != name, probe.subagentRowStacks.count < 3 {
+                probe.subagentRowStacks.append("\(name):\n" + Thread.callStackSymbols.prefix(60).joined(separator: "\n"))
+            }
+        }
         #endif
         HStack(spacing: 12) {
             SubagentStateGlyph(state: state)

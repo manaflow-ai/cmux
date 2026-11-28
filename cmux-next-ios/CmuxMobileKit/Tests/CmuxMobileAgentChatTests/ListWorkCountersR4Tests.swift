@@ -73,8 +73,13 @@ import UIKit
     }
 
     /// The host in an iPhone-sized window after its first layouts only (what the open costs).
-    static func openNow(_ store: AgentChatStore, windowed: Bool = true) -> (SubagentTranscriptHost, UIWindow) {
+    /// `grows` off: the fill that follows the open (a chunk a display frame) is held. The settle runs
+    /// the main run loop, where the display link fires but main-queue jobs do not (a synchronous test
+    /// is one): r8's Task-driven fill could not grow here, and r9's display link fills the whole
+    /// window in it (#47189 r9: 1203 rows weighed = the open's and 8 chunks').
+    static func openNow(_ store: AgentChatStore, windowed: Bool = true, grows: Bool = true) -> (SubagentTranscriptHost, UIWindow) {
         let host = SubagentTranscriptHost(store: store, subagentID: "s", windowed: windowed)
+        host.growsByItself = grows
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
         window.rootViewController = host
         window.isHidden = false
@@ -97,9 +102,10 @@ import UIKit
         }
     }
 
-    /// A finished 2000-item transcript's open weighs the rows at its top, not all of them.
+    /// A finished 2000-item transcript's open weighs the rows at its top, not all of them. The open
+    /// alone: the chunks that follow it, one a frame, are timed each by eachChunkFitsAFrame.
     @Test func openingALongFinishedTranscriptWeighsItsTopOnly() {
-        let (host, _) = Self.openNow(ListWorkCountersTests.finishedLongStore())
+        let (host, _) = Self.openNow(ListWorkCountersTests.finishedLongStore(), grows: false)
         let visible = host.list.collectionView.indexPathsForVisibleItems.count
         #expect(visible > 0)
         #expect(host.list.rowsWeighed <= 200,
@@ -209,7 +215,8 @@ import UIKit
     func eachChunkFitsAFrame(_ running: Bool) async {
         let store = running ? Self.runningLongStore(2000) : ListWorkCountersTests.finishedLongStore()
         let (host, window) = Self.openNow(store)
-        let firstReload = host.list.reloadLog.count
+        // Every reload from the open on (the fill can run inside openNow's settle).
+        let firstReload = 0
         let deadline = Date().addingTimeInterval(30)
         while !host.filled, Date() < deadline { await Self.frame(window) }
         for _ in 0..<3 { await Self.frame(window) }
@@ -285,6 +292,8 @@ import UIKit
         let window = Self.window(SubagentsScreen(store: store, surface: AgentChatSurface()), probe: probe)
         for _ in 0..<6 { await Self.frame(window) }
         #expect(probe.subagentRowBodies > 0, "the rows were drawn")
+        // The call stacks of the first rows evaluated whose subagent did not change (why, if any is).
+        probe.subagentRowStacksExcept = store.subagent(running[0])?.name
         var perChange: [Int] = []
         var notes: [String] = []
         for tick in 0..<5 {
@@ -316,6 +325,9 @@ import UIKit
         window.isHidden = true
         let report = notes.joined(separator: "\n")
         Attachment.record(report, named: "subagents-row-changes")
+        if !probe.subagentRowStacks.isEmpty {
+            Attachment.record(probe.subagentRowStacks.joined(separator: "\n\n"), named: "subagents-unchanged-row-stacks")
+        }
         #expect(perChange.allSatisfy { $0 <= 2 }, "row body evaluations per change of one subagent: \(perChange)\n\(report)")
     }
 
