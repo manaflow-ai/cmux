@@ -2,7 +2,11 @@
 import { expect, test } from "bun:test";
 import { settleReact } from "./support/domTeardown";
 import { JSDOM } from "jsdom";
-import { drawPinned, pinLiveLine, refreshPinned } from "../src/agent-session/acpmux/conversation/pinnedLiveLine";
+import { importWithDom } from "./support/importWithDom";
+
+const { drawPinned, pinLiveLine, refreshPinned } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/pinnedLiveLine"),
+);
 
 test.each(["finish", "cancel"])("the pinned line clips a gliding reply and clears the clip on %s", async (event) => {
   const dom = new JSDOM(
