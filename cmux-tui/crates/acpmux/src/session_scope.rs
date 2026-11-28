@@ -298,12 +298,14 @@ fn sessions_slice_wanted(
     swap: u64,
     threads_max: Option<u64>,
 ) -> Vec<(&'static str, String)> {
-    slice_settings_with_swap(
-        &knob_reader(env, limits),
-        memory,
-        swap,
-        sessions_tasks_default(threads_max),
-    )
+    let get = knob_reader(env, limits);
+    let mut wanted =
+        slice_settings_with_swap(&get, memory, swap, sessions_tasks_default(threads_max));
+    // CPU classes (RFD 0182 B2): off, the slice's weight is left as it is.
+    if let Some(w) = crate::session_budget::sessions_slice_weight(&get) {
+        wanted.push(("CPUWeight", w.to_string()));
+    }
+    wanted
 }
 
 /// The default `TasksMax` of a session scope: processes and threads
@@ -1151,6 +1153,24 @@ mod tests {
     }
 
     #[test]
+    fn cpu_classes_raise_the_sessions_slice_weight_only_when_on() {
+        let weight = |wanted: &[(&str, String)]| {
+            wanted.iter().find(|(k, _)| *k == "CPUWeight").map(|(_, v)| v.clone())
+        };
+        let empty = BTreeMap::new();
+        let off = sessions_slice_wanted(&empty, SessionLimits::default(), 0, 0, None);
+        assert_eq!(weight(&off), None, "off: the slice's weight is never written");
+        let env = BTreeMap::from([("ACPMUX_SESSION_CPU_CLASSES".to_owned(), "1".to_owned())]);
+        let on = sessions_slice_wanted(&env, SessionLimits::default(), 0, 0, None);
+        assert_eq!(weight(&on).as_deref(), Some("400"));
+        assert_eq!(on.len(), off.len() + 1, "only the weight is added");
+        // Already 400 (`systemctl show`): nothing to write again.
+        assert!(slice_changes("CPUWeight=400\n", &[("CPUWeight", "400".into())]).is_empty());
+        let props = properties(&knob_reader(&env, SessionLimits::default()), 0);
+        assert!(joined(&props).contains("-p CPUWeight=400"), "{props:?}");
+    }
+
+    #[test]
     fn the_slice_and_every_scope_read_the_task_caps_from_one_source() {
         // Two profiles that disagree in their env: with the typed config set,
         // both ask the shared slice for the same cap, so neither rewrites it.
@@ -1174,6 +1194,7 @@ mod tests {
         assert_eq!(session_limits_from_config(&cfg), config);
     }
 
+    #[cfg(unix)]
     #[test]
     fn the_daemon_limits_read_the_configs_session_as_a_whole_load_does() {
         use std::os::unix::fs::PermissionsExt as _;

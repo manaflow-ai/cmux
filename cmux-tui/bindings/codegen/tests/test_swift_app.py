@@ -348,6 +348,57 @@ class BindingErrorTests(unittest.TestCase):
 
 
 
+class IfTrueTests(unittest.TestCase):
+    """`encode: if_true`: a flag the app sends only when true, so an older daemon sees the request it always saw."""
+
+    def source(self, **override: Any) -> str:
+        bindings = layout_bindings()
+        request = bindings["families"]["Layout"]["requests"]["set-split-ratio"]
+        request["order"] = ["split", "ratio", "confirm_close"]
+        request["fields"] = {"confirm_close": {"encode": "if_true", **override}}
+        return rendered(bindings=bindings)["Layout/SetSplitRatioRequest.generated.swift"]
+
+    def test_if_true_is_a_plain_bool_false_by_default_encoded_only_when_true(self) -> None:
+        source = self.source()
+        self.assertIn("public var confirmClose: Bool\n", source)
+        self.assertIn("confirmClose: Bool = false", source)
+        self.assertIn("if confirmClose { try container.encode(true, forKey: .confirmClose) }", source)
+        self.assertIn('case confirmClose = "confirm_close"', source)
+
+    def test_if_true_says_false_for_a_daemon_without_the_capability(self) -> None:
+        document = layout_document()
+        document["commands"]["set-split-ratio"]["request"]["fields"]["confirm_close"]["capability"] = "x-v1"
+        bindings = layout_bindings()
+        request = bindings["families"]["Layout"]["requests"]["set-split-ratio"]
+        request["fields"] = {"confirm_close": {"encode": "if_true"}}
+        source = rendered(document, bindings)["Layout/SetSplitRatioRequest.generated.swift"]
+        self.assertIn("leave it false for a daemon that does not serve it", source)
+
+    def test_if_true_is_refused_where_it_cannot_keep_the_wire(self) -> None:
+        cases = {
+            "not a boolean": ("transaction", {"encode": "if_true"}),
+            "a required field": ("ratio", {"encode": "if_true"}),
+            "with optional": ("confirm_close", {"encode": "if_true", "optional": True}),
+            "with a type": ("confirm_close", {"encode": "if_true", "type": "Int"}),
+            "with a true default": ("confirm_close", {"encode": "if_true", "default": "true"}),
+        }
+        for label, (wire, override) in cases.items():
+            bindings = layout_bindings()
+            bindings["families"]["Layout"]["requests"]["set-split-ratio"]["fields"] = {wire: override}
+            with self.subTest(label), self.assertRaises(BindingError):
+                rendered(bindings=bindings)
+
+    def test_if_true_is_refused_on_a_field_whose_schema_default_is_not_false(self) -> None:
+        document = layout_document()
+        document["commands"]["set-split-ratio"]["request"]["fields"]["confirm_close"]["default"] = True
+        bindings = layout_bindings()
+        bindings["families"]["Layout"]["requests"]["set-split-ratio"]["fields"] = {
+            "confirm_close": {"encode": "if_true"}
+        }
+        with self.assertRaises(BindingError):
+            rendered(document, bindings)
+
+
 def mutation_document() -> dict[str, Any]:
     """A write command carrying the four mutation identity fields."""
     document = layout_document()
@@ -433,6 +484,60 @@ class FieldOverrideTests(unittest.TestCase):
         bindings["families"]["Layout"]["requests"]["swap-pane"]["mutation"] = True
         with self.assertRaises(BindingError):
             rendered(bindings=bindings)
+def workspace_ref_document() -> dict[str, Any]:
+    """A write command that targets a workspace by handle or key."""
+    document = mutation_document()
+    fields = document["commands"]["rename-pane"]["request"]["fields"]
+    document["commands"]["rename-pane"]["request"]["fields"] = {
+        "workspace": _field(ID, required=False, nullable=True),
+        "key": _field({"kind": "scalar", "name": "string"}, required=False, nullable=True),
+        **fields,
+    }
+    return document
+
+
+class WorkspaceRefTests(unittest.TestCase):
+    """`workspace_ref`: the schema's `workspace` and `key` become one `WorkspaceRef`, encoded flat."""
+
+    def source(self, order: list[str] | None = None, document: dict[str, Any] | None = None, **binding: Any) -> str:
+        bindings = mutation_bindings()
+        request = bindings["families"]["Layout"]["requests"]["rename-pane"]
+        request["workspace_ref"] = True
+        if order is not None:
+            request["order"] = order
+        request.update(binding)
+        document = document or workspace_ref_document()
+        return rendered(document, bindings)["Layout/RenamePaneRequest.generated.swift"]
+
+    def test_workspace_ref_is_one_required_parameter_where_order_puts_it(self) -> None:
+        source = self.source(["workspace", "pane", "title", "index", "mutation"])
+        self.assertIn("public var workspace: WorkspaceRef\n", source)
+        self.assertIn("public init(workspace: WorkspaceRef, pane: PaneID,", source)
+        self.assertNotIn("case key", source)
+        self.assertNotIn("case workspace", source)
+        encode = source[source.index("func encode"):]
+        ref = encode.index("try WorkspaceRefFields(ref: workspace).encode(to: encoder)")
+        self.assertLess(encode.index("forKey: .index"), ref)
+        self.assertLess(ref, encode.index("try MutationFields(identity: mutation)"))
+
+    def test_workspace_ref_left_out_of_order_comes_after_the_fields_before_mutation(self) -> None:
+        source = self.source()
+        self.assertIn("index: Int, workspace: WorkspaceRef, mutation: MutationIdentity? = nil)", source)
+
+    def test_workspace_ref_is_refused_without_both_optional_fields(self) -> None:
+        missing = workspace_ref_document()
+        del missing["commands"]["rename-pane"]["request"]["fields"]["key"]
+        required = workspace_ref_document()
+        required["commands"]["rename-pane"]["request"]["fields"]["workspace"] = _field(ID)
+        for name, document in {"no key": missing, "a required workspace": required}.items():
+            with self.subTest(name), self.assertRaisesRegex(BindingError, "workspace_ref needs"):
+                self.source(document=document)
+        with self.assertRaisesRegex(BindingError, "owns the workspace and key"):
+            self.source(fields={"key": {"type": "String"}})
+        with self.assertRaisesRegex(BindingError, "workspace_ref is true or false"):
+            self.source(workspace_ref="yes")
+
+
 def read_bindings(objects: dict[str, Any]) -> dict[str, Any]:
     bindings = layout_bindings()
     bindings["families"]["Layout"]["objects"] = objects
@@ -463,6 +568,34 @@ class ReadTypeTests(unittest.TestCase):
         self.assertIn("zoomed: Bool = false", source)
         self.assertIn("zoomed = try container.decodeIfPresent(Bool.self, forKey: .zoomed) ?? false", source)
         self.assertIn("pane = try container.decode(PaneID.self, forKey: .pane)", source)
+
+    def test_lenient_reads_a_malformed_value_as_missing(self) -> None:
+        files = rendered(bindings=read_bindings({"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"zoomed": {"lenient": True, "default": "false"},
+                                                 "zoomed_pane": {"lenient": True}}}}))
+        source = files["Layout/ZoomState.generated.swift"]
+        self.assertIn(
+            "zoomed = (((try? container.decodeIfPresent(Bool.self, forKey: .zoomed)) ?? nil)) ?? false", source)
+        self.assertIn(
+            "zoomedPane = ((try? container.decodeIfPresent(PaneID.self, forKey: .zoomedPane)) ?? nil)", source)
+
+    def test_when_reads_a_field_only_under_its_condition(self) -> None:
+        files = rendered(bindings=read_bindings({"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"zoomed_pane": {"when": "zoomed", "lenient": True}}}}))
+        self.assertIn(
+            "zoomedPane = zoomed ? (((try? container.decodeIfPresent(PaneID.self, forKey: .zoomedPane)) ?? nil)) : nil",
+            files["Layout/ZoomState.generated.swift"])
+
+    def test_prefer_reads_another_key_first_and_falls_back(self) -> None:
+        files = rendered(bindings=read_bindings({"ZoomState": {
+            "type": "ZoomPaneResult", "omit": ["zoomed_pane"],
+            "fields": {"pane": {"prefer": "zoomed_pane", "optional": True}}}}))
+        source = files["Layout/ZoomState.generated.swift"]
+        self.assertIn(
+            "pane = try container.decodeIfPresent(PaneID.self, forKey: .zoomedPane)"
+            " ?? container.decodeIfPresent(PaneID.self, forKey: .pane)", source)
+        self.assertIn('case zoomedPane = "zoomed_pane"', source)
+        self.assertNotIn("var zoomedPane", source)
 
     def test_optional_makes_a_required_field_optional(self) -> None:
         files = rendered(bindings=read_bindings({"ZoomState": {
@@ -512,6 +645,16 @@ class ReadTypeBindingErrorTests(unittest.TestCase):
         with self.assertRaises(BindingError) as raised:
             rendered(bindings=bindings or read_bindings(objects))
         self.assertIn(message, str(raised.exception))
+
+    def test_read_options_refuse_what_has_no_swift_shape(self) -> None:
+        self.assert_refused("when needs an optional field", {"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"zoomed": {"when": "true", "default": "false"}}}})
+        self.assert_refused("lenient needs an optional field or a default", {"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"zoomed": {"lenient": True}}}})
+        self.assert_refused("omit it", {"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"pane": {"prefer": "zoomed_pane"}}}})
+        self.assert_refused("which the schema does not have", {"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"pane": {"prefer": "nope"}}}})
 
     def test_type_and_result_are_exclusive(self) -> None:
         self.assert_refused("exactly one of type", {"Z": {"type": "ZoomPaneResult", "result": "zoom-pane"}})

@@ -666,6 +666,24 @@ class TheRepository(unittest.TestCase):
             problems = jobs.check(ROOT, tree)
         self.assertEqual(problems, [], "\n".join(problems))
 
+    def test_the_wasm_build_routes_by_its_crate_closure_and_never_skips_on_a_failed_router(self):
+        # cmux remote web wasm ran on every cmux-tui pull request (2026-11-27 00:30-01:30Z: 419 runs on 333 heads,
+        # 327 job-min). It builds cmux-remote-web alone, so only that crate's dependency closure, the workspace
+        # inputs, its apt script and its workflow run it; a router that failed or was skipped still runs it.
+        _, all_jobs = jobs.load_map((ROOT / jobs.MAP).read_text())
+        job = next(j for j in all_jobs if j.id == "remote-web-wasm")
+        with git_tree.GitTree(ROOT) as tree:
+            inputs = jobs.Graph(tree, [], all_jobs).inputs(job)
+        for path in ["cmux-tui/crates/cmux-remote-web", "cmux-tui/crates/cmux-remote-protocol/src",
+                     "scripts/ci/apt-ensure.sh", ".github/workflows/cmux-tui-spec.yml"]:
+            with self.subTest(path=path):
+                self.assertIn(path, inputs)
+        self.assertFalse(any(jobs.under(entry, "cmux-tui/crates/acpmux") for entry in inputs), inputs)
+        block = jobs.job_block((ROOT / job.workflow).read_text(), job.id)
+        self.assertIn("needs.changes.result != 'success' || (needs.changes.outputs.run == 'true' && "
+                      "needs.changes.outputs.remote_web_wasm != 'false')", block)
+        self.assertIn("key: ${{ needs.changes.outputs.remote_web_wasm_tree }}", block)
+
     def test_the_acpmux_job_inputs_hold_what_the_old_scope_step_held(self):
         # The job routes by tested_crate_inputs now. The old crate_inputs walked every crate's dev-dependencies;
         # cargo builds only the tested crate's (cmux-wg's dev-dependency cmux-rd-core never builds for acpmux's

@@ -266,6 +266,15 @@ pub struct AwayRecap {
     pub dismissed: bool,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum ClaudeTokenRecovery {
+    MachineLogin,
+    // A saved setup-token rejection, including metadata written before chat-scoped recovery.
+    #[serde(rename = "rejected")]
+    LegacyRejected,
+}
+
 /// A chat's model switch for a sustained overload (`SessionMeta::capacity_fallback`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CapacityFallback {
@@ -273,4 +282,8 @@ pub struct CapacityFallback {
     pub from: String,
     /// The smaller model it runs meanwhile.
     pub to: String,
+    /// The provider's error asked for another model (`model_catalog::asks_for_another_model`):
+    /// the switch stands with switching off, until a turn ends well.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub asked: bool,
 }
