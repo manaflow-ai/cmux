@@ -171,7 +171,7 @@ def problems(found: dict[str, dict[str, int]], listed: dict[str, dict[str, int]]
 
 def gate_hosts() -> list[str]:
     """The allowlist's hosts, in file order."""
-    return [h for h, _ in gate_doc.read_hosts(GATE_HOSTS.read_text())]
+    return [row.host for row in gate_doc.read_hosts(GATE_HOSTS.read_text())]
 
 
 def swift_gate_hosts() -> list[str]:
@@ -209,6 +209,14 @@ class EgressGate(unittest.TestCase):
     def test_the_allowlist_is_sorted_and_described(self):
         hosts = gate_hosts()  # raises on a host with no description or listed twice
         self.assertEqual(hosts, sorted(hosts), "cmux-egress/hosts.txt: keep the hosts sorted")
+
+    def test_a_row_missing_sends_when_or_off_fails(self):
+        whole = "# the API\n# sends: a\n# when: b\n# off: c\napi.cmux.dev\n"
+        self.assertEqual(gate_doc.read_hosts(whole)[0].off, "c")
+        for key in gate_doc.FIELDS:
+            short = "".join(line + "\n" for line in whole.splitlines() if not line.startswith(f"# {key}:"))
+            with self.assertRaisesRegex(ValueError, f"no `# {key}:`"):
+                gate_doc.read_hosts(short)
 
     def test_the_doc_is_generated_from_the_allowlist(self):
         doc = DOC.read_text()
