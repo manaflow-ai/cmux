@@ -534,7 +534,7 @@ final class SidebarNoticeCardView: NSView {
         // The text button's words end on the card's padding line, the edge the buttons and bar end on: its hover fill
         // reaches `space1` past it (Hide and Cancel stood half a padding in, out of line with everything under them).
         let textEdge = b.width - pad + Metrics.space1
-        dismissButton.frame = NSRect(x: textEdge - dismissWidth, y: dismissMid - dismissHeight / 2, width: dismissWidth, height: dismissHeight)
+        dismissButton.frame = NSRect(x: textEdge - dismissWidth, y: dismissMid - dismissHeight / 2, width: dismissWidth, height: dismissHeight) // concentric-allow: a text button on the first row, aligned to the padding line; the corner x is closeButton
         // The x in the card's top trailing corner, concentric with the card (Lawrence 2026-11-15: a card's x must be
         // concentric with its corner): the same inset from the top and the side, its hover the corner less it.
         let corner = Metrics.cornerControl(outerRadius: Self.cardCornerRadius, side: close)
