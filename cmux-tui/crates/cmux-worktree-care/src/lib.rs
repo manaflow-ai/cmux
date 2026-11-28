@@ -44,6 +44,7 @@ pub mod never_delete;
 pub mod owner;
 mod park;
 pub mod pass;
+pub mod paused_clean;
 pub mod policy;
 pub mod procs;
 pub mod restore;

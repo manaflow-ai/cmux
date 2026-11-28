@@ -152,6 +152,7 @@ usage: cmux app ping | identify | capabilities
        cmux app chat perf --page-source         (how each chat page was made: warm spare, kept, cold and why)
        cmux app remote-views [--tab <tab>]      (Cloud desktop tabs: viewer, connected, who has control)
        cmux app mac-screens [--tab <tab>]       (Mac Screen tabs: state, error, frame size, first frame ms, fps, round trip, drops; --tab takes a tab id)
+       cmux app mac-screen-replay --path <movie> [--tab <tab>] [--frames <1-120>] [--loops <N>] [--timeout <s>]  (plays a recorded screen share in a Screen Sharing tab, no host; prints decode_present p50 once the frames are presented)
        cmux app clicks [--limit <n>]            (your last clicks: the window each reached, what took it, the page's focus)
        cmux app machines [--no-refresh]         (the Machines section's machines and their link state)
        cmux app try . [--from APP] | . --extract | . --stop  (your working tree in a copy of your NIGHTLY: no dev build)

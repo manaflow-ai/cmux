@@ -162,6 +162,24 @@ pub(crate) fn drop_display_lines(value: &mut Value) {
     }
 }
 
+/// Whether [`Hub::display_logged`] may change a record logged as `dir`, `kind` and the raw
+/// JSON `msg`: false only for a record it passes through as it is. A reader that copies log
+/// lines as they are (`hub/transfer_history.rs` `emit_lines`) parses the rest whole. Keep the
+/// two in step: a record `display_logged` changes must read true here (`display_may_change_tests`
+/// checks every kind it matches).
+pub(crate) fn display_may_change(dir: &str, kind: &str, msg: &str) -> bool {
+    match dir {
+        "mux" => matches!(
+            kind,
+            "permission_request" | "permission_reissued" | "permission_auto" | "permission_group"
+        ),
+        // The method's name anywhere in the message: a cheap test that never misses one (a
+        // false hit only parses the line).
+        "in" => msg.contains("request_permission"),
+        _ => false,
+    }
+}
+
 impl Hub {
     /// A logged record as a client reads it (`events_page`): an ask acpmux recorded carries the
     /// display line worked out now, never one the log kept (an older build logged the agent's
