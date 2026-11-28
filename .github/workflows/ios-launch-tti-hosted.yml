@@ -165,7 +165,7 @@ jobs:
       # exported to its tables. (scripts/measure/ios-premain-breakdown.sh)
       - name: Pre-main breakdown (floor, inventory, App Launch trace)
         if: ${{ !cancelled() }}
-        timeout-minutes: 20
+        timeout-minutes: 35
         run: |
           set -uo pipefail
           bash "$RUNNER_TEMP/measure/ios-premain-breakdown.sh" --measure-dir "$RUNNER_TEMP/measure" --out artifacts/ios-sim \
@@ -191,6 +191,10 @@ jobs:
             artifacts/ios-sim/simctl-launch-marks-floor.ndjson
             artifacts/ios-sim/simctl-first-connect-floor-webrtc.json
             artifacts/ios-sim/simctl-launch-marks-floor-webrtc.ndjson
+            artifacts/ios-sim/simctl-first-connect-floor-pad.json
+            artifacts/ios-sim/simctl-launch-marks-floor-pad.ndjson
+            artifacts/ios-sim/simctl-first-connect-floor-rust.json
+            artifacts/ios-sim/simctl-launch-marks-floor-rust.ndjson
             artifacts/ios-sim/premain*
             artifacts/ios-sim/premain-trace/
             artifacts/ios-sim/simctl-launch-cold.png

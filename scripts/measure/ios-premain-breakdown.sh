@@ -45,15 +45,36 @@ if floor_app="$(bash "$measure/ios-launch-floor/build.sh" "$work/floor" 2>"$out/
 else
   echo "floor build failed: see premain-floor-build.err" >&2
 fi
-# 1b. Floor plus cmux's WebRTC.framework: its main minus the floor's is WebRTC's pre-main cost.
-echo "== premain: floor + WebRTC"
-if [[ -d "$app/Frameworks/WebRTC.framework" ]] &&
-   fw_app="$(bash "$measure/ios-launch-floor/build.sh" "$work/floor-webrtc" "$app/Frameworks/WebRTC.framework" \
-     2>"$out/premain-floor-webrtc-build.err" | tail -1)" && [[ -d "$fw_app" ]]; then
-  bounded 600 bash "$measure/ios-first-connect-simctl.sh" --app "$fw_app" --runs 10 --out "$out" --tag floor-webrtc \
-    >"$out/premain-floor-webrtc.log" 2>&1 || echo "floor+WebRTC arm failed: see premain-floor-webrtc.log" >&2
-else
-  echo "floor+WebRTC build failed (or the app embeds no WebRTC): see premain-floor-webrtc-build.err" >&2
+# 1b. Floor variants through the same simctl arm; each one's main minus the floor's is what it adds:
+#   floor-webrtc  cmux's WebRTC.framework loaded at launch
+#   floor-pad     the floor padded to the app's __TEXT,__text size in a section never touched (size alone)
+#   floor-rust    the floor with cmux's whole Rust FFI static library force-loaded (its code, data, fixups)
+floor_arm() { # TAG BUILD-ARGS...
+  local tag="$1"; shift
+  local a
+  echo "== premain: $tag"
+  if a="$(bash "$measure/ios-launch-floor/build.sh" "$work/$tag" "$@" 2>"$out/premain-$tag-build.err" | tail -1)" &&
+     [[ -d "$a" ]]; then
+    bounded 600 bash "$measure/ios-first-connect-simctl.sh" --app "$a" --runs 10 --out "$out" --tag "$tag" \
+      >"$out/premain-$tag.log" 2>&1 || echo "$tag arm failed: see premain-$tag.log" >&2
+  else
+    echo "$tag build failed: see premain-$tag-build.err" >&2
+  fi
+}
+[[ -d "$app/Frameworks/WebRTC.framework" ]] && floor_arm floor-webrtc --webrtc "$app/Frameworks/WebRTC.framework"
+exe0="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")"
+text_bytes="$(otool -l "$app/$exe0" 2>/dev/null | python3 -I -c 'import re,sys
+m=re.search(r"sectname __text\n\s+segname __TEXT\n\s+addr 0x[0-9a-f]+\n\s+size (0x[0-9a-f]+)",sys.stdin.read())
+print(int(m.group(1),16) if m else 0)')"
+echo "app __TEXT,__text bytes: $text_bytes"
+[[ "$text_bytes" =~ ^[0-9]+$ && "$text_bytes" -gt 0 ]] && floor_arm floor-pad --pad "$text_bytes"
+ffi_lib="$(find "$PWD" -path '*CmuxMobileLinkFFI*simulator*' -name 'CmuxMobileLinkFFIFFI' -type f -size +1M \
+  2>/dev/null | head -1)"
+[[ -n "$ffi_lib" ]] || ffi_lib="$(find "$PWD" -path '*simulator*' -name 'libcmux_mobile_link_ffi.a' -type f 2>/dev/null | head -1)"
+echo "rust static library: ${ffi_lib:-not found}" | tee "$out/premain-rust-lib.txt"
+if [[ -n "$ffi_lib" ]]; then
+  { ls -l "$ffi_lib"; lipo -info "$ffi_lib"; } >>"$out/premain-rust-lib.txt" 2>&1
+  floor_arm floor-rust --force-load "$ffi_lib"
 fi
 
 # 2. Inventory.
@@ -61,9 +82,11 @@ echo "== premain: inventory"
 exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")"
 otool -L "$app/$exe" >"$work/otool.txt" 2>&1 || true
 otool -l "$app/$exe" >"$work/otool-l.txt" 2>&1 || true
-python3 -I - "$app" "$exe" "$work/otool.txt" "$work/otool-l.txt" "$out/premain-inventory.json" <<'PY'
+nm -n -m "$app/$exe" >"$work/nm.txt" 2>/dev/null || true
+size -m "$app/$exe" >"$out/premain-size-m.txt" 2>&1 || true
+python3 -I - "$app" "$exe" "$work/otool.txt" "$work/otool-l.txt" "$out/premain-inventory.json" "$work/nm.txt" <<'PY'
 import json, os, pathlib, re, sys
-app, exe, otool, otool_l, dest = sys.argv[1:]
+app, exe, otool, otool_l, dest, nm = sys.argv[1:]
 root = pathlib.Path(app)
 def size(p):
     p = pathlib.Path(p)
@@ -88,7 +111,36 @@ out = {"app": app, "executable": exe, "executable_bytes": size(root / exe), "bun
                                if any(s in k for s in ("mod_init_func", "init_offsets", "objc_nlclslist",
                                                        "objc_nlcatlist", "swift5_protos", "swift5_types",
                                                        "swift5_proto", "objc_classlist", "chain_starts"))}}
+# __TEXT,__text by language: each symbol owns the bytes up to the next symbol's address.
+rust_legacy = re.compile(r"17h[0-9a-f]{16}E$")
+def lang(n):
+    if n.startswith(("_$s", "_$S", "_swift_", "__swift", "_$ss")):
+        return "swift"
+    if n.startswith(("__R", "_uniffi_", "_ffi_")) or (n.startswith("__ZN") and rust_legacy.search(n)):
+        return "rust"
+    if n.startswith("__Z"):
+        return "c++"
+    if n.startswith(("-[", "+[")):
+        return "objc"
+    return "c/zig/other"
+syms = []
+try:
+    for l in open(nm, errors="replace"):
+        m = re.match(r"([0-9a-f]+) \(__TEXT,__text\) .*? (\S+)$", l.rstrip())
+        if m:
+            syms.append((int(m.group(1), 16), m.group(2)))
+except OSError:
+    pass
+tm = re.search(r"sectname __text\n\s+segname __TEXT\n\s+addr (0x[0-9a-f]+)\n\s+size (0x[0-9a-f]+)", lc)
+end = int(tm.group(1), 16) + int(tm.group(2), 16) if tm else None
+by = {}
+for i, (a, n) in enumerate(syms):
+    nxt = syms[i + 1][0] if i + 1 < len(syms) else (end or a)
+    by[lang(n)] = by.get(lang(n), 0) + max(0, nxt - a)
+out["text_bytes_by_lang"] = dict(sorted(by.items(), key=lambda kv: -kv[1]))
+out["text_symbols"] = len(syms)
 pathlib.Path(dest).write_text(json.dumps(out, indent=1) + "\n")
+print("text by language:", out["text_bytes_by_lang"])
 print(f"inventory: executable {out['executable_bytes']} B, {out['embedded_count']} embedded "
       f"({out['embedded_bytes']} B), {out['loads_count']} load commands")
 PY
@@ -110,6 +162,50 @@ for _ in 1 2; do
   xcrun simctl terminate "$udid" "$bundle" >/dev/null 2>&1
   sleep 1
 done
+# 3a. A host `sample` of one warm launch, attached as soon as simctl returns the pid (main lands ~2 s later, so
+# dyld, the initializers and main are all in it). Samples are 1 ms apart: counts read as ms of the main thread.
+echo "== premain: sample"
+if line="$(SIMCTL_CHILD_CMUX_MOBILE_MOCK_AUTH=1 xcrun simctl launch "$udid" "$bundle" -cmuxMobile.setupComplete YES 2>&1)"; then
+  spid="${line##*: }"
+  bounded 30 sample "$spid" 4 1 -mayDie -file "$out/premain-sample.txt" >"$work/sample.log" 2>&1 || true
+  xcrun simctl terminate "$udid" "$bundle" >/dev/null 2>&1 || true
+  sleep 1
+  python3 -I - "$out/premain-sample.txt" "$out/premain-sample-summary.json" <<'PY' || true
+import json, re, sys
+src, dest = sys.argv[1:]
+try:
+    text = open(src, errors="replace").read()
+except OSError:
+    sys.exit(0)
+graph = text.split("Call graph:", 1)[-1].split("Total number in stack", 1)[0]
+inclusive, main_thread = {}, None
+for l in graph.splitlines():
+    m = re.match(r"^[\s+!:|]*(\d+)\s+(.+?)(?:\s+\(in ([^)]+)\))?(?:\s+\+\s.*|\s+\[.*)?$", l)
+    if not m:
+        continue
+    count, name, image = int(m.group(1)), m.group(2).strip(), m.group(3) or ""
+    if name.startswith("Thread_"):
+        if main_thread is not None:
+            break  # the first thread is the main thread
+        main_thread = count
+        continue
+    key = f"{name} ({image})" if image else name
+    inclusive[key] = max(inclusive.get(key, 0), count)
+pre = {k: v for k, v in inclusive.items() if re.search(
+    r"dyld4::|dyld3::|runAllInitializers|Fixup|fixup|bind|Bind|mapSegments|mmap|_dyld_start|swift_conform|"
+    r"objc_init|map_images|load_images|initializeMainExecutable|libSystem_initializer|vm_fault|page", k)}
+summary = {"main_thread_samples": main_thread,
+           "main_in_samples": max((v for k, v in inclusive.items() if re.match(r"main \(", k)), default=None),
+           "premain_frames": dict(sorted(pre.items(), key=lambda kv: -kv[1])[:30]),
+           "inclusive_top": dict(sorted(inclusive.items(), key=lambda kv: -kv[1])[:50])}
+open(dest, "w").write(json.dumps(summary, indent=1) + "\n")
+print("sample: main thread %s, main %s; pre-main frames %s" % (
+    main_thread, summary["main_in_samples"], list(summary["premain_frames"].items())[:8]))
+PY
+else
+  echo "sample launch failed: $line" >&2
+fi
+
 mkdir -p "$out/premain-trace"
 # The selected Xcode can be a release candidate whose Instruments does not load on the runner's macOS
 # (Xcode 27.2 RC: `Symbol not found ... libswiftos.dylib`); record with the newest stable Xcode on the image
@@ -201,19 +297,29 @@ import json, pathlib, sys
 o = pathlib.Path(sys.argv[1])
 line = {}
 for name, key in (("simctl-first-connect.json", "app"), ("simctl-first-connect-floor.json", "floor"),
-                  ("simctl-first-connect-floor-webrtc.json", "floor_webrtc")):
+                  ("simctl-first-connect-floor-webrtc.json", "floor_webrtc"),
+                  ("simctl-first-connect-floor-pad.json", "floor_pad"),
+                  ("simctl-first-connect-floor-rust.json", "floor_rust")):
     p = o / name
     if p.exists():
         d = json.loads(p.read_text())
         line[key] = {m: d["marks"][m]["p90_ms"] for m in ("main", "did_finish_launching", "workspaces_list_frame")
                      if m in d["marks"]}
         line[key]["spawn_lead_p90"] = d.get("spawn", {}).get("process_start_minus_simctl_call_ms", {}).get("p90")
-f, w = line.get("floor", {}).get("main"), line.get("floor_webrtc", {}).get("main")
-if f is not None and w is not None:
-    line["webrtc_premain_ms_p90"] = w - f
+f = line.get("floor", {}).get("main")
+for k, label in (("floor_webrtc", "webrtc"), ("floor_pad", "text_size"), ("floor_rust", "rust_staticlib")):
+    w = line.get(k, {}).get("main")
+    if f is not None and w is not None:
+        line[f"{label}_premain_ms_p90"] = w - f
+s = o / "premain-sample-summary.json"
+if s.exists():
+    d = json.loads(s.read_text())
+    line["sample"] = {"main_thread": d.get("main_thread_samples"), "main": d.get("main_in_samples"),
+                      "premain_top": dict(list(d.get("premain_frames", {}).items())[:8])}
 inv = o / "premain-inventory.json"
 if inv.exists():
     d = json.loads(inv.read_text())
+    line["text_bytes_by_lang"] = d.get("text_bytes_by_lang")
     line["inventory"] = {"executable_bytes": d["executable_bytes"], "embedded_count": d["embedded_count"],
                          "embedded_bytes": d["embedded_bytes"], "loads_count": d["loads_count"]}
 print("PREMAIN " + json.dumps(line))
