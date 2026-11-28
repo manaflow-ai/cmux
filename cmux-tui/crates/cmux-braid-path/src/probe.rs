@@ -129,6 +129,13 @@ impl PathWatch {
         self.unanswered_since.get_or_insert(now);
     }
 
+    /// How long since the first send on the path that nothing authenticated
+    /// came back after: `None` while every send is answered.
+    #[must_use]
+    pub fn quiet_for(&self, now: Instant) -> Option<Duration> {
+        self.unanswered_since.map(|since| now.saturating_duration_since(since))
+    }
+
     /// An authenticated datagram arrived on the path: it is not silent.
     pub fn heard(&mut self) {
         self.unanswered_since = None;
