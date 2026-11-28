@@ -26,7 +26,10 @@ public final class AuthPresentationContextProvider: NSObject,
         super.init()
     }
 
-    public var interactiveAuthenticator: (any StackInteractiveAuthenticator)? {
+    // The AuthenticationServices conformances make this class main-actor
+    // isolated; the anchoring requirement is nonisolated, so its witness is
+    // too. It only wraps self, and the authenticator reads it on main.
+    public nonisolated var interactiveAuthenticator: (any StackInteractiveAuthenticator)? {
         StackAppleInteractiveAuthenticator(presentationContextProvider: self)
     }
 
