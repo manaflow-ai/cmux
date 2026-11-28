@@ -7728,6 +7728,67 @@ a.cv-sha:focus-visible {
 .acpmux-image-viewer-stage:not(.is-zoomed) .acpmux-image-viewer-image {
   cursor: zoom-in;
 }
+
+/* The image viewer as a lightbox, as Quick Look is (ImageViewer.tsx; Leo, 2026-11-27: "ok the screenshots
+   thing needs to not opaque out everything else. just have what normal standards are for this. some lowered
+   opaity?"). The backdrop dims the chat about 45% black and the chat stays in view; the popup is clear (no
+   .ui-glass, so no sheet veil); the image sits centered at its own size, shrunk only to fit; a small glass
+   bar floats at the top with its name, position and actions. The reply and video viewers (ReplyMedia.tsx,
+   VideoPlayback.tsx, GalleryDialog.tsx) share the base classes above and keep their column layout. */
+.acpmux-image-viewer.acpmux-image-lightbox {
+  display: block;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+.acpmux-image-lightbox-backdrop {
+  /* The standard lightbox dim: the chat reads behind it (Quick Look, a browser's image lightbox). */
+  background: var(--lightbox-scrim);
+}
+:root[data-reduce-transparency] .acpmux-image-lightbox-backdrop {
+  background: var(--lightbox-scrim-solid);
+}
+.acpmux-image-lightbox .acpmux-image-viewer-body {
+  position: absolute;
+  inset: 0;
+}
+/* A small floating glass bar, not a full-width header (the popover level's tint and blur). */
+.acpmux-image-lightbox .acpmux-image-viewer-bar {
+  position: absolute;
+  z-index: var(--layer-raised);
+  top: var(--ds-space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  flex-wrap: nowrap;
+  max-width: calc(100% - 2 * var(--ds-space-4));
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 4px 4px 4px var(--ds-space-3);
+  border-radius: calc(var(--ds-radius-control) + 4px);
+  box-shadow: var(--ui-popup-drop, 0 4px 16px rgb(0 0 0 / 25%));
+}
+.acpmux-image-lightbox .acpmux-image-viewer-title {
+  flex: 0 1 auto;
+  margin-right: 8px;
+}
+.acpmux-image-lightbox .acpmux-image-viewer-stage {
+  /* The whole popup, so its center is the fitted image's center (zoomAbout in ImageViewer.tsx), a click
+     anywhere beside the image closes, and the image's percentages resolve against a definite box (the
+     blank body Leo saw on 2026-11-27 was the image with no box of its own to fit). */
+  position: absolute;
+  inset: 0;
+  /* Room for the floating bar above and the arrows at the sides. */
+  padding: var(--ds-space-56) var(--ds-space-56) var(--ds-space-5);
+  box-sizing: border-box;
+}
+.acpmux-image-lightbox .acpmux-image-viewer-image {
+  /* Its own size, scaled down only when it is larger than the stage. */
+  flex: none;
+  border-radius: 6px;
+  box-shadow: var(--elevation-2);
+}
 .acpmux-image-viewer-step {
   position: absolute;
   top: 50%;

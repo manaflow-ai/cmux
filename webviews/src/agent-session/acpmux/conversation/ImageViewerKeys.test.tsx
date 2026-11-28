@@ -109,3 +109,23 @@ test("the image viewer's Close, Previous and Next name their keys", () => {
     expect(element.getAttribute("title")).toBe(`${element.getAttribute("aria-label")} ${glyph}`);
   }
 });
+
+// Leo, 2026-11-27: "just have what normal standards are for this": Space closes the viewer, as Quick Look
+// does, while Space on one of the bar's buttons still presses that button.
+test("Space closes the image viewer, but not on a bar button", () => {
+  let closed = 0;
+  const document = render(
+    <ImageViewer images={[{ src: "a.png", alt: "A" }]} index={0} onIndex={() => {}} onClose={() => closed++} />,
+  );
+  const space = (target: Element) =>
+    act(() => {
+      target.dispatchEvent(new document.defaultView!.KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    });
+  space(button(document, "Copy image"));
+  expect(closed).toBe(0);
+  space(document.querySelector(".acpmux-image-viewer-stage")!);
+  expect(closed).toBe(1);
+  // The popup draws no glass of its own (a `.ui-glass` dialog is the opaque sheet veil); only its bar does.
+  expect(document.querySelector(".acpmux-image-viewer")!.classList.contains("ui-glass")).toBe(false);
+  expect(document.querySelector(".acpmux-image-viewer-bar")!.classList.contains("ui-glass")).toBe(true);
+});

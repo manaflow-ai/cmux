@@ -1,0 +1,27 @@
+{
+  "title": "Copy an image from the chat and paste it back (Leo, 2026-11-27: \"i need to be able to copy images that i pasted\"). Record it with: cmux-ci capture SHA --state tour:image-copy-menu",
+  "steps": [
+    { "title": "Launch", "wait": 2, "shot": false },
+    {
+      "title": "An agent chat in /tmp",
+      "cmux": ["agent", "new-chat", "--cwd", "/tmp"],
+      "wait": 5,
+      "shot": false,
+      "optional": "agent backend unavailable on this runner"
+    },
+    {
+      "title": "A reply holding a wide, short screenshot",
+      "rpc": { "method": "debug.agent_pane", "params": { "action": "seed_rows", "fixture": "image" } },
+      "wait": 2
+    },
+    {
+      "title": "Right-click the screenshot: Copy Image is the first row",
+      "click": { "x": 886, "y": 212, "button": "right" },
+      "shot": { "with_popups": true, "name": "image-menu", "dismiss": false }
+    },
+    { "title": "Choose Copy Image", "click": { "x": 930, "y": 226 }, "wait": 1, "shot": false },
+    { "title": "Focus the composer", "click": { "x": 850, "y": 652 }, "wait": 0.5, "shot": false },
+    { "title": "Paste", "key": "v", "modifiers": ["cmd"], "front": true, "wait": 1.5, "shot": false },
+    { "title": "The copied screenshot pasted into the composer as an attachment", "wait": 1 }
+  ]
+}
