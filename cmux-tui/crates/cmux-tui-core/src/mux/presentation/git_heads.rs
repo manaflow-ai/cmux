@@ -9,8 +9,10 @@
 //! The values live in a [`TagCache`] keyed by directory. Each value carries the tag of the
 //! directory it was read from ([`HeadTag::Dir`]): the git dir that holds its HEAD file (a linked
 //! worktree's own one under `.git/worktrees/`), or, for a directory in no repository, the
-//! directory itself, where a new `.git` would make one. One file watch (`notify`, non-recursive)
-//! holds each of those directories. A write of a HEAD file (a checkout, a switch, a branch
+//! directory itself, where a new `.git` would make one. One file watch (non-recursive) holds each
+//! of those directories: on Linux an inotify watch that asks for changes only, never for opens
+//! or reads (`inotify_watch.rs`: every git command opens the files of a git dir), elsewhere
+//! `notify`. A write of a HEAD file (a checkout, a switch, a branch
 //! rename, a commit on a detached HEAD: git renames `HEAD.lock` over it) or of a `.git` entry
 //! invalidates that tag, which writes one number whatever is cached, and sends the directories
 //! cached with it to the refresh. The refresh reads them, and for a value that changed moves the
@@ -238,8 +240,14 @@ impl Inner {
     }
 }
 
+#[cfg(target_os = "linux")]
+mod inotify_watch;
+
 /// The file watch over the watched directories (`HeadTag::Dir`), and its thread.
 struct HeadWatch {
+    #[cfg(target_os = "linux")]
+    watcher: inotify_watch::HeadInotify,
+    #[cfg(not(target_os = "linux"))]
     watcher: notify::RecommendedWatcher,
     dirs: HashSet<PathBuf>,
 }
@@ -249,17 +257,46 @@ impl HeadWatch {
     /// none (each value then keeps [`GIT_HEAD_TTL`]).
     fn start(mux: Weak<Mux>) -> Option<Self> {
         let (tx, rx) = std::sync::mpsc::channel();
+        #[cfg(target_os = "linux")]
+        let watcher = inotify_watch::HeadInotify::start(tx, "git-head-inotify");
+        #[cfg(not(target_os = "linux"))]
         let watcher = notify::recommended_watcher(move |event| {
             let _ = tx.send(event);
-        })
-        .inspect_err(|error| eprintln!("cmux-tui: the git HEAD watch cannot start: {error}"))
-        .ok()?;
+        });
+        let watcher = watcher
+            .inspect_err(|error| eprintln!("cmux-tui: the git HEAD watch cannot start: {error}"))
+            .ok()?;
         std::thread::Builder::new()
             .name("git-head-watch".to_string())
             .spawn(move || run_watch(&rx, &mux))
             .inspect_err(|error| eprintln!("cmux-tui: the git HEAD watch cannot start: {error}"))
             .ok()?;
         Some(Self { watcher, dirs: HashSet::new() })
+    }
+
+    /// Takes the watch off `gone` and puts it on `new`, in one change of the watch (FSEvents
+    /// restarts its stream on each). The directories of `new` it holds now.
+    #[cfg(not(target_os = "linux"))]
+    fn change(&mut self, gone: &[PathBuf], new: Vec<&PathBuf>) -> Vec<PathBuf> {
+        let mut paths = notify::Watcher::paths_mut(&mut self.watcher);
+        for dir in gone {
+            let _ = paths.remove(dir);
+        }
+        let added: Vec<PathBuf> = new
+            .into_iter()
+            .filter(|dir| paths.add(dir.as_path(), notify::RecursiveMode::NonRecursive).is_ok())
+            .cloned()
+            .collect();
+        if paths.commit().is_ok() { added } else { Vec::new() }
+    }
+
+    /// Takes the watch off `gone` and puts it on `new`. The directories of `new` it holds now.
+    #[cfg(target_os = "linux")]
+    fn change(&mut self, gone: &[PathBuf], new: Vec<&PathBuf>) -> Vec<PathBuf> {
+        for dir in gone {
+            self.watcher.remove(dir);
+        }
+        new.into_iter().filter(|dir| self.watcher.add(dir)).cloned().collect()
     }
 }
 
@@ -379,23 +416,12 @@ impl GitHeadCache {
         };
         let new: Vec<&PathBuf> = wanted.iter().filter(|dir| !watch.dirs.contains(*dir)).collect();
         if !gone.is_empty() || !new.is_empty() {
-            // One change of the watch for the batch: FSEvents restarts its stream on each.
-            let mut paths = notify::Watcher::paths_mut(&mut watch.watcher);
-            for dir in &gone {
-                let _ = paths.remove(dir);
-            }
-            let added: Vec<PathBuf> = new
-                .into_iter()
-                .filter(|dir| paths.add(dir.as_path(), notify::RecursiveMode::NonRecursive).is_ok())
-                .cloned()
-                .collect();
-            let committed = paths.commit().is_ok();
+            // One change of the watch for the batch.
+            let added = watch.change(&gone, new);
             for dir in &gone {
                 watch.dirs.remove(dir);
             }
-            if committed {
-                watch.dirs.extend(added);
-            }
+            watch.dirs.extend(added);
         }
         wanted.iter().filter(|dir| watch.dirs.contains(*dir)).cloned().collect()
     }

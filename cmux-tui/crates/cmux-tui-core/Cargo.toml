@@ -172,6 +172,12 @@ futures-util.workspace = true
 # commit (apps/git_source.rs).
 tar.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# The git HEAD watch's change-only inotify watch (mux/presentation/git_heads/inotify_watch.rs):
+# notify's inotify watcher always asks for IN_OPEN, so each open of a file in a watched git dir
+# woke an idle daemon. The version notify already links.
+inotify = { version = "0.11", default-features = false }
+
 [target.'cfg(unix)'.dev-dependencies]
 # The SDK's raw client drives the cloud.* operations in server/cloud_api_tests.rs.
 cmux-sdk = { path = "../../bindings/rust", default-features = false }
