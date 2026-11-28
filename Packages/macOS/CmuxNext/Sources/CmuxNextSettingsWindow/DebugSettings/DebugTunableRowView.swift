@@ -3,7 +3,8 @@ import CmuxNextIcons
 import SwiftUI
 
 /// One tunable: label (with a dot when changed), key, help, its control,
-/// the default, "Needs a relaunch" when the app reads it only at launch, and Reset.
+/// the default, how a launch-time key stands ("Needs a relaunch" only when this launch is using
+/// another value), and Reset.
 struct DebugTunableRowView: View {
     let model: DebugSettingsModel
     let descriptor: TunableDescriptor
@@ -31,9 +32,15 @@ struct DebugTunableRowView: View {
                 Text(DebugSettingsStrings.defaultIs(DebugSettingsStrings.display(descriptor.defaultValue, kind: descriptor.kind)))
                     .font(SettingsStyle.caption).foregroundStyle(SettingsStyle.tertiary)
                 if descriptor.readCadence == .launch {
-                    Text(DebugSettingsStrings.needsRelaunch)
+                    // The caption answers the same question the row's `applies_state` does, so the two
+                    // cannot disagree: "Needs a relaunch" only when the app is demonstrably using
+                    // another value, and the plain cadence when it is using this one or nothing has
+                    // read the key yet.
+                    let needsRelaunch = DebugSettingsModel.appliesState(descriptor, model.store) == .no
+                    Text(needsRelaunch ? DebugSettingsStrings.needsRelaunch : DebugSettingsStrings.readAtLaunch)
                         .font(SettingsStyle.caption).foregroundStyle(SettingsStyle.secondary)
-                        .accessibilityIdentifier("cmux.debugSettings.needsRelaunch.\(descriptor.key)")
+                        .accessibilityIdentifier(
+                            "cmux.debugSettings.\(needsRelaunch ? "needsRelaunch" : "readAtLaunch").\(descriptor.key)")
                 }
             }
             Button { model.reset(descriptor) } label: {

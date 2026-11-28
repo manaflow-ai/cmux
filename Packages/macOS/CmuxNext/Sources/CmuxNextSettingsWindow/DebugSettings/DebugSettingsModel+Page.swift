@@ -157,36 +157,76 @@ extension DebugSettingsModel {
         return value != descriptor.defaultValue
     }
 
+    /// Whether the running app is using the value a tunable's row shows.
+    ///
+    /// A missing read is not a negative answer: nothing has read a launch-time key yet, so which
+    /// value this process ends up with is `unknown` until that read happens, not `no`
+    /// (docs/handbook/missing-read-counted-as-a-value.md).
+    public enum AppliesState: String, Sendable {
+        /// The app is using this value: a live key, or a launch-time key whose launch read answered it.
+        case yes
+        /// The app is using another value: a launch-time key read at launch with a different one.
+        case no
+        /// A launch-time key nothing has read this launch: which value is in use is not known yet.
+        case unknown
+
+        /// `yes`/`no` as a flag; nil for `unknown`, which is not a value.
+        public var applies: Bool? {
+            switch self {
+            case .yes: true
+            case .no: false
+            case .unknown: nil
+            }
+        }
+    }
+
+    /// Whether the stored value of `descriptor` is the one this process is using.
+    ///
+    /// It reports the value, not the cadence: a launch-time key whose stored value is the one this
+    /// process read at launch (a fresh launch for an arm, or a `set` back to the launch value) does
+    /// apply. Reporting the cadence alone would call a correctly relaunched arm unapplied, which is
+    /// the mislabelling this answer exists to prevent.
+    public static func appliesState(_ descriptor: TunableDescriptor, _ store: TunableStore) -> AppliesState {
+        guard descriptor.readCadence == .launch else { return .yes }
+        guard store.wasReadAtLaunch(descriptor.key) else { return .unknown }
+        let launchValue = store.launchReadValue(descriptor.key) ?? descriptor.defaultValue
+        return launchValue == (store.override(descriptor.key) ?? descriptor.defaultValue) ? .yes : .no
+    }
+
     /// One tunable as the `debug.tunables` verb reports it: value, default, whether it differs,
     /// and when the app reads it.
     ///
     /// `read_cadence` lets automation (an A/B harness) tell a key it can change now from one this
-    /// process read at launch; `applies` is false, with `applies_why`, for a launch-time key whose
-    /// stored value the running app is not using, so a caller cannot read success into a change
-    /// that did nothing (the trap cmux#45709 shipped).
+    /// process read at launch. `applies_state` is `yes`, `no` or `unknown`, and `applies` carries
+    /// the first two as a flag, so a caller cannot read success into a change that did nothing (the
+    /// trap cmux#45709 shipped). `launch_value` carries what the launch read answered.
     ///
-    /// `applies` reports the value, not the cadence: a launch-time key whose stored value is the one
-    /// this process read at launch (a fresh launch for an arm, or a `set` back to the launch value)
-    /// does apply, and `launch_value` carries what that read answered. Reporting the cadence alone
-    /// would call a correctly relaunched arm unapplied, which is the same mislabelling the field
-    /// exists to prevent.
+    /// A launch-time key nothing has read this launch is `unknown`, with no `applies` field at all:
+    /// a read still ahead of it will take the stored value, and a read already past will not, and
+    /// the row does not know which. Reporting that as `applies: false` would answer a question
+    /// nobody has asked the app yet.
     public static func tunableRow(_ descriptor: TunableDescriptor, _ store: TunableStore) -> JSONValue {
         let value = store.override(descriptor.key) ?? descriptor.defaultValue
         let launch = descriptor.readCadence == .launch
         let read = launch && store.wasReadAtLaunch(descriptor.key)
         let launchValue = read ? (store.launchReadValue(descriptor.key) ?? descriptor.defaultValue) : nil
-        let applies = !launch || launchValue == value
+        let state = appliesState(descriptor, store)
         var fields: [String: JSONValue] = [
             "key": .string(descriptor.key), "section": .string(descriptor.section.id), "label": .string(descriptor.label),
             "value": json(value), "default": json(descriptor.defaultValue), "changed": .bool(isChanged(descriptor, store)),
             "read_cadence": .string(descriptor.readCadence.rawValue),
-            "applies": .bool(applies),
+            "applies_state": .string(state.rawValue),
         ]
+        if let applies = state.applies { fields["applies"] = .bool(applies) }
         if let launchValue { fields["launch_value"] = json(launchValue) }
-        if !applies {
-            fields["applies_why"] = .string(read
-                ? "\(descriptor.key) is read once while the app starts, so this launch keeps the value it started with (see launch_value); relaunch to use the stored one"
-                : "\(descriptor.key) is read once while the app starts and nothing has read it this launch, so no stored value for it is in use; relaunch to use the stored one")
+        switch state {
+        case .yes: break
+        case .no:
+            fields["applies_why"] = .string(
+                "\(descriptor.key) is read once while the app starts, so this launch keeps the value it started with (see launch_value); relaunch to use the stored one")
+        case .unknown:
+            fields["applies_why"] = .string(
+                "\(descriptor.key) is read once while the app starts and nothing has read it this launch, so whether the stored value is in use is unknown: a read still ahead takes it, and a relaunch makes it certain")
         }
         return .object(fields)
     }
