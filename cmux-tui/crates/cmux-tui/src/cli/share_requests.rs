@@ -6,7 +6,7 @@
 //! cmux share requests [SHARE_ID]
 //! cmux share approve SHARE_ID ACCOUNT [--role view|talk]
 //! cmux share decline SHARE_ID ACCOUNT
-//! cmux share info [SHARE_ID] [--surface N]
+//! cmux share info [SHARE_ID] [--terminal N]
 //! ```
 //!
 //! The logic is the daemon's (`agent-session-share-list`, `-request-approve`, `-request-decline`);
@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode, wire};
 
-const INFO_HELP: &str = "Usage: cmux share info [SHARE_ID] [--surface N] [--json]\n\nReads the local owner's share registry, including team access, role, and invite address.\n";
+const INFO_HELP: &str = "Usage: cmux share info [SHARE_ID] [--terminal N] [--json]\n\nReads the local owner's share registry, including team access, role, and invite address.\n";
 
 pub(super) const HELP: &str = "Usage: cmux share <requests|approve|decline>\n\n\
 Owner-side access requests for a shared agent chat. `requests` lists pending asks;\n\
@@ -73,7 +73,7 @@ enum Ask {
     /// Read the owner's daemon registry, including team access and its invite address.
     Info {
         share: Option<String>,
-        surface: Option<u64>,
+        terminal: Option<u64>,
     },
     List {
         share: Option<String>,
@@ -92,18 +92,18 @@ enum Ask {
 fn parse(verb: &str, words: &[String]) -> Result<Ask, String> {
     let mut positional = Vec::new();
     let mut role = None;
-    let mut surface = None;
+    let mut terminal = None;
     let mut words = words.iter();
     while let Some(word) = words.next() {
         if word == "--role" {
             role = Some(words.next().ok_or("--role takes view or talk")?.clone());
         } else if let Some(value) = word.strip_prefix("--role=") {
             role = Some(value.to_owned());
-        } else if word == "--surface" {
-            let value = words.next().ok_or("--surface takes a number")?;
-            surface = Some(value.parse().map_err(|_| "--surface takes a number")?);
-        } else if let Some(value) = word.strip_prefix("--surface=") {
-            surface = Some(value.parse().map_err(|_| "--surface takes a number")?);
+        } else if word == "--terminal" {
+            let value = words.next().ok_or("--terminal takes a number")?;
+            terminal = Some(value.parse().map_err(|_| "--terminal takes a number")?);
+        } else if let Some(value) = word.strip_prefix("--terminal=") {
+            terminal = Some(value.parse().map_err(|_| "--terminal takes a number")?);
         } else if word.starts_with("--") {
             return Err(format!("share {verb} does not take {word}"));
         } else {
@@ -113,8 +113,8 @@ fn parse(verb: &str, words: &[String]) -> Result<Ask, String> {
     if role.is_some() && verb != "approve" {
         return Err(format!("share {verb} does not take --role"));
     }
-    if surface.is_some() && verb != "info" {
-        return Err(format!("share {verb} does not take --surface"));
+    if terminal.is_some() && verb != "info" {
+        return Err(format!("share {verb} does not take --terminal"));
     }
     if let Some(role) = &role
         && !matches!(role.as_str(), "view" | "talk")
@@ -128,7 +128,7 @@ fn parse(verb: &str, words: &[String]) -> Result<Ask, String> {
         return Err(format!("share {verb} takes too many words"));
     }
     match (verb, first, second) {
-        ("info", share, None) => Ok(Ask::Info { share, surface }),
+        ("info", share, None) => Ok(Ask::Info { share, terminal }),
         ("info", _, Some(_)) => Err("share info takes at most a SHARE_ID".into()),
         ("requests", share, None) => Ok(Ask::List { share }),
         ("requests", _, Some(_)) => Err("share requests takes at most a SHARE_ID".into()),
@@ -141,10 +141,10 @@ fn parse(verb: &str, words: &[String]) -> Result<Ask, String> {
 fn run(global: &GlobalArgs, ask: &Ask) -> i32 {
     let request = match ask {
         Ask::List { .. } => json!({"cmd": "agent-session-share-list"}),
-        Ask::Info { surface: Some(surface), .. } => {
-            json!({"cmd": "agent-session-share-list", "surface": surface})
+        Ask::Info { terminal: Some(terminal), .. } => {
+            json!({"cmd": "agent-session-share-list", "terminal": terminal})
         }
-        Ask::Info { surface: None, .. } => json!({"cmd": "agent-session-share-list"}),
+        Ask::Info { terminal: None, .. } => json!({"cmd": "agent-session-share-list"}),
         Ask::Approve { share, account, role } => {
             let mut request = json!({
                 "cmd": "agent-session-share-request-approve",
@@ -349,11 +349,11 @@ mod tests {
     #[test]
     fn info_reads_team_access_without_changing_share_chat() {
         assert_eq!(
-            parse("info", &words(&["s1", "--surface=7"])),
-            Ok(Ask::Info { share: Some("s1".into()), surface: Some(7) })
+            parse("info", &words(&["s1", "--terminal=7"])),
+            Ok(Ask::Info { share: Some("s1".into()), terminal: Some(7) })
         );
-        assert_eq!(parse("info", &[]), Ok(Ask::Info { share: None, surface: None }));
-        assert!(parse("requests", &words(&["--surface", "7"])).is_err());
+        assert_eq!(parse("info", &[]), Ok(Ask::Info { share: None, terminal: None }));
+        assert!(parse("requests", &words(&["--terminal", "7"])).is_err());
     }
 
     #[test]

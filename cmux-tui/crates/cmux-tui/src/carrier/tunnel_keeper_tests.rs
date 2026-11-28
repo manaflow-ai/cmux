@@ -419,6 +419,25 @@ async fn a_supervisor_that_gives_up_starts_again_after_a_doubling_wait() {
 }
 
 #[tokio::test]
+async fn a_retrying_supervisor_names_its_cause_once_per_reason() {
+    let refusal = json!({"code": "mesh.node.unavailable", "message": "the machine's device cleanup is pending"});
+    let mut world = world_attaching(true, true, Some((503, refusal))).await;
+    world.until(|e| matches!(e, KeeperEvent::Ended(TunnelStatus::Failed(_), _))).await;
+    let said: Vec<&String> = world
+        .seen
+        .iter()
+        .filter_map(|e| if let KeeperEvent::Retrying(why) = e { Some(why) } else { None })
+        .collect();
+    // Several attempts, one line: the reason did not change.
+    assert_eq!(
+        said,
+        ["attach answered 503 mesh.node.unavailable: the machine's device cleanup is pending"],
+        "{:?}",
+        world.seen
+    );
+}
+
+#[tokio::test]
 async fn a_team_without_a_provider_mesh_waits_long_and_joining_another_team_ends_the_wait() {
     let mut world = world_attaching(true, true, Some((200, json!({"mesh_id": null})))).await;
     let event = world.until(|e| matches!(e, KeeperEvent::Waiting(_))).await;

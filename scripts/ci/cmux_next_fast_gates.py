@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""cmux-next fast gates: six checks, in fail mode, on a pull request merged with its base.
+"""cmux-next fast gates: cheap checks, in fail mode, on a pull request merged with its base.
 
 .github/workflows/cmux-next-fast-gates.yml runs this for every pull request into feat-cmux-next
 and on dispatch (`pr=N`, against the current tip). It posts `cmux-next/fast-gates` with
@@ -41,6 +41,8 @@ The gates, each the same invocation as its push-time job:
                   that would stop a chat from opening (cmux#46563) and on a new decoder that refuses unknown fields
   entry logs      scripts/ci/entry_logs.py check --base BASE --head MERGE: a frozen append-only log
                   (ENTRY_LOGS) grows only as one new file per entry in its directory, so two PRs never conflict on it
+  huge files      scripts/ci/check_huge_files.py check --base BASE --head MERGE: no Swift or Rust source file in NOW's
+                  code_shape scope newly over 100,000 bytes, and none already over it grows (`list` is the burn-down)
   settings catalog keys  scripts/ci/settings_catalog_keys.py --root MERGE --base-rev BASE: a settings schema text key
                   missing from the catalog fails only when BASE does not already miss it (a base red is a note)
 
@@ -485,6 +487,8 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
         ("protocol skew", [py, "scripts/ci/protocol_skew_check.py", "--base", base, "--head", merge]),
         # Every pull request, git objects only: a frozen append-only log grows only as files in its entry directory.
         ("entry logs", [py, "-I", "scripts/ci/entry_logs.py", "check", "--base", base, "--head", merge]),
+        # Every pull request, git objects only: no Swift or Rust source file newly over 100,000 bytes, none over it grows.
+        ("huge files", [py, "-I", "scripts/ci/check_huge_files.py", "check", "--base", base, "--head", merge]),
         # Every pull request, git objects only: a change adds no outbound site outside the egress gate, compared
         # with its own base, so a red base cannot excuse it (the guard group's egress step is skipped on most pull
         # requests and excuses a step the base fails too; ten sites reached feat-cmux-next that way, 11-24..26).

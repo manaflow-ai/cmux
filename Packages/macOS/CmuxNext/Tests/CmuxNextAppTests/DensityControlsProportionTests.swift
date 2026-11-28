@@ -60,7 +60,13 @@ struct DensityControlsProportionTests {
             let close = try #require(cell.closeButtonRect)
             let plate = try #require(cell.closeBackgroundLayer)
             let glyph = try #require(cell.closeGlyphLayer)
-            #expect(plate.cornerRadius == Metrics.buttonCornerRadius(proportionalTo: close.height))
+            // Concentric with the tab (Lawrence msg 48706): the pill's corner less the plate's inset.
+            let pill = cell.backgroundLayer.frame
+            let inset = min(plate.frame.minY - pill.minY, pill.maxY - plate.frame.maxY)
+            #expect(abs(plate.cornerRadius - max(0, min(cell.backgroundLayer.cornerRadius, pill.height / 2) - inset)) <= 0.01,
+                    "\(preset): plate corner \(plate.cornerRadius), \(inset) pt inside a \(cell.backgroundLayer.cornerRadius) pt tab")
+            #expect(cell.layer.bounds.contains(plate.frame) && !plate.frame.intersects(cell.iconLayer.frame))
+            #expect(plate.frame.contains(glyph.frame))
             #expect(close.contains(glyph.frame))
             #expect(!close.intersects(cell.iconLayer.frame))
             // The title layer spans the tab and fades under the x by design; its text must end before the x.

@@ -719,8 +719,9 @@ struct Create {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct List {
-    #[serde(default)]
-    surface: Option<u64>,
+    /// The chat's terminal. `surface` is the older spelling the macOS client still sends.
+    #[serde(default, alias = "surface")]
+    terminal: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -1864,8 +1865,8 @@ pub(super) fn handle(
             parse(params).and_then(|p: Create| open::create(mux, shares, directory, p))
         }
         "agent-session-share-list" => parse(params).and_then(|p: List| {
-            let session = match p.surface {
-                Some(surface) => Some(tab_session(mux, surface).ok_or("share.not_a_chat")?),
+            let session = match p.terminal {
+                Some(terminal) => Some(tab_session(mux, terminal).ok_or("share.not_a_chat")?),
                 None => None,
             };
             shares.with(directory, |all, now| {

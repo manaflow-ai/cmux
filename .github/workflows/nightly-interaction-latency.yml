@@ -26,7 +26,10 @@ concurrency:
 jobs:
   benches:
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    # The fleet controller is tailnet-only and the cmux-linux pool's VMs are not on the tailnet ("runner NAME has no route
+    # to the controller"), so a job that fetches the fleet client runs on the gateway runner.
+    # tests/test_ci_gateway_jobs_on_linux.py fails a fleet-client job that names only cmux-linux.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     # The script's 90-minute bench budget plus setup, plus the state read's rate-limit waits.
     timeout-minutes: 160
     permissions:
@@ -96,7 +99,7 @@ jobs:
             --key "interaction-latency-$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
             --artifact artifacts/interaction-latency/results.json --arg "interactions=$keys" \
             2>&1 | tee "$log" || status=1
-          step="$(grep -o -E '\b[0-9a-f]{24}\b' "$log" | head -1)"
+          step="$(grep -o -E '\b[0-9a-f]{24}\b' "$log" | head -1 || true)"
           if [[ -n "$step" ]] && { "$client" artifact "$step" "$RUNNER_TEMP/results/results.json" || "$client" artifact --failed "$step" "$RUNNER_TEMP/results/results.json"; } \
             && python3 -I -c 'import json,sys; json.load(open(sys.argv[1]))' "$RUNNER_TEMP/results/results.json"; then
             echo "ok=true" >> "$GITHUB_OUTPUT"

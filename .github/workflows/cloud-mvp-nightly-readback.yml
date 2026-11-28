@@ -43,7 +43,10 @@ jobs:
     # 2026-11-27; #60707 met the same on the Swift fast tier). The job only submits the step and waits, on the
     # same label as cmux-next-batch.yml's fleet gateway. Back to cmux-linux once that pool reaches the controller.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
-    timeout-minutes: 75
+    # The display queue waits hours when busy (run 46102219213: source bundling 24 min, then 87 measurements
+    # ahead; p90 of the exclusive class 517-764 min over 24 h). A 25-min queue wait cancelled every readback
+    # before its turn, so the job waits up to 3 h for a display Mac, plus the step's 40 min.
+    timeout-minutes: 230
     steps:
       # Only the client action is checked out here. The display worker checks out this commit and runs the
       # script from it.
@@ -91,11 +94,11 @@ jobs:
             --script scripts/measure/cloud-mvp-nightly-readback.sh --ref "$REF_SHA" --repo manaflow-ai/cmux \
             --key "cloud-mvp-readback-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "${args[@]}" \
             --artifact .build/cloud-mvp-nightly-readback/report.tgz \
-            --timeout 2400 --queue-timeout 1500 2>&1 | tee "$out/step.log" || status=${PIPESTATUS[0]}
-          step="$(grep -o -E 'step [0-9a-f]{24}' "$out/step.log" | head -1 | cut -d' ' -f2)"
+            --timeout 2400 --queue-timeout 10800 2>&1 | tee "$out/step.log" || status=${PIPESTATUS[0]}
+          step="$(grep -o -E 'step [0-9a-f]{24}' "$out/step.log" | head -1 | cut -d' ' -f2 || true)"
           if [[ "$status" == 75 && -n "$step" ]]; then
             # Not started within the queue wait: the step stays queued after the client stops waiting.
-            "$client" cancel "$step" --reason "cloud MVP readback: no display Mac within 1500 s" || true
+            "$client" cancel "$step" --reason "cloud MVP readback: no display Mac within 3 h" || true
           fi
           if [[ -n "$step" ]]; then
             "$client" artifact "$step" "$out/report.tgz" || "$client" artifact --failed "$step" "$out/report.tgz" || true
@@ -111,6 +114,7 @@ jobs:
           case "$status" in
             0) echo "Cloud MVP readback passed (build ${BUILD:-newest})" >> "$GITHUB_STEP_SUMMARY" ;;
             1) echo "::error::Cloud MVP readback: a product step failed (exit 1)" ;;
+            75) echo "::error::Cloud MVP readback: still queued for a display Mac after 3 h (exit 75); nothing ran, so this is no product result" ;;
             *) echo "::error::Cloud MVP readback: the rig could not run it (exit $status)" ;;
           esac
           exit "$status"

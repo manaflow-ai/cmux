@@ -855,6 +855,8 @@ jobs:
           PROOF_AGENT: ${{ inputs.agent }}
           # The agent test account's Claude login, cached for the run's own app only (--cache-claude-login).
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # A Codex chat's login, imported as the chatgpt-plan connection Cloud serves codex from (codex_chatgpt_import.py).
+          CODEX_AUTH_JSON: ${{ inputs.agent == 'codex' && secrets.CODEX_AUTH_JSON || '' }}
           PROOF_FROM_FOLDER: ${{ inputs.empty_folder && '--empty-folder' || inputs.from_folder && '--from-folder' || '' }}
         run: |
           set -euo pipefail
@@ -1166,6 +1168,8 @@ jobs:
           PROOF_AGENT: ${{ inputs.agent }}
           # The agent test account's Claude login, cached for the run's own app only (--cache-claude-login).
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # A Codex chat's login, imported as the chatgpt-plan connection Cloud serves codex from (codex_chatgpt_import.py).
+          CODEX_AUTH_JSON: ${{ inputs.agent == 'codex' && secrets.CODEX_AUTH_JSON || '' }}
           PROOF_FROM_FOLDER: ${{ inputs.empty_folder && '--empty-folder' || inputs.from_folder && '--from-folder' || '' }}
         run: |
           set -euo pipefail

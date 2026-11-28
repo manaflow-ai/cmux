@@ -121,3 +121,87 @@ export function autoSizeRowView(row: AutoSizeRow, t: Translate, lang: string): A
       : undefined,
   };
 }
+
+const KINDS: readonly AutoSizeKind[] = ["grow", "shrink", "hold"];
+const CAUSES: readonly AutoSizeCause[] = ["memory", "cpu", "disk", "oom", "heavy_task", "idle", "unknown"];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isText(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+function shapeOf(value: unknown): AutoSizeShape | undefined {
+  if (!isRecord(value)) return undefined;
+  const { vcpu, mem_gib, disk_gib, hourly_usd } = value;
+  if (!isNumber(vcpu) || !isNumber(mem_gib) || !isNumber(disk_gib) || !isNumber(hourly_usd)) return undefined;
+  return { vcpu, mem_gib, disk_gib, hourly_usd };
+}
+
+function holdOf(value: unknown): AutoSizeHold | undefined {
+  if (!isRecord(value)) return undefined;
+  const code = value.code;
+  if (code === "at_plan_limit" || code === "at_max_size" || code === "user_cap") return { code };
+  if (code === "other" && isText(value.name)) return { code, name: value.name };
+  return undefined;
+}
+
+function offerOf(value: unknown): AutoSizeOffer | undefined {
+  if (!isRecord(value)) return undefined;
+  const { plan, label, vcpu, mem_gib } = value;
+  if (value.do !== "upgrade" || !isText(plan) || plan === "" || !isText(label)) return undefined;
+  if (!isNumber(vcpu) || !isNumber(mem_gib)) return undefined;
+  return { do: "upgrade", plan, label, vcpu, mem_gib };
+}
+
+function rowOf(value: unknown): AutoSizeRow | undefined {
+  if (!isRecord(value)) return undefined;
+  const { key, machine, record, kind, cause, cause_text, hourly_usd, rate_change_usd, line, at_ms, last_at_ms, count } =
+    value;
+  if (!isText(key) || key === "" || !isText(machine) || !isText(record) || !isText(cause_text) || !isText(line)) {
+    return undefined;
+  }
+  if (!KINDS.includes(kind as AutoSizeKind) || !CAUSES.includes(cause as AutoSizeCause)) return undefined;
+  if (!isNumber(hourly_usd) || !isNumber(rate_change_usd) || !isNumber(at_ms) || !isNumber(last_at_ms)) {
+    return undefined;
+  }
+  if (!isNumber(count) || count < 1) return undefined;
+  const from = shapeOf(value.from);
+  if (!from) return undefined;
+  const to = value.to === undefined || value.to === null ? undefined : shapeOf(value.to);
+  if (value.to !== undefined && value.to !== null && !to) return undefined;
+  const hold = value.hold === undefined || value.hold === null ? undefined : holdOf(value.hold);
+  const offer = value.offer === undefined || value.offer === null ? undefined : offerOf(value.offer);
+  return {
+    key,
+    machine,
+    record,
+    kind: kind as AutoSizeKind,
+    ...(hold ? { hold } : {}),
+    cause: cause as AutoSizeCause,
+    cause_text,
+    from,
+    ...(to ? { to } : {}),
+    hourly_usd,
+    rate_change_usd,
+    line,
+    ...(offer ? { offer } : {}),
+    at_ms,
+    last_at_ms,
+    count,
+  };
+}
+
+/// `place.autosize` (Rust `autosize_row::Row` JSON, oldest first): every well-formed row, a malformed one dropped;
+/// undefined when none is left.
+export function autoSizeRowsOf(value: unknown): readonly AutoSizeRow[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const rows = value.map(rowOf).filter((row): row is AutoSizeRow => row !== undefined);
+  return rows.length > 0 ? rows : undefined;
+}

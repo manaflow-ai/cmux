@@ -212,6 +212,8 @@ pub async fn serve_with_upload_timeout(
         "tabs" => {
             let tabs = &*crate::tab_snapshots::TABS;
             let socket = Some(config.daemon_socket());
+            // Agent tabs' last turns come from this acpmux (`tab_agent_screen`).
+            tabs.set_acpmux(Some(config.acpmux.clone()));
             crate::tab_snapshots::serve(tabs, socket, peer.session_exposure.clone(), &sender, receiver).await
         }
         _ => Err(Refusal::new("unknown_service", format!("no service {service}"))),
@@ -304,7 +306,7 @@ const UPLOAD_PART_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(
 /// `bundle-v1`: the `bundle` service (attachment `put` and file `get` as sealed
 /// content-defined chunks, `bundle.rs`).
 /// The names are declared once in `cmux_mobile_link::names`.
-pub const CAPABILITIES: [&str; 13] = [
+pub const CAPABILITIES: [&str; 14] = [
     names::REMOVAL,
     names::FILE_PREVIEW,
     names::LOCALHOST_FORWARD,
@@ -318,6 +320,7 @@ pub const CAPABILITIES: [&str; 13] = [
     names::PHONE_PAGE,
     names::MAILBOX_SEND,
     names::BUNDLE,
+    names::ZSTD_STREAM,
 ];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = names::BROWSER_STREAM;
@@ -958,8 +961,13 @@ async fn splice(
                 }
                 None => return,
             };
+            // Only the new bytes are scanned: the bytes held from earlier chunks have no
+            // newline, so a long line in many chunks costs one pass, not one per chunk.
+            let mut from = pending.len();
             pending.extend_from_slice(&bytes);
-            while let Some(newline) = pending.iter().position(|&b| b == b'\n') {
+            while let Some(at) = pending[from..].iter().position(|&b| b == b'\n') {
+                let newline = from + at;
+                from = 0;
                 let mut line: Vec<u8> = pending.drain(..=newline).collect();
                 line.pop();
                 if line.last() == Some(&b'\r') {
@@ -1613,6 +1621,8 @@ async fn acpmux(
     let (mut ws_sink, mut ws_source) = socket.split();
     // The phone reads compressed envelopes (`link_deflate.rs`, CMUX-563).
     let deflate = crate::link_deflate::asked(args);
+    // A phone that lists `zstd-stream-v1` gets every message through one stream (`link_zstd.rs`).
+    let zstd = crate::link_zstd::asked(args).then(crate::link_zstd::LinkZstd::new);
     let mut message = MessageAssembler::default();
     let relay = AcpmuxRelay::new(&config.acpmux, peer.session_exposure.clone(), as_phone);
     let relay = &relay;
@@ -1660,7 +1670,15 @@ async fn acpmux(
                         Downstream::Skip => continue,
                         Downstream::Close => break,
                     };
-                    if sender.send(crate::link_deflate::frame(deflate, &filtered).await).await.is_err() {
+                    let frame = match &zstd {
+                        // A lost stream can't skip a message: the channel ends and the phone reopens it.
+                        Some(zstd) => match zstd.frame(filtered).await {
+                            Some(frame) => frame,
+                            None => break,
+                        },
+                        None => crate::link_deflate::frame(deflate, &filtered).await,
+                    };
+                    if sender.send(frame).await.is_err() {
                         break;
                     }
                 }
@@ -1757,7 +1775,11 @@ async fn current_mode(
 
 /// Resolve aliases over a fresh trusted side socket. A fresh request id and
 /// socket prevent a timed-out info reply from authorizing another target.
-async fn trusted_session_query(target: &AcpmuxTarget, method: &str, params: Value) -> Option<Value> {
+pub(crate) async fn trusted_session_query(
+    target: &AcpmuxTarget,
+    method: &str,
+    params: Value,
+) -> Option<Value> {
     let query = async {
         let mut socket = connect_acpmux(target).await.ok()?;
         let id = uuid::Uuid::new_v4().to_string();
@@ -3502,7 +3524,8 @@ mod tests {
                 "tab-snapshots-v1",
                 "phone-page-v1",
                 "mailbox-send-v1",
-                "bundle-v1"
+                "bundle-v1",
+                "zstd-stream-v1"
             ]
         );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
@@ -3525,6 +3548,7 @@ mod tests {
                 "phone-page-v1",
                 "mailbox-send-v1",
                 "bundle-v1",
+                "zstd-stream-v1",
                 BROWSER_STREAM,
                 BROWSER_VIDEO_TRACK
             ]

@@ -518,6 +518,8 @@ jobs:
           GH_READ_TOKEN: ${{ (steps.read-token-bot.outputs.token || steps.read-token.outputs.token) }}
           MODE: ${{ inputs.mode || 'batch' }}
           BRANCH: ${{ github.ref_name }}
+          # 0: a stuck red whose post-merge revert is open is bisected again anyway (post_merge_batch.py revert_hold_on).
+          POST_MERGE_REVERT_HOLD: ${{ vars.POST_MERGE_REVERT_HOLD }}
           SUITE: ${{ inputs.suite }}
           JOB: ${{ inputs.job }}
           ONLY: ${{ inputs.only }}
@@ -533,6 +535,8 @@ jobs:
           REUSE: ${{ needs.plan.outputs.reuse || inputs.reuse }}
           STATES: ${{ inputs.states }}
           GALLERY_REDS_DIR: ${{ runner.temp }}/gallery-reds
+          # 0: a new red's bisect does not probe its last green commit first (post_merge_batch.py good_anchor_on).
+          POST_MERGE_GOOD_ANCHOR: ${{ vars.POST_MERGE_GOOD_ANCHOR }}
           # 0: a culprit's confirm round renders again even when the same round already finished (earlier_confirm_round).
           POST_MERGE_CONFIRM_REUSE: ${{ vars.POST_MERGE_CONFIRM_REUSE }}
           # Daily probe cap per suite job (job_probes_per_day): over it a red is named only, no new bisect. 0: no cap.

@@ -24,6 +24,7 @@
             "rows" : [
               "window.titlebar",
               "window.titlebarButtons",
+              "window.settingsPresentation",
               "app.globalHotKey",
               "app.startAgentGlobalHotKey",
               "app.captureScreenshotGlobalHotKey",
@@ -4343,6 +4344,157 @@
       "title" : {
         "key" : "settings.window.titlebarButtons",
         "text" : "Titlebar Buttons"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "tab",
+        "page"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.window.settingsPresentation.tab",
+            "text" : "Tab"
+          },
+          "value" : "tab"
+        },
+        {
+          "title" : {
+            "key" : "settings.window.settingsPresentation.page",
+            "text" : "Full Window"
+          },
+          "value" : "page"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "tab",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.window.settingsPresentation.help",
+        "text" : "Tab opens Settings as a tab in the focused pane. Full Window opens it over the whole window, with its sections on the left."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "window.settingsPresentation",
+      "keywords" : [
+        "settings",
+        "preferences",
+        "full window",
+        "page",
+        "tab",
+        "open"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "window",
+        "settingsPresentation"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:window.settingsPresentation"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.window.settingsPresentation",
+        "text" : "Open Settings In"
       },
       "validation" : "portable"
     },

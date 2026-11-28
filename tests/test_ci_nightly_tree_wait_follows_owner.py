@@ -89,6 +89,20 @@ def test_the_wait_reads_the_publishers_jobs_and_bounds_a_stall() -> None:
         "the runner stall bound must end the wait well before its limit")
 
 
+def test_the_signer_bundle_step_bounds_an_unreadable_runs_list() -> None:
+    # The bundle step runs inside nightly-next-one on the one signing Mac; with a fallback tree in
+    # hand an unreadable runs list must not hold that Mac for the whole bound (2026-11-28, NIGHTLY
+    # 46105117438 held it 1568 s on five "could not all be read" checks).
+    bundle = (ROOT / "scripts/ci/nightly-steps/app-bundle-cmux-tui-client.sh").read_text()
+    fallback = bundle.split('tree_used=fallback', 1)[0].rsplit("CMUX_TUI_TREE_CLIENT_FALLBACK", 1)[1]
+    assert 'CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS="$unreadable_checks"' in fallback, (
+        "the fallback-capable wait must set an unreadable-checks limit")
+    limit = re.search(r'CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS:-(\d+)', bundle)
+    assert limit and 0 < int(limit.group(1)) <= 2, "the signer step's unreadable-checks limit must be 1 or 2"
+    wait = AWAIT.read_text()
+    assert "unreadable_checks >= unreadable_limit" in wait, "the wait must count unreadable checks in a row"
+
+
 def test_the_wait_cases_pass_against_fake_runs() -> None:
     missing = [tool for tool in ("bash", "git", "sha256sum") if shutil.which(tool) is None]
     if missing:
@@ -101,7 +115,9 @@ def test_the_wait_cases_pass_against_fake_runs() -> None:
                  "the fallback rebuilds it) keeps the wait", "holds no tree back keeps the wait",
                  "failed owner is passed over", "a preflight with no runner past the stall bound fails fast",
                  "a terminal preflight failure fails fast", "a preflight failure with active retry grace",
-                 "a preflight queued under the stall bound keeps the wait"):
+                 "a preflight queued under the stall bound keeps the wait",
+                 "unreadable runs keep waiting when no limit is set", "unreadable runs end the wait at the set limit",
+                 "a malformed unreadable-checks limit is a usage error"):
         assert any(line.startswith("ok   ") and case in line for line in result.stdout.splitlines()), (case, result.stdout)
 
 
