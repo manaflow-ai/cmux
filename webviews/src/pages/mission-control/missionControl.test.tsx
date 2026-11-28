@@ -27,19 +27,23 @@ describe("mission control grid", () => {
     const layout = gridLayout(1000, 1200);
     const range = visibleRange(1000, layout, { top: 4000, height: 800 });
     expect(range.start % layout.columns).toBe(0);
-    expect(range.start * 0 + Math.floor(range.start / layout.columns) * layout.stride).toBeLessThanOrEqual(3200);
+    expect((range.start / layout.columns) * layout.stride).toBeLessThanOrEqual(3200);
     expect(Math.ceil(range.end / layout.columns) * layout.stride).toBeGreaterThanOrEqual(5600);
     expect(visibleRange(1000, layout, { top: 0, height: 0 })).toEqual({ start: 0, end: 0 });
   });
 
   test("200 sessions mount as many tiles as the viewport holds, not 200", () => {
-    const twenty = mountedTiles(20);
+    // The band is the viewport plus one viewport each side: a bound from the viewport alone.
+    const layout = gridLayout(1, VIEWPORT.width);
+    const band = (Math.ceil((3 * VIEWPORT.height) / layout.stride) + 1) * layout.columns;
+    expect(mountedTiles(20)).toBe(20);
     const twoHundred = mountedTiles(200);
-    expect(twenty).toBe(20);
-    expect(twoHundred).toBeLessThan(40);
-    // Past what fits, more sessions mount nothing more.
+    expect(twoHundred).toBeLessThanOrEqual(band);
+    expect(twoHundred).toBeLessThan(200);
+    // Past what fits, more sessions mount nothing more, at the top and mid-scroll.
     expect(mountedTiles(2000)).toBe(twoHundred);
-    expect(mountedTiles(2000, 20_000)).toBeLessThanOrEqual(twoHundred + gridLayout(1, 1200).columns * 2);
+    expect(mountedTiles(200, 4000)).toBe(mountedTiles(2000, 4000));
+    expect(mountedTiles(2000, 20_000)).toBeLessThanOrEqual(band);
   });
 
   test("an unmeasured scroller mounts nothing", () => {
