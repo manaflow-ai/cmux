@@ -67,7 +67,7 @@
 //!   a transcript; its store root joins the index (recorded roots file).
 //! - `_acpmux/chat_settings {enabled, discovery, roots, managedRoots,
 //!   permissionMode?, permissionModeManaged?, allowFullAccess?,
-//!   allowFullAccessManaged?, promptSuggestions?, promptSuggestionsManaged?}`:
+//!   allowFullAccessManaged?, promptSuggestions?, promptSuggestionsManaged?, lockdown?}`:
 //!   the app's effective cmux.json `agents.chats.*` values (`chats/settings.rs`)
 //!   and its effective `agents.defaultPermissionMode`, `sessions.allowFullAccess`
 //!   and `agents.promptSuggestions`, each with whether MDM or the team policy
@@ -596,6 +596,10 @@ pub(super) async fn route(
                 .then(|| params.get("allowFullAccess") == Some(&Value::Bool(true)));
             hub.apply_full_access_push(forced).await;
             hub.apply_prompt_suggestions_push(prompt_suggestions_forced(&params)?).await;
+            hub.apply_lockdown_push(
+                crate::lockdown::from_params(&params).map_err(RpcError::invalid_params)?,
+            )
+            .await;
             hub.set_session_recap(settings.session_recap);
             hub.set_terminal_chat_writable(settings.terminal_chat_writable).await;
             let hub = hub.clone();

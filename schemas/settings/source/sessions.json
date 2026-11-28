@@ -167,6 +167,85 @@
           ]
         },
         {
+          "key": "sessions.lockdown",
+          "name": "lockdown",
+          "note": "Lockdown mode (RFD 0211, The app on the Mac 3): on, the app turns Cloud and computer use off as DisabledFeatures [\"cloud\", \"computerUse\"] does (SettingsController load), and acpmux refuses an agent start or a model switch outside sessions.lockdownHarnesses and sessions.lockdownModels (cmux-tui/crates/acpmux/src/lockdown.rs, pushed in _acpmux/chat_settings). An MDM profile (managed domain com.manaflow.cmux) or the team policy can force it; a forced key is locked in Settings. Off by default.",
+          "title": {
+            "key": "settings.sessions.lockdown",
+            "text": "Lockdown Mode"
+          },
+          "help": {
+            "key": "settings.sessions.lockdown.help",
+            "text": "Turns off Cloud and computer use, and runs only the agents and models listed below."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "lockdown",
+            "security",
+            "sandbox",
+            "enterprise",
+            "mdm",
+            "policy",
+            "cloud",
+            "computer use",
+            "safety"
+          ]
+        },
+        {
+          "key": "sessions.lockdownHarnesses",
+          "name": "lockdownHarnesses",
+          "note": "Under sessions.lockdown, the agents (harness ids, comma separated) acpmux starts; empty allows every agent (cmux-tui/crates/acpmux/src/lockdown.rs). No effect with lockdown off.",
+          "title": {
+            "key": "settings.sessions.lockdownHarnesses",
+            "text": "Lockdown Agents"
+          },
+          "help": {
+            "key": "settings.sessions.lockdownHarnesses.help",
+            "text": "Agent ids such as claude, codex, comma separated. Empty allows every agent."
+          },
+          "placeholder": {
+            "key": null,
+            "text": "claude, codex"
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "lockdown",
+            "allowlist",
+            "agents",
+            "harness",
+            "claude",
+            "codex"
+          ]
+        },
+        {
+          "key": "sessions.lockdownModels",
+          "name": "lockdownModels",
+          "note": "Under sessions.lockdown, the models (ids or id prefixes, comma separated) acpmux starts or switches to; an entry allows every id it starts; empty allows every model (cmux-tui/crates/acpmux/src/lockdown.rs). No effect with lockdown off.",
+          "title": {
+            "key": "settings.sessions.lockdownModels",
+            "text": "Lockdown Models"
+          },
+          "help": {
+            "key": "settings.sessions.lockdownModels.help",
+            "text": "Model ids or prefixes such as claude-opus, comma separated. Empty allows every model."
+          },
+          "placeholder": {
+            "key": null,
+            "text": "claude-opus, claude-sonnet"
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "lockdown",
+            "allowlist",
+            "models",
+            "claude",
+            "codex"
+          ]
+        },
+        {
           "key": "sessions.promptSuggestions",
           "name": "promptSuggestions",
           "note": "Agents get the cmux-sessions MCP tools (ACPMUX_OFFER_TOOLS=1, read at each acpmux daemon start) and the pages show their suggested tasks (AgentPaneSuggestedTasks). On by default, as the Debug toggle agent.suggestedTasks was (Leo 2026-10-19); off here turns them off. That toggle is now off by default and only forces them on.",

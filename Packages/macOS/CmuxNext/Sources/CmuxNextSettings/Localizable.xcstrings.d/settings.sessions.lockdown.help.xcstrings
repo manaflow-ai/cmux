@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sessions.lockdown.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turns off Cloud and computer use, and runs only the agents and models listed below."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يوقف Cloud واستخدام الكمبيوتر، ولا يشغّل إلا الوكلاء والنماذج المدرجة أدناه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Isključuje Cloud i korištenje računara i pokreće samo agente i modele navedene ispod."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slår Cloud og computerbrug fra og kører kun de agenter og modeller, der er angivet nedenfor."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schaltet Cloud und Computer-Nutzung aus und führt nur die unten aufgeführten Agenten und Modelle aus."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desactiva Cloud y el uso del ordenador, y solo ejecuta los agentes y modelos indicados abajo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Désactive Cloud et l’utilisation de l’ordinateur, et n’exécute que les agents et modèles listés ci-dessous."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disattiva Cloud e l’uso del computer ed esegue solo gli agenti e i modelli elencati sotto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud とコンピューター操作をオフにし、下に挙げたエージェントとモデルだけを実行します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បិទ Cloud និងការប្រើកុំព្យូទ័រ ហើយដំណើរការតែភ្នាក់ងារ និងម៉ូដែលដែលបានរាយខាងក្រោម។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud와 컴퓨터 사용을 끄고, 아래에 나열된 에이전트와 모델만 실행합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slår av Cloud og datamaskinbruk, og kjører bare agentene og modellene som står nedenfor."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wyłącza Cloud i korzystanie z komputera oraz uruchamia tylko agentów i modele wymienione poniżej."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desativa o Cloud e o uso do computador e executa apenas os agentes e modelos listados abaixo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отключает Cloud и управление компьютером и запускает только агентов и модели из списка ниже."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ปิด Cloud และการใช้คอมพิวเตอร์ และเรียกใช้เฉพาะเอเจนต์และโมเดลที่ระบุไว้ด้านล่าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud’u ve bilgisayar kullanımını kapatır, yalnızca aşağıda listelenen ajanları ve modelleri çalıştırır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вимикає Cloud і керування комп’ютером та запускає лише агентів і моделі зі списку нижче."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tắt Cloud và sử dụng máy tính, chỉ chạy các tác tử và mô hình được liệt kê bên dưới."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭 Cloud 和电脑操控，只运行下方列出的智能体和模型。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "關閉 Cloud 和電腦操控，只執行下方列出的代理程式和模型。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -319,6 +319,7 @@ impl Hub {
         // start's model) as the catalog names it: `fable-5.2` runs as `claude-fable-5-2`.
         let model_id = &self.rewrite_session_model(session, model_id, "set_model").await?;
         let model_id = model_id.as_str();
+        crate::lockdown::check_model(model_id)?;
         // A harness that takes its model on the command line or in env
         // gets it at the next spawn: record it and drop the current process.
         // Same test as `new_session`: the profile, its defaults' env, or the

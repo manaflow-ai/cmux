@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sessions.lockdownHarnesses.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent ids such as claude, codex, comma separated. Empty allows every agent."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "معرّفات الوكلاء مثل claude وcodex، مفصولة بفواصل. الحقل الفارغ يسمح بكل الوكلاء."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID-ovi agenata kao claude, codex, odvojeni zarezom. Prazno dozvoljava sve agente."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent-id’er som claude, codex, adskilt med komma. Tom tillader alle agenter."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agenten-IDs wie claude, codex, durch Kommas getrennt. Leer erlaubt alle Agenten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Identificadores de agentes como claude, codex, separados por comas. Vacío permite todos los agentes."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Identifiants d’agents comme claude, codex, séparés par des virgules. Vide autorise tous les agents."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID degli agenti come claude, codex, separati da virgole. Vuoto consente tutti gli agenti."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "claude、codex などのエージェント ID をカンマ区切りで。空欄ならすべてのエージェントを許可します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "លេខសម្គាល់ភ្នាក់ងារដូចជា claude, codex បំបែកដោយក្បៀស។ ទទេ អនុញ្ញាតភ្នាក់ងារទាំងអស់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "claude, codex 같은 에이전트 ID를 쉼표로 구분합니다. 비워 두면 모든 에이전트를 허용합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent-ID-er som claude, codex, skilt med komma. Tomt tillater alle agenter."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Identyfikatory agentów, np. claude, codex, rozdzielone przecinkami. Puste pole dopuszcza wszystkich agentów."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IDs de agentes como claude, codex, separados por vírgula. Vazio permite todos os agentes."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Идентификаторы агентов, например claude, codex, через запятую. Пусто — разрешены все агенты."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "รหัสเอเจนต์ เช่น claude, codex คั่นด้วยจุลภาค เว้นว่างไว้เพื่ออนุญาตทุกเอเจนต์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "claude, codex gibi ajan kimlikleri, virgülle ayrılmış. Boş bırakılırsa tüm ajanlara izin verilir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ідентифікатори агентів, як-от claude, codex, через кому. Порожньо — дозволено всіх агентів."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mã tác tử như claude, codex, cách nhau bằng dấu phẩy. Để trống cho phép mọi tác tử."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "智能体 ID，如 claude、codex，以逗号分隔。留空则允许所有智能体。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "代理程式 ID，如 claude、codex，以逗號分隔。留空則允許所有代理程式。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

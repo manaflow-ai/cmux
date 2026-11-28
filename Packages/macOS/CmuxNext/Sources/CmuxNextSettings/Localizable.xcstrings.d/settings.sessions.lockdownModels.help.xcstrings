@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sessions.lockdownModels.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Model ids or prefixes such as claude-opus, comma separated. Empty allows every model."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "معرّفات النماذج أو بداياتها مثل claude-opus، مفصولة بفواصل. الحقل الفارغ يسمح بكل النماذج."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID-ovi ili prefiksi modela kao claude-opus, odvojeni zarezom. Prazno dozvoljava sve modele."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Model-id’er eller præfikser som claude-opus, adskilt med komma. Tom tillader alle modeller."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modell-IDs oder Präfixe wie claude-opus, durch Kommas getrennt. Leer erlaubt alle Modelle."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Identificadores o prefijos de modelos como claude-opus, separados por comas. Vacío permite todos los modelos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Identifiants ou préfixes de modèles comme claude-opus, séparés par des virgules. Vide autorise tous les modèles."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID o prefissi dei modelli come claude-opus, separati da virgole. Vuoto consente tutti i modelli."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "claude-opus などのモデル ID または接頭辞をカンマ区切りで。空欄ならすべてのモデルを許可します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "លេខសម្គាល់ ឬបុព្វបទម៉ូដែលដូចជា claude-opus បំបែកដោយក្បៀស។ ទទេ អនុញ្ញាតម៉ូដែលទាំងអស់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "claude-opus 같은 모델 ID나 접두어를 쉼표로 구분합니다. 비워 두면 모든 모델을 허용합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modell-ID-er eller prefikser som claude-opus, skilt med komma. Tomt tillater alle modeller."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Identyfikatory lub prefiksy modeli, np. claude-opus, rozdzielone przecinkami. Puste pole dopuszcza wszystkie modele."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IDs ou prefixos de modelos como claude-opus, separados por vírgula. Vazio permite todos os modelos."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Идентификаторы или префиксы моделей, например claude-opus, через запятую. Пусто — разрешены все модели."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "รหัสหรือคำนำหน้าโมเดล เช่น claude-opus คั่นด้วยจุลภาค เว้นว่างไว้เพื่ออนุญาตทุกโมเดล"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "claude-opus gibi model kimlikleri veya önekleri, virgülle ayrılmış. Boş bırakılırsa tüm modellere izin verilir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ідентифікатори або префікси моделей, як-от claude-opus, через кому. Порожньо — дозволено всі моделі."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mã hoặc tiền tố mô hình như claude-opus, cách nhau bằng dấu phẩy. Để trống cho phép mọi mô hình."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型 ID 或前缀，如 claude-opus，以逗号分隔。留空则允许所有模型。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型 ID 或前綴，如 claude-opus，以逗號分隔。留空則允許所有模型。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

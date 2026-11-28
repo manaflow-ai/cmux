@@ -315,6 +315,8 @@ impl Hub {
         defaults_env: &std::collections::BTreeMap<String, String>,
         credential: Option<&crate::agent_credentials::AgentCredential>,
     ) -> Result<(HarnessProfile, Option<String>, Option<std::path::PathBuf>), RpcError> {
+        // Lockdown mode's allowlists hold at every start, the session pool's included.
+        crate::lockdown::check_start(&meta.harness, meta.model_request.as_deref())?;
         let mut p = profile.clone();
         let mut digest = None;
         for (k, v) in defaults_env {
