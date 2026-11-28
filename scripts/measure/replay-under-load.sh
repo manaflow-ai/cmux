@@ -36,10 +36,13 @@ trace=""
 bench_args=()
 while [ $# -gt 0 ]; do
   case "$1" in
-    --out) out="$2"; shift 2 ;;
+    # Paths are resolved here, from the caller's directory: the run cds into webviews/ below, where a relative
+    # --out landed in webviews/ instead (run 46146790475 wrote no artifacts/vfp95/run.json).
+    --out) out="$(realpath -m "$2")"; shift 2 ;;
     --cores) cores="$2"; shift 2 ;;
     --load-qos) load_qos="$2"; shift 2 ;;
-    --seconds|--rate|--log|--warm|--painter|--history-rows) bench_args+=("$1" "$2"); shift 2 ;;
+    --log) bench_args+=("$1" "$(realpath -m "$2")"); shift 2 ;;
+    --seconds|--rate|--warm|--painter|--history-rows) bench_args+=("$1" "$2"); shift 2 ;;
     --trace) trace="$(realpath -m "$2")"; bench_args+=("$1" "$trace"); shift 2 ;;
     --profile) bench_args+=("$1"); profile=1; shift ;;
     *) echo "usage: replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile] [--trace FILE] [--painter ARM] [--history-rows N] [--load-qos CLASS]" >&2; exit 2 ;;
