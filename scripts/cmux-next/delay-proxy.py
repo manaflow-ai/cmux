@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A local HTTPS (CONNECT) proxy that delays every byte by a fixed time each way.
 
-The dependency bench's slow link (machine-join-e2e.yml, bench=deps-slow) when the kernel has no
+The dependency bench's slow link (machine-vault-e2e.yml suite=machine-join, bench=deps-slow) when the kernel has no
 netem: each chunk read from either side is written to the other DELAY_MS/2 later, in order, so a
 round trip costs DELAY_MS more and throughput is not capped.
 
