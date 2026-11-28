@@ -10,12 +10,15 @@ import CmuxNextBrowserCore
         try DriverParams(method: "page.goto", json: .object(fields))
     }
 
-    private func message(_ body: () throws(DriverError) -> Void) -> String? {
-        do throws(DriverError) {
+    /// The closures here are inferred as `throws(any Error)`, so take that and name a non-driver error.
+    private func message(_ body: () throws -> Void) -> String? {
+        do {
             try body()
             return nil
-        } catch {
+        } catch let error as DriverError {
             return error.message
+        } catch {
+            return "not a DriverError: \(error)"
         }
     }
 
