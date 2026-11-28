@@ -9,9 +9,10 @@
 // The card (FactsCard.tsx, with the card glass and Base UI's positioner) is its own chunk: a trigger
 // draws without it, and the first trigger fetches it once the page is idle, so a hover finds it
 // loaded. A card asked for before then opens when the chunk arrives.
-import { useEffect, useId, useState, type FocusEvent, type PointerEvent, type ReactNode } from "react";
+import { useId, useState, type FocusEvent, type PointerEvent, type ReactNode, useEffect } from "react";
 import { lazyChunk } from "../../../lazyChunk";
 import { useHoverCard } from "./useHoverCard";
+import { useDescription } from "./useDescription";
 import "./factsCard.css";
 
 type FactsCardModule = typeof import("./FactsCard");
@@ -133,27 +134,6 @@ export function WithFacts({
       {card && <card.FactsCard anchor={hover.open ? anchor : null} side={side} lines={lines} card={hover.card} />}
     </>
   );
-}
-
-/**
- * A text for screen readers only (a control's help sentence): spread `props` on the control and put
- * `node` beside it. A hidden element is still read as a description (`aria-describedby`), on every
- * role, where `aria-description` is not allowed.
- */
-export function useDescription(text: string | false | null | undefined): {
-  props: { "aria-describedby"?: string };
-  node: ReactNode;
-} {
-  const id = useId();
-  if (!text) return { props: {}, node: null };
-  return {
-    props: { "aria-describedby": id },
-    node: (
-      <span id={id} hidden>
-        {text}
-      </span>
-    ),
-  };
 }
 
 /** ``useDescription`` as a component, for a control inside a `.map`. */

@@ -154,7 +154,10 @@ jobs:
           # 46137161090 and 46137162688 (2026-11-28) sat 8 h pinned to cmux-austin-mini-0 (offline), and
           # iphone-sim runs pinned to cmux18 (no simulator label, no Xcode.app) failed their build. Keep the
           # named worker only while it is online and carries the labels this run needs; else resolve
-          # one below, as an empty worker does.
+          # one below, as an empty worker does. A worker in an owner pool (fleet.json owner_only_hosts:
+          # cmux11 is the Slack bot's own Mac, pool slack-bot) carries the grant labels too, but the
+          # controller refuses any other owner's step there (HTTP 409, run 46196062879), so neither
+          # path takes a worker that names a pool.
           if [ -n "$WORKER" ]; then
             named="$WORKER"
             WORKER=$("$client" workers --online --label gui-session-v1 2>/dev/null | python3 -I -c '
@@ -165,7 +168,7 @@ jobs:
               sys.exit(0)
           iphone = ",iphone-sim," in "," + sys.argv[2] + ","
           w = rows.get(sys.argv[1])
-          if w and w.get("state", "online") == "online":
+          if w and w.get("state", "online") == "online" and not w.get("pool"):
               labels = w.get("labels", [])
               if ("measure" in labels and "screen-eval-granted" in labels
                       and (not iphone or "simulator" in labels)):
@@ -183,7 +186,7 @@ jobs:
           iphone = ",iphone-sim," in "," + sys.argv[1] + ","
           def ok(w):
               labels = w.get("labels", [])
-              return (w.get("state", "online") == "online"
+              return (w.get("state", "online") == "online" and not w.get("pool")
                       and "measure" in labels and "screen-eval-granted" in labels
                       and (not iphone or "simulator" in labels))
           names = sorted((n for n, w in rows.items() if ok(w)),

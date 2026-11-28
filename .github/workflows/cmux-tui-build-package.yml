@@ -280,7 +280,12 @@ jobs:
                   darwin_builder == "linux" and target["target"].endswith("-apple-darwin")
               )
               if target["darwin_on_linux"]:
-                  target["runner"] = os.environ["LINUX_RUNNER"]
+                  # The darwin cross leg compiles the same fat-LTO acpmux lib as the musl legs, so on the nightly
+                  # path it takes LINUX_FAT_RUNNER on attempt 1 too: on a cmux-linux slot (memory.max 14 GiB) the
+                  # kernel SIGKILLed that rustc every hour, so no cmux-tui tree published from 11-27 23:02Z on and
+                  # nightly-next could not promote (cmux-tui-artifacts run 46173475162, job 141071546232, groups 2
+                  # and 10). Leo: "YOU CANNOT HAVE A SINGLE LANE THAT IS UNRELIABLE FOR NIGHTLIES."
+                  target["runner"] = os.environ["LINUX_FAT_RUNNER"] or os.environ["LINUX_RUNNER"]
                   target["cross"] = True
 
           target_set = os.environ["TARGET_SET"]
