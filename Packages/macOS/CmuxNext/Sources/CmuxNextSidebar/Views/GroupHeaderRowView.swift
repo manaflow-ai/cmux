@@ -274,6 +274,13 @@ final class GroupHeaderRowView: SidebarRowView {
     var debugBadge: UnreadState { badge.state }
     /// Whether the header shows a loading or activity mark.
     var debugActivityVisible: Bool { activity.state.isVisible }
+    /// What the header draws that its labels don't say: the tint, the pin, the icon, the machine's look and the status
+    /// mark it keeps (`GroupHeaderTickTests`: a header configured again shows what a fresh one shows).
+    var debugDrawn: String {
+        "tint \(tint) | pinned \(pinned) | icon \(hasIcon) chip \(glyph.showsChip) | look \(hostLook)"
+            + " | machine \(machine?.name ?? "-") \(machineTone.map { "\($0)" } ?? "-")"
+            + " | status \(activityEnding ? StatusIndicatorState.idle : activity.state) | style \(backgroundStyle)"
+    }
     /// The header's status mark's frame, in the header's coordinates (`SidebarStatusGlyphParityTests`).
     var debugActivityFrame: CGRect { activitySlot.convert(activity.frame, to: self) }
     /// Whether the header's mark ignores the scale setting, as the rows' badges do (`SidebarStatusGlyphParityTests`).
