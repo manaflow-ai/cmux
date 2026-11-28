@@ -56,6 +56,9 @@ SIGNING = ("holds a release signing, notary or App Store key; an owned Mac takes
            "SIGNING_JOBS entry (exclusive claim, scripts/ci/signing-runner-claim.sh), which this job is not")
 # Jobs that stay on an ephemeral Mac, each with why. Keyed (workflow file name, job key).
 PAID_ONLY_JOBS: dict[tuple[str, str], str] = {
+    ("nightly-next-update-e2e.yml", "update"): (
+        "installs the published Nightly into /Applications and has Sparkle replace and relaunch it; a persistent Mac "
+        "keeps the last run's app, its update state and other jobs' installs, so only a fresh image proves an update"),
     ("auto-resume-nightly-notarization.yml", "wait-and-staple"): SIGNING,
     ("auto-resume-nightly-notarization.yml", "staple-outer"): SIGNING,
     ("auto-resume-nightly-notarization.yml", "staple-stapled"): SIGNING,
@@ -82,8 +85,6 @@ PAID_ONLY_JOBS: dict[tuple[str, str], str] = {
     ("build-ghosttykit.yml", "build-ghosttykit"):
         "builds the published GhosttyKit against the macOS 15 SDK image and holds the Ghostty release token",
     ("release.yml", "build-ghostty-cli-helper"): "builds the release Ghostty CLI helper against the macOS 15 SDK image",
-    ("nightly.yml", "build-nightly-ghostty-cli-helper"):
-        "builds the nightly Ghostty CLI helper against the macOS 15 SDK image",
     ("plain-paste-worker.yml", "paste-worker-macos-15"): "exists to exercise the paste worker on the macOS 15 image",
     ("seed-swiftpm-manifests.yml", "seed"): "seeds the Blacksmith macOS 15 pool's own SwiftPM manifest cache",
     ("nightly.yml", "refresh-compilation-cache"): "refreshes the Blacksmith macOS pool's own compilation cache",

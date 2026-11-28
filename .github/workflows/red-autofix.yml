@@ -75,7 +75,8 @@ jobs:
   triage:
     name: Triage the red
     if: ${{ (vars.RED_AUTOFIX || 'on') != '0' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'timed_out') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # The spare read token's mint holds an app key, so triage takes a one-job secret JIT VM (test_ci_secret_jobs_secret_jit.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -94,15 +95,34 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/main
-          fetch-depth: 0
+          # Only main's tip: the next step fetches the three base branches' whole history. fetch-depth 0 fetched
+          # every branch and tag in the repository (62 s of run 46126384098's checkout) for nothing triage reads.
+          fetch-depth: 1
           filter: blob:none
           persist-credentials: false
       - name: Fetch the base branches
-        run: git fetch --quiet --filter=blob:none https://github.com/${{ github.repository }}.git +refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next +refs/heads/nightly-next:refs/remotes/origin/nightly-next +refs/heads/main:refs/remotes/origin/main
+        run: git fetch --quiet --unshallow --filter=blob:none https://github.com/${{ github.repository }}.git +refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next +refs/heads/nightly-next:refs/remotes/origin/nightly-next +refs/heads/main:refs/remotes/origin/main
+      # A spare read budget: github.token's is shared by every workflow here, and run 46126384098 went red at its
+      # first read when it was spent. Triage runs only main's script and reads, so a read-only token is safe here.
+      # No mint (an app without these permissions) leaves triage on github.token alone, as before.
+      - name: Mint the spare read token
+        id: spare-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: read
+          permission-contents: read
+          permission-pull-requests: read
+          skip-token-revoke: true
       - name: Triage
         id: triage
         env:
           GH_TOKEN: ${{ github.token }}
+          RED_AUTOFIX_SPARE_TOKEN: ${{ steps.spare-token.outputs.token }}
           RED_AUTOFIX: ${{ vars.RED_AUTOFIX }}
           RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
           RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
@@ -114,7 +134,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
-        run: gh run rerun "$RUN_ID" --failed --repo "$GITHUB_REPOSITORY" || echo "::warning::rerun refused"
+        # A refused rerun fails this job: the red it was to clear stays red, and a green triage would say it was
+        # handled (CodeRabbit on #64290: "A rerun refused ... can now leave the job green with only a warning").
+        run: |
+          if ! gh run rerun "$RUN_ID" --failed --repo "$GITHUB_REPOSITORY"; then
+            echo "::error::rerun of run $RUN_ID refused: the infrastructure red was not rerun"
+            exit 1
+          fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: red-report
@@ -148,7 +174,9 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ needs.triage.outputs.target }}
+          # Qualified: a bare branch name makes actions/checkout fetch every `<name>*` branch at this depth
+          # (feat-cmux-next* matched 1,891 branches, 3m49s in run 46145976706); refs/heads/ fetches one.
+          ref: refs/heads/${{ needs.triage.outputs.target }}
           path: fresh
           fetch-depth: 200
           persist-credentials: false
@@ -195,6 +223,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      id-token: write # The tailnet join for the Claude login pool (.github/actions/claude-pool).
     outputs:
       tip: ${{ steps.patch.outputs.tip }}
       ready: ${{ steps.patch.outputs.ready }}
@@ -205,12 +234,25 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
           path: trusted
-          sparse-checkout: scripts/ci/red_autofix.py
+          sparse-checkout: |
+            scripts/ci/red_autofix.py
+            .github/actions/claude-pool/
           sparse-checkout-cone-mode: false
           persist-credentials: false
+      # The pool's logins first when the pool answers (fixer claude-pool); the token and the API key stay behind it.
+      - name: Reach the Claude login pool
+        id: pool
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: ./trusted/.github/actions/claude-pool
+        with:
+          oauth-client-id: ${{ vars.CLAUDE_POOL_TS_OIDC_CLIENT_ID }}
+          audience: ${{ vars.CLAUDE_POOL_TS_OIDC_AUDIENCE }}
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ needs.triage.outputs.target }}
+          # Qualified: a bare branch name makes actions/checkout fetch every `<name>*` branch at this depth
+          # (feat-cmux-next* matched 1,891 branches, 3m49s in run 46145976706); refs/heads/ fetches one.
+          ref: refs/heads/${{ needs.triage.outputs.target }}
           path: target
           fetch-depth: 200
           persist-credentials: false
@@ -247,6 +289,7 @@ jobs:
         timeout-minutes: 15
         env:
           CLAUDE_OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_POOL_URL: ${{ steps.pool.outputs.base-url }}
           ANTHROPIC_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CODEX_AUTH: ${{ secrets.CODEX_AUTH_JSON }}
           FIXER_ORDER: ${{ vars.RED_AUTOFIX_FIXERS || 'claude-oauth claude-api codex' }}
@@ -260,8 +303,10 @@ jobs:
           tree="$RUNNER_TEMP/fixer-tree"
           git -C target ls-files -z > "$RUNNER_TEMP/tracked.z"
           status=none; tried=""
-          for fixer in $FIXER_ORDER; do
+          order="$FIXER_ORDER"; [ -z "${CLAUDE_POOL_URL:-}" ] || order="claude-pool $order"
+          for fixer in $order; do
             case "$fixer" in
+              claude-pool) [ -n "${CLAUDE_POOL_URL:-}" ] || continue ;;
               claude-oauth) [ -n "$CLAUDE_OAUTH" ] || continue ;;
               claude-api) [ -n "$ANTHROPIC_KEY" ] || continue ;;
               codex) [ -n "$CODEX_AUTH" ] || continue ;;
@@ -275,7 +320,8 @@ jobs:
             case "$fixer" in
               claude-*)
                 command -v claude >/dev/null || npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.284 >/dev/null
-                if [ "$fixer" = claude-oauth ]; then cred=(env -u ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH")
+                if [ "$fixer" = claude-pool ]; then cred=(env -u ANTHROPIC_API_KEY -u CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_BASE_URL="$CLAUDE_POOL_URL" ANTHROPIC_AUTH_TOKEN=subrouter2)
+                elif [ "$fixer" = claude-oauth ]; then cred=(env -u ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH")
                 else cred=(env -u CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY="$ANTHROPIC_KEY"); fi
                 (cd "$tree" && "${cred[@]}" claude -p "$(cat "$RUNNER_TEMP/prompt.txt")" \
                   --allowedTools "Read,Edit,Glob,Grep" \

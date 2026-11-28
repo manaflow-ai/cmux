@@ -581,6 +581,8 @@ def protected_reason(run: Mapping[str, Any], dead: bool = False) -> str:
         return "release/publish/TestFlight/App Store workflow"
     if dead and DEAD_PROTECTED_WORKFLOW.search(f"{run.get('name') or ''} {run.get('path') or ''}"):
         return "signing/deploy/promotion/rollback/nightly workflow"
+    if dead and run.get("event") == "schedule" and re.search(r"\bdev\b", f"{run.get('name')} {run.get('path')}", re.I):
+        return "scheduled dev build"
     if dead and int(run.get("run_attempt") or 1) >= 2:
         return f"already re-run (attempt {run.get('run_attempt')}); a dead-label rescue tries a run once"
     if int(run.get("run_attempt") or 1) >= MAX_ATTEMPT:
@@ -855,7 +857,8 @@ def wait_for_health(api: GitHub, run_id: int, attempt: int, minutes: int, labels
 def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callable[[], dt.datetime],
                       sleep: Callable[[float], None], log: Callable[[str], None], dry_run: bool,
                       failovers: Iterable[str] = (), linux_moves: bool = True,
-                      only: Iterable[str] | Mapping[str, int] | None = None) -> list[str]:
+                      only: Iterable[str] | Mapping[str, int] | None = None,
+                      scheduled: Mapping[str, int] | None = None) -> list[str]:
     """Force-cancel and re-run runs holding a job queued on Blacksmith; one line per run touched.
 
     With `only` (--rescue-dead), push runs are listed and looked at first: one listing holds
@@ -911,7 +914,7 @@ def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callab
         except RuntimeError as error:
             lines.append(f"run {run['id']}: could not list jobs ({error})")
             continue
-        job = stuck_job(jobs, now(), minutes, failovers, linux_moves, only)
+        job = stuck_job(jobs, now(), minutes, failovers, linux_moves, run_only(run, only, scheduled))
         if job is None:
             continue
         why = protected_reason(run, dead) or busy_reason(jobs)
@@ -929,7 +932,7 @@ def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callab
         return lines
     if dead:
         return lines + _cancel_and_rerun_once(api, chosen, minutes=minutes, now=now, sleep=sleep, log=log,
-                                              only=only if only is not None else ())
+                                              only=only if only is not None else (), scheduled=scheduled)
     cancelled: list[int] = []
     for run, _ in chosen:
         try:
@@ -983,9 +986,18 @@ def _http_code(error: RuntimeError) -> int | None:
     return int(found.group(1)) if found else None
 
 
+def run_only(run: Mapping[str, Any], only: Any, scheduled: Mapping[str, int] | None) -> Any:
+    """`only`, plus the `scheduled` labels when the run is a scheduled one (scheduled_dead_labels())."""
+    if not scheduled or only is None or run.get("event") != "schedule":
+        return only
+    return {**(dict(only) if isinstance(only, Mapping) else {str(label): 0 for label in only}),
+            **{str(label): int(wait) for label, wait in scheduled.items()}}
+
+
 def _cancel_and_rerun_once(api: GitHub, chosen: Sequence[tuple[Mapping[str, Any], Mapping[str, Any]]], *,
                            minutes: int, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
-                           log: Callable[[str], None], only: Iterable[str] | Mapping[str, int]) -> list[str]:
+                           log: Callable[[str], None], only: Iterable[str] | Mapping[str, int],
+                           scheduled: Mapping[str, int] | None = None) -> list[str]:
     """--rescue-dead's cancel and re-run.
 
     - Each run is read again first: one re-run or started since the listing is left alone.
@@ -1004,7 +1016,8 @@ def _cancel_and_rerun_once(api: GitHub, chosen: Sequence[tuple[Mapping[str, Any]
             jobs = api.jobs(run_id)
             still = (current.get("status") != "completed"
                      and int(current.get("run_attempt") or 1) == int(run.get("run_attempt") or 1)
-                     and stuck_job(jobs, now(), minutes, only=only) is not None and not busy_reason(jobs))
+                     and stuck_job(jobs, now(), minutes, only=run_only(run, only, scheduled)) is not None
+                     and not busy_reason(jobs))
         except RuntimeError as error:
             lines.append(f"run {run_id}: could not read it again ({error}); left alone")
             continue
@@ -1085,15 +1098,27 @@ def raw_named(env: Mapping[str, str]) -> set[str]:
     return named
 
 
+# The Blacksmith macOS labels a pool or a picker may have sent jobs to. No probe marks one dead, so one is stranded only
+# when a pool move left it (stranded_labels()) and no runner variable names it. 2026-11-27 23:4xZ:
+# blacksmith-12vcpu-macos-26 held 18 queued jobs, oldest 238 min, 0 started in 1 h, while every pool and variable
+# named another label, and this rescue looked only at Linux sizes.
+MACOS_CLOUD_LABELS = ("blacksmith-6vcpu-macos-15", "blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26",
+                      "blacksmith-6vcpu-macos-latest")
+MACOS_RUNNER_VARIABLES_ENV = "MACOS_RUNNER_VARIABLES"
+
+
 def stranded_labels(pools_value: Mapping[str, Any], named: Iterable[str] = (), *,
                     minutes: int = DEFAULT_PROBE_MINUTES) -> dict[str, int]:
-    """Each x64 Blacksmith Linux label a job may be stranded on, with how long its jobs wait before a re-run.
+    """Each Blacksmith label a job may be stranded on, with how long its jobs wait before a re-run.
 
     A label is stranded when no pool names it now (and no raw runner variable, `named`), so a re-run picks another:
     - marked dead (dead_labels()): after `minutes`, the probe's wait, as before;
     - otherwise a label a pool can point at (HEALTH_LABELS, a `_spill` record's `from`) that no pool names: a move
       left it, by runner_pools.py, linux_pool_spill.py or a hand edit of RUNNER_POOLS. It may still start jobs, so
       after MOVED_MINUTES.
+    - a Blacksmith macOS label (MACOS_CLOUD_LABELS) no pool names, after MOVED_MINUTES: a macOS pool member a
+      pool moved off, or one a picker names literally. `named` must then carry the MACOS_RUNNER_* values
+      (rescue_dead() reads MACOS_RUNNER_VARIABLES_ENV), since a re-run would go back to a label one names.
     Reading the state after the move, not each writer's move, covers every writer, a hand edit included.
     """
     pooled = {str(value) for key, value in pools_value.items() if not str(key).startswith("_")}
@@ -1109,7 +1134,30 @@ def stranded_labels(pools_value: Mapping[str, Any], named: Iterable[str] = (), *
     for label in candidates:
         if linux_cloud_label(label) and label not in routed and label not in out:
             out[label] = max(minutes, MOVED_MINUTES)
+    if any(str(value) in MACOS_CLOUD_LABELS for value in pooled):
+        # Only once RUNNER_POOLS carries the macOS pools: a value written before them names no macOS label at all.
+        for label in MACOS_CLOUD_LABELS:
+            if label not in routed and label not in out:
+                out[label] = max(minutes, MOVED_MINUTES)
     return dict(sorted(out.items()))
+
+
+def scheduled_dead_labels(pools_value: Mapping[str, Any], named: Iterable[str] = (), *,
+                          minutes: int = DEFAULT_PROBE_MINUTES) -> dict[str, int]:
+    """Blacksmith macOS labels marked dead that a pool still names, each with its wait: where a SCHEDULED run strands.
+
+    stranded_labels() leaves these out: a pool names the label, a macOS pool has no other member to move to, and a
+    re-run of a PR run reads the same pool and queues on the same dead label. A scheduled run (a cache seed, a
+    sweep) is different: nothing waits on it, the next tick makes a new one, and its workflow can skip itself while
+    its label is marked dead (seed-swiftpm-manifests.yml does), so the re-run ends instead of queueing again.
+    2026-11-28: run 46145996688 (Seed SwiftPM manifests, schedule) sat queued 70+ min on blacksmith-6vcpu-macos-15,
+    which had no runner since about 12:55Z. A label a MACOS_RUNNER_* variable names (`named`) is left out.
+    """
+    marks = pools_value.get(POOLS_DEAD_KEY)
+    if not isinstance(marks, Mapping):
+        return {}
+    return {str(label): minutes for label in sorted(marks)
+            if str(label) in MACOS_CLOUD_LABELS and str(label) not in set(named)}
 
 
 def rescue_dead(api: GitHub, switch: GitHub | None, env: Mapping[str, str], *, own_run_id: int, minutes: int,
@@ -1136,14 +1184,19 @@ def rescue_dead(api: GitHub, switch: GitHub | None, env: Mapping[str, str], *, o
     except ValueError:
         log(f"::warning title=Dead label rescue::{POOLS_VARIABLE} is not JSON; nothing to rescue")
         return 0
-    labels = stranded_labels(value if isinstance(value, Mapping) else {}, raw_named(env), minutes=minutes)
-    if not labels:
+    named = raw_named(env) | raw_named({RAW_RUNNER_VARIABLES_ENV: env.get(MACOS_RUNNER_VARIABLES_ENV) or ""})
+    labels = stranded_labels(value if isinstance(value, Mapping) else {}, named, minutes=minutes)
+    scheduled = scheduled_dead_labels(value if isinstance(value, Mapping) else {}, named, minutes=minutes)
+    scheduled = {label: wait for label, wait in scheduled.items() if label not in labels}
+    if not labels and not scheduled:
         log(f"no Blacksmith label off every pool in {POOLS_VARIABLE}; nothing to rescue")
         return 0
+    if scheduled:
+        log("dead macOS labels a pool still names: " + ", ".join(scheduled) + "; scheduled runs queued there are re-run")
     log("labels no pool names: " + ", ".join(f"{label} ({wait}+ min)" for label, wait in labels.items())
         + "; re-running runs queued there that long")
     for line in rescue_stuck_runs(api, own_run_id=own_run_id, minutes=minutes, now=now, sleep=sleep, log=log,
-                                  dry_run=dry_run, only=labels):
+                                  dry_run=dry_run, only=labels, scheduled=scheduled):
         log(f"- {line}")
     return 0
 

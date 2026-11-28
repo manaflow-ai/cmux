@@ -213,6 +213,14 @@ run ahead of it, a jobless run at an open pull request's head is cancelled (forc
 it in flight) and re-run whole as cmux-bot by the next sweep at the same head, through LOST_RERUNS_KEY, unless a
 newer run took that head; a pull request run at a superseded head is only cancelled. An attempt at
 LOST_FAILOVER_MAX_ATTEMPT, or a re-run GitHub refuses JOBLESS_RERUN_TRIES times, gives up with an ::error::.
+
+Stale-ref routing is one more pass (g, scripts/ci/stale_route_runs.py; stale_route_pass()): a queued job on a pool
+over the threshold that asks for a label the run's branch copy of its workflow (main's, or a BRANCH_WORKFLOWS
+branch's) no longer names, in a run created before the commit that took the label out. A run follows the workflow
+file at its own ref, and a re-run reuses it, so a routing fix leaves every older run and re-run on the old label.
+At an open pull request's head the pull request is base-merged (update-branch, as cmux-bot), never cancelled; a
+merged or closed pull request's run, or a superseded head's, is shed. Each sweep names them per label and routing
+commit (an ::warning:: and the snapshot's `stale_routes`). hq docs/handbook/queued-job-keeps-its-old-route.md.
 """
 
 from __future__ import annotations
@@ -255,6 +263,7 @@ import owned_pool_rescue as rescue  # noqa: E402
 import owned_warm_state  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
 import starved_labels  # noqa: E402
+import stale_route_runs  # noqa: E402
 from delivery_workflows import REPLACEMENT_JOB_READS, attempt_jobs, build_started, is_delivery_run  # noqa: E402
 from delivery_workflows import delivers, is_delivery_event, is_delivery_workflow  # noqa: E402
 from delivery_workflows import newer_head_runs, superseded_unstarted  # noqa: E402
@@ -369,6 +378,8 @@ JOBLESS_EVENTS = frozenset({"pull_request", "pull_request_target", "push", "work
 # Candidates looked at a sweep, oldest first: one job listing (when the sweep did not list it) and one listing of
 # its workflow's runs on its branch each, plus at most one holder's jobs.
 JOBLESS_LOOKUPS = 10
+# The page GitHub.branch_runs() reads: a full page may leave older runs (a holder) unread (find_jobless()).
+BRANCH_RUNS_PAGE = 20
 DEFAULT_MAX_JOBLESS_CANCELS = 5
 MAX_JOBLESS_CANCELS_LIMIT = 10
 # A re-run GitHub refuses this many times gives up with an ::error:: annotation instead of waiting for the TTL.
@@ -513,6 +524,10 @@ PROTECTED_WORKFLOW = re.compile(r"release|nightly|testflight|app[-_ ]?store|apps
 # files nothing, so dep-fleet's ruling (#27521) does not cover it and the sweep treats it as any pull request run.
 PULL_REQUEST_PROTECTED_WORKFLOW = re.compile(r"release|testflight|app[-_ ]?store|appstore|publish|notar",
                                              re.IGNORECASE)
+# ci.yml's run-name carries routing settings (`v1;sha=...;release=arm64;coverage=...`). The `release=` setting names
+# no release workflow, so protected_reason() drops it before matching, as orphan_protected_reason() matches the path
+# alone and HQ's stale_runs.py drops the same setting.
+CI_RUN_NAME_RELEASE_SETTING = re.compile(r"(?<=;)release=[^;\s]*")
 TAG_LIKE_REF = re.compile(r"^(v\d|cmux-tui-v\d|.*-v\d+\.\d+)")
 
 UTC = dt.timezone.utc
@@ -545,7 +560,11 @@ def protected_reason(run: Mapping[str, Any]) -> str | None:
     """Why a run must never be cancelled, or None when policy may look at it."""
     event = run.get("event") or ""
     branch = run.get("head_branch") or ""
-    haystack = " ".join(str(run.get(key) or "") for key in ("name", "path"))
+    # Without dropping `;release=<arch>`, every ci.yml run read as a release workflow: run 46059745828, ten macOS
+    # jobs queued 179 minutes on blacksmith-12vcpu-macos-26 at the head of PR #53898 (merged 2026-11-27 19:51Z),
+    # was never a candidate for category b, which cancels a merged pull request's run on any pool.
+    haystack = CI_RUN_NAME_RELEASE_SETTING.sub(
+        "", " ".join(str(run.get(key) or "") for key in ("name", "path")))
     if not event or not branch:
         return "missing event or branch"
     if event in PROTECTED_EVENTS:
@@ -2904,6 +2923,7 @@ def branches_to_resolve(
 PR_FIELDS = """
         number state headRefOid url
         headRepositoryOwner { login }
+        author { login }
         labels(first: 100) { pageInfo { hasNextPage } nodes { name } }
         files(first: 100) { pageInfo { hasNextPage } nodes { path } }
         timelineItems(last: 50, itemTypes: [LABELED_EVENT, UNLABELED_EVENT]) {
@@ -2924,6 +2944,7 @@ OPEN_PRS_UNREAD = "openPullRequestsUnread"
 OPEN_PR_FIELDS = """
         number state headRefOid url
         headRepositoryOwner { login }
+        author { login }
         labels(first: 100) { pageInfo { hasNextPage } nodes { name } }
 """
 
@@ -4035,8 +4056,11 @@ def find_jobless(
             jobs = jobs_by_run[run["id"]] if run["id"] in jobs_by_run else github.jobs(run["id"])
             if jobs:
                 continue
-            ahead = runs_ahead(run, [*github.branch_runs(run), *runs])
-            others = [other for other in ahead if other.get("head_sha") != run.get("head_sha")]
+            listed = github.branch_runs(run)
+            ahead = runs_ahead(run, [*listed, *runs])
+            # A same-head run ahead may be what holds the group: then no superseded run is the holder.
+            same_head = [other for other in ahead if other.get("head_sha") == run.get("head_sha")]
+            others = [] if same_head else [other for other in ahead if other.get("head_sha") != run.get("head_sha")]
             holder_jobs = {other["id"]: (jobs_by_run[other["id"]] if other["id"] in jobs_by_run
                                          else github.jobs(other["id"])) for other in others[:1]}
         except RateLimited as error:
@@ -4055,8 +4079,14 @@ def find_jobless(
                 notes.append(f"run {run['id']} ({run.get('name')}, {run.get('status')} {age} with no jobs): "
                              f"holder {holder.run['id']} is force-cancelled")
             elif holder is None:
+                blocker = (same_head or ahead)[0]
                 notes.append(f"run {run['id']} ({run.get('name')}, {run.get('status')} {age} with no jobs): waits "
-                             f"behind run {ahead[0]['id']} ({ahead[0].get('status')}), left alone")
+                             f"behind run {blocker['id']} ({blocker.get('status')}), left alone")
+            continue
+        if len(listed) >= BRANCH_RUNS_PAGE:
+            # Review of #47915 (F1): the page is full, so an older holder may be past it. Unknown, never jobless.
+            notes.append(f"run {run['id']} ({run.get('name')}, {run.get('status')} {age} with no jobs): its branch "
+                         f"listing is a full page of {len(listed)}, so a run ahead may be unread; left alone")
             continue
         jobless.append(Orphan(run, f"{run.get('status')} {age} with no jobs and no run of its workflow ahead of it "
                                    f"on {run.get('head_branch')}", None, created, 0))
@@ -4149,12 +4179,18 @@ def jobless_reruns(decisions: Sequence[JoblessDecision], results: Mapping[int, s
     for decision in decisions:
         run = decision.orphan.run
         result = results.get(run["id"]) or ""
+        # A cancel whose POST failed (CANCEL_SENT) may have taken anyway: the entry is kept, marked unconfirmed, and
+        # plan_lost_reruns() re-runs it once the run reads cancelled (new_lost_reruns() does the same).
+        unconfirmed = result.startswith(CANCEL_SENT)
         if decision.action != "cancel" or not decision.rerun or not (
-                result == "cancelled" or result.startswith("force-cancelled")):
+                result == "cancelled" or result.startswith("force-cancelled") or unconfirmed):
             continue
-        entries.append({"run_id": run["id"], "attempt": int(run.get("run_attempt") or 1),
-                        "head_sha": str(run.get("head_sha") or ""), "branch": str(run.get("head_branch") or ""),
-                        "cancelled_at": _iso(now), "open_head": True, "jobless": True})
+        entry = {"run_id": run["id"], "attempt": int(run.get("run_attempt") or 1),
+                 "head_sha": str(run.get("head_sha") or ""), "branch": str(run.get("head_branch") or ""),
+                 "cancelled_at": _iso(now), "open_head": True, "jobless": True}
+        if unconfirmed:
+            entry["cancel_unconfirmed"] = True
+        entries.append(entry)
     return entries
 
 
@@ -4995,15 +5031,25 @@ class GitHub:
         return names
 
     def jobs(self, run_id: int) -> list[dict[str, Any]]:
+        """Every job of the run's latest attempt, or RuntimeError when the listing is not complete.
+
+        A listing cut short at MAX_JOB_PAGES, or a short page under total_count, can hide a running job, and a cancel
+        made on it would cut that job (the review BLOCK on cmux#27114). Every caller takes RuntimeError as unread.
+        """
         jobs: list[dict[str, Any]] = []
+        total = 0
         for page in range(1, MAX_JOB_PAGES + 1):
             query = urllib.parse.urlencode({"filter": "latest", "per_page": 100, "page": page})
             payload = self.request("GET", f"/repos/{self.repo}/actions/runs/{run_id}/jobs?{query}")
             batch = payload.get("jobs") or []
             jobs.extend(batch)
+            if isinstance(payload.get("total_count"), int):
+                total = max(total, payload["total_count"])
             if len(batch) < 100:
-                break
-        return jobs
+                if total > len(jobs):
+                    raise RuntimeError(f"run {run_id}: job listing incomplete ({len(jobs)} of {total} jobs)")
+                return jobs
+        raise RuntimeError(f"run {run_id}: job listing incomplete (more than {MAX_JOB_PAGES * 100} jobs)")
 
     def pull_requests(self, branches: Sequence[str]) -> dict[str, list[dict[str, Any]]]:
         owner, name = self.repo.split("/", 1)
@@ -5100,7 +5146,7 @@ class GitHub:
     def branch_runs(self, run: Mapping[str, Any]) -> list[dict[str, Any]]:
         """One page of the newest runs of `run`'s workflow on its branch (skip_superseded_delivery())."""
         workflow = str(run.get("path") or "").rsplit("/", 1)[-1]
-        query = urllib.parse.urlencode({"branch": run.get("head_branch") or "", "per_page": 20})
+        query = urllib.parse.urlencode({"branch": run.get("head_branch") or "", "per_page": BRANCH_RUNS_PAGE})
         payload = self.request("GET", f"/repos/{self.repo}/actions/workflows/{urllib.parse.quote(workflow)}/runs?{query}")
         return [other for other in payload.get("workflow_runs") or [] if isinstance(other, Mapping)]
 
@@ -5300,6 +5346,47 @@ def render_listing(listing: Mapping[str, Any]) -> str:
     if listing.get("jobs_unlisted"):
         text += f"; {listing['jobs_unlisted']} run(s) past the {MAX_JOB_LISTINGS} job listings a sweep left unread"
     return text
+
+
+def stale_route_pass(github: "GitHub", repo: str, runs: Sequence[Mapping[str, Any]],
+                     jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
+                     prs_by_branch: Mapping[str, Sequence[Mapping[str, Any]]], *,
+                     queued_by_pool: Mapping[str, int], threshold: int, copies: Mapping[str, Path],
+                     already_cancelled: Iterable[int], dry_run: bool, can_merge: bool,
+                     ) -> tuple[list["stale_route_runs.StaleRoute"], dict[int, str], int]:
+    """Category g (stale_route_runs.py): runs on a saturated pool that ask for a label their branch's workflow copy
+    was routed off. Reads only files on disk until a suspect exists; then a commit listing and a few commit reads per
+    (file, label) to name the routing change. Returns the decisions, what was done per run, and failed writes."""
+    saturated = [pool for pool, count in queued_by_pool.items() if count > threshold]
+    if not saturated:
+        return [], {}, 0
+
+    def pool_of(job: Mapping[str, Any]) -> tuple[str, ...]:
+        return counted_pools(runner_pool(job)) if is_macos_job(job) else ()
+
+    suspects = stale_route_runs.find_suspects(runs, jobs_by_run, saturated, copies, pool_of=pool_of,
+                                              protected=protected_reason)
+    if not suspects:
+        return [], {}, 0
+
+    def lookup(branch: str, path: str, label: str) -> "stale_route_runs.Change | None":
+        try:
+            return stale_route_runs.routing_change(lambda url: github.request("GET", url), repo, branch, path, label)
+        except RateLimited:
+            raise
+        except RuntimeError as error:
+            print(f"queue-janitor: routing change of {label} in {path} on {branch}: {error}", file=sys.stderr)
+            return None
+
+    decisions = stale_route_runs.plan(suspects, prs_by_branch, lookup=lookup, resolve=resolve_pull_request,
+                                      already_cancelled=already_cancelled)
+    if dry_run:
+        return decisions, {}, 0
+    results, failures = stale_route_runs.act(
+        decisions, can_merge=can_merge, cancel=github.cancel,
+        update_branch=lambda number, sha: github.request(
+            "PUT", f"/repos/{repo}/pulls/{number}/update-branch", {"expected_head_sha": sha}))
+    return decisions, results, failures
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -5521,6 +5608,86 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     read_heads(branch_head_lookups(runs, {*lost, *unclaimed}, prs_by_branch=prs_by_branch, jobs_by_run=jobs_by_run,
                                    unclaimed=unclaimed))
 
+    def rerun_pending(entries: Sequence[Mapping[str, Any]], rerun_cap: int,
+                      ) -> tuple[list[LostRerun], list[dict[str, Any]], dict[int, str], int]:
+        """(decisions, entries still pending, results, failures) for the pending re-runs `entries`: each run is
+        read, then the runs at its head, its dispatches and its branch head, and plan_lost_reruns() judges it."""
+        runs_now: dict[int, Mapping[str, Any]] = {}
+        for entry in entries:
+            run_id = entry.get("run_id")
+            if isinstance(run_id, int) and run_id not in runs_now:
+                try:
+                    runs_now[run_id] = github.run(run_id)
+                except Exception as error:  # noqa: BLE001 the entry is kept for the next sweep
+                    print(f"queue-janitor: pending re-run of run {run_id}: {error!r}", file=sys.stderr)
+        # Orphaned dispatches (orphan_reruns()) are judged by newer dispatches of their kind, not by their head.
+        dispatch_ids = {entry.get("run_id") for entry in entries if isinstance(entry.get("dispatch"), Mapping)}
+        # One listing per settled cancel: a newer run at its head that took
+        # over (even one finished since) means no re-run.
+        head_runs: dict[int, list[Mapping[str, Any]]] = {}
+        for run_id, run in runs_now.items():
+            if run_id in dispatch_ids:
+                continue
+            if run.get("status") == "completed" and run.get("conclusion") == "cancelled":
+                try:
+                    head_runs[run_id] = [*github.runs_at_head(run), *runs]
+                except Exception as error:  # noqa: BLE001 the entry is kept for the next sweep
+                    print(f"queue-janitor: runs at the head of run {run_id}: {error!r}", file=sys.stderr)
+        # A settled push or dispatch cancel is re-run only while its branch is live.
+        settled = [run for run_id, run in runs_now.items() if run_id not in dispatch_ids
+                   and run.get("status") == "completed" and run.get("conclusion") == "cancelled"]
+        # A settled orphaned dispatch: one listing of its workflow's dispatches on its branch, and the jobs of the
+        # newer ones of its kind that may have run its job (the in-flight ones are in the inventory), newest
+        # first, at most DISPATCH_SUPERSEDE_JOB_READS a sweep.
+        dispatch_runs: dict[int, list[Mapping[str, Any]]] = {}
+        dispatch_jobs: dict[int, Sequence[Mapping[str, Any]]] = dict(jobs_by_run)
+        job_reads = 0
+        for entry in entries:
+            run = runs_now.get(entry.get("run_id"))
+            if (entry.get("run_id") not in dispatch_ids or not run or run.get("status") != "completed"
+                    or run.get("conclusion") != "cancelled" or run["id"] in dispatch_runs):
+                continue
+            try:
+                dispatch_runs[run["id"]] = github.dispatch_runs(run)
+            except Exception as error:  # noqa: BLE001 the entry is kept for the next sweep
+                print(f"queue-janitor: dispatches after run {run['id']}: {error!r}", file=sys.stderr)
+                continue
+            for other in newer_dispatches(entry, run, dispatch_runs[run["id"]]):
+                if other["id"] in dispatch_jobs or other.get("status") in ("queued", "pending", "waiting", "requested"):
+                    continue
+                if job_reads >= DISPATCH_SUPERSEDE_JOB_READS:
+                    break
+                job_reads += 1
+                try:
+                    dispatch_jobs[other["id"]] = github.jobs(other["id"])
+                except Exception as error:  # noqa: BLE001 unread: counts as not covering it
+                    print(f"queue-janitor: jobs of dispatch {other['id']}: {error!r}", file=sys.stderr)
+        read_heads(branch_head_lookups(settled, {run.get("id") for run in settled}, prs_by_branch=prs_by_branch,
+                                       known=branch_heads, cap=PENDING_HEAD_LOOKUPS))
+        # A settled verification entry needs its lane branch head (plan_lost_reruns()).
+        lanes = sorted({str(runs_now[entry["run_id"]].get("head_branch") or "") for entry in entries
+                        if isinstance(entry.get("dispatch"), Mapping) and entry["dispatch"].get("verification")
+                        and entry.get("run_id") in runs_now and runs_now[entry["run_id"]].get("status") == "completed"}
+                       - set(branch_heads) - {""})
+        read_heads(lanes[:PENDING_HEAD_LOOKUPS])
+        decisions = plan_lost_reruns(entries, runs_now, prs_by_branch, now=now, head_runs=head_runs,
+                                     branch_heads=branch_heads, app_token=github.app_token,
+                                     cmux_bot=cmux_bot(), rerun_cap=rerun_cap,
+                                     dispatch_runs=dispatch_runs, dispatch_jobs=dispatch_jobs)
+        results: dict[int, str] = {}
+        failed = 0
+        if args.dry_run:
+            # Nothing acted on, so only an expired entry goes.
+            still = [dict(decision.entry) for decision in decisions
+                     if not (decision.action == "drop" and decision.note == "expired")]
+        else:
+            still, results, failed = rerun_lost(github, decisions)
+        for decision in decisions:
+            if decision.entry.get("jobless") and decision.action == "drop" and decision.note == "expired":
+                print(f"::error title=Jobless run not re-run::run {decision.entry.get('run_id')}: its re-run "
+                      f"never went through within {format_age(LOST_RERUN_TTL)}; left for a human")
+        return decisions, still, results, failed
+
     snapshot: dict[str, Any] | None = None
     if args.pool_load:
         # Before any cancellation: pr_runner_pool.py wants the demand a new run
@@ -5596,26 +5763,76 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
         args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
 
     if unread or listing["truncated"]:
-        # Nothing is acted on, so the pending re-runs an earlier sweep left are carried forward as they were.
-        if snapshot is not None and args.pool_load and pending is not None:
-            snapshot[LOST_RERUNS_KEY] = [dict(entry) for entry in pending][-LOST_PENDING_MAX:]
-            args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
+        # A partial inventory decides nothing, except the jobless pass. find_jobless() judged each of its runs
+        # from its own reads (its jobs, its workflow's runs on its branch, its holder's jobs), never from the
+        # listing being whole, and a backlog that truncates every sweep is what strands jobless runs (run
+        # 44702795585: 6059 of at least 6080 runs listed). So its holders are force-cancelled, its runs cancelled,
+        # and the jobless re-runs earlier sweeps left are re-run, under the same caps and checks as a whole sweep.
+        # Every other pending re-run is carried forward as it was.
+        def save_partial(entries: Sequence[Mapping[str, Any]]) -> None:
+            if snapshot is not None and args.pool_load:
+                snapshot[LOST_RERUNS_KEY] = [dict(entry) for entry in entries][-LOST_PENDING_MAX:]
+                args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
+
+        if pending is not None:
+            save_partial(pending)
+        others = [entry for entry in pending or [] if not entry.get("jobless")]
+        jobless_pending = [entry for entry in pending or [] if entry.get("jobless")]
+        partial_failures = 0
+        rerun_decisions, still_jobless, rerun_results = [], list(jobless_pending), {}
+        if jobless_pending:
+            rerun_decisions, still_jobless, rerun_results, partial_failures = rerun_pending(
+                jobless_pending, LOST_RERUN_MAX)
+            save_partial([*others, *still_jobless])
+        holder_decisions = build_orphan_plan(jobless_holders, prs_by_branch, max_cancels=max_holder_cancels,
+                                             exclude_ids=set(), now=now)
+        holder_results: dict[int, str] = {}
+        if not args.dry_run:
+            holder_results, holder_failures = cancel_orphans(github, holder_decisions)
+            partial_failures += holder_failures
+        jobless_decisions = build_jobless_plan(
+            jobless, prs_by_branch, max_cancels=max_jobless_cancels,
+            exclude_ids={d.orphan.run["id"] for d in holder_decisions if d.action == "cancel"},
+            rerun_state=pending is not None, cmux_bot=cmux_bot(),
+        )
+        jobless_results: dict[int, str] = {}
+        if not args.dry_run:
+            jobless_results, jobless_failures = cancel_orphans(github, jobless_decisions)
+            partial_failures += jobless_failures
+            jobless_entries = jobless_reruns(jobless_decisions, jobless_results, now=now)
+            if jobless_entries and pending is not None:
+                save_partial([*others, *still_jobless, *jobless_entries])
+        for line in jobless_alerts(jobless_decisions, jobless_results):
+            print(line)
         if unread:
             summary = (f"\n_The job listings of {len(unread)} run(s) failed ({', '.join(map(str, sorted(unread)))}): "
-                       f"the pool snapshot was written from the other {len(runs)}, and this sweep decided nothing._\n")
+                       f"the pool snapshot was written from the other {len(runs)}, and this sweep decided nothing "
+                       "else; only the jobless pass acted._\n")
         else:
             summary = ""
         if listing["truncated"]:
             # An annotation too: the ceilings (MAX_RUN_PAGES, MAX_JOB_LISTINGS) need raising.
             print(f"::warning title=queue janitor listing truncated::{render_listing(listing)}")
             summary += (f"\n_{render_listing(listing)}: the pool snapshot says `truncated`, and this sweep "
-                        "decided nothing._\n")
+                        "decided nothing else; only the jobless pass acted._\n")
+        verb = "would " if args.dry_run else ""
+        summary += (f"\n_Jobless pass on this partial sweep: {verb}force-cancel "
+                    f"{sum(1 for d in holder_decisions if d.action == 'cancel')} holder(s), {verb}cancel "
+                    f"{sum(1 for d in jobless_decisions if d.action == 'cancel')} jobless run(s), {verb}re-run "
+                    f"{sum(1 for d in rerun_decisions if d.action == 'rerun')} of {len(jobless_pending)} pending "
+                    f"jobless re-run(s); {len(others)} other pending re-run(s) carried forward._\n")
+        if holder_decisions:
+            summary += render_holder_summary(holder_decisions, [], dry_run=args.dry_run, now=now, errors=[],
+                                             results=holder_results)
+        summary += render_lost_reruns(rerun_decisions, dry_run=args.dry_run, results=rerun_results)
+        summary += render_jobless_summary(jobless_decisions, jobless_notes, dry_run=args.dry_run,
+                                          results=jobless_results)
         summary += f"\n_{render_rate_limits(github.rate_limits)}_\n"
         print(summary)
         if args.summary:
             with args.summary.open("a", encoding="utf-8") as handle:
                 handle.write(summary)
-        return 0
+        return 1 if partial_failures else 0
 
     plan = build_plan(
         runs, jobs_by_run, prs_by_branch,
@@ -5672,81 +5889,11 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
             fresh = [*(entry for entry in fresh if not (entry.get("open_head") and not entry.get("cancel_unconfirmed"))),
                      *open_head_pending]
             save_lost_reruns([*pending, *fresh])
-        runs_now: dict[int, Mapping[str, Any]] = {}
-        for entry in pending:
-            run_id = entry.get("run_id")
-            if isinstance(run_id, int) and run_id not in runs_now:
-                try:
-                    runs_now[run_id] = github.run(run_id)
-                except Exception as error:  # noqa: BLE001 the entry is kept for the next sweep
-                    print(f"queue-janitor: pending re-run of run {run_id}: {error!r}", file=sys.stderr)
-        # Orphaned dispatches (orphan_reruns()) are judged by newer dispatches of their kind, not by their head.
-        dispatch_ids = {entry.get("run_id") for entry in pending if isinstance(entry.get("dispatch"), Mapping)}
-        # One listing per settled cancel: a newer run at its head that took
-        # over (even one finished since) means no re-run.
-        head_runs: dict[int, list[Mapping[str, Any]]] = {}
-        for run_id, run in runs_now.items():
-            if run_id in dispatch_ids:
-                continue
-            if run.get("status") == "completed" and run.get("conclusion") == "cancelled":
-                try:
-                    head_runs[run_id] = [*github.runs_at_head(run), *runs]
-                except Exception as error:  # noqa: BLE001 the entry is kept for the next sweep
-                    print(f"queue-janitor: runs at the head of run {run_id}: {error!r}", file=sys.stderr)
-        # A settled push or dispatch cancel is re-run only while its branch is live.
-        settled = [run for run_id, run in runs_now.items() if run_id not in dispatch_ids
-                   and run.get("status") == "completed" and run.get("conclusion") == "cancelled"]
-        # A settled orphaned dispatch: one listing of its workflow's dispatches on its branch, and the jobs of the
-        # newer ones of its kind that may have run its job (the in-flight ones are in the inventory), newest
-        # first, at most DISPATCH_SUPERSEDE_JOB_READS a sweep.
-        dispatch_runs: dict[int, list[Mapping[str, Any]]] = {}
-        dispatch_jobs: dict[int, Sequence[Mapping[str, Any]]] = dict(jobs_by_run)
-        job_reads = 0
-        for entry in pending:
-            run = runs_now.get(entry.get("run_id"))
-            if (entry.get("run_id") not in dispatch_ids or not run or run.get("status") != "completed"
-                    or run.get("conclusion") != "cancelled" or run["id"] in dispatch_runs):
-                continue
-            try:
-                dispatch_runs[run["id"]] = github.dispatch_runs(run)
-            except Exception as error:  # noqa: BLE001 the entry is kept for the next sweep
-                print(f"queue-janitor: dispatches after run {run['id']}: {error!r}", file=sys.stderr)
-                continue
-            for other in newer_dispatches(entry, run, dispatch_runs[run["id"]]):
-                if other["id"] in dispatch_jobs or other.get("status") in ("queued", "pending", "waiting", "requested"):
-                    continue
-                if job_reads >= DISPATCH_SUPERSEDE_JOB_READS:
-                    break
-                job_reads += 1
-                try:
-                    dispatch_jobs[other["id"]] = github.jobs(other["id"])
-                except Exception as error:  # noqa: BLE001 unread: counts as not covering it
-                    print(f"queue-janitor: jobs of dispatch {other['id']}: {error!r}", file=sys.stderr)
-        read_heads(branch_head_lookups(settled, {run.get("id") for run in settled}, prs_by_branch=prs_by_branch,
-                                       known=branch_heads, cap=PENDING_HEAD_LOOKUPS))
-        # A settled verification entry needs its lane branch head (plan_lost_reruns()).
-        lanes = sorted({str(runs_now[entry["run_id"]].get("head_branch") or "") for entry in pending
-                        if isinstance(entry.get("dispatch"), Mapping) and entry["dispatch"].get("verification")
-                        and entry.get("run_id") in runs_now and runs_now[entry["run_id"]].get("status") == "completed"}
-                       - set(branch_heads) - {""})
-        read_heads(lanes[:PENDING_HEAD_LOOKUPS])
         # One LOST_RERUN_MAX a sweep: what the open-head failover re-ran comes out of the pending entries' share.
         open_head_reruns = sum(1 for decision in open_head_decisions if decision.action == "rerun")
-        rerun_decisions = plan_lost_reruns(pending, runs_now, prs_by_branch, now=now, head_runs=head_runs,
-                                           branch_heads=branch_heads, app_token=github.app_token,
-                                           cmux_bot=cmux_bot(), rerun_cap=LOST_RERUN_MAX - open_head_reruns,
-                                           dispatch_runs=dispatch_runs, dispatch_jobs=dispatch_jobs)
-        if args.dry_run:
-            # Nothing acted on, so only an expired entry goes.
-            still_pending = [dict(decision.entry) for decision in rerun_decisions
-                             if not (decision.action == "drop" and decision.note == "expired")]
-        else:
-            still_pending, rerun_results, rerun_failures = rerun_lost(github, rerun_decisions)
-            failures += rerun_failures
-        for decision in rerun_decisions:
-            if decision.entry.get("jobless") and decision.action == "drop" and decision.note == "expired":
-                print(f"::error title=Jobless run not re-run::run {decision.entry.get('run_id')}: its re-run "
-                      f"never went through within {format_age(LOST_RERUN_TTL)}; left for a human")
+        rerun_decisions, still_pending, rerun_results, rerun_failures = rerun_pending(
+            pending, LOST_RERUN_MAX - open_head_reruns)
+        failures += rerun_failures
         save_lost_reruns([*still_pending, *fresh])
 
     orphan_decisions = build_orphan_plan(
@@ -5813,6 +5960,32 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     superseded_decisions = [*superseded_decisions, *dev_decisions]
     failures += dev_failures
 
+    # Category g: a run asking for a saturated label its branch's workflow copy no longer names (stale_route_pass()).
+    copies = {"main": args.workflows_dir}
+    for spec in args.branch_workflows:
+        copy_branch, _, copy_dir = (part.strip() for part in spec.partition("="))
+        if copy_branch and copy_dir and copy_branch != "main":
+            copies[copy_branch] = Path(copy_dir)
+    cancelled_ids = {candidate.run["id"] for candidate in plan.to_cancel()} | {
+        d.orphan.run["id"] for d in [*orphan_decisions, *holder_decisions, *jobless_decisions] if d.action == "cancel"}
+    try:
+        stale_decisions, stale_results, stale_failures = stale_route_pass(
+            github, args.repo, runs, jobs_by_run, prs_by_branch, queued_by_pool=plan.queued_by_pool,
+            threshold=threshold, copies=copies, already_cancelled=cancelled_ids, dry_run=args.dry_run,
+            can_merge=cmux_bot())
+    except RuntimeError as error:  # a rate limit: the next sweep looks again
+        print(f"queue-janitor: stale-ref routing: {error}", file=sys.stderr)
+        if isinstance(error, RateLimited):
+            github.rate_limited = github.rate_limited or str(error)
+        stale_decisions, stale_results, stale_failures = [], {}, 1
+    failures += stale_failures
+    stale_summary, stale_warnings = stale_route_runs.render(stale_decisions, stale_results, dry_run=args.dry_run)
+    for line in stale_warnings:
+        print(line)
+    if snapshot is not None and args.pool_load:
+        snapshot[stale_route_runs.STALE_ROUTES_KEY] = stale_route_runs.snapshot_entry(stale_decisions)
+        args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
+
     summary = render_summary(plan, dry_run=args.dry_run, now=now, results=results)
     summary += render_open_head_reruns(open_head_decisions, open_head_results, freed=open_head_freed)
     summary += render_lost_reruns(rerun_decisions, dry_run=args.dry_run, results=rerun_results)
@@ -5828,6 +6001,7 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
         print(alert)
     summary += render_jobless_summary(jobless_decisions, jobless_notes, dry_run=args.dry_run, results=jobless_results)
     summary += render_superseded_summary(superseded_decisions)
+    summary += stale_summary
     summary += f"\n_{render_listing(listing)}._\n"
     summary += f"\n_{len(runs)} in-flight runs, {len(jobs_by_run)} job listings " \
                f"({branch_skipped} more runs not listed: linux-only on their branch), {len(branches)} PR branches, " \

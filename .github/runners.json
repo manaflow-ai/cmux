@@ -153,23 +153,22 @@
       ]
     },
     "macos_15": {
-      "why": "The macOS 15 image (its default SDK), after any owned-Mac picker",
+      "why": "The macOS 15 image (its default SDK), after any owned-Mac picker. Blacksmith macOS 26 follows it so a dead macOS 15 label moves its jobs instead of stranding them: 2026-11-28 ~12:50-14:35Z blacksmith-6vcpu-macos-15 started nothing for 104+ min with 9-10 jobs queued (oldest 99 min) while 6 vCPU macOS 26 ran 16. Readers that pin the macOS 15 Xcode take the macOS 26 pin when the pool names macOS 26; the SDK 15 Ghostty helper job does not read this pool. Owned Macs never join: fork pull request code reads this pool",
       "members": [
-        "blacksmith-6vcpu-macos-15"
+        "blacksmith-6vcpu-macos-15",
+        "blacksmith-6vcpu-macos-26"
       ]
     },
     "macos_26": {
-      "why": "The macOS 26 image, after any owned-Mac picker",
+      "why": "The macOS 26 image, after any owned-Mac picker. Blacksmith 12 vCPU is no member: it starves behind 6 vCPU jobs in Blacksmith's shared macOS vCPU pool (below), so a stalled 6 vCPU moving there sends jobs where none start",
       "members": [
-        "blacksmith-6vcpu-macos-26",
-        "blacksmith-12vcpu-macos-26"
+        "blacksmith-6vcpu-macos-26"
       ]
     },
     "macos_26_large": {
-      "why": "macOS 26 work that wants the 12 vCPU, 48 GB SKU (release, the nightly app, seeds). 6 vCPU leads: the 12 vCPU label starves behind 6 vCPU jobs in Blacksmith's shared macOS vCPU pool and ran nothing from 2026-11-08 16:44Z to 11-09 10:24Z (jobs queued up to 282 min) while 6 vCPU ran 6 to 14. Led by 12 vCPU, the pool went back to it each time a dead mark expired (DEAD_TTL). 12 vCPU stays the fallback when 6 vCPU stalls",
+      "why": "macOS 26 work that wants the 12 vCPU, 48 GB SKU (release, the nightly app, seeds). 6 vCPU leads: the 12 vCPU label starves behind 6 vCPU jobs in Blacksmith's shared macOS vCPU pool and ran nothing from 2026-11-08 16:44Z to 11-09 10:24Z (jobs queued up to 282 min) while 6 vCPU ran 6 to 14. Led by 12 vCPU, the pool went back to it each time a dead mark expired (DEAD_TTL). 12 vCPU is no longer a member: 2026-11-27 23:4xZ it held 18 queued jobs, oldest 238 min, 0 started in 1 h, so a pool on it strands its jobs. Owned Macs come first through the pickers (MACOS_RUNNER_26_LARGE, dev_landing_place.py)",
       "members": [
-        "blacksmith-6vcpu-macos-26",
-        "blacksmith-12vcpu-macos-26"
+        "blacksmith-6vcpu-macos-26"
       ]
     },
     "macos_latest": {

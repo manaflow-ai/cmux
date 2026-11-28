@@ -952,6 +952,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
 
+      - name: Validate the queue janitor's stale-ref routing pass (base merge, shed, leave alone)
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_stale_route_runs.py
+
       - name: Validate when a nightly run may be cancelled (attempts, pickers, latest-wins, known-bad)
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_delivery_workflows_cancel.py
@@ -1118,6 +1122,10 @@ jobs:
       - name: Validate the API call log loads in a sparse checkout and switches off cleanly
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_api_call_log_bootstrap.py
+
+      - name: Validate the nightly artifact wait stops at its deadline
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_wait_for_run_artifact.py
 
       - name: Validate every workflow guard is wired
         if: ${{ matrix.group == 'ci' }}
@@ -1403,6 +1411,10 @@ jobs:
         if: ${{ matrix.group == 'app-host-execution' }}
         run: python3 tests/test_ci_console_session_env_forwarding.py
 
+      - name: Validate console-session sudo probe
+        if: ${{ matrix.group == 'app-host-execution' }}
+        run: python3 tests/test_ci_console_session_sudo_probe.py
+
       - name: Validate notification semantics gates
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_notification_semantics.py
@@ -1511,7 +1523,10 @@ jobs:
 
       - name: Validate the App Store Connect ops script (ios-asc-ops.yml)
         if: ${{ matrix.group == 'release-ios' }}
-        run: python3 tests/test_ios_asc_ops.py
+        run: |
+          python3 tests/test_ios_asc_ops.py
+          python3 -I tests/test_ios_publication_snapshot.py
+          python3 -I tests/test_ios_snapshot_dispatch.py
 
       - name: Validate the cmux CLASSIC upload marker follows the receipt
         if: ${{ matrix.group == 'release-ios' }}

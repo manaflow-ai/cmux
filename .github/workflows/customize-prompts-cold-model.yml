@@ -35,6 +35,11 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # Allow the tree publication wait (30 min), GitHub retry budget (60 min), and cold agent (60 min).
     timeout-minutes: 165
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+      id-token: write # The tailnet join for the Claude login pool (.github/actions/claude-pool).
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -49,6 +54,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/gh_budget_wait.sh
             scripts/ci/gh_budget_wait.cjs
+            .github/actions/claude-pool/
           sparse-checkout-cone-mode: false
       - name: Wait through GitHub API rate limits and 5xx in this job
         working-directory: ${{ github.workspace }}
@@ -102,15 +108,25 @@ jobs:
           python3 tests/test_ext_prompt_palette.py
       - name: Install Claude Code
         run: npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.284
+      - name: Reach the Claude login pool
+        id: pool
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: ./.gh-budget-tooling/.github/actions/claude-pool
+        with:
+          oauth-client-id: ${{ vars.CLAUDE_POOL_TS_OIDC_CLIENT_ID }}
+          audience: ${{ vars.CLAUDE_POOL_TS_OIDC_AUDIENCE }}
       - name: Paste every prompt into a cold agent
         timeout-minutes: 60
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_POOL_URL: ${{ steps.pool.outputs.base-url }}
           PROMPTS: ${{ inputs.prompts }}
           MODEL: ${{ inputs.model || 'haiku' }}
         run: |
           set -uo pipefail
+          if [ -n "${CLAUDE_POOL_URL:-}" ]; then export ANTHROPIC_BASE_URL="$CLAUDE_POOL_URL" ANTHROPIC_AUTH_TOKEN=subrouter2; unset CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY; fi
           picks=()
           for name in $PROMPTS; do picks+=(--recipe "$name"); done
           python3 scripts/cmux-next/ext-recipe-cold-model.py --prompts --headless --json --model "$MODEL" "${picks[@]}" \

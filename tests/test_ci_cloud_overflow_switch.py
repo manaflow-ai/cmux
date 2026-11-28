@@ -1048,6 +1048,55 @@ class DeadLabelRescueTests(unittest.TestCase):
         self.rescue(actions)
         self.assertEqual(actions.calls, [("force-cancel", 500), ("rerun", 500)])
 
+    SEED_POOLS = {"_dead": {"blacksmith-6vcpu-macos-15": "2026-11-28T12:55:00Z"},
+                  "linux": "blacksmith-2vcpu-ubuntu-2404", "macos_15": "blacksmith-6vcpu-macos-15"}
+    SEED = {"status": "queued", "runner_name": None, "created_at": ago(70),
+            "labels": ["blacksmith-6vcpu-macos-15"], "name": "seed"}
+
+    def scheduled_runs(self) -> FakeActions:
+        runs = [{"id": 30, "status": "queued", "event": "schedule", "name": "Seed SwiftPM manifests",
+                 "created_at": ago(70), "run_attempt": 1},
+                {"id": 31, "status": "queued", "event": "pull_request", "name": "CI", "created_at": ago(70)},
+                {"id": 32, "status": "queued", "event": "schedule", "name": "Nightly build", "created_at": ago(70)},
+                {"id": 33, "status": "queued", "event": "schedule", "name": "Dev build", "created_at": ago(70)},
+                {"id": 34, "status": "queued", "event": "schedule", "name": "Cloud image promote",
+                 "created_at": ago(70)},
+                {"id": 35, "status": "in_progress", "event": "schedule", "name": "Sweep", "created_at": ago(70)}]
+        running = {**self.SEED, "status": "in_progress", "runner_name": "bs-1"}
+        jobs = {30: [self.SEED], 31: [self.SEED], 32: [self.SEED], 33: [self.SEED], 34: [self.SEED],
+                35: [self.SEED, running]}
+        return FakeActions(None, runs, jobs)
+
+    def test_a_scheduled_run_queued_on_a_dead_pooled_macos_label_is_re_run_once(self) -> None:
+        actions = self.scheduled_runs()
+        self.rescue(actions, self.SEED_POOLS)
+        # Only the scheduled seed: a PR run would queue on the same dead label again, nightly, dev and promote runs
+        # are protected, and a run with a running job is never cut.
+        self.assertEqual(actions.calls, [("force-cancel", 30), ("rerun", 30)])
+
+    def test_scheduled_dead_labels_need_a_mark_and_no_variable_naming_them(self) -> None:
+        self.assertEqual(switch.scheduled_dead_labels(self.SEED_POOLS, minutes=5), {"blacksmith-6vcpu-macos-15": 5})
+        self.assertEqual(switch.scheduled_dead_labels(self.SEED_POOLS, {"blacksmith-6vcpu-macos-15"}), {})
+        self.assertEqual(switch.scheduled_dead_labels({"macos_15": "blacksmith-6vcpu-macos-15"}), {})
+        self.assertEqual(switch.scheduled_dead_labels({"_dead": {"blacksmith-16vcpu-ubuntu-2404": "x"}}), {})
+
+    def test_a_listing_that_is_incomplete_leaves_a_scheduled_run_alone(self) -> None:
+        actions = self.scheduled_runs()
+        before = actions.jobs
+
+        def jobs(run_id: int, attempt: int | None = None) -> list[dict]:
+            if run_id == 30:
+                raise switch.GitHubError("incomplete (100 of 140 jobs)")
+            return before(run_id, attempt)
+
+        actions.jobs = jobs  # type: ignore[method-assign]
+        self.rescue(actions, self.SEED_POOLS)
+        self.assertEqual(actions.calls, [])
+
+    def test_the_seed_workflow_skips_while_its_label_is_marked_dead(self) -> None:
+        text = (ROOT / ".github/workflows/seed-swiftpm-manifests.yml").read_text(encoding="utf-8")
+        self.assertIn("!contains(toJSON(fromJSON(vars.RUNNER_POOLS || '{}')._dead), 'blacksmith-6vcpu-macos-15')", text)
+
     def test_a_macos_label_is_never_rescued(self) -> None:
         # MACOS_RUNNER_* variables, which no pool step moves, can still name it.
         self.assertNotIn("blacksmith-6vcpu-macos-26",
@@ -1217,9 +1266,11 @@ class DeadLabelRescueTests(unittest.TestCase):
         self.assertEqual(switch.stranded_labels({}), {})
         self.assertEqual(switch.stranded_labels({"_dead": {}}), {})
         # A dead mark keeps the probe's wait; a label a pool names is never stranded.
+        moved = switch.MOVED_MINUTES
         self.assertEqual(switch.stranded_labels(self.POOLS, minutes=5),
                          {"blacksmith-16vcpu-ubuntu-2404": 5, "blacksmith-4vcpu-ubuntu-2404": 5,
-                          "blacksmith-8vcpu-ubuntu-2404": switch.MOVED_MINUTES})
+                          "blacksmith-8vcpu-ubuntu-2404": moved, "blacksmith-12vcpu-macos-26": moved,
+                          "blacksmith-6vcpu-macos-15": moved, "blacksmith-6vcpu-macos-latest": moved})
         changes = {**self.DEAD_16, "name": "changes", "created_at": ago(360)}
         fresh = {**self.DEAD_16, "created_at": ago(10)}
         runs = [{"id": 44476854382, "status": "queued", "event": "pull_request", "name": "cmux-tui spec inventory",
@@ -1232,6 +1283,36 @@ class DeadLabelRescueTests(unittest.TestCase):
         # Named by a raw runner variable: nothing moves.
         actions = FakeActions(None, runs, {44476854382: [changes], 31: [fresh]})
         self.rescue(actions, pools, RAW_RUNNER_VARIABLES="LINUX_BUILD_RUNNER=blacksmith-16vcpu-ubuntu-2404\nX=\n")
+        self.assertEqual(actions.calls, [])
+
+    def test_a_macos_label_no_pool_or_variable_names_strands_its_jobs(self) -> None:
+        # 2026-11-27 23:4xZ: blacksmith-12vcpu-macos-26 held 18 queued jobs, oldest 238 min, 0 started in 1 h, while
+        # macos_26 and macos_26_large named 6 vCPU; this rescue listed only Linux sizes, so it never saw them.
+        pools = {"_dead": {}, "linux": "blacksmith-4vcpu-ubuntu-2404", "macos_15": "blacksmith-6vcpu-macos-15",
+                 "macos_26": "blacksmith-6vcpu-macos-26", "macos_26_large": "blacksmith-6vcpu-macos-26",
+                 "macos_latest": "blacksmith-6vcpu-macos-latest"}
+        moved = switch.MOVED_MINUTES
+        self.assertEqual({label: wait for label, wait in switch.stranded_labels(pools).items() if "macos" in label},
+                         {"blacksmith-12vcpu-macos-26": moved})
+        # A MACOS_RUNNER_* value that names it keeps it routed: a re-run would go back to it.
+        self.assertNotIn("blacksmith-12vcpu-macos-26",
+                         switch.stranded_labels(pools, {"blacksmith-12vcpu-macos-26"}))
+        # A RUNNER_POOLS value without the macOS pools (an older writer) strands no macOS label.
+        self.assertFalse([label for label in switch.stranded_labels({"linux": "blacksmith-4vcpu-ubuntu-2404"})
+                          if "macos" in label])
+        # A pool that moved to GitHub's macos-15 leaves Blacksmith's macOS 15 stranded.
+        hosted = {**pools, "macos_15": "macos-15"}
+        self.assertEqual(switch.stranded_labels(hosted).get("blacksmith-6vcpu-macos-15"), moved)
+        compile_job = {"status": "queued", "runner_name": None, "created_at": ago(238),
+                       "labels": ["blacksmith-12vcpu-macos-26"], "name": "cmux NEXT DEV Release compile"}
+        runs = [{"id": 46056807213, "status": "queued", "event": "workflow_dispatch", "name": "cmux NEXT DEV daily",
+                 "created_at": ago(238)}]
+        actions = FakeActions(None, runs, {46056807213: [compile_job]})
+        summary = self.rescue(actions, pools)
+        self.assertEqual(actions.calls, [("force-cancel", 46056807213), ("rerun", 46056807213)])
+        self.assertIn("blacksmith-12vcpu-macos-26 (30+ min)", summary)
+        actions = FakeActions(None, runs, {46056807213: [compile_job]})
+        self.rescue(actions, pools, MACOS_RUNNER_VARIABLES="MACOS_RUNNER_26_LARGE=blacksmith-12vcpu-macos-26\nX=\n")
         self.assertEqual(actions.calls, [])
 
     def test_a_run_stranded_for_hours_is_listed_past_the_newest_page(self) -> None:
@@ -1250,8 +1331,13 @@ class DeadLabelRescueTests(unittest.TestCase):
         import runner_pools  # noqa: E402
         step = WORKFLOW.read_text(encoding="utf-8").split("- name: Re-run runs stranded on a dead label", 1)[1]
         step = step.split("- name:", 1)[0]
-        listed = set(re.findall(r"^\s+([A-Z0-9_]+)=\$\{\{ vars\.\1 \}\}$", step, re.MULTILINE))
+        raw, macos = step.split("MACOS_RUNNER_VARIABLES: |", 1)
+        listed = set(re.findall(r"^\s+([A-Z0-9_]+)=\$\{\{ vars\.\1 \}\}$", raw, re.MULTILINE))
         self.assertEqual(listed, {*runner_pools.RAW_LABEL_VARS, *runner_pools.MIRRORS})
+        # The macOS picks a re-run would go back to, so a label they name is not stranded.
+        listed = set(re.findall(r"^\s+([A-Z0-9_]+)=\$\{\{ vars\.\1 \}\}$", macos, re.MULTILINE))
+        self.assertIn("MACOS_RUNNER_26_LARGE", listed)
+        self.assertTrue(all(name.startswith("MACOS_RUNNER_") for name in listed))
 
     def test_the_workflow_runs_it_after_the_pools_step(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")

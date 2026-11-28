@@ -87,6 +87,9 @@ UNGATED_BLACKSMITH_ALLOWED = {
     ("reload-build.yml", "macOS runner label to build on. Blacksmith (blacksmith-6vcpu-macos-26),"): (
         "description text of the runner input, not a value"
     ),
+    ("seed-swiftpm-manifests.yml", "if: github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/main' && !contains(toJSON(fromJSON(vars.RUNNER_POOLS || '{}')._dead), 'blacksmith-6vcpu-macos-15')"): (
+        "an `if:` that starts with the owner check and only names the label to read the dead-pool list, not a runs-on value"
+    ),
     ("ci-health-report.yml", "MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"): (
         "report text that prints the lane's effective label, not a runs-on value"
     ),

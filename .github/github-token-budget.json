@@ -290,6 +290,7 @@
     "tui-publish-pypi.yml: Download PyPI wheels": "baseline 2026-11-04",
     "tui-publish-pypi.yml: Download the generated third-party notices": "baseline 2026-11-04",
     "tui-publish-pypi.yml: Require successful verified artifact run": "polls (tests/test_ci_no_github_token_polling.py): a release, by hand: at most 24 reads",
+    "ui-proof-stale-sweep.yml: Turn stale pending into failure": "hourly: 1 GraphQL page per 100 open feat-cmux-next PRs, then one status POST per head pending past 6 h",
     "update-homebrew.yml: Check the signed macOS build job": "baseline 2026-11-04",
     "web-complexity-trusted.yml: Check complete current-base API scope": "baseline 2026-11-04",
     "web-complexity-trusted.yml: Merge pull request into its base for the trusted-file check": "baseline 2026-11-04"

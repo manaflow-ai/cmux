@@ -315,6 +315,70 @@ class DeadPools(unittest.TestCase):
         self.assertIn("RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}", text)
 
 
+class StalledPools(unittest.TestCase):
+    """hosted#1015/#1076: a starved Blacksmith label starts a job now and then, so RUNNER_POOLS never marks it dead,
+    and the seed queued there was replaced unstarted by every push (#63440's dead skip never fired)."""
+    LABEL = "blacksmith-6vcpu-macos-15"
+
+    def snapshot(self, now, age=5, **load):
+        import datetime as dt
+        row = {"queued": 3, "oldest_queued_minutes": 150, "running": 1, **load}
+        return {"generated_at": (now - dt.timedelta(minutes=age)).isoformat(), "pools": {self.LABEL: row},
+                # The measured case: it started a job two minutes before the snapshot, and still starved.
+                "label_started": {self.LABEL: (now - dt.timedelta(minutes=age + 2)).isoformat()}}
+
+    def now(self):
+        import datetime as dt
+        return dt.datetime(2026, 11, 28, 0, 22, tzinfo=dt.timezone.utc)
+
+    def test_an_occasionally_starting_starved_label_is_stalled_though_not_dead(self):
+        now = self.now()
+        found = seed_decide.stalled_pools(self.snapshot(now), [self.LABEL], now)
+        self.assertEqual(list(found), [self.LABEL])
+        self.assertIn("150 min", found[self.LABEL])
+        # The same truncated: a partial listing undercounts waits, so a stall it shows is real.
+        self.assertEqual(list(seed_decide.stalled_pools({**self.snapshot(now), "truncated": True}, [self.LABEL], now)),
+                         [self.LABEL])
+
+    def test_a_short_wait_a_stale_snapshot_an_owned_label_or_junk_shows_nothing(self):
+        now = self.now()
+        self.assertEqual(seed_decide.stalled_pools(self.snapshot(now, oldest_queued_minutes=2), [self.LABEL], now), {})
+        self.assertEqual(seed_decide.stalled_pools(self.snapshot(now, queued=0), [self.LABEL], now), {})
+        self.assertEqual(seed_decide.stalled_pools(self.snapshot(now, age=90), [self.LABEL], now), {})
+        self.assertEqual(seed_decide.stalled_pools(self.snapshot(now, queued="x"), [self.LABEL], now), {})
+        owned = {**self.snapshot(now), "pools": {"glaeda-std-xcode-26.6": {"queued": 9, "oldest_queued_minutes": 99}}}
+        self.assertEqual(seed_decide.stalled_pools(owned, ["glaeda-std-xcode-26.6"], now), {})
+        for junk in (None, {}, {"pools": 3}, {"pools": {}, "generated_at": "nope"}):
+            self.assertEqual(seed_decide.stalled_pools(junk, [self.LABEL], now), {}, junk)
+
+    def test_the_age_counts_toward_the_wait(self):
+        now = self.now()
+        self.assertIn(self.LABEL, seed_decide.stalled_pools(self.snapshot(now, age=8, oldest_queued_minutes=3),
+                                                            [self.LABEL], now))
+
+    def test_a_stalled_pool_is_skipped_and_its_lanes_but_not_a_dispatch(self):
+        kwargs = dict(api=Api([], {}), ancestors=lambda: [], stalled={self.LABEL: "3 queued"},
+                      fingerprint_of=lambda *_: "f", tier_of=lambda _: "near")
+        build, reasons = seed_decide.decide("push", REPO, [(self.LABEL, "X"), (f"{self.LABEL}@2", "X"), (LARGE, "Y")],
+                                            **kwargs)
+        self.assertEqual(build, [LARGE], reasons)
+        self.assertTrue(any(r.startswith(f"{self.LABEL}: its label is stalled (3 queued)") for r in reasons), reasons)
+        build, _ = seed_decide.decide("workflow_dispatch", REPO, [(self.LABEL, "X")], **kwargs)
+        self.assertEqual(build, [self.LABEL])
+
+    def test_fetch_never_fails_and_needs_a_token(self):
+        with unittest.mock.patch.dict(os.environ, {"GH_TOKEN": "", "GITHUB_TOKEN": ""}):
+            self.assertEqual(seed_decide.fetch_stalled(REPO, [self.LABEL]), {})
+        with unittest.mock.patch.dict(os.environ, {"GH_TOKEN": "t"}), \
+                unittest.mock.patch.object(seed_decide.pr_runner_pool.GitHub, "snapshot", side_effect=OSError("403")):
+            self.assertEqual(seed_decide.fetch_stalled(REPO, [self.LABEL]), {})
+        now = self.now()
+        with unittest.mock.patch.dict(os.environ, {"GH_TOKEN": "t"}), \
+                unittest.mock.patch.object(seed_decide.pr_runner_pool.GitHub, "snapshot",
+                                           return_value=self.snapshot(now)):
+            self.assertEqual(list(seed_decide.fetch_stalled(REPO, [self.LABEL, "glaeda-x"], now)), [self.LABEL])
+
+
 class Wiring(unittest.TestCase):
     def test_decide_uses_the_nearest_seed_with_enough_history(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/seed-derived-data.yml").read_text())
