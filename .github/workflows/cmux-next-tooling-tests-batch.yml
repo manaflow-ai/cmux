@@ -27,7 +27,9 @@ on:
 permissions: {}
 
 concurrency:
-  group: cmux-next-tooling-tests-batch${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || format('-{0}', github.run_id) }}
+  # A post-merge call (inputs.sha set) is keyed by its caller's run too: same-commit calls (a confirm round's red-1/red-2,
+  # back-to-back probes) evicted or cancelled each other, and each lost call was dispatched again (cmux runs 45988834788, 45997396504).
+  group: cmux-next-tooling-tests-batch${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || format('-{0}', github.run_id) }}${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}
   cancel-in-progress: false
 
 jobs:
@@ -199,7 +201,7 @@ jobs:
         if: ${{ format('{0}', vars.CI_TOOLING_SIDE_BY_SIDE) != '0' }}
         env:
           EVENT_NAME: ${{ github.event_name }}
-          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          FULL_CI: ${{ (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
           # The batch tests a merged tip: every finding warns.
           WARN_ONLY: --warn-only
         run: |
@@ -232,6 +234,14 @@ jobs:
         id: tt-tooling-tests-batch
         if: ${{ success() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-tooling-tests-batch ')) }}
         run: python3 tests/test_ci_tooling_tests_batch.py
+
+      # Every reused 'Pool mirror: Checkout' step survives an empty SPARSE and another job's sparse state (#61871): a bare
+      # reapply on a reused non-sparse .git failed rust workspaces 3 of 3 on #61289. ci-guards runs this file too, but
+      # ci-guards skips feat-cmux-next PRs, so it guarded none of the PRs that broke.
+      - name: A reused pool mirror checkout handles an empty SPARSE and another job's sparse state
+        id: tt-pool-checkout-reuse-sparse
+        if: ${{ success() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-pool-checkout-reuse-sparse ')) }}
+        run: python3 tests/test_ci_pool_checkout_reuse_sparse.py
 
       - name: A rebuilt cmux-tui commit reuses its earlier publication
         id: tt-cmux-tui-republish
@@ -359,7 +369,7 @@ jobs:
         if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-swift-test-coverage ')) }}
         env:
           EVENT_NAME: ${{ github.event_name }}
-          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          FULL_CI: ${{ (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
         run: |
           set -euo pipefail
           args=()
@@ -395,6 +405,11 @@ jobs:
         id: tt-app-crate-licenses
         if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-app-crate-licenses ')) }}
         run: python3 tests/test_app_crate_licenses.py
+
+      - name: The bench coverage map lists every bench and risky path (docs/benches/coverage-map.md)
+        id: tt-bench-coverage-map
+        if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-bench-coverage-map ')) }}
+        run: python3 -I tests/test_bench_coverage_map.py
 
       - name: The selector check's fleet step wrapper refuses other arguments (check-objc-selectors.sh)
         id: tt-objc-selectors-step
@@ -592,6 +607,14 @@ jobs:
         id: tt-tip-test-compile
         if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-tip-test-compile ')) }}
         run: python3 tests/test_ci_tip_test_compile.py
+
+      # The step table's rules (ci/steps.toml against the workflows it carries, pr-pipeline.yml, web_subareas.py). It ran
+      # only in ci-guards.yml's `ci` group, which a feat-cmux-next pull request skips (ci-guard-group runs on the push), so
+      # a tt- step with no shard line (#56816) and subarea paths with no step glob (#49458) landed and turned the base red.
+      - name: The step table's rules (test_ci_step_table.py)
+        id: tt-ci-step-table
+        if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-ci-step-table ')) }}
+        run: python3 tests/test_ci_step_table.py
 
       # What a later head of this pull request reuses (scripts/ci/tooling_reuse.py): the merge tree and the steps that
       # ran and passed here, failed run or not. Reused and skipped steps' outcome is skipped, so a pass never chains.
