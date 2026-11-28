@@ -7,9 +7,11 @@ import { act, Profiler, useCallback, useRef } from "react";
 import type { Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { MarkdownFieldHandle } from "../src/agent-session/acpmux/MarkdownField";
-import { MarkdownField } from "../src/agent-session/acpmux/MarkdownField";
-import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { MarkdownField } = await importWithDom(() => import("../src/agent-session/acpmux/MarkdownField"));
+const { proseMirrorGlobals } = await importWithDom(() => import("../src/agent-session/acpmux/promptFieldTesting"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -105,6 +107,9 @@ test("a streaming goal leaves the prompt editor and caret out of the render loop
   for (let turn = 0; turn < 200 && !handle.current; turn += 1)
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(handle.current).not.toBeNull();
+  // The editor settles over the mount's commits (two today: its first draw, then the handle's); the
+  // loop below counts only the commits a streaming goal and a key cause.
+  const mounted = commits;
 
   // This is the same work a running goal does: two snapshots can arrive between keystrokes. The
   // first render below carries the previous key's controlled value; the second carries only a
@@ -120,6 +125,6 @@ test("a streaming goal leaves the prompt editor and caret out of the render loop
   // The parent receives two goal updates and one controlled-value update per key. The controlled
   // updates are the only ones that should reach the editor; the goal-only updates must preserve the
   // same field and caret while they stream.
-  expect(commits).toBe(81);
+  expect(commits - mounted).toBe(80);
   expect(renderWork).toBeGreaterThan(0);
 });
