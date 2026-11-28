@@ -260,10 +260,10 @@ pub fn slots(side: f64, gap: f64, glyphs: &[Glyph]) -> Slots {
         if let Some(previous) = index.checked_sub(1).and_then(|i| edges.get(i)) {
             half = half.min(middle - previous);
         }
-        if glyphs.get(index + 1).is_some() {
-            if let Some(edge) = edges.get(index) {
-                half = half.min(edge - middle);
-            }
+        if glyphs.get(index + 1).is_some()
+            && let Some(edge) = edges.get(index)
+        {
+            half = half.min(edge - middle);
         }
         half = half.max(0.0);
         frames.push(Slot { x: middle - half, width: half * 2.0 });
