@@ -1005,12 +1005,44 @@ def work_machine(j):
 VM_EVENTS = frozenset({"vm_create", "vm_create_admission_unavailable", "vm_start"})
 VM_EVENT_MS = ("preMs", "recoverMs", "verifyImageMs", "createMs", "recoverAfterMs", "resizeMs", "recordMs", "memberMs",
                "providerTotalMs", "totalMs", "admitWaitMs", "admitQueueMs", "admitRetryAfterMs", "admitInFlight",
-               "admitQueued", "readMs", "startMs", "ownMs", "gateMs")
+               "admitQueued", "readMs", "startMs", "ownMs", "gateMs", "rateMs", "ownReadMs")
 # vm_start's fixed words: its route, and the VM's state before and after (workers/cmux-vm src/api.ts VmState).
 VM_START_ROUTES = ("start", "resume")
 VM_STATES = ("starting", "running", "pausing", "paused", "stopped", "unknown")
-VM_EVENT_BOOLS = ("ok", "recovered", "oversized", "meshAtCreate", "meshJoined")
+VM_EVENT_BOOLS = ("ok", "recovered", "oversized", "meshAtCreate", "meshJoined", "createCut")
 VM_ADMISSION_REASONS = ("queue_full", "wait_expired")
+# vm_create's cause of a provider send (cmux#65221 live-http.ts CallTrail): what the provider answered the create POST
+# (sendStatus, an HTTP status or "none"; sendError, "timeout" or "network" when nothing answered; sendMs), and for a 202
+# its background polls. failStatus/failKind/createCut are set only when the send failed. Without them a 45 s createMs
+# could not say whether the provider held the POST, accepted it and never finished, or refused it (cmuxterm-hq#37692).
+VM_SEND_INTS = ("sendMs", "polls", "pollFails", "lastPollStatus")
+VM_SEND_ERRORS = ("timeout", "network")
+VM_FAIL_KINDS = ("capacity_overloaded",)
+
+
+def http_status_or_none(v):
+    """An HTTP status (100-599), or the word "none"; anything else is dropped."""
+    if v == "none":
+        return v
+    n = base.typed(INT, v)
+    return n if n is not None and 100 <= n <= 599 else None
+
+
+def vm_send(send):
+    """vm_create's send block with only its fixed keys and bounded values; None when nothing is left."""
+    if not isinstance(send, dict):
+        return None
+    out = {}
+    status = http_status_or_none(send.get("sendStatus"))
+    if status is not None:
+        out["sendStatus"] = status
+    if send.get("sendError") in VM_SEND_ERRORS:
+        out["sendError"] = send["sendError"]
+    for k in VM_SEND_INTS:
+        v = base.typed(INT, send.get(k))
+        if v is not None:
+            out[k] = v
+    return out or None
 
 
 def vm_event(j):
@@ -1036,6 +1068,14 @@ def vm_event(j):
     timings = token_counts(j.get("providerTimingsMs"))
     if timings is not None:
         out["providerTimingsMs"] = timings
+    send = vm_send(j.get("send"))
+    if send is not None:
+        out["send"] = send
+    fail_status = http_status_or_none(j.get("failStatus"))
+    if fail_status is not None:
+        out["failStatus"] = fail_status
+    if j.get("failKind") in VM_FAIL_KINDS:
+        out["failKind"] = j["failKind"]
     return out
 
 
