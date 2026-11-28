@@ -125,7 +125,9 @@ HOSTED_DISPATCH_RUNS_ON = f"${{{{ github.repository_owner != 'manaflow-ai' && 'u
 CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
 CMUX_LINUX_JOBS = ("prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
                    "check-nightly-app-store-shelf",
-                   "check-nightly-webviews", "early-nightly-webviews")
+                   "check-nightly-webviews", "early-nightly-webviews",
+                   # The hedge's one-row-per-signer summary (#63757): reads run state only, no secret.
+                   "nightly-next-hedge-verdict")
 # A read-only lookup token a control may hold (#60803: quota-goblin's one-repo read token), job -> secrets.
 # None now: the Ghostty helper lookup, which held NIGHTLY_HELPER_LOOKUP_TOKEN here, takes decide's nightly-only route
 # (test_nightly_trusted_routing.py: no credential on cmux-linux, which pull request jobs share).
