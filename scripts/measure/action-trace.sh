@@ -7,6 +7,8 @@
 # ACTION-TRACE-BEGIN/END and one `ACTION-GAP name dur_us floor_us gap_us` line per span:
 #   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/action-trace.sh \
 #     --ref <sha> --artifact artifacts/action-trace.json [--arg=--burn=16]
+# From a lane VM, cmux-ci falls back to the broker, which runs a step only at an open PR's head: a ref of a merged
+# PR's branch is refused ("no open PR ... has head"), so measure a commit on feat-cmux-next or an open PR's head.
 # Options: --app=PATH (measure this app, nothing built), --build-at=SHA (build that commit's app with its own
 # reload.sh, scripts/measure/app-at-commit.sh), --native-arch, --derived-data=PATH, --config=NAME; the rest go
 # to the bench (--burn=N: N busy loops at default priority, the duress run).
