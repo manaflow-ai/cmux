@@ -312,6 +312,19 @@ pub trait Store: Send + Sync {
     ) -> Result<()> {
         self.scan_back(id, after, before, skip, visit)
     }
+    /// [`Store::scan_back_indexed`] for a read a strict scan follows (a log load's first read
+    /// back, `Hub::catch_up_locked`): a file store makes a segment's copy by reading every line,
+    /// so the strict scans take it instead of reading the segment again (`ReadBackMode::Checked`).
+    fn scan_back_checked(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_back_indexed(id, after, before, skip, visit)
+    }
     /// `scan_back` for a reader that wants only some records: a line `may_match(line, dir, kind)`
     /// is false for holds none of them, and a file store passes it without parsing it (a store
     /// that holds parsed records may ignore it; `visit` still decides on the rest). A subagent
@@ -1809,7 +1822,7 @@ impl Store for LocalStore {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_back_in(id, after, before, skip, None, visit, false)
+        self.scan_back_in(id, after, before, skip, None, visit, kind_index::ReadBackMode::Raw)
     }
 
     fn scan_back_matching(
@@ -1821,7 +1834,8 @@ impl Store for LocalStore {
         may_match: &dyn Fn(&[u8], &[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_back_in(id, after, before, skip, Some(may_match), visit, false)
+        let mode = kind_index::ReadBackMode::Raw;
+        self.scan_back_in(id, after, before, skip, Some(may_match), visit, mode)
     }
 
     fn scan_back_indexed(
@@ -1832,7 +1846,20 @@ impl Store for LocalStore {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_back_in(id, after, before, skip, None, visit, true)
+        let mode = kind_index::ReadBackMode::Indexed;
+        self.scan_back_in(id, after, before, skip, None, visit, mode)
+    }
+
+    fn scan_back_checked(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        let mode = kind_index::ReadBackMode::Checked;
+        self.scan_back_in(id, after, before, skip, None, visit, mode)
     }
 
     fn flush(&self) -> Result<()> {

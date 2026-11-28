@@ -964,6 +964,18 @@ impl Store for JournalStore {
             Store::scan_back_indexed(&self.inner.local, id, after, before, skip, visit)
         })
     }
+    fn scan_back_checked(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.inner.fenced(id, || {
+            Store::scan_back_checked(&self.inner.local, id, after, before, skip, visit)
+        })
+    }
     fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
         self.inner.fenced(id, || Store::tail_after(&self.inner.local, id, after))
     }
@@ -1150,7 +1162,12 @@ impl Store for JournalStore {
         // The writer's end at the handover is the seal's, not a failure (`WriterEnded`).
         self.inner.ending.store(true, std::sync::atomic::Ordering::SeqCst);
         let order = self.inner.order.lock_or_recover();
-        if let Err(error) = self.inner.journal.seal(SEAL_WAIT) {
+        // The last checkpoint covered everything (nothing frozen, no work left): the journal is
+        // handed over holding no record, so the next start reads none of it again (a clean
+        // restart read the newest segment whole, up to 64 MiB: cmux-next-degenerate-lab's god
+        // chat, 22.7 MB at store open for a 20.9 MB log).
+        let compacted = if order.frozen || order.has_work() { 0 } else { order.checkpointed };
+        if let Err(error) = self.inner.journal.seal_compacted(SEAL_WAIT, compacted) {
             tracing::error!("seal the event journal: {error}");
             // Fail closed: a frozen store's record may not be durable.
             let frozen = order.frozen;

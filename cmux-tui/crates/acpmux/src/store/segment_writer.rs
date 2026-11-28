@@ -220,8 +220,13 @@ impl LocalStore {
     /// leaves the copy to the first scan, as before.
     fn copy_filled_segment(&self, id: &str, index: u32) {
         let path = self.dir(id).join("events").join(format!("{index:06}.ndjson"));
-        let scan =
-            super::kind_index::Scan { kinds: &[], copied: true, strict: false, heads: false };
+        let scan = super::kind_index::Scan {
+            kinds: &[],
+            copied: true,
+            strict: false,
+            heads: false,
+            whole: false,
+        };
         if let Err(e) = self.scan_segment(id, index, &path, &scan, &mut |_| true) {
             tracing::debug!(session = %id, segment = index, "copying a filled segment failed: {e}");
         }
