@@ -21,6 +21,7 @@
 
 pub mod backdrop_switch;
 pub mod chrome_theme;
+pub mod control_rules;
 pub mod controller;
 pub mod custom;
 pub mod effective;
@@ -59,6 +60,7 @@ type AreaCall = fn(&str, &Value) -> Option<Result<Value, OpError>>;
 const AREAS: &[AreaCall] = &[
     backdrop_switch::call,
     chrome_theme::call,
+    control_rules::call,
     controller::call,
     custom::call,
     effective::call,
