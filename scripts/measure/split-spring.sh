@@ -56,7 +56,7 @@ for arg in "$@"; do
     *) args+=("$arg") ;;
   esac
 done
-args+=("--motion-kind=sideSlidePageHold=off")  # scratch arm: sshold off (instant-splits A/B via split-ab.sh)
+args+=("--motion-kind=sideSlidePageHold=on")  # scratch arm: sshold on (instant-splits A/B via split-ab.sh)
 tag="split-spring"
 out="$(pwd)/artifacts/split-spring"
 mkdir -p "$out"
