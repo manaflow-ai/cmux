@@ -126,6 +126,22 @@ class NightlyGateTest(unittest.TestCase):
                 self.assertTrue(steps[name].nightly)
                 self.assertEqual(ci_steps.nightly_gate_steps(ci_steps.load(), paths), [name])
 
+    def test_a_storage_key_change_runs_the_persisted_formats_registry_on_the_pr_and_the_landing_head(self) -> None:
+        # cmux#57474 (cmux.acpmux.modelPickerOrder), #62806 (two newTab keys) and #54956 added a webviews storage key
+        # with no [[storage_key]] entry and went red only on the feat-cmux-next push: under --pr-scope only the
+        # checker's own files routed the step.
+        t = ci_steps.load()
+        for paths in (["webviews/src/agent-session/acpmux/newtab/projectListStore.ts"],
+                      ["cmux-tui/crates/acpmux/src/store.rs"],
+                      ["Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift"]):
+            with self.subTest(paths=paths):
+                self.assertIn("persisted-formats", ci_steps.route(t, paths, pr_scope=True)["linux"])
+                self.assertIn("persisted-formats", ci_steps.nightly_gate_steps(t, paths))
+        self.assertNotIn("persisted-formats", ci_steps.route(t, ["docs/x.md"], pr_scope=True).get("linux", []))
+        run = t.steps["persisted-formats"].run
+        self.assertIn("new_red_only.sh", run)
+        self.assertIn("scripts/ci/new_red_only.sh", t.steps["persisted-formats"].inputs)
+
     def test_a_landing_head_runs_only_the_nightly_steps_it_routes(self) -> None:
         start, why, (jobs, only) = self.landing(["cmux-tui/Cargo.lock", "web/app/page.tsx"])
         self.assertIn("pr-pipeline.yml", start)
@@ -133,7 +149,7 @@ class NightlyGateTest(unittest.TestCase):
         self.assertIn("nightly gate", why["pr-pipeline.yml"])
         self.assertEqual(jobs, ["linux"])
         # page.tsx routes web-typecheck, a `land_gate` step; a plain web step (web-lint, web tests) stays off.
-        self.assertEqual(only, ["web-typecheck", "rust-notices"])
+        self.assertEqual(only, ["web-typecheck", "rust-notices", "phone-speed-icount"])
         start, why, (jobs, only) = self.landing(["scripts/cmux-next/generate-third-party-notices.sh"])
         self.assertIn("nightly gate: runs only rust-notices", why["pr-pipeline.yml"])
         self.assertEqual((jobs, only), (["linux"], ["rust-notices"]))
@@ -159,6 +175,42 @@ class NightlyGateTest(unittest.TestCase):
             start, _, (jobs, only) = self.landing(["first-party-apps/notes/src/app.ts"])
         self.assertNotIn("pr-pipeline.yml", start)
         self.assertEqual(only, [])
+
+    def test_phone_speed_runs_on_each_affected_landing_input(self) -> None:
+        for path in ("cmux-tui/crates/cmux-terminal-projection/src/lib.rs",
+                     "scripts/bench/phone-speed/src/main.rs", "cmux-tui/Cargo.lock"):
+            with self.subTest(path=path):
+                start, why, (jobs, only) = self.landing([path])
+                self.assertIn("pr-pipeline.yml", start)
+                self.assertIn("phone speed gate", why["pr-pipeline.yml"])
+                self.assertEqual(jobs, ["linux"])
+                expected = ["rust-notices", "phone-speed-icount"] if path.endswith("Cargo.lock") else ["phone-speed-icount"]
+                self.assertEqual(only, expected)
+
+    def test_phone_speed_does_not_depend_on_the_nightly_mirror_switch(self) -> None:
+        with mock.patch.dict(os.environ, {"CI_NIGHTLY_GATE_ON_LAND": "0", "CI_IOS_FAST_VERDICT": "0"}):
+            start, _, (jobs, only) = self.landing(["cmux-tui/crates/cmux-terminal-projection/src/lib.rs"])
+        self.assertIn("pr-pipeline.yml", start)
+        self.assertEqual((jobs, only), (["linux"], ["phone-speed-icount"]))
+
+    def test_phone_speed_keeps_the_full_tier_and_cheap_nonlanding_routes(self) -> None:
+        path = "scripts/bench/phone-speed/src/main.rs"
+        start, _, (jobs, only) = self.landing([path], decided=("full", "ready-to-land"))
+        self.assertIn("pr-pipeline.yml", start)
+        self.assertIn("linux", jobs)
+        self.assertEqual(only, [])
+        start, _, (jobs, only) = self.landing([path], decided=("cheap", "ready head before ready-to-land"))
+        self.assertNotIn("pr-pipeline.yml", start)
+        self.assertEqual((jobs, only), ([], []))
+
+    def test_phone_speed_unknown_paths_run_but_unrelated_paths_do_not(self) -> None:
+        start, _, (jobs, only) = self.landing(None)
+        self.assertIn("pr-pipeline.yml", start)
+        self.assertIn("linux", jobs)
+        self.assertIn("phone-speed-icount", only)
+        start, _, (jobs, only) = self.landing(["web/app/page.css"])
+        self.assertNotIn("pr-pipeline.yml", start)
+        self.assertEqual((jobs, only), ([], []))
 
     def test_the_workflows_pass_only_through(self) -> None:
         router = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())["jobs"]
@@ -416,6 +468,84 @@ class RunnerTest(unittest.TestCase):
 
 PR_CHECKS_STEPS = ("pr-size", "ui-review", "split-plan", "swift-logic", "review-link")
 
+
+
+class NamedStepTest(unittest.TestCase):
+    """`ci/run step NAME` (the build fleet's `cmux-ci run --step NAME`): one step by name, whatever routes it, with the
+    step's own verdict. Leo, 2026-11-19: "can't you... just be able to run whatever ci steps?"."""
+
+    TABLE = textwrap.dedent('''
+        [step.lint]
+        job = "linux"
+        inputs = ["never/matched/**"]
+        run = "echo lint-ran"
+        [step.other]
+        job = "linux"
+        run = "echo other-ran"
+        [step.warns]
+        job = "advisory"
+        blocks = false
+        class = "idle"
+        run = "echo warns-ran; exit 3"
+        [step.labelled]
+        job = "advisory"
+        blocks = false
+        class = "idle"
+        labels = ["perf"]
+        run = "echo labelled-ran"
+        [step.swift]
+        job = "mac"
+        run = "echo swift-ran"
+    ''')
+
+    def step(self, name: str, system: str = "Linux") -> tuple[int, str]:
+        t = table(self.TABLE, jobs='linux = "l"\nadvisory = "a"\nmac = "m"')
+        out = io.StringIO()
+        env = {k: v for k, v in os.environ.items() if k != "GITHUB_STEP_SUMMARY"}
+        old = os.environ
+        os.environ = env
+        try:
+            code = ci_steps.run_named_step(t, name, out, system=system)
+        finally:
+            os.environ = old
+        return code, out.getvalue()
+
+    def test_it_runs_only_that_step_whatever_its_inputs(self) -> None:
+        code, out = self.step("lint")
+        self.assertEqual(code, 0, out)
+        self.assertIn("lint-ran", out)
+        self.assertNotIn("other-ran", out)
+
+    def test_a_non_blocking_step_that_fails_fails_the_run(self) -> None:
+        code, out = self.step("warns")
+        self.assertEqual(code, 1, out)
+        self.assertIn("warns-ran", out)
+
+    def test_a_labelled_step_runs_as_its_label_event(self) -> None:
+        code, out = self.step("labelled")
+        self.assertEqual(code, 0, out)
+        self.assertIn("labelled-ran", out)
+
+    def test_an_unknown_step_is_refused_not_passed(self) -> None:
+        code, out = self.step("added-later")
+        self.assertEqual(code, 2, out)
+        self.assertIn("no step 'added-later'", out)
+
+    def test_a_step_of_another_os_is_refused(self) -> None:
+        code, out = self.step("swift", system="Linux")
+        self.assertEqual(code, 2, out)
+        self.assertIn("runs on Darwin", out)
+        self.assertNotIn("swift-ran", out)
+        code, out = self.step("swift", system="Darwin")
+        self.assertEqual(code, 0, out)
+        self.assertIn("swift-ran", out)
+        code, _ = self.step("lint", system="Darwin")
+        self.assertEqual(code, 2)
+
+    def test_the_fleet_entry_runs_ci_run_step(self) -> None:
+        script = (ROOT / "scripts" / "ci" / "run-step.sh").read_text()
+        self.assertIn('exec python3 ci/run step "$step"', script)
+        self.assertIn("^[a-z0-9][a-z0-9-]*$", script)
 
 
 class FakeStore:
@@ -954,9 +1084,12 @@ class SetupTest(unittest.TestCase):
             table('[step.a]\njob = "linux"\ntier = "later"\nrun = "true"')
 
     def test_the_tables_tool_steps_are_push_tier_and_the_workflow_runs_the_pr_tier(self) -> None:
+        # web-tests-affected (cmux#63314) is the one pull request tier step with a tool: it runs only the web tests a
+        # change reaches, so it exists for the pull request tier; a push runs every web test in the push-tier shards.
+        pr_tier_tool_steps = {"web-tests-affected"}
         for step in ci_steps.load().steps.values():
             if step.job == "linux" and step.needs:
-                self.assertEqual(step.tier, "push", step.name)
+                self.assertEqual(step.tier, "pr" if step.name in pr_tier_tool_steps else "push", step.name)
         text = (ROOT / ".github/workflows/pr-pipeline.yml").read_text()
         self.assertIn('ci/run run --job linux --tier "$TIER"', text)
         self.assertIn("CI_PR_PIPELINE_TIER", text)
