@@ -1150,8 +1150,9 @@ pub enum Command {
         /// conversation with its first prompt.
         #[arg(long)]
         harness: Option<String>,
-        /// The model the fork starts on (with --harness).
-        #[arg(long, short, requires = "harness")]
+        /// The model the fork runs, on --harness or the chat's own harness (MODEL or
+        /// HARNESS/MODEL). A model the harness does not list fails the fork.
+        #[arg(long, short)]
         model: Option<String>,
     },
     #[command(hide = true)]
