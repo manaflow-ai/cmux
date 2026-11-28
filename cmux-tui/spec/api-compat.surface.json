@@ -3212,7 +3212,40 @@
         "ty": "object"
       },
       "/entity/columns/*/dock": {
-        "ty": "json"
+        "ty": "object"
+      },
+      "/entity/columns/*/dock/allow_tabs": {
+        "ty": "boolean"
+      },
+      "/entity/columns/*/dock/edge": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bottom",
+          "left",
+          "right",
+          "top"
+        ]
+      },
+      "/entity/columns/*/dock/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "docked",
+          "overlay"
+        ]
+      },
+      "/entity/columns/*/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/entity/columns/*/dock/pinned": {
+        "ty": "boolean"
+      },
+      "/entity/columns/*/dock/role": {
+        "ty": "enum",
+        "values": [
+          "agent_chat"
+        ]
       },
       "/entity/columns/*/id": {
         "ty": "uint64",
@@ -3902,7 +3935,40 @@
         "ty": "object"
       },
       "/entity/columns/*/dock": {
-        "ty": "json"
+        "ty": "object"
+      },
+      "/entity/columns/*/dock/allow_tabs": {
+        "ty": "boolean"
+      },
+      "/entity/columns/*/dock/edge": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bottom",
+          "left",
+          "right",
+          "top"
+        ]
+      },
+      "/entity/columns/*/dock/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "docked",
+          "overlay"
+        ]
+      },
+      "/entity/columns/*/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/entity/columns/*/dock/pinned": {
+        "ty": "boolean"
+      },
+      "/entity/columns/*/dock/role": {
+        "ty": "enum",
+        "values": [
+          "agent_chat"
+        ]
       },
       "/entity/columns/*/id": {
         "ty": "uint64",
@@ -4592,7 +4658,40 @@
         "ty": "object"
       },
       "/entity/columns/*/dock": {
-        "ty": "json"
+        "ty": "object"
+      },
+      "/entity/columns/*/dock/allow_tabs": {
+        "ty": "boolean"
+      },
+      "/entity/columns/*/dock/edge": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bottom",
+          "left",
+          "right",
+          "top"
+        ]
+      },
+      "/entity/columns/*/dock/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "docked",
+          "overlay"
+        ]
+      },
+      "/entity/columns/*/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/entity/columns/*/dock/pinned": {
+        "ty": "boolean"
+      },
+      "/entity/columns/*/dock/role": {
+        "ty": "enum",
+        "values": [
+          "agent_chat"
+        ]
       },
       "/entity/columns/*/id": {
         "ty": "uint64",
@@ -5296,7 +5395,40 @@
         "ty": "object"
       },
       "/entity/columns/*/dock": {
-        "ty": "json"
+        "ty": "object"
+      },
+      "/entity/columns/*/dock/allow_tabs": {
+        "ty": "boolean"
+      },
+      "/entity/columns/*/dock/edge": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bottom",
+          "left",
+          "right",
+          "top"
+        ]
+      },
+      "/entity/columns/*/dock/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "docked",
+          "overlay"
+        ]
+      },
+      "/entity/columns/*/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/entity/columns/*/dock/pinned": {
+        "ty": "boolean"
+      },
+      "/entity/columns/*/dock/role": {
+        "ty": "enum",
+        "values": [
+          "agent_chat"
+        ]
       },
       "/entity/columns/*/id": {
         "ty": "uint64",
@@ -8047,7 +8179,40 @@
         "ty": "object"
       },
       "/entity/screens/*/columns/*/dock": {
-        "ty": "json"
+        "ty": "object"
+      },
+      "/entity/screens/*/columns/*/dock/allow_tabs": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/edge": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bottom",
+          "left",
+          "right",
+          "top"
+        ]
+      },
+      "/entity/screens/*/columns/*/dock/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "docked",
+          "overlay"
+        ]
+      },
+      "/entity/screens/*/columns/*/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/pinned": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/role": {
+        "ty": "enum",
+        "values": [
+          "agent_chat"
+        ]
       },
       "/entity/screens/*/columns/*/id": {
         "ty": "uint64",
@@ -8879,7 +9044,40 @@
         "ty": "object"
       },
       "/entity/screens/*/columns/*/dock": {
-        "ty": "json"
+        "ty": "object"
+      },
+      "/entity/screens/*/columns/*/dock/allow_tabs": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/edge": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bottom",
+          "left",
+          "right",
+          "top"
+        ]
+      },
+      "/entity/screens/*/columns/*/dock/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "docked",
+          "overlay"
+        ]
+      },
+      "/entity/screens/*/columns/*/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/pinned": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/role": {
+        "ty": "enum",
+        "values": [
+          "agent_chat"
+        ]
       },
       "/entity/screens/*/columns/*/id": {
         "ty": "uint64",
@@ -9711,7 +9909,40 @@
         "ty": "object"
       },
       "/entity/screens/*/columns/*/dock": {
-        "ty": "json"
+        "ty": "object"
+      },
+      "/entity/screens/*/columns/*/dock/allow_tabs": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/edge": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bottom",
+          "left",
+          "right",
+          "top"
+        ]
+      },
+      "/entity/screens/*/columns/*/dock/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "docked",
+          "overlay"
+        ]
+      },
+      "/entity/screens/*/columns/*/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/pinned": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/role": {
+        "ty": "enum",
+        "values": [
+          "agent_chat"
+        ]
       },
       "/entity/screens/*/columns/*/id": {
         "ty": "uint64",
@@ -10543,7 +10774,40 @@
         "ty": "object"
       },
       "/entity/screens/*/columns/*/dock": {
-        "ty": "json"
+        "ty": "object"
+      },
+      "/entity/screens/*/columns/*/dock/allow_tabs": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/edge": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bottom",
+          "left",
+          "right",
+          "top"
+        ]
+      },
+      "/entity/screens/*/columns/*/dock/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "docked",
+          "overlay"
+        ]
+      },
+      "/entity/screens/*/columns/*/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/pinned": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/role": {
+        "ty": "enum",
+        "values": [
+          "agent_chat"
+        ]
       },
       "/entity/screens/*/columns/*/id": {
         "ty": "uint64",
@@ -11375,7 +11639,40 @@
         "ty": "object"
       },
       "/entity/screens/*/columns/*/dock": {
-        "ty": "json"
+        "ty": "object"
+      },
+      "/entity/screens/*/columns/*/dock/allow_tabs": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/edge": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bottom",
+          "left",
+          "right",
+          "top"
+        ]
+      },
+      "/entity/screens/*/columns/*/dock/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "docked",
+          "overlay"
+        ]
+      },
+      "/entity/screens/*/columns/*/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/pinned": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/role": {
+        "ty": "enum",
+        "values": [
+          "agent_chat"
+        ]
       },
       "/entity/screens/*/columns/*/id": {
         "ty": "uint64",
@@ -12185,7 +12482,40 @@
         "ty": "object"
       },
       "/entity/screens/*/columns/*/dock": {
-        "ty": "json"
+        "ty": "object"
+      },
+      "/entity/screens/*/columns/*/dock/allow_tabs": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/edge": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bottom",
+          "left",
+          "right",
+          "top"
+        ]
+      },
+      "/entity/screens/*/columns/*/dock/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "docked",
+          "overlay"
+        ]
+      },
+      "/entity/screens/*/columns/*/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/pinned": {
+        "ty": "boolean"
+      },
+      "/entity/screens/*/columns/*/dock/role": {
+        "ty": "enum",
+        "values": [
+          "agent_chat"
+        ]
       },
       "/entity/screens/*/columns/*/id": {
         "ty": "uint64",
@@ -24518,7 +24848,40 @@
         "ty": "object"
       },
       "/data/changed/*/screens/*/columns/*/dock": {
-        "ty": "json"
+        "ty": "object"
+      },
+      "/data/changed/*/screens/*/columns/*/dock/allow_tabs": {
+        "ty": "boolean"
+      },
+      "/data/changed/*/screens/*/columns/*/dock/edge": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bottom",
+          "left",
+          "right",
+          "top"
+        ]
+      },
+      "/data/changed/*/screens/*/columns/*/dock/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "docked",
+          "overlay"
+        ]
+      },
+      "/data/changed/*/screens/*/columns/*/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/data/changed/*/screens/*/columns/*/dock/pinned": {
+        "ty": "boolean"
+      },
+      "/data/changed/*/screens/*/columns/*/dock/role": {
+        "ty": "enum",
+        "values": [
+          "agent_chat"
+        ]
       },
       "/data/changed/*/screens/*/columns/*/id": {
         "ty": "uint64",
@@ -25396,7 +25759,40 @@
         "ty": "object"
       },
       "/data/workspaces/*/screens/*/columns/*/dock": {
-        "ty": "json"
+        "ty": "object"
+      },
+      "/data/workspaces/*/screens/*/columns/*/dock/allow_tabs": {
+        "ty": "boolean"
+      },
+      "/data/workspaces/*/screens/*/columns/*/dock/edge": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bottom",
+          "left",
+          "right",
+          "top"
+        ]
+      },
+      "/data/workspaces/*/screens/*/columns/*/dock/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "docked",
+          "overlay"
+        ]
+      },
+      "/data/workspaces/*/screens/*/columns/*/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/data/workspaces/*/screens/*/columns/*/dock/pinned": {
+        "ty": "boolean"
+      },
+      "/data/workspaces/*/screens/*/columns/*/dock/role": {
+        "ty": "enum",
+        "values": [
+          "agent_chat"
+        ]
       },
       "/data/workspaces/*/screens/*/columns/*/id": {
         "ty": "uint64",
