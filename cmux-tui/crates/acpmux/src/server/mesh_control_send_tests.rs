@@ -107,7 +107,7 @@ async fn a_start_rides_out_a_hub_that_fails_to_answer() {
     };
     let until = tokio::time::Instant::now() + Duration::from_secs(10);
     let settled = settled(&hub, receipt("leased", None), until).await.unwrap();
-    let pending = started(settled, "lane-47", Some("w"), "k").unwrap_err();
+    let pending = started(settled, "host-a", Some("w"), "k").unwrap_err();
     assert_eq!(pending.data.unwrap()["reason"], "mesh.start_pending");
 }
 
@@ -125,14 +125,14 @@ fn a_hub_503_is_retryable() {
 /// hub answers with its session; once it settled, the next `new` is a new start.
 #[test]
 fn a_new_sent_again_resends_its_unsettled_start() {
-    let slot = unsettled::Slot::new(Some("caller-a"), "lane-47", "worker-unsettled");
+    let slot = unsettled::Slot::new(Some("caller-a"), "host-a", "worker-unsettled");
     assert_eq!(slot.key(), None);
-    let pending = started(receipt("leased", None), "lane-47", None, "k").map(|_| json!({}));
+    let pending = started(receipt("leased", None), "host-a", None, "k").map(|_| json!({}));
     slot.note("new:key-1", &pending);
     assert_eq!(slot.key().as_deref(), Some("new:key-1"));
-    let other = unsettled::Slot::new(Some("caller-b"), "lane-47", "worker-unsettled");
+    let other = unsettled::Slot::new(Some("caller-b"), "host-a", "worker-unsettled");
     assert_eq!(other.key(), None);
-    let refused = started(receipt("refused", Some("no")), "lane-47", None, "k").map(|_| json!({}));
+    let refused = started(receipt("refused", Some("no")), "host-a", None, "k").map(|_| json!({}));
     slot.note("new:key-1", &refused);
     assert_eq!(slot.key(), None);
     slot.note("new:key-2", &pending);

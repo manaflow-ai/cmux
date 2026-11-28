@@ -230,7 +230,7 @@ async fn start_through(
 /// passes.
 /// A hub that fails to answer for a while (a 503 `mesh.unavailable`) is asked again until
 /// `until`: the start may already be running there, so one failed read is not its answer.
-/// Before, the first failed read failed the `new` although the session started (fs-agent-lane-47,
+/// Before, the first failed read failed the `new` although the session started (a lane host,
 /// 2026-11-28: a caller's retries left 8 idle duplicates).
 async fn settled(
     mesh: &dyn crate::mesh::MeshHub,
