@@ -361,6 +361,7 @@ jobs:
           UNSIGNED_ATTEMPT: ${{ inputs.nightly_next_unsigned_attempt }}
           LOOP_RETRY: ${{ inputs.nightly_next_loop_retry }}
           NIGHTLY_NEXT_ONE_JOB: ${{ vars.NIGHTLY_NEXT_ONE_JOB || '' }}
+          NIGHTLY_NEXT_SKIP_HOT_APPLY: ${{ vars.NIGHTLY_NEXT_SKIP_HOT_APPLY || '' }}
           CONTINUE_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && 'true' || 'false' }}
           REPUBLISH_RUN: ${{ inputs.nightly_next_republish_run }}
           REPUBLISH_ATTEMPT: ${{ inputs.nightly_next_republish_attempt }}
@@ -669,9 +670,15 @@ jobs:
             // schedule still publishes main HEAD as a backstop.
             let unchangedBuildInputs = false;
             let buildInputReason = null;
+            // nightly-next (default off: repo variable NIGHTLY_NEXT_SKIP_HOT_APPLY=1) skips the signed
+            // rebuild when every change since the published commit is hot-apply only (live_apply.py:
+            // no-app or web-live). A push to nightly-next also runs cmux-next-web-bundle-publish, which
+            // signs the `nightly` web update pointer, so the running NIGHTLY takes the web change
+            // without a new app, and the signer stays free for a build that needs it.
+            const nextHotApplySkip = isNextRef && process.env.NIGHTLY_NEXT_SKIP_HOT_APPLY === '1';
             if (
               shouldBuild &&
-              isMainRef &&
+              (isMainRef || nextHotApplySkip) &&
               nightlySha &&
               !forceBuild &&
               !buildOnly &&
@@ -703,6 +710,23 @@ jobs:
                   files.length > 0 &&
                   files.length < 300
                 ) {
+                  if (nextHotApplySkip) {
+                    // A rename is a delete of the old path and an add of the new one.
+                    const lines = files.flatMap((file) => [
+                      `${file.status === 'removed' ? 'D' : file.status === 'added' || file.previous_filename ? 'A' : 'M'}\t${file.filename}`,
+                      ...(file.previous_filename ? [`D\t${file.previous_filename}`] : []),
+                    ]);
+                    const verdict = await exec.getExecOutput(
+                      'python3',
+                      ['scripts/cmux-next/live_apply.py', '--paths-from', '-'],
+                      { input: Buffer.from(`${lines.join('\n')}\n`) },
+                    );
+                    const decision = JSON.parse(verdict.stdout.trim());
+                    unchangedBuildInputs = decision.hot_apply_only === true;
+                    buildInputReason = unchangedBuildInputs
+                      ? `hot-apply only (${decision.verdict}, ${files.length} files): web ships via the signed nightly web update pointer`
+                      : `needs a new app (${decision.verdict})`;
+                  } else {
                   const paths = files.flatMap((file) =>
                     [file.filename, file.previous_filename].filter(Boolean));
                   const classified = await exec.getExecOutput(
@@ -713,6 +737,7 @@ jobs:
                   const decision = JSON.parse(classified.stdout.trim());
                   unchangedBuildInputs = decision.build_inputs_changed === false;
                   buildInputReason = decision.reason;
+                  }
                 }
               } catch (error) {
                 core.warning(`Could not prove the Nightly build inputs unchanged; building: ${error.message}`);
