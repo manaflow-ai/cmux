@@ -5,7 +5,7 @@ use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use super::{Backoff, Worker, bind_retry_wait};
+use super::{Backoff, Worker, bind_retry_after_resume, bind_retry_wait};
 use crate::cloud::wire::{AGENT_SOCKET, DAEMON_INFO_FILE, DESKTOP_CAPABILITY, DESKTOP_SOCKET_UNIT};
 use crate::config::Paths;
 
@@ -303,4 +303,16 @@ fn a_bind_the_network_change_failed_retries_at_once_and_keeps_its_backoff() {
     // The backoff did not grow: the first ordinary failure still waits about its 2 s base.
     let ordinary = bind_retry_wait(&mut backoff, false);
     assert!((1_000..=4_000).contains(&ordinary), "first ordinary wait {ordinary} ms");
+}
+
+/// A machine restored from a snapshot whose bind had failed (its clock was the snapshot's, or
+/// its network was not up) slept the bind's backoff, up to ten minutes on the monotonic clock
+/// the stop froze, until a person stepped its clock by hand. The resume retries it at once.
+#[test]
+fn a_resume_retries_a_waiting_bind_at_once() {
+    assert_eq!(bind_retry_after_resume(false, Some(600_000), 1_000), Some(1_000));
+    // Nothing waiting, a retry already due, or a bound machine: unchanged.
+    assert_eq!(bind_retry_after_resume(false, None, 1_000), None);
+    assert_eq!(bind_retry_after_resume(false, Some(1_000), 1_000), None);
+    assert_eq!(bind_retry_after_resume(true, Some(600_000), 1_000), None);
 }
