@@ -16,8 +16,7 @@ const FIELDS: &str =
 /// How much fetched context (failing log tails, review threads) one action's prompt carries. It
 /// refuses nothing: past it the prompt keeps what fits and says what it left out, and the action runs.
 const PROMPT_LIMIT: usize = 64 * 1024;
-const OMITTED: &str =
-    "\n[The rest of the context is left out: it passes this prompt's 64 KiB budget. Read it with gh.]\n";
+const OMITTED: &str = "\n[The rest of the context is left out: it passes this prompt's 64 KiB budget. Read it with gh.]\n";
 
 fn text<'a>(v: &'a Value, key: &str) -> &'a str {
     v.get(key).and_then(Value::as_str).unwrap_or_default()
@@ -137,11 +136,8 @@ fn append(prompt: &mut String, part: &str) -> bool {
         prompt.push_str(part);
         return true;
     }
-    let mut cut = room.saturating_sub(OMITTED.len());
-    while !part.is_char_boundary(cut) {
-        cut -= 1;
-    }
-    prompt.push_str(&part[..cut]);
+    let cut = part.floor_char_boundary(room.saturating_sub(OMITTED.len()));
+    prompt.push_str(part.get(..cut).unwrap_or_default());
     prompt.push_str(OMITTED);
     false
 }
@@ -152,11 +148,8 @@ fn log_tail(log: &str, max: usize) -> String {
     if log.len() <= max {
         return log.to_owned();
     }
-    let mut start = log.len() - max.saturating_sub(CUT.len());
-    while !log.is_char_boundary(start) {
-        start += 1;
-    }
-    format!("{CUT}{}", &log[start..])
+    let start = log.ceil_char_boundary(log.len().saturating_sub(max.saturating_sub(CUT.len())));
+    format!("{CUT}{}", log.get(start..).unwrap_or_default())
 }
 
 async fn failed_logs(cwd: &Path, pr: &Value, repo: &str) -> Result<String, RpcError> {
