@@ -114,7 +114,7 @@ final class ExternalOpenController {
     func perform(_ route: ExternalOpenRoute) {
         let windows = services.windows
         guard let controller = windows.active else {
-            pending.append(route)
+            park(route, why: "no window")
             if windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
             return
         }
@@ -130,13 +130,13 @@ final class ExternalOpenController {
         if case .deepLink = route { leavesHome = false } else { leavesHome = true }
         let onHome = { leavesHome && controller.showsHomeWorkspace }
         if controller.focusedPane == nil || onHome(), !controller.showOpenableWorkspace() { createWorkspaceForPending(in: controller) }
-        guard let pane = controller.focusedPane, !onHome() else { return pending.append(route) }
+        guard let pane = controller.focusedPane, !onHome() else { return park(route, why: onHome() ? "home shown" : "no pane") }
         // Routes parked for a pane run first, in order, once one can take them: a cold launch's open
         // that missed the content flushes was otherwise parked for good (screenshot-into-chat "lost").
         // Not from Home, where a parked non-link route would park again under a deep link.
         if !pending.isEmpty, !controller.showsHomeWorkspace {
             let routes = pending + [route]
-            pending = []
+            pending = []; chatAttach.parked(files: nil)
             return routes.forEach(perform)
         }
         if case .deepLink(let url) = route {
@@ -159,9 +159,9 @@ final class ExternalOpenController {
         if !services.environment.noActivate { NSApp.activate() }
     }
 
-    /// A workspace being created to hold what opens while a window lists
-    /// only Home; its content runs the queue (`flush`).
+    /// A workspace being created to hold what opens while a window lists only Home; its content runs the queue (`flush`).
     private var creatingWorkspace = false
+    private func park(_ route: ExternalOpenRoute, why: String) { pending.append(route); chatAttach.parked(files: route.attachedFiles, why: why) } // logged, read back
 
     private func createWorkspaceForPending(in controller: WindowController) {
         guard !creatingWorkspace, case let windows = services.windows else { return }
@@ -187,7 +187,7 @@ final class ExternalOpenController {
     func flush() {
         guard !pending.isEmpty, let controller = services.windows.active else { return }
         guard controller.focusedPane != nil else { return _ = controller.showOpenableWorkspace() }
-        let routes = pending; pending = []; routes.forEach(perform)
+        let routes = pending; pending = []; chatAttach.parked(files: nil); routes.forEach(perform)
     }
 
     private func deliver(_ route: ExternalOpenRoute, to pane: PaneController) {
