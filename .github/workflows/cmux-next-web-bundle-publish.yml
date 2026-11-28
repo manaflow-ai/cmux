@@ -487,6 +487,9 @@ jobs:
             /.github/actions/setup-cmux-tui-rust/
             /.github/actions/runner-cargo-home/
             /cmux-tui/
+            # cmux-tui's bin crate links the cmux VM CLI by path, and cargo loads every member
+            # (tests/test_ci_sparse_cargo_path_deps.py).
+            /workers/cmux-vm/cli/
             /scripts/cmux-next/
             /.gitmodules
 
