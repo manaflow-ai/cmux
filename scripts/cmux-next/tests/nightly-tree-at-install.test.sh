@@ -471,6 +471,27 @@ for mode in ok skipped none failed running unreadable; do
   esac
 done
 
+# Run 46105117438 (2026-11-28): every runs read failed, each reset the idle count, and the
+# fallback wait ran its full limit on a signing Mac while the next NIGHTLY queued for the slot.
+# With CMUX_TUI_TREE_CLIENT_UNREAD_CHECKS=2 the second unreadable check ends it; unset, it waits on.
+reset_cdn
+started=$(date +%s); status=0
+out=$(cd "$TMP/src" && env "${env_common[@]}" GITHUB_API_URL="file://$TMP/no-api" CMUX_TUI_TREE_CLIENT_WAIT_SECONDS=600 \
+  CMUX_TUI_TREE_CLIENT_POLL_SECONDS=20 CMUX_TUI_TREE_CLIENT_RUN_CHECK_SECONDS=120 CMUX_TUI_TREE_CLIENT_UNREAD_CHECKS=2 \
+  bash scripts/cmux-next/await-tree-client.sh "$key" "$own" "$app" 2>"$TMP/err") || status=$?
+took=$(( $(date +%s) - started ))
+check '[[ $status == 1 && $took -ge 120 && $took -lt 200 ]] && grep -q "could not be read 2 times in a row" "$TMP/err"' \
+  "two unreadable runs checks end a bounded wait (took $took s, run 46105117438)"
+client_unread() { started=$(date +%s); status=0
+  out=$(cd "$TMP/src" && env "${env_common[@]}" GITHUB_API_URL="file://$TMP/no-api" CMUX_TUI_TREE_CLIENT_WAIT_SECONDS=600 \
+    CMUX_TUI_TREE_CLIENT_POLL_SECONDS=20 CMUX_TUI_TREE_CLIENT_RUN_CHECK_SECONDS=120 "$@" \
+    bash scripts/cmux-next/await-tree-client.sh "$key" "$own" "$app" 2>"$TMP/err") || status=$?
+  took=$(( $(date +%s) - started )); }
+client_unread
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "waiting on" "$TMP/err"' "unset, unreadable runs checks keep waiting to the limit (took $took s)"
+client_unread CMUX_TUI_TREE_CLIENT_UNREAD_CHECKS=x
+check '[[ $status == 2 ]]' "an unread check count that is not a whole number is refused"
+
 # The bundle step's choice (app-bundle-cmux-tui-client.sh), with the installer and the wait stubbed:
 # STUB_EXACT is what one look (WAIT_SECONDS=0) finds; STUB_WAIT_EXACT what a bounded wait (a set
 # WAIT_SECONDS) finds; STUB_LATE_EXACT what only the unbounded default wait finds; STUB_INSTALL_FAIL a
@@ -479,7 +500,7 @@ B="$TMP/bundle"; mkdir -p "$B/scripts/ci/nightly-steps" "$B/scripts/cmux-next" "
 cp "$ROOT/scripts/ci/nightly-steps/app-bundle-cmux-tui-client.sh" "$B/scripts/ci/nightly-steps/"
 cat > "$B/scripts/cmux-next/await-tree-client.sh" <<'STUB'
 #!/usr/bin/env bash
-echo "await wait=${CMUX_TUI_TREE_CLIENT_WAIT_SECONDS:-default} $*" >> "$STUB_LOG"
+echo "await wait=${CMUX_TUI_TREE_CLIENT_WAIT_SECONDS:-default}${CMUX_TUI_TREE_CLIENT_UNREAD_CHECKS:+ unread=$CMUX_TUI_TREE_CLIENT_UNREAD_CHECKS} $*" >> "$STUB_LOG"
 w="${CMUX_TUI_TREE_CLIENT_WAIT_SECONDS:-default}"
 if [[ "$w" == 0 ]]; then [[ -n "${STUB_EXACT:-}" ]] && { echo "$STUB_EXACT"; exit 0; }; exit 1; fi
 found="${STUB_EXACT:-${STUB_WAIT_EXACT:-}}"
@@ -510,7 +531,7 @@ bundle STUB_EXACT="$own"
 check '[[ $status == 0 ]] && grep -qx "commit=$own" "$TMP/bundle-out" && grep -qx "key=$key" "$TMP/bundle-out" && grep -qx "tree=exact" "$TMP/bundle-out" && grep -q "^await wait=1500 " "$TMP/bundle-log" && ! grep -q "await wait=default" "$TMP/bundle-log"' \
   "the bundle installs the build commit's tree when it is already published"
 bundle
-check '[[ $status == 0 ]] && grep -qx "commit=$base" "$TMP/bundle-out" && grep -qx "key=$base_key" "$TMP/bundle-out" && grep -qx "tree=fallback" "$TMP/bundle-out" && grep -qx "version build-universal/Build/Products/Release/cmux.app $base $base_key" "$TMP/bundle-log" && grep -q "^await wait=1500 " "$TMP/bundle-log" && ! grep -q "await wait=default" "$TMP/bundle-log" && grep -q "bundling the newest published tree" "$TMP/bundle-stdout"' \
+check '[[ $status == 0 ]] && grep -qx "commit=$base" "$TMP/bundle-out" && grep -qx "key=$base_key" "$TMP/bundle-out" && grep -qx "tree=fallback" "$TMP/bundle-out" && grep -qx "version build-universal/Build/Products/Release/cmux.app $base $base_key" "$TMP/bundle-log" && grep -q "^await wait=1500 unread=2 " "$TMP/bundle-log" && ! grep -q "await wait=default" "$TMP/bundle-log" && grep -q "bundling the newest published tree" "$TMP/bundle-stdout"' \
   "a tree still unpublished after the bounded wait bundles the fallback tree, and says which"
 # Run 45825165164 (cec1e3c, 2026-11-26): the tip's tree published 24 min after the one look, and the
 # NIGHTLY shipped a client 75 commits behind its app. A tree that publishes within the bounded wait ships.
@@ -523,7 +544,7 @@ check '[[ $status == 0 ]] && grep -qx "tree=fallback" "$TMP/bundle-out" && grep 
 bundle CMUX_TUI_TREE_CLIENT_FALLBACK_WAIT_SECONDS=soon
 check '[[ $status == 2 ]]' "a fallback wait that is not whole seconds is refused"
 bundle TREE_FALLBACK="" STUB_WAIT_EXACT="$app"
-check '[[ $status == 0 ]] && grep -qx "commit=$app" "$TMP/bundle-out" && grep -qx "tree=exact" "$TMP/bundle-out" && grep -q "await wait=default" "$TMP/bundle-log"' \
+check '[[ $status == 0 ]] && grep -qx "commit=$app" "$TMP/bundle-out" && grep -qx "tree=exact" "$TMP/bundle-out" && grep -q "await wait=default " "$TMP/bundle-log" && ! grep -q "unread=" "$TMP/bundle-log"' \
   "with no fallback tree the bundle waits for the build commit's tree as before"
 bundle CMUX_TUI_TREE_CLIENT_FALLBACK=off STUB_WAIT_EXACT="$app"
 check '[[ $status == 0 ]] && grep -qx "tree=exact" "$TMP/bundle-out" && ! grep -q "await wait=0 " "$TMP/bundle-log"' "CMUX_TUI_TREE_CLIENT_FALLBACK=off keeps the wait"
