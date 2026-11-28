@@ -197,6 +197,14 @@ class RecordTest(unittest.TestCase):
             self.assertFalse(rec["visual"]["diffed"])
 
 
+    def test_a_look_that_built_the_swift_app_records_mac_flows_the_app_gate_reads(self) -> None:
+        plan = {"layers": ["web"], "needs_build": True, "build": {"Swift": ["Packages/macOS/A/Sources/B/C.swift"]}}
+        self.assertEqual(u.suite_of(plan), "mac-flows")
+        self.assertIn(u.suite_of(plan), u.suites_for("app"))
+        self.assertEqual(u.suite_of({"layers": ["web", "rust"], "build": {"Swift": ["x.swift"]}}), "gui-flows")
+        self.assertEqual(u.suite_of({"layers": ["web"]}), "web-flows")
+
+
 class SwiftDrawsTest(unittest.TestCase):
     """cmux#61522 marked two statics `nonisolated` in CmuxNextActions/ActionArgument.swift and needed a hand-added
     `Visual: none`. Leo: "shouldn't a build check fail beforehand fast like fast-fail is useful ci all stuff" and "i
