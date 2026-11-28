@@ -329,7 +329,8 @@ class WebLintPrePushTests(unittest.TestCase):
                         self.assertIn("web lint passed", result.stderr)
                         self.assertNotIn("waiting for a turn", result.stderr)
                         self.assertNotIn("checking now, beside", result.stderr)
-                        self.assertIn("hook times: queue 0s", result.stderr)
+                        self.assertTrue((fixture.root / f"cmux-pre-push-queue.{os.getuid()}.0.lock").is_file(),
+                                        "the fixture must acquire its own queue slot, not bypass the queue")
                     finally:
                         fixture.doCleanups()
 
