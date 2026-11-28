@@ -18,6 +18,7 @@ Operations (reads first; every write prints the object it wrote, read back after
                       API: the result and step summary carry its declared answers as the block to enter by hand
   review-detail       the App Store review detail of a version (--version, else the editable one)
   submissions         the app's review submissions and their states
+  publication-snapshot request-bound latest three available INTERNAL TestFlight sources (read only)
   get                 a read of one App Store Connect path (--path /v1/..., GET only)
   age-rating-patch    PATCH the editable appInfo's ageRatingDeclaration with --attributes JSON, then read it back
   review-detail-sync  set the review detail's attributes (notes, contact, demo account) from --attributes JSON on
@@ -41,6 +42,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -51,6 +53,12 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+
+# Load only the adjacent trusted helper, including under python -I.
+PUBLICATION_SPEC = importlib.util.spec_from_file_location(
+    "ios_publication_snapshot", Path(__file__).with_name("ios_publication_snapshot.py"))
+publication = importlib.util.module_from_spec(PUBLICATION_SPEC)
+PUBLICATION_SPEC.loader.exec_module(publication)
 
 API = "https://api.appstoreconnect.apple.com"
 APPS = {
@@ -68,7 +76,7 @@ REVIEW_DETAIL_KEYS = ("contactFirstName", "contactLastName", "contactPhone", "co
 REDACT = ("demoAccountPassword",)
 PATH_RE = re.compile(r"/v[12]/[A-Za-z0-9_/.\-]+(\?[A-Za-z0-9_=&%\[\],.\-]*)?")
 READS = ("app-info", "versions", "age-rating", "declarations-check", "review-detail", "submissions", "get",
-         "subscriptions")
+         "subscriptions", "publication-snapshot")
 DECLARATIONS = Path(__file__).resolve().parents[2] / "ios/AppStoreReview/store-declarations.json"
 VERSION_LOCALIZATION_KEYS = ("whatsNew", "promotionalText")
 VERSION_LOCALIZATION_FIELDS = "locale,whatsNew,promotionalText,description,keywords"
@@ -619,6 +627,16 @@ def review_screenshot_sync(client: Client, app: str, image_path: Path = REVIEW_S
 
 def run(op: str, args, client: Client) -> dict:
     app = args.app
+    if op == "publication-snapshot":
+        if app != publication.APP_ID:
+            raise SystemExit("publication-snapshot only reads cmux INTERNAL")
+        reader = publication.Reader(client.token, os.environ.get("GH_TOKEN", ""))
+        return publication.snapshot(
+            reader.builds(), reader.source, head_sha=args.head_sha, request_id=args.request_id,
+            producer={"run_id": os.environ.get("GITHUB_RUN_ID", ""),
+                      "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
+                      "workflow_sha": os.environ.get("GITHUB_WORKFLOW_SHA", ""),
+                      "workflow_ref": os.environ.get("GITHUB_WORKFLOW_REF", "")})
     if op == "app-info":
         app_json = client.get(f"/v1/apps/{app}?fields[apps]=name,bundleId,sku,primaryLocale,contentRightsDeclaration")
         return {"app": {"id": app, **app_json.get("data", {}).get("attributes", {})},
@@ -718,7 +736,12 @@ def main(argv: list[str] | None = None, client: Client | None = None) -> int:
     parser.add_argument("--attributes", default="")
     parser.add_argument("--path", default="")
     parser.add_argument("--locale", default="")
+    parser.add_argument("--head-sha", default="")
+    parser.add_argument("--request-id", default="")
+    parser.add_argument("--snapshot-output", type=Path)
     args = parser.parse_args(argv)
+    if args.op == "publication-snapshot" and args.snapshot_output is None:
+        parser.error("publication-snapshot requires --snapshot-output")
     if args.app not in APPS:
         parser.error(f"--app must be one of {sorted(APPS)} ({', '.join(APPS.values())})")
     if client is None:
@@ -729,6 +752,12 @@ def main(argv: list[str] | None = None, client: Client | None = None) -> int:
             return 2
         client = Client(lambda: asc_token(key_id, issuer, key_path))
     result = redact(run(args.op, args, client))
+    if args.op == "publication-snapshot":
+        args.snapshot_output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+        output = os.environ.get("GITHUB_OUTPUT")
+        if output:
+            with open(output, "a", encoding="utf-8") as fh:
+                fh.write("artifact_name=ios-publication-snapshot-" + args.request_id.replace(":", "-") + "\n")
     failed = bool(result.get("errors")) or (args.op == "price-book-sync" and not result["after"]["priceBookLive"])
     text = json.dumps({"op": args.op, "app": args.app, "appName": APPS[args.app], "result": result}, indent=2,
                       sort_keys=True)
