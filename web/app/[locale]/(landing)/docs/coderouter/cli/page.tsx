@@ -3,6 +3,7 @@ import { auditedDocsMetadata } from "../../audited-docs-metadata";
 import { DocsSchema } from "../../docs-schema";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
+import { DocsLink as Link } from "@/app/[locale]/components/docs-link";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -40,6 +41,7 @@ cr logout`}</CodeBlock>
 
       <DocsHeading level={2} id="cr">{t("crTitle")}</DocsHeading>
       <p>{t("crDesc")}</p>
+      <p>{t("localClaudeDesc")} <Link href="/docs/coderouter/agents#claude-code" className="underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors">{t("localClaudeLink")}</Link></p>
       <CodeBlock lang="bash">{`cr                             # account and usage summary
 cr codex [arguments...]
 cr opencode [arguments...]
