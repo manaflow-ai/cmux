@@ -156,13 +156,19 @@ def rate_limit_wait(now: float, reset: float | None, left: float) -> float:
     return max(0.0, min(max(want, 15.0), left))
 
 
-def _core_reset() -> float | None:
-    """When the token's core limit resets (gh api rate_limit is not counted against it)."""
-    out = subprocess.run(["gh", "api", "rate_limit"], capture_output=True, text=True)
-    try:
-        return float(json.loads(out.stdout)["resources"]["core"]["reset"])
-    except (ValueError, KeyError, TypeError):
-        return None
+def _core_reset(tokens: list[str] | None = None) -> float | None:
+    """When the soonest of the tokens' core limits resets (gh api rate_limit is not counted against it). Each token
+    has its own reset, and the first one back lets the call through: reading only the ambient token's reset could
+    wait past another token's reset."""
+    resets = []
+    for token in tokens or [""]:
+        env = {**os.environ, "GH_TOKEN": token} if token else None
+        out = subprocess.run(["gh", "api", "rate_limit"], capture_output=True, text=True, env=env)
+        try:
+            resets.append(float(json.loads(out.stdout)["resources"]["core"]["reset"]))
+        except (ValueError, KeyError, TypeError):
+            pass
+    return min(resets) if resets else None
 
 
 def _distinct(*tokens: str) -> list[str]:
@@ -187,7 +193,7 @@ def write_tokens() -> list[str]:
     return _distinct(env("GH_TOKEN", ""), env("GH_FALLBACK_TOKEN", ""))
 
 
-def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, run=subprocess.run, sleep=time.sleep, clock=time.time, reset_at=_core_reset, tokens=None) -> object:
+def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, run=subprocess.run, sleep=time.sleep, clock=time.time, reset_at=None, tokens=None) -> object:
     """One GitHub API call through gh. A call tries each of read_tokens() (a read) or write_tokens() (a write) in
     turn when one is rate limited. Fields go as JSON on stdin. Once every token is rate limited it waits for the reset and
     retries within API_WAIT_BUDGET."""
@@ -198,6 +204,9 @@ def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, run=su
         data = json.dumps(fields)
     if tokens is None:
         tokens = read_tokens() if method == "GET" else write_tokens()
+    if reset_at is None:
+        def reset_at() -> float | None:
+            return _core_reset(tokens)
     while True:
         for i, token in enumerate(tokens):
             env = {**os.environ, "GH_TOKEN": token} if token else None
@@ -1998,7 +2007,7 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--github-output", default=os.environ.get("GITHUB_OUTPUT"))
         p.add_argument("--summary", default=os.environ.get("GITHUB_STEP_SUMMARY"))
         p.add_argument("--dry-run", action="store_true")
-        p.add_argument("--api-wait-seconds", type=float, default=None, help="total wait for a spent rate limit (judge 600, plan 420, revert 300, tick 120)")
+        p.add_argument("--api-wait-seconds", type=float, default=None, help="total wait for a spent rate limit (judge 3900, plan 420, revert 900, tick 120)")
 
     def probe_args(p: argparse.ArgumentParser) -> None:
         p.add_argument("--mode", choices=[BATCH, PROBE], default=BATCH)
@@ -2051,8 +2060,11 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_revert)
 
     args = parser.parse_args(argv)
-    # Within each job's timeout-minutes (judge 15, plan 10); the tick's shim is short and skips on a refusal.
-    budgets = {"judge": 600.0, "plan": 420.0, "revert": 900.0}
+    # Within each job's timeout-minutes (judge 70, plan 10); the tick's shim is short and skips on a refusal. The
+    # judge's budget outlasts a whole hourly reset: a judge that gives up ends its probe's bisect chain (its first
+    # read, its own run's jobs, has no re-dispatch). With 600 s, probe run 46155774726 (11-28 14:40Z) waited the
+    # whole budget, retried at 14:50:08 against a reset at 14:51:46 and died.
+    budgets = {"judge": 3900.0, "plan": 420.0, "revert": 900.0}
     API_WAIT_BUDGET["seconds"] = args.api_wait_seconds if args.api_wait_seconds is not None else budgets.get(args.cmd, 120.0)
     return args.func(args)
 

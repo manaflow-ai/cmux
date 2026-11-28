@@ -5548,6 +5548,47 @@ class UnreadPartFirstTests(unittest.TestCase):
         cron.decide(state, at(1), None, None, self.supported, None, newest=self.OLD)
         self.assertEqual(sorted(state["current"]["parts_todo"][:2]), ["power", "wake"], "the newest commit lacks it too")
 
+    def goal_tip(self):
+        """Mid-tip whose hot-swap ran at OLD and stored none of its goal rows (2026-11-28, tip cdf458ee)."""
+        state = self.mid_tip(stored=[])
+        state["part_stored"]["hot-swap"] = {"sha": self.OLD, "at": cron.iso(T0), "rows": 6,
+                                            "incomplete": "unfocused: never changed in 0 runs"}
+        state["part_rows"] = {"hot_swap.mac.drafts_lost@h": {"p95": 0, "at": cron.iso(T0)}}
+        self.assertEqual(state["current"]["parts"]["hot-swap"]["state"], "done")
+        return state
+
+    def test_a_goal_part_with_no_goal_row_gives_way_to_a_harness_fix_at_once(self):
+        # 2026-11-28: tip cdf458ee ran hot-swap at 13:38Z without the graceful-swap fleet fixes merged by 12:15Z and
+        # stored no hot_swap.mac.*.p95_ms row; 19 Mac parts were left and NOW's hot-swap-fast had no value for 4 days.
+        state = self.goal_tip()
+        seen = []
+        with mock.patch.object(cron, "harness_changed", lambda a, b, paths: seen.append((a, b, tuple(paths))) or True):
+            self.assertEqual(cron.goal_harness_fixed(state, state["current"], self.NEW), ["hot-swap"])
+            cron.decide(state, at(1), None, None, self.supported, None, newest=self.NEW)
+        cur = state["current"]
+        self.assertEqual(seen[0][:2], (self.OLD, self.NEW))
+        self.assertIn("scripts/measure/graceful-swap-fleet.py", seen[0][2])
+        self.assertIn("superseded", cur, "no SUPERSEDE_AFTER_HOURS hold: the goal row waits on it")
+        self.assertIn("hot-swap", cur["superseded"]["why"])
+        self.assertFalse([n for n in cur["parts_todo"] if not cron.is_linux_part(n)], "its Mac parts gave way")
+        self.assertEqual({cur["parts"][n]["state"] for n in ("wake", "power")}, {"superseded"})
+
+    def test_a_goal_part_keeps_the_rotation_without_a_harness_fix_or_with_its_row(self):
+        state = self.goal_tip()
+        with mock.patch.object(cron, "harness_changed", lambda a, b, paths: False):
+            cron.decide(state, at(1), None, None, self.supported, None, newest=self.NEW)
+        self.assertNotIn("superseded", state["current"], "the newer tip runs the same harness: no gain")
+        state = self.goal_tip()
+        state["part_rows"]["hot_swap.mac.focused_pane.p95_ms@h"] = {"p95": 90, "at": cron.iso(T0)}
+        with mock.patch.object(cron, "harness_changed", lambda a, b, paths: True):
+            self.assertEqual(cron.goal_harness_fixed(state, state["current"], self.NEW), [], "it stored a goal row")
+        state = self.goal_tip()
+        state["part_stored"]["hot-swap"]["sha"] = "c" * 40
+        with mock.patch.object(cron, "harness_changed", lambda a, b, paths: True):
+            self.assertEqual(cron.goal_harness_fixed(state, state["current"], self.NEW), [],
+                             "a store from another tip says nothing of this one")
+            self.assertEqual(cron.goal_harness_fixed(self.goal_tip(), state["current"], self.OLD), [], "no newer tip")
+
     def test_an_unread_linux_part_gives_the_tip_in_flight_up_too(self):
         # 2026-11-24: web-ui-orchestrator (cmux#54205) merged after tip b76703549055, 13 of 45 parts in 229 h; as a
         # Linux part it never counted as unread, so it could not run until that tip ended.

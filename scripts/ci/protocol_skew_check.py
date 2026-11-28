@@ -48,6 +48,8 @@ SOURCE_COMMIT = re.compile(r"<cmux:sourceCommit[^>]*>\s*([0-9a-f]{40})\s*</cmux:
 STRICT = re.compile(r"deny_unknown_fields|additionalProperties\"?\s*:\s*false|\.strict\(\)")
 STRICT_PATHS = re.compile(r"^(cmux-tui/.*\.rs|webviews/src/.*\.(ts|tsx)|cmux-tui/spec/.*\.json)$")
 ESCAPE = "skew: strict"
+# A comment that names a strict decoder (prose about why a hello stays fixed) refuses nothing.
+COMMENT = re.compile(r"^\s*(//|/\*|\*)")
 
 
 def git(*args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -153,6 +155,8 @@ def judge_decoders(base: str, head: str) -> list[str]:
     fail = []
     for path, number, text, above in added_lines(base, head):
         if path == RESOURCE_SPEC:
+            continue
+        if COMMENT.match(text):
             continue
         if STRICT.search(text) and ESCAPE not in text and ESCAPE not in above:
             fail.append(f"{path}:{number}: a new decoder refuses unknown fields ({text.strip()[:80]}); "

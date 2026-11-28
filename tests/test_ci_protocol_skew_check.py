@@ -147,6 +147,14 @@ class SkewTests(unittest.TestCase):
         code, out = self.run_gate(base)
         self.assertEqual(code, 0, out)
 
+    def test_a_comment_naming_a_strict_decoder_passes(self) -> None:
+        base = self.base(strips=True)
+        self.repo.commit({"cmux-tui/crates/x/src/hello.rs":
+                          "//! both sides decode with\n//! `deny_unknown_fields`, so the hello stays fixed\n"
+                          "/// a peer's `.strict()` schema\nstruct H;\n"})
+        code, out = self.run_gate(base)
+        self.assertEqual(code, 0, out)
+
     def test_a_resource_operation_newly_refusing_extra_params_fails(self) -> None:
         self.repo.commit({skew.RESOURCE_SPEC: '{"a": {"params": {"extra": false}}}'})
         base = self.base(strips=True)

@@ -38,6 +38,9 @@ unreadable_checks="${CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS:-2}"
 # Likewise a publisher rebuilding its failed primary macOS leg lands the tree about 30 min late: with a
 # fallback tree in hand, the first such answer bundles it (NIGHTLY 46123570780 held that Mac 1869 s for one).
 rebuild_ends="${CMUX_TUI_TREE_CLIENT_REBUILD_ENDS:-1}"
+# And a publisher that failed (on any attempt) ends it at the first check, not a second one 5 min later
+# for a retry that lands the tree long after this Mac moves on (NIGHTLY 46146914237: 254 s).
+failed_ends="${CMUX_TUI_TREE_CLIENT_FAILED_ENDS:-1}"
 # Leo, 2026-11-26: "cant we just accept the nightly using an older tui version". TREE_FALLBACK is
 # searched once, in resolve-nightly-cmux-tui-client, about an hour before this step. A tree published
 # in between never reached the bundle: nightlies 46114171177, 46116717235 and 46119598955
@@ -71,7 +74,7 @@ if [[ "$TREE_PENDING" == true ]]; then
     search_fallback_now "TREE_FALLBACK='${TREE_FALLBACK:-}'" || true
   fi
   if [[ "${CMUX_TUI_TREE_CLIENT_FALLBACK:-on}" != off && "$fallback_commit" =~ ^[0-9a-f]{40}$ && "$fallback_key" =~ ^[0-9a-f]{40}$ ]]; then
-    if cmux_tui_commit="$(CMUX_TUI_TREE_CLIENT_WAIT_SECONDS="$fallback_wait" CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS="$unreadable_checks" CMUX_TUI_TREE_CLIENT_REBUILD_ENDS="$rebuild_ends" scripts/cmux-next/await-tree-client.sh "$CMUX_TUI_CLIENT_KEY" "${c[@]}")"; then
+    if cmux_tui_commit="$(CMUX_TUI_TREE_CLIENT_WAIT_SECONDS="$fallback_wait" CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS="$unreadable_checks" CMUX_TUI_TREE_CLIENT_REBUILD_ENDS="$rebuild_ends" CMUX_TUI_TREE_CLIENT_FAILED_ENDS="$failed_ends" scripts/cmux-next/await-tree-client.sh "$CMUX_TUI_CLIENT_KEY" "${c[@]}")"; then
       echo "::notice title=cmux-tui client::exact tree $CMUX_TUI_CLIENT_KEY of the build commit, from ${cmux_tui_commit:0:12}"
     else
       cmux_tui_commit="$fallback_commit" client_key="$fallback_key" tree_used=fallback
