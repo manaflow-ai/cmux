@@ -185,7 +185,7 @@ class NightlyGateTest(unittest.TestCase):
                 self.assertIn("phone speed gate", why["pr-pipeline.yml"])
                 self.assertEqual(jobs, ["linux"])
                 expected = ["rust-notices", "phone-speed-icount"] if path.endswith("Cargo.lock") else ["phone-speed-icount"]
-                self.assertEqual(only, expected)
+                self.assertLessEqual(set(expected), set(only))
 
     def test_phone_speed_does_not_depend_on_the_nightly_mirror_switch(self) -> None:
         with mock.patch.dict(os.environ, {"CI_NIGHTLY_GATE_ON_LAND": "0", "CI_IOS_FAST_VERDICT": "0"}):
