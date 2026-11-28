@@ -62,7 +62,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  gestures:
+  gestures-fleet:
     name: Gesture conflicts on a fleet simulator
     # Post-merge batch tier (cmuxterm-hq docs/rfd/0023-ci-10x.md, tier B: "A new check starts in tier B unless it
     # shows a sole red"; Leo, 2026-11-21: "everything else runs once post-merge, batched"): on a pull request this
