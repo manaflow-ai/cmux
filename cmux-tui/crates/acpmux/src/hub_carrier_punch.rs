@@ -87,6 +87,21 @@ const MAX_CANDIDATES: usize = 16;
 /// The longest offer line.
 const MAX_OFFER_BYTES: usize = 4096;
 
+/// Keep `port`'s public addresses offered while `carrier` lives: the router's mapping
+/// ([`portmap`]) and, unless `ACPMUX_PUNCH_REFLEXIVE=0`, the STUN-read address ([`reflexive`]).
+pub fn keep_public(carrier: &Arc<HubCarrier>, port: u16) {
+    let mapping = Arc::downgrade(carrier);
+    super::direct::scope().spawn_named("hub carrier port map", async move {
+        portmap::keep_mapped(mapping, port).await;
+    });
+    if reflexive::enabled() {
+        let learning = Arc::downgrade(carrier);
+        super::direct::scope().spawn_named("hub carrier public address", async move {
+            reflexive::keep_learned(learning, port).await;
+        });
+    }
+}
+
 /// Whether this process punches: unless `ACPMUX_DIRECT_PUNCH=0`.
 pub fn enabled() -> bool {
     enabled_by(std::env::var("ACPMUX_DIRECT_PUNCH").ok().as_deref())
