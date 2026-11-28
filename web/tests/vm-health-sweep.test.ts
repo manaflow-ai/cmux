@@ -6,7 +6,7 @@ import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/
 import { VmRepository, type VmRepositoryShape } from "../services/vms/repository";
 import { handleVmHealthCron } from "../services/vms/health/cron";
 import { sweepVmHealth, type VmHealthSweepOptions } from "../services/vms/health/sweep";
-import type { ProviderInventoryVm, StoredVmHealthReport, VmControlProbe, VmHealthReport } from "../services/vms/health/types";
+import type { ProviderInventoryVm, StoredVmHealthReport, VmControlProbe, VmHealthReport, VmHealthDbRow } from "../services/vms/health/types";
 
 const READ_ONLY_MEMBERS = new Set(["listAccountVms", "listAccountTlsRules", "probeVmControl"]);
 
@@ -42,6 +42,7 @@ type Harness = {
 function harness(input: {
   readonly vms: readonly ProviderInventoryVm[];
   readonly probe: (vmId: string, timeoutMs: number) => Effect.Effect<VmControlProbe>;
+  readonly dbRows?: () => readonly VmHealthDbRow[];
 }): Harness {
   const forbiddenCalls: string[] = [];
   const probed: string[] = [];
@@ -65,7 +66,11 @@ function harness(input: {
     },
   }) as VmProviderGatewayShape;
   const repo = {
-    vmHealthDbRows: () => Effect.succeed([]),
+    vmHealthDbRows: () => Effect.sync(() => input.dbRows?.() ?? input.vms.map((entry) => ({
+      id: `row-${entry.id}`, providerVmId: entry.id, userId: "user", ownerTeamId: "team",
+      status: "running", imageId: "devbox", createdAt: new Date(0), updatedAt: new Date(0),
+      resourceSample: { providerVmId: entry.id, receivedAt: Date.now() - 600_000, cpuPercent: 1 },
+    }))),
     latestVmHealthSnapshot: () => Effect.succeed(snapshots.at(-1) ?? null),
     insertVmHealthSnapshot: (report: VmHealthReport) => Effect.sync(() => {
       const id = `snap-${snapshots.length + 1}`;
@@ -88,6 +93,24 @@ const hangUntilTimeout = (_vmId: string, timeoutMs: number) =>
   Effect.sleep(timeoutMs).pipe(Effect.as<VmControlProbe>({ outcome: "hung", latencyMs: timeoutMs, detail: `timeout after ${timeoutMs}ms` }));
 
 describe("sweepVmHealth", () => {
+  test("a report received during the probe prevents a frozen classification", async () => {
+    let receivedAt = Date.now() - 600_000;
+    const h = harness({
+      vms: [vm("vm-a")],
+      probe: () => Effect.sync(() => {
+        receivedAt = Date.now();
+        return { outcome: "hung" as const, latencyMs: 1, detail: "responsive=false" };
+      }),
+      dbRows: () => [{
+        id: "row-a", providerVmId: "vm-a", userId: "user", ownerTeamId: "team", status: "running",
+        imageId: "devbox", createdAt: new Date(0), updatedAt: new Date(0),
+        resourceSample: { providerVmId: "vm-a", receivedAt, cpuPercent: 1 },
+      }],
+    });
+    expect((await h.run({})).report.hung).toEqual([]);
+    expect(h.forbiddenCalls).toEqual([]);
+  });
+
   test("is read-only toward the provider and stores one snapshot", async () => {
     const h = harness({
       vms: [vm("vm-ok"), vm("vm-hung"), vm("vm-paused", { state: "paused" }), vm("vm-chat", { metadata: { app: "chatmux2" } })],
@@ -139,6 +162,21 @@ describe("sweepVmHealth", () => {
     expect(result.report.hung).toHaveLength(coverage.probed);
     expect(result.report.attention.reasons).toContainEqual({ code: "sweep_incomplete", unprobed: coverage.skippedBudget });
     expect(h.snapshots).toHaveLength(1);
+  });
+
+  test("the overall probe watchdog records missing evidence when the driver never returns", async () => {
+    const h = harness({ vms: [vm("vm-unknown")], probe: () => Effect.never });
+    const result = await h.run({ budgetMs: 150, probeTimeoutMs: 20 });
+    expect(h.probed).toEqual(["vm-unknown"]);
+    expect(result.report.hung).toEqual([]);
+    expect(result.report.coverage.probeErrors).toBe(1);
+  });
+
+  test("a probe is skipped when only one of its two request deadlines fits", async () => {
+    const h = harness({ vms: [vm("vm-unknown")], probe: () => Effect.succeed({ outcome: "ok", latencyMs: 1 }) });
+    const result = await h.run({ budgetMs: 150, probeTimeoutMs: 100 });
+    expect(h.probed).toEqual([]);
+    expect(result.report.coverage.skippedBudget).toBe(1);
   });
 
   test("a provider listing failure is recorded, not thrown, and still stores a snapshot", async () => {
@@ -198,7 +236,7 @@ describe("sweep storage and listing deadlines", () => {
       : { outcome: "ok", latencyMs: 1 }) });
     const { report } = await h.run({});
     const parsed = cloudVmHealthSchema.parse({ snapshot: { id: "s", createdAt: report.generatedAt, ageSeconds: 1, stale: false }, report, owners: {} });
-    expect(parsed.report?.hung[0]?.vmId).toBe("vm-hung");
+    expect(parsed.report?.hung[0]).toMatchObject({ vmId: "vm-hung", confirmedThisSweep: true });
   });
 });
 
@@ -273,5 +311,6 @@ describe("GET /api/cron/vm-health", () => {
     const { sweepOptionsFromEnv } = await import("../services/vms/health/cron");
     expect(sweepOptionsFromEnv({ CMUX_VM_HEALTH_BUDGET_MS: "9999999" }).budgetMs).toBe(240_000);
     expect(sweepOptionsFromEnv({ CMUX_VM_HEALTH_BUDGET_MS: "2,000" }).budgetMs).toBeUndefined();
+    expect(sweepOptionsFromEnv({ CMUX_VM_ALERT_HEALTH_STALE_MS: "120000" }).thresholds?.healthStaleMs).toBe(120000);
   });
 });

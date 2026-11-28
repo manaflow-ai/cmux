@@ -1,6 +1,6 @@
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
-import type { ProviderId } from "../drivers";
+import { VM_HEALTH_PROVIDER } from "./evidence";
 import type { VmWorkflowError } from "../errors";
 import { VmProviderGateway } from "../providerGateway";
 import { VmRepository, type VmRepositoryShape } from "../repository";
@@ -19,7 +19,7 @@ import type {
  * pauses, stops, deletes, or edits a VM or a rule, and it does not repair DB
  * drift (the reconcile cron owns repair). Its only write is its own snapshot.
  */
-export const VM_HEALTH_PROVIDER: ProviderId = "freestyle";
+export { VM_HEALTH_PROVIDER };
 export const VM_HEALTH_DEFAULT_BUDGET_MS = 200_000;
 export const VM_HEALTH_DEFAULT_PROBE_TIMEOUT_MS = 10_000;
 export const VM_HEALTH_DEFAULT_PROBE_CONCURRENCY = 16;
@@ -66,7 +66,6 @@ export function sweepVmHealth(
     const inventory = yield* bounded("inventory", providers.listAccountVms && (() => providers.listAccountVms!(VM_HEALTH_PROVIDER, { deadlineAtMs })));
     const tlsRules = yield* bounded("tls_rules", providers.listAccountTlsRules && (() => providers.listAccountTlsRules!(VM_HEALTH_PROVIDER, { deadlineAtMs })));
     const cmuxIds = (inventory?.vms ?? []).filter((vm) => vmWorkload(vm.metadata) === "cmux_cloud").map((vm) => vm.id);
-    const dbRows = yield* step("db_rows", repo.vmHealthDbRows && (() => repo.vmHealthDbRows!({ provider: VM_HEALTH_PROVIDER, providerVmIds: cmuxIds })));
 
     const probes = yield* probeRunningVms(inventory?.vms ?? [], {
       deadlineAtMs,
@@ -75,6 +74,8 @@ export function sweepVmHealth(
       probeIdleVms: options.probeIdleVms ?? false,
     });
 
+    // Read after probing: reports delivered during a slow probe are liveness evidence.
+    const dbRows = yield* step("db_rows", repo.vmHealthDbRows && (() => repo.vmHealthDbRows!({ provider: VM_HEALTH_PROVIDER, providerVmIds: cmuxIds })));
     const nowMs = yield* Clock.currentTimeMillis;
     const report = classifyVmHealth({
       now: new Date(nowMs),
@@ -162,30 +163,25 @@ export function probeRunningVms(
     const probeOne = (vm: ProviderInventoryVm): Effect.Effect<VmProbeRecord> => {
       if (!options.probeIdleVms && hasFiniteIdleTimeout(vm)) return Effect.succeed({ vmId: vm.id, outcome: "skipped_idle" });
       return Effect.flatMap(Clock.currentTimeMillis, (nowMs): Effect.Effect<VmProbeRecord> => {
-        if (!probe || nowMs + options.probeTimeoutMs > options.deadlineAtMs) {
+        const remainingMs = options.deadlineAtMs - nowMs;
+        // Provider state and guest fs/stat each have an independent deadline.
+        const requestBudgetMs = 2 * options.probeTimeoutMs;
+        if (!probe || requestBudgetMs > remainingMs) {
           return Effect.succeed({ vmId: vm.id, outcome: "skipped_budget" });
         }
         return probe(VM_HEALTH_PROVIDER, vm.id, { timeoutMs: options.probeTimeoutMs }).pipe(
           // The driver already bounds the request; this guards a fetch that ignores its signal.
           Effect.timeoutFail({
-            duration: options.probeTimeoutMs + PROBE_GUARD_SLACK_MS,
-            onTimeout: () => new Error(`timeout after ${options.probeTimeoutMs}ms`),
+            duration: Math.min(requestBudgetMs + PROBE_GUARD_SLACK_MS, remainingMs),
+            onTimeout: () => new Error("control probe exceeded its deadline"),
           }),
           Effect.map((outcome): VmProbeRecord => ({ vmId: vm.id, ...outcome })),
-          Effect.catchAll((cause) => Effect.succeed(probeFailure(vm.id, cause, options.probeTimeoutMs))),
+          Effect.catchAll((cause) => Effect.succeed<VmProbeRecord>({ vmId: vm.id, outcome: "error", latencyMs: 0, detail: errorMessage(cause) })),
         );
       });
     };
     return yield* Effect.forEach(running, probeOne, { concurrency: options.concurrency });
   });
-}
-
-function probeFailure(vmId: string, cause: unknown, timeoutMs: number): VmProbeRecord {
-  const message = errorMessage(cause);
-  // Only our own guard timeout means the VM did not answer; anything else is
-  // a probe that could not be sent and says nothing about the VM.
-  if (message.startsWith("timeout after")) return { vmId, outcome: "hung", latencyMs: timeoutMs, detail: message };
-  return { vmId, outcome: "error", latencyMs: 0, detail: message };
 }
 
 function hasFiniteIdleTimeout(vm: ProviderInventoryVm): boolean {

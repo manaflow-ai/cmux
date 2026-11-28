@@ -54,13 +54,17 @@ export function sweepOptionsFromEnv(env: Record<string, string | undefined>): Vm
   const probeTimeoutMs = positiveInt(env.CMUX_VM_HEALTH_PROBE_TIMEOUT_MS);
   const probeConcurrency = positiveInt(env.CMUX_VM_HEALTH_PROBE_CONCURRENCY);
   const tlsRuleLimit = positiveInt(env.FREESTYLE_TLS_RULE_LIMIT);
+  const healthStaleMs = positiveInt(env.CMUX_VM_ALERT_HEALTH_STALE_MS);
   return {
     // The route's maxDuration is 300s; keep the sweep well inside it.
     ...(budgetMs ? { budgetMs: Math.min(budgetMs, 240_000) } : {}),
     ...(probeTimeoutMs ? { probeTimeoutMs: Math.min(probeTimeoutMs, 30_000) } : {}),
     ...(probeConcurrency ? { probeConcurrency: Math.min(probeConcurrency, 64) } : {}),
     probeIdleVms: env.CMUX_VM_HEALTH_PROBE_IDLE_VMS === "1",
-    ...(tlsRuleLimit ? { thresholds: { tlsRuleLimit } } : {}),
+    ...((tlsRuleLimit || healthStaleMs) ? { thresholds: {
+      ...(tlsRuleLimit ? { tlsRuleLimit } : {}),
+      ...(healthStaleMs ? { healthStaleMs } : {}),
+    } } : {}),
   };
 }
 

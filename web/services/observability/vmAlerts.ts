@@ -1,10 +1,11 @@
-import { and, count, desc, eq, gte, inArray, isNull, isNotNull, lt, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, isNull, isNotNull, lt, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { after } from "next/server";
 import { POSTHOG_HOST, POSTHOG_PROJECT_KEY } from "../analytics/iosEventPolicy";
 import { cloudDb } from "../../db/client";
 import { cloudVmAlertStates, cloudVmHealthSnapshots, cloudVmLeases, cloudVms, cloudVmUsageEvents } from "../../db/schema";
 import { sendAlert, type AlertFetch, type AlertInput, type AlertResult } from "./alerts";
+import { allProbesConclusive, confirmedHungThisSweep, VM_HEALTH_PROVIDER, VM_HEALTH_STALE_MS } from "../vms/health/evidence";
 import { reportError } from "./report";
 import { readFreestyleTlsRuleUsage, tlsRuleCapacityAlert, TLS_RULE_CAPACITY_ALERT_KEY, type TlsRuleUsage } from "./providerRuleCapacity";
 
@@ -13,7 +14,6 @@ const DROPPED_ALERT_REPORT_TIMEOUT_MS = 2_000;
 const VM_ALERT_REMINDER_WINDOW_MS = 24 * 60 * 60 * 1_000;
 const VM_ALERT_DELIVERY_LEASE_MS = 5 * 60 * 1_000;
 const VM_ALERT_SAMPLE_LIMIT = 25;
-const VM_HEALTH_STALE_MS = 5 * 60 * 1_000;
 // The cron runs every five minutes. A daily bucket gives operators a reminder
 // without creating a new PostHog event for every tick of a persistent outage.
 const DROPPED_ALERT_DEDUPE_WINDOW_MS = 24 * 60 * 60 * 1_000;
@@ -134,15 +134,7 @@ export async function runVmAlertChecks(options: {
 
   triggeredAlerts.push(...tlsRuleCapacity.alerts);
 
-  const triggeredKeys = new Set(triggeredAlerts.map((alert) => alert.key));
-  for (const key of [
-    "vm-create-failure-spike",
-    "vm-stuck-provisioning",
-    "vm-expired-unrevoked-leases",
-    "vm-health-stale",
-  ]) {
-    if (!triggeredKeys.has(key)) await clearAlertState(alertStateStore, key, now);
-  }
+  await clearResolvedAlertStates(alertStateStore, triggeredAlerts, unhealthy.canClear, now);
 
   for (const alert of triggeredAlerts) {
     const claim = await claimAlertDelivery(alertStateStore, alert, now);
@@ -408,27 +400,44 @@ async function listExpiredUnrevokedLeases(
   return { count: Number(countRow?.total ?? 0), samples };
 }
 
+async function clearResolvedAlertStates(
+  store: VmAlertStateStore,
+  triggeredAlerts: readonly AlertInput[],
+  canClearHealth: boolean,
+  now: Date,
+): Promise<void> {
+  const triggeredKeys = new Set(triggeredAlerts.map((alert) => alert.key));
+  for (const key of [
+    "vm-create-failure-spike",
+    "vm-stuck-provisioning",
+    "vm-expired-unrevoked-leases",
+    ...(canClearHealth ? ["vm-health-stale"] : []),
+  ]) {
+    if (!triggeredKeys.has(key)) await clearAlertState(store, key, now);
+  }
+}
+
 async function listUnhealthyVms(
   db: ReturnType<typeof cloudDb>,
   before: Date,
   now: Date,
   evidenceMaxAgeMs: number,
 ): Promise<{
+  readonly canClear: boolean;
   readonly count: number;
   readonly samples: Array<{ readonly id: string; readonly updatedAt: Date }>;
 }> {
   const evidence = await recentHungEvidence(db, now, evidenceMaxAgeMs);
-  if (!evidence) return { count: 0, samples: [] };
+  const canClear = evidence?.canClear ?? false;
+  if (!evidence?.providerVmIds.length) return { count: 0, samples: [], canClear };
   const stale = and(
     eq(cloudVms.status, "running"),
+    eq(cloudVms.provider, VM_HEALTH_PROVIDER),
+    inArray(cloudVms.providerVmId, evidence.providerVmIds),
     sql`(${cloudVms.providerMetadata}->'cmuxResourceUsage'->>'providerVmId') = ${cloudVms.providerVmId}`,
     sql`CASE WHEN ((${cloudVms.providerMetadata}->'cmuxResourceUsage'->>'receivedAt') ~ '^[0-9]+$')
       THEN ((${cloudVms.providerMetadata}->'cmuxResourceUsage'->>'receivedAt')::double precision)
       ELSE NULL END < ${before.getTime()}`,
-    or(
-      inArray(cloudVms.id, evidence.cloudVmIds),
-      inArray(cloudVms.providerVmId, evidence.providerVmIds),
-    ),
   );
   // Count and sample in one statement so an alert never reports a count from
   // one database snapshot alongside IDs from another.
@@ -442,13 +451,14 @@ async function listUnhealthyVms(
     .where(stale)
     .limit(VM_ALERT_SAMPLE_LIMIT);
   return {
+    canClear,
     count: Number(rows[0]?.total ?? 0),
     samples: rows.map(({ id, updatedAt }) => ({ id, updatedAt })),
   };
 }
 
 type HungEvidence = {
-  readonly cloudVmIds: readonly string[];
+  readonly canClear: boolean;
   readonly providerVmIds: readonly string[];
 };
 
@@ -471,23 +481,23 @@ async function recentHungEvidence(
     || now.getTime() - snapshot.createdAt.getTime() > maxAgeMs) return null;
   if (!snapshot.report || typeof snapshot.report !== "object") return null;
   const report = snapshot.report as {
-    readonly coverage?: { readonly inventoryComplete?: unknown; readonly skippedBudget?: unknown };
+    readonly coverage?: { readonly inventoryComplete?: unknown; readonly skippedBudget?: unknown; readonly probeErrors?: unknown };
     readonly errors?: unknown;
     readonly hung?: unknown;
   };
   if (report.coverage?.inventoryComplete !== true || report.coverage.skippedBudget !== 0
     || !Array.isArray(report.errors) || report.errors.length > 0 || !Array.isArray(report.hung)) return null;
-  const cloudVmIds = new Set<string>();
-  const providerVmIds = new Set<string>();
-  for (const entry of report.hung) {
-    if (!entry || typeof entry !== "object") continue;
-    const hung = entry as { readonly vmId?: unknown; readonly owner?: { readonly cloudVmId?: unknown } | null };
-    if (typeof hung.vmId === "string" && hung.vmId.length > 0) providerVmIds.add(hung.vmId);
-    if (typeof hung.owner?.cloudVmId === "string" && hung.owner.cloudVmId.length > 0) cloudVmIds.add(hung.owner.cloudVmId);
-  }
-  return cloudVmIds.size > 0 || providerVmIds.size > 0
-    ? { cloudVmIds: [...cloudVmIds], providerVmIds: [...providerVmIds] }
-    : null;
+  const ids = report.hung.map(confirmedProviderVmId);
+  return {
+    canClear: allProbesConclusive(report.coverage) && !ids.includes(null),
+    providerVmIds: [...new Set(ids.filter((id): id is string => id !== null))],
+  };
+}
+
+function confirmedProviderVmId(entry: unknown): string | null {
+  if (!entry || typeof entry !== "object") return null;
+  const hung = entry as { readonly vmId?: unknown; readonly confirmedThisSweep?: unknown };
+  return typeof hung.vmId === "string" && hung.vmId && confirmedHungThisSweep(hung) ? hung.vmId : null;
 }
 
 function healthAlerts(

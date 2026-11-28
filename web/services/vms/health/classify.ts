@@ -1,4 +1,6 @@
 import { DEFAULT_FREESTYLE_TLS_RULE_LIMIT } from "../../observability/providerRuleCapacity";
+import { applyVmResourceUsage, VM_RESOURCE_USAGE_KEY } from "../resourceUsage";
+import { VM_HEALTH_STALE_MS } from "./evidence";
 import type {
   DriftVm,
   HungVm,
@@ -34,6 +36,7 @@ export const VM_HEALTH_TRANSITION_CAP = 2_000;
 const TLS_WARNING_FRACTION = 0.85;
 
 export type VmHealthThresholds = {
+  readonly healthStaleMs: number;
   /** A provider transition or DB provisioning row older than this is stuck. */
   readonly stuckAfterMs: number;
   /** Drift younger than this is an in-flight lifecycle call, not drift. */
@@ -44,6 +47,7 @@ export type VmHealthThresholds = {
 };
 
 export const DEFAULT_VM_HEALTH_THRESHOLDS: VmHealthThresholds = {
+  healthStaleMs: VM_HEALTH_STALE_MS,
   stuckAfterMs: 15 * MINUTE_MS,
   driftGraceMs: 10 * MINUTE_MS,
   pausedRuleHolderAfterMs: 7 * DAY_MS,
@@ -79,13 +83,15 @@ export function classifyVmHealth(input: VmHealthClassifierInput): VmHealthReport
   const vmById = new Map(vms.map((vm) => [vm.id, vm]));
   const rowByProviderId = indexDbRows(input.dbRows);
   const ownerOf = (vmId: string) => ownerFromRow(rowByProviderId.get(vmId));
+  // A control-path failure is not enough to call a Cloud guest frozen.
+  const probes = correlateReporterEvidence(input, vmById, rowByProviderId, thresholds.healthStaleMs);
 
-  const hung = classifyHung(input, vmById, rowByProviderId);
+  const hung = classifyHung({ ...input, probes }, vmById, rowByProviderId);
   const transitions = transitionSightings(input.now, vms, input.previousTransitions ?? []);
   const stuck = classifyStuck(input.now, transitions, vms, input.dbRows, thresholds, ownerOf);
   const drift = input.inventory ? classifyDrift(input.now, input.inventory, input.dbRows, rowByProviderId, thresholds) : [];
   const tls = input.tlsRules ? classifyTlsBudget(input.now, input.tlsRules, vms, thresholds, ownerOf) : null;
-  const coverage = probeCoverage(input.inventory, input.probes);
+  const coverage = probeCoverage(input.inventory, probes);
   const reasons = attentionReasons({ hung, stuck, drift, tls, coverage, errors: input.errors });
 
   return {
@@ -123,6 +129,37 @@ function ownerFromRow(row: VmHealthDbRow | undefined): VmHealthOwner | null {
   return { cloudVmId: row.id, userId: row.userId, teamId: row.ownerTeamId || null };
 }
 
+function correlateReporterEvidence(
+  input: VmHealthClassifierInput,
+  vmById: ReadonlyMap<string, ProviderInventoryVm>,
+  rowByProviderId: ReadonlyMap<string, VmHealthDbRow>,
+  healthStaleMs: number,
+): readonly VmProbeRecord[] {
+  const now = input.now.getTime();
+  return input.probes.map((probe): VmProbeRecord => {
+    const vm = vmById.get(probe.vmId);
+    if (!vm || vmWorkload(vm.metadata) !== "cmux_cloud") return probe;
+    const row = rowByProviderId.get(probe.vmId);
+    const sample = applyVmResourceUsage(
+      { state: "awake", sampledAt: now },
+      { [VM_RESOURCE_USAGE_KEY]: row?.resourceSample },
+      probe.vmId,
+      now,
+    ).resourceSampledAt;
+    // A fresh, validated report proves the guest is alive even if its control path fails.
+    if (sample !== undefined && now - sample <= healthStaleMs) {
+      if (probe.outcome === "hung" || probe.outcome === "error") {
+        return { vmId: probe.vmId, outcome: "ok", latencyMs: probe.latencyMs };
+      }
+      return probe;
+    }
+    if (probe.outcome !== "hung" || sample !== undefined) return probe;
+    // Missing/malformed telemetry could be a broken reporter or ingest. Keep
+    // coverage inconclusive so neither paging consumer clears alert history.
+    return { ...probe, outcome: "error", detail: "unresponsive control probe without valid guest reporter evidence" };
+  });
+}
+
 function classifyHung(
   input: VmHealthClassifierInput,
   vmById: ReadonlyMap<string, ProviderInventoryVm>,
@@ -132,7 +169,8 @@ function classifyHung(
   const probeByVm = new Map(input.probes.map((probe) => [probe.vmId, probe]));
   const hung: HungVm[] = [];
   for (const vm of vmById.values()) {
-    const detail = hungDetail(probeByVm.get(vm.id), firstSeen.has(vm.id));
+    const probe = probeByVm.get(vm.id);
+    const detail = hungDetail(probe, firstSeen.has(vm.id));
     if (detail === null) continue;
     const row = rowByProviderId.get(vm.id);
     hung.push({
@@ -141,6 +179,7 @@ function classifyHung(
       owner: ownerFromRow(row),
       snapshot: vm.snapshot,
       size: { cpu: vm.cpu, memoryMib: vm.memoryMib, storageMib: vm.storageMib },
+      confirmedThisSweep: probe?.outcome === "hung",
       firstSeenHungAt: firstSeen.get(vm.id) ?? input.now.toISOString(),
       providerUpdatedAt: vm.updatedAt,
       dbUpdatedAt: row ? row.updatedAt.toISOString() : null,

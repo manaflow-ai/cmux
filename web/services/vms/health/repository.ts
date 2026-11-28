@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, lt, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, lt, ne, sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import { cloudDb } from "../../../db/client";
 import { cloudVmHealthSnapshots, cloudVms } from "../../../db/schema";
@@ -24,6 +24,7 @@ function dbEffect<A>(operation: string, run: () => Promise<A>): Effect.Effect<A,
 }
 
 const healthRowColumns = {
+  resourceSample: sql<unknown>`${cloudVms.providerMetadata}->'cmuxResourceUsage'`,
   id: cloudVms.id,
   providerVmId: cloudVms.providerVmId,
   userId: cloudVms.userId,
