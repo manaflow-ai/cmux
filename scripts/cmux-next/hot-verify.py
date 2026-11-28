@@ -300,19 +300,81 @@ def base_tip(repo: Path) -> str:
     return tip
 
 
+def index_stamp(index: Path, head: str) -> str:
+    """What the kept copy of INDEX was made from: the real index's identity and HEAD. Any change (a commit, a
+    checkout, a stage, git rewriting its stat data) gives a new stamp, and the copy is made again."""
+    if not index.is_file():
+        return f"none {head}"
+    st = index.stat()
+    return f"{st.st_ino} {st.st_size} {st.st_mtime_ns} {head}"
+
+
+@contextlib.contextmanager
+def kept_index(index: Path, head: str):
+    """A copy of INDEX to snapshot through, kept between runs (cache_dir()/index/<path hash>/index) while the real
+    index and HEAD stay as they were, so it carries what the last snapshot learned: the files' refreshed stat data
+    (nothing unchanged is hashed again), git's untracked cache, and a whole cache-tree (write-tree reuses every
+    unchanged tree). A throwaway copy lost all three: `cmux app try` of an unchanged tree spent its plan phase
+    re-hashing and rebuilding every tree (team-dev-build-swap's 18:50Z 2026-11-28 row: plan 4.0 s of a 7.6 s swap
+    past its 5 s bound). Yields (path, fresh). A held lock (another snapshot of this checkout) falls back to a
+    throwaway copy."""
+    slot = cache_dir() / "index" / hashlib.sha256(str(index).encode()).hexdigest()[:16]
+    try:
+        slot.mkdir(parents=True, exist_ok=True)
+        lock = open(slot / "lock", "w")
+    except OSError:
+        lock = None
+    if lock is not None:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            lock.close()
+            lock = None
+    if lock is None:
+        with tempfile.TemporaryDirectory(prefix="hot-verify-index-") as scratch:
+            yield Path(scratch) / "index", True
+        return
+    try:
+        copy, stamp_file = slot / "index", slot / "stamp"
+        stamp = index_stamp(index, head)
+        try:
+            kept = copy.is_file() and stamp_file.read_text() == stamp
+        except OSError:
+            kept = False
+        if not kept:
+            copy.unlink(missing_ok=True)
+            stamp_file.unlink(missing_ok=True)
+        try:
+            yield copy, not kept
+        except BaseException:
+            copy.unlink(missing_ok=True)
+            stamp_file.unlink(missing_ok=True)
+            raise
+        # The real index may have moved while this ran: its stamp now names a copy made from an older one.
+        if index_stamp(index, head) == stamp:
+            stamp_file.write_text(stamp)
+        else:
+            copy.unlink(missing_ok=True)
+            stamp_file.unlink(missing_ok=True)
+    finally:
+        lock.close()
+
+
 def snapshot(top: Path) -> str:
     """A commit of TOP's working tree (tracked changes and new files, not ignored ones) on its HEAD, through a
-    copy of its index, so a sparse checkout's absent files stay as they are. Nothing in TOP changes."""
+    copy of its index (kept_index), so a sparse checkout's absent files stay as they are. Nothing in TOP changes."""
     head = git(top, "rev-parse", "HEAD")
     index = Path(git(top, "rev-parse", "--path-format=absolute", "--git-path", "index"))
-    with tempfile.TemporaryDirectory(prefix="hot-verify-index-") as scratch:
-        copy = Path(scratch) / "index"
-        if index.is_file():
-            shutil.copyfile(index, copy)
+    with kept_index(index, head) as (copy, fresh):
         env = {"GIT_INDEX_FILE": str(copy)}
-        if not index.is_file():
-            git(top, "read-tree", "HEAD", env=env)
-        git(top, "add", "-A", env=env)
+        if fresh:
+            if index.is_file():
+                shutil.copyfile(index, copy)
+            else:
+                git(top, "read-tree", "HEAD", env=env)
+        # `add -A` on a kept copy brings it to the working tree as on a fresh one: the copy only ever differs from
+        # the real index by earlier `add -A`s of this same HEAD and index, and each covers every path.
+        git(top, "-c", "core.untrackedCache=true", "add", "-A", env=env)
         tree = git(top, "write-tree", env=env)
     if tree == git(top, "rev-parse", "HEAD^{tree}"):
         return head
