@@ -29,7 +29,7 @@
 //! installed daemon and its hosts are unchanged: they outlive the app by
 //! design.
 
-use crate::server::Starter;
+use crate::starter::Starter;
 
 /// `<pid>:<start ms>` (or a bare `<pid>`) of the test process that every
 /// process it started ends with.

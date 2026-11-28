@@ -14,8 +14,8 @@ public enum VisibleRowsBaseline {
     }
 
     public static let knownFailures: [String: Known] = [
-        "notifications panel": Known("a new row view for every ledger entry on every render, all measured; the ledger has no cap "
-            + "(macOS NotificationsPanelController.render; fix: visible-only-macos-lists)"),
+        "notifications panel": Known("the daemon answers each change with the whole ledger (up to 256 entries), and the panel reads "
+            + "all of it to find what changed (macOS NotificationsPanelList.show; fix: visible-only-macos-lists)", only: "items walked"),
         "page popup": Known("rows are windowed and kept by id, but the page sends the whole model each revision, so the diff "
             + "reads every row (macOS NativePopupContent.update; fix: row deltas on the popup wire)", only: "items walked"),
         "page menu": Known("rows are windowed and kept by index, but the page sends every item each time, so the diff "

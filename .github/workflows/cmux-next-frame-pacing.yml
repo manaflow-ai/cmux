@@ -42,7 +42,7 @@ on:
         default: "3"
         type: string
       suites:
-        description: "What to run: fling, golden (the golden interactions), both, instant (Cmd-N/T/D/Shift-D key to frame, idle and loaded), or perf (cold and warm launch, browser tab memory at 1/10/20 tabs)"
+        description: "What to run: fling, golden (the golden interactions), both, instant (Cmd-N/T/D/Shift-D key to frame, idle and loaded), perf (cold and warm launch, browser tab memory at 1/10/20 tabs), or frames (golden.py's motion_frames alone: blank or late frames on Cmd-Shift-Enter, Cmd-P, Cmd-W)"
         required: false
         default: fling,golden
         type: string
@@ -55,8 +55,8 @@ concurrency:
   # One bench at a time: every run uses the same tag, socket and console session. A
   # golden-only run (a pull request's) has a tag and a group per ref, where a newer push
   # supersedes the older run and other branches' runs never cancel its build.
-  group: ${{ (inputs.suites == 'golden' || inputs.suites == 'instant' || inputs.suites == 'perf') && format('cmux-next-frame-pacing-{0}-{1}', inputs.suites, inputs.ref) || 'cmux-next-frame-pacing' }}
-  cancel-in-progress: ${{ inputs.suites == 'golden' || inputs.suites == 'instant' || inputs.suites == 'perf' }}
+  group: ${{ (inputs.suites == 'golden' || inputs.suites == 'instant' || inputs.suites == 'perf' || inputs.suites == 'frames') && format('cmux-next-frame-pacing-{0}-{1}', inputs.suites, inputs.ref) || 'cmux-next-frame-pacing' }}
+  cancel-in-progress: ${{ inputs.suites == 'golden' || inputs.suites == 'instant' || inputs.suites == 'perf' || inputs.suites == 'frames' }}
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
@@ -86,6 +86,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             .github/actions/setup-cmux-tui-rust
+            .github/actions/runner-cargo-home
             .github/golden-inputs.json
             cmux-tui
             scripts
@@ -131,7 +132,7 @@ jobs:
           REF_INPUT: ${{ inputs.ref }}
         run: |
           tag=frame-pacing
-          if [ "$SUITES_INPUT" = golden ] || [ "$SUITES_INPUT" = instant ] || [ "$SUITES_INPUT" = perf ]; then
+          if [ "$SUITES_INPUT" = golden ] || [ "$SUITES_INPUT" = instant ] || [ "$SUITES_INPUT" = perf ] || [ "$SUITES_INPUT" = frames ]; then
             slug="$(printf '%s' "$REF_INPUT" | tr '[:upper:]' '[:lower:]' | sed -E -e 's/[^a-z0-9]+/-/g' | cut -c1-32 | sed -E -e 's/^-+//' -e 's/-+$//')"
             # The checksum keeps two refs that share a 32-character prefix on their own tags.
             sum="$(printf '%s' "$REF_INPUT" | cksum | cut -d' ' -f1)"
@@ -367,10 +368,14 @@ jobs:
           FLINGS: ${{ inputs.flings || '3' }}
         run: scripts/ci/frame-pacing/console-session.sh scripts/ci/frame-pacing/bench.sh "$RUNNER_TEMP/frame-pacing" "$FLINGS"
 
+      # `frames` (cmux-next-motion-frames.yml, a pull request touching a motion area) drives only
+      # golden.py's motion_frames: blank or late frames around Cmd-Shift-Enter, Cmd-P and Cmd-W.
       - name: Golden interactions at 120 Hz
-        if: steps.gui.outputs.taken == 'true' && contains(env.SUITES, 'golden')
+        if: steps.gui.outputs.taken == 'true' && (contains(env.SUITES, 'golden') || contains(env.SUITES, 'frames'))
         continue-on-error: true
         timeout-minutes: 10
+        env:
+          GOLDEN_ONLY: ${{ !contains(env.SUITES, 'golden') && 'motion_frames' || '' }}
         run: scripts/ci/frame-pacing/console-session.sh scripts/ci/frame-pacing/golden.sh "$RUNNER_TEMP/frame-pacing"
 
       # Cmd-N, Cmd-T, Cmd-D, Cmd-Shift-D through the real key path: key to visible frame and to
@@ -442,7 +447,7 @@ jobs:
             --tabs 1,10,20 --urls real --settle 30 --measure 10 --out "$out/memory-tabs-real.json" || true
       # Warning only: exits 1 (an annotation and a red step) when an animation did not run.
       - name: Judge the golden interactions
-        if: always() && steps.gui.outputs.taken == 'true' && contains(env.SUITES, 'golden')
+        if: always() && steps.gui.outputs.taken == 'true' && (contains(env.SUITES, 'golden') || contains(env.SUITES, 'frames'))
         continue-on-error: true
         run: python3 scripts/ci/frame-pacing/golden.py judge "$RUNNER_TEMP/frame-pacing/out/golden" >> "$GITHUB_STEP_SUMMARY"
 

@@ -17,7 +17,8 @@
 //!        With `fs-write-deflate-v1` the request may also carry
 //!        `"permissions"`, and `"encoding":"deflate"` with `"decoded_size"`:
 //!        the `size` wire bytes are raw deflate, decoded as they come, never
-//!        past `decoded_size` ([`super::encoding`]). With
+//!        past `decoded_size` ([`super::encoding`]); with `fs-write-zstd-v1`
+//!        `"encoding":"zstd"` too. With
 //!        `fs-write-nofollow-v1`, `"no_follow":true` refuses a symlink as any
 //!        component of `path` (`fs.symlink_in_path`).
 //!
@@ -242,10 +243,7 @@ fn serve_write(
 ) -> io::Result<()> {
     let begun =
         Encoding::parse(options.encoding.as_deref(), options.decoded_size).and_then(|encoding| {
-            let decoded = match encoding {
-                Encoding::Identity => size,
-                Encoding::Deflate { decoded_size } => decoded_size,
-            };
+            let decoded = encoding.decoded_size(size);
             let mode = WriteMode::parse(mode, expected)?;
             let mut pending = if options.no_follow {
                 PendingWrite::begin_no_follow(service.roots(), path, mode, Some(decoded))?
@@ -262,13 +260,13 @@ fn serve_write(
         Err(error) => return send(writer, &answer(id, Err(error))),
     };
     send(writer, &answer(id, Ok(json!({ "ready": true }))))?;
-    if let Encoding::Deflate { decoded_size } = encoding {
-        let decoded = {
-            let mut inflater = Inflater::new(&mut pending, decoded_size);
-            match receive(reader, size, &mut inflater)? {
+    if let Some((codec, decoded_size)) = encoding.compressed() {
+        let decoded = match Inflater::new(&mut pending, codec, decoded_size) {
+            Ok(mut inflater) => match receive(reader, size, &mut inflater)? {
                 Ok(()) => inflater.finish(),
                 Err(error) => Err(error),
-            }
+            },
+            Err(error) => Err(error),
         };
         if let Err(error) = decoded {
             return send(writer, &answer(id, Err(error)));

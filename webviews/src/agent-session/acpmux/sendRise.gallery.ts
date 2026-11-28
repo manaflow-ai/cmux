@@ -11,7 +11,7 @@ import { agentPaneEntry, type AgentPaneVariant } from "../../gallery/format";
 import { chat } from "../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../gallery/play";
 import { COMPOSER_EDITOR } from "./composerSelectors";
-import { sample, sendWindow, settle } from "./composerSendOneMotion.gallery";
+import { sample, seedCompletedTurns, sendWindow } from "./composerSendOneMotion.gallery";
 
 const EDITOR = { selector: COMPOSER_EDITOR };
 const TRUSTED = "~/code/cmux";
@@ -43,17 +43,10 @@ function sendWith(arm: Arm, lines: number) {
     const doc = ctx.document;
     doc.documentElement.setAttribute("data-send-pop", "claude");
     doc.documentElement.setAttribute("data-send-rise", arm);
-    for (const line of ["first question", "second question"]) {
-      await ctx.type(line, EDITOR);
-      await ctx.press("Enter");
-      await ctx.waitFor(() =>
-        [...doc.querySelectorAll(".cv-user__bubble")].some((node) => node.textContent?.includes(line)),
-      );
-      await settle(ctx);
-    }
+    await seedCompletedTurns(ctx, ["first question", "second question"]);
     await pause(400);
     for (let index = 1; index <= lines; index += 1) {
-      await ctx.type(`rise line ${index} of the sent prompt`, EDITOR);
+      await ctx.type(`rise line ${index}`, EDITOR);
       if (index < lines) await ctx.press("Shift+Enter");
     }
     await pause(400);
@@ -63,7 +56,7 @@ function sendWith(arm: Arm, lines: number) {
     const win = doc.defaultView!;
     const frameAt = () => new Promise<number>((resolve) => win.requestAnimationFrame(resolve));
     // Long enough for a send a loaded runner holds a few hundred ms to still play whole inside it.
-    const frames = sample(doc, "rise line 1 of", 1800);
+    const frames = sample(doc, "rise line 1", 1800);
     // The sampler's first frame (its t = 0) and one after it, before the send: on a loaded runner the
     // first frame can come after an 80 ms timer, and a sample that starts mid-motion misses its start.
     const start = await frameAt();
