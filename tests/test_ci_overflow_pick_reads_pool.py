@@ -109,7 +109,6 @@ PICKS: dict[str, int] = {
     "feature-flag-review-drift.yml": 1,
     "fleet-artifact-cdn.yml": 2,
     "fleet-compile-check.yml": 1,
-    "fleet-test-compile.yml": 1,
     "fresh-chief-eval.yml": 1,
     "gallery-advisory.yml": 1,
     "gallery-health.yml": 1,

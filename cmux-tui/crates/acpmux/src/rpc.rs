@@ -664,6 +664,11 @@ pub mod method {
     pub const MUX_TEAM_NAVIGATOR: &str = "_acpmux/team/navigator";
     pub const MUX_TEAM_PICK: &str = "_acpmux/team/pick";
     pub const MUX_TEAM_SESSION_INFO: &str = "_acpmux/team/session_info";
+    /// RFD 0170 phase 4 (`server/team_settings.rs`): the calling principal's customization page,
+    /// a person's write of their own or (as an admin) the team's choices, and `Open in cmux`.
+    pub const MUX_TEAM_CUSTOMIZATION: &str = "_acpmux/team/customization";
+    pub const MUX_TEAM_CUSTOMIZE: &str = "_acpmux/team/customize";
+    pub const MUX_TEAM_HANDOFF: &str = "_acpmux/team/handoff";
     /// An image a session's prompt sent, by its id (`hub/prompt_images.rs`).
     pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
     /// A turn's before and after picture of the chat's page (`hub/turn_shots.rs`).
@@ -777,8 +782,14 @@ pub mod method {
     /// (`hub/start_mode.rs`), for the pane's pending chat. Read only.
     pub const MUX_START_MODE: &str = "_acpmux/start_mode";
     pub const MUX_HISTORY: &str = "_acpmux/history";
+    /// A session's last replies, built where its log is (`server/requests/last.rs`): one
+    /// answer for `acpmux last`, never a page of its turn per round trip.
+    pub const MUX_LAST: &str = "_acpmux/last";
     /// One session's messages holding every word of a query, newest first (`session_search.rs`).
     pub const MUX_SESSION_SEARCH: &str = "_acpmux/session_search";
+    /// CPU time and memory of one chat's agent process tree, read on request
+    /// (`server/requests/session_resources.rs`): the app's hover cards' Memory.
+    pub const MUX_SESSION_RESOURCES: &str = "_acpmux/session_resources";
     /// Read-only pages and find for a terminal pane's exact provider session.
     pub const MUX_CHAT_TRANSCRIPT_PAGE: &str = "_acpmux/chat_transcript_page";
     pub const MUX_CHAT_TRANSCRIPT_FIND: &str = "_acpmux/chat_transcript_find";
@@ -1138,6 +1149,9 @@ pub mod method {
     /// `{repo, pr, timeoutSecs?, until?}` until it is settled or changed.
     pub const MUX_GITHUB_PR_STATE: &str = "_acpmux/github/pr_state";
     pub const MUX_GITHUB_PR_WAIT: &str = "_acpmux/github/pr_wait";
+    /// The same poller's cached GET of any repository path (`pr_poller::Poller::get`):
+    /// `{path, freshSecs?}` -> `{data, poller}`.
+    pub const MUX_GITHUB_READ: &str = "_acpmux/github/read";
     /// Worktree cleanup (`server/worktrees.rs`).
     pub const MUX_WORKTREE_REPORT: &str = "_acpmux/worktree/report";
     pub const MUX_WORKTREE_CLEAN: &str = "_acpmux/worktree/clean";

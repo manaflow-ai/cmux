@@ -31,7 +31,7 @@ fi
 rm -f "$restore_log"
 build_start=$SECONDS
 cargo test --locked -p cmux-tui --test it -- \
-  every_shipped_store_listing_installs_and_has_something_to_open \
+  every_shipped_store_listing_has_an_open_target_or_working_setting_switch \
   a_command_only_store_listing_has_nothing_to_open_after_install \
   a_first_party_store_app_built_into_the_store_folder_is_listed_not_installed \
   --test-threads=1 2>&1 | tee "$log"
