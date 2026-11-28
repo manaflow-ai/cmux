@@ -8,6 +8,8 @@ full matrix untouched).
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import re
@@ -17,6 +19,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import yaml
 
@@ -100,6 +103,32 @@ class PlanTest(unittest.TestCase):
         p = fv.plan([*files, KIT + "Tests/CmuxMobileVoiceTests/VoiceTests.swift"], root=root)
         self.assertEqual(p["tests"], ["CmuxMobileVoiceTests"])
         self.assertFalse(p["app"])
+
+    def test_a_sparse_checkout_reads_rust_from_the_commit(self) -> None:
+        # Both CI callers check out sparsely, with cmux-tui/ left off disk. Before: every Rust path read as
+        # unreadable and took the Mac, so cmux#61886 (a cloud server change whose only routed files were
+        # generated cmux-cloud-wire .rs) ran the ios fast verdict on 5 heads (2026-11-28 01:58-07:35Z).
+        # After: the commit's text decides; a path the commit lacks (a deletion) still builds.
+        server = {
+            "cmux-tui/crates/cmux-cloud-wire/src/generated/ops_02.rs": "pub struct Op { pub id: u32 }\n",
+            "cmux-tui/crates/cmux-cloud-wire/src/generated/index.rs": "pub mod ops_02;\n",
+        }
+        ffi = {"cmux-tui/crates/cmux-mobile-core/src/api.rs": "#[uniffi::export]\npub fn ping() {}\n"}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            git = ["git", "-C", tmp, "-c", "user.email=t@t", "-c", "user.name=t"]
+            subprocess.run([*git, "init", "-q"], check=True)
+            for rel, text in {**server, **ffi}.items():
+                (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                (root / rel).write_text(text)
+            subprocess.run([*git, "add", "-A"], check=True)
+            subprocess.run([*git, "commit", "-qm", "head"], check=True)
+            for rel in [*server, *ffi]:
+                (root / rel).unlink()  # what the sparse checkout leaves on disk: nothing under cmux-tui/
+            self.assertFalse(fv.affects(list(server), root=root))
+            self.assertFalse(fv.plan(list(server), root=root)["run"])
+            self.assertTrue(fv.affects(list(ffi), root=root))
+            self.assertTrue(fv.affects(["cmux-tui/crates/cmux-cloud-wire/src/gone.rs"], root=root))
 
     def test_the_matrix_cells_run_the_tests_that_read_them(self) -> None:
         p = self.plan("cmux-next-ios/reliability-matrix/cells.json")
@@ -254,6 +283,25 @@ class PlanTest(unittest.TestCase):
                            capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 0)
         self.assertIn("not posted", r.stdout)
+
+    def test_status_refused_on_every_token_fails_so_it_can_be_rerun(self) -> None:
+        # cmux#64513: every token refused on a spent rate limit; the job passed, so the verdict was lost.
+        def refuse(req, seconds=0, **kw):
+            return 403, b'{"message": "API rate limit exceeded for installation."}', {}
+
+        old, old_sleep = fv.gh_http.request, fv.time.sleep
+        fv.gh_http.request, fv.time.sleep = refuse, (lambda s: None)
+        env = {"REPO": "o/r", "SHA": "abc", "TOKENS": "t1 t2", "GITHUB_RUN_ID": "77"}
+        out = io.StringIO()
+        try:
+            with mock.patch.dict(os.environ, env), contextlib.redirect_stdout(out), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                code = fv.main(["status", "success", "Passed: kit build"])
+        finally:
+            fv.gh_http.request, fv.time.sleep = old, old_sleep
+        self.assertEqual(code, 1)
+        self.assertIn("::error::cmux/ios-fast (success) was not posted at abc", out.getvalue())
+        self.assertIn("gh run rerun 77 --failed", out.getvalue())
 
     def test_status_posts_the_context_capped(self) -> None:
         seen = []
@@ -503,8 +551,11 @@ class LandAffectedRouteTest(unittest.TestCase):
     def test_unknown_files_start_the_verdict(self) -> None:
         self.assertIn("pr-pipeline.yml", self.route(None)[0])
 
-    def test_a_landing_head_off_ios_starts_nothing(self) -> None:
-        self.assertNotIn("pr-pipeline.yml", self.route(["web/app/page.tsx"])[0])
+    def test_a_landing_head_off_ios_starts_no_ios_verdict(self) -> None:
+        self.assertNotIn("pr-pipeline.yml", self.route(["docs/a.md"])[0])
+        # A web head starts pr-pipeline.yml for the nightly gate's web typecheck alone, never the ios fast verdict.
+        start, why = self.route(["web/app/page.tsx"])
+        self.assertNotIn("ios fast verdict", why.get("pr-pipeline.yml", ""))
 
     def test_a_cheap_head_not_landing_still_waits(self) -> None:
         start, why = self.route([KIT + "Package.swift"], decided=("cheap", "ready head before ready-to-land"))

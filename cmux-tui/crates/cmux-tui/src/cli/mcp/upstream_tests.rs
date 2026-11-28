@@ -201,7 +201,7 @@ fn code_mode_instructions_name_every_folded_servers_prefix() {
 
 /// Both modes' instructions end with the rule on asking the person (Leo 2026-10-21: an agent in
 /// Full access asked a question that read "Waiting for you: allow this?"; decide, say why,
-/// continue), and the bundled acpmux skill says the same.
+/// continue), and the bundled agents skill says the same.
 #[test]
 fn instructions_in_both_modes_tell_the_agent_never_to_ask_for_permission() {
     let rule = acpmux::agent_tools::ASKING_RULE;
@@ -231,7 +231,7 @@ fn instructions_in_both_modes_tell_the_agent_never_to_ask_for_permission() {
             text.chars().count()
         );
     }
-    let skill = include_str!("../../../../acpmux/skills/acpmux/SKILL.md").replace('\n', " ");
+    let skill = include_str!("../../../../acpmux/skills/agents/SKILL.md").replace('\n', " ");
     for phrase in [
         "Full access",
         "Never ask the user to allow",
@@ -239,7 +239,7 @@ fn instructions_in_both_modes_tell_the_agent_never_to_ask_for_permission() {
         "never widens",
         "product taste",
     ] {
-        assert!(skill.contains(phrase), "acpmux skill lacks {phrase}");
+        assert!(skill.contains(phrase), "agents skill lacks {phrase}");
     }
 }
 

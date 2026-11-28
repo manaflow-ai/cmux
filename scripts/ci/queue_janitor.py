@@ -470,7 +470,13 @@ def macos_usage(jobs: Iterable[Mapping[str, Any]]) -> MacosUsage:
 # publishes, feat-cmux-next is red on "Check the app FFI pin". On 2026-11-10 run 42833220418's build queued 66
 # minutes on blacksmith-6vcpu-macos-26 behind pull request jobs (14:21 to 15:27Z), and the base stayed red 5 h 14
 # min. Its queued build reserves the label as a nightly's does.
-RESERVED_POOL_WORKFLOW = re.compile(r"(?:^|/)(?:release|nightly|app-ffi-release)\.yml$", re.IGNORECASE)
+# cmux-next-fast-tier-seed.yml seeds the fast-tier build cache every PR's fast tier restores; its key carries the
+# Package.swift/Package.resolved digest, so after an input change every PR builds cold until the seed lands. On
+# 2026-11-28 seed run 46139555693 queued 65 minutes on blacksmith-6vcpu-macos-26 behind PR jobs (11:22 to 12:27Z)
+# while those PR builds ran cold (about 38 minutes each). Its queued seed reserves the label as a nightly's does.
+RESERVED_POOL_WORKFLOW = re.compile(
+    r"(?:^|/)(?:release|nightly|app-ffi-release|cmux-next-fast-tier-seed)\.yml$", re.IGNORECASE
+)
 POOL_QUEUED_JOB_STATUSES = QUEUED_JOB_STATUSES - {"waiting"}
 POOL_LOAD_VERSION = 1
 # Environment variable -> snapshot settings key, for pr_runner_pool.py.
