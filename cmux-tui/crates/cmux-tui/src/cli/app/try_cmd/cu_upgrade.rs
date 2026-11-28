@@ -162,7 +162,7 @@ fn swap_and_restage(swap: &helper::Swap, host: &dyn Host) -> Result<PathBuf, Str
     }
 }
 
-fn write_json(path: &Path, value: &Value) -> Result<(), String> {
+pub(super) fn write_json(path: &Path, value: &Value) -> Result<(), String> {
     let dir = path.parent().ok_or("the receipt has no folder")?;
     fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let part = tempfile::NamedTempFile::new_in(dir).map_err(|e| e.to_string())?;
@@ -290,7 +290,7 @@ fn with_history(store: &Store, mut receipt: Value) -> Value {
 }
 
 /// The commit `source` names, and how it was found.
-fn commit_of(source: &Source) -> Result<(String, Value), String> {
+pub(super) fn commit_of(source: &Source) -> Result<(String, Value), String> {
     match source {
         Source::Nightly => {
             let url = live::channel_url();
@@ -320,7 +320,7 @@ fn commit_of(source: &Source) -> Result<(String, Value), String> {
 }
 
 /// The signed helper of `commit`'s published build.
-fn wanted_of(commit: &str) -> Result<WantedHelper, String> {
+pub(super) fn wanted_of(commit: &str) -> Result<WantedHelper, String> {
     let base = live::files_base();
     let payload = match super::read_live(commit, &base) {
         Live::Found(payload) => payload,

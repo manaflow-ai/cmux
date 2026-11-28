@@ -52,6 +52,14 @@ pub fn helper_folder(user_home: &Path, bundle_id: &str) -> PathBuf {
     user_home.join("Library/Application Support/cmux-next/helper").join(bundle_id)
 }
 
+/// The folder `cmux computer-use install` puts a helper in when no cmux app is installed (a
+/// standalone `cmux` CLI): `~/Library/Application Support/cmux-next/standalone`. It is laid out as
+/// an app's `Contents/Library` (`<folder>/Contents/Library/<app> Helper.app`), so
+/// [`helpers_in`] reads it as one more app, searched after the installed apps.
+pub fn standalone_app(user_home: &Path) -> PathBuf {
+    user_home.join("Library/Application Support/cmux-next/standalone")
+}
+
 /// The app bundle holding `executable` (`X.app/Contents/Resources/bin/acpmux` -> `X.app`).
 pub fn app_of(executable: &Path) -> Option<PathBuf> {
     executable

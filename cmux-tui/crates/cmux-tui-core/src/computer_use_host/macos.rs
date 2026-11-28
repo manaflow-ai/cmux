@@ -30,9 +30,14 @@ pub(crate) const HELPER_ENV: &str = "CMUX_NEXT_SCREEN_HELPER_APP";
 /// (`.../cmux-next/screen-sharing/<bundle id>/computer-use/<16 hex>/`), removed once.
 const LEGACY_SLOT: &str = "computer-use";
 
-/// The reason the endpoint and status show when the build carries no helper.
-pub(crate) const NO_HELPER: &str =
-    "This cmux build can't run Computer Use. Install the latest cmux.";
+/// The reason the endpoint and status show when the build carries no helper and none is
+/// installed: `cmux computer-use install` gets the signed helper without the app.
+pub(crate) const NO_HELPER: &str = "This cmux build can't run Computer Use. Run `cmux computer-use install`, or install the latest cmux.";
+/// The Developer ID team of every published cmux helper.
+const CMUX_TEAM: &str = "7WLXT3NR37";
+/// The reason when the helper `cmux computer-use install` put in place fails its signature.
+pub(crate) const NOT_INSTALLED: &str =
+    "The installed Computer Use helper is not cmux's signed build. Run `cmux computer-use install` again.";
 /// The reason when the helper could not be copied out of the app or failed its signature check.
 pub(crate) const NOT_STAGED: &str = "cmux couldn't start Computer Use. Restart cmux.";
 
@@ -55,14 +60,23 @@ pub(crate) fn helpers_in(app: &Path) -> Vec<PathBuf> {
 
 /// The helper bundle to run: `env` (the development override) when set, else the first helper
 /// of the app bundle holding `exe`, else of the installed apps (`installed`, in order), as the
-/// acpmux share host searches (`cmux_signed_bundle::search_apps`). A daemon outside any app
-/// (acpmux, a standalone cmux-tui) so runs in the one stably signed helper, never as its own
-/// bare binary, a separate macOS permission entry that loses its grant on every update.
-pub(crate) fn find_helper(env: Option<PathBuf>, exe: &Path, installed: &[&str]) -> Option<PathBuf> {
+/// acpmux share host searches (`cmux_signed_bundle::search_apps`), else the one
+/// `cmux computer-use install` put in `standalone` (`cmux_signed_bundle::standalone_app`) for a
+/// machine with no cmux app. A daemon outside any app (acpmux, a standalone cmux-tui) so runs
+/// in the one stably signed helper, never as its own bare binary, a separate macOS permission
+/// entry that loses its grant on every update.
+pub(crate) fn find_helper(
+    env: Option<PathBuf>,
+    exe: &Path,
+    installed: &[&str],
+    standalone: Option<&Path>,
+) -> Option<PathBuf> {
     if let Some(app) = env.filter(|path| !path.as_os_str().is_empty()) {
         return app.join("Contents/MacOS").join(EXECUTABLE).is_file().then_some(app);
     }
-    cmux_signed_bundle::first_helper(&cmux_signed_bundle::search_apps(exe, installed), EXECUTABLE)
+    let mut apps = cmux_signed_bundle::search_apps(exe, installed);
+    apps.extend(standalone.map(Path::to_path_buf));
+    cmux_signed_bundle::first_helper(&apps, EXECUTABLE)
 }
 
 /// Whether `id` is a cmux Screen Sharing helper's bundle id (`com.cmuxterm.app[.<tag>].screen-sharing`).
@@ -115,21 +129,34 @@ impl Launcher for NativeLauncher {
         if let Some(dir) = log.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
+        let home = crate::platform::home_dir();
+        let standalone = home.as_deref().map(cmux_signed_bundle::standalone_app);
         let Some(helper) = find_helper(
             std::env::var_os(HELPER_ENV).map(PathBuf::from),
             &self.exe,
             &cmux_signed_bundle::INSTALLED_APPS,
+            standalone.as_deref(),
         ) else {
             note(
                 log,
                 &format!(
-                    "no Screen Sharing helper beside {} or in the installed apps",
+                    "no Screen Sharing helper beside {}, in the installed apps or installed by `cmux computer-use install`",
                     self.exe.display()
                 ),
             );
             return Err(NO_HELPER.into());
         };
-        let user_home = crate::platform::home_dir().ok_or(NOT_STAGED)?;
+        let user_home = home.ok_or(NOT_STAGED)?;
+        // The standalone folder is the person's own, outside any signed app: its helper runs only
+        // when it is cmux's Developer ID build, as `cmux computer-use install` checked it.
+        if standalone.as_deref().is_some_and(|folder| helper.starts_with(folder)) {
+            let id = cmux_signed_bundle::bundle_id(&helper).unwrap_or_default();
+            let requirement = cmux_signed_bundle::team_requirement(&id, CMUX_TEAM);
+            if let Err(why) = cmux_signed_bundle::verify(&helper, &requirement) {
+                note(log, &format!("{} is not cmux's signed helper: {why}", helper.display()));
+                return Err(NOT_INSTALLED.into());
+            }
+        }
         let executable = stage(&helper, &user_home).map_err(|why| {
             note(log, &format!("{} was not staged: {why}", helper.display()));
             eprintln!("cmux-tui: Computer Use helper {} was not staged: {why}", helper.display());

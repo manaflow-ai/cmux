@@ -193,7 +193,9 @@ scale and which is main. `doctor [--machine M] [--json]` says whether capture
 and input would work and, for each thing that would stop them, the one step
 that fixes it; it only reads (no OS prompt) and exits 0 when all pass. When a
 call is refused for a missing grant, a lock screen or the mode, run `doctor`
-and tell the person its fix line. `cmux computer-use alerts [--json] [--machine M]`
+and tell the person its fix line. On a Mac with only the `cmux` CLI (no cmux app), the
+worker needs the signed helper first: `cmux computer-use install` gets it (the doctor's fix
+line says so). `cmux computer-use alerts [--json] [--machine M]`
 lists system alerts and `cmux computer-use alerts dismiss ID --button TITLE` puts
 one off (both need `computerUse.alerts`). `cmux computer-use mcp` serves the tools alone, as the
 `cmux-computer-use` MCP server, for an MCP client outside cmux. Settings go through `cmux settings`, which an agent may not use for
