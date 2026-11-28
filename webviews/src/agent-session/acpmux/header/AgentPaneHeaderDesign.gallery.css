@@ -150,4 +150,3 @@
 .agent-pane-design-shortcut { flex: none; color: var(--chrome-quiet); font-size: var(--text-caption); }
 .agent-pane-design-menu--developer { position: absolute; inset: 0 auto auto calc(100% + var(--chrome-gap)); }
 .agent-pane-design-menu-row:has(.agent-pane-design-menu--developer) { cursor: default; }
-.agent-pane-design-menu-layer + * { z-index: 0; }
