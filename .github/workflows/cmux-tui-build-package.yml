@@ -992,10 +992,15 @@ jobs:
           profile=""
           if [[ "$LTO" == thin ]]; then
             export CARGO_PROFILE_RELEASE_LTO=off
-            export CARGO_PROFILE_RELEASE_INCREMENTAL=true
-            for pkg in cmux-tui cmux-tui-core acpmux; do
+            # Incremental is off and acpmux gets 8 codegen units, no debuginfo: under a 14 GiB pool
+            # slot's memory.max the acpmux lib's rustc was SIGKILLed even alone (cmux#65149, run
+            # 46164056465 job 141037923342); incremental's dep-graph and 16 live LLVM modules are its
+            # peak. Costs the incremental reuse measured above on a warm target.
+            export CARGO_PROFILE_RELEASE_INCREMENTAL=false CARGO_PROFILE_RELEASE_DEBUG=0
+            for pkg in cmux-tui cmux-tui-core; do
               profile+=" --config profile.release.package.$pkg.codegen-units=16"
             done
+            profile+=" --config profile.release.package.acpmux.codegen-units=8"
           fi
           profile+=" --timings"
           # One cargo per package, all at once, each in its own target directory
