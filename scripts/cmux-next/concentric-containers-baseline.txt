@@ -47,7 +47,6 @@ webviews/src/agent-session/acpmux/newtab/screen.css: .nt-cards[data-variant="lis
 webviews/src/agent-session/acpmux/newtab/screen.css: .nt-hovercard { border-radius: var(--ds-radius-popup) }
 webviews/src/agent-session/acpmux/newtab/screen.css: .nt-screen[data-template="cards"] .nt-card { border-radius: 14px }
 webviews/src/agent-session/acpmux/newtab/screen.css: .nt-stage-card { border-radius: 14px }
-webviews/src/agent-session/acpmux/quickModelColumns.css: .acpmux-cols-card { border-radius: var(--ui-popup-radius, var(--ds-radius-popup)) }
 webviews/src/agent-session/acpmux/repoTour/tourOfferDesigns.css: .tour-designs-card { border-radius: var(--grid-cards-radius) }
 webviews/src/agent-session/acpmux/run-board/variants/compare/styles.css: .compare-replay-banner { border-radius: 9px }
 webviews/src/agent-session/acpmux/started/sessionHover.css: .acpmux-session-hover-card.ui-card { border-radius: 12px }
