@@ -3,7 +3,7 @@
 // its Reconnect button asks Claude Code to connect it again; the row then reads connected when
 // acpmux says so. Without that, "Needs reconnect" is plain text: nothing here looks clickable that
 // is not.
-import { memo, useState } from "react";
+import { useState, memo } from "react";
 import { useConnectionQuiet } from "../../../ui/lasting";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";

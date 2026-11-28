@@ -9,7 +9,7 @@
 // says its state and its task. The live counts sit in the section's head (the running ones as their mark
 // and number, then "40 done",
 // `subagentCountParts`).
-import { memo, useCallback, useMemo, useState } from "react";
+import { useState, memo, useCallback, useMemo } from "react";
 import { useConnectionQuietKeys } from "../../../ui/lasting";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
@@ -24,7 +24,7 @@ import { useAgentProgress } from "../subagents/agentProgressStore";
 import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/agentIdentityModel";
 import { subagentProgress } from "../subagents/subagentProgress";
 import { namedAction } from "../subagents/trayDetail";
-import { ticking, useNow } from "../subagents/subagentGroupModel";
+import { useNow, ticking } from "../subagents/subagentGroupModel";
 import { agentTone } from "../subagents/agentTones";
 import type { Subagent } from "../subagents/subagentFold";
 import { subsessionResumeRow } from "../subagents/resumeState";
@@ -38,15 +38,15 @@ import { SessionInfoFold } from "./SessionInfoSection";
 import {
   SUBAGENTS_SHOWN,
   NO_SESSIONS,
+  subagentCountParts,
   nextSubagentStatusChange,
   splitSubagentLines,
   type SubagentEntry,
-  subagentCountParts,
 } from "./subagentsSectionModel";
 import { useStatusClock } from "./statusClock";
 import { CountLine } from "../summary/LiveCount";
 import { WindowedRows } from "./WindowedRows";
-import { sameValue } from "./sameValue";
+import { sameSubagentLook } from "../subagents/subagentLook";
 
 /// The clock the section's statuses read: it moves when a running subagent turns idle, not each
 /// second (statusClock.ts), so neither the head's counts nor the lines' order are worked out again
@@ -128,6 +128,55 @@ type Line = {
   /// When it ended (or, for a chat, was made): the ended list's order.
   at: number;
 };
+
+type Same<T> = (a: T, b: T) => boolean;
+const sameAgent: Same<Subagent | undefined> = (a, b) => a === b || (!!a && !!b && sameSubagentLook(a, b));
+
+/// Each field of a line, as its row compares it: the words and values it draws by value, and its
+/// subagent (for the hover card's progress, Resume and the open) by the fields a subagent's row reads
+/// (subagents/subagentLook.ts), so a snapshot that only moves `progressVersion` or `quietSince` (new
+/// objects every time) draws no line; a line's idle status is its `status` and `state`, compared here.
+/// A new field fails to compile until it is classed as drawn (compared) or not (null).
+const LINE_LOOK: { [K in keyof Line]-?: Same<Line[K]> | null } = {
+  key: Object.is,
+  identity: Object.is,
+  agent: sameAgent,
+  resumeRow: sameAgent,
+  name: Object.is,
+  detail: Object.is,
+  kind: Object.is,
+  progress: Object.is,
+  status: Object.is,
+  state: Object.is,
+  // A row's own words read these (`useLineState`).
+  session: Object.is,
+  waits: Object.is,
+  now: Object.is,
+  working: Object.is,
+  // Its time's range; SubagentTime ticks the time itself, so a second draws no line.
+  since: Object.is,
+  until: Object.is,
+  ticks: Object.is,
+  task: Object.is,
+  icon: Object.is,
+  mark: Object.is,
+  depth: Object.is,
+  // The ended list's order, the section's; the line draws no part of it.
+  at: null,
+};
+const LINE_FIELDS = Object.entries(LINE_LOOK).filter(
+  (entry): entry is [keyof Line, Same<unknown>] => entry[1] !== null,
+);
+
+/// A line's row props: the line by LINE_LOOK, its callbacks (the section's) by identity.
+function sameLineProps(a: LineRowProps, b: LineRowProps): boolean {
+  return (
+    a.onOpen === b.onOpen &&
+    a.onOpenSession === b.onOpenSession &&
+    a.resume === b.resume &&
+    (a.item === b.item || LINE_FIELDS.every(([key, same]) => same(a.item[key], b.item[key])))
+  );
+}
 
 /// An idle line keeps its place among the live ones but takes no part in the running shimmer.
 const working = (status: SubagentStatus) => status === "running" || status === "waiting";
@@ -266,20 +315,17 @@ export function SubagentsSection({
   );
 }
 
+type LineRowProps = {
+  item: Line;
+  onOpen?: (id: string) => void;
+  onOpenSession?: (sessionId: string) => void;
+  resume?: ResumeActions;
+};
+
 /// One line of the list (a subagent or a started chat), drawn again only when its own words change.
 /// Its open is the section's, which takes the line's id.
 const SubagentLineRow = memo(
-  function SubagentLineRow({
-    item,
-    onOpen,
-    onOpenSession,
-    resume,
-  }: {
-    item: Line;
-    onOpen?: (id: string) => void;
-    onOpenSession?: (sessionId: string) => void;
-    resume?: ResumeActions;
-  }) {
+  function SubagentLineRow({ item, onOpen, onOpenSession, resume }: LineRowProps) {
     const state = useLineState(item);
     const handler = item.agent ? onOpen : onOpenSession;
     const { identity } = item;
@@ -309,8 +355,9 @@ const SubagentLineRow = memo(
       </li>
     );
   },
-  // A line is built again on each render (and a stopped chat's Resume row with it): compared by value.
-  sameValue,
+  // A line is built again on each render (and a stopped chat's Resume row with it): compared by the
+  // fields it draws (LINE_LOOK).
+  sameLineProps,
 );
 
 /// How long a line's subagent has run: the one part of the line the second's clock draws, a leaf of

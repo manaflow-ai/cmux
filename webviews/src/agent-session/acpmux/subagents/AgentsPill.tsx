@@ -10,7 +10,7 @@ import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { usePopover } from "../summary/usePopover";
 import { subagentStatus, subagentStatusLabel } from "../summary/subagentStatusListModel";
-import { running, ticking, useNow, subagentTime, SubagentHarnessContext } from "./subagentGroupModel";
+import { running, ticking, useNow, SubagentHarnessContext, subagentTime } from "./subagentGroupModel";
 import { sameAgentRowProps } from "./subagentLook";
 import type { Subagent } from "./subagentFold";
 import { AgentIdentity } from "./AgentIdentity";

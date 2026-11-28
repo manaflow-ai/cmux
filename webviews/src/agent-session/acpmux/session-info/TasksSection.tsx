@@ -15,7 +15,7 @@
 // it, and on the row's hover or focus Stop takes the time's place (sessionInfo.css). The panel's body
 // scrolls, not the section; nothing is cut to a few rows. A command that starts while the list is drawn
 // drops in at the top (ui/presence.ts `useArrivals`); the ones the list is drawn with are simply there.
-import { memo, useContext, useMemo, useState } from "react";
+import { useContext, useState, memo, useMemo } from "react";
 import { useArrivals } from "../../../ui/presence";
 import { OpenBackgroundTasks } from "../backgroundTasks/openBackgroundTasks";
 import { formatDuration, spanDuration } from "../conversation/turns";
@@ -191,7 +191,9 @@ const CommandRow = memo(function CommandRow({
   const openTasks = useContext(OpenBackgroundTasks);
   const toolCallId = command.toolCallId;
   // What a click opens: the terminal on this Mac (else the call, when the host refuses), the call
-  // elsewhere; with neither, the row is not a button and its tooltip says why.
+  // elsewhere; with neither, the row is not a button and says why in its tooltip and to VoiceOver,
+  // so the command keeps the row (as text the reason squeezed "bun test …" to "bun t…",
+  // cmuxterm-hq#19495).
   const why: StringKey | undefined = !toolCallId
     ? "sessionInfo.tasks.noTerminal.noCall"
     : local || shows

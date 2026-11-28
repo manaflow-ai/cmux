@@ -6,7 +6,7 @@
 // each, with their live state, an unread dot, how many messages wait for them and what a working
 // one does now; a click opens its chat beside this one (`onOpenSession`). After them, the other
 // chats the agent started (`sessions`, session-info/ChildSessionRows.tsx), each opening its chat.
-import { memo, useContext } from "react";
+import { useContext, memo } from "react";
 import { useConnectionQuietKeys } from "../../../ui/lasting";
 
 import { formatDuration } from "../conversation/turns";
@@ -18,6 +18,7 @@ import { rowIconSize } from "../icons/iconSize";
 import { elapsed, SubagentHarnessContext, ticking, useNow } from "../subagents/subagentGroupModel";
 import { type Subagent } from "../subagents/subagentFold";
 import { sameAgentRowProps } from "../subagents/subagentLook";
+import { sameValue } from "../session-info/sameValue";
 
 import { retrying, retryLabel, sessionRetry, sessionRetryKey } from "../subagents/retryState";
 import { WaitSpinner } from "../conversation/WaitSpinner";
@@ -110,8 +111,7 @@ export function SubagentStatusList({
   // coordinator's card drew every subagent its chat ever ran (chat-100k-flat CASES=coordinator: 2,386
   // card body elements at 20k records, 11,772 at 100k).
   const lines = ordered(agents, waiting);
-  // Each row is its own memo boundary (SubagentStatusRow): a snapshot that only brings new objects,
-  // or the page clock, draws no row.
+  // Each row a memo boundary with its own clock (SubagentStatusRow): a tick draws only the running rows.
   const agentRow = ({ agent, depth }: { agent: Subagent; depth: number }) => (
     <SubagentStatusRow
       key={agent.id}
@@ -172,6 +172,29 @@ export function SubagentStatusList({
   );
 }
 
+/// The switch for opening new subagents in panes, drawn again only when its setting or label changes.
+/// The list above re-renders on the page clock while a subagent runs, and React 19 writes an input's
+/// `name` and `type` on every render of it (ReactDOMInput `updateInput`), so drawn inline it took
+/// three attribute writes a second in an idle chat, each an edge mark on the card's scroller
+/// (summary-card-idle-attributes.test.tsx). Its setter is the page's one module function
+/// (subagents/subagentPanes.ts `setAutoOpen`), so the memo holds.
+const AutoOpenSwitch = memo(function AutoOpenSwitch({
+  on,
+  set,
+  label,
+}: {
+  on: boolean;
+  set: (on: boolean) => void;
+  label: string;
+}) {
+  return (
+    <label className="acpmux-summary-row acpmux-summary-autoopen">
+      <input type="checkbox" aria-label={label} checked={on} onChange={(event) => set(event.currentTarget.checked)} />
+      <span className="acpmux-summary-text">{label}</span>
+    </label>
+  );
+});
+
 /// A subagent's row: the tray's own line (subagents/AgentLine.tsx), so a subagent reads the same here
 /// and above the composer. Memoized on the fields of its agent it draws and its plain values
 /// (subagentLook.ts), so a snapshot that only brings new objects draws no row; it keeps its own
@@ -230,31 +253,54 @@ const SubagentStatusRow = memo(function SubagentStatusRow({
 
 const NO_WAITING: ReadonlySet<string> = new Set();
 
-/// The switch for opening new subagents in panes, drawn again only when its setting or label changes.
-/// The list above re-renders on the page clock while a subagent runs, and React 19 writes an input's
-/// `name` and `type` on every render of it (ReactDOMInput `updateInput`), so drawn inline it took
-/// three attribute writes a second in an idle chat, each an edge mark on the card's scroller
-/// (summary-card-idle-attributes.test.tsx). Its setter is the page's one module function
-/// (subagents/subagentPanes.ts `setAutoOpen`), so the memo holds.
-const AutoOpenSwitch = memo(function AutoOpenSwitch({
-  on,
-  set,
-  label,
-}: {
-  on: boolean;
-  set: (on: boolean) => void;
-  label: string;
-}) {
+type Same<T> = (a: T, b: T) => boolean;
+
+/// Each field of a sub-session's row, as SubsessionStatusRow compares it: the ones it draws or reads
+/// (its name, line, unread dot, queue count, state, retry, indent, opener) by value, and null for one
+/// it never reads. Every snapshot is new objects (subagents/subsessions.ts `subsessionRows`), so a
+/// row compared by reference drew again each time; a new field fails to compile here until it is
+/// classed.
+const SUBSESSION_LOOK: { [K in keyof SubsessionRow]-?: Same<SubsessionRow[K]> | null } = {
+  sessionId: Object.is,
+  harness: Object.is,
+  name: Object.is,
+  state: Object.is,
+  unread: Object.is,
+  queued: Object.is,
+  doing: Object.is,
+  waiting: sameValue,
+  retry: sameValue,
+  // sessionRetry reads it (a settling retry); compared so the row follows it.
+  retryDeciding: Object.is,
+  depth: Object.is,
+  // The task line's, Session Info's and Resume's; this row draws none of them.
+  title: null,
+  slot: null,
+  model: null,
+  effort: null,
+  parent: null,
+  lastMessage: null,
+  error: null,
+  stoppedAt: null,
+};
+const SUBSESSION_FIELDS = Object.entries(SUBSESSION_LOOK).filter(
+  (entry): entry is [keyof SubsessionRow, Same<unknown>] => entry[1] !== null,
+);
+
+/// The row's props: its session by SUBSESSION_LOOK, its opener (the list's) by identity.
+function sameSubsessionProps(
+  a: { session: SubsessionRow; onOpen?: (sessionId: string) => void },
+  b: { session: SubsessionRow; onOpen?: (sessionId: string) => void },
+): boolean {
   return (
-    <label className="acpmux-summary-row acpmux-summary-autoopen">
-      <input type="checkbox" aria-label={label} checked={on} onChange={(event) => set(event.currentTarget.checked)} />
-      <span className="acpmux-summary-text">{label}</span>
-    </label>
+    a.onOpen === b.onOpen &&
+    (a.session === b.session || SUBSESSION_FIELDS.every(([key, same]) => same(a.session[key], b.session[key])))
   );
-});
+}
 
 /// A sub-session's row: its name (and what it does now while it works, or what it waits on the
-/// person for), its unread dot, how many messages wait for it, and its state.
+/// person for), its unread dot, how many messages wait for it, and its state. Memoized on the fields
+/// it reads (SUBSESSION_LOOK), so a snapshot that only brings new objects draws no row.
 const SubsessionStatusRow = memo(function SubsessionStatusRow({
   session,
   onOpen,
@@ -314,4 +360,4 @@ const SubsessionStatusRow = memo(function SubsessionStatusRow({
       </span>
     </button>
   );
-});
+}, sameSubsessionProps);
