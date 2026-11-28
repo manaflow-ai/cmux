@@ -298,23 +298,23 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `ui.paneAnimations` | boolean | `true` |  | Animate Panes. Splits, closes, moves, zooms and column scrolls slide into place. |
 | `ui.animations.newTab` | boolean | `true` |  | Animate New Tabs. A new tab grows into its place in the tab bar. Off shows it there at once. |
 | `ui.animations.newWorkspace` | boolean | `true` |  | Animate New Workspaces. A new workspace row opens in the sidebar. Off shows it there at once. |
-| `appearance.menu.cornerRadius` | real |  | 0 to 24 | Menu Corner Radius |
-| `appearance.menu.borderOpacity` | real |  | 0 to 1 | Menu Border Opacity |
-| `appearance.menu.shadow` | string | `"standard"` | `standard`, `none`, `subtle`, `strong` | Menu Shadow |
-| `appearance.menu.fill` | string |  |  | Menu Fill |
-| `appearance.menu.padding` | real |  | 0 to 16 | Menu Padding |
-| `appearance.menu.highlightRadius` | real |  | 0 to 16 | Menu Highlight Radius |
-| `appearance.menu.rowHeight` | real |  | 18 to 40 | Menu Row Height |
-| `appearance.menu.shortcuts` | string | `"standard"` | `standard`, `muted` | Menu Shortcuts |
-| `appearance.menu.sectionLabel` | string | `"standard"` | `standard`, `muted` | Menu Section Labels |
-| `appearance.menu.separator` | string | `"standard"` | `standard`, `subtle`, `none` | Menu Separators |
-| `appearance.menu.destructiveInk` | string | `"standard"` | `standard`, `plain` | Menu Destructive Rows |
-| `appearance.menu.submenu` | string | `"standard"` | `standard`, `flush` | Submenu Placement |
-| `appearance.menu.subtitle` | string | `"standard"` | `standard`, `muted` | Menu Subtitles |
-| `appearance.popover.padding` | real |  | 0 to 24 | Popover Padding |
-| `appearance.popover.header` | string | `"standard"` | `standard`, `strong` | Popover Headers |
-| `appearance.popover.progressHeight` | real |  | 1 to 12 | Popover Progress Height |
-| `appearance.popover.progressFill` | string | `"standard"` | `standard`, `muted`, `strong` | Popover Progress Fill |
+| `appearance.menu.cornerRadius` | real |  | 0 to 24 | Menu Corner Radius. The corner radius of menus. |
+| `appearance.menu.borderOpacity` | real |  | 0 to 1 | Menu Border Opacity. How visible the menu's edge line is. |
+| `appearance.menu.shadow` | string | `"standard"` | `standard`, `none`, `subtle`, `strong` | Menu Shadow. The shadow under menus. |
+| `appearance.menu.fill` | string |  |  | Menu Fill. The menu background color, as #RRGGBB or #RRGGBBAA. |
+| `appearance.menu.padding` | real |  | 0 to 16 | Menu Padding. The space inside the menu's edges. |
+| `appearance.menu.highlightRadius` | real |  | 0 to 16 | Menu Highlight Radius. The corner radius of the hovered row's highlight. |
+| `appearance.menu.rowHeight` | real |  | 18 to 40 | Menu Row Height. The height of a one-line menu row. |
+| `appearance.menu.shortcuts` | string | `"standard"` | `standard`, `muted` | Menu Shortcuts. How strongly menu shortcuts are drawn. |
+| `appearance.menu.sectionLabel` | string | `"standard"` | `standard`, `muted` | Menu Section Labels. How menu section labels are drawn. |
+| `appearance.menu.separator` | string | `"standard"` | `standard`, `subtle`, `none` | Menu Separators. How the lines between menu row groups are drawn. |
+| `appearance.menu.destructiveInk` | string | `"standard"` | `standard`, `plain` | Menu Destructive Rows. Whether destructive menu rows, such as Delete, are drawn in red. |
+| `appearance.menu.submenu` | string | `"standard"` | `standard`, `flush` | Submenu Placement. Where a submenu opens next to its menu. |
+| `appearance.menu.subtitle` | string | `"standard"` | `standard`, `muted` | Menu Subtitles. How the second line of a menu row is drawn. |
+| `appearance.popover.padding` | real |  | 0 to 24 | Popover Padding. The space inside a popover's edges. |
+| `appearance.popover.header` | string | `"standard"` | `standard`, `strong` | Popover Headers. How a popover's header line is drawn. |
+| `appearance.popover.progressHeight` | real |  | 1 to 12 | Popover Progress Height. The height of progress bars in popovers. |
+| `appearance.popover.progressFill` | string | `"standard"` | `standard`, `muted`, `strong` | Popover Progress Fill. The color of progress bars in popovers. |
 | `layout.paneSeparation` | string |  | `none`, `dividers`, `borders`, `cards` | Separation. How panes are told apart. |
 | `layout.panePadding` | real |  | 0 to 16 | Padding |
 | `layout.paneCornerRadius` | real |  | 0 to 20 | Corner Radius. One radius for panes, tabs, panels, popovers and cards. |
