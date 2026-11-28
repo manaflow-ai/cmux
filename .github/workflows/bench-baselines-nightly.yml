@@ -1,0 +1,121 @@
+name: Bench baselines (nightly)
+
+# Leo, 2026-11-27: "A nightly job on feat-cmux-next records results as area/bench/machine class → value, stored in
+# R2 or Axiom. A PR fetches only the baselines for its own areas, which takes milliseconds."
+#
+# Records every docs/benches/relevance-map.toml area's benches (`run`), 3 repeats each, on the runner label the
+# pull request's advisory job runs them on (pr-checks.yml: blacksmith-4vcpu-ubuntu-2404), and writes one small JSON
+# object per area to the cmux-ci-cache-next bucket at bench-baselines/v1/<machine class>/<area>.json
+# (scripts/bench/benchlib/baselines.py). The pull request's "Benches and tests for these paths" step reads only its
+# own areas' objects from the public URL with no credential, and is red only when all 3 repeats are >15% over.
+#
+# Nightly without a schedule: a scheduled workflow runs main's copy, and this measures feat-cmux-next. Each push to
+# feat-cmux-next asks whether the newest record (bench-baselines/v1/_stamp.json) is older than RECORD_HOURS; a run
+# that finds it fresh stops after one HTTP read. workflow_dispatch records now.
+on:
+  push:
+    branches: [feat-cmux-next]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: bench-baselines-nightly
+  cancel-in-progress: false
+
+env:
+  CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+  CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+  RECORD_HOURS: "20"
+
+jobs:
+  record:
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
+    name: Record per-area bench baselines
+    # The same label as pr-checks.yml's advisory job: a baseline is only comparable on its own machine class.
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    environment: next-cache-writer
+    permissions:
+      contents: read
+    steps:
+      - name: Is a record due
+        id: due
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -uo pipefail
+          if [ "$EVENT" = workflow_dispatch ]; then echo "due=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          stamp="$(curl -fsS --max-time 10 "$CI_CACHE_R2_PUBLIC_URL/bench-baselines/v1/_stamp.json?t=$(date +%s)" 2>/dev/null)" || stamp=""
+          due="$(python3 -I -c '
+          import json, sys, time, calendar
+          try:
+              at = json.loads(sys.argv[1])["recorded_at"]
+              age = (time.time() - calendar.timegm(time.strptime(at, "%Y-%m-%dT%H:%M:%SZ"))) / 3600
+          except Exception:
+              print("true"); sys.exit()
+          print("true" if age >= float(sys.argv[2]) else "false")
+          ' "$stamp" "$RECORD_HOURS")"
+          echo "due=$due" | tee -a "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        if: steps.due.outputs.due == 'true'
+        with:
+          persist-credentials: false
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: steps.due.outputs.due == 'true'
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: steps.due.outputs.due == 'true'
+        continue-on-error: true
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install the webviews packages the benches import
+        if: steps.due.outputs.due == 'true'
+        continue-on-error: true
+        timeout-minutes: 10
+        run: cd webviews && bun install --frozen-lockfile
+
+      - name: Run every area's benches (3 repeats)
+        if: steps.due.outputs.due == 'true'
+        run: |
+          set -euo pipefail
+          python3 -I scripts/bench/cmux-bench baselines record --out "$RUNNER_TEMP/baselines" --sha "$GITHUB_SHA" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload to R2
+        if: steps.due.outputs.due == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/baselines"
+          put() { # <file> <object key>
+            local code
+            code="$(printf 'user = "%s:%s"\n' "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" \
+              | curl --config - --silent --show-error --retry 3 --retry-delay 2 --max-time 60 \
+                  --aws-sigv4 "aws:amz:auto:s3" -H "x-amz-content-sha256: UNSIGNED-PAYLOAD" \
+                  -H "Content-Type: application/json" -H "Cache-Control: max-age=600" \
+                  -X PUT --upload-file "$1" -o /dev/null -w '%{http_code}' \
+                  "$CI_CACHE_R2_ENDPOINT/$CI_CACHE_R2_BUCKET/$2")"
+            [ "$code" = 200 ] || { echo "::error::PUT $2 answered HTTP $code"; return 1; }
+            echo "put $2"
+          }
+          n=0
+          while IFS= read -r f; do
+            put "$f" "${f#"$root"/}"
+            n=$((n + 1))
+          done < <(find "$root" -type f -name '*.json' | sort)
+          if [ "$n" -eq 0 ]; then
+            echo "::warning::No bench measured all 3 repeats; nothing recorded, the stamp stays old"
+            exit 0
+          fi
+          printf '{"recorded_at": "%s", "sha": "%s", "objects": %d}\n' \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$GITHUB_SHA" "$n" > "$RUNNER_TEMP/_stamp.json"
+          put "$RUNNER_TEMP/_stamp.json" bench-baselines/v1/_stamp.json

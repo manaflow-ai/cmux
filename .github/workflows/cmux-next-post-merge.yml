@@ -71,13 +71,21 @@ on:
         description: "probe: an earlier run of this same probe whose verdict this run reads instead of running the suite again (empty: the plan looks for one)."
         type: string
         default: ""
+      states:
+        description: "probe: gallery-health's red states on the origin run (entry#variant, comma-joined), the only ones the probe renders (empty: the whole render)."
+        type: string
+        default: ""
+      states_key:
+        description: "probe: a short hash of states, for the run's title (post_merge_batch.py Probe.states_key)."
+        type: string
+        default: ""
   push:
     branches:
       - lane/post-merge-drill-*
 
 run-name: >-
   ${{ inputs.mode == 'probe'
-      && format('probe {0} {1} at {2}{3}', inputs.suite, inputs.only || 'all', inputs.sha, inputs.confirm && format(' confirm {0}', inputs.confirm) || '')
+      && format('probe {0} {1} at {2}{3}{4}', inputs.suite, inputs.only || 'all', inputs.sha, inputs.confirm && format(' confirm {0}', inputs.confirm) || '', inputs.states_key && format(' states {0}', inputs.states_key) || '')
       || format('batch {0}', inputs.reason || github.event_name) }}
 
 permissions: {}
@@ -106,7 +114,10 @@ jobs:
       sha: ${{ steps.plan.outputs.sha }}
       only: ${{ steps.plan.outputs.only }}
       base: ${{ steps.plan.outputs.base }}
+      # A probe's red job ('gallery-health / health (8)'): gallery-health renders that leg alone. A batch: none.
+      job: ${{ inputs.mode == 'probe' && inputs.job || '' }}
       reuse: ${{ steps.plan.outputs.reuse }}
+      states: ${{ steps.plan.outputs.states }}
     steps:
       # The checkout takes the tip only, and the next step fetches this ref's history and nothing else: fetching
       # every branch (32,106 of them on 2026-11-22) hung or lost the runner in plan jobs 137288423007,
@@ -178,11 +189,12 @@ jobs:
           PIECES: ${{ inputs.pieces }}
           CONFIRM: ${{ inputs.confirm }}
           REUSE: ${{ inputs.reuse }}
+          STATES: ${{ inputs.states }}
           BRANCH: ${{ github.ref_name }}
         run: |
           python3 scripts/ci/post_merge_batch.py plan --branch "$BRANCH" --mode "$MODE" --sha "$GITHUB_SHA" \
             --suite "$SUITE" --job "$JOB" --only "$ONLY" --probe-sha "$PROBE_SHA" --good "$GOOD" --pieces "$PIECES" --confirm "$CONFIRM" \
-            --reuse "$REUSE"
+            --reuse "$REUSE" --states "$STATES"
 
   # One caller job per suite in .github/post-merge-batch.json; its name is the suite key.
   drill:
@@ -361,9 +373,13 @@ jobs:
     with:
       sha: ${{ needs.plan.outputs.sha }}
       only: ${{ needs.plan.outputs.only }}
+      # A probe of one red leg ('gallery-health / health (8)') renders that leg alone; a batch renders every leg.
+      job: ${{ needs.plan.outputs.job }}
       # Judged against the last judged batch's head (a probe: its known-good commit), so only a red new since
       # then fails; the standing reds are listed by name in its summary.
       base: ${{ needs.plan.outputs.base }}
+      # A bisect probe renders only its origin run's red states: one shard, not ~22 (empty: the whole render).
+      states: ${{ needs.plan.outputs.states }}
     permissions:
       contents: read
 
@@ -397,8 +413,18 @@ jobs:
       contents: read
       statuses: read
 
+  ghosttykit-release-check:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' ghosttykit-release-check ')
+    uses: ./.github/workflows/ghosttykit-release-check.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
   judge:
-    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, fast-tier, tooling-tests, pr-pipeline-linux, pr-pipeline-mac, pr-pipeline-ios, gallery-health, cmux-tui-sdks, cmux-tui-spec]
+    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, fast-tier, tooling-tests, pr-pipeline-linux, pr-pipeline-mac, pr-pipeline-ios, gallery-health, cmux-tui-sdks, cmux-tui-spec, ghosttykit-release-check]
     # A probe's judge also runs when its plan job died (a lost runner: drill-8 probe run 44980687386): it then
     # sees no verdict and dispatches the same probe again, so the bisect goes on instead of stopping.
     if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}
@@ -474,6 +500,17 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-actions: read
           permission-contents: read
+      # Each red gallery-health shard's red states (gallery-health.yml "Name the red states for a bisect probe"):
+      # the batch judge sends them with the bisect's probes, which then render only those.
+      - name: Download gallery-health's red states
+        if: ${{ inputs.mode != 'probe' && contains(needs.plan.outputs.suites, ' gallery-health ') && needs.gallery-health.result == 'failure' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: gallery-reds-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/gallery-reds
       - name: Judge the run
         id: judge
         env:
@@ -494,11 +531,17 @@ jobs:
           STEP: ${{ inputs.step }}
           # The plan's pick (an earlier run of this probe with a verdict), else the dispatch's own.
           REUSE: ${{ needs.plan.outputs.reuse || inputs.reuse }}
+          STATES: ${{ inputs.states }}
+          GALLERY_REDS_DIR: ${{ runner.temp }}/gallery-reds
+          # 0: a culprit's confirm round renders again even when the same round already finished (earlier_confirm_round).
+          POST_MERGE_CONFIRM_REUSE: ${{ vars.POST_MERGE_CONFIRM_REUSE }}
+          # Daily probe cap per suite job (job_probes_per_day): over it a red is named only, no new bisect. 0: no cap.
+          POST_MERGE_JOB_PROBES_PER_DAY: ${{ vars.POST_MERGE_JOB_PROBES_PER_DAY }}
         run: |
           python3 scripts/ci/post_merge_batch.py judge --branch "$BRANCH" --mode "$MODE" --sha "$GITHUB_SHA" \
             --run-id "$GITHUB_RUN_ID" --suite "$SUITE" --job "$JOB" --only "$ONLY" --probe-sha "$PROBE_SHA" \
             --good "$GOOD" --bad "$BAD" --origin "$ORIGIN" --tries "$TRIES" --pieces "$PIECES" --confirm "$CONFIRM" \
-            --step "$STEP" --reuse "$REUSE"
+            --step "$STEP" --reuse "$REUSE" --states "$STATES" --reds-dir "$GALLERY_REDS_DIR"
       # The next batch starts as this one ends when the base has piled up NEXT_POST_MERGE_EVERY_MERGES merges since
       # this run's commit, so batches follow merges, not the 30-minute cron alone. It runs after a successful
       # judge only, and never fails it: a red here would make this batch read as untested.
