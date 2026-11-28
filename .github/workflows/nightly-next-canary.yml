@@ -296,6 +296,66 @@ jobs:
             hdiutil detach "$RUNNER_TEMP/canary-mount" -force >/dev/null 2>&1 || true
           fi
 
+      # Advisory felt-latency sampling (cmux#53287): five warm terminal relaunches of the verified DMG, so each
+      # scheduled build gets a launch number. Every step is continue-on-error and none feeds outputs.verdict,
+      # so a harness error, a timeout or a slow build can never fail or hold the canary or Nightly's gate.
+      # The pinned Release harness keeps every build on the same workload.
+      - name: Check out the latency harness
+        id: felt_tools
+        if: steps.run.outputs.verdict == 'pass' && github.event_name != 'pull_request'
+        continue-on-error: true
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: eb38f56ac306114ff55f63898e0da1808cc9db27
+          path: felt-tools
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci
+            cmux-tui/crates/acpmux/tests
+
+      - name: Sample five warm terminal relaunches of the verified DMG
+        id: sample
+        if: steps.felt_tools.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          source felt-tools/scripts/ci/lib/signing-runtime-guard.sh
+          cmux_signing_runtime_guard
+          out="$(mktemp -d "$RUNNER_TEMP/canary-tti.XXXXXX")"
+          chmod 0777 "$out" # the harness runs in the runner's Aqua session
+          echo "TTI_DIR=$out" >> "$GITHUB_ENV"
+          plan=warm:terminal,warm:terminal,warm:terminal,warm:terminal,warm:terminal
+          felt-tools/scripts/ci/frame-pacing/console-session.sh python3 -I \
+            "$GITHUB_WORKSPACE/felt-tools/scripts/ci/launch_tti_check.py" --dmg "$RUNNER_TEMP/canary.dmg" \
+            --workspaces 3 --chats 1 --input in_app --plan "$plan" --out "$out"
+
+      - name: Record the felt-latency reading
+        id: felt
+        if: always() && !cancelled() && steps.run.outputs.verdict == 'pass' && github.event_name != 'pull_request'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          HARNESS_OUTCOME: ${{ steps.sample.outcome }}
+          SHORT: ${{ steps.app.outputs.commit }}
+        run: |
+          set -euo pipefail
+          source_commit="$(git -C "$RUNNER_TEMP/build-src" rev-parse HEAD 2>/dev/null || echo "$SHORT")"
+          machine="$(sysctl -n hw.model)/$(sysctl -n machdep.cpu.brand_string)/$(sw_vers -buildVersion)"
+          python3 -I scripts/ci/nightly_next_canary_latency.py report \
+            --build "$BUILD" --source-commit "$source_commit" --machine "$machine" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --harness-outcome "$HARNESS_OUTCOME" --tti "${TTI_DIR:-$RUNNER_TEMP/no-tti}/tti.json" --out "$RUNNER_TEMP/canary-latency.json"
+
+      - name: Keep the measurements with this canary run
+        if: steps.felt.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: canary-latency-${{ env.BUILD }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/canary-latency.json
+          if-no-files-found: error
+
       # Unregister the harness worktree so the next job on this runner starts clean, also after a failed or
       # timed-out canary (a cancelled job's is cleared by the prune before the next add).
       - name: Remove the harness worktree
