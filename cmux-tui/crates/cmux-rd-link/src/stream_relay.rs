@@ -450,12 +450,19 @@ mod tests {
         // Loopback may refuse at once; that is the same failure, earlier.
         let Ok(mut relay) = StreamRelay::connect(addr, None, 0) else { return };
         let start = std::time::Instant::now();
+        // Unix reports the refusal at once. Windows retries a refused SYN and may not surface
+        // the error before the connect deadline, so the clock runs: the relay fails either way
+        // (`connect: ...` or `connect timed out`) by CONNECT_US.
         let failed = loop {
             sys::wait_ready(&[(relay.raw(), relay.wants_write())], 50);
-            if let Err(why) = relay.poll(0) {
+            let now_us = u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX);
+            if let Err(why) = relay.poll(now_us) {
                 break why;
             }
-            assert!(start.elapsed() < std::time::Duration::from_secs(5), "never failed");
+            assert!(
+                start.elapsed() < std::time::Duration::from_micros(CONNECT_US + 2_000_000),
+                "never failed"
+            );
         };
         assert!(failed.starts_with("connect"), "{failed}");
         if let Ok(mut late) = StreamRelay::connect(addr, None, 0) {
