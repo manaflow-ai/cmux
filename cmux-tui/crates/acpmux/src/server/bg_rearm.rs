@@ -85,6 +85,7 @@ pub(super) async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Resul
                         notify,
                         result_line,
                         None,
+                        false, // A moved wait retains the chat's sandbox.
                         call,
                         crate::session_budget::TaskClass::Task,
                     )
