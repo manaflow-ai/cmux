@@ -739,6 +739,7 @@ Ops no app may call:
 - `sidebar_view.attach`
 - `sso.connection.activate`
 - `sso.connection.create`
+- `sso.connection.create_saml`
 - `sso.connection.disable`
 - `sso.connection.list`
 - `sso.connection.set_secret`

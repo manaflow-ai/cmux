@@ -378,6 +378,7 @@ declare namespace Cmux {
   type ParticipantAvatarPage = { participant_id: string; avatar: Cmux.ParticipantAvatarImage | null }
   type ParticipantAvatarResult = { participant_id: string; avatar: Cmux.AvatarRef | null }
   type ParticipantId = string
+  type PemCertificate = string
   type PingResult = { alive: boolean; cursor: Cmux.Cursor }
   type PixelSize = { width_px: number; height_px: number }
   type Platform = "macos" | "ios" | "linux" | "windows" | "web"
@@ -426,6 +427,7 @@ declare namespace Cmux {
   type RunId = string
   type RunState = "queued" | "running" | "sleeping" | "waiting" | "succeeded" | "failed" | "cancelled" | "skipped" | "dead"
   type RunWithBody = { id: Cmux.RunId; automation: Cmux.AutomationId; automation_version: number; owner: Cmux.TeamId; trigger: { id: Cmux.TriggerId | null; type: string; scheduled_at?: number; delivery_id?: string; parent_run?: Cmux.RunId; root_run?: Cmux.RunId; depth?: number }; state: Cmux.RunState; step: number; created_at: number; started_at: number | null; finished_at: number | null; error: Cmux.RunError | null; outcome: { goal_met: boolean; summary?: string } | null; body: Cmux.Body }
+  type SamlSettings = { idp_entity_id: string; sso_url: string; certificates: Array<Cmux.PemCertificate> }
   type SavedTabGroupReopenResult = { saved_tab_group_id: Cmux.StateId; tab_group: Cmux.TabGroupSnapshot }
   type SavedTabGroupSnapshot = { id: Cmux.StateId; room_id: Cmux.StateId; name: string; color: Cmux.GroupColor; members: Array<Cmux.SavedTabMemberSnapshot>; index: number; updated_at_ms: string; icon?: string | null }
   type SavedTabMemberSnapshot = { kind: "terminal" | "browser"; name: string | null; cwd: string | null; url: string | null; engine: "webkit" | "cef" | null; browser_profile_id: string | null }
@@ -479,7 +481,7 @@ declare namespace Cmux {
   type SnapshotId = string
   type SshCertClass = "human" | "agent"
   type SshPresenceProof = { install: Cmux.InstallId; nonce: string; signature: string; app_attest?: string }
-  type SsoConnection = { id: Cmux.SsoConnectionId; kind: "oidc"; state: "draft" | "active" | "disabled"; domains: Array<Cmux.EmailDomain>; oidc: { issuer: string; client_id: string; scopes: Array<string>; authorization_endpoint: string | null; token_endpoint: string | null; jwks_uri: string | null }; secret_set: boolean; secret_generation?: number; jit: { enabled: boolean; default_role: "member" | "admin" }; created_at: number; updated_at: number }
+  type SsoConnection = { id: Cmux.SsoConnectionId; kind: "oidc" | "saml"; state: "draft" | "active" | "disabled"; domains: Array<Cmux.EmailDomain>; oidc?: { issuer: string; client_id: string; scopes: Array<string>; authorization_endpoint: string | null; token_endpoint: string | null; jwks_uri: string | null }; saml?: Cmux.SamlSettings; secret_set: boolean; secret_generation?: number; jit: { enabled: boolean; default_role: "member" | "admin" }; created_at: number; updated_at: number }
   type SsoConnectionId = string
   type StashCreateResult = { stash_id: Cmux.StateId; tab_ids: Array<string /* tab_… */>; skipped: Array<string /* tab_… */>; workspace_ids?: Array<string /* workspace_… */> }
   type StashDeleteResult = { stash_id: Cmux.StateId; remaining: number }

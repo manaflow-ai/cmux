@@ -331,7 +331,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Fetch the issuer's OpenID discovery document and activate the connection (owners and admins). Needs the secret and every domain verified by this team.
+    /// Activate the connection (owners and admins). OIDC: fetches the issuer's discovery document and needs the secret. SAML: needs a valid IdP certificate. Both need every domain verified by this team.
     SsoConnectionActivateOp {
         name: "sso.connection.activate",
         class: Mutation,
@@ -406,6 +406,56 @@ pub struct SsoConnectionCreateParams {
 wire_errors! {
     /// The error codes sso.connection.create declares.
     SsoConnectionCreateError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        PolicyInvalid = "policy.invalid",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Create a SAML 2.0 connection in draft (owners and admins) from the IdP's entity id, sign-on URL and signing certificate. Give the IdP the SP metadata at /v1/sso/saml/metadata/{team}/{connection}, then activate it.
+    SsoConnectionCreateSamlOp {
+        name: "sso.connection.create_saml",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: SsoConnectionCreateSamlParams,
+        result: SsoConnection,
+        error: SsoConnectionCreateSamlError,
+    }
+}
+
+wire_enum! {
+    SsoConnectionCreateSamlParamsJitDefaultRole {
+        Member = "member",
+        Admin = "admin",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SsoConnectionCreateSamlParamsJit {
+    pub enabled: bool,
+    pub default_role: SsoConnectionCreateSamlParamsJitDefaultRole,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SsoConnectionCreateSamlParams {
+    pub idp_entity_id: String,
+    pub sso_url: String,
+    pub certificates: Vec<PemCertificate>,
+    pub domains: Vec<EmailDomain>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jit: Option<SsoConnectionCreateSamlParamsJit>,
+}
+
+wire_errors! {
+    /// The error codes sso.connection.create_saml declares.
+    SsoConnectionCreateSamlError {
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
         IdempotencyConflict = "idempotency.conflict",
@@ -847,56 +897,5 @@ wire_errors! {
         IdempotencyConflict = "idempotency.conflict",
         RevisionConflict = "revision.conflict",
         ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// One Cloud workspace or chat of the team, for a member opening its link. A person outside the team is refused auth.forbidden (or team.not_member); a closed or removed one is selector.not_found.
-    TeamCloudSessionGetOp {
-        name: "team.cloud.session.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: TeamCloudSessionGetParams,
-        result: TeamCloudSessionGetResult,
-        error: TeamCloudSessionGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamCloudSessionGetParams {
-    pub vm: CloudSessionVm,
-    pub session: CloudSessionId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamCloudSessionGetResult {
-    pub session: CloudSessionView,
-}
-
-wire_errors! {
-    /// The error codes team.cloud.session.get declares.
-    TeamCloudSessionGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        SelectorNotFound = "selector.not_found",
-        TeamNotMember = "team.not_member",
-    }
-}
-
-wire_op! {
-    /// The team's Cloud workspaces and chats, most recently active first: yours (mine), everyone's (team, optionally by one member) or the ones you follow (following); archived only with archived=true.
-    TeamCloudSessionListOp {
-        name: "team.cloud.session.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: TeamCloudSessionListParams,
-        result: TeamCloudSessionListResult,
-        error: TeamCloudSessionListError,
     }
 }

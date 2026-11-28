@@ -4,6 +4,57 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// One Cloud workspace or chat of the team, for a member opening its link. A person outside the team is refused auth.forbidden (or team.not_member); a closed or removed one is selector.not_found.
+    TeamCloudSessionGetOp {
+        name: "team.cloud.session.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: TeamCloudSessionGetParams,
+        result: TeamCloudSessionGetResult,
+        error: TeamCloudSessionGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamCloudSessionGetParams {
+    pub vm: CloudSessionVm,
+    pub session: CloudSessionId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamCloudSessionGetResult {
+    pub session: CloudSessionView,
+}
+
+wire_errors! {
+    /// The error codes team.cloud.session.get declares.
+    TeamCloudSessionGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        SelectorNotFound = "selector.not_found",
+        TeamNotMember = "team.not_member",
+    }
+}
+
+wire_op! {
+    /// The team's Cloud workspaces and chats, most recently active first: yours (mine), everyone's (team, optionally by one member) or the ones you follow (following); archived only with archived=true.
+    TeamCloudSessionListOp {
+        name: "team.cloud.session.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: TeamCloudSessionListParams,
+        result: TeamCloudSessionListResult,
+        error: TeamCloudSessionListError,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamCloudSessionListParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -839,63 +890,4 @@ wire_errors! {
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
     }
-}
-
-wire_op! {
-    /// Apply a retained past version's values as a new version (owners and admins).
-    TeamPolicyRollbackOp {
-        name: "team.policy.rollback",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: TeamPolicyRollbackParams,
-        result: TeamPolicy,
-        error: TeamPolicyRollbackError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyRollbackParams {
-    pub version: i64,
-    pub expected_version: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes team.policy.rollback declares.
-    TeamPolicyRollbackError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        PolicyInvalid = "policy.invalid",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Set or clear team policy keys as one new version (owners and admins). expected_version is the compare-and-swap; a stale version fails with revision.conflict.
-    TeamPolicyUpdateOp {
-        name: "team.policy.update",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: TeamPolicyUpdateParams,
-        result: TeamPolicy,
-        error: TeamPolicyUpdateError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyUpdateParams {
-    pub changes: Vec<PolicyChange>,
-    pub expected_version: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
 }

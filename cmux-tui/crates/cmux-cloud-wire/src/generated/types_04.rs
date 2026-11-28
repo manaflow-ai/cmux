@@ -4,6 +4,21 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    SsoConnectionJitDefaultRole {
+        Member = "member",
+        Admin = "admin",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SsoConnectionJit {
+    pub enabled: bool,
+    pub default_role: SsoConnectionJitDefaultRole,
+}
+
+pub type SsoConnectionId = String;
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum Step {
@@ -881,21 +896,4 @@ pub struct TriggerInputMessage {
     pub r#type: LitMessage,
     pub conversation: String,
     pub rule: String,
-}
-
-wire_enum! {
-    TriggerInputContinueUntilItem {
-        GoalMet = "goal_met",
-        Budget = "budget",
-        Stop = "stop",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TriggerInputContinue {
-    pub r#type: LitContinue,
-    pub until: Vec<TriggerInputContinueUntilItem>,
-    pub cooldown_seconds: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_runs: Option<i64>,
 }

@@ -4,6 +4,65 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Apply a retained past version's values as a new version (owners and admins).
+    TeamPolicyRollbackOp {
+        name: "team.policy.rollback",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: TeamPolicyRollbackParams,
+        result: TeamPolicy,
+        error: TeamPolicyRollbackError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyRollbackParams {
+    pub version: i64,
+    pub expected_version: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes team.policy.rollback declares.
+    TeamPolicyRollbackError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        PolicyInvalid = "policy.invalid",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Set or clear team policy keys as one new version (owners and admins). expected_version is the compare-and-swap; a stale version fails with revision.conflict.
+    TeamPolicyUpdateOp {
+        name: "team.policy.update",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: TeamPolicyUpdateParams,
+        result: TeamPolicy,
+        error: TeamPolicyUpdateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyUpdateParams {
+    pub changes: Vec<PolicyChange>,
+    pub expected_version: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
 wire_errors! {
     /// The error codes team.policy.update declares.
     TeamPolicyUpdateError {
@@ -841,55 +900,4 @@ pub struct TunnelAttachParams {
 pub struct TunnelAttachResult {
     pub tunnel_id: String,
     pub network_id: String,
-}
-
-wire_errors! {
-    /// The error codes tunnel.attach declares.
-    TunnelAttachError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Detach an owned WireGuard tunnel from an owned private network.
-    TunnelDetachOp {
-        name: "tunnel.detach",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session],
-        params: TunnelDetachParams,
-        result: TunnelDetachResult,
-        error: TunnelDetachError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TunnelDetachParams {
-    pub device_fingerprint: String,
-    pub network_id: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TunnelDetachResult {
-    pub tunnel_id: String,
-    pub network_id: String,
-}
-
-wire_errors! {
-    /// The error codes tunnel.detach declares.
-    TunnelDetachError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
 }

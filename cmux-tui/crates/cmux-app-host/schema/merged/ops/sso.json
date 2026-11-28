@@ -6,35 +6,42 @@
       "owner": "cloud:TeamDO",
       "class": "mutation",
       "risk": "mutate-shared",
-      "digest": "b1276df399f92e25"
+      "digest": "7cbf3264662afab3"
     },
     "sso.connection.create": {
       "source": "cloud",
       "owner": "cloud:TeamDO",
       "class": "mutation",
       "risk": "mutate-shared",
-      "digest": "824d75f8332c7f27"
+      "digest": "da5b8b0cf61913a9"
+    },
+    "sso.connection.create_saml": {
+      "source": "cloud",
+      "owner": "cloud:TeamDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "e46de1b4b8efe8d8"
     },
     "sso.connection.disable": {
       "source": "cloud",
       "owner": "cloud:TeamDO",
       "class": "mutation",
       "risk": "destructive",
-      "digest": "305736ed00ff6c9e"
+      "digest": "6dfdbc41e3e792b3"
     },
     "sso.connection.list": {
       "source": "cloud",
       "owner": "cloud:TeamDO",
       "class": "read",
       "risk": "read",
-      "digest": "2842f2401f52906c"
+      "digest": "cab327784b464a36"
     },
     "sso.connection.set_secret": {
       "source": "cloud",
       "owner": "cloud:TeamDO",
       "class": "mutation",
       "risk": "mutate-shared",
-      "digest": "e38aa565533da408"
+      "digest": "97b45babc7fe5840"
     }
   }
 }
