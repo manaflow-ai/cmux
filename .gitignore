@@ -1,14 +1,21 @@
 # Xcode
 .build/
+<<<<<<< HEAD
 build/
 DerivedData/
 *.xcuserstate
 xcuserdata/
 *.xcworkspace/xcshareddata/
+=======
+DerivedData/
+*.xcuserstate
+xcuserdata/
+>>>>>>> c5bd543fe0f9 (Initial commit: macOS terminal app with vertical tabs using libghostty)
 
 # macOS
 .DS_Store
 
+<<<<<<< HEAD
 # Local env
 .env
 .envrc
@@ -95,3 +102,10 @@ Packages/Shared/CmuxTerminalClient/CmuxTerminalClient.xcframework/
 !/Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/GENERATED.md
 /Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js
 /Resources/markdown-viewer/webviews-app/
+=======
+# Swift Package Manager
+.swiftpm/
+
+# GhosttyKit binary (rebuild from /tmp/ghostty with zig build)
+GhosttyKit.xcframework/
+>>>>>>> c5bd543fe0f9 (Initial commit: macOS terminal app with vertical tabs using libghostty)
