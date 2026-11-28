@@ -51,6 +51,10 @@ CAPTURE_VERDICTS = ("same", "changed", "new", "missing", "unbaselined")
 TRUSTED_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 MARKER = re.compile(r"<!-- cmux-proof-record (?P<suite>[a-z-]+) (?P<sha>[0-9a-f]{40}) -->")
 FENCE = re.compile(r"```json\n(?P<body>\{.*?\})\n```", re.S)
+# The lane broker refuses a comment body over 32768 characters (GitHub's own cap is 65536). cmux#38466's passing
+# iOS proof (12/12, about 45 minutes of simulator time) rendered past it at indent=1 with a long screen gallery and
+# was never posted, so its `cmux/ios-fast` gate never saw the pass. Keep a margin for the host scrub after render.
+MAX_COMMENT = 32_000
 REQUIRED = ("kind", "version", "suite", "repo", "pr", "head_sha", "selection", "runs", "verdict", "timing", "tool")
 
 
@@ -93,8 +97,21 @@ def render(record: dict, summary_md: str = "") -> str:
     if bad:
         raise ValueError("not a proof record: " + "; ".join(bad))
     head = f"<!-- {KIND} {record['suite']} {record['head_sha']} -->"
-    body = json.dumps(record, indent=1, sort_keys=True)
-    return f"{head}\n{summary_md.strip()}\n\n<details><summary>Proof record</summary>\n\n```json\n{body}\n```\n</details>\n"
+
+    def text(rec: dict) -> str:
+        body = json.dumps(rec, separators=(",", ":"), sort_keys=True)
+        return f"{head}\n{summary_md.strip()}\n\n<details><summary>Proof record</summary>\n\n```json\n{body}\n```\n</details>\n"
+
+    out = text(record)
+    if len(out) > MAX_COMMENT and record.get("captures"):
+        # No reader takes a capture's sha256 from a posted record (the screens themselves are in the step's
+        # artifact), so it is the first thing to go when a long gallery would push the comment past the limit.
+        out = text(dict(record, captures=[{k: v for k, v in c.items() if k != "sha256"} if isinstance(c, dict) else c
+                                          for c in record["captures"]]))
+    if len(out) > MAX_COMMENT:
+        raise ValueError(f"proof record comment is {len(out)} characters, over the {MAX_COMMENT} a PR comment may "
+                         f"hold through the lane broker; trim the summary or the captures")
+    return out
 
 
 def parse(comment_body: str) -> dict | None:

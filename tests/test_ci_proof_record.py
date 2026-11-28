@@ -59,6 +59,25 @@ class Record(unittest.TestCase):
         self.assertTrue(body.startswith(f"<!-- cmux-proof-record ios-flows {HEAD} -->"))
         self.assertEqual(pr.parse(body), RECORD)
 
+    def test_a_long_gallery_still_fits_one_comment(self):
+        # cmux#38466: a 12/12 pass with a long screen gallery rendered past the broker's 32768 and was never posted.
+        caps = [{"name": f"flow-{i:03d}/screen-{i:03d}.png", "sha256": f"{i:064x}", "verdict": "changed",
+                 "diff_ratio": 0.0123} for i in range(250)]
+        rec = dict(RECORD, captures=caps)
+        body = pr.render(rec, "summary")
+        self.assertLessEqual(len(body), pr.MAX_COMMENT)
+        got = pr.parse(body)
+        self.assertEqual([c["name"] for c in got["captures"]], [c["name"] for c in caps])
+        self.assertEqual({c["verdict"] for c in got["captures"]}, {"changed"})
+
+    def test_a_short_record_keeps_every_capture_field(self):
+        caps = [{"name": "a.png", "sha256": "f" * 64, "verdict": "same", "diff_ratio": 0.0}]
+        self.assertEqual(pr.parse(pr.render(dict(RECORD, captures=caps)))["captures"], caps)
+
+    def test_a_record_that_cannot_fit_fails_before_posting(self):
+        with self.assertRaisesRegex(ValueError, "over the 32000"):
+            pr.render(RECORD, "x" * 40_000)
+
     def test_problems(self):
         self.assertEqual(pr.problems(RECORD), [])
         bad = copy.deepcopy(RECORD)
