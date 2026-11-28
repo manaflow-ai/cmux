@@ -51,7 +51,7 @@ struct DeepLinkNavigator {
         case .workspace(let id):
             // Open: show it. Closed: reopen it from Recently Closed and show it
             // (DurableWorkspaceLink; a Chief reply links the workspaces it names, cmux#25572).
-            let workspace = services.machines.allWorkspaces.map(\.0).first { $0.resourceID?.rawValue == id }
+            let workspace = services.machines.daemons.workspace(resourceID: id)?.0
             guard let workspace else {
                 let resolver = DurableWorkspaceLink(daemons: services.machines.daemons, reveal: { [services] key in
                     guard let window = services.windows.reveal(workspaceID: key)?.window else { return false }
@@ -73,7 +73,7 @@ struct DeepLinkNavigator {
         case .group(let id, let workspace):
             // The named workspace when this Mac shows it; else the group's record from cmux Cloud
             // (CloudGroupLink), whose first workspace open here is shown.
-            if let workspace, let open = services.machines.allWorkspaces.map(\.0).first(where: { $0.resourceID?.rawValue == workspace }) {
+            if let workspace, let open = services.machines.daemons.workspace(resourceID: workspace)?.0 {
                 try reveal(workspace: open.id, intent)
                 return
             }

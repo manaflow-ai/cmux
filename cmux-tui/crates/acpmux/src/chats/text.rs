@@ -136,7 +136,7 @@ impl Doc {
         let mut bytes = 0_usize;
         'turns: for (turn, t) in turns.iter().enumerate().rev() {
             for (answer, text) in [(true, &t.answer), (false, &t.prompt)] {
-                let flat = flatten(text);
+                let flat = indexed(text);
                 if flat.is_empty() {
                     continue;
                 }
@@ -205,7 +205,7 @@ impl Doc {
         let appended = self.text.len();
         for (number, t) in (turn..).zip(turns) {
             for (answer, text) in [(false, &t.prompt), (true, &t.answer)] {
-                let flat = flatten(text);
+                let flat = indexed(text);
                 if flat.is_empty() {
                     continue;
                 }
@@ -390,6 +390,19 @@ fn par_filter_map<R: Send>(
 }
 
 /// At most the last `max` bytes of `text`, cut on a character boundary.
+/// The most of one message's raw text masked for the index: a pasted log past this is cut to its
+/// newest bytes first, as the index keeps only its newest [`CHAT_BYTES`] anyway.
+const MASK_RAW_BYTES: usize = 4 * CHAT_BYTES;
+
+/// A message as the index holds it: every secret masked (`secret_scan::mask`, on the raw text,
+/// so a label alone on its line still names the value below it), then flattened. The one way
+/// text enters a doc, so `chat-index/text-v2.bin` never holds a credential a person pasted
+/// (card d-08bd4815d1).
+fn indexed(text: &str) -> String {
+    let raw = if text.len() > MASK_RAW_BYTES { newest_tail(text, MASK_RAW_BYTES) } else { text };
+    flatten(&crate::secret_scan::mask(raw))
+}
+
 fn newest_tail(text: &str, max: usize) -> &str {
     let start = (text.len().saturating_sub(max)..=text.len())
         .find(|&at| text.is_char_boundary(at))
@@ -535,6 +548,8 @@ pub struct ChatText {
     legacy: Option<PathBuf>,
     /// The most text held: [`TOTAL_BYTES`] (tests hold less).
     total: usize,
+    /// The title ranker of the query windows, kept across keystrokes (`window.rs`).
+    titles: super::window::TitleRanker,
 }
 
 #[derive(Default)]
@@ -622,7 +637,13 @@ impl ChatText {
             path,
             legacy: None,
             total: TOTAL_BYTES,
+            titles: super::window::TitleRanker::default(),
         }
+    }
+
+    /// The title ranker a query window keeps across keystrokes.
+    pub(crate) fn titles(&self) -> &super::window::TitleRanker {
+        &self.titles
     }
 
     /// [`Self::new`], reading an older build's JSON copy at `legacy` when `path` holds none.

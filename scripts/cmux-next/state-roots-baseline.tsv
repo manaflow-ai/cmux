@@ -23,6 +23,8 @@ cmux-tui/crates/acpmux/src/peer.rs	1	keep	~/.acpmux on a remote SSH host
 cmux-tui/crates/acpmux/src/hand/policy.rs	1	keep	security classifier keyword, not a filesystem state root
 cmux-tui/crates/cmux-agent-pane-policy/src/build_identity.rs	2	keep	resolver: build_identity
 cmux-tui/crates/cmux-agent-pane-policy/src/environment.rs	2	keep	resolver: acpmux home
+cmux-tui/crates/cmux-agent-pane-policy/src/new_tab_project_groups.rs	1	keep	pure classifier of incoming historical worktree paths; never opens or constructs a state path
+cmux-tui/crates/cmux-agent-pane-policy/src/new_tab_projects.rs	2	keep	pure exclusion of incoming agent-home paths from project rows, plus its regression fixture; no filesystem access
 cmux-tui/crates/cmux-chat-index/src/scan.rs	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/cmux-host/src/cloud/role.rs	1	keep	the Cloud VM's acpmux home (the default ~/.acpmux of the session host's user, as the image runs it); the trajectory mirror reads and restores it (#25584)
 cmux-tui/crates/cmux-server-core/src/layout.rs	1	move	unreviewed at S7 (cx-is1kf.8)

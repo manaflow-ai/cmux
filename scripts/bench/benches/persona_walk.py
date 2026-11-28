@@ -13,7 +13,7 @@ finished (shell_in_new_tab, split, million_lines, reopen_window, ...; ms); tasks
 first-window, after-5s and after-walk, labelled stage=); stuck_points (count of STUCK and FAIL lines the walk wrote:
 a person hit a wall); first_reply_failed (1 when the Chief's answer to the first message was a failed turn).
 
-  cmux-bench persona-walk --host fleet [--arg mode=p0|p0-casual|p0-hardcore] [--arg worker=HOST]
+  cmux-bench persona-walk --host fleet [--arg mode=p0|p0-casual|p0-hardcore|p1|p1-casual] [--arg worker=HOST]
   cmux-bench persona-walk --import report.tgz   (a walk's artifact, or the directory it unpacks to)
 """
 from __future__ import annotations

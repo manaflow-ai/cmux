@@ -34,6 +34,7 @@ import {
   vmWorkflowErrorCause,
   type VmActiveLimitMachine,
   type VmCreateInProgressError,
+  type VmCreateWaitingError,
   type VmResourcePoolExceededError,
   type VmModelPlaneError,
   type VmOperationDeadlineError,
@@ -827,6 +828,42 @@ const vmCreateInProgressResponse = (error: VmCreateInProgressError, action: stri
     details: { idempotencyKeySet: !!error.idempotencyKey },
   });
 
+/**
+ * The create is queued, not failed (services/vms/createWait.ts): its network
+ * has no free address or the provider has no start capacity right now. A 202
+ * with Retry-After; the same request with the same idempotency key starts the
+ * machine once room frees, until `deadline`, after which it fails with
+ * `vm_create_wait_expired`.
+ */
+export const vmCreateWaitingResponse = (error: VmCreateWaitingError): Response => {
+  const forAddress = error.state === "waiting_for_address";
+  const forFleet = error.state === "waiting_for_fleet";
+  const message = forAddress
+    ? "Waiting for a free address in this account's private network."
+    : forFleet
+      ? "Waiting for a free machine slot in the Cloud VM fleet."
+      : "Waiting for Cloud VM start capacity.";
+  return vmErrorResponse({
+    error: "vm_create_waiting",
+    status: 202,
+    message,
+    reason: forAddress
+      ? "Every address in this account's private network is assigned to a machine or an enrolled Mac."
+      : forFleet
+        ? "The Cloud VM fleet is at its machine cap."
+        : "The provider has no room to start another machine right now.",
+    action: "Retry the same request with the same idempotency key after retryAfterSeconds; the machine starts when room frees.",
+    phase: "create",
+    retryable: true,
+    retryAfterSeconds: error.retryAfterSeconds,
+    displayTitle: forAddress ? "Waiting for an address" : forFleet ? "Waiting for a fleet slot" : "Waiting for capacity",
+    displayMessage: message,
+    severity: "info",
+    extra: { waitState: error.state, waitingSince: error.since, waitDeadline: error.deadline },
+    details: { waitState: error.state, waitingSince: error.since, waitDeadline: error.deadline, idempotencyKeySet: !!error.idempotencyKey },
+  });
+};
+
 const vmFirewallRuleNotFoundResponse = (error: VmFirewallRuleNotFoundError): Response =>
   vmErrorResponse({
     error: "vm_firewall_rule_not_found",
@@ -1247,6 +1284,7 @@ export const vmWorkflowErrorResponders = {
   // Create-family failures need the caller's plan and operation copy; the
   // create, fork, and restore routes supply those as overrides.
   VmCreateInProgressError: () => null,
+  VmCreateWaitingError: (error) => vmCreateWaitingResponse(error),
   VmCreateFailedError: () => null,
   VmImageConfigError: () => null,
   VmLimitExceededError: () => null,
