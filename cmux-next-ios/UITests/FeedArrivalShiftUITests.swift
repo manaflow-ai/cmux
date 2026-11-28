@@ -10,11 +10,20 @@ import XCTest
 /// Each case names the mechanism it catches, so a failure says which fired:
 /// - `Drag`, `Fling`: rows applied while UIKit moves the offset (a correction the gesture or the
 ///   deceleration undoes).
-/// - `RestOffTop`: the apply-with-anchor at rest (the control: it held before the fix too).
-/// - `RestJustBelowTop`: the old 60 pt "at top" band, where no anchor was kept.
+/// - `RestOffTop`: the apply-with-anchor at rest (a control: it held before the fix too).
+/// - `RestJustBelowTop`: the old 60 pt "at top" band, where no anchor was kept. The list is placed
+///   12 pt below the top by the probe (`CMUX_MOBILE_FEED_SHIFT_PLACE`): the short held drag that
+///   placed it read as a hold on a row and opened it (green-43, feed15-red-7: "No matches found for Table").
 /// - `HeaderOffTop`: a header re-measure off the top with no anchor (a refresh error comes and goes).
 /// - `FingerResting`: a finger on the glass, not moving (tracking, offset still) while rows arrive
-///   (Aziz's recording, 109.59 s: every row moved down one row with the list still).
+///   (a control: with no pan nothing undoes a correction, so it passes on 517b1e7f too).
+/// - `RestAfterFling`: Aziz's recording (109.59 s: the pill went 102 -> 103 and every row moved down
+///   one row, the list still): slow flings, and a row arrives as each deceleration's tail begins
+///   (`CMUX_MOBILE_FEED_SHIFT_ARRIVE=tail`), when the list looks at rest but UIKit still moves it. It
+///   fails on the probe's `rest=` count: rows that moved while the list looked still.
+/// - `CreepingFinger`: a finger that comes down and creeps (half a drag's speed), with a row
+///   arriving while it rests before its pan begins
+///   (`CMUX_MOBILE_FEED_SHIFT_ARRIVE=touch`).
 /// - `SettleFrame`: rows arriving as a deceleration ends, or just after (the settle frame): what
 ///   waited applies with its restore in one pass, never a frame with the rows shown before it.
 /// - `HeaderDuringDrag`: the header changes height (a refresh error comes and goes every 0.5 s) while
@@ -27,6 +36,8 @@ import XCTest
 ///
 /// Two loads: `feed-live` (the rig's 3 changes a second, one row in four) and `pressure84` (12 a
 /// second: three rows a second, the rate of 84 workspaces with a row each about every 30 s).
+/// Each case attaches the probe's reading with its notes (the last shifted frames and offsets set
+/// while UIKit moved the list) and the list's trace (held, released, restore lines).
 final class FeedArrivalShiftUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -41,6 +52,8 @@ final class FeedArrivalShiftUITests: XCTestCase {
     @MainActor func testRestJustBelowTopPressure84() { run(.restJustBelowTop, liveHz: 12) }
     @MainActor func testHeaderOffTopFeedLive() { run(.headerOffTop, liveHz: 3) }
     @MainActor func testFingerRestingPressure84() { run(.fingerResting, liveHz: 12) }
+    @MainActor func testRestAfterFlingPressure84() { run(.restAfterFling, liveHz: 12) }
+    @MainActor func testCreepingFingerPressure84() { run(.creepingFinger, liveHz: 12) }
     @MainActor func testSettleFramePressure84() { run(.settleFrame, liveHz: 12) }
     @MainActor func testHeaderDuringDragFeedLive() { run(.headerDuringDrag, liveHz: 3) }
     @MainActor func testOnScreenResizeGuard() { run(.onScreenResize, liveHz: 0) }
@@ -52,6 +65,8 @@ final class FeedArrivalShiftUITests: XCTestCase {
         case restJustBelowTop = "RestJustBelowTop (the 60 pt at-top band, no anchor)"
         case headerOffTop = "HeaderOffTop (header re-measure off the top, no anchor)"
         case fingerResting = "FingerResting (a finger on the glass, not moving, while rows arrive)"
+        case restAfterFling = "RestAfterFling (a row arrives as a fling settles, the list looking at rest)"
+        case creepingFinger = "CreepingFinger (a finger rests, then creeps, while rows arrive)"
         case settleFrame = "SettleFrame (rows arriving as a deceleration ends)"
         case headerDuringDrag = "HeaderDuringDrag (the header changes height while the finger drags and the list flings)"
         case onScreenResize = "OnScreenResize guard (Show more below the first row: the first row stays)"
@@ -75,6 +90,9 @@ final class FeedArrivalShiftUITests: XCTestCase {
         app.launchEnvironment["CMUX_MOBILE_FEED_SHIFT_PROBE"] = "1"
         if which == .headerOffTop { app.launchEnvironment["CMUX_MOBILE_FEED_STRESS_HEADER"] = "1.5" }
         if which == .headerDuringDrag { app.launchEnvironment["CMUX_MOBILE_FEED_STRESS_HEADER"] = "0.5" }
+        if which == .restJustBelowTop { app.launchEnvironment["CMUX_MOBILE_FEED_SHIFT_PLACE"] = "12" }
+        if which == .restAfterFling { app.launchEnvironment["CMUX_MOBILE_FEED_SHIFT_ARRIVE"] = "tail" }
+        if which == .creepingFinger { app.launchEnvironment["CMUX_MOBILE_FEED_SHIFT_ARRIVE"] = "touch" }
         app.launchArguments += ["-cmux-mobile-tab", "feed", "-cmux-mobile-no-restore"]
         app.launch()
         defer { app.terminate() }
@@ -84,14 +102,8 @@ final class FeedArrivalShiftUITests: XCTestCase {
         let list = app.tables["feed.list"]
         XCTAssertTrue(list.waitForExistence(timeout: 20), "\(which.rawValue): no Feed list")
 
-        // Placing the list, before the load starts.
-        switch which {
-        case .restJustBelowTop:
-            // A few points below the true top: a short slow drag with a hold, so it stops where it is.
-            let start = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
-            start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -30)),
-                        withVelocity: XCUIGestureVelocity(60), thenHoldForDuration: 0.6)
-        default:
+        // Placing the list, before the load starts. RestJustBelowTop: the probe places it when the signal comes.
+        if which != .restJustBelowTop {
             for _ in 0..<4 { app.swipeUp(velocity: .fast) }
         }
         // Placed: the load and the measure start, and the case's motion runs under them.
@@ -112,6 +124,23 @@ final class FeedArrivalShiftUITests: XCTestCase {
         case .fingerResting:
             // Down and still for 8 s: the touch is held, the offset does not move.
             list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 8)
+        case .restAfterFling:
+            // Slow flings, each left to come to rest: the probe adds a row when the deceleration slows
+            // under half a point a frame, so the pill's count rises while the list looks at rest.
+            for _ in 0..<5 {
+                app.swipeUp(velocity: .slow)
+                Thread.sleep(forTimeInterval: 3)
+            }
+        case .creepingFinger:
+            // Down for 0.15 s, then creeping 60 pt at 60 pt/s (its pan begins before a row's context
+            // menu would open on a still finger), and held: the probe adds a row while the finger rests
+            // before its pan begins, and the load adds more while it creeps.
+            for _ in 0..<4 {
+                let from = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
+                from.press(forDuration: 0.15, thenDragTo: from.withOffset(CGVector(dx: 0, dy: -60)),
+                           withVelocity: XCUIGestureVelocity(60), thenHoldForDuration: 0.6)
+                Thread.sleep(forTimeInterval: 0.6)
+            }
         case .settleFrame:
             // Short slow flings that come to rest every 0.7 s, under three rows a second: arrivals
             // land in and just after the frame each deceleration ends.
@@ -146,11 +175,16 @@ final class FeedArrivalShiftUITests: XCTestCase {
         }
         // At rest: what waited applies (FEED-15), and the measure sees it.
         Thread.sleep(forTimeInterval: 3)
-        let reading = (list.label)
+        XCTAssertTrue(list.exists, "\(which.rawValue) [\(load)]: the Feed list left the screen during the case")
+        let reading = list.label
         let note = XCTAttachment(string: "\(which.rawValue), load \(load) (\(liveHz) changes/s): \(reading)")
         note.name = "feed15-\(load)-\(String(describing: which))"
         note.lifetime = .keepAlways
         add(note)
+        let trace = XCTAttachment(string: (list.value as? String) ?? "")
+        trace.name = "feed15-\(load)-\(String(describing: which))-trace"
+        trace.lifetime = .keepAlways
+        add(trace)
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = "feed15-\(load)-\(String(describing: which))-end"
         shot.lifetime = .keepAlways
@@ -159,8 +193,16 @@ final class FeedArrivalShiftUITests: XCTestCase {
         let shifted = Self.number("shifted", in: reading)
         let maxShift = Self.number("max", in: reading)
         let arrivals = Self.number("arrivals", in: reading)
+        let rest = Self.number("rest", in: reading)
+        let arrived = Self.number("arrived", in: reading)
         XCTAssertGreaterThan(samples, 30, "\(which.rawValue) [\(load)]: the shift measure judged \(samples) frames: \(reading)")
         if liveHz > 0 { XCTAssertGreaterThan(arrivals, 0, "\(which.rawValue) [\(load)]: no row arrived: \(reading)") }
+        if which == .restAfterFling || which == .creepingFinger {
+            XCTAssertGreaterThan(arrived, 0, "\(which.rawValue) [\(load)]: the probe never reached the case's moment (no row asked for): \(reading)")
+        }
+        if which == .restAfterFling {
+            XCTAssertEqual(rest, 0, "FEED-15 \(which.rawValue) [\(load)]: rows moved in \(Int(rest)) frames while the list looked at rest (the recording's jump at 109.59 s): \(reading)")
+        }
         XCTAssertTrue(maxShift <= 0.5 && shifted == 0,
                       "FEED-15 \(which.rawValue) [\(load)]: the row being read moved \(maxShift) pt in a frame the scroll does not explain, \(Int(shifted)) shifted frames: \(reading)")
     }
