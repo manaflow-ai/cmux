@@ -60,6 +60,21 @@ PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
     # A nightly repair must earn this commit's Release compile before promotion
     # carries it to nightly-next, so feat-cmux-next and main pushes also start
     # cmux-next.yml for the nightly release inputs (#21144).
+    # Web merges move the published bytes the replay measures, so
+    # base pushes rerun it; a pull request does not need the report (it reports, never gates).
+    "cas-replay.yml": (
+        "paths",
+        frozenset({"webviews/**"}),
+        "the replay's rows move with each web publish on the base; pull requests "
+        "run it only for the replay's own inputs",
+    ),
+    # relay_deploy_plan.py: journey-staging gates the deploy, so a journey fix on the base retries it (#59812).
+    "cloudflare-relay.yml": (
+        "paths",
+        frozenset({"scripts/cmux-next/cloud-journey*"}),
+        "journey-staging gates the relay deploy; a push that fixes the journey retries the deploy "
+        "(#59812), which a pull request has nothing to deploy for",
+    ),
     "cmux-next.yml": (
         "paths",
         frozenset({

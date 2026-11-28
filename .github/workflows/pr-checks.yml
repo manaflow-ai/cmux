@@ -273,8 +273,11 @@ jobs:
           # The description lints (pr-body-checks.yml's, until CI v2 step 6's second cut) on every push: on a
           # draft, a base-only update, a fork and under CI_QUOTA_HOLD too, as they ran there (each reads the
           # files API only when git could not list the paths). pr-body-checks.yml keeps the edits and labels.
+          # bench-relevance: the areas, benches, targeted tests and check templates the relevance map names for
+          # these paths (Leo, 2026-11-27: "targetted tests per type of situation that things touch based off
+          # relevance"). The step was in the table since #63786 but never picked, so no pull request showed it.
           case "$ACTION" in
-            opened|synchronize|reopened|ready_for_review) keep+=(capture design-spec perf-section cloud-backend) ;;
+            opened|synchronize|reopened|ready_for_review) keep+=(capture design-spec perf-section cloud-backend bench-relevance) ;;
           esac
           echo "steps=${keep[*]}" >> "$GITHUB_OUTPUT"
           echo "Steps for this ${ACTION} event: ${keep[*]:-none}" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -309,6 +312,10 @@ jobs:
             scripts/ci/pr_perf_section_check.py
             scripts/ci/pr_cloud_backend_check.py
             .github/cloud-backend-paths.json
+            scripts/bench/cmux-bench
+            scripts/bench/benchlib/
+            docs/benches/relevance-map.toml
+            docs/benches/templates/
             .gitmodules
           sparse-checkout-cone-mode: false
 

@@ -76,6 +76,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /scripts/
+            /.gitmodules
           submodules: false
       # A pull request diffs its merge commit against the base; a tip push diffs every commit since the last tip this
       # ran on (the coalesce base; the push's own range when none is recorded).
