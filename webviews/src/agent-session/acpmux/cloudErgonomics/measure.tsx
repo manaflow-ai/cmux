@@ -11,7 +11,6 @@ import { Thinking } from "../conversation/Thinking";
 import { THINKING_VERBS } from "../conversation/thinkingVerbs";
 import {
   classifyError,
-  clockIn,
   controlsIn,
   controlWay,
   etaIn,
@@ -23,8 +22,10 @@ import {
   type ControlWay,
   type Effect,
   type ErrorClass,
+  clockIn,
 } from "./classify";
-import { cloudErgonomicsStates, UNCOVERED, type ErgoState } from "./states";
+import { cloudErgonomicsStates, type ErgoState } from "./states";
+import { UNCOVERED } from "./turnFailureFixtures";
 
 export const SCHEMA = "cloud-ergonomics/v2";
 

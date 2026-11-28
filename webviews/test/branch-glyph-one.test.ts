@@ -10,7 +10,7 @@ const root = path.resolve(import.meta.dir, "../src");
 const files = (dir: string): string[] =>
   readdirSync(dir).flatMap((name) => {
     const full = path.join(dir, name);
-    return statSync(full).isDirectory() ? files(full) : /\.tsx$/.test(name) ? [full] : [];
+    return statSync(full).isDirectory() ? files(full) : name.endsWith(".tsx") ? [full] : [];
   });
 
 test("every BranchIcon renders the shared BranchGlyph, not its own svg", () => {

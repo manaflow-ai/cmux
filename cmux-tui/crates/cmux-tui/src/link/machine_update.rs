@@ -206,7 +206,7 @@ fn update(request: &Request) -> Result<Value, Failed> {
         .map_err(|unreached| Failed::new("machine_unreachable", unreached.to_string()))?;
     let previous = machine_gate::build_id(&before).map(str::to_owned);
     let current = if request.to_bundled {
-        previous.as_deref() == Some(cmux_build_identity::BUILD_IDENTITY)
+        previous.as_deref() == Some(crate::build_identity::identity())
     } else {
         machine_gate::outdated_identity(&before, &NEEDED).is_none()
     };
@@ -224,7 +224,7 @@ fn update(request: &Request) -> Result<Value, Failed> {
                 format!("the machine daemon did not say its build time: {error}"),
             )
         })?;
-        if !machine_is_older(revisions["build_time"].as_u64(), cmux_build_identity::BUILD_TIME) {
+        if !machine_is_older(revisions["build_time"].as_u64(), crate::build_identity::time()) {
             return Ok(json!({"updated": false, "build": previous, "not_older": true}));
         }
     }
@@ -295,10 +295,17 @@ fn update(request: &Request) -> Result<Value, Failed> {
 /// a store that refuses this build as older than one it applied gets it in place. The
 /// automatic update (`--if-older`) never moves a machine back.
 fn route_args(route: apply::Route, request: &Request) -> Vec<String> {
-    if route != apply::Route::Store {
-        return Vec::new();
+    let mut args = Vec::new();
+    // The app's automatic update (`--if-older`) never restarts a machine whose agents work: its daemon and acpmux
+    // restart under them, which dropped a Cloud chat mid-start and lost its credential (cmux#57192). It answers
+    // busy and the app asks again later. A start's own update (no `--if-older`) must run, and runs.
+    if request.if_older {
+        args.push(apply::IF_IDLE_FLAG.to_owned());
     }
-    let mut args = vec!["--route".to_owned(), "store".to_owned()];
+    if route != apply::Route::Store {
+        return args;
+    }
+    args.extend(["--route".to_owned(), "store".to_owned()]);
     if request.to_bundled && !request.if_older {
         args.push(apply::IN_PLACE_FLAG.to_owned());
     }
@@ -418,10 +425,9 @@ fn pinned_payload() -> Result<(PathBuf, String, String), Failed> {
         .enable_all()
         .build()
         .map_err(|e| Failed::new("machine_update_failed", e.to_string()))?;
-    match runtime.block_on(cmux_remote::pinned_linux_payload(
-        CLOUD_ARCH,
-        cmux_build_identity::BUILD_IDENTITY,
-    )) {
+    match runtime
+        .block_on(cmux_remote::pinned_linux_payload(CLOUD_ARCH, crate::build_identity::identity()))
+    {
         Ok(Some(pinned)) if apply::is_sha256(&pinned.sha256) => {
             Ok((pinned.path, pinned.sha256, pinned.commit))
         }
@@ -484,7 +490,7 @@ fn stage(
 
 /// Waits for the apply step's recorded outcome; the new build on success.
 fn wait_for_outcome(socket: &Path, result: &str, daemon_pid: u64) -> Result<String, Failed> {
-    let own = cmux_build_identity::BUILD_IDENTITY;
+    let own = crate::build_identity::identity();
     let deadline = Instant::now() + OUTCOME_TIMEOUT;
     let mut new_seen: Option<Instant> = None;
     while Instant::now() < deadline {

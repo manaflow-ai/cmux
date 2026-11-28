@@ -323,21 +323,24 @@ fn parse(args: Vec<OsString>, invocation: Invocation) -> Parsed {
     let build_grammar = |front_door| {
         crate::cli::help_examples::attach(Cli::command(), front_door).name(name).bin_name(name)
     };
-    let mut grammar = build_grammar(false);
+    // A call that parses never shows help, so it parses with the bare grammar: walking the
+    // examples onto every command (`help_examples::attach`) was most of what an `acpmux ls`,
+    // `send` or `register` spent before its first syscall, and on a host at load 10x its cores
+    // each millisecond of CPU waits its turn (the duress bench's cpu leg: `start` 750 ms of a
+    // 1,099 ms `ls` p99). Help, a refusal or a recovery reparses with the examples attached.
+    let mut grammar = Cli::command().name(name).bin_name(name);
     let json_out = argv.iter().take_while(|a| *a != "--").any(|a| a == "--json");
     let matches = match grammar.try_get_matches_from_mut(argv.clone()) {
         Ok(matches) => matches,
+        // `--version` reads no example.
+        Err(e) if e.kind() == clap::error::ErrorKind::DisplayVersion => e.exit(),
         // A flag another command takes says which, and what this one does instead; a root word
         // a command group takes names that command; under --json any other is the envelope.
         Err(e) => {
             // Only help and errors need front-door spellings. Normal calls use the
             // unchanged engine grammar, including its canonical variant names.
-            let e = if name == "cmux agent" {
-                grammar = build_grammar(true);
-                grammar.try_get_matches_from_mut(argv.clone()).err().unwrap_or(e)
-            } else {
-                e
-            };
+            grammar = build_grammar(name == "cmux agent");
+            let e = grammar.try_get_matches_from_mut(argv.clone()).err().unwrap_or(e);
             let refusal = crate::cli::unknown_flag::explain(&e, &grammar, &argv, at, name)
                 .or_else(|| crate::cli::unknown_command::explain(&e, &grammar, &argv, at, name));
             if let Some(refusal) = refusal {
@@ -782,6 +785,22 @@ async fn async_main(parsed: Parsed) -> Result<()> {
             }
         }
         // No daemon: what this binary serves (`capabilities.rs`).
+        Some(Command::RunElsewhereCarrier(args)) => {
+            // The bg task's shell reads the far run's own exit code.
+            match crate::cli::run_elsewhere_carrier::run(args).await {
+                Ok(0) => Ok(()),
+                Ok(code) => {
+                    let e = errors::AppError::new(
+                        errors::Code::Runtime,
+                        "run_elsewhere_exit",
+                        format!("the run exited {code}"),
+                    )
+                    .with_exit(code);
+                    errors::exit_with(&e.into(), cli.json)
+                }
+                Err(e) => errors::exit_with(&e, cli.json),
+            }
+        }
         Some(Command::SubForkJob) => match crate::placement::sub_fork_run::job_main().await {
             Ok(()) => Ok(()),
             Err(e) => errors::exit_with(&e, cli.json),

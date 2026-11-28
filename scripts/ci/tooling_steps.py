@@ -407,6 +407,20 @@ def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], work
     if traced and declared:
         return False, (f"none of its traced inputs changed (its declared globs {', '.join(declared[:3])}"
                        f"{' ...' if len(declared) > 3 else ''} and {len(inputs)} resolved files; {DECLARED}, traced)")
+    # A code file that lists every tracked file (`git ls-files` with no pathspec) can fail on any added, deleted or
+    # renamed file: tests/test_check_paths.py checks each pattern of scripts/ci/check-paths.txt still matches one.
+    # A diff that only edits files leaves that list as it was, so the rule needs the added and deleted files
+    # (renames are an add and a delete under --no-renames); with no such list it holds for every diff.
+    # Checked before the glob and directory reasons, and worded so BROAD_REASON keeps it on a pull request when the
+    # diff's added and deleted files are known: a new file is what the list checks, so the PR that adds it is the one
+    # to run the step (cmux#65513: a PR added scripts/ci/check-bash32-compat.sh, tt-check-paths was deferred as
+    # "reads directory scripts", and the missing check-paths.txt entry went red on the base).
+    if added_deleted is None or added_deleted:
+        for path in code:
+            if WHOLE_TREE_LIST.search(read_text(repo, path)):
+                if added_deleted:
+                    return True, f"{path} runs over every tracked file and this diff adds or deletes {sorted(added_deleted)[0]}"
+                return True, f"{path} lists every tracked file"
     for path, reach in reaches.items():
         for pattern in reach.globs:
             regex = glob_regex(pattern)
@@ -417,14 +431,6 @@ def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], work
             for name in sorted(changed):
                 if name.startswith(directory + "/"):
                     return True, f"{path} reads directory {directory}, which holds {name}"
-    # A code file that lists every tracked file (`git ls-files` with no pathspec) can fail on any added, deleted or
-    # renamed file: tests/test_check_paths.py checks each pattern of scripts/ci/check-paths.txt still matches one.
-    # A diff that only edits files leaves that list as it was, so the rule needs the added and deleted files
-    # (renames are an add and a delete under --no-renames); with no such list it holds for every diff.
-    if added_deleted is None or added_deleted:
-        for path in code:
-            if WHOLE_TREE_LIST.search(read_text(repo, path)):
-                return True, f"{path} lists every tracked file"
     # A path the walker does not follow: a changed file any input of the closure spells out by path or file name,
     # a data file (scripts/ci/check-paths.txt naming a script) as much as code. A path that ends in another file's
     # path, or a bare name in code prose, does not count (names_path).

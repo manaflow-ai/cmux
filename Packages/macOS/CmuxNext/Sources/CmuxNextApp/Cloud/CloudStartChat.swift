@@ -38,9 +38,9 @@ struct CloudStartChat {
             guard let view, let tab = localTab(view, tabs, services) else { return AgentPaneReply.failure(code: "unavailable", message: CloudMoveStrings.notAChat) }
             let timeline = CloudSendTimeline() // from the Send's arrival here (cmux#45953)
             let titles = services.cloudStartTitles, workspace = services.workspaceID(ofTab: tab.id); titles.begin(tab, task: start.task, untitled: AgentPaneModel.tabTitle); defer { titles.end(tab); titles.endWorkspace(workspace) } // the page reads as its chat from the Send
-            return await CloudStartChat(services: services, asker: .card(view, start: start.key), timeline: timeline, tabs: tabs).reply(start, tab: tab) { [weak view] step in
+            return await start.resumable(on: view) { await CloudStartChat(services: services, asker: .card(view, start: start.key), timeline: timeline, tabs: tabs).reply(start, tab: tab) { [weak view] step in
                 if let view { start.progress(step, to: view) }
-            }
+            } } // a page built again meanwhile shows the start and hears its end, never an empty New Tab
         }
     }
 
@@ -88,7 +88,7 @@ struct CloudStartChat {
         } catch {
             let message = (error as? CloudMove.Failure)?.message ?? (error as? ActionFailure)?.message
                 ?? CloudMoveStrings.moveFailed(CloudStrings.errorText(error))
-            services.cloud.logger.error("cloud start chat failed: \(message, privacy: .public)")
+            services.cloud.logger.error("cloud start chat failed: \(message, privacy: .public) [\(String(reflecting: type(of: error)), privacy: .public): \(String(describing: error), privacy: .private)]")
             // A failure a retry can help gets the card's Retry; a plan refusal keeps its code and the teams (CloudStartView).
             let plan = CloudMachineCreation.proRefusal(error) != nil
             if !plan, let move = error as? CloudMove.Failure { failed = .init(code: move.code, message: message, retryable: move.retry != nil || move.sendAgain) }
@@ -403,8 +403,8 @@ extension CloudStartChat {
         services.cloud.startSessionRuns.began = { [weak services] key in if key.machine.hasPrefix("name:"), key.machine != "name:", let services { warmSpare(services) } } // `cmux chat --on vm:new` and `cloud start-session --name`: a create, which claims the spare, comes next
         let connector = SettingsModels.cloudSetup(
             environment: { [weak services] in services.flatMap(QuitAgents.environment) },
-            openSignInPage: { [weak services] url in services?.linkOpener.openSignInPage(url, beside: nil) })
-        connector.onConnections = { [weak services] in services?.cloud.setup.connectionsChanged() }
+            openSignInPage: { [weak services] url in services?.windows.active?.focusedPane == nil ? nil : services?.linkOpener.openSignInPage(url, beside: nil) })
+        connector.onConnections = { [weak services] in services?.cloud.setup.connectionsChanged() }; connector.onSignInFailed = { [weak services] family, code in services?.cloud.setup.signInFailed(code, family: family) }
         services.cloud.setup.connectInPlace = { action in await connector.connectInPlace(action.rawValue) }
         services.cloud.signedIn = { [weak services] in if let services { warmSpare(services) } } // a sign-in in front, as an activation signed in: an activation before the sign-in (signed out) warmed nothing
     }

@@ -17,6 +17,12 @@
 //! - a machine a hint woke with no input within [`IDLE_BOUND_MS`] pauses again; the wake is
 //!   counted `false` with the awake seconds it cost, else `used`.
 //!
+//! Reads never wake (RFD 0144, "A read never wakes a VM"): when the shell says it serves the chat
+//! without the machine (`readsWithoutWake`: the daemon's copy of a peer chat, `_acpmux/peer_snapshot`,
+//! behind the hidden `cloud.openWithoutWake`, default off), opening or unlocking onto that chat is
+//! a glance, not a wake. A terminal still wakes (it needs a process), and so does the composer's
+//! first keystroke (the typing prewarm), which is where work starts.
+//!
 //! Versioned: [`WAKE_HINT_VERSION`]. A hint of a newer version is read by its known fields (a
 //! newer client adds fields, never changes these); an unknown signal is skipped, never guessed.
 //! Pure: the caller passes the clock (`now_ms`, any monotonic origin).
@@ -68,6 +74,9 @@ pub struct Hint {
     pub allowed: bool,
     pub loaded: bool,
     pub status: Option<String>,
+    /// The shell serves this machine's chat without it (RFD 0144 piece 2): a `focus` or `unlock`
+    /// is then a read, which never wakes. Absent (an older shell): false, the hint wakes as before.
+    pub reads_without_wake: bool,
 }
 
 /// What a hint does.
@@ -140,6 +149,9 @@ impl WakeHints {
             None | Some(Signal::Unknown) => return HintDecision::Skip("unknownSignal"),
             Some(signal) => signal,
         };
+        if hint.reads_without_wake && matches!(signal, Signal::Focus | Signal::Unlock) {
+            return HintDecision::Skip("readsWithoutWake");
+        }
         if hint.machine.is_empty() {
             return HintDecision::Skip("notListed");
         }
