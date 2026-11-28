@@ -3955,6 +3955,7 @@ dependencies = [
  "cmux-cloud-environment",
  "cmux-cloud-handlers",
  "cmux-cloud-machine",
+ "cmux-cloud-phone-acp",
  "cmux-cloud-start-core",
  "cmux-cloud-wire",
  "cmux-composer-send",
