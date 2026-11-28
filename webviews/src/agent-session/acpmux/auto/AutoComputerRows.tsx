@@ -25,7 +25,9 @@ const defaultTime = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: 
 
 function PinMark() {
   const t = useT();
-  return <Icon name="state.pinned" size={12} selected title={t("computer.size.pinMark")} className="acpmux-computer-pin" />;
+  return (
+    <Icon name="state.pinned" size={12} selected title={t("computer.size.pinMark")} className="acpmux-computer-pin" />
+  );
 }
 
 function Choice({ on, onClick, children }: { on: boolean; onClick(): void; children: ReactNode }) {
