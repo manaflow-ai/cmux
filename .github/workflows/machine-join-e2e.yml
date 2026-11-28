@@ -522,7 +522,7 @@ jobs:
             ${{ runner.temp }}/machine-join-e2e/evidence.json
             ${{ runner.temp }}/machine-join-e2e/frame.png
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       # share: the viewer's processes, the viewer user and its home (inside the base, so before the base goes).
       - name: Remove the viewer user

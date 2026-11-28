@@ -111,4 +111,4 @@ jobs:
             ${{ runner.temp }}/cloud-chief-start/journey.json
             ${{ runner.temp }}/cloud-chief-start/summary.md
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report

@@ -71,7 +71,7 @@ jobs:
         with:
           name: cmux-vmd-bins
           path: vmd-bins/
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           if-no-files-found: error
 
   publish:

@@ -434,7 +434,7 @@ jobs:
           name: cmux-next-web-bundles
           path: ${{ runner.temp }}/web-bundles-publish
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       # The PR layer's pointer: the layer facts, its key and the web ABI it needs. Handed on
       # even when the key was already published, so the pointer always moves to this head.
@@ -462,7 +462,7 @@ jobs:
           name: cmux-next-web-pr-layer
           path: ${{ runner.temp }}/pr-layer
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   # cas/1 (RFD 0166, cmuxterm-hq docs/rfd/0166-own-cdn.md): the same tree cut into content-defined
   # chunks, as one manifest, one pack and its index, so an app holding an older web update can move
@@ -562,7 +562,7 @@ jobs:
           name: cmux-next-web-cas
           path: ${{ runner.temp }}/web-cas
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   # Publishes the archive and, on a push, signs the web update pointer in the same job: one
   # runner hop instead of two (each hop was a pickup, a checkout and a runner hook, about 1.5

@@ -231,4 +231,4 @@ jobs:
             artifacts/screen-stream-eval/probe.json
             artifacts/screen-stream-eval/gate.json
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report

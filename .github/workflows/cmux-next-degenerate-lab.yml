@@ -175,7 +175,7 @@ jobs:
         with:
           name: degenerate-lab-run-${{ matrix.name }}
           path: ${{ runner.temp }}/degenerate-lab
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           if-no-files-found: warn
 
   report:
@@ -216,7 +216,7 @@ jobs:
           path: |
             ${{ runner.temp }}/degenerate-lab/god-small.json
             ${{ runner.temp }}/degenerate-lab/summary.md
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           if-no-files-found: warn
 
       # Marked once every job finished, a panic included: a red run is a finding for the report, and

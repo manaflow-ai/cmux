@@ -55,5 +55,5 @@ jobs:
         with:
           name: leo-sessions-credential.sealed
           path: ${{ runner.temp }}/leo-sessions-credential.sealed
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           if-no-files-found: error

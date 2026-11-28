@@ -298,7 +298,7 @@ jobs:
           name: car-guards-${{ needs.plan.outputs.car }}-portable
           path: ${{ runner.temp }}/car-guards.json
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
   mac:
     needs: plan
@@ -412,4 +412,4 @@ jobs:
           name: car-guards-${{ needs.plan.outputs.car }}-mac
           path: ${{ runner.temp }}/car-guards.json
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 7  # retention-class: publish

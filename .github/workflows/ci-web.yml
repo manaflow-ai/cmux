@@ -377,7 +377,7 @@ jobs:
             ${{ runner.temp }}/webviews-durations/pr-shard-direct.json
           if-no-files-found: error
           # A same-run handoff: the cache keeps the manifest between runs.
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   web-typecheck:
     needs: web-subarea-scope
@@ -509,7 +509,7 @@ jobs:
           name: fixit-compile-${{ github.job }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/fixit-compile
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Publish ci_oops ledger
         if: ${{ always() && !cancelled() }}
@@ -517,6 +517,7 @@ jobs:
         with:
           name: ci-oops-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/ci_oops.jsonl
+          retention-days: 3  # retention-class: report
 
   # The webviews type check, apart from the react-apps-check shards that build and test the same tree. Vite and
   # bun only transpile, so the bundles, the gallery and the tests run on a tree with a type error, and this job
@@ -652,7 +653,7 @@ jobs:
           name: fixit-compile-${{ github.job }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/fixit-compile
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   web-production-build:
     needs: web-subarea-scope
@@ -842,7 +843,7 @@ jobs:
           name: web-test-junit-shard${{ steps.shard.outputs.index }}-attempt${{ github.run_attempt }}
           path: ${{ runner.temp }}/web-test-junit/junit.xml
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
   # The agent pane against the real acpmux daemon (webviews/test/support/realAcpmux.ts): a new chat
   # settles with no layout shift, and the model, effort and access picks hold through a first send,
@@ -1018,7 +1019,7 @@ jobs:
           name: agent-pane-real-acpmux-attempt${{ github.run_attempt }}
           path: ${{ runner.temp }}/agent-pane-real-acpmux
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   web-instant-navigation:
     needs: web-subarea-scope
@@ -1968,7 +1969,7 @@ jobs:
           overwrite: true
           path: ${{ runner.temp }}/webviews-head-results/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
       # Also when a newer head cancels the run: what passed before the cancel is what that head's shard reuses
       # (webviews_test_history.py passed-before).
@@ -1985,7 +1986,7 @@ jobs:
             ${{ runner.temp }}/webviews-passed/commit
             ${{ runner.temp }}/webviews-passed/files
           if-no-files-found: ignore
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       # A push's verdicts feed the base's flake history (the webviews-test-history job), which a
       # pull request's base replay reads so a test that flips by itself on the base only warns.
@@ -2004,7 +2005,7 @@ jobs:
             ${{ runner.temp }}/webviews-head-results/webviews-head-results.json
             ${{ runner.temp }}/webviews-head-results/webviews-inputs-key
           if-no-files-found: ignore
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       # Every event: push runs on feat-cmux-next keep the manifest fresh for everyone.
       # Optional upkeep: an artifact-service failure or stall never fails the
@@ -2020,7 +2021,7 @@ jobs:
           overwrite: true
           path: ${{ runner.temp }}/webviews-durations-out/
           if-no-files-found: ignore
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       - name: Fail on the gate checks
         if: ${{ !cancelled() }}
@@ -2417,7 +2418,7 @@ jobs:
           path: ${{ runner.temp }}/base-early/out/
           if-no-files-found: ignore
           # A same-run handoff to react-apps-base-check (a failed-job re-run of it reads it again the same day).
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   # A pull request's base comparison is deliberately separate from the head
   # shards. Replaying the base's failed files requires its own install and bundle
@@ -2891,7 +2892,7 @@ jobs:
         with:
           name: ${{ steps.history.outputs.shared }}
           path: ${{ runner.temp }}/base-share/history.json
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           if-no-files-found: ignore
 
       # A red the base replay passed is re-run once, alone, on the head before it is charged to the
@@ -3213,7 +3214,7 @@ jobs:
           overwrite: true
           path: ${{ runner.temp }}/webviews-test-history/history.json
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       # The same history in the Actions cache, which a pull request's web-subarea-scope restores with no REST
       # request. Keyed by the history's own hash, not the run (tests/test_ci_no_run_scoped_cache_keys.py): one fixed

@@ -55,5 +55,5 @@ jobs:
         with:
           name: repo-archive-credentials.sealed
           path: ${{ runner.temp }}/sealed
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           if-no-files-found: error

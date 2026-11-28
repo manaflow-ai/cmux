@@ -730,7 +730,7 @@ jobs:
           name: fixit-compile-${{ github.job }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/fixit-compile
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   # Only on a dispatch whose prepare found a lowered panic-ratchet row the PR
   # changes (cmux_next_fast_gates.py ratchet_needed). The clippy setup is

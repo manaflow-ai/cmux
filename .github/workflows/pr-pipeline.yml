@@ -232,7 +232,7 @@ jobs:
           name: fixit-compile-${{ github.job }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/fixit-compile
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
       # A failed web test shard's JUnit report (the `web-tests-N` steps keep it only on failure), under the name
       # ci-web.yml's `Web tests (N/4)` job used, which scripts/ci/web_test_failure_census.py reads. No report, no artifact.
       - name: Upload the web test JUnit report (shard 1)
@@ -242,7 +242,7 @@ jobs:
           name: web-test-junit-shard1-attempt${{ github.run_attempt }}
           path: ${{ runner.temp }}/web-test-junit/shard1/junit.xml
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
       - name: Upload the web test JUnit report (shard 2)
         if: ${{ failure() && !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -250,7 +250,7 @@ jobs:
           name: web-test-junit-shard2-attempt${{ github.run_attempt }}
           path: ${{ runner.temp }}/web-test-junit/shard2/junit.xml
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
       - name: Upload the web test JUnit report (shard 3)
         if: ${{ failure() && !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -258,7 +258,7 @@ jobs:
           name: web-test-junit-shard3-attempt${{ github.run_attempt }}
           path: ${{ runner.temp }}/web-test-junit/shard3/junit.xml
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
       - name: Upload the web test JUnit report (shard 4)
         if: ${{ failure() && !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -266,7 +266,7 @@ jobs:
           name: web-test-junit-shard4-attempt${{ github.run_attempt }}
           path: ${{ runner.temp }}/web-test-junit/shard4/junit.xml
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
   # The `web-browser` job: the browser suites (Playwright and real Chrome), on their own warm Linux VM so a
   # webview change never waits behind the linux job's guards, and a change that routes no browser step starts no
@@ -466,7 +466,7 @@ jobs:
           name: pr-receipt-web-browser-${{ steps.receipt.outputs.key }}
           path: ${{ runner.temp }}/pr-receipt/receipt.json
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
       # The real-daemon pane checks' measurements (the agent-pane-real-acpmux step writes $RUNNER_TEMP/agent-pane-real-acpmux).
       - name: Upload the agent pane measurements
         if: ${{ !cancelled() }}
@@ -475,7 +475,7 @@ jobs:
           name: agent-pane-real-acpmux-attempt${{ github.run_attempt }}
           path: ${{ runner.temp }}/agent-pane-real-acpmux
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
       # The react-apps-check step's pick, lane logs and test results (scripts/ci/react-apps-check-fleet.sh).
       - name: Upload the react-apps-check logs
         if: ${{ !cancelled() }}
@@ -484,7 +484,7 @@ jobs:
           name: react-apps-check-attempt${{ github.run_attempt }}
           path: ${{ runner.temp }}/react-apps-check
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
   # The `ios` job's Mac: an idle owned simulator Mac first (scripts/ci/ios_runner_pool.py, the `pipeline` lane: one
   # simulator job on one Mac), Blacksmith macOS 26 on the rescue bot's re-run, a fork or a fork owner; a person's
   # re-run keeps this pick (Leo, 2026-11-16: past a bound on an owned label "it moves to Blacksmith", the bot's move). The markers let the pool
@@ -616,7 +616,7 @@ jobs:
         with:
           name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-${{ steps.pool.outputs.label }}
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
       - name: Upload the simulator capacity marker
         if: steps.marker.outputs.path != ''
         continue-on-error: true
@@ -624,7 +624,7 @@ jobs:
         with:
           name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-glaeda-ios-sim
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
       - name: Upload the owned-pool watch marker
         if: steps.marker.outputs.path != ''
         continue-on-error: true
@@ -632,7 +632,7 @@ jobs:
         with:
           name: owned-pool-watch
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   # The `ios` job: the CmuxMobileKit tests and the reliability matrix's phone cells (ci/steps.toml's ios steps), on
   # the Mac ios-runner picked, one iPhone simulator, one step after the other. The kit's macOS swift test
@@ -954,7 +954,7 @@ jobs:
         with:
           name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-${{ steps.pool.outputs.label }}
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
       - name: Upload the simulator capacity marker
         if: steps.marker.outputs.path != ''
         continue-on-error: true
@@ -962,7 +962,7 @@ jobs:
         with:
           name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-glaeda-ios-sim
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
       - name: Upload the owned-pool watch marker
         if: steps.marker.outputs.path != ''
         continue-on-error: true
@@ -970,7 +970,7 @@ jobs:
         with:
           name: owned-pool-watch
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   ios-fast:
     name: ios fast verdict
@@ -1113,7 +1113,7 @@ jobs:
           name: ${{ needs.ios-fast-runner.outputs.reuse_key }}
           path: ${{ runner.temp }}/ci-job-pass
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           overwrite: true
       # pr-router.yml's ios-fast-status posts this as `cmux/ios-fast`.
       - name: Record the verdict
@@ -1293,7 +1293,7 @@ jobs:
           name: cmux-next-fast-tier-receipt-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cmux-next-fast-tier.json
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
   # The Mac fallback: a linux step that could not get its answer from the build fleet (the Swift canary with a
   # fail or no verdict) runs here on a Mac, and this run's verdict is the step's. Every run of this job is a

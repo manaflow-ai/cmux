@@ -356,7 +356,7 @@ jobs:
         with:
           name: cmux-mobile-internal-archive-${{ github.run_id }}
           path: ${{ runner.temp }}/handoff/
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           if-no-files-found: error
 
       - name: Clear the hand-off and checkout copies
@@ -463,7 +463,7 @@ jobs:
         with:
           name: cnx-ios-internal-notes-${{ github.run_id }}
           path: ${{ runner.temp }}/notes/what-to-test.txt
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           if-no-files-found: ignore
 
   upload:
@@ -664,7 +664,7 @@ jobs:
         with:
           name: cmux-internal-submission-ipa-${{ github.run_id }}
           path: ${{ runner.temp }}/submission-ipa/CmuxMobileApp.ipa
-          retention-days: 14
+          retention-days: 7  # retention-class: publish
           if-no-files-found: error
 
       - name: Keep the manifest and logs
@@ -672,7 +672,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-mobile-internal-${{ github.run_id }}
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           path: |
             ${{ runner.temp }}/cmux-mobile-builds/*-testflight/MANIFEST.md
             ${{ runner.temp }}/cmux-mobile-builds/*-testflight/ExportOptions.plist
@@ -741,5 +741,5 @@ jobs:
         with:
           name: cmux-internal-submission-receipt-${{ github.run_id }}
           path: ${{ runner.temp }}/receipt/submission.json
-          retention-days: 14
+          retention-days: 7  # retention-class: publish
           if-no-files-found: error

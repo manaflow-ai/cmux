@@ -133,4 +133,4 @@ jobs:
             ${{ runner.temp }}/energy-bench/SUMMARY.md
             ${{ runner.temp }}/energy-bench/energy
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report

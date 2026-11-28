@@ -490,7 +490,7 @@ jobs:
           name: gallery-advisory-${{ github.event.pull_request.number || 0 }}-${{ github.event.pull_request.head.sha || github.sha }}
           path: ${{ runner.temp }}/gallery-advisory
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   # The baseline check's numbers: cmux-shotdiff on each changed base/head pair of the receipt. Base-branch code
   # only; the images are data. Read-only token; the comment job judges and posts.
@@ -557,7 +557,7 @@ jobs:
           name: visual-baseline-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
           path: ${{ runner.temp }}/baseline
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   # The PR status comment's `gallery` section, from the artifact's data only:
   # base-branch scripts, no pull request code, plain ids (gallery_select.py).

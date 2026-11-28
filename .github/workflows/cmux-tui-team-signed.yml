@@ -214,7 +214,7 @@ jobs:
           name: screen-sharing-helper-unsigned-${{ needs.plan.outputs.helper_key }}
           path: helper-unsigned
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   sign-helper:
     name: sign the Screen Sharing helper
@@ -314,7 +314,7 @@ jobs:
           name: screen-sharing-helper-signed-${{ needs.plan.outputs.helper_key }}
           path: helper-signed
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   publish-helper:
     name: publish the Screen Sharing helper
@@ -454,7 +454,7 @@ jobs:
           name: cmux-tui-team-signed-${{ needs.plan.outputs.key }}
           path: team-signed
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   publish:
     name: publish Team-signed tree

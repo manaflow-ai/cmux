@@ -139,7 +139,7 @@ jobs:
           name: rfd0135-gate-${{ matrix.gate }}-${{ github.run_id }}
           path: ${{ runner.temp }}/rfd0135/${{ matrix.gate }}/*.json
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   summary:
     needs: gates
@@ -168,4 +168,4 @@ jobs:
         with:
           name: rfd0135-gates-${{ github.run_id }}
           path: ${{ runner.temp }}/summary
-          retention-days: 3
+          retention-days: 3  # retention-class: report

@@ -364,7 +364,7 @@ jobs:
           name: review-gate-planned-skips-${{ steps.plan.outputs.lane }}
           path: ${{ runner.temp }}/planned/*.skipped.json
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
       # Pick an idle owned Mac with an iOS simulator for the device legs with
       # the review-gate lane of scripts/ci/ios_runner_pool.py (the gate's own
       # copy, so a call from another branch picks with it too), then fall back
@@ -450,7 +450,7 @@ jobs:
         with:
           name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-${{ steps.pool.outputs.label }}
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
       - name: Upload the simulator capacity marker
         if: steps.marker.outputs.path != ''
         continue-on-error: true
@@ -458,7 +458,7 @@ jobs:
         with:
           name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-glaeda-ios-sim
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
       - name: Upload the owned-pool watch marker
         if: steps.marker.outputs.path != ''
         continue-on-error: true
@@ -466,7 +466,7 @@ jobs:
         with:
           name: owned-pool-watch
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   lint:
     needs: plan
@@ -551,7 +551,7 @@ jobs:
         with:
           name: review-gate-lint-${{ env.LANE }}
           path: lint-${{ env.LANE }}.json
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   # The app and the gate for testing, built once on the build fleet (Linux) as each leg's Mac built them
   # (Debug, arm64, CMUX_MOBILE_APPLE_SIGN_IN=YES, TARGETED_DEVICE_FAMILY=1: `cmux-ci ios-build --what
@@ -628,7 +628,7 @@ jobs:
           name: ios-gate-products-${{ needs.plan.outputs.lane }}
           path: ${{ steps.build.outputs.out }}/ios-sim-build.tar.gz
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           compression-level: 0
       - name: Hand them to the legs
         id: done
@@ -862,7 +862,7 @@ jobs:
         with:
           name: ios-link-ffi-framework
           path: ${{ runner.temp }}/link-ffi-out
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           if-no-files-found: ignore
       # Package resolution is its own step so a refused GitHub fetch never ends
       # the leg. Run 45746201444 lost both device legs (cmux9, cmux10) to
@@ -1014,7 +1014,7 @@ jobs:
             ${{ env.RESULTS }}/*.json
             ${{ env.RESULTS }}/*.log
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
       - name: Upload stills
         if: always()
         continue-on-error: true
@@ -1028,7 +1028,7 @@ jobs:
             ${{ env.RESULTS }}/*.renderer
             ${{ env.RESULTS }}/screens
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
       # The xcresult bundles (about 1 GB) are not uploaded: their test results,
       # logs and screenshots are exported above, which is all the report reads.
 
@@ -1127,7 +1127,7 @@ jobs:
           path: |
             asc-*.json
             app-store-versions.json
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   # Writes the framework a leg built into cmux NEXT's R2 bucket, which the
   # legs read with no credential. The write credentials live in the
@@ -1477,4 +1477,4 @@ jobs:
         with:
           name: review-gate-report
           path: review-gate.md
-          retention-days: 3
+          retention-days: 3  # retention-class: report

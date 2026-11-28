@@ -307,7 +307,7 @@ jobs:
             ${{ runner.temp }}/cloud-journey/**/journey.json
             ${{ runner.temp }}/cloud-journey/**/summary.md
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   # Builds the journey's cmux-tui on feat-cmux-next when its key's inputs change (the push paths above) and saves
   # the compiled dependencies to R2 for every pull request's `journey` to restore: a cold build was 11 to 31

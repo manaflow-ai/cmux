@@ -92,4 +92,4 @@ jobs:
           name: cloud-chief-turn-proof-${{ github.run_id }}
           path: ${{ runner.temp }}/chief-proof/
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report

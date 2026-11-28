@@ -203,7 +203,7 @@ jobs:
             ${{ runner.temp }}/session/session.enc
             ${{ runner.temp }}/session/key.enc
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
 
   signin-prod:
@@ -250,7 +250,7 @@ jobs:
             ${{ runner.temp }}/session/session.enc
             ${{ runner.temp }}/session/key.enc
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
   resolve:
     # The published DEV release is a moving tag. Resolve its zip once here (an asset id and its sha256,
     # no secret) and copy those bytes into this run as an artifact, so both proof jobs install the same
@@ -303,7 +303,7 @@ jobs:
           name: cloud-chat-proof-published-app
           path: ${{ runner.temp }}/published/app.zip
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   flow:
     # github-connect and cloud-first-chat use the journey environment. One flow file (scripts/cmux-next/flows/<flow>.json) through
@@ -472,7 +472,7 @@ jobs:
             ${{ runner.temp }}/share-${{ github.run_id }}-${{ github.run_attempt }}/summary.md
             ${{ runner.temp }}/share-${{ github.run_id }}-${{ github.run_attempt }}/share-two-accounts.json
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Upload the video and the step log
         if: always() && inputs.flow != 'share-two-accounts'
@@ -487,7 +487,7 @@ jobs:
             ${{ runner.temp }}/flow/journey-*/journey.json
             ${{ runner.temp }}/flow/journey-*/summary.md
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   github-config:
     # flow: github-pr-app only. Staging's GitHub set-up, read before any Mac is taken: the App's public page and the staging
@@ -844,7 +844,7 @@ jobs:
           name: cloud-chat-proof-app
           path: ${{ runner.temp }}/cloud-chat-proof-app.zip
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       - name: Staging Cloud chat and reply
         id: staging_chat
@@ -935,7 +935,7 @@ jobs:
             ${{ runner.temp }}/cloud-chat-proof/github-main-path/*.md
             ${{ runner.temp }}/cloud-chat-proof/github-main-path/frames/
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Upload the paused price images
         if: always() && inputs.paused_capture
@@ -944,7 +944,7 @@ jobs:
           name: cloud-paused-price-staging
           path: ${{ runner.temp }}/cloud-chat-proof/paused-price/*.png
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Staging Cloud workspace matrix
         if: inputs.cleanup_machine == '' && inputs.matrix
@@ -974,7 +974,7 @@ jobs:
           name: cloud-workspace-matrix-staging
           path: ${{ runner.temp }}/cloud-chat-proof/matrix-staging/
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Machine status and kill
         if: inputs.cleanup_machine != ''
@@ -1023,7 +1023,7 @@ jobs:
           name: cloud-chat-proof-evidence-staging
           path: ${{ runner.temp }}/cloud-chat-proof/*evidence.json
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
 
       - name: Remove the auth profile
@@ -1226,7 +1226,7 @@ jobs:
           name: cloud-workspace-matrix-prod
           path: ${{ runner.temp }}/cloud-chat-proof/matrix-prod/
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Summarize the evidence
         id: evidence
@@ -1264,7 +1264,7 @@ jobs:
           name: cloud-chat-proof-evidence-prod
           path: ${{ runner.temp }}/cloud-chat-proof/*evidence.json
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
 
       - name: Remove the auth profile

@@ -337,7 +337,7 @@ jobs:
           name: cloud-composer-journey-${{ env.BACKEND }}
           path: ${{ runner.temp }}/composer-journey/out/
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Open, update or close the red-journey issue
         # Dispatched runs only (the scheduled check's and on-demand ones); a pull request's red is its own check.

@@ -1113,7 +1113,7 @@ jobs:
           path: ${{ steps.tree-source.outputs.path }}
           if-no-files-found: error
           overwrite: true
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   tree-owner-wait:
     name: wait for same-key tree publisher
@@ -1497,7 +1497,7 @@ jobs:
         with:
           name: cmux-tui-tree-feat-builder-${{ needs.tree-preflight.outputs.key }}
           path: ${{ runner.temp }}/feat-builder-key
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           overwrite: true
 
       # The marker the key's owner reads if it ends without publishing.
@@ -1514,7 +1514,7 @@ jobs:
         with:
           name: cmux-tui-tree-deferred-${{ needs.tree-preflight.outputs.key }}
           path: ${{ runner.temp }}/deferred-key
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           overwrite: true
 
       # The owner's hand-off (notify-unpublished-tree) re-runs only the runs
@@ -1638,7 +1638,7 @@ jobs:
           path: ${{ steps.tree-source.outputs.path }}
           if-no-files-found: error
           overwrite: true
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   # MUSL_BUILT_ONCE: each Linux musl target builds once (fat, the shipped bytes), in build-linux. A
   # thin-LTO copy of the same two targets for the Cloud machine channel was dropped on 2026-11-22
@@ -2556,7 +2556,7 @@ jobs:
           name: ${{ needs.tree-preflight.outputs.reuse_key }}
           path: ${{ runner.temp }}/ci-job-pass
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           overwrite: true
 
   publish-ref-notice:
@@ -4491,7 +4491,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: macos-cross-parity
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           path: ${{ runner.temp }}/macos-cross/reports/
           if-no-files-found: warn
 
@@ -4503,7 +4503,7 @@ jobs:
           name: macos-cross-binaries
           path: ${{ runner.temp }}/macos-cross/linux/
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
   # MACOS-CROSS-COMPILE-ON-LINUX run-time half for x86_64, under Rosetta 2 on a
   # Blacksmith Apple silicon Mac: each Linux-built x86_64 binary loads, matches the Mac build's
@@ -5154,7 +5154,7 @@ jobs:
         with:
           name: cmux-next-tree-notify-pending
           path: ${{ runner.temp }}/tree-notify-pending/pending.json
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
 
       # This commit's tree-commit marker, the one nightly-next promotion
@@ -5814,7 +5814,7 @@ jobs:
           name: cmux-next-tree-notify-pending-sweep
           path: ${{ runner.temp }}/tree-notify-pending/pending.json
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
 
   # Cloud machines keep their cmux-tui and cmux-tui-hook on the newest

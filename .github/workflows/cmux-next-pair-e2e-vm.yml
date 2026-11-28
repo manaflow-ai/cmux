@@ -207,7 +207,7 @@ jobs:
           name: pair-e2e-summary-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/ios-sim/SUMMARY.md
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Remove the CI auth profile
         if: always()

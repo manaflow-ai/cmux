@@ -136,5 +136,5 @@ jobs:
             artifacts/ios-sim/SUMMARY.md
             artifacts/ios-sim/ui-tests-failures.txt
             artifacts/ios-sim/launch-tti-error.txt
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           if-no-files-found: warn

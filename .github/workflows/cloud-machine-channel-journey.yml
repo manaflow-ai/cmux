@@ -85,7 +85,7 @@ jobs:
           name: machine-channel-journey-baseline
           path: ${{ runner.temp }}/cloud-journey/baseline-test-team/journey.json
           if-no-files-found: ignore
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   machine-channel-journey:
     name: Cloud machine channel journey (verdict)

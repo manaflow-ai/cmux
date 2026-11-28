@@ -106,7 +106,7 @@ jobs:
         with:
           name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-${{ steps.pool.outputs.label }}
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
       - name: Upload the simulator capacity marker
         if: steps.marker.outputs.path != ''
         continue-on-error: true
@@ -114,7 +114,7 @@ jobs:
         with:
           name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-glaeda-ios-sim
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
       - name: Upload the owned-pool watch marker
         if: steps.marker.outputs.path != ''
         continue-on-error: true
@@ -122,7 +122,7 @@ jobs:
         with:
           name: owned-pool-watch
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   # pr-pipeline.yml's ios job: every ios step but ios-kit-macos, on the Mac ios-runner picked, one iPhone simulator,
   # with its fleet pool steps (the kit's push run had them on every merge: kit-tests' sim-pool steps, then
@@ -385,7 +385,7 @@ jobs:
         with:
           name: kit-sim-fleet-products-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ steps.build.outputs.out }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           compression-level: 0
           if-no-files-found: error
       # cmux-linux is also served by GCP pool runners off the tailnet: the shadow run asks first and, on a no, is left

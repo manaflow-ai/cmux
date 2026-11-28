@@ -457,7 +457,7 @@ jobs:
             ${{ runner.temp }}/message.txt
             ${{ runner.temp }}/approve.json
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   # RFD 0100 step 6: every rolled image also goes out as a compressed qcow2 with its sha256, the second format
   # beside the Freestyle snapshot chain, for hosts that run agent VMs themselves. It runs beside promote, never
@@ -560,7 +560,7 @@ jobs:
             cmux-vm-image-out/*.qcow2.sha256
             cmux-vm-image-out/qcow2-export*
           if-no-files-found: ignore
-          retention-days: 30
+          retention-days: 7  # retention-class: publish
 
   # The record and, on a red gate or promotion, the loud part: an ::error, the summary and a comment on the
   # one open cloud-image-roll issue. The GITHUB_TOKEN writes both; its push to the record branch starts nothing.

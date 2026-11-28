@@ -1132,7 +1132,7 @@ jobs:
         with:
           name: reload-${{ inputs.tag }}-${{ inputs.platform }}
           path: artifact/
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           if-no-files-found: error
 
   # `cmux app try <PR|branch|sha>` installs this build in place on anyone's NIGHTLY with no GitHub token

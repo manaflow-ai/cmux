@@ -102,4 +102,4 @@ jobs:
           name: executor-journey-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/executor-journey/
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report

@@ -1898,7 +1898,7 @@ jobs:
           name: panic-clippy-pr-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/panic-clippy.jsonl
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       # feat-cmux-next's build for the R2 restore above, red or green (as rust-cache's cache-on-failure): dependencies
       # only, as rust-cache keeps (scripts/ci/cargo_target_strip.py; cmux-next.yml's fast-tier-cargo does the same).

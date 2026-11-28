@@ -824,7 +824,7 @@ jobs:
             ${{ runner.temp }}/guards-head.json
             ${{ runner.temp }}/guards-head.json.failures.json
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   # The static checks that may be red on the base, in one runner session and one checkout. Each was a job of its own
   # (vt-link-graph, nightly-static-capabilities, defaults-snapshot, page-strings), seconds of work behind a runner start
@@ -2548,7 +2548,7 @@ jobs:
         with:
           name: tooling-tests-passed-${{ github.run_attempt }}
           path: ${{ runner.temp }}/tooling-reuse/tooling-passed.json
-          retention-days: 7
+          retention-days: 3  # retention-class: report
           if-no-files-found: ignore
 
   # Head fail-fast: this head failed red of its own, so its other heavy runs are cancelled (scripts/ci/head_fail_fast.py).

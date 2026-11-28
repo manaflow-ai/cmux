@@ -421,7 +421,7 @@ jobs:
           name: action-exports
           path: ${{ runner.temp }}/action-exports
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       # On a miss the Mac job regenerates, and it takes the owned gui label only while one of
       # its runners is idle now (read live, as the nightly visual gate's route does), else
@@ -580,7 +580,7 @@ jobs:
           name: action-exports-linux
           path: ${{ runner.temp }}/action-exports
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   # The settings exports on a Linux runner of our own pool (Leo, 2026-11-25: "if it works on linux and is at least
   # as fast if not faster, then we ought to just go ahead"): base-autofix-settings-exports.sh at the newest tip, as
@@ -649,7 +649,7 @@ jobs:
           name: settings-exports-linux
           path: ${{ runner.temp }}/action-exports
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   # Regenerates the action exports and the settings exports on a Mac with a
   # read-only token and hands them to autofix as the action-exports artifact
@@ -887,7 +887,7 @@ jobs:
           name: action-exports
           path: ${{ runner.temp }}/action-exports
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       # A failed regeneration must not end in a successful run: the next run
       # diffs from the last successful one, and would drop this change.
@@ -959,7 +959,7 @@ jobs:
           name: webviews-fmt-patch
           path: ${{ runner.temp }}/webviews-fmt.patch
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   # The CI target graph on its own Linux job, so it never waits for the Mac exports job: the
   # graph is made from the package manifest alone (base-autofix-repair.sh dumps it in the Swift 6.2
@@ -1113,7 +1113,7 @@ jobs:
         with:
           name: base-autofix-own-exports
           path: ${{ runner.temp }}/base-autofix-own-exports.txt
-          retention-days: 14
+          retention-days: 3  # retention-class: report
           if-no-files-found: error
 
       # What changed since the last successful run decides the repairs: a run

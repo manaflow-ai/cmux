@@ -385,7 +385,7 @@ jobs:
           name: pr-autofix-context
           path: ${{ runner.temp }}/pr-autofix-context
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           overwrite: true
 
       # Where the Mac exports run: the owned gui label only while one of its runners is idle now
@@ -586,7 +586,7 @@ jobs:
           name: action-exports
           path: ${{ runner.temp }}/action-exports
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           overwrite: true
 
   # The action exports on a Linux runner of our own pool (Leo, 2026-11-25: "if it works on linux and is at least as
@@ -688,7 +688,7 @@ jobs:
           name: action-exports-linux
           path: ${{ runner.temp }}/action-exports
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           overwrite: true
 
   # The settings exports (settings-exports.txt) on a Linux runner of our own pool (Leo, 2026-11-25: "if it works on
@@ -760,7 +760,7 @@ jobs:
           name: settings-exports-linux
           path: ${{ runner.temp }}/settings-exports
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           overwrite: true
 
   # Regenerates the action and settings exports on a Mac with a read-only token
@@ -1038,7 +1038,7 @@ jobs:
           name: action-exports
           path: ${{ runner.temp }}/action-exports
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           overwrite: true
 
       # The next job on this runner starts from the git seed at its own depth, not from
@@ -1560,7 +1560,7 @@ jobs:
             ${{ runner.temp }}/pr-autofix.patch
             ${{ runner.temp }}/pr-autofix.txt
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
   # A pull request carries only the generated files its own changes caused
   # (scripts/cmux-next/generated_outputs.py, #21946). An output changed without

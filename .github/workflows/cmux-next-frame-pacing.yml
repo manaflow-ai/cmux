@@ -485,7 +485,7 @@ jobs:
         with:
           name: frame-pacing-${{ github.run_id }}
           path: ${{ runner.temp }}/frame-pacing/out
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
   # A gate skip prevents the bench job from starting, so keep a receipt for
   # that outcome too. This makes skipped nights distinguishable from missing
@@ -527,4 +527,4 @@ jobs:
         with:
           name: frame-pacing-${{ github.run_id }}
           path: ${{ runner.temp }}/frame-pacing/out
-          retention-days: 7
+          retention-days: 7  # retention-class: publish

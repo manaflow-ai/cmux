@@ -146,7 +146,7 @@ jobs:
         with:
           name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-${{ steps.pool.outputs.label }}
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
       - name: Upload the simulator capacity marker
         if: steps.marker.outputs.path != ''
         continue-on-error: true
@@ -154,7 +154,7 @@ jobs:
         with:
           name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-glaeda-ios-sim
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
       - name: Upload the owned-pool watch marker
         if: steps.marker.outputs.path != ''
         continue-on-error: true
@@ -162,7 +162,7 @@ jobs:
         with:
           name: owned-pool-watch
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   # Which jobs a pull request can affect. The protocol cells run the Rust workspace only, so a
   # pull request that changes nothing but the phone's Swift sources and tests (CmuxMobileKit/)
@@ -265,7 +265,7 @@ jobs:
           path: |
             ${{ runner.temp }}/matrix/rust.log
             ${{ runner.temp }}/matrix/scroll.log
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   ios:
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
@@ -413,14 +413,14 @@ jobs:
         with:
           name: matrix-ios-log
           path: ${{ runner.temp }}/matrix/ios.log
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         with:
           name: matrix-tick-log
           path: ${{ runner.temp }}/matrix/tick.log
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           if-no-files-found: ignore
 
   report:
@@ -486,4 +486,4 @@ jobs:
         with:
           name: matrix-results
           path: matrix.json
-          retention-days: 3
+          retention-days: 3  # retention-class: report

@@ -142,7 +142,7 @@ jobs:
         with:
           name: resume-matrix-cmux-tui-${{ github.run_id }}
           path: ${{ runner.temp }}/cmux-tui-bin/cmux-tui
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   machine:
     needs: [plan, build]
@@ -202,7 +202,7 @@ jobs:
             ${{ runner.temp }}/resume-matrix/**/journey.json
             ${{ runner.temp }}/resume-matrix/**/summary.md
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 2  # retention-class: rerun
 
   table:
     needs: machine
@@ -234,4 +234,4 @@ jobs:
         with:
           name: resume-matrix
           path: ${{ runner.temp }}/samples
-          retention-days: 30
+          retention-days: 3  # retention-class: report

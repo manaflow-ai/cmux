@@ -72,6 +72,9 @@ PATH_OWNERS = {
 
     # test_ci_upload_artifact_retention.py reads its allowlist.
     "tests/upload_artifact_retention_allowlist.json": frozenset(("ci",)),
+    # ... and the retention classes and their writer (hq#11721 row 8).
+    ".github/artifact-retention.json": frozenset(("ci",)),
+    "scripts/ci/artifact_retention.py": frozenset(("ci",)),
     ".github/workflows/ci-health-report.yml": frozenset(("ci",)),
     ".github/workflows/ci-queue-janitor.yml": frozenset(("ci",)),
     ".github/workflows/required-checks-drift.yml": frozenset(("ci",)),
