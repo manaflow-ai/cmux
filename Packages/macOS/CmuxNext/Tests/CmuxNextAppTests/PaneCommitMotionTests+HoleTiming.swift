@@ -70,6 +70,16 @@ extension PaneCommitMotionTests {
         return count
     }
 
+    /// How many layers ``giveStartTime(_:toTheMovesUnder:)`` reads from `layer`: the layer, its sublayers and their
+    /// masks.
+    static func layersRead(from layer: CALayer) -> Int {
+        var count = 1
+        for below in (layer.sublayers ?? []) + [layer.mask].compactMap({ $0 }) {
+            count += layersRead(from: below)
+        }
+        return count
+    }
+
     /// A hold of the close key in a column of 3 rows and in a row of 3 panes, as in
     /// ``afterASecondCloseKeyEachPaneThatLeftShowsWholeInTheRoomThatNoPaneHas(_:)``: the first key closes the middle
     /// pane, and 2 panes move, so no pane gets a mask. The second key closes the pane that has the focus, in that
@@ -85,10 +95,13 @@ extension PaneCommitMotionTests {
     /// Between the 2 keys the row gives each animation of the first close a start time by hand
     /// (``giveStartTime(_:toTheMovesUnder:)``), as a commit to a render tree gives one in the app before a second
     /// key comes. The row makes no commit: with a commit there (`CATransaction.flush()`), on a test host whose
-    /// window has no render tree, the first close's moves were no longer on the layers at the second key. The row
-    /// prints the start times that it reads. It proves that a copy keeps the start time that its move has on its
-    /// layer, and each copy's fields and values. It does not prove that a commit gives a start time, and it does
-    /// not prove the phase on a screen.
+    /// window has no render tree, the first close's moves were no longer on the layers at the second key. The hand
+    /// step starts at each pane host among the screen's subviews, as ``acts(on:)`` reads them: at the host's layer
+    /// and at its clip view's layer. It does not start at the screen's layer: in the test window a walk from that
+    /// layer read no animation of a pane. The row prints what the hand step read, and each set-up stop after it
+    /// says it too. The row prints the start times that it reads. It proves that a copy keeps the start time that
+    /// its move has on its layer, and each copy's fields and values. It does not prove that a commit gives a start
+    /// time, and it does not prove the phase on a screen.
     @Test(arguments: ["3 rows", "3 side by side"])
     func afterASecondCloseKeyTheHoleOfEachNewMaskGoesWithThePaneOverItEachMoveOnItsOwnTiming(_ scene: String) throws {
         let between = Self.between(scene)
@@ -103,35 +116,53 @@ extension PaneCommitMotionTests {
         _ = try #require(harness.model.showPaneClose(between.closes), "SETUP: the model does not show the close of \(between.closes)")
         harness.root.syncWithModel()
         _ = harness.root.advanceFrame(Self.dt)
-        let layers = try #require(screen.layer, "SETUP: the screen has no layer")
-        let given = Self.giveStartTime(Self.startByHand, toTheMovesUnder: layers)
-        try #require(given > 0, "SETUP: the first close put no animation with the start time 0 on a layer of the screen")
+        let hostsRead = screen.subviews.compactMap { $0 as? PaneHostView }
+        var hostLayers = 0, hostMoves = 0, clipLayers = 0, clipMoves = 0
+        for host in hostsRead {
+            if let own = host.layer {
+                hostLayers += Self.layersRead(from: own)
+                hostMoves += Self.giveStartTime(Self.startByHand, toTheMovesUnder: own)
+            }
+            if let clip = host.clipView.layer {
+                clipLayers += Self.layersRead(from: clip)
+                clipMoves += Self.giveStartTime(Self.startByHand, toTheMovesUnder: clip)
+            }
+        }
+        let given = hostMoves + clipMoves
+        let hand = "the hand step read \(hostsRead.count) pane hosts, \(hostLayers) layers from the hosts' layers (\(hostMoves) moves got the start time) "
+            + "and \(clipLayers) layers from their clips' layers (\(clipMoves) more moves got it)"
+        print("ROW (HOLE TIMING), THE HAND STEP: \(scene): \(hand)")
+        try #require(given > 0, "SETUP: the first close put no animation with the start time 0 on a layer of a pane; \(hand)")
         let opening = Self.acts(on: screen)
-        try #require(opening.count == 1, "SETUP: after the first close the panes have the moves of \(opening.count) acts, not of 1: \(opening)")
-        let openingMoves = screen.subviews.compactMap { ($0 as? PaneHostView)?.layer }.flatMap { Self.actMoves(opening[0], on: $0) }
+        try #require(opening.count == 1, "SETUP: after the first close the panes have the moves of \(opening.count) acts, not of 1: \(opening); \(hand)")
+        let openingMoves = hostsRead.compactMap { $0.layer }.flatMap { Self.actMoves(opening[0], on: $0) }
         let stamped = Set(openingMoves.map(\.beginTime))
         let isStamped = stamped == [Self.startByHand]
-        try #require(isStamped, "SETUP: the moves of the first close on the layers of the panes that move read the start times \(stamped.sorted()), not \(Self.startByHand) alone")
-        let next = try #require(harness.model.focusedPane, "SETUP: no pane has the focus after the first close")
-        let second = try #require(rest[next], "SETUP: the pane \(next) that has the focus after the first close did not show at rest")
-        try #require(second !== first, "SETUP: the pane that closed keeps the focus")
+        try #require(isStamped, """
+            SETUP: the \(openingMoves.count) moves of the first close on the layers of the panes that move read the start times \(stamped.sorted()), \
+            not \(Self.startByHand) alone; \(hand)
+            """)
+        let next = try #require(harness.model.focusedPane, "SETUP: no pane has the focus after the first close; \(hand)")
+        let second = try #require(rest[next], "SETUP: the pane \(next) that has the focus after the first close did not show at rest; \(hand)")
+        try #require(second !== first, "SETUP: the pane that closed keeps the focus; \(hand)")
         try #require(first.clipView.layer?.mask == nil && second.clipView.layer?.mask == nil,
-                     "SETUP: the first close put a mask on a pane of the second close: the second close's mask is not new")
-        _ = try #require(harness.model.showPaneClose(next), "SETUP: the model does not show the close of \(next) in the first close's move")
+                     "SETUP: the first close put a mask on a pane of the second close: the second close's mask is not new; \(hand)")
+        _ = try #require(harness.model.showPaneClose(next), "SETUP: the model does not show the close of \(next) in the first close's move; \(hand)")
         harness.root.syncWithModel()
         _ = harness.root.advanceFrame(Self.dt)
-        try #require(first.isLeaving && !first.isHidden && second.isLeaving && !second.isHidden, "SETUP: the move does not keep the 2 panes that left")
+        try #require(first.isLeaving && !first.isHidden && second.isLeaving && !second.isHidden, "SETUP: the move does not keep the 2 panes that left; \(hand)")
         let acts = Self.acts(on: screen)
-        try #require(acts.count == 2, "SETUP: the panes have the moves of \(acts.count) acts, not of the 2 closes: \(acts)")
+        try #require(acts.count == 2, "SETUP: the panes have the moves of \(acts.count) acts, not of the 2 closes: \(acts); \(hand)")
         let grows = Self.hosts(of: screen).values.filter { host in !host.isLeaving && host.layer.map { !Self.actMoves(acts[1], on: $0).isEmpty } ?? false }
-        try #require(grows.count == 1, "SETUP: the second close makes \(grows.count) panes move, not 1")
-        let layer = try #require(grows[0].layer, "SETUP: the pane that grows has no layer")
-        try #require(!Self.actMoves(acts[0], on: layer).isEmpty, "SETUP: the pane that grows in the second close has no move of the first close on its layer")
+        try #require(grows.count == 1, "SETUP: the second close makes \(grows.count) panes move, not 1; \(hand)")
+        let layer = try #require(grows[0].layer, "SETUP: the pane that grows has no layer; \(hand)")
+        try #require(!Self.actMoves(acts[0], on: layer).isEmpty, "SETUP: the pane that grows in the second close has no move of the first close on its layer; \(hand)")
         var masks: [(name: String, parts: [CALayer])] = []
         for (name, host) in [("first", first), ("second", second)] {
-            let mask = try #require(host.clipView.layer?.mask as? PaneHoleMaskLayer, "SETUP: the second close put no mask on the clip of the pane of the \(name) close")
+            let mask = try #require(host.clipView.layer?.mask as? PaneHoleMaskLayer,
+                                    "SETUP: the second close put no mask on the clip of the pane of the \(name) close; \(hand)")
             let parts = mask.sublayers ?? []
-            try #require(parts.count == 4, "SETUP: the mask on the pane of the \(name) close has \(parts.count) parts, not 4")
+            try #require(parts.count == 4, "SETUP: the mask on the pane of the \(name) close has \(parts.count) parts, not 4; \(hand)")
             masks.append((name: name, parts: parts))
         }
 
@@ -140,7 +171,7 @@ extension PaneCommitMotionTests {
         for act in acts {
             let own = Self.actMoves(act, on: layer)
             let fields = Set(own.map { Self.timingFields(of: $0) })
-            try #require(fields.count == 1, "SETUP: the moves of act \(act) on the pane that grows have \(fields.count) timings: \(fields.sorted())")
+            try #require(fields.count == 1, "SETUP: the moves of act \(act) on the pane that grows have \(fields.count) timings: \(fields.sorted()); \(hand)")
             var read = Set(own.map(\.beginTime))
             for mask in masks {
                 let onParts = mask.parts.flatMap { Self.actMoves(act, on: $0) }, at = "the mask on the pane of the \(mask.name) close"
@@ -166,15 +197,20 @@ extension PaneCommitMotionTests {
         let now = starts[1] > 0 ? starts[1] : starts[0] + Self.dt
         let times = [0, Self.close.time / 4, Self.close.time / 2].map { now + $0 }
         let firstEnds = Self.actMoves(acts[0], on: layer).map { starts[0] + $0.duration / Double(max($0.speed, Float.ulpOfOne)) }
-        let firstEnd = try #require(firstEnds.min(), "SETUP: the pane that grows has no move of the first close: check 2 has no end to read")
+        let firstEnd = try #require(firstEnds.min(), "SETUP: the pane that grows has no move of the first close: check 2 has no end to read; \(hand)")
         let after = times.map { $0 - starts[0] }
         let inside = starts[0] > 0 && times.allSatisfy { $0 < firstEnd }
-        try #require(inside, "SETUP: check 2 is void: the 3 times are \(after) s after the first close's start, and its move ends \(firstEnd - starts[0]) s after it")
-        let pane = try #require(Self.farFromPlace(layer, at: times, now: now), "SETUP: `MotionPath` does not read each animation on the layer of the pane that grows")
+        try #require(inside, """
+            SETUP: check 2 is void: the 3 times are \(after) s after the first close's start, and its move ends \(firstEnd - starts[0]) s after it; \
+            \(hand)
+            """)
+        let pane = try #require(Self.farFromPlace(layer, at: times, now: now),
+                                "SETUP: `MotionPath` does not read each animation on the layer of the pane that grows; \(hand)")
         for mask in masks {
             var far: [[[CGFloat]]] = []
             for part in mask.parts {
-                let read = try #require(Self.farFromPlace(part, at: times, now: now), "SETUP: `MotionPath` does not read each animation on a part of the mask on the pane of the \(mask.name) close")
+                let read = try #require(Self.farFromPlace(part, at: times, now: now),
+                                        "SETUP: `MotionPath` does not read each animation on a part of the mask on the pane of the \(mask.name) close; \(hand)")
                 far.append(read)
             }
             for index in times.indices {
