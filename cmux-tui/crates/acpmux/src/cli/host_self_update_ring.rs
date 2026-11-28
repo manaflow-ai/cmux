@@ -9,6 +9,10 @@
 //! or one the verify refuses (a bad signature, expired, another ring, or a replayed older seq)
 //! leaves the applied state as it was and never fails the update: the flags only ever move
 //! forward to a newer signed file. [`applied`] is what the rest of acpmux reads.
+//!
+//! The first flag acpmux honors is the kill switch [`HOLD_FLAG`]: while the applied, unexpired
+//! file sets it, the timer's run stops before it takes a new build on every host of the ring,
+//! with no new build shipped. A run asked for by hand (`--now`, `--fast-patch`) still updates.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -54,6 +58,27 @@ pub(crate) fn applied(home: &Path, ring: &str) -> Option<Applied> {
     let body = std::fs::read(applied_path(home, ring)).ok()?;
     let applied: Applied = serde_json::from_slice(&body).ok()?;
     (applied.schema == SCHEMA && applied.ring == ring).then_some(applied)
+}
+
+/// The kill switch: `true` (or a non-empty reason) holds the timer's build updates.
+pub(crate) const HOLD_FLAG: &str = "acpmux.self-update.hold";
+
+/// Why the ring holds `home`'s timer updates at `now`, when its applied, unexpired file sets
+/// [`HOLD_FLAG`]. An expired file holds nothing: a hold nobody renews never strands a host.
+pub(crate) fn hold(home: &Path, ring: &str, now: u64) -> Option<String> {
+    let applied = applied(home, ring)?;
+    if now >= applied.expires_at {
+        return None;
+    }
+    let reason = match applied.flags.get(HOLD_FLAG)? {
+        Value::Bool(true) => String::new(),
+        Value::String(reason) if !reason.trim().is_empty() => format!(": {}", reason.trim()),
+        _ => return None,
+    };
+    Some(format!(
+        "the config ring {ring} (seq {}) holds automatic updates ({HOLD_FLAG}){reason}; `acpmux host self-update --now` still updates",
+        applied.seq
+    ))
 }
 
 /// What one tick did.
