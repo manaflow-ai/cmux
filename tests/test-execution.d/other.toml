@@ -1149,6 +1149,11 @@ path = "tests/test_static_analysis_ratchet.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_stress_bench_starve.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_stress_bench_starve.py"
+
+[[test]]
 path = "tests/test_stress_cli_socket_api.py"
 lane = "linux-guard"
 
