@@ -61,18 +61,6 @@ function boxesIn(scope: ParentNode): Record<string, Box> {
   for (const chip of scope.querySelectorAll<HTMLElement>("button[data-menu]")) add(`chip:${chip.dataset.menu}`, chip);
   const rows = [...scope.querySelectorAll(ROWS)].slice(-3);
   rows.forEach((row, index) => add(`row-${rows.length - index}`, row));
-  // The scroll rail and its first and last drawn ticks. A chat's ticks draw the frame after its first
-  // paint (ThreadMinimap `ticksDrawn`), its list one spacer as tall until then: the rail's box was the
-  // same, so the swap took that frame and the rail the copy drew whole went empty for about 120 ms,
-  // then filled, on every relaunch (bench/first-load-after-restart.bench.ts TRACE=1 "rail rows 120 -> 0";
-  // Leo, 2026-11-11: "this is so wack idk wtf happened after restarting the loading is so wack").
-  const rail = scope.querySelector(".acpmux-minimap__rail");
-  add("rail", rail);
-  const ticks = rail?.querySelectorAll("[data-tick]");
-  if (ticks?.length) {
-    add("tick-first", ticks[0]);
-    add("tick-last", ticks[ticks.length - 1]);
-  }
   return boxes;
 }
 

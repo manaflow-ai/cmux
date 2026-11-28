@@ -113,7 +113,7 @@ import { installPaintedFrames } from "../test/support/paintedFrames";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { classifyFrames, type FrameMetrics, type FrameRail, type FrameRecord } from "./firstLoadFrames";
 import { perfRow } from "./perfRow";
-import { kindsMatch, newestPage } from "./daemonPage";
+import { newestPage } from "./daemonPage";
 import { connectDelay, LinkPipe, linkProfile } from "./linkModel";
 import { goneRows, liveTurnLine, restartSettled } from "./restartSettled";
 import { longRun } from "../src/agent-session/acpmux/sim/scenarios";
@@ -479,7 +479,7 @@ const session: Record<string, unknown> = NO_MODES ? listedBase : { ...listedRow,
 /// The newest page before `beforeSeq`, oldest first, and whether older ones remain: the page the daemon
 /// answers an attach or an older-history read with, cut by count and by `maxBytes` (daemonPage.ts).
 const newest = (limit: number, beforeSeq = Infinity, maxBytes?: unknown, kinds?: unknown) =>
-  newestPage(Array.isArray(kinds) ? events.filter((event) => kindsMatch(kinds, event)) : events, {
+  newestPage(Array.isArray(kinds) ? events.filter((event) => kinds.includes(event.kind)) : events, {
     limit,
     beforeSeq,
     maxBytes,
