@@ -153,9 +153,5 @@ fn allocation_window_bounds_sequential_create_and_release_churn() {
         assert!(ledger.release(&circuit));
     }
     assert!(!ledger.reserve("rate-limited".into(), 1_000_000, 100));
-    assert!(ledger.reserve(
-        "next-window".into(),
-        2_000_000,
-        100 + CIRCUIT_ALLOCATION_WINDOW_MS,
-    ));
+    assert!(ledger.reserve("next-window".into(), 2_000_000, 100 + CIRCUIT_ALLOCATION_WINDOW_MS,));
 }
