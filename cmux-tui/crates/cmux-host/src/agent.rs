@@ -81,9 +81,8 @@ pub fn clock_set_wake(before_ns: i128, after_ns: i128) -> Wake {
 }
 
 /// How long the pause watch sleeps (monotonic) between two looks at the
-/// boot clock. A pause longer than `PAUSE_TICK + PAUSE_GAP` (21 s) is always
-/// found as a resume, so every pause the relay retires a registration over
-/// (45 s of silence) is; one longer than `PAUSE_TICK + STOP_GAP` (3 s) is
+/// boot clock. A pause longer than `PAUSE_TICK + PAUSE_GAP` (4 s) is always
+/// found as a resume; one longer than `PAUSE_TICK + STOP_GAP` (3 s) is
 /// counted as a stop for the updater ([`stopped_for`]).
 ///
 /// One second, not ten: Freestyle keeps the boot clock running through a
@@ -97,9 +96,17 @@ pub const PAUSE_TICK: Duration = Duration::from_secs(1);
 
 /// How far past [`PAUSE_TICK`] the boot clock must have moved during one
 /// sleep for it to count as a pause. An NTP slew moves the boot clock by at
-/// most 0.5 ms a second and a step never moves it, so 20 s is no clock sync;
-/// it is also far past any scheduling delay of an otherwise idle thread.
-pub const PAUSE_GAP: Duration = Duration::from_secs(20);
+/// most 0.5 ms a second and a step never moves it, so 3 s is no clock sync,
+/// and it stays past [`STOP_GAP`], so a scheduling delay that only holds an
+/// update does not reset the roles' connections.
+///
+/// 3 s, not 20: a resume after a shorter pause reached no role, so the Cloud
+/// role's wake timing (`cloud/wake_echo.rs`) never started for it and the
+/// census missed every person's quick return. wake-echo runs 46179135080 and
+/// 46183663043 (2026-11-28): pauses with 7-20 s of boot clock between looks,
+/// 5 s holds, got no wake block; only the 27, 29 and 68 s gaps did. A false
+/// resume costs one resume report and a fresh HTTPS connection.
+pub const PAUSE_GAP: Duration = Duration::from_secs(3);
 
 /// How far past [`PAUSE_TICK`] one sleep must end for the updater to count a
 /// stop ([`stopped_for`]): a pause too short for the supervisor's resume
