@@ -8,9 +8,9 @@ pub fn name(key: &str, scale: i64) -> String {
 /// `owner(of:)`: the key a frame file belongs to, nil for anything else (a temp file, `@4x`).
 pub fn owner(file: &str) -> Option<String> {
     let stem = file.strip_suffix("x.jpg")?;
-    let at = stem.rfind('@')?;
-    match &stem[at + 1..] {
-        "1" | "2" | "3" => Some(stem[..at].to_string()),
+    let (key, scale) = stem.rsplit_once('@')?;
+    match scale {
+        "1" | "2" | "3" => Some(key.to_string()),
         _ => None,
     }
 }

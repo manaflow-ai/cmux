@@ -201,9 +201,9 @@ pub const IDENTITY: Transform = [1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0.,
 /// `CATransform3DConcat(a, b)`: `a` then `b`.
 pub fn concat(a: &Transform, b: &Transform) -> Transform {
     let mut out = [0.; 16];
-    for i in 0..4 {
-        for j in 0..4 {
-            out[i * 4 + j] = (0..4).map(|k| a[i * 4 + k] * b[k * 4 + j]).sum();
+    for (row, slots) in a.chunks_exact(4).zip(out.chunks_exact_mut(4)) {
+        for (j, slot) in slots.iter_mut().enumerate() {
+            *slot = row.iter().zip(b.iter().skip(j).step_by(4)).map(|(x, y)| x * y).sum();
         }
     }
     out
