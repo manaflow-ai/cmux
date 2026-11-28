@@ -1214,6 +1214,11 @@ impl Hub {
             p["personInstance"] = Value::String(self.person.instance().to_owned());
         }
         v.set("pending", Value::Array(pending));
+        // A moved chat that runs here while its earlier history still arrives
+        // (`transfer_history.rs`): usable now, not yet fully here.
+        if let Some(following) = self.history_following(&session.id) {
+            v.set("historyFollowing", following);
+        }
         v
     }
 
@@ -1306,6 +1311,8 @@ impl Hub {
             "updateInventory": crate::update_inventory::read(),
             // The protocol surfaces this build serves (`capabilities.rs`).
             "capabilities": crate::capabilities::ids(),
+            // Its ABI revision and the hellos heard since the start (`abi_hello.rs`).
+            "abi": crate::abi_hello::status(),
             // Chats out of memory as compact rows now, and evictions and rehydrations since the
             // start (`evict.rs`; all 0 while `ACPMUX_EVICT_IDLE_SECS` is unset).
             "evicted": evicted,

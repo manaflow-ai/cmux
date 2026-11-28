@@ -88,6 +88,36 @@ class NightlyGateTest(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaisesRegex(ci_steps.TableError, "nightly"):
                 table(f'[step.a]\njob = "linux"\n{bad}\nrun = "true"')
 
+    def test_a_land_gate_step_runs_on_a_landing_head_with_every_input(self) -> None:
+        t = table('''
+            [step.typecheck]
+            job = "linux"
+            inputs = ["web/**/*.ts"]
+            land_gate = true
+            run = "true"
+            [step.plain]
+            job = "linux"
+            inputs = ["web/**/*.ts"]
+            run = "true"
+        ''')
+        paths = ["web/tests/x.test.ts"]
+        self.assertEqual(ci_steps.route(t, paths, pr_scope=True), {"linux": ["typecheck"]})
+        self.assertEqual(ci_steps.nightly_gate_steps(t, paths), ["typecheck"])
+        self.assertEqual(ci_steps.nightly_gate_steps(t, ["docs/x.md"]), [])
+        for bad in ('land_gate = "yes"', 'land_gate = true\nblocks = false\nclass = "idle"'):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ci_steps.TableError, "land_gate"):
+                table(f'[step.a]\njob = "linux"\n{bad}\nrun = "true"')
+
+    def test_a_landing_head_that_touches_web_ts_runs_web_typecheck(self) -> None:
+        # cmux#61511: a web test file with type errors landed on the affected tier, pr-pipeline.yml never ran, and
+        # web-typecheck stayed red on feat-cmux-next until #62788.
+        start, why, (jobs, only) = self.landing(["web/tests/vm-image-pin-cmux-tui.test.ts"])
+        self.assertIn("pr-pipeline.yml", start)
+        self.assertIn("runs only web-typecheck", why["pr-pipeline.yml"])
+        self.assertEqual((jobs, only), (["linux"], ["web-typecheck"]))
+        start, why, (jobs, only) = self.landing(["docs/x.md"])
+        self.assertNotIn("web-typecheck", only)
+
     def test_the_table_maps_the_nightly_causes(self) -> None:
         steps = ci_steps.load().steps
         for name, paths in (("rust-notices", ["cmux-tui/Cargo.lock"]),
@@ -102,13 +132,14 @@ class NightlyGateTest(unittest.TestCase):
         # Cargo.lock reaches the iOS FFI too: the ios fast verdict starts the pipeline and the reason names both.
         self.assertIn("nightly gate", why["pr-pipeline.yml"])
         self.assertEqual(jobs, ["linux"])
-        self.assertEqual(only, ["rust-notices"])
+        # page.tsx routes web-typecheck, a `land_gate` step; a plain web step (web-lint, web tests) stays off.
+        self.assertEqual(only, ["web-typecheck", "rust-notices"])
         start, why, (jobs, only) = self.landing(["scripts/cmux-next/generate-third-party-notices.sh"])
         self.assertIn("nightly gate: runs only rust-notices", why["pr-pipeline.yml"])
         self.assertEqual((jobs, only), (["linux"], ["rust-notices"]))
 
     def test_a_landing_head_off_the_nightly_steps_starts_nothing(self) -> None:
-        start, _, (jobs, only) = self.landing(["web/app/page.tsx"])
+        start, _, (jobs, only) = self.landing(["web/app/page.css"])
         self.assertNotIn("pr-pipeline.yml", start)
         self.assertEqual((jobs, only), ([], []))
 
@@ -1001,9 +1032,12 @@ class SetupTest(unittest.TestCase):
             table('[step.a]\njob = "linux"\ntier = "later"\nrun = "true"')
 
     def test_the_tables_tool_steps_are_push_tier_and_the_workflow_runs_the_pr_tier(self) -> None:
+        # web-tests-affected (cmux#63314) is the one pull request tier step with a tool: it runs only the web tests a
+        # change reaches, so it exists for the pull request tier; a push runs every web test in the push-tier shards.
+        pr_tier_tool_steps = {"web-tests-affected"}
         for step in ci_steps.load().steps.values():
             if step.job == "linux" and step.needs:
-                self.assertEqual(step.tier, "push", step.name)
+                self.assertEqual(step.tier, "pr" if step.name in pr_tier_tool_steps else "push", step.name)
         text = (ROOT / ".github/workflows/pr-pipeline.yml").read_text()
         self.assertIn('ci/run run --job linux --tier "$TIER"', text)
         self.assertIn("CI_PR_PIPELINE_TIER", text)

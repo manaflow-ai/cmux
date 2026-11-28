@@ -46,7 +46,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -1202,6 +1202,89 @@ def judge_confirm(probe: Probe, conclusion: str, run_id: int, runs: list[dict], 
     return "culprit", f"{len(seen)} confirm runs agree"
 
 
+CONFIRM_REUSE_ENV = "POST_MERGE_CONFIRM_REUSE"
+
+
+def confirm_reuse_on() -> bool:
+    """POST_MERGE_CONFIRM_REUSE=0 (vars.POST_MERGE_CONFIRM_REUSE) turns earlier_confirm_round off: every culprit's
+    confirm round renders again, as before."""
+    return (os.environ.get(CONFIRM_REUSE_ENV) or "1").strip() != "0"
+
+
+JOB_PROBES_ENV = "POST_MERGE_JOB_PROBES_PER_DAY"
+# A red on every commit (an outside service, a base break no single merge made) is never pinned, yet each new batch red
+# made a new (good, bad) key, so MAX_REBISECTS bounded nothing: 11-27 19:20Z-23:55Z spent 98 probe runs on 8 suite jobs,
+# 52 of them confirm runs failing on both sides (rust-workspaces 17, web-tests 16, gallery-health 15, ...), about 70
+# probes a day per red job and 23k-34k runner minutes a day for the workflow. A suite job whose probes started this
+# many times in the last 24 h starts no new bisect from a batch run; a chain already running goes on. 0 turns it off.
+DEFAULT_JOB_PROBES_PER_DAY = 12
+
+
+def job_probes_per_day() -> int:
+    """vars.POST_MERGE_JOB_PROBES_PER_DAY: the daily probe cap per suite job, DEFAULT_JOB_PROBES_PER_DAY when unset; 0 is no cap."""
+    raw = (os.environ.get(JOB_PROBES_ENV) or "").strip()
+    return int(raw) if raw.isdigit() else DEFAULT_JOB_PROBES_PER_DAY
+
+
+def job_probes_today(runs: list[dict], suite: str, only: str, now: datetime) -> int:
+    """Probe runs of suite job only (all its confirm and states runs too) created in the 24 h before now."""
+    prefix = f"{PROBE} {suite} {only or 'all'} at "
+    count = 0
+    for r in runs:
+        if not (r.get("display_title") or "").startswith(prefix):
+            continue
+        try:
+            if (now - parse_time(r.get("created_at") or "")).total_seconds() < 86400:
+                count += 1
+        except ValueError:
+            continue
+    return count
+
+
+def over_probe_cap(runs: list[dict], suites: dict, suite: str, name: str, now: datetime) -> int:
+    """The suite job's probe count today when it is at or over job_probes_per_day(), else 0."""
+    cap = job_probes_per_day()
+    if cap <= 0 or suite not in suites:
+        return 0
+    only = suites[suite].probe_only(name.partition(" / ")[2])
+    n = job_probes_today(runs, suite, only, now)
+    return n if n >= cap else 0
+
+
+def runs_for_confirm(args: argparse.Namespace) -> list[dict]:
+    if not confirm_reuse_on():
+        return []
+    try:
+        return list_runs(args.repo, args.branch)
+    except RuntimeError:
+        return []
+
+
+def earlier_confirm_round(round_: list[Probe], runs: list[dict], jobs_of, steps_of=None) -> tuple[str, str] | None:
+    """The verdict of an earlier confirm round with the same titles (suite, job, culprit, parent, side-N) when every
+    one of its runs finished with a verdict: ('culprit'|'flake'|'unsure', why), read as judge_confirm reads a round.
+    None (dispatch the round) when any run of it is missing, unfinished or gave no verdict, or reuse is off. A stuck
+    red's re-bisect lands on the same culprit and re-rendered the same four runs: web agent-pane-real-acpmux's round
+    at 4dbaa78f/e8f78400 ran three times on 11-27 (15:23Z, 16:21Z, 19:21Z), 80 of 466 probe runs that day were
+    repeats of a finished confirm title."""
+    if not round_ or not runs or not confirm_reuse_on():
+        return None
+    first, found = round_[0], None
+    for p in round_:
+        title = probe_title(p)
+        run = next((r for r in runs if (r.get("display_title") or "") == title), None)  # newest per title
+        if run is None or run.get("status") != "completed":
+            return None
+        verdict = probe_conclusion(jobs_of(run["id"])[0], p, steps_of(run["id"]) if steps_of else None)
+        if verdict not in ("success", "failure", "skipped"):
+            return None
+        if p is first:
+            found = (verdict, int(run["id"]))
+    assert found is not None
+    step, why = judge_confirm(first, found[0], found[1], runs, jobs_of, steps_of)
+    return (step, why) if step in ("culprit", "flake", "unsure") else None
+
+
 def judge_pieces(args: argparse.Namespace, probe: Probe, state, conclusion: str) -> dict[str, str]:
     """After a piece probe: the next piece state for the revert job to build and dispatch, the one piece
     named, or piece "-" (no piece: the whole revert pull request, as before)."""
@@ -1266,6 +1349,14 @@ def cmd_judge(args: argparse.Namespace) -> int:
             summary(args.summary, f"- {note}")
         if not found:
             summary(args.summary, f"No new red on `{args.sha[:11]}` ({len(verdicts)} suite jobs finished).")
+        now = datetime.now(timezone.utc)
+        capped = [(name, n) for name, suite, *_ in found + stuck if (n := over_probe_cap(runs, suites, suite, name, now))]
+        capped_names = {name for name, _ in capped}
+        for name, n in capped:
+            summary(args.summary, f"- Red `{name}`: its suite job ran {n} probes in 24 h (cap {job_probes_per_day()}, "
+                                  f"vars.{JOB_PROBES_ENV}), named only, no new bisect.")
+        found = [f for f in found if f[0] not in capped_names]
+        stuck = [s for s in stuck if s[0] not in capped_names]
         for name, suite, good in found[:MAX_CHAINS]:
             inner = name.partition(" / ")[2]
             probe = Probe(suite, name, suites[suite].probe_only(inner), args.sha, good, "", str(args.run_id),
@@ -1425,10 +1516,22 @@ def cmd_judge(args: argparse.Namespace) -> int:
         assert isinstance(value, str)
         parent = probe.good if conclusion == "failure" else probe.sha
         if CONFIRM_RUNS:
+            round_ = confirm_probes(probe, value, parent)
+            earlier = earlier_confirm_round(round_, runs_for_confirm(args), jobs_of, steps_of)
+            if earlier is not None:
+                # Every run of this same confirm round (culprit, parent, job) already finished with a verdict on an
+                # earlier bisect: its judge reads them instead of rendering the culprit and its parent again.
+                step, why = earlier
+                summary(args.summary, f"`{probe.job}` first went red at `{value}` (last green `{parent[:11]}`); an earlier "
+                                      f"confirm round of it already finished: {why}.")
+                if step == "culprit":
+                    out.update(culprit=value, job=probe.job, good=parent, origin=probe.origin)
+                write_outputs(args.github_output, out)
+                return 0
             summary(args.summary, f"`{probe.job}` first went red at `{value}` (last green `{parent[:11]}`); confirming with "
                                   f"{CONFIRM_RUNS} more runs of each before any revert.")
             if not args.dry_run:
-                for again in confirm_probes(probe, value, parent):
+                for again in round_:
                     dispatch_probe(args.repo, args.branch, again)
         else:
             summary(args.summary, f"`{probe.job}` first went red at `{value}` (last green `{parent[:11]}`).")

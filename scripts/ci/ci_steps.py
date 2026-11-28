@@ -54,6 +54,12 @@ pr_router.py starts it on a landing head of the affected tier (nightly_gate_step
 nightly. .github/nightly-step-coverage.json maps the nightly step back to it ({"table": NAME};
 tests/test_nightly_step_coverage.py checks both directions).
 
+`land_gate = true` starts a step the same way on a landing head of the affected tier, with no nightly counterpart: a
+cheap check whose red, left to the post-merge batch, reds the base for every lane until a fix-forward lands. 11-27:
+cmux#61511 landed web/tests/vm-image-pin-cmux-tui.test.ts with type errors on a head where pr-pipeline.yml never
+ran (`cheap tier: starts when ready-to-land`), and web-typecheck stayed red on feat-cmux-next until #62788. It
+must block, and costs its own seconds plus a linux job only on a landing head its inputs route.
+
 Step results by input hash (the CI v2 design, "Caches: three, content-addressed", item 3). Before a
 routed step runs, `run` keys it: sha256 over the step's own table entry, the job's setup and the
 tools it needs, this runner, its entry and the workflow, the machine kind (RUNNER_OS, RUNNER_ARCH,
@@ -154,6 +160,8 @@ class Step:
     tier: str = "pr"
     # The nightly.yml steps this step runs the same check as (`nightly.yml:<job>:<step>`; the module's docs).
     nightly: tuple[str, ...] = ()
+    # Runs on a landing head of the affected tier when routed, as a `nightly` step does (the module's docs).
+    land_gate: bool = False
 
 
 TIERS = ("pr", "push")
@@ -233,6 +241,7 @@ def parse(doc: dict) -> Table:
             pr_scope=raw.get("pr_scope", True),
             tier=raw.get("tier", "pr"),
             nightly=tuple(raw.get("nightly", ())),
+            land_gate=raw.get("land_gate", False),
         )
         if step.tier not in TIERS:
             raise TableError(f"step {name}: `tier` is one of {TIERS}")
@@ -249,6 +258,8 @@ def parse(doc: dict) -> Table:
         if not all(isinstance(n, str) and re.fullmatch(r"nightly\.yml:[^:]+:.+", n) for n in step.nightly) or (
                 step.nightly and not step.blocks):
             raise TableError(f"step {name}: `nightly` lists a blocking step's nightly.yml:<job>:<step> counterparts")
+        if not isinstance(step.land_gate, bool) or (step.land_gate and not step.blocks):
+            raise TableError(f"step {name}: `land_gate` is true or false, on a blocking step")
         if step.klass not in CLASSES:
             raise TableError(f"step {name}: class {step.klass!r} is not one of {CLASSES}")
         if not step.blocks and (step.job != ADVISORY_JOB or step.klass != "idle"):
@@ -281,7 +292,7 @@ def named_input(glob: str) -> bool:
 def routed(step: Step, paths: list[str] | None, pr_scope: bool = False) -> bool:
     """Whether a diff of `paths` needs the step. No inputs, or an unknown diff, routes it. PR_SCOPE: only the step's
     named inputs route it, and a change to the pipeline does not route every step (see the module's `--pr-scope`)."""
-    narrow = pr_scope and step.pr_scope and not step.nightly
+    narrow = pr_scope and step.pr_scope and not step.nightly and not step.land_gate
     if not step.inputs or paths is None or (not narrow and any(p in PIPELINE_PATHS for p in paths)):
         return True
     patterns = [glob_pattern(g) for g in step.inputs if not narrow or named_input(g)]
@@ -294,9 +305,10 @@ def routed(step: Step, paths: list[str] | None, pr_scope: bool = False) -> bool:
 
 
 def nightly_gate_steps(table: Table, paths: list[str] | None, jobs: tuple[str, ...] | list[str] = ()) -> list[str]:
-    """The steps with a `nightly` counterpart a diff of PATHS routes (every input kept), in JOBS when given."""
+    """The steps with a `nightly` counterpart or `land_gate` a diff of PATHS routes (every input kept), in JOBS when
+    given."""
     return [step.name for step in table.steps.values()
-            if step.nightly and (not jobs or step.job in jobs) and routed(step, paths, pr_scope=True)]
+            if (step.nightly or step.land_gate) and (not jobs or step.job in jobs) and routed(step, paths, pr_scope=True)]
 
 
 def route(table: Table, paths: list[str] | None, label: str | None = None,
