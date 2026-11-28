@@ -32,7 +32,7 @@ struct WorkspaceTodoRow: View {
                     .foregroundStyle(item.state == .done ? Color.secondary : Color.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
-                    .onTapGesture(count: 2) { actions.beginEdit(item.id) }
+                    .onTapGesture(count: 2) { actions.startEditing(item.id) }
             }
             if !item.attachments.isEmpty {
                 Label { Text(verbatim: "\(item.attachments.count)") } icon: { Image(systemName: "photo") }
@@ -51,7 +51,7 @@ struct WorkspaceTodoRow: View {
             } else {
                 Button(WorkspaceChecklistStrings.complete) { actions.setState(item.id, .done) }
             }
-            Button(WorkspaceChecklistStrings.edit) { actions.beginEdit(item.id) }
+            Button(WorkspaceChecklistStrings.edit) { actions.startEditing(item.id) }
             Button(WorkspaceChecklistStrings.attachImages) { actions.attachImages(item.id) }
             Divider()
             Button(WorkspaceChecklistStrings.remove, role: .destructive) { actions.remove(item.id) }
