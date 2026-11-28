@@ -36,16 +36,15 @@ public import Foundation
         FileManager.default.displayName(atPath: app.path).replacingOccurrences(of: ".app", with: "")
     }
 
-    /// Each app's icon PNG, by path and the bundle's modification date (an update redraws it). The
-    /// "Open in" menu asked for up to 16 icons on every open, each a draw and a PNG encode on the
-    /// main actor; an app's icon only changes when the app does. Shared by every pane's instance.
-    private static var icons: [String: (modified: Date?, png: Data?)] = [:]
+    /// Each app's icon PNG, by path. The "Open in" menu asked for up to 16 icons on every open,
+    /// each a draw and a PNG encode on the main actor. No stat to notice an app update (that is
+    /// disk I/O on the main actor): an updated browser shows its old icon until the pane reopens.
+    private var icons: [String: Data?] = [:]
 
     public func iconPNG(of app: URL) -> Data? {
-        let modified = (try? app.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-        if let cached = Self.icons[app.path], cached.modified == modified { return cached.png }
+        if let cached = icons[app.path] { return cached }
         let png = Self.render(workspace.icon(forFile: app.path))
-        Self.icons[app.path] = (modified, png)
+        icons[app.path] = png
         return png
     }
 

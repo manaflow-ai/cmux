@@ -28,6 +28,6 @@ struct AgentPaneIconPNGCacheTests {
         let app = URL(fileURLWithPath: "/System/Applications/Calculator.app")
         let first = browsers.iconPNG(of: app)
         #expect(first != nil)
-        #expect(AgentPaneWorkspaceBrowsers().iconPNG(of: app) == first)
+        #expect(browsers.iconPNG(of: app) == first)
     }
 }
