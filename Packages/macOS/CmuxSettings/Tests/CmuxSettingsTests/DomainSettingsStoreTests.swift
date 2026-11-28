@@ -68,6 +68,19 @@ struct DefaultsKeyDirectAccessTests {
     }
 }
 
+@Suite("CloseWarningKinds.offered")
+struct CloseWarningKindsOfferedTests {
+    @Test func offersTheSettingOnlyWhileItWarns() {
+        #expect(CloseWarningKinds.offered(.workspace, settingWarns: true, hasActiveProcess: false) == .workspace)
+        #expect(CloseWarningKinds.offered(.workspace, settingWarns: false, hasActiveProcess: false) == [])
+    }
+
+    @Test func aRunningProcessAddsSafety() {
+        #expect(CloseWarningKinds.offered(.window, settingWarns: true, hasActiveProcess: true) == [.window, .safety])
+        #expect(CloseWarningKinds.offered(.window, settingWarns: false, hasActiveProcess: true) == .safety)
+    }
+}
+
 @Suite("CloseTabWarningStore")
 struct CloseTabWarningStoreTests {
     @Test func defaultsMatchLegacyNamespace() {
