@@ -3,6 +3,7 @@
 // opened), and "Open in terminal", which types the command into a new terminal tab in the same
 // folder without running it.
 import { useContext } from "react";
+import { KeyHint } from "../../../ui/KeyHint";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { Check, Spinner } from "../conversation/icons";
@@ -39,7 +40,7 @@ export function ShellRow({
               <button type="button" className="acpmux-shell-block-stop" onClick={() => actions.stop(run.id)}>
                 <Spinner size={12} />
                 {t("shell.stop")}
-                <kbd>⌃C</kbd>
+                <KeyHint keys="⌃C" />
               </button>
             ) : (
               <Spinner size={12} />

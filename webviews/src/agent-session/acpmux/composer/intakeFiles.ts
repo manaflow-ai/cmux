@@ -1,7 +1,6 @@
 // A dropped file is read by the session's own tools through its path, never copied into the
 // prompt. Files without a usable path retain their existing preview and upload transport.
 import {
-  filesOnce,
   isImageFile,
   linkAttachment,
   linkItems,
@@ -10,8 +9,9 @@ import {
   type AttachmentError,
   type ComposerAttachment,
   type DroppedKind,
-  type KnownPaths,
   type LinkItem,
+  type KnownPaths,
+  filesOnce,
 } from "../attachments";
 import { localImagePreview, previewForFile } from "./imagePool";
 import { linkedImagePath } from "../conversation/userBubbleModel";
@@ -31,7 +31,8 @@ export type IntakeOptions = {
   cancelled?: UploadCancelled;
 };
 
-/// `final`: the host refused the upload outright, so it is not tried again on its own.
+/// `final`: the host refused the upload outright (it is still asked again on its own, slowly:
+/// uploadRetry.ts).
 export type IntakeError = AttachmentError | { text: string; final?: boolean };
 
 /// What happens to each file of a batch, by its index, the moment it happens: a chip never waits
@@ -57,8 +58,9 @@ export type IntakeEvents = {
 };
 
 /// How long the host may take to say where a drop's or paste's files are (`chat.attach.dropped`
-/// answers from memory): past it the files go as if it did not know, never held.
-export const LOCAL_PATHS_DEADLINE_MS = 3000;
+/// answers from memory; a native drop's come pushed with it, composer/dropPush.ts): past it the files
+/// go as if it did not know, never held.
+export const LOCAL_PATHS_DEADLINE_MS = 1500;
 
 /// `promise`, or undefined once `ms` pass without it settling.
 export function settleWithin<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
@@ -218,7 +220,7 @@ export async function intakeFiles(
         const { image, videoShape } = await prepared[index]!;
         // A later file may fail after earlier files finished. Keep every returned path, even when
         // the batch also carries an error, so completed uploads remain attachable and only the
-        // failed/unattempted chips offer Retry.
+        // failed/unattempted chips are asked again (uploadRetry.ts).
         const path = sent && "paths" in sent ? sent.paths[at] : undefined;
         if (path && image) {
           image.originalPath = path;
@@ -260,11 +262,13 @@ export async function droppedPaths(
 ): Promise<KnownPaths | undefined> {
   try {
     const names = files.map((file) => file.name);
-    const items = linkItems(
-      await call("chat.attach.dropped", { kind, names, ...(gestureAt === undefined ? {} : { gestureAt }) }),
-    );
+    const reply = await call("chat.attach.dropped", { kind, names, ...(gestureAt === undefined ? {} : { gestureAt }) });
+    const items = linkItems(reply);
     if (items.length === 0) return undefined;
-    return alignPaths(files, items);
+    const paths = alignPaths(files, items) as KnownPaths;
+    const dropId = (reply as { dropId?: unknown } | null | undefined)?.dropId;
+    if (typeof dropId === "string" && dropId) Object.defineProperty(paths, "dropId", { value: dropId });
+    return paths;
   } catch {
     return undefined;
   }

@@ -22,6 +22,7 @@ type RowProps = {
   readImage?: (id: string) => Promise<string | undefined>;
   onOpenFile?: (path: string) => unknown;
   cwd?: string;
+  onRemoveFolder?: (folder: string) => Promise<unknown> | unknown;
 };
 
 export function SourcesSection({
@@ -52,13 +53,7 @@ export function SourcesSection({
     <>
       <ul ref={fold.ref} className="acpmux-session-info-list" data-section="sources">
         {folders.map((folder) => (
-          // tooltip-allow: the row shows the folder's name; the tooltip is its full path
-          <li key={`folder:${folder}`} className="acpmux-session-info-source" data-kind="folder" title={folder}>
-            <span className="acpmux-session-info-source__link">
-              <Icon name="folder" size={rowIconSize(12)} row />
-              <span className="acpmux-session-info-source__label ui-reveal-text">{extraFolderName(folder)}</span>
-            </span>
-          </li>
+          <FolderRow key={`folder:${folder}`} folder={folder} onRemove={navigation.onRemoveFolder} />
         ))}
         <WindowedRows
           items={shown}
@@ -84,6 +79,48 @@ export function SourcesSection({
         </SessionInfoFold>
       )}
     </>
+  );
+}
+
+function FolderRow({
+  folder,
+  onRemove,
+}: {
+  folder: string;
+  onRemove?: (folder: string) => Promise<unknown> | unknown;
+}) {
+  const t = useT();
+  const [failure, setFailure] = useState<string>();
+  const name = extraFolderName(folder);
+  return (
+    // tooltip-allow: the row shows the folder's name; the tooltip is its full path
+    <li className="acpmux-session-info-source ui-reveal-host" data-kind="folder" title={folder}>
+      {failure ? (
+        <span role="alert">{failure}</span>
+      ) : (
+        <span className="acpmux-session-info-source__link">
+          <Icon name="folder" size={rowIconSize(12)} row />
+          <span className="acpmux-session-info-source__label ui-reveal-text">{name}</span>
+        </span>
+      )}
+      {onRemove && !failure && (
+        <span className="acpmux-session-info-source__actions" ref={revealControls}>
+          <button
+            type="button"
+            className="acpmux-session-info-icon-button acpmux-session-info-source__more"
+            aria-label={t("composer.removeFolder", { name })}
+            onClick={() => {
+              setFailure(undefined);
+              Promise.resolve(onRemove(folder)).catch((error: unknown) =>
+                setFailure(error instanceof Error ? error.message : t("image.actionFailed")),
+              );
+            }}
+          >
+            <Icon name="action.close" size={14} />
+          </button>
+        </span>
+      )}
+    </li>
   );
 }
 

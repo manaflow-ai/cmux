@@ -1363,6 +1363,131 @@ mark {
   width: var(--page-size-160);
 }
 
+/* Settings > Developer (DeveloperTokensCard): scope chips beside a token's name, the create and allow
+   forms as labeled fields, and code lines (the shown-once token, export, curl, the workflow) that
+   wrap inside the card with Copy beside them. */
+.tokens-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.tokens-chips {
+  display: inline-flex;
+  gap: var(--grid-half-step);
+}
+
+.tokens-chip {
+  display: inline-flex;
+  align-items: center;
+  height: var(--ds-control-compact);
+  padding: 0 var(--ds-space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-control);
+  background: var(--ds-color-surface);
+  color: var(--muted-text);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.tokens-lead {
+  margin-bottom: var(--ds-space-2);
+}
+
+.tokens-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+}
+
+.tokens-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  max-width: var(--page-size-320);
+}
+
+.tokens-row-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-3);
+}
+
+.tokens-row-fields > .tokens-field {
+  flex: 1 1 var(--page-size-160);
+}
+
+.tokens-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.tokens-fieldset > legend {
+  margin-bottom: var(--ds-space-1);
+  padding: 0;
+}
+
+.tokens-check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ds-space-2);
+}
+
+.tokens-check > span {
+  display: flex;
+  flex-direction: column;
+}
+
+.tokens-check-title {
+  color: var(--text);
+}
+
+.tokens-warning {
+  color: var(--ds-color-attention, var(--text));
+}
+
+.tokens-subhead {
+  margin-top: var(--ds-space-2);
+}
+
+.tokens-code-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ds-space-2);
+  margin-top: var(--ds-space-1);
+}
+
+.tokens-code {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: var(--ds-space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-md);
+  background: var(--input-bg);
+  color: var(--text);
+  font: var(--text-detail) / 1.5 ui-monospace, "SF Mono", Menlo, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tokens-secret {
+  font-weight: 600;
+}
+
+/* The shown-once token keeps a step from the list under it. */
+.tokens-created {
+  margin-bottom: var(--ds-space-3);
+}
+
 /* Settings > Automations: the form reads as labeled fields in rows, a condition is one line
    (path, operator, value, remove), and the preview wraps its rendered prompt. */
 .autocloud-form {
@@ -1458,43 +1583,62 @@ mark {
   max-width: var(--page-size-160);
 }
 
-/* Settings > Connections (ConnectionsCard): the catalog as a grid of tiles in rank order, each with
-   its title and status on one line, one line about it, and its button at the bottom. */
+/* Settings > Connections (ConnectionsPanel.tsx): the catalog as a grid of tiles in rank order, each with
+   its mark, title and status pill on one line, one line about it, and its button at the bottom. */
 .connections-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--page-size-240), 1fr));
   gap: var(--ds-space-2);
 }
 
+/* Each tile is the pane's connect card (acpmux/ConnectCard.tsx, claudeConnect.css): its pane colours
+   from this page's, as the plan usage card's are (.harness-account-usage). */
 .connections-tile {
+  --agent-text: var(--text);
+  --agent-muted: var(--muted-text);
+  --agent-border: var(--border);
+  --agent-accent: var(--cmux-accent, var(--text));
+  --agent-danger: var(--danger);
   display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-1);
   min-width: 0;
+}
+
+.connections-tile > .acpmux-connect-card {
+  flex: 1;
   padding: var(--ds-space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--ds-radius-lg);
+  border-color: var(--border);
   background: var(--input-bg);
+}
+
+.connections-tile .acpmux-connect-card__actions {
+  margin-top: auto;
+}
+
+.connections-tile .acpmux-connect-card__details .row-help {
+  white-space: normal;
+}
+
+.connections-monogram {
+  display: inline-grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: var(--ds-space-5);
+  height: var(--ds-space-5);
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, var(--muted-text) 18%, transparent);
+  font-weight: 600;
+  font-size: var(--text-detail);
+}
+
+.connections-confirm {
+  display: flex;
+  flex-basis: 100%;
+  flex-direction: column;
+  gap: var(--ds-space-2);
 }
 
 .connections-tile[data-connections-state="unavailable"] {
   opacity: 0.7;
-}
-
-.connections-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--ds-space-2);
-}
-
-.connections-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--ds-space-2);
-  margin-top: auto;
-  padding-top: var(--ds-space-2);
 }
 
 .connections-key {
@@ -1513,6 +1657,44 @@ mark {
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);
+}
+
+/* Settings > Connections, on top (AllConnections.tsx): every connection as one compact row, its
+   title and kind, its status pill and its one action. */
+.all-connections-list {
+  display: flex;
+  flex-direction: column;
+  margin: var(--ds-space-2) 0 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-lg);
+  list-style: none;
+}
+
+.all-connections-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  padding: var(--ds-space-1) var(--ds-space-3);
+}
+
+.all-connections-row + .all-connections-row {
+  border-top: 1px solid var(--border);
+}
+
+.all-connections-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.all-connections-title,
+.all-connections-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Settings > Devices: tones reuse the Accounts status dot; the history is a compact table. */
@@ -2695,6 +2877,29 @@ button.menu-disclosure {
   padding: 0 var(--ds-space-2) var(--ds-space-2);
 }
 
+.app-update-prs {
+  padding: 0 var(--ds-space-2) var(--ds-space-2);
+}
+
+.app-update-prs summary {
+  cursor: default;
+}
+
+.app-update-prs h4 {
+  margin: var(--ds-space-2) 0 var(--ds-space-1);
+  font-weight: 600;
+}
+
+.app-update-prs ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-update-prs li {
+  padding: var(--grid-half-step) 0;
+}
+
 .app-update-progress {
   display: block;
   width: 100%;
@@ -2872,134 +3077,615 @@ button.menu-disclosure {
   min-width: 0;
 }
 
-/* Settings > Models (ModelsCard.tsx): three groups, each title with its help and an optional + on the
-   trailing edge; connection rows with a grip, the provider's mark, a switch and an overflow menu. */
+/* Settings > Models */
 .models {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--ds-space-5);
 }
 
-.models-lead {
+.models .group {
   margin: 0;
 }
 
-.models-header {
+.group-header {
   display: flex;
-  align-items: flex-start;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
+  gap: var(--ds-space-2);
+  margin-bottom: var(--ds-space-2);
 }
 
-.models-header .group-title,
-.models-header .row-help {
+.group-heading {
+  flex: 1 1 var(--page-size-160);
+  min-width: 0;
+}
+
+.group-header .group-title,
+.group-header .row-help {
   margin: 0;
 }
 
-.models-add,
-.models-more {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 26px;
-  padding-inline: 4px;
+.group-header .row-help,
+.models .row[data-models-row] .row-help,
+.models-form .row-help,
+.models-dialog .row-help {
+  white-space: normal;
 }
 
-.models-connection[data-dragging] {
-  opacity: 0.5;
+.group-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--ds-space-1);
+  margin-inline-start: auto;
+}
+
+.row.settings-error-row {
+  flex-flow: row wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+}
+
+.settings-error-row .row-error {
+  margin: 0;
+  gap: var(--ds-space-2);
+}
+
+.settings-error-row svg {
+  flex: none;
+}
+
+.settings [data-card="cloudEnvironments"] .row-help {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.models-skeleton-mark {
+  inline-size: var(--ds-space-6);
+  block-size: var(--ds-space-6);
+  flex: none;
+}
+
+.cloud-skeleton-title {
+  block-size: var(--ds-space-3);
+  inline-size: min(100%, var(--ds-space-56));
+}
+
+.cloud-skeleton-detail {
+  block-size: var(--ds-space-2);
+  inline-size: min(100%, calc(2 * var(--ds-space-56)));
+  margin-block-start: var(--ds-space-1);
+}
+
+.cloud-skeleton-control {
+  block-size: var(--ds-control-row);
+  inline-size: var(--ds-space-56);
+}
+
+.settings [data-models-connections-loading] > .row:last-child {
+  border-bottom: 0;
+  box-shadow: none;
+}
+
+.models-rows {
+  display: block;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-lg);
+  background: var(--input-bg);
+}
+
+.models-rows + .models-rows {
+  margin-top: var(--ds-space-2);
+}
+
+.models-rows > .row:last-child {
+  border-bottom: 0;
+}
+
+/* Compact rows: 44 px for a one-line row, a subtitle row as tall as its two lines (about 48 px). */
+.models-connection,
+.models-rows > .models-add.ui-btn {
+  min-block-size: calc(var(--ds-control-row) + var(--ds-space-4));
+  box-sizing: border-box;
+}
+
+.models-connection {
+  display: grid;
+  align-content: center;
+}
+
+.models-connections {
+  overflow: clip;
+}
+
+/* Model rows are compact: 8 px above and below a 28 px row, 44 px in all for a one-line row. More specific than the
+   refined look's row padding (refined.css `.settings .row`: 12 px, a 52 px row), which loads after this sheet. */
+:root .settings .rows.models-rows > :is(.models-connection, .models-add) {
+  padding-block: var(--ds-space-2);
+}
+
+/* The mark-to-name gap: 8 px. Set through --row-main-gap too, which the refined look's row rule reads
+   (refined.css: its more specific .row-main gap is otherwise 24 px). */
+.models-connections {
+  --row-main-gap: var(--ds-space-2);
+}
+
+.models-connections > :is(.models-connection, .models-add) > .row-main {
+  gap: var(--row-main-gap);
+  min-block-size: var(--ds-control-row);
+}
+
+.models-connection .row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .models-connection .row-control {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
+  margin-inline-start: auto;
+  padding: 0;
 }
 
-.models-grip {
-  display: inline-flex;
+.models-status-slot {
+  display: grid;
+  place-items: center;
+  inline-size: var(--ds-icon-16);
+  block-size: var(--ds-icon-16);
   flex: none;
-  color: var(--soft-text);
-  cursor: grab;
+  color: var(--muted-text);
 }
 
-.models-grip:not([draggable="true"]) {
-  visibility: hidden;
+.models-status-slot[data-warning],
+.models-row-status[data-warning] {
+  color: var(--warning);
 }
 
-.models-chatgpt {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 8px;
+.models-more.ui-btn {
+  aspect-ratio: 1;
+  padding-inline: 0;
 }
 
-.models-sheet {
-  width: min(440px, calc(100vw - 32px));
-  max-height: calc(100vh - 32px);
-  overflow: auto;
-  padding: 16px;
-  color: var(--text);
+.models-row-menu .ui-menu-item > .icon {
+  flex: none;
+  inline-size: var(--ds-icon-14);
+  block-size: var(--ds-icon-14);
 }
 
-.models-sheet-body {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.models-move-up {
+  rotate: 180deg;
 }
 
-.models-sheet-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.models-row-menu .models-menu-details {
+  unicode-bidi: plaintext;
+  font-weight: var(--weight-regular);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.models-sheet-header h2 {
-  margin: 0;
-  font-size: var(--text-content);
-  font-weight: var(--weight-emphasis);
+.models-row-menu .models-access {
+  padding: var(--ds-space-1) var(--ds-space-2);
 }
 
-.models-sheet-group .group-title {
-  margin: 0 0 4px;
-}
-
-.models-sheet-choices {
-  display: flex;
-  flex-direction: column;
-  padding: 4px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-
-.models-sheet-choice {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
+.models-rows > .models-add.ui-btn {
+  inline-size: 100%;
+  block-size: auto;
+  /* The provider rows' own padding, so + Connect is exactly as tall as a Subscription or API key row. */
+  padding-block: var(--row-pad-y);
+  padding-inline: var(--row-pad-x);
+  color: var(--muted-text);
   font: inherit;
   text-align: start;
 }
 
-.models-sheet-choice:hover,
-.models-sheet-choice:focus-visible {
-  background: var(--input-bg);
+.models-rows > .models-add.ui-btn:focus-visible {
+  outline: var(--cmux-focus-ring-width) solid var(--ui-ring);
+  outline-offset: calc(-1 * var(--ds-space-1));
 }
 
-.models-sheet-choice-text {
+.models-connections > .models-add > .row-main {
+  inline-size: 100%;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+}
+
+/* The + sits in the same 16 px box as a provider mark (the Connect picker's size), with the same gap, so the two
+   columns line up. */
+.models-add-mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  inline-size: var(--ds-icon-16);
+  block-size: var(--ds-icon-16);
+}
+
+.models-add-mark > .icon,
+.models-provider-mark:not([data-large]) > .icon {
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+.models-device-status {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.models-device-status {
+  flex-wrap: wrap;
+}
+
+.models-device-code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-title);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  direction: ltr;
+}
+
+.models-device-challenge,
+.models-waiting {
+  display: grid;
+  gap: var(--ds-space-1);
+}
+
+.models-device-challenge,
+.models-form > .models-waiting {
+  border-block-start: 1px solid var(--ds-color-separator);
+  padding-block-start: var(--ds-space-3);
+}
+
+.models-waiting > output {
+  font-weight: var(--weight-emphasis);
+}
+
+.models-access-line .icon {
+  color: var(--success);
+}
+
+.models-picker.ui-popup {
+  /* Plans beside a two-column API keys grid: every provider shows at once. */
+  inline-size: min(38rem, var(--available-width, 100vw));
+  max-block-size: min(calc(var(--ds-control-row) * 16), var(--available-height, 100vh));
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  padding: 0;
 }
 
-.models-sheet-choice-text small {
+.models-search {
+  display: flex;
+  flex: none;
+  align-items: center;
+  padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-1);
+  color: var(--ds-color-muted);
+}
+
+/* One icon column through the search, the list and the footer: every glyph centres 12 px + 8 px from the popup's
+   edge. The 14 px search and + glyphs take the 16 px slot of a provider mark (1 px each side); the search row pads
+   12 px, and a row's 8 px sits inside the list's and the footer's 4 px. */
+.models-search > .icon,
+.models-picker-option > .icon {
+  flex: none;
+  inline-size: var(--ds-icon-14);
+  block-size: var(--ds-icon-14);
+  margin-inline: calc((var(--ds-icon-16) - var(--ds-icon-14)) / 2);
+}
+
+.models-picker.ui-popup .models-picker-option.ui-menu-item {
+  padding-inline: var(--ds-space-2);
+}
+
+.models-search .ui-input {
+  flex: 1;
+  min-inline-size: 0;
+}
+
+.models-picker-option[aria-disabled="true"] {
+  color: var(--ds-color-muted);
+  cursor: default;
+}
+
+.models-picker-provider {
+  display: grid;
+}
+
+.models-picker-disabled {
+  margin-inline-start: var(--ds-space-1);
+  font-size: var(--text-detail);
+}
+
+.models-picker-list {
+  display: flex;
+  flex-direction: column;
+  min-block-size: 0;
+}
+
+.models-picker-scroll {
+  min-block-size: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0 var(--ds-space-1) var(--ds-space-1);
+}
+
+.models-picker-caption {
+  padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-1);
+  color: var(--ds-color-muted);
+  font-size: var(--text-caption);
+}
+
+/* Two columns: Plans, and API keys as a two-column grid. Each column scrolls on its own under its caption, and
+   fades at an edge with more rows past it. A search that leaves one group gives it the whole width. */
+.models-picker-scroll.models-picker-columns {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: 13rem minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  column-gap: var(--ds-space-1);
+  overflow: hidden;
+}
+
+.models-picker-columns:not(:has(> .models-picker-column + .models-picker-column)) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.models-picker-column {
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  min-block-size: 0;
+}
+
+.models-picker-column-scroll {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  align-content: start;
+}
+
+/* Only the two-column view divides its columns; search results are one list on the same edge. */
+.models-picker-columns > .models-picker-column + .models-picker-column {
+  border-inline-start: 1px solid var(--ds-color-separator);
+  padding-inline-start: var(--ds-space-1);
+}
+
+.models-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--ds-space-1);
+}
+
+.models-picker-grid > .models-picker-option > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.models-picker-option > .models-provider-mark {
+  inline-size: var(--ds-icon-16);
+  background: transparent;
+  font-size: var(--text-caption);
+}
+
+.models-picker-footer {
+  flex: none;
+  border-block-start: 1px solid var(--ds-color-separator);
+  padding: var(--ds-space-1);
+}
+
+.models-provider-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  inline-size: var(--ds-icon-16);
+  aspect-ratio: 1;
   color: var(--muted-text);
   font-size: var(--text-detail);
+  font-weight: var(--weight-emphasis);
+}
+
+.models-provider-mark[data-large] {
+  inline-size: var(--ds-space-6);
+  background: transparent;
+}
+
+.models-provider-mark[data-large] > .icon {
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+.models-dialog.ui-dialog {
+  inline-size: min(24rem, calc(100vw - 2 * var(--ds-space-4)));
+  inset-block: 0;
+  margin-block: auto;
+  block-size: fit-content;
+  max-block-size: calc(100dvh - 2 * var(--ds-space-4));
+  box-sizing: border-box;
+  overflow: auto;
+  padding: var(--ui-dialog-padding);
+  color: var(--ds-color-fg);
+}
+
+/* The custom provider (name, base URL, key) and the dialogs that name models (Azure, Cloudflare) get room for
+   their fields. */
+.models-dialog.ui-dialog:has([data-models-dialog="endpoint"], .models-endpoint-models) {
+  inline-size: min(28rem, calc(100vw - 2 * var(--ds-space-4)));
+}
+
+.models-dialog.ui-dialog:not(:has(.models-dialog-content)) {
+  visibility: hidden;
+}
+
+.models-dialog-backdrop {
+  -webkit-backdrop-filter: var(--ds-glass-lens-blur);
+  backdrop-filter: var(--ds-glass-lens-blur);
+}
+
+:root[data-reduce-transparency] .models-dialog-backdrop {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .models-dialog-backdrop {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+.models-dialog-content,
+.models-form {
+  display: grid;
+  gap: var(--ds-space-3);
+  min-inline-size: 0;
+}
+
+.models-dialog-heading {
+  outline: none;
+  padding-inline-end: var(--ds-space-5);
+}
+
+.models-dialog-heading > .models-provider-mark {
+  margin-block-end: var(--ds-space-2);
+}
+
+.models-dialog-heading .ui-dialog-title {
+  margin: 0;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: var(--weight-emphasis);
+}
+
+.models-dialog-heading .ui-dialog-description {
+  margin: var(--ds-space-1) 0 0;
+  text-wrap: pretty;
+  color: var(--ds-color-muted);
+  font-size: var(--text-detail);
+  overflow-wrap: anywhere;
+}
+
+/* The close button sits in the top-right corner, concentric with it: its circle shares the corner arc's centre, so
+   it is the same distance from the top and the right edge (corner radius minus half the button). */
+.models-dialog-content > .models-dialog-close.ui-btn {
+  --models-dialog-close-inset: calc(
+    var(--ds-radius-control) + var(--ui-dialog-padding) - var(--ds-control-compact) / 2
+  );
+  position: absolute;
+  /* Set by eye from the concentric point (Lucas): 11 px from the top, 16 px from the right. */
+  inset-block-start: calc(var(--models-dialog-close-inset) - 9px);
+  inset-inline-end: calc(var(--models-dialog-close-inset) - 4px);
+  border-radius: 50%; /* radius-allow: circular dialog close control */ /* concentric-allow: reviewed optical inset from the dialog corner */
+}
+
+.models-dialog .models-footer-buttons {
+  margin-block-start: var(--ds-space-2);
+}
+
+.models-access-line {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.models-form > p {
+  margin: 0;
+}
+
+.models-endpoint-models {
+  display: grid;
+  justify-items: start;
+  gap: var(--ds-space-2);
+}
+
+.models-field {
+  display: grid;
+  gap: var(--ds-space-1);
+  min-width: 0;
+}
+
+.models-field .field {
+  min-width: 0;
+  width: 100%;
+}
+
+.models-secret {
+  position: relative;
+  display: block;
+}
+
+.models-secret .field {
+  padding-inline-end: var(--ds-space-6);
+}
+
+.models-secret .models-icon-button {
+  position: absolute;
+  inset-inline-end: var(--ds-space-1);
+  inset-block-start: 50%;
+  translate: 0 -50%;
+}
+
+.models-access {
+  align-items: flex-start;
+  margin-block: 0;
+  overflow-wrap: anywhere;
+}
+
+.models-access svg,
+.models-form .row-error svg {
+  flex: none;
+}
+
+.models-form-error > span {
+  white-space: normal;
+}
+
+.models-model-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-block-size: calc(var(--ds-control-row) * 5);
+  inline-size: 100%;
+  overflow: auto;
+  color: var(--muted-text);
+  font-size: var(--text-detail);
+}
+
+.models-model-list > li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+  padding-block: var(--ds-space-1);
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+
+.models-manual-model,
+.models-footer-buttons {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2);
+}
+
+.models-manual-model .models-field {
+  flex: 1;
+}
+
+.models-manual-model > .button {
+  align-self: end;
+}
+
+.models-footer-buttons {
+  margin-inline-start: auto;
+  flex-wrap: nowrap;
 }
 
 /* Appearance > Customization Library (CustomizeLibraryCard): one row per entry, top first.
@@ -3117,6 +3803,175 @@ button.menu-disclosure {
 
 .library-tile .library-order {
   align-self: flex-end;
+}
+
+/* Settings > Appearance > Looks (LooksGalleryCard): a grid of look tiles, each its golden sample in
+   a fixed 16:10 frame (the frame holds its size before the image arrives, so tiles never move), its
+   name and tagline, then Install or its switch and Uninstall. The Stacked list under it is the
+   installed looks top first, one Settings row each. */
+.looks-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3);
+}
+
+.looks-hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3);
+}
+
+.looks-rail {
+  display: grid;
+  grid-auto-columns: minmax(180px, 1fr);
+  grid-auto-flow: column;
+  gap: var(--ds-space-3);
+  overflow-x: auto;
+}
+
+.looks-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.looks-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  padding: var(--ds-space-2);
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-lg);
+}
+
+.looks-tile[data-size="row"] {
+  flex-direction: row;
+  align-items: center;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border: 0;
+  border-radius: 0;
+}
+
+.looks-tile[data-size="row"] + .looks-tile[data-size="row"] {
+  border-top: 1px solid var(--ds-color-separator);
+}
+
+.looks-preview {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-md);
+}
+
+.looks-tile[data-size="row"] .looks-preview {
+  flex: none;
+  width: 96px;
+}
+
+.looks-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.looks-preview-missing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+
+.looks-tile-body {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+
+.looks-tile[data-size="row"] .looks-tile-body {
+  align-items: center;
+}
+
+/* In a tile the text takes the whole width and the controls sit under it, Install or the switch
+   leading and Uninstall trailing, so a long name never squeezes beside them. */
+.looks-tile:not([data-size="row"]) .looks-tile-body {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.looks-tile:not([data-size="row"]) .looks-controls {
+  justify-content: space-between;
+}
+
+.looks-tile-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.looks-tagline {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.looks-controls {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.looks-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+
+.looks-sheet {
+  margin: var(--ds-space-3);
+}
+
+.looks-changes {
+  margin: 0;
+  padding-inline-start: var(--ds-space-4);
+  color: var(--ds-color-muted);
+}
+
+.looks-replaces,
+.looks-unreviewed {
+  color: var(--ds-color-attention);
+}
+
+.looks-stacked {
+  margin-top: var(--ds-space-3);
+}
+
+.looks-position {
+  flex: none;
+  min-width: var(--ds-space-4);
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.looks-source {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+[data-looks-layer]:not([data-on]) :is(.row-title, .looks-source) {
+  opacity: 0.55;
 }
 
 /* A search no setting matches (AskCmuxRow.tsx): the words become a wish for the Customize chat.
@@ -4008,6 +4863,15 @@ button.menu-disclosure {
   stroke-linecap: round;
 }
 
+/* Add a Connection > Claude Code's Paste a token instead: a collapsed disclosure in the help line's
+   type under Connect Claude, the paste form inside it once opened. */
+.models-claude-paste > summary {
+  width: fit-content;
+}
+.models-claude-paste[open] > summary {
+  margin-bottom: 8px;
+}
+
 /* Settings > General's Replay the Intro card (ReplayIntroCard), right under Text Size: a line and a button that
    reopens the Make cmux Yours step. */
 .replay-intro-card {
@@ -4057,3 +4921,12 @@ button.menu-disclosure {
   display: block;
   margin: 0 0 12px;
 }
+
+/* RFD 0123 Slack awake card (gallery-first): the right-hand spent / allowance value. */
+[data-card="slack-awake"] .row-value {
+  margin-left: auto;
+  color: var(--text-secondary, inherit);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+

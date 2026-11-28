@@ -74,7 +74,29 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long an established session tries to resume before it gives up.
 /// After that its streams end, and the next stream (`held`) or the
 /// caller's next dial opens a fresh session instead of resuming forever.
+/// A session with an ssh route behind its carrier has the longer
+/// [`SSH_FAILOVER_WINDOW`] ([`resume_window`]).
 pub(super) const RESUME_DEADLINE: Duration = Duration::from_secs(10);
+/// The resume window of a session with an ssh route: one whole failover
+/// onto ssh fits in it, its carrier key's authorization
+/// (`ssh::AUTHORIZE_TIMEOUT`) and then the Noise handshake over the new
+/// `ssh` run ([`HANDSHAKE_TIMEOUT`]). A window of [`RESUME_DEADLINE`] alone
+/// was shorter than the authorization's own bound, so a failover whose key
+/// was not authorized yet was cut before ssh answered, and the session
+/// closed under the chat (`carrier_fault.resume_failed: ... connection is
+/// closed`, cloud-carrier-ssh-failover, 2026-11-26 run 45892981109).
+pub(super) const SSH_FAILOVER_WINDOW: Duration =
+    Duration::from_secs(super::ssh::AUTHORIZE_TIMEOUT.as_secs() + HANDSHAKE_TIMEOUT.as_secs());
+
+/// How long a session over `dialers` resumes before it gives up: long
+/// enough for one whole try on each of its routes.
+pub(super) fn resume_window(dialers: &[super::source::RouteDialer]) -> Duration {
+    if dialers.iter().any(super::source::RouteDialer::is_ssh) {
+        SSH_FAILOVER_WINDOW.max(RESUME_DEADLINE)
+    } else {
+        RESUME_DEADLINE
+    }
+}
 
 /// A connected carrier session.
 pub(super) struct Dialed {
@@ -654,7 +676,7 @@ impl RouteAttempt<'_> {
             limits: SessionLimits::default(),
             reconnect: ReconnectPolicy {
                 attempt_timeout: HANDSHAKE_TIMEOUT.min(remaining.max(Duration::from_millis(1))),
-                maximum_duration: Some(RESUME_DEADLINE),
+                maximum_duration: Some(resume_window(&self.set.dialers)),
                 ..ReconnectPolicy::default()
             },
         };
@@ -700,6 +722,13 @@ impl RouteAttempt<'_> {
         };
         step.mark(|marks| marks.connected = Some(Instant::now()));
         connection.set_resume_hooks(self.resume.clone());
+        // A paused machine is woken by any byte: an idle session sends none
+        // while it reads asleep (cmux-platform#1849).
+        connection.set_sleep_gate(Arc::new(super::sleep_gate::MachineSleep {
+            source: plan.source.clone(),
+            machine: plan.machine.clone(),
+            look: super::sleep_gate::look_time(),
+        }));
         let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
         // A grant that does not admit mux control is refused here, before the
         // reply line says ok.

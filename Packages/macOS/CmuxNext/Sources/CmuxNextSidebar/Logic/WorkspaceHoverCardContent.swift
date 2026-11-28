@@ -87,9 +87,6 @@ struct WorkspaceHoverCardContent: Equatable {
     /// The `ports` entry the port rows come from, for the user's card (`cardFacts`).
     var portsText: String?
 
-    /// CPU of at least half a core, or memory of at least 1 GB, is worth a line.
-    static let notableCPU = 0.5
-    static let notableMemoryBytes: UInt64 = 1 << 30
     /// The card lists this many checklist items, then how many more.
     static let visibleChecklistLimit = 6
 
@@ -237,12 +234,8 @@ struct WorkspaceHoverCardContent: Equatable {
         if let reason = needsInputReason(workspace) {
             facts.append(Fact(icon: .statusNeedsinput, text: reason, lines: 3, kind: "needsInput", iconTone: .attention))
         }
-        // What the row's marks mean, which their tooltips said before rows lost them (a1315's cut 3): each usage
-        // rule acpmux found broken, with its number, and that notifications are muted.
-        for warning in workspace.usageWarnings {
-            facts.append(Fact(icon: .statusNeedsinput, text: warning, mark: "exclamationmark.triangle.fill", lines: 2,
-                              kind: usageWarningKind, iconTone: .attention))
-        }
+        // What the row's marks mean, which their tooltips said before rows lost them (a1315's cut 3): that
+        // notifications are muted.
         if workspace.muted { facts.append(Fact(icon: .notification, text: Strings.notificationsMuted, mark: "bell.slash", kind: mutedKind)) }
         // The person's own notes and the lane they pinned (classic's description and status).
         if let notes = workspace.workspaceDescription?.trimmingCharacters(in: .whitespacesAndNewlines), !notes.isEmpty {
@@ -267,16 +260,6 @@ struct WorkspaceHoverCardContent: Equatable {
         }
         if let usage = usageFact(detail) { facts.append(usage) }
         if let task = detail.task { facts.append(Fact(icon: .textDescription, text: task, lines: 3, kind: "task")) }
-        // The agent's task list across its turns: how far, what runs now and what is next.
-        if let tasks = workspace.taskProgress {
-            facts.append(Fact(icon: .statusProgress, text: Strings.taskProgress(done: tasks.done, total: tasks.total), kind: "tasks"))
-            if let step = tasks.current {
-                facts.append(Fact(icon: .taskStatusStarted, text: Strings.taskNow(step), lines: 2, kind: "taskNow"))
-            }
-            if let step = tasks.next {
-                facts.append(Fact(icon: .taskStatusTodo, text: Strings.taskNext(step), lines: 2, kind: "taskNext"))
-            }
-        }
         // What its agents run below their turns now: how many subagents and commands, and which
         // (Leo 2026-11-01: "being able to see the # of associated subagents and whatnot").
         facts += WorkspaceHoverCardWork.facts(detail)
@@ -361,9 +344,7 @@ struct WorkspaceHoverCardContent: Equatable {
 
     /// The facts the history-first layouts (`log`, `minimal`) keep above it: why the workspace
     /// waits and what changed since the person looked.
-    static let keptOverHistory: Set<String> = ["needsInput", usageWarningKind, mutedKind, needsYouKind, sinceLookedKind]
-    /// A usage rule acpmux found broken (`SidebarWorkspace.usageWarnings`), one fact each.
-    static let usageWarningKind = "usageWarning"
+    static let keptOverHistory: Set<String> = ["needsInput", mutedKind, needsYouKind, sinceLookedKind]
     /// The workspace's notifications are muted.
     static let mutedKind = "muted"
 
@@ -434,16 +415,16 @@ struct WorkspaceHoverCardContent: Equatable {
         return text + " · " + elapsed(since: since, now: now)
     }
 
-    /// The one resource line, or nil while the workspace is quiet.
+    /// The one resource line, or nil before the first sample. Resources are sampled only behind
+    /// Show details, so a quiet workspace says so too (Leo 2026-11-22: "some of this is info that
+    /// you can fit right in the details area, chief among them the ram and cpu used by a given thing").
     static func resourceLine(_ report: ResourceReport?) -> String? {
-        guard let total = report?.total,
-              (total.cpu ?? 0) >= notableCPU || total.memoryBytes >= notableMemoryBytes else { return nil }
-        return ResourceFormat.line(total)
+        report.map { ResourceFormat.line($0.total) }
     }
 
     /// The resource row: CPU and memory with the last seconds of CPU as bars, warm when hot
-    /// (Leo 2026-10-19: "the CPU related stuff, I think people want to know"); nil while the
-    /// workspace is quiet. `history` is the CPU of each sample since the card showed, newest last.
+    /// (Leo 2026-10-19: "the CPU related stuff, I think people want to know"); muted while the
+    /// workspace is quiet, nil before the first sample. `history` is the CPU of each sample since the card showed, newest last.
     static func resourceRow(_ report: ResourceReport?, history: [Double]) -> HoverCardRowContent? {
         guard let line = resourceLine(report), let total = report?.total else { return nil }
         let cpu = total.cpu ?? 0
@@ -458,8 +439,8 @@ struct WorkspaceHoverCardContent: Equatable {
     /// grey when paused (it resumes on attach).
     static func connectionTone(_ status: SidebarMachine.Status) -> HoverCardTone {
         switch status {
-        case .connected, .updateAvailable: .success
-        case .connecting, .reconnecting, .installing, .updateRequired, .installRequired, .pausing, .resuming, .deleting, .disconnected: .attention
+        case .connected, .updateAvailable, .connecting, .reconnecting: .success
+        case .installing, .updateRequired, .installRequired, .pausing, .resuming, .deleting, .disconnected: .attention
         case .offline, .authFailed, .unreachable, .failed: .danger
         case .paused, .pausedIdle: .secondary
         }
@@ -468,9 +449,8 @@ struct WorkspaceHoverCardContent: Equatable {
     /// What a machine that is not plainly connected is doing, nil when connected.
     static func connectionWord(_ status: SidebarMachine.Status) -> String? {
         switch status {
-        case .connected, .updateAvailable: nil
+        case .connected, .updateAvailable, .connecting, .reconnecting: nil
         case .offline: Strings.statusOffline
-        case .connecting: Strings.statusConnecting
         case .installing: Strings.statusInstalling
         default: Strings.attentionStatus(status)
         }

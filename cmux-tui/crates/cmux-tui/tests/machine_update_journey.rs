@@ -16,7 +16,7 @@
 //! Linux only: a Cloud host is a Linux machine (`cloud_fs::is_cloud_host`).
 #![cfg(target_os = "linux")]
 
-mod journey_support;
+use crate::journey_support;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -244,9 +244,9 @@ impl SupervisedVm {
                             "webAskingModes": {"fake": ["normal"]}});
         fs::write(dir.join("acpmux/config.json"), config.to_string()).unwrap();
         // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
-        std::fs::set_permissions(
+        fs::set_permissions(
             dir.join("acpmux/config.json"),
-            <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
+            <fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
         )
         .unwrap();
         let bin = dir.join("home/.cmux/bin/cmux-tui");

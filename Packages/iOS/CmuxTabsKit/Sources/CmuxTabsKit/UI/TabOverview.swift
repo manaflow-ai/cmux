@@ -250,16 +250,18 @@ struct TabOverview<Source: TabsDataSource>: View {
                     if !interactive { endSelecting() }
                 }
                 .onChange(of: dragging) { _, owner in onPressChanged(owner) }
-                .onGeometryChange(for: CGPoint.self, of: { $0.frame(in: .named(TabsScreenSpace.name)).origin }) { [scroll] origin in
-                    if scroll.contentOrigin != origin { scroll.contentOrigin = origin }
-                }
             }
             .scrollPosition($position)
-            .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y + $0.contentInsets.top }) { [scroll, residency] _, y in
-                if scroll.offset != y { scroll.offset = y }
+            // The content's place comes from the scroll view's own offset,
+            // not a frame read under the grid's zoom scale (`GridScrollTracker`).
+            .onScrollGeometryChange(for: GridScrollTracker.Reading.self, of: {
+                GridScrollTracker.Reading(offset: $0.contentOffset.y + $0.contentInsets.top, insetTop: $0.contentInsets.top,
+                                          offsetX: $0.contentOffset.x)
+            }) { [scroll, residency] _, reading in
+                scroll.apply(reading)
                 // Builds and releases cards as they near or leave the
                 // screen, without re-running this body.
-                residency.scrolled(to: y)
+                residency.scrolled(to: reading.offset)
             }
             .onScrollPhaseChange { _, phase in
                 residency.setScrolling(phase.isScrolling)
@@ -585,6 +587,7 @@ struct TabOverview<Source: TabsDataSource>: View {
         let y = layout.safeTop + 4 + d / 2
         return ZStack(alignment: .topLeading) {
             Menu {
+                source.overviewMenuContent()
                 Button("Close All Tabs", systemImage: "xmark", role: .destructive, action: onCloseAll)
             } label: {
                 Image(systemName: "ellipsis")
@@ -596,6 +599,7 @@ struct TabOverview<Source: TabsDataSource>: View {
             .glassEffect(.regular.interactive(), in: .circle)
             .position(x: layout.size.width - 20 - d / 2, y: y)
             .accessibilityLabel("More")
+            .accessibilityIdentifier("tabs.overview.more")
         }
         .frame(width: layout.size.width, height: layout.size.height, alignment: .topLeading)
     }

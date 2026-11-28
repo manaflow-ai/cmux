@@ -6,8 +6,8 @@
 // line be the line? then you expand and it simply shows you the rest"), with how long it took at
 // the row's end (not with the Debug choice agentPane.debug.thoughtHeader "preview"). A thought its
 // line holds whole opens nothing. The reader's toggle always wins over the fold; the toggle
-// animates the height, the automatic fold snaps (as Codex's does), and Reduce Motion animates
-// nothing.
+// fades the text in and out while its height changes in one frame (design/transcript-motion-model.md
+// rule 7), the automatic fold snaps (as Codex's does), and Reduce Motion animates nothing.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -283,17 +283,18 @@ test("a thought the reader opened stays open as new content arrives and after it
   expect(body()?.textContent).toBe(REST);
 });
 
-test("the reader's toggle plays the shared fold, height and opacity, closing after the text slides away", () => {
+test("the reader's toggle fades the shared fold's text, never its height, closing after the text fades", () => {
   height = 900;
   render(thought(), false, "animated:0");
   click();
   expect(animations.length).toBe(1);
-  expect(animations[0]!.options.duration).toBe(FOLD_MS);
-  expect(animations[0]!.keyframes[0]).toEqual({ height: "0px", opacity: 0 });
-  expect(animations[0]!.keyframes.at(-1)!.opacity).toBe(1);
+  // The open fade: the fold's token, at most the micro step.
+  expect(animations[0]!.options.duration).toBe(Math.min(FOLD_MS, 120));
+  expect(animations[0]!.keyframes).toEqual([{ opacity: 0 }, { opacity: 1 }]);
   click();
   expect(animations.length).toBe(2);
-  expect(animations[1]!.keyframes.at(-1)).toEqual({ height: "0px", opacity: 0 });
+  expect(animations[1]!.keyframes.at(-1)).toEqual({ opacity: 0 });
+  expect(animations.some(({ keyframes }) => keyframes.some((frame) => "height" in frame))).toBe(false);
   // The text stays drawn while it closes, then goes.
   expect(body()).not.toBeNull();
   animations[1]!.finish();
@@ -302,13 +303,12 @@ test("the reader's toggle plays the shared fold, height and opacity, closing aft
 });
 
 // The morph (Leo, 2026-11-22: "i think we'd likely want a morphing animation to and from thought"):
-// a line cut to one line grows to its wrapped height over the fold's time, and shrinks back holding
-// its wrapped words until it is one line tall again.
-test("a cut line grows to its wrapped height on open and shrinks back on close, over the fold's time", () => {
+// a line cut to one line opens to its wrapped words and closes back to its one line, each in one
+// frame (rule 7: a row's height is never animated; the list moves the rows under it).
+test("a cut line opens to its wrapped height and closes back in one frame, with no height animation", () => {
   const one = "One long line of thought that runs past the row's end and so is cut with an ellipsis.";
   clipped = true;
   const line = () => container.querySelector<HTMLElement>(".cv-thought__preview")!;
-  // One line closed (20px), three lines wrapped (60px).
   thoughtLayout.height = (node) => (node.classList.contains("is-open") ? 60 : 20);
   threshold = "every";
   render(thought(one), false, "morph:0");
@@ -318,24 +318,14 @@ test("a cut line grows to its wrapped height on open and shrinks back on close, 
   click();
   expect(preview()).toBe(one);
   expect(body()).toBeNull();
-  const grow = animations.find(({ keyframes }) => "maxHeight" in keyframes[0]!);
-  expect(grow?.keyframes).toEqual([
-    { height: "20px", maxHeight: "20px" },
-    { height: "60px", maxHeight: "60px" },
-  ]);
-  expect(grow?.options.duration).toBe(FOLD_MS);
-  animations = [];
+  expect(line().classList.contains("is-open")).toBe(true);
   click();
-  const shrink = animations.find(({ keyframes }) => "maxHeight" in keyframes[0]!);
-  expect(shrink?.keyframes).toEqual([
-    { height: "60px", maxHeight: "60px" },
-    { height: "20px", maxHeight: "20px" },
-  ]);
-  // Its wrapped words stay while it shrinks; the ellipsis comes back at the end.
-  expect(line().classList.contains("is-closing")).toBe(true);
-  shrink!.finish();
+  expect(line().classList.contains("is-open")).toBe(false);
   expect(line().classList.contains("is-closing")).toBe(false);
   expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+  expect(animations.some(({ keyframes }) => keyframes.some((frame) => "height" in frame || "maxHeight" in frame))).toBe(
+    false,
+  );
 });
 
 test("with Reduce Motion the toggle opens and closes at once", () => {
@@ -597,4 +587,56 @@ test("a line longer than THOUGHT_LINE_CHARS names its button with its start, so 
   render(thought(huge), false, "huge:0");
   expect(toggle()?.getAttribute("aria-label")).toBe(name);
   expect(preview()).toBe(huge);
+});
+
+// A folded row reads whether its line is cut only when the page's ResizeObserver reports it, after
+// the frame's own layout, never in the commit that mounts it (Leo, 2026-11-26: "Why should non
+// visible thing even affect the renderer thread anyways?"): a read there forced style and layout for
+// every folded row mounted, off-screen ones too. The report draws the chevron before that frame paints.
+test("a folded row reads its cut from the ResizeObserver's report, not in the commit that mounts it", () => {
+  const observed = new Set<{ callback: () => void; boxes: Set<Element> }>();
+  (dom!.window as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
+    private readonly entry: { callback: () => void; boxes: Set<Element> };
+    constructor(callback: () => void) {
+      this.entry = { callback, boxes: new Set() };
+      observed.add(this.entry);
+    }
+    observe(box: Element) {
+      this.entry.boxes.add(box);
+    }
+    unobserve(box: Element) {
+      this.entry.boxes.delete(box);
+    }
+    disconnect() {
+      observed.delete(this.entry);
+    }
+  };
+  const report = () =>
+    act(() => {
+      // A report can swap the row's line node, so its observer: walk the ones observing now.
+      const now = Array.from(observed);
+      for (const { callback, boxes } of now) if (boxes.size > 0) callback();
+    });
+  let reads = 0;
+  thoughtLayout.cut = () => {
+    reads += 1;
+    return clipped;
+  };
+  threshold = "every";
+  height = 20;
+  clipped = true;
+  render({ ...thought(SUMMARY), startedAt: 1_000, endedAt: 1_400 }, false, "observed-cut:0");
+  expect(reads).toBe(0);
+  expect(whole()).not.toBeNull();
+  report();
+  expect(reads).toBeGreaterThan(0);
+  expect(whole()).toBeNull();
+  expect(toggle()?.querySelector(".cv-tool__chevron")).not.toBeNull();
+  // A report that finds the same cut renders nothing again; one that finds it whole folds the chevron away.
+  report();
+  expect(toggle()).not.toBeNull();
+  clipped = false;
+  report();
+  expect(toggle()).toBeNull();
+  expect(whole()).not.toBeNull();
 });

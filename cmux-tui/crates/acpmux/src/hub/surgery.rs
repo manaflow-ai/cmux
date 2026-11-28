@@ -39,15 +39,18 @@
 //! `harnessMagic.surgery.{runs,tokensBefore,tokensAfter,maskedResults}` on the next
 //! `turn_result`; for the [`REFETCH_TURNS`] turns after it, `harnessMagic.surgery.refetched`
 //! counts the masked results the agent fetched again (the same path read or command run), the
-//! masking-regret rate.
+//! masking-regret rate. `harnessMagic.surgery.fallbacks` counts the compaction triggers
+//! (`cache_compact.rs`, `cold_wake.rs`, `auto_resume/compact_first.rs`) that tried surgery first
+//! ([`Hub::surgery_before_compact`]) and sent `/compact` after all.
 //!
-//! Off switch: `agents.harnessMagic.surgery.enabled: false` in the settings file, or
-//! `ACPMUX_HM_SURGERY=0` in the daemon's environment.
+//! Off by default (Leo, 2026-11-26: "we ought to not make jcmux/acpmux so opinionated with
+//! compacition. only do it for our personal fleet situation"): it rewrites what the agent sees,
+//! so only a person who asked for it gets it. On: `agents.harnessMagic.surgery.enabled: true` in
+//! the settings file; `ACPMUX_HM_SURGERY=0` in the daemon's environment turns it off whatever the
+//! file says.
 //!
-//! Codex: its rollout (`~/.codex/sessions/**/rollout-*.jsonl`) keeps `function_call_output`
-//! items that a copy could mask the same way, but a resumed thread rebuilds from `compacted`
-//! replacement history when it has one and the thread id lives in the file name and
-//! `session_meta`; not built here.
+//! Codex: the same masking over a copy of its rollout under a new thread id
+//! (`surgery_codex.rs`), resumed and failed back the same way.
 
 use super::*;
 use std::collections::HashSet;
@@ -104,6 +107,8 @@ pub struct Masked {
     pub tokens_before: Option<u64>,
     /// What masked results are refetched by ([`refetch_key`]).
     pub keys: Vec<String>,
+    /// A Codex copy: the thread it was copied from (`surgery_codex.rs`).
+    pub thread: Option<String>,
 }
 
 impl Masked {
@@ -113,7 +118,7 @@ impl Masked {
     }
 }
 
-/// Whether the feature is on: the kill switch, then the settings key (on unless `false`).
+/// Whether the feature is on: the kill switch, then the settings key (off unless `true`).
 pub(crate) fn enabled_with(doc: Option<&Value>, env: Option<&str>) -> bool {
     if env.is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "false" | "off"))
     {
@@ -121,7 +126,7 @@ pub(crate) fn enabled_with(doc: Option<&Value>, env: Option<&str>) -> bool {
     }
     doc.and_then(|d| crate::user_settings::value(d, SETTING_ENABLED))
         .and_then(|v| v.as_bool())
-        .unwrap_or(true)
+        .unwrap_or(false)
 }
 
 fn settings_doc() -> Option<Value> {
@@ -170,6 +175,23 @@ fn is_boundary(record: &Value) -> bool {
         && record.get("subtype").and_then(Value::as_str) == Some("compact_boundary")
 }
 
+/// A command as one line: Claude's `command` string, or Codex's argv (`["bash", "-lc",
+/// SCRIPT]` as its script).
+fn command_text(input: &Value) -> Option<String> {
+    let text = match input.get("command").or_else(|| input.get("cmd"))? {
+        Value::String(s) => s.trim().to_owned(),
+        Value::Array(argv) => {
+            let argv: Vec<&str> = argv.iter().filter_map(Value::as_str).collect();
+            match argv.as_slice() {
+                [_, flag, script] if matches!(*flag, "-c" | "-lc") => script.trim().to_owned(),
+                _ => argv.join(" "),
+            }
+        }
+        _ => return None,
+    };
+    (!text.is_empty()).then_some(text)
+}
+
 /// What a refetch of a tool call with `input` would repeat: the file it read, the command it
 /// ran, the search it made, the page it fetched.
 pub(crate) fn refetch_key(input: &Value) -> Option<String> {
@@ -177,8 +199,8 @@ pub(crate) fn refetch_key(input: &Value) -> Option<String> {
     if let Some(path) = s("file_path").or_else(|| s("notebook_path")) {
         return Some(format!("path:{path}"));
     }
-    if let Some(cmd) = s("command") {
-        return Some(format!("cmd:{}", cmd.trim()));
+    if let Some(cmd) = command_text(input) {
+        return Some(format!("cmd:{cmd}"));
     }
     if let Some(url) = s("url") {
         return Some(format!("url:{url}"));
@@ -194,9 +216,9 @@ fn args_summary(input: &Value) -> String {
     let s = |k: &str| input.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
     let text = s("file_path")
         .or_else(|| s("notebook_path"))
-        .or_else(|| s("command"))
-        .or_else(|| s("url"))
         .map(str::to_owned)
+        .or_else(|| command_text(input))
+        .or_else(|| s("url").map(str::to_owned))
         .or_else(|| s("pattern").map(|p| format!("{p} in {}", s("path").unwrap_or("."))))
         .or_else(|| input.as_object()?.values().find_map(|v| v.as_str().map(str::to_owned)))
         .unwrap_or_default();
@@ -216,14 +238,14 @@ pub(crate) fn stub(tool: &str, input: Option<&Value>, chars: usize) -> String {
     )
 }
 
-fn content_chars(content: &Value) -> usize {
+pub(super) fn content_chars(content: &Value) -> usize {
     match content {
         Value::String(s) => s.len(),
         other => serde_json::to_string(other).map_or(0, |s| s.len()),
     }
 }
 
-fn already_masked(content: &Value) -> bool {
+pub(super) fn already_masked(content: &Value) -> bool {
     content.as_str().is_some_and(|s| s.starts_with(STUB_PREFIX))
 }
 
@@ -388,6 +410,7 @@ struct Track {
     counted: HashSet<String>,
     turns_left: u8,
     refetched: u64,
+    fallbacks: u64,
 }
 
 static TRACKS: std::sync::LazyLock<StdMutex<HashMap<String, Track>>> =
@@ -409,6 +432,11 @@ fn note_run(session: &str, m: &Masked) {
     t.masked += m.masked as u64;
     t.keys.extend(m.keys.iter().cloned());
     t.turns_left = REFETCH_TURNS;
+}
+
+/// A compaction trigger of `session` tried surgery first and sent `/compact` after all.
+pub(crate) fn note_fallback(session: &str) {
+    tracks().entry(session.to_owned()).or_default().fallbacks += 1;
 }
 
 /// A tool call of `session` with `input`: a refetch of a masked result counts once.
@@ -435,6 +463,10 @@ pub(crate) fn turn_fields(session: &str) -> serde_json::Map<String, Value> {
         fields.insert(key("tokensSaved"), json!(t.tokens_before.saturating_sub(t.tokens_after)));
         (t.runs, t.tokens_before, t.tokens_after, t.masked) = (0, 0, 0, 0);
     }
+    if t.fallbacks > 0 {
+        fields.insert(key("fallbacks"), json!(t.fallbacks));
+        t.fallbacks = 0;
+    }
     if t.turns_left > 0 {
         fields.insert(key("refetched"), json!(t.refetched));
         t.refetched = 0;
@@ -446,11 +478,81 @@ pub(crate) fn turn_fields(session: &str) -> serde_json::Map<String, Value> {
     fields
 }
 
+/// The harness whose stored conversation a surgery copies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Family {
+    Claude,
+    Codex,
+}
+
+impl Family {
+    /// The report's name for it.
+    fn name(self) -> &'static str {
+        match self {
+            Family::Claude => "claude",
+            Family::Codex => "codex",
+        }
+    }
+
+    /// The native id's family as the chat's meta records it (`set_agent_session_id`): a Codex
+    /// thread is filed as any ACP agent's, as its start does (`lifecycle.rs`).
+    fn meta_family(self) -> &'static str {
+        match self {
+            Family::Claude => "claude",
+            Family::Codex => "non-claude",
+        }
+    }
+
+    fn mask(self, file: &Path, opts: MaskOptions) -> anyhow::Result<Option<Masked>> {
+        match self {
+            Family::Claude => mask_claude(file, opts),
+            Family::Codex => super::surgery_codex::mask_codex(file, opts),
+        }
+    }
+
+    fn write(self, file: &Path, m: &Masked) -> anyhow::Result<std::path::PathBuf> {
+        match self {
+            Family::Claude => write_beside(file, m),
+            Family::Codex => super::surgery_codex::write_codex_beside(file, m),
+        }
+    }
+}
+
 fn refused(reason: &str) -> Value {
     json!({"applied": false, "reason": reason})
 }
 
 impl Hub {
+    /// A compaction trigger's surgery first: a dry run, then the real run when masking alone
+    /// takes `session` under `line` tokens. True when it applied; the caller then sends no
+    /// `/compact`. False (off, not a stored Claude or Codex conversation, too little to mask, refused,
+    /// failed) keeps the caller's `/compact`, counted in `harnessMagic.surgery.fallbacks` while
+    /// surgery is on. `trigger` names the caller in the log.
+    pub(crate) async fn surgery_before_compact(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        line: u64,
+        trigger: &'static str,
+    ) -> bool {
+        if !enabled() {
+            return false;
+        }
+        let dry = self.surgery(session, None, true).await;
+        let applied = if super::cold_wake::surgery_suffices(&dry, line) {
+            let answer = self.surgery(session, None, false).await;
+            let applied = super::cold_wake::surgery_applied(&answer);
+            tracing::info!(session = %session.id, trigger, line, applied, outcome = ?answer.as_ref().map_err(|e| &e.message), "surgery before compaction");
+            applied
+        } else {
+            tracing::info!(session = %session.id, trigger, line, outcome = ?dry.as_ref().map_err(|e| &e.message), "surgery before compaction skipped");
+            false
+        };
+        if !applied {
+            note_fallback(&session.id);
+        }
+        applied
+    }
+
     /// `_acpmux/surgery`, cold wake's choice and our own timer: mask `session`'s old tool output
     /// and resume it on the copy (module docs). `dry_run` counts what it would mask and writes
     /// nothing. Answers `{applied, ...}`; a chat it may not touch now answers `applied: false`
@@ -471,10 +573,18 @@ impl Hub {
         let meta = session.meta();
         let (is_claude, env) = self.harness_env(&meta).await;
         let sid = meta.agent_session_id.clone().filter(|s| crate::adopt::is_bare_id(s));
-        let (true, Some(sid)) =
-            (is_claude && meta.agent_session_family.as_deref().is_none_or(|f| f == "claude"), sid)
-        else {
-            return Ok(refused("not a stored Claude conversation"));
+        let codex = {
+            let cfg = self.config.read().await;
+            cfg.profile(&meta.harness).and_then(|p| crate::config::turn_cut(&meta.harness, p))
+                == Some(crate::config::TurnCut::Codex)
+        };
+        let family = match meta.agent_session_family.as_deref() {
+            None | Some("claude") if is_claude => Family::Claude,
+            Some(f) if codex && f != "claude" => Family::Codex,
+            _ => return Ok(refused("not a stored Claude or Codex conversation")),
+        };
+        let Some(sid) = sid else {
+            return Ok(refused("not a stored Claude or Codex conversation"));
         };
         // Between turns only: the turn lock held through it, so no turn starts meanwhile, and
         // nothing open that ending the harness would cut.
@@ -484,14 +594,17 @@ impl Hub {
         let Some(_turn) = idle.then(|| session.turn_lock.try_lock().ok()).flatten() else {
             return Ok(refused("mid-turn"));
         };
-        let Some(file) =
-            crate::adopt::find_claude(&self.harness_homes().with_env(&[&env]).claude, &sid)
-        else {
+        let homes = self.harness_homes().with_env(&[&env]);
+        let found = match family {
+            Family::Claude => crate::adopt::find_claude(&homes.claude, &sid),
+            Family::Codex => crate::adopt::find_codex(&homes.codex, &sid),
+        };
+        let Some(file) = found else {
             return Ok(refused("no transcript"));
         };
         // A look first, writing nothing: a chat with nothing to mask keeps its harness running.
         let look = file.clone();
-        let found = tokio::task::spawn_blocking(move || mask_claude(&look, opts))
+        let found = tokio::task::spawn_blocking(move || family.mask(&look, opts))
             .await
             .map_err(anyhow::Error::from)
             .and_then(|r| r);
@@ -513,8 +626,8 @@ impl Hub {
         }
         let read = file.clone();
         let made = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<(Masked, _)>> {
-            let Some(m) = mask_claude(&read, opts)? else { return Ok(None) };
-            let path = write_beside(&read, &m)?;
+            let Some(m) = family.mask(&read, opts)? else { return Ok(None) };
+            let path = family.write(&read, &m)?;
             Ok(Some((m, path)))
         })
         .await
@@ -533,17 +646,18 @@ impl Hub {
                 return Ok(refused(&reason));
             }
         };
-        self.surgery_switch(session, Some(masked.id.clone()), &sid);
+        self.surgery_switch(session, Some(masked.id.clone()), &sid, family.meta_family());
         if had_child && let Err(e) = self.child_for(session).await {
             // Fail open: back on the original conversation.
             tracing::warn!(session = %session.id, error = %e.message, "surgery: the masked copy did not start; back on the original");
-            self.surgery_switch(session, Some(sid.clone()), &masked.id);
+            self.surgery_switch(session, Some(sid.clone()), &masked.id, family.meta_family());
             let _ = self.child_for(session).await;
             return Ok(refused(&format!("resume failed: {}", e.message)));
         }
         note_run(&session.id, &masked);
         let report = json!({
             "applied": true,
+            "family": family.name(),
             "agentSessionId": masked.id,
             "previousAgentSessionId": sid,
             "original": file.display().to_string(),
@@ -562,11 +676,11 @@ impl Hub {
 
     /// Moves `session`'s native id to `to`, keeping `from` out of its transcript history when it
     /// is a copy given up (a failed resume).
-    fn surgery_switch(&self, session: &Session, to: Option<String>, from: &str) {
+    fn surgery_switch(&self, session: &Session, to: Option<String>, from: &str, family: &str) {
         {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             let back = m.previous_agent_session_ids.iter().any(|id| Some(id) == to.as_ref());
-            m.set_agent_session_id(to, "claude");
+            m.set_agent_session_id(to, family);
             if back {
                 m.previous_agent_session_ids.retain(|id| id != from);
             }

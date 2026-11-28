@@ -1,6 +1,12 @@
+#if canImport(Darwin)
 internal import Darwin
+#else
+internal import Glibc
+#endif
 internal import Observation
+#if canImport(os)
 internal import os
+#endif
 
 /// The values of a main-actor expression over time, with the call shape of
 /// the Observation module's `Observations` sequence (macOS 26), so that

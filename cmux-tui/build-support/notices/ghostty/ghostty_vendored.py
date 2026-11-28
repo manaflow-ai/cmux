@@ -180,9 +180,12 @@ def check_tree(tree: Tree, vendored: dict) -> tuple[list[str], list[tuple[str, s
     problems: list[str] = []
     pinned: list[tuple[str, str]] = []
     for directory, files in sorted(tree.directories().items()):
-        if any(LICENSE_NAME.match(name.rsplit("/", 1)[-1]) for name in files):
-            continue
         entry = vendored.get(directory)
+        # A reviewed directory stays reviewed when upstream adds a license file
+        # to it (pkg/simdutf at vt-1.0.1): its pinned texts can carry more
+        # than the new file (simdutf's PyTorch notice), so they keep shipping.
+        if entry is None and any(LICENSE_NAME.match(name.rsplit("/", 1)[-1]) for name in files):
+            continue
         if entry is None:
             problems.append(f"{directory}: no license file and no \"vendored\" entry; {PIN_HINT}")
             continue

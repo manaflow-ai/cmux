@@ -829,10 +829,10 @@ async fn a_handshake_that_ends_without_a_ready_link_ends_the_link() {
 /// The link asks for row patches (`sessionChangedDelta: 2`) and makes each one whole again: the
 /// hub reads every change as the whole row. A patch with a gap before it is dropped, the link
 /// asks for the row whole (`_acpmux/session_resync`), and the row it gets goes on as before.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn the_link_makes_each_patch_whole_and_asks_again_after_a_gap() {
     let (tx, mut notices) = mpsc::channel(64);
-    let peer = Peer::new("box", "ws://10.0.0.9:9", None, None, tx);
+    let peer = saved(|| Peer::new("box", "ws://10.0.0.9:9", None, None, tx));
     let (ours, theirs) = tokio::io::duplex(1 << 16);
     let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
     let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
@@ -869,6 +869,10 @@ async fn the_link_makes_each_patch_whole_and_asks_again_after_a_gap() {
                 _ => {}
             }
             for mut frame in frames {
+                if frame["params"]["rowSeq"] == 6 {
+                    // Separate the resync's whole row and its following patch in virtual time.
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
                 frame["jsonrpc"] = json!("2.0");
                 if server.send(Frame::Text(frame.to_string().into())).await.is_err() {
                     return;
@@ -908,4 +912,8 @@ async fn the_link_makes_each_patch_whole_and_asks_again_after_a_gap() {
     assert!(resynced.try_recv().is_err(), "asked once");
     serving.abort();
     fake.abort();
+    tokio::time::advance(demand::IDLE_CLOSE_AFTER - Duration::from_millis(500)).await;
+    assert!(!peer.idle_due(), "the applied patch kept the peer active after the whole row");
+    tokio::time::advance(Duration::from_millis(500)).await;
+    assert!(peer.idle_due(), "the idle interval runs from the last patch");
 }

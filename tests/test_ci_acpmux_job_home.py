@@ -48,6 +48,7 @@ LAUNCHES = (
     re.compile(r"package-test-lane\.sh run"),
     # acpmux's and cmux-tui's daemon tests (cmux-tui-artifacts.yml "cargo test cmux_next_").
     re.compile(r"cmux-next-daemon-test-packages\.sh"),
+    re.compile(r"cmux-next-daemon-tests\.sh"),
     # The acpmux CLI against a daemon.
     re.compile(r"\bacpmux(?:\.exe)?\"?\s+(?:daemon\s+(?:run|start|restart)|new|ls|send|status|wait|attach)\b"),
 )

@@ -6,7 +6,9 @@
 //! cmux app, which asks the person first: an agent never grants a device
 //! access to this Mac by itself. In a build without cmux Remote (Release and
 //! NIGHTLY; the daemon's status says `bundled: false`) share off and stop go
-//! to the cmux app's own actions too, which share the screen there.
+//! to the cmux app's own actions too, which share the screen there. On a
+//! joined Mac whose daemon serves the shares (acpmux's share host), share off
+//! turns that device's switch off at the hub, with the app closed too.
 
 use std::time::Duration;
 
@@ -15,7 +17,7 @@ use serde_json::{Value, json};
 use super::remote_host_agent as agent;
 use super::{GlobalArgs, OutputMode, parse_globals, raw};
 
-const HELP: &str = "Usage: cmux remote-host <status|refresh|request|open-settings|restart|share|grants|access|stop>\n\ncmux Remote holds the macOS grants (Accessibility, Screen Recording) for Computer Use and Screen Sharing. Grant them once, to \"cmux Remote\"; cmux never needs a relaunch. DEV builds embed cmux Remote; Release and NIGHTLY do not, and there Screen Sharing uses the cmux app: status says so, and share off and stop go to the app.\n\n  cmux remote-host status                       The host, its workers, the grants and this Mac's sharing state\n  cmux remote-host refresh                      Read the grants again (a worker started before a new grant restarts)\n  cmux remote-host request accessibility|screen-recording\n                                                Ask macOS for a grant (macOS asks the person; a second ask opens System Settings)\n  cmux remote-host open-settings accessibility|screen-recording\n                                                Open the System Settings pane that lists cmux Remote\n  cmux remote-host restart computer-use|screen-sharing [--force]\n                                                Start a worker again (a Screen Sharing session ends first only with --force)\n  cmux remote-host share on|off                 Share This Mac (on: the person confirms in cmux, unless they let their agents share their machines: Settings > Devices)\n  cmux remote-host share on --device DEVICE     Share another Mac of yours: you confirm here, in this device's cmux, and that Mac admits it only from a machine its owner granted\n  cmux remote-host grants [--device DEVICE] [--open]\n                                                Which macOS grant cmux Remote lacks on a Mac (--open opens its System Settings pane there), and whether an agent can click it over screen sharing\n  cmux remote-host access DEVICE none|ask|view|full\n                                                A device's access to this Mac (raising it: the person confirms in cmux)\n  cmux remote-host stop                         Stop the current Screen Sharing session\n";
+const HELP: &str = "Usage: cmux remote-host <status|refresh|request|open-settings|restart|share|grants|access|stop>\n\ncmux Remote holds the macOS grants (Accessibility, Screen Recording) for Computer Use and Screen Sharing. Grant them once, to \"cmux Remote\"; cmux never needs a relaunch. DEV builds embed cmux Remote; Release and NIGHTLY do not, and there Screen Sharing uses the cmux app: status says so, and share off and stop go to the app.\n\n  cmux remote-host status                       The host, its workers, the grants and this Mac's sharing state\n  cmux remote-host refresh                      Read the grants again (a worker started before a new grant restarts)\n  cmux remote-host request accessibility|screen-recording\n                                                Ask macOS for a grant (macOS asks the person; a second ask opens System Settings)\n  cmux remote-host open-settings accessibility|screen-recording\n                                                Open the System Settings pane that lists cmux Remote\n  cmux remote-host restart computer-use|screen-sharing [--force]\n                                                Start a worker again (a Screen Sharing session ends first only with --force)\n  cmux remote-host share on|off                 Share This Mac (on: the person confirms in cmux, unless they let their agents share their machines: Settings > Devices; off on a joined Mac: its daemon turns it off, with the app closed too)\n  cmux remote-host share on --device DEVICE     Share another Mac of yours: you confirm here, in this device's cmux, and that Mac admits it only from a machine its owner granted\n  cmux remote-host grants [--device DEVICE] [--open]\n                                                Which macOS grant cmux Remote lacks on a Mac (--open opens its System Settings pane there), and whether an agent can click it over screen sharing\n  cmux remote-host access DEVICE none|ask|view|full\n                                                A device's access to this Mac (raising it: the person confirms in cmux)\n  cmux remote-host stop                         Stop the current Screen Sharing session\n";
 
 /// How long the person may take to answer cmux's confirmation sheet: the CLI and the
 /// `remote_*` MCP tools wait this long for the click. The app's `remote.confirm` deadline
@@ -167,6 +169,35 @@ fn lower(global: &GlobalArgs, change: LowerChange) -> i32 {
     }
 }
 
+/// `share off`: on a joined Mac, the share host's own device (the one that serves shares with
+/// the app closed, cmuxterm-hq docs/design/remote-screen-share-zero-touch.md Z4); elsewhere
+/// the agent's ticket or cmux Remote's worker or the app, as before (`share_off_agent`).
+fn share_off(global: &GlobalArgs) -> i32 {
+    crate::acp::configure_home();
+    match share_off_result(acpmux::share_host::share_off_here()) {
+        None => share_off_agent(global),
+        Some(Ok(value)) => super::wire::print_local_success(&value, global.output),
+        Some(Err(error)) => super::wire::print_local_error(&error, global.output, 1),
+    }
+}
+
+/// What `share off` prints for the share host's answer; None keeps the old path.
+pub(super) fn share_off_result(
+    outcome: acpmux::share_host::OffHere,
+) -> Option<Result<Value, Value>> {
+    use acpmux::share_host::OffHere;
+    match outcome {
+        OffHere::NoHost => None,
+        OffHere::Off(answer) => {
+            let device = answer.get("device").cloned().unwrap_or(Value::Null);
+            Some(Ok(json!({"sharing": false, "via": "share-host", "device": device})))
+        }
+        OffHere::Failed(message) => {
+            Some(Err(json!({"code": "share_host.off_failed", "message": message})))
+        }
+    }
+}
+
 /// `cmux remote-host status`: the daemon's record, and in a build without
 /// cmux Remote a plain line that it is absent, since `state off` and
 /// `config.screen_sharing false` there never meant Screen Sharing is off.
@@ -309,9 +340,10 @@ fn share_device(global: &GlobalArgs, device: &str) -> i32 {
     }
 }
 
-/// `share off`: the app turns it off as the agent's change when it takes the agent's ticket
-/// (`remote_host_agent::share_off`); otherwise exactly as before (`LowerChange::ShareOff`).
-fn share_off(global: &GlobalArgs) -> i32 {
+/// `share off` with no share host here: the app turns it off as the agent's change when it takes
+/// the agent's ticket (`remote_host_agent::share_off`); otherwise exactly as before
+/// (`LowerChange::ShareOff`).
+fn share_off_agent(global: &GlobalArgs) -> i32 {
     agent::share_off(
         || daemon_value(global, &agent::ticket_request("unshare", None, &agent::this_agent())),
         |params| super::mcp::agent_app(global, "remote.confirm", params, CONFIRM_TIMEOUT, None),

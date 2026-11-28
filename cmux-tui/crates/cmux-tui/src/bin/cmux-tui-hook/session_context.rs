@@ -118,7 +118,7 @@ pub(super) fn applies(
 /// connection. Only the terminal is required; the rest is filled as far as
 /// the session answers.
 pub(crate) fn read(socket: &Path, terminal: &str) -> Place {
-    let deadline = Instant::now() + DEADLINE;
+    let deadline = super::answer_deadline::within(DEADLINE);
     // One connection for the whole read. When the session does not take it,
     // or a request on it gets no answer, each later record is not known.
     let mut connection = inbox::Connection::open(socket, deadline).ok();
@@ -235,9 +235,12 @@ pub(crate) fn print(socket: &Path, terminal: Option<&str>) {
     let text = terminal
         .filter(|terminal| terminal.starts_with("term_"))
         .map(|terminal| text(&Place { cli: cli.clone(), ..read(socket, terminal) }));
-    let mut stdout = io::stdout().lock();
-    let _ = writeln!(stdout, "{}", output(text.as_deref()));
-    let _ = stdout.flush();
+    let output = output(text.as_deref());
+    super::answer_deadline::answer(|| {
+        let mut stdout = io::stdout().lock();
+        let _ = writeln!(stdout, "{output}");
+        let _ = stdout.flush();
+    });
 }
 
 #[cfg(test)]

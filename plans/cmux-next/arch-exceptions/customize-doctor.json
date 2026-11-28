@@ -6,5 +6,6 @@
   "author": "lane/customize-doctor (claude opus)",
   "owner": "lane/customize-doctor",
   "receipt": "Review (subagent opus, correctness first): SHIP at 5f87b1a048e621334501451be31c443c23bb3647",
-  "expiry": "2026-12-03"
+  "expiry": "2026-12-03",
+  "applied_sha": "542d7b9af81b685c4e8d1a8d9dd4e9dfa26dbc20"
 }

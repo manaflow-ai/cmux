@@ -59,8 +59,8 @@ for _kind, _words in {
     for _word in _words.split():
         KIND_WORDS[_word] = _kind
 DIALOG_WORDS = {"dialog", "alert", "confirm", "confirmation", "sheet"}
-# A label word after one of these names a state, not a label ("copyName.noName", "laneNeedsName").
-NOT_LABEL_WORDS = {"no", "needs", "missing", "removed", "gone", "required", "unknown", "not"}
+# A label word after one of these names a state, not a label ("copyName.noName", "laneNeedsName", "badAction": a refusal).
+NOT_LABEL_WORDS = {"no", "needs", "missing", "removed", "gone", "required", "unknown", "not", "bad"}
 CLI_FIRST_SEGMENTS = {"handlers", "control", "cli"}
 
 TABLE_ROOTS = ("webviews/src", "Packages/macOS/CmuxNext", "Packages/iOS", "Packages/Shared", "cmux-next-ios")
@@ -183,6 +183,10 @@ def collect(root: str) -> list[Text]:
     texts, owned = schema_texts(root)
     for path in tables(root):
         rel = os.path.relpath(path, root)
+        # An entry file of a one-file-per-key table (<Table>.xcstrings.d/<key>.xcstrings,
+        # scripts/cmux-next/string_catalogs.py) is judged and listed as its table's.
+        if os.path.basename(os.path.dirname(rel)).endswith(".xcstrings.d"):
+            rel = os.path.dirname(rel)[: -len(".d")]
         with open(path, encoding="utf-8") as handle:
             data = json.load(handle)
         for key, entry in (data.get("strings") or {}).items():

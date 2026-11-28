@@ -42,10 +42,34 @@ struct LiveWallpaperSelectionTests {
         #expect(LiveWallpaperFrame.floats >= 36)
     }
 
-    /// The catalog lists the first-party set last, each as `live:<id>`.
+    /// The catalog lists the first-party set last, each as `live:<id>`: Live wallpapers first, then
+    /// each pack's wallpapers together under the pack's name (the picker groups consecutive rows).
     @Test func theCatalogEndsWithTheFirstPartySet() {
         let choices = LiveWallpaper.choices
-        #expect(choices.map(\.id) == LiveWallpaper.firstParty.map { "live:\($0.id)" })
-        #expect(choices.allSatisfy { $0.pickerCollection?.id == "live" })
+        #expect(Set(choices.map(\.id)) == Set(LiveWallpaper.firstParty.map { "live:\($0.id)" }))
+        #expect(choices.count == LiveWallpaper.firstParty.count)
+        let groups = choices.compactMap(\.pickerCollection?.id)
+        #expect(groups.count == choices.count)
+        // Unpacked first, then one run per pack.
+        let runs = groups.reduce(into: [String]()) { runs, id in if runs.last != id { runs.append(id) } }
+        #expect(Set(runs).count == runs.count)
+        #expect(runs.dropFirst().allSatisfy { $0.hasPrefix("live-pack:") })
+        for wallpaper in LiveWallpaper.firstParty {
+            let collection = BackdropSelection.live(wallpaper.id).pickerCollection
+            if let pack = wallpaper.pack {
+                #expect(collection?.id == "live-pack:\(pack)" && collection?.title == pack)
+            } else {
+                #expect(collection?.id == "live")
+            }
+        }
+    }
+
+    /// A motion scene is listed only when the library carries the scene engine and the scene loads.
+    @Test func listedScenesHaveTheEngineAndAPlayer() {
+        for wallpaper in LiveWallpaper.firstParty where wallpaper.isScene {
+            #expect(wallpaper.metalSource != nil)
+            #expect(wallpaper.makeScenePlayer() != nil)
+        }
+        #expect(LiveWallpaperScenePlayer.floats == 512)
     }
 }

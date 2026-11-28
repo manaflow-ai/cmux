@@ -17,7 +17,6 @@ it found, and otherwise lets this run build.
 
 import os
 import re
-import signal
 import stat
 import subprocess
 import sys
@@ -25,6 +24,9 @@ import tempfile
 import time
 
 import yaml
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import step_process  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKFLOW = os.path.join(ROOT, ".github", "workflows", "cmux-tui-artifacts.yml")
@@ -125,16 +127,12 @@ def elect(runs, fetch_seconds, deadline, key_seconds=0, limit=40, **fake):
         if deadline is not None:
             env["ELECTION_DEADLINE_SECONDS"] = str(deadline)
         start = time.monotonic()
-        proc = subprocess.Popen(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", inspect_step()["run"]],
-                                cwd=tmp, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                                start_new_session=True)
         try:
-            stdout, _ = proc.communicate(timeout=limit)
-            code = proc.returncode
-        except subprocess.TimeoutExpired:
-            os.killpg(proc.pid, signal.SIGKILL)
-            stdout, _ = proc.communicate()
-            code = None
+            done = step_process.run_step(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", inspect_step()["run"]],
+                                         cwd=tmp, env=env, timeout=limit, stderr=subprocess.STDOUT)
+            stdout, code = done.stdout, done.returncode
+        except subprocess.TimeoutExpired as hung:
+            stdout, code = hung.output or "", None
         seconds = time.monotonic() - start
         outputs = dict(line.split("=", 1) for line in open(output).read().splitlines() if "=" in line)
         logged = open(log).read().splitlines()

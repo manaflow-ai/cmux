@@ -11,6 +11,9 @@ import { JSDOM } from "jsdom";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { openEffort } = await importWithDom(() => import("./support/effortDropdown"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

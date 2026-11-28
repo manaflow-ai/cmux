@@ -112,7 +112,9 @@ export function TasksSection({
         >
           <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
           <span className="acpmux-session-info-task__command">{sendLabel(t, command) ?? command.command}</span>
-          {time !== undefined && <Clock className="acpmux-session-info-task__time" text={time} />}
+          {time !== undefined && (
+            <Clock className="acpmux-session-info-task__time" text={time} size={runningClockSize(time)} />
+          )}
           {state !== undefined && <span className="acpmux-session-info-task__state">{state}</span>}
         </button>
         {command.state === "running" && command.processId && onStop && (
@@ -180,7 +182,7 @@ export function TasksSection({
               command,
               // A task only the transcript knows may not say when it started.
               command.startedAt !== undefined
-                ? formatDuration(Math.max(0, now - command.startedAt))
+                ? runningTime(Math.max(0, now - command.startedAt))
                 : t(COMMAND_STATE.running),
               undefined,
               arrived.has(arrivalKey(command)),
@@ -261,4 +263,22 @@ export function StopButton({
       <Icon name="action.stop" size={12} selected={solid} />
     </button>
   );
+}
+
+/// A running command's time: as `formatDuration` under an hour ("5m 41s"), to the minute past it
+/// ("1h 2m"). Seconds on an hour-long watch say nothing, and their reserve ("00h 00m 00s") cut the
+/// command it times: at 420 px "bun test test/session-info-tasks.test.tsx --watch"
+/// read "bun test …tsx …" beside "1h 2m 1s" and a third of a box of nothing
+/// (TaskRowReason.gallery.tsx, `commandKeepsTheRow`).
+export function runningTime(ms: number): string {
+  const total = Math.floor(ms / 1000);
+  if (total < 3600) return formatDuration(ms);
+  return `${Math.floor(total / 3600)}h ${Math.floor((total % 3600) / 60)}m`;
+}
+
+/// The box a running command's time keeps: under an hour the steady "00m 00s" `Clock` reserves
+/// itself, so a ticking count never moves the command's end; past it the time's own digits, which
+/// change width once in ten minutes at most, so the hour form reserves no room it does not show.
+function runningClockSize(time: string): string | undefined {
+  return /^\d+h \d+m$/.test(time) ? time.replace(/\d/g, "0") : undefined;
 }

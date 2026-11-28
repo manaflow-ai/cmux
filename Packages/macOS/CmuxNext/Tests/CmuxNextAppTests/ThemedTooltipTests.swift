@@ -47,7 +47,7 @@ import CmuxNextTestSupport
         let panel = presenter.panel
         #expect(panel.isVisible)
         #expect(Self.same(try #require(panel.text.textColor), scope.perform { Palette.textPrimary }))
-        // The shortcut's keys on the keycap plate, in the secondary ink (TooltipDesignTests holds its shape).
+        // The shortcut's keys as plain glyphs, in the secondary ink (TooltipDesignTests holds its shape).
         let keycap = try #require(panel.content.keycap)
         #expect(keycap.label.stringValue == "⌘T")
         #expect(Self.same(try #require(keycap.label.textColor), scope.perform { Palette.textSecondary }))
