@@ -28,16 +28,20 @@ public final class ControlRouter: Sendable {
         /// (``ControlRouter/debugMethodsAllowed``). A release router drops
         /// every `debug.*` registration, so no release build serves one.
         public var allowsDebugMethods: Bool
+        /// How long a method that acts on a pane waits for the launch layout (``ControlRouter/settledLayout(method:)``).
+        public var layoutSettleDeadline: Duration
 
         public init(requestDeadline: Duration = .seconds(2), terminalStartDeadline: Duration = ControlRouter.terminalStartDeadline,
                     queueLimits: MainActorWorkQueue.Limits = MainActorWorkQueue.Limits(),
                     batchOpLimit: Int = ControlRouter.batchOpLimit,
-                    allowsDebugMethods: Bool = ControlRouter.debugMethodsAllowed) {
+                    allowsDebugMethods: Bool = ControlRouter.debugMethodsAllowed,
+                    layoutSettleDeadline: Duration = ControlRouter.layoutSettleLimit) {
             self.requestDeadline = requestDeadline
             self.terminalStartDeadline = terminalStartDeadline
             self.queueLimits = queueLimits
             self.batchOpLimit = batchOpLimit
             self.allowsDebugMethods = allowsDebugMethods
+            self.layoutSettleDeadline = layoutSettleDeadline
         }
     }
 
@@ -276,6 +280,11 @@ public final class ControlRouter: Sendable {
                 snapshot = try await readBarrier(after, method: request.method, limit: limit)
                 // The request's own time starts once the barrier answered: a loaded daemon's
                 // late answer is not the method's time (#32724).
+                (deadline, engineStartMark) = (ContinuousClock.now + limit, MainThreadEngineStart.shared.total)
+            }
+            // Launch barrier: a method that acts on a pane waits until no launch step can retire the pane it resolves.
+            if snapshot.topology.isSettling, Self.layoutDependentMethods.contains(request.method) {
+                snapshot = try await settledLayout(method: request.method)
                 (deadline, engineStartMark) = (ContinuousClock.now + limit, MainThreadEngineStart.shared.total)
             }
             var call = ControlCall(request: request, snapshot: snapshot, connection: connection,
