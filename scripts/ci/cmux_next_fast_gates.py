@@ -43,6 +43,8 @@ The gates, each the same invocation as its push-time job:
                   (ENTRY_LOGS) grows only as one new file per entry in its directory, so two PRs never conflict on it
   huge files      scripts/ci/check_huge_files.py check --base BASE --head MERGE: no Swift or Rust source file in NOW's
                   code_shape scope newly over 100,000 bytes, and none already over it grows (`list` is the burn-down)
+  palette coverage  scripts/ci/palette_coverage_gate.py --base BASE: scripts/cmux-next/palette-coverage.py on the merge;
+                  fails only on a CLI, menu or right-click action without a palette entry that BASE does not miss
   settings catalog keys  scripts/ci/settings_catalog_keys.py --root MERGE --base-rev BASE: a settings schema text key
                   missing from the catalog fails only when BASE does not already miss it (a base red is a note)
 
@@ -523,6 +525,10 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
         # bare (macOS bash 3.2 aborts on it). tooling-tests' tt-measure-tests runs this too, but feat-cmux-next
         # pull requests skip tooling-tests, so #64030 and #64588 landed it and the post-merge batch went red.
         ("measure bash 3.2 arrays", [py, "-I", "scripts/measure/tests/empty-array-bash32.test.py"]),
+        # Every pull request, JSON only: no CLI, menu-bar or right-click action without a palette entry, compared
+        # with BASE from git objects (NOW's code_shape.palette_coverage read 4 for hours on 2026-11-28 because
+        # nothing ran palette-coverage.py before a merge).
+        ("palette coverage", [py, "-I", "scripts/ci/palette_coverage_gate.py", "--base", base, "--repo", str(repo)]),
     ]
     if tier == "pr":
         if deferred is not None:
