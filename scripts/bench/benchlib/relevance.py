@@ -180,7 +180,11 @@ class Index:
         self.buckets: dict[str, list[tuple[Rule, str, int]]] = {}
         self._compiled: dict[str, list[tuple[Rule, re.Pattern[str], int]]] = {}
         self.situation_by_name: dict[str, list[Rule]] = {}
+        # Every rule of one (kind, name): plan() merges an area filed twice into one entry (_area_entry), read here
+        # once per index rather than by a scan of every rule per matched area (the Bench tooling bench, 0.096 s).
+        self.by_name: dict[tuple[str, str], list[Rule]] = {}
         for rule in rules:
+            self.by_name.setdefault((rule.kind, rule.name), []).append(rule)
             for glob in rule.globs:
                 prefix = literal_prefix(glob).rstrip("/")
                 # Specificity: literal characters before the first wildcard, so `a/b/c.swift` beats `a/b/**`.
@@ -304,7 +308,7 @@ def plan(index: Index, paths: list[str]) -> dict:
                 continue
             a = areas.get(rule.name)
             if a is None:
-                a = areas[rule.name] = _area_entry([r for r in index.rules if r.kind == rule.kind and r.name == rule.name])
+                a = areas[rule.name] = _area_entry(index.by_name.get((rule.kind, rule.name)) or [rule])
             a["paths"].append(h.path)
         sit_rules = list(h.situations)
         for name in (h.area.situations if h.area else ()):
