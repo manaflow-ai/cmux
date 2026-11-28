@@ -410,14 +410,14 @@ pub fn rest_read_args(r: &GithubActionParams) -> Option<Vec<String>> {
     Some(vec!["api".into(), path, format!("--jq={jq}")])
 }
 
-/// Whether `e` is the read budget's refusal of a whole pool (`github_pool.rs` `over=pool`), the
-/// one refusal another pool may answer.
+/// Whether `e` is the read budget's refusal of a whole pool (`github_pool.rs` `over=pool` or
+/// `over=floor`), the one refusal another pool may answer.
 fn pool_refusal(e: &RpcError) -> bool {
     e.data
         .as_ref()
         .and_then(|d| d.get("reason"))
         .and_then(Value::as_str)
-        .is_some_and(|r| r == "github.budget.pool")
+        .is_some_and(|r| r == "github.budget.pool" || r == "github.budget.floor")
 }
 
 /// `gh`'s output as text: every GitHub token cut out (`redact_github_tokens`), then at most
@@ -634,14 +634,17 @@ pub async fn serve_owner(
                 let caller = format!("{peer}/{}", request.session_id.as_deref().unwrap_or("-"));
                 let args = gh_args(&request);
                 let pool = crate::github_pool::pool_of(&args);
-                match crate::github_pool::admit(&caller, pool, login).await {
+                // A single `gh pr view N` (a landing's read before it merges) runs under the
+                // floor; every other read stops there (`github_pool::Class`).
+                let class = crate::github_pool::class_of(&args);
+                match crate::github_pool::admit(&caller, pool, class, login).await {
                     Ok(()) => execute(args, login, app).await,
-                    // GraphQL is down to its reserve: the same fields over REST, if core has
-                    // calls. Core's own refusal is the answer then.
+                    // GraphQL is down to its floor or reserve: the same fields over REST, if core
+                    // has calls. Core's own refusal is the answer then.
                     Err(e) if pool_refusal(&e) => match rest_read_args(&request) {
                         Some(rest) if crate::github_pool::pool_of(&rest) != pool => {
                             let core = crate::github_pool::pool_of(&rest);
-                            match crate::github_pool::admit(&caller, core, login).await {
+                            match crate::github_pool::admit(&caller, core, class, login).await {
                                 Ok(()) => execute(rest, login, app).await,
                                 Err(e) => Err(e),
                             }

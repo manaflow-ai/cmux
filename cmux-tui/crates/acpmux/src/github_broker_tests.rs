@@ -246,8 +246,10 @@ fn a_graphql_read_has_a_rest_form_on_the_core_pool_with_the_same_fields() {
 
 #[test]
 fn only_a_whole_pool_refusal_falls_back() {
-    let pool = RpcError::new(-32044, "x").with_data(json!({"reason": "github.budget.pool"}));
-    assert!(pool_refusal(&pool));
+    for whole in ["github.budget.pool", "github.budget.floor"] {
+        let e = RpcError::new(-32044, "x").with_data(json!({"reason": whole}));
+        assert!(pool_refusal(&e), "{whole}");
+    }
     for other in ["github.budget.caller", "github.budget.pace", "github.command_failed"] {
         let e = RpcError::new(-32044, "x").with_data(json!({"reason": other}));
         assert!(!pool_refusal(&e), "{other}");
