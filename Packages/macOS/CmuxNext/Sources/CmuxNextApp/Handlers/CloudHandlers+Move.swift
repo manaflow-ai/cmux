@@ -73,8 +73,7 @@ extension CloudHandlers {
         for id in [AppServices.placeSet, AppServices.prioritySet, AppServices.placeRetry, AppServices.placeEvacuate, AppServices.placeCancel, AppServices.placeEvacuateCancel, AppServices.placeBringBackAll] {
             let cancels = id == AppServices.placeCancel || id == AppServices.placeEvacuateCancel
             // A cancel is never refused.
-            let allowed: @MainActor () -> String? = { nil }, gated: @MainActor () -> String? = { reason() ?? CloudMoveStrings.placeOff(services.settings?.snapshot.experimentSwitches) }
-            let modes = { services.settings?.snapshot.placeModes ?? [] }, perChat: @MainActor () -> String? = { reason() ?? (modes().isEmpty ? CloudMoveStrings.placeExperimentOff : nil) } // AutoCloud alone: a chat's pick, Retry
+            let allowed: @MainActor () -> String? = { nil }, gated: @MainActor () -> String? = { reason() ?? CloudMoveStrings.placeOff(services.settings?.snapshot.experimentSwitches) }, modes = { services.settings?.snapshot.placeModes ?? [] }, perChat: @MainActor () -> String? = { reason() ?? (modes().isEmpty ? CloudMoveStrings.placeExperimentOff : nil) } // perChat: AutoCloud alone offers a chat's pick, Retry
             bind(id, registry, reason: cancels ? allowed : [AppServices.placeSet, AppServices.placeRetry].contains(id) ? perChat : gated) { invocation in
                 guard !CloudMoveAsks.isAgent(invocation), !invocation.viaControlSocket else { throw ActionFailure(message: CloudMoveStrings.placeIsPersons) }
                 let tab = context.daemonTab(invocation)?.0.id, named = CloudPlaceDriver.named(invocation["sessions"]?.stringValue), row = CloudPlaceDriver.row(named)
