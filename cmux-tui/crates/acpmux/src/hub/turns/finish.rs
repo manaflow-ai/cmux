@@ -626,7 +626,8 @@ impl Hub {
         }
         // A store that refused the turn (a full disk) says nothing of its agent: the chat
         // waits for the next prompt rather than reading disconnected.
-        let refused = msg["errorKind"] == crate::recovery::kind::DISK_FULL;
+        let refused =
+            msg.get("errorKind").and_then(Value::as_str) == Some(crate::recovery::kind::DISK_FULL);
         self.record_last_turn(session, &msg);
         self.append(session, "mux", "turn_result", msg);
         self.reset_stream(session);
@@ -685,16 +686,25 @@ impl Hub {
         // A trigger turn leaves the person's last turn alone, except a failed one: a turn that
         // ran to its end since is newer than that failure, so the chat no longer reads as failed.
         let trigger = turn_result.get("trigger") == Some(&Value::Bool(true));
-        let mut meta = session.meta.lock().unwrap();
-        let failed = meta.last_turn.as_ref().is_some_and(|t| t["status"] == "failed");
+        let status = |t: &Value| t.get("status").and_then(Value::as_str).map(str::to_owned);
+        let completed = status(&last).as_deref() == Some("completed");
+        let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        let failed = meta.last_turn.as_ref().and_then(status).as_deref() == Some("failed");
         if !trigger
-            && last["errorCode"] == "claude_cloud_token_rejected"
+            && last.get("errorCode").and_then(Value::as_str) == Some("claude_cloud_token_rejected")
             && meta.claude_token_recovery.is_none()
         {
             meta.claude_token_recovery = Some(crate::store::ClaudeTokenRecovery::LegacyRejected);
         }
-        if !trigger || (failed && last["status"] == "completed") {
+        if !trigger || (failed && completed) {
             meta.last_turn = Some(last);
+        } else if completed {
+            // A trigger turn that completed proves the chat works (`background_turn.rs`): any
+            // other unfinished last turn (`lost`) is marked recovered, its details kept.
+            super::super::background_turn::recover_last_turn(
+                &mut meta.last_turn,
+                last.get("endedAt").and_then(Value::as_u64).unwrap_or_else(now_ms),
+            );
         }
         drop(meta);
         // Every turn's end passes here once: its parent hears it (`subsession_results.rs`).
