@@ -979,8 +979,87 @@ struct DemoDriver {
         step("live-attach cancelled-and-sent readback=\(marker) attachments=\(model.attachments.count) uploading=\(model.isUploading) composerFree=\(free) text=\(model.composerText.isEmpty ? "sent" : "NOT sent") in \(ms) ms")
         await pause(3)
         step("live-attach after-cancel \(model.demoUploadState())")
+        guard await liveAttachImage(model) else { return }
         await pause(3)
         step("live-attach shown")
+    }
+
+    /// Uses the existing paired Mac, its terminal and the production image encoder/upload queue.
+    /// The rig independently reads the received files and dimensions on the Mac at each step.
+    private func liveAttachImage(_ model: TerminalModel) async -> Bool {
+        guard let root = UserDefaults.standard.string(forKey: "CmuxMobileAttachE2ERoot") else {
+            step("live-attach no image-root"); return false
+        }
+        let firstDirectory = root + "/picked"
+        let sendDirectory = root + "/sent"
+        model.composerText = "cd " + ComposerSubmit.shellQuoted(firstDirectory)
+        model.send()
+        guard await until(30, { model.attachmentSender?.uploadDestination?.cwd == firstDirectory }),
+              let original = model.demoPickAttachmentImage() else {
+            step("live-attach no image-pick"); return false
+        }
+        guard await until(60, {
+            guard let tile = model.attachments.first else { return false }
+            return model.demoAttachmentProgress(tile)?.stage == .done
+        }), let tile = model.attachments.first,
+              let progress = model.demoAttachmentProgress(tile),
+              let path = progress.macPath,
+              path.hasPrefix(firstDirectory + "/"),
+              tile.data == original,
+              progress.totalBytes > 0, progress.totalBytes < UInt64(original.count),
+              !model.isUploading else {
+            step("live-attach no image-pretransfer"); return false
+        }
+        // Send has not been pressed. Both the file and the original must already exist.
+        step("live-attach image-ready original=\(original.count) payload=\(progress.totalBytes) confirmed=\(progress.confirmedBytes) sent=\(progress.sentBytes) path=\(path)")
+
+        // Change the real shell's directory while the image stays in the composer. This is
+        // direct terminal input, not a fake destination closure; the live tree must observe it.
+        var inputFailed = false
+        let sent = model.session.sendPasteAndSubmit("cd " + ComposerSubmit.shellQuoted(sendDirectory),
+                                                    notSent: { inputFailed = true },
+                                                    maybeSent: { inputFailed = true })
+        guard sent, await until(30, { model.attachmentSender?.uploadDestination?.cwd == sendDirectory }),
+              !inputFailed, model.attachments.first?.data == original else {
+            step("live-attach no image-destination-change"); return false
+        }
+        let nonce = String(UUID().uuidString.prefix(8))
+        let marker = "image-" + nonce
+        // A shell function accepts the actual path inserted by the composer. Only an existing
+        // file in the new folder yields the marker; splitting its literal avoids echo matches.
+        let check = "cmux_attachment_check() { [ \"$#\" -eq 1 ] && [ -f \"$1\" ] && "
+            + "case \"$1\" in " + ComposerSubmit.shellQuoted(sendDirectory) + "/*) printf '%s%s\\n' 'image-' '"
+            + nonce + "';; esac; }; printf '%s%s\\n' 'defined-' '" + nonce + "'"
+        let defined = model.session.sendPasteAndSubmit(check,
+                                                       notSent: { inputFailed = true },
+                                                       maybeSent: { inputFailed = true })
+        guard defined, await until(15, {
+            model.rowsForSaving()?.split(separator: "\n").contains {
+                $0.trimmingCharacters(in: .whitespaces) == "defined-" + nonce
+            } == true
+        }), !inputFailed else { step("live-attach no image-check-command"); return false }
+        // A command prefix in the terminal, then the composer's normal attachment-path insertion.
+        model.sendText("cmux_attachment_check ")
+        model.composerText = ""
+        model.sendWithoutReturn()
+        guard await until(60, { model.attachments.isEmpty && !model.isUploading }), !inputFailed else {
+            step("live-attach no image-send"); return false
+        }
+        model.session.send(Data([13]))
+        guard await until(15, {
+            model.rowsForSaving()?.split(separator: "\n").contains {
+                $0.trimmingCharacters(in: .whitespaces) == marker
+            } == true
+        }) else { step("live-attach no image-readback"); return false }
+        step("live-attach image-sent readback=\(marker) original=\(original.count) destination=\(sendDirectory)")
+        // Leave the temporary image folders before the rig removes its received files.
+        let rigDirectory = (root as NSString).deletingLastPathComponent
+        model.composerText = "cd " + ComposerSubmit.shellQuoted(rigDirectory)
+        model.send()
+        guard await until(30, { model.attachmentSender?.uploadDestination?.cwd == rigDirectory }) else {
+            step("live-attach no image-cleanup-cwd"); return false
+        }
+        return true
     }
 
     /// Live end to end (real Mac): Mac online and connected, the daemon's
