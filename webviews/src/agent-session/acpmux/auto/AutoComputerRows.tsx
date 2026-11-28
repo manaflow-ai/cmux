@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { useT } from "../i18n";
 import { sizeRow, sleepRow, whyRow, type ComputerStatus } from "./computerStatus";
 import { Button } from "../../../ui/Button";
+import { Icon } from "../icons/Icon";
 
 export type SleepChoice = { mode: "auto" } | { mode: "keep_awake"; hours: 1 | 4 };
 
@@ -24,12 +25,7 @@ const defaultTime = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: 
 
 function PinMark() {
   const t = useT();
-  return (
-    <svg className="acpmux-computer-pin" width={12} height={12} viewBox="0 0 16 16" fill="currentColor">
-      <title>{t("computer.size.pinMark")}</title>
-      <path d="M9.5 1.5 14.5 6.5l-1.6.6-2.3 2.3.3 3.2-1 1L6.6 10.6 3 14.2 1.8 13l3.6-3.6L2.3 6.3l1-1 3.2.3 2.3-2.3Z" />
-    </svg>
-  );
+  return <Icon name="state.pinned" size={12} selected title={t("computer.size.pinMark")} className="acpmux-computer-pin" />;
 }
 
 function Choice({ on, onClick, children }: { on: boolean; onClick(): void; children: ReactNode }) {
