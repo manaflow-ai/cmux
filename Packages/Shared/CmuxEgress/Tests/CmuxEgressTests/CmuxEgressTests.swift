@@ -41,6 +41,36 @@ struct CmuxEgressTests {
         #expect(CmuxEgress.hostOf("http://devbox:3000/") == "devbox")
     }
 
+    /// The bundle id's build kind names the mode; the macOS ids are the Rust gate's
+    /// `a_bundle_id_names_its_build_channel_mode` cases (tests/test_egress_gate.py keeps them equal).
+    @Test func aBundleIDNamesItsBuildChannelMode() {
+        let enforced = [
+            "com.cmuxterm.app.nightly",
+            "com.cmuxterm.app.nightly.cmux-next",
+            "com.cmuxterm.app.debug",
+            "com.cmuxterm.app.debug.my-tag",
+            "com.cmuxterm.app.staging",
+            "com.cmuxterm.app.staging.t1",
+            "com.cmuxterm.app.other",
+            "dev.cmux.mobile",
+            "dev.cmux.mobile.prod",
+            "dev.cmux.mobile.my-tag",
+            "dev.cmux.app.internal",
+        ]
+        for id in enforced { #expect(CmuxEgress.bundleMode(id) == .enforce, "\(id)") }
+        let unset = [
+            "com.cmuxterm.app",
+            "com.cmuxterm.app.rc",
+            "com.cmuxterm.app.rc.next",
+            "com.example.app",
+            "",
+            "com.cmuxterm.app.",
+            "com.cmux.app",
+            "dev.cmux.mobilex",
+        ]
+        for id in unset { #expect(CmuxEgress.bundleMode(id) == nil, "\(id)") }
+    }
+
     @Test func enforceRefusesAndLogOnlyReports() throws {
         CmuxEgress.setMode(.enforce)
         defer { CmuxEgress.setMode(nil) }

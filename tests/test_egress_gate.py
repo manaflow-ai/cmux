@@ -201,6 +201,23 @@ def write(found: dict[str, dict[str, int]]) -> None:
         **summary(found), "files": found}, indent=1) + "\n")
 
 
+def bundle_mode_cases() -> tuple[tuple[list[str], list[str]], tuple[list[str], list[str]]]:
+    """(enforce ids, unset ids) from the Rust gate's bundle_mode test and the Swift gate's bundleMode test."""
+    rust = (ROOT / "cmux-tui/crates/cmux-egress/src/tests.rs").read_text()
+    body = rust[rust.find("fn a_bundle_id_names_its_build_channel_mode"):]
+    arrays = re.findall(r"for id in \[(.*?)\]", body, re.S)[:2]
+    swift = (ROOT / "Packages/Shared/CmuxEgress/Tests/CmuxEgressTests/CmuxEgressTests.swift").read_text()
+    sbody = swift[swift.find("func aBundleIDNamesItsBuildChannelMode"):]
+    sarrays = [re.search(rf"let {n} = \[(.*?)\]", sbody, re.S) for n in ("enforced", "unset")]
+
+    def ids(text: str) -> list[str]:
+        return re.findall(r'"([^"]*)"', text)
+
+    r = tuple(ids(a) for a in arrays) if len(arrays) == 2 else ([], [])
+    sw = tuple(ids(m.group(1)) if m else [] for m in sarrays)
+    return r, sw  # type: ignore[return-value]
+
+
 class EgressGate(unittest.TestCase):
     def test_no_new_ungated_site(self):
         bad = check()
@@ -229,6 +246,15 @@ class EgressGate(unittest.TestCase):
         self.assertEqual(swift_gate_hosts(), sorted(gate_hosts()),
                          "CmuxEgress/EgressHosts.swift differs from cmux-egress/hosts.txt: edit it to match "
                          "(it is hand-kept, sorted, one host per line)")
+
+    def test_the_swift_and_rust_gates_name_the_same_mode_per_bundle_id(self):
+        rust, swift = bundle_mode_cases()
+        self.assertTrue(rust[0] and rust[1], "cmux-egress tests: a_bundle_id_names_its_build_channel_mode not found")
+        for want, name in ((0, "enforce"), (1, "nil")):
+            missing = sorted(set(rust[want]) - set(swift[want]))
+            self.assertFalse(missing, f"CmuxEgressTests.aBundleIDNamesItsBuildChannelMode lacks the Rust gate's "
+                                      f"{name} ids {missing}: CmuxEgress.bundleMode and cmux-egress bundle_mode "
+                                      f"must name one mode per macOS bundle id")
 
     def test_a_connects_row_outside_the_generated_table_fails(self):
         doc = DOC.read_text()
