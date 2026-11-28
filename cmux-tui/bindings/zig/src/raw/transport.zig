@@ -902,9 +902,15 @@ fn interruptTestThread(thread_id: std.Thread.Id) !bool {
     };
 }
 
+// A loaded runner can deschedule the blocked thread or the interrupter for
+// tens of ms, so the deadline leaves room for two 5 ms signals. Signals keep
+// coming for 400 ms, so a deadline that restarts on EINTR runs past 250 ms
+// while a correct one ends near 60 ms.
+const test_interrupt_deadline_ms: u32 = 60;
+
 fn interruptTestThreadUntilExit(thread_id: std.Thread.Id) !usize {
     var delivered: usize = 0;
-    for (0..20) |_| {
+    for (0..80) |_| {
         std.Thread.sleep(5 * std.time.ns_per_ms);
         if (!try interruptTestThread(thread_id)) break;
         delivered += 1;
@@ -921,7 +927,7 @@ fn expectInterruptedDeadline(
         error.Timeout,
         failure orelse return error.ExpectedTimeout,
     );
-    try std.testing.expect(elapsed_ns < 70 * std.time.ns_per_ms);
+    try std.testing.expect(elapsed_ns < 250 * std.time.ns_per_ms);
     try std.testing.expect(delivered >= 2);
 }
 
@@ -973,7 +979,7 @@ test "Unix read deadline survives repeated signal interruptions" {
                 return;
             };
             var bytes: [1]u8 = undefined;
-            _ = self.connection.read(&bytes, 20) catch |failure| {
+            _ = self.connection.read(&bytes, test_interrupt_deadline_ms) catch |failure| {
                 self.failure = failure;
                 self.elapsed_ns = timer.read();
                 return;
@@ -1067,7 +1073,7 @@ test "Unix write deadline survives repeated signal interruptions" {
                 self.failure = failure;
                 return;
             };
-            self.connection.writeAll("x", 20) catch |failure| {
+            self.connection.writeAll("x", test_interrupt_deadline_ms) catch |failure| {
                 self.failure = failure;
                 self.elapsed_ns = timer.read();
                 return;
@@ -1151,7 +1157,7 @@ test "connect deadline survives repeated signal interruptions" {
                 self.failure = failure;
                 return;
             };
-            self.stream = connectUnixStream(self.path, 20) catch |failure| {
+            self.stream = connectUnixStream(self.path, test_interrupt_deadline_ms) catch |failure| {
                 self.failure = failure;
                 self.elapsed_ns = timer.read();
                 return;
