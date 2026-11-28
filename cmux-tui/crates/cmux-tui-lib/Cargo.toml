@@ -222,6 +222,10 @@ acpmux = { path = "../acpmux", default-features = false, features = ["hub-carrie
 cmux-app-host = { workspace = true, features = ["engine"] }
 # `cmux carrier dial --service desktop`: the desktop's datagram link (carrier/rd_link.rs).
 cmux-rd-link = { path = "../cmux-rd-link", features = ["net"] }
+# The agent screen-detection plugin and the Cloud app server run from this binary by argv[0]
+# (`cmux-agent-screen-detection`, `cmux-cloud`; CMUX-570), as in cmux-tui.
+cmux-agent-screen-detection = { path = "../../bindings/examples/rust-agent-screen-detection" }
+cmux-cloud = { path = "../../../first-party-apps/cloud/server" }
 cmux-cloud-api.workspace = true
 # `cmux cloud journey` (cli/cloud_journey.rs): the agent test account's password sign-in.
 cmux-stack-auth.workspace = true
@@ -261,6 +265,8 @@ cmux-braid-path.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-wg.workspace = true
 cmux-link.workspace = true
+# The phone_chat link service (src/link/phone_chat.rs): the same adapter hostd serves.
+cmux-cloud-phone-acp.workspace = true
 cmux-agent-pane-policy.workspace = true
 cmux-unix-socket.workspace = true
 x25519-dalek.workspace = true
@@ -301,6 +307,8 @@ cmux-build-identity.workspace = true
 # (cmux-tui-core server/identify_reply.rs).
 cmux-tui-core = { workspace = true, features = ["bundled-identify"] }
 cmux-build-space = { workspace = true, features = ["testing"] }
+# The TUI's list views are held to flat per-frame work in N (cmux-view-rows src/frame_work.rs).
+cmux-view-rows = { path = "../cmux-view-rows", features = ["frame-work"] }
 # cli/ext tests: the fake daemon renders a mount with the real QuickJS app host.
 cmux-app-host = { workspace = true, features = ["engine"] }
 # carrier/rd_link.rs tests: the rd host's own parser reads what the dial sends.
