@@ -93,7 +93,7 @@ print(next((r["head_sha"] for r in runs if r["id"] > me and r["status"] in ("pen
     echo "tip test-compile: a newer push ($newer) waits behind this run; cancelling queued step $step"
   elif [ $((SECONDS - started)) -ge "$queue_limit" ]; then
     why="none"
-    echo "::warning title=tip test-compile::step $step still queued after ${queue_limit}s (the fleet is busy); cancelled, no verdict. The next push compiles from the last verified commit."
+    echo "::warning title=tip test-compile::step $step still queued after ${queue_limit}s (the fleet is busy); cancelled, no verdict. The verified compile checkpoint did not advance."
   else
     continue
   fi

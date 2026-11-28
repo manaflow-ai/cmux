@@ -275,6 +275,30 @@ class PlanAndJudgeTest(unittest.TestCase):
         self.assertEqual(plan["base"], "c" * 40)
         self.assertEqual(pmb.plan_batch("a" * 40, runs, self.suites, lambda base: None or [], lambda rid: False)["suites"], ["web", "rust"])
 
+    def test_tip_compile_keeps_package_changes_after_a_no_verdict_batch(self) -> None:
+        suites = {
+            **self.suites,
+            "tip-test-compile": pmb.Suite("tip-test-compile", "tip.yml", ["Packages/**"], {}),
+        }
+        runs = [run(2, "b" * 40, "2026-11-21T10:00:00Z"), run(1, "c" * 40, "2026-11-21T09:00:00Z")]
+        paths = {"b" * 40: ["webviews/src/x.ts"], "c" * 40: ["Packages/Example/Tests/ExampleTests.swift"]}
+        jobs = {
+            2: [{"name": pmb.TIP_COMPILE_JOB, "conclusion": "success",
+                 "steps": [{"name": pmb.TIP_COMPILE_PASS_STEP, "conclusion": "skipped"}]}],
+            1: [{"name": pmb.TIP_COMPILE_JOB, "conclusion": "success",
+                 "steps": [{"name": pmb.TIP_COMPILE_PASS_STEP, "conclusion": "success"}]}],
+        }
+        plan = pmb.plan_batch("a" * 40, runs, suites, paths.__getitem__,
+                              tip_verified=lambda rid: pmb.tip_compile_passed(jobs[rid]))
+        self.assertEqual(plan["base"], "b" * 40)
+        self.assertEqual(plan["tip_compile_base"], "c" * 40)
+        self.assertEqual(plan["suites"], ["web", "tip-test-compile"])
+
+        plan = pmb.plan_batch("a" * 40, runs[:1], suites, paths.__getitem__,
+                              tip_verified=lambda rid: pmb.tip_compile_passed(jobs[rid]))
+        self.assertEqual(plan["tip_compile_base"], "--all")
+        self.assertEqual(plan["suites"], ["web", "tip-test-compile"])
+
     def test_job_id_matches_matrix_legs(self) -> None:
         self.assertEqual(self.suites["rust"].job_id("test (linux, 1)"), "test")
         self.assertEqual(self.suites["rust"].job_id("other"), "")
