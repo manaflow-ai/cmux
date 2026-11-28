@@ -53,7 +53,6 @@ const signInHost: AccountsState = {
     note: null,
     error: null,
   },
-  removeTitle: "Remove",
   groups: [],
   signInAccounts: [...ACCOUNT_LISTS.signedOut],
 };
