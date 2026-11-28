@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAgentChat
+import CmuxSettings
 import Combine
 import WebKit
 import XCTest
@@ -371,6 +372,85 @@ final class MarkdownPanelTests: XCTestCase {
         let reopenedMarkdownPanels = workspace.panels.values.compactMap { $0 as? MarkdownPanel }
         XCTAssertEqual(reopenedMarkdownPanels.count, 1)
         XCTAssertTrue(reopenedMarkdownPanels.contains { ObjectIdentifier($0) == originalMarkdownPanelID })
+    }
+
+    func testBrowserLinkToLocalMarkdownFileOpensMarkdownTab() async throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-browser-markdown-link-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let noteURL = directoryURL.appendingPathComponent("note.md")
+        try "# Note\n".write(to: noteURL, atomically: true, encoding: .utf8)
+        let pageURL = directoryURL.appendingPathComponent("index.html")
+        try """
+        <a id="same-tab" href="note.md">note</a>
+        <a id="new-tab" href="note.md" target="_blank">note</a>
+        """.write(to: pageURL, atomically: true, encoding: .utf8)
+
+        let routeKey = AppCatalogSection().openMarkdownInCmuxViewer.userDefaultsKey
+        let previousRoute = UserDefaults.standard.object(forKey: routeKey)
+        UserDefaults.standard.set(true, forKey: routeKey)
+        defer { UserDefaults.standard.set(previousRoute, forKey: routeKey) }
+
+        let appDelegate = try XCTUnwrap(AppDelegate.shared)
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            for panel in workspace.panels.values {
+                panel.close()
+            }
+        }
+        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let browser = try XCTUnwrap(workspace.newBrowserSurface(inPane: paneId, url: pageURL, focus: true))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = browser.webView
+        window.orderFrontRegardless()
+        defer { window.close() }
+
+        func waitUntil(_ condition: () -> Bool) async throws -> Bool {
+            let deadline = Date().addingTimeInterval(10)
+            while !condition(), Date() < deadline {
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            return condition()
+        }
+        let pageLoaded = try await waitUntil {
+            browser.webView.url?.standardizedFileURL == pageURL.standardizedFileURL && !browser.webView.isLoading
+        }
+        XCTAssertTrue(pageLoaded, "index.html should load in the browser")
+
+        // The user's plain click, target="_blank" click and Cmd-click, and the
+        // context menu's Open Link in New Tab, each open note.md in a Markdown
+        // tab and leave index.html in the browser.
+        let noteTabs = { workspace.panels.values.compactMap { $0 as? MarkdownPanel }.filter { $0.filePath == noteURL.path } }
+        let clicks = [
+            "document.getElementById('same-tab').click()",
+            "document.getElementById('new-tab').click()",
+            "document.getElementById('same-tab').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true }))",
+        ]
+        for (index, click) in clicks.enumerated() {
+            _ = try await evaluateJavaScript(click, in: browser.webView, describedAs: click)
+            let opened = try await waitUntil { noteTabs().count == index + 1 }
+            XCTAssertTrue(opened, "\(click) should open note.md in a Markdown tab")
+        }
+        browser.openContextMenuLinkInNewTab(url: noteURL)
+        XCTAssertEqual(noteTabs().count, clicks.count + 1, "Open Link in New Tab should open note.md in a Markdown tab")
+        XCTAssertEqual(browser.webView.url?.standardizedFileURL, pageURL.standardizedFileURL)
+        XCTAssertEqual(workspace.panels.values.compactMap { $0 as? BrowserPanel }.count, 1)
+
+        // A page that clicks the link on its own, with no user gesture, still
+        // loads note.md in the browser instead of opening another tab.
+        let autoClickURL = directoryURL.appendingPathComponent("auto-click.html")
+        try #"<a id="link" href="note.md">note</a><script>document.getElementById("link").click()</script>"#
+            .write(to: autoClickURL, atomically: true, encoding: .utf8)
+        browser.webView.loadFileURL(autoClickURL, allowingReadAccessTo: directoryURL)
+        let loadedInBrowser = try await waitUntil { browser.webView.url?.standardizedFileURL == noteURL.standardizedFileURL }
+        XCTAssertTrue(loadedInBrowser, "The page's own click should load note.md in the browser")
+        XCTAssertEqual(noteTabs().count, clicks.count + 1)
     }
 
     func testOpenMarkdownPanelReloadsWhenFileChangesOnDisk() async throws {
