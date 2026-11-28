@@ -568,6 +568,40 @@ inputs = [
 ]
 run = "scripts/ci/guards_reached.sh"
 
+# The privacy and egress registries (docs/privacy.md, config/network/allowlist.json, tests/egress_ungated.json,
+# tests/egress_seeded.json) list hosts and sites in NEXT's Swift, Rust and TS source. Their tests sit in the
+# ci-guards.yml `ci` group, which no feat-cmux-next pull request runs, and guard-steps-reached leaves product paths
+# out, so a product change adding a host merged green and the tip went red (5 fix-forwards, 11-21..11-28: #57217,
+# #58104, #58409, #59244, #57325). land_gate keeps the `**` source globs under --pr-scope.
+[step.egress-scan-guards]
+job = "linux"
+land_gate = true
+timeout = 900
+title = "Privacy and egress registries match the source, judged against the base"
+about = "runs test_outbound_hosts, test_network_allowlist, test_egress_gate and test_egress_seeded (scripts/ci/egress_scan_guards.sh); fails only on a red the base passes"
+inputs = [
+  "Packages/macOS/CmuxNext/**",
+  "Packages/Shared/**",
+  "cmux-tui/**",
+  "webviews/src/**",
+  "cmux-next-ios/**",
+  "skills/cmux-customization/templates/**",
+  "workers/device-hub/src/**",
+  "docs/privacy.md",
+  "docs/network-requirements.md",
+  "config/network/allowlist.json",
+  "config/iroh/managed-relay-catalog.json",
+  "tests/egress_ungated.json",
+  "tests/egress_seeded.json",
+  "tests/test_outbound_hosts.py",
+  "tests/test_network_allowlist.py",
+  "tests/test_egress_gate.py",
+  "tests/test_egress_seeded.py",
+  "tests/test_classic_cloud_routes.py",
+  "scripts/ci/egress_scan_guards.sh",
+]
+run = "scripts/ci/egress_scan_guards.sh"
+
 [step.skill-contracts]
 job = "linux"
 timeout = 300

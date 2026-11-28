@@ -80,6 +80,41 @@ class GuardStepsReachedTest(unittest.TestCase):
                     self.assertNotIn(".github/workflows/**", step.inputs)
 
 
+class EgressScanGuardsTest(unittest.TestCase):
+    """A product change that adds an outbound host or egress site runs the privacy and egress registry tests on its
+    landing head (egress-scan-guards, land_gate). 11-21..11-28: 5 fix-forwards (#57217, #58104, #58409, #59244,
+    #57325) after Swift and Rust changes merged green with the ci-guards.yml `ci` group never run on their PR."""
+
+    CULPRITS = {
+        "#58409": ["cmux-tui/crates/cmux-no-checkout/src/github.rs"],
+        "#57325": ["cmux-tui/crates/cmux-autocloud/src/login.rs",
+                   "cmux-tui/crates/cmux-tui/src/cli/cloud_start_chat/direct.rs"],
+        "#58104": ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileOnboarding/EmailSignIn.swift"],
+        "#59244": ["Packages/Shared/CmuxEgress/Sources/CmuxEgress/EgressHosts.swift"],
+        "webviews": ["webviews/src/app.ts"],
+        "registry": ["docs/privacy.md"],
+    }
+
+    def test_each_culprit_routes_it_on_its_landing_head(self) -> None:
+        t = ci_steps.load()
+        for pr, paths in self.CULPRITS.items():
+            with self.subTest(pr=pr):
+                self.assertIn("egress-scan-guards", ci_steps.nightly_gate_steps(t, paths, ["linux"]))
+                self.assertIn("egress-scan-guards", ci_steps.route(t, paths, pr_scope=True, tier="pr")["linux"])
+
+    def test_the_runner_runs_every_registry_test_through_new_red_only(self) -> None:
+        text = (ROOT / "scripts" / "ci" / "egress_scan_guards.sh").read_text()
+        self.assertIn("new_red_only.sh", text)
+        for name in ("test_outbound_hosts", "test_network_allowlist", "test_egress_gate", "test_egress_seeded"):
+            with self.subTest(test=name):
+                self.assertIn(name, text)
+                self.assertTrue((ROOT / "tests" / f"{name}.py").is_file())
+
+    def test_an_unrelated_change_does_not_route_it(self) -> None:
+        t = ci_steps.load()
+        self.assertNotIn("egress-scan-guards", ci_steps.nightly_gate_steps(t, ["docs/handbook/x.md", "ci/README.md"]))
+
+
 class NightlyGateTest(unittest.TestCase):
     """A step-table step that mirrors a nightly step (`nightly`) runs on the landing head that changes its inputs, every
     input kept, so a check that stops the nightly fails the landing (Leo, 2026-11-27: "shouldn't a build check fail
