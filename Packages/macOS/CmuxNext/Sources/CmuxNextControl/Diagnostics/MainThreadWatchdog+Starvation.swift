@@ -34,6 +34,7 @@ extension MainThreadWatchdog {
         let sentAt = uptime()
         let cpuAt = busy.mainThreadCPUNanos()
         let memoryAt = HostMemory.current()
+        let countsAt = TaskEventCounts.current()
         // main-async-allow: the probe measures the main dispatch queue's own answer delay, so it must be a raw GCD hop (no scheduler between).
         DispatchQueue.main.async { [self] in
             let answeredAt = uptime()
@@ -41,18 +42,21 @@ extension MainThreadWatchdog {
             let cpuNow = busy.mainThreadCPUNanos()
             let cpu = cpuAt.flatMap { start in cpuNow.map { $0 > start ? $0 - start : 0 } }
             noteProbeAnswered(sentAt: sentAt, delayNanos: delay, cpuNanos: cpu, memoryAt: memoryAt,
+                              processCores: { countsAt?.processCores(to: TaskEventCounts.current()) },
                               host: { HostLoad.peak(host, HostLoad.current()) })
         }
     }
 
     /// The main queue answered a probe sent at `sentAt` after `delayNanos`, with the main thread
     /// using `cpuNanos` meanwhile on a host at `host` load (`memoryAt`: the host's memory when it
-    /// was sent, the base of the hang file's memory line). A delay past the hang threshold (2 s)
+    /// was sent, the base of the hang file's memory line; `processCores`: this process's CPU in cores
+    /// since it was sent, read off the main thread, which tells our own queues from the host's load). A delay past the hang threshold (2 s)
     /// with a `starved` verdict is recorded: a stall record, a fault line and a hang file. A
     /// `blocked` delay is the stall path's to record, and a hang reported meanwhile already has
     /// its record. Check for overlap at answer time so a later hang cannot suppress this one.
     func noteProbeAnswered(sentAt: UInt64, delayNanos: UInt64, cpuNanos: UInt64?, memoryAt: HostMemory? = nil,
-                           observedAt: Date = Date(), host: @escaping @Sendable () -> HostLoad?) {
+                           observedAt: Date = Date(), processCores: @escaping @Sendable () -> Double? = { nil },
+                           host: @escaping @Sendable () -> HostLoad?) {
         guard delayNanos >= hangNanos, lastHangUptime.load(ordering: .acquiring) < sentAt else {
             probeOutstanding.store(false, ordering: .releasing)
             return
@@ -60,27 +64,30 @@ extension MainThreadWatchdog {
         probeReportQueue.async { [self] in
             defer { probeOutstanding.store(false, ordering: .releasing) }
             recordStarvation(sentAt: sentAt, delayNanos: delayNanos, cpuNanos: cpuNanos, memoryAt: memoryAt,
-                             observedAt: observedAt, host: host())
+                             observedAt: observedAt, processCores: processCores(), host: host())
         }
     }
 
     private func recordStarvation(sentAt: UInt64, delayNanos: UInt64, cpuNanos: UInt64?, memoryAt: HostMemory?,
-                                  observedAt: Date, host: HostLoad?) {
+                                  observedAt: Date, processCores: Double?, host: HostLoad?) {
         let duration = Duration.nanoseconds(Int64(clamping: delayNanos))
         let cpu = cpuNanos.map { Duration.nanoseconds(Int64(clamping: $0)) }
         guard StallVerdict.classify(wall: duration, mainThreadCPU: cpu, host: host) == .starved else { return }
         var details: [String: JSONValue] = ["verdict": .string(StallVerdict.starved.rawValue), "source": .string("starvation_probe")]
+        let cause = StallCause.classify(verdict: .starved, wall: duration, mainThreadCPU: cpu, processCores: processCores, host: host)
+        if let cause { details["cause"] = .string(cause.rawValue) }
+        if let processCores { details["process_cores"] = .number(processCores) }
         if let host {
             details["host_load_1m"] = .number(host.one)
             details["host_cores"] = .number(Double(host.cores))
         }
         let record = log.append(startUptimeNanos: sentAt, duration: duration, cpu: cpu ?? .zero, addresses: [], details: details)
-        logger.fault("main thread starved: the main queue answered after \(duration.fractionalMilliseconds, format: .fixed(precision: 0)) ms with \(cpu?.fractionalMilliseconds ?? -1, format: .fixed(precision: 0)) ms of main-thread cpu, host load \(host?.one ?? -1, format: .fixed(precision: 1)) on \(host?.cores ?? 0) cores (the Mac, not our code; hang \(record.sequence))")
+        logger.fault("main thread starved: the main queue answered after \(duration.fractionalMilliseconds, format: .fixed(precision: 0)) ms with \(cpu?.fractionalMilliseconds ?? -1, format: .fixed(precision: 0)) ms of main-thread cpu, host load \(host?.one ?? -1, format: .fixed(precision: 1)) on \(host?.cores ?? 0) cores (\(cause == .ownQueues ? "our own threads held the cores" : "the Mac, not our code", privacy: .public); hang \(record.sequence))")
         if let recorder = episodes {
             // Below the nested runs' keys (which count down from the top), far above heartbeat beats.
             let key = UInt64.max / 2 - probeSequence.add(1, ordering: .relaxed).newValue
             let memory = memoryAt.flatMap { start in HostMemory.current().map { HostMemoryDelta(from: start, to: $0) } }
-            let load = HangLoad(mainThreadCPU: cpu, host: host, memory: memory)
+            let load = HangLoad(mainThreadCPU: cpu, host: host, memory: memory, processCores: processCores)
             recorder.begin(beat: key, elapsed: duration, main: [], others: [], load: load, observedAt: observedAt)
             recorder.update(beat: key, duration: duration, ongoing: false, load: load)
         }
