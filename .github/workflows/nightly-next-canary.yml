@@ -401,7 +401,7 @@ jobs:
     needs: [pick, canary]
     if: always() && github.event_name != 'pull_request' && needs.canary.outputs.verdict == 'fail'
     # A scheduled run's on the pick's one-job VM (cmux-gcp-nightly-jit-x64); a dispatch's keeps Blacksmith.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.event_name == 'schedule' && 'cmux-gcp-nightly-jit-x64' || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || contains(fromJSON('["cmux-gcp-secret-jit-x64","cmux-gcp-nightly-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'cmux-gcp-nightly-jit-x64' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
     timeout-minutes: 20
     permissions:
       contents: read # check out the GitHub API wait
