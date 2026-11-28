@@ -295,6 +295,53 @@ filter = 'binary_id(cmux-tui::it) & test(/^automation_live_journey::/)'
 success-output = "final"
 slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
 
+# The acpmux lib's CPU-bound detectors. None of these asserts a wall clock: one scans every
+# source file of the crate for writes and reads of the home by path, one pages a 30 MB list
+# of 6,000 chats and counts the bytes of each reply, and the move simulations replay 500
+# seeded interleavings each. What they assert is a taint rule, a byte bound and a set of
+# move invariants, so they do not belong in timing-alone (its subject is latency). The only
+# load-sensitive thing about them is this file's shared 120 s hang guard, which they outgrew:
+# alone on an idle 8-CPU rbx builder (2026-11-22 run 45086474122) the reply bound takes 59.3 s
+# of the 60 s period, the two home scans 37.9 s and 38.1 s, and each move simulation 28.5 s.
+# Beside a full `-p acpmux --lib` run on 16 busy loops (run 45083970974) the reply bound and
+# the writer scan passed 120 s and were terminated, and the read scan and all four simulations
+# passed 60 s; a TIMEOUT then reads as this PR's flake and, worse, hides what the test found
+# (the writer scan is red at base for 4 real writes by path, which the kill replaced with a
+# bare "test timed out"). Each budget below is about 8x the measured time alone, as the
+# journal compaction bound above; a test that hangs still fails.
+[[profile.default.overrides]]
+filter = '''
+binary_id(acpmux) & (
+  test(=home_writers_by_path_tests::no_writer_under_the_home_goes_by_path)
+  | test(=home_writers_by_path_tests::no_read_under_the_home_goes_by_path)
+)
+'''
+slow-timeout = { period = "60s", terminate-after = 5, grace-period = "5s" }
+
+[[profile.ci.overrides]]
+filter = '''
+binary_id(acpmux) & (
+  test(=home_writers_by_path_tests::no_writer_under_the_home_goes_by_path)
+  | test(=home_writers_by_path_tests::no_read_under_the_home_goes_by_path)
+)
+'''
+slow-timeout = { period = "60s", terminate-after = 5, grace-period = "5s" }
+
+[[profile.default.overrides]]
+filter = 'binary_id(acpmux) & test(=server::reply_size_tests::no_reply_on_a_client_path_is_larger_than_a_page)'
+slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
+
+[[profile.ci.overrides]]
+filter = 'binary_id(acpmux) & test(=server::reply_size_tests::no_reply_on_a_client_path_is_larger_than_a_page)'
+slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
+
+[[profile.default.overrides]]
+filter = 'binary_id(acpmux) & test(/^hub::peer_snapshot::move_sim_tests::/)'
+slow-timeout = { period = "60s", terminate-after = 4, grace-period = "5s" }
+
+[[profile.ci.overrides]]
+filter = 'binary_id(acpmux) & test(/^hub::peer_snapshot::move_sim_tests::/)'
+slow-timeout = { period = "60s", terminate-after = 4, grace-period = "5s" }
 # One row of the rollback check (tests/store_schemas_in_its_time.rs) is for a store in WAL mode
 # whose `-wal` name is a link. It writes to stderr which names the session's folder holds, each
 # with its length, before the check's calls and after each, and the text of each error, in lines
