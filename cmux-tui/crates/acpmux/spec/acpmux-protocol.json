@@ -1548,7 +1548,19 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/last",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/session_search",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/session_resources",
       "params": true,
       "result": true
     },
