@@ -140,6 +140,46 @@ fn an_idle_closed_link_is_not_a_dead_machine() {
     assert_eq!(w.pass([("k", "vm-2", &away)], NOW, GRACE_MS, |_| true, idle).len(), 1);
 }
 
+/// 2026-11-28 06:18Z: a daemon whose own links dropped told four lanes on answering
+/// machines dead. Machines that fail together are one outage, said once; one machine down
+/// alone is still a dead machine.
+#[test]
+fn many_machines_down_at_once_are_one_outage_not_many_deaths() {
+    let away = |h: &str| {
+        json!({"name": format!("lane-{h}"), "status": "unreachable", "lastSeen": NOW - 11 * MIN,
+               "tags": {"spawnedBy": "coord"}})
+    };
+    let up = json!({"name": "lane-up", "status": "idle", "tags": {"spawnedBy": "coord"}});
+    let hosts = ["vm-1", "vm-2", "vm-3", "vm-4"];
+    let rows: Vec<(String, Value)> = hosts.iter().map(|h| (h.to_string(), away(h))).collect();
+    let mut w = Watch::default();
+    let pass = |w: &mut Watch, rows: &[(String, Value)], extra: &Value| {
+        let mut all: Vec<(&str, &str, &Value)> =
+            rows.iter().map(|(h, v)| (h.as_str(), h.as_str(), v)).collect();
+        all.push(("ok-key", "vm-ok", extra));
+        w.pass(all, NOW, GRACE_MS, |_| true, |_| false)
+    };
+    assert!(pass(&mut w, &rows, &up).is_empty(), "no death told");
+    assert_eq!(w.outage_began(), Some((4, 5)));
+    assert!(pass(&mut w, &rows, &up).is_empty());
+    assert_eq!(w.outage_began(), None, "said once while it lasts");
+    // Three machines down of five is not enough; neither is half of a crowd.
+    let mut w = Watch::default();
+    assert_eq!(pass(&mut w, &rows[..3], &up).len(), 3);
+    assert_eq!(w.outage_began(), None);
+    // Four down among many that answer is four dead machines.
+    let many: Vec<(String, Value)> =
+        (0..20).map(|i| (format!("ok-{i}"), up.clone())).chain(rows.iter().cloned()).collect();
+    let mut w = Watch::default();
+    assert_eq!(pass(&mut w, &many, &up).len(), 4);
+    assert_eq!(w.outage_began(), None);
+    // The links return: a machine still down after the outage is told.
+    let mut w = Watch::default();
+    assert!(pass(&mut w, &rows, &up).is_empty());
+    assert_eq!(pass(&mut w, &rows[..1], &up).len(), 1);
+    assert_eq!(w.outage_began(), None);
+}
+
 #[test]
 fn a_machine_down_within_the_grace_asks_it_to_start() {
     let dead =
