@@ -26,4 +26,24 @@ public enum WorkstreamSource: String, Codable, Sendable, CaseIterable, Equatable
     public init?(wireName: String) {
         self.init(rawValue: wireName)
     }
+
+    /// The agent's name as the Activity panel shows it ("Send to Codex").
+    /// Brand names, so not localized.
+    public var displayName: String {
+        switch self {
+        case .claude: return "Claude"
+        case .codex: return "Codex"
+        case .pi: return "Pi"
+        case .amp: return "Amp"
+        case .cursor: return "Cursor"
+        case .opencode: return "OpenCode"
+        case .gemini: return "Gemini"
+        case .grok: return "Grok"
+        case .hermesAgent: return "Hermes Agent"
+        case .copilot: return "Copilot"
+        case .codebuddy: return "CodeBuddy"
+        case .factory: return "Factory"
+        case .qoder: return "Qoder"
+        }
+    }
 }

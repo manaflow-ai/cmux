@@ -1093,6 +1093,54 @@ class DeadLabelRescueTests(unittest.TestCase):
         self.assertEqual(actions.calls, [])
         self.assertIn("`publish to R2` is running", summary)
 
+    def test_a_run_with_any_running_job_is_never_cancelled(self) -> None:
+        # Review BLOCK on cmux#27114: a force-cancel ends every job of the run, so any running job (not only a
+        # publish) would lose its work. Both rescues leave such a run for a later pass.
+        running = {"name": "unit tests", "status": "in_progress", "runner_name": "bs-9", "labels": []}
+        actions = self.stranded()
+        actions.run_jobs[10] = [self.DEAD_16, running]
+        summary = self.rescue(actions)
+        self.assertEqual(actions.calls, [])
+        self.assertIn("`unit tests` is running", summary)
+        runs = [{"id": 20, "status": "in_progress", "event": "push", "name": "CI", "created_at": ago(30)}]
+        actions = FakeActions(None, runs, {20: [self.DEAD_16, running]})
+        clock = Clock()
+        lines = switch.rescue_stuck_runs(actions, own_run_id=1, minutes=5, now=clock.now, sleep=clock.sleep,
+                                         log=lambda _: None, dry_run=False)
+        self.assertEqual(actions.calls, [])
+        self.assertTrue(any("`unit tests` is running" in line for line in lines), lines)
+
+    def test_a_job_that_started_after_the_listing_holds_the_cancel(self) -> None:
+        actions = self.stranded()
+        listed = {"n": 0}
+        before = actions.jobs
+
+        def jobs(run_id: int, attempt: int | None = None) -> list[dict]:
+            if run_id != 10:
+                return before(run_id, attempt)
+            listed["n"] += 1
+            started = {"name": "lint", "status": "in_progress", "runner_name": "bs-3", "labels": []}
+            return [self.DEAD_16] + ([started] if listed["n"] > 1 else [])
+
+        actions.jobs = jobs  # type: ignore[method-assign]
+        summary = self.rescue(actions)
+        self.assertEqual(actions.calls, [])
+        self.assertIn("run 10: changed since it was listed", summary)
+
+    def test_an_incomplete_job_listing_is_never_acted_on(self) -> None:
+        actions = self.stranded()
+        before = actions.jobs
+
+        def jobs(run_id: int, attempt: int | None = None) -> list[dict]:
+            if run_id == 10:
+                raise switch.GitHubError("GET /actions/runs/10/jobs incomplete (100 of 140 jobs)")
+            return before(run_id, attempt)
+
+        actions.jobs = jobs  # type: ignore[method-assign]
+        summary = self.rescue(actions)
+        self.assertEqual(actions.calls, [])
+        self.assertIn("run 10: could not list jobs", summary)
+
     def test_a_run_that_changed_since_the_listing_is_left_alone(self) -> None:
         actions = self.stranded()
         actions.run = lambda run_id: {"id": run_id, "status": "queued", "run_attempt": 2}  # type: ignore[method-assign]
@@ -1169,9 +1217,11 @@ class DeadLabelRescueTests(unittest.TestCase):
         self.assertEqual(switch.stranded_labels({}), {})
         self.assertEqual(switch.stranded_labels({"_dead": {}}), {})
         # A dead mark keeps the probe's wait; a label a pool names is never stranded.
+        moved = switch.MOVED_MINUTES
         self.assertEqual(switch.stranded_labels(self.POOLS, minutes=5),
                          {"blacksmith-16vcpu-ubuntu-2404": 5, "blacksmith-4vcpu-ubuntu-2404": 5,
-                          "blacksmith-8vcpu-ubuntu-2404": switch.MOVED_MINUTES})
+                          "blacksmith-8vcpu-ubuntu-2404": moved, "blacksmith-12vcpu-macos-26": moved,
+                          "blacksmith-6vcpu-macos-15": moved, "blacksmith-6vcpu-macos-latest": moved})
         changes = {**self.DEAD_16, "name": "changes", "created_at": ago(360)}
         fresh = {**self.DEAD_16, "created_at": ago(10)}
         runs = [{"id": 44476854382, "status": "queued", "event": "pull_request", "name": "cmux-tui spec inventory",
@@ -1184,6 +1234,36 @@ class DeadLabelRescueTests(unittest.TestCase):
         # Named by a raw runner variable: nothing moves.
         actions = FakeActions(None, runs, {44476854382: [changes], 31: [fresh]})
         self.rescue(actions, pools, RAW_RUNNER_VARIABLES="LINUX_BUILD_RUNNER=blacksmith-16vcpu-ubuntu-2404\nX=\n")
+        self.assertEqual(actions.calls, [])
+
+    def test_a_macos_label_no_pool_or_variable_names_strands_its_jobs(self) -> None:
+        # 2026-11-27 23:4xZ: blacksmith-12vcpu-macos-26 held 18 queued jobs, oldest 238 min, 0 started in 1 h, while
+        # macos_26 and macos_26_large named 6 vCPU; this rescue listed only Linux sizes, so it never saw them.
+        pools = {"_dead": {}, "linux": "blacksmith-4vcpu-ubuntu-2404", "macos_15": "blacksmith-6vcpu-macos-15",
+                 "macos_26": "blacksmith-6vcpu-macos-26", "macos_26_large": "blacksmith-6vcpu-macos-26",
+                 "macos_latest": "blacksmith-6vcpu-macos-latest"}
+        moved = switch.MOVED_MINUTES
+        self.assertEqual({label: wait for label, wait in switch.stranded_labels(pools).items() if "macos" in label},
+                         {"blacksmith-12vcpu-macos-26": moved})
+        # A MACOS_RUNNER_* value that names it keeps it routed: a re-run would go back to it.
+        self.assertNotIn("blacksmith-12vcpu-macos-26",
+                         switch.stranded_labels(pools, {"blacksmith-12vcpu-macos-26"}))
+        # A RUNNER_POOLS value without the macOS pools (an older writer) strands no macOS label.
+        self.assertFalse([label for label in switch.stranded_labels({"linux": "blacksmith-4vcpu-ubuntu-2404"})
+                          if "macos" in label])
+        # A pool that moved to GitHub's macos-15 leaves Blacksmith's macOS 15 stranded.
+        hosted = {**pools, "macos_15": "macos-15"}
+        self.assertEqual(switch.stranded_labels(hosted).get("blacksmith-6vcpu-macos-15"), moved)
+        compile_job = {"status": "queued", "runner_name": None, "created_at": ago(238),
+                       "labels": ["blacksmith-12vcpu-macos-26"], "name": "cmux NEXT DEV Release compile"}
+        runs = [{"id": 46056807213, "status": "queued", "event": "workflow_dispatch", "name": "cmux NEXT DEV daily",
+                 "created_at": ago(238)}]
+        actions = FakeActions(None, runs, {46056807213: [compile_job]})
+        summary = self.rescue(actions, pools)
+        self.assertEqual(actions.calls, [("force-cancel", 46056807213), ("rerun", 46056807213)])
+        self.assertIn("blacksmith-12vcpu-macos-26 (30+ min)", summary)
+        actions = FakeActions(None, runs, {46056807213: [compile_job]})
+        self.rescue(actions, pools, MACOS_RUNNER_VARIABLES="MACOS_RUNNER_26_LARGE=blacksmith-12vcpu-macos-26\nX=\n")
         self.assertEqual(actions.calls, [])
 
     def test_a_run_stranded_for_hours_is_listed_past_the_newest_page(self) -> None:
@@ -1202,8 +1282,13 @@ class DeadLabelRescueTests(unittest.TestCase):
         import runner_pools  # noqa: E402
         step = WORKFLOW.read_text(encoding="utf-8").split("- name: Re-run runs stranded on a dead label", 1)[1]
         step = step.split("- name:", 1)[0]
-        listed = set(re.findall(r"^\s+([A-Z0-9_]+)=\$\{\{ vars\.\1 \}\}$", step, re.MULTILINE))
+        raw, macos = step.split("MACOS_RUNNER_VARIABLES: |", 1)
+        listed = set(re.findall(r"^\s+([A-Z0-9_]+)=\$\{\{ vars\.\1 \}\}$", raw, re.MULTILINE))
         self.assertEqual(listed, {*runner_pools.RAW_LABEL_VARS, *runner_pools.MIRRORS})
+        # The macOS picks a re-run would go back to, so a label they name is not stranded.
+        listed = set(re.findall(r"^\s+([A-Z0-9_]+)=\$\{\{ vars\.\1 \}\}$", macos, re.MULTILINE))
+        self.assertIn("MACOS_RUNNER_26_LARGE", listed)
+        self.assertTrue(all(name.startswith("MACOS_RUNNER_") for name in listed))
 
     def test_the_workflow_runs_it_after_the_pools_step(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
@@ -1412,6 +1497,32 @@ class ReadTokenTests(unittest.TestCase):
         api.force_cancel(8)
         api.rerun(8)
         self.assertEqual([token for *_, token in sent], ["bot", "bot", "workflow", "workflow"])
+
+    def test_a_job_listing_is_complete_or_an_error(self) -> None:
+        def paged(pages: list[dict]) -> tuple[switch.GitHub, list[str]]:
+            api = switch.GitHub("bot", "manaflow-ai/cmux")
+            asked: list[str] = []
+
+            def send(method: str, path: str, data: bytes | None, token: str) -> dict:
+                asked.append(path)
+                return pages[len(asked) - 1]
+            api._send = send  # type: ignore[method-assign]
+            return api, asked
+
+        full = [{"id": n} for n in range(100)]
+        # Read across pages until a short one.
+        api, asked = paged([{"total_count": 140, "jobs": full}, {"total_count": 140, "jobs": full[:40]}])
+        self.assertEqual(len(api.jobs(7)), 140)
+        self.assertEqual(asked, ["/actions/runs/7/jobs?per_page=100&page=1", "/actions/runs/7/jobs?per_page=100&page=2"])
+        # A short page while total_count says more: some jobs went unread.
+        api, _ = paged([{"total_count": 140, "jobs": full[:90]}])
+        with self.assertRaisesRegex(switch.GitHubError, "incomplete .90 of 140 jobs."):
+            api.jobs(7)
+        # Every page full: the rest past MAX_JOB_PAGES is unread.
+        api, asked = paged([{"jobs": full}] * switch.MAX_JOB_PAGES)
+        with self.assertRaisesRegex(switch.GitHubError, "incomplete"):
+            api.jobs(7, 2)
+        self.assertEqual(len(asked), switch.MAX_JOB_PAGES)
 
     def test_a_refused_read_is_not_asked_again_on_the_workflow_token(self) -> None:
         # The workflow token can never read a variable: its 403 hid the first refusal's cause.

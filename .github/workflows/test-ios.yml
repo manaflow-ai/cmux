@@ -1257,10 +1257,29 @@ jobs:
           ARTIFACT_ID: ${{ needs.ios-simulator-build.outputs.artifact_id }}
           ARTIFACT_PROVIDER_DIGEST: ${{ needs.ios-simulator-build.outputs.artifact_digest }}
           ARTIFACT_PRODUCT_KIND: ios
-        run: python3 scripts/ci/parallel_artifact_download.py
+        # A JavaScript action receives the Actions runtime token, so the
+        # transport resolves the artifact without spending the installation
+        # REST quota (all consumers got HTTP 403 when it ran out, run 45890106663).
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            require('child_process').execFileSync('python3', ['scripts/ci/parallel_artifact_download.py'], { stdio: 'inherit' })
 
       - name: Download iOS test product
+        id: download-product
         if: ${{ steps.parallel-product.outputs.hit != 'true' }}
+        # A stalled blob stream holds an unbounded step until the job timeout:
+        # bound the first stream and give one fresh stream instead.
+        timeout-minutes: 9
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ needs.ios-simulator-build.outputs.artifact_id }}
+          path: ${{ runner.temp }}/ios-test-product
+
+      - name: Retry iOS test product download on a fresh stream
+        if: steps.download-product.outcome == 'failure'
+        timeout-minutes: 6
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           artifact-ids: ${{ needs.ios-simulator-build.outputs.artifact_id }}

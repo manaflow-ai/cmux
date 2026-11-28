@@ -113,7 +113,9 @@ PER_SOURCE_RUN: dict[str, str] = {
 # runs on one branch are not all interchangeable, so the queue janitor never collapses their stuck runs.
 SOURCE_KEYED: dict[str, str] = {
     "ci-failure-attribution.yml": "one group per source head repository and branch",
-    "ci-guard-attribution.yml": "one group per pull request branch, or per source workflow on main",
+    "ci-guard-attribution.yml": (
+        "one group per pull request branch, per source workflow for main's push and dispatch runs, and per "
+        "event and branch for every other source run (merge_group, feat-cmux-next, schedule)"),
 }
 
 # cancel-in-progress expressions that are false on the schedule event, which the shared reader

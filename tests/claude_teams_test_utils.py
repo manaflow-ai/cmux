@@ -216,19 +216,14 @@ def focused_cmux_server(
 
 @contextmanager
 def canonical_managed_claude_shim_root() -> Iterator[tuple[str, Path]]:
-    """Create an isolated per-surface shim at the app-owned temporary root."""
+    """Create an isolated per-surface shim at a private app-owned temporary root."""
     surface_id = str(uuid.uuid4())
-    parent = Path(tempfile.gettempdir()) / "cmux-cli-shims"
-    root = parent / surface_id
-    root.mkdir(parents=True)
-    try:
+    with tempfile.TemporaryDirectory(prefix="cmux-cli-shims-") as temporary_root:
+        parent = Path(temporary_root) / "cmux-cli-shims"
+        parent.mkdir(mode=0o700)
+        root = parent / surface_id
+        root.mkdir(mode=0o700)
         yield surface_id, root
-    finally:
-        shutil.rmtree(root, ignore_errors=True)
-        try:
-            parent.rmdir()
-        except OSError:
-            pass
 
 
 def install_pi_extension(config_dir: Path, cli_path: str | None = None) -> Path:

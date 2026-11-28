@@ -77,7 +77,8 @@ class Callers(unittest.TestCase):
                                    ("ci-ui-tests.yml", None, "read-token"),
                                    ("ci-hosted-queue-rescue.yml", None, "glaeda-token"),
                                    ("backend-migrations.yml", None, "glaeda-token"),
-                                   ("pr-media.yml", None, "read-token")):
+                                   ("pr-media.yml", None, "read-token"),
+                                   ("ci-queue-janitor.yml", "sweep", "pool-read")):
             document = yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))
             found = [s for j, body in document["jobs"].items() if job in (None, j)
                      for s in body.get("steps") or [] if s.get("id") == step_id]
