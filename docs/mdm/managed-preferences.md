@@ -23,6 +23,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `history.closed.maxAgeDays` | real | `0` | 0 to 3650 | Keep Recently Closed Items For. Each machine deletes closed items that are older. 0 keeps them however old they are. |
 | `window.titlebar` | string | `"minimal"` | `minimal`, `standard` | Titlebar. Minimal has no titlebar strip; the top row moves the window. |
 | `window.titlebarButtons` | string | `"hover"` | `hover`, `always` | Titlebar Buttons. With the sidebar hidden, On Hover shows its buttons only over the top row. |
+| `window.settingsPresentation` | string | `"tab"` | `tab`, `page` | Open Settings In. Tab opens Settings as a tab in the focused pane. Full Window opens it over the whole window, with its sections on the left. |
 | `app.globalHotKey` | boolean | `false` |  | Global Hot Key. Show/Hide All Windows (⌃⌥⌘.) works while another app is in front. |
 | `app.startAgentGlobalHotKey` | boolean | `false` |  | Start Agent from Any App. ⌃⌥⌘Space starts an agent while another app is in front. |
 | `app.captureScreenshotGlobalHotKey` | boolean | `false` |  | Capture Screenshot to Chat from Any App. Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts. |
@@ -75,6 +76,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `updates.whatsNewInstall` | boolean | `false` |  | Install Versions from What's New. An Install button for each version listed in What's New. |
 | `updates.meteredNetwork` | string | `"defer-low-data"` | `defer-low-data`, `defer-expensive`, `download` | On Metered Networks. While downloads wait, a found update shows on Settings and one click downloads it. |
 | `updates.web` | string | `"every-merge"` | `every-merge`, `nightly`, `off` | Web UI Updates. Every Merge gets web UI changes minutes after they land. |
+| `updates.webCas` | boolean | `false` |  | Fetch Web UI Updates by Chunks. Web UI updates download only what changed, or the whole update when that fails. |
 | `updates.daemon` | string | `"off"` | `off`, `every-merge` | Live Background Updates. Every merge's background services (terminals, agents' daemon) update in place, with no restart. NIGHTLY only. |
 | `updates.liveWebReload` | boolean | `true` |  | cmux Live. Lets cmux live start show your checkout's web UI, each saved edit at once. |
 | `updates.installOnQuit` | boolean | `false` |  | Install Updates When Quitting. A downloaded update installs as cmux quits. Terminals keep running. |
@@ -298,23 +300,23 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `ui.paneAnimations` | boolean | `true` |  | Animate Panes. Splits, closes, moves, zooms and column scrolls slide into place. |
 | `ui.animations.newTab` | boolean | `true` |  | Animate New Tabs. A new tab grows into its place in the tab bar. Off shows it there at once. |
 | `ui.animations.newWorkspace` | boolean | `true` |  | Animate New Workspaces. A new workspace row opens in the sidebar. Off shows it there at once. |
-| `appearance.menu.cornerRadius` | real |  | 0 to 24 | Menu Corner Radius |
-| `appearance.menu.borderOpacity` | real |  | 0 to 1 | Menu Border Opacity |
-| `appearance.menu.shadow` | string | `"standard"` | `standard`, `none`, `subtle`, `strong` | Menu Shadow |
-| `appearance.menu.fill` | string |  |  | Menu Fill |
-| `appearance.menu.padding` | real |  | 0 to 16 | Menu Padding |
-| `appearance.menu.highlightRadius` | real |  | 0 to 16 | Menu Highlight Radius |
-| `appearance.menu.rowHeight` | real |  | 18 to 40 | Menu Row Height |
-| `appearance.menu.shortcuts` | string | `"standard"` | `standard`, `muted` | Menu Shortcuts |
-| `appearance.menu.sectionLabel` | string | `"standard"` | `standard`, `muted` | Menu Section Labels |
-| `appearance.menu.separator` | string | `"standard"` | `standard`, `subtle`, `none` | Menu Separators |
-| `appearance.menu.destructiveInk` | string | `"standard"` | `standard`, `plain` | Menu Destructive Rows |
-| `appearance.menu.submenu` | string | `"standard"` | `standard`, `flush` | Submenu Placement |
-| `appearance.menu.subtitle` | string | `"standard"` | `standard`, `muted` | Menu Subtitles |
-| `appearance.popover.padding` | real |  | 0 to 24 | Popover Padding |
-| `appearance.popover.header` | string | `"standard"` | `standard`, `strong` | Popover Headers |
-| `appearance.popover.progressHeight` | real |  | 1 to 12 | Popover Progress Height |
-| `appearance.popover.progressFill` | string | `"standard"` | `standard`, `muted`, `strong` | Popover Progress Fill |
+| `appearance.menu.cornerRadius` | real |  | 0 to 24 | Menu Corner Radius. The corner radius of menus. |
+| `appearance.menu.borderOpacity` | real |  | 0 to 1 | Menu Border Opacity. How visible the menu's edge line is. |
+| `appearance.menu.shadow` | string | `"standard"` | `standard`, `none`, `subtle`, `strong` | Menu Shadow. The shadow under menus. |
+| `appearance.menu.fill` | string |  |  | Menu Fill. The menu background color, as #RRGGBB or #RRGGBBAA. |
+| `appearance.menu.padding` | real |  | 0 to 16 | Menu Padding. The space inside the menu's edges. |
+| `appearance.menu.highlightRadius` | real |  | 0 to 16 | Menu Highlight Radius. The corner radius of the hovered row's highlight. |
+| `appearance.menu.rowHeight` | real |  | 18 to 40 | Menu Row Height. The height of a one-line menu row. |
+| `appearance.menu.shortcuts` | string | `"standard"` | `standard`, `muted` | Menu Shortcuts. How strongly menu shortcuts are drawn. |
+| `appearance.menu.sectionLabel` | string | `"standard"` | `standard`, `muted` | Menu Section Labels. How menu section labels are drawn. |
+| `appearance.menu.separator` | string | `"standard"` | `standard`, `subtle`, `none` | Menu Separators. How the lines between menu row groups are drawn. |
+| `appearance.menu.destructiveInk` | string | `"standard"` | `standard`, `plain` | Menu Destructive Rows. Whether destructive menu rows, such as Delete, are drawn in red. |
+| `appearance.menu.submenu` | string | `"standard"` | `standard`, `flush` | Submenu Placement. Where a submenu opens next to its menu. |
+| `appearance.menu.subtitle` | string | `"standard"` | `standard`, `muted` | Menu Subtitles. How the second line of a menu row is drawn. |
+| `appearance.popover.padding` | real |  | 0 to 24 | Popover Padding. The space inside a popover's edges. |
+| `appearance.popover.header` | string | `"standard"` | `standard`, `strong` | Popover Headers. How a popover's header line is drawn. |
+| `appearance.popover.progressHeight` | real |  | 1 to 12 | Popover Progress Height. The height of progress bars in popovers. |
+| `appearance.popover.progressFill` | string | `"standard"` | `standard`, `muted`, `strong` | Popover Progress Fill. The color of progress bars in popovers. |
 | `layout.paneSeparation` | string |  | `none`, `dividers`, `borders`, `cards` | Separation. How panes are told apart. |
 | `layout.panePadding` | real |  | 0 to 16 | Padding |
 | `layout.paneCornerRadius` | real |  | 0 to 20 | Corner Radius. One radius for panes, tabs, panels, popovers and cards. |
@@ -474,6 +476,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.modelChipIcon` | boolean | `true` |  | Model Logo in Composer. Shows the provider's logo next to the model's name in the message box. Right-click the model to turn it off or on. |
 | `agentPane.display.modelPickerOrder` | array | `[]` |  | Model Picker Harness Order. The order of the harnesses in the model picker. Drag a harness in the picker to move it. |
 | `agentPane.display.modelPickerStyle` | string | `"list"` | `list`, `menu` | Model Picker Style. List shows every harness and its models. Menu is a compact menu with the models, an Effort submenu and Fast mode. |
+| `agentPane.display.ownHarnessUpdatesOnly` | boolean | `false` |  | Only This Chat's Agent Updates. The model menu offers an update for this chat's agent only, not for every agent on this Mac. |
 | `agentPane.display.queueing` | boolean | `true` |  | Queue Prompts During a Turn. On, Send and ⌘Return queue a prompt sent while a turn runs, and Return steers it into the turn. Off, every send steers, so nothing waits. |
 | `agentPane.display.rail.side` | string | `"left"` | `left`, `right` | Prompt Rail Side. Right-click the rail to move it. |
 | `agentPane.display.rail.show` | string | `"prompts"` | `prompts`, `mine`, `received`, `replies`, `everything`, `errors`, `edits`, `tools`, `subagents` | Prompt Rail Shows. Right-click the rail to change it. |
@@ -552,11 +555,11 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.nav` | array | `[]` |  | Sidebar Nav Rows. Rows at the top of the sidebar that run cmux actions, by action id, optionally "id \| Title \| symbol". Empty shows none. |
 | `sidebar.showSpaces` | boolean | `false` |  | Show Spaces. Spaces show once you have more than one. New Space is in the command palette. |
 | `sidebar.showProfileControl` | boolean | `true` |  | Show Profile Button |
-| `sidebar.showSearchButton` | boolean | `false` |  | Show Search Button. A search button after the profile button. Off: search from the palette. |
+| `sidebar.showSearchButton` | boolean | `true` |  | Show Search Button. A search button after the profile button. Off: search from the palette. |
 | `sidebar.showLiveToggle` | boolean | `false` |  | Show Live Button. A Live button after the profile button turns presence on or off. Off: use the palette. |
 | `presence.live` | boolean | `false` |  | Live Presence. Show teammates and agents who are live, and let them see you. Off: you appear offline. |
 | `sidebar.showNewWorkspaceChooser` | boolean | `false` |  | Show New Workspace Menu Button. A chevron beside the + opens the New Workspace menu. Off: right-click the +. |
-| `sidebar.workspacesAsTabs` | boolean | `false` |  | Workspaces as Tabs. Each workspace is one line in the sidebar, which stays a list (not a tab strip), and Cmd-Shift-[ and ] switch workspaces as they switch tabs. |
+| `sidebar.workspacesAsTabs` | boolean | `false` |  | Workspaces as Tabs. Each workspace is one line, and Cmd-Shift-[ and ] switch workspaces. |
 | `sidebar.chromeGroups` | boolean | `false` |  | Chrome-Style Groups. Groups get a colored rail with a rounded end, like Chrome's tab groups. |
 | `sidebar.sideBySide` | boolean | `false` |  | Workspaces Side by Side. Drag a workspace row onto a pane's edge to show it beside the current one. |
 | `sidebar.noFade` | boolean | `false` |  | Show Whole Sidebar Without Fade. Stops the sidebar's edges fading and hides the bottom profile and search bar. |
@@ -571,6 +574,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.profileMenu.style` | string | `"app"` | `app`, `account` | Profile Menu. What the profile button at the sidebar's foot opens: the app menu, or an account menu with your accounts and teams to switch between, then Settings, Usage, Help and Sign Out. |
 | `sidebar.detailedStatusIcons` | boolean | `false` |  | Detailed Status Icons. Icons for working, waiting, error and done. Off: a spinner and a dot. |
 | `sidebar.showTimestamps` | boolean | `false` |  | Show Timestamps. Rows show when they last changed, such as 3d. |
+| `sidebar.relativeTimestamps` | boolean | `false` |  | Relative Timestamps. With Show Timestamps on, a change today reads as its age, such as 5m or 2h, not its time. |
 | `sidebar.settleFinished` | boolean | `false` |  | Settle Finished Chats. A chat whose answer you have read folds into Settled at the end of its list until its next turn. |
 | `sidebar.showAgentSessions` | boolean | `false` |  | Show Sessions Started by Agents. Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows. |
 | `sidebar.showColors` | boolean | `true` |  | Show Workspace Colors |
@@ -899,8 +903,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `experiments.foldSummaryCounts` | boolean | `false` |  | Fold Summary Counts. A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files. |
 | `experiments.cloudDiskBar` | boolean | `false` |  | Cloud Disk Bar. Cloud machine cards show disk use as a bar split into system, project and caches. |
 | `experiments.browserProfileCard` | boolean | `false` |  | Browser Profile Card. The browser's profile menu opens with a profile card. |
-| `experiments.compactionThresholdInsight` | boolean | `false` |  | Compaction Threshold Insight. Show when Claude automatically compacted a chat and how to lower the context it carries between turns. |
 | `experiments.appStoreFeatures` | boolean | `false` |  | App Store Features. The App Store gets a Features tab where built-in features turn on and off. |
+| `experiments.compactionThresholdInsight` | boolean | `false` |  | Compaction Threshold Insight. Show when Claude automatically compacted a chat and how to lower the context it carries between turns. |
 | `feed.github.enabled` | boolean | `false` |  | GitHub Inbox. Inbox shows your GitHub notifications |
 | `feed.github.pollIntervalSeconds` | real | `120` | 60 to 900 | Refresh Interval. Seconds between GitHub refreshes. Refresh in the Inbox runs immediately. |
 | `agentPane.links.outsideRoots` | string | `"open"` | `confirm`, `text`, `open` | Files Outside the Project. What a link to a file outside the chat's folders does. Keys and .env files never open. |
@@ -930,10 +934,28 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.zoom` | real | `1` | 0.5 to 2 | Agent Chat Zoom. The display size for agent chat. Cmd-0 resets it. |
 | `agents.defaultPermissionMode` | string | `"fullAccess"` | `fullAccess`, `standard`, `ask` | Permission Mode for New Chats. What a new chat may do without asking. A mode you pick in a chat applies to that chat only. |
 | `agents.promptCache` | string | `"1h"` | `1h`, `5m` | Prompt Cache. One hour keeps replies after a pause cheap; its cache writes cost a little more. |
+| `agents.env` | dictionary | `{}` |  | Agent Environment. Variables every new chat's agent and its tools get. A value an agent profile already sets wins. |
+| `agents.envExclude` | array | `[]` |  | Hidden from Agents. Variable names agents never get, such as AWS_SECRET_ACCESS_KEY or AWS_*. |
+| `agents.additionalDirectories` | array | `[]` |  | Folders Every Chat Sees. Added to every new chat's Sources. Use full or ~/ paths. |
+| `agents.sandbox.mode` | string | `"permissionMode"` | `permissionMode`, `workspaceWrite` | Agent Sandbox. Workspace Only keeps agents' writes inside their workspace and turns full-access modes off. |
+| `agents.sandbox.network` | string | `"harness"` | `harness`, `allow` | Sandbox Network. Allow lets Codex's workspace sandbox reach the network. |
 | `agents.claudeOutputStyle` | string | `"agent"` | `agent`, `default`, `Explanatory`, `Learning` | Claude Code Response Style. The output style new Claude Code chats use. Agent’s Own keeps Claude Code’s setting. |
 | `agents.codexPersonality` | string | `"agent"` | `agent`, `pragmatic`, `friendly`, `none` | Codex Personality. The personality new Codex chats use. Agent’s Own keeps Codex’s setting. |
 | `agents.commitAttribution` | string | `"agent"` | `agent`, `strip` | Co-Author Line on Commits and PRs. Remove leaves Claude Code’s co-author line and footer off commits and pull requests. Codex has no such setting. |
 | `agents.claudeCodeInboxRelay` | boolean | `false` |  | Add Message Relay to Claude Code. Adds a small server to Claude Code's settings so messages from other agents arrive without being held. Applies to Claude Code chats started afterwards. |
+| `agents.defaults.claude.model` | string | `""` |  | Claude Code Model for New Chats. A model id such as claude-opus-5-5. Empty starts on the last model you picked. |
+| `agents.defaults.claude.effort` | string | `"auto"` | `auto`, `low`, `medium`, `high`, `xhigh`, `max` | Claude Code Effort for New Chats. How hard a new chat thinks. Last Used keeps the last effort you picked. |
+| `agents.defaults.codex.model` | string | `""` |  | Codex Model for New Chats. A model id such as gpt-6.2-sol. Empty starts on the last model you picked. |
+| `agents.defaults.codex.effort` | string | `"auto"` | `auto`, `low`, `medium`, `high`, `xhigh`, `max` | Codex Effort for New Chats. How hard a new chat thinks. Last Used keeps the last effort you picked. |
+| `agents.titles.model` | string | `"haiku"` | `haiku`, `sonnet`, `opus` | Text Generation Model. The Claude model that writes chat titles and summaries. |
+| `agents.providers.claude.path` | string | `""` |  | Claude Code Program. The Claude Code program new chats run. Empty uses the one on your PATH. |
+| `agents.providers.claude.home` | string | `""` |  | Claude Code Home Folder. Where Claude Code keeps its settings and sign-in (CLAUDE_CONFIG_DIR). Empty uses ~/.claude. |
+| `agents.providers.claude.args` | array | `[]` |  | Claude Code Launch Arguments. Arguments added when cmux starts Claude Code, one per entry. |
+| `agents.providers.claude.env` | dictionary | `{}` |  | Claude Code Environment. Variables Claude Code starts with. Keep keys and tokens out: use cmux harness secret. |
+| `agents.providers.codex.path` | string | `""` |  | Codex Program. The Codex program new chats run. Empty uses the one on your PATH. |
+| `agents.providers.codex.home` | string | `""` |  | Codex Home Folder. Where Codex keeps its settings and sign-in (CODEX_HOME). Empty uses ~/.codex. |
+| `agents.providers.codex.args` | array | `[]` |  | Codex Launch Arguments. Arguments added when cmux starts Codex, one per entry. |
+| `agents.providers.codex.env` | dictionary | `{}` |  | Codex Environment. Variables Codex starts with. Keep keys and tokens out: use cmux harness secret. |
 | `agents.cmuxMcp` | string | `"on"` | `on`, `off` | Give Agents cmux’s Tools. Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings. |
 | `agents.cmuxMcpClaude` | boolean | `true` |  | Use in Claude Code. Off: Claude Code you start in cmux never gets cmux’s tools, even when they are on. |
 | `agents.cmuxMcpCodex` | boolean | `true` |  | Use in Codex. Off: Codex you start in cmux never gets cmux’s tools, even when they are on. |

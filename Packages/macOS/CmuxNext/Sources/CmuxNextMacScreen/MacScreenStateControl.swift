@@ -1,6 +1,7 @@
 import AppKit
 public import CmuxNextControl
 import CmuxNextDevices
+import CmuxNextRemoteView
 import Foundation
 import CmuxNextSettings
 
@@ -36,7 +37,9 @@ import CmuxNextSettings
 extension MacScreenPages {
     /// The methods every build registers. The CLI's `app mac-screens` reads the first
     /// (`MAC_SCREENS_METHOD` in cmux-tui's cli/app.rs; a test holds the two equal).
-    nonisolated public static let releaseMethods = ["mac_screen.state"]
+    /// The second, `mac_screen.replay` {path, tab?, loops?}, plays a recorded screen share into a Screen
+    /// Sharing tab with no peer (`cmux app mac-screen-replay`, ``replayAnswer(_:)``).
+    nonisolated public static let releaseMethods = ["mac_screen.state", "mac_screen.replay"]
 
     /// Registers ``releaseMethods`` (every build) and `debug.mac_screen` (DEV builds;
     /// ``registerDebug(on:openTab:)`` says what `openTab` does).
@@ -52,6 +55,10 @@ extension MacScreenPages {
                 guard let self else { return .null }
                 return await stateAnswer(call.params)
             },
+            .async(Self.releaseMethods[1]) { [weak self] call in
+                guard let self else { return .null }
+                return await replayAnswer(call.params)
+            },
         ])
     }
 
@@ -59,7 +66,7 @@ extension MacScreenPages {
     func stateAnswer(_ params: [String: JSONValue]) -> JSONValue {
         let only = params["tab"]?.stringValue
         let rows = tabs.values
-            .filter { !$0.record.isHome && (only == nil || $0.key == only || events.storeTabID($0.key) == only) }
+            .filter { ($0.pane != nil || !$0.record.isHome) && (only == nil || $0.key == only || events.storeTabID($0.key) == only) }
             .sorted { $0.key < $1.key }
             .map { tab in
                 guard case var .object(row) = Self.stateRow(tab) else { return Self.stateRow(tab) }
@@ -67,6 +74,37 @@ extension MacScreenPages {
                 return .object(row)
             }
         return ["tabs": .array(rows), "hub": hubStateRow]
+    }
+
+    /// `mac_screen.replay` (every build): plays the movie at `path` (an MP4 the toolbar's Record wrote, or any
+    /// H.264 or HEVC movie) `loops` times through a Screen Sharing tab's decoder and presenter, with no
+    /// peer, so `mac_screen.state` reads that pane's Decode and Present (goal screen-share-viewer-present).
+    /// `tab` names the tab (its key or store id); without it, a tab on the home page. The tab's home page
+    /// gives way to the replay; Home or closing the tab ends it. Nothing connects or sends input.
+    func replayAnswer(_ params: [String: JSONValue]) async -> JSONValue {
+        guard let path = params["path"]?.stringValue, !path.isEmpty else { return ["error": "path names a movie file"] }
+        let only = params["tab"]?.stringValue
+        let tab = tabs.values.sorted { $0.key < $1.key }.first { tab in
+            if let only { return tab.key == only || events.storeTabID(tab.key) == only }
+            return tab.record.isHome && tab.pane == nil
+        }
+        guard let tab else { return ["error": "no Screen Sharing tab to play into (open one: cmux tab new-mac-screen)"] }
+        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        let source: RemoteMovieReplaySource
+        do {
+            source = try await RemoteMovieReplaySource.load(url, loops: max(1, params["loops"]?.intValue ?? 1))
+        } catch {
+            return ["error": .string("could not read \(url.lastPathComponent): \(error)")]
+        }
+        let key = tab.key
+        let pane = MacScreenPane(replay: source, name: url.lastPathComponent, preferences: defaultPreferences)
+        pane.handlers.closeTab = { [weak self] in self?.events.closeTab(key) }
+        pane.handlers.openHome = { [weak self] in self?.replace(key, with: MacScreenRecord(macID: nil)) }
+        tab.install(pane)
+        events.titleChanged(key)
+        return ["tab": .string(key), "store_tab": events.storeTabID(key).map(JSONValue.string) ?? .null,
+                "samples": .number(Double(source.samples.count)), "loops": .number(Double(source.loops)),
+                "frame": .string("\(source.width)x\(source.height)")]
     }
 
     /// This Mac's device hub as `mac_screen.state` reads it (every build): whether it runs, and
@@ -82,6 +120,9 @@ extension MacScreenPages {
         let me = hub.identity.id
         row["status"] = .string(Self.hubStatusName(hub.status))
         row["connection"] = .string(Self.connectionName(hub.connection))
+        // Why the last socket attempt failed (a timeout, a refused upgrade's status): a row that reads
+        // "reconnecting" for minutes says what to fix, not only that its socket is down.
+        row["connection_detail"] = Self.connectionDetail(hub.connection).map(JSONValue.string) ?? .null
         row["this_device"] = .string(me)
         row["registered"] = .bool(hub.thisDevice != nil)
         row["sharing"] = .bool(hubHost.isSharing)
@@ -114,6 +155,12 @@ extension MacScreenPages {
         case .removed: "removed"
         case .signedOut: "signed_out"
         }
+    }
+
+    /// The failure a `.reconnecting` socket recorded for its last attempt; nil in every other state.
+    static func connectionDetail(_ state: DeviceHubSocket.State) -> String? {
+        if case let .reconnecting(failure) = state { return String(failure.prefix(300)) }
+        return nil
     }
 
     static func stateRow(_ tab: MacScreenTab) -> JSONValue {
@@ -165,14 +212,17 @@ extension MacScreenPages {
         row["fps"] = .number((stats.fps * 10).rounded() / 10)
         row["target_fps"] = stats.targetFps.map { .number(Double($0)) } ?? .null
         row["rtt_ms"] = stats.latencyMs.map(JSONValue.number) ?? .null
-        row["frames_decoded"] = .number(stats.framesDecoded)
+        // The pane hears of presented frames in batches of 15; the batch not yet heard counts too,
+        // or a still screen's last frames read as never decoded (`screen_still` false).
+        let decoded = stats.framesDecoded + Double(session.frameCounter?.uncounted ?? 0)
+        row["frames_decoded"] = .number(decoded)
         row["frames_dropped"] = .number(stats.framesDropped)
         row["host_frames"] = stats.hostFrames.map(JSONValue.number) ?? .null
         let hostStatsAge = stats.hostStatsAt.map { (Date().timeIntervalSince($0) * 1000).rounded() }
         row["host_stats_age_ms"] = hostStatsAge.map(JSONValue.number) ?? .null
         row["screen_still"] = Self.screenStill(
             hostFrames: stats.hostFrames, hostStatsAgeMs: hostStatsAge,
-            decoded: stats.framesDecoded, dropped: stats.framesDropped
+            decoded: decoded, dropped: stats.framesDropped
         ).map(JSONValue.bool) ?? .null
         row["frame"] = .string("\(Int(session.frameSize.width))x\(Int(session.frameSize.height))")
         row["rtt_ms_window"] = summary(timings.rtt)
