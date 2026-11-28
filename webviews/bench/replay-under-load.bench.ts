@@ -300,6 +300,14 @@ async function run(): Promise<Reading> {
     const consoleTail: string[] = [];
     page.on("console", (m) => consoleTail.push(`${m.type()}: ${m.text()}`.slice(0, 300)));
     page.on("pageerror", (e) => consoleTail.push(`pageerror: ${e.message}`.slice(0, 300)));
+    page.on("response", (r) => {
+      if (r.status() >= 400) consoleTail.push(`http ${r.status()}: ${r.url()}`.slice(0, 300));
+    });
+    page.on("websocket", (ws) => {
+      consoleTail.push(`ws open: ${ws.url()}`.slice(0, 200));
+      ws.on("close", () => consoleTail.push("ws closed"));
+      ws.on("socketerror", (e) => consoleTail.push(`ws error: ${e}`.slice(0, 200)));
+    });
     await page.goto(url);
     try {
       await page.locator(PAINTER === "dom-floor" ? "#painter" : ".acpmux-scroll").waitFor({ timeout: 120_000 });
@@ -310,8 +318,12 @@ async function run(): Promise<Reading> {
       );
     }
     const want = PAINTER === "worker" ? 2 : 1;
+    const attachStart = Date.now();
     for (let tries = 0; sockets.size < want && tries < 600; tries++) await page.waitForTimeout(50);
-    if (sockets.size < want) throw new Error(`${log.name}: the pane never attached`);
+    if (sockets.size < want)
+      throw new Error(
+        `${log.name}: the pane never attached (${sockets.size}/${want} sockets after ${Date.now() - attachStart} ms); console: ${consoleTail.slice(-8).join(" | ")}`,
+      );
 
     // ---------- the replay: RATE records a second on the stand-in's clock, never waiting on a frame ----------
     let sent = 0;

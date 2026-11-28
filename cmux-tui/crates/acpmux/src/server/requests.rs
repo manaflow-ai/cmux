@@ -22,6 +22,7 @@ mod presets;
 mod queued;
 mod session_open;
 mod signature;
+mod start_reason;
 pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
 #[cfg(test)]
 #[path = "requests/hold_attach_tests.rs"]
@@ -1132,6 +1133,23 @@ fn created_by_stamp(hub: &Hub, conn: &Conn, params: &Value) -> Value {
 }
 
 pub(super) async fn handle_request(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    m: &str,
+    params: Value,
+    sender_token: Option<crate::sender_token::Presented>,
+) -> Result<Value, RpcError> {
+    let mut reply = Box::pin(handle_request_unstamped(hub, conn, m, params, sender_token)).await;
+    // Every `session/new` refusal says why in a short code (`requests/start_reason.rs`).
+    if m == method::SESSION_NEW
+        && let Err(error) = &mut reply
+    {
+        start_reason::stamp(error);
+    }
+    reply
+}
+
+async fn handle_request_unstamped(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     m: &str,
@@ -3872,19 +3890,18 @@ async fn dispatch_method(
                         .map_err(|e| RpcError::internal(format!("inbox search stopped: {e}")))?
                 }
                 method::MUX_INBOX_THREADS => {
-                    // Its held count reads the surge journal's tail from the log.
-                    let hub = Arc::clone(hub);
-                    tokio::task::spawn_blocking(move || Ok(hub.inbox_threads(&s)))
-                        .await
-                        .map_err(|e| RpcError::internal(format!("inbox listing stopped: {e}")))?
+                    // Its held count reads the surge journal's tail from the log: read here, off
+                    // the worker, not queued on the blocking pool. Under load the pool's queue
+                    // held this read behind every other blocking job (cosmic-gray, 2026-11-27:
+                    // `acpmux session inbox` 60 s+); the read itself takes no hub-wide lock.
+                    Ok(crate::qos::off_worker(|| hub.inbox_threads(&s)))
                 }
                 method::MUX_INBOX_THREAD => {
                     let mark = params.get("markRead").and_then(Value::as_bool).unwrap_or(false);
-                    let (hub, thread) = (Arc::clone(hub), thread()?.to_owned());
-                    // Held messages that left memory are read from the log (`inbox_surge.rs`).
-                    tokio::task::spawn_blocking(move || hub.inbox_thread_whole(&s, &thread, mark))
-                        .await
-                        .map_err(|e| RpcError::internal(format!("inbox read stopped: {e}")))?
+                    let thread = thread()?;
+                    // Held messages that left memory are read from the log (`inbox_surge.rs`),
+                    // off the worker and not behind the blocking pool's queue, as above.
+                    crate::qos::off_worker(|| hub.inbox_thread_whole(&s, thread, mark))
                 }
                 _ => {
                     let text = text_of("text")
@@ -4267,7 +4284,10 @@ async fn dispatch_method(
         | method::MUX_TEAM_LISTEN
         | method::MUX_TEAM_NAVIGATOR
         | method::MUX_TEAM_PICK
-        | method::MUX_TEAM_SESSION_INFO => super::team::handle(hub, conn, m, &params).await,
+        | method::MUX_TEAM_SESSION_INFO
+        | method::MUX_TEAM_CUSTOMIZATION
+        | method::MUX_TEAM_CUSTOMIZE
+        | method::MUX_TEAM_HANDOFF => super::team::handle(hub, conn, m, &params).await,
         method::MUX_REGISTER => {
             // Only a process of this machine, by the pid the kernel gave at accept: the session
             // registered is the one that process runs under, never one it names.

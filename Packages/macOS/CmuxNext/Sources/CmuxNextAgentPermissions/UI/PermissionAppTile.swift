@@ -6,13 +6,16 @@ import CmuxNextDesign
 /// file URL (what System Settings' lists accept).
 final class PermissionAppTile: NSView, NSDraggingSource {
     private let appURL: URL
+    /// The app's own icon, else Computer Use's (``ComputerUseAppIcon``): the row and its drag image.
+    private let image: NSImage
     private lazy var hover = ChromeHover(self)
 
     init(appURL: URL) {
         self.appURL = appURL
+        image = ComputerUseAppIcon.image(forApp: appURL)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        let icon = NSImageView(image: NSWorkspace.shared.icon(forFile: appURL.path))
+        let icon = NSImageView(image: image)
         icon.imageScaling = .scaleProportionallyUpOrDown
         let name = NSTextField(labelWithString: Self.displayName(appURL))
         name.font = .systemFont(ofSize: TypeScale.body, weight: TypeScale.emphasis)
@@ -62,7 +65,7 @@ final class PermissionAppTile: NSView, NSDraggingSource {
         hover.state.pressed = false
         let item = NSDraggingItem(pasteboardWriter: appURL as NSURL)
         item.setDraggingFrame(NSRect(x: 10, y: (bounds.height - 32) / 2, width: 32, height: 32),
-                              contents: NSWorkspace.shared.icon(forFile: appURL.path))
+                              contents: image)
         beginDraggingSession(with: [item], event: event, source: self)
     }
 
