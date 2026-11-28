@@ -24,7 +24,7 @@
 #                (the controller runs this script only at a landed commit; relaunch-restore.sh does the same)
 #   input=       who types (the check's --input): auto posts keys when this process holds the PostEvent grant and
 #                otherwise has the app type its own key: a terminal round's at its first frame (CMUX_NEXT_LAUNCH_TYPE_PROBE=1),
-#                a chat round's when the chat first drew (CMUX_NEXT_LAUNCH_TYPE_PROBE_CHAT=1)
+#                a chat round's when the live chat page first drew (CMUX_NEXT_LAUNCH_TYPE_PROBE_CHAT=1)
 #   load=busy    one `yes > /dev/null` per core through each measured launch (the check stops them, on any exit too)
 #   chats=N      chats in the session list (the l5 one and N - 1 more)
 #   launch=      open (default): LaunchServices, activated, as a Dock click; exec: the harness execs the app

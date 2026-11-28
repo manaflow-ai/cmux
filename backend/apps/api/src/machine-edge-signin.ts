@@ -1,6 +1,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers"
 import { mintAccessToken } from "./auth.ts"
 import { BASE_SPACE, spacedEnv } from "./build-space.ts"
+import { edgeGithubToken, type EdgeGithubTokenReply, type EdgeGithubTokenRequest } from "./integrations/github-token-route.ts"
 import type { Env, RawEnv } from "./env.ts"
 import { signInRules, ssoGate, versionRefusal } from "./policy-gate.ts"
 import type { RedeemResult } from "./user-do.ts"
@@ -56,5 +57,14 @@ export class MachineEdgeSignin extends WorkerEntrypoint<RawEnv> {
   async signIn(input: MachineEdgeSigninRequest): Promise<MachineEdgeSigninReply> {
     // A Cloud machine belongs to the base build space: a service-binding call carries none.
     return machineEdgeSignin(spacedEnv(this.env, BASE_SPACE), input)
+  }
+
+  /**
+   * A repository token for an edge machine's git or GitHub API call, from cmux-platform's egress when it holds no
+   * install token signer (github-token-route.ts edgeGithubToken: every gate of the edge path, and the edge must carry
+   * the machine). Reachable only over this account-local binding.
+   */
+  async githubToken(input: EdgeGithubTokenRequest): Promise<EdgeGithubTokenReply> {
+    return edgeGithubToken(spacedEnv(this.env, BASE_SPACE), input)
   }
 }
