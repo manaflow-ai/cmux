@@ -6430,10 +6430,7 @@ jobs:
 
       # 2026-11-28 06:29Z (Finish run 46116773791): this job's first gh call died on "API rate limit exceeded for
       # installation" because it had no waiter and no spare pool, while keep-published-dsyms beside it had both.
-      - *gh-app-token-read
-
-      - *gh-app-install-tooling
-
+      # No release App token here: its secrets live only in release/release-next, not this job's environment.
       - *wait-through-github-api-rate-l-2
 
       - name: Find the attempt that compiled the published build
