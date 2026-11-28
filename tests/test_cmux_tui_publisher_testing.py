@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -115,10 +116,13 @@ class WiringTests(unittest.TestCase):
         self.assertFalse(publisher.is_daemon_job(None))
 
     def test_the_pool_matches_the_daemon_test_job(self):
+        # The nightly path takes the one-job JIT label; anything else follows the overflow switch.
         runs_on = gate_runs_on(self.WORKFLOW)
-        self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}")
+        self.assertTrue(runs_on.endswith("&& 'cmux-gcp-nightly-jit-x64' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"), runs_on)
+        pool = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                "format('{0},cmux-gcp-nightly-jit-x64', vars.CI_OVERFLOW_LINUX || 'cmux-linux') }}")
         pools = [line.strip() for line in self.WORKFLOW.splitlines() if line.lstrip().startswith("DAEMON_POOL: ")]
-        self.assertEqual(pools, [f"DAEMON_POOL: {runs_on}"] * 2)
+        self.assertEqual(pools, [f"DAEMON_POOL: {pool}"] * 2)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

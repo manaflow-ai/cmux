@@ -20,10 +20,10 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 use crate::chief_policy::ChiefPolicy;
-use crate::cloud_acp::{Adapter as CloudAcpAdapter, Effects as CloudAcpEffects};
 use crate::config::{AcpmuxTarget, ServiceConfig};
 use crate::control;
 use crate::policy::{DaemonPolicy, MAXIMUM_LINE_BYTES, Verdict};
+use cmux_cloud_phone_acp::{Adapter as CloudAcpAdapter, Effects as CloudAcpEffects};
 
 /// Who opened the channel.
 #[derive(Debug, Clone)]
@@ -172,6 +172,7 @@ pub async fn serve_with_upload_timeout(
         "upload" => upload(&config, &peer, &args, &sender, receiver, upload_timeout).await,
         "bundle" => crate::bundle::serve(&config, &peer, &args, &sender, receiver).await,
         "version" => version(&config, &sender).await,
+        "api" => api(&config, &args, &sender).await,
         crate::lan::SERVICE => crate::lan::enroll(&peer, &args, &sender).await,
         "machine" => {
             let grants = machine_grants.and_then(Result::ok).unwrap_or_default();
@@ -306,7 +307,7 @@ const UPLOAD_PART_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(
 /// `bundle-v1`: the `bundle` service (attachment `put` and file `get` as sealed
 /// content-defined chunks, `bundle.rs`).
 /// The names are declared once in `cmux_mobile_link::names`.
-pub const CAPABILITIES: [&str; 14] = [
+pub const CAPABILITIES: [&str; 15] = [
     names::REMOVAL,
     names::FILE_PREVIEW,
     names::LOCALHOST_FORWARD,
@@ -321,6 +322,7 @@ pub const CAPABILITIES: [&str; 14] = [
     names::MAILBOX_SEND,
     names::BUNDLE,
     names::ZSTD_STREAM,
+    names::API_DESCRIBE,
 ];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = names::BROWSER_STREAM;
@@ -364,6 +366,14 @@ pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
         out.push(crate::try_pr::CAPABILITY);
     }
     out
+}
+
+/// `api`: this Mac's phone method list (api.rs).
+async fn api(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> Result<(), Refusal> {
+    let reply = crate::api::answer(args, &capabilities(config))
+        .map_err(|(code, reason)| Refusal::new(code, reason))?;
+    let _ = sender.send(Bytes::from(reply.to_string())).await;
+    Ok(())
 }
 
 async fn version(config: &ServiceConfig, sender: &ChannelSender) -> Result<(), Refusal> {
@@ -539,77 +549,30 @@ async fn cloud_acpmux(
     served
 }
 
-const MAX_CLOUD_NATIVE_LINE: usize = 8 * 1024 * 1024;
+const MAX_CLOUD_NATIVE_LINE: usize = cmux_cloud_phone_acp::MAX_NATIVE_LINE;
+
+fn cloud_refusal(fault: cmux_cloud_phone_acp::Fault) -> Refusal {
+    Refusal::new(fault.code, fault.message)
+}
 
 // The app already dialed the authenticated native carrier. Identify the VM's
-// supported policy before marking this connection mobile; an old daemon may
-// accept unknown client capabilities without enforcing them.
+// supported policy before marking this connection mobile
+// (`cmux_cloud_phone_acp::handshake`, which the Cloud machine's own link runs
+// for a phone that dials it directly).
 async fn cloud_mobile_handshake<R, W>(read: &mut R, write: &mut W) -> Result<(), Refusal>
 where
     R: tokio::io::AsyncBufRead + Unpin,
     W: tokio::io::AsyncWrite + Unpin,
 {
-    for request in [
-        serde_json::json!({"cmd":"identify","id":"cloud-mobile-identify"}),
-        serde_json::json!({"cmd":"set-client-info","id":"cloud-mobile-host",
-            "kind":"ios","device_kind":"iphone",
-            "capabilities":[names::CLOUD_MOBILE_CHAT,names::CONVERSATION_TABS,names::AGENT_SESSION_TABS]}),
-    ] {
-        write
-            .write_all(request.to_string().as_bytes())
-            .await
-            .map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
-        write.write_all(b"\n").await.map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
-        let bytes = read_cloud_line(read, &mut Vec::new()).await?;
-        let response: Value = serde_json::from_slice(&bytes)
-            .map_err(|_| Refusal::new("unavailable", "Cloud carrier returned an invalid handshake"))?;
-        if response.get("id") != request.get("id")
-            || response.get("ok").and_then(Value::as_bool) != Some(true)
-        {
-            return Err(Refusal::new("forbidden", "Cloud carrier refused mobile chat handshake"));
-        }
-        if request["cmd"] == "identify"
-            && !response
-                .pointer("/data/capabilities")
-                .and_then(Value::as_array)
-                .is_some_and(|caps| caps.iter().any(|cap| cap == names::CLOUD_MOBILE_CHAT))
-        {
-            return Err(Refusal::new(
-                "forbidden",
-                "Cloud machine does not support phone prompt restrictions",
-            ));
-        }
-    }
-    Ok(())
+    cmux_cloud_phone_acp::handshake(read, write).await.map_err(cloud_refusal)
 }
 
+// Cancel-safe: the partial line stays in `line` (`cmux_cloud_phone_acp::read_line`).
 async fn read_cloud_line<R: tokio::io::AsyncBufRead + Unpin>(
     reader: &mut R,
     line: &mut Vec<u8>,
 ) -> Result<Vec<u8>, Refusal> {
-    loop {
-        let chunk =
-            reader.fill_buf().await.map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
-        if chunk.is_empty() {
-            return Err(Refusal::new("unavailable", "Cloud carrier closed"));
-        }
-        let newline = chunk.iter().position(|byte| *byte == b'\n');
-        let take = newline.unwrap_or(chunk.len());
-        if line.len().saturating_add(take) > MAX_CLOUD_NATIVE_LINE {
-            return Err(Refusal::new("bad_request", "Cloud carrier line is too large"));
-        }
-        line.extend_from_slice(&chunk[..take]);
-        reader.consume(take + usize::from(newline.is_some()));
-        if newline.is_some() {
-            if line.last() == Some(&b'\r') {
-                line.pop();
-            }
-            return Ok(std::mem::take(line));
-        }
-        // Keep the accumulated bytes outside the future. If select! cancels this
-        // read while a phone frame arrives, the next poll resumes from this exact
-        // partial line instead of dropping it.
-    }
+    cmux_cloud_phone_acp::read_line(reader, line).await.map_err(cloud_refusal)
 }
 
 async fn apply_cloud_effects(
@@ -729,7 +692,9 @@ async fn daemon(
         &path,
         session,
         LinePolicy::Daemon(
-            DaemonPolicy::new(&peer.device_id).with_agent_tab_host(config.agent_tab_host.clone()),
+            DaemonPolicy::new(&peer.device_id)
+                .with_agent_tab_host(config.agent_tab_host.clone())
+                .with_strict(args.get("strict") == Some(&Value::Bool(true))),
         ),
         config.pairing.as_ref().map(|pairing| std::sync::Arc::clone(&pairing.spent_replies)),
         sender,
@@ -3525,7 +3490,8 @@ mod tests {
                 "phone-page-v1",
                 "mailbox-send-v1",
                 "bundle-v1",
-                "zstd-stream-v1"
+                "zstd-stream-v1",
+                "api-describe-v1"
             ]
         );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
@@ -3549,6 +3515,7 @@ mod tests {
                 "mailbox-send-v1",
                 "bundle-v1",
                 "zstd-stream-v1",
+                "api-describe-v1",
                 BROWSER_STREAM,
                 BROWSER_VIDEO_TRACK
             ]
