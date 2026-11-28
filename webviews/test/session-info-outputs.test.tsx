@@ -9,27 +9,25 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { Artifact } from "../src/agent-session/acpmux/conversation/artifactPreview";
-import { renderId } from "../src/agent-session/acpmux/conversation/renderCall";
-import { translate } from "../src/agent-session/acpmux/i18n";
-import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
-import {
-  DEFAULT_SECTIONS,
-  resetSessionInfoState,
-  setSessionInfoMore,
-} from "../src/agent-session/acpmux/session-info/sessionInfoState";
-import { OutputsSection } from "../src/agent-session/acpmux/session-info/OutputsSection";
-import {
-  OUTPUTS_SHOWN,
-  outputArtifacts,
-  outputLinks,
-} from "../src/agent-session/acpmux/session-info/outputsSectionModel";
-import { SummaryBody } from "../src/agent-session/acpmux/summary/SummaryBody";
 import type { SessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
-import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
-import { setChipHost } from "../src/agent-session/acpmux/chips/host";
-import { resetLinkStore } from "../src/agent-session/acpmux/chips/linkStore";
 import { until } from "./support/until";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { renderId } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/renderCall"));
+const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
+const { SessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/SessionInfo"));
+const { DEFAULT_SECTIONS, resetSessionInfoState, setSessionInfoMore } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/sessionInfoState"),
+);
+const { OutputsSection } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/OutputsSection"));
+const { OUTPUTS_SHOWN, outputArtifacts, outputLinks } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/outputsSectionModel"),
+);
+const { SummaryBody } = await importWithDom(() => import("../src/agent-session/acpmux/summary/SummaryBody"));
+const { activity, assistant, chat, tool } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { setChipHost } = await importWithDom(() => import("../src/agent-session/acpmux/chips/host"));
+const { resetLinkStore } = await importWithDom(() => import("../src/agent-session/acpmux/chips/linkStore"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

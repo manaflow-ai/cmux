@@ -24,7 +24,8 @@ concurrency:
 jobs:
   notice:
     if: github.event_name == 'schedule' || github.ref == 'refs/heads/feat-cmux-next'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    # An owned Mac first (no secret here), Blacksmith only as the CI_OVERFLOW_MAC overflow (tests/test_ci_paid_queue_pin.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
     timeout-minutes: 30
     steps:
       - name: Checkout cmux
