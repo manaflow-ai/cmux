@@ -2176,6 +2176,7 @@
 		8672E0068672E0068672E006 /* FeedIngressSynchronousResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672E0058672E0058672E005 /* FeedIngressSynchronousResult.swift */; };
 		B7F1000A0000000000000001 /* FeedJumpResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F1000A0000000000000002 /* FeedJumpResolver.swift */; };
 		FEEDC0DEC0DEC0DEC0DE0003 /* FeedJumpResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEDC0DEC0DEC0DEC0DE0004 /* FeedJumpResolverTests.swift */; };
+		B11D0FB6F52CA0976ECF6D84 /* FeedListDateFormatterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59885F573B55A4BD3CF7C32D /* FeedListDateFormatterTests.swift */; };
 		FEED0000000000000000F005 /* FeedPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F004 /* FeedPanelView.swift */; };
 		FEED0000000000000000F011 /* FeedPanelViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F010 /* FeedPanelViewModel.swift */; };
 		FEED0000000000000000F013 /* FeedPermissionActionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F012 /* FeedPermissionActionPolicy.swift */; };
@@ -6886,6 +6887,7 @@
 		8672E0058672E0058672E005 /* FeedIngressSynchronousResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedIngressSynchronousResult.swift; sourceTree = "<group>"; };
 		B7F1000A0000000000000002 /* FeedJumpResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedJumpResolver.swift; sourceTree = "<group>"; };
 		FEEDC0DEC0DEC0DEC0DE0004 /* FeedJumpResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedJumpResolverTests.swift; sourceTree = "<group>"; };
+		59885F573B55A4BD3CF7C32D /* FeedListDateFormatterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FeedListDateFormatterTests.swift"; sourceTree = "<group>"; };
 		FEED0000000000000000F004 /* FeedPanelView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPanelView.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F010 /* FeedPanelViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPanelViewModel.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F012 /* FeedPermissionActionPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPermissionActionPolicy.swift; sourceTree = "<group>"; };
@@ -14357,6 +14359,7 @@
 				4189B3FB78ACEE79AE12B1AA /* ChiefDisabledHomeTests.swift */,
 				2E93DBA33C7287FE3D7FA1BB /* NotificationPopoverRowLayoutTests.swift */,
 				C0C7EE23B232921D28CA56FD /* NotificationsPopoverDrawnRowsTests.swift */,
+				59885F573B55A4BD3CF7C32D /* FeedListDateFormatterTests.swift */,
 				C6BD7F10185DA1F7C53B33A3 /* RemoteTmuxHostSocketNameTests.swift */,
 				9A7B328A8031722C38545CA7 /* SafariCookieImportTests.swift */,
 			);
@@ -19032,6 +19035,7 @@
 				FEED49850000000000000001 /* FeedEventClassificationTests.swift in Sources */,
 				FEEDC1A50000000000000003 /* FeedEventClassifier.swift in Sources */,
 				FEEDC0DEC0DEC0DEC0DE0003 /* FeedJumpResolverTests.swift in Sources */,
+				B11D0FB6F52CA0976ECF6D84 /* FeedListDateFormatterTests.swift in Sources */,
 				330A15CE33CDB525DE207F7F /* FeedWaiterRegistryTests.swift in Sources */,
 				10200F1E0000000000000003 /* FileContentObserverTransferTests.swift in Sources */,
 				713341E6979D0C6102E25549 /* FileDropOverlayDragCompletionTests.swift in Sources */,

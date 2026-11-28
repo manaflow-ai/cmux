@@ -97,8 +97,10 @@ extension TerminalController {
         var datedRows: [(date: Date, id: String, row: [String: Any])] = []
         datedRows.reserveCapacity(min(visibleItems.count, Self.mobileFeedMaximumItemCount))
         var resolvedTargets: [String: FeedJumpResolver.Target?] = [:]
+        let isoFormatter = ISO8601DateFormatter()
         for item in visibleItems {
-            datedRows.append((item.createdAt, item.id.uuidString, mobileFeedRow(for: item, resolvedTargets: &resolvedTargets)))
+            let row = mobileFeedRow(for: item, resolvedTargets: &resolvedTargets, isoFormatter: isoFormatter)
+            datedRows.append((item.createdAt, item.id.uuidString, row))
         }
         datedRows.sort {
             if $0.date != $1.date { return $0.date > $1.date }
@@ -121,9 +123,10 @@ extension TerminalController {
     /// routing and context fields.
     private func mobileFeedRow(
         for item: WorkstreamItem,
-        resolvedTargets: inout [String: FeedJumpResolver.Target?]
+        resolvedTargets: inout [String: FeedJumpResolver.Target?],
+        isoFormatter: ISO8601DateFormatter
     ) -> [String: Any] {
-        var dict = FeedSocketEncoding.itemDict(item)
+        var dict = FeedSocketEncoding.itemDict(item, isoFormatter: isoFormatter)
         // `id` is the durable event identity. Keep an explicit alias in the
         // mobile contract so a reply can name the exact event without
         // overloading request IDs (which only exist for blocking prompts).
@@ -133,7 +136,7 @@ extension TerminalController {
                 reply.text,
                 limitedToUTF8Bytes: Self.mobileFeedContextByteLimit
             )
-            dict["replied_at"] = ISO8601DateFormatter().string(from: reply.createdAt)
+            dict["replied_at"] = isoFormatter.string(from: reply.createdAt)
         }
 
         // The control-socket encoding ships the agent's raw ExitPlanMode tool
