@@ -132,6 +132,7 @@ import { constants as osConstants, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
+import { codeword, deviceHome as memoryDeviceHome, follow as memoryFollow, PROMPT as MEMORY_PROMPT, push as memoryPush, PUSH_STEP as MEMORY_PUSH_STEP, REPLY_STEP as MEMORY_REPLY_STEP, replyNamesCodeword } from "./cloud-memory-codeword.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
 import { parseRepoSeed, REPO_SEED_STEP, repoSeedDetail, repoSeedRuns, repoSeedScripts } from "./cloud-journey-repo-seed.ts";
 import { EXEC_CONFORMANCE_CARGO_CASE, EXEC_CONFORMANCE_STEP, execConformanceCargoInstall, execConformanceCase, execConformanceOn, execConformanceProbe, parseCaseNames, parseRows, rowText, verdict } from "./cloud-journey-exec-conformance.ts";
@@ -5545,6 +5546,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const startVia = argValue("--start-via", argv) ?? "acp";
   if (startVia !== "acp" && startVia !== "app") throw new Error(`--start-via ${startVia}: acp or app`);
   if (startVia === "app" && !cmux) throw new Error("--start-via app needs --cmux PATH: the app's start goes over the carrier dial");
+  // --memory-codeword: the agent-memory row (cloud-memory-codeword.ts): a user CLAUDE.md with this run's codeword is
+  // pushed from a device home before the machine exists, and the app-started chat's first reply must name it.
+  const memoryCodeword = argv.includes("--memory-codeword") ? codeword() : null;
+  if (memoryCodeword && startVia !== "app") throw new Error("--memory-codeword needs --start-via app: the row proves the app's fresh Cloud chat");
   // --home-chat reserved measures the app's first home chat, after a reserved ticket was warmed on a keyed spare.
   const homeChat = argValue("--home-chat", argv) ?? "none";
   if (homeChat !== "none" && homeChat !== "reserved") throw new Error(`--home-chat ${homeChat}: none or reserved`);
@@ -6151,6 +6156,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `warm-home could not run: ${String((error as Error)?.message ?? error).slice(0, 300)}` });
         }
       }
+    }
+    if (memoryCodeword) {
+      // Before the machine exists, so the only way its chat can know the codeword is the start's pull of the head.
+      await J.step(MEMORY_PUSH_STEP, async () => {
+        const platform = clientPlatformOrigin((await api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
+        const { home, record } = memoryDeviceHome(memoryCodeword);
+        const f = await memoryFollow(platform, install.token);
+        if (!f.ok) throw new Error(scrub(f.detail, J.secrets));
+        const r = memoryPush(cmux!, platform, install.token, home, record);
+        if (!r.ok) throw new Error(scrub(r.detail, J.secrets));
+        return { value: null, detail: `${f.detail}; ${r.detail} at ${platform} (user CLAUDE.md, codeword ${memoryCodeword})` };
+      }).catch(() => undefined);
     }
     const created = reuse
       ? await J.step("use machine", async () => {
@@ -6990,23 +7007,45 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     } else if (startVia === "app") {
       // The Cloud picker's start, as the app sends it: a chat tab on the machine, then agent-session-start with the
       // harness and the owner word. A started session passes; a refusal fails the step with its code and data.harness.
-      await J.step(`start agent (${agent})`, async () => {
-        const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
-        const chat = new ChatClient({
-          cmux: cmux!, machine: created.id, team: api.team, exec, guest: GUEST, session, tag, harness: agent,
-          env: { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer },
-          log: (line) => console.log(scrub(line, J.secrets)),
-        });
-        try {
+      const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
+      const chat = new ChatClient({
+        cmux: cmux!, machine: created.id, team: api.team, exec, guest: GUEST, session, tag, harness: agent,
+        env: { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer },
+        log: (line) => console.log(scrub(line, J.secrets)),
+      });
+      try {
+        const started = await J.step(`start agent (${agent})`, async () => {
           await chat.openTab(agent);
-          const outcome = appStartDetail(await chat.start(agent));
+          // The codeword row prompts the chat it started, so it attaches as the app does before its first send.
+          const reply = memoryCodeword ? await chat.startAttached(agent) : await chat.start(agent);
+          const outcome = appStartDetail(reply);
           if (!outcome.ok) throw new Error(outcome.detail);
-          return { value: null, detail: outcome.detail };
-        } finally {
-          chat.stop();
+          return { value: String(reply?.data?.session ?? ""), detail: outcome.detail };
+        }).catch(() => null);
+        if (!memoryCodeword) {
+          for (const step of ["send chat", "reply"]) J.skip(step, "--start-via app: the cell judges the app's start");
+        } else if (!started) {
+          for (const step of ["send chat", "reply", MEMORY_REPLY_STEP]) J.skip(step, `start agent (${agent}) did not start a session`);
+        } else {
+          // The fresh chat's first turn: the prompt names no codeword, so only the carried CLAUDE.md can supply it.
+          session = started;
+          const last = await J.step("send chat", async () => {
+            await chat.prompt(MEMORY_PROMPT, `codeword-${tag}`, Date.now() + chatBudget);
+            return { value: null, detail: `${MEMORY_PROMPT} (over the app's carrier chat)` };
+          }).then(() => J.step("reply", async () => {
+            const text = await awaitReply();
+            return { value: text, detail: text.slice(0, 280) };
+          })).catch(() => null);
+          if (last === null) J.skip(MEMORY_REPLY_STEP, "no reply to judge");
+          else await J.step(MEMORY_REPLY_STEP, async () => {
+            const judged = replyNamesCodeword(last, memoryCodeword);
+            if (!judged.ok) throw new Error(judged.detail);
+            return { value: null, detail: judged.detail };
+          }).catch(() => undefined);
         }
-      }).catch(() => undefined);
-      for (const step of ["send chat", "reply"]) J.skip(step, "--start-via app: the cell judges the app's start");
+      } finally {
+        chat.stop();
+      }
     } else {
       // The owner read rides the start's own exec (startAfterOwnerKind): one trip to the machine, not two. Its step
       // is still recorded, with its guest ms; a record that is not owner yet falls back to ownerKindStep's wait.
