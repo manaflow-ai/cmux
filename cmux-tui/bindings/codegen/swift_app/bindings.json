@@ -596,9 +596,19 @@
             "moves and comes to the front. Build it from a `FloatingPaneSnapshot.Frame` with",
             "`init(pane:mode:frame:transaction:)`."
           ],
-          "order": ["pane", "mode", "x", "y", "w", "h", "transaction"],
+          "order": [
+            "pane",
+            "mode",
+            "x",
+            "y",
+            "w",
+            "h",
+            "transaction"
+          ],
           "fields": {
-            "mode": { "type": "Mode" }
+            "mode": {
+              "type": "Mode"
+            }
           },
           "response": "hand-written"
         },
@@ -1372,7 +1382,32 @@
               "type": "DaemonGeneration"
             }
           },
-          "response": "hand-written"
+          "response": "generate",
+          "response_order": [
+            "accepted",
+            "pid",
+            "generation",
+            "ended_terminals"
+          ],
+          "response_fields": {
+            "accepted": {
+              "type": "Bool",
+              "optional": true
+            },
+            "pid": {
+              "type": "Int32",
+              "optional": true
+            },
+            "generation": {
+              "type": "DaemonGeneration",
+              "optional": true
+            },
+            "ended_terminals": {
+              "doc": [
+                "Terminals ended before the handoff (`end_terminals`)."
+              ]
+            }
+          }
         },
         "set-default-colors": {
           "name": "SetDefaultColorsRequest",
@@ -1449,7 +1484,23 @@
         },
         "remote-host-app": {
           "name": "RemoteHostAppRequest",
-          "response": "hand-written"
+          "response": "generate",
+          "response_order": [
+            "socket",
+            "secret",
+            "host_pid"
+          ],
+          "response_fields": {
+            "secret": {
+              "doc": [
+                "The app socket's secret for this app's own process. Never log or store it."
+              ]
+            },
+            "host_pid": {
+              "name": "hostPID",
+              "type": "Int32"
+            }
+          }
         },
         "subscribe": {
           "name": "SubscribeRequest",
@@ -1500,6 +1551,48 @@
             "approve"
           ],
           "response": "hand-written"
+        }
+      },
+      "objects": {
+        "BrowserHostProviderResult": {
+          "result": "browser-host-provider",
+          "doc": [
+            "`browser-host-provider` data: the provider credentials of the daemon's browser host. The secret must never be logged or stored."
+          ],
+          "order": [
+            "socket",
+            "secret",
+            "host_pid",
+            "listener_pid"
+          ],
+          "fields": {
+            "socket": {
+              "doc": [
+                "The provider socket (`browser-host-provider.sock`)."
+              ]
+            },
+            "secret": {
+              "doc": [
+                "The host launch's provider secret."
+              ]
+            },
+            "host_pid": {
+              "name": "hostPID",
+              "type": "Int32",
+              "doc": [
+                "The host process."
+              ]
+            },
+            "listener_pid": {
+              "name": "listenerPID",
+              "type": "Int32",
+              "optional": true,
+              "doc": [
+                "The process that holds the listening socket (the daemon under socket activation);",
+                "absent from older daemons. Send the secret only to a peer that is one of the two."
+              ]
+            }
+          }
         }
       }
     },
@@ -2172,6 +2265,129 @@
             "Why `close-tabs` closes its tabs (`close-reason-v1`)."
           ]
         }
+      },
+      "objects": {
+        "SetTerminalKeepResult": {
+          "result": "set-terminal-keep",
+          "doc": [
+            "`set-terminal-keep` data."
+          ],
+          "order": [
+            "terminal_id",
+            "keep",
+            "terminal_resource_id"
+          ],
+          "fields": {
+            "terminal_id": {
+              "type": "TerminalID"
+            },
+            "terminal_resource_id": {
+              "type": "ResourceID",
+              "doc": [
+                "The terminal's public id (`term_…`, a separate random id), which",
+                "`attach-identity-v1` resolves."
+              ]
+            }
+          }
+        },
+        "SetTerminalTailPinResult": {
+          "result": "set-terminal-tail-pin",
+          "doc": [
+            "`set-terminal-tail-pin` data."
+          ],
+          "order": [
+            "terminal",
+            "pinned"
+          ],
+          "fields": {
+            "terminal": {
+              "doc": [
+                "The terminal's public id (`term_…`)."
+              ]
+            }
+          }
+        },
+        "TerminalLastCommandResult": {
+          "result": "terminal-last-command",
+          "doc": [
+            "`terminal-last-command` data: the terminal and its last command, if any."
+          ],
+          "order": [
+            "terminal_id",
+            "last_command"
+          ],
+          "fields": {
+            "terminal_id": {
+              "type": "TerminalID",
+              "doc": [
+                "The terminal's host id."
+              ]
+            },
+            "last_command": {
+              "doc": [
+                "The newest finished command; nil while recording is off, for an",
+                "incognito terminal and before the shell finished a command."
+              ]
+            }
+          }
+        },
+        "TerminalLastCommand": {
+          "type": "TerminalLastCommand",
+          "doc": [
+            "One finished command line."
+          ],
+          "order": [
+            "command",
+            "exit_code",
+            "started_at_ms",
+            "ended_at_ms"
+          ],
+          "fields": {
+            "exit_code": {
+              "doc": [
+                "Its exit status; nil when the shell reported none."
+              ]
+            },
+            "started_at_ms": {
+              "doc": [
+                "When it started, Unix epoch milliseconds as a decimal string."
+              ]
+            },
+            "ended_at_ms": {
+              "doc": [
+                "When it ended, Unix epoch milliseconds as a decimal string."
+              ]
+            },
+            "command": {
+              "doc": [
+                "The command line as the shell submitted it."
+              ]
+            }
+          }
+        },
+        "TerminalResumeCommandResult": {
+          "result": "terminal-resume-command",
+          "doc": [
+            "`terminal-resume-command` data: the stored resume command after the request."
+          ],
+          "order": [
+            "terminal_id",
+            "command"
+          ],
+          "fields": {
+            "terminal_id": {
+              "type": "TerminalID",
+              "doc": [
+                "The terminal's host id."
+              ]
+            },
+            "command": {
+              "doc": [
+                "The stored command, nil when none is set."
+              ]
+            }
+          }
+        }
       }
     },
     "TerminalIO": {
@@ -2294,6 +2510,24 @@
             }
           },
           "response": "hand-written"
+        }
+      },
+      "objects": {
+        "TerminalClipboardReplyResult": {
+          "result": "terminal-clipboard-reply",
+          "doc": [
+            "`terminal-clipboard-reply` data."
+          ],
+          "order": [
+            "accepted",
+            "granted"
+          ]
+        },
+        "TerminalClipboardSubscribeResult": {
+          "result": "terminal-clipboard-subscribe",
+          "doc": [
+            "`terminal-clipboard-subscribe` data."
+          ]
         }
       }
     },
@@ -2543,7 +2777,7 @@
             "`conversation-search` (`conversation-search-v1`): Home-only search over the",
             "text of the caller's conversations, newest first (the shared read model)."
           ],
-          "response": "hand-written",
+          "response": "generate",
           "order": [
             "query",
             "limit"
@@ -2839,6 +3073,21 @@
               ]
             }
           }
+        },
+        "ConversationSearchHit": {
+          "type": "ConversationSearchHit",
+          "doc": [
+            "One `conversation-search` hit."
+          ],
+          "order": [
+            "conversation",
+            "title",
+            "seq",
+            "message_id",
+            "author",
+            "created_at",
+            "snippet"
+          ]
         }
       }
     },
