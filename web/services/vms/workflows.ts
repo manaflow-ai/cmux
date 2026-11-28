@@ -79,6 +79,7 @@ import {
   VmCreateDisabledError,
   VmCreateFailedError,
   VmCreateInProgressError,
+  VmCreateWaitingError,
   VmDatabaseError,
   VmFreeAccessExpiredError,
   VmFileNotFoundError,
@@ -124,6 +125,15 @@ import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "./plan
 import { GO_PAUSE_INTENT_KEY } from "./goPause";
 import { networkSlugForTeam, networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
 import { admitNetworkAddress } from "./networkAdmission";
+import {
+  createWaitFromMetadata,
+  createWaitStateForCause,
+  isCreateWaitExpired,
+  nextCreateWait,
+  VM_CREATE_WAIT_EXPIRED_FAILURE_CODE,
+  VM_CREATE_WAIT_MAX_MS,
+  VM_CREATE_WAIT_RETRY_AFTER_SECONDS,
+} from "./createWait";
 import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
 import { detachNetworkTunnels } from "./teamNetworkAccess";
 import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
@@ -1269,6 +1279,53 @@ function existingCreateRetry(
   );
 }
 
+/**
+ * The explicit wait of one create (services/vms/createWait.ts). `expired` is
+ * the terminal failure for a same-key retry whose earlier wait ran out;
+ * `waitOrFail` turns a no-room refusal of an opted-in create into a recorded
+ * wait and a `VmCreateWaitingError`, and passes every other error through.
+ */
+function createWaitScope(
+  repo: VmRepositoryShape,
+  input: Pick<CreateVmInput, "waitForCapacity" | "provider">,
+  idempotencyKey: string | undefined,
+  existingRetry: CloudVmRow | null,
+) {
+  const enabled = !!input.waitForCapacity && !!idempotencyKey && !idempotencyKey.startsWith(SANDBOX_VM_IDEMPOTENCY_PREFIX)
+    && !!repo.recordCreateWait;
+  const previous = enabled && existingRetry && existingRetry.status === "failed"
+    ? createWaitFromMetadata(existingRetry.providerMetadata)
+    : null;
+  const expired = previous && isCreateWaitExpired(previous, Date.now())
+    ? new VmCreateFailedError({
+      idempotencyKey: idempotencyKey ?? "",
+      code: VM_CREATE_WAIT_EXPIRED_FAILURE_CODE,
+      message: `no ${previous.state === "waiting_for_address" ? "private network address" : "start capacity"} freed within ${Math.round(VM_CREATE_WAIT_MAX_MS / 60_000)} minutes of waiting`,
+    })
+    : null;
+  const waitOrFail = <E>(rowId: string, error: E): Effect.Effect<never, E | VmCreateWaitingError> => {
+    const cause = (error as { cause?: unknown } | null)?.cause;
+    const state = enabled ? createWaitStateForCause(cause) : null;
+    if (!state || !repo.recordCreateWait) return Effect.fail(error);
+    const now = Date.now();
+    const wait = nextCreateWait(state, previous, now);
+    if (isCreateWaitExpired(wait, now)) return Effect.fail(error);
+    return repo.recordCreateWait({ id: rowId, wait }).pipe(
+      Effect.catchAll(() => Effect.succeed(false)),
+      Effect.flatMap((recorded): Effect.Effect<never, E | VmCreateWaitingError> => recorded
+        ? Effect.fail(new VmCreateWaitingError({
+          idempotencyKey: idempotencyKey ?? "",
+          state: wait.state,
+          since: wait.since,
+          deadline: wait.deadline,
+          retryAfterSeconds: VM_CREATE_WAIT_RETRY_AFTER_SECONDS,
+        }))
+        : Effect.fail(error)),
+    );
+  };
+  return { expired, waitOrFail };
+}
+
 /** Return the largest memory request from the create inputs. */
 function requestedCreateMemory(input: { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }) {
   return Math.max(input.memoryMb ?? 0, input.imageSize?.memoryMb ?? 0, input.resourceReservation?.memoryMb ?? 0);
@@ -1436,6 +1493,12 @@ type CreateVmInput = {
    * failure is already ignored. Without it the row is written inline.
    */
   readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
+  /**
+   * Queue instead of failing when the private network has no free address or
+   * the provider has no start capacity (services/vms/createWait.ts). Needs an
+   * idempotency key: the same-key retry is what starts the machine.
+   */
+  readonly waitForCapacity?: boolean;
 };
 
 /** Build the repository reservation and entitlement inputs for a new VM row. */
@@ -1489,6 +1552,8 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
     }
     const existingEntry = yield* existingCreateRetry(repo, providers, existingRetry, idempotencyKey);
     if (existingEntry) return existingEntry;
+    const createWait = createWaitScope(repo, input, idempotencyKey, existingRetry);
+    if (createWait.expired) return yield* Effect.fail(createWait.expired);
     let runtimeBudgetSeconds: number | undefined;
     if (!existingRetry || isFailedVmCreate(existingRetry) || existingRetry.status === "destroyed") {
       runtimeBudgetSeconds = yield* requirePlanCreate(input);
@@ -1568,7 +1633,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
         message: errorMessage(admission.left.cause),
       }).pipe(Effect.catchAll(() => Effect.void));
-      return yield* Effect.fail(admission.left);
+      return yield* createWait.waitOrFail(create.vm.id, admission.left);
     }
 
     // A failed row may have become retryable between the preflight lookup and
@@ -1674,6 +1739,9 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
           }),
         ], { discard: true })), Effect.catchAll(() => Effect.void))
       ),
+      // A start-capacity refusal left nothing on the provider and the row is
+      // failed and refunded above; an opted-in create waits instead.
+      Effect.catchAll((err) => createWait.waitOrFail(create.vm.id, err)),
     );
 
     yield* markCreateNetworkPolicyApplied(repo, input, create.vm.id);
