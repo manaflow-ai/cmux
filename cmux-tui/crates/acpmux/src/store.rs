@@ -53,6 +53,7 @@ mod text_index;
 pub use shared_value::{SharedRows, SharedText, SharedValue};
 
 mod session_records;
+pub(crate) use session_records::ClaudeTokenRecovery;
 pub use session_records::{
     ApprovedPlan, AwayRecap, CapacityFallback, EventRecord, ForkBefore, ForkRequest, ForkStart,
     LastReturn, NewestWindow, SessionStatus, TerminalDriver, TerminalInput, WaitReason,

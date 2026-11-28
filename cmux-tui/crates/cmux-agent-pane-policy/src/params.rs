@@ -91,7 +91,12 @@ pub fn breaks_params_rule(
     }
     // A start's model is a spawn parameter (Claude Code's `--model`, `${model}`
     // in a harness's argv or env): one model id, never a flag or anything else.
-    method == "session/new" && acpmux.get("model").is_some_and(|m| !is_model_id(m))
+    method == "session/new"
+        && (acpmux.get("model").is_some_and(|m| !is_model_id(m))
+            || acpmux.get("cloudRegistryId").is_some_and(|registry| {
+                registry.as_str().is_none_or(|id| id.is_empty() || id.len() > 128)
+                    || acpmux.get("peer").and_then(Value::as_str).is_none_or(str::is_empty)
+            }))
 }
 
 /// The one `_meta` key besides `acpmux` any request may carry: the W3C trace
