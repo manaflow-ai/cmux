@@ -29,6 +29,9 @@ impl Hub {
                 );
                 o.insert("iconSpec".into(), json!(icon));
                 o.insert("family".into(), json!(family));
+                if crate::byo_endpoint::Kind::of_env(&p.env).is_some() {
+                    o.insert("endpoint".into(), json!(true));
+                }
                 // What a remote device (a phone) may start with it: the modes
                 // a session it starts runs in, the start mode first, or why
                 // not (`web_modes::remote_start`, the remote guard's rules).

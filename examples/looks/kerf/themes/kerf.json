@@ -5,7 +5,7 @@
 // reading size, your prompt in a hairline box, tool calls as one-line rows.
 {
   "name": "Kerf",
-  "description": "A fast editor, dark: One-like slate, one-pixel chrome, a dense project panel, a sky-blue accent.",
+  "description": "Dark: cool slate, tight and flat, a sky-blue accent.",
 
   // A neutral base the ghostty block below repaints whole: the editor slate, the One ink, the blue
   // cursor, the editor selection and all sixteen ANSI colors. The window follows it.

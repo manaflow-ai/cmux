@@ -391,6 +391,9 @@ jobs:
         id: plan
         env:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          # Reads go on with the run's token and the CI pool Apps once GH_TOKEN's hour is spent (perf-cron.py
+          # read_tokens; each token once), and only past all of them does --wait-limit wait for a reset.
+          PERF_CRON_POOL_TOKENS: ${{ github.token }} ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           MAC_GATEWAY: ${{ vars.CI_PERF_CRON_GATEWAY }}
           MAC_CONTROLLER: ${{ vars.CMUX_NEXT_PERF_CRON_CONTROLLER }}
           LINUX_CONTROLLER: ${{ vars.CMUX_NEXT_PERF_CRON_LINUX_CONTROLLER }}
@@ -434,7 +437,7 @@ jobs:
     needs: plan
     # Its own gateway label only (see the top of this file); unset, this job is skipped.
     if: ${{ needs.plan.outputs.action == 'part' && needs.plan.outputs.part != '' && vars.CI_PERF_CRON_GATEWAY != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_PERF_CRON_GATEWAY (#54437)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_PERF_CRON_GATEWAY (#54437)
     permissions:
       contents: read
     # The plan sizes both timeouts from the part's run_seconds (perf-cron.py part_minutes: fleet-check, the
@@ -717,6 +720,8 @@ jobs:
         id: report
         env:
           GH_TOKEN: ${{ github.token }}
+          # Reads go on with the CI pool Apps once the repo's GITHUB_TOKEN hour is spent (perf-cron.py read_tokens).
+          PERF_CRON_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           PART: ${{ needs.measure.result != 'skipped' && needs.plan.outputs.part || '' }}
           RESULT_PARTS: ${{ needs.plan.outputs.action == 'result' && needs.plan.outputs.result_parts || '' }}
           LINUX_MATRIX: ${{ needs.linux.result != 'skipped' && needs.plan.outputs.linux_matrix || '[]' }}
@@ -754,6 +759,8 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          # Reads go on with the CI pool Apps once the repo's GITHUB_TOKEN hour is spent (perf-cron.py read_tokens).
+          PERF_CRON_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
         run: |
           set -euo pipefail
           gh workflow run cmux-next-frame-pacing.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f ref=feat-cmux-next
@@ -787,4 +794,6 @@ jobs:
         if: ${{ steps.report.outputs.next_now == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
+          # Reads go on with the CI pool Apps once the repo's GITHUB_TOKEN hour is spent (perf-cron.py read_tokens).
+          PERF_CRON_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
         run: python3 -I scripts/cmux-next/perf-cron.py dispatch-next --repo "$GITHUB_REPOSITORY"
