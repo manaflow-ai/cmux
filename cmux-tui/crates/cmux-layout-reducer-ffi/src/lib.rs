@@ -10,9 +10,11 @@
 //! checks, `cmux-focus-core`'s per-key rules, `imessage`, `mobile_host`), and every other op,
 //! which belongs to an op module: a file in `src/` with `handles` and `respond`, whose own
 //! `//!` says which ops it answers and which crate's rules they are (such as
-//! `cmux-window-rules`' first-run step rules and external open router
-//! (`onboarding_steps_*`: the Computer Use and Agents steps, where a URL or
-//! file macOS hands cmux goes)).
+//! `cmux-window-rules`' first-run rules (`onboarding_first_run_*`: the
+//! project scan's order, the Set Up card's route and form, the classic
+//! migration's next step) and its first-run step rules and external open
+//! router (`onboarding_steps_*`: the Computer Use and Agents steps, where a
+//! URL or file macOS hands cmux goes)).
 //!
 //! Adding a module is adding its file: build.rs writes every module's `mod` line and the op
 //! modules' dispatch, so no list in this file grows (see build.rs).
