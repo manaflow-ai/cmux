@@ -38,36 +38,60 @@ public final class HomePinMigration {
         }
     }
 
-    /// Moves the pins kept here for rows `inbox` lists; drops at once the ones it already pins.
+    /// Moves the pins kept here for rows `inbox` lists; drops at once the ones it already pins
+    /// (`dock.pin_migration_run`).
     func run(_ inbox: HomeInboxSource) {
-        guard let reply = inbox.reply, reply.cloud != "unavailable", !reply.rows.isEmpty else { return }
+        guard let reply = inbox.reply else { return }
         let account = account()
         let kept = store.pins(account: account)
-        let listed = Dictionary(reply.rows.map { ($0.id, $0.pinned) }, uniquingKeysWith: { first, _ in first })
-        let open = { (id: String) in listed[id] != nil && !self.sending.contains(id) && !self.refused.contains(id) }
-        let pins = kept.pinned.map(\.rawValue).filter(open)
+        let request = RunRequest(cloud: reply.cloud, rows: reply.rows.map { PinRow(id: $0.id, pinned: $0.pinned) },
+                                 kept: kept.pinned.map(\.rawValue), sending: sending.sorted(), refused: refused.sorted())
+        let plan: RunPlan = dockRule("dock.pin_migration_run", request, fallback: RunPlan(drop: [], send: [], sending: request.sending))
         // Already pinned there: nothing to send, this Mac's copy goes.
-        let same = pins.filter { listed[$0] == true }
-        if !same.isEmpty { drop(same, account: account) }
-        let ids = pins.filter { listed[$0] == false }
+        if !plan.drop.isEmpty { drop(plan.drop, account: account) }
+        let ids = plan.send
         guard !ids.isEmpty else { return }
-        sending.formUnion(ids)
+        sending = Set(plan.sending)
         inbox.adopt(pins: ids) { [weak self] accepted in
             guard let self else { return }
-            sending.subtract(ids)
-            refused.formUnion(Set(ids).subtracting(accepted))
-            if !accepted.isEmpty { drop(accepted, account: account) }
+            let answer: Adopted = dockRule("dock.pin_migration_adopted",
+                                           AdoptedRequest(ids: ids, accepted: accepted, sending: sending.sorted(), refused: refused.sorted()),
+                                           fallback: Adopted(sending: sending.subtracting(ids).sorted(), refused: refused.sorted(), drop: []))
+            sending = Set(answer.sending)
+            refused = Set(answer.refused)
+            if !answer.drop.isEmpty { drop(answer.drop, account: account) }
         }
     }
 
-    /// Takes `ids` out of this Mac's pins for `account`.
+    /// Takes `ids` out of this Mac's pins for `account` (`dock.pin_drop`; its unpins stay).
     private func drop(_ ids: [String], account: String) {
-        let gone = Set(ids)
         var pins = store.pins(account: account)
-        pins.pinned.removeAll { gone.contains($0.rawValue) }
-        pins.positions = pins.positions.filter { !gone.contains($0.key) }
+        let kept: StoredPins = dockRule("dock.pin_drop",
+                                        DropRequest(pins: StoredPins(pinned: pins.pinned.map(\.rawValue), positions: pins.positions), gone: ids),
+                                        fallback: StoredPins(pinned: pins.pinned.map(\.rawValue), positions: pins.positions))
+        pins.pinned = kept.pinned.map { ConversationID($0) }
+        pins.positions = kept.positions
         store.save(pins, account: account)
     }
+
+    private nonisolated struct PinRow: Encodable { var id: String; var pinned: Bool }
+    private nonisolated struct RunRequest: Encodable {
+        var cloud: String?
+        var rows: [PinRow]
+        var kept: [String]
+        var sending: [String]
+        var refused: [String]
+    }
+    private nonisolated struct RunPlan: Decodable { var drop: [String]; var send: [String]; var sending: [String] }
+    private nonisolated struct AdoptedRequest: Encodable {
+        var ids: [String]
+        var accepted: [String]
+        var sending: [String]
+        var refused: [String]
+    }
+    private nonisolated struct Adopted: Decodable { var sending: [String]; var refused: [String]; var drop: [String] }
+    private nonisolated struct StoredPins: Codable { var pinned: [String]; var positions: [String: UInt64] }
+    private nonisolated struct DropRequest: Encodable { var pins: StoredPins; var gone: [String] }
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// DEBUG (`debug.home.drive {action: legacy_pins}`): the pins this Mac keeps for the account, after

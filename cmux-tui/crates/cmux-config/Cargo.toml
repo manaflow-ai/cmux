@@ -20,8 +20,13 @@ cmux-app-host.workspace = true
 cmux-layout-reducer.workspace = true
 # The settings schema compiled in compressed (src/schema/mod.rs).
 cmux-embed.workspace = true
+# A Home reply's pipe tables (app_ops/home_table.rs).
+cmux-message-preview.workspace = true
 cmux-theme-tokens.workspace = true
 base64.workspace = true
+# The Time of Day schedule and shuffle periods in the person's time zone (src/backdrop_switch.rs).
+chrono.workspace = true
+chrono-tz.workspace = true
 notify.workspace = true
 plist = "1"
 # The app manifest schema's id pattern (tabs.newTabApp, schema/app_id.rs).
@@ -32,6 +37,8 @@ serde_json = { workspace = true, features = ["raw_value"] }
 sha2.workspace = true
 # Swift's `count` (grapheme clusters) for a one-character shortcut key (app_ops/shortcut.rs).
 unicode-segmentation.workspace = true
+# link_rules: host normalization (IDN as punycode, IPv6 hosts) as Foundation's URL.host gives them.
+url.workspace = true
 uuid.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -40,3 +47,5 @@ core-foundation-sys = "0.8"
 
 [dev-dependencies]
 jsonschema.workspace = true
+# site_engines_tests.rs: the shared cases' URLs, split as the daemon splits them.
+url.workspace = true

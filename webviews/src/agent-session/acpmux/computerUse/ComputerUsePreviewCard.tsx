@@ -25,7 +25,7 @@
 // same window shows as a second telepointer (PersonPointerArt): a neutral arrow labelled "You",
 // hidden while it is outside the window and dimmed once it stays still. Both are metadata from the
 // host, drawn over the frame; neither is in the frame's pixels.
-import { useRef, useState, type CSSProperties, type PointerEvent } from "react";
+import { useState, type CSSProperties, useRef, type PointerEvent } from "react";
 import { useT } from "../i18n";
 import { Check, Close, Expand } from "../conversation/icons";
 import { Icon } from "../icons/Icon";
@@ -36,16 +36,16 @@ import { cursorStyle, personPointerStyle } from "./cursorArtModel";
 import { usePaneView } from "../paneViewStore";
 import {
   closeComputerUsePreview,
+  computerUsePreviewTitle,
+  type ComputerUsePreview,
   COMPUTER_USE_PREVIEW_DRAG_SLOP,
   computerUsePreviewDocked,
   computerUsePreviewPlace,
-  computerUsePreviewTitle,
   dragFraction,
   moveComputerUsePreview,
   showComputerUsePreview,
   useComputerUsePreviewControls,
   useComputerUsePreviewMoves,
-  type ComputerUsePreview,
   type ComputerUsePreviewMove,
 } from "./computerUsePreview";
 import "./computerUsePreview.css";
@@ -78,6 +78,9 @@ export function ComputerUsePreviewCard({
   const [card, setCard] = useState<HTMLDivElement | null>(null);
   // The place while a drag runs (fractions): drawn at once, sent to the host when the drag ends.
   const [dragging, setDragging] = useState<{ x: number; y: number } | null>(null);
+  // Pointer events can arrive before React commits the state update from the preceding move. Keep
+  // the latest place in a ref so a fast release still sends the position the person saw.
+  const draggingRef = useRef<{ x: number; y: number } | null>(null);
   const press = useRef<Press | null>(null);
   // A drag just ended: the click it fires is the drag's, not an enlarge.
   const dragged = useRef(false);
@@ -156,6 +159,7 @@ export function ComputerUsePreviewCard({
       },
       moved: false,
     };
+    draggingRef.current = null;
     event.currentTarget.setPointerCapture?.(event.pointerId);
   };
   const onPointerMove = (event: PointerEvent<HTMLButtonElement>) => {
@@ -165,15 +169,19 @@ export function ComputerUsePreviewCard({
     const dy = event.clientY - start.y;
     if (!start.moved && Math.hypot(dx, dy) < COMPUTER_USE_PREVIEW_DRAG_SLOP) return;
     start.moved = true;
-    setDragging({ x: dragFraction(start.from.x, dx, start.room.w), y: dragFraction(start.from.y, dy, start.room.h) });
+    const next = { x: dragFraction(start.from.x, dx, start.room.w), y: dragFraction(start.from.y, dy, start.room.h) };
+    draggingRef.current = next;
+    setDragging(next);
   };
   const onPointerUp = (event: PointerEvent<HTMLButtonElement>) => {
     const start = press.current;
     if (!start || start.id !== event.pointerId) return;
     press.current = null;
     dragged.current = start.moved;
-    if (!start.moved || !dragging) return;
-    move({ x: dragging.x, y: dragging.y });
+    const next = draggingRef.current;
+    draggingRef.current = null;
+    if (!start.moved || !next) return;
+    move({ x: next.x, y: next.y });
     setDragging(null);
   };
   return (
@@ -199,6 +207,7 @@ export function ComputerUsePreviewCard({
         onPointerUp={onPointerUp}
         onPointerCancel={() => {
           press.current = null;
+          draggingRef.current = null;
           setDragging(null);
         }}
         onClick={() => {

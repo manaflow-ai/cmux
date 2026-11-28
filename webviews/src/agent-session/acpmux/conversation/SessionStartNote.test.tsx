@@ -78,7 +78,7 @@ const start = (harness: string): AcpmuxSessionStart => ({
 test("the route follows the chat's harness", () => {
   expect([routeOf("claude-sr2"), routeOf("claude-cr"), routeOf("claude"), routeOf(undefined)]).toEqual([
     "sr2",
-    "coderouter",
+    "own",
     "own",
     "own",
   ]);

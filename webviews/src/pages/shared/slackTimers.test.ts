@@ -118,4 +118,87 @@ describe("SlackTimers", () => {
       globalThis.queueMicrotask = original;
     }
   });
+
+  test("the beat that rests the page runs the jobs that waited for quiet, so none wakes it after", () => {
+    const { clock, advance, timers: page, wakes } = fakeClock();
+    const timers = new SlackTimers(clock);
+    const ran: [string, boolean][] = [];
+    timers.later((atRest) => ran.push(["tally", atRest]), 5_000, 5_000, { atRest: true });
+    timers.later((atRest) => ran.push(["budget", atRest]), 2_000, RIDE_SLACK_MS, { atRest: true });
+    advance(HEARTBEAT_MS);
+    timers.rest();
+    expect(ran).toEqual([
+      ["tally", true],
+      ["budget", false],
+    ]);
+    expect(page.size).toBe(0);
+    advance(20_000);
+    expect(wakes()).toBe(0);
+  });
+
+  test("a job that did not ask for atRest keeps its window when the page rests", () => {
+    const { clock, advance } = fakeClock();
+    const timers = new SlackTimers(clock);
+    let ran = 0;
+    timers.later(() => ran++, 3_000);
+    advance(HEARTBEAT_MS);
+    timers.rest();
+    expect(ran).toBe(0);
+    advance(10_000);
+    expect(ran).toBe(1);
+  });
+
+  test("an atRest job that asks again from its run waits for the next wake", () => {
+    const { clock, advance } = fakeClock();
+    const timers = new SlackTimers(clock);
+    let runs = 0;
+    const ask = () =>
+      timers.later(
+        () => {
+          runs++;
+          if (runs < 5) ask();
+        },
+        1_000,
+        RIDE_SLACK_MS,
+        { atRest: true },
+      );
+    ask();
+    timers.rest();
+    expect(runs).toBe(1);
+    expect(timers.size).toBe(1);
+    advance(1_000 + RIDE_SLACK_MS);
+    expect(runs).toBe(2);
+  });
+});
+
+// Leo (2026-11-26): "you guys can probably be aware of who's idle and who's not pretty reliably". A job
+// with nothing to do on a resting page (the frame budget's return to full motion) arms no timer while the
+// page rests, and runs on the wake that ends the rest.
+test("a whenAwake job never wakes a resting page, and runs on the wake that ends the rest", () => {
+  const { clock, advance, timers, wakes } = fakeClock();
+  const scheduler = new SlackTimers(clock);
+  scheduler.rest();
+  const runs: boolean[] = [];
+  scheduler.later((atRest) => runs.push(atRest), 2_000, undefined, { atRest: true, whenAwake: true });
+  expect(timers.size).toBe(0);
+  advance(60_000);
+  expect(wakes()).toBe(0);
+  expect(runs).toEqual([]);
+  scheduler.wake();
+  expect(runs).toEqual([false]);
+  expect(scheduler.size).toBe(0);
+});
+
+test("a whenAwake job not yet due when the page wakes keeps its timer", () => {
+  const { clock, advance, timers } = fakeClock();
+  const scheduler = new SlackTimers(clock);
+  scheduler.rest();
+  let ran = 0;
+  scheduler.later(() => ran++, 2_000, 0, { whenAwake: true });
+  advance(500);
+  scheduler.wake();
+  expect(ran).toBe(0);
+  expect(timers.size).toBe(1);
+  advance(2_000);
+  expect(ran).toBe(1);
 });

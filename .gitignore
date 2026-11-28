@@ -103,6 +103,16 @@ tmux-*.log
 # The settings Swift: the SettingsSchemaPlugin build-tool plugin writes it into its work directory from
 # schemas/settings (gen-settings-sources.py --swift-out, RFD 0048); a copy here would compile twice.
 /Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/*.generated.swift
+# The backdrop art records: the BackdropArtEntriesPlugin build-tool plugin writes them into its work directory
+# from art/manifest.json (generate_backdrop_art.py --entries-out); a copy here would compile twice.
+/Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift
+/Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/**/*.generated.swift
+# The Swift design scale: the DesignScalePlugin build-tool plugin writes it into its work directory from
+# schemas/design-scale (gen-design-scale-swift.py --swift-out); a copy here would compile twice.
+/Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/DesignScale.generated.swift
+# enum DaemonCapability: DaemonCapabilitiesPlugin writes it into its work directory from
+# cmux-tui/spec/gui-capabilities.json (gen-daemon-capabilities.py --swift-out); a copy here would compile twice.
+/Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonCapability.generated.swift
 # The React pages' strings tables: build output of webviews/scripts/pages/gen-strings.mjs, written
 # by bun install, the webviews test preload and every bundle build from the xcstrings catalogs
 # (#21946). Committed copies collided in every pull request that touched a catalog.

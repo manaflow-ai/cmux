@@ -35,8 +35,38 @@
   --agent-motion-send-root: var(--agent-motion-send);
   --agent-motion-send-fade-root: var(--agent-motion-send-fade);
   --agent-ease-send: var(--cmux-ease-send, cubic-bezier(0.16, 1, 0.3, 1));
+  /* SEND-RISE: the clock and curve the thread rises on into a sent prompt's room (followChase.ts
+     `sendRiseMs`). Unset unless the send pop is on (below): the readers then fall back to the node's
+     own `--agent-motion-send` and send curve. Declared here as `var(--agent-motion-send)` it resolved
+     on this element, so a pane that sets its own send clock (SEND-SLIM, a gallery's) read the root's. */
   /* Core Animation's easeOut, which the native fades use. */
   --agent-ease-out: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
+}
+
+/* SEND-RISE (Leo, 2026-11-22, after the send pop: "the chat transcript above doesn't quite smoothly
+   account for things"). With the pop on, the sent bubble plays on its 450 ms curve while the rows above
+   it jumped into place in one frame. Here the thread rises into the bubble's room on the pop's own
+   clock and curve, so the rows above, the bubble and the thinking row move as one motion and rest in
+   the same frame. A compositor translate of the thread (followChase.ts): no layout, no paint, the
+   same cost at any length. The gallery's agent-pane.send-rise compares `data-send-rise` arms on an
+   ancestor: `pop` (this, the product's), `settle` (the pop's clock without its overshoot), `quick`
+   (the scale's large step, eased out) and `none` (the rows land at once, before). */
+[data-send-pop]:not([data-send-pop="none"]) {
+  --agent-motion-send-rise: var(--agent-motion-send-pop, var(--cmux-motion-send-pop, 450ms));
+  --agent-ease-send-rise: var(--cmux-ease-send-pop, cubic-bezier(0.34, 1.3, 0.64, 1));
+}
+[data-send-pop]:not([data-send-pop="none"]) [data-send-rise="settle"],
+[data-send-pop]:not([data-send-pop="none"])[data-send-rise="settle"] {
+  --agent-ease-send-rise: cubic-bezier(0.34, 1, 0.64, 1);
+}
+[data-send-pop]:not([data-send-pop="none"]) [data-send-rise="quick"],
+[data-send-pop]:not([data-send-pop="none"])[data-send-rise="quick"] {
+  --agent-motion-send-rise: var(--cmux-motion-large, 240ms);
+  --agent-ease-send-rise: var(--agent-ease-out);
+}
+[data-send-pop] [data-send-rise="none"],
+[data-send-pop][data-send-rise="none"] {
+  --agent-motion-send-rise: 0ms;
 }
 
 /* SEND-SLIM: the slim follow arm's send (VirtualTranscript `data-send-entrance="fade"`): the sent
@@ -60,6 +90,7 @@
   --agent-motion-move: 0ms !important;
   --agent-motion-send: 0ms !important;
   --agent-motion-send-fade: 0ms !important;
+  --agent-motion-send-rise: 0ms !important;
 }
 [data-chat-motion="minimal"] .acpmux-scroll[data-send-entrance] {
   --agent-motion-send: 0ms !important;
@@ -878,6 +909,47 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
   :root:not([data-page-inactive], [data-borders="none"])
     .acpmux-dock[data-focused][data-focused][data-focused][data-focused] {
     --acpmux-composer-edge: color-mix(in srgb, var(--agent-text) 26%, var(--agent-page-bg, var(--acpmux-base)));
+  }
+}
+/* BORDERLESS COMPOSER: the chat's composer as the New Tab card (newtab/screen.css): no outline and no
+   light rim, the composer's depth instead, in every theme (Lucas 2026-11-26: "remove the border from
+   the agent chat, and make it have a shadow instead"). The outline is the stack's (the card, the queue,
+   the strip, a joined running tray and Goal banner), so it goes from each of them; the edge colour
+   itself stays, so what draws a border inside the stack (chips, attachment tiles, the permission card,
+   row dividers) keeps it. Increase Contrast keeps the outline and its focus step. A shell prompt keeps
+   its accent ring. Specificity: the card (0,8,0) over the glass and queue rules (0,6,0); the queue
+   (0,9,0) over the top-strip variants (0,8,0); the tray (0,5,0) over the stack's edge (0,4,0). */
+:root .acpmux-dock {
+  --acpmux-composer-shadow: var(--cmux-composer-shadow, var(--glass-material-depth-composer, var(--elevation-1)));
+  /* The dock's own edge, for the rows inside a joined tray or banner whose outline goes (below). */
+  --acpmux-dock-edge: var(--acpmux-composer-edge);
+}
+@media not (prefers-contrast: more) {
+  /* The card: its ring and rim go, also on the ::before layers that draw them under a queue or the
+     tray pull; its depth stays. */
+  :root .acpmux-dock .acpmux-composer:not([data-shell]) > .acpmux-composer-box.acpmux-composer-box.acpmux-composer-box.acpmux-composer-box {
+    --acpmux-card-ring: 0 0 transparent;
+    --acpmux-composer-rim: 0 0 transparent;
+    box-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
+  }
+  /* The focus step and the strip's rim. */
+  :root .acpmux-dock .acpmux-composer.acpmux-composer:not([data-shell]) {
+    --acpmux-composer-edge-focus: transparent;
+  }
+  :root .acpmux-dock .acpmux-composer.acpmux-composer:not([data-shell]) > .acpmux-composer-strip.acpmux-composer-strip {
+    --acpmux-strip-edge: transparent;
+  }
+  /* The queue's sides and top; the hairlines between its rows stay. */
+  :root .acpmux-dock .acpmux-composer.acpmux-composer.acpmux-composer:not([data-shell]) > .acpmux-composer-queue.acpmux-composer-queue.acpmux-composer-queue {
+    box-shadow: none;
+  }
+  /* A running tray or Goal banner joined over the card: its outline goes, its rows keep the edge. */
+  :root .acpmux-dock > .acpmux-running-tray.acpmux-running-tray[data-card],
+  :root .acpmux-dock > .acpmux-goal:is([data-look="head"], [data-look="foot"]) {
+    --acpmux-composer-edge: transparent;
+  }
+  :root .acpmux-dock > :is(.acpmux-running-tray[data-card], .acpmux-goal[data-look]) > * {
+    --acpmux-composer-edge: var(--acpmux-dock-edge);
   }
 }
 /* The New Tab box is shared glass (#24593), whose own rim ignores --acpmux-card-ring. Its edge is

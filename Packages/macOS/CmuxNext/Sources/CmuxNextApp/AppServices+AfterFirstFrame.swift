@@ -38,9 +38,8 @@ extension AppServices {
         DebugTimings.markLaunch("launch.post_frame_feeds")
     }
 
-    /// The free-tier attest, SSH, server reach, the updater (Sparkle), the marked-tab watch and the link places.
+    /// SSH, server reach, the updater (Sparkle), the marked-tab watch and the link places.
     func startNonPaintServices() {
-        FreeTierAttestStarter(build: environment.build, bundle: .main, apiBaseURL: feed.apiBaseURL, settings: settings, loginKeychain: loginKeychain, signedIn: { [weak self] in self.map { $0.cloud.isSignedIn || $0.cloud.auth.isRestoring } ?? true }).start()
         LastAppCLIPointer.publishAtLaunch()
         // A design card made since this process started may still be entering the composer.
         work.post(.bestEffort, mayBlock: .files) {
@@ -92,23 +91,21 @@ extension AppServices {
         DebugTimings.markLaunch("launch.non_paint_services")
     }
 
-    /// Warm-ups for later tabs (WebKit for agent pages, Chromium, the New Tab spare, page hosts)
+    /// Warm-ups for later tabs (WebKit for agent pages, Chromium)
     /// and the agent tab import. Each reads current state when it starts, so nothing the window build did is missed.
     func startLaterTabWarmups() {
         AgentPaneView.startWarmup()
         DebugTimings.markLaunch("launch.agent_page_warmup")
         if !crashRecovery.recovery.isSafeRestart { startChromiumWarmup() }
-        newTabSpares.prewarm()
-        newTabSpares.start()
-        pageHostPool.start(
-            isMainWindow: { [weak self] window in
-                self?.windows.controllers.contains { $0.window === window } == true
-            },
-            fallback: { [weak self] window in
-                self?.windows.controllers.compactMap(\.window).first { $0 !== window && $0.isVisible }
-            })
-        pageHostPool.noteLikely()
         AgentTabImport.start(self)
         DebugTimings.markLaunch("launch.post_window_warmups")
+    }
+
+    /// The New Tab spare page and the page host pool's spare: pages nobody sees, once the open workspace is live (CMUX-629).
+    func startHiddenPageSpares() {
+        newTabSpares.prewarm(); newTabSpares.start()
+        pageHostPool.start(isMainWindow: { [weak self] window in self?.windows.controllers.contains { $0.window === window } == true },
+                           fallback: { [weak self] window in self?.windows.controllers.compactMap(\.window).first { $0 !== window && $0.isVisible } })
+        pageHostPool.noteLikely()
     }
 }

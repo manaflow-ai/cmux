@@ -18,6 +18,11 @@ import Testing
         let harness = TabCloseEndsTerminalTests()
         let (backend, sync) = try await harness.connected(seen, roundTrip: roundTrip)
         let (tab, workspace) = try harness.tab("s10", in: sync)
+        // bind ends by starting one more list in a Task it does not await. The legacy close's
+        // listNow joins a list still in flight, and that list's request is then counted on
+        // bind's task, not this action's (base runs 45820613178, 45826673120: 2 round trips).
+        // Join or start it here, so the action times only its own requests.
+        await sync.refresh()
         let name = "close-tab \(legacy ? "before" : "after") rtt=\(Int(roundTrip * 1000))ms"
         let start = Date()
         try await PhoneTrace.action(name, floorRoundTrips: 1, args: [:], recorder: recorder) {

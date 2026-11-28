@@ -432,7 +432,9 @@ pub fn overlay(models: &mut [Value], live: &[LiveModel]) {
         if let Some(fast) = model.fast {
             entry["fast"] = json!(fast);
         }
-        if !model.service_tiers.is_empty() {
+        if !model.service_tiers.is_empty()
+            || (model.fast == Some(false) && entry.get("serviceTiers").is_some())
+        {
             entry["serviceTiers"] = json!(model.service_tiers);
         }
     }

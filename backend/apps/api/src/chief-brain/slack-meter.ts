@@ -16,7 +16,10 @@ export const SLACK_METER_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS cb_slack_awake (turn TEXT PRIMARY KEY, slack_team TEXT NOT NULL, slack_user TEXT NOT NULL, sender_is_owner INTEGER NOT NULL, cmux_team TEXT NOT NULL, owner TEXT NOT NULL, day TEXT NOT NULL, at INTEGER NOT NULL, seconds INTEGER NOT NULL, reported INTEGER NOT NULL DEFAULT 0)`,
   `CREATE INDEX IF NOT EXISTS cb_slack_awake_day ON cb_slack_awake (slack_team, slack_user, day)`,
   // The owner's settings for Slack (one row per key): `non_owner_daily_awake_seconds` overrides the 2 h default.
-  `CREATE TABLE IF NOT EXISTS cb_slack_settings (k TEXT PRIMARY KEY, v INTEGER NOT NULL)`
+  `CREATE TABLE IF NOT EXISTS cb_slack_settings (k TEXT PRIMARY KEY, v INTEGER NOT NULL)`,
+  // Each sender's Slack name as their latest message carried it (cmux-platform sends `slackUserName` with every
+  // inbound), so "who spent my hours" shows names, not `U…` ids.
+  `CREATE TABLE IF NOT EXISTS cb_slack_names (slack_team TEXT NOT NULL, slack_user TEXT NOT NULL, name TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (slack_team, slack_user))`
 ]
 
 /** The most an owner may give a non-owner a day: the whole day. 0 turns non-owner wakes off. */
@@ -28,6 +31,8 @@ export interface SlackSender {
   readonly senderIsOwner: boolean
   readonly cmuxTeamId: string
   readonly ownerUserId: string
+  /** The sender's Slack name from the inbound (validated there: 1..200 chars, no control characters). */
+  readonly slackUserName?: string
 }
 
 interface Sql { exec<T extends Record<string, SqlStorageValue>>(query: string, ...bindings: unknown[]): { toArray(): T[] } }
@@ -43,6 +48,25 @@ export const slackAwakeLabel = (slackTeam: string, slackUser: string): string =>
 
 export const recordSlackSender = (sql: Sql, message: string, s: SlackSender): void => {
   sql.exec(`INSERT INTO cb_slack_senders (message, slack_team, slack_user, sender_is_owner, cmux_team, owner) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`, message, s.slackTeamId, s.slackUserId, s.senderIsOwner ? 1 : 0, s.cmuxTeamId, s.ownerUserId)
+  const name = s.slackUserName?.trim()
+  if (name) sql.exec(`INSERT INTO cb_slack_names (slack_team, slack_user, name, at) VALUES (?, ?, ?, ?) ON CONFLICT (slack_team, slack_user) DO UPDATE SET name = excluded.name, at = excluded.at`, s.slackTeamId, s.slackUserId, name, Date.now())
+}
+
+/**
+ * The Slack name of each sender in `spend`, keyed by Slack user id (the card's SlackNames, cmux#58518). A sender with
+ * no recorded name is absent: the card shows the id.
+ */
+export const slackNames = (sql: Sql, spend: ReadonlyArray<Pick<SlackSpend, "slack_team" | "slack_user">>): Record<string, string> => {
+  const names: Record<string, string> = {}
+  const seen = new Set<string>()
+  for (const r of spend) {
+    const key = `${r.slack_team}/${r.slack_user}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const name = sql.exec<{ name: string }>(`SELECT name FROM cb_slack_names WHERE slack_team = ? AND slack_user = ?`, r.slack_team, r.slack_user).toArray()[0]?.name
+    if (name !== undefined) names[r.slack_user] = name
+  }
+  return names
 }
 
 /** Awake seconds this sender's messages caused on `day`. */

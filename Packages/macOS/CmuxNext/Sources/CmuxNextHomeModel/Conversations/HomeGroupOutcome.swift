@@ -41,26 +41,13 @@ public enum HomeGroupOutcome: Hashable, Sendable {
     case refused(String)
 
     /// The owner's refusal. `removing`: the op removed someone else, so `forbidden` means only the
-    /// group's owner may.
+    /// group's owner may. The mapping is `compose.group.outcome`'s.
     public init(rejection: HomeRejection, naming: String, removing: Bool = false) {
-        switch rejection {
-        case .ownerUnreachable: self = .offline
-        case .rateLimited: self = .rateLimited
-        case .notAuthorized: self = removing ? .ownerOnly : .forbidden
-        case .indeterminate: self = .refused("")
-        case .invalid(let reason):
-            switch reason {
-            case "forbidden": self = removing ? .ownerOnly : .forbidden
-            case "read_only": self = .readOnly
-            case "not_reachable": self = .notReachable(naming)
-            case "kind_forbids": self = .notAGroup
-            case "unknown_conversation": self = .unknownConversation
-            case "not_participant": self = .notAMember(naming)
-            case "too_many_participants": self = .tooMany
-            case "home.rate_limited": self = .rateLimited
-            default: self = .refused(reason)
-            }
-        }
+        let request = OutcomeRequest(rejection: .init(rejection), naming: naming, removing: removing)
+        let reply: OutcomeReply = HomeComposeRules().call(
+            "group.outcome", request,
+            fallback: OutcomeReply(outcome: .init(kind: "refused", name: nil, reason: "")))
+        self = reply.outcome.groupOutcome
     }
 
     /// The action worked (a queued send counts).
@@ -73,4 +60,61 @@ public enum HomeGroupOutcome: Hashable, Sendable {
 
     /// What the sheet or a refused action says; nil when it worked.
     public var message: String? { HomeModelStrings.groupOutcome(self) }
+}
+
+extension HomeComposeRules {
+    /// ``HomeRejection`` (`compose::group::Rejection`, tagged by `kind`).
+    package nonisolated struct Rejection: Encodable, Sendable {
+        var kind: String
+        var reason: String?
+
+        package init(_ rejection: HomeRejection) {
+            switch rejection {
+            case .ownerUnreachable: kind = "ownerUnreachable"
+            case .notAuthorized: kind = "notAuthorized"
+            case .invalid(let reason):
+                kind = "invalid"
+                self.reason = reason
+            case .rateLimited: kind = "rateLimited"
+            case .indeterminate: kind = "indeterminate"
+            }
+        }
+    }
+}
+
+extension HomeComposeRules.Outcome {
+    /// The outcome as the sheet's type.
+    package var groupOutcome: HomeGroupOutcome {
+        switch kind {
+        case "done": .done
+        case "queued": .queued
+        case "left": .left
+        case "notReachable": .notReachable(name ?? "")
+        case "ownerOnly": .ownerOnly
+        case "forbidden": .forbidden
+        case "readOnly": .readOnly
+        case "notAGroup": .notAGroup
+        case "unknownConversation": .unknownConversation
+        case "unknownPerson": .unknownPerson(name ?? "")
+        case "notAMember": .notAMember(name ?? "")
+        case "cannotMute": .cannotMute
+        case "emptyText": .emptyText
+        case "noPeople": .noPeople
+        case "offline": .offline
+        case "rateLimited": .rateLimited
+        case "tooMany": .tooMany
+        default: .refused(reason ?? "")
+        }
+    }
+}
+
+/// `compose.group.outcome`'s request and reply.
+private nonisolated struct OutcomeRequest: Encodable {
+    var rejection: HomeComposeRules.Rejection
+    var naming: String
+    var removing: Bool
+}
+
+private nonisolated struct OutcomeReply: Decodable {
+    var outcome: HomeComposeRules.Outcome
 }

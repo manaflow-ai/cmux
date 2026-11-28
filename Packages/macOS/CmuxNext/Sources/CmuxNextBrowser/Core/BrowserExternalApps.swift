@@ -50,8 +50,9 @@ public final class BrowserExternalApps {
     }
     #endif
 
-    /// This build's URL schemes, lowercased (Info.plist `CFBundleURLTypes`).
-    let ownSchemes: Set<String>
+    /// This build's URL schemes, lowercased (Info.plist `CFBundleURLTypes`). Tests set their own: a test
+    /// bundle registers none.
+    var ownSchemes: Set<String>
     /// The app's own open-URL route (AppDelegate's, the one macOS uses). Nil:
     /// own-scheme links go through Launch Services like any other app's.
     public var openOwnURL: (@MainActor (URL) -> Void)?
@@ -105,9 +106,22 @@ public final class BrowserExternalApps {
         flowPages.removeAll { ended.contains($0) }
     }
 
-    init(defaults: UserDefaults = .standard, ownSchemes: Set<String>? = nil) {
+    /// The app macOS opens a URL with (Launch Services), nil when none does.
+    let appFor: @MainActor (URL) -> URL?
+    /// The last "no app opens it" notice per tab and scheme (``open``). Per tab, not app-wide: a
+    /// sign-in popup that ends on the same scheme a second after its opener did is a different flow
+    /// the person is watching, and was silenced by the opener's notice (ask-2d244f2b2e live run,
+    /// "popup ending on vscode").
+    private var toldNoApp: [NoAppKey: Date] = [:]
+    private struct NoAppKey: Hashable { let tab: ObjectIdentifier?; let scheme: String }
+    private static let noAppQuiet: TimeInterval = 5
+    var now: () -> Date = Date.init
+
+    init(defaults: UserDefaults = .standard, ownSchemes: Set<String>? = nil,
+         appFor: @escaping @MainActor (URL) -> URL? = { NSWorkspace.shared.urlForApplication(toOpen: $0) }) {
         self.defaults = defaults
         self.ownSchemes = ownSchemes ?? Self.schemes(in: Bundle.main.infoDictionary)
+        self.appFor = appFor
     }
 
     /// The URL schemes an Info.plist registers, lowercased.
@@ -156,11 +170,25 @@ public final class BrowserExternalApps {
     /// prompt, including schemes that open immediately from a click.
     /// `firstPage`: the first page of the tab's history; `close` closes the
     /// tab (both for an own-scheme handoff, ``openOwn``).
+    /// `tab`: the tab asking, so one tab's notice never silences another's.
     func open(_ url: URL, from page: URL?, engine: BrowserEngineKind = .webkit, userGesture: Bool, firstPage: URL? = nil,
-              requestedPage: URL? = nil, close: (() -> Void)? = nil,
+              requestedPage: URL? = nil, tab: ObjectIdentifier? = nil, close: (() -> Void)? = nil,
               ask: (BrowserPromptKind, String, @escaping (BrowserPromptResponse) -> Void) -> Void) {
         if openOwn(url, from: page, firstPage: firstPage, requestedPage: requestedPage, userGesture: userGesture, ask: ask, close: close) { return }
-        guard let scheme = url.scheme?.lowercased(), let app = NSWorkspace.shared.urlForApplication(toOpen: url) else { return }
+        guard let scheme = url.scheme?.lowercased() else { return }
+        guard let app = appFor(url) else {
+            // No app opens it. A click on such a link does nothing, as in Chrome; a page that sent the tab
+            // there itself (a sign-in's return by redirect or script, ask-2d244f2b2e) is the person's flow
+            // ending, so cmux tells them instead of the flow just stopping.
+            // A page that retries in a loop is told once per tab and scheme every few seconds.
+            let key = NoAppKey(tab: tab, scheme: scheme), at = now()
+            toldNoApp = toldNoApp.filter { at.timeIntervalSince($0.value) <= Self.noAppQuiet }
+            if !userGesture, toldNoApp[key] == nil {
+                toldNoApp[key] = at
+                ask(.noAppForScheme(scheme: scheme), page.flatMap(PageInfoSite.origin(of:)) ?? "") { _ in }
+            }
+            return
+        }
         // A non-gesture navigation can be a redirect whose source is the
         // previously committed page, so it cannot safely inherit that site's
         // remembered permission. The empty origin also hides "Always allow"

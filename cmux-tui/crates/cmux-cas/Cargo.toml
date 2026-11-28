@@ -30,8 +30,13 @@ path = "src/bin/cas-dedup.rs"
 name = "cas-seed"
 path = "src/bin/cas-seed.rs"
 
+[[bin]]
+name = "cas-publish"
+path = "src/bin/cas-publish.rs"
+
 [dependencies]
 blake3 = "1"
+cmux-process.workspace = true
 cmux-signed-envelope = { path = "../cmux-signed-envelope" }
 flate2.workspace = true
 serde.workspace = true
@@ -47,3 +52,6 @@ tempfile = "3"
 sha2.workspace = true
 tar.workspace = true
 flate2.workspace = true
+
+[target.'cfg(unix)'.dev-dependencies]
+libc.workspace = true

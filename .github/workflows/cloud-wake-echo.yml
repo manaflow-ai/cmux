@@ -14,7 +14,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: cloud-wake-echo-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  # An edit that leaves the body as it was skips, in a group of its own, so it never replaces a pending real run.
+  group: cloud-wake-echo-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}${{ github.event.action == 'edited' && github.event.changes.body == null && format('-noop-{0}', github.run_id) || '' }}
   cancel-in-progress: false
 
 jobs:
@@ -23,13 +24,15 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       contains(github.event.pull_request.body, 'wake-echo: run') &&
       (github.event.action != 'edited' || github.event.changes.body != null)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-fleet-linux-x64' }} # frozen-label: LINUX_RUNNER/RUNNER_POOLS.linux_8 (#54437)
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
     timeout-minutes: 150
+    env:
+      WAKE_ECHO_SUBDIR: wake-echo-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -38,7 +41,7 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Wake to first echo (staging, 50 cycles, 5 s hold)
-        # Under the job's 150: the upload below still runs when this one is cut. The run ends itself by --wake-echo-deadline.
+        # Under the job's 150: cleanup and upload still run when this one is cut. The run ends itself by --wake-echo-deadline.
         timeout-minutes: 135
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
@@ -46,19 +49,35 @@ jobs:
           PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
         run: |
           set -euo pipefail
-          out="$RUNNER_TEMP/wake-echo"
+          out="$RUNNER_TEMP/$WAKE_ECHO_SUBDIR"
           mkdir -p "$out"
           deadline=$(( $(date +%s) + 125 * 60 ))
           bun scripts/cmux-next/cloud-journey.ts --backend staging --out "$out" --model stub \
-            --wake-echo 50 --wake-echo-hold 5 --wake-echo-deadline "$deadline"
+            --wake-cleanup-record "$out/created-machine.json" \
+            --cleanup-created-ids-only --wake-echo 50 --wake-echo-hold 5 --wake-echo-deadline "$deadline"
+      - name: Delete this run's machine
+        if: always()
+        timeout-minutes: 6
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/$WAKE_ECHO_SUBDIR"
+          # No record means this job has no returned ID to delete. Never discover targets through a sweep or PR logs.
+          if [ ! -f "$out/created-machine.json" ]; then
+            echo "wake cleanup: no returned machine ID recorded"
+            exit 0
+          fi
+          bun scripts/cmux-next/cloud-journey.ts --backend staging --cleanup-wake-record "$out/created-machine.json"
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: wake-echo
           path: |
-            ${{ runner.temp }}/wake-echo/wake-echo.json
-            ${{ runner.temp }}/wake-echo/wake-echo.md
-            ${{ runner.temp }}/wake-echo/journey.json
-            ${{ runner.temp }}/wake-echo/summary.md
+            ${{ runner.temp }}/${{ env.WAKE_ECHO_SUBDIR }}/wake-echo.json
+            ${{ runner.temp }}/${{ env.WAKE_ECHO_SUBDIR }}/wake-echo.md
+            ${{ runner.temp }}/${{ env.WAKE_ECHO_SUBDIR }}/journey.json
+            ${{ runner.temp }}/${{ env.WAKE_ECHO_SUBDIR }}/summary.md
           if-no-files-found: warn
           retention-days: 30

@@ -9,6 +9,8 @@ use serde_json::json;
 
 use crate::ERR_INVALID;
 
+#[path = "window_rules_desktop.rs"]
+mod desktop;
 #[path = "window_rules_misc.rs"]
 mod misc;
 #[path = "window_rules_workspaces.rs"]
@@ -63,6 +65,9 @@ struct KnownToAsk {
 }
 
 pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
+    if desktop::handles(operation) {
+        return desktop::respond_desktop(operation, request);
+    }
     if operation.starts_with(b"window_tabs_") || operation.starts_with(b"window_panes_") {
         return respond_tabs(operation, request);
     }
@@ -411,6 +416,15 @@ fn respond_chat_agent(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         b"window_chat_agent_editor_scheme" => {
             let request: EditorScheme = read(request)?;
             json!({ "scheme": agent::editor_scheme(request.line, request.bundle_id.as_deref()) })
+        }
+        // The agent pane page's host-op methods Rust decodes (the host decodes any other itself).
+        b"window_chat_agent_host_op_methods" => {
+            json!({ "methods": cmux_window_rules::chat::host_op::methods() })
+        }
+        // One page message (`{method, params}`), checked: what it asks for, or `unsupported`.
+        b"window_chat_agent_host_op" => {
+            let body: serde_json::Value = read(request)?;
+            value(cmux_window_rules::chat::host_op::decode(&body))?
         }
         // The agent chat zoom after a step, clamped, and its percent.
         b"window_chat_agent_zoom" => {

@@ -712,7 +712,7 @@ mod tests {
             host: "t.example".into(),
             login: None,
         };
-        let error = rung.open(&turn).await.err().expect("refused");
+        let error = rung.open(&turn).await.expect_err("refused");
         assert!(error.to_string().contains("another carrier"));
     }
 

@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextCompat
 @testable import CmuxNextControl
 import CmuxNextSettings
 import Testing
@@ -8,15 +9,22 @@ import Testing
 final class RefusingExecutor: ControlActionExecutor {
     let outcome: ControlActionOutcome
     let failure: ActionWorkFailure?
+    private let callCount = Mutex(0)
+
+    var calls: Int { callCount.withLock { $0 } }
 
     init(_ outcome: ControlActionOutcome, failure: ActionWorkFailure? = nil) {
         self.outcome = outcome
         self.failure = failure
     }
 
-    @MainActor func performAction(_ request: ControlActionRequest) -> ControlActionOutcome { outcome }
+    @MainActor func performAction(_ request: ControlActionRequest) -> ControlActionOutcome {
+        callCount.withLock { $0 += 1 }
+        return outcome
+    }
 
     @MainActor func performActionTracked(_ request: ControlActionRequest) -> ControlActionRun {
+        callCount.withLock { $0 += 1 }
         guard let failure else { return ControlActionRun(outcome: outcome) }
         let work: ActionWork = Task { failure }
         return ControlActionRun(outcome: outcome, work: [work])
