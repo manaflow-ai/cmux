@@ -90,7 +90,7 @@ pub struct FakeBackend {
 }
 
 fn path_of(url: &str) -> String {
-    url.find("/v1/").map_or(url, |at| &url[at..]).to_string()
+    url.find("/v1/").and_then(|at| url.get(at..)).unwrap_or(url).to_string()
 }
 
 impl FakeBackend {
@@ -236,7 +236,7 @@ impl CloudBackend for FakeBackend {
             status: 206,
             content_type: Some(mime.clone()),
             total: Some(bytes.len() as u64),
-            body: bytes[start..end].to_vec(),
+            body: bytes.get(start..end).unwrap_or_default().to_vec(),
         })
     }
 

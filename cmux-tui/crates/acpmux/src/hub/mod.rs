@@ -2726,7 +2726,10 @@ impl Hub {
     pub(crate) fn insert_test_session(&self, meta: SessionMeta) -> Arc<Session> {
         let id = meta.id.clone();
         let session = self.make_session(meta);
-        self.sessions.lock().unwrap().insert(id, session.clone());
+        self.sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(id, session.clone());
         self.update_live_session_index(&session);
         self.session_came(&session);
         session

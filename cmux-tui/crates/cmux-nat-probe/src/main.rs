@@ -218,7 +218,7 @@ fn stun_all(sock: &UdpSocket, v6: bool) -> Vec<(String, SocketAddr, f64)> {
         match sock.recv_from(&mut buf) {
             Ok((n, _)) => {
                 for (server, txid, at) in &asked {
-                    if let Some(mapped) = stun_mapped(&buf[..n], *txid) {
+                    if let Some(mapped) = stun_mapped(buf.get(..n).unwrap_or_default(), *txid) {
                         out.push((server.clone(), mapped, at.elapsed().as_secs_f64() * 1000.0));
                     }
                 }
@@ -314,7 +314,7 @@ fn measure(role_a: bool, token: u64, duration: Duration, pings: u32, rx: &mpsc::
             Err(_) => {
                 emit(
                     "RESULT",
-                    &json!({"role": if role_a {"a"} else {"b"}, "error": "no peer candidates within 30 s", "nat": me["nat"]}),
+                    &json!({"role": if role_a {"a"} else {"b"}, "error": "no peer candidates within 30 s", "nat": me.get("nat")}),
                 );
                 return;
             }
@@ -422,7 +422,9 @@ fn measure(role_a: bool, token: u64, duration: Duration, pings: u32, rx: &mpsc::
             while let Ok((n, from)) = sock.recv_from(&mut buf) {
                 got_any = true;
                 sides.recv += n as u64;
-                let Some(p) = Packet::decode(&buf[..n], token) else { continue };
+                let Some(p) = Packet::decode(buf.get(..n).unwrap_or_default(), token) else {
+                    continue;
+                };
                 let at = Instant::now();
                 if which == 2 {
                     if let Some((_, since, _)) = &rebind
@@ -491,8 +493,8 @@ fn measure(role_a: bool, token: u64, duration: Duration, pings: u32, rx: &mpsc::
         "RESULT",
         &json!({
             "role": if role_a {"a"} else {"b"},
-            "nat": me["nat"],
-            "peer_nat": peer["nat"],
+            "nat": me.get("nat"),
+            "peer_nat": peer.get("nat"),
             "direct": direct,
             "reconnect_after_rebind_ms": rebind_ms,
             "rebind_note": rebind_note.or(if role_a && rebind_ms.is_none() { Some("no direct reply on the new socket before the deadline") } else { None }),
