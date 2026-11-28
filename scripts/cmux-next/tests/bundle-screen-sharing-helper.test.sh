@@ -7,7 +7,7 @@
 # processed Info.plist yet, the same phase again over the bundled helper, a previous build's Info.plist
 # (another name and id) left in the app, --app with no Info.plist, and --stamp refusing a name that is
 # not one, and an app built before the rename (a legacy "<name> Screen Sharing.app") migrating on a rebuild and
-# on --stamp while another app's " Helper.app" stays. Each run must leave exactly one helper, named from this build, and no staging directory.
+# on --stamp while another app's " Helper.app" stays, and the app's icon copied into the helper. Each run must leave exactly one helper, named from this build, and no staging directory.
 # Runs on Linux and macOS (python3 and file(1)).
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -60,6 +60,7 @@ run() { # [args...] -> out, rc; the Xcode phase's settings unless --app/--stamp
   out=$(env -i PATH=/usr/bin:/bin HOME="$TMP" TMPDIR="$TMP" CONFIGURATION=Debug SRCROOT="$ROOT" \
     CMUX_PLISTBUDDY="$TMP/PlistBuddy" CMUX_CODESIGN_TOOL="$TMP/codesign" \
     CMUX_NEXT_SCREEN_HELPER_BIN="$TMP/cmux-screen-sharing" ${settings[@]+"${settings[@]}"} \
+    ${ICON_SETTING:+ASSETCATALOG_COMPILER_APPICON_NAME="$ICON_SETTING"} \
     /bin/bash "$SCRIPT" "$@" 2>&1)
   rc=$?
   set -e
@@ -141,5 +142,44 @@ for dev_id in com.cmuxterm.app.debug.my-tag com.cmuxterm.app.debug.other.tag com
   run --stamp "$app"
   expect_one_helper "--stamp of $dev_id" "$NAME" com.cmuxterm.app.debug.screen-sharing
 done
+
+# 10. The helper carries the app's icon (Resources/AppIcon.icns, CFBundleIconFile AppIcon): without it macOS draws
+# the generic blank app in onboarding's drag row and in System Settings. An app with no icns leaves no icon key.
+helper_plist="$library/$NAME Helper.app/Contents/Info.plist"
+helper_icns="$library/$NAME Helper.app/Contents/Resources/AppIcon.icns"
+expect_icon() { # <case> <expected icns contents>
+  [[ $rc == 0 ]] || fail "$1: exit $rc" "$out"
+  [[ "$(plist_value "$helper_plist" CFBundleIconFile)" == AppIcon ]] || fail "$1: the helper names no CFBundleIconFile AppIcon" "$out"
+  [[ -f "$helper_icns" && "$(cat "$helper_icns")" == "$2" ]] || fail "$1: the helper's AppIcon.icns is not the app's '$2'" "$out"
+}
+expect_no_icon() { # <case>
+  [[ $rc == 0 ]] || fail "$1: exit $rc" "$out"
+  [[ -z "$(plist_value "$helper_plist" CFBundleIconFile)" && ! -e "$helper_icns" ]] || fail "$1: the helper names an icon the app has none of" "$out"
+}
+rm -rf "$library"/* "$build/tmp/bundle-screen-sharing-helper.stamp" "$app/Contents/Info.plist"
+run
+expect_no_icon "Xcode phase, an app with no icns"
+# The Xcode phase before the processed Info.plist: the build's asset catalog icon name.
+printf 'nightly-icon' > "$app/Contents/Resources/AppIcon-Nightly.icns"
+ICON_SETTING=AppIcon-Nightly run
+expect_icon "Xcode phase, ASSETCATALOG_COMPILER_APPICON_NAME" nightly-icon
+# The nightly's after-build phase (no setting): the app's CFBundleIconFile.
+python3 -I -c 'import plistlib, sys; plistlib.dump({"CFBundleName": sys.argv[2], "CFBundleIdentifier": sys.argv[3], "CFBundleIconFile": "AppIcon-Nightly"}, open(sys.argv[1], "wb"))' \
+  "$app/Contents/Info.plist" "$NAME" "$ID"
+rm -f "$build/tmp/bundle-screen-sharing-helper.stamp"
+ICON_SETTING=AppIcon run
+expect_icon "Xcode phase, a setting with no icns, the app's CFBundleIconFile" nightly-icon
+# --stamp after a rename that swapped the app's icon (stable-next-identity.sh): the helper takes the new one.
+printf 'stable-icon' > "$app/Contents/Resources/AppIcon-Stable.icns"
+python3 -I -c 'import plistlib, sys; plistlib.dump({"CFBundleName": sys.argv[2], "CFBundleIdentifier": sys.argv[3], "CFBundleIconFile": "AppIcon-Stable.icns"}, open(sys.argv[1], "wb"))' \
+  "$app/Contents/Info.plist" "$NAME" "$ID"
+run --stamp "$app"
+expect_icon "--stamp, the renamed app's icon" stable-icon
+run --app "$app"
+expect_icon "--app" stable-icon
+# --stamp of an app whose icon is gone: the helper drops its copy and the key.
+rm -f "$app/Contents/Resources/AppIcon-Stable.icns"
+run --stamp "$app"
+expect_no_icon "--stamp, the app's icns gone"
 
 echo "PASS: bundle-screen-sharing-helper.sh reruns over the same app"

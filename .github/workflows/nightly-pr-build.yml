@@ -6,6 +6,8 @@
 #              arm64 and x86_64: Release with -DCMUX_BLOCKING_CHECKS and -Osize, as app-build-release.sh.
 #   - helpers: cargo check --release of each Rust helper the Nightly bundles, with its features and profile.
 # Advisory: every job name says so, no rule requires it, and a fleet that does not answer is a warning.
+# The swift job submits its fleet step and ends; the controller posts the verdict as its own check run
+# (DETACH below), so no runner waits on the fleet queue.
 # Each job keys its inputs (scripts/ci/job_input_fingerprint.py) and saves the key on a pass, so a push
 # that changes nothing it builds from skips the build. Off switch: repository variable CI_NIGHTLY_PR_BUILD=0.
 name: nightly pr build
@@ -63,7 +65,9 @@ jobs:
     runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # The client waits up to QUEUE_WAIT_S (20 min) queued plus 3600 s running, with slack.
     timeout-minutes: 90
-    permissions: {}
+    # checks: read lets the job see the fleet verdict already posted on its head (the step below).
+    permissions:
+      checks: read
     strategy:
       # One arch's red cancels the other's wait. The reds seen are arch-independent: a Swift error in the
       # head or base, or the fleet refusing the step (source depot full), so the second arch only repeats it
@@ -80,6 +84,21 @@ jobs:
       # That was about 2.2k of the job's 4.4k runner-min. Past this wait the job cancels the queued step (a
       # step left queued keeps its place and builds for no reader), and the check reads "not judged" as before.
       QUEUE_WAIT_S: "1200"
+      # Detached (the default): the job submits the step, hands its verdict to the controller as the check run
+      # REPORT_CHECK on the PR head (cmux-ci run --report-check --detach, report_check.go) and ends in about a
+      # minute, so no runner waits on the fleet queue. Run 46030977376 job 140614747339 (11-27): the job held
+      # runner cmux13s-mac-mini-glaeda-18 for 20.8 min while step a15a82e4b0c1617329eb48ec sat queued, then
+      # "no verdict"; the two arches billed ~20k runner-min/day that way. CI_NIGHTLY_PR_BUILD_DETACH=0 waits
+      # here as before (and records the input-key pass); a client or controller without --detach waits too.
+      DETACH: ${{ vars.CI_NIGHTLY_PR_BUILD_DETACH || '1' }}
+      REPORT_CHECK: nightly app compile ${{ matrix.arch }} fleet verdict (advisory)
+      # A gateway Mac's own ~/.local/bin/cmux-ci can predate --detach; then the step below waited the whole
+      # compile (2026-11-27 20:49Z job 140732035533 on cmux13s-mac-mini-glaeda-15: 20.1 min, while jobs on
+      # current clients ended in 0.2-0.8 min). So when the local client lacks --detach, the step fetches the
+      # controller's client (sha256-checked against its manifest, as .github/actions/fleet-client does) and
+      # uses it. CI_NIGHTLY_PR_BUILD_LOCAL_CLIENT=1 keeps the runner's own client.
+      CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+      LOCAL_CLIENT_ONLY: ${{ vars.CI_NIGHTLY_PR_BUILD_LOCAL_CLIENT || '0' }}
     steps:
       - name: Look up a pass with the same inputs
         id: cache
@@ -88,8 +107,35 @@ jobs:
           path: ${{ runner.temp }}/nightly-pr-build-pass
           key: ${{ env.KEY }}
           lookup-only: true
-      - name: Compile the app the Nightly's way (fleet job)
+      - name: Skip a head the fleet already passed
+        # A detached run (the default) never records the input-key pass above: its verdict lands later as the
+        # check run REPORT_CHECK. So a re-run on the same head (a ready-to-land or full-ci label maps to
+        # ready_for_review) compiled it again, cold. 2026-11-27 20:05-21:34Z: 17 of 74 head-arch pairs ran
+        # more than once, 392 of 1,468 job-min. A success verdict for this arch on this head is the pass.
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+        id: verdict
+        env:
+          SHA: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          name="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$REPORT_CHECK")"
+          body="$(curl -fsS --max-time 20 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+            "${GITHUB_API_URL:-https://api.github.com}/repos/$GITHUB_REPOSITORY/commits/$SHA/check-runs?check_name=$name&filter=all" || true)"
+          passed="$(printf '%s' "$body" | python3 -c '
+          import json, sys
+          try:
+              runs = json.load(sys.stdin).get("check_runs", [])
+          except ValueError:
+              runs = []
+          print("true" if any(r.get("conclusion") == "success" for r in runs) else "false")
+          ')"
+          if [[ "$passed" == true ]]; then
+            echo "::notice title=nightly app compile::$REPORT_CHECK already passed on ${SHA:0:12}; not compiling it again"
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Compile the app the Nightly's way (fleet job)
+        if: ${{ steps.cache.outputs.cache-hit != 'true' && steps.verdict.outputs.passed != 'true' }}
         id: compile
         env:
           SHA: ${{ github.event.pull_request.head.sha }}
@@ -108,10 +154,53 @@ jobs:
           # (run 45969778703 attempt 2). The client's default key is per run and attempt; the cache step above
           # is what skips a build whose inputs already passed.
           log="$RUNNER_TEMP/nightly-pr-build-$ARCH.log"
+          detach=()
+          usage="$("$client" run --help 2>/dev/null || true)"
+          if [[ "$DETACH" != 0 && "$usage" != *--detach* && "$LOCAL_CLIENT_ONLY" != 1 && -n "$CONTROLLER" ]]; then
+            fresh="$RUNNER_TEMP/fleet-client"
+            mkdir -p "$fresh"
+            if curl -fsS -m 30 "$CONTROLLER/v1/client/manifest" -o "$fresh/manifest.json" &&
+              python3 -I - "$fresh" "$CONTROLLER" <<'PY'
+          import hashlib, json, sys, urllib.request
+          from pathlib import Path
+          root, controller = Path(sys.argv[1]), sys.argv[2]
+          for name, digest in json.loads((root / "manifest.json").read_text())["files"].items():
+              if "/" in name or name.startswith("."):
+                  raise SystemExit(f"bad client file name {name!r}")
+              data = urllib.request.urlopen(f"{controller}/v1/client/files/{name}", timeout=30).read()
+              if hashlib.sha256(data).hexdigest() != digest:
+                  raise SystemExit(f"{name}: sha256 mismatch")
+              (root / name).write_bytes(data)
+          PY
+            then
+              printf '#!/bin/sh\nexec python3 -I %q "$@"\n' "$fresh/ci-client.py" > "$fresh/cmux-ci"
+              chmod +x "$fresh/cmux-ci"
+              fresh_usage="$("$fresh/cmux-ci" run --help 2>/dev/null || true)"
+              if [[ "$fresh_usage" == *--detach* ]]; then
+                echo "::notice title=nightly app compile::runner $RUNNER_NAME's cmux-ci lacks --detach; using the controller's client"
+                client="$fresh/cmux-ci"
+                usage="$fresh_usage"
+              fi
+            else
+              echo "::warning title=nightly app compile::could not fetch the controller's client; waiting on the local one"
+            fi
+          fi
+          if [[ "$DETACH" != 0 && "$usage" == *--detach* ]]; then
+            detach=(--report-check "$REPORT_CHECK" --detach)
+          elif [[ "$DETACH" != 0 ]]; then
+            # This runner's cmux-ci cannot detach, so the job holds the runner for the whole fleet wait.
+            # Name the runner and client so the stale installs can be counted and updated.
+            echo "::warning title=nightly app compile::cmux-ci on runner $RUNNER_NAME has no --detach ($("$client" --version 2>&1 | head -1)); this job waits on the fleet"
+          fi
           "$client" run --class isolated --script scripts/cmux-next/check-release-compile.sh --ref "$SHA" \
             --repo "$GITHUB_REPOSITORY" --arg=--archs --arg="$ARCH" --arg=--nightly \
-            --reason "nightly pr build #$PR $ARCH" --timeout 3600 --queue-timeout "$QUEUE_WAIT_S" 2>&1 \
+            --reason "nightly pr build #$PR $ARCH" --timeout 3600 --queue-timeout "$QUEUE_WAIT_S" ${detach[@]+"${detach[@]}"} 2>&1 \
             | tee "$log" || status=${PIPESTATUS[0]}
+          if [[ "$status" == 0 ]] && grep -q ') detached; check run' "$log"; then
+            # Submitted: the check run REPORT_CHECK on the head carries the verdict; nothing passed here yet.
+            echo "::notice title=nightly app compile::the fleet posts the $ARCH verdict as check run \"$REPORT_CHECK\" on ${SHA:0:12}"
+            exit 0
+          fi
           step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
           if [[ "$status" == 75 && -n "$step" ]] && grep -q 'is still queued after' "$log"; then
             # Not started within QUEUE_WAIT_S: the step would stay queued and build for nobody.
@@ -131,7 +220,7 @@ jobs:
           esac
       - name: Cancel the fleet step of a cancelled job
         # fail-fast (or a newer push) cancelled this job: its fleet step, queued or building, has no reader.
-        if: ${{ cancelled() && steps.cache.outputs.cache-hit != 'true' }}
+        if: ${{ cancelled() && steps.cache.outputs.cache-hit != 'true' && steps.verdict.outputs.passed != 'true' }}
         env:
           ARCH: ${{ matrix.arch }}
         run: |
@@ -142,10 +231,10 @@ jobs:
             "$client" cancel "$step" --reason "nightly pr build: job cancelled" || true
           fi
       - name: Record the pass
-        if: ${{ steps.compile.outputs.passed == 'true' }}
+        if: ${{ steps.compile.outputs.passed == 'true' || steps.verdict.outputs.passed == 'true' }}
         run: mkdir -p "$RUNNER_TEMP/nightly-pr-build-pass" && echo "$KEY" > "$RUNNER_TEMP/nightly-pr-build-pass/key"
       - name: Save the pass
-        if: ${{ steps.compile.outputs.passed == 'true' }}
+        if: ${{ steps.compile.outputs.passed == 'true' || steps.verdict.outputs.passed == 'true' }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/nightly-pr-build-pass
