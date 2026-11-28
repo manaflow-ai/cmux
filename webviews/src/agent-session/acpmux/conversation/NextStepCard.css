@@ -129,13 +129,13 @@
   visibility: hidden;
 }
 .acpmux-next-step__answer:not(.is-primary):hover {
-  background: color-mix(in srgb, var(--agent-text) 4%, transparent);
+  background: var(--ds-surface-hover);
 }
 .acpmux-next-step__answer.is-primary .acpmux-next-step__arrow {
   visibility: visible;
 }
 .acpmux-next-step__answer:is(.is-primary, :focus-visible) .acpmux-question-number {
-  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  background: var(--ds-color-selection);
   color: var(--agent-text);
 }
 .acpmux-next-step__answer:disabled {

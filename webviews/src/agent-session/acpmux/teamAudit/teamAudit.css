@@ -23,7 +23,7 @@ button.tma-crumb:hover{color:var(--agent-text)}
 /* A drillable row's name is a button that reads as the name; the row's hover says it is one. */
 .tma-drill-row{width:100%;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left}
 .tma-table tbody tr:has(.tma-drill-row){cursor:default}
-.tma-table tbody tr:has(.tma-drill-row:focus-visible){background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 12%,transparent)}
+.tma-table tbody tr:has(.tma-drill-row:focus-visible){background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 12%,transparent)} /* chat-surface-allow: the accent role colour, not a surface level */
 .tma-table tbody tr[data-others] .tma-key{color:var(--agent-muted)}
 .tma-folded{font-size:var(--text-detail);color:var(--agent-muted)}
 .tma-privacy{min-width:0}
@@ -42,7 +42,7 @@ button.tma-crumb:hover{color:var(--agent-text)}
 .tma-eff-table .tma-bar-col{width:30%;min-width:120px}
 .tma-bar-cell{--tma-ink:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 55%,transparent);display:flex;justify-content:flex-end;padding-bottom:var(--ds-space-1);background:linear-gradient(var(--tma-ink),var(--tma-ink)) left bottom/calc(var(--tma-share,0) * 100%) 3px no-repeat}
 .tma-eff-table tr[data-outlier] .tma-bar-cell{--tma-ink:var(--agent-warning,var(--agent-status-warning,var(--agent-text)))}
-.tma-eff-table tr[data-outlier]{background:color-mix(in srgb,var(--agent-warning,var(--agent-status-warning,var(--agent-text))) 8%,transparent)}
+.tma-eff-table tr[data-outlier]{background:color-mix(in srgb,var(--agent-warning,var(--agent-status-warning,var(--agent-text))) 8%,transparent)} /* chat-surface-allow: a status role colour, not a surface level */
 .tma-outlier{margin-left:var(--ds-space-2);font-size:var(--text-detail);color:var(--agent-warning,var(--agent-status-warning,var(--agent-text)))}
 .tma-eff-note{display:flex;align-items:center;gap:var(--ds-space-2);margin:0;padding:0 var(--ds-space-2);font-size:var(--text-detail);color:var(--agent-muted)}
 .tma-outlier-mark{flex:none;width:8px;aspect-ratio:1;border-radius:50%;background:var(--agent-warning,var(--agent-status-warning,var(--agent-text)))}

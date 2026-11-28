@@ -14,7 +14,7 @@
 .acpmux-topright-morph-set .acpmux-header-tool{transform:translateX(calc(var(--acpmux-topright-i,1) * 6px));opacity:0;transition:transform var(--agent-motion-in,120ms) var(--agent-ease-out,ease-out),opacity var(--agent-motion-in,120ms) var(--agent-ease-out,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out);transition-delay:calc(var(--acpmux-topright-i,1) * var(--agent-motion-in,120ms) / 8)}
 .acpmux-topright-morph[data-open] .acpmux-topright-morph-set .acpmux-header-tool{transform:none;opacity:1}
 .acpmux-topright-morph-trigger{position:relative}
-.acpmux-topright-morph[data-open] .acpmux-topright-morph-trigger{color:var(--agent-text);background:var(--acpmux-header-tool-on,color-mix(in srgb,var(--agent-text) 12%,transparent))}
+.acpmux-topright-morph[data-open] .acpmux-topright-morph-trigger{color:var(--agent-text);background:var(--acpmux-header-tool-on,var(--ds-color-selection))}
 /* The face changes to the picked pane's glyph: it settles in from a little smaller. */
 .acpmux-topright-face{display:inline-flex;animation:acpmux-topright-face-in var(--agent-motion-in,120ms) var(--agent-ease-out,ease-out)}
 @keyframes acpmux-topright-face-in{from{opacity:0;transform:scale(.7)}to{opacity:1;transform:none}}
@@ -31,8 +31,8 @@
 .acpmux-topright-strip[data-docked] .acpmux-topright-strip-rest .acpmux-header-tool{opacity:.7}
 .acpmux-topright-strip-tabs{align-self:stretch;align-items:flex-end;margin-inline-start:var(--grid-half-step);padding-inline:8px}
 .acpmux-header-tools .acpmux-header-tool.acpmux-topright-tab{--acpmux-topright-tab-height:calc(var(--acpmux-header-tool-size,var(--grid-pill,24px)) + 2px);position:relative;width:calc(var(--acpmux-header-tool-size,var(--grid-pill,24px)) + 8px);height:var(--acpmux-topright-tab-height);border-radius:var(--ds-radius-md,6px) var(--ds-radius-md,6px) 0 0}
-.acpmux-header-tools .acpmux-header-tool.acpmux-topright-tab[aria-pressed=true],.acpmux-header-tools .acpmux-header-tool.acpmux-topright-tab:not(:disabled):hover{background:var(--acpmux-header-tool-on,color-mix(in srgb,var(--agent-text) 12%,transparent))}
-.acpmux-topright-tab::before,.acpmux-topright-tab::after{content:"";position:absolute;inset-block-end:0;--acpmux-topright-foot-size:6px;width:var(--acpmux-topright-foot-size);height:var(--acpmux-topright-foot-size);pointer-events:none;background:radial-gradient(circle at var(--acpmux-topright-foot,0 0),transparent 5.5px,var(--acpmux-header-tool-on,color-mix(in srgb,var(--agent-text) 12%,transparent)) 6px)}
+.acpmux-header-tools .acpmux-header-tool.acpmux-topright-tab[aria-pressed=true],.acpmux-header-tools .acpmux-header-tool.acpmux-topright-tab:not(:disabled):hover{background:var(--acpmux-header-tool-on,var(--ds-color-selection))}
+.acpmux-topright-tab::before,.acpmux-topright-tab::after{content:"";position:absolute;inset-block-end:0;--acpmux-topright-foot-size:6px;width:var(--acpmux-topright-foot-size);height:var(--acpmux-topright-foot-size);pointer-events:none;background:radial-gradient(circle at var(--acpmux-topright-foot,0 0),transparent 5.5px,var(--acpmux-header-tool-on,var(--ds-color-selection)) 6px)}
 .acpmux-topright-tab::before{inset-inline-end:100%;--acpmux-topright-foot:0 0}
 .acpmux-topright-tab::after{inset-inline-start:100%;--acpmux-topright-foot:100% 0}
 

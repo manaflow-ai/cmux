@@ -9,7 +9,7 @@
 button.acpmux-managed-name{border:0;padding:0;background:none;font:inherit;font-weight:600}
 button.acpmux-managed-name:hover{text-decoration:underline}
 .acpmux-managed-take-over{flex:none;display:inline-flex;align-items:center;gap:var(--ds-space-1);box-sizing:border-box;border:1px solid var(--agent-border);border-radius:6px;padding:0 var(--ds-space-2);min-height:20px;background:var(--agent-input-bg);color:var(--agent-text);font:inherit;font-weight:500;line-height:inherit;white-space:nowrap;cursor:default}
-.acpmux-managed-take-over:hover{background:color-mix(in srgb,var(--agent-text) 8%,var(--agent-input-bg))}
+.acpmux-managed-take-over:hover{background:var(--ds-surface-hover-layer),var(--agent-input-bg)}
 .acpmux-managed-banner button:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:2px}
 /* The line (cardFit.css) fills the banner and stays centred while it fits; in a narrow pane Hide
    takes its own line under the sentence, centred too. */
@@ -31,7 +31,7 @@ button.acpmux-managed-name:hover{text-decoration:underline}
 .acpmux-managed-pill.acpmux-jump-latest{padding:0;gap:0;cursor:pointer}
 .acpmux-managed-pill-open{display:inline-flex;align-items:center;gap:var(--ds-space-2);height:100%;padding:0 var(--ds-space-1) 0 var(--ds-space-3);border:0;background:none;color:inherit;font:inherit;cursor:pointer}
 .acpmux-managed-pill-hide{display:inline-grid;place-items:center;min-width:22px;height:22px;margin-right:var(--ds-space-1);padding:0 var(--ds-space-1);border:0;border-radius:var(--ds-radius-control);background:none;color:var(--agent-muted);font:inherit;cursor:pointer}
-.acpmux-managed-pill-hide:hover{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent));color:var(--agent-text)}
+.acpmux-managed-pill-hide:hover{background:var(--acpmux-pill-hover,var(--ds-surface-hover));color:var(--agent-text)}
 .acpmux-managed-pill:has(.acpmux-managed-pill-hide:hover){background-image:none}
 /* One roundness for the pill and the composer under it (ManagedBannerDesigns.tsx RoundPair, gallery only;
    Lawrence 2026-11-26). The card copies New Tab's one card (newtab/screen.css, Lucas #57406): field row, then

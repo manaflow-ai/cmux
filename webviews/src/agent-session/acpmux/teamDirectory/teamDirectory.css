@@ -18,14 +18,14 @@
 .tdir-teams{display:flex;flex-wrap:wrap;gap:var(--ds-space-1);margin:0;padding:0;list-style:none}
 .tdir-team{display:inline-flex;align-items:center;gap:var(--ds-space-1);padding:var(--ds-space-1) var(--ds-space-2);border:0;border-radius:var(--ds-radius-control);background:transparent;color:var(--agent-muted);font:inherit;font-size:var(--text-detail)}
 .tdir-team:hover{background:var(--ds-surface-hover);color:var(--agent-text)}
-.tdir-team[aria-current]{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 12%,transparent);color:var(--agent-text)}
+.tdir-team[aria-current]{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 12%,transparent);color:var(--agent-text)} /* chat-surface-allow: the accent role colour, not a surface level */
 /* Spaces: title and counts, then who is live as chips. */
 .tdir-spaces,.tdir-rows{display:flex;flex-direction:column;gap:var(--ds-space-1);margin:0;padding:0;list-style:none}
 .tdir-space{display:flex;flex-direction:column;gap:var(--ds-space-1);padding:var(--ds-space-2) var(--ds-space-3);border-radius:var(--ds-radius-control);background:var(--ds-surface-card)}
 .tdir-space-head{display:flex;align-items:center;gap:var(--ds-space-2);min-width:0}
 .tdir-space-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-body)}
 .tdir-count{flex:none;min-width:2ch;padding:0 var(--ds-space-1);border-radius:var(--ds-radius-control);font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing);font-variant-numeric:tabular-nums;text-align:center;color:var(--agent-muted);background:var(--ds-surface-hover)}
-.tdir-count[data-tone=unread]{color:var(--agent-text);background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 18%,transparent)}
+.tdir-count[data-tone=unread]{color:var(--agent-text);background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 18%,transparent)} /* chat-surface-allow: the accent role colour, not a surface level */
 .tdir-chips{display:flex;flex-wrap:wrap;gap:var(--ds-space-1) var(--ds-space-2);margin:0;padding:0;list-style:none}
 .tdir-chip{display:inline-flex;align-items:center;gap:var(--ds-space-1);min-width:0;font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .tdir-more{color:var(--agent-muted)}

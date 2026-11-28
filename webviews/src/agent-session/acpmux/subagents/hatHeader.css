@@ -67,7 +67,7 @@
 .acpmux-hat-deck[data-look="cards"] .acpmux-hat-deck__face {
   padding: var(--grid-half-step);
   border-radius: var(--ds-radius-control, 6px);
-  background: color-mix(in srgb, var(--agent-page-bg, Canvas) 86%, var(--agent-text));
+  background: color-mix(in srgb, var(--agent-page-bg, Canvas) 86%, var(--agent-text)); /* chat-surface-allow: a stacked deck face is opaque so the faces under it never show through */
   box-shadow: inset 0 0 0 var(--cmux-hairline, 1px) color-mix(in srgb, var(--agent-text) 14%, transparent);
   transform-origin: 50% 100%;
 }
@@ -146,7 +146,7 @@
 }
 /* `eye`: a small circle flush in the bar, in its trailing controls, shown at rest in muted ink. */
 .acpmux-hat-hide[data-at="eye"] {
-  --acpmux-hide-ink: 6%;
+  --acpmux-hide-fill: var(--ds-surface-hover);
   top: 0;
   right: calc(var(--acpmux-tray-inset) + var(--acpmux-tray-chevron-width) + var(--acpmux-tray-gap));
   width: var(--acpmux-tray-stop-width);
@@ -167,15 +167,15 @@
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--agent-text) var(--acpmux-hide-ink), transparent);
+  background: var(--acpmux-hide-fill);
   transform: translate(-50%, -50%);
   transition: background-color var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out);
 }
 .acpmux-hat-hide[data-at="eye"]:hover {
-  --acpmux-hide-ink: 11%;
+  --acpmux-hide-fill: var(--ds-surface-hover-layer), var(--ds-surface-hover);
 }
 .acpmux-hat-hide[data-at="eye"]:active {
-  --acpmux-hide-ink: 16%;
+  --acpmux-hide-fill: var(--ds-color-pressed);
 }
 .acpmux-hat-hide[data-at="eye"]:focus-visible {
   outline: none;
@@ -190,7 +190,7 @@
   width: 22px;
   height: 20px;
   border-radius: 0 0 var(--ds-radius-md, 8px) var(--ds-radius-md, 8px);
-  background: var(--glass-tint, color-mix(in srgb, var(--agent-text) 7%, transparent));
+  background: var(--glass-tint, var(--ds-surface-inset));
   box-shadow: var(
     --glass-rim-shadow,
     inset 0 0 0 var(--cmux-hairline, 1px) color-mix(in srgb, var(--agent-text) 14%, transparent)
@@ -198,10 +198,10 @@
   transition: background-color var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out);
 }
 .acpmux-hat-hide[data-at="pill"]:hover {
-  background: color-mix(in srgb, var(--agent-text) 11%, transparent);
+  background: var(--ds-surface-hover-layer), var(--glass-tint, var(--ds-surface-inset));
 }
 .acpmux-hat-hide[data-at="pill"]:active {
-  background: var(--ds-color-pressed, color-mix(in srgb, var(--agent-text) 16%, transparent));
+  background: var(--ds-surface-pressed-layer), var(--glass-tint, var(--ds-surface-inset));
 }
 /* `bar`: a slim bar along the hat's whole top, over the header. The resize rim lies over its top and
    passes a press that never dragged through to it; its eye-slash shows while the pointer is on the hat. */
@@ -217,7 +217,7 @@
   padding: 0;
   border: 0;
   border-bottom: var(--cmux-hairline, 1px) solid color-mix(in srgb, var(--agent-text) 8%, transparent);
-  background: color-mix(in srgb, var(--agent-text) 4%, transparent);
+  background: var(--ds-surface-card);
   color: var(--agent-muted);
   cursor: default;
   transition: background-color var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out);
@@ -229,7 +229,7 @@
 .acpmux-running-tray:hover > .acpmux-hat-hide-bar,
 .acpmux-running-tray:has([data-popup-open]) > .acpmux-hat-hide-bar,
 .acpmux-hat-hide-bar:focus-visible {
-  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  background: var(--ds-surface-hover-layer), var(--ds-surface-card);
 }
 .acpmux-running-tray:hover > .acpmux-hat-hide-bar > svg,
 .acpmux-running-tray:has([data-popup-open]) > .acpmux-hat-hide-bar > svg,
@@ -238,7 +238,7 @@
   transition: opacity var(--cv-actions-in, 80ms) var(--cv-actions-in-ease, ease-out);
 }
 .acpmux-hat-hide-bar:active {
-  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  background: var(--ds-surface-pressed-layer), var(--ds-surface-card);
 }
 .acpmux-hat-hide-bar:focus-visible {
   outline: 2px solid var(--agent-accent);

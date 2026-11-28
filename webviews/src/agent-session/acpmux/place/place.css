@@ -211,7 +211,7 @@
   background: var(--place-accent);
 }
 .acpmux-move-bar > span[data-state="current"] {
-  background: color-mix(in srgb, var(--place-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--place-accent) 55%, transparent); /* chat-surface-allow: the place accent role colour */
 }
 .acpmux-move-bar > span[data-state="stopped"] {
   background: var(--place-warn);
@@ -256,7 +256,7 @@
 }
 .acpmux-move-steps li[data-state="current"] .acpmux-move-mark,
 .acpmux-move-dot[data-state="moving"] {
-  background: color-mix(in srgb, var(--place-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--place-accent) 55%, transparent); /* chat-surface-allow: the place accent role colour */
 }
 .acpmux-move-steps li[data-state="stopped"] .acpmux-move-mark,
 .acpmux-move-dot[data-state="failed"] {
@@ -312,7 +312,7 @@
   margin-inline-start: var(--ds-space-2, 8px);
 }
 .acpmux-evac-btn:hover {
-  background: color-mix(in srgb, var(--agent-text) 13%, transparent);
+  background: var(--ds-surface-hover-layer), var(--ds-surface-card);
 }
 .acpmux-evac-btn:focus-visible,
 .acpmux-evac button:focus-visible {
@@ -385,7 +385,7 @@
   background: var(--place-accent);
 }
 .acpmux-evac .acpmux-move-bar > span[data-state="moving"] {
-  background: color-mix(in srgb, var(--place-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--place-accent) 55%, transparent); /* chat-surface-allow: the place accent role colour */
 }
 .acpmux-evac .acpmux-move-bar > span[data-state="failed"],
 .acpmux-evac .acpmux-move-bar > span[data-state="cancelled"] {

@@ -31,7 +31,7 @@
   border: 1px solid color-mix(in srgb, var(--agent-border) 72%, transparent);
   border-radius: 14px;
   overflow: hidden;
-  background: color-mix(in srgb, var(--agent-surface) 54%, transparent);
+  background: var(--ds-surface-card);
 }
 .acpmux-cloud-start__summary {
   display: flex;
@@ -89,7 +89,7 @@
   border: 1px solid color-mix(in srgb, var(--agent-link, #60a5fa) 60%, transparent);
   border-radius: 6px;
   color: var(--agent-link, #60a5fa);
-  background: color-mix(in srgb, var(--agent-link, #60a5fa) 10%, transparent);
+  background: color-mix(in srgb, var(--agent-link, #60a5fa) 10%, transparent); /* chat-surface-allow: the link role colour, not a surface level */
   font: inherit;
 }
 .acpmux-cloud-start__sign-in:disabled { opacity: .65; }
@@ -220,9 +220,9 @@
   background: transparent;
   font: inherit;
 }
-.acpmux-cloud-ask__button:hover:not(:disabled) { background: color-mix(in srgb, var(--agent-accent) 10%, transparent); }
-.acpmux-cloud-ask__button[data-role="default"] { border-color: transparent; background: color-mix(in srgb, var(--agent-accent) 16%, transparent); }
-.acpmux-cloud-ask__button[data-role="default"]:hover:not(:disabled) { background: color-mix(in srgb, var(--agent-accent) 24%, transparent); }
+.acpmux-cloud-ask__button:hover:not(:disabled) { background: color-mix(in srgb, var(--agent-accent) 10%, transparent); } /* chat-surface-allow: the accent role colour, not a surface level */
+.acpmux-cloud-ask__button[data-role="default"] { border-color: transparent; background: color-mix(in srgb, var(--agent-accent) 16%, transparent); } /* chat-surface-allow: the accent role colour, not a surface level */
+.acpmux-cloud-ask__button[data-role="default"]:hover:not(:disabled) { background: color-mix(in srgb, var(--agent-accent) 24%, transparent); } /* chat-surface-allow: the accent role colour, not a surface level */
 .acpmux-cloud-ask__button:disabled { opacity: .55; }
 /* A folder too big to copy (CloudStartView `TooBigActions`): the repositories inside it, one click each, then
    another folder or none. The ask's own buttons and caption; repository names in the mono face, cut at the end. */
@@ -297,7 +297,7 @@
 .acpmux-cloud-steps__step { display: inline-flex; align-items: center; gap: calc(var(--ds-space-1) + var(--grid-half-step)); }
 .acpmux-cloud-steps[data-look="rail"] .acpmux-cloud-steps__step + .acpmux-cloud-steps__step::before { content: ""; width: var(--ds-space-3); height: var(--cmux-hairline); margin-right: var(--grid-half-step); background: currentColor; opacity: 0.4; }
 .acpmux-cloud-steps__mark { display: inline-flex; align-items: center; justify-content: center; width: var(--ds-icon-16); height: var(--ds-icon-16); border-radius: 50%; border: var(--cmux-hairline-ring) solid currentColor; line-height: 1; font-variant-numeric: tabular-nums; }
-.acpmux-cloud-steps__step[data-step="done"] .acpmux-cloud-steps__mark { border-color: transparent; background: color-mix(in srgb, var(--agent-accent) 10%, transparent); color: var(--agent-soft); }
+.acpmux-cloud-steps__step[data-step="done"] .acpmux-cloud-steps__mark { border-color: transparent; background: color-mix(in srgb, var(--agent-accent) 10%, transparent); color: var(--agent-soft); } /* chat-surface-allow: the accent role colour, not a surface level */
 .acpmux-cloud-steps__step[data-step="current"] { color: var(--agent-text); font-weight: 600; }
-.acpmux-cloud-steps__step[data-step="current"] .acpmux-cloud-steps__mark { border-color: transparent; background: color-mix(in srgb, var(--agent-accent) 24%, transparent); color: var(--agent-text); }
+.acpmux-cloud-steps__step[data-step="current"] .acpmux-cloud-steps__mark { border-color: transparent; background: color-mix(in srgb, var(--agent-accent) 24%, transparent); color: var(--agent-text); } /* chat-surface-allow: the accent role colour, not a surface level */
 .acpmux-cloud-plan-team[data-setup-step] .acpmux-cloud-plan-team__title { color: var(--agent-text); }

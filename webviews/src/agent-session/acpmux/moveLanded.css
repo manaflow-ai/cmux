@@ -24,7 +24,7 @@
   background: transparent;
 }
 .acpmux-move-landed-disclosure .ui-disclosure-trigger:hover {
-  background: color-mix(in srgb, currentColor 8%, transparent);
+  background: var(--ds-surface-hover);
 }
 .acpmux-move-landed-groups {
   display: flex;
@@ -51,7 +51,7 @@
 .acpmux-move-landed-more {
   padding: 0 var(--ds-space-1);
   border-radius: var(--ds-radius-sm);
-  background: color-mix(in srgb, currentColor 8%, transparent);
+  background: var(--ds-surface-inset);
   font-family: var(--font-mono);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);

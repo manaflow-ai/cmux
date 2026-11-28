@@ -155,10 +155,10 @@
   align-items: center;
 }
 .cv-inbox__notice[data-notice-look="tint"][data-notice-severity="fire"] > .cv-agentmsg__line {
-  background: color-mix(in srgb, var(--agent-status-failure) 9%, transparent);
+  background: color-mix(in srgb, var(--agent-status-failure) 9%, transparent); /* chat-surface-allow: a status role colour, not a surface level */
   border-radius: 6px;
 }
 .cv-inbox__notice[data-notice-look="tint"][data-notice-severity="warn"] > .cv-agentmsg__line {
-  background: color-mix(in srgb, var(--agent-status-warning) 9%, transparent);
+  background: color-mix(in srgb, var(--agent-status-warning) 9%, transparent); /* chat-surface-allow: a status role colour, not a surface level */
   border-radius: 6px;
 }

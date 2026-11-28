@@ -33,7 +33,7 @@
   padding: 0 var(--ds-space-2, 8px);
   border: 0;
   border-radius: var(--ds-radius-control, 8px);
-  background: var(--acpmux-computer-fill-strong, color-mix(in srgb, var(--agent-text) 9%, transparent));
+  background: var(--acpmux-computer-fill-strong, var(--ds-surface-inset));
   color: var(--agent-text);
   font: inherit;
   font-weight: normal;
@@ -43,7 +43,7 @@
 .acpmux-computer-status-action:hover,
 .acpmux-computer-choice:hover,
 .acpmux-computer-button:hover {
-  background: var(--acpmux-computer-fill-hover, color-mix(in srgb, var(--agent-text) 13%, transparent));
+  background: var(--acpmux-computer-fill-hover, var(--ds-surface-hover-layer), var(--ds-surface-inset));
 }
 .acpmux-computer-status button:focus-visible,
 .acpmux-computer-rows button:focus-visible,
@@ -109,7 +109,7 @@
 }
 .acpmux-computer-row-label + .acpmux-computer-row-note { flex: 1 1 0; color: var(--agent-text); }
 .acpmux-computer-choice[data-on="true"] {
-  background: color-mix(in srgb, var(--agent-text) 18%, transparent);
+  background: var(--ds-color-selection);
 }
 .acpmux-computer-choice-label { color: var(--agent-muted); padding-inline: var(--grid-half-step); }
 .acpmux-computer-pin { flex: none; color: var(--agent-muted); }
@@ -138,7 +138,7 @@
   padding: var(--ds-space-2, 8px);
   border: 0;
   border-radius: var(--ds-radius-control, 8px);
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  background: var(--ds-surface-card);
   color: var(--agent-text);
   font: inherit;
 }
@@ -153,7 +153,7 @@
   padding: 0 var(--ds-space-2, 8px);
   border: 0;
   border-radius: var(--ds-radius-control, 8px);
-  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  background: var(--ds-surface-inset);
   color: var(--agent-text);
   font: inherit;
   cursor: default;

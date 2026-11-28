@@ -206,7 +206,7 @@
 /* Video sits on black (letterbox), inline and in the compare viewer's frames. */
 .cv-media video,
 .cv-compare__frame {
-  background: #000;
+  background: #000; /* chat-surface-allow: a video letterbox is black in both themes, not a surface */
 }
 .cv-media.is-video:not(:has(video)) {
   min-width: 160px;
@@ -302,7 +302,7 @@
   padding: 1px 5px;
   border-radius: 4px;
   color: #fff; /* theme-fixed: on its own black scrim over media */
-  background: rgb(0 0 0 / 0.55);
+  background: rgb(0 0 0 / 0.55); /* chat-surface-allow: a scrim over video, dark in both themes so its white text reads on any frame */
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
@@ -598,7 +598,7 @@ button.cv-thumb:focus-visible {
   padding: var(--grid-half-step);
   gap: var(--grid-half-step);
   border-radius: var(--ds-radius-control);
-  background: color-mix(in srgb, var(--cv-fg, currentColor) 7%, transparent);
+  background: var(--ds-surface-inset);
 }
 .cv-playback__button {
   appearance: none;
@@ -616,10 +616,10 @@ button.cv-thumb:focus-visible {
   cursor: default;
 }
 .cv-playback__button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--cv-fg, currentColor) 9%, transparent);
+  background: var(--ds-surface-hover);
 }
 .cv-playback__button[aria-pressed="true"] {
-  background: var(--ds-surface-card, color-mix(in srgb, var(--cv-fg, currentColor) 14%, transparent));
+  background: var(--ds-surface-card);
   box-shadow: 0 0 0 1px var(--ds-surface-card-line, transparent);
 }
 .cv-playback__button:disabled {
@@ -630,10 +630,10 @@ button.cv-thumb:focus-visible {
   outline-offset: 1px;
 }
 .cv-playback__loop {
-  background: color-mix(in srgb, var(--cv-fg, currentColor) 7%, transparent);
+  background: var(--ds-surface-inset);
 }
 .cv-playback__play {
-  background: color-mix(in srgb, var(--cv-fg, currentColor) 7%, transparent);
+  background: var(--ds-surface-inset);
 }
 .cv-playback__scrub {
   flex: 1;
@@ -700,14 +700,14 @@ button.cv-thumb:focus-visible {
   padding: 0 var(--ds-space-2);
   border: 0;
   border-radius: var(--ds-radius-control);
-  background: color-mix(in srgb, var(--cv-fg, currentColor) 7%, transparent);
+  background: var(--ds-surface-inset);
   color: var(--cv-text);
   font: inherit;
   font-size: var(--text-detail);
   cursor: default;
 }
 .cv-thumbs__compare:hover {
-  background: color-mix(in srgb, var(--cv-fg, currentColor) 12%, transparent);
+  background: var(--ds-surface-hover-layer), var(--ds-surface-inset);
 }
 .cv-thumbs__compare:focus-visible {
   outline: 2px solid var(--agent-accent-soft);
