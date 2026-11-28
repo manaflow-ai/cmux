@@ -110,6 +110,7 @@ extension AppStore {
                     next.append(mac.device(keeping: nil))
                 }
             }
+            next = linkMarked(next)
             if next != teams[index].macs { teams[index].macs = next }
         }
     }

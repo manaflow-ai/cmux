@@ -100,8 +100,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         self.state = state
         self.services = services
         let sidebar = SidebarBridge(services: services, state: state)
-        self.sidebar = sidebar
-        SidebarProfileControl(services: services, state: state).install(model: sidebar.model, sidebar: sidebar.container.sidebarView)
+        self.sidebar = sidebar; DebugTimings.markLaunch("window.sidebar_bridge_made") // startup-tti: window.make_start to window.sidebar_made split
+        SidebarProfileControl(services: services, state: state).install(model: sidebar.model, sidebar: sidebar.container.sidebarView); DebugTimings.markLaunch("window.profile_control_made")
         // The footer's Search button opens the Command Palette (Lawrence 2026-11-23: "we need some mechanism to
         // educate user about cmd shift p"): the press runs the same action as the shortcut, and the tooltip
         // shows its bound key (plans/cmux-next/sidebar-search.md).

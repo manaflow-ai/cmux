@@ -204,7 +204,7 @@ pub(crate) fn load_in(dir: &Path, cwd: &Path, command: &str) -> Option<Record> {
     }
     Some(Record {
         fingerprint: v.get("fingerprint")?.as_str()?.to_owned(),
-        exit: v.get("exit")?.as_i64()? as i32,
+        exit: i32::try_from(v.get("exit")?.as_i64()?).ok()?,
         output: v.get("output")?.as_str()?.to_owned(),
         ms: v.get("ms").and_then(Value::as_u64).unwrap_or(0),
         at,
@@ -259,16 +259,16 @@ fn prerun_with_path(
             // SAFETY: signals the process group this call made (`process_group(0)`); its pid is
             // not reaped yet, so the id is still this run's.
             #[cfg(unix)]
-            unsafe {
-                libc::kill(-(child.id() as i32), libc::SIGKILL)
-            };
+            if let Ok(pgid) = libc::pid_t::try_from(child.id()) {
+                unsafe { libc::killpg(pgid, libc::SIGKILL) };
+            }
             #[cfg(not(unix))]
             let _ = child.kill();
             let _ = child.wait();
             return None;
         }
     };
-    let ms = started.elapsed().as_millis() as u64;
+    let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
     if fingerprint(cwd)? != before {
         return None;
     }

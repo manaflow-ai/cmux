@@ -182,7 +182,9 @@ def chromium_page(pages) -> dict | None:
 
 def devtools(app, browser: int, method: str, params: dict | None = None, timeout: float = 40) -> dict:
     """A DevTools method on one of the app's own Chromium pages (`debug.cef_page_devtools`), parsed."""
-    reply = app.call("debug.cef_page_devtools", {"browser": browser, "method": method, "params": params or {}}, timeout=timeout)
+    # `timeout_ms`: how long the app waits for Chromium's answer (builds before it wait 5 s, whatever `timeout` says).
+    reply = app.call("debug.cef_page_devtools", {"browser": browser, "method": method, "params": params or {},
+                                                 "timeout_ms": int(max(timeout - 2, 1) * 1000)}, timeout=timeout)
     if reply.get("error") or not isinstance(reply.get("result"), str):
         return {"error": str(reply.get("error") or "no reply")[:300]}
     try:

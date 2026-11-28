@@ -22,6 +22,10 @@ import { RemoveGlyph } from "./composer/RemoveGlyph";
 import { useVideoLengthFit } from "./composer/videoLengthFit";
 import { signed } from "../../ui/Typography";
 
+/// How many times a failed read is tried again, and the first wait (it doubles each time).
+export const READ_RETRIES = 4;
+export const READ_RETRY_MS = 1000;
+
 export function QueuedImages({
   images,
   videos,
@@ -153,17 +157,25 @@ function QueuedImage({
       : drawn?.ok
         ? "loaded"
         : "failed";
+  // A read that fails (acpmux slow or paused, the link down for a moment) is tried again a few
+  // times: a tile must not stay blank for good because one read missed (Leo, 2026-11-27: blank
+  // gray tiles under a queued message). Its slot reads "missing" meanwhile, as before.
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (image.src || !read) return;
     let live = true;
-    read(image.id).then(
-      (url) => live && setLoaded({ id: image.id, src: url }),
-      () => live && setLoaded({ id: image.id }),
-    );
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const failed = () => {
+      if (!live) return;
+      setLoaded({ id: image.id });
+      if (attempt < READ_RETRIES) retry = setTimeout(() => setAttempt(attempt + 1), READ_RETRY_MS * 2 ** attempt);
+    };
+    read(image.id).then((url) => (url ? live && setLoaded({ id: image.id, src: url }) : failed()), failed);
     return () => {
       live = false;
+      clearTimeout(retry);
     };
-  }, [image.id, image.src, read]);
+  }, [image.id, image.src, read, attempt]);
   const length = video?.durationMs ? formatDuration(video.durationMs / 1000) : undefined;
   const tile = useRef<HTMLButtonElement>(null);
   useVideoLengthFit(tile, length);
