@@ -308,6 +308,23 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         newBounds.width != boundsWidth
     }
 
+    /// The last row whose top is above `y` (the bottom row on screen, for `y` the visible bottom), and its top.
+    func lastRow(above y: CGFloat) -> (id: String, top: CGFloat)? {
+        prepareIfNeeded()
+        let row = lastIndex(topBefore: y)
+        guard row >= 0, row < items.count else { return nil }
+        return (items[row].id, tops[row])
+    }
+
+    private func lastIndex(topBefore y: CGFloat) -> Int {
+        var low = 0, high = items.count
+        while low < high {
+            let mid = (low + high) / 2
+            if tops[mid] < y { low = mid + 1 } else { high = mid }
+        }
+        return low - 1
+    }
+
     private func firstIndex(bottomAfter y: CGFloat) -> Int {
         var low = 0, high = items.count
         while low < high {
@@ -397,9 +414,19 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         let delta = preferred.size.height - heights[row]
         heights[row] = preferred.size.height
         markDirty(row)
-        // A row above what the reader sees grew or shrank: keep what they see in place.
+        // A row above what the reader sees grew or shrank: keep what they see in place. So too a
+        // row that starts above it (a streamed answer the reader is partway down): its growth
+        // keeps the rows under it still and its own bottom where it was, instead of pushing them.
+        // And a row on screen above the bottom row they see (a late edited-files card measuring,
+        // a tool row filling in): the rows under it hold and the rows above it move up, as the
+        // list's own scroll, the way `reload` holds that bottom row for a row inserted above it.
+        // A following reader too: a card `reload` put in at its estimate measures here, in the
+        // collection view's layout, and the dock's pin to the newest row corrects only after that
+        // frame drew the rows under it pushed down. The newest row growing (a streamed answer)
+        // is not above the bottom row: the dock still pins it.
         let visibleTop = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
-        if !followsBottom(), row < tops.count, tops[row] + heights[row] - delta <= visibleTop {
+        let visibleBottom = collectionView.contentOffset.y + collectionView.bounds.height - collectionView.adjustedContentInset.bottom
+        if row < tops.count, (!followsBottom() && tops[row] < visibleTop - 0.5) || row < lastIndex(topBefore: visibleBottom) {
             context.contentOffsetAdjustment = CGPoint(x: 0, y: delta)
         }
         return context
@@ -674,7 +701,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         // The layout-shift count: rows on screen, in the list's visible bounds, native and hosted
         // cells alike. Measured in the list, so the list scaled or moved whole (the tab grid's
         // zoom, the live page following its card) is not a shift.
-        LayoutShiftProbe.shared?.watch(collectionView, prefix: "chat.") { [weak self] in self?.probeRows() ?? [] }
+        LayoutShiftProbe.shared?.watch(collectionView, prefix: "chat.") { [weak self] in self?.shiftProbeRows() ?? [] }
         #if DEBUG
         if let probe = LoadFrameProbe.shared {
             probe.watch(collectionView, rows: { [weak self] in self?.probeRows() ?? [] },
@@ -1121,7 +1148,16 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         }
         applies += 1
         lastReconfigured = changed.count
-        let anchor = surface.following || !loaded ? nil : layout.firstRow(below: collectionView.contentOffset.y + collectionView.adjustedContentInset.top)
+        // The bottom row the reader sees, not the top one: a row inserted on screen above it (the
+        // edited-files card that lands above a finished turn's actions once its diff is known)
+        // moves the rows above it up with the list's scroll instead of pushing the rows under it.
+        // A following reader too, in this same pass: the dock's pin to the newest row runs only
+        // after the collection view's next layout, and not while a send glides or a disclosure
+        // holds, so the card's own frame drew the rows under it pushed down (#59189). A row
+        // added at the end, or the newest row growing, leaves the anchor's top where it was:
+        // nothing is corrected here and the dock still pins.
+        let anchor = !loaded ? nil
+            : layout.lastRow(above: collectionView.contentOffset.y + collectionView.bounds.height - collectionView.adjustedContentInset.bottom)
         // Before the rows are laid out: the controller notes where the transcript is now.
         #if DEBUG
         if !sent.isEmpty { ChatSendTrace.log("list: \(sent.count) sent rows new, \(sentRowsArrived == nil ? "no" : "a") controller") }
@@ -1177,7 +1213,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         } else {
             layout.invalidateLayout()
         }
-        // Rows inserted or resized above a reader scrolled up do not move what they read.
+        // Rows inserted or resized above a reader scrolled up do not move the rows under them.
         if let anchor, let top = layout.top(of: anchor.id), abs(top - anchor.top) > 0.5 {
             collectionView.contentOffset.y += top - anchor.top
         }
@@ -1378,6 +1414,12 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             guard let id = dataSource.itemIdentifier(for: indexPath), let cell = collectionView.cellForItem(at: indexPath) else { return nil }
             return (id, cell.frame.offsetBy(dx: -offset.x, dy: -offset.y))
         }
+    }
+
+    /// `probeRows` with each row's content revision as laid out, so `LayoutShiftProbe` reads a
+    /// streamed answer growing as new content, not a shift.
+    private func shiftProbeRows() -> [(id: String, frame: CGRect, content: Int?)] {
+        probeRows().map { (id: $0.0, frame: $0.1, content: layout.shownState(of: $0.0)?.revision) }
     }
 
     #if DEBUG
