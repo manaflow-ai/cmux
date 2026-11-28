@@ -10,8 +10,24 @@ name: iOS link FFI on Linux
 
 on:
   # A feat-cmux-next pull request starts this only through pr-router.yml (scripts/ci/pr_router.json
-  # `affects`: the FFI crate, the binding, the kit manifest, these tests, the script, this file).
+  # `affects`: the FFI crate, the binding, the kit manifest, these tests, Swift pairing/remote-view/
+  # terminal-projection sources, the script, this file). This is the required cross-commit receipt:
+  # both skew directions must link and complete the daemon identify handshake.
   workflow_call:
+    outputs:
+      pair_verdict:
+        description: Explicit compatibility assertion verdict; empty means infrastructure/no verdict
+        value: ${{ jobs.pair-skew.outputs.verdict }}
+    inputs:
+      head:
+        type: string
+        default: ''
+      linkage:
+        type: boolean
+        default: true
+      pair_skew:
+        type: boolean
+        default: true
   push:
     branches: [feat-cmux-next]
     paths:
@@ -26,14 +42,50 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  group: ios-link-ffi-linux-${{ github.ref }}
+  group: ios-link-ffi-linux-${{ inputs.head || github.ref }}-${{ toJSON(inputs.linkage) == 'false' && 'skew' || 'linkage' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  publication-snapshot:
+    name: Request protected iOS publication snapshot
+    if: ${{ toJSON(inputs.pair_skew) != 'false' && github.repository == 'manaflow-ai/cmux' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: cmux-linux
+    timeout-minutes: 13
+    permissions:
+      contents: read
+      actions: write
+    outputs:
+      producer_run: ${{ steps.snapshot.outputs.producer_run }}
+      producer_sha: ${{ steps.snapshot.outputs.producer_sha }}
+      request_id: ${{ steps.snapshot.outputs.request_id }}
+    steps:
+      # This helper ships with the protected main ASC producer before activation
+      # here. Never check out a PR/head/merge ref in this write-enabled job.
+      - name: Checkout the protected dispatcher
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/ios_snapshot_dispatch.py
+          sparse-checkout-cone-mode: false
+      - name: Dispatch and await this request's snapshot
+        id: snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SNAPSHOT_TRUSTED: 'true'
+          HEAD_SHA: ${{ inputs.head || github.event.pull_request.head.sha || github.sha }}
+          REQUEST_ID: ${{ github.run_id }}:${{ github.run_attempt }}
+          CMUX_FLEET_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+        run: |
+          PRODUCER_SHA="$(git rev-parse HEAD)" python3 -I scripts/ci/ios_snapshot_dispatch.py
+
   linkage:
     name: Swift to Rust FFI on Linux
+    if: ${{ toJSON(inputs.linkage) != 'false' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 40
     container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
@@ -65,7 +117,16 @@ jobs:
   # host the published NEXT nightly was built from, over every transport, and the daemon
   # channel must answer. Leo, 11-27: "i mean we cant connect to phone anyways right now lol".
   pair-skew:
-    name: iPhone link vs NIGHTLY Mac host
+    needs: publication-snapshot
+    # PR sources execute with read authority only. Missing dispatch authority
+    # (including a fork) yields no pair verdict, never a successful empty matrix.
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      verdict: ${{ steps.matrix.outputs.verdict }}
+    name: phone and Mac supported shipped window
+    if: ${{ toJSON(inputs.pair_skew) != 'false' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 40
     container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
@@ -76,10 +137,15 @@ jobs:
       CARGO_TERM_COLOR: never
       CARGO_INCREMENTAL: "0"
     steps:
+      - name: Begin full gate timing
+        run: echo "PAIR_GATE_START=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+          # A dispatch uses resolve's PR head, never the workflow's base SHA.
+          ref: ${{ inputs.head || github.sha }}
 
       - name: Install build tools
         run: |
@@ -88,29 +154,100 @@ jobs:
           curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
-      - name: The commit the NEXT nightly was built from
-        id: nightly
-        run: |
-          # The feed scripts/ci/protocol_skew_check.py reads (NIGHTLY_FEED there).
-          sha=$(curl -fsSL --retry 3 https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
-            | grep -oE '<cmux:sourceCommit[^>]*>[[:space:]]*[0-9a-f]{40}' | grep -oE '[0-9a-f]{40}' | head -1)
-          [[ -n "$sha" ]] || { echo "::error::no sourceCommit in the nightly feed"; exit 1; }
-          echo "NIGHTLY sourceCommit $sha"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout the nightly's tree
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      # Persist publication receipts independently of binary/test success. The
+      # next run still verifies live publication state; cache is history, not a
+      # substitute for it. A cold or unrelated branch uses bounded discovery.
+      - name: Restore verified publication history
+        id: publication-history
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          ref: ${{ steps.nightly.outputs.sha }}
-          path: .nightly-tree
-          persist-credentials: false
+          path: ${{ runner.temp }}/pair-publication-history
+          key: phone-pair-publications-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            phone-pair-publications-v1-
 
-      - name: Dial the nightly's Mac host with this head's link
+      - name: Resolve the last three published builds of each app
+        id: shipped
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SNAPSHOT_RUN: ${{ needs.publication-snapshot.outputs.producer_run }}
+          SNAPSHOT_SHA: ${{ needs.publication-snapshot.outputs.producer_sha }}
+          SNAPSHOT_REQUEST: ${{ needs.publication-snapshot.outputs.request_id }}
+          HEAD_SHA: ${{ inputs.head || github.event.pull_request.head.sha || github.sha }}
+        run: |
+          history="$RUNNER_TEMP/pair-publication-history/registry.json"
+          seed=scripts/ci/mobile_pair_shipped_window.json
+          if [ -s "$history" ]; then seed="$history"; fi
+          python3 scripts/ci/mobile_pair_shipped_window.py refresh --registry "$seed" --count 3 --output "$RUNNER_TEMP/pair-shipped.json" \
+            --producer-run "$SNAPSHOT_RUN" --producer-sha "$SNAPSHOT_SHA" \
+            --request-id "$SNAPSHOT_REQUEST" --head-sha "$HEAD_SHA"
+          mkdir -p "$(dirname "$history")"
+          cp "$RUNNER_TEMP/pair-shipped.json" "$history"
+          python3 scripts/ci/mobile_pair_shipped_window.py resolve --registry "$RUNNER_TEMP/pair-shipped.json" --count 3 --github-output "$GITHUB_OUTPUT" > "$RUNNER_TEMP/pair-window.json"
+
+      - name: Persist verified publication history
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/pair-publication-history
+          key: ${{ steps.publication-history.outputs.cache-primary-key }}
+
+      - name: Restore immutable shipped-source binaries
+        id: binaries
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/pair-binaries
+          key: phone-pair-binaries-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.shipped.outputs.fingerprint }}-${{ hashFiles('cmux-next-ios/rust/rust-toolchain.toml') }}
+          restore-keys: |
+            phone-pair-binaries-v2-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: cmux-next-ios/rust -> ${{ runner.temp }}/pair-skew-target
+          shared-key: phone-pair-skew-v1
+          cache-bin: false
+
+      # Serial source pairs reuse the PR's two executables and the dependency target.
+      # The immutable binary cache builds each shipped source/role at most once per window.
+      - name: Dial both directions across the supported shipped window
+        id: matrix
+        continue-on-error: true
+        env:
+          SKEW_LOG_DIR: ${{ runner.temp }}/pair-skew-logs
+          SKEW_BINARY_CACHE_DIR: ${{ runner.temp }}/pair-binaries
+          CARGO_TARGET_DIR: ${{ runner.temp }}/pair-skew-target
+        run: |
+          git config --global --add safe.directory '*'
+          mkdir -p "$CARGO_TARGET_DIR" "$SKEW_LOG_DIR"
+          cp "$RUNNER_TEMP/pair-window.json" "$SKEW_LOG_DIR/window.json"
+          python3 scripts/ci/mobile_pair_matrix.py "$RUNNER_TEMP/pair-window.json"
+
+      - name: Cache the verified immutable binaries
+        if: ${{ success() && steps.matrix.outcome == 'success' && steps.binaries.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/pair-binaries
+          key: ${{ steps.binaries.outputs.cache-primary-key }}
+
+      # Keep the explicit output available to callers even when assertions failed.
+      # The required fast-gates status consumes it; infrastructure has no verdict.
+      - name: Report the compatibility verdict
+        if: ${{ always() && steps.matrix.outcome != 'success' }}
+        run: echo '::warning::Pair matrix did not pass; required fast-gates status judges its explicit verdict'
+
+      - name: Record full gate wall time
+        if: always()
         env:
           SKEW_LOG_DIR: ${{ runner.temp }}/pair-skew-logs
         run: |
-          git config --global --add safe.directory '*'
-          scripts/ci/mobile-pair-skew.sh .nightly-tree .
+          mkdir -p "$SKEW_LOG_DIR"
+          python3 - <<'PY'
+          import json, os, pathlib, time
+          pathlib.Path(os.environ["SKEW_LOG_DIR"], "gate-cost.json").write_text(json.dumps({
+              "wall_seconds": time.time() - float(os.environ["PAIR_GATE_START"]),
+              "scope": "job steps: checkout, tool installation, publication discovery, cache and pair matrix; excludes runner provisioning",
+          }) + "\n")
+          PY
 
       - name: Upload the pair logs
         if: always()
@@ -119,3 +256,8 @@ jobs:
           name: pair-skew-logs
           path: ${{ runner.temp }}/pair-skew-logs
           if-no-files-found: ignore
+
+      # Standalone push/dispatch runs have no caller to post a required status.
+      - name: Fail a standalone run without a successful matrix
+        if: ${{ always() && !cancelled() && github.event_name != 'pull_request' && inputs.head == '' && steps.matrix.outputs.verdict != 'success' }}
+        run: exit 1

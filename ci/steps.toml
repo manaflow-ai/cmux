@@ -3577,6 +3577,7 @@ title = "iOS matrix: protocol cells (Rust)"
 about = "the cmux-next-ios/rust workspace's tests and the matrix's rust cells, the Mac scroll to iPhone display gate, and the matrix report for the rust suite"
 needs = ["rust"]
 inputs = [
+  "cmux-tui/crates/cmux-remote-protocol/**",
   "cmux-next-ios/rust/**",
   "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/**",
   "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTransport/**",

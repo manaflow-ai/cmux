@@ -104,6 +104,266 @@ def step_named(steps: list[dict], fragment: str) -> dict:
 
 
 
+
+class PhonePairRouting(unittest.TestCase):
+    """Run the production route on divergent histories, including GitHub's merge ref."""
+
+    def route(self, base_files, pr_files, event):
+        manifest_path = "scripts/ci/pr_router.json"
+        manifest = (ROOT / manifest_path).read_text()
+        script = step_named(job(workflow(), "resolve")["steps"], "Route phone and Mac compatibility")["run"]
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            git(repo, "init", "-q", "-b", "base")
+            ancestor = commit(repo, {manifest_path: manifest}, "common ancestor")
+            # origin is local: dispatch exercises the real fetch without any network.
+            git(repo, "remote", "add", "origin", repo.as_uri())
+            base = commit(repo, base_files(manifest), "base advanced")
+            git(repo, "checkout", "-q", "-b", "topic", ancestor)
+            head = commit(repo, pr_files(manifest), "stale PR")
+            git(repo, "checkout", "-q", "base")
+            git(repo, "merge", "-q", "--no-ff", "topic", "-m", "GitHub merge ref")
+            self.assertEqual(git(repo, "rev-parse", "HEAD^1"), base)
+            self.assertEqual(git(repo, "rev-parse", "HEAD^2"), head)
+            output = repo / "outputs"
+            result = subprocess.run(
+                ["bash", "-c", script], cwd=repo, text=True, capture_output=True, timeout=20,
+                env=dict(os.environ, BASE=base, HEAD_SHA=head, EVENT_NAME=event,
+                         GH_TOKEN="fixture", GITHUB_OUTPUT=str(output)))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            return output.read_text().strip()
+
+    def test_base_only_phone_change_does_not_route_stale_pr(self):
+        for event in ("pull_request", "workflow_dispatch"):
+            with self.subTest(event=event):
+                self.assertEqual(self.route(
+                    lambda manifest: {"cmux-next-ios/rust/crates/cmux-mobile-host/src/pairing.rs": "// base only\n"},
+                    lambda manifest: {"docs/phone.md": "PR documentation\n"}, event), "required=false")
+
+    def test_base_only_manifest_change_does_not_route_stale_pr(self):
+        for event in ("pull_request", "workflow_dispatch"):
+            with self.subTest(event=event):
+                self.assertEqual(self.route(
+                    lambda manifest: {"scripts/ci/pr_router.json": manifest + "\n"},
+                    lambda manifest: {"docs/phone.md": "PR documentation\n"}, event), "required=false")
+
+    def test_stale_pr_mobile_link_change_still_requires_pair(self):
+        for event in ("pull_request", "workflow_dispatch"):
+            with self.subTest(event=event):
+                self.assertEqual(self.route(
+                    lambda manifest: {"docs/base.md": "base advanced\n"},
+                    lambda manifest: {"cmux-next-ios/rust/crates/cmux-mobile-link/src/lib.rs": "// PR change\n"},
+                    event), "required=true")
+
+    def test_stale_pr_manifest_change_still_requires_pair(self):
+        for event in ("pull_request", "workflow_dispatch"):
+            with self.subTest(event=event):
+                self.assertEqual(self.route(
+                    lambda manifest: {"docs/base.md": "base advanced\n"},
+                    lambda manifest: {"scripts/ci/pr_router.json": manifest + "\n"},
+                    event), "required=true")
+
+    def test_inherited_cargo_build_inputs_require_pair(self):
+        # Feature-only workspace dependency edits need not change Cargo.lock.
+        for path in ("cmux-tui/Cargo.toml", ".cargo/config.toml"):
+            for event in ("pull_request", "workflow_dispatch"):
+                with self.subTest(path=path, event=event):
+                    self.assertEqual(self.route(
+                        lambda manifest: {"docs/base.md": "base advanced\n"},
+                        lambda manifest: {path: "# changed inherited build input\n"},
+                        event), "required=true")
+
+
+class PhonePairCargoInputs(unittest.TestCase):
+    """The required route covers the source graph the pair harness materializes."""
+
+    def assert_routes(self, paths):
+        router = load(ROOT / "scripts/ci/pr_router.py")
+        config = router.load_manifest()["ios-link-ffi-linux.yml"]
+        missing = [path for path in paths if not (
+            router.matches_filter(config, [path]) and router.affects(config, [path]))]
+        self.assertFalse(missing, "pair route omits Cargo inputs:\n" + "\n".join(missing))
+
+    def test_all_local_dependency_sources_route(self):
+        matrix = load(ROOT / "scripts/ci/mobile_pair_matrix.py")
+        names = subprocess.check_output(
+            ["git", "ls-files", "--", "*Cargo.toml"], cwd=ROOT, text=True).splitlines()
+        docs = {name: (ROOT / name).read_text() for name in names if (ROOT / name).is_file()}
+        sources = matrix.cargo_paths(docs)
+        # Probe code and manifests separately: source-only globs miss feature edits.
+        self.assert_routes([path + suffix for path in sources
+                            for suffix in ("/Cargo.toml", "/src/lib.rs")
+                            if path != "cmux-next-ios/rust"])
+
+    def test_workspace_toolchain_and_config_inputs_route(self):
+        self.assert_routes([
+            prefix + name
+            for prefix in ("", "cmux-tui/", "cmux-next-ios/", "cmux-next-ios/rust/")
+            for name in ("Cargo.toml", "Cargo.lock", "rust-toolchain", "rust-toolchain.toml",
+                         ".cargo/config", ".cargo/config.toml")
+        ] + ["ghostty-next", "scripts/ci/zig-packages.lock", ".gitmodules"])
+
+
+class PhonePairRequiredGate(unittest.TestCase):
+    def verdict(self, **overrides):
+        step = step_named(job(workflow(), "post")["steps"], "Post the cmux-next/fast-gates status")
+        # YAML has stripped indentation. Execute the workflow's actual decision block, without its API write.
+        script = step["run"].split("# A rate-limit refusal")[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(os.environ, HEAD_SHA="a" * 40, BASE="b" * 40, GATES="success", RATCHET="skipped",
+                       ROUTED_OUT="false", RECEIPT_VALID="false", RECEIPT_AUDIT="false",
+                       RECEIPT_BASE="c" * 40, RECEIPT_RUN="", RECEIPT_PRODUCER="",
+                       PAIR_REQUIRED="true", PAIR_RESULT="success", PAIR_VERDICT="success", GITHUB_STEP_SUMMARY=tmp + "/summary")
+            env.update(overrides)
+            result = subprocess.run(["bash", "-c", script + '\nprintf "%s\\n%s\\n" "$state" "$description"'],
+                                    env=env, text=True, capture_output=True, check=True)
+            return result.stdout.strip().splitlines()[-2:]
+
+    def test_local_receipt_cannot_hide_cross_commit_failure(self):
+        self.assertEqual(self.verdict(GATES="skipped", RECEIPT_VALID="true", PAIR_RESULT="failure", PAIR_VERDICT="failure"),
+                         ["failure", "base " + "c" * 40 + "; phone/Mac cross-commit failed"])
+
+    def test_receipt_and_pair_success_preserve_receipt_base(self):
+        self.assertEqual(self.verdict(GATES="skipped", RECEIPT_VALID="true"),
+                         ["success", "base " + "c" * 40])
+
+    def test_required_pair_stop_never_passes(self):
+        for stopped in ("skipped", "cancelled", ""):
+            with self.subTest(stopped=stopped):
+                self.assertEqual(self.verdict(PAIR_RESULT=stopped)[0], "pending")
+        self.assertEqual(self.verdict(GATES="failure", PAIR_RESULT="skipped")[0], "failure")
+
+    def test_successful_job_without_pair_verdict_never_passes(self):
+        self.assertEqual(self.verdict(PAIR_RESULT="success", PAIR_VERDICT="")[0], "pending")
+        self.assertEqual(self.verdict(GATES="skipped", RECEIPT_VALID="true",
+                                     PAIR_RESULT="success", PAIR_VERDICT="")[0], "pending")
+
+    def test_explicit_pair_failure_is_red_even_when_job_succeeds(self):
+        self.assertEqual(self.verdict(PAIR_RESULT="success", PAIR_VERDICT="failure")[0], "failure")
+
+    def test_unaffected_change_does_not_need_pair(self):
+        self.assertEqual(self.verdict(PAIR_REQUIRED="false", PAIR_RESULT="skipped")[0], "success")
+
+    def test_no_early_success_and_no_duplicate_pair(self):
+        doc = workflow()
+        self.assertEqual(triggers(doc)["workflow_call"]["outputs"]["pair_verdict"]["value"],
+                         "${{ jobs.pair-skew.outputs.pair_verdict }}")
+        self.assertIn("pair-skew", job(doc, "post")["needs"])
+        receipt = step_named(job(doc, "resolve")["steps"], "Post the cmux-next/fast-gates status from the receipt")
+        self.assertIn("steps.pair-route.outputs.required == 'false'", receipt["if"])
+        nested = job(doc, "pair-skew")
+        self.assertEqual(nested["with"]["head"], "${{ needs.resolve.outputs.head_sha }}")
+        self.assertFalse(nested["with"]["linkage"])
+        router = yaml.safe_load((WORKFLOW.parent / "pr-router.yml").read_text())
+        self.assertFalse(router["jobs"]["ios-link-ffi-linux"]["with"]["pair_skew"])
+        pair = yaml.safe_load((WORKFLOW.parent / "ios-link-ffi-linux.yml").read_text())
+        self.assertIn("inputs.linkage", pair["concurrency"]["group"])
+
+
+    def test_publication_dispatch_authority_never_reaches_pr_execution(self):
+        pair = yaml.safe_load((WORKFLOW.parent / "ios-link-ffi-linux.yml").read_text())
+        metadata = pair["jobs"]["publication-snapshot"]
+        self.assertEqual(metadata["permissions"], {"contents": "read", "actions": "write"})
+        checkout = metadata["steps"][0]
+        self.assertEqual(checkout["with"]["ref"], "main")
+        self.assertFalse(checkout["with"]["persist-credentials"])
+        self.assertEqual(checkout["with"]["sparse-checkout"].strip(), "scripts/ci/ios_snapshot_dispatch.py")
+        dispatch = metadata["steps"][1]
+        self.assertIn('PRODUCER_SHA="$(git rev-parse HEAD)"', dispatch["run"])
+        self.assertIn("python3 -I scripts/ci/ios_snapshot_dispatch.py", dispatch["run"])
+        self.assertIn("head.repo.full_name == github.repository", metadata["if"])
+        pairing = pair["jobs"]["pair-skew"]
+        self.assertEqual(pairing["needs"], "publication-snapshot")
+        self.assertEqual(pairing["permissions"], {"contents": "read", "actions": "read"})
+        self.assertEqual(pair["permissions"], {"contents": "read", "actions": "read"})
+        refresh = next(s for s in pairing["steps"] if s.get("id") == "shipped")
+        for flag in ("producer-run", "producer-sha", "request-id", "head-sha"):
+            self.assertIn("--" + flag, refresh["run"])
+        self.assertEqual(job(workflow(), "pair-skew")["permissions"]["actions"], "write")
+        router = yaml.safe_load((WORKFLOW.parent / "pr-router.yml").read_text())
+        for name in ("fast-gates", "ios-link-ffi-linux"):
+            self.assertEqual(router["jobs"][name]["permissions"]["actions"], "write")
+
+    def job_runs(self, name, *, draft=False, ready=False, event="pull_request", affected=True, action="synchronize"):
+        # Evaluate the actual job condition (the supported expression subset), not a duplicate routing rule.
+        expression = job(workflow(), name)["if"].strip()[3:-2].strip()
+        values = {
+            "inputs.pair_required": affected,
+            "github.event_name": event, "github.event.action": action, "github.event.label.name": "other",
+            "github.event.pull_request.draft": draft,
+            "github.event.pull_request.labels.*.name": ["ready-to-land"] if ready else [],
+            "github.event.pull_request.base.ref": "feat-cmux-next",
+            "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
+            "github.repository": "manaflow-ai/cmux",
+            "vars.CI_DRAFT_CHEAP_TIER": "1", "vars.CI_LAND_TIER": "1", "vars.CI_LAND_FULL_PER_PR": "1",
+            "needs.resolve.result": "success", "needs.resolve.outputs.post": "true",
+            "needs.resolve.outputs.receipt_valid": "false", "needs.resolve.outputs.receipt_audit": "false",
+            "needs.resolve.outputs.pair_required": "true" if affected else "false",
+        }
+        for key in sorted(values, key=len, reverse=True):
+            expression = expression.replace(key, repr(values[key]))
+        expression = re.sub(r"'[^']*'|\b(true|false)\b",
+                            lambda m: m[0] if m[1] is None else str(m[1] == "true"), expression)
+        expression = expression.replace("&&", " and ").replace("||", " or ")
+        expression = re.sub(r"!(?!=)", " not ", expression)
+        return bool(eval(expression, {"__builtins__": {}},
+                         {"always": lambda: True, "cancelled": lambda: False,
+                          "contains": lambda xs, x: x in xs, "fromJSON": json.loads}))
+
+    def test_affected_tiers_always_have_a_status_actor(self):
+        for draft, ready, event in ((True, False, "pull_request"), (False, False, "pull_request"),
+                                    (False, True, "pull_request"), (False, False, "workflow_dispatch")):
+            for name in ("resolve", "pair-skew", "post"):
+                with self.subTest(draft=draft, ready=ready, event=event, job=name):
+                    self.assertTrue(self.job_runs(name, draft=draft, ready=ready, event=event))
+        for name in ("resolve", "post"):
+            self.assertFalse(self.job_runs(name, action="labeled"))
+        self.assertFalse(self.job_runs("post", affected=False))
+        self.assertTrue(self.job_runs("post", affected=False, ready=True))
+        # A passing pair does not invent a verdict for tier-skipped fast gates.
+        self.assertEqual(self.verdict(GATES="skipped", PAIR_RESULT="success")[0], "pending")
+        self.assertEqual(self.verdict(GATES="skipped", PAIR_RESULT="failure", PAIR_VERDICT="failure")[0], "failure")
+
+
+    def test_pair_receipts_fail_closed_after_successful_identify(self):
+        module = load(ROOT / "scripts/ci/mobile_pair_result.py")
+        rows = [{"transport": t, "daemon": json.dumps({"id": 1, "ok": True})}
+                for t in ("webrtc", "wireguard")]
+        encode = lambda: [json.dumps(row) for row in rows]
+        self.assertFalse(module.validate(encode(), 0))
+        self.assertTrue(module.validate(encode(), 1))
+        rows[1]["error"] = "handshake failed after identify"
+        self.assertTrue(module.validate(encode(), 0))
+        rows[1].pop("error")
+        self.assertTrue(module.validate(encode()[:1], 0))
+        self.assertTrue(module.validate(encode() + [encode()[0]], 0))
+        self.assertTrue(module.validate(["{bad json"], 0))
+
+    def test_swift_pairing_projection_and_transport_paths_route(self):
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import pr_router
+        config = pr_router.load_manifest()["ios-link-ffi-linux.yml"]
+        for path in (
+            "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/LinkPairing.swift",
+            "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/DaemonTerminalSession.swift",
+            "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/GhosttyTerminalTabContent.swift",
+            "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Session/TerminalSessionChoice.swift",
+            "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Session/TerminalProjectingSession.swift",
+            "cmux-next-ios/rust/crates/cmux-mobile-host/src/pairing.rs",
+            "cmux-next-ios/rust/crates/cmux-mobile-link/src/lib.rs",
+            "cmux-next-ios/rust/crates/cmux-mobile-auto/src/lib.rs",
+            "cmux-next-ios/rust/crates/cmux-mobile-tailnet/src/lib.rs",
+            "cmux-next-ios/rust/crates/cmux-region-pick/src/lib.rs",
+            "cmux-tui/crates/cmux-remote-protocol/src/lib.rs",
+            "cmux-tui/crates/cmux-braid-carrier/src/lib.rs",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pairing/Pairing.swift",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(pr_router.matches_filter(config, [path]))
+                self.assertTrue(pr_router.affects(config, [path]))
+        self.assertFalse(pr_router.matches_filter(config, ["docs/unrelated.md"]))
+
+
 class WorkflowShape(unittest.TestCase):
     def test_callers_forward_status_secrets(self):
         # Run 45940333376/job 140314249449: the router passed no secrets, so minting the app token
@@ -133,7 +393,7 @@ class WorkflowShape(unittest.TestCase):
     def test_name_job_and_runner(self):
         doc = workflow()
         self.assertEqual(doc["name"], "cmux-next fast gates")
-        self.assertEqual(list(doc["jobs"]), ["resolve", "fast-gates", "panic-ratchet", "post", "fast-gates-fail-fast",
+        self.assertEqual(list(doc["jobs"]), ["resolve", "pair-skew", "fast-gates", "panic-ratchet", "post", "fast-gates-fail-fast",
                                            "lane-receipt-audit"])
         self.assertEqual(job(doc)["name"], "fast gates")
         # Linux CI is one persistent pool (hq decisions/junctions.md 2026-11-20): every job names cmux-linux past the
@@ -333,7 +593,7 @@ class WorkflowShape(unittest.TestCase):
             if step.get("uses", "").startswith("actions/checkout@") or step.get("name", "").startswith("Pool mirror:"):
                 if "the base for the receipt verifier (lane dispatch)" in step.get("name", ""):
                     # A lane dispatch checks out the base commit's verifier, never the pull request's code (#60742).
-                    self.assertIn("steps.resolve.outputs.lane_dispatch == 'true'", step["if"])
+                    self.assertIn("github.event_name == 'workflow_dispatch'", step["if"])
                     self.assertIn("steps.resolve.outputs.base", str(step.get("with", {}).get("ref", "")) + str(step.get("env", {})))
                     continue
                 self.assertTrue(step["if"].replace(" ", "").startswith("${{github.event_name=='pull_request'&&"),
@@ -347,6 +607,14 @@ class WorkflowShape(unittest.TestCase):
                 self.assertIn('"$(git rev-parse "HEAD:$file")" != "$(git rev-parse "HEAD^1:$file")"', body)
                 self.assertIn("python3 -I scripts/ci/fast_check_route.py route --workflow "
                               ".github/workflows/cmux-next-fast-gates.yml", body)
+                continue
+            if step.get("id") == "pair-route":
+                # Inline code reads the base manifest as data; never imports PR code.
+                body = step["run"]
+                self.assertIn("python3 -I - <<'PY'", body)
+                self.assertIn("json.loads(git('show', f'{base}:{manifest}'))", body)
+                self.assertNotIn("python3 -I scripts/", body)
+                self.assertEqual(step["env"]["BASE"], "${{ steps.resolve.outputs.base }}")
                 continue
             if step.get("id", "").startswith("receipt-"):
                 continue  # the base's verifier, copied out of git (test_receipt_steps_run_only_the_base_verifier)
@@ -630,7 +898,7 @@ class WorkflowShape(unittest.TestCase):
             checkout = step_named(steps, name)
             self.assertLess(names.index("Resolve the head and the base"), names.index(name))
             self.assertLess(names.index(name), names.index("Verify the local test receipt"))
-            self.assertIn("steps.resolve.outputs.lane_dispatch == 'true'", checkout["if"])
+            self.assertIn("github.event_name == 'workflow_dispatch'", checkout["if"])
             self.assertIs(checkout["continue-on-error"], True)
         checkout = step_named(steps, "Checkout the base for the receipt verifier (lane dispatch)")
         self.assertIs(checkout["with"]["persist-credentials"], False)
@@ -685,7 +953,7 @@ class WorkflowShape(unittest.TestCase):
     def test_status_context_and_description(self):
         doc = workflow()
         poster = job(doc, "post")
-        self.assertEqual(poster["needs"], ["resolve", "fast-gates", "panic-ratchet"])
+        self.assertEqual(poster["needs"], ["resolve", "fast-gates", "panic-ratchet", "pair-skew"])
         # A valid receipt posted the status itself; post judges only runs the gates ran (an audit included).
         self.assertIn("needs.resolve.outputs.receipt_valid != 'true' "
                       "|| needs.resolve.outputs.receipt_audit == 'true'", poster["if"])
@@ -710,6 +978,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn("needs.resolve.outputs.base", post["env"]["BASE"])
         self.assertEqual(post["env"]["GATES"].replace(" ", ""), "${{needs.fast-gates.result}}")
         self.assertEqual(post["env"]["RATCHET"].replace(" ", ""), "${{needs.panic-ratchet.result}}")
+        self.assertEqual(post["env"]["PAIR_VERDICT"], "${{ needs.pair-skew.outputs.pair_verdict }}")
         # The gates job hands post nothing but its result; its one output only says whether the ratchet runs,
         # and comes from prepare, before any pull request code ran.
         self.assertEqual(job(doc)["outputs"], {"ratchet": "${{ steps.prepare.outputs.ratchet }}"})
@@ -718,6 +987,7 @@ class WorkflowShape(unittest.TestCase):
         # for a same-repository pull request (resolve's post), whose author can already push to the base.
         self.assertNotIn("outputs.", json.dumps(post["env"]).replace("needs.resolve.outputs.", "")
                          .replace("needs.resolve.outputs.fast_gates", "")
+                         .replace("needs.pair-skew.outputs.pair_verdict", "")
                          .replace("steps.status-token.outputs.token", ""))
         self.assertIn("github.run_id", post["env"]["TARGET_URL"])
         self.assertIn("github.token", post["env"]["GH_TOKEN"])
@@ -1037,6 +1307,13 @@ class WorkflowShape(unittest.TestCase):
                 continue
             # So are the bounded package cache restores (cmux#55346): a miss or a timeout is a cold install, not a verdict.
             if str(step.get("uses", "")).startswith(("actions/cache@", "actions/cache/restore@")):
+                continue
+            # The non-OIDC bundle download is setup; its consumer validates the artifact
+            # and contributes the required verdict even when the download failed.
+            if step["name"] == "Download the head bundles without OIDC":
+                bundles = steps[names.index("Build the web bundles")]
+                self.assertIn('compile_preflight.py web-artifact verify', bundles["run"])
+                self.assertIn(f"${{{{ steps.{bundles['id']}.outcome }}}}", gated)
                 continue
             if step.get("continue-on-error") is True and not any(r in step["name"] for r in receipt_steps):
                 with self.subTest(gated=step["name"]):
@@ -2578,13 +2855,14 @@ class DeepenFallbackTests(unittest.TestCase):
 
     def test_a_pack_objects_abort_retries_with_blob_none(self):
         calls = self.run_deepen_fetch({"--filter=tree:0": self.BUG})
-        self.assertEqual([c[4] for c in calls], ["--filter=tree:0", "--filter=blob:none"])
+        self.assertEqual([next(arg for arg in call if arg.startswith("--filter=")) for call in calls],
+                         ["--filter=tree:0", "--filter=blob:none"])
         self.assertTrue(all("--deepen=32" in c for c in calls))
 
     def test_a_local_links_abort_retries_without_the_alternate_store_and_puts_it_back(self):
         calls = self.run_deepen_fetch({"--filter=tree:0": self.LOCAL, "--filter=blob:none": self.LOCAL},
                                       alternates="/mirror/objects\n", aside_failures={})
-        self.assertEqual([c[4] for c in calls], ["--filter=tree:0", "--filter=tree:0"])
+        self.assertEqual([next(arg for arg in call if arg.startswith("--filter=")) for call in calls], ["--filter=tree:0", "--filter=tree:0"])
         self.assertEqual(self.alternates_seen, [True, False])
         self.assertEqual(self.alternates_after, "/mirror/objects\n")
 
@@ -2596,7 +2874,7 @@ class DeepenFallbackTests(unittest.TestCase):
 
     def test_a_local_links_abort_without_an_alternate_store_tries_blob_none(self):
         calls = self.run_deepen_fetch({"--filter=tree:0": self.LOCAL})
-        self.assertEqual([c[4] for c in calls], ["--filter=tree:0", "--filter=blob:none"])
+        self.assertEqual([next(arg for arg in call if arg.startswith("--filter=")) for call in calls], ["--filter=tree:0", "--filter=blob:none"])
 
     def test_a_clean_deepen_fetches_once(self):
         self.assertEqual(len(self.run_deepen_fetch({})), 1)

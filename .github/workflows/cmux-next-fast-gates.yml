@@ -45,6 +45,15 @@ on:
   # and the checks read `cmux-next fast gates / <job>`. The status `cmux-next/fast-gates` is unchanged; a merger
   # that finds none dispatches this workflow as before.
   workflow_call:
+    outputs:
+      pair_verdict:
+        description: Explicit compatibility assertion verdict; empty means infrastructure/no verdict
+        value: ${{ jobs.pair-skew.outputs.pair_verdict }}
+    inputs:
+      pair_required:
+        description: Resolve affected phone/Mac heads on every PR tier
+        type: boolean
+        default: false
     secrets:
       CMUX_BOT_APP_KEY:
         description: App key for posting the fast-gates status
@@ -77,7 +86,7 @@ jobs:
   resolve:
     name: resolve head and base
     # A draft is gated when it is marked ready; a dispatch always runs.
-    if: ${{ (always() && !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (always() && !cancelled() && (inputs.pair_required || github.event_name != 'pull_request' || !github.event.pull_request.draft)) && (inputs.pair_required || github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     # Fork pull requests use the same ephemeral Blacksmith lane as other
     # Linux work; this job has read-only contents permission and no secrets.
     # An explicit rerun replaces the queued run in this PR-only concurrency group.
@@ -102,6 +111,8 @@ jobs:
       head_tree: ${{ steps.resolve.outputs.head_tree }}
       merge_tree: ${{ steps.resolve.outputs.merge_tree }}
       fast_gates: ${{ steps.route.outputs.fast_gates }}
+      pair_required: ${{ steps.pair-route.outputs.required }}
+      receipt_base: ${{ steps.receipt-verify.outputs.base }}
       # A receipt step that failed (its status post included) or ran past its bound counts as no receipt: the gates
       # run, and post writes the status.
       receipt_valid: ${{ steps.receipt-verify.outcome == 'success' && steps.receipt-post.outcome != 'failure' && steps.receipt-verify.outputs.valid || '' }}
@@ -326,7 +337,7 @@ jobs:
 
       # A lane dispatch's verifier comes out of git at the base (Verify the local test receipt): only its files.
       - name: Checkout the base for the receipt verifier (lane dispatch)
-        if: ${{ github.event_name == 'workflow_dispatch' && steps.resolve.outputs.lane_dispatch == 'true' && !startsWith(runner.name, 'cmux-runner-pool-') }}
+        if: ${{ github.event_name == 'workflow_dispatch' && !startsWith(runner.name, 'cmux-runner-pool-') }}
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -343,7 +354,7 @@ jobs:
             /scripts/ci/gh_http.py
 
       - name: "Pool mirror: checkout the base for the receipt verifier (lane dispatch)"
-        if: ${{ github.event_name == 'workflow_dispatch' && steps.resolve.outputs.lane_dispatch == 'true' && startsWith(runner.name, 'cmux-runner-pool-') }}
+        if: ${{ github.event_name == 'workflow_dispatch' && startsWith(runner.name, 'cmux-runner-pool-') }}
         continue-on-error: true
         timeout-minutes: 2
         env:
@@ -380,10 +391,49 @@ jobs:
           done
           python3 -I scripts/ci/fast_check_route.py route --workflow .github/workflows/cmux-next-fast-gates.yml --labels "$LABELS"
 
+      # Read only data from the resolved base; a changed or unreadable manifest routes the test.
+      # Dispatch also diffs the exact PR head, never the workflow's base SHA.
+      - name: Route phone and Mac compatibility
+        id: pair-route
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          BASE: ${{ steps.resolve.outputs.base }}
+          HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+            GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+              git fetch --no-tags --filter=blob:none --depth=256 origin "$BASE" "$HEAD_SHA"
+          fi
+          python3 -I - <<'PY'
+          import fnmatch, json, os, subprocess
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True)
+          base, head = os.environ['BASE'], os.environ['HEAD_SHA']
+          manifest = 'scripts/ci/pr_router.json'
+          config = json.loads(git('show', f'{base}:{manifest}'))['callees']['ios-link-ffi-linux.yml']
+          if os.environ['EVENT_NAME'] == 'pull_request':
+              # The checkout is GitHub's merge ref: exclude changes made only on base.
+              route_base, route_head = 'HEAD^1', 'HEAD'
+          else:
+              route_base, route_head = git('merge-base', base, head).strip(), head
+          changed = git('diff', '--name-only', '--no-renames', route_base, route_head).splitlines()
+          def admits(key, path):
+              return any(fnmatch.fnmatchcase(path, pattern) for pattern in config[key])
+          required = (git('rev-parse', f'{route_base}:{manifest}') != git('rev-parse', f'{route_head}:{manifest}')
+                      or any(admits('paths', path) and admits('affects', path) for path in changed))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              print(f'required={str(required).lower()}', file=output)
+          PY
       # A local test receipt (scripts/ci/ci_receipt.py): a change tested locally counts as a CI pass, and the gates are
       # skipped. The receipt is a Fast checks run of the canonical `python3 scripts/ci/ci_receipt.py produce fast-gates`
       # on this head (`cmux-ci test`), which GitHub attests: no key. A valid receipt posts cmux-next/fast-gates success
-      # here at once, naming the receipt's base, and the fast-gates job is skipped before it takes a runner;
+      # here at once only when phone/Mac compatibility is unaffected. Otherwise post waits for pair-skew.
+      # The fast-gates job is skipped before it takes a runner; the receipt never covers pair-skew.
       # CI_RECEIPT_AUDIT_PERCENT (default 10) of them still run in full, and a red there posts failure naming the
       # receipt and its producer. A rejected receipt runs everything.
       #
@@ -450,7 +500,7 @@ jobs:
 
       - name: Post the cmux-next/fast-gates status from the receipt
         id: receipt-post
-        if: ${{ steps.receipt-verify.outcome == 'success' && steps.receipt-verify.outputs.valid == 'true' && steps.resolve.outputs.post == 'true' }}
+        if: ${{ steps.receipt-verify.outcome == 'success' && steps.receipt-verify.outputs.valid == 'true' && steps.resolve.outputs.post == 'true' && steps.pair-route.outputs.required == 'false' }}
         continue-on-error: true
         timeout-minutes: 1
         env:
@@ -467,6 +517,17 @@ jobs:
             -f context=cmux-next/fast-gates -f target_url="$RUN_URL" -f description="${description:0:140}" >/dev/null
           echo "cmux-next/fast-gates: success on $HEAD_SHA from $RUN_URL (base $RECEIPT_BASE)"
 
+  pair-skew:
+    name: phone and Mac cross-commit
+    needs: resolve
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.pair_required != 'false' }}
+    uses: ./.github/workflows/ios-link-ffi-linux.yml
+    with:
+      head: ${{ needs.resolve.outputs.head_sha }}
+      linkage: false
+    permissions:
+      contents: read
+      actions: write
   fast-gates:
     name: fast gates
     needs: [resolve]
@@ -797,9 +858,9 @@ jobs:
   # panic-ratchet (nothing to rejudge) does not fail it.
   post:
     name: post cmux-next/fast-gates
-    needs: [resolve, fast-gates, panic-ratchet]
-    # A valid receipt posted the status itself; an audited one is judged here again by the gates.
-    if: ${{ (always() && !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' && (needs.resolve.outputs.receipt_valid != 'true' || needs.resolve.outputs.receipt_audit == 'true')) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    needs: [resolve, fast-gates, panic-ratchet, pair-skew]
+    # Unaffected valid receipts post directly; affected receipts wait for the cross-commit test here.
+    if: ${{ (always() && !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' && (needs.resolve.outputs.receipt_valid != 'true' || needs.resolve.outputs.receipt_audit == 'true' || needs.resolve.outputs.pair_required != 'false')) && (needs.resolve.outputs.pair_required != 'false' || github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     # A light job that holds a write token (statuses), so the ephemeral-only linux_4 pool on every attempt, never
     # GitHub-hosted Ubuntu (it left light jobs queued for hours, cmux#45735).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
@@ -844,6 +905,11 @@ jobs:
           BASE: ${{ needs.resolve.outputs.base }}
           GATES: ${{ needs.fast-gates.result }}
           RATCHET: ${{ needs.panic-ratchet.result }}
+          PAIR_RESULT: ${{ needs.pair-skew.result }}
+          PAIR_VERDICT: ${{ needs.pair-skew.outputs.pair_verdict }}
+          PAIR_REQUIRED: ${{ needs.resolve.outputs.pair_required != 'false' }}
+          RECEIPT_VALID: ${{ needs.resolve.outputs.receipt_valid }}
+          RECEIPT_BASE: ${{ needs.resolve.outputs.receipt_base }}
           # The route (resolve) skipped the gates: the pull request touches none of their inputs.
           ROUTED_OUT: ${{ needs.resolve.outputs.fast_gates == 'false' }}
           RECEIPT_AUDIT: ${{ needs.resolve.outputs.receipt_audit }}
@@ -853,6 +919,13 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ && "$BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no head or base sha to report"; exit 1; }
+          # A local receipt covers the original fast gates, never the cross-commit test.
+          if [[ "${RECEIPT_VALID:-}" == true && "${RECEIPT_AUDIT:-}" != true && "$GATES" == skipped ]]; then
+            [[ "$RECEIPT_BASE" =~ ^[0-9a-f]{40}$ ]] || exit 1
+            GATES=success
+            RATCHET=skipped
+            BASE="$RECEIPT_BASE"
+          fi
           if [[ "$ROUTED_OUT" == true && "$GATES" == skipped ]]; then
             # A verdict at this base, as a passing run would give: each gate judges only what the change adds in its
             # inputs, and the change touches none (resolve's route step summary names them). Same description, so a
@@ -880,6 +953,17 @@ jobs:
           if [[ "$stopped" == true ]]; then
             state=pending
             description="base $BASE; stopped (gates ${GATES:-none}, ratchet ${RATCHET:-none}), no verdict"
+          fi
+          # Required means skipped/cancelled/unknown is not a pass. A real failure remains
+          # a failure even when the other branch stopped. Keep the base freshness prefix.
+          if [[ "${PAIR_REQUIRED:-false}" == true ]]; then
+            if [[ "${PAIR_VERDICT:-}" == failure ]]; then
+              state=failure
+              description="base $BASE; phone/Mac cross-commit failed"
+            elif [[ ( "$PAIR_RESULT" != success || "${PAIR_VERDICT:-}" != success ) && "$state" != failure ]]; then
+              state=pending
+              description="base $BASE; phone/Mac cross-commit stopped (${PAIR_RESULT:-none}), no verdict"
+            fi
           fi
           # A receipt audit (scripts/ci/ci_receipt.py): the gates disagree with a receipt that already posted success.
           if [[ "${RECEIPT_AUDIT:-}" == true && "$state" == failure ]]; then
