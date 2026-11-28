@@ -5,6 +5,7 @@
 // brings it in.
 import { useState } from "react";
 import { Button } from "../../ui/Button";
+import { Icon } from "./icons/Icon";
 import { Tooltip } from "../../ui/Tooltip";
 import { pressToOpen } from "../../ui/pressToOpen";
 import { useT } from "./i18n";
@@ -107,20 +108,7 @@ function SettledRow({
   );
 }
 
+// The shelf's disclosure is the pack's (one icon registry, iconRegistry.test.ts).
 const ShelfChevron = ({ open }: { open: boolean }) => (
-  <svg
-    className="acpmux-icon"
-    width={16}
-    height={16}
-    viewBox="0 0 16 16"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={1.25}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-    focusable="false"
-  >
-    <path d={open ? "m4.25 6.25 3.75 3.5 3.75-3.5" : "m6.25 4.25 3.5 3.75-3.5 3.75"} />
-  </svg>
+  <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={16} className="acpmux-icon" />
 );

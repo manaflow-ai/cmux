@@ -933,6 +933,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/pull_request_action",
+      "params": {
+        "$ref": "#/types/PullRequestActionParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/prompt_withdraw",
       "params": true,
       "result": true
@@ -1542,13 +1550,43 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/team/customization",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/customize",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/handoff",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/history",
       "params": true,
       "result": true
     },
     {
       "kind": "request",
+      "name": "_acpmux/last",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/session_search",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/session_resources",
       "params": true,
       "result": true
     },
@@ -2258,6 +2296,12 @@
     {
       "kind": "request",
       "name": "_acpmux/transfer_preflight",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_interrupts",
       "params": true,
       "result": true
     },
@@ -3527,6 +3571,7 @@
         "chunkDeltas": true,
         "class": true,
         "cliHost": true,
+        "cloudRegistryId": true,
         "compression": true,
         "context": true,
         "createKey": true,
@@ -5444,6 +5489,17 @@
           },
           "type": "array"
         },
+        "summary": {
+          "anyOf": [
+            {
+              "$ref": "#/types/HereSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the sidebar's status icon shows (RFD 0140), reduced here so no client re-derives it.\nPresent exactly when `sync` is."
+        },
         "sync": {
           "description": "Absent unless requested. Empty means no peer has exchanged yet, not globally synced.",
           "items": {
@@ -5468,6 +5524,39 @@
         "away"
       ],
       "type": "string"
+    },
+    "HereSummary": {
+      "description": "`HereResult::summary`: the one sync state, the edits it counts, and who else is here.",
+      "properties": {
+        "agents": {
+          "description": "Agents here, in a turn on this daemon or beating from elsewhere.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "others": {
+          "description": "People here besides this machine's own person.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pendingEdits": {
+          "description": "Offline: the most edits any peer is missing. Syncing: the most any connected peer is missing. Else 0.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sync": {
+          "$ref": "#/types/HereSyncState"
+        }
+      },
+      "required": [
+        "agents",
+        "others",
+        "pendingEdits",
+        "sync"
+      ],
+      "type": "object"
     },
     "HereSyncPeer": {
       "description": "A peer's last acknowledged chat-state vector, separate from its current connectivity.",
@@ -5496,6 +5585,31 @@
         "unacknowledgedEdits"
       ],
       "type": "object"
+    },
+    "HereSyncState": {
+      "description": "The sync state the status icon draws, most urgent first.",
+      "oneOf": [
+        {
+          "const": "offline",
+          "description": "No peer is connected and some have edits they have not acknowledged: they queue and merge on reconnect.",
+          "type": "string"
+        },
+        {
+          "const": "syncing",
+          "description": "A connected peer has not acknowledged every local edit yet.",
+          "type": "string"
+        },
+        {
+          "const": "synced",
+          "description": "Every connected peer acknowledged every local edit. A disconnected one can still have unseen offline edits.",
+          "type": "string"
+        },
+        {
+          "const": "alone",
+          "description": "No peer has exchanged state yet: nothing to sync with.",
+          "type": "string"
+        }
+      ]
     },
     "InboxThreadParams": {
       "additionalProperties": false,
@@ -7325,6 +7439,19 @@
     "ProtocolParams": {
       "additionalProperties": false,
       "description": "`_acpmux/protocol` takes no params.",
+      "type": "object"
+    },
+    "PullRequestActionParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "action": true,
+        "headSha": true,
+        "sessionId": true,
+        "url": true
+      },
       "type": "object"
     },
     "PurgedSession": {

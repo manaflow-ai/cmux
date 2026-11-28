@@ -242,10 +242,12 @@ name = "cmux-agent-pane-policy"
 version = "0.1.0"
 dependencies = [
  "cmux-unix-socket",
+ "regex",
  "serde",
  "serde_json",
  "sha2",
  "unicode-normalization",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -299,6 +301,14 @@ dependencies = [
  "cmux-embed",
  "cmux-json",
  "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-app-workspace-creation"
+version = "0.1.0"
+dependencies = [
  "serde",
  "serde_json",
 ]
@@ -388,6 +398,7 @@ dependencies = [
  "cmux-lifeline",
  "serde",
  "serde_json",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -503,6 +514,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-feed-push-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cmux-felt"
 version = "0.1.0"
 dependencies = [
@@ -610,6 +631,7 @@ dependencies = [
 name = "cmux-layout-reducer-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-app-workspace-creation",
  "cmux-bookmarks-core",
  "cmux-browser-rules",
  "cmux-cloud-config",
@@ -618,10 +640,12 @@ dependencies = [
  "cmux-cloud-start-core",
  "cmux-cloud-tasks",
  "cmux-error-journal",
+ "cmux-feed-push-core",
  "cmux-focus-core",
  "cmux-imessage",
  "cmux-layout-reducer",
  "cmux-mobile-host-core",
+ "cmux-phone-core",
  "cmux-rd-core",
  "cmux-rd-screen",
  "cmux-tab-discard",
@@ -680,6 +704,15 @@ dependencies = [
 [[package]]
 name = "cmux-pane-pictures"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-phone-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
+]
 
 [[package]]
 name = "cmux-process"
