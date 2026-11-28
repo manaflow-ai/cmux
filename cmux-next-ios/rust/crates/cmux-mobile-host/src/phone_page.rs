@@ -205,6 +205,7 @@ pub struct Lines {
 
 impl Lines {
     /// The complete lines in `bytes`, or `Err` when a line outgrows `max`.
+    #[allow(clippy::result_unit_err)] // the one failure is "too long"; the caller names it.
     pub fn push(&mut self, bytes: &[u8], max: usize) -> Result<Vec<Vec<u8>>, ()> {
         let mut lines = Vec::new();
         for &byte in bytes {
