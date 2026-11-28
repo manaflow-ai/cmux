@@ -666,6 +666,8 @@ subsecond = "=0.7.10"
 uds_windows = "1.2"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Threading"] }
 regex = "1"
+# Already in the graph (jsonschema); cmux-tui-core reads the relevance map's Python-syntax path rules with it.
+fancy-regex = "0.16"
 # A cache the caller owns (`cmux-local-url`): `regex::Regex` keeps one per thread that ever searched.
 regex-automata = "0.4"
 # reqwest and time are already in the dependency graph via iroh; declaring

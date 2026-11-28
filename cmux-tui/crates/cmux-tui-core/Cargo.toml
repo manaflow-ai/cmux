@@ -100,6 +100,8 @@ base64.workspace = true
 memchr.workspace = true
 libc.workspace = true
 regex.workspace = true
+# The [[live_rule]] path rules are Python regular expressions; one uses a lookahead.
+fancy-regex.workspace = true
 jsonschema.workspace = true
 flate2.workspace = true
 zstd.workspace = true

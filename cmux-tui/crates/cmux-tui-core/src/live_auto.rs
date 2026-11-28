@@ -2,7 +2,8 @@
 //!
 //! One watcher per checkout, owned by this daemon. Each burst of saves is
 //! classified with `live_apply.py`'s own rules (`rules.rs`, read from the
-//! checkout's `scripts/cmux-next/live-apply-rules.json`), routed to the
+//! checkout's `docs/benches/relevance-map.toml` `[[live_rule]]` table and
+//! `scripts/cmux-next/live-apply-rules.json`), routed to the
 //! fastest layer that takes it (`route.rs`), and reported as one
 //! `swap.done` event per layer on the `subscribe` stream:
 //!
@@ -615,12 +616,13 @@ pub fn resume(mux: &Arc<Mux>, socket: &Path) {
 pub fn start(worktree: &Path) -> Result<Value, String> {
     let root = std::fs::canonicalize(worktree)
         .map_err(|error| format!("{}: {error}", worktree.display()))?;
-    if !root.join(rules::RULES_FILE).is_file() {
-        return Err(format!(
-            "{} is not a cmux checkout with {} (update it to a feat-cmux-next with cmux live auto)",
-            root.display(),
-            rules::RULES_FILE
-        ));
+    for file in [rules::RULES_FILE, rules::MAP_FILE] {
+        if !root.join(file).is_file() {
+            return Err(format!(
+                "{} is not a cmux checkout with {file} (update it to a feat-cmux-next with cmux live auto)",
+                root.display(),
+            ));
+        }
     }
     let mut router = lock(router());
     if router.trees.contains_key(&root) {
@@ -869,7 +871,9 @@ impl Watch {
                 // later save can depend on it.
                 let manifest = rels.iter().any(|p| p.ends_with("Cargo.toml"));
                 if manifest
-                    || rels.iter().any(|p| p == rules::RULES_FILE || p == rules::CLASSES_FILE)
+                    || rels.iter().any(|p| {
+                        p == rules::RULES_FILE || p == rules::MAP_FILE || p == rules::CLASSES_FILE
+                    })
                 {
                     let ffi = if manifest {
                         ffi_closure(&self.root).unwrap_or_else(|_| rules.ffi.clone())

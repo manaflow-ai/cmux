@@ -981,8 +981,8 @@ failures and a sightings file gc could not save are listed in the report's
 Starts, stops or reads the save router (`cmux live auto`,
 `crates/cmux-tui-core/src/live_auto.rs`). The daemon watches a cmux checkout,
 classifies each save with the rules `scripts/cmux-next/live_apply.py` uses
-(one source: `scripts/cmux-next/live-apply-rules.json` and
-`.github/change-classes.json`), routes it to the fastest layer that takes it
+(one source: `docs/benches/relevance-map.toml`'s `[[live_rule]]` table,
+`scripts/cmux-next/live-apply-rules.json` and `.github/change-classes.json`), routes it to the fastest layer that takes it
 into the running app and publishes one `swap.done` event per layer on
 `subscribe` ([events](events.md#swapdone)). Saves are coalesced while they
 keep coming (8 ms quiet, 40 ms at most). The watched checkouts survive a

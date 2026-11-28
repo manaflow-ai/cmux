@@ -1,6 +1,9 @@
 //! What a save is, by the rules `scripts/cmux-next/live_apply.py` uses: one
-//! copy of them, `scripts/cmux-next/live-apply-rules.json` in the watched
-//! checkout, which both read. A file's kind is the same verdict
+//! copy of them in the watched checkout, which both read. The path rules are
+//! `docs/benches/relevance-map.toml`'s `[[live_rule]]` table (live_apply.py
+//! reads it through its generated block), in order, the first match deciding;
+//! the Swift diff-line rules and the verdict order are
+//! `scripts/cmux-next/live-apply-rules.json`. A file's kind is the same verdict
 //! `live_apply.py classify` gives it (`no-app`, `web-live`, `strings`,
 //! `daemon`, `swift-live`, `rebuild`, `ios-only`); its change class is the
 //! first class of `.github/change-classes.json` whose paths match it
@@ -13,8 +16,10 @@ use std::path::Path;
 use regex::Regex;
 use serde::Deserialize;
 
-/// The rules file, relative to the checkout.
+/// The Swift line rules and verdict order, relative to the checkout.
 pub const RULES_FILE: &str = "scripts/cmux-next/live-apply-rules.json";
+/// The relevance map, whose `[[live_rule]]` table is the path rules.
+pub const MAP_FILE: &str = "docs/benches/relevance-map.toml";
 /// The change classes, relative to the checkout.
 pub const CLASSES_FILE: &str = ".github/change-classes.json";
 
@@ -75,15 +80,6 @@ pub struct Verdict {
 #[derive(Deserialize)]
 struct RulesFile {
     order: Vec<String>,
-    noapp_path: String,
-    noapp_ext: String,
-    web: String,
-    strings: String,
-    rust: String,
-    ios: String,
-    rebuild_file: String,
-    native_source: String,
-    native_exempt: String,
     comment: String,
     stored: String,
     func: String,
@@ -95,6 +91,29 @@ struct RulesFile {
     live_package: String,
     swift_module: String,
     case: String,
+}
+
+#[derive(Deserialize)]
+struct MapFile {
+    #[serde(default)]
+    live_rule: Vec<LiveRuleEntry>,
+}
+
+#[derive(Deserialize)]
+struct LiveRuleEntry {
+    name: String,
+    class: String,
+    pattern: String,
+    reason: Option<String>,
+}
+
+/// One `[[live_rule]]`: a path it matches (Python `re.search`, so
+/// `fancy_regex` for its lookarounds) takes its kind, and a rebuild its reason.
+#[derive(Debug)]
+struct PathRule {
+    kind: Kind,
+    pattern: fancy_regex::Regex,
+    reason: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -138,15 +157,7 @@ impl FfiClosure {
 #[derive(Debug)]
 pub struct Rules {
     order: Vec<Kind>,
-    noapp_path: Regex,
-    noapp_ext: Regex,
-    web: Regex,
-    strings: Regex,
-    rust: Regex,
-    ios: Regex,
-    rebuild_file: Regex,
-    native_source: Regex,
-    native_exempt: Regex,
+    path_rules: Vec<PathRule>,
     // Swift diff-line rules, anchored at the line's start (Python `re.match`).
     comment: Regex,
     stored: Regex,
@@ -189,9 +200,32 @@ fn fnmatch(pattern: &str) -> Result<Regex, String> {
 impl Rules {
     /// The rules from their files' text. `classes` is optional: a checkout
     /// without change classes still routes, with no class named.
-    pub fn parse(rules: &str, classes: Option<&str>, ffi: FfiClosure) -> Result<Self, String> {
+    pub fn parse(
+        rules: &str,
+        map: &str,
+        classes: Option<&str>,
+        ffi: FfiClosure,
+    ) -> Result<Self, String> {
         let file: RulesFile =
             serde_json::from_str(rules).map_err(|error| format!("{RULES_FILE}: {error}"))?;
+        let map: MapFile = toml::from_str(map).map_err(|error| format!("{MAP_FILE}: {error}"))?;
+        if map.live_rule.is_empty() {
+            return Err(format!("{MAP_FILE}: no [[live_rule]] table"));
+        }
+        let path_rules = map
+            .live_rule
+            .into_iter()
+            .map(|rule| {
+                Ok(PathRule {
+                    kind: Kind::parse(&rule.class).ok_or_else(|| {
+                        format!("{MAP_FILE} live_rule {}: unknown class {}", rule.name, rule.class)
+                    })?,
+                    pattern: fancy_regex::Regex::new(&rule.pattern)
+                        .map_err(|error| format!("{MAP_FILE} live_rule {}: {error}", rule.name))?,
+                    reason: rule.reason,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
         let order = file
             .order
             .iter()
@@ -224,15 +258,7 @@ impl Rules {
         };
         Ok(Self {
             order,
-            noapp_path: compile("noapp_path", &file.noapp_path)?,
-            noapp_ext: compile("noapp_ext", &file.noapp_ext)?,
-            web: compile("web", &file.web)?,
-            strings: compile("strings", &file.strings)?,
-            rust: compile("rust", &file.rust)?,
-            ios: compile("ios", &file.ios)?,
-            rebuild_file: compile("rebuild_file", &file.rebuild_file)?,
-            native_source: compile("native_source", &file.native_source)?,
-            native_exempt: compile("native_exempt", &file.native_exempt)?,
+            path_rules,
             comment: anchored("comment", &file.comment)?,
             stored: anchored("stored", &file.stored)?,
             func: anchored("func", &file.func)?,
@@ -252,10 +278,14 @@ impl Rules {
 
     /// The rules of the checkout at `root`, as its own files say them.
     pub fn load(root: &Path, ffi: FfiClosure) -> Result<Self, String> {
-        let rules = std::fs::read_to_string(root.join(RULES_FILE))
-            .map_err(|error| format!("{}: {error}", root.join(RULES_FILE).display()))?;
+        let read = |rel: &str| {
+            std::fs::read_to_string(root.join(rel))
+                .map_err(|error| format!("{}: {error}", root.join(rel).display()))
+        };
+        let rules = read(RULES_FILE)?;
+        let map = read(MAP_FILE)?;
         let classes = std::fs::read_to_string(root.join(CLASSES_FILE)).ok();
-        Self::parse(&rules, classes.as_deref(), ffi)
+        Self::parse(&rules, &map, classes.as_deref(), ffi)
     }
 
     /// The heaviest of `kinds`, by the rules' order.
@@ -269,35 +299,16 @@ impl Rules {
         self.classes.iter().find(|class| class.paths.iter().any(|rx| rx.is_match(path)))
     }
 
-    fn rebuild_file(&self, path: &str) -> bool {
-        self.rebuild_file.is_match(path)
-            || (self.native_source.is_match(path) && !self.native_exempt.is_match(path))
-    }
-
     /// One file's verdict, as `live_apply.classify` gives it. `diff` is the
     /// file's `-U0` diff lines (`+` or `-`, text); only Swift reads it.
     pub fn classify(&self, status: Status, path: &str, diff: &[(char, String)]) -> Verdict {
         let plain = |kind| Verdict { kind, reasons: Vec::new() };
-        if self.ios.is_match(path) {
-            return plain(Kind::IosOnly);
-        }
-        if self.noapp_path.is_match(path) {
-            return plain(Kind::NoApp);
-        }
-        if self.web.is_match(path) {
-            return plain(Kind::WebLive);
-        }
-        if self.strings.is_match(path) {
-            return plain(Kind::Strings);
-        }
-        if self.rebuild_file(path) {
-            return Verdict { kind: Kind::Rebuild, reasons: vec!["resource or manifest".into()] };
-        }
-        if self.rust.is_match(path) {
-            return plain(Kind::Daemon);
-        }
-        if self.noapp_ext.is_match(path) {
-            return plain(Kind::NoApp);
+        // The first [[live_rule]] that matches decides, as live_apply's PATH_RULES.
+        // A pattern fancy_regex gives up on (its backtrack limit) matches nothing.
+        if let Some(rule) =
+            self.path_rules.iter().find(|rule| rule.pattern.is_match(path).unwrap_or(false))
+        {
+            return Verdict { kind: rule.kind, reasons: rule.reason.iter().cloned().collect() };
         }
         if !path.ends_with(".swift") {
             // A deleted file of no known kind: the running app keeps what it

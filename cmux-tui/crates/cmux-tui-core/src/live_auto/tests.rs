@@ -84,7 +84,7 @@ fn classify_matches_live_apply_paths() {
 
 #[test]
 fn native_sources_rebuild_except_under_cmux_tui() {
-    // The one rule live_apply.py wrote as a lookahead: split in the JSON.
+    // The one path rule written as a lookahead (REBUILD_FILE's `^(?!cmux-tui/)`): fancy_regex reads it.
     assert_eq!(kind("Native/Shim/shim.c"), Kind::Rebuild);
     assert_eq!(kind("App/Bridge.m"), Kind::Rebuild);
     assert_eq!(kind("cmux-tui/crates/ghostty-vt-sys/shim.c"), Kind::Daemon);
@@ -379,6 +379,8 @@ fn scratch(name: &str) -> Scratch {
     std::fs::create_dir_all(dir.join("scripts/cmux-next")).unwrap();
     std::fs::create_dir_all(dir.join(".github")).unwrap();
     std::fs::copy(repo().join(rules::RULES_FILE), dir.join(rules::RULES_FILE)).unwrap();
+    std::fs::create_dir_all(dir.join("docs/benches")).unwrap();
+    std::fs::copy(repo().join(rules::MAP_FILE), dir.join(rules::MAP_FILE)).unwrap();
     std::fs::copy(repo().join(rules::CLASSES_FILE), dir.join(rules::CLASSES_FILE)).unwrap();
     for sub in
         ["webviews/src", "cmux-tui/crates/cmux-tui-core/src", "docs", "webviews/node_modules/x"]
