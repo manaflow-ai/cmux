@@ -146,6 +146,52 @@ class Gate(unittest.TestCase):
         self.assertIn(ios_verify.GATE_JOB, wf)
 
 
+class NoFlows(unittest.TestCase):
+    """A head whose changed paths select no flow posts a no-flows pass the gate reads (cmux#58097: the gate asked
+    for a proof for .github/workflows/test-ios.yml, and the loop returned with nothing posted)."""
+
+    def run_main(self, argv):
+        view = {"number": 7, "headRefName": "h", "headRefOid": HEAD, "baseRefName": "feat-cmux-next",
+                "url": "https://github.com/manaflow-ai/cmux/pull/7", "isCrossRepository": False, "body": ""}
+        sh = mock.MagicMock(return_value="")
+        with mock.patch.object(ios_verify, "pr_view", return_value=view), \
+                mock.patch.object(ios_verify, "git", return_value=OTHER), \
+                mock.patch.object(ios_verify.select_flows, "changed_from_git", return_value=[".github/workflows/test-ios.yml"]), \
+                mock.patch.object(ios_verify.select_flows, "select", return_value={
+                    "ios": False, "compile": False, "flows": [], "kit": [], "ui": [], "swift": [], "scripts": [],
+                    "pair_e2e": [], "pair": False, "reason": {}}), \
+                mock.patch.object(ios_verify, "run_step", side_effect=AssertionError("no simulator run")), \
+                mock.patch.object(ios_verify, "baseline", side_effect=AssertionError("no baseline read")), \
+                mock.patch.object(ios_verify, "pushed_at", return_value="2026-11-28T00:00:00Z"), \
+                mock.patch.object(ios_verify, "rerun_gate", return_value="gate rerun") as rerun, \
+                mock.patch.object(ios_verify, "sh", sh), \
+                tempfile.TemporaryDirectory() as d:
+            out = pathlib.Path(d) / "record.json"
+            rc = ios_verify.main([*argv, "--out", str(out)])
+            record = json.loads(out.read_text()) if out.exists() else None
+        return rc, record, sh, rerun
+
+    def test_posts_a_pass_the_gate_accepts(self):
+        rc, record, sh, rerun = self.run_main(["--pr", "7", "--no-merge-base"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(pr.problems(record), [])
+        self.assertEqual(record["verdict"], "pass")
+        self.assertEqual([r["name"] for r in record["runs"]], [ios_verify.NO_FLOWS_RUN])
+        self.assertEqual(record["selection"]["flows"], [])
+        body = sh.call_args.args
+        self.assertEqual(body[:3], ("gh", "pr", "comment"))
+        rerun.assert_called_once_with("manaflow-ai/cmux", HEAD)
+        posted = pr.find([comment(pr.render(record))], "ios-flows", HEAD)
+        self.assertEqual(pr.gate(posted, "ios-flows")[0], "success")
+
+    def test_plan_still_posts_nothing(self):
+        rc, record, sh, rerun = self.run_main(["--pr", "7", "--plan"])
+        self.assertEqual(rc, 0)
+        self.assertIsNone(record)
+        sh.assert_not_called()
+        rerun.assert_not_called()
+
+
 class Plan(unittest.TestCase):
     def test_simulator_dispatch_identity(self):
         from unittest import mock
