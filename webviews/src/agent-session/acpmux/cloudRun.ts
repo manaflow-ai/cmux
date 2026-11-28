@@ -26,6 +26,8 @@ export type CloudStart = {
   home?: boolean;
   harness?: string;
   model?: string;
+  /** The Cloud picker made this selection independently of this Mac's selection. */
+  cloudOnly?: true;
   /** The permission mode picked before the first send (cloudModePick.ts); none: the machine's own start mode. */
   mode?: string;
   /** The picker's effort for `model`: the machine's agent starts on it (AgentPaneCloudStart `effort`). */
@@ -34,6 +36,7 @@ export type CloudStart = {
    *  agent names it to the edge as `x-cmux-connection` (cmux-tui/docs/model-connections.md). */
   account?: string;
   environment?: string;
+  machine?: string;
   reservationKey?: string;
   /** A native gesture ticket reserved before waiting for a Cloud machine lease. */
   gestureTicket?: string;
@@ -78,6 +81,17 @@ export function composerCloudStartFolder(
   summary: Parameters<typeof shownChatFolder>[0],
 ): ReturnType<typeof cloudStartFolder> {
   return cloudStartFolder(shownChatFolder(summary, "local", false));
+}
+
+/// The folder chip a New Tab page's Cloud send puts back on the chat composer when it ends without
+/// opening its chat (a refusal, a failure): the folder that send named, so the chip says what the
+/// start card said and a send from the composer names it again; `""` (No folder) for a start in the
+/// machine's home; undefined (the chip unchanged) for a start that named neither. Before, the
+/// composer took the prompt back but kept its own chip: the card read "cmuxterm-hq" over a chip
+/// reading "No folder" (cmux#63348).
+export function cloudPageFolderBack(start: { cwd?: string; home?: boolean }): string | undefined {
+  if (start.cwd) return start.cwd;
+  return start.home ? "" : undefined;
 }
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -343,12 +357,14 @@ export async function startCloudChat(
   else if (start.home) params.home = true;
   if (start.harness) params.harness = start.harness;
   if (start.model) params.model = start.model;
+  if (start.cloudOnly) params.cloudOnly = true;
   // The mode picked for this start (cloudModePick.ts); the host starts the chat in it on the
   // person's own machine (AgentPaneCloudStart `mode`).
   if (start.mode) params.mode = start.mode;
   if (start.effort) params.effort = start.effort;
   if (start.account) params.account = start.account;
   if (start.environment) params.environment = start.environment;
+  if (start.machine) params.machine = start.machine;
   if (start.reservationKey) params.reservationKey = start.reservationKey;
   if (start.gestureTicket) params.gestureTicket = start.gestureTicket;
   if (start.signedIn) params.signedIn = true;
@@ -424,6 +440,7 @@ export function cloudStartFingerprint(start: CloudStart): string {
     start.harness ?? null,
     start.model ?? null,
     start.environment ?? null,
+    ...(start.machine ? [`machine:${start.machine}`] : []),
     // Only a send that switches team names it, so every other start keeps the key it had.
     ...(start.team ? [start.team] : []),
     // A start in another mode is another start; one with no pick keeps the key it had.
@@ -561,12 +578,17 @@ export function cloudRunsHere(answer: CloudStartAnswer): boolean {
 /// The picker's effort and account for a Cloud start (cmux-tui/docs/model-connections.md, "The picker's
 /// model and account in Cloud"): the effort the composer shows, and the chat's route when the Account
 /// menu bound one. A route that is not a connection id (acpmux `cloud_model_plane::is_connection_id`) is left out.
-export function cloudPickExtras(summary: { effort?: string; route?: string } | undefined): {
+/// `machine`: the agent picked for the machine (cloudAgentPick.ts). Its level goes first; this Mac's chat's
+/// level goes only for that same agent, never another agent's (cmux#59716).
+export function cloudPickExtras(
+  summary: { effort?: string; route?: string; harness?: string } | undefined,
+  machine?: { harness: string; effort?: string },
+): {
   effort?: string;
   account?: string;
 } {
-  const effort =
-    summary?.effort && summary.effort !== "default" && summary.effort.length <= 128 ? summary.effort : undefined;
+  const picked = machine?.effort ?? (machine && machine.harness !== summary?.harness ? undefined : summary?.effort);
+  const effort = picked && picked !== "default" && picked.length <= 128 ? picked : undefined;
   const account = summary?.route && /^[A-Za-z0-9._:@-]{1,128}$/.test(summary.route) ? summary.route : undefined;
   return { ...(effort ? { effort } : {}), ...(account ? { account } : {}) };
 }

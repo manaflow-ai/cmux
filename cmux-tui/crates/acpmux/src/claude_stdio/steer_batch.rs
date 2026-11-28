@@ -30,6 +30,18 @@
 
 use super::*;
 
+/// What a steer that stops the step (Send now) says after its own words. Claude Code answers the
+/// step it stops as a person's rejection ("The user doesn't want to proceed with this tool use ...
+/// STOP what you are doing and wait for the user to tell you how to proceed") with `[Request
+/// interrupted by user for tool use]`, and the model took that for a person's stop order: lanes
+/// held for hours on an agent's blocker steered in now, each answering every later message "still
+/// holding on your stop order" (NOW's hold-no-lift red, 2026-11-27: ios-shared-logic-rust,
+/// moved-feed-relaunch-should-ke-252345-0c92 and six more on gcp-agent-lane-5, none sent a stop).
+/// The line comes right after that text, so it says what the stop was.
+pub(super) const STEP_STOPPED_NOTE: &str = "[acpmux] The interruption just before this message \
+     was acpmux delivering it at once, not anyone stopping you: no one asked you to stop or to \
+     wait for the user. Read this message, then go on with your work.";
+
 /// One message of another session in a line of them.
 #[derive(Debug, Clone)]
 pub(super) struct Part {
@@ -171,9 +183,20 @@ impl Translator {
     /// A steer of the hub's (`session/prompt` with `_meta.steer`) during a turn: its line for
     /// Claude Code, another session's message joined to the newest waiting line of them, or held
     /// while a line is dropped to be written again.
-    pub(super) async fn write_steer(&self, id: &Id, p: &Value, content: Vec<Value>) -> Outbound {
+    pub(super) async fn write_steer(
+        &self,
+        id: &Id,
+        p: &Value,
+        mut content: Vec<Value>,
+    ) -> Outbound {
         let prompt_id = p.pointer("/_meta/promptId").and_then(Value::as_str).map(str::to_owned);
         let now = p.pointer("/_meta/steerNow").and_then(Value::as_bool) == Some(true);
+        // Sent now (`_meta.steerNow`): the current step stops, so it reads the line at once; the
+        // turn runs on. Not while a foreground subagent runs (`interrupt_ends_work`).
+        let stops_step = now && !self.interrupt_ends_work().await;
+        if stops_step {
+            content.push(json!({"type": "text", "text": STEP_STOPPED_NOTE}));
+        }
         let from = p.pointer("/_meta/batch/from").and_then(Value::as_str);
         let from = from.filter(|f| !now && !f.trim().is_empty());
         let person = p.pointer("/_meta/batch/person").and_then(Value::as_str);
@@ -217,9 +240,7 @@ impl Translator {
         }
         drop(steers);
         drop(batches);
-        // Sent now (`_meta.steerNow`): the current step stops, so it reads the line at once; the
-        // turn runs on. Not while a foreground subagent runs (`interrupt_ends_work`).
-        if now && !self.interrupt_ends_work().await {
+        if stops_step {
             return Outbound::Lines(vec![line, self.step_interrupt(None)]);
         }
         Outbound::Lines(vec![line])

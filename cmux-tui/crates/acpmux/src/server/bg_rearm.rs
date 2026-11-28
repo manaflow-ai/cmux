@@ -65,10 +65,13 @@ pub(super) async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Resul
                 let description = w.get("description").and_then(Value::as_str).map(str::to_owned);
                 let notify = w.get("notify").and_then(Value::as_bool).unwrap_or(true);
                 let result_line = w.get("resultLine").and_then(Value::as_bool).unwrap_or(false);
-                checked.push((from, wait, description, notify, result_line));
+                // The call that started it (a list view's `toolCallId`): its registry row keeps
+                // naming that call on the new machine (`hub/bg_registry.rs`). A label only.
+                let call = w.get("toolCallId").and_then(Value::as_str).map(str::to_owned);
+                checked.push((from, wait, description, notify, result_line, call));
             }
             let (mut rearmed, mut expired) = (Vec::new(), Vec::new());
-            for (from, wait, description, notify, result_line) in checked {
+            for (from, wait, description, notify, result_line, call) in checked {
                 let Some(command) = wait.command(crate::store::now_ms()) else {
                     expired.push(json!(from));
                     continue;
@@ -82,9 +85,13 @@ pub(super) async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Resul
                         notify,
                         result_line,
                         None,
+                        call,
                         crate::session_budget::TaskClass::Task,
                     )
                     .await?;
+                // The row of the task it was came with the chat's log: it ends here and gives its
+                // call to the new task, so the chat lists the call once (`hub/bg_registry.rs`).
+                hub.bg_moved(&session, &from);
                 rearmed.push(json!({"from": from, "id": started.get("id")}));
             }
             Ok(json!({"version": VERSION, "rearmed": rearmed, "expired": expired}))

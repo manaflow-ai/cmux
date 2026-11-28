@@ -8,7 +8,7 @@
 set -u
 before=$1 after=$2
 for v in "$before" "$after"; do [ -x "$v" ] || { echo "no binary at $v" >&2; exit 2; }; done
-H=$(mktemp -d)
+H=$(mktemp -d); trap 'rm -rf "$H"' EXIT
 export HOME=$H XDG_CONFIG_HOME=$H/c XDG_STATE_HOME=$H/s XDG_DATA_HOME=$H/d XDG_RUNTIME_DIR=$H ACPMUX_SOCKET=$H/no.sock
 for v in "$before" "$after"; do
   echo "== $v size $(stat -c %s "$v")"
@@ -43,4 +43,4 @@ for _ in $(seq $(( $(nproc) * 2 ))); do timeout 300 sh -c 'while :; do :; done' 
 sleep 1
 echo "load: $(cat /proc/loadavg)"
 wall 200 loaded
-kill "${pids[@]}" 2>/dev/null
+kill ${pids[@]+"${pids[@]}"} 2>/dev/null

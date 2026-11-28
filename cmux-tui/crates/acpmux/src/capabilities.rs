@@ -93,6 +93,11 @@ pub const TRANSFER_LIVE: &str = "transfer-live-v1";
 /// A chat move whose history follows the chat as a session pack (`hub/transfer_history.rs`).
 pub const TRANSFER_HISTORY_LATER: &str = "transfer-history-later-v1";
 
+/// A `session/prompt` with `_meta.acpmux.waitForLink: true` for a chat on a peer that is down hears
+/// `_acpmux/prompt_held` at once when it is held or kept for the link instead of refused
+/// (`server/peer_forward.rs` `wait_for_prompt_link`). Older daemons ignore the field.
+pub const PROMPT_LINK_WAIT: &str = "prompt-link-wait-v1";
+
 /// A move's receive here takes `composers.json`, each surface's unsent text and the queue's
 /// labels (`hub/composers.rs`), a guarded one too (`hub/transfer_guard.rs` `bundle_path_kind`).
 pub const TRANSFER_COMPOSERS: &str = "transfer-composers-v1";
@@ -101,6 +106,10 @@ pub const TRANSFER_COMPOSERS: &str = "transfer-composers-v1";
 /// (`hub/prompt_images.rs`), a guarded one too.
 pub const TRANSFER_IMAGES: &str = "transfer-images-v1";
 
+/// A move's receive here takes `uploads/<upload id>/<name>`, the chat's uploaded files
+/// (`hub/transfer_uploads.rs`), a guarded one too.
+pub const TRANSFER_UPLOADS: &str = "transfer-uploads-v1";
+
 /// The bundle files a chat runs without: each a capability and the first path component of the
 /// files it covers. A source makes them whatever its target is (it cannot know); the move's
 /// client, which reads the target's capabilities, leaves out each one the target does not list
@@ -108,8 +117,11 @@ pub const TRANSFER_IMAGES: &str = "transfer-images-v1";
 /// (2026-11-24, a Move to Cloud onto an older machine image: `transfer.path: "composers.json" is
 /// not a file a guarded move takes`). A new optional bundle file gets its row here and its id in
 /// [`CAPABILITIES`] in the change that adds it; every other file stays required.
-pub const OPTIONAL_BUNDLE_FILES: &[(&str, &str)] =
-    &[(TRANSFER_COMPOSERS, "composers.json"), (TRANSFER_IMAGES, "attachments")];
+pub const OPTIONAL_BUNDLE_FILES: &[(&str, &str)] = &[
+    (TRANSFER_COMPOSERS, "composers.json"),
+    (TRANSFER_IMAGES, "attachments"),
+    (TRANSFER_UPLOADS, "uploads"),
+];
 
 /// The capability a target lists when it takes the bundle file `path`, for an optional one
 /// ([`OPTIONAL_BUNDLE_FILES`]); `None` for a file every move carries.
@@ -152,6 +164,7 @@ pub fn left_out_line(left: &[String]) -> Option<String> {
         .map(|(c, _)| match *c {
             TRANSFER_COMPOSERS => "unsent composer text",
             TRANSFER_IMAGES => "prompt images",
+            TRANSFER_UPLOADS => "uploaded files",
             other => other,
         })
         .collect();
@@ -347,6 +360,7 @@ pub const CAPABILITIES: &[Capability] = &[
     // (`server/sign_in_follow.rs`). A literal id, which the app's reference check reads.
     Capability { id: "machine-signed-in-v1", wire: &[method::MUX_MACHINE_SIGNED_IN] },
     Capability { id: SESSION_MESSAGES, wire: &[method::MUX_MESSAGE] },
+    Capability { id: PROMPT_LINK_WAIT, wire: &[method::SESSION_PROMPT, method::MUX_PROMPT_HELD] },
     // Agent byte channels (`server/channels.rs`): a peer daemon opens one only on a peer that
     // lists this id, so an older peer is never sent a `connect` it would drop.
     Capability {
@@ -571,6 +585,16 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "team-directory-v1",
         wire: &[method::MUX_TEAM_NAVIGATOR, method::MUX_TEAM_PICK, method::MUX_TEAM_SESSION_INFO],
     },
+    // RFD 0170 phase 4: team and person customization and the `Open in cmux` handoff, under the
+    // same team-messaging gate (`server/team_settings.rs`).
+    Capability {
+        id: "team-settings-v1",
+        wire: &[
+            method::MUX_TEAM_CUSTOMIZATION,
+            method::MUX_TEAM_CUSTOMIZE,
+            method::MUX_TEAM_HANDOFF,
+        ],
+    },
     // A chat's sign-in before a send, by session or target (`hub/session_auth.rs`).
     Capability { id: "session-auth-v1", wire: &[method::MUX_SESSION_AUTH] },
     // Owner-captured Cloud turns: prepare reserves a stable id before the native bridge mints
@@ -658,6 +682,10 @@ pub const CAPABILITIES: &[Capability] = &[
     },
     Capability {
         id: TRANSFER_IMAGES,
+        wire: &["_acpmux/transfer_receive", "_acpmux/transfer_write"],
+    },
+    Capability {
+        id: TRANSFER_UPLOADS,
         wire: &["_acpmux/transfer_receive", "_acpmux/transfer_write"],
     },
     // An agent CLI's own sign-in on this machine, for a chat's sign-in card (`agent_login.rs`).

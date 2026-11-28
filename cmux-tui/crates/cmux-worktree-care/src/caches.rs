@@ -3,9 +3,10 @@
 //! package caches (SwiftPM, npm, Bun, pnpm, yarn, pip, uv, go build, cargo's
 //! registry), the known build caches under `~/.cache`, build folders of
 //! idle checkouts, idle files in the user's own `/tmp`, plain clones a lane
-//! left behind, Docker images and the iOS simulators' leftovers; Tart/Lume
-//! images and agent transcripts are only reported. Agents fill these as
-//! fast as they fill worktrees, and nothing else empties them.
+//! left behind, Docker images, the iOS simulators' leftovers, Tart/Lume
+//! images and VMs ([`crate::vm_images`]) and old agent transcripts
+//! ([`crate::transcripts`]). Agents fill these as fast as they fill
+//! worktrees, and nothing else empties them.
 //!
 //! Each family has a [`Kind`]: regenerable data is deleted (the ledger says
 //! so); unique data is archived first and goes only when that succeeded.
@@ -39,6 +40,9 @@ const SCAN_LIMIT: usize = 20_000;
 const BUILD_LIMIT: usize = 400_000;
 /// How long measuring one entry may take.
 const MEASURE: Duration = Duration::from_secs(5);
+/// How deep below a projected checkout's `real` a target folder is looked for
+/// (`real/target`, `real/cmux-tui/target`, `real/a/b/target`).
+const PROJECTED_DEPTH: usize = 3;
 
 /// Whether a family's data can be made again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -59,8 +63,18 @@ pub enum Source {
     /// The user's own idle files and folders directly in `root` (`/tmp`).
     TmpEntries,
     /// `target`, `.build`, `.zig-cache` and `node_modules` of checkouts under
-    /// `search` (two levels deep), outside `exclude` (worktree roots).
+    /// `search` (two levels deep), outside `exclude` (worktree roots). Never
+    /// inside a folder macOS guards (`guarded_folder`).
     BuildDirs { search: Vec<PathBuf>, exclude: Vec<PathBuf> },
+    /// Cargo target folders (they hold cargo's `CACHEDIR.TAG`) in `wt`'s
+    /// projected checkouts: `<root>/<owner>/<repo>/<checkout>/real` (`<root>` is
+    /// `~/.cache/cmux-projection/wt`), down to
+    /// [`PROJECTED_DEPTH`]. A projected checkout's build output is written
+    /// there, not under its mount, so neither the worktree pass nor
+    /// [`Source::BuildDirs`] sees it (a lane VM, 2026-11-28: four
+    /// checkouts' `real/*/target` held 16 GiB, and `care why` named none).
+    /// A folder a cargo build holds a lock in is kept.
+    ProjectedBuilds { roots: Vec<PathBuf> },
     /// Plain clones directly in each of `roots` (or in their children).
     Clones { roots: Vec<PathBuf> },
     /// Shown, never removed.
@@ -69,6 +83,10 @@ pub enum Source {
     Docker,
     /// `xcrun simctl delete unavailable`, macOS only.
     Simulators,
+    /// Agent transcripts older than the family's age: see [`crate::transcripts`].
+    Transcripts { open: crate::transcripts::OpenCheck },
+    /// Tart/Lume images and VMs, removed by their program: see [`crate::vm_images`].
+    Vms { vm: crate::vm_images::Vm, shape: crate::vm_images::Shape, program: PathBuf },
 }
 
 /// A kind of data and where it lives.
@@ -213,20 +231,31 @@ pub fn families(layout: &Layout) -> Vec<Family> {
         kind: Kind::Regenerable,
         source: Source::Simulators,
     });
+    use crate::vm_images::{Shape, Vm};
+    let image_days = crate::vm_images::days();
+    for (name, root, vm, shape) in [
+        ("tart-vms", home.join(".tart/vms"), Vm::Tart, Shape::Machines),
+        ("tart-images", home.join(".tart/cache/OCIs"), Vm::Tart, Shape::OciImages),
+        ("lume-vms", home.join(".lume"), Vm::Lume, Shape::Machines),
+    ] {
+        let program = PathBuf::from(if vm == Vm::Tart { "tart" } else { "lume" });
+        list.push(crate::vm_images::family(name, root, vm, shape, program, image_days));
+    }
+    let transcript_days = crate::transcripts::days();
+    let projection = home.join(".cache/cmux-projection/wt");
+    list.push(Family {
+        name: "projected-build-dirs",
+        root: projection.clone(),
+        per_child: false,
+        idle_hours: [Some(3 * DAY_H), Some(DAY_H), Some(2)],
+        kind: Kind::Regenerable,
+        source: Source::ProjectedBuilds { roots: vec![projection] },
+    });
     for (name, root) in [
-        ("tart-vms", home.join(".tart/vms")),
-        ("lume-vms", home.join(".lume")),
         ("claude-transcripts", home.join(".claude/projects")),
         ("codex-transcripts", home.join(".codex/sessions")),
     ] {
-        list.push(Family {
-            name,
-            root,
-            per_child: false,
-            idle_hours: [None; 3],
-            kind: Kind::Unique,
-            source: Source::ReportOnly,
-        });
+        list.push(crate::transcripts::family(name, root, transcript_days));
     }
     list
 }
@@ -262,10 +291,15 @@ pub fn entries(families: &[Family]) -> Vec<Entry> {
                 build_entries(index, search, exclude, &mut found);
             }
             Source::Clones { roots } => clone_entries(index, roots, &mut found),
+            Source::Transcripts { .. } => {
+                crate::transcripts::entries(index, family, crate::inventory::now_ms(), &mut found);
+            }
+            Source::Vms { .. } => crate::vm_images::entries(index, family, &mut found),
+            Source::ProjectedBuilds { roots } => projected_entries(index, roots, &mut found),
             Source::Docker | Source::Simulators => {
                 let present = match family.source {
                     Source::Docker => crate::external::docker_reclaimable().is_some(),
-                    _ => cfg!(target_os = "macos"),
+                    _ => crate::external::simulators_present(),
                 };
                 if !present {
                     continue;
@@ -395,18 +429,15 @@ fn build_entries(index: usize, search: &[PathBuf], exclude: &[PathBuf], found: &
         for child in level1.flatten() {
             let path = child.path();
             let hidden = child.file_name().to_string_lossy().starts_with('.');
-            if hidden || !real_dir(&path) {
+            if hidden || guarded_folder(base, &path) || !real_dir(&path) {
                 continue;
             }
             if path.join(".git").exists() {
                 checkouts.push(path);
             } else if let Ok(level2) = std::fs::read_dir(&path) {
-                checkouts.extend(
-                    level2
-                        .flatten()
-                        .map(|e| e.path())
-                        .filter(|p| real_dir(p) && p.join(".git").exists()),
-                );
+                checkouts.extend(level2.flatten().map(|e| e.path()).filter(|p| {
+                    !guarded_folder(base, p) && real_dir(p) && p.join(".git").exists()
+                }));
             }
         }
         checkouts.sort();
@@ -431,6 +462,33 @@ fn build_entries(index: usize, search: &[PathBuf], exclude: &[PathBuf], found: &
     }
 }
 
+/// The folders macOS guards with a privacy prompt, relative to the home folder: acpmux's one list
+/// (LAUNCH-NO-TCC-PROMPTS, `acpmux/data/protected-folders.json`, `inHome`).
+fn guarded_in_home() -> &'static [String] {
+    static LIST: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    LIST.get_or_init(|| {
+        let json: serde_json::Value =
+            serde_json::from_str(include_str!("../../acpmux/data/protected-folders.json"))
+                .unwrap_or_default();
+        let rows = json.get("inHome").and_then(|rows| rows.as_array());
+        rows.into_iter()
+            .flatten()
+            .filter_map(|row| row.get("path")?.as_str().map(str::to_owned))
+            .collect()
+    })
+}
+
+/// Whether `path` (a folder under the home folder `home`) is, or is inside, one macOS guards
+/// (Desktop, Documents, Downloads, iCloud Drive, other apps' data...). Listing or opening inside
+/// one raises macOS's privacy prompt, attributed to cmux, so the build-folder search, which runs
+/// unasked from the daemon's startup pass, never reads inside one (LAUNCH-NO-TCC-PROMPTS): a new
+/// Mac's first launch asked for Desktop, Documents and Downloads one after another. Their build
+/// folders are left alone; a stat of a path is no read.
+fn guarded_folder(home: &Path, path: &Path) -> bool {
+    let Ok(rel) = path.strip_prefix(home) else { return false };
+    guarded_in_home().iter().any(|guarded| rel.starts_with(guarded))
+}
+
 /// The newer of the build folder's changes and the checkout's own git state.
 fn build_activity(checkout: &Path, build: &Path) -> Option<u64> {
     let built = activity(build, SCAN_DEPTH, BUILD_LIMIT)?;
@@ -441,6 +499,132 @@ fn build_activity(checkout: &Path, build: &Path) -> Option<u64> {
         }
     }
     Some(newest)
+}
+
+/// The projected checkouts' `real` folders under `roots`
+/// (`<root>/<owner>/<repo>/<checkout>/real`), real folders only.
+fn projected_reals(roots: &[PathBuf]) -> Vec<PathBuf> {
+    let mut reals = Vec::new();
+    let children = |dir: &Path| -> Vec<PathBuf> {
+        let Ok(list) = std::fs::read_dir(dir) else { return Vec::new() };
+        list.flatten().map(|e| e.path()).filter(|p| real_dir(p)).collect()
+    };
+    for root in roots.iter().filter(|r| real_dir(r)) {
+        for owner in children(root) {
+            for repo in children(&owner) {
+                for checkout in children(&repo) {
+                    let real = checkout.join("real");
+                    if real_dir(&real) {
+                        reals.push(real);
+                    }
+                }
+            }
+        }
+    }
+    reals.sort();
+    reals
+}
+
+/// A Cargo target folder: cargo writes `CACHEDIR.TAG` naming itself in it.
+/// Whether `path` is a cargo target folder. Cargo writes `CACHEDIR.TAG` only
+/// when it makes the folder itself; a target made first by `mkdir`, a shim or
+/// an older cargo has none (a lane VM, 2026-11-28: 0 of 197 projected targets
+/// had one, 5.5 GiB in one). So `.rustc_info.json` beside a profile's
+/// `.fingerprint`, which every cargo build writes, counts too.
+fn cargo_target(path: &Path) -> bool {
+    if !real_dir(path) {
+        return false;
+    }
+    let tagged = std::fs::read(path.join("CACHEDIR.TAG"))
+        .is_ok_and(|tag| tag.windows(5).any(|w| w == b"cargo"));
+    tagged || (path.join(".rustc_info.json").is_file() && has_fingerprint(path))
+}
+
+/// A profile folder (`debug`, `release`, or `<triple>/<profile>`) with a
+/// `.fingerprint` folder.
+fn has_fingerprint(target: &Path) -> bool {
+    let Ok(children) = std::fs::read_dir(target) else { return false };
+    children.flatten().any(|child| {
+        let path = child.path();
+        real_dir(&path.join(".fingerprint"))
+            || ["debug", "release"].iter().any(|p| real_dir(&path.join(p).join(".fingerprint")))
+    })
+}
+
+fn projected_entries(index: usize, roots: &[PathBuf], found: &mut Vec<Entry>) {
+    for real in projected_reals(roots) {
+        let checkout = real.parent().map(Path::to_path_buf).unwrap_or_else(|| real.clone());
+        let mut stack = vec![(real.clone(), 0usize)];
+        while let Some((dir, depth)) = stack.pop() {
+            if cargo_target(&dir) {
+                let last_activity_ms = projected_activity(&checkout, &dir);
+                found.push(Entry {
+                    family: index,
+                    path: dir,
+                    guard: checkout.clone(),
+                    last_activity_ms,
+                });
+                continue;
+            }
+            if depth >= PROJECTED_DEPTH {
+                continue;
+            }
+            let Ok(list) = std::fs::read_dir(&dir) else { continue };
+            let mut next: Vec<PathBuf> = list
+                .flatten()
+                .filter(|e| {
+                    let name = e.file_name();
+                    let name = name.to_string_lossy();
+                    !name.starts_with('.') && name != "node_modules"
+                })
+                .map(|e| e.path())
+                .filter(|p| real_dir(p))
+                .collect();
+            next.sort();
+            stack.extend(next.into_iter().rev().map(|p| (p, depth + 1)));
+        }
+    }
+}
+
+/// The newer of the target folder's changes and the projected checkout's own
+/// last use (`wt` touches `last-in-use` whenever the checkout is opened).
+fn projected_activity(checkout: &Path, build: &Path) -> Option<u64> {
+    let built = activity(build, SCAN_DEPTH, BUILD_LIMIT)?;
+    let used = std::fs::symlink_metadata(checkout.join("last-in-use"))
+        .ok()
+        .and_then(|m| modified_ms(&m))
+        .unwrap_or(0);
+    Some(built.max(used))
+}
+
+/// The profile of `target` (`debug`, `release`, ...) a cargo build holds its
+/// lock in, if any: cargo takes an exclusive `flock` on
+/// `<target>/<profile>/.cargo-lock` for the whole build.
+fn cargo_busy(target: &Path) -> Option<String> {
+    let mut locks = vec![target.join(".cargo-lock")];
+    if let Ok(list) = std::fs::read_dir(target) {
+        for entry in list.flatten() {
+            locks.push(entry.path().join(".cargo-lock"));
+            locks.push(entry.path().join("debug/.cargo-lock"));
+            locks.push(entry.path().join("release/.cargo-lock"));
+        }
+    }
+    locks.into_iter().find(|lock| held(lock)).map(|lock| {
+        lock.parent()
+            .and_then(|p| p.strip_prefix(target).ok())
+            .map(|p| p.display().to_string())
+            .unwrap_or_default()
+    })
+}
+
+/// Whether another process holds an exclusive lock on `lock` (cargo's
+/// `flock`): a shared try is refused only then, and let go at once.
+fn held(lock: &Path) -> bool {
+    let Ok(file) = std::fs::File::open(lock) else { return false };
+    matches!(
+        cmux_file_lock::FileLock::try_take(file, cmux_file_lock::Kind::Shared),
+        Err(cmux_file_lock::LockError::Busy(_))
+    )
 }
 
 fn clone_entries(index: usize, roots: &[PathBuf], found: &mut Vec<Entry>) {
@@ -648,6 +832,9 @@ fn bytes_at(family: &Family, path: &Path) -> Option<u64> {
     match &family.source {
         Source::Docker => crate::external::docker_reclaimable(),
         Source::Simulators => None,
+        Source::Transcripts { .. } if path == family.root => {
+            crate::transcripts::recent_bytes(family, crate::inventory::now_ms())
+        }
         _ => match std::fs::symlink_metadata(path) {
             Ok(meta) if meta.is_file() => Some(meta.len()),
             Ok(_) => bytes_of(path),
@@ -666,6 +853,9 @@ pub fn scan(options: &Options) -> Report {
             continue;
         }
         let mut decided = decide(family, entry.last_activity_ms, options.pressure, options.now_ms);
+        if let Some(report) = crate::transcripts::summary_keep(family, &entry.path) {
+            decided = report;
+        }
         if let Some(glob) = options.never.holds(options.home, &entry.path) {
             decided = verdict(Action::Keep, format!("never-delete: {glob}"));
         }
@@ -736,10 +926,12 @@ pub fn apply(options: &Options, report: &mut Report, index: usize) {
 /// families share a name).
 fn same_root(family: &Family, path: &Path) -> bool {
     match &family.source {
-        Source::Fixed | Source::ReportOnly | Source::TmpEntries => {
-            path == family.root || path.starts_with(&family.root)
-        }
-        Source::BuildDirs { .. } => path.starts_with(&family.root),
+        Source::Fixed
+        | Source::ReportOnly
+        | Source::TmpEntries
+        | Source::Transcripts { .. }
+        | Source::Vms { .. } => path == family.root || path.starts_with(&family.root),
+        Source::BuildDirs { .. } | Source::ProjectedBuilds { .. } => path.starts_with(&family.root),
         Source::Clones { roots } => roots.iter().any(|r| path.starts_with(r)),
         Source::Docker | Source::Simulators => path == family.root,
     }
@@ -751,8 +943,19 @@ fn guard_of(family: &Family, path: &Path) -> PathBuf {
         Source::BuildDirs { .. } => {
             path.parent().map(Path::to_path_buf).unwrap_or_else(|| path.to_path_buf())
         }
+        Source::ProjectedBuilds { .. } => projected_checkout(path),
         _ => path.to_path_buf(),
     }
+}
+
+/// The projected checkout a target folder in its `real` belongs to: the
+/// folder holding the nearest `real` above it.
+fn projected_checkout(path: &Path) -> PathBuf {
+    path.ancestors()
+        .find(|a| a.file_name().is_some_and(|n| n == "real"))
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| path.to_path_buf())
 }
 
 /// The checks that the path is still what the family listed.
@@ -802,6 +1005,18 @@ fn still_an_entry(options: &Options, family: &Family, path: &Path) -> Result<(),
                 return Err(gone());
             }
         }
+        Source::ProjectedBuilds { roots } => {
+            let inside = projected_reals(roots).iter().any(|real| path.starts_with(real));
+            if !inside || !path.starts_with(options.home) || !cargo_target(path) {
+                return Err(gone());
+            }
+            if let Some(profile) = cargo_busy(path) {
+                return Err(verdict(
+                    Action::Keep,
+                    format!("a cargo build holds its lock ({profile}/.cargo-lock)"),
+                ));
+            }
+        }
         Source::Clones { roots } => {
             if !roots.iter().any(|r| path.starts_with(r))
                 || !is_plain_clone(path)
@@ -811,7 +1026,11 @@ fn still_an_entry(options: &Options, family: &Family, path: &Path) -> Result<(),
                 return Err(gone());
             }
         }
-        Source::Docker | Source::Simulators | Source::ReportOnly => {}
+        Source::Docker
+        | Source::Simulators
+        | Source::ReportOnly
+        | Source::Transcripts { .. }
+        | Source::Vms { .. } => {}
     }
     Ok(())
 }
@@ -824,6 +1043,12 @@ fn remove(
     path: &Path,
     bytes: u64,
 ) -> Result<Option<Outcome>, Verdict> {
+    match family.source {
+        // Their own checks: one open-file answer per root, archives of their own.
+        Source::Transcripts { .. } => return crate::transcripts::remove(options, family, path),
+        Source::Vms { .. } => return crate::vm_images::remove(options, family, path, bytes),
+        _ => {}
+    }
     if let Some(glob) = options.never.holds(options.home, path) {
         return Err(verdict(Action::Keep, format!("never-delete: {glob}")));
     }
@@ -834,6 +1059,7 @@ fn remove(
     } else {
         let fresh = match &family.source {
             Source::BuildDirs { .. } => build_activity(&guard_of(family, path), path),
+            Source::ProjectedBuilds { .. } => projected_activity(&guard_of(family, path), path),
             Source::Clones { .. } => clone_activity(path),
             _ if std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file()) => {
                 std::fs::symlink_metadata(path).ok().and_then(|m| modified_ms(&m))

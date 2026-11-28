@@ -198,6 +198,8 @@ fn seeds_hold_the_delivery_invariants() {
     // Seeds that fail only by a known gap: they hold once its cause is taken away.
     let mut shown: BTreeMap<String, Vec<u64>> = BTreeMap::new();
     let trace_leaks = std::env::var_os("SIM_LEAK_TRACE").is_some();
+    // Failing seeds by the invariant they broke: the sweep's bug yield (`sim-yield:` below).
+    let mut classes: BTreeMap<&'static str, usize> = BTreeMap::new();
     // The latest answer after its deadline, and its seed: the data the liveness budget is set on.
     let mut latest: Option<(std::time::Duration, u64)> = None;
     for seed in base..base + seeds {
@@ -233,8 +235,13 @@ fn seeds_hold_the_delivery_invariants() {
         match classify(&run, gaps) {
             Seed::Holds => {}
             Seed::KnownGap(gap) => shown.entry(gap).or_default().push(seed),
-            Seed::Fails(failure) => failures
-                .push(format!("seed {seed}: {failure}\n  replay: {}", replay_command(seed, &opts))),
+            Seed::Fails(failure) => {
+                *classes.entry(failure_class(&failure)).or_default() += 1;
+                failures.push(format!(
+                    "seed {seed}: {failure}\n  replay: {}",
+                    replay_command(seed, &opts)
+                ))
+            }
         }
     }
     let wall = started.elapsed();
@@ -262,11 +269,56 @@ fn seeds_hold_the_delivery_invariants() {
             replay_command(hit[0], &opts)
         );
     }
+    let known: usize = shown.values().map(Vec::len).sum();
+    eprintln!("{}", yield_line(seeds, failures.len(), known, &classes));
     assert!(
         failures.is_empty(),
         "{} of {seeds} seeds failed:\n{}",
         failures.len(),
         failures.join("\n")
+    );
+}
+
+/// The invariant a failure broke (`invariants::check` prefixes its name), or "other".
+fn failure_class(failure: &str) -> &'static str {
+    invariants::INVARIANTS
+        .iter()
+        .find(|inv| failure.starts_with(inv.name) && failure[inv.name.len()..].starts_with(':'))
+        .map_or("other", |inv| inv.name)
+}
+
+/// One machine-read line per run: seeds run, seeds red, seeds red only by a known gap, and the
+/// red seeds by invariant broken. acpmux-sim-sweep.yml sums it over its chunks into the run's
+/// summary, so the nightly sweep says what its seeds found (reading note hq
+/// docs/reading/2026-11-21-dst-for-everyone.md: tell whether more seeds or more chaos pays).
+fn yield_line(
+    seeds: u64,
+    reds: usize,
+    known: usize,
+    classes: &BTreeMap<&'static str, usize>,
+) -> String {
+    let by: Vec<String> = classes.iter().map(|(c, n)| format!("{c}={n}")).collect();
+    format!(
+        "sim-yield: seeds={seeds} reds={reds} known_gap={known} classes={}",
+        if by.is_empty() { "none".to_owned() } else { by.join("; ") }
+    )
+}
+
+#[test]
+fn the_yield_line_counts_reds_by_invariant() {
+    let lost = invariants::INVARIANTS[1].name;
+    assert_eq!(failure_class(&format!("{lost}: p3 was never answered")), lost);
+    assert_eq!(failure_class("something new"), "other");
+    let mut classes = BTreeMap::new();
+    assert_eq!(
+        yield_line(400, 0, 2, &classes),
+        "sim-yield: seeds=400 reds=0 known_gap=2 classes=none"
+    );
+    classes.insert(lost, 3);
+    classes.insert("other", 1);
+    assert_eq!(
+        yield_line(400, 4, 0, &classes),
+        format!("sim-yield: seeds=400 reds=4 known_gap=0 classes={lost}=3; other=1")
     );
 }
 

@@ -171,6 +171,67 @@ async fn the_automatic_pass_takes_only_chats_idle_past_the_setting() {
     hub.shutdown_all().await;
 }
 
+#[tokio::test]
+async fn a_chat_brought_back_is_not_archived_again_by_the_pass_until_the_hold_ends() {
+    // A lane VM, 2026-11-26/27: the 30-day pass took back the chats a read had just
+    // brought back (a read leaves `updated_at`), 2,249 rehydrates of 453 chats in 5.5 h.
+    let root = Root(std::env::temp_dir().join(format!("acpmux-cold-hub-{}", uuid::Uuid::now_v7())));
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    let day = 86_400_000;
+    {
+        let store = crate::store::open(&cfg.store, &root.0).unwrap();
+        chat(&*store, "old", now_ms() - 40 * day, 2);
+        store.flush().unwrap();
+    }
+    let (_, hub) = open(&root.0);
+    let after = std::time::Duration::from_millis(30 * day);
+    assert_eq!(hub.cold_pass_after(after), 1);
+    assert!(hub.store.is_cold("old"));
+    let gauge = || crate::gauges::global().status()["coldRehydrates"].clone();
+    let (rehydrates, held) =
+        (gauge()["rehydrates"].as_u64().unwrap(), gauge()["heldBack"].as_u64().unwrap());
+    // A read brings it back; the pass leaves it for the hold.
+    let session = hub.resolve("old").unwrap();
+    assert_eq!(hub.history(&session, 10).len(), 2);
+    assert!(!hub.store.is_cold("old"));
+    hub.settle_rehydrated();
+    assert!(gauge()["rehydrates"].as_u64().unwrap() > rehydrates, "{}", gauge());
+    assert_eq!(hub.cold_pass_after(after), 0);
+    assert!(!hub.store.is_cold("old"));
+    assert!(gauge()["heldBack"].as_u64().unwrap() > held, "{}", gauge());
+    // The hold over, the pass takes it as before.
+    let past = now_ms() - REARCHIVE_HOLD_MS - 1;
+    hub.cold_recent.lock().unwrap().at.insert("old".into(), past);
+    assert_eq!(hub.cold_pass_after(after), 1);
+    assert!(hub.store.is_cold("old"));
+    hub.shutdown_all().await;
+}
+
+#[test]
+fn the_recent_set_stays_under_its_cap_and_lets_go_past_the_hold() {
+    let mut recent = Recent::default();
+    let t = 1_000_000u64;
+    let mut evicted = 0;
+    for i in 0..RECENT_CAP + 10 {
+        evicted += recent.note(&format!("c{i}"), t);
+    }
+    assert_eq!(recent.len(), RECENT_CAP);
+    assert_eq!(evicted, 10, "the oldest ten go, counted");
+    assert!(!recent.lately("c0", t) && recent.lately(&format!("c{}", RECENT_CAP + 9), t));
+    // One chat brought back over and over keeps one entry and a bounded queue.
+    for n in 0..3 * RECENT_CAP as u64 {
+        recent.note("again", t + n);
+    }
+    assert!(recent.order.len() <= 2 * RECENT_CAP + 1, "{}", recent.order.len());
+    assert!(recent.len() <= RECENT_CAP);
+    // Past the hold, the next note lets everything older go, not counted as evicted.
+    let later = t + 3 * RECENT_CAP as u64 + REARCHIVE_HOLD_MS;
+    assert_eq!(recent.note("late", later), 0);
+    assert_eq!(recent.len(), 1);
+    assert!(!recent.lately("again", later) && recent.lately("late", later));
+}
+
 #[test]
 fn the_setting_is_off_by_default() {
     assert_eq!(auto_after(&json!({})), None);

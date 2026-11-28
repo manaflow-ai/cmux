@@ -902,8 +902,11 @@ def test_workflow_runs_the_guard_from_main_and_gates_the_move() -> None:
     assert "&& 'release-surface-ack' || ''" in WORKFLOW
     assert "requested.startsWith('dry-run:')" in WORKFLOW
     assert "ref: ${{ github.sha }}" in WORKFLOW
-    assert "if: steps.decide.outputs.action == 'promote' && steps.decide.outputs.dry_run != 'true'" in WORKFLOW
-    assert "if: needs.await-release-surface-ack.result == 'success' && needs.promote-nightly-next.outputs.action == 'needs-ack' && needs.promote-nightly-next.outputs.dry_run != 'true'" in WORKFLOW
+    # promote-nightly-next moves a "needs-ack" decision like a "promote" one (scripts/ci/promote-nightly-next.mjs, #25995).
+    assert ("if: (steps.decide.outputs.action == 'promote' || steps.decide.outputs.action == 'needs-ack') && "
+            "steps.decide.outputs.dry_run != 'true'") in WORKFLOW
+    # The acked mover is retired (`if: false`): the first job moves a needs-ack decision itself (#25995).
+    assert "promote-nightly-next-acked:" in WORKFLOW and "\n    if: false\n" in WORKFLOW
     assert "group: nightly-next-promote-ack-${{ github.run_id }}" in WORKFLOW
     assert "guard.decideNewest({" in WORKFLOW
 

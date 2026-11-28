@@ -314,7 +314,8 @@ async function openModeMenu(): Promise<string[]> {
 test("both Cloud sends start the agent and mode the chip names, for every face harness", async () => {
   const { cloudStartAgent, CLOUD_DEFAULT_AGENT, remoteStartMode } =
     await import("../src/agent-session/acpmux/harnessModes");
-  const { cloudSendAgent, clearCloudModePick } = await import("../src/agent-session/acpmux/cloudModePick");
+  const { cloudSendAgent, clearCloudModePick, cloudStartModePick } =
+    await import("../src/agent-session/acpmux/cloudModePick");
   const cases = [
     { face: "claude", family: "claude", runs: "claude", starts: "Auto", asking: "Manual" },
     { face: "codex", family: "codex", runs: "codex", starts: "Full access", asking: "Ask" },
@@ -347,8 +348,10 @@ test("both Cloud sends start the agent and mode the chip names, for every face h
     // The chat composer's send names no harness (no switch): the machine starts its default unless
     // the face is an agent it runs, which acpmux also starts first for that face (cloudStartAgent).
     expect(cloudStartAgent(family, face).harness).toBe(runs);
-    // Both carry the picked mode, the asking mode of the agent that starts, named as the chip named it.
-    expect(newTab.mode).toBe(remoteStartMode(runs, runs)!.id);
+    // Both carry the picked mode, the asking mode of the agent that starts, named as the chip named it. The
+    // chips show (and hold the mode under) the agent the machine starts (model-picker-local-cloud-state:
+    // the chip and the send name one agent), so the send reads it there.
+    expect(cloudStartModePick(runs).mode).toBe(remoteStartMode(runs, runs)!.id);
     expect(picked).toContain(remoteStartMode(runs, runs)!.name);
     expect(chipText()).toBe(asking);
   }
@@ -413,4 +416,26 @@ test("a start in another mode is another start; one with no pick keeps its key",
   const plain = cloudStartFingerprint({ task: "go", harness: "claude" });
   expect(cloudStartFingerprint({ task: "go", harness: "claude", mode: "bypassPermissions" })).not.toBe(plain);
   expect(cloudStartFingerprint({ task: "go", harness: "claude" })).toBe(plain);
+});
+
+// Austin, 2026-11-27: "We should store a state for the local models and a different state for the
+// cloud+autocloud so that we can remain consistent". A new page with Cloud picked and nothing held on it
+// shows Cloud's own last pick (cloudLastPick.ts), never the agent This Mac picked last; This Mac's page
+// still shows This Mac's.
+test("with Cloud picked and nothing held on the page, the chips show Cloud's last pick, not This Mac's", async () => {
+  const { rememberCloudPick } = await import("../src/agent-session/acpmux/cloudLastPick");
+  const { rememberPick, lastPick } = await import("../src/agent-session/acpmux/lastPick");
+  const sent: { method: string; params: Record<string, unknown> }[] = [];
+  const post = async (method: string, params: Record<string, unknown>) => void sent.push({ method, params });
+  rememberPick({ harness: "claude", model: "default" }, FOLDER, post);
+  rememberCloudPick({ harness: "codex" }, post);
+  await render(await newChat(true, "claude"));
+  expect(chipText()).toBe("Full access");
+  await render(await newChat(false, "claude"));
+  expect(chipText()).toBe("Bypass permissions");
+  expect(lastPick(FOLDER)?.harness).toBe("claude");
+  expect(sent.map((call) => call.params)).toEqual([
+    { agent: "claude", model: "default", folder: FOLDER },
+    { agent: "codex", place: "cloud" },
+  ]);
 });

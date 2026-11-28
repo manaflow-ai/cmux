@@ -36,7 +36,7 @@ import { historyPages } from "../queue/historyPages";
 import type { AllChatsPage } from "../newtab/allChatsListModel";
 import { newTabScreenActions } from "../newtab/screenActions";
 import { cloudSendAgent } from "../cloudModePick";
-import { cloudAgentPick } from "../cloudAgentPick";
+import { cloudAgentPick, cloudStartPick, rememberedCloudAgentPick } from "../cloudAgentPick";
 import { jumpSide } from "../jumpPlace";
 import type { ComposerPlace } from "../composerPlace.experiment";
 import { StyleSwitch } from "../newtab/StyleSwitch";
@@ -45,7 +45,7 @@ import { newTabPageSubmit } from "../newtab/pageSubmit";
 import type { ComposerAttachment, DroppedKind, KnownPaths } from "../attachments";
 import { EmptyState } from "../EmptyState";
 import { projectName } from "../emptyStateModel";
-import { TourStartContext } from "../repoTour/TourBlock";
+import { TourStartContext } from "../repoTour/tourBlockModel";
 import { ChatUnavailableState } from "../ChatUnavailableState";
 import { PastChat } from "../PastChat";
 import { ComputerUsePreviewCard } from "../computerUse/ComputerUsePreviewCard";
@@ -53,6 +53,7 @@ import { translate, type Translate } from "../i18n";
 import { LINK_DOWN_SAID_MS } from "../afterDelay";
 import { PeerCopyBanner } from "../PeerCopyBanner";
 import type { ExportOutcome } from "../Inspector";
+import type { ReadInspectorHistory } from "../InspectorTiming";
 import { Inspector } from "../lazyScreens";
 import { SummaryButton } from "../summary/SummaryButton";
 import { chatProcessesHere } from "../processTerminal";
@@ -87,7 +88,7 @@ import { DeleteChatDialog } from "../header/DeleteChatDialog";
 import { readChatMini } from "../header/miniRow";
 import { ToastLayer } from "../ToastLayer";
 import { SubagentClockContext } from "../subagents/subagentGroupModel";
-import { NewProjectUnsupported } from "../newtab/NewProjectName";
+import { NewProjectUnsupported } from "../newtab/newProjectUnsupported";
 import { newWorktree, cloneRepository } from "../startFolderModel";
 import { LiveChatChoice } from "../LiveChatChoice";
 import { WatchBanner } from "../WatchBanner";
@@ -102,6 +103,7 @@ import { sandboxRetryable, type SandboxTab, type RunModeRows, type SandboxRun } 
 import { SandboxRunView } from "../lazyScreens";
 import { PaneFeatureTips } from "../featureTips";
 import { callNative } from "../callNative";
+import { pullRequestActionPrompt } from "../header/pullRequestActionPrompt";
 import type { EvacuateState } from "../place/placeModel";
 import type { EvacuateActions } from "../place/usePlace";
 import { openOfferChat } from "../rows/rowActions";
@@ -307,7 +309,7 @@ export type PaneBodyDeps = NewTabShown &
     newTabKnownProjects: readonly string[] | null;
     startFolder: string | undefined;
     onNewTabPromptTyped: (text: string, target?: { harness?: string; cwd?: string }) => void;
-    onCloudMachinePicked: (machine: CloudMachine | undefined) => void;
+    onCloudMachinePicked: (machine: CloudMachine | undefined, peer?: string | null) => void;
     cloudOfferable: boolean;
     cloudFolderGrant: ReturnType<typeof cloudFolderGrants>;
     handshaken: boolean;
@@ -429,6 +431,8 @@ export type PaneBodyDeps = NewTabShown &
     setDisplayAnchor: React.Dispatch<React.SetStateAction<HTMLElement | null>>;
     closeInspector: () => void;
     sendPerf: PerfSend;
+    /// `_acpmux/history` through the client connected now (the Inspector's Timing tab).
+    readInspectorHistory: ReadInspectorHistory;
     setDock: React.Dispatch<React.SetStateAction<HTMLElement | null>>;
     paneToasts: NoticeQueue;
     /// The chat list's place and Evacuate calls (place/usePlace.ts).
@@ -712,6 +716,7 @@ export function drawPaneBody({
   setDisplayAnchor,
   closeInspector,
   sendPerf,
+  readInspectorHistory,
   setDock,
   paneToasts,
   chatListPlace,
@@ -1021,14 +1026,24 @@ export function drawPaneBody({
                               // The agent the Mode chip names and its pick: a harness with no
                               // Cloud start mode is left out, so the machine starts Claude.
                               // The agent picked for the machine (cloudAgentPick.ts), as the chips show it.
+                              // The agent, model and level the chips drew (cloudAgentPick.ts `cloudStartPick`):
+                              // Cloud's own pick, with its mode, never this Mac's.
                               ...(() => {
-                                const machine = cloudAgentPick();
-                                const agent = machine?.harness ?? harness;
-                                return cloudSendAgent(
-                                  snapshot.catalog.find((entry) => entry.id === agent)?.family,
-                                  agent,
-                                  machine ? machine.model : model,
-                                );
+                                const family = snapshot.catalog.find((entry) => entry.id === harness)?.family;
+                                const pick = cloudStartPick({
+                                  harness,
+                                  ...(model ? { model } : {}),
+                                  ...(family ? { family } : {}),
+                                });
+                                return {
+                                  ...cloudSendAgent(
+                                    snapshot.catalog.find((entry) => entry.id === pick.harness)?.family ?? pick.harness,
+                                    pick.harness,
+                                    pick.model,
+                                    (cloudAgentPick() ?? rememberedCloudAgentPick()) !== undefined,
+                                  ),
+                                  ...(pick.effort && pick.effort !== "default" ? { effort: pick.effort } : {}),
+                                };
                               })(),
                             },
                             true,
@@ -1106,6 +1121,7 @@ export function drawPaneBody({
                   home={newTab.home}
                   {...(newTab.startedProject ? { startedProject: newTab.startedProject } : {})}
                   {...(newTab.cloudStartedProject ? { cloudStartedProject: newTab.cloudStartedProject } : {})}
+                  {...(newTab.startsRemote ? { startsRemote: true } : {})}
                   knownProjects={newTabKnownProjects}
                   {...(newTab.openTabs ? { openTabs: newTab.openTabs } : {})}
                   // The field takes keys from its first render (the host's buffer hands them over at
@@ -1144,6 +1160,7 @@ export function drawPaneBody({
                       cwd: newTab.cwd,
                       chatCwd: startFolder,
                       requestFolder,
+                      peerCloudRegistry: (peer) => directClient.current?.cloudPeerRegistry(peer),
                       startsHere: () => !directClient.current?.startsOnSend,
                       // After the screen's own early hold (NewTabScreen `holdsSend`): only holds and says why.
                       holdsSend: (text, here) => holdsForComputerUseSetup(text, true, here ? "here" : "machine", false),
@@ -1434,6 +1451,22 @@ export function drawPaneBody({
                               })
                           : undefined
                       }
+                      // Fix checks and Address review: Rust reads the displayed chat's PR, then the prompt goes to that chat.
+                      onPullRequestAction={
+                        localCwd && snapshot.sessionId
+                          ? async (pr, action, signal) => {
+                              const client = directClient.current;
+                              const sessionId = snapshot.sessionId;
+                              if (!client || !sessionId) throw new Error(translate("error.notOpen"));
+                              return pullRequestActionPrompt(client, sessionId, pr, action, signal, {
+                                currentClient: () => directClient.current,
+                                send: (params) => callNative("chat.send", { ...params }),
+                                error: () => new Error(translate("header.prActionFailed")),
+                              });
+                            }
+                          : undefined
+                      }
+                      pullRequestScope={snapshot.sessionId}
                       // A merge asks the header again, so the chip shows the pull request merged.
                       onMergePullRequest={
                         localCwd
@@ -1702,6 +1735,7 @@ export function drawPaneBody({
                     onClose={closeInspector}
                     onExport={saveLogNatively}
                     perf={sendPerf}
+                    readHistory={readInspectorHistory}
                   />
                 )}
               </div>

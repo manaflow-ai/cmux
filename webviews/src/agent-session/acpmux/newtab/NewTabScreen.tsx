@@ -18,12 +18,13 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
-import { useKeyStyleSettings, useListKeys } from "../../../ui/useListKeys";
+import { MODIFIER_KEYS, useKeyStyleSettings, useListKeys } from "../../../ui/useListKeys";
 import type { ConnectKind } from "../environments";
 import { githubFolder, githubFolderRepo } from "../githubRepos";
 import { useSendAfterCheckout } from "../sendAfterCheckout";
 import { cloudRepositoryPick } from "../sourcePickerModel";
 import type { CloudMachine } from "../cloudMachines";
+import { cloudStartEnvironment } from "../cloudEnvironmentChoice";
 import { CloudChatHint } from "../CloudChatHint";
 import { isActive, type Dictation, type DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../newTabModel";
@@ -45,7 +46,8 @@ import {
 } from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
-import { NewProjectName, NewProjectFailure, NewProjectUnsupported } from "./NewProjectName";
+import { NewProjectName, NewProjectFailure } from "./NewProjectName";
+import { NewProjectUnsupported } from "./newProjectUnsupported";
 import {
   awaitProjectPreview,
   forgetProjectPreview,
@@ -95,11 +97,9 @@ import { listingWanted, omnibarFolders, omnibarFolder } from "./launchRows";
 import { type CompleteFolder, useFolderListing } from "./omnibarReads";
 import { useRecentlyClosed } from "./recentlyClosed";
 import { initialRecentProject } from "./recentProject";
-import { startedProjectChoices, cloudPickChoices, rememberCloudPick } from "./startedProject";
+import { startedProjectChoices, cloudPickChoices, rememberCloudPick, rememberStartedProject } from "./startedProject";
 import { callNative } from "../callNative";
 import {
-  attachedRows,
-  commandRows,
   exactMatch,
   canonicalAddress,
   defaultSelection,
@@ -115,8 +115,11 @@ import {
   type ScreenRow,
   pageChatCards,
   returnRow,
+  attachedRows,
+  commandRows,
 } from "./screenModel";
-import { SuggestionGlyph, rowGlyphName } from "./RowGlyph";
+import { SuggestionGlyph } from "./RowGlyph";
+import { rowGlyphName } from "./rowGlyphNames";
 import { Icon } from "../icons/Icon";
 import { useNoEntryMotion } from "./noEntryMotion";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
@@ -159,11 +162,11 @@ import {
   shownName,
   slashMatches,
   useSlashNames,
-  usesCommand,
   withSkillDollars,
   type SlashCommand,
   type SlashTrigger,
   matchCommands,
+  usesCommand,
 } from "../slashCommands";
 import { useNewTabCommand, type NewTabCommandActions } from "./useNewTabCommand";
 import { useHarnessesListed } from "../catalog";
@@ -203,7 +206,7 @@ export type NewTabScreenActions = NewTabCommandActions & {
     model?: string,
     noProject?: boolean,
     attachments?: ComposerAttachment[],
-    saved?: { peer?: string },
+    saved?: { peer?: string; cloudEnvironment?: string },
   ): unknown;
   /// A lone GitHub issue URL starts the core fix-from-link flow in a new worktree. `cwd` is the
   /// project the person picked on this page, when there is one; it must win over the tab's
@@ -360,7 +363,7 @@ type Props = NewTabScreenActions & {
   /// can copy it (cloud.startChat copies only the pane's own folders, AgentPaneHandOff), while the
   /// Return that sends keeps its own gesture for the start.
   onProjectPicked?(cwd: string): void;
-  onCloudMachinePicked?(machine: CloudMachine | undefined): void;
+  onCloudMachinePicked?(machine: CloudMachine | undefined, peer?: string | null): void;
   /// The machine acpmux lists that the person last picked for a new chat (lastNewChatPlace.ts,
   /// cmux#46019): the page starts there, as if picked, until a place is picked here.
   startMachine?: string;
@@ -371,6 +374,9 @@ type Props = NewTabScreenActions & {
   /// (newtab/startedProject.ts; this run's own copy wins): where a tab with no folder of its own
   /// starts, before the newest chat's folder (which agents move).
   startedProject?: string;
+  /// The page's chats start on another machine (newTabModel `startsRemote`): a folder picked here is that
+  /// machine's, never this Mac's next default.
+  startsRemote?: boolean;
   /// The app's copy of the folder the person last started a Cloud chat in (newtab/startedProject.ts; this run's own
   /// copy wins): where a page with Cloud picked starts, kept across launches.
   cloudStartedProject?: string;
@@ -558,10 +564,14 @@ export function NewTabScreen(props: Props) {
   /// A place was picked on this page (a machine, a folder, New project, a run mode): the last pick's
   /// machine (`startMachine`) no longer replaces it, even when acpmux lists that machine only later.
   const placePicked = useRef(false);
+  const pickPeerForCloud = (peer: string | undefined) =>
+    props.onCloudMachinePicked?.(undefined, peer && snapshot.peerKinds?.[peer] === "ssh" ? null : peer);
+  const pickInitialPeerForCloud = useEffectEvent(pickPeerForCloud);
   useEffect(() => {
     if (!props.startMachine || placePicked.current) return;
     placePicked.current = true;
     setMachine({ peer: props.startMachine });
+    pickInitialPeerForCloud(props.startMachine);
   }, [props.startMachine]);
   const folderless = !props.cwd || props.cwd === home || isAgentHome(props.cwd);
   // A temporary folder (the tab beside a scratch chat or terminal in /tmp, which the app also proposes
@@ -1161,6 +1171,11 @@ export function NewTabScreen(props: Props) {
         sentAttachments.length ? sentAttachments : undefined,
         {
           peer: machine.peer,
+          ...(cloudMode
+            ? {
+                cloudEnvironment: cloudStartEnvironment(undefined, props.runMode?.environment?.current),
+              }
+            : {}),
         },
       );
     if (sentAttachments.length > 0)
@@ -2161,6 +2176,8 @@ export function NewTabScreen(props: Props) {
     submit();
   };
   const keyDown = (event: KeyboardEvent) => {
+    // Showing shortcut hints is not input: the host refreshes its lists at first use.
+    if (MODIFIER_KEYS.has(event.key)) return;
     touch();
     if (composing.current || event.isComposing || event.keyCode === 229) return;
     if (isPasteAsPlainTextKey(event)) pastedChips.plainPaste();
@@ -2359,6 +2376,18 @@ export function NewTabScreen(props: Props) {
     setNewProject((before) => before ?? {});
     requestAnimationFrame(() => field.current?.focus());
   };
+  /// A folder the person picked (the folder chip, Add folder…, a widget card): the next New Tab starts there,
+  /// as the folder a chat started in does (newtab/startedProject.ts). A worktree New Worktree made, No folder
+  /// and a GitHub repository are no default (rememberStartedProject keeps only a project folder of this Mac).
+  const rememberPick = (cwd: string) => {
+    // Only a page of this Mac: another machine's folders (an SSH or Cloud tab's page) are never its default.
+    if (props.startsRemote || (snapshot.origin !== undefined && snapshot.origin !== "local")) return;
+    if (!githubFolderRepo(cwd)) rememberStartedProject(cwd, callNative);
+  };
+  const pickProjectByPerson = (cwd?: string) => {
+    pickProject(cwd);
+    if (cwd) rememberPick(cwd);
+  };
   const pickProject = (cwd?: string, repository?: string) => {
     placePicked.current = true;
     setLocalGitHubPick(cwd && repository ? { cwd, name: repository } : undefined);
@@ -2401,8 +2430,7 @@ export function NewTabScreen(props: Props) {
     setNewProject(undefined);
     // A folder made for a start that failed is New project's only while it stays the choice.
     newProjectMade.current = undefined;
-    // Choosing a local or SSH machine replaces an account Cloud target for this draft.
-    props.onCloudMachinePicked?.(undefined);
+    pickPeerForCloud(next?.peer);
     saved.pick(undefined);
     touch();
     // A machine picked with a folder there (the location row picks its first known folder) is a
@@ -2550,7 +2578,7 @@ export function NewTabScreen(props: Props) {
         if (choice !== projectChoice.current) return undefined;
         if (typeof cwd !== "string" || cwd.length === 0) return cwd;
         if (request?.deferPick) return cwd;
-        pickProject(cwd);
+        pickProjectByPerson(cwd);
         return cwd;
       })
       .then(undefined, (error: unknown) => {
@@ -2648,11 +2676,14 @@ export function NewTabScreen(props: Props) {
         {...(snapshot.peerLinks ? { peerLinks: snapshot.peerLinks } : {})}
         {...(props.onRefreshMachines ? { onRefreshMachines: props.onRefreshMachines } : {})}
         onComputer={(computer) => pickMachine(computer === "local" ? undefined : { peer: computer })}
-        {...(props.onCloudMachinePicked ? { onCloudMachinePicked: props.onCloudMachinePicked } : {})}
+        onCloudMachinePicked={(machine) => {
+          if (machine) props.onCloudMachinePicked?.(machine);
+        }}
         {...(props.machineName ? { localName: props.machineName } : {})}
         projectChoices={props.projects ?? NO_PROJECTS}
         pickedBefore={cloudDefault ?? (picked && !checkedOutRepo ? project : undefined)}
         onProject={(cwd, peer) => (peer ? pickMachine({ peer, folder: cwd }) : pickProject(cwd))}
+        onFolderPicked={rememberPick}
         onNoProject={() => pickProject(undefined)}
         onCloudFolderWaiting={setCloudFolderWaiting}
         sourceRepository={localGitHubPick?.cwd ? { name: localGitHubPick.name, cwd: localGitHubPick.cwd } : undefined}
@@ -3211,7 +3242,7 @@ export function NewTabScreen(props: Props) {
           {...(envFolder ? { current: envFolder } : {})}
           noProject={none}
           {...(props.machineName ? { machineName: props.machineName } : {})}
-          onPick={(cwd) => pickProject(cwd)}
+          onPick={(cwd) => pickProjectByPerson(cwd)}
           onNoProject={() => pickProject(undefined)}
           {...(props.onBrowseProject ? { onBrowse: browseProject } : {})}
         />

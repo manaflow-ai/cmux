@@ -13,7 +13,7 @@ import { HIDDEN_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 import { layoutGeometry, type AcpmuxRow, type TranscriptLayout } from "../model";
 import { writeScrollTop } from "../conversation/scrollController";
 import { useCountedRender } from "../perfRender";
-import { useT, type StringKey } from "../i18n";
+import { useT } from "../i18n";
 import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { trailingTimer } from "../../../ui/trailingTimer";
@@ -53,9 +53,11 @@ import { drawTicksAfterPaint } from "./ticksFrame";
 import { RailRows, tickRows, turnRows } from "./railRows";
 import { PromptHeads } from "../promptHeads";
 import { useThreadMinimapArm, setRailShow, useRailControl, useRailShow } from "../chatDisplay";
-import { RAIL_SHOWS, type RailShow } from "./railShow";
+import { RAIL_SHOWS } from "./railShow";
 import { threadMinimapReplies } from "./replies.experiment";
 import { RailShowControl } from "./RailShowControl";
+import { RAIL_SHOW_LABEL } from "./railShowLabels";
+import { MinimapSource, useMinimapSource, type MinimapSourceValues } from "./minimapSource";
 import {
   CARD_DELAY,
   JUMP_CURVE,
@@ -99,19 +101,6 @@ import { type Anchor, type TickRef, tickIndex, prependedBy } from "./threadMinim
 import { railEdge } from "./railSide";
 import { focusCameFromKey } from "../../../ui/focusModality";
 import { focusRoute } from "../../../ui/focusRoute";
-
-/// The rail menu's show items (railShow.ts `RailShow`).
-export const RAIL_SHOW_LABEL = {
-  prompts: "minimap.filterAll",
-  mine: "minimap.filterMine",
-  received: "minimap.filterAgents",
-  replies: "minimap.showReplies",
-  everything: "minimap.showEverything",
-  errors: "minimap.showErrors",
-  edits: "minimap.showEdits",
-  tools: "minimap.showTools",
-  subagents: "minimap.showSubagents",
-} as const satisfies Record<RailShow, StringKey>;
 
 /// How long a step's scroll counts as under way for the next step, so repeats keep stepping.
 const STEP_PENDING_MS = STEP_MS + 150;
@@ -174,19 +163,6 @@ const within = (element: Element | null, to: EventTarget | null) =>
 
 const bubbleOf = (row: HTMLElement | undefined) => row?.querySelector<HTMLElement>(".cv-user__bubble");
 
-/// What the transcript hands the rail on each of its renders: every one of these changes with a
-/// streamed token (VirtualTranscript).
-export type MinimapSourceValues = {
-  rows: readonly AcpmuxRow[];
-  layout: TranscriptLayout;
-  /// The transcript's offset as it renders (layout coordinates).
-  scrollTop: number;
-  /// Whether the transcript scrolls at all (its layout, dock space included, is taller than it).
-  scrolls: boolean;
-  /// Where `rows` first differs from the last snapshot (model.ts minimapTurns).
-  change?: RowsChange;
-};
-
 /// The rail's turns read from the transcript's rows (model.ts minimapTurns), by its renders and by
 /// MinimapSource's probe. `committed` is the turns of the last commit: the next read goes on from
 /// them and leaves them as they are, so a render React drops before it commits changes nothing
@@ -244,41 +220,6 @@ class TurnReader {
   }
 }
 
-/// The rail's stable handle on the transcript's rows, layout and offset (ThreadMinimap `source`). The
-/// transcript writes each render's values into it and passes `update`'s version beside it: the version
-/// moves only when the rail would draw something else (a prompt, a tick, the band of prompts on screen,
-/// the full-height map's proportions), so a token that only grows the live reply renders no rail. The
-/// rail reads the latest values from it when it draws, and its handlers when they run.
-export class MinimapSource {
-  current: MinimapSourceValues | undefined;
-  private version = 0;
-  /// The mounted rail's check: whether `next` changes what it drew last commit. Absent while no rail is
-  /// mounted, when every render is a new version.
-  private probe: ((next: MinimapSourceValues) => boolean) | undefined;
-  /// The mounted rail's probe, from its commit until `clearProbe`.
-  setProbe(probe: (next: MinimapSourceValues) => boolean) {
-    this.probe = probe;
-  }
-  clearProbe(probe: (next: MinimapSourceValues) => boolean) {
-    if (this.probe === probe) this.probe = undefined;
-  }
-  /// Takes this render's values; the version the rail renders at.
-  update(next: MinimapSourceValues): number {
-    const was = this.current;
-    this.current = next;
-    if (
-      !was ||
-      was.rows !== next.rows ||
-      was.layout !== next.layout ||
-      was.scrollTop !== next.scrollTop ||
-      was.scrolls !== next.scrolls ||
-      was.change !== next.change
-    )
-      if (!this.probe || this.probe(next)) this.version += 1;
-    return this.version;
-  }
-}
-
 /// The row tops of `source`'s latest layout, read when asked: a streamed token's new layout is read
 /// without rendering the rail. Kept per layout, so its geometry is wrapped once.
 function latestTopsOf(source: MinimapSource): RowTops {
@@ -293,12 +234,6 @@ function latestTopsOf(source: MinimapSource): RowTops {
     }
     return read(index);
   };
-}
-
-/// One MinimapSource for the transcript's life.
-export function useMinimapSource(): MinimapSource {
-  const [source] = useState(() => new MinimapSource());
-  return source;
 }
 
 type ThreadMinimapProps = Parameters<typeof ThreadMinimapView>[0];
@@ -452,31 +387,47 @@ function ThreadMinimapView({
   const lastEntries = useRef<{ turns: readonly MinimapTurn[]; ticks: readonly MinimapTickRow[] } | undefined>(
     undefined,
   );
-  // A run of other chats' messages next to each other draws as one tick (model.ts `foldIncoming`):
-  // the rail's jumps, hover, keys and bookmarks all read the folded lists. The full-height map keeps
-  // a mark per prompt (`loadedTurns`). A rail showing anything but every prompt draws each entry it
-  // keeps as its own tick (model.ts `railEntries`), and falls back to every prompt when it would keep
-  // none, so the rail and its menu stay. The indexed prompts (`read.earlier`) come before the held
-  // ones as rows of the rail's own (railRows.ts). The index names no sender and no reply, so they are
-  // the person's prompts: `keepsIndexed` says which choices keep them.
+  // The rail ticks only the person's prompts: another agent's message, a notice, a task's result or
+  // harness bookkeeping gets none (model.ts `railEntries`, `others`; Leo, 2026-11-27: "honestly
+  // non-user messages shouldnt appear in the scroll rail anymore"), and the indexed prompts
+  // (`read.earlier`, before the held ones as rows of the rail's own, railRows.ts) drop the ones acpmux
+  // marks `others` (`PromptHeads.persons`). Only the `received` choice ticks them. Every prompt
+  // (`prompts`) keeps the pending ticks the count names. Any other choice draws each entry it keeps as
+  // its own tick and falls back to the person's prompts when it would keep none, so the rail and its
+  // menu stay; the index names no reply, so `keepsIndexed` says which choices keep it. The full-height
+  // map keeps a mark per prompt (`loadedTurns`), a run of other chats' messages folded into one
+  // (model.ts `foldIncoming`).
   const named = useMemo(() => {
     const indexed = read.earlier ?? PromptHeads.EMPTY;
     const newer = read.later ?? PromptHeads.EMPTY;
+    const own = (kept: { turns: readonly MinimapTurn[]; ticks: readonly MinimapTickRow[] }, filtered: boolean) => ({
+      turns: sameEntries(lastEntries.current?.turns, kept.turns),
+      ticks: sameEntries(lastEntries.current?.ticks, kept.ticks),
+      filtered,
+    });
     // The full-height map draws every loaded turn and finds its jump in these lists: it never filters.
-    const kept = show === "prompts" || full ? undefined : railEntries(read.turns, read.ticks, 0, show);
-    const keptIndexed = keepsIndexed(show) ? indexed : PromptHeads.EMPTY;
-    const keptNewer = keepsIndexed(show) ? newer : PromptHeads.EMPTY;
-    if (kept && (kept.ticks.length || keptIndexed.length || keptNewer.length)) {
-      const turns = sameEntries(lastEntries.current?.turns, kept.turns);
-      const ticks = sameEntries(lastEntries.current?.ticks, kept.ticks);
-      return { turns, ticks, earlier: keptIndexed, later: keptNewer, filtered: true };
+    if (full) {
+      const folded = incomingLook.fold ? foldIncoming(read.turns, read.ticks, 0) : read;
+      return { turns: folded.turns, ticks: folded.ticks, earlier: indexed, later: newer, filtered: false, gaps: false };
     }
-    const folded = incomingLook.fold ? foldIncoming(read.turns, read.ticks, 0) : read;
-    return { turns: folded.turns, ticks: folded.ticks, earlier: indexed, later: newer, filtered: false };
+    const persons = { earlier: PromptHeads.persons(indexed), later: PromptHeads.persons(newer) };
+    // Every prompt the person typed: it left out others' (`gaps`) when its lists are not the read's.
+    const prompts = () => {
+      const kept = railEntries(read.turns, read.ticks, 0, "prompts");
+      const gaps = kept.ticks !== read.ticks || persons.earlier !== indexed || persons.later !== newer;
+      return { ...own(kept, false), ...persons, gaps };
+    };
+    if (show === "prompts") return prompts();
+    const kept = railEntries(read.turns, read.ticks, 0, show);
+    const keptIndexed = keepsIndexed(show) ? persons.earlier : PromptHeads.EMPTY;
+    const keptNewer = keepsIndexed(show) ? persons.later : PromptHeads.EMPTY;
+    if (kept.ticks.length || keptIndexed.length || keptNewer.length)
+      return { ...own(kept, true), earlier: keptIndexed, later: keptNewer, gaps: true };
+    return prompts();
   }, [show, full, incomingLook.fold, read]);
   useLayoutEffect(() => {
-    lastEntries.current = named.filtered ? named : undefined;
-  }, [named]);
+    lastEntries.current = full ? undefined : named;
+  }, [named, full]);
   // Prompts known only by count have no sender yet: a filtered rail draws none of them.
   const pendingCount = named.filtered ? 0 : (read.pendingCount ?? 0);
   const loadedStart = pendingCount + named.earlier.length;
@@ -778,7 +729,7 @@ function ThreadMinimapView({
     shown,
     hovered,
     loadedStart,
-    filtered: named.filtered,
+    filtered: named.filtered || named.gaps,
   });
   useLayoutEffect(() => {
     live.current = {
@@ -794,7 +745,7 @@ function ThreadMinimapView({
       shown,
       hovered,
       loadedStart,
-      filtered: named.filtered,
+      filtered: named.filtered || named.gaps,
     };
   });
 
@@ -1920,7 +1871,13 @@ function ThreadMinimapView({
               if (!within(event.currentTarget, event.relatedTarget)) setDomFocus(undefined);
             }}
             onScroll={(event) => {
-              listOffset.current = event.currentTarget.scrollTop;
+              const offset = event.currentTarget.scrollTop;
+              // The rail's own write (a chat switch placing the list, its rows added above), already
+              // drawn at this offset, with no pointer over the rail to follow: nothing to commit. A
+              // flushSync here rendered every pending update of the pane before the frame painted
+              // (7-10 ms inside each chat switch's first frame; settled-page bench, chat_switch).
+              if (offset === listOffset.current && offset === listTop && pointerY.current === undefined) return;
+              listOffset.current = offset;
               // Committed in the scroll event, before the frame paints: a scroll is a continuous
               // event, whose update React renders in a task after the frame, so the frame showed the
               // list at its new offset with the rows of the old one (blank at the edge it scrolled

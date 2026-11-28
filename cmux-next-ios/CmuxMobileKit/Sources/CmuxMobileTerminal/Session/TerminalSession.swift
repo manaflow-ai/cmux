@@ -214,6 +214,13 @@ public protocol TerminalSession: AnyObject {
     /// Mac releases its size when told false and claims it again on true).
     /// Driven by ``TerminalSizeClaimer``. Sessions without a Mac ignore it.
     func setClaimsSize(_ claims: Bool)
+    /// Whether the session receives the terminal's output now. False: nobody
+    /// can see the page (``TerminalStreamGate``), so a session on the Mac
+    /// closes its output stream and the screen keeps what it shows as its
+    /// cache; true again: it opens the stream and the screen gets the
+    /// terminal as it is now (one replay). Sessions that cannot stop their
+    /// output ignore it.
+    func setStreaming(_ streaming: Bool)
     /// The person tapped or typed in the terminal: on a Mac terminal this
     /// view becomes the active device for the Mac's sizing policy (sessions
     /// rate-limit it themselves). Sessions without a Mac ignore it.
@@ -270,6 +277,9 @@ public protocol TerminalSession: AnyObject {
     /// Mac's own grid back from the screen while the primary screen shows.
     /// Sessions without a Mac ignore it.
     func setProjectsLocally(_ projects: Bool)
+    /// Render the host grid unchanged, without claiming the phone's dimensions.
+    var preservesHostGrid: Bool { get }
+    func setPreservesHostGrid(_ preserves: Bool)
     /// Where the reader is, in the page's rows: from the document's end to
     /// the top of the screen they read (the screen's height at the bottom).
     /// A projection keeps those lines when it re-wraps at a new width.
@@ -363,6 +373,8 @@ extension TerminalSession {
 
     public func setClaimsSize(_ claims: Bool) {}
 
+    public func setStreaming(_ streaming: Bool) {}
+
     public func noteInteraction() {}
 
     public var clearsHistory: Bool { false }
@@ -387,6 +399,8 @@ extension TerminalSession {
     public func loadHistory(aroundDaemonRow daemonRow: Int, rowsFromBottom: Int) -> Bool { false }
 
     public func setProjectsLocally(_ projects: Bool) {}
+    public var preservesHostGrid: Bool { false }
+    public func setPreservesHostGrid(_ preserves: Bool) {}
 
     public func noteReaderRowsFromEnd(_ rows: Int) {}
 

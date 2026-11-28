@@ -10,6 +10,7 @@
 import type { ReactNode } from "react";
 import { SessionMark } from "../shared/AgentMark";
 import type { HarnessIconSpec } from "../shared/harnessIcons";
+import { newestFormerName } from "./formerNames";
 import { useT } from "./i18n";
 import "./AgentIdentityChip.css";
 
@@ -19,16 +20,6 @@ export type FkaTreatment = "tooltip" | "inline" | "stacked";
 /** The default: legible at a glance without a hover, and one line high, so it fits a header and a
  *  sender line alike (a stacked line needs a second row neither has). */
 export const DEFAULT_FKA: FkaTreatment = "inline";
-
-/** The newest of `formerNames` that is not `name`, if any. */
-export function newestFormerName(name: string, formerNames: readonly string[] | undefined): string | undefined {
-  if (!formerNames) return undefined;
-  for (let at = formerNames.length - 1; at >= 0; at--) {
-    const former = formerNames[at]!.trim();
-    if (former && former !== name) return former;
-  }
-  return undefined;
-}
 
 export function AgentIdentityChip({
   name,

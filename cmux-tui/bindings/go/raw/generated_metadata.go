@@ -6,7 +6,7 @@ package raw
 const (
 	SDKSchemaVersion   = 2
 	MuxProtocolVersion = 12
-	SDKIRSHA256        = "eacbdb081ca129fd0a1d92dbb49f3fc1445a56a232c52a75e21e512cf03388b4"
+	SDKIRSHA256        = "6558219fc95c08d3a088c88dbc9c81015f042cad7dacb50a02c64d081d016c7b"
 )
 
 type Authority string
@@ -268,6 +268,7 @@ var commandMetadata = map[string]CommandMetadata{
 	"read-screen":                        {Name: "read-screen", GoMethod: "ReadScreen", Authority: AuthorityControl, Since: 5, Capability: "", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"read-scrollback":                    {Name: "read-scrollback", GoMethod: "ReadScrollback", Authority: AuthorityControl, Since: 7, Capability: "", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"reattach-view":                      {Name: "reattach-view", GoMethod: "ReattachView", Authority: AuthorityControl, Since: 12, Capability: "sizing-view-detach-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
+	"record-notification-delivery":       {Name: "record-notification-delivery", GoMethod: "RecordNotificationDelivery", Authority: AuthorityControl, Since: 12, Capability: "notification-ack-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"register-browser-provider":          {Name: "register-browser-provider", GoMethod: "RegisterBrowserProvider", Authority: AuthorityLocalAdmin, Since: 10, Capability: "browser-provider-v1", Stream: "", FieldSince: nil, FieldCapabilities: map[string]string{"hosting": "browser-provider-native-hosting-v1"}},
 	"release-attached-view-size":         {Name: "release-attached-view-size", GoMethod: "ReleaseAttachedViewSize", Authority: AuthorityFrontend, Since: 10, Capability: "view-attachment-lease-v1", Stream: "", FieldSince: map[string]uint32{"view": 12}, FieldCapabilities: map[string]string{"view": "shared-sizing-v1"}},
 	"release-surface-size":               {Name: "release-surface-size", GoMethod: "ReleaseSurfaceSize", Authority: AuthorityControl, Since: 7, Capability: "", Stream: "", FieldSince: nil, FieldCapabilities: nil},
@@ -396,6 +397,7 @@ var eventMetadata = map[string]EventMetadata{
 	"client-attached":                   {Name: "client-attached", Since: 6, Capability: "", Streams: []string{"subscribe"}, Emission: "emitted"},
 	"client-changed":                    {Name: "client-changed", Since: 6, Capability: "", Streams: []string{"subscribe"}, Emission: "emitted"},
 	"client-detached":                   {Name: "client-detached", Since: 6, Capability: "", Streams: []string{"subscribe"}, Emission: "emitted"},
+	"client-disconnected-by":            {Name: "client-disconnected-by", Since: 12, Capability: "", Streams: []string{"control"}, Emission: "emitted"},
 	"client-list-invalidated":           {Name: "client-list-invalidated", Since: 9, Capability: "", Streams: []string{"subscribe"}, Emission: "serialized-never-emitted"},
 	"cloud-conversation-changed":        {Name: "cloud-conversation-changed", Since: 12, Capability: "cloud-conversations-v1", Streams: []string{"subscribe"}, Emission: "emitted"},
 	"cloud-conversation-live":           {Name: "cloud-conversation-live", Since: 12, Capability: "cloud-chief-live-v1", Streams: []string{"subscribe"}, Emission: "emitted"},
@@ -526,7 +528,7 @@ func ProfileInfo(name Profile) (ProfileMetadata, bool) {
 }
 
 func AllCommandMetadata() []CommandMetadata {
-	result := make([]CommandMetadata, 0, 315)
+	result := make([]CommandMetadata, 0, 316)
 	result = append(result, cloneCommandMetadata(commandMetadata["ack-tab-notifications"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["add-screens-to-screen-group"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["add-tabs-to-tab-group"]))
@@ -733,6 +735,7 @@ func AllCommandMetadata() []CommandMetadata {
 	result = append(result, cloneCommandMetadata(commandMetadata["read-screen"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["read-scrollback"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["reattach-view"]))
+	result = append(result, cloneCommandMetadata(commandMetadata["record-notification-delivery"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["register-browser-provider"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["release-attached-view-size"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["release-surface-size"]))
@@ -846,7 +849,7 @@ func AllCommandMetadata() []CommandMetadata {
 }
 
 func AllEventMetadata() []EventMetadata {
-	result := make([]EventMetadata, 0, 101)
+	result := make([]EventMetadata, 0, 102)
 	var metadata EventMetadata
 	metadata = eventMetadata["activity-changed"]
 	metadata.Streams = append([]string(nil), metadata.Streams...)
@@ -894,6 +897,9 @@ func AllEventMetadata() []EventMetadata {
 	metadata.Streams = append([]string(nil), metadata.Streams...)
 	result = append(result, metadata)
 	metadata = eventMetadata["client-detached"]
+	metadata.Streams = append([]string(nil), metadata.Streams...)
+	result = append(result, metadata)
+	metadata = eventMetadata["client-disconnected-by"]
 	metadata.Streams = append([]string(nil), metadata.Streams...)
 	result = append(result, metadata)
 	metadata = eventMetadata["client-list-invalidated"]

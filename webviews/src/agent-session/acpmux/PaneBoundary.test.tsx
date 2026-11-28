@@ -2,7 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { PaneBoundary, paneFailureLine } from "./PaneBoundary";
+import { PaneBoundary } from "./PaneBoundary";
+import { paneFailureLine } from "./paneFailureLine";
 import { settleReact } from "../../../test/support/domTeardown";
 import { actTurn, until } from "../../../test/support/until";
 
@@ -68,6 +69,60 @@ test("a render failure reloads on its own after the backoff, with no button and 
     // The stretch is kept across the reloads, so a pane failing on every load backs off.
     const kept = JSON.parse(window.sessionStorage.getItem("acpmux.paneReloads") ?? "null") as { count: number } | null;
     expect(kept?.count).toBeGreaterThan(0);
+  } finally {
+    console.error = originalError;
+  }
+});
+
+// Leo, 2026-11-22: "the agent pane just blanked out entirely yet again. i dont know what that was, some sort of
+// ultra hard reload?" The empty page this boundary leaves through its retry's wait was that blank: the host is told
+// the moment it catches, before any wait, so it keeps the chat's last frame over the page (AgentPaneView.pageRenderFailed).
+test("a render failure tells the host at once, before its retry, so the pane keeps its last frame", () => {
+  const originalError = console.error;
+  console.error = () => undefined;
+  try {
+    let failed = 0;
+    let retries = 0;
+    function BrokenPane(): never {
+      throw new Error("broken pane");
+    }
+    mount(
+      <PaneBoundary
+        onRetry={() => retries++}
+        onFailed={() => failed++}
+        autoRetry={{ firstMs: 60_000, maxMs: 60_000, random: () => 1, visible: () => true }}
+      >
+        <BrokenPane />
+      </PaneBoundary>,
+    );
+    expect(failed).toBe(1);
+    expect(retries).toBe(0);
+  } finally {
+    console.error = originalError;
+  }
+});
+
+test("a host that throws when told still leaves the boundary's own retry", async () => {
+  const originalError = console.error;
+  console.error = () => undefined;
+  try {
+    let retries = 0;
+    function BrokenPane(): never {
+      throw new Error("broken pane");
+    }
+    const host = mount(
+      <PaneBoundary
+        onRetry={() => retries++}
+        onFailed={() => {
+          throw new Error("no host");
+        }}
+        autoRetry={{ firstMs: 5, maxMs: 5, random: () => 1, visible: () => true }}
+      >
+        <BrokenPane />
+      </PaneBoundary>,
+    );
+    expect(host.querySelector("[data-pane-failed]")).not.toBeNull();
+    await until(() => retries > 0, actTurn);
   } finally {
     console.error = originalError;
   }

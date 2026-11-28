@@ -4,7 +4,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { installGalleryModulesForBun } from "../../dev-server/galleryHost";
+import { installGalleryModulesForBun, readEntryIndex } from "../../dev-server/galleryHost";
 import type { GalleryEntry } from "../../src/gallery/format";
 
 // A gallery file may import a virtual:cmux-gallery/* module at its top (golden.gallery.ts: the looks): give
@@ -24,8 +24,36 @@ export function galleryFiles(dir = SRC): string[] {
   return out.sort();
 }
 
-export async function loadEntries(): Promise<GalleryEntry[]> {
-  const modules = await loadEntrySources();
+const matches = (id: string, wanted: readonly string[]) =>
+  wanted.some((prefix) => id === prefix || id.startsWith(`${prefix}.`) || id.startsWith(prefix));
+
+/** Select files before importing them so an unrelated broken gallery file cannot block a named entry. */
+export function selectGalleryFiles(
+  wanted: readonly string[],
+  files: readonly string[],
+  index: Readonly<Record<string, string>>,
+  sourceRoot = SRC,
+): string[] {
+  if (wanted.length === 0) return [...files];
+  const matchedWanted = new Set<string>();
+  for (const id of Object.keys(index)) {
+    for (const prefix of wanted) {
+      if (matches(id, [prefix])) matchedWanted.add(prefix);
+    }
+  }
+  // Computed entry IDs are absent from the source index. Keep the old all-files behavior when any
+  // requested ID is unknown so callers still discover those entries through their imports.
+  if (matchedWanted.size !== new Set(wanted).size) return [...files];
+  const selected = new Set(
+    Object.entries(index)
+      .filter(([id]) => matches(id, wanted))
+      .map(([, source]) => path.resolve(sourceRoot, "..", source)),
+  );
+  return files.filter((file) => selected.has(file));
+}
+
+export async function loadEntries(wanted: readonly string[] = []): Promise<GalleryEntry[]> {
+  const modules = await loadEntrySources({ wanted });
   return modules
     .map(({ entry }) => entry)
     .sort((a, b) => a.area.localeCompare(b.area) || a.title.localeCompare(b.title));
@@ -37,10 +65,10 @@ export async function loadEntries(): Promise<GalleryEntry[]> {
  * unrelated ClaudeConnectRow.gallery.tsx failed 10 of its runs from 05:14Z to 08:18Z, so four Improved highlights
  * whose pictures were named shipped in nightly 4598742452601 with none. The tests keep the default and fail on it. */
 export async function loadEntrySources(
-  options: { skipBroken?: boolean; dir?: string } = {},
+  options: { skipBroken?: boolean; dir?: string; wanted?: readonly string[] } = {},
 ): Promise<{ entry: GalleryEntry; path: string }[]> {
   const dir = options.dir ?? SRC;
-  const files = galleryFiles(dir);
+  const files = selectGalleryFiles(options.wanted ?? [], galleryFiles(dir), readEntryIndex(dir), dir);
   const loaded = await Promise.allSettled(
     files.map(async (file) => {
       const module = (await import(file)) as { default: GalleryEntry };
@@ -52,7 +80,8 @@ export async function loadEntrySources(
   loaded.forEach((result, index) => {
     const file = `src/${path.relative(dir, files[index]!).split(path.sep).join("/")}`;
     if (result.status === "fulfilled") out.push({ entry: result.value, path: file });
-    else if (options.skipBroken) console.error(`gallery: skipped ${file}, which fails to load: ${String(result.reason).split("\n", 1)[0]}`);
+    else if (options.skipBroken)
+      console.error(`gallery: skipped ${file}, which fails to load: ${String(result.reason).split("\n", 1)[0]}`);
     else throw result.reason;
   });
   return out;

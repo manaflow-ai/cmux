@@ -1,11 +1,13 @@
 // Search across every category by title, summary, help, keywords, key and current value, in the page's
 // language and in English. Every whitespace-separated term must match somewhere. "Show only
 // changed" (P4) uses the same listing: the rows whose value differs from the default.
-import { shownCategories, type Category, type CategoryGroup } from "./categories";
+import { categoryById, shownCategories, type Category, type CategoryGroup } from "./categories";
+import { CLOUD_MODELS_FOCUS } from "./router";
 import { valueText } from "./format";
 import type { DevicesJoinState } from "./ops";
 import type { SchemaRow } from "./schema";
-import { locale, text, english, t } from "./strings";
+import { providerCatalog, providerName } from "./providerCatalog";
+import { english, locale, t, text } from "./strings";
 
 export function queryTerms(query: string): string[] {
   return query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -194,4 +196,42 @@ export function filterPages({ query, devBuild = false }: Pick<ListFilter, "query
       .toLowerCase();
     return terms.every((term) => haystack.includes(term));
   });
+}
+
+export function exactSettingsDestination(
+  query: string,
+  devBuild: boolean,
+): { section: string; card?: string } | undefined {
+  const normalized = queryTerms(query).join(" ");
+  if (!normalized) return undefined;
+  const exact = (title: string) => queryTerms(title).join(" ") === normalized;
+  const page = shownCategories(devBuild).find(({ title }) => exact(text(title)) || exact(title.text));
+  if (page) return { section: page.id };
+  const cloud = "settingsWindow.cloud.models.title";
+  if (exact(t(cloud)) || exact(english(cloud))) return { section: "cloud", card: CLOUD_MODELS_FOCUS };
+  const models = "settingsWindow.models.personal.title";
+  if (exact(t(models)) || exact(english(models))) return { section: "models" };
+}
+
+export function modelSettingsMatches(query: string): { models: boolean; cloud: boolean } {
+  const terms = queryTerms(query);
+  if (!terms.length) return { models: false, cloud: false };
+  const title = categoryById("models").title;
+  const shared = [
+    text(title),
+    title.text,
+    t("settingsWindow.models.personal.title"),
+    t("settingsWindow.models.key.field"),
+    t("settingsWindow.models.endpoint.title"),
+    ...providerCatalog.filter((provider) => !provider.detectedOnly).map(providerName),
+  ];
+  const models = shared.join(" ").toLowerCase();
+  const cloudTitle = t("settingsWindow.cloud.models.title");
+  const cloud = [...shared, cloudTitle].join(" ").toLowerCase();
+  const cloudTitleTerms = new Set(queryTerms(cloudTitle));
+  const modelTerms = new Set(queryTerms(models));
+  return {
+    models: terms.every((term) => models.includes(term) && (!cloudTitleTerms.has(term) || modelTerms.has(term))),
+    cloud: terms.every((term) => cloud.includes(term)),
+  };
 }

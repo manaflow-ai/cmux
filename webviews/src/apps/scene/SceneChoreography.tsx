@@ -6,11 +6,6 @@ import type { SceneNode } from "./store";
 
 const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
 
-/** The choreography of a `Particles` node, or null when it has none the player can read. */
-export function nodeChoreography(node: SceneNode) {
-  return node.props.choreography === undefined ? null : parseChoreography(node.props.choreography);
-}
-
 /**
  * `Particles {choreography}`: the glyph centred in the node's frame (choreographyGlyph.ts). A new
  * document remounts the glyph; `trigger` and `phase` reach the running player, which reads them when

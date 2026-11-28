@@ -107,6 +107,10 @@ impl Compiled {
     }
 }
 
+#[allow(
+    clippy::string_slice,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 fn compile(pattern: &str) -> Compiled {
     if pattern.len() > MAXIMUM_PATTERN_LENGTH {
         return Compiled::Unmatchable;
@@ -182,6 +186,10 @@ fn is_legacy_regex_wildcard(pattern: &str) -> bool {
 
 /// The small `.*`/`.+` regex subset as a bounded glob, so repeated wildcard
 /// quantifiers stay linear; anything else stays on the regex path.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 fn linear_wildcard(expression: &str) -> Option<Wildcard> {
     let mut wildcard = String::new();
     let mut has_quantifier = false;
@@ -346,6 +354,10 @@ impl Wildcard {
         Some(Self { literal_anchor, tokens })
     }
 
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "positions come from the value's own length or search, so they are in range"
+    )]
     fn matches(&self, characters: &[char], normalized: &str, budget: &mut i64) -> bool {
         if let Some(anchor) = &self.literal_anchor
             && !normalized.contains(anchor.as_str())
@@ -402,6 +414,10 @@ impl Wildcard {
 /// backreferences, subroutine calls or `(?` forms, at most two quantifiers,
 /// one of them variable-width, one alternation, no quantified group that
 /// already holds a quantifier or alternation.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 pub fn regex_accepts(expression: &str) -> bool {
     if expression.is_empty() || expression.len() > MAXIMUM_EXPRESSION_LENGTH {
         return false;
@@ -544,6 +560,10 @@ pub fn regex_accepts(expression: &str) -> bool {
 
 /// The end of a `{n}`, `{n,}` or `{n,m}` quantifier starting at `start`, and
 /// whether it is variable-width; `None` when it is not one.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 fn quantifier_end(characters: &[char], start: usize) -> Option<(usize, bool)> {
     let close = characters[start + 1..].iter().position(|&c| c == '}')? + start + 1;
     let body: String = characters[start + 1..close].iter().collect();
