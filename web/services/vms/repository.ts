@@ -4662,7 +4662,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           ? sql`${release} is null`
           : sql`${release} ->> 'state' = ${input.fromState}`,
       ];
-      if (input.updatedAt) conditions.push(eq(cloudVms.updatedAt, input.updatedAt));
+      // Rows written by now() carry microseconds; a JS Date has milliseconds.
+      if (input.updatedAt) conditions.push(sql`date_trunc('milliseconds', ${cloudVms.updatedAt}) = ${input.updatedAt.toISOString()}::timestamptz`);
       const rows = await cloudDb()
         .update(cloudVms)
         .set({
