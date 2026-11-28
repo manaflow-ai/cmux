@@ -70,7 +70,10 @@ extension AppDelegate {
                   entry.processSafetyAllowsScheduledHibernation else { return nil }
             return AgentHibernationController.ProcessTerminationScope(
                 key: key, processIDs: entry.terminationProcessIDs,
-                processIdentities: entry.terminationProcessIdentities
+                processIdentities: entry.terminationProcessIdentities,
+                cmuxHelperProcessIDs: entry.cmuxHelperProcessIDs,
+                knownSurvivorProcessIDs: entry.hibernationPanelProcessIDs
+                    .subtracting(entry.terminationProcessIDs)
             )
         }
     }

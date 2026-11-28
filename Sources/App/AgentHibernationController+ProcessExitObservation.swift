@@ -1,14 +1,22 @@
+import CmuxFoundation
 import Foundation
 
 extension AgentHibernationController {
     typealias CommittedTerminationRetry =
         @Sendable () async -> ScopedProcessTerminationResult
 
+    /// - Parameters:
+    ///   - knownSurvivors: the panel's processes that outlive the agent until
+    ///     its terminal closes; see ``knownSurvivorIdentities(for:)``.
+    ///   - processSnapshotCoordinator: the source of refreshed exit epochs;
+    ///     `nil` uses the controller's own.
     func observeCommittedTermination(
         panelID: UUID,
         requestID: UUID? = nil,
         terminations: [ScopedProcessTermination],
         processScopeKey: AgentHibernationPanelKey? = nil,
+        knownSurvivors: Set<AgentPIDProcessIdentity> = [],
+        processSnapshotCoordinator: AgentHibernationProcessSnapshotCoordinator? = nil,
         processExitCompletion: AgentHibernationProcessExitCompletion =
             AgentHibernationProcessExitCompletion(),
         waitForExit: (@Sendable ([ScopedProcessTermination]) async -> Bool)? = nil,
@@ -46,7 +54,10 @@ extension AgentHibernationController {
                 processExitCompletion: processExitCompletion
             )
         }
-        let nextEpochProvider = processExitEpochProvider()
+        let nextEpochProvider = Self.processExitEpochProvider(
+            coordinator: processSnapshotCoordinator ?? self.processSnapshotCoordinator,
+            knownSurvivors: knownSurvivors
+        )
         let task = Task { @MainActor [weak self] in
             let didExit = await Self.waitForScopedProcessGenerationsToExitAfterEscalation(
                 terminations,
@@ -116,6 +127,7 @@ extension AgentHibernationController {
         requestID: UUID? = nil,
         terminations: [ScopedProcessTermination],
         processScopeKey: AgentHibernationPanelKey? = nil,
+        knownSurvivors: Set<AgentPIDProcessIdentity> = [],
         processExitCompletion: AgentHibernationProcessExitCompletion =
             AgentHibernationProcessExitCompletion(),
         waitForRecoveryExit: (@Sendable ([ScopedProcessTermination]) async -> Bool)? = nil,
@@ -161,7 +173,10 @@ extension AgentHibernationController {
             waitForRecoveryReadiness: waitForRecoveryReadiness,
             recoveryDeadline: recoveryDeadline,
             sleepUntilRecoveryDeadline: sleepUntilRecoveryDeadline,
-            nextEpochProvider: processExitEpochProvider(),
+            nextEpochProvider: Self.processExitEpochProvider(
+                coordinator: processSnapshotCoordinator,
+                knownSurvivors: knownSurvivors
+            ),
             onRecovery: onRecovery,
             onRecoveryFailure: onRecoveryFailure,
             onRecoveryRetry: onRecoveryRetry
@@ -438,18 +453,21 @@ extension AgentHibernationController {
         }
     }
 
-    private func processExitEpochProvider() -> ProcessExitEpochProvider {
+    private nonisolated static func processExitEpochProvider(
+        coordinator: AgentHibernationProcessSnapshotCoordinator,
+        knownSurvivors: Set<AgentPIDProcessIdentity>
+    ) -> ProcessExitEpochProvider {
         {
-            [processSnapshotCoordinator]
             processGroupLeaders,
             processScopeKey,
             ttyDevice,
             exitedIdentities in
-            await processSnapshotCoordinator.refreshedExitEpoch(
+            await coordinator.refreshedExitEpoch(
                 processGroupLeaders: processGroupLeaders,
                 processScopeKey: processScopeKey,
                 ttyDevice: ttyDevice,
-                excluding: exitedIdentities
+                excluding: exitedIdentities,
+                knownSurvivors: knownSurvivors
             )
         }
     }

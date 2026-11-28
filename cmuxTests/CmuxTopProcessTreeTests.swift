@@ -8,6 +8,14 @@ import Testing
 #endif
 
 struct CmuxTopProcessTreeTests {
+    /// `e_tdev` is `NODEV` for a process with no controlling terminal; read
+    /// as a device, every detached process on the Mac would share one TTY.
+    @Test func noControllingTerminalIsNoTTYDevice() {
+        #expect(CmuxTopProcessSnapshot.controllingTTYDevice(UInt32.max) == nil)
+        #expect(CmuxTopProcessSnapshot.controllingTTYDevice(0) == nil)
+        #expect(CmuxTopProcessSnapshot.controllingTTYDevice(268_435_473) == 268_435_473)
+    }
+
     @Test func deepProcessChainIsSplitIntoStackSafeSegments() throws {
         let processCount = 96
         let firstPID = 920_000

@@ -46,6 +46,7 @@ extension AgentHibernationController {
         let currentTerminationProcessIDs = currentProcessEntry?.terminationProcessIDs ?? []
         let currentTerminationProcessIdentities =
             currentProcessEntry?.terminationProcessIdentities ?? [:]
+        let currentCmuxHelperProcessIDs = currentProcessEntry?.cmuxHelperProcessIDs ?? []
         // Routine reclaim may terminate a live agent only when the fresh index
         // still proves the same exclusive, identity-complete process scope.
         return (shouldProceed?() ?? true) &&
@@ -62,6 +63,7 @@ extension AgentHibernationController {
             currentHibernationPanelProcessIDs == record.panelProcessIDs &&
             currentTerminationProcessIDs == record.processIDs &&
             currentTerminationProcessIdentities == record.processIdentities &&
+            currentCmuxHelperProcessIDs == record.cmuxHelperProcessIDs &&
             TabManager.restorableAgentSnapshotFingerprint(currentAgent) ==
                 TabManager.restorableAgentSnapshotFingerprint(record.agent) &&
             !record.terminalPanel.isAgentHibernated &&

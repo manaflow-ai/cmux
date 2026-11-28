@@ -82,6 +82,7 @@ struct AgentQuitTerminationCoordinator: Sendable {
                     await Self.terminatePanel(
                         terminations,
                         processScopeKey: scope.key,
+                        knownSurvivorProcessIDs: scope.knownSurvivorProcessIDs,
                         gracePeriod: gracePeriod,
                         postKillExitPeriod: postKillExitPeriod,
                         snapshotCoordinator: snapshotCoordinator,
@@ -122,6 +123,7 @@ struct AgentQuitTerminationCoordinator: Sendable {
     private nonisolated static func terminatePanel(
         _ terminations: [AgentHibernationController.ScopedProcessTermination],
         processScopeKey: AgentHibernationPanelKey,
+        knownSurvivorProcessIDs: Set<Int>,
         gracePeriod: Duration,
         postKillExitPeriod: Duration,
         snapshotCoordinator: AgentHibernationProcessSnapshotCoordinator,
@@ -131,6 +133,10 @@ struct AgentQuitTerminationCoordinator: Sendable {
         guard !Task.isCancelled, terminations.allSatisfy({
             AgentQuitProcessOwnership().isOwned($0.processIdentity)
         }) else { return .rejected }
+        // Read before any signal, while the agent and its shell still run.
+        let knownSurvivors = AgentHibernationController.knownSurvivorIdentities(
+            for: knownSurvivorProcessIDs
+        )
         let signalled = await AgentHibernationController
             .terminateScopedProcessesForHibernation(
                 terminations,
@@ -159,7 +165,8 @@ struct AgentQuitTerminationCoordinator: Sendable {
                         processGroupLeaders: leaders,
                         processScopeKey: scopeKey,
                         ttyDevice: ttyDevice,
-                        excluding: exited
+                        excluding: exited,
+                        knownSurvivors: knownSurvivors
                     )
                 }
             )

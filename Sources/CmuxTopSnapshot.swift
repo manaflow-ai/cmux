@@ -148,6 +148,14 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         includesCMUXScope
     }
 
+    /// The controlling terminal in `proc_bsdinfo.e_tdev`, or nil when there is
+    /// none. A process without one, such as a detached hook, reports `NODEV`
+    /// (all bits set), which is not a device every such process shares.
+    static func controllingTTYDevice(_ rawDevice: UInt32) -> Int64? {
+        guard rawDevice != 0, rawDevice != UInt32.max else { return nil }
+        return Int64(rawDevice)
+    }
+
     private static func sortedMemorySources(
         in sources: [CmuxTopProcessMemorySource]
     ) -> [CmuxTopProcessMemorySource] {
@@ -253,11 +261,16 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         return result
     }
 
+    /// - Parameter isRegisteredCmuxHelper: whether a process runs one of
+    ///   cmux's registered agent helpers (``CmuxAgentHelperProcess``) for this
+    ///   panel. Such a helper is terminated with the agent although it has no
+    ///   terminal.
     func agentHibernationProcessScope(
         panelProcessIDs: Set<Int>,
-        agentProcessIDs: Set<Int>
+        agentProcessIDs: Set<Int>,
+        isRegisteredCmuxHelper: (CmuxTopProcessInfo) -> Bool = { _ in false }
     ) -> RestorableAgentSessionIndex.HibernationProcessScope {
-        guard enumerationIsComplete else { return ([], [], true) }
+        guard enumerationIsComplete else { return ([], [], true, []) }
         let maximumProcessCount = AgentHibernationController.maximumScopedProcessTerminationCount
         func appendBounded<S: Sequence>(
             _ processIDs: S,
@@ -315,7 +328,8 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             return (
                 boundedPanelProcessIDs,
                 boundedTerminationProcessIDs,
-                true
+                true,
+                []
             )
         }
 
@@ -348,7 +362,8 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             return (
                 boundedObservedPanelProcessIDs,
                 boundedTerminationProcessIDs,
-                true
+                true,
+                []
             )
         }
 
@@ -360,7 +375,8 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             return (
                 observedPanelProcessIDs,
                 descendantCollector.values,
-                true
+                true,
+                []
             )
         }
         let descendantProcessIDs = descendantCollector.values
@@ -401,7 +417,8 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             return (
                 observedPanelProcessIDs,
                 boundedTerminationProcessIDs,
-                true
+                true,
+                []
             )
         }
 
@@ -431,17 +448,26 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             return (
                 observedPanelProcessIDs,
                 boundedTerminationProcessIDs,
-                true
+                true,
+                []
             )
         }
         let processGroupMemberIDs = boundedProcessGroupMemberIDs
         let terminationProcessIDs = boundedTerminationProcessIDs
-        let terminationTTYDevices = terminationProcessIDs.compactMap {
+        // A registered cmux helper is detached by design. Everything else the
+        // termination reaches must share the agent's one terminal.
+        let cmuxHelperProcessIDs = cmuxAgentHelperProcessIDs(
+            agentRootPIDs: boundedAgentRoots,
+            descendantProcessIDs: descendantProcessIDs,
+            isRegisteredCmuxHelper: isRegisteredCmuxHelper
+        )
+        let terminalProcessIDs = terminationProcessIDs.subtracting(cmuxHelperProcessIDs)
+        let terminationTTYDevices = terminalProcessIDs.compactMap {
             processesByPID[$0]?.ttyDevice
         }
-        let hasCompleteTerminationTTYEvidence = terminationProcessIDs.isEmpty ||
+        let hasCompleteTerminationTTYEvidence = terminalProcessIDs.isEmpty ||
             (
-                terminationTTYDevices.count == terminationProcessIDs.count &&
+                terminationTTYDevices.count == terminalProcessIDs.count &&
                     Set(terminationTTYDevices).count == 1
             )
 
@@ -468,9 +494,34 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
                 processGroupIDs.isEmpty ||
                 !hasCompleteProcessGroups ||
                 !processGroupMemberIDs.isSubset(of: boundedAllowedProcessIDs) ||
-                !observedPanelProcessIDs.isSubset(of: boundedAllowedProcessIDs)
+                !observedPanelProcessIDs.isSubset(of: boundedAllowedProcessIDs),
+            cmuxHelperProcessIDs
         )
     }
+
+    /// Direct children of `agentRootPIDs` that run a registered cmux helper and
+    /// are detached the way Claude Code starts an async hook: no controlling
+    /// terminal, alone in a process group they lead, and with no children.
+    /// Termination signals each one's own group, so nothing else is reached.
+    func cmuxAgentHelperProcessIDs(
+        agentRootPIDs: Set<Int>,
+        descendantProcessIDs: Set<Int>,
+        isRegisteredCmuxHelper: (CmuxTopProcessInfo) -> Bool
+    ) -> Set<Int> {
+        descendantProcessIDs.filter { processID in
+            guard !agentRootPIDs.contains(processID),
+                  let process = processesByPID[processID],
+                  agentRootPIDs.contains(process.parentPID),
+                  process.ttyDevice == nil,
+                  process.processGroupID == processID,
+                  pidsByProcessGroupID[processID] == [processID],
+                  childrenByParentPID[processID]?.isEmpty ?? true else {
+                return false
+            }
+            return isRegisteredCmuxHelper(process)
+        }
+    }
+
 
     func descendantPIDs(rootPID: Int, includeRoot: Bool = false) -> Set<Int> {
         guard rootPID > 0 else { return [] }

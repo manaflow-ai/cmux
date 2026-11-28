@@ -45,3 +45,32 @@ extension CmuxTopProcessSnapshot {
         return shellProcessNames.contains(base)
     }
 }
+
+/// Helpers cmux's own agent integration runs beside an agent. A helper does
+/// none of the agent's work and is useless without it, so hibernation stops it
+/// with the agent instead of refusing the pane as running other work.
+enum CmuxAgentHelperProcess {
+    /// Each helper's argv after the cmux executable.
+    ///
+    /// `hooks claude inbox-wait` is the `asyncRewake` hook the Claude wrapper
+    /// registers on SessionStart, Stop and StopFailure. Claude Code starts it
+    /// detached, with no controlling terminal; it polls the app for this
+    /// surface's agent messages and exits once its agent is gone.
+    static let registeredArguments: [[String]] = [
+        ["hooks", "claude", "inbox-wait"],
+    ]
+
+    /// Whether `arguments` run a registered helper for the given panel.
+    static func isRegistered(
+        _ arguments: CmuxTopProcessArguments,
+        workspaceId: UUID,
+        surfaceId: UUID
+    ) -> Bool {
+        guard let executable = arguments.arguments.first,
+              (executable as NSString).lastPathComponent == "cmux",
+              registeredArguments.contains(Array(arguments.arguments.dropFirst())) else {
+            return false
+        }
+        return arguments.matchesCMUXScope(workspaceId: workspaceId, surfaceId: surfaceId)
+    }
+}

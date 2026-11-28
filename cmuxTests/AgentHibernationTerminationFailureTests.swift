@@ -130,6 +130,68 @@ struct AgentHibernationTerminationFailureTests {
         #expect(controller.committedTerminationObservationsByPanelID[panel.id] == nil)
     }
 
+    /// The agent exits, but its `login` and shell stay on the terminal until
+    /// the PTY closes. The committed termination's real exit-epoch refresh
+    /// must take them as the pane's known survivors and hibernate the pane,
+    /// not fail into "Agent shutdown needs attention".
+    @MainActor
+    @Test
+    func committedTerminationHibernatesWhenOnlyKnownShellAncestorsRemain() async {
+        let fixture = AgentHibernationShellAncestorsFixture.self
+        let panel = TerminalPanel(workspaceId: fixture.scopeKey.workspaceId)
+        defer { panel.close() }
+        panel.beginAgentHibernationTermination(
+            agent: .init(
+                kind: .claude,
+                sessionId: "shell-ancestors-survive",
+                workingDirectory: "/tmp",
+                launchCommand: nil
+            ),
+            lastActivityAt: Date(timeIntervalSince1970: 1)
+        )
+        let controller = AgentHibernationController.shared
+
+        // The fixture agent's process generation is not running, so the real
+        // exit wait sees it exit at once and asks the coordinator for the
+        // next epoch.
+        controller.observeCommittedTermination(
+            panelID: panel.id,
+            terminations: [fixture.agentTermination],
+            processScopeKey: fixture.scopeKey,
+            knownSurvivors: fixture.knownSurvivors,
+            processSnapshotCoordinator: fixture.coordinator(),
+            onExit: {
+                panel.completeAgentHibernationTermination()
+                return true
+            },
+            onFailure: {
+                panel.beginAgentHibernationTerminationRecovery()
+            },
+            onRecovery: {
+                panel.completeAgentHibernationTermination()
+            },
+            onRecoveryFailure: {
+                panel.failAgentHibernationTermination()
+            }
+        )
+        await controller.committedTerminationObservationsByPanelID[panel.id]?.task?.value
+        // A failed observation hands over to recovery; let that settle too.
+        await controller.committedTerminationObservationsByPanelID[panel.id]?.task?.value
+        defer {
+            if let requestID =
+                controller.committedTerminationObservationsByPanelID[panel.id]?.requestID {
+                controller.removeCommittedTerminationObservation(
+                    panelID: panel.id,
+                    requestID: requestID
+                )
+            }
+        }
+
+        #expect(panel.isAgentHibernated)
+        #expect(panel.agentHibernationTerminationFailed == false)
+        #expect(controller.committedTerminationObservationsByPanelID[panel.id] == nil)
+    }
+
     @MainActor
     @Test
     func recoveryObservesExitBeforeWaitingForTeardownFence() async {
@@ -542,7 +604,8 @@ struct AgentHibernationTerminationFailureTests {
                 sourceKey: (
                     panelProcessIDs: [processID],
                     terminationProcessIDs: [processID],
-                    containsUnrelatedProcess: false
+                    containsUnrelatedProcess: false,
+                    cmuxHelperProcessIDs: []
                 ),
             ],
             processIdentityProvider: { requestedProcessID in
