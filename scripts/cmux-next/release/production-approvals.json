@@ -17,11 +17,17 @@
     "v16": {
       "reviewer": "hq cloud-api-promote lane 2026-10-19 (new_sqlite_classes HandDO; additive; sandbox hands and Mac hands stay closed in production (no HAND_SANDBOX_SNAPSHOT, no HANDS_MAC_ENABLED); with CHIEF_BRAIN_ENABLED=1 the pairing routes /hand/install.sh, /v1/hands/pair and /v1/hands/pair-codes answer signed-in users, inert without those)"
     },
+    "v18": {
+      "reviewer": "pick-forward-52931 lane 2026-11-27 (new_sqlite_classes HandoffDO, HandoffIndexDO; additive, no rename, delete or transfer; Cloud work mode hand-offs: every route asks for a sign-in or a hand-off machine token, Leo ask-4a0ee816e1 AutoCloud on the RC)"
+    },
     "v20": {
       "reviewer": "cloud-clouddo lane 2026-11-03 (new_sqlite_classes TrajectoryDO from #25682; additive, no rename, delete or transfer; inert in production: CLOUD_TRAJECTORIES_ENABLED is set only in development, so cloud-trajectory.ts answers 404 cloud.trajectory.disabled and nothing instantiates the class)"
     },
     "v21": {
       "reviewer": "lawrence 2026-11-19 via the chief (a1245, chat 40603: a live models backend we control): new_sqlite_classes ModelCatalogDO; additive, no rename, delete or transfer; one instance holds published model catalog versions, per-model kills and model scout runs; no user data"
+    },
+    "v22": {
+      "reviewer": "pick-forward-52931 lane 2026-11-27 (new_sqlite_classes AutoSessionDO, AutoSessionIndexDO; additive, no rename, delete or transfer; AutoCloud (#52931, landed as #57209): every /v1/auto-sessions route asks for a sign-in or a machine credential, Leo ask-4a0ee816e1 AutoCloud on the RC)"
     }
   },
   "guarded_vars": {
