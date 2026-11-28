@@ -27,6 +27,11 @@
    PR's `cmux/ios-fast` gate job is rerun so it reads it: the gate needs a passing proof at the current head.
 
 --plan prints the selection and the steps without running anything.
+
+--queue-timeout S stops waiting for a simulator step still in the fleet queue after S seconds (cmux-ci's exit 75):
+the step keeps its place, nothing is posted, and this exits QUEUED_EXIT (75). The same command at the same head later
+attaches to the same steps (their keys; the controller answers a key with the step it already has, queued, running or
+done), so it posts once they ran. A run with a pair-e2e step ignores it: the signed-in session has to follow its step.
 """
 
 from __future__ import annotations
@@ -186,6 +191,9 @@ def has_agent_account(environ=os.environ, home: str | None = None) -> bool:
 
 
 UNSIGNED_EXIT = 3  # main(): a pair-e2e would go unsigned; nothing ran and nothing is posted
+# main(): a simulator step was still in the fleet queue at --queue-timeout; it keeps its place, nothing is posted.
+# cmux-ci's own code for the same thing (ci-client.py: "the step stays queued and keeps its place").
+QUEUED_EXIT = 75
 
 
 def unsigned_pair(steps: list[dict], reused: dict) -> list[str]:
@@ -257,7 +265,7 @@ def placements_for(step: dict, workers: list[str], strict: bool, leased: set[str
 
 
 def run_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1",
-             workers: list[str] | None = None, leased: set[str] | None = None) -> dict:
+             workers: list[str] | None = None, leased: set[str] | None = None, queue_timeout: int = 0) -> dict:
     """Run STEP on the first placement the controller takes. A placement refused for a reservation lease (and only
     that refusal) moves to the next; under --pin-strict the refusal is the result."""
     refused = []
@@ -265,8 +273,8 @@ def run_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1",
         # A fallback gets its own key: off --pin-strict the key leaves the worker out, so the refused step's key
         # would dedupe the retry back onto the refusal.
         tries = attempt if not refused else f"{attempt}-fallback{len(refused)}"
-        run = dispatch_step({**step, "worker": where}, head, pr, strict, tries)
-        if strict or where is None or run["result"] == "pass" or not LEASE_REFUSAL.search(run["tail"]):
+        run = dispatch_step({**step, "worker": where}, head, pr, strict, tries, queue_timeout)
+        if strict or where is None or run["result"] in ("pass", "queued") or not LEASE_REFUSAL.search(run["tail"]):
             run["refused_workers"] = refused
             return run
         print(f"ios verify: {step['name']}: {where} is held by a reservation lease; trying the next placement",
@@ -275,7 +283,7 @@ def run_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1",
     return run
 
 
-def dispatch_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1") -> dict:
+def dispatch_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1", queue_timeout: int = 0) -> dict:
     cmd = ["cmux-ci", "run", "--class", "simulator", "--script", SIM_SCRIPT, "--ref", head,
            "--key", step_key(step, head, pr, strict, attempt),
            "--sim-features", "none", "--artifact", ARTIFACT, "--priority", "agent",
@@ -295,11 +303,14 @@ def dispatch_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "
               "~/.secrets/cmuxterm-dev.env (CMUX_UITEST_STACK_EMAIL/_PASSWORD)", file=sys.stderr, flush=True)
     for a in step["args"]:
         cmd += ["--arg", a]
+    if queue_timeout > 0 and not sign_in(step):
+        cmd += ["--queue-timeout", str(queue_timeout)]
     t0 = time.monotonic()
     code, text = stream(cmd, step["name"])
     m = BROKER_ID.search(text) or STEP_ID.search(text)
     return {"name": step["name"], "mode": step["mode"], "worker": step["worker"], "args": step["args"],
-            "step": m.group(1) if m else None, "result": "pass" if code == 0 else "fail",
+            "step": m.group(1) if m else None,
+            "result": "pass" if code == 0 else "queued" if code == QUEUED_EXIT and queue_timeout > 0 else "fail",
             "exit": code, "seconds": round(time.monotonic() - t0), "tail": text.strip()[-400:]}
 
 
@@ -692,6 +703,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--attempt", default="1", help="use a new attempt ID to rerun an identical failed simulator step")
     ap.add_argument("--from-step", action="append", default=[], metavar="ID",
                     help="post from this finished simulator step instead of running it again (repeatable)")
+    ap.add_argument("--queue-timeout", type=int, default=int(os.environ.get("CMUX_IOS_VERIFY_QUEUE_TIMEOUT", "0")),
+                    metavar="S", help="stop waiting for a step still queued after S seconds; it keeps its place, "
+                    f"nothing is posted, exit {QUEUED_EXIT} (default 0: wait without limit)")
     ap.add_argument("--plan", action="store_true")
     ap.add_argument("--no-post", action="store_true")
     ap.add_argument("--out", help="write the record here too")
@@ -753,12 +767,24 @@ def main(argv: list[str] | None = None) -> int:
                   file=sys.stderr, flush=True)
             return UNSIGNED_EXIT
         leased = set() if a.pin_strict or not workers or reused else leased_hosts()
+        # A signed-in pair-e2e step needs this client to follow it to the end (cmux-ci --sign-in), so a run that has
+        # one waits as before; parking the others would only queue it again after they ran.
+        queue_timeout = 0 if any(sign_in(s) for s in steps if s["name"] not in reused) else max(a.queue_timeout, 0)
         with cf.ThreadPoolExecutor(max_workers=len(steps) + len(selection["scripts"]) or 1) as pool:
             futs = [pool.submit(lambda r: r, reused[s["name"]]) if s["name"] in reused else
-                    pool.submit(run_step, s, head, int(view["number"]), a.pin_strict, a.attempt, workers, leased)
+                    pool.submit(run_step, s, head, int(view["number"]), a.pin_strict, a.attempt, workers, leased,
+                                queue_timeout)
                     for s in steps]
             futs += [pool.submit(run_script, s) for s in selection["scripts"]]
             runs = [f.result() for f in futs]
+        queued = [r for r in runs if r.get("result") == "queued"]
+        if queued:
+            for r in queued:
+                print(f"ios verify: {r['name']}: step {r.get('step') or '?'} still in the fleet queue after "
+                      f"{queue_timeout} s; it keeps its place", file=sys.stderr, flush=True)
+            print(f"ios verify: nothing posted at {head[:10]}; the same command at this head attaches to the same "
+                  "steps and posts once they ran", file=sys.stderr, flush=True)
+            return QUEUED_EXIT
         runs += delegated(selection)
         shots, video = [], None
         for r in runs:
