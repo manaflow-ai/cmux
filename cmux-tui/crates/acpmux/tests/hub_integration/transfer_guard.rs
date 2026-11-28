@@ -545,7 +545,6 @@ exec python3 '{FAKE}' "$@"
             answer.unwrap();
             assert!(hub.resolve(id).unwrap().meta().credential_connection.is_none());
             dst.request(method::SESSION_PROMPT, ask(id, "after-return", "hello")).await.unwrap();
-            // The preview is the chat's reply (`hub/chat_activity.rs`), not the prompt.
             assert_eq!(hub.session_summary(&hub.resolve(id).unwrap())["preview"], "echo: hello");
         } else {
             assert!(answer.is_err_and(|error| error.contains("needs its model connection")));

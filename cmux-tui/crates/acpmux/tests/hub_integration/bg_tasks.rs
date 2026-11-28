@@ -828,8 +828,11 @@ async fn a_task_end_is_sent_once_across_a_restart() {
         acpmux::bg_run::notified_path(&bg, &first).exists() && ends(&hub, &id).len() == 1
     })
     .await;
-    // The second ends while no daemon runs.
-    let second = c.request(method::MUX_BG_START, start("sleep 1; echo second")).await.unwrap();
+    // The second ends while no daemon runs. It fails: an exit-0 end in a chat that is idle
+    // after a turn waits 5 min in its inbox (`bg_notify.rs` `OWN_END_HOLD_MS`, #59782), while a
+    // failure is sent at once, so the restart's send is what this reads.
+    let second =
+        c.request(method::MUX_BG_START, start("sleep 1; echo second; exit 3")).await.unwrap();
     let second = second["id"].as_str().unwrap().to_owned();
     hub.shutdown_all().await;
     drop(c);

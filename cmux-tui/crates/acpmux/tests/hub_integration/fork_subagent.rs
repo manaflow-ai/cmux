@@ -136,8 +136,7 @@ async fn a_claude_subagent_forks_into_a_chat_of_its_own() {
     assert_eq!(meta.modes.as_ref().unwrap()["currentModeId"], "plan", "{:?}", meta.modes);
     assert!(
         // Whichever way the harness takes it: at spawn (Claude Code's `--model`, the fork's
-        // `model_request` since #50272, `hub/fork.rs` `retarget_to`), as a config option, or
-        // set_model.
+        // `model_request` since #50272), as a config option, or set_model.
         meta.model_request.as_deref() == Some("haiku")
             || events.iter().any(|e| {
                 let sets_model = matches!(e.kind.as_str(), "model" | "config")
