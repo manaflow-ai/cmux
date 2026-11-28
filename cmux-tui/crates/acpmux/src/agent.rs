@@ -2080,8 +2080,10 @@ impl ChildAgent {
             if read.is_err() {
                 tracing::error!(agent = %reader.name, "agent host reader panicked; its link stops");
                 if reader.mark_link_unheard(hosted, &link, &hosted.broken).await {
-                    let _ =
-                        hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation, lost_lines: false }).await;
+                    let _ = hosted
+                        .inbound
+                        .send(Inbound::LinkBroken { agent: reader.generation, lost_lines: false })
+                        .await;
                 }
             }
         });
