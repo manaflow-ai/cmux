@@ -804,6 +804,10 @@ pub struct CloudPlanSpendCap {
     pub checked_at: Option<i64>,
     pub pause_at: Option<i64>,
     pub paused_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub included_usd: Option<WireNumber>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub overage_usd: Option<Option<WireNumber>>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -891,13 +895,5 @@ wire_enum! {
         Waking = "waking",
         Unresponsive = "unresponsive",
         Gone = "gone",
-    }
-}
-
-wire_enum! {
-    CloudSessionScope {
-        Mine = "mine",
-        Team = "team",
-        Following = "following",
     }
 }

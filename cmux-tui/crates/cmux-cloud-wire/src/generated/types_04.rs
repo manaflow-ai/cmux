@@ -5,6 +5,12 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct StepSleep {
+    pub r#type: LitSleep,
+    pub seconds: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct StepNote {
     pub r#type: LitNote,
     pub text: String,

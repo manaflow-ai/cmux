@@ -4,6 +4,13 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    HomeLinkPreviewImageMimeType {
+        ImageJpeg = "image/jpeg",
+        ImageWebp = "image/webp",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomeMessage {
     pub id: MessageId,
@@ -892,10 +899,4 @@ pub enum Step {
     Agent(StepAgent),
     /// A member this build does not know (a newer backend), kept verbatim.
     Unknown(Value),
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct StepSleep {
-    pub r#type: LitSleep,
-    pub seconds: i64,
 }

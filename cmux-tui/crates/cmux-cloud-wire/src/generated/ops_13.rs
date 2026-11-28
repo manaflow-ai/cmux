@@ -44,7 +44,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Set the team's own monthly hard cap for automations (team admins). The cap in force is the lower of it and the deployment ceiling.
+    /// Set the team's own monthly hard cap (team admins): `cap_usd` as a total (for automations, the lower of it and the deployment ceiling), or `overage_usd` past the plan's pool (null = overage off).
     UsageCapSetOp {
         name: "usage.cap.set",
         class: Mutation,
@@ -60,13 +60,18 @@ wire_op! {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct UsageCapSetParams {
-    pub cap_usd: Option<WireNumber>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub cap_usd: Option<Option<WireNumber>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub overage_usd: Option<Option<WireNumber>>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct UsageCapSetResult {
     pub owner: Option<TeamId>,
     pub team_cap_usd: Option<WireNumber>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub overage_usd: Option<Option<WireNumber>>,
 }
 
 wire_errors! {
