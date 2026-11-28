@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46087088849",
+  "recorded_at": "2026-11-28T00:38:32Z",
+  "reason": "image inputs changed in 5593708d2c07dd6df905a68036d0932a6530441c..678b980493b00e5e1e0c2bbf55a51eb5c2e35fdb; cmux-tui a9143ca1c62a, the newest build published on HEAD (pinned 589544f1e56b; latest build 9b73ef66975b is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "a9143ca1c62a2998254bbe64491e070c6349fcc0",
+  "fixes": [
+    {
+      "sha": "678b980493b00e5e1e0c2bbf55a51eb5c2e35fdb",
+      "mergedAt": "2026-11-28T00:17:20Z",
+      "subject": "image roll inventory: retry on a clone of the snapshot when the woken builder still stops answering (#63487)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-28T00:38:32Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
