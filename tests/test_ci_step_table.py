@@ -80,6 +80,92 @@ class GuardStepsReachedTest(unittest.TestCase):
                     self.assertNotIn(".github/workflows/**", step.inputs)
 
 
+class SwiftTestCompileGateTest(unittest.TestCase):
+    """A Swift change's test targets compile on its landing head (swift-test-compile, land_gate). Since 2026-11-21 no
+    pull request into feat-cmux-next compiled a test target (fleet-test-compile.yml cut, then retired by #61890; swift
+    test after merge), and 11-21..11-28 ten CmuxNext test targets stopped compiling on the base after their change
+    merged green (cause compile-or-lint-slip). Each culprit below is the change's own Swift files."""
+
+    CULPRITS = {
+        "#54622": ["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView.swift",
+                   "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DesignSettings.swift"],
+        "#55279": ["Packages/macOS/CmuxNext/Sources/CmuxNextApps/Customization/CustomizeChatPage.swift",
+                   "Packages/macOS/CmuxNext/Tests/CmuxNextAppsTests/CustomizeChatPageTests.swift"],
+        "#53109": ["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneGitHubRequest.swift",
+                   "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudGitHubRepos.swift"],
+        "#57696": ["Packages/macOS/CmuxNext/Package.swift",
+                   "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/CmuxRemote/CmuxRemoteService.swift"],
+    }
+
+    def test_each_culprit_routes_a_test_target_compile_on_its_landing_head(self) -> None:
+        t = ci_steps.load()
+        for pr, paths in self.CULPRITS.items():
+            with self.subTest(pr=pr):
+                self.assertIn("swift-test-compile", ci_steps.nightly_gate_steps(t, paths, ["linux"]))
+
+    def test_every_macos_swift_source_reaches_a_landing_step_that_compiles_test_targets(self) -> None:
+        # The class: a landing head that changes a macOS package's Swift (source or test) runs a step that builds the
+        # test targets, not only the app. A step that compiles them reads the fleet's test-compile phase.
+        t = ci_steps.load()
+        compilers = {name for name, step in t.steps.items() if "--phase test-compile" in step.run}
+        self.assertTrue(compilers, "no step reads the build fleet's test-target compile")
+        for name in compilers:
+            step = t.steps[name]
+            self.assertTrue(step.land_gate and step.job in ("linux",) and step.blocks, name)
+        dirs = sorted({p.parent.relative_to(ROOT).as_posix()
+                       for p in (ROOT / "Packages" / "macOS").glob("*/Package.swift")})
+        self.assertTrue(dirs)
+        for package in dirs:
+            for kind in ("Sources/X/A.swift", "Tests/XTests/A.swift"):
+                path = f"{package}/{kind}"
+                with self.subTest(path=path):
+                    self.assertTrue(compilers & set(ci_steps.nightly_gate_steps(t, [path], ["linux"])))
+
+    def test_a_non_swift_change_does_not_start_it(self) -> None:
+        t = ci_steps.load()
+        for path in ("webviews/src/app.ts", "cmux-tui/crates/acpmux/src/lib.rs", "Packages/macOS/CmuxNext/README.md"):
+            with self.subTest(path=path):
+                self.assertNotIn("swift-test-compile", ci_steps.nightly_gate_steps(t, [path], ["linux"]))
+
+    def run_step(self, verdicts: dict[str, str], plan: str = "Packages/macOS/CmuxNext CmuxNextAppTests\n"):
+        """Run the step's script in a two-commit repository whose plan and fleet reader are fakes; VERDICTS maps
+        'head' and 'base' to the reader's word."""
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                   "GIT_COMMITTER_EMAIL": "t@t", "CI_TOOLS": str(root / "tools"), "GITHUB_EVENT_PATH": ""}
+            (root / "tools").mkdir()
+            git = lambda *a: subprocess.run(["git", *a], cwd=root, env=env, check=True, capture_output=True)  # noqa: E731
+            git("init", "-q")
+            (root / "scripts" / "ci").mkdir(parents=True)
+            (root / "scripts/ci/compile_test_plan.py").write_text(f"import sys\nsys.stdout.write({plan!r})\n")
+            git("add", "-A")
+            git("commit", "-qm", "base")
+            base = git("rev-parse", "HEAD").stdout.decode().strip()
+            words = {base: verdicts.get("base", "none")}
+            (root / "a.swift").write_text("x\n")
+            git("add", "-A")
+            git("commit", "-qm", "head")
+            words[git("rev-parse", "HEAD").stdout.decode().strip()] = verdicts.get("head", "none")
+            (root / "scripts/ci/fleet_compile_result.py").write_text(textwrap.dedent(f"""
+                import sys
+                a = sys.argv
+                assert a[a.index("--phase") + 1] == "test-compile" and a[a.index("--packages") + 1] == "CmuxNext"
+                print({words!r}[a[a.index("--sha") + 1]])
+            """))
+            run = ci_steps.load().steps["swift-test-compile"].run
+            return subprocess.run(["bash", "-c", run], cwd=root, env=env, capture_output=True, text=True)
+
+    def test_red_only_for_a_test_compile_red_the_base_does_not_have(self) -> None:
+        cases = [({"head": "pass"}, 0), ({"head": "fail", "base": "pass"}, 1), ({"head": "fail", "base": "fail"}, 0),
+                 ({"head": "fail", "base": "none"}, 0), ({"head": "none"}, 0), ({"head": "superseded"}, 0)]
+        for verdicts, rc in cases:
+            with self.subTest(verdicts=verdicts):
+                got = self.run_step(verdicts)
+                self.assertEqual(got.returncode, rc, got.stdout + got.stderr)
+        self.assertEqual(self.run_step({"head": "fail", "base": "pass"}, plan="").returncode, 0)
+
+
 class NightlyGateTest(unittest.TestCase):
     """A step-table step that mirrors a nightly step (`nightly`) runs on the landing head that changes its inputs, every
     input kept, so a check that stops the nightly fails the landing (Leo, 2026-11-27: "shouldn't a build check fail
@@ -155,6 +241,16 @@ class NightlyGateTest(unittest.TestCase):
         self.assertEqual((jobs, only), (["linux"], ["web-typecheck"]))
         start, why, (jobs, only) = self.landing(["docs/x.md"])
         self.assertNotIn("web-typecheck", only)
+
+    def test_a_landing_head_that_changes_the_vm_openapi_runs_the_sdk_codegen_check(self) -> None:
+        # cmux#63748 and cmux#64283 changed workers/cmux-vm/openapi.json without regenerating the committed clients;
+        # cmux-vm-sdk and cmux-vm-clients-rust are push tier, so `cmux VM clients / rust` and `/ sdk` went red on
+        # feat-cmux-next (from 25d38e9da) until cmux#64493 regenerated them.
+        start, why, (jobs, only) = self.landing(["workers/cmux-vm/openapi.json"])
+        self.assertIn("pr-pipeline.yml", start)
+        self.assertIn("cmux-vm-sdk", only)
+        start, why, (jobs, only) = self.landing(["docs/x.md"])
+        self.assertNotIn("cmux-vm-sdk", only)
 
     def test_a_source_change_runs_the_next_checks_guards_on_the_pull_request(self) -> None:
         # 11-27 base tier run 46080642938: state roots, the FFI caller ratchet and the base-red classifier went red on
@@ -247,9 +343,12 @@ class NightlyGateTest(unittest.TestCase):
         self.assertEqual(hooks.run, "python3 tests/test_web_lint_prepush.py")
         self.assertNotIn("test_web_lint_prepush.py", types.run)
         self.assertIn("bun run typecheck", types.run)
+        # The real-push fixture suite exhausted 360 s alongside the routed checks (run 46167738798).
+        # Keep it out of their shared pool, as the other integration suites already are.
+        self.assertTrue(hooks.alone)
+        self.assertFalse(types.alone)
         for step in (hooks, types):
             self.assertTrue(step.blocks)
-            self.assertFalse(step.alone)
             self.assertEqual((step.job, step.tier, step.timeout), ("linux", "push", 360))
             self.assertEqual(step.needs, ("bun", "node"))
         self.assertEqual(hooks.inputs, types.inputs)
