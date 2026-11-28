@@ -1,0 +1,61 @@
+import CmuxNextBridge
+import CmuxNextDaemon
+import CmuxNextSettings
+import CmuxNextWorkspaceNaming
+
+/// The app's sources for workspace auto-naming (hq#1957, CmuxNextWorkspaceNaming).
+@MainActor
+struct WorkspaceAutoNameWiring {
+    let services: AppServices
+
+    /// The front-tab reader over this app's setting, pages and terminals.
+    var reader: WorkspaceAutoNameReader {
+        WorkspaceAutoNameReader(
+            enabled: { [weak services] in services?.settings?.snapshot.sidebarSections.autoNamesWorkspaces ?? true },
+            isNewTabPage: { [weak services] tab in services.map { RestoredNewTabPages.shows(tab, in: $0.agentTabs) } ?? false },
+            livePage: { [weak services] tab in services?.cache.existingBrowser(tab.id).map { ($0.tab.state.title, $0.tab.state.url) } },
+            incognitoTitle: { [weak services] tab in
+                guard let services, services.cache.browserTabs.isIncognitoTab(tab.id) else { return nil }
+                return .some(services.cache.incognitoDisplay(tab).title)
+            },
+            terminal: { [weak services] tab in services.map { TabMoves.nameInput(tab, services: $0) } ?? .init(kind: .terminal, userName: nil, title: nil, pageTitle: nil, url: nil, cwd: nil) })
+    }
+
+    /// Variant B's one-time rename (`WorkspaceAutoNamer`) on every daemon that
+    /// serves the name-source capability, once settings load.
+    func start(settings: SettingsController) {
+        let namer = WorkspaceAutoNamer(
+            names: reader, workspaces: { [weak services] in
+                guard let services else { return [] }
+                return services.machines.daemons.flatMap { daemon in
+                    let identity = daemon.identity
+                    return daemon.store.workspaces.map { workspace in
+                        WorkspaceAutoNamer.Target(
+                            machineID: daemon.machineID,
+                            workspace: workspace,
+                            supportsNameSource: daemon.supports(DaemonCapabilities.shared.workspaceNameSource),
+                            daemonGeneration: identity?.generation,
+                            nameSource: workspace.nameSource,
+                            nameRevision: workspace.nameRevision)
+                    }
+                }
+            },
+            selection: { [weak services] workspace, pane in
+                guard let services, let window = services.windows.registry.value.owner(of: workspace.id) else { return nil }
+                return services.windows.controller(for: window)?.state.selection.selection(in: pane.id)
+            },
+            rename: { [weak services] target, name in
+                guard let services, target.supportsNameSource, let key = target.workspace.key,
+                      let daemon = services.machines.daemon(machine: target.machineID),
+                      daemon.supports(DaemonCapabilities.shared.workspaceNameSource) else { return }
+                daemon.send("auto-rename workspace") {
+                    _ = try await $0.renameWorkspace(key, to: name, source: .auto,
+                                                      expectedNameRevision: target.nameRevision)
+                }
+            })
+        Task { [weak settings] in
+            await settings?.waitForLoad(atLeast: 1)
+            await namer.run()
+        }
+    }
+}

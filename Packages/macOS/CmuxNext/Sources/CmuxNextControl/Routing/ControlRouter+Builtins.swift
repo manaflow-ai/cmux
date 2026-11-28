@@ -57,7 +57,7 @@ extension ControlRouter {
                 params["target"] = .string("tab:" + tab)
                 let request = ControlRequest(id: call.request.id, method: call.method, params: params)
                 return try await self.runAction(ControlCall(request: request, snapshot: call.snapshot, connection: call.connection,
-                                                            deadline: call.deadline, progress: call.progress))
+                                                            deadline: call.deadline, progress: call.progress, engineStartMark: call.engineStartMark))
             }.claimingProgress(),
             BrowserOpenSplitRun.method(router: self),
             FileOpenRun.method(router: self),

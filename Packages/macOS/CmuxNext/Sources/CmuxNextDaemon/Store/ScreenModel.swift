@@ -22,6 +22,10 @@ public final class ScreenModel: Identifiable {
     public internal(set) var pinned: Bool
     /// The screen group this screen belongs to (`screen-groups-v1`).
     public internal(set) var group: ScreenGroupID?
+    /// Client-side names of daemon splits: a split this window made optimistically keeps the
+    /// provisional split's id (``ProvisionalSplit/nameDaemonSplit(_:in:)``), so the daemon's
+    /// layout maps to the tree already shown. Only splits the layout still holds.
+    public private(set) var splitNames: [SplitID: SplitID] = [:]
     /// Color, icon, pin, and group come from the daemon's state resources
     /// (`DaemonStore.session`), which the raw tree does not carry.
     @ObservationIgnored var metadataFromState = false
@@ -53,6 +57,7 @@ public final class ScreenModel: Identifiable {
         if name != s.name { name = s.name }
         if layout != s.layout { layout = s.layout }
         if columns != s.columns { columns = s.columns }
+        pruneSplitNames()
         if viewportBaseWidth != (s.viewportBaseWidth ?? 1) { viewportBaseWidth = s.viewportBaseWidth ?? 1 }
         if zoomedPane != s.zoomedPane { zoomedPane = s.zoomedPane }
         if defaultPane != s.activePane { defaultPane = s.activePane }
@@ -67,6 +72,17 @@ public final class ScreenModel: Identifiable {
         }
     }
 
+    /// Lays a `layout-changed` layout (`layout-delta-v1`) over the record:
+    /// the layout fields only; panes and metadata keep their own deltas.
+    func applyLayout(_ d: ScreenLayoutDelta) {
+        if layout != d.layout { layout = d.layout }
+        if columns != d.columns { columns = d.columns }
+        pruneSplitNames()
+        if viewportBaseWidth != (d.viewportBaseWidth ?? 1) { viewportBaseWidth = d.viewportBaseWidth ?? 1 }
+        if zoomedPane != d.zoomedPane { zoomedPane = d.zoomedPane }
+        if defaultPane != d.activePane { defaultPane = d.activePane }
+    }
+
     /// Lays the daemon's screen state over the record.
     func applyState(_ state: SessionStateMirror.ScreenState) {
         metadataFromState = true
@@ -78,4 +94,21 @@ public final class ScreenModel: Identifiable {
     }
 
     public func pane(_ handle: PaneID) -> PaneModel? { panes.first { $0.handle == handle } }
+
+    func nameSplit(_ split: SplitID, as name: SplitID) {
+        splitNames[split] = name
+    }
+
+    func clearSplitNames() {
+        if !splitNames.isEmpty { splitNames = [:] }
+    }
+
+    /// Drops the names of splits the layout no longer holds (a closed split; a new daemon
+    /// generation numbers its splits anew).
+    private func pruneSplitNames() {
+        guard !splitNames.isEmpty else { return }
+        let held = Set(layout.splitIDs + columns.flatMap { column in column.layout.splitIDs + column.rows.flatMap(\.layout.splitIDs) })
+        let kept = splitNames.filter { held.contains($0.key) }
+        if kept.count != splitNames.count { splitNames = kept }
+    }
 }

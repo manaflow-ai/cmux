@@ -66,6 +66,8 @@ public actor TerminalAttachment: TerminalByteChannel {
         var lease: String?
         var lastReported: CellSize?
         var detached = false
+        /// The daemon takes `set-size-counts` for this lease (`shared-sizing-v1`).
+        var hidesInPlace = false
     }
 
     private nonisolated let control = Mutex(Control())
@@ -180,6 +182,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         control.withLock {
             $0.lease = response.lease
             $0.lastReported = size
+            $0.hidesInPlace = identity.supports(DaemonCapabilities.shared.sharedSizing)
         }
         if claimGeometry {
             _ = try await DaemonConnection.perform(
@@ -283,6 +286,23 @@ public actor TerminalAttachment: TerminalByteChannel {
         }
         guard let lease else { return }
         fireAndForget(ReleaseAttachedViewSizeRequest(surface: surface, lease: lease))
+    }
+
+    /// The view hid (a parked tab or workspace) or shows again. Hidden, it keeps its lease, stream,
+    /// viewport and claim and only stops counting toward the grid, so hiding never resizes the PTY
+    /// when it is the only view, other views get the grid by their own size, and showing it again
+    /// at the same size needs no report or claim. A daemon without `shared-sizing-v1` gets the old
+    /// release, and a claim of the last reported size on show.
+    public nonisolated func sendHidden(_ hidden: Bool) {
+        let (lease, inPlace) = control.withLock { ($0.lease, $0.hidesInPlace) }
+        guard let lease else { return }
+        if inPlace {
+            fireAndForget(SetSizeCountsRequest(surface: surface, lease: lease, counts: hidden ? false : nil))
+        } else if hidden {
+            fireAndForget(ReleaseAttachedViewSizeRequest(surface: surface, lease: lease))
+        } else {
+            claimGeometry(reporting: nil)
+        }
     }
 
     /// Idempotent: the first call detaches and closes the connection.
