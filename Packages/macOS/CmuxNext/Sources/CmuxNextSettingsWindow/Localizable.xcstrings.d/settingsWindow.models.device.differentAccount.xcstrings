@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.device.differentAccount" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You signed in to a different account. Try again with the connected account."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "سجّلت الدخول إلى حساب آخر. حاول مجددًا باستخدام الحساب المتصل."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prijavili ste se na drugi račun. Pokušajte ponovo s povezanim računom."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du loggede ind på en anden konto. Prøv igen med den tilsluttede konto."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du hast dich bei einem anderen Konto angemeldet. Versuche es erneut mit dem verbundenen Konto."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Has iniciado sesión con otra cuenta. Inténtalo de nuevo con la cuenta conectada."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vous vous êtes connecté à un autre compte. Réessayez avec le compte associé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hai effettuato l'accesso a un altro account. Riprova con quello collegato."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "別のアカウントでサインインしました。接続済みのアカウントでやり直してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "អ្នកបានចូលគណនីផ្សេង។ សូមសាកល្បងម្តងទៀតដោយប្រើគណនីដែលបានភ្ជាប់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "다른 계정으로 로그인했습니다. 연결된 계정으로 다시 시도하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du logget på en annen konto. Prøv igjen med den tilkoblede kontoen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zalogowano się na inne konto. Spróbuj ponownie, używając połączonego konta."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Você entrou em outra conta. Tente novamente com a conta conectada."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вы вошли в другой аккаунт. Повторите попытку с подключённым аккаунтом."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "คุณลงชื่อเข้าใช้ด้วยบัญชีอื่น ลองอีกครั้งด้วยบัญชีที่เชื่อมต่ออยู่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Başka bir hesapla oturum açtınız. Bağlı hesapla tekrar deneyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ви ввійшли в інший обліковий запис. Спробуйте ще раз із підключеним записом."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bạn đã đăng nhập vào tài khoản khác. Hãy thử lại với tài khoản đã kết nối."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你登录了另一个账号。请用已连接的账号重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你登入了另一個帳號。請用已連線的帳號再試一次。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
