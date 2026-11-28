@@ -469,6 +469,7 @@
       "list-bookmarks",
       "list-clients",
       "list-notifications",
+      "record-notification-delivery",
       "list-personal",
       "list-saved-screen-groups",
       "list-saved-tab-groups",

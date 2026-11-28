@@ -3165,6 +3165,20 @@ pub struct ReattachViewRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecordNotificationDeliveryRequest {
+    /// shown or suppressed.
+    pub desktop: String,
+    pub notification: u64,
+    /// Why: viewed, typing, muted, quiet-hours, desktop-never, app-active, poster-no-banner, permission-denied, incognito, digest.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub reason: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type RecordNotificationDeliveryResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RegisterBrowserProviderRequest {
     pub authentication: T::BrowserProviderAuthentication,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -5791,6 +5805,10 @@ impl CmuxClient {
 
     pub fn reattach_view(&mut self, request: ReattachViewRequest) -> Result<T::ReattachViewResult> {
         self.execute(&REATTACH_VIEW_METADATA, &request)
+    }
+
+    pub fn record_notification_delivery(&mut self, request: RecordNotificationDeliveryRequest) -> Result<RecordNotificationDeliveryResult> {
+        self.execute(&RECORD_NOTIFICATION_DELIVERY_METADATA, &request)
     }
 
     pub fn register_browser_provider(&mut self, request: RegisterBrowserProviderRequest) -> Result<RegisterBrowserProviderResult> {

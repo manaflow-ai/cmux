@@ -25562,6 +25562,116 @@ func (value *ReattachViewOptions) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// RecordNotificationDeliveryRequest is the exact record-notification-delivery wire payload.
+type RecordNotificationDeliveryRequest struct {
+	// shown or suppressed.
+	Desktop      string `json:"desktop"`
+	Notification uint64 `json:"notification"`
+	// Why: viewed, typing, muted, quiet-hours, desktop-never, app-active, poster-no-banner, permission-denied, incognito, digest.
+	Reason Presence[string] `json:"-"`
+}
+
+func (value RecordNotificationDeliveryRequest) MarshalJSON() ([]byte, error) {
+	type wire RecordNotificationDeliveryRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Reason.IsAbsent() {
+		delete(object, "reason")
+	} else if value.Reason.IsNull() {
+		object["reason"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Reason.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RecordNotificationDeliveryRequest.Reason: %w", err)
+		}
+		object["reason"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *RecordNotificationDeliveryRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode RecordNotificationDeliveryRequest: expected object")
+	}
+	var fields struct {
+		Desktop      *string          `json:"desktop"`
+		Notification *uint64          `json:"notification"`
+		Reason       Presence[string] `json:"reason"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode RecordNotificationDeliveryRequest: %w", err)
+	}
+	type wire RecordNotificationDeliveryRequest
+	var decoded wire
+	if fields.Desktop == nil {
+		return fmt.Errorf("decode RecordNotificationDeliveryRequest: required field desktop is missing or null")
+	}
+	decoded.Desktop = *fields.Desktop
+	if fields.Notification == nil {
+		return fmt.Errorf("decode RecordNotificationDeliveryRequest: required field notification is missing or null")
+	}
+	decoded.Notification = *fields.Notification
+	decoded.Reason = fields.Reason
+	*value = RecordNotificationDeliveryRequest(decoded)
+	return nil
+}
+
+type RecordNotificationDeliveryResult = JSONValue
+
+type RecordNotificationDeliveryOptions struct {
+	// Why: viewed, typing, muted, quiet-hours, desktop-never, app-active, poster-no-banner, permission-denied, incognito, digest.
+	Reason Presence[string] `json:"-"`
+}
+
+func (value RecordNotificationDeliveryOptions) MarshalJSON() ([]byte, error) {
+	type wire RecordNotificationDeliveryOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Reason.IsAbsent() {
+		delete(object, "reason")
+	} else if value.Reason.IsNull() {
+		object["reason"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Reason.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RecordNotificationDeliveryOptions.Reason: %w", err)
+		}
+		object["reason"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *RecordNotificationDeliveryOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode RecordNotificationDeliveryOptions: expected object")
+	}
+	var fields struct {
+		Reason Presence[string] `json:"reason"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode RecordNotificationDeliveryOptions: %w", err)
+	}
+	type wire RecordNotificationDeliveryOptions
+	var decoded wire
+	decoded.Reason = fields.Reason
+	*value = RecordNotificationDeliveryOptions(decoded)
+	return nil
+}
+
 // RegisterBrowserProviderRequest is the exact register-browser-provider wire payload.
 type RegisterBrowserProviderRequest struct {
 	Authentication BrowserProviderAuthentication    `json:"authentication"`
@@ -40084,6 +40194,18 @@ func (c *Client) ReattachView(ctx context.Context, surface ID, options ReattachV
 		return result, err
 	}
 	err = c.requestGenerated(ctx, commandMetadata["reattach-view"], "reattach-view", params, &result)
+	return result, err
+}
+
+// RecordNotificationDelivery sends record-notification-delivery. Protocol v12; authority control.
+func (c *Client) RecordNotificationDelivery(ctx context.Context, desktop string, notification uint64, options RecordNotificationDeliveryOptions) (RecordNotificationDeliveryResult, error) {
+	var result RecordNotificationDeliveryResult
+	params, err := mergeCommandParams(map[string]any{"desktop": desktop, "notification": notification}, options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode record-notification-delivery parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["record-notification-delivery"], "record-notification-delivery", params, &result)
 	return result, err
 }
 

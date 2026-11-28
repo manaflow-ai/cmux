@@ -500,6 +500,7 @@ MODEL_BY_PATH = {
     'commands/read-screen/request': models.ReadScreenRequest,
     'commands/read-scrollback/request': models.ReadScrollbackRequest,
     'commands/reattach-view/request': models.ReattachViewRequest,
+    'commands/record-notification-delivery/request': models.RecordNotificationDeliveryRequest,
     'commands/register-browser-provider/request': models.RegisterBrowserProviderRequest,
     'commands/release-attached-view-size/request': models.ReleaseAttachedViewSizeRequest,
     'commands/release-surface-size/request': models.ReleaseSurfaceSizeRequest,
