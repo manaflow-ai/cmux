@@ -436,9 +436,8 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         let args = argv(&local.ask(&claude, "hi").await);
         assert_eq!(upstreams(&args).contains(&"cmux-agent".to_owned()), enabled, "{args:?}");
         let denied = disallowed(&args);
-        for name in ["mcp__acpmux", "mcp__cmux-agent"] {
-            assert_eq!(denied.iter().any(|arg| arg == name), !enabled, "{args:?}");
-        }
+        assert_eq!(denied.iter().any(|arg| arg == "mcp__cmux-agent"), !enabled, "{args:?}");
+        assert!(!denied.iter().any(|arg| arg == "mcp__acpmux"), "{args:?}");
     }
 
     for enabled in [false, true] {
