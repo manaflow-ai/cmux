@@ -3,7 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
-import { SHIPPED_JS_FLAGS, withShippedJsFlags } from "../bench/browsers";
+import { SHIPPED_JS_FLAGS, benchJsFlags, withShippedJsFlags } from "../bench/browsers";
 
 const jsFlags = (args: string[] | undefined) => (args ?? []).filter((arg) => arg.startsWith("--js-flags="));
 
@@ -39,5 +39,20 @@ describe("withShippedJsFlags", () => {
     );
     const shipped = /static let youngGeneration = "js-flags=([^"]*)"/.exec(swift)?.[1];
     expect(shipped?.split(/\s+/)).toEqual(SHIPPED_JS_FLAGS);
+  });
+});
+
+describe("benchJsFlags", () => {
+  test("BENCH_JS_FLAGS adds to the shipped flags, and stands alone with them off", () => {
+    expect(benchJsFlags({})).toEqual(SHIPPED_JS_FLAGS);
+    expect(benchJsFlags({ BENCH_JS_FLAGS: " --max-inlined-bytecode-size=0  --no-turbo-inlining " })).toEqual([
+      ...SHIPPED_JS_FLAGS,
+      "--max-inlined-bytecode-size=0",
+      "--no-turbo-inlining",
+    ]);
+    expect(benchJsFlags({ BENCH_SHIPPED_JS_FLAGS: "0", BENCH_JS_FLAGS: "--no-turbo-inlining" })).toEqual([
+      "--no-turbo-inlining",
+    ]);
+    expect(benchJsFlags({ BENCH_SHIPPED_JS_FLAGS: "0" })).toEqual([]);
   });
 });
