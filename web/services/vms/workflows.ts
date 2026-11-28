@@ -1650,7 +1650,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
         message: errorMessage(fleetAdmission.left.cause),
       }).pipe(Effect.catchAll(() => Effect.void));
-      return yield* Effect.fail(fleetAdmission.left);
+      return yield* createWait.waitOrFail(create.vm.id, fleetAdmission.left);
     }
 
     // A failed row may have become retryable between the preflight lookup and
