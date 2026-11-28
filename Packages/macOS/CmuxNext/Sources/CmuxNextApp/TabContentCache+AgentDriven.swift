@@ -10,14 +10,10 @@ import Foundation
 /// the filled value. The mark belongs to the tab, so the page that replaces
 /// a hibernated or deferred one keeps it (`install`).
 extension TabContentCache {
-    /// Called by every agent entry point before it acts on (or, `reading`, reads) tab `key`'s page. Never cleared.
-    /// `session`, the agent session the call runs for, is the one the tab's visits name from here on.
+    /// Called by every agent entry point (for agent `session`, ``TabAgentMarks/sessions``) before it acts on (or, `reading`, reads) tab `key`'s page. Never cleared.
     func markAgentDriven(_ key: String, reading: Bool = false, session: String? = nil) {
-        agentDrivenTabs.insert(key)
-        if let session { agentMarks.sessions[key] = session }
-        guard let page = browsers[key]?.tab else { return }
-        page.markAgent(reading: reading)
-        if let session { page.noteAgentSession(session) }
+        agentMarks.mark(tab: key, session: session)
+        browsers[key]?.tab.markAgent(reading: reading, session: session)
     }
 
     /// Replaces `key`'s live page with a new Chromium page for the same URL,

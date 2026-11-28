@@ -26,6 +26,12 @@ public struct TabAgentMarks {
         sessions.removeValue(forKey: key)
     }
 
+    /// An agent (session `session`, when the request named one) drove tab `key`: its visits name that session from here on.
+    public mutating func mark(tab key: String, session: String?) {
+        tabs.insert(key)
+        if let session { sessions[key] = session }
+    }
+
     /// An agent opened `surface` (its tab is the agent's when it arrives, ``claim(surface:key:pane:machine:hasPage:)``),
     /// for agent session `session` when the request named one.
     public mutating func mark(surface: SurfaceID, session: String?) {

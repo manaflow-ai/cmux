@@ -159,6 +159,11 @@ extension BrowserTab {
     public func markAgentReading() { markAgentDriven() }
     /// ``markAgentReading()`` when `reading`, else ``markAgentDriven()``.
     public func markAgent(reading: Bool) { if reading { markAgentReading() } else { markAgentDriven() } }
+    /// ``markAgent(reading:)``, then ``noteAgentSession(_:)`` when `session` is known.
+    public func markAgent(reading: Bool, session: String?) {
+        markAgent(reading: reading)
+        if let session { noteAgentSession(session) }
+    }
     public var isAgentDriven: Bool { false }
     public var agentSessionID: String? { nil }
     public func noteAgentSession(_ session: String) {}
