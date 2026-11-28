@@ -4,7 +4,9 @@
 # same launch arguments as LaunchTTIUITests.makeApp). Each launch's marks come from the app's own log (LaunchMarks
 # logs `timing launch <mark> (<ms>ms)` in every build, ms since the kernel's process start, so dyld counts), read
 # with `log stream` on the simulator. It prints one `SIMCTL_FIRSTCONNECT {json}` line: per mark (main,
-# did_finish_launching, first_frame, workspaces_list_frame) the samples and p50/p90 (nearest rank).
+# did_finish_launching, first_frame, workspaces_list_frame) the samples and p50/p90 (nearest rank). It also saves the
+# screen after the first (cold) and last (warm) launch, simctl-launch-cold.png and simctl-launch-warm.png, so a
+# before/after run is a visual diff of launch as well as a timing one.
 #
 # Why: under XCUITest the warm list_ms is ~4.9 s p50 while the app's pre-main is <1 s, so the probe's
 # first_connect may measure XCUITest's relaunch more than the app. This arm measures the same app, same build, same
@@ -93,6 +95,14 @@ for i in $(seq 0 "$runs"); do
     grep workspaces_list_frame "$stream" 2>/dev/null | grep -Eq "\"processID\" *: *$pid[,} ]" && break
     sleep 0.1
   done
+  # The frame a person sees: run 0 is the first launch after install (cold), the last run is warm. One
+  # second past the list's frame mark so the list has drawn, never timed (the marks above are the timing).
+  if [[ "$i" -eq 0 || "$i" -eq "$runs" ]]; then
+    sleep 1
+    shot="$out/simctl-launch-$([[ "$i" -eq 0 ]] && echo cold || echo warm).png"
+    sim io "$udid" screenshot "$shot" >/dev/null 2>&1 && echo "ios-first-connect-simctl: screenshot $shot" ||
+      echo "ios-first-connect-simctl: screenshot failed for run $i" >&2
+  fi
 done
 sleep 1
 kill "$stream_pid" 2>/dev/null || true
