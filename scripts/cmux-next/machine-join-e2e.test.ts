@@ -18,6 +18,10 @@ import {
   listedDevices,
   parseArgs,
   viewStats,
+  pngSize,
+  HOST_SCENE,
+  HOST_VIRTUAL_DROP_IN,
+  FRAME_FILE,
   type ChildResult,
   type Deps,
   type Options,
@@ -85,6 +89,7 @@ const VIEW_REPORT = {
     mbit_per_s: 1.8412345,
     first_frame_ms: 123.4,
     luma_variance: 456.7,
+    decoded_fps: 29.9876,
     hub_approval: "permission",
     decode_ms: { p50: 1.1, p95: 2.3 },
     presented: 30,
@@ -204,6 +209,20 @@ interface ShareKnobs {
   rdInstall?: "channel" | "nothing" | "other" | "link"
   /** Files the viewer leaves in its home (keys under HOME, for tarOf). */
   viewerHomeFiles?: Record<string, string>
+  /** How long after its "Streaming" line the viewer prints "First frame decoded" (default 300 ms). */
+  firstFrameAfterMs?: number
+  /** The viewer's display cannot be captured (xwd or convert fails). */
+  noPicture?: boolean
+  /** The host has no virtual display drop-in (a desktop's host). */
+  noVirtualDisplay?: boolean
+}
+
+/** `od -An -v -tx1 -N 24` of a PNG of width x height. */
+function pngHead(width: number, height: number): string {
+  const b = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]
+  for (const v of [width, height]) b.push((v >>> 24) & 255, (v >>> 16) & 255, (v >>> 8) & 255, v & 255)
+  const hex = b.map((x) => x.toString(16).padStart(2, "0"))
+  return ` ${hex.slice(0, 16).join(" ")}\n ${hex.slice(16).join(" ")}\n`
 }
 
 /** A GNU tar archive of `files` (path -> text) relative to HOME, as `tar -C HOME -cf - .` writes it. */
@@ -457,6 +476,8 @@ function world(k: Knobs = {}) {
   const viewerRuns: Array<{ cmd: string[]; home: string; stdin?: string }> = []
   const viewerSpawns: Array<{ cmd: string[]; stdin?: string; startedAt: number }> = []
   const hostCmds: string[][] = []
+  const scenes: Array<{ argv: string[]; at: number }> = []
+  let scenesStopped = 0
   const GUEST_HOME = `${VIEWER_HOME}/guest`
   const hostOnline = () => daemonStartedAt !== null && daemonUp && !sk.neverOnline && clock - daemonStartedAt >= (sk.onlineAfterMs ?? 4_000)
   const deviceLines = () => "dev_mac1  macos  Old Mac  (offline)\n" + (hostOnline() ? "dev_host1  linux  ci-join-1\n" : "")
@@ -469,6 +490,10 @@ function world(k: Knobs = {}) {
     if (argv[9] !== `HOME=${home}` || (home !== VIEWER_HOME && home !== GUEST_HOME)) return { code: 1, stdout: "", stderr: "not the viewer's home\n" }
     if (cmd[0] === "test") return { code: xvfb ? 0 : 1, stdout: "", stderr: "" }
     if (cmd[0] === "mkdir") return { code: 0, stdout: "", stderr: "" }
+    if (cmd[0] === "/bin/sh" && cmd[2]?.startsWith("xwd -root"))
+      return sk.noPicture ? { code: 1, stdout: "", stderr: "xwd: unable to open display ':42'\n" } : { code: 0, stdout: "", stderr: "" }
+    if (cmd[0] === "stat" && cmd.at(-1) === `${VIEWER_HOME}/${FRAME_FILE}`) return { code: 0, stdout: "183456\n", stderr: "" }
+    if (cmd[0] === "od" && cmd.at(-1) === `${VIEWER_HOME}/${FRAME_FILE}`) return { code: 0, stdout: pngHead(1920, 1080), stderr: "" }
     if (cmd[0] === "cat") return sk.stats === null ? { code: 1, stdout: "", stderr: "No such file" } : { code: 0, stdout: `${JSON.stringify(sk.stats ?? VIEW_REPORT)}\n`, stderr: "" }
     const guest = home === GUEST_HOME
     if (o.stdin !== `${guest ? GUEST_ACCESS : STACK_ACCESS}\n`) return { code: 1, stdout: "", stderr: "cmux-rd view: hub: 401 unauthorized\n" }
@@ -506,6 +531,10 @@ function world(k: Knobs = {}) {
       if (hostRdFile === "absent") return { code: 1, stdout: "", stderr: "No such file or directory\n" }
       return { code: 0, stdout: `${hostRdFile === "other" ? "b".repeat(64) : RD_SHA}  ${HOST_RD}\n`, stderr: "" }
     }
+    if (cmd[0] === "cat" && cmd[2] === `${opts.home}/${HOST_VIRTUAL_DROP_IN}`)
+      return sk.noVirtualDisplay
+        ? { code: 1, stdout: "", stderr: "No such file or directory\n" }
+        : { code: 0, stdout: "[Service]\nEnvironment=DISPLAY=:99 XDG_SESSION_TYPE=x11 CMUX_VIRTUAL_DISPLAY=:99\n", stderr: "" }
     if (cmd[0] === "readlink") return { code: 0, stdout: `${sk.linkTarget ?? CMUX_RD}\n`, stderr: "" }
     if (cmd[0] !== "/usr/bin/env" || cmd[1] !== "XDG_RUNTIME_DIR=/run/user/1001" || cmd[2] !== "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus") return undefined
     const rest = cmd.slice(3)
@@ -569,6 +598,7 @@ function world(k: Knobs = {}) {
         if (sk.prompted) return "Asked ci-join-1 to view it. Waiting for its person to allow this...\n"
         let text = "Connecting to ci-join-1 (view only)...\n"
         if (!sk.noStream && clock - startedAt >= (sk.streamAfterMs ?? 2_000)) text += "Path: host, rtt 1.2 ms\nStreaming 1920x1080 (openh264, baseline)\n"
+        if (!sk.noStream && clock - startedAt >= (sk.streamAfterMs ?? 2_000) + (sk.firstFrameAfterMs ?? 300)) text += "First frame decoded\n"
         return text
       }
       if (sk.viewerEnds !== undefined) queueMicrotask(() => finish({ code: 1, stdout: "", stderr: stderrNow() }))
@@ -581,6 +611,15 @@ function world(k: Knobs = {}) {
     },
     start: (argv, o) => {
       runs.push({ argv, env: o.env })
+      if (argv.includes(HOST_SCENE[0]!)) {
+        scenes.push({ argv, at: clock })
+        return {
+          stop: async () => {
+            scenesStopped += 1
+            return { code: 0, stdout: "", stderr: "" }
+          }
+        }
+      }
       if (argv.includes("Xvfb")) {
         xvfb = true
         return {
@@ -640,6 +679,8 @@ function world(k: Knobs = {}) {
     viewerRuns,
     viewerSpawns,
     hostCmds,
+    scenes,
+    scenesStopped: () => scenesStopped,
     rdSteps,
     now: () => clock,
     evidenceText: () => files[`written:${opts.evidence}`] ?? ""
@@ -1555,6 +1596,9 @@ describe("the zero-touch share", () => {
   /** Every command run as the joined user after its daemon started, but reads and the daemon itself. */
   const hostStepsAfterDaemon = (w: ReturnType<typeof world>) => {
     const started = w.runs.findIndex((r) => r.argv.includes("daemon") && r.argv.includes("run"))
+    // The moving scene on the host's display is the run's stand-in for an app on the screen, started after
+    // the stream did: no part of the share.
+    const scene = (a: string[]) => a.includes(HOST_SCENE[0]!)
     const reads = (a: string[]) => {
       const cmd = a.slice(14)
       const rest = cmd[0] === "/usr/bin/env" ? cmd.slice(3) : cmd
@@ -1570,7 +1614,7 @@ describe("the zero-touch share", () => {
         (rest[0] === opts.acpmux && ["host join --status --json", "host doctor --here --json", "share-host status --json"].includes(rest.slice(1).join(" ")))
       )
     }
-    return w.runs.slice(started + 1).filter((r) => r.argv[3] === opts.user && !reads(r.argv)).map((r) => r.argv.slice(14).join(" "))
+    return w.runs.slice(started + 1).filter((r) => r.argv[3] === opts.user && !reads(r.argv) && !scene(r.argv)).map((r) => r.argv.slice(14).join(" "))
   }
 
   test("a joined headless machine is shared with no step on it: stream, a decoded frame, no request, no guest", async () => {
@@ -1589,9 +1633,23 @@ describe("the zero-touch share", () => {
       hostPrompted: false,
       requestsEmpty: true,
       viewerHomeHeld: 0,
-      view: { connected: true, decoded: 30, frames: 31, mbitPerS: 1.841, width: 1920, height: 1080, encoder: "openh264", path: "host", firstFrameMs: 123.4, lumaVariance: 456.7 },
+      view: { connected: true, decoded: 30, frames: 31, mbitPerS: 1.841, width: 1920, height: 1080, encoder: "openh264", path: "host", firstFrameMs: 123.4, lumaVariance: 456.7, decodedFps: 29.988 },
+      hostScene: true,
+      frame: { file: FRAME_FILE, bytes: 183456, width: 1920, height: 1080 },
       guest: { signedIn: true, sawMachine: false, request: { code: 1, refused: true, hubCode: "404 not_found" } }
     })
+    // The first frame, to the 50 ms poll: 300 ms after the "Streaming" line at 2 s.
+    expect(e.share!.firstFrameMs).toBeGreaterThanOrEqual(2_300)
+    expect(e.share!.firstFrameMs).toBeLessThanOrEqual(2_350)
+    // The scene ran on the host's display as the joined user, from the stream's start, and was stopped.
+    expect(w.scenes).toHaveLength(1)
+    expect(w.scenes[0]!.argv.slice(0, 4)).toEqual(["sudo", "-n", "-u", opts.user])
+    expect(w.scenes[0]!.argv.slice(-(HOST_SCENE.length + 2))).toEqual(["/usr/bin/env", "DISPLAY=:99", ...HOST_SCENE])
+    expect(w.scenesStopped()).toBe(1)
+    // The picture: the viewer's own display, taken as the viewer while it streamed, into its home.
+    const shot = w.viewerRuns.find((r) => r.cmd[0] === "/bin/sh")
+    expect(shot?.cmd.slice(3)).toEqual(["sh", VIEWER_DISPLAY, `${VIEWER_HOME}/${FRAME_FILE}`])
+    expect(w.lines.some((l) => l.includes("view: first frame 2") && l.includes("29.988 fps decoded, picture 1920x1080 (183456 bytes)"))).toBe(true)
     // Online 4 s after the daemon's start, found by the next 3 s list.
     expect(e.share!.deviceOnlineMs).toBeGreaterThanOrEqual(4_000)
     expect(e.share!.deviceOnlineMs).toBeLessThanOrEqual(SHARE_ONLINE_LIMIT_MS)
@@ -1632,6 +1690,38 @@ describe("the zero-touch share", () => {
     expect(w.lines.some((l) => l.includes("view: streaming after 2000 ms, 30 frame(s) decoded"))).toBe(true)
     expect(w.lines.some((l) => l.includes("guest: does not see the machine; its request was refused by the hub (404 not_found)"))).toBe(true)
     assertNoSecretEscaped(w, USERS)
+  })
+
+  test("a viewer display that cannot be captured fails the share, still revoked", async () => {
+    const w = world({ share: { noPicture: true } })
+    const e = await runE2E(shareOpts, shareEnv, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toBe("share: no picture of the viewer's display was taken while it streamed")
+    expect(e.share!.frame).toBeNull()
+    expect(e.share!.streamingMs).toBe(2_000)
+    expect(e.revoke).toEqual({ revokedListed: true, statusRevoked: true })
+  })
+
+  test("a host with no virtual display gets no scene and still passes", async () => {
+    const w = world({ share: { noVirtualDisplay: true } })
+    const e = await runE2E(shareOpts, shareEnv, w.deps)
+    expect(e.result).toBe("pass")
+    expect(e.share!.hostScene).toBeNull()
+    expect(w.scenes).toEqual([])
+  })
+
+  test("pngSize reads a PNG's IHDR from od's hex, and nothing else", () => {
+    const head = (w: number, h: number) => {
+      const b = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]
+      for (const v of [w, h]) b.push((v >>> 24) & 255, (v >>> 16) & 255, (v >>> 8) & 255, v & 255)
+      return b.map((x) => x.toString(16).padStart(2, "0")).join(" ")
+    }
+    expect(pngSize(` ${head(1920, 1080)}\n`)).toEqual({ width: 1920, height: 1080 })
+    expect(pngSize(head(3_000_000_000, 1))).toEqual({ width: 3_000_000_000, height: 1 })
+    expect(pngSize(head(0, 1080))).toBeNull()
+    expect(pngSize(head(1920, 1080).replace(/^89/, "88"))).toBeNull()
+    expect(pngSize(head(1920, 1080).split(" ").slice(0, 20).join(" "))).toBeNull()
+    expect(pngSize("")).toBeNull()
   })
 
   test("a daemon that sets the host up slowly still passes within the online limit", async () => {
