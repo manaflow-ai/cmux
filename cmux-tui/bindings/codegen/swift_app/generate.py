@@ -47,10 +47,23 @@ _DECLARATION = re.compile(
 )
 
 
+def _unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    # A repeated key would silently drop the earlier value (a merge that left two "enums" in one family hid
+    # every enum of the first): refuse it.
+    seen: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in seen:
+            raise BindingError(f"duplicate key {key!r} in one object")
+        seen[key] = value
+    return seen
+
+
 def load_bindings(path: Path) -> dict[str, Any]:
     try:
-        value = json.loads(Path(path).read_text(encoding="utf-8"))
+        value = json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=_unique_keys)
     except (OSError, json.JSONDecodeError) as error:
+        raise BindingError(f"cannot read {path}: {error}") from error
+    except BindingError as error:
         raise BindingError(f"cannot read {path}: {error}") from error
     if not isinstance(value, dict):
         raise BindingError(f"{path} must be an object")

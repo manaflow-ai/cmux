@@ -22,7 +22,7 @@ struct GeneratedRequestPayloadGoldenTests {
         _ = CloseScreenRequest.init(screen:endTerminals:)
         _ = CloseTabsRequest.init(surfaces:endTerminals:transaction:mutation:reason:)
         _ = CloseTabGroupRequest.init(group:endTerminals:)
-        _ = CloseWorkspaceRequest.init(workspace:endTerminals:reason:ifEmpty:mutation:)
+        _ = CloseWorkspaceRequest.init(workspace:endTerminals:reason:ifEmpty:reportClosedIDs:mutation:)
         _ = RenameWorkspaceRequest.init(workspace:name:source:expectedNameRevision:release:mutation:)
         _ = MoveWorkspaceRequest.init(workspace:index:mutation:)
         _ = SetWorkspaceMetadataRequest.init(workspace:color:icon:title:pinned:markedUnread:keepAwake:mutation:)
@@ -155,6 +155,16 @@ struct GeneratedRequestPayloadGoldenTests {
             "mutation_id": .string("mutation-close"),
             "expected_revision": .number(42),
         ]))
+    }
+
+    @Test func omittedInitializerArgumentsKeepTheirWireDefaults() throws {
+        let workspace = WorkspaceRef.key(Self.workspaceKey)
+        #expect(try line(CloseTabsRequest(surfaces: [SurfaceID(rawValue: 2)])) ==
+            envelope("close-tabs", ["surfaces": .array([.number(2)])]))
+        #expect(try line(MoveWorkspaceRequest(workspace: workspace, index: 2)) ==
+            envelope("move-workspace", ["key": .string(Self.workspaceKey.rawValue), "index": .number(2)]))
+        #expect(try line(SetWorkspaceMetadataRequest(workspace: workspace)) ==
+            envelope("set-workspace-metadata", ["key": .string(Self.workspaceKey.rawValue)]))
     }
 
     @Test func createTerminalKeepsPostInitShellAndWorkspaceFields() throws {

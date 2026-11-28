@@ -111,5 +111,25 @@ class ChiefUp(unittest.TestCase):
         self.assertNotIn("chief_up_timed_out", got)  # no --chief-up: as before
 
 
+class SettleAndSampleOrder(unittest.TestCase):
+    """settle_and_sample's window result is made by sample(); nothing may write into it before that line.
+
+    perf-idle-ab with chief_up=120 died on every launch (UnboundLocalError on `result`, step c218f179) because the
+    Chief-up wait wrote result["chief_up_wait"] ahead of `result = sample(...)`. A unit test of wait_chief_up alone
+    could not see it; this reads the nested function's source order instead.
+    """
+
+    def test_no_use_of_result_before_sample_assigns_it(self):
+        import ast
+        src = (Path(__file__).resolve().parent.parent / "bench_memory.py").read_text()
+        fn = next(n for n in ast.walk(ast.parse(src))
+                  if isinstance(n, ast.FunctionDef) and n.name == "settle_and_sample")
+        assigned = min(n.lineno for n in ast.walk(fn) if isinstance(n, ast.Assign)
+                       and any(isinstance(t, ast.Name) and t.id == "result" for t in n.targets))
+        early = sorted(n.lineno for n in ast.walk(fn)
+                       if isinstance(n, ast.Name) and n.id == "result" and n.lineno < assigned)
+        self.assertEqual(early, [], f"`result` used before `result = sample(...)` at line {assigned}")
+
+
 if __name__ == "__main__":
     unittest.main()
