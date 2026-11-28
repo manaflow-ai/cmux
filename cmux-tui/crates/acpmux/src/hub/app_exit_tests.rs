@@ -113,7 +113,9 @@ async fn a_killed_app_reads_disconnected_and_a_stopped_one_does_not() {
     let chat = watched(&hub, &config, "sid-killed", Some(killed.id())).await;
     let bystander = watched(&hub, &config, "sid-other", Some(other.id())).await;
     assert!(until(Duration::from_secs(5), || armed(&chat) && armed(&bystander)).await);
+    hub.set_status(&chat, crate::hub::NotWaiting::Running);
     assert_ne!(status(&hub, &chat), "disconnected");
+    assert_eq!(hub.session_summary(&chat)["residency"]["busy"], true);
 
     signal(&killed, libc::SIGSTOP);
     tokio::time::sleep(Duration::from_secs(1)).await;
@@ -128,6 +130,16 @@ async fn a_killed_app_reads_disconnected_and_a_stopped_one_does_not() {
         "the kill was heard"
     );
     assert!(at.elapsed() < Duration::from_secs(5));
+    // The process watcher changes the row without rewriting the stored turn status.
+    assert_eq!(chat.status(), SessionStatus::Running);
+    let row = hub.session_summary(&chat);
+    assert_eq!(row["residency"]["resident"], false);
+    assert_eq!(row["residency"]["busy"], false);
+    assert!(!crate::hub::residency::costs_for_cap(&chat, false));
+    let totals = hub.residency_status(&[chat.clone()]);
+    assert_eq!(totals["resident"], 0);
+    assert_eq!(totals["busy"], 0);
+    assert_eq!(totals["countsForCap"], 0);
     assert_ne!(status(&hub, &bystander), "disconnected", "another app's chat is untouched");
 
     other.kill().unwrap();

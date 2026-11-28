@@ -1377,6 +1377,8 @@ pub struct Hub {
     /// The chats whose agent host still ran and those left waiting for a permission when the
     /// last daemon stopped (`log_load.rs`).
     pub(super) load_plan: StdMutex<log_load::LoadPlan>,
+    /// Shared liveness evidence for residency rows and totals (`residency.rs`).
+    pub(super) residency_hosts: StdMutex<residency::HostSnapshot>,
     /// `resume_queues` ran: a chat whose log is read later resumes its own queue (`log_load.rs`).
     pub(super) queues_resumed: AtomicBool,
     /// This start is a copied machine's first: the machine it was copied from (`clone_boot.rs`).
@@ -1951,6 +1953,7 @@ impl Hub {
             store_load: store_load::StoreLoad::new(loading),
             logs_ready: tokio::sync::watch::channel(true).0,
             load_plan: Default::default(),
+            residency_hosts: Default::default(),
             queues_resumed: AtomicBool::new(false),
             clone_boot: std::sync::OnceLock::new(),
             retention_wake: Arc::new(Notify::new()),
