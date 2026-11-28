@@ -2000,7 +2000,7 @@ fn a_read_message_past_the_cutoff_goes_to_the_archive_and_a_thread_read_finds_it
         item("old-unread", "t-old", "a", PromptClass::Fyi, now - 10 * day, "unread");
     old_unread.noticed = true;
     let mut old_person =
-        item("old-fire", "t-fire", "a", PromptClass::Block, now - 10 * day, "FIRE: pick");
+        item("old-fire", "t-fire", "a", PromptClass::Block, now - 10 * day, "your call");
     (old_person.read, old_person.noticed) = (true, true);
     let mut young = item("young", "t-old", "a", PromptClass::Fyi, now - day, "young");
     (young.read, young.noticed) = (true, true);

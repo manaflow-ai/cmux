@@ -26,6 +26,9 @@ async fn explicit_gather_fyi_compacts_then_restarts_at_the_original_cold_deadlin
         provenance.set(super::super::cold_wake::GATHER_META, json!(true));
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let mut accept = |notice| tx.send(notice).unwrap();
+        // Keep the sender connected: a fire-and-forget send may finish in the same
+        // poll that emits acceptance, so racing its result against the ack is invalid.
+        let (_connected, reader) = tokio::sync::watch::channel(false);
         let prompt = hub.inbox_accept(
             &session,
             &blocks,
@@ -37,7 +40,7 @@ async fn explicit_gather_fyi_compacts_then_restarts_at_the_original_cold_deadlin
             Some(&provenance),
             false,
             false,
-            None,
+            Some(reader),
             &mut accept,
         );
         tokio::pin!(prompt);
