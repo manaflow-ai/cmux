@@ -203,8 +203,7 @@ final class HostPressureIndicatorView: NSView {
             // The popover opens only above normal, so it is made (lazily) and shown only then.
             if wasLevel != .normal { popover.close() }
         } else {
-            popover.content.update(level: level, verdict: verdict, canStop: service?.isForced == false,
-                                   gauges: HostPressureTunables.gauges.value(in: store))
+            popover.content.update(level: level, verdict: verdict, canStop: service?.isForced == false, gauges: HostPressureTunables.gauges.value(in: store))
         }
         if wasHidden != isHidden || oldWidth != width {
             // The root lays the top row out: without this its layoutSubtreeIfNeeded keeps the old frame
@@ -263,8 +262,7 @@ final class HostPressureIndicatorView: NSView {
 
     func openPopover() {
         guard level != .normal else { return }
-        popover.content.update(level: level, verdict: service?.verdict, canStop: service?.isForced == false,
-                                   gauges: HostPressureTunables.gauges.value(in: store))
+        popover.content.update(level: level, verdict: service?.verdict, canStop: service?.isForced == false, gauges: HostPressureTunables.gauges.value(in: store))
         popover.show(relativeTo: button)
     }
 
