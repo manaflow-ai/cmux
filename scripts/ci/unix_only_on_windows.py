@@ -101,9 +101,9 @@ STRIP_RE = re.compile(
 CFG_ATTR_RE = re.compile(r"#\s*(!)?\s*\[\s*cfg\s*\(")
 TOKEN_RE = re.compile(r"\bwhere\b|->|=>|==|!=|<=|>=|<<|>>|[{}()\[\];,<>=]")
 NEXT_RE = re.compile(r"\s*(else\b|as\b|if\b|=>|\.|\?|[-+*/%&|^<>=!]|\S)")
-MAIN_RE = re.compile(r"\bfn\s+main\s*\(")
+MAIN_RE = re.compile(r"(?=f)\bfn\s+main\s*\(")  # the lookahead: STRIP_RE's
 NO_MAIN_RE = re.compile(r"#!\[\s*(?:no_main|cfg_attr\s*\((.*?),\s*no_main\s*\))\s*\]", re.S)
-MOD_RE = re.compile(r"\bmod\s+(?:r#)?(\w+)\s*([;{])")
+MOD_RE = re.compile(r"(?=m)\bmod\s+(?:r#)?(\w+)\s*([;{])")
 # A module-level item's name (functions, types, constants); `mod` is MOD_RE's.
 ITEM_RE = re.compile(r"^[ \t]*(?:pub(?:\s*\([^)]*\))?\s+)?(?:(?:const|async|unsafe|extern(?:\s+\"\w+\")?)\s+)*"
                      r"(?:fn|struct|enum|trait|type|const|static|union)\s+(?:r#)?(\w+)\b", re.M)
