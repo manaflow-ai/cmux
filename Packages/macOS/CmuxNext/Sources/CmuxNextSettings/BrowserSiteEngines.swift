@@ -15,25 +15,26 @@ public import Foundation
 /// The default is empty: protected (Widevine) media plays in cmux's Chromium (H.264/AAC from
 /// `proprietary_codecs`, the component updater's CDM loaded by the plain helper,
 /// plans/cmux-next/browser.md, open question 6). Setting the key replaces the whole list.
+///
+/// The rule itself is Rust's (cmux-config `site_engines`, through the `site_engines.*` ops), the
+/// one copy the daemon's `browser_site_engines` asks too; Swift only hands it the URL's parts.
 public nonisolated struct BrowserSiteEngines: Sendable, Hashable {
     /// Normalized pattern (lowercase host, optional `/path`) to engine.
     public let rules: [String: BrowserDefaultEngine]
 
     /// The default rules (none): `siteEnginesDefault`, from
     /// schemas/settings/source/browser.json (SettingsSchema+Browser.generated.swift).
-    public static let fallback = BrowserSiteEngines(rules: (siteEnginesDefault.objectValue ?? [:]).compactMapValues {
-        $0.stringValue.flatMap(BrowserDefaultEngine.init(rawValue:))
-    })
+    public static let fallback = BrowserSiteEngines(rules: Self.engines(siteEnginesDefault))
 
     /// - Parameter rules: Site pattern to engine; patterns are normalized (lowercase, no scheme,
     ///   no `*.`, no trailing `/`), and one that is empty after that is dropped.
     public init(rules: [String: BrowserDefaultEngine]) {
-        var normalized: [String: BrowserDefaultEngine] = [:]
-        for (pattern, engine) in rules {
-            guard let key = Self.normalize(pattern) else { continue }
-            normalized[key] = engine
-        }
-        self.rules = normalized
+        let answer = SettingsRust.answer("site_engines.normalized", .object(["rules": Self.json(rules)]))
+        self.rules = Self.engines(answer["rules"])
+    }
+
+    private init(normalized: [String: BrowserDefaultEngine]) {
+        rules = normalized
     }
 
     /// The engine the most specific rule gives `url`, nil when no rule matches (the default
@@ -42,67 +43,35 @@ public nonisolated struct BrowserSiteEngines: Sendable, Hashable {
     /// - Parameter url: The page a tab opens.
     /// - Returns: The rule's engine, or nil.
     public func engine(for url: URL?) -> BrowserDefaultEngine? {
-        guard let url, let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
-              var host = url.host?.lowercased(), !host.isEmpty else { return nil }
-        if host.hasSuffix(".") { host.removeLast() }
-        let path = url.path.isEmpty ? "/" : url.path.lowercased()
-        var best: (hostLength: Int, pathLength: Int, engine: BrowserDefaultEngine)?
-        for (pattern, engine) in rules {
-            let (patternHost, patternPath) = Self.split(pattern)
-            guard host == patternHost || host.hasSuffix("." + patternHost) else { continue }
-            if let patternPath {
-                guard path == patternPath || path.hasPrefix(patternPath + "/") else { continue }
-            }
-            let rank = (patternHost.count, patternPath?.count ?? 0)
-            if let current = best, (current.hostLength, current.pathLength) >= rank { continue }
-            best = (rank.0, rank.1, engine)
-        }
-        return best?.engine
+        guard let url, let scheme = url.scheme, let host = url.host, !rules.isEmpty else { return nil }
+        let answer = SettingsRust.answer("site_engines.engine", .object([
+            "rules": jsonValue, "scheme": .string(scheme), "host": .string(host), "path": .string(url.path),
+        ]))
+        return answer["engine"]?.stringValue.flatMap(BrowserDefaultEngine.init(rawValue:))
     }
 
     /// The value cmux.json holds for these rules.
     public var jsonValue: JSONValue {
-        .object(rules.mapValues { .string($0.rawValue) })
+        Self.json(rules)
     }
 
     /// Parses the `browser` section. A missing key is the default with no diagnostic; a value
     /// that is not an object is the default plus a diagnostic; an entry whose engine is not
     /// `chromium` or `webkit` is left out, with a diagnostic.
     static func parse(_ root: JSONValue) -> (BrowserSiteEngines, [SettingsDiagnostic]) {
-        guard case .object(let browser)? = root["browser"], let value = browser["siteEngines"] else { return (fallback, []) }
-        guard case .object(let members) = value else {
-            return (fallback, [SettingsDiagnostic(kind: .invalidValue, path: "browser.siteEngines",
-                                                  message: "expected an object of site to \"chromium\" or \"webkit\"")])
+        let answer = SettingsRust.answer("site_engines.read", .object(["root": root]))
+        let diagnostics = (answer["problems"]?.arrayValue ?? []).compactMap(\.stringValue).map {
+            SettingsDiagnostic(kind: .invalidValue, path: "browser.siteEngines", message: $0)
         }
-        var rules: [String: BrowserDefaultEngine] = [:]
-        var diagnostics: [SettingsDiagnostic] = []
-        for (pattern, engine) in members {
-            guard let text = engine.stringValue, let engine = BrowserDefaultEngine(rawValue: text), normalize(pattern) != nil else {
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "browser.siteEngines",
-                                                      message: "\(pattern): expected a site and \"chromium\" or \"webkit\""))
-                continue
-            }
-            rules[pattern] = engine
-        }
-        return (BrowserSiteEngines(rules: rules), diagnostics)
+        guard let rules = answer["rules"]?.objectValue else { return (fallback, diagnostics) }
+        return (BrowserSiteEngines(normalized: Self.engines(.object(rules))), diagnostics)
     }
 
-    /// `HTTPS://*.Open.Spotify.com/` is `open.spotify.com`; nil for an empty pattern or one with
-    /// no host.
-    static func normalize(_ pattern: String) -> String? {
-        var text = pattern.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if let scheme = text.range(of: "://") { text = String(text[scheme.upperBound...]) }
-        if text.hasPrefix("*.") { text.removeFirst(2) }
-        while text.hasSuffix("/") { text.removeLast() }
-        let (host, _) = split(text)
-        guard !host.isEmpty, !host.contains(" ") else { return nil }
-        return text
+    private static func json(_ rules: [String: BrowserDefaultEngine]) -> JSONValue {
+        .object(rules.mapValues { .string($0.rawValue) })
     }
 
-    /// The host and the path prefix (`/gp/video`, nil for none) of a normalized pattern.
-    private static func split(_ pattern: String) -> (host: String, path: String?) {
-        guard let slash = pattern.firstIndex(of: "/") else { return (pattern, nil) }
-        let path = String(pattern[slash...])
-        return (String(pattern[..<slash]), path == "/" ? nil : path)
+    private static func engines(_ value: JSONValue?) -> [String: BrowserDefaultEngine] {
+        (value?.objectValue ?? [:]).compactMapValues { $0.stringValue.flatMap(BrowserDefaultEngine.init(rawValue:)) }
     }
 }
