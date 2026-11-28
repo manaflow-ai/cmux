@@ -1850,6 +1850,10 @@ pub(super) fn listed_remote_text(
 mod tests;
 
 #[cfg(test)]
+#[path = "peer_changes_tests.rs"]
+mod peer_changes_tests;
+
+#[cfg(test)]
 #[path = "restart_notice_tests.rs"]
 mod restart_notice_tests;
 
