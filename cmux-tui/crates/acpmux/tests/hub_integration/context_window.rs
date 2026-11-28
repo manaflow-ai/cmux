@@ -272,6 +272,41 @@ async fn a_claude_chat_reconnects_an_mcp_server() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+#[tokio::test]
+async fn reconnect_uses_the_reported_legacy_agent_server_name() {
+    let root = tempfile::tempdir().unwrap();
+    let init = json!({"mcp_servers": [{"name": "acpmux", "status": "failed"}]}).to_string();
+    let env = [("FAKE_CLAUDE_INIT", init.as_str()), ("FAKE_CLAUDE_MCP_DOWN", "acpmux")];
+    let (hub, mut c) = claude_setup(root.path(), &env).await;
+    let session =
+        c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = session["sessionId"].as_str().unwrap();
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "hi"}]}),
+    )
+    .await
+    .unwrap();
+    for server in ["cmux-agent", "acpmux"] {
+        let error = c
+            .request("_acpmux/mcp/reconnect", json!({"sessionId": id, "server": server}))
+            .await
+            .unwrap_err();
+        // The fake refuses only the actual legacy wire name; a canonical name would succeed.
+        assert_eq!(error, "Server status: failed");
+    }
+    let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    let agents: Vec<_> = info["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["id"] == "mcp:acpmux" || row["id"] == "mcp:cmux-agent")
+        .collect();
+    assert_eq!(agents.len(), 1, "{info}");
+    assert_eq!(agents[0]["id"], "mcp:acpmux");
+    hub.shutdown_all().await;
+}
+
 /// The breakdown comes after the turn ended and its meta was saved, so it is saved when it
 /// arrives: a restarted daemon still has it.
 #[tokio::test]

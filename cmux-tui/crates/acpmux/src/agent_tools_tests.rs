@@ -1544,3 +1544,12 @@ fn forum_tools_come_only_in_a_team_or_forum() {
     assert!(gate(Some("1"), false, None, false) && !gate(Some("0"), true, Some(true), true));
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn an_old_agent_server_off_choice_stays_off_after_the_rename() {
+    let env = BTreeMap::from([(super::OFF_ENV.to_owned(), "acpmux".to_owned())]);
+    let tools = super::acp_tools_with(super::current(), &BTreeMap::new(), "off-alias", true, None);
+    assert!(tools.servers.iter().any(|s| s.name == crate::acpmux_mcp_names::SERVER_NAME));
+    let tools = tools.without_off(&env);
+    assert!(!tools.servers.iter().any(|s| crate::acpmux_mcp_names::is_server_name(&s.name)));
+}
