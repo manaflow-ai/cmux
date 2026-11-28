@@ -1781,7 +1781,7 @@ if [ -n "${CI_PATHS_FILE:-}" ]; then
 fi
 want() { [ "$sel" = all ] || [[ "$sel" == *" $1 "* ]]; }
 status=0
-if want tt-fast-gates; then python3 tests/test_cmux_next_fast_gates.py && python3 tests/test_ci_entry_logs.py || status=1; fi
+if want tt-fast-gates; then python3 tests/test_cmux_next_fast_gates.py && python3 tests/test_ci_entry_logs.py && python3 tests/test_ci_palette_coverage_gate.py || status=1; fi
 if want tt-tip-swift-suite; then python3 tests/test_cmux_next_tip_swift_suite.py || status=1; fi
 if want tt-deferred-terminate; then python3 tests/test_cmux_next_deferred_terminate.py || status=1; fi
 if want tt-check-paths; then python3 tests/test_check_paths.py || status=1; fi
