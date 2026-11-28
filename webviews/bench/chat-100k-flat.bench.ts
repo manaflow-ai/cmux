@@ -649,8 +649,10 @@ try {
           }
           for (let index = 0; index < count && !GROW_OPEN; index++) {
             const id = sessionId(index);
-            emit(id, "mux", "user_message", { text: `Grown question ${turn}` });
-            emit(id, "mux", "turn_started", {});
+            // Named, as acpmux names each prompt and turn: the pane keeps per-turn ids (direct.ts `SeqIds`).
+            const named = { promptId: `grown-p-${turn}`, turnId: `grown-t-${turn}` };
+            emit(id, "mux", "user_message", { text: `Grown question ${turn}`, ...named });
+            emit(id, "mux", "turn_started", named);
             emit(id, "in", "agent_message_chunk", {
               method: "session/update",
               params: {
@@ -664,7 +666,7 @@ try {
                 },
               },
             });
-            emit(id, "mux", "turn_result", { status: "completed" });
+            emit(id, "mux", "turn_result", { status: "completed", turnId: named.turnId });
             batch += 4;
           }
           if (batch >= GROW_BATCH) {

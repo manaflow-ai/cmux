@@ -219,6 +219,8 @@ async function streamed(
     total,
     sheds,
     rebuilds: () => rebuilds - rebuildsBefore,
+    /// Delivers one record live, past the stream (`total` stays: a read never returns it).
+    deliver: (event: EventRecord) => socket!.deliver({ jsonrpc: "2.0", method: "_acpmux/event", params: event }),
     HELD_RECORDS,
     cleanup: () => {
       client.close?.();
@@ -317,6 +319,60 @@ test("a shed while the view's oldest drawn row is a fold the client holds under 
       chat.snapshot().rows.some((row) => row.id === kept!.id),
       "the fold's prompt row is still drawn",
     ).toBe(true);
+  } finally {
+    chat.cleanup();
+  }
+}, 300_000);
+
+/// Records per turn in the chat of short named turns: a prompt and its turn named by id, a reply, the turn's result.
+const SHORT_TURN = 6;
+const turnOf = (seq: number) => Math.ceil(seq / SHORT_TURN);
+function namedTurns(sessionId: string, seq: number): EventRecord {
+  const turn = turnOf(seq);
+  const phase = seq % SHORT_TURN;
+  if (phase === 1)
+    return mux(sessionId, seq, "user_message", { text: `ask ${turn}`, promptId: `p${turn}`, turnId: `t${turn}` });
+  if (phase === 2) return mux(sessionId, seq, "turn_started", { promptId: `p${turn}`, turnId: `t${turn}` });
+  if (phase === 0) return mux(sessionId, seq, "turn_result", { status: "completed", turnId: `t${turn}` });
+  return say(sessionId, seq, `m${turn}`);
+}
+
+test("a chat of thousands of named turns holds the ids its window holds, and the newest still read as ended and shown", async () => {
+  const { TURN_IDS_KEPT } = await import("./direct");
+  const chat = await streamed(namedTurns, 12_000);
+  try {
+    expect(chat.sheds).toBeGreaterThan(1);
+    const turns = chat.total / SHORT_TURN;
+    const client = chat.pane as unknown as Record<string, { size: number; has: (id: string) => boolean }>;
+    // Before the window let go of them: one entry per turn the chat ever ran (2000 here).
+    const bound = Math.ceil(chat.HELD_RECORDS / SHORT_TURN) + TURN_IDS_KEPT + 2;
+    for (const key of ["endedTurns", "promptsShown", "promptRowKeys"]) {
+      console.log(`named-turns ${key}=${client[key]!.size} turns=${turns} bound=${bound}`);
+      expect(client[key]!.size, key).toBeLessThanOrEqual(bound);
+    }
+    // The newest turns, and the TURN_IDS_KEPT before the window, still read as ended: a late end or stale summary
+    // naming one never shows it running again.
+    for (let turn = turns; turn > turns - TURN_IDS_KEPT; turn -= 1)
+      expect(client.endedTurns!.has(`t${turn}`)).toBe(true);
+    for (let turn = turns; turn > turns - TURN_IDS_KEPT; turn -= 1)
+      expect(client.promptsShown!.has(`p${turn}`)).toBe(true);
+    // What the sheds left draws what a full rebuild of the held records does.
+    const shed = chat.snapshot();
+    chat.pane.rebuild();
+    chat.pane.emit();
+    chat.flush();
+    expect(drawn(shed)).toEqual(drawn(chat.snapshot()));
+    // A steer of the newest prompt, as a late record reads it: drawn once, as the prompt.
+    const users = () => chat.snapshot().rows.filter((row) => row.kind === "user").length;
+    const before = users();
+    const sessionId = chat.pane.events.at(-1)!.sessionId;
+    chat.deliver(
+      mux(sessionId, chat.total + 1, "user_message", { text: `ask ${turns}`, promptId: `p${turns}`, steer: true }),
+    );
+    for (let index = 0; index < 20; index += 1) await tick();
+    chat.flush();
+    expect(chat.pane.events.at(-1)!.seq).toBe(chat.total + 1);
+    expect(users()).toBe(before);
   } finally {
     chat.cleanup();
   }
