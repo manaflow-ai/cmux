@@ -54,6 +54,7 @@ import { ARRIVAL_EASE, arrivalStepMs } from "./followChase";
 import type { PinCarry } from "./pinnedLiveLine";
 import { SINCE_DIVIDER } from "../model";
 import { LIVE_THINKING } from "./turns";
+import { motionToken } from "../../../ui/motion/motionTokens";
 
 /// How the rows under a change move. `arrive` (shipped): on the arrival step, with the follow chase on
 /// the same step. `quick`: on the entry step (120 ms, ease-out), the follow chase on its spring.
@@ -84,13 +85,28 @@ export function tailGlideLook(node: Element): TailGlideLook {
 /// The arrival step when the page has no token (a test DOM): the motion scale's quick step.
 const ARRIVE_FALLBACK_MS = MOTION_MS.quick;
 
-function timing(thread: HTMLElement, look: TailGlideLook, moved: number): { ms: number; easing: string } {
-  const style = thread.ownerDocument.defaultView?.getComputedStyle(thread);
-  const token = (name: string) => style?.getPropertyValue(name).trim() ?? "";
-  if (look === "arrive") {
-    const floor = cssTimeMs(token("--agent-motion-arrive")) ?? ARRIVE_FALLBACK_MS;
-    return { ms: floor > 0 ? arrivalStepMs(moved, 1, floor) : 0, easing: ARRIVAL_EASE };
-  }
+/// The tokens a tail glide reads on the thread, kept warm by the transcript (VirtualTranscript.tsx).
+export const TAIL_GLIDE_TOKENS = [
+  "--agent-motion-arrive",
+  "--cmux-motion-settle",
+  "--cmux-ease-settle",
+  "--agent-motion-in",
+  "--agent-ease-out",
+] as const;
+
+/// The arrival step for a move of `moved` px on `thread` (the tail glide's "arrive" look and a pinned
+/// line's carry, VirtualTranscript.tsx `finishCarry`).
+export function arriveTiming(thread: Element, moved: number): { ms: number; easing: string } {
+  const floor = cssTimeMs(motionToken(thread, "--agent-motion-arrive")) ?? ARRIVE_FALLBACK_MS;
+  return { ms: floor > 0 ? arrivalStepMs(moved, 1, floor) : 0, easing: ARRIVAL_EASE };
+}
+
+/// A glide's clock on `thread`. Its tokens are kept per page and theme (motionTokens.ts): read through
+/// getComputedStyle here, in the commit's layout pass after its writes, each streamed record that moved
+/// the tail recalculated the page's style (vfp95: style forced by script 256 ms per 30 s of replay).
+export function timing(thread: Element, look: TailGlideLook, moved: number): { ms: number; easing: string } {
+  const token = (name: (typeof TAIL_GLIDE_TOKENS)[number]) => motionToken(thread, name);
+  if (look === "arrive") return arriveTiming(thread, moved);
   if (look === "glide")
     return {
       ms: cssTimeMs(token("--cmux-motion-settle")) ?? SETTLE_FALLBACK_MS,
