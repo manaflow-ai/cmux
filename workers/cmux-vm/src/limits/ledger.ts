@@ -215,7 +215,7 @@ export class TenantLedger {
   constructor(private readonly storage: LedgerStorage) {}
 
   meshCreation(command: MeshCreationCommand, nowMs: number): Promise<MeshCreationResult> { return meshCreation(this.storage, command, nowMs); }
-  admitAgentSlot(agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string): Promise<boolean> { return admitAgentSlot(this.storage, agent, limit, ownedVmIds, nowMs, slotId, creationNeverSent); }
+  admitAgentSlot(agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string, heldBoundMs?: number): Promise<boolean> { return admitAgentSlot(this.storage, agent, limit, ownedVmIds, nowMs, slotId, creationNeverSent, heldBoundMs); }
   settleAgentSlot(agent: string, slotId: string, outcome: AgentSlotOutcome, nowMs: number): Promise<void> { return settleAgentSlot(this.storage, agent, slotId, outcome, nowMs); }
   bindAgentCreation(agent: string, creationKey: string, vmId: string, nowMs: number): Promise<void> { return bindAgentCreation(this.storage, agent, creationKey, vmId, nowMs); }
   forgetAgentVm(vmId: string, creationKey: string | null): Promise<void> { return forgetAgentVm(this.storage, vmId, creationKey); }

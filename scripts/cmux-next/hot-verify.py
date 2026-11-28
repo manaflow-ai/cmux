@@ -137,6 +137,7 @@ STATE_FILE = "hot-verify.json"
 # hot-apply.py _plan's `left` keys this engine reads, and the build reasons it names for the others.
 LEFT_WEB = "web (not published for a branch)"
 LEFT_HELPERS = "bundled helpers (cmux-mobile-host, ...)"
+HELPERS_REASON = "Rust only bundled helpers use"
 REASONS = {"swift-live": "Swift", "rebuild": "Swift, resources or manifests", "unrelated": "unrelated history"}
 # The files the rules read from a checkout (cmux_next_route.py's FFI and scheme inputs, the tree key script),
 # when this engine is an export of scripts/cmux-next or the clone has no working tree: a sparse worktree of
@@ -555,7 +556,7 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
     if helpers:
         # hot-apply leaves these for a new app (`left`): the bundled helpers (the diff sidecar, transport, ...) keep
         # the app's build, so a look that swaps only the daemon would show the change without them.
-        out["build"]["Rust only bundled helpers use"] = list(helpers)
+        out["build"][HELPERS_REASON] = list(helpers)
     out["needs_build"] = bool(out["build"])
     return out
 
@@ -2310,18 +2311,22 @@ def can_build_swift_app(planned: dict) -> bool:
     """Whether a complete fleet app can cover every build-required layer in the plan.
 
     A fleet artifact is the exact head's complete app, so it also carries web or Rust layers
-    that are live-swappable when they accompany a Swift change. Other build reasons (FFI,
-    manifests, bundled helpers) remain an explicit build-required result.
+    that are live-swappable when they accompany a Swift change. The bundled helpers ride in it too: the
+    project's build phases compile them from the head's cmux-tui (only the FFI is pinned, app-ffi-pin.json).
+    Other build reasons (FFI, manifests) remain an explicit build-required result.
     """
     build = planned.get("build")
     if not (planned.get("needs_build") and isinstance(build, dict) and build
-            and set(build) <= {"Swift", "Swift, resources or manifests", "strings"}):
+            and set(build) <= {"Swift", "Swift, resources or manifests", "strings", HELPERS_REASON}):
         return False
     # A strings catalog rides in the complete app too (cmux#62345: a Swift change with its Localizable.xcstrings
     # copy planned `strings` beside `Swift` and was refused a build, so it could get no look).
     swift = (lambda path: path.endswith(".swift") and not path.endswith("Package.swift"))
     copy = (lambda path: path.endswith((".xcstrings", ".strings")))
-    return all(paths and all(copy(path) if reason == "strings" else swift(path) for path in paths)
+    # A Swift change that also adds or edits a crate a bundled helper uses (cmux#38466: a new cmux-conductor-import
+    # crate, so Cargo.lock) planned that reason beside Swift and was refused a build, so it could get no look.
+    return all(paths and all(True if reason == HELPERS_REASON else copy(path) if reason == "strings" else swift(path)
+                             for path in paths)
                for reason, paths in build.items())
 
 
