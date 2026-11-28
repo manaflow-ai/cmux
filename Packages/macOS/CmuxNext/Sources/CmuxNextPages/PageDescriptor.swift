@@ -198,6 +198,10 @@ public nonisolated struct PageNativeOp {
     public static let popupShow = "cmux.app.popup.show"
     public static let popupUpdate = "cmux.app.popup.update"
     public static let popupHide = "cmux.app.popup.hide"
+    /// Built in for every page (RFD 0207): `{surfaces, zoom}`, the boxes of the floating surfaces the
+    /// page marks `data-host-glass` (webviews ui/glass/hostGlass.ts); the page view draws the App's
+    /// own glass under each (``PageHostGlassLayer``). Answers `{drawn}`.
+    public static let hostGlass = "cmux.app.glass"
     /// Stream every page may subscribe to: the popup's `pick`, `highlight` and `dismiss`.
     public static let pagePopup = "cmux.page.popup"
     /// Built in for every page: a right-click menu (`ui/ContextMenu.tsx`) shown as a standard macOS

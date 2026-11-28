@@ -99,6 +99,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var shouldFocusOnAttach = false
     /// The page's popup past the window's edge (PageWebView+Popup.swift), made on first use.
     var popupHost: WebPopupHost?
+    /// The App's glass under the page's marked surfaces (PageWebView+HostGlass.swift), made on first report.
+    var hostGlassLayer: PageHostGlassLayer?
     /// The last theme payload sent, so a redraw that changes nothing sends nothing.
     private var appliedTheme: String?
     /// Pushes every color change of this view's scope to the page, shown or hidden, so a page
@@ -481,9 +483,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         router.didClose = { [weak self] in
             scripts.reset()
             self?.popupHost?.hide()
+            // The page that marked them is gone (closed or bound again): so is its glass.
+            self?.applyHostGlass([])
         }
         router.titleBarDoubleClick = { [weak self] in self?.performTitleBarDoubleClick() }
         router.popup = { [weak self] op, params in self?.popup(op, params: params) ?? .object(["shown": .bool(false)]) }
+        router.hostGlass = { [weak self] surfaces in self?.applyHostGlass(surfaces) }
         router.contextMenu = { [weak self] params in await self?.contextMenu(params) ?? .object(["picked": .null]) }
         router.userGestureEvent = { [weak self] in self?.recentUserGestureEvent() }
         healthFeed = chromium?.healthFeed
@@ -826,6 +831,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
         // After the theme, which sets `data-glass`; a forced push is a new document, which has no still yet.
         glassFeed.refresh(newDocument: force)
+        hostGlassLayer?.applyTheme()
     }
 
     /// The page theme from this view's scope and ``themeSurface``: the surface's override (from

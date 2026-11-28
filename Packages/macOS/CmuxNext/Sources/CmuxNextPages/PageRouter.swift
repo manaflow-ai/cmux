@@ -171,6 +171,9 @@ public final class PageRouter {
     /// A popup op (`cmux.app.popup.*`, cx-6k6cg) with its params: the page view's WebPopupHost.
     public var popup: (@MainActor (String, [String: Any]) -> JSONValue)?
 
+    /// A host glass report (`cmux.app.glass`, RFD 0207), decoded: the page view's glass under the page.
+    public var hostGlass: (@MainActor ([PageHostGlassSurface]) -> Void)?
+
     /// A right-click menu (`cmux.app.contextMenu.show`) with its params: the page view's native
     /// menu, answered once it closes.
     public var contextMenu: (@MainActor ([String: Any]) async -> JSONValue)?
@@ -186,6 +189,15 @@ public final class PageRouter {
                 throw PageError.invalidParams("params must be an object")
             }
             return popup?(op, fields) ?? .object(["shown": .bool(false)])
+        }
+        if op == PageNativeOp.hostGlass {
+            guard !closed else { throw PageError.closed }
+            guard case .object = params, let fields = params.foundationObject as? [String: Any],
+                  let surfaces = PageHostGlassSurface.decode(fields["surfaces"], zoom: fields["zoom"]) else {
+                throw PageError.invalidParams("surfaces must be at most \(PageHostGlassSurface.maximum) boxes of a known level")
+            }
+            hostGlass?(surfaces)
+            return .object(["drawn": .number(Double(hostGlass == nil ? 0 : surfaces.count))])
         }
         if op == PageNativeOp.contextMenu {
             guard !closed else { throw PageError.closed }
