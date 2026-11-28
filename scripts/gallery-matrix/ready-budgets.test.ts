@@ -84,3 +84,20 @@ test("the budgets file parses, and every row differs from the default and is in 
     expect(ms % 100).toBe(0);
   }
 });
+
+test("the states feat-cmux-next's post-merge batches measured over the default hold rows they pass", () => {
+  // The 11:15Z, 13:03Z and 16:1xZ 2026-11-28 batches failed these on CPU time just past the default's
+  // limit (2000 -> 3500) or a row lowered from one fast run (stream-follow-fold 1500 -> 2750).
+  const measured: Record<string, number> = {
+    "agent-pane.composer-send-one-motion#5-lines-busy-latest": 3611,
+    "agent-pane.composer-send-one-motion#15-lines-idle-latest": 3511,
+    "agent-pane.composer-send-one-motion#15-lines-idle-scrolled-up": 3521,
+    "agent-pane.tool-group-size#n10000": 3526,
+    "agent-pane.stream-follow-fold#linear-runs": 3215,
+  };
+  const real = readBudgets();
+  for (const [state, ms] of Object.entries(measured)) {
+    expect(real.states[state]).toBeGreaterThanOrEqual(ms);
+    expect(ms).toBeLessThanOrEqual(limit(real.states[state]!));
+  }
+});
