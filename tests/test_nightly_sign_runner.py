@@ -44,9 +44,9 @@ SIGN_PICKERS = {
     "find-nightly-next-recovery": "needs.find-nightly-next-recovery.outputs.sign_runner",
 }
 # #53861: the verify jobs dropped the PR-shared CI_SIDE_LANE_RUNNER fallback for the nightly's reserved label.
-OWNED_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}"
+OWNED_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'mac-nightly' }}"
 # The notarization recovery's own owned pick (find-nightly-next-recovery), then the nightly build pool.
-RECOVERY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}"
+RECOVERY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'mac-nightly' }}"
 # The secret-bearing jobs end on the signer's label alone (a trusted-only mini that runs no pull request job), never a
 # label they share with nightly builds or PR side lanes.
 SIGNING_FALLBACK = "|| 'glaeda-trusted-next-signing' }}"

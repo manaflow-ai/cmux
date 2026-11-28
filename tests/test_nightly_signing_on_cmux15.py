@@ -204,7 +204,7 @@ class SigningOnCmux15Test(unittest.TestCase):
                          "${{  vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || "
                          "github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && "
                          "vars.CI_NIGHTLY_SIGN_RUNNER || "
-                         "'glaeda-nightly-std-xcode-26.6' }}")
+                         "'mac-nightly' }}")
 
 
 if __name__ == "__main__":

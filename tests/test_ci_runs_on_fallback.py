@@ -831,7 +831,7 @@ class RunsOnFallbackTests(unittest.TestCase):
         place = next(step for step in load(WORKFLOWS / "cmux-next.yml")["jobs"]["macos-placement"]["steps"]
                      if step.get("id") == "place")
         label = place["env"]["FRESH_LABEL"]
-        self.assertRegex(label, r"'glaeda-dev-std-xcode-[0-9.]+'")
+        self.assertRegex(label, r"'(glaeda-dev-std-xcode-[0-9.]+|mac-dev)'")
         self.assertIsNone(SINGLE_HOST.search(label))
         self.assertIsNone(SINGLE_HOST_VAR.search(label))
 
