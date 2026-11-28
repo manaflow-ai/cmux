@@ -688,6 +688,11 @@ pub struct Translator {
     /// Claude Code wrote something for the prompt (an assistant line, a
     /// conversation reset): its result ends the turn, never startup noise.
     turn_output: AtomicBool,
+    /// The main loop's model call is writing the reply's text now: a text delta came since its
+    /// `message_start` and its `message_stop` has not. A steer Claude Code reads meanwhile was read
+    /// mid-reply: the rest of that reply was written before the agent saw the steer
+    /// (`steer_read.midReply`, hub/steer_end.rs).
+    reply_streaming: AtomicBool,
     /// The text of the turn's last assistant line when that line is Claude Code's own API
     /// error (`is_api_error_message`, or a `<synthetic>` line saying "API Error: ..."), else
     /// None. A result that follows it is the turn's failure even when Claude Code calls it a
@@ -905,6 +910,7 @@ impl Translator {
             recap: Mutex::new("default"),
             in_turn: AtomicBool::new(false),
             turn_output: AtomicBool::new(false),
+            reply_streaming: AtomicBool::new(false),
             api_error: Mutex::new(None),
             prompt_echo: Mutex::new(None),
             prompt_queued: AtomicBool::new(false),
