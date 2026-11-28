@@ -172,6 +172,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_risk_tier_takeback_only.py
 
+      - name: Validate risk tier checks out token spread only for fallback
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_risk_tier_spread_lazy.py
+
       # No polling loops in scripts or workflows: waits go through one
       # glaeda-gh wait (or a single gh run watch --interval 300). A loop that
       # must stay needs an allowlist entry with its reason.
