@@ -22,6 +22,7 @@ fn row(key: &str, store_tab: Option<&str>, device: &str) -> Value {
         "first_frame_ms": 412,
         "state": "live",
         "hub_phase": "attached",
+        "hub_reason": null,
         "scope": "screen",
         "error": null,
         "connect_stage": "streaming",
@@ -48,6 +49,7 @@ fn shape_names_the_share_state_an_agent_reads() {
     assert_eq!(shaped["route"], route);
     assert_eq!(shaped["connect_stage"], "streaming");
     assert_eq!(shaped["hub_phase"], "attached");
+    assert_eq!(shaped["hub_reason"], Value::Null);
     assert_eq!(shaped["phase"], "streaming");
     assert_eq!(shaped["first_frame_ms"], 412);
     assert_eq!(shaped["fps"], 59.8);

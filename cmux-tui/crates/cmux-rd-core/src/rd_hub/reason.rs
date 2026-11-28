@@ -85,7 +85,9 @@ impl EndReason {
             t if t.starts_with("peer_offline") => EndReason::PeerOffline,
             t if Self::failure_detail(Some(t)).is_some() => EndReason::Failed,
             "expired" => EndReason::Expired,
-            "approve_failed" => EndReason::ApproveFailed,
+            t if t == "approve_failed" || t.starts_with("approve_failed:") => {
+                EndReason::ApproveFailed
+            }
             "consent_required" => EndReason::ConsentRequired,
             "moved" => EndReason::Moved,
             _ => EndReason::Other,
@@ -366,6 +368,7 @@ mod tests {
             ("failed", EndReason::Failed),
             ("expired", EndReason::Expired),
             ("approve_failed", EndReason::ApproveFailed),
+            ("approve_failed:relay", EndReason::ApproveFailed),
             ("consent_required", EndReason::ConsentRequired),
             ("moved", EndReason::Moved),
             ("bye", EndReason::Other),

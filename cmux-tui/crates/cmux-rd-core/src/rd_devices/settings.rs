@@ -518,7 +518,7 @@ impl EndReason {
             r if r.starts_with("peer_offline") => Self::PeerOffline,
             r if failure_detail(r).is_some() => Self::Failed,
             "expired" => Self::Expired,
-            "approve_failed" => Self::ApproveFailed,
+            r if r == "approve_failed" || r.starts_with("approve_failed:") => Self::ApproveFailed,
             "consent_required" => Self::ConsentRequired,
             "moved" => Self::Moved,
             _ => Self::Other,
