@@ -50,7 +50,7 @@ pub mod additions;
 mod additions_tests;
 #[cfg(target_os = "linux")]
 pub mod additions_thread;
-#[cfg(unix)] // a UnixStream to the daemon; its callers (role, github_minter) are unix-only
+#[cfg(unix)]
 pub mod agent_home_pull;
 #[cfg(all(test, unix))]
 mod agent_home_pull_tests;

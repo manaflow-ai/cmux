@@ -58,5 +58,4 @@ flate2.workspace = true
 ring.workspace = true
 tar = { version = "0.4", default-features = false }
 tokio.workspace = true
-proptest = { version = "1", default-features = false, features = ["std"] }
 tempfile = "3"

@@ -67,6 +67,7 @@ import struct
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import zlib
@@ -395,7 +396,13 @@ def post_status(state: str, description: str, repo: str, sha: str, tokens: list[
                 api(f"repos/{repo}/statuses/{sha}", token, "POST", body)
                 return True
             except Exception as e:  # noqa: BLE001 - the next token, then the next round
-                print(f"{STATUS_CONTEXT}: post refused ({type(e).__name__}: {e})", file=sys.stderr)
+                why = ""
+                if isinstance(e, urllib.error.HTTPError):  # the refusal's own words: "Forbidden" alone hid a spent hour
+                    try:
+                        why = " " + e.read().decode("utf-8", "replace")[:200]
+                    except Exception:  # noqa: BLE001
+                        pass
+                print(f"{STATUS_CONTEXT}: post refused ({type(e).__name__}: {e}){why}", file=sys.stderr)
         time.sleep(5 * (attempt + 1))
     return False
 
@@ -467,6 +474,15 @@ def look_reason(env) -> str:
     if env.get("STAGE_OUTCOME") == "failure":
         return "the look's pictures were not unpacked"
     return reason or "the look made no record"
+
+
+def settled_success(status: dict | None) -> bool:
+    """Whether cmux/ui-proof already reads success at this head (the router's UI-free success, a `Visual: none`
+    bypass, or a passing record). A look that could not run answers a question a success has closed: it must not
+    turn that success into failure (cmux#64036: router success 04:43Z, then "no fleet Mac took the look" 07:45Z,
+    "queue was full" 08:03Z, "pictures came without a receipt" 09:49Z; the newest status won and refused the merge).
+    A pending or absent status is not settled: the look failure still bounds a real UI PR's unanswered look."""
+    return bool(status and status.get("state") == "success")
 
 
 def kept_look_failure(status: dict | None) -> tuple[str, str] | None:
@@ -657,6 +673,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "look-failed":
         state, desc = look_failed(args.reason, args.pr, args.again)
         tokens = [t for t in os.environ.get("TOKENS", "").split() if t]
+        repo, sha = os.environ.get("REPO", ""), os.environ.get("SHA", "")
+        for token in tokens:
+            try:
+                current = current_status(repo, sha, token)
+            except Exception:  # noqa: BLE001 - an unread status posts the failure: the bound stays
+                continue
+            if settled_success(current):
+                print(f"{STATUS_CONTEXT}: already success at {sha[:12]} ({current.get('description')}); "
+                      f"the look's failure ({desc}) is not posted")
+                return 0
+            break
         ok = post_status(state, desc, os.environ.get("REPO", ""), os.environ.get("SHA", ""), tokens,
                          os.environ.get("RUN_URL", ""))
         print(f"{STATUS_CONTEXT}: {state}: {desc}" + ("" if ok else " (NOT posted)"))
