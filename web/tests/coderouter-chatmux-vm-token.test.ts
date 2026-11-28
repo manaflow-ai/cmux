@@ -112,6 +112,7 @@ describe("chatmux machines in request authentication", () => {
       kind: "team-machine",
       teamId: "team-a",
       machineId: "chatmux:vm-123",
+      ownerId: "user-1",
     });
   });
 
