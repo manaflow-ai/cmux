@@ -44,6 +44,7 @@ const DETECT = new RegExp(
 // A time with no date or zone is dropped when its neighbors say it is a score, ratio, line:col,
 // duration or verse: "won 21:15", "aspect ratio 16:10", "line 12:30", "took 01:23:45",
 // "Psalm 23:10", "a 16:10 display", "12:30 left", "at 1:30 into the video".
+const HAS_DIGIT = /\d/;
 const BARE_CLOCK = /^\d{1,2}:\d{2}(?::\d{2})?$/;
 const NOT_CLOCK_BEFORE =
   /\b(?:won|lost|beat(?:s|en)?|scor(?:e|es|ed)|final|tied|drew|draw|leads?|led|trail(?:s|ed|ing)?|record|odds|ratio|aspect|vs\.?|versus|lines?|ln|col(?:umn)?|row|verses?|chapter|ch\.|took|takes|taking|elapsed|duration|runtime|lasted|lasts|length|uptime|spent|timer|stopwatch|countdown)(?:\s+(?:is|was|of|at|by|to|for))?[\s:=]*$/i;
@@ -216,6 +217,8 @@ function decorateProseSegment(text: string, messageAt?: number): string {
 }
 
 function decorateSingles(text: string, messageAt?: number): string {
+  // Every DETECT alternative holds a digit: prose without one (most rows) has nothing to find.
+  if (!HAS_DIGIT.test(text)) return text;
   DETECT.lastIndex = 0;
   let out = "";
   let from = 0;

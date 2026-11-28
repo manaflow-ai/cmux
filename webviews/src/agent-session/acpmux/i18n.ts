@@ -130,10 +130,22 @@ export function recoverStrings(doc: Document | undefined = globalThis.document, 
   return true;
 }
 
+// The English table's plural strings (`key#other`), by their base key: one set per table, so a lookup
+// is a hash read and not a template string per call (every `t()` of every mounted row).
+let pluralKeysOf: { table: Table | undefined; keys: Set<string> } | undefined;
+function pluralKeys(): Set<string> {
+  const table = tables().en;
+  if (pluralKeysOf?.table === table) return pluralKeysOf.keys;
+  const keys = new Set<string>();
+  for (const name of Object.keys(table ?? {})) if (name.endsWith("#other")) keys.add(name.slice(0, -6));
+  pluralKeysOf = { table, keys };
+  return keys;
+}
+
 const pluralRules = new Map<PaneLanguage, Intl.PluralRules>();
 /** `key`, or for a plural string the form `lang`'s plural rules pick for `values.n`. */
 function formKey(key: string, values: StringValues, lang: PaneLanguage): string {
-  if (!(`${key}#other` in (tables().en ?? {}))) return key;
+  if (!pluralKeys().has(key)) return key;
   let rules = pluralRules.get(lang);
   if (!rules) {
     rules = intl.PluralRules(lang);
@@ -148,6 +160,7 @@ export function translateKey(key: CatalogKey, values: StringValues, lang: PaneLa
   const table = tables()[lang] as Record<string, string> | undefined;
   const english = tables().en as Record<string, string> | undefined;
   const text = table?.[formKey(key, values, lang)] ?? english?.[formKey(key, values, "en")] ?? key;
+  if (!text.includes("{")) return text;
   return text.replace(/\{(\w+)\}/g, (whole, name: string) => (name in values ? String(values[name]) : whole));
 }
 
