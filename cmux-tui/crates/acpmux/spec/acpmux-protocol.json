@@ -933,6 +933,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/pull_request_action",
+      "params": {
+        "$ref": "#/types/PullRequestActionParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/prompt_withdraw",
       "params": true,
       "result": true
@@ -1548,7 +1556,19 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/last",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/session_search",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/session_resources",
       "params": true,
       "result": true
     },
@@ -7327,6 +7347,19 @@
       "description": "`_acpmux/protocol` takes no params.",
       "type": "object"
     },
+    "PullRequestActionParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "action": true,
+        "headSha": true,
+        "sessionId": true,
+        "url": true
+      },
+      "type": "object"
+    },
     "PurgedSession": {
       "description": "A purged session: only its id is left.",
       "properties": {
@@ -8649,6 +8682,9 @@
             "null"
           ]
         },
+        "residency": {
+          "description": "What the chat costs its machine now, versioned (`v`): `resident` (a harness runs),\n`busy` (a turn runs), `hibernatedAt`, and the idle `policy` with this chat's\nperiod (`hub/residency.rs`, `acpmux_list_types::residency`). A cap counts every resident\nchat. Absent from a peer on an older acpmux: unknown, not idle."
+        },
         "retiredAgentSessionIds": {
           "description": "The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):\na Codex chat's earlier roots, which its older records still name, so a client folding\nthem never reads one as a subagent. Absent when none, and from a peer on an older acpmux.",
           "items": {
@@ -9628,6 +9664,9 @@
             "integer",
             "null"
           ]
+        },
+        "residency": {
+          "description": "What the chat costs its machine now, versioned (`v`): `resident` (a harness runs),\n`busy` (a turn runs), `hibernatedAt`, and the idle `policy` with this chat's\nperiod (`hub/residency.rs`, `acpmux_list_types::residency`). A cap counts every resident\nchat. Absent from a peer on an older acpmux: unknown, not idle."
         },
         "retiredAgentSessionIds": {
           "description": "The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):\na Codex chat's earlier roots, which its older records still name, so a client folding\nthem never reads one as a subagent. Absent when none, and from a peer on an older acpmux.",
