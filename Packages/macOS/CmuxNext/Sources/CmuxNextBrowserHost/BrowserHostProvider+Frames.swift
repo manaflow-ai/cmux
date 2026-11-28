@@ -21,7 +21,7 @@ extension BrowserHostProvider {
             leaseChanged(targetID, lease)
         case .input(let event):
             notifyInput(event)
-        case .hello, .helloAck, .result, .event, .userInput, .tabAccess, .unknown:
+        case .hello, .helloAck, .result, .event, .userInput, .leaseUser, .tabAccess, .unknown:
             // Frames the host never sends, a repeated ack, or a newer host's frame.
             break
         }
