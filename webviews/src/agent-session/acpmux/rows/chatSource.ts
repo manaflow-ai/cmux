@@ -9,10 +9,12 @@ import { type AdaptedChat, ChatAdapter, type ChatRowsContext } from "./adapter";
 import { CHAT_ROWS_OFF, CHAT_ROWS_OTHER_SID, CHAT_ROWS_SLOW, ChatRowsHost, type ChatRowsPost } from "./host";
 import { addChatRowsHost, listenForChatRows, receiveChatRows, removeChatRowsHost } from "./receiver";
 import { type ChatFall, ChatRowStore, type ChatRowsSnapshot } from "./store";
+import { SNAPSHOT_GLOBAL } from "../chatSnapshot/shared";
 
 /// What this document knows of the host's switch: `off` once a host said it has no such operation
 /// (`chat.rows.off`: the page host's `unknown_op` or the old bridge's `unsupported`), and then no
-/// open is asked again; `on` once one opened. Page memory only.
+/// open is asked again; `on` once one opened. Page memory; a restart's first open reads `on` from the
+/// chat's saved copy (`rememberedOn`).
 export type ChatRowsState = "unknown" | "off" | "on";
 let state: ChatRowsState = "unknown";
 export const chatRowsState = (): ChatRowsState => state;
@@ -20,11 +22,28 @@ export const chatRowsState = (): ChatRowsState => state;
 /// (`CHAT_ROWS_OTHER_SID`): each fell that chat to v1 once, and left the switch as it was.
 let otherSids = 0;
 export const chatRowsOtherSids = (): number => otherSids;
+/// Whether this document already read its saved copy's word on the switch (`rememberedOn`): once.
+let rememberedRead = false;
 /// A test's fresh page; `said` makes it one a host already opened a chat on (`hostSaidOn`), as every
 /// page is after its first open: its next open guesses the switch (0-RTT, `direct.ts` `HandshakeGuess`).
 export function resetChatRowsState(said?: "on"): void {
   state = said ?? "unknown";
   otherSids = 0;
+  rememberedRead = false;
+}
+
+/// What the chat's copy the last launch kept says of the switch (chatSnapshot/shared.ts `ChatSnapshot`
+/// `rows`, kept per chat on the host's disk beside it, `chat.snapshot.put`): `on` when the host had
+/// opened the chat on the store then. Page memory forgets that at a restart, so without it the
+/// restarted page's first attach was v1's whole page, and the switch came 200 ms later, after the
+/// handshake. Read once a document: only the first open guesses from it; every later one from what a
+/// host said this time. A guess is checked against the handshake (`direct.ts` `guessHeld`): a daemon
+/// that no longer has the hold, or a host that says off, opens the chat on v1 as before.
+function rememberedOn(): boolean {
+  if (rememberedRead) return false;
+  rememberedRead = true;
+  const copy = (globalThis as Record<string, unknown>)[SNAPSHOT_GLOBAL] as { rows?: unknown } | null | undefined;
+  return copy?.rows === "on";
 }
 
 /// The daemon's capability for the hold (acpmux capabilities.rs `HOLD_ATTACH`).
@@ -90,9 +109,10 @@ export class ChatSource {
   }
 
   /// A host on this page opened a chat on the store: an open asked before its handshake answers
-  /// may guess the switch (`direct.ts` `HandshakeGuess`), checked against that handshake after.
+  /// may guess the switch (`direct.ts` `HandshakeGuess`), checked against that handshake after. So
+  /// may a restarted page's first open whose saved copy says a host had (`rememberedOn`).
   hostSaidOn(): boolean {
-    return state === "on";
+    return state === "on" || (state === "unknown" && rememberedOn());
   }
 
   /// The chat's rows come from the store: its v1 attach is the hold.
