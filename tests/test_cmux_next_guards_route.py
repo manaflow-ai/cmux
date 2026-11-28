@@ -129,6 +129,7 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         # Inside the land tier's and the label filter's wrapping (tests/test_head_tier.py), so a contained clause, not a prefix.
         self.assertIn(  # then the land tier (tests/test_head_tier.py)
                         "((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
+                        "needs.full-carry.outputs.tier != 'none' && "
                         "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
                         "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))))) && ",
                         group["if"])
@@ -258,6 +259,58 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
                 lines = out.read_text().splitlines()
                 self.assertIn(f"ios_placeholder={want}", lines)
 
+
+    def test_app_store_shelf_pr_runs_only_where_the_diff_reaches_its_inputs(self):
+        # ci-min-per-pr-140 (Leo, 2026-11-21: "whatever we need to cut, we cut."): the shelf job took a runner and a
+        # checkout on every pull request head (102 heads in 34 min on 11-27, ~1.9 min each) to find, in its own first
+        # step, that no shelf input changed. workflow-start-lint already holds a depth-2 checkout: it says so first.
+        import os  # noqa: PLC0415
+        import subprocess  # noqa: PLC0415
+        import tempfile  # noqa: PLC0415
+
+        jobs = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())["jobs"]
+        shelf = jobs["app-store-shelf-pr"]
+        self.assertIn("workflow-start-lint", shelf["needs"])
+        self.assertIn("(needs.workflow-start-lint.outputs.app_store_shelf != 'false' || "
+                      "vars.APP_STORE_SHELF_EVERY_HEAD == '1')", shelf["if"])
+        self.assertIn("!cancelled()", shelf["if"])
+        # No land-tier skip: the shelf stays on every head that reaches its inputs (tests/test_head_tier.py).
+        self.assertNotIn("CI_LAND_TIER", shelf["if"])
+        lint = jobs["workflow-start-lint"]
+        self.assertEqual(lint["outputs"]["app_store_shelf"], "${{ steps.touched.outputs.app_store_shelf }}")
+        step = next(s for s in lint["steps"] if s.get("id") == "touched")
+        # The route's pattern is the job's own: a drift would skip a head the job would have judged.
+        job_pattern = next(s for s in shelf["steps"] if s.get("id") == "inputs")["run"]
+        import re  # noqa: PLC0415
+        want_pattern = re.search(r"pattern='([^']*)'", job_pattern).group(1)
+        self.assertIn("shelf='" + want_pattern + "'", step["run"])
+        cases = [
+            ("pull_request", "first-party-apps/cloud/app.toml", "true"),
+            ("pull_request", "samples/apps/demo/manifest.json", "true"),
+            ("pull_request", "scripts/ci/app-store-shelf-check.sh", "true"),
+            ("pull_request", ".github/workflows/app-store-shelf.yml", "true"),
+            ("pull_request", "cmux-tui/crates/cmux-app-host/src/lib.rs", "true"),
+            ("pull_request", "docs/cmux-next-ios.md", "false"),
+            ("pull_request", "cmux-tui/crates/acpmux/src/lib.rs", "false"),
+            ("pull_request", "webviews/src/app.tsx", "false"),
+            ("push", "docs/cmux-next-ios.md", "true"),
+        ]
+        for event, changed, want in cases:
+            with self.subTest(event=event, changed=changed), tempfile.TemporaryDirectory() as tmp:
+                git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+                subprocess.run(["git", "init", "-q", tmp], check=True)
+                Path(tmp, "base.txt").write_text("base\n")
+                subprocess.run(git + ["add", "-A"], check=True)
+                subprocess.run(git + ["commit", "-qm", "base"], check=True)
+                Path(tmp, changed).parent.mkdir(parents=True, exist_ok=True)
+                Path(tmp, changed).write_text("change\n")
+                subprocess.run(git + ["add", "-A"], check=True)
+                subprocess.run(git + ["commit", "-qm", "change"], check=True)
+                out = Path(tmp, "github_output")
+                env = {"PATH": os.environ["PATH"], "HOME": tmp, "GITHUB_OUTPUT": str(out), "EVENT_NAME": event}
+                subprocess.run(["bash", "-eo", "pipefail", "-c", step["run"]], cwd=tmp, env=env, check=True,
+                               capture_output=True)
+                self.assertIn(f"app_store_shelf={want}", out.read_text().splitlines())
 
     def test_spec_checks_run_on_every_head_whose_diff_reaches_the_spec(self):
         # #56203 (dd19a6ecf137, 2026-11-27) added the control event `client-disconnected-by` in server code and
