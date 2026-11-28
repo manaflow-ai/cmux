@@ -46,7 +46,7 @@ struct CloudTreeMachineDetailTabsView: View {
             ForEach(Array(tabs.tabs.enumerated()), id: \.element) { index, tab in
                 CloudTreeMachineDetailTabButton(
                     tab: tab,
-                    count: density.showsCounts ? tabs.count(for: tab) : nil,
+                    count: density.showsCounts ? tabs.countLabel(for: tab) : nil,
                     isSelected: tabs.selected == tab,
                     style: style,
                     horizontalPadding: density.horizontalPadding,
@@ -98,7 +98,7 @@ struct CloudTreeMachineDetailTabsView: View {
 /// the others take the shared hover fill.
 private struct CloudTreeMachineDetailTabButton: View {
     let tab: CloudTreeMachineDetailTab
-    let count: Int?
+    let count: String?
     let isSelected: Bool
     let style: CloudTreeStyle
     var horizontalPadding = CloudTreeMachineDetailTabButtonMetrics.horizontalPadding
@@ -121,7 +121,7 @@ private struct CloudTreeMachineDetailTabButton: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if let count {
-                    Text(count, format: .number)
+                    Text(count)
                         .cmuxFont(size: style.detailSize - 0.5, design: style.fontDesign, monospacedDigit: true)
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
