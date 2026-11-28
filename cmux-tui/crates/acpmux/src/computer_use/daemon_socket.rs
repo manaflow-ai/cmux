@@ -120,6 +120,16 @@ pub fn bundle_build(exe: &Path) -> Option<BuildIdentity> {
     Some(BuildIdentity::new(Some(bundle_id), tag.as_deref()))
 }
 
+/// The name of the app bundle around `exe` ("cmux NIGHTLY" for
+/// `/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux`); None outside an app.
+pub fn bundle_name(exe: &Path) -> Option<String> {
+    let bundle = exe
+        .ancestors()
+        .find(|path| path.extension().is_some_and(|extension| extension == "app"))
+        .filter(|bundle| exe.starts_with(bundle.join("Contents")))?;
+    Some(bundle.file_stem()?.to_str()?.to_owned())
+}
+
 /// The candidates for this process.
 pub fn from_process() -> Vec<Candidate> {
     let env = |key: &str| std::env::var(key).ok();

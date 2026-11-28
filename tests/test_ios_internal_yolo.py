@@ -119,5 +119,18 @@ class StackTests(unittest.TestCase):
         self.assertIn("Dispatched to cmux INTERNAL", text)
 
 
+class WorkflowTests(unittest.TestCase):
+    def test_the_yolo_job_can_read_the_release_app_secrets(self):
+        import yaml
+        wf = yaml.safe_load((ROOT / ".github/workflows/ios-internal-nightly-trigger.yml").read_text())
+        job = wf["jobs"]["yolo"]
+        mints = [s for s in job["steps"] if "CMUX_FFI_RELEASE_APP_ID" in str(s.get("with", {}))]
+        self.assertTrue(mints, "the yolo job mints the release App token")
+        env = job.get("environment")
+        name = env.get("name") if isinstance(env, dict) else env
+        # The secrets are scoped to ffi-release; outside it the mint gets an empty app id (run 46085910676).
+        self.assertEqual(name, "ffi-release")
+
+
 if __name__ == "__main__":
     unittest.main()
