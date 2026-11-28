@@ -59,6 +59,10 @@ jobs:
       - name: Start one batch run when the tip is untested
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          # The other budget: post_merge_batch.py tries it on a read or write the App's spent budget refused.
+          # Before it, from 2026-11-27 23:55Z every tick for over 2 h ended "tick skipped: ... rate limit
+          # exceeded for installation" on the App alone and no batch ran. A script without GH_FALLBACK_TOKEN support ignores it.
+          GH_FALLBACK_TOKEN: ${{ github.token }}
           NEXT_POST_MERGE_WINDOW_MINUTES: ${{ vars.NEXT_POST_MERGE_WINDOW_MINUTES }}
         run: |
           if [ ! -f scripts/ci/post_merge_batch.py ]; then
