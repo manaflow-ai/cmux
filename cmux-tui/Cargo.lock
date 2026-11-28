@@ -2413,6 +2413,7 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-process",
+ "cmux-rollout",
  "cmux-server",
  "cmux-server-core",
  "cmux-signed-envelope",
