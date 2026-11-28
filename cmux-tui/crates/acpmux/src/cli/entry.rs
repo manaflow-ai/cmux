@@ -770,6 +770,12 @@ async fn async_main(parsed: Parsed) -> Result<()> {
             }
         }
         // No daemon: what this binary serves (`capabilities.rs`).
+        Some(Command::RunElsewhereCarrier(args)) => {
+            match crate::cli::run_elsewhere_carrier::run(args).await {
+                Ok(code) => std::process::exit(code),
+                Err(e) => errors::exit_with(&e, cli.json),
+            }
+        }
         Some(Command::SubForkJob) => match crate::placement::sub_fork_run::job_main().await {
             Ok(()) => Ok(()),
             Err(e) => errors::exit_with(&e, cli.json),
