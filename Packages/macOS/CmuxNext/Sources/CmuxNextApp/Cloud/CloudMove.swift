@@ -420,13 +420,30 @@ struct CloudMove {
             try await connection.request(NewConversationTabRequest(agentSession: record, workspace: result.workspace,
                                                                    origin: AgentTabStore.createOrigin, mutationID: mutation + shown.key))
         }
+        let opened = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)"
+        await drawFirst(opened, on: daemon, leaving: tab, services: services)
         let pane = services.locateTab(model: tab)?.1
         let keeping = services.windows.controllers.filter { window in pane.map { window.showsOnScreen(tab.id, in: $0) } == true }.map(\.state.id)
         if keeping.isEmpty { services.windows.reveal(workspaceID: workspace.rawValue) }
         ActionRunScope.carrying(ActionRunScope(origin: ActionRunScope.current?.origin ?? .user, allowsViewChange: true)) { keeping.forEach { services.windows.show(workspaceID: workspace.rawValue, inWindow: $0) } }
-        let opened = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)", first = await daemon.store.firstPane(mirroring: workspace)
+        let first = await daemon.store.firstPane(mirroring: workspace)
         for window in services.windows.controllers { if let first { window.state.selection.select(opened, in: first.id) } }
         return created.surface.rawValue
+    }
+
+    /// The moved chat's page draws out of sight before its workspace takes the window (``AgentPaneDrawFirst``, as a Cloud start's),
+    /// so the tab the chat leaves stays on screen, transcript and all, until the moved tab shows drawn: its first frame is the
+    /// chat's kept copy (one session id across the move, ``AgentPaneChatSnapshots``), never the loading cover. Austin
+    /// (2026-11-28, c-17e4ae3662): "when we do a “transition” to a cloud chat it likes blinks out and then changes the chat".
+    /// A page that has not painted within the bound shows as it is (the leaving tab is not held forever).
+    static func drawFirst(_ opened: String, on daemon: DaemonService, leaving tab: TabModel, services: AppServices) async {
+        let tabs = services.agentTabs
+        guard let shown = tabs.existingView(tab.id, machine: services.machines.daemon(forTab: tab).machineID), let window = shown.window else { return }
+        let key = tabs.tabKey(opened, machine: daemon.machineID)
+        let drawn = await AgentPaneDrawFirst.draw({ tabs.view(for: key.key, machine: key.machine) }, makeable: { [weak tabs] in
+            tabs.map { $0.existingView(key.key, machine: key.machine) != nil || ($0.record(for: key) != nil && $0.host(for: key) != nil) } ?? true
+        }, in: window, size: shown.frame.size)
+        if drawn != .painted { services.cloud.logger.notice("cloud move: the moved chat shows before its page painted (\(drawn.rawValue, privacy: .public))") }
     }
 
     /// A moved chat's workspace name: its workspace's here, but never Home's (a machine's "Home" hid the chat): its folder's.
