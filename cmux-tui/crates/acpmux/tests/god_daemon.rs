@@ -68,6 +68,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     // The chat size sweep's sizes (`chat_size_sweep`).
     "ACPMUX_CHAT_SIZES",
     "ACPMUX_CHAT_SIM_BIN",
+    "ACPMUX_PROFILE_ATTACH_SECS",
     // The fleet's output directory, not a credential: keep the bounded daemon-log artifacts.
     "FAST_CHECKS_OUT",
     "ACPMUX_GOD_DHAT",
@@ -2360,6 +2361,19 @@ fn size_run(label: &str, bytes: u64) -> Value {
 
     // Settled: the log is read; what a long chat costs on its own.
     let rounds = ROUNDS as u64;
+    if let Ok(secs) = std::env::var("ACPMUX_PROFILE_ATTACH_SECS") {
+        let secs: u64 = secs.parse().unwrap();
+        eprintln!("PROFILE-ATTACH pid={} label={label}", daemon.child.id());
+        std::thread::sleep(Duration::from_secs(2));
+        let until = Instant::now() + Duration::from_secs(secs);
+        let mut n = 0u64;
+        while Instant::now() < until {
+            let _ = rpc.call("_acpmux/attach", app_attach(&id));
+            rpc.notes.clear();
+            n += 1;
+        }
+        eprintln!("PROFILE-ATTACH-END label={label} n={n}");
+    }
     let (attach_us, attach_records, attach_error) =
         timed_rounds(&mut rpc, "_acpmux/attach", rounds, &prepared, |_| app_attach(&id));
     let (rss_idle, _) = daemon.rss();
