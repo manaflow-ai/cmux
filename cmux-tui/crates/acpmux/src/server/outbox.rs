@@ -681,6 +681,15 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
     let mut moves_followed = 0u32;
     // When it first found its chat mid-move (`Next::Moving`).
     let mut moving_since: Option<std::time::Instant> = None;
+    // The last wait ended on the hub's gate opening (`Gate::opened`): the next one sleeps its own
+    // back-off. A hub that takes one post and fails the next opens and shuts its gate every few
+    // seconds (any answer that is not a passing failure opens it: a 4xx for one name too), and
+    // each opening woke every queued delivery it carries for another try at once: cmux-cp-1,
+    // 2026-11-28, hub at 503 mesh.unavailable since ~19:00Z, acpmux-outbox 250-280 requests a
+    // minute (141 session/prompt) and the daemon at 154% CPU. One wake per back-off step still
+    // drains the outbox the moment the hub is back (RFD 0086 item 2); a flapping hub costs each
+    // delivery its own schedule, not one try per flap.
+    let mut woke_on_open = false;
     loop {
         let Ok(permit) = hub.outbox_attempts.acquire().await else { return };
         let Some(delivery) = hub.outbox.get(id) else { return };
@@ -1035,11 +1044,18 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                     .outbox
                     .get(id)
                     .is_some_and(|d| d.error.as_deref().is_some_and(|e| e.contains(UNLISTED)));
-                let on_open = !delivery.projection_only() && (by_hub || behind_gate) && !unlisted;
+                let on_open = !delivery.projection_only()
+                    && (by_hub || behind_gate)
+                    && !unlisted
+                    && !woke_on_open;
+                woke_on_open = false;
                 loop {
                     tokio::select! {
                         () = &mut sleep => break,
-                        () = &mut opened, if on_open => break,
+                        () = &mut opened, if on_open => {
+                            woke_on_open = true;
+                            break;
+                        }
                         () = &mut ready, if on_ready => {
                             // `peer_ready` is one signal for every peer. Another peer's link
                             // coming back leaves this one's as it was: waking for it retried
