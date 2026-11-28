@@ -3476,12 +3476,16 @@ export class AcpmuxDirectClient {
   /// `forThisPage` is false when this client is the one going away, so the tail goes to the app
   /// host alone and not into this page's map (tailCache.ts `rememberTail`). `toHost` is false when
   /// the caller carries it to the host itself (`tailHandOver`). The chat and tail kept, if any.
-  private rememberCurrentTail(forThisPage = true, toHost = true): { sessionId: string; tail: KeptTail } | undefined {
+  private rememberCurrentTail(
+    forThisPage = true,
+    toHost = true,
+    hostAfterPaint = false,
+  ): { sessionId: string; tail: KeptTail } | undefined {
     const sessionId = this.selectedSessionId;
     const tail = this.currentTail();
     // A chat on the store keeps its window instead (rows/chatSource.ts): one kept thing a chat.
     if (!sessionId || !tail || this.chatRows.holds(sessionId)) return undefined;
-    rememberTail(sessionId, tail, forThisPage, toHost);
+    rememberTail(sessionId, tail, forThisPage, toHost, hostAfterPaint);
     if (forThisPage) {
       this.leftRows.delete(sessionId);
       this.leftRows.set(sessionId, new Map(this.rows));
@@ -15121,8 +15125,9 @@ export class AcpmuxDirectClient {
     // Refresh the loaded transcript, not its bounded 400-record cache. Capture before changing
     // the selection generation or resetting events so older visible replies survive a slow attach.
     const fullRefreshTail = onScreen && previousSessionId === sessionId ? this.currentTail(true) : undefined;
-    // The chat being left is kept for its own next open, while it is still the selected one.
-    this.rememberCurrentTail();
+    // The chat being left is kept for its own next open, while it is still the selected one. The
+    // host's copy goes after the switch's frame paints (tailCache.ts `writeHostTailSoon`).
+    this.rememberCurrentTail(true, true, previousSessionId !== sessionId);
     // The tail of a chat that left the list while drawn (`selectFallbackSession`), taken once.
     const leftTail = this.leftTail?.sessionId === sessionId ? this.leftTail.tail : undefined;
     this.leftTail = undefined;
@@ -15793,6 +15798,13 @@ export class AcpmuxDirectClient {
   /// Chats read ahead, by how far their kept tail's read went and the chat it was of (its
   /// `createdAt` and machine): the next read of one that ran on asks only for what came after.
   private readAheadThrough = new Map<string, { through: number; createdAt: unknown; peer: unknown }>();
+  /// Chats whose read ahead acpmux answered with no record a tail draws, by the row's
+  /// `transcriptSeq` when it was asked: a pending agent start that logs only `agent_start_waiting`,
+  /// a chat whose log holds only raw harness lines. Nothing was kept of them, so the `!keptTail`
+  /// test read each again on every change in the list, every 5 s while its row moved for
+  /// bookkeeping, and acpmux walked the log back each time for nothing (Leo, 2026-11-19: "audit
+  /// claude desktop's ram cpu gpu usage network usage"). Read again only once its transcript moves.
+  private readAheadNothing = new Map<string, number>();
   /// Reads out now, by chat, so a switch to one can wait on it briefly.
   private readingAhead = new Map<string, Promise<void>>();
   /// Chats waiting for a read, the next one first.
@@ -15809,6 +15821,7 @@ export class AcpmuxDirectClient {
     this.readAheadAt.delete(sessionId);
     this.readAheadSeq.delete(sessionId);
     this.readAheadThrough.delete(sessionId);
+    this.readAheadNothing.delete(sessionId);
     this.shareOnRead.delete(sessionId);
     if (this.readAheadQueue.includes(sessionId))
       this.readAheadQueue = this.readAheadQueue.filter((queued) => queued !== sessionId);
@@ -15852,6 +15865,9 @@ export class AcpmuxDirectClient {
     const wanted = sessionIds.filter((sessionId) => {
       if (!sessionId || sessionId === this.selectedSessionId || this.readingAhead.has(sessionId)) return false;
       if (this.listedCold(sessionId)) return false;
+      const nothingAt = this.readAheadNothing.get(sessionId);
+      if (nothingAt !== undefined && nothingAt === transcriptSeq(this.sessions.find((s) => s.sessionId === sessionId)))
+        return false;
       const readAt = this.readAheadAt.get(sessionId);
       // A chat this page opened keeps the tail it read itself; one read ahead is read again only
       // when it ran on since, and not more often than READ_AHEAD_REFRESH_MS.
@@ -15936,7 +15952,12 @@ export class AcpmuxDirectClient {
     // The chat was opened meanwhile: its attach holds the newer read.
     if (this.closed || this.socket !== connection || sessionId === this.selectedSessionId) return;
     const page = records(result?.events);
-    if (page.length === 0) return;
+    if (page.length === 0) {
+      // Answered with nothing to keep: asked again only once its transcript moves (`readAheadNothing`).
+      if (askedSeq !== undefined) this.readAheadNothing.set(sessionId, askedSeq);
+      return;
+    }
+    this.readAheadNothing.delete(sessionId);
     const oldest = Math.min(...page.map((event) => event.seq));
     const turnOpener = await this.fetchTurnOpener(sessionId, page, result?.hasMore === true);
     // The opener read may finish after an open or a machine/generation change. It cannot publish
@@ -17070,21 +17091,6 @@ export class AcpmuxDirectClient {
   async contextInventory(sessionId = this.actingSessionId): Promise<unknown> {
     if (!sessionId) throw new Error(translate("error.notOpen"));
     return this.request("_acpmux/context", { sessionId });
-  }
-  /// The instructions and memory files that follow the person to this machine, and the notes other
-  /// machines propose to add (`_acpmux/agent_home`): Session Info's Carried memory.
-  async agentHome(sessionId = this.actingSessionId): Promise<unknown> {
-    if (!sessionId) throw new Error(translate("error.notOpen"));
-    return this.request("_acpmux/agent_home", { sessionId });
-  }
-  /// Accepts or drops proposals by id (`_acpmux/agent_home_resolve`). Sent on the click with no await
-  /// before it: acpmux takes it only from the person, like `_acpmux/memory_resolve`.
-  async resolveAgentHome(
-    change: { accept: string[]; drop: string[] },
-    sessionId = this.actingSessionId,
-  ): Promise<unknown> {
-    if (!sessionId) throw new Error(translate("error.notOpen"));
-    return this.request("_acpmux/agent_home_resolve", { sessionId, accept: change.accept, drop: change.drop });
   }
   /// Saves (or with `text: null` removes) the guidance new chats get, for every chat (`user`) or
   /// this folder's (`project`), and answers with the inventory after it (`_acpmux/context_override`).
