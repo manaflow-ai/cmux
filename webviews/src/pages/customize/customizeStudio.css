@@ -1,0 +1,728 @@
+/* The customization paradigm proposal (CustomizeStudio.tsx): three layouts over one live preview. */
+.customize-studio {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+  color: var(--ds-color-fg);
+  font: inherit;
+  container: studio / inline-size;
+}
+/* The header holds the trial too (Revert and Keep take the Try button's slot), so starting or ending
+   a trial tints it and moves nothing below it. */
+.studio-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-3);
+  min-height: var(--ds-space-48);
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border-radius: var(--ds-radius-card);
+  background: var(--ds-surface-card);
+  transition: background-color var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.studio-header[data-trying] {
+  background: color-mix(in oklab, var(--ds-color-accent) 14%, var(--ds-surface-card));
+}
+.studio-header-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.studio-header-text > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-header-actions {
+  display: flex;
+  flex: none;
+  gap: var(--ds-space-2);
+}
+.studio-header h2,
+.studio-detail h3,
+.studio-setups-changes h3 {
+  margin: 0;
+  font-weight: 600;
+}
+.studio-detail h4 {
+  margin: 0;
+  font-weight: 600;
+  color: var(--cmux-text-secondary);
+}
+.studio-muted {
+  color: var(--cmux-text-secondary);
+}
+.studio-button {
+  height: var(--ds-control-compact);
+  padding: 0 var(--ds-space-3);
+  border: 1px solid var(--ds-surface-control-line);
+  border-radius: var(--ds-radius-control);
+  background: var(--ds-surface-card);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.studio-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.studio-prefix {
+  color: var(--cmux-text-secondary);
+  font-weight: 400;
+}
+.studio-button-primary {
+  background: var(--ds-color-accent);
+  border-color: transparent;
+  color: var(--ds-color-on-accent);
+}
+.studio-switch {
+  display: block;
+  flex: none;
+  width: 32px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--ds-surface-inset);
+  position: relative;
+  cursor: pointer;
+  transition: background-color var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.studio-switch::after {
+  content: "";
+  position: absolute;
+  top: var(--grid-half-step);
+  left: var(--grid-half-step);
+  width: 16px;
+  bottom: var(--grid-half-step);
+  border-radius: 999px;
+  background: var(--cmux-text-secondary);
+  transition: transform var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.studio-switch-on {
+  background: var(--ds-color-accent);
+}
+.studio-switch-on::after {
+  background: var(--ds-color-on-accent);
+  transform: translateX(12px);
+}
+.studio-pill {
+  padding: 0 var(--ds-space-1);
+  border-radius: 999px;
+  background: var(--ds-surface-inset);
+  color: var(--cmux-text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.studio-pill-pending {
+  background: color-mix(in oklab, var(--ds-color-accent) 18%, transparent);
+  color: var(--ds-color-accent);
+}
+/* The live preview: a small cmux window. Every customization is one class on it. */
+.mini-cmux {
+  --mini-accent: var(--ds-color-accent);
+  display: flex;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--ds-surface-card-line);
+  border-radius: var(--ds-radius-card);
+  background: var(--ds-color-surface);
+  aspect-ratio: 16 / 10;
+  width: 100%;
+}
+.mini-cmux-thumb {
+  border-radius: var(--ds-radius-md);
+}
+.mini-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  width: 30%;
+  padding: var(--ds-space-2);
+  background: var(--ds-surface-inset);
+  transition: width var(--cmux-motion-standard) var(--cmux-ease-out);
+}
+.mini-cmux-thumb .mini-sidebar {
+  padding: var(--ds-space-1);
+}
+.mini-sidebar {
+  container: mini-sidebar / inline-size;
+  flex: none;
+}
+.mini-row {
+  aspect-ratio: 8 / 1;
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-surface-hover);
+}
+.mini-row-on {
+  background: color-mix(in oklab, var(--mini-accent) 45%, transparent);
+}
+.mini-chip {
+  margin-top: auto;
+  padding: 0 var(--ds-space-1);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--mini-accent) 22%, transparent);
+  color: var(--mini-accent);
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.mini-cmux-thumb .mini-chip {
+  font-size: 0;
+  aspect-ratio: 10 / 1;
+}
+/* A sidebar too narrow for the chip's words draws it as a bar: never half a word. */
+@container mini-sidebar (width < 64px) {
+  .mini-chip {
+    font-size: 0;
+    aspect-ratio: 6 / 1;
+  }
+}
+.mini-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.mini-titlebar {
+  height: 7%;
+  border-bottom: 1px solid var(--ds-color-separator);
+}
+.mini-welcome {
+  margin: var(--ds-space-2);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border-radius: var(--ds-radius-md);
+  background: color-mix(in oklab, var(--mini-accent) 16%, var(--ds-surface-card));
+  font-size: 11px;
+  font-weight: 600;
+}
+.mini-cmux-thumb .mini-welcome {
+  margin: var(--ds-space-1);
+  padding: 0;
+  aspect-ratio: 12 / 1;
+  font-size: 0;
+}
+.mini-chat {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-2);
+}
+.mini-cmux-thumb .mini-chat {
+  padding: var(--ds-space-1);
+}
+.mini-bubble {
+  width: 70%;
+  aspect-ratio: 12 / 1;
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-surface-hover);
+}
+.mini-bubble-mine {
+  align-self: flex-end;
+  width: 45%;
+  background: color-mix(in oklab, var(--mini-accent) 35%, transparent);
+}
+.mini-bubble-new {
+  width: 55%;
+}
+.mini-composer {
+  aspect-ratio: 18 / 1;
+  margin: var(--ds-space-2);
+  border: 1px solid var(--ds-surface-control-line);
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-surface-card);
+}
+.mini-cmux-thumb .mini-composer {
+  margin: var(--ds-space-1);
+}
+
+/* Effects. */
+.mini-cmux.fx-ember {
+  --mini-accent: color-mix(in oklab, var(--ds-color-danger) 65%, var(--ds-color-success));
+}
+.mini-cmux.fx-motion {
+  background: linear-gradient(
+    120deg,
+    color-mix(in oklab, var(--ds-color-success) 35%, var(--ds-color-surface)),
+    var(--ds-color-surface),
+    color-mix(in oklab, var(--ds-color-danger) 30%, var(--ds-color-surface))
+  );
+  background-size: 300% 300%;
+  animation: mini-drift calc(var(--cmux-motion-large) * 24) linear infinite;
+}
+@keyframes mini-drift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+.mini-cmux.fx-glass .mini-sidebar,
+.mini-cmux.fx-glass .mini-titlebar {
+  background: color-mix(in oklab, var(--ds-surface-card) 40%, transparent);
+  backdrop-filter: blur(12px);
+}
+.mini-cmux.fx-glass {
+  background-image: radial-gradient(
+    circle at 20% 30%,
+    color-mix(in oklab, var(--mini-accent) 35%, transparent),
+    transparent 60%
+  );
+}
+.mini-cmux.fx-compact .mini-sidebar {
+  width: 18%;
+  gap: 0;
+}
+.mini-cmux.fx-round .mini-composer {
+  border-radius: 999px;
+}
+.mini-cmux.fx-blocks .mini-bubble-new {
+  animation: mini-slide calc(var(--cmux-motion-large) * 4) var(--cmux-ease-out) infinite;
+}
+@keyframes mini-slide {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  40%,
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The part a picture is about, outlined: a thumbnail of a capsule composer or a tighter sidebar is
+   otherwise the same grey window as its neighbour. */
+.mini-cmux[data-focus="round"] .mini-composer,
+.mini-cmux[data-focus="blocks"] .mini-bubble-new,
+.mini-cmux[data-focus="compact"] .mini-sidebar,
+.mini-cmux[data-focus="glass"] .mini-sidebar,
+.mini-cmux[data-focus="standup"] .mini-chip,
+.mini-cmux[data-focus="yours"] .mini-welcome,
+.mini-cmux[data-focus="ember"] .mini-row-on {
+  outline: 1px solid var(--mini-accent);
+  outline-offset: -1px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mini-cmux.fx-motion,
+  .mini-cmux.fx-blocks .mini-bubble-new {
+    animation: none;
+  }
+}
+
+.studio-before-after {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--ds-space-2);
+}
+.studio-before-after figure {
+  margin: 0;
+}
+.studio-before-after figcaption {
+  color: var(--cmux-text-secondary);
+  font-size: 11px;
+  text-align: center;
+}
+.studio-card-name {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  font-weight: 600;
+}
+.studio-card-line {
+  color: var(--cmux-text-secondary);
+  font-size: 12px;
+}
+.studio-card-title {
+  flex: 1;
+  min-width: 0;
+}
+.studio-on-pill {
+  background: color-mix(in oklab, var(--ds-color-accent) 18%, transparent);
+  color: var(--ds-color-accent);
+  font-weight: 400;
+}
+.studio-on-pill:not([data-shown]) {
+  visibility: hidden;
+}
+
+/* Store. */
+.studio-store {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: var(--ds-space-3);
+}
+.studio-store-browse {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+}
+.studio-setups-shelf {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--ds-space-2);
+}
+.studio-setup-card {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-2);
+  border: 1px solid var(--ds-surface-card-line);
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-2));
+  background: var(--ds-surface-card);
+}
+.studio-setup-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 12px;
+}
+.studio-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--ds-space-2);
+}
+.studio-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-2);
+  border: 1px solid var(--ds-surface-card-line);
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-2));
+  background: var(--ds-surface-card);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.studio-card-selected {
+  border-color: var(--ds-color-accent);
+}
+.studio-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-3);
+  border: 1px solid var(--ds-surface-card-line);
+  border-radius: var(--ds-radius-card);
+  background: var(--ds-surface-card);
+  position: sticky;
+  top: var(--ds-space-3);
+  align-self: start;
+}
+.studio-detail p {
+  margin: 0;
+}
+.studio-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+}
+
+/* Manager. */
+.studio-manager {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: var(--ds-space-3);
+}
+.studio-manager-head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: 0 var(--ds-space-2) var(--ds-space-2);
+}
+/* The setups as one segmented track, the same shape as Settings' segmented toggles. */
+.studio-track {
+  display: flex;
+  padding: var(--grid-half-step);
+  border-radius: var(--ds-radius-control);
+  background: var(--ds-surface-inset);
+}
+.studio-segment {
+  height: var(--ds-control-compact);
+  padding: 0 var(--ds-space-2);
+  border: none;
+  border-radius: calc(var(--ds-radius-control) - var(--grid-half-step));
+  background: transparent;
+  color: var(--cmux-text-secondary);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.studio-segment[aria-pressed="true"] {
+  background: var(--ds-surface-card);
+  color: var(--ds-color-fg);
+}
+/* "Custom" keeps its width when hidden, so the head does not shift as switches flip. */
+.studio-custom:not([data-shown]) {
+  visibility: hidden;
+}
+.studio-manager ul,
+.studio-setups ul {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.studio-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  width: 100%;
+  min-height: var(--ds-space-48);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border: none;
+  border-radius: var(--ds-radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.studio-row:hover,
+li[data-peeked] > .studio-row {
+  background: var(--ds-surface-hover);
+}
+.studio-manager-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.studio-manager-text .studio-card-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-manager-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  position: sticky;
+  top: var(--ds-space-3);
+  align-self: start;
+}
+.studio-peek-name {
+  margin: 0;
+  font-size: 12px;
+  text-align: center;
+}
+
+/* Setups. */
+.studio-setups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+}
+.studio-setups-people {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--ds-space-2);
+}
+.studio-person {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--ds-space-2);
+  padding: var(--ds-space-2);
+  border: 1px solid var(--ds-surface-card-line);
+  border-radius: var(--ds-radius-card);
+  background: var(--ds-surface-card);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.studio-person .mini-cmux {
+  grid-row: 1 / span 2;
+}
+.studio-person strong {
+  align-self: end;
+}
+.studio-person .studio-muted {
+  align-self: start;
+  font-size: 12px;
+}
+.studio-person-picked {
+  border-color: var(--ds-color-accent);
+}
+.studio-setups-body > .mini-cmux {
+  position: sticky;
+  top: var(--ds-space-3);
+}
+.studio-setups-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: var(--ds-space-3);
+  align-items: start;
+}
+.studio-setups-changes ul {
+  min-height: calc(var(--ds-space-48) * 8);
+}
+.studio-nothing {
+  padding: var(--ds-space-2);
+}
+.studio-setups-changes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+}
+.studio-actions {
+  display: flex;
+  gap: var(--ds-space-2);
+}
+
+/* Tiles. */
+.studio-tiles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+}
+.studio-tiles-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: var(--ds-space-3);
+  align-items: start;
+}
+.studio-tiles-setups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+}
+.studio-tiles-setups > .studio-muted {
+  padding: 0 var(--ds-space-2);
+}
+.studio-setup-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-space-48);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border: none;
+  border-radius: var(--ds-radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.studio-setup-row:hover,
+.studio-setup-row[aria-pressed="true"] {
+  background: var(--ds-surface-hover);
+}
+.studio-radio {
+  flex: none;
+  width: 16px;
+  aspect-ratio: 1;
+  border: 1px solid var(--ds-surface-control-line);
+  border-radius: 999px;
+}
+.studio-setup-row[aria-pressed="true"] .studio-radio {
+  border: 4px solid var(--ds-color-accent);
+}
+.studio-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--ds-space-2);
+}
+.studio-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  padding: var(--ds-space-2);
+  border: 1px solid var(--ds-surface-card-line);
+  border-radius: calc(var(--ds-radius-md) + var(--ds-space-2));
+  background: var(--ds-surface-card);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+/* On is the switch's job; the tile only leans toward the accent, so eight tiles on are not eight
+   loud rings. */
+.studio-tile[aria-checked="true"] {
+  border-color: color-mix(in oklab, var(--ds-color-accent) 45%, var(--ds-surface-card-line));
+}
+.studio-tile:hover {
+  background: var(--ds-surface-hover);
+}
+.studio-tile:focus-visible,
+.studio-setup-row:focus-visible {
+  outline: 2px solid var(--ds-color-accent);
+  outline-offset: 1px;
+}
+.studio-tile-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+.studio-tile-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-setup-row .studio-card-line {
+  white-space: normal;
+}
+/* A wide pane: the live window and setups on the left, the tiles beside them, so the window does
+   not grow to fill the width and leave the tiles small under it. */
+@container studio (width >= 1200px) {
+  .studio-tiles {
+    display: grid;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr);
+    align-items: start;
+  }
+  .studio-tiles-top {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* Where a tile is too narrow for its name on one line, every name gets two lines' room, so the
+   tiles in a row still line up and nothing is cut. */
+@container studio (width >= 1200px) or ((width >= 600px) and (width < 760px)) {
+  .studio-tile-name {
+    display: flex;
+    align-items: center;
+    min-height: 2lh;
+    white-space: normal;
+  }
+}
+@container studio (width < 600px) {
+  .studio-tile-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* A pane narrower than two columns: the live window goes on top and the list under it, each the
+   pane's full width, instead of two columns that fold their text a word a line. */
+@container studio (width < 600px) {
+  .studio-store,
+  .studio-manager,
+  .studio-tiles-top,
+  .studio-setups-body,
+  .studio-setups-people {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .studio-manager-preview,
+  .studio-setups-body > .mini-cmux,
+  .studio-detail {
+    position: static;
+    order: -1;
+  }
+  .studio-manager-preview .studio-before-after,
+  .studio-peek-name {
+    display: none;
+  }
+}
