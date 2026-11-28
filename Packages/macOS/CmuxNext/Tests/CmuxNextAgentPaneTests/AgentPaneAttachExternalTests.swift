@@ -271,9 +271,9 @@ struct AgentPaneAttachExternalTests {
     }
     /// Files whose new chat was not made go again on their own (``AgentPaneExternalAttach/retry``),
     /// not only with the next door's file: the open door's image on a cold launch was "late" on cmux23
-    /// and cmux27 (held: 1 stranded). After ``AgentPaneExternalAttach/retryDelays`` they wait for the next.
+    /// and cmux27 (held: 1 stranded). After ``AgentPaneExternalAttach/retryLimit`` retries they wait for the next.
     @Test func strandedFilesGoAgainOnTheirOwnUntilTheRetriesEnd() async {
-        let route = AgentPaneExternalAttach(now: { .now }, sleep: { _ in })
+        let route = AgentPaneExternalAttach(now: { .now }, clock: InstantClock())
         var sent: [[URL]] = []
         route.retry = { urls, claimed in
             sent.append(urls)
@@ -281,13 +281,13 @@ struct AgentPaneAttachExternalTests {
         }
         let a = URL(fileURLWithPath: "/tmp/shot-open.png")
         route.attach([a], claimed: nil, target: nil, openChat: { made in made(nil); return true }, show: { _ in })
-        for _ in 0..<50 where sent.count < AgentPaneExternalAttach.retryDelays.count { await Task.yield() }
+        for _ in 0..<50 where sent.count < AgentPaneExternalAttach.retryLimit { await Task.yield() }
         for _ in 0..<20 { await Task.yield() }
-        #expect(sent == Array(repeating: [a], count: AgentPaneExternalAttach.retryDelays.count))
+        #expect(sent == Array(repeating: [a], count: AgentPaneExternalAttach.retryLimit))
         #expect(route.waitingFiles == [a] && !route.waitsForChat)
 
         // A chat made on the retry takes them.
-        let made = AgentPaneExternalAttach(now: { .now }, sleep: { _ in })
+        let made = AgentPaneExternalAttach(now: { .now }, clock: InstantClock())
         var tries = 0
         made.retry = { urls, claimed in
             made.attach(urls, claimed: claimed, target: nil, openChat: { _ in tries += 1; return true }, show: { _ in })
@@ -316,4 +316,19 @@ struct AgentPaneAttachExternalTests {
         route.parked(files: nil)
         #expect(route.waiting.objectValue?["parked"] == .number(0) && route.waiting.objectValue?["parked_why"] == .null)
     }
+}
+
+/// A clock whose sleeps end at once (still cancellable), for retries that should not wait in a test.
+nonisolated private struct InstantClock: Clock {
+    nonisolated struct Instant: InstantProtocol {
+        var offset: Duration
+        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
+        func duration(to other: Instant) -> Duration { other.offset - offset }
+        static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
+    }
+
+    var now: Instant { Instant(offset: .zero) }
+    var minimumResolution: Duration { .nanoseconds(1) }
+
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws { try Task.checkCancellation() }
 }
