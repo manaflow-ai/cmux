@@ -766,14 +766,17 @@ try {
             const bySite = new Map<string, number>();
             const walk = (node: SampleNode) => {
               const frame = node.callFrame;
-              const where = sources && frame.url ? sources(path.basename(frame.url), frame.lineNumber, frame.columnNumber) : "";
+              const where =
+                sources && frame.url ? sources(path.basename(frame.url), frame.lineNumber, frame.columnNumber) : "";
               const site = `${frame.functionName || "(anonymous)"} ${where || `${path.basename(frame.url)}:${frame.lineNumber + 1}`}`;
               bySite.set(site, (bySite.get(site) ?? 0) + node.selfSize);
               for (const child of node.children) walk(child);
             };
             walk(sampled.head);
             const total = [...bySite.values()].reduce((sum, value) => sum + value, 0);
-            console.log(`  ${name}: grow JS allocation ${(total / 1048576).toFixed(1)} MB (freed included), top sites:`);
+            console.log(
+              `  ${name}: grow JS allocation ${(total / 1048576).toFixed(1)} MB (freed included), top sites:`,
+            );
             for (const [site, bytes] of [...bySite].sort((a, b) => b[1] - a[1]).slice(0, 25))
               console.log(`    ${(bytes / 1048576).toFixed(1).padStart(8)} MB  ${site}`);
             fs.mkdirSync(process.env.GROW_ALLOC!, { recursive: true });
