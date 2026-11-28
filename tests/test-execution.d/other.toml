@@ -670,6 +670,10 @@ path = "tests/test_network_allowlist.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_new_tab_split_acceptance.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_new_tab_startup_bench.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_new_tab_startup_bench.py"
@@ -1239,6 +1243,10 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 path = "tests/test_unittest_shard.py"
 lane = "manual"
 reason = "Run by the lane that changes tests/unittest_shard.py (kept manual under the 2026-10-23 no-new-CI rule, since lifted): python3 -I tests/test_unittest_shard.py; needs only python3."
+
+[[test]]
+path = "tests/test_user_visible_defaults.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_vendored_cmux_agent_cursor.py"

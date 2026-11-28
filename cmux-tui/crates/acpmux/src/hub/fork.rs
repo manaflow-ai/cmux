@@ -910,6 +910,8 @@ impl Hub {
         }
         // A fork opens under its parent's title, which its first prompt may refine (`titles.rs`).
         let (title, title_source) = super::titles::fork_title(&parent_meta);
+        // Its parent's namespace while it works in the same folder (`session_manifest.rs`).
+        let fork_manifest = crate::session_manifest::for_fork(parent_meta.manifest.as_ref(), &cwd);
         let mut meta = SessionMeta {
             schema: META_SCHEMA.into(),
             id: id.clone(),
@@ -1123,6 +1125,7 @@ impl Hub {
             }),
             // A fork is a new chat: Auto, whatever its parent was pinned to.
             place_mode: None,
+            manifest: fork_manifest,
         };
         // The subagent's name and its last prompt, as an adopted chat's past sets them.
         if let Some(c) = &sub_copy {
