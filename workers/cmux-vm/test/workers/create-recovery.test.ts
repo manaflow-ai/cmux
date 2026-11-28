@@ -1,6 +1,7 @@
 import { Effect, Layer } from "effect";
 import { afterEach, expect, it } from "vitest";
 import { LimitsUnavailable, memoryLimitsLayer, TenantLimits } from "../../src/limits/service.ts";
+import { CREATE_BACKGROUND_AFTER_SECS, CREATE_SEND_TIMEOUT_MS } from "../../src/upstream/live-create.ts";
 import { bearer } from "../support/endpoints.ts";
 import { makeHarness, type HarnessOptions } from "../support/harness.ts";
 
@@ -40,6 +41,9 @@ it("answers a create the provider is slow to make with its VM, through a backgro
   expect(first.status).toBe(201);
   expect(allocation(t)).toHaveLength(1);
   expect(t.upstream.callsTo("GET", /^\/v5\/background-requests\//)).toHaveLength(3);
+  // A create the provider works on goes to the background well before the send timeout cuts an unstarted one.
+  expect(t.upstream.callsTo("POST", /^\/v5\/vms$/).map((call) => call.backgroundAfter)).toEqual([String(CREATE_BACKGROUND_AFTER_SECS)]);
+  expect(CREATE_BACKGROUND_AFTER_SECS * 1000).toBeLessThan(CREATE_SEND_TIMEOUT_MS);
   expect(t.upstream.vms.size).toBe(1);
   expect(t.resources.filter((r) => r.kind === "vm")).toHaveLength(1);
 });

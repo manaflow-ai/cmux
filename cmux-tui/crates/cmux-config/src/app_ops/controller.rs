@@ -82,6 +82,10 @@ pub fn announces(kind: &str) -> bool {
 /// What the app remembers of a notice: the key, a digest of the value (never
 /// the value itself) and the reason. A file that does not parse is one notice
 /// whatever the parse error says.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 pub fn fingerprint(
     kind: &str,
     path: &str,
@@ -117,6 +121,10 @@ fn overlaps(key: &str, path: &str) -> bool {
         || key.strip_prefix(path).is_some_and(|rest| rest.starts_with('.'))
 }
 
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 fn update(request: &Value) -> Result<Value, OpError> {
     let diagnostics = array(request, "diagnostics")?;
     let file = request.get("file").unwrap_or(&Value::Null);
@@ -168,6 +176,10 @@ fn update(request: &Value) -> Result<Value, OpError> {
     Ok(answer)
 }
 
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 fn announced(request: &Value) -> Result<Value, OpError> {
     let notices = array(request, "notices")?;
     let mut remembered = strings(request, "remembered")?;
@@ -239,6 +251,10 @@ pub fn replacing(path: &[String], value: Option<Value>, root: &Value) -> Value {
 }
 
 /// The edits that remove `path` and then each parent it leaves empty.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 pub fn removing_pruned(path: &[String]) -> Vec<Value> {
     let mut edits = vec![json!({ "op": "reset", "path": path })];
     for count in (1..path.len().max(1)).rev() {

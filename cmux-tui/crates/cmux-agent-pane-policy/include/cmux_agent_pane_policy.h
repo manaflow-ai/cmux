@@ -9,7 +9,7 @@
  * "sent"), and checks every page frame with one call
  * (cmux_agent_pane_policy_check). Default deny: a frame the policy does not
  * allow is refused. Every function may run on any thread at once. ABI
- * version 5 (4 had no cmux_agent_pane_policy_json_keys_verdict;
+ * version 6 (5 had no new_tab_projects op; 4 had no cmux_agent_pane_policy_json_keys_verdict;
  * 3 had no "canonical_json" op; 2 had no
  * cmux_agent_pane_policy_check_gesture, no "click_only"
  * or "click_window_ms" in "policy", no "needs_click" in the facts and no
@@ -107,7 +107,10 @@ int32_t cmux_agent_pane_policy_filter_reply(const uint8_t *method, size_t method
                                             const uint8_t *page_id, size_t page_id_len,
                                             CmuxAgentPaneBytes *out);
 
-/* One JSON op; request is a JSON object (or empty for {}); *out gets the
+/* new_tab_projects {projects, repos, warm?, cwd?, seed?} returns {rows}:
+ * JSON text of opening-stable project rows, reconciled against seed.
+ *
+ * One JSON op; request is a JSON object (or empty for {}); *out gets the
  * reply object. pane may be NULL for "policy", "refusal_frame", "raw_id",
  * "pick", "own_prompt_id", "canonical_digest", "canonical_json" and
  * "service_wait"; the others
