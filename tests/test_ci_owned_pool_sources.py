@@ -110,6 +110,9 @@ def fetch(ref: str) -> None:
                        "origin", stdin="\n".join(blobs) + "\n")
             if done.returncode == 0:
                 break
+        else:
+            raise RuntimeError(f"could not fetch the {len(blobs)} blobs of {ref} the detector reads after 3 tries: "
+                               f"{done.stderr.strip()[-400:]}")
 
 
 class OwnedPoolSources(unittest.TestCase):

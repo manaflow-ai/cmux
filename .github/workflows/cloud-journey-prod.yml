@@ -149,10 +149,13 @@ jobs:
       # login (its artifact's route.txt says login; runs before route.txt used the login). That run read a reply (its
       # probe.json has a first_text mark): the login has quota, so the tick uses it. A run that read a reply but went
       # red on a later step (run 45571173365: first text in 10.1 s, then the cold create booted at another size) still
-      # proves the login has quota. Otherwise (the weekly limit, or no such run) the tick passes no login and takes the
-      # machine's own model route, the product default every Cloud account gets (SR2/CodeRouter, cloud-claude-matrix's
-      # sr2 row): the real model still answers, so the hour is a real sample instead of a skip. The six-hourly canary
-      # always tries the login, so a reset quota is found within six hours.
+      # proves the login has quota. Only a run whose reply hit the login's usage limit (its probe.json names the limit)
+      # moves the tick off the login: it then passes no login and takes the machine's own model route, the product
+      # default every Cloud account gets (SR2/CodeRouter, cloud-claude-matrix's sr2 row), so the hour is a real sample
+      # instead of a skip. A run that failed for any other reason says nothing about the quota and keeps the login:
+      # run 46052332424's canary lost its machine (503 vm_unavailable (restarted)), the gate read it as a spent login,
+      # and the 19:47Z tick on the machine route found no model at all (the test team has no gateway: run 46059370159).
+      # The six-hourly canary always tries the login, so a reset quota is found within six hours.
       - name: Pick the hourly real tick's route from the newest login run
         id: gate
         if: env.SELECTED == 'true' && github.event.schedule == '47 1-5,7-11,13-17,19-23 * * *'
@@ -178,13 +181,20 @@ jobs:
             gh api "repos/$GH_REPO/actions/artifacts/$art/zip" > "$RUNNER_TEMP/real-probe.zip" || continue
             # A tick on the machine's route says nothing about the login's quota: look further back.
             [ "$(unzip -p "$RUNNER_TEMP/real-probe.zip" route.txt 2>/dev/null | tr -d '[:space:]')" = machine ] && continue
-            if unzip -p "$RUNNER_TEMP/real-probe.zip" probe.json | grep -q '"first_text"'; then replied=yes; fi
+            probe="$(unzip -p "$RUNNER_TEMP/real-probe.zip" probe.json 2>/dev/null || true)"
+            if printf '%s' "$probe" | grep -q '"first_text"'; then replied=yes
+            # Claude Code's own words for a spent login: "Claude AI usage limit reached", "You've hit your (weekly) limit",
+            # "5-hour limit reached ∙ resets 3pm".
+            elif printf '%s' "$probe" | grep -Eqi "usage limit|hit your (session |weekly |opus )?limit|(5-hour|weekly|session) limit|limit reached"; then replied=spent
+            fi
             verdict="$c, reply $replied (run $id)"; break
           done
           echo "newest real run on the login: ${verdict:-none found}"
-          case "$verdict" in *"reply yes"*) echo "route=login" >> "$GITHUB_OUTPUT" ;; *)
+          case "$verdict" in *"reply spent"*)
             echo "route=machine" >> "$GITHUB_OUTPUT"
-            echo "Hourly real tick on the machine's own model route: the newest real run on the login did not read a reply (${verdict:-none found})." >> "$GITHUB_STEP_SUMMARY"
+            echo "Hourly real tick on the machine's own model route: the newest real run on the login hit the usage limit (${verdict})." >> "$GITHUB_STEP_SUMMARY"
+            ;; *)
+            echo "route=login" >> "$GITHUB_OUTPUT"
             ;;
           esac
 
