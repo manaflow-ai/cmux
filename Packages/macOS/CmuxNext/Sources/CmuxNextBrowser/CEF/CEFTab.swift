@@ -816,7 +816,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         guard pendingFocus, isShown, pageWindowHostHasArea, !appearedThisTurn, !awaitsWindowMove, let browserID else { return }
         // Not while the person types in another window (Cmd-N, then Cmd-` before the page painted), or in a panel of
         // this one (a popover, the tab-group editor, the palette): the ask waits until this page's window, or a page
-        // window of it, has the keys again (`CEFRuntime.windowBecameKey`).
+        // window of it, has the keys again (`CEFRuntime.windowBecameKey`). AppKit chrome (the full-screen titlebar
+        // window) counts as another window on purpose: the ask waits for the next key change of the window or a page.
         if let key = keyWindows.keyWindow(), let owner = container.window, key !== owner,
            key.parent !== owner || !WindowOverlayHost.isPageWindow(key) {
             host.lifecycleTrace.record(id, "grant kept: another window is key")

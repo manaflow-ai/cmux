@@ -185,9 +185,10 @@ extension CEFRuntime {
     }
 
     /// Grants, after this pass's frame commit, the asks that wait for `window`. Each is told once, then forgotten: a
-    /// grant that still cannot run keeps its ask for the window's next change. An entry whose page or window is gone is
-    /// dropped on the way (nothing reports a gone window again); a page still asking is re-asked, and its grant records
-    /// the window it is in now.
+    /// grant that finds the window off screen or another window key records its ask again for the next change, and one
+    /// the page's own state stops (hidden, no area, moving) is asked again by that state's own change. An entry whose
+    /// page or window is gone is dropped on the way (nothing reports a gone window again); a page still asking is
+    /// re-asked, and its grant records the window it is in now.
     private func grantAsks(waitingFor window: NSWindow) {
         for (page, ask) in asksAwaitingWindow where ask.window === window || ask.tab == nil || ask.window == nil {
             asksAwaitingWindow[page] = nil
