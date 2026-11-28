@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const realTeamSeats = await import("../services/billing/teamSeats");
 let outcome: () => Promise<Awaited<ReturnType<typeof realTeamSeats.reconcileTeamSeats>>> = async () =>
-  ({ checked: 0, updated: 0, skipped: 0, failed: 0, busy: 0 });
+  ({ checked: 0, updated: 0, skipped: 0, failed: 0, busy: 0, deferred: 0 });
 let calls = 0;
 mock.module("../services/billing/teamSeats", () => ({
   ...realTeamSeats,
@@ -37,14 +37,14 @@ describe("team seats cron route", () => {
   });
 
   test("reports the run and is 200 with no failures", async () => {
-    outcome = async () => ({ checked: 2, updated: 1, skipped: 1, failed: 0, busy: 0 });
+    outcome = async () => ({ checked: 2, updated: 1, skipped: 1, failed: 0, busy: 0, deferred: 0 });
     const response = await GET(request("Bearer cron-secret"));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, checked: 2, updated: 1, skipped: 1, failed: 0, busy: 0 });
+    expect(await response.json()).toEqual({ ok: true, checked: 2, updated: 1, skipped: 1, failed: 0, busy: 0, deferred: 0 });
   });
 
   test("is 503 when a team failed so the run is retried", async () => {
-    outcome = async () => ({ checked: 1, updated: 0, skipped: 0, failed: 1, busy: 0 });
+    outcome = async () => ({ checked: 1, updated: 0, skipped: 0, failed: 1, busy: 0, deferred: 0 });
     expect((await GET(request("Bearer cron-secret"))).status).toBe(503);
     outcome = async () => { throw new Error("db down"); };
     const response = await GET(request("Bearer cron-secret"));
