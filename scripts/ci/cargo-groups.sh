@@ -36,51 +36,6 @@
 set -euo pipefail
 set -o noglob # BINS entries like '?name' are names, not patterns
 
-# cgroup_mem_gib: the smallest memory.max (GiB) on this process's cgroup v2 path, or nothing when none is set.
-# CARGO_GROUPS_CGROUP_ROOT moves /sys/fs/cgroup for tests.
-cgroup_mem_gib() {
-  local root="${CARGO_GROUPS_CGROUP_ROOT:-/sys/fs/cgroup}" rel p v min=""
-  rel=$(awk -F: '$1 == "0" { print $3; exit }' "${CARGO_GROUPS_PROC_CGROUP:-/proc/self/cgroup}" 2>/dev/null) || return 0
-  [[ -n "$rel" ]] || return 0
-  p="$root${rel%/}"
-  while :; do
-    v=$(cat "$p/memory.max" 2>/dev/null) || v=""
-    if [[ "$v" =~ ^[0-9]+$ ]] && { [[ -z "$min" ]] || ((v < min)); }; then min=$v; fi
-    [[ "$p" == "$root" || "$p" != */* ]] && break
-    p="${p%/*}"; [[ -n "$p" ]] || p=/
-    [[ "$p" == "$root"* ]] || break
-  done
-  [[ -z "$min" ]] || echo $((min / 1073741824))
-}
-
-# mem_cores: the cores this runner's memory can hold (all of them when its cgroup has no cap or memory to spare).
-mem_cores() {
-  local cores mem_gib per fit
-  cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
-  # A runner whose memory is capped below its CPU count (a pool slot: every host thread visible, MemoryMax 24G)
-  # counts one core per CARGO_GROUPS_GIB_PER_CORE (3) GiB of its cgroup's memory.max. The tokens below come to
-  # about 3 x cores, and on a 96-thread host 96 + 9 x 20 of them in a 24 GiB slot had the kernel SIGKILL the
-  # fat-LTO cmux-tui rustc (cmux-tui job 140826310692, 2026-11-28: groups 2 6 7 10 failed). A runner with no cap,
-  # or with memory to spare (a 16 vCPU / 64 GiB VM), keeps every core.
-  mem_gib=$(cgroup_mem_gib)
-  if [[ -n "$mem_gib" ]]; then
-    per=${CARGO_GROUPS_GIB_PER_CORE:-3}
-    fit=$((mem_gib / per)); ((fit >= 1)) || fit=1
-    if ((fit < cores)); then
-      echo "cargo groups: memory.max ${mem_gib} GiB holds ${fit} of ${cores} cores at ${per} GiB each" >&2
-      cores=$fit
-    fi
-  fi
-  echo "$cores"
-}
-
-# `cargo-groups.sh --print-jobs`: that count alone, for a single cargo build that sets its own CARGO_BUILD_JOBS
-# (the Cloud journey's, whose cold debug build had its acpmux rustc SIGKILLed: job 140980947344, 2026-11-28).
-if [[ "${1:-}" == --print-jobs ]]; then
-  if [[ -n "${CARGO_BUILD_JOBS:-}" ]]; then echo "$CARGO_BUILD_JOBS"; else mem_cores; fi
-  exit 0
-fi
-
 if (($# < 4 || ($# - 2) % 2 != 0)); then
   echo "usage: $0 TARGET_DIR TRIPLE BINS COMMAND [BINS COMMAND ...]" >&2
   exit 2
@@ -100,12 +55,85 @@ done
 
 grouped() { [[ -n "${GITHUB_ACTIONS:-}" ]] && echo "::$1::${2:-}" || true; }
 
+# cgroup_mem_gib: the smallest memory.max (GiB) on this process's cgroup v2 path, or nothing when none is set.
+# CARGO_GROUPS_CGROUP_ROOT moves /sys/fs/cgroup for tests.
+cgroup_mem_gib() {
+  local root="${CARGO_GROUPS_CGROUP_ROOT:-/sys/fs/cgroup}" rel p v min=""
+  rel=$(awk -F: '$1 == "0" { print $3; exit }' "${CARGO_GROUPS_PROC_CGROUP:-/proc/self/cgroup}" 2>/dev/null) || return 0
+  [[ -n "$rel" ]] || return 0
+  p="$root${rel%/}"
+  while :; do
+    v=$(cat "$p/memory.max" 2>/dev/null) || v=""
+    if [[ "$v" =~ ^[0-9]+$ ]] && { [[ -z "$min" ]] || ((v < min)); }; then min=$v; fi
+    [[ "$p" == "$root" || "$p" != */* ]] && break
+    p="${p%/*}"; [[ -n "$p" ]] || p=/
+    [[ "$p" == "$root"* ]] || break
+  done
+  [[ -z "$min" ]] || echo $((min / 1073741824))
+}
+
+# meminfo_gib FIELD: /proc/meminfo's FIELD (MemTotal, MemAvailable) in GiB, or nothing off Linux.
+# CARGO_GROUPS_MEMINFO moves /proc/meminfo for tests.
+meminfo_gib() {
+  awk -v f="$1:" '$1 == f { print int($2 / 1048576); exit }' "${CARGO_GROUPS_MEMINFO:-/proc/meminfo}" 2>/dev/null || true
+}
+
+# oom_kills: the kernel's OOM kill count (/proc/vmstat oom_kill, every cgroup on the host), or nothing off Linux.
+# CARGO_GROUPS_VMSTAT moves /proc/vmstat for tests.
+oom_kills() {
+  awk '$1 == "oom_kill" { print $2; exit }' "${CARGO_GROUPS_VMSTAT:-/proc/vmstat}" 2>/dev/null || true
+}
+
 if [[ -z "${CARGO_BUILD_JOBS:-}" ]]; then
-  cores=$(mem_cores)
+  cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
+  # A runner whose memory is capped below its CPU count (a pool slot: every host thread visible, MemoryMax 24G)
+  # counts one core per CARGO_GROUPS_GIB_PER_CORE (3) GiB of its cgroup's memory.max. The tokens below come to
+  # about 3 x cores, and on a 96-thread host 96 + 9 x 20 of them in a 24 GiB slot had the kernel SIGKILL the
+  # fat-LTO cmux-tui rustc (cmux-tui job 140826310692, 2026-11-28: groups 2 6 7 10 failed). A runner with no cap,
+  # or with memory to spare (a 16 vCPU / 64 GiB VM), keeps every core.
+  #
+  # The budget is also the host's MemAvailable at the start, whichever is less: a GCE pool VM's slots had no
+  # MemoryMax until hq#36694 (2026-11-28 11:58Z, at each runner unit's next start), and a slot shares the VM's RAM
+  # with its sibling's job. Sized by cores alone, a cold fat-LTO aarch64 musl leg on cmux-runner-pool-w2a-0201
+  # (16 threads, no memory.max) ran 16 + 6 x 5 = 46 jobserver tokens, two fat-LTO acpmux compiles among them, and
+  # the kernel SIGKILLed the cmux-tui-core and acpmux rustc (cmux-tui-artifacts run 46139971718, job 140972969989,
+  # 2026-11-28: groups 1 5 failed). MemAvailable counts what the sibling already holds; a sibling that starts later
+  # reads ours the same way.
+  mem_gib=$(cgroup_mem_gib) avail_gib=$(meminfo_gib MemAvailable) total_gib=$(meminfo_gib MemTotal)
+  echo "cargo groups: memory: memory.max ${mem_gib:-none} GiB, MemTotal ${total_gib:-?} GiB, MemAvailable ${avail_gib:-?} GiB, ${cores} cores"
+  budget=$mem_gib source="memory.max"
+  if [[ -n "$avail_gib" ]] && { [[ -z "$budget" ]] || ((avail_gib < budget)); }; then
+    budget=$avail_gib source="MemAvailable"
+  fi
+  capped=""
+  if [[ -n "$budget" ]]; then
+    per=${CARGO_GROUPS_GIB_PER_CORE:-3}
+    fit=$((budget / per)); ((fit >= 1)) || fit=1
+    if ((fit < cores)); then
+      echo "cargo groups: $source ${budget} GiB holds ${fit} of ${cores} cores at ${per} GiB each"
+      cores=$fit capped=1
+    fi
+  fi
   groups=${#commands[@]}
   jobs=$(((2 * cores + groups - 1) / groups))
   ((jobs >= 1)) || jobs=1
   lead_jobs=$((cores > jobs ? cores : jobs))
+  # Capped by memory, every group's tokens run at once, so their sum has to fit the budget, not each group's: the
+  # split above hands out about 3 x cores tokens. In a 14 GiB pool slot (4 cores) it ran 4 + 4 x 2 = 12 rustc
+  # and the kernel SIGKILLed the acpmux and cmux-tui-core rustc (cmux-machine-channel run 46144424122, job
+  # 140980982077, cmux-runner-pool-w1c-0258, 2026-11-28), so no Cloud machine channel point for 62 min. The sum
+  # is budget / CARGO_GROUPS_GIB_PER_TOKEN (2) tokens, at least one per group; a third (or more) goes to group 1.
+  if [[ -n "$capped" ]]; then
+    per_token=${CARGO_GROUPS_GIB_PER_TOKEN:-2}
+    total=$((budget / per_token)); ((total >= groups)) || total=$groups
+    if ((groups > 1)); then
+      jobs=$(((total - (total + 2) / 3) / (groups - 1))); ((jobs >= 1)) || jobs=1
+      lead_jobs=$((total - jobs * (groups - 1))); ((lead_jobs >= 1)) || lead_jobs=1
+    else
+      jobs=$total lead_jobs=$total
+    fi
+    echo "cargo groups: $source ${budget} GiB holds ${total} tokens across ${groups} groups at ${per_token} GiB each"
+  fi
   export CARGO_BUILD_JOBS=$jobs
   echo "cargo groups: ${#commands[@]}, CARGO_BUILD_JOBS=$lead_jobs for group 1, $CARGO_BUILD_JOBS each for the others"
 else
@@ -143,6 +171,7 @@ for u in sorted(units, key=lambda u: -(u["start"] + u["duration"]))[:6]:
 PY
 }
 
+oom_before=$(oom_kills)
 for i in "${!commands[@]}"; do
   n=$((i + 1))
   dir="$target_dir"
@@ -211,6 +240,21 @@ for i in "${!bins[@]}"; do
 done
 
 if [[ -n "${failed[*]:-}" ]]; then
+  # The OOM detector: a group whose rustc or linker died "signal: 9, SIGKILL" while the kernel's oom_kill count rose
+  # ran the runner out of memory; it is not a compile error. It names the memory the sizing above read, so the leg
+  # says why (handbook ci-build-oom-killed-by-parallel-cargo-groups).
+  oom_after=$(oom_kills) killed=()
+  for n in "${failed[@]}"; do
+    grep -q 'signal: 9, SIGKILL' "$logs/$n.log" 2>/dev/null && killed+=("$n")
+  done
+  if [[ -n "${killed[*]:-}" ]]; then
+    if [[ -n "$oom_before" && -n "$oom_after" ]] && ((oom_after > oom_before)); then
+      why="the kernel OOM-killed $((oom_after - oom_before)) process(es) during the build"
+    else
+      why="SIGKILL without a counted kernel OOM kill (oom_kill ${oom_before:-?} -> ${oom_after:-?}): a cgroup or outside kill"
+    fi
+    echo "::error title=cargo groups out of memory::cargo group(s) ${killed[*]} lost a process to SIGKILL; $why. Memory at the start: memory.max ${mem_gib:-none} GiB, MemAvailable ${avail_gib:-?} GiB of ${total_gib:-?} GiB; MemAvailable now $(meminfo_gib MemAvailable) GiB. CARGO_BUILD_JOBS=$lead_jobs for group 1, $CARGO_BUILD_JOBS for the others (scripts/ci/cargo-groups.sh)" >&2
+  fi
   echo "error: cargo group(s) ${failed[*]} failed" >&2
   exit 1
 fi
