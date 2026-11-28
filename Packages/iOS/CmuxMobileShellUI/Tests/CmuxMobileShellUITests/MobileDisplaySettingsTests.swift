@@ -85,6 +85,22 @@ import Testing
         #expect(!MobileDisplaySettings(defaults: defaults).showMissingFiles)
     }
 
+    @Test func browserTabsOpenOnDeviceByDefaultWithoutAWrite() throws {
+        let defaults = try makeDefaults("browserTabsOpenOnDeviceDefaults")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        #expect(settings.browserTabsOpenOnDevice)
+        #expect(defaults.object(forKey: "cmux.mobile.browserTabsOpenOnDevice") == nil)
+    }
+
+    @Test func browserTabsStreamedDefaultPersistsAcrossInstances() throws {
+        let defaults = try makeDefaults("browserTabsOpenOnDevicePersists")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.browserTabsOpenOnDevice = false
+        #expect(!MobileDisplaySettings(defaults: defaults).browserTabsOpenOnDevice)
+        settings.browserTabsOpenOnDevice = true
+        #expect(MobileDisplaySettings(defaults: defaults).browserTabsOpenOnDevice)
+    }
+
     @Test func terminalFolderTapDefaultsToTrueWithoutAWrite() throws {
         let defaults = try makeDefaults("terminalFolderTapDefaults")
         let settings = MobileDisplaySettings(defaults: defaults)

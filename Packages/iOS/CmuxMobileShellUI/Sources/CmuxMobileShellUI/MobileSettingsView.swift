@@ -274,6 +274,23 @@ struct MobileSettingsView: View {
                     }
                 }
 
+                Section {
+                    Picker(selection: $displaySettings.browserTabsOpenOnDevice) {
+                        Text(MobileBrowserModePicker.onDeviceTitle).tag(true)
+                        Text(MobileBrowserModePicker.streamedTitle).tag(false)
+                    } label: {
+                        Text(L10n.string("mobile.settings.browserTabsOpen", defaultValue: "Open Mac Browser Tabs"))
+                    }
+                    .accessibilityIdentifier("MobileSettingsBrowserTabsOpenPicker")
+                } header: {
+                    Text(L10n.string("mobile.settings.browser", defaultValue: "Browser"))
+                } footer: {
+                    Text(L10n.string(
+                        "mobile.settings.browserTabsOpenCaption",
+                        defaultValue: "Each tab's Browser Mode menu can still switch it."
+                    ))
+                }
+
                 Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {
                     Toggle(isOn: $displaySettings.showAltScreenNotice) {
                         Text(L10n.string(

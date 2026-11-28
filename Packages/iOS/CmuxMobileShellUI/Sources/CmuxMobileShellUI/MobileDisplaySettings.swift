@@ -27,6 +27,7 @@ public final class MobileDisplaySettings {
     private static let feedShowsTabKey = "cmux.mobile.feedShowsTab"
     private static let showAltScreenNoticeKey = "cmux.mobile.showAltScreenNotice"
     private static let showMissingFilesKey = "cmux.mobile.showMissingFiles"
+    private static let browserTabsOpenOnDeviceKey = "cmux.mobile.browserTabsOpenOnDevice"
     private static let terminalFolderTapEnabledKey = "cmux.mobile.terminalFolderTapEnabled"
     private static let useLegacyTerminalSizingKey = "cmux.mobile.useLegacyTerminalSizing"
     private static let handoffTerminalSizingWhenInactiveKey = "cmux.mobile.handoffTerminalSizingWhenInactive"
@@ -92,6 +93,15 @@ public final class MobileDisplaySettings {
     /// this writes through to the injected ``UserDefaults``.
     public var showAltScreenNotice: Bool {
         didSet { defaults.set(showAltScreenNotice, forKey: Self.showAltScreenNoticeKey) }
+    }
+
+    /// Whether a Mac browser tab opens "On iPhone" (WebKit on the phone,
+    /// loading through the Mac) instead of "Streamed" (the Mac's own browser
+    /// as video) until the user switches that tab. Defaults to `true`. Each
+    /// tab's Browser Mode menu still switches it either way. Mutating this
+    /// writes through to the injected ``UserDefaults``.
+    public var browserTabsOpenOnDevice: Bool {
+        didSet { defaults.set(browserTabsOpenOnDevice, forKey: Self.browserTabsOpenOnDeviceKey) }
     }
 
     /// Whether artifact galleries include paths that no longer exist on the
@@ -249,6 +259,7 @@ public final class MobileDisplaySettings {
             ?? true
         self.showAltScreenNotice = defaults.object(forKey: Self.showAltScreenNoticeKey) as? Bool ?? true
         self.showMissingFiles = defaults.bool(forKey: Self.showMissingFilesKey)
+        self.browserTabsOpenOnDevice = defaults.object(forKey: Self.browserTabsOpenOnDeviceKey) as? Bool ?? true
         self.terminalFolderTapEnabled = defaults.object(forKey: Self.terminalFolderTapEnabledKey) as? Bool ?? true
         self.useLegacyTerminalSizing = defaults.object(forKey: Self.useLegacyTerminalSizingKey) as? Bool ?? false
         self.handoffTerminalSizingWhenInactive = defaults.object(

@@ -80,7 +80,7 @@ import Testing
         #expect(first.consumeLoadRequest() == mac)
         // The phone navigates on its own.
         first.currentURL = URL(string: "https://example.com/")
-        #expect(store.prefersOnDevice(panelID: "panel-1"))
+        #expect(store.prefersOnDevice(panelID: "panel-1", byDefault: false))
 
         // Leaving for a terminal closes the pane; coming back reveals the
         // same surface, whose page is the phone's, and loads nothing new.
@@ -106,10 +106,28 @@ import Testing
         let first = store.openOnDevice(for: "ws-1", panelID: "panel-1", url: URL(string: "https://mac.test/"))
         store.forgetOnDevice(panelID: "panel-1")
         store.closeBrowser(for: "ws-1")
-        #expect(store.prefersOnDevice(panelID: "panel-1") == false)
+        #expect(store.prefersOnDevice(panelID: "panel-1", byDefault: true) == false)
         let next = store.openOnDevice(for: "ws-1", panelID: "panel-1", url: URL(string: "https://mac.test/b"))
         #expect(next !== first)
         #expect(next.consumeLoadRequest()?.absoluteString == "https://mac.test/b")
+    }
+
+    @Test func untouchedTabFollowsTheDefaultMode() {
+        let store = makeStore()
+        #expect(store.prefersOnDevice(panelID: "panel-new", byDefault: true))
+        #expect(store.prefersOnDevice(panelID: "panel-new", byDefault: false) == false)
+    }
+
+    @Test func choosingStreamedSticksOverAnOnDeviceDefault() {
+        let store = makeStore()
+        store.openOnDevice(for: "ws-1", panelID: "panel-1", url: URL(string: "https://mac.test/"))
+        store.forgetOnDevice(panelID: "panel-1")
+        #expect(store.prefersOnDevice(panelID: "panel-1", byDefault: true) == false)
+        // Other tabs keep the default.
+        #expect(store.prefersOnDevice(panelID: "panel-2", byDefault: true))
+        // Choosing On iPhone again wins over a Streamed default too.
+        store.openOnDevice(for: "ws-1", panelID: "panel-1", url: nil)
+        #expect(store.prefersOnDevice(panelID: "panel-1", byDefault: false))
     }
 
     @Test func onDeviceTabWithoutAWebPageLoadsTheDefault() {
