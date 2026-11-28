@@ -40,6 +40,43 @@ mod platform;
 /// The supervisor protocol range this daemon speaks (the host picks one in it).
 const PROTOCOL_MIN: u64 = 1;
 const PROTOCOL_MAX: u64 = 1;
+/// What this daemon offers the host beside the version (hq RFD 0224: features are gated on caps,
+/// not on version numbers). The host ignores names it does not know.
+const SUPERVISOR_CAPS: &[&str] = &["remote-host-status", "remote-host-call"];
+/// The typed kind of a refusal for a host whose protocol range does not overlap ours.
+const VERSION_INCOMPATIBLE: &str = "version.incompatible";
+
+/// Checks the host's answer to our hello (hq RFD 0224). A host with no protocol in common is the
+/// typed `version.incompatible`, naming the side to update; so is a host that picked a version
+/// outside our range. A host from before the `protocol` field speaks 1.
+fn hello_answer(answer: &Value) -> Result<u64, String> {
+    if answer.get("type").and_then(Value::as_str) != Some("hello") {
+        let code = answer.pointer("/error/code").and_then(Value::as_str).unwrap_or("");
+        let message = answer.pointer("/error/message").and_then(Value::as_str).unwrap_or("refused");
+        if code == "protocol" || code == VERSION_INCOMPATIBLE {
+            let side = match answer.pointer("/error/details/update").and_then(Value::as_str) {
+                Some("peer") => "update cmux (this daemon is older than cmux Remote serves)",
+                Some("self") => "update cmux Remote (it is older than this daemon speaks)",
+                _ => "update cmux and cmux Remote to the same release",
+            };
+            return Err(format!(
+                "{VERSION_INCOMPATIBLE}: cmux Remote speaks no supervisor protocol in \
+                 {PROTOCOL_MIN}..={PROTOCOL_MAX} ({message}); {side}"
+            ));
+        }
+        return Err(format!("the host refused this daemon: {message}"));
+    }
+    let version = answer.get("protocol").and_then(Value::as_u64).unwrap_or(1);
+    if !(PROTOCOL_MIN..=PROTOCOL_MAX).contains(&version) {
+        let side = if version > PROTOCOL_MAX { "update cmux" } else { "update cmux Remote" };
+        return Err(format!(
+            "{VERSION_INCOMPATIBLE}: cmux Remote chose supervisor protocol {version}, this daemon \
+             speaks {PROTOCOL_MIN}..={PROTOCOL_MAX}; {side}"
+        ));
+    }
+    Ok(version)
+}
+
 /// How long a starting host may take to report that it serves.
 const READY_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long one request to the host may take (a permission prompt answers at once).
@@ -626,7 +663,10 @@ impl Inner {
             return Err("the supervisor socket's peer is not the recorded host".into());
         }
         let mut writer = stream.try_clone().map_err(|error| format!("{error}"))?;
-        let hello = json!({"type": "hello", "secret": record.secret, "min": PROTOCOL_MIN, "max": PROTOCOL_MAX});
+        let hello = json!({
+            "type": "hello", "secret": record.secret,
+            "min": PROTOCOL_MIN, "max": PROTOCOL_MAX, "caps": SUPERVISOR_CAPS,
+        });
         writeln!(writer, "{hello}").map_err(|error| format!("hello: {error}"))?;
         let mut reader = BufReader::new(stream);
         let mut line = String::new();
@@ -635,11 +675,7 @@ impl Inner {
         stream_timeout(reader.get_ref(), None);
         let answer: Value =
             serde_json::from_str(&line).map_err(|_| "the host's hello is not JSON".to_string())?;
-        if answer.get("type").and_then(Value::as_str) != Some("hello") {
-            let message =
-                answer.pointer("/error/message").and_then(Value::as_str).unwrap_or("refused");
-            return Err(format!("the host refused this daemon: {message}"));
-        }
+        hello_answer(&answer)?;
         let weak = Arc::downgrade(this);
         let pid = record.pid;
         let connection = Arc::new(Connection {

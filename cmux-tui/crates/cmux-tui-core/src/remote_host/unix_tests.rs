@@ -375,3 +375,36 @@ fn saved_switches_read_back_and_a_bad_file_reads_as_the_defaults() {
     assert_eq!(super::read_config(&path), super::RemoteConfig::default(), "corrupt");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+// hq RFD 0224: the supervisor hello is a range, and a gap is the typed `version.incompatible`.
+
+#[test]
+fn hello_answer_takes_a_host_from_before_the_protocol_field() {
+    assert_eq!(super::hello_answer(&json!({"type": "hello"})), Ok(1));
+    assert_eq!(super::hello_answer(&json!({"type": "hello", "protocol": 1})), Ok(1));
+}
+
+#[test]
+fn hello_answer_refuses_a_version_outside_our_range_with_the_typed_kind() {
+    let error = super::hello_answer(&json!({"type": "hello", "protocol": 9})).unwrap_err();
+    assert!(error.starts_with("version.incompatible:"), "{error}");
+    assert!(error.contains("update cmux"), "{error}");
+}
+
+#[test]
+fn hello_answer_names_the_side_to_update_on_a_refusal() {
+    let older_host = json!({"type": "error", "error": {"code": "version.incompatible",
+        "message": "no common protocol", "details": {"update": "self"}}});
+    let error = super::hello_answer(&older_host).unwrap_err();
+    assert!(
+        error.starts_with("version.incompatible:") && error.contains("update cmux Remote"),
+        "{error}"
+    );
+    // A host from before the typed code says `protocol`: still typed here.
+    let legacy =
+        json!({"type": "error", "error": {"code": "protocol", "message": "no common protocol"}});
+    assert!(super::hello_answer(&legacy).unwrap_err().starts_with("version.incompatible:"));
+    // Any other refusal stays what it was.
+    let other = json!({"type": "error", "error": {"code": "refused", "message": "bad hello"}});
+    assert_eq!(super::hello_answer(&other).unwrap_err(), "the host refused this daemon: bad hello");
+}

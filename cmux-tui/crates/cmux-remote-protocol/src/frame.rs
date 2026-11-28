@@ -267,7 +267,7 @@ impl WireFrame {
             return Err(FrameDecodeError::BadMagic);
         }
         let [version]: [u8; 1] = fields.take();
-        if version != REMOTE_PROTOCOL_VERSION {
+        if !crate::ProtocolRange::ours().contains(version) {
             return Err(FrameDecodeError::UnsupportedVersion(version));
         }
 
@@ -380,6 +380,14 @@ pub enum FrameDecodeError {
     InvalidHeartbeat,
 }
 
+impl FrameDecodeError {
+    /// The typed kind of a decode failure a peer should see: [`crate::VERSION_INCOMPATIBLE`] for a
+    /// frame whose version is outside this build's range, `None` for a malformed frame.
+    pub fn error_kind(&self) -> Option<&'static str> {
+        matches!(self, Self::UnsupportedVersion(_)).then_some(crate::VERSION_INCOMPATIBLE)
+    }
+}
+
 impl fmt::Display for FrameDecodeError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -387,9 +395,21 @@ impl fmt::Display for FrameDecodeError {
                 write!(formatter, "frame needs at least {expected} bytes, got {actual}")
             }
             Self::BadMagic => formatter.write_str("frame has invalid magic"),
-            Self::UnsupportedVersion(version) => {
-                write!(formatter, "unsupported remote protocol version {version}")
-            }
+            Self::UnsupportedVersion(version) => write!(
+                formatter,
+                "{}",
+                crate::ProtocolRange::ours()
+                    .negotiate(crate::ProtocolRange::exactly(*version))
+                    .err()
+                    .map_or_else(
+                        || format!("unsupported remote protocol version {version}"),
+                        |refusal| format!(
+                            "{}: {}",
+                            refusal.code(),
+                            refusal.message("the frame's sender", "this build")
+                        ),
+                    )
+            ),
             Self::UnknownLane(lane) => write!(formatter, "frame has unknown lane {lane}"),
             Self::UnknownFlags(flags) => write!(formatter, "frame has unknown flags 0x{flags:04x}"),
             Self::PayloadTooLarge(size) => {

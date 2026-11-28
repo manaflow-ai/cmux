@@ -819,9 +819,11 @@ pub(crate) async fn verify_secure_link(
     if prelude.name != HANDSHAKE_NAME {
         return Err(CryptoError::BadPrelude("unexpected handshake name".into()));
     }
-    if prelude.protocol != REMOTE_PROTOCOL_VERSION {
-        return Err(CryptoError::BadPrelude(format!("unsupported protocol {}", prelude.protocol)));
-    }
+    // hq RFD 0224: a client inside this build's range is served; one outside it gets the typed
+    // `version.incompatible`, naming the side to update, never a bare "bad prelude".
+    cmux_remote_protocol::ProtocolRange::ours()
+        .negotiate(cmux_remote_protocol::ProtocolRange::exactly(prelude.protocol))
+        .map_err(CryptoError::VersionIncompatible)?;
     validate_lanes(prelude.lane, &prelude.lanes)?;
 
     let invitation_secret =
@@ -1128,6 +1130,8 @@ pub enum CryptoError {
     HandshakeTimeout {
         timeout: Duration,
     },
+    /// The client's remote protocol is outside this daemon's range (hq RFD 0224).
+    VersionIncompatible(cmux_remote_protocol::VersionIncompatible),
 }
 
 impl fmt::Display for CryptoError {
@@ -1161,6 +1165,12 @@ impl fmt::Display for CryptoError {
                 "secure link handshake timed out after {}ms: the endpoint accepted the \
                  connection but never completed the cmux remote handshake",
                 timeout.as_millis()
+            ),
+            Self::VersionIncompatible(refusal) => write!(
+                formatter,
+                "{}: {}",
+                refusal.code(),
+                refusal.message("the client", "the daemon")
             ),
         }
     }

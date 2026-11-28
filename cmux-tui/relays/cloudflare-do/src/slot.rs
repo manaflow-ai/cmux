@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use cmux_remote_protocol::{
-    CircuitId, LaneToken, MAX_RELAY_BATCH_BYTES, REMOTE_PROTOCOL_VERSION, RelayControl,
-    RelayPermission, RelayRole, RelaySocketAttachment, RelayTicketClaims,
+    CircuitId, LaneToken, MAX_RELAY_BATCH_BYTES, ProtocolRange, RelayControl, RelayPermission,
+    RelayRole, RelaySocketAttachment, RelayTicketClaims,
 };
 use worker::{
     Date, DurableObject, Env, Method, Request, Response, Result, State, WebSocket,
@@ -425,10 +425,16 @@ impl RelaySlot {
         slot: String,
         ticket: String,
     ) -> Result<()> {
-        if protocol != REMOTE_PROTOCOL_VERSION
-            || attachment.relay.role != RelayRole::Daemon
-            || attachment.relay.slot != slot
-        {
+        if let Err(refusal) = ProtocolRange::ours().negotiate(ProtocolRange::exactly(protocol)) {
+            Self::fail(
+                socket,
+                refusal.code(),
+                &refusal.message("the peer", "the relay"),
+                CLOSE_POLICY,
+            );
+            return Ok(());
+        }
+        if attachment.relay.role != RelayRole::Daemon || attachment.relay.slot != slot {
             Self::fail(
                 socket,
                 "invalid-register",
@@ -529,10 +535,16 @@ impl RelaySlot {
         slot: String,
         ticket: String,
     ) -> Result<()> {
-        if protocol != REMOTE_PROTOCOL_VERSION
-            || attachment.relay.role != RelayRole::Daemon
-            || attachment.relay.slot != slot
-        {
+        if let Err(refusal) = ProtocolRange::ours().negotiate(ProtocolRange::exactly(protocol)) {
+            Self::fail(
+                socket,
+                refusal.code(),
+                &refusal.message("the peer", "the relay"),
+                CLOSE_POLICY,
+            );
+            return Ok(());
+        }
+        if attachment.relay.role != RelayRole::Daemon || attachment.relay.slot != slot {
             Self::fail(socket, "invalid-standby", "standby does not match this slot", CLOSE_POLICY);
             return Ok(());
         }
@@ -774,8 +786,18 @@ impl RelaySlot {
         mut attachment: SlotAttachment,
         request: ConnectRequest,
     ) -> Result<()> {
-        if request.protocol != REMOTE_PROTOCOL_VERSION
-            || attachment.relay.role != RelayRole::Client
+        if let Err(refusal) =
+            ProtocolRange::ours().negotiate(ProtocolRange::exactly(request.protocol))
+        {
+            Self::fail(
+                socket,
+                refusal.code(),
+                &refusal.message("the peer", "the relay"),
+                CLOSE_POLICY,
+            );
+            return Ok(());
+        }
+        if attachment.relay.role != RelayRole::Client
             || attachment.relay.slot != request.slot
             || !valid_opaque_identifier(&request.lane.0, MAX_LANE_TOKEN_BYTES)
         {

@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use cmux_remote_protocol::{
-    CircuitId, LaneToken, MAX_RELAY_BATCH_BYTES, REMOTE_PROTOCOL_VERSION, RelayControl,
-    RelayPermission, RelayRole, RelaySocketAttachment,
+    CircuitId, LaneToken, MAX_RELAY_BATCH_BYTES, ProtocolRange, RelayControl, RelayPermission,
+    RelayRole, RelaySocketAttachment,
 };
 use serde::{Deserialize, Serialize};
 use worker::{
@@ -286,8 +286,18 @@ impl RelayCircuit {
         request: JoinRequest,
     ) -> Result<()> {
         let now_ms = self.now_ms();
-        if request.protocol != REMOTE_PROTOCOL_VERSION
-            || attachment.phase != CircuitPhase::Pending
+        if let Err(refusal) =
+            ProtocolRange::ours().negotiate(ProtocolRange::exactly(request.protocol))
+        {
+            Self::fail(
+                socket,
+                refusal.code(),
+                &refusal.message("the peer", "the relay"),
+                CLOSE_POLICY,
+            );
+            return Ok(());
+        }
+        if attachment.phase != CircuitPhase::Pending
             || attachment.circuit != request.circuit
             || attachment.idle_deadline_ms <= now_ms
             || !valid_opaque_identifier(&request.slot, MAX_SLOT_ID_BYTES)
