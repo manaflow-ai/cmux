@@ -1138,6 +1138,10 @@ path = "tests/test_ci_spec_checks.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_standalone_files.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_starved_labels.py"
 lane = "linux-guard"
 
