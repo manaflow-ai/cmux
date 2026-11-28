@@ -1,0 +1,17 @@
+{
+  "caption": "Bring your cmux Classic workspaces over from the Set Up cmux card: its cmux Classic row says when they were saved, with Import or Skip.",
+  "frameInterval": 0.25,
+  "launch_args": ["--onboarding"],
+  "env": {
+    "CMUX_NEXT_CLASSIC_MIGRATION": "1",
+    "CMUX_NEXT_CLASSIC_IMPORT_DIR": "{repo}/tests/fixtures/whats-new-classic-import"
+  },
+  "steps": [
+    {"title": "A first run with cmux Classic's saved workspaces", "wait": 3},
+    {"title": "Show Home", "cmux": ["action", "run", "home.show"], "wait": 4, "optional": "Home may already be showing"},
+    {"title": "The Set Up cmux card asks about cmux Classic", "wait": 2.5, "clip": true},
+    {"title": "Import or Skip, right on the row", "wait": 2.5, "clip": true},
+    {"title": "End", "wait": 0.5}
+  ],
+  "crop": [0.15, 0.1, 0.7, 0.8]
+}
