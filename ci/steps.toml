@@ -1094,9 +1094,14 @@ WRANGLER_SEND_METRICS=false npm run check
 # workflow file where the filter listed it. A failure in one command of a step does not stop the step's others,
 # as the jobs' `!cancelled()` steps did. The sdk job's failure-only artifact upload (the regenerated schema) is
 # not a step: a failed step prints its `git diff --stat`.
+# land_gate: an openapi.json change that skips the regeneration stales src/schema.d.ts too, so this cheap step (under
+# 2 min) catches it on the landing head. cmux#63748 and cmux#64283 changed the spec without regenerating, and
+# `cmux VM clients / rust` and `/ sdk` stayed red on feat-cmux-next until cmux#64493. The Rust step stays push tier
+# (a 30-minute compile), so the message here names both regenerators.
 [step.cmux-vm-sdk]
 job = "linux"
 tier = "push"
+land_gate = true
 timeout = 300
 title = "cmux VM SDK"
 about = "the @cmux/vm SDK's generated schema (src/schema.d.ts) matches workers/cmux-vm/openapi.json, and the SDK typechecks"
@@ -1119,7 +1124,7 @@ status=0
 bun run generate
 if [[ -n "$(git status --porcelain -- .)" ]]; then
   git --no-pager diff --stat -- .
-  echo "::error::src/schema.d.ts is stale: run \`bun run generate\` in workers/cmux-vm/sdk and commit the result"
+  echo "::error::src/schema.d.ts is stale: run \`bun run generate\` in workers/cmux-vm/sdk and workers/cmux-vm/cli/scripts/regenerate.sh (the Rust client), and commit the result"
   status=1
 fi
 bun run typecheck || status=1

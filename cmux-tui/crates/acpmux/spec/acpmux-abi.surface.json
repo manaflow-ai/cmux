@@ -36447,6 +36447,31 @@
         "ty": "boolean",
         "required": true
       },
+      "/data/summary": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/summary/agents": {
+        "ty": "uint32",
+        "required": true
+      },
+      "/data/summary/others": {
+        "ty": "uint32",
+        "required": true
+      },
+      "/data/summary/pendingEdits": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/summary/sync": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"alone\"",
+          "\"offline\"",
+          "\"synced\"",
+          "\"syncing\""
+        ]
+      },
       "/data/sync": {
         "ty": "array",
         "nullable": true
