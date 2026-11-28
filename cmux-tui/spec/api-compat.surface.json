@@ -16000,6 +16000,9 @@
         "ty": "object",
         "nullable": true
       },
+      "/dock/allow_tabs": {
+        "ty": "boolean"
+      },
       "/dock/edge": {
         "ty": "string",
         "required": true
@@ -16007,6 +16010,12 @@
       "/dock/mode": {
         "ty": "string",
         "required": true
+      },
+      "/dock/permanent": {
+        "ty": "boolean"
+      },
+      "/dock/pinned": {
+        "ty": "boolean"
       },
       "/dock/role": {
         "ty": "string",
