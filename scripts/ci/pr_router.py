@@ -601,11 +601,12 @@ def land_status(event: dict, decided: tuple[str, str]) -> str:
     """The `cmux/land-tier` commit status for EVENT's head (pr-router.yml posts it): `pending` while the land rule holds
     it on the cheap tier (or idle), `success` once it runs the full tier, lands on the affected tier (the hourly
     full tier rule), or the land carry rule or the full-ci base merge carry rule carries its previous head's run
-    (head_tier.carried, head_tier.full_carried), empty where the land rule does not apply."""
+    (head_tier.carried, head_tier.full_carried) or the same-head land carry rule its own head's
+    (head_tier.same_head_carried), empty where the land rule does not apply."""
     if (os.environ.get("CI_LAND_TIER", "1").strip() in ("0", "")) or not head_tier.land_rule_applies(event):
         return ""
     return ("success" if decided[0] == "full" or head_tier.carried(decided) or head_tier.land_affected(decided)
-            or head_tier.full_carried(decided) else "pending")
+            or head_tier.full_carried(decided) or head_tier.same_head_carried(decided) else "pending")
 
 
 def ios_status(event: dict, files: list[str] | None, start: list[str], land: str) -> tuple[str, str]:
