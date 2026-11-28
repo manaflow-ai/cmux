@@ -43,6 +43,7 @@ test("the app's answer: taken when it moved or ran the move, else the pick goes 
   };
   // The move ran and failed: the app said why in its toast; no new empty chat on top.
   expect(await repickCloudChat(failing("cloud_start_failed"), { name: "teal-otter" })).toBe(true);
+  expect(await repickCloudChat(failing("environment_mismatch"), { name: "teal-otter" })).toBe(true);
   // Not a chat a Cloud start opened (a relaunched app), an older app, no gesture: as before.
   for (const code of ["not_a_cloud_start", "unsupported", "transport.gesture_required", "cloud_disabled"])
     expect(await repickCloudChat(failing(code), { name: "teal-otter" })).toBe(false);
