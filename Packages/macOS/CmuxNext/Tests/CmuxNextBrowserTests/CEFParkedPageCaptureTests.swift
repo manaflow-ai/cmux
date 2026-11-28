@@ -41,9 +41,16 @@ import Testing
             }
         }
 
+        /// Detaches the fork refuses before it takes one (a busy fork, a page window it cannot order out yet).
+        var refusesDetach = 0
+
         var fork: CEFLayerHosting.Fork {
             CEFLayerHosting.Fork(setLayerHosting: { _, enabled in enabled ? 7 : 0 }, setResizeSync: { _, _ in true },
                                  setDetachedHosting: { [self] _, on in
+                                     if on, refusesDetach > 0 {
+                                         refusesDetach -= 1
+                                         return false
+                                     }
                                      detached = on
                                      update()
                                      return true
@@ -196,6 +203,24 @@ import Testing
         #expect(fixture.tracker.page.parent == nil, "a parked page's window is no child window 100,000 points off")
         #expect(!fixture.tracker.page.isVisible, "and is ordered in nowhere")
         unpark(fixture, from: parking)
+        expectOverItsView(fixture)
+    }
+
+    /// cmux#53434: a chat parked by a new tab's show whose detach the fork refused once kept its page window
+    /// attached for good (the parked state latched with no retry), and the chat drew over the New Tab page that
+    /// replaced it. The window's next page update asks again, and the parked page's window leaves.
+    @Test func aRefusedDetachOfAParkedPageIsAskedAgainAtTheNextPageUpdate() throws {
+        let fixture = try fixture()
+        defer { fixture.close() }
+        fixture.tracker.refusesDetach = 1
+        let parking = try park(fixture)
+        #expect(fixture.tracker.refusesDetach == 0, "the fork refused the park's first detach")
+        pageWindowFollowsItsView(fixture)
+        #expect(fixture.tracker.detached, "a later page update detaches the parked page")
+        #expect(fixture.tracker.page.parent == nil, "its window is no child of the cmux window any more")
+        #expect(!fixture.tracker.page.isVisible)
+        unpark(fixture, from: parking)
+        #expect(!fixture.tracker.detached)
         expectOverItsView(fixture)
     }
 
