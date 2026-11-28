@@ -69,6 +69,76 @@ async fn carry_skips_a_cooling_host_and_each_hub_has_its_own_cool_down() {
     assert_eq!(LOGINS.load(std::sync::atomic::Ordering::SeqCst), 3);
 }
 
+/// The hop storm of 2026-11-28 (a shared Linux host): a down link's outbox woke its whole
+/// queue at once and each delivery became its own 30 s ssh login (each with its ProxyCommand
+/// hop), about 300 at once. 64 deliveries to one host whose login hangs, all at once: one
+/// login runs, the rest are not carried (the outbox keeps them), and the timeout cools the
+/// host down so the next try logs in to nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn one_carry_per_host_at_a_time_and_a_hung_login_cools_the_host() {
+    use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
+    static NOW: AtomicU32 = AtomicU32::new(0);
+    static PEAK: AtomicU32 = AtomicU32::new(0);
+    static LOGINS: AtomicU32 = AtomicU32::new(0);
+    fn hangs(_: Vec<String>, _: Vec<u8>) -> Carry {
+        LOGINS.fetch_add(1, SeqCst);
+        PEAK.fetch_max(NOW.fetch_add(1, SeqCst) + 1, SeqCst);
+        std::thread::sleep(Duration::from_millis(300));
+        NOW.fetch_sub(1, SeqCst);
+        Carry::Maybe(format!("{TIMED_OUT} after 30 s"))
+    }
+    let mut config = crate::config::Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(config, store);
+    let row = json!({"sessionId": "s-lane", "name": "lane", "status": "idle",
+                     "turnCount": 1, "updatedAt": 5});
+    hub.seed_down_peer_at("carry-storm-box", "ssh://carry-storm-box", vec![row]);
+    const DELIVERIES: u32 = 64;
+    let start = std::sync::Arc::new(tokio::sync::Barrier::new(DELIVERIES as usize));
+    let mut all = tokio::task::JoinSet::new();
+    for _ in 0..DELIVERIES {
+        let (hub, start) = (hub.clone(), start.clone());
+        all.spawn(async move {
+            let mut d = delivery(json!({"promptId": "p"}));
+            d.target = "carry-storm-box/lane".into();
+            start.wait().await;
+            carry_by(&hub, &d, hangs).await.is_some()
+        });
+    }
+    let mut carried = 0;
+    while let Some(done) = all.join_next().await {
+        carried += u32::from(done.unwrap());
+    }
+    let (peak, logins) = (PEAK.load(SeqCst), LOGINS.load(SeqCst));
+    eprintln!(
+        "{DELIVERIES} deliveries to one hung host: {logins} ssh logins, {peak} at once, {carried} carried"
+    );
+    assert_eq!((peak, logins, carried), (1, 1, 1));
+    // The slot came back, and the timeout cools the host: the next try logs in to nothing.
+    let mut d = delivery(json!({"promptId": "p"}));
+    d.target = "carry-storm-box/lane".into();
+    assert!(carry_by(&hub, &d, hangs).await.is_none());
+    assert_eq!(LOGINS.load(SeqCst), 1);
+    assert!(hub.ssh_carry_cooldown.lock().unwrap().in_flight.is_empty());
+}
+
+#[test]
+fn a_hosts_slot_is_its_own_and_only_a_refusal_or_a_hang_cools_it() {
+    let now = std::time::Instant::now();
+    let mut cool = Cooldown::default();
+    assert!(cool.begin("a", now));
+    assert!(!cool.begin("a", now), "a second carry to a host in flight");
+    assert!(cool.begin("b", now), "another host held back by this one");
+    cool.end("a");
+    assert!(cool.begin("a", now));
+    assert!(cools(&Carry::NotTaken("ssh: Connection refused".into())));
+    assert!(cools(&Carry::Maybe(format!("{TIMED_OUT} after 30 s"))));
+    assert!(cools(&Carry::Maybe("Timeout, server box not responding.".into())));
+    assert!(!cools(&Carry::Maybe("the far side exited 1: boom".into())));
+    assert!(!cools(&Carry::Taken(json!({}))));
+}
+
 #[test]
 fn the_message_goes_on_stdin_and_every_word_is_quoted() {
     let request = json!({"sessionId": "box/lane", "prompt": [{"type": "text", "text": "hi; rm -rf ~"}],
@@ -189,6 +259,10 @@ fn what_the_far_side_said_decides_the_outbox_next_step() {
         Carry::NotTaken(_)
     ));
     assert!(matches!(outcome(Some(127), "", "acpmux: not found"), Carry::NotTaken(_)));
+    assert!(matches!(
+        outcome(Some(1), "", "Failed to start transient scope unit: Connection timed out"),
+        Carry::NotTaken(_)
+    ));
     assert!(matches!(outcome(Some(4), "", "no session"), Carry::NotTaken(_)));
     assert!(matches!(outcome(Some(1), "", "boom"), Carry::Maybe(_)));
     assert!(matches!(outcome(None, "", ""), Carry::Maybe(_)));

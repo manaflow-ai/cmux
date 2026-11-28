@@ -19,7 +19,7 @@ pub fn caller_key(authorization: Option<&[u8]>) -> String {
 
 /// The part of a caller key a log line may show.
 pub fn short(key: &str) -> &str {
-    &key[..key.len().min(12)]
+    key.get(..key.floor_char_boundary(key.len().min(12))).unwrap_or_default()
 }
 
 pub struct AuthCache {
