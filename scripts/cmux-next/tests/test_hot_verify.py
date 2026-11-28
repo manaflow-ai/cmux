@@ -514,6 +514,51 @@ class PlanTest(unittest.TestCase):
         self.assertTrue(any("working tree has changes" in note for note in planned["notes"]))
         self.assertEqual(self.fx.git("status", "--porcelain"), "M webviews/src/app.tsx")  # nothing staged
 
+    def test_a_repeat_snapshot_reuses_its_kept_index_and_follows_every_change(self):
+        # team-dev-build-swap's 18:50Z 2026-11-28 row: the swap's second `app try` of an unchanged tree spent 4.0 s
+        # planning, through a throwaway index copy. The kept copy must give the same commit a fresh copy would.
+        repo = self.fx.repo
+        app = repo / "webviews/src/app.tsx"
+        app.write_text("export const title = 'one'\n")
+        first = hv.snapshot(repo)
+        slot = next((Path(os.environ["CMUX_HOT_VERIFY_CACHE"]) / "index").iterdir())
+        kept = (slot / "index").stat().st_mtime_ns
+        tree = lambda commit: self.fx.git("rev-parse", f"{commit}^{{tree}}")
+        self.assertEqual(tree(hv.snapshot(repo)), tree(first))  # unchanged: the same tree, through the kept copy
+        self.assertTrue((slot / "stamp").is_file())
+        self.assertGreaterEqual((slot / "index").stat().st_mtime_ns, kept)
+        # An edit, a new file, a deleted new file: each read as a fresh copy reads it.
+        app.write_text("export const title = 'two'\n")
+        (repo / "webviews/src/new.ts").write_text("export {}\n")
+        second = hv.snapshot(repo)
+        self.assertEqual(self.fx.git("show", f"{second}:webviews/src/app.tsx"), "export const title = 'two'")
+        self.assertEqual(self.fx.git("show", f"{second}:webviews/src/new.ts"), "export {}")
+        (repo / "webviews/src/new.ts").unlink()
+        third = hv.snapshot(repo)
+        self.assertNotIn("new.ts", self.fx.git("ls-tree", "-r", "--name-only", third))
+        # A file an earlier snapshot added that a .gitignore now ignores is left out, as a fresh copy leaves it.
+        (repo / "scratch.log").write_text("x\n")
+        self.assertIn("scratch.log", self.fx.git("ls-tree", "-r", "--name-only", hv.snapshot(repo)))
+        (repo / ".git/info").mkdir(exist_ok=True)
+        (repo / ".git/info/exclude").write_text("*.log\n")
+        self.assertNotIn("scratch.log", self.fx.git("ls-tree", "-r", "--name-only", hv.snapshot(repo)))
+        # A commit moves HEAD and the real index: the copy is made again, and a clean tree is HEAD itself.
+        app.write_text("export const title = 'one'\n")
+        self.fx.git("add", "webviews/src/app.tsx")
+        self.fx.git("commit", "-q", "-m", "one")
+        self.assertEqual(hv.snapshot(repo), self.fx.git("rev-parse", "HEAD"))
+        self.assertEqual(self.fx.git("status", "--porcelain", "--untracked-files=no"), "")  # nothing staged
+
+    def test_a_held_kept_index_falls_back_to_a_throwaway_copy(self):
+        repo = self.fx.repo
+        (repo / "webviews/src/app.tsx").write_text("export const title = 'held'\n")
+        index = Path(self.fx.git("rev-parse", "--path-format=absolute", "--git-path", "index"))
+        head = self.fx.git("rev-parse", "HEAD")
+        with hv.kept_index(index, head) as (held, fresh):
+            self.assertTrue(fresh)
+            made = hv.snapshot(repo)  # a second snapshot while the first holds the slot
+        self.assertEqual(self.fx.git("show", f"{made}:webviews/src/app.tsx"), "export const title = 'held'")
+
     def test_a_clone_with_no_working_tree_reads_the_rules_from_feat_cmux_next(self):
         # The fleet's engine is an export of scripts/cmux-next over a blob-less clone with no checkout: the FFI
         # inputs come from a sparse worktree of origin/feat-cmux-next, so FFI-linked Rust still needs a build.

@@ -265,6 +265,18 @@ about = "every Cargo.toml whose release profile strips also sets `[profile.relea
 inputs = ["**/Cargo.toml", "tests/test_cargo_proc_macros_unstripped.py"]
 run = "python3 tests/test_cargo_proc_macros_unstripped.py"
 
+# cmux-tui-lib compiles cmux-tui/src (its [lib] path, #60340), so a crate added to cmux-tui's manifest alone
+# breaks the program: #60340 landed after CMUX-570 (#45927) put cmux-cloud and cmux-agent-screen-detection in
+# cmux-tui's manifest only, and every feat-cmux-next compile check failed with "cannot find module or crate".
+# Under a second, offline.
+[step.cmux-tui-lib-deps]
+job = "linux"
+timeout = 60
+title = "cmux-tui-lib carries cmux-tui's dependencies"
+about = "every crate in cmux-tui's manifest is in cmux-tui-lib's too, since cmux-tui-lib compiles cmux-tui/src"
+inputs = ["cmux-tui/crates/cmux-tui/Cargo.toml", "cmux-tui/crates/cmux-tui-lib/Cargo.toml", "scripts/ci/check-cmux-tui-lib-deps.py"]
+run = "python3 scripts/ci/check-cmux-tui-lib-deps.py"
+
 [step.reusable-workflow-permissions]
 job = "linux"
 timeout = 120
@@ -572,6 +584,46 @@ inputs = [
   "tests/*",
 ]
 run = "scripts/ci/guards_reached.sh"
+
+# The privacy and egress registries (docs/privacy.md, config/network/allowlist.json, tests/egress_ungated.json,
+# tests/egress_seeded.json) list hosts and sites in NEXT's Swift, Rust and TS source. Their tests sit in the
+# ci-guards.yml `ci` group, which no feat-cmux-next pull request runs, and guard-steps-reached leaves product paths
+# out, so a product change adding a host merged green and the tip went red (5 fix-forwards, 11-21..11-28: #57217,
+# #58104, #58409, #59244, #57325). land_gate keeps the `**` source globs under --pr-scope.
+[step.egress-scan-guards]
+job = "linux"
+land_gate = true
+# 20 s green; 324 s when test_egress_seeded is red on head and base (new_red_only.sh re-runs it there).
+timeout = 600
+title = "Privacy and egress registries match the source, judged against the base"
+about = "runs test_outbound_hosts, test_network_allowlist, test_egress_gate and test_egress_seeded (scripts/ci/egress_scan_guards.sh); fails only on a red the base passes"
+inputs = [
+  "Packages/macOS/CmuxNext/**/*.swift",
+  "Packages/Shared/**/*.swift",
+  "cmux-tui/**/*.rs",
+  "cmux-tui/**/*.ts",
+  "webviews/src/**/*.ts",
+  "webviews/src/**/*.tsx",
+  "webviews/src/**/*.js",
+  "webviews/src/**/*.mjs",
+  "cmux-next-ios/**/*.swift",
+  "cmux-next-ios/**/*.rs",
+  "skills/cmux-customization/templates/**",
+  "workers/device-hub/src/**",
+  "docs/privacy.md",
+  "docs/network-requirements.md",
+  "config/network/allowlist.json",
+  "config/iroh/managed-relay-catalog.json",
+  "tests/egress_ungated.json",
+  "tests/egress_seeded.json",
+  "tests/test_outbound_hosts.py",
+  "tests/test_network_allowlist.py",
+  "tests/test_egress_gate.py",
+  "tests/test_egress_seeded.py",
+  "tests/test_classic_cloud_routes.py",
+  "scripts/ci/egress_scan_guards.sh",
+]
+run = "scripts/ci/egress_scan_guards.sh"
 
 # tests/test_ci_owned_mac_jobs_no_sudo.py counts the sudo calls in every script a job that can reach an owned Mac
 # runs, but it was only in ci-guards.yml's ci group, which a feat-cmux-next pull request skips (cdn-user-agent,
@@ -1783,7 +1835,7 @@ if [ -n "${CI_PATHS_FILE:-}" ]; then
 fi
 want() { [ "$sel" = all ] || [[ "$sel" == *" $1 "* ]]; }
 status=0
-if want tt-fast-gates; then python3 tests/test_cmux_next_fast_gates.py && python3 tests/test_ci_entry_logs.py || status=1; fi
+if want tt-fast-gates; then python3 tests/test_cmux_next_fast_gates.py && python3 tests/test_ci_entry_logs.py && python3 tests/test_ci_palette_coverage_gate.py || status=1; fi
 if want tt-tip-swift-suite; then python3 tests/test_cmux_next_tip_swift_suite.py || status=1; fi
 if want tt-deferred-terminate; then python3 tests/test_cmux_next_deferred_terminate.py || status=1; fi
 if want tt-check-paths; then python3 tests/test_check_paths.py || status=1; fi
