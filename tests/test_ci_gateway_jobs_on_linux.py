@@ -42,7 +42,9 @@ GATEWAY_MAC = frozenset({
     # The fleet controller is tailnet-only and the cmux-linux pool's VMs are not on the tailnet, so these fetch the client on
     # the gateway runner (a fleet-client job on the pool fails "runner NAME has no route to the controller").
     "bench-baselines-nightly.yml#record-mac-fleet",
+    "chat-move-nightly-readback.yml#readback-fleet",  # #65798; the bare `readback` was refused (run 46199736166)
     "chief-evals.yml#fleet-ab",
+    "cloud-mvp-nightly-readback.yml#readback-fleet",  # #65798, as chat-move
     "cmux-next-agent-conn-chaos.yml#chaos-fleet",
     "cmux-next-scale-fixture.yml#measure-fleet",  # #63279: same shape as split-table's measure-fleet
     "cmux-next-sidebar-bench.yml#bench-fleet",
