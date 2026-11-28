@@ -46,6 +46,31 @@ public struct CloudMachineSecrets: Equatable, Sendable {
         return (items, missing)
     }
 
+    /// Names a machine takes without its machine config declaring them (cmux-remote `ALWAYS_DELIVERED`,
+    /// the same list): every machine of this person whose config has applied gets each one this Mac holds.
+    /// The Claude setup token (`claude setup-token`) is one: a subscription login, which cmux keeps only
+    /// in this Mac's Keychain and never on its servers (cmux-platform docs/cloud-secrets.md), and which
+    /// signs Claude Code in on the machine (acpmux reads `machine-secrets.env`).
+    public static let alwaysDelivered = ["CLAUDE_CODE_OAUTH_TOKEN"]
+
+    /// `declared`, then each ``alwaysDelivered`` name `declared` lacks that the index holds for this
+    /// delivery's scope (globally, or for `repo`). One the Mac doesn't hold is never `missing`.
+    public static func withAlwaysDelivered(_ declared: [String], repo: String?, index: [String: Int64]) -> [String] {
+        declared + alwaysDelivered.filter { name in
+            !declared.contains(name) && (index["*/\(name)"] != nil || repo.map { index["\($0.lowercased())/\(name)"] != nil } == true)
+        }
+    }
+
+    /// Delivers `items` with `send`. A machine whose daemon predates ``alwaysDelivered`` refuses an undeclared
+    /// name (`bad-name`) and with it the whole set, so its declared items then go alone. Answers what was sent.
+    public static func deliver(_ items: [Item], declared: [String], isolation: isolated (any Actor)? = #isolation,
+                               send: ([Item]) async throws -> CloudDaemon.SealedDelivery) async throws -> (CloudDaemon.SealedDelivery, [Item]) {
+        let answer = try await send(items)
+        let declaredOnly = items.filter { declared.contains($0.name) }
+        guard case .failed(_, .some("bad-name"), _) = answer, declaredOnly.count < items.count else { return (answer, items) }
+        return (try await send(declaredOnly), declaredOnly)
+    }
+
     /// The secret names the machine's last finished apply declared (``CloudMachineConfig/statusPath``);
     /// nil while none has finished, or for a status that does not say (never read as "no secrets").
     public static func declared(status data: Data?) -> [String]? {
