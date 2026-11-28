@@ -445,8 +445,9 @@ const openOwnTab: Play = async (ctx) => {
 /// The account card opens in the flow above the models (#63232), so the family tabs and the lists
 /// under it move down by its height: an expand the avatar's click means (the card opens, what follows
 /// it is pushed straight down; schemas/layout-motion/contract.json `expand`). The card is not drawn
-/// before the click, so the declaration names no target.
-const declareCardOpens = (ctx: PlayContext) => ctx.declare("expand");
+/// before the click, so the declaration targets the avatar that opens it: what follows it moves down.
+const declareCardOpens = (ctx: PlayContext) =>
+  ctx.declare("expand", { targets: [{ selector: ".acpmux-cols-profile" }] });
 
 /// The columns' account avatar opens its card, which lists the harness's other accounts.
 const openAccountCard =

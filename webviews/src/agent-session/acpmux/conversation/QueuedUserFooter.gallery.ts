@@ -82,9 +82,14 @@ const checkAligned = (ctx: PlayContext) => {
       continue;
     }
     const box = copyGlyph(row);
-    if (Math.abs(box.right) > 1) throw new Error(`a waiting steer's last control is not on its bubble's right edge (${box.right.toFixed(1)} px off)`);
+    if (Math.abs(box.right) > 1)
+      throw new Error(
+        `a waiting steer's last control is not on its bubble's right edge (${box.right.toFixed(1)} px off)`,
+      );
     if (Math.abs(box.top - reference.top) > 1)
-      throw new Error(`a waiting steer's controls are not the sent row's gap under the bubble (${box.top.toFixed(1)} px, sent ${reference.top.toFixed(1)} px)`);
+      throw new Error(
+        `a waiting steer's controls are not the sent row's gap under the bubble (${box.top.toFixed(1)} px, sent ${reference.top.toFixed(1)} px)`,
+      );
   }
 };
 const preview = (gap?: string) => async (ctx: PlayContext) => {
