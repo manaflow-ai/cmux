@@ -47,9 +47,19 @@ _DECLARATION = re.compile(
 )
 
 
+def _unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """A JSON object whose keys are distinct: json.loads keeps only the last of two equal keys, which dropped a whole
+    family's `enums` block once (#63368 added a second `enums` to Creation, and ColumnSide stopped generating)."""
+    keys = [key for key, _ in pairs]
+    repeated = sorted({key for key in keys if keys.count(key) > 1})
+    if repeated:
+        raise BindingError(f"an object repeats the key(s) {', '.join(repeated)}; merge them into one")
+    return dict(pairs)
+
+
 def load_bindings(path: Path) -> dict[str, Any]:
     try:
-        value = json.loads(Path(path).read_text(encoding="utf-8"))
+        value = json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=_unique_keys)
     except (OSError, json.JSONDecodeError) as error:
         raise BindingError(f"cannot read {path}: {error}") from error
     if not isinstance(value, dict):
