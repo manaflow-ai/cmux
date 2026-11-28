@@ -260,8 +260,40 @@ fn after_failure(backoff: &mut Backoff, e: &HubError) -> Duration {
     backoff.next_wait().max(e.retry_after.unwrap_or_default())
 }
 
-/// The least time between heartbeats: the hub takes fewer than 30 a minute.
+/// The least time between timed heartbeats: the hub takes fewer than 30 a minute.
 const HEARTBEAT_FLOOR: Duration = Duration::from_millis(2500);
+
+/// The heartbeats any minute may carry: what [`HEARTBEAT_FLOOR`] allowed (60 s / 2.5 s), as a
+/// budget instead of a gap. A requested beat (a chat moved or started here waits on it) goes at
+/// once while the last minute has room, rather than at the floor after the last beat: in a
+/// continuous move ring that floor put 0 to 2.5 s of waiting inside every move's freeze
+/// (super-highway probe 2026-11-28 12:25Z: answer p95 2066 ms of a 2084 ms freeze, pages 90 ms).
+const HEARTBEAT_BUDGET: usize = 24;
+const HEARTBEAT_WINDOW: Duration = Duration::from_secs(60);
+
+/// The heartbeats sent in the last [`HEARTBEAT_WINDOW`], so none goes past [`HEARTBEAT_BUDGET`].
+#[derive(Default)]
+struct BeatBudget(std::collections::VecDeque<tokio::time::Instant>);
+
+impl BeatBudget {
+    fn sent(&mut self, at: tokio::time::Instant) {
+        while self.0.front().is_some_and(|t| at.saturating_duration_since(*t) >= HEARTBEAT_WINDOW) {
+            self.0.pop_front();
+        }
+        self.0.push_back(at);
+        while self.0.len() > HEARTBEAT_BUDGET {
+            self.0.pop_front();
+        }
+    }
+
+    /// The soonest the next heartbeat keeps the last minute within the budget.
+    fn ready_at(&self, now: tokio::time::Instant) -> tokio::time::Instant {
+        match self.0.len().checked_sub(HEARTBEAT_BUDGET).and_then(|i| self.0.get(i)) {
+            Some(oldest) => (*oldest + HEARTBEAT_WINDOW).max(now),
+            None => now,
+        }
+    }
+}
 
 /// The wait after a heartbeat the hub took: a third of its TTL, at most `heartbeat_every`.
 fn heartbeat_wait(options: &RelayOptions, ttl_seconds: u64) -> Duration {
@@ -322,7 +354,7 @@ impl Beat {
         }
     }
 
-    /// A heartbeat now (no sooner than the floor after the last one), and its taking, waited
+    /// A heartbeat now (at once while the minute's [`HEARTBEAT_BUDGET`] has room), and its taking, waited
     /// for at most `within`.
     pub(crate) async fn now(&self, within: Duration) {
         let want = self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
@@ -387,11 +419,13 @@ async fn heartbeats(
     // which waits up to 3 s on a loaded machine inside a move's freeze.
     let mut last_health: Option<serde_json::Value> = None;
     let mut last_covered = 0u64;
+    let mut budget = BeatBudget::default();
     loop {
         if hub_ended(&hub) {
             break;
         }
         let began = tokio::time::Instant::now();
+        budget.sent(began);
         let covered = beat.covers();
         let requested = std::mem::replace(&mut last_covered, covered) < covered;
         let sessions = match hub.upgrade() {
@@ -468,13 +502,14 @@ async fn heartbeats(
         };
         let floor = HEARTBEAT_FLOOR.max(options.min_poll_gap);
         let wait = wait.max(floor);
-        // A start's request beats sooner, never under the floor nor during a backoff.
+        // A start's or a move's request beats sooner: at once while the last minute has room in
+        // the budget, never during a backoff.
         let nudged = async {
             if !taken {
                 return std::future::pending().await;
             }
             beat.nudge.notified().await;
-            tokio::time::sleep_until(began + floor).await;
+            tokio::time::sleep_until(budget.ready_at(tokio::time::Instant::now())).await;
         };
         let read_receipts = async {
             if let Some(hub) = hub.upgrade() {
@@ -1646,6 +1681,76 @@ mod tests {
         }
         stop_tx.send(true).unwrap();
         let _ = tokio::time::timeout(Duration::from_secs(10), beats).await;
+    }
+
+    /// A requested heartbeat right after another (a move ring lands a chat here every few
+    /// seconds) goes at once, not at the 2.5 s floor after the last one: that floor was 0 to
+    /// 2.5 s of every hub move's freeze (super-highway answer p95 2066 ms, 2026-11-28).
+    #[tokio::test]
+    async fn a_requested_heartbeat_right_after_another_goes_at_once() {
+        let mut config: crate::config::Config = serde_json::from_value(json!({})).unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+        let fake = Arc::new(Beats::default());
+        let beat = Arc::new(Beat::new());
+        let (stop_tx, stop) = watch::channel(false);
+        let options = Arc::new(RelayOptions {
+            heartbeat_every: Duration::from_secs(60),
+            ..Default::default()
+        });
+        let beats = tokio::spawn(heartbeats(
+            Arc::downgrade(&hub),
+            fake.clone(),
+            options,
+            watch::channel(None).0,
+            beat.clone(),
+            Default::default(),
+            stop,
+        ));
+        let first = async {
+            while fake.0.lock().unwrap().is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(10), first).await.expect("a first heartbeat");
+        let mut took = Vec::new();
+        for _ in 0..3 {
+            let asked = tokio::time::Instant::now();
+            beat.now(Duration::from_secs(5)).await;
+            took.push(asked.elapsed());
+        }
+        assert_eq!(fake.0.lock().unwrap().len(), 4, "three requested heartbeats after the first");
+        assert!(
+            took.iter().all(|t| *t < Duration::from_millis(500)),
+            "requested beats took {took:?}"
+        );
+        stop_tx.send(true).unwrap();
+        let _ = tokio::time::timeout(Duration::from_secs(10), beats).await;
+    }
+
+    /// The budget keeps any minute to what the old floor allowed: the 25th beat waits for the
+    /// first to leave the window.
+    #[test]
+    fn the_heartbeat_budget_holds_a_minute_to_the_floors_rate() {
+        let t0 = tokio::time::Instant::now();
+        let mut budget = BeatBudget::default();
+        for i in 0..HEARTBEAT_BUDGET {
+            assert_eq!(budget.ready_at(t0), t0, "beat {i} has room");
+            budget.sent(t0 + Duration::from_millis(i as u64));
+        }
+        assert_eq!(budget.ready_at(t0), t0 + HEARTBEAT_WINDOW, "the 25th waits for the first");
+        let later = t0 + HEARTBEAT_WINDOW + Duration::from_millis(1);
+        budget.sent(later);
+        assert_eq!(
+            budget.ready_at(later),
+            t0 + Duration::from_millis(1) + HEARTBEAT_WINDOW,
+            "then the second"
+        );
+        assert!(
+            HEARTBEAT_WINDOW.as_millis() / HEARTBEAT_FLOOR.as_millis() >= HEARTBEAT_BUDGET as u128
+        );
     }
 
     /// A block or question sent over the mesh files as that class on the receiver, so an idle
