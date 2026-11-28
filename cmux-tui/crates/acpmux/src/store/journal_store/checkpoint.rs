@@ -121,9 +121,10 @@ impl Inner {
         {
             let order = self.order.lock_or_recover();
             if order.sealed {
-                // Images the seal left are not undone work: the journal holds them.
-                let done = if order.images_left {
-                    order.dirty.is_empty() && order.read_segments.is_empty()
+                // What the seal left to the next open's replay is not undone work: the journal
+                // holds it.
+                let done = if order.left_to_replay {
+                    order.read_segments.is_empty()
                 } else {
                     !order.has_work()
                 };
@@ -205,16 +206,18 @@ impl Inner {
             }
             anyhow::bail!("the event journal did not sync through {lsn}: {error}");
         }
-        // The shutdown's last checkpoint writes no image (two syncs each, and every chat that stopped
-        // at the shutdown saved one: in the god bench 523 held the home 16 s past its deadline). Each is in the journal, durable through `lsn` above; the next daemon's
-        // open puts it back in the overlay and its checkpointer writes it while that daemon
-        // serves (`Inner::apply_metas`). So this one syncs the logs and the folders, and writes
-        // no LSN past an image it left (a checkpoint's LSN says every image before it is in its
-        // file).
-        let leave_images = !metas.is_empty() && self.sealing.load(AtomicOrdering::SeqCst);
+        // The shutdown's last checkpoint writes no image and syncs no chat log: each costs syncs per
+        // chat, one after another, while the next daemon waits for the home lock (the god bench's
+        // 523 stopped chats saved an image each, and their writes held the home 16 s past its
+        // deadline). Every line and image is in the journal, durable through `lsn` above, and
+        // this checkpoint writes no LSN past them, so the next daemon's open replays them into
+        // the logs and the overlay without a sync per chat (`Inner::apply_metas`), and its
+        // checkpointer makes them durable while it serves.
+        let leave_to_replay =
+            (!metas.is_empty() || !dirty.is_empty()) && self.sealing.load(AtomicOrdering::SeqCst);
         // Each chat's newest image through `lsn` (the overlay held it when `lsn` was read): the
         // sessions folder's sync below covers a new chat's folder.
-        if !leave_images && let Err(error) = self.project_metas(metas) {
+        if !leave_to_replay && let Err(error) = self.project_metas(metas) {
             self.order.lock_or_recover().dirty.extend(dirty);
             return Err(error);
         }
@@ -231,7 +234,7 @@ impl Inner {
         // Synced: no later checkpoint needs to sync them again (the list only shrinks after the
         // open, so these are exactly the ones the sync covered).
         self.order.lock_or_recover().read_segments.retain(|path, _| !read.contains_key(path));
-        if let Err(error) = self.sync_logs(&dirty) {
+        if !leave_to_replay && let Err(error) = self.sync_logs(&dirty) {
             self.order.lock_or_recover().dirty.extend(dirty);
             return Err(error);
         }
@@ -255,8 +258,8 @@ impl Inner {
             !self.order.lock_or_recover().frozen,
             "the event journal's checkpoint is frozen (a sync failed while it ran): a restart writes the logs again"
         );
-        if leave_images {
-            self.order.lock_or_recover().images_left = true;
+        if leave_to_replay {
+            self.order.lock_or_recover().left_to_replay = true;
             return Ok(());
         }
         write_checkpoint(&self.home, lsn)?;
@@ -696,7 +699,7 @@ pub(super) struct SealCut;
 
 impl std::fmt::Display for SealCut {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("the shutdown began: the next start writes the chats' metadata images")
+        f.write_str("the shutdown began: the next start replays the chats' metadata images")
     }
 }
 

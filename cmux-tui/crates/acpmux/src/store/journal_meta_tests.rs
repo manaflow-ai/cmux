@@ -565,8 +565,9 @@ fn an_open_after_a_kill_syncs_nothing_per_chat_and_the_checkpoint_makes_it_durab
 /// The shutdown's last checkpoint holds the home lock, and the next daemon waits for it. Every chat
 /// that stops at the shutdown saves its metadata: on the code before, the seal wrote each image to
 /// its `session.json` (two syncs each), one after another, and the god bench's 523 chats held the
-/// home 16 s past its deadline. Its syncs are now as many for 40 chats as for one; the journal
-/// holds the images, and the next open has every change, after an OS crash too.
+/// home 16 s past its deadline; a new line in each chat's log was one more sync each. Its syncs
+/// are now as many for 40 chats as for one; the journal holds the lines and the images, and the
+/// next open has every change, after an OS crash too.
 #[test]
 fn the_seal_writes_no_metadata_image_and_the_next_open_has_every_change() {
     use super::log_sync::ALL_SYNCS;

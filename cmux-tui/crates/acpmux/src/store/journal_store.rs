@@ -457,10 +457,10 @@ struct Order {
     /// The shutdown's last checkpoint ran (`Inner::last_checkpoint`): the home is the next
     /// daemon's, so no checkpoint, metadata image or retirement is written from here on.
     sealed: bool,
-    /// The shutdown's last checkpoint synced the logs and folders and left the chats' metadata
-    /// images to the next daemon's open (`checkpoint::Inner::checkpoint_once`): no LSN written,
-    /// and no work undone.
-    images_left: bool,
+    /// The shutdown's last checkpoint left the chats' new lines and metadata images to the next
+    /// daemon's replay of the journal (`checkpoint::Inner::checkpoint_once`): no LSN written, and
+    /// no work undone.
+    left_to_replay: bool,
 }
 
 impl Order {
