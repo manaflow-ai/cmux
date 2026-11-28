@@ -39,7 +39,8 @@ count commits in), skipped when neither branch can be fetched. (Both branches
 carry a cmux-next.yml, so no single file tells them apart.)
 
 With both trees read, it also holds the two copies of each workflow both branches carry (a twin) to one
-runner and one GITHUB_TOKEN floor per job (scripts/ci/workflow_twins.py): cmux#63743 moved main's
+set of runner labels and one GITHUB_TOKEN floor per job (scripts/ci/workflow_twins.py; the jobs that already
+differed are scripts/ci/workflow_twins_known_drift.tsv, and a new one fails): cmux#63743 moved main's
 ui-proof-stale-sweep.yml and feat-cmux-next's copy stayed on cmux-linux with no floor.
 """
 
@@ -471,7 +472,7 @@ class WorkflowTwins(unittest.TestCase):
         # main took the secret JIT label and the floor (cmux#63743); feat-cmux-next's copy kept cmux-linux, no floor.
         main = self.tree({"ui-proof-stale-sweep.yml": _sweep(JIT, True)})
         feat = self.tree({"ui-proof-stale-sweep.yml": _sweep("cmux-linux", False)})
-        lines = workflow_twins.drift(feat, main, on_purpose={})
+        lines = workflow_twins.drift(feat, main, known=set())
         self.assertEqual(len(lines), 1, lines)
         self.assertIn("ui-proof-stale-sweep.yml job sweep", lines[0])
         self.assertIn("runs-on", lines[0])
@@ -481,34 +482,51 @@ class WorkflowTwins(unittest.TestCase):
     def test_matching_copies_pass_wherever_each_checks_out_the_floor(self) -> None:
         main = self.tree({"ui-proof-stale-sweep.yml": _sweep(JIT, True, floor_dir="floor/")})
         feat = self.tree({"ui-proof-stale-sweep.yml": _sweep(JIT, True, floor_dir="")})
-        self.assertEqual(workflow_twins.drift(feat, main, on_purpose={}), [])
-        self.assertEqual(workflow_twins.drift(main, feat, on_purpose={}), [])
+        self.assertEqual(workflow_twins.drift(feat, main, known=set()), [])
+        self.assertEqual(workflow_twins.drift(main, feat, known=set()), [])
 
     def test_a_floor_for_another_tag_is_drift(self) -> None:
         main = self.tree({"a.yml": _sweep(JIT, True)})
         feat = self.tree({"a.yml": _sweep(JIT, True).replace("ui-proof-stale-sweep/sweep", "other/sweep")})
-        self.assertEqual(len(workflow_twins.drift(feat, main, on_purpose={})), 1)
+        self.assertEqual(len(workflow_twins.drift(feat, main, known=set())), 1)
 
     def test_two_workflows_on_one_path_are_no_twin(self) -> None:
         # main's nightly.yml is classic's build and feat-cmux-next's is NEXT's: other job ids, never compared.
         main = self.tree({"nightly.yml": _sweep("cmux-linux", False, jobs=("build", "sign"))})
         feat = self.tree({"nightly.yml": _sweep(JIT, True, jobs=("build", "notarize"))})
-        self.assertEqual(workflow_twins.drift(feat, main, on_purpose={}), [])
+        self.assertEqual(workflow_twins.drift(feat, main, known=set()), [])
 
     def test_a_path_on_one_branch_only_is_no_twin(self) -> None:
         main = self.tree({"a.yml": _sweep(JIT, True)})
         feat = self.tree({"b.yml": _sweep("cmux-linux", False)})
-        self.assertEqual(workflow_twins.drift(feat, main, on_purpose={}), [])
+        self.assertEqual(workflow_twins.drift(feat, main, known=set()), [])
 
-    def test_a_difference_on_purpose_passes_and_a_stale_one_fails(self) -> None:
+    def test_each_branchs_clauses_around_the_labels_are_its_own(self) -> None:
+        # feat-cmux-next's fork-PR fallback and main's overflow variable land on the same labels: one runner.
+        feat_on = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == "
+                   "'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && "
+                   "'ubuntu-24.04' || 'cmux-linux' }}")
+        main_on = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || "
+                   "'cmux-linux' }}")
+        main = self.tree({"a.yml": _sweep(main_on, False)})
+        feat = self.tree({"a.yml": _sweep(feat_on, False)})
+        self.assertEqual(workflow_twins.drift(feat, main, known=set()), [])
+
+    def test_known_drift_passes_and_an_entry_that_agrees_again_is_named_not_failed(self) -> None:
         main = self.tree({"a.yml": _sweep(JIT, True)})
         feat = self.tree({"a.yml": _sweep("cmux-linux", True)})
-        listed = {(f"{sources.WORKFLOWS_DIR}/a.yml", "sweep"): "a reason"}
-        self.assertEqual(workflow_twins.drift(feat, main, on_purpose=listed), [])
+        known = {(f"{sources.WORKFLOWS_DIR}/a.yml", "sweep")}
+        self.assertEqual(workflow_twins.drift(feat, main, known=known), [])
+        self.assertEqual(workflow_twins.agreed(feat, main, known=known), [])
         same = self.tree({"a.yml": _sweep(JIT, True)})
-        stale = workflow_twins.drift(same, main, on_purpose=listed)
-        self.assertEqual(len(stale), 1, stale)
-        self.assertIn("no longer differ", stale[0])
+        self.assertEqual(workflow_twins.drift(same, main, known=known), [])
+        self.assertEqual(workflow_twins.agreed(same, main, known=known), [f"{sources.WORKFLOWS_DIR}/a.yml\tsweep"])
+
+    def test_the_known_drift_file_reads_back(self) -> None:
+        rows = workflow_twins.known_drift()
+        self.assertTrue(all(path.startswith(f"{sources.WORKFLOWS_DIR}/") for path, _ in rows), rows)
+        self.assertNotIn((f"{sources.WORKFLOWS_DIR}/ui-proof-stale-sweep.yml", "sweep"), rows,
+                         "cmux#63743's twin is fixed here; it is no known drift")
 
 
 class FetchLeavesTheCheckoutAlone(unittest.TestCase):

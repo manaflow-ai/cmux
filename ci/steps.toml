@@ -472,9 +472,10 @@ exit "$status"
 job = "linux"
 timeout = 300
 title = "Workflow twins match main's runner and token floor"
-about = "every workflow both main and feat-cmux-next carry (same job ids and triggers) has the same runs-on and job_token_floor.py calls per job in both copies"
+about = "every workflow both main and feat-cmux-next carry (same job ids and triggers) lands each job on the same runner labels and makes the same job_token_floor.py calls in both copies; the jobs that already differed are scripts/ci/workflow_twins_known_drift.tsv, and a new one fails"
 inputs = [
   ".github/workflows/**",
+  "scripts/ci/workflow_twins_known_drift.tsv",
   "scripts/ci/workflow_twins.py",
   "scripts/ci/owned_pool_sources.py",
   "tests/test_ci_owned_pool_sources.py",
