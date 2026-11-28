@@ -1828,7 +1828,9 @@ func (value *ChiefWorkTask) UnmarshalJSON(data []byte) error {
 }
 
 type ClientInfo struct {
-	Attached         []ID                     `json:"attached"`
+	Attached []ID `json:"attached"`
+	// The capabilities this connection declared in set-client-info that the daemon recognized, sorted (for example agent-cli-hybrid-v1). Absent from daemons older than this field.
+	Capabilities     *[]string                `json:"capabilities,omitempty"`
 	Client           uint64                   `json:"client"`
 	ConnectedSeconds uint64                   `json:"connected_seconds"`
 	Kind             RequiredNullable[string] `json:"-"`
@@ -1882,14 +1884,15 @@ func (value *ClientInfo) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode ClientInfo: expected object")
 	}
 	var fields struct {
-		Attached         *[]ID                    `json:"attached"`
-		Client           *uint64                  `json:"client"`
-		ConnectedSeconds *uint64                  `json:"connected_seconds"`
-		Kind             RequiredNullable[string] `json:"kind"`
-		Name             RequiredNullable[string] `json:"name"`
-		Self             *bool                    `json:"self"`
-		Sizes            *[]ClientSize            `json:"sizes"`
-		Transport        *ClientTransport         `json:"transport"`
+		Attached         *[]ID                         `json:"attached"`
+		Capabilities     optionalNonNullJSON[[]string] `json:"capabilities"`
+		Client           *uint64                       `json:"client"`
+		ConnectedSeconds *uint64                       `json:"connected_seconds"`
+		Kind             RequiredNullable[string]      `json:"kind"`
+		Name             RequiredNullable[string]      `json:"name"`
+		Self             *bool                         `json:"self"`
+		Sizes            *[]ClientSize                 `json:"sizes"`
+		Transport        *ClientTransport              `json:"transport"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("decode ClientInfo: %w", err)
@@ -1900,6 +1903,12 @@ func (value *ClientInfo) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode ClientInfo: required field attached is missing or null")
 	}
 	decoded.Attached = *fields.Attached
+	if fields.Capabilities.null {
+		return fmt.Errorf("decode ClientInfo: non-nullable field capabilities is null")
+	}
+	if fields.Capabilities.set {
+		decoded.Capabilities = &fields.Capabilities.value
+	}
 	if fields.Client == nil {
 		return fmt.Errorf("decode ClientInfo: required field client is missing or null")
 	}
@@ -6745,6 +6754,96 @@ func (value Layout) AsStack() (LayoutStack, bool) {
 	return decoded, ok
 }
 
+type LayoutColumnNode struct {
+	// dock-columns-v1: the viewport edge the column is pinned to.
+	Dock   *JSONValue `json:"dock,omitempty"`
+	ID     ID         `json:"id"`
+	Layout Layout     `json:"layout"`
+	// rows-v1: only for a column with two or more rows.
+	Rows  *[]LayoutRowNode `json:"rows,omitempty"`
+	Width float64          `json:"width"`
+}
+
+func (value *LayoutColumnNode) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode LayoutColumnNode: expected object")
+	}
+	var fields struct {
+		Dock   optionalNonNullJSON[JSONValue]       `json:"dock"`
+		ID     *ID                                  `json:"id"`
+		Layout *Layout                              `json:"layout"`
+		Rows   optionalNonNullJSON[[]LayoutRowNode] `json:"rows"`
+		Width  *float64                             `json:"width"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode LayoutColumnNode: %w", err)
+	}
+	type wire LayoutColumnNode
+	var decoded wire
+	if fields.Dock.null {
+		return fmt.Errorf("decode LayoutColumnNode: non-nullable field dock is null")
+	}
+	if fields.Dock.set {
+		decoded.Dock = &fields.Dock.value
+	}
+	if fields.ID == nil {
+		return fmt.Errorf("decode LayoutColumnNode: required field id is missing or null")
+	}
+	decoded.ID = *fields.ID
+	if fields.Layout == nil {
+		return fmt.Errorf("decode LayoutColumnNode: required field layout is missing or null")
+	}
+	decoded.Layout = *fields.Layout
+	if fields.Rows.null {
+		return fmt.Errorf("decode LayoutColumnNode: non-nullable field rows is null")
+	}
+	if fields.Rows.set {
+		decoded.Rows = &fields.Rows.value
+	}
+	if fields.Width == nil {
+		return fmt.Errorf("decode LayoutColumnNode: required field width is missing or null")
+	}
+	decoded.Width = *fields.Width
+	*value = LayoutColumnNode(decoded)
+	return nil
+}
+
+type LayoutRowNode struct {
+	Height uint64 `json:"height"`
+	ID     ID     `json:"id"`
+	Layout Layout `json:"layout"`
+}
+
+func (value *LayoutRowNode) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode LayoutRowNode: expected object")
+	}
+	var fields struct {
+		Height *uint64 `json:"height"`
+		ID     *ID     `json:"id"`
+		Layout *Layout `json:"layout"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode LayoutRowNode: %w", err)
+	}
+	type wire LayoutRowNode
+	var decoded wire
+	if fields.Height == nil {
+		return fmt.Errorf("decode LayoutRowNode: required field height is missing or null")
+	}
+	decoded.Height = *fields.Height
+	if fields.ID == nil {
+		return fmt.Errorf("decode LayoutRowNode: required field id is missing or null")
+	}
+	decoded.ID = *fields.ID
+	if fields.Layout == nil {
+		return fmt.Errorf("decode LayoutRowNode: required field layout is missing or null")
+	}
+	decoded.Layout = *fields.Layout
+	*value = LayoutRowNode(decoded)
+	return nil
+}
+
 type LayoutSizePaneWidth struct {
 	Pane  ID      `json:"pane"`
 	Width float32 `json:"width"`
@@ -7261,8 +7360,12 @@ type LivePane struct {
 	FocusedAt *uint64                  `json:"focused_at,omitempty"`
 	ID        ID                       `json:"id"`
 	Name      RequiredNullable[string] `json:"-"`
-	ShortID   *string                  `json:"short_id,omitempty"`
-	Tabs      []Tab                    `json:"tabs"`
+	// The pane's public id.
+	ResourceID Presence[string] `json:"-"`
+	ShortID    *string          `json:"short_id,omitempty"`
+	// The pane's tab group runs.
+	TabGroups *[]TabGroupRun `json:"tab_groups,omitempty"`
+	Tabs      []Tab          `json:"tabs"`
 }
 
 func (value LivePane) MarshalJSON() ([]byte, error) {
@@ -7288,6 +7391,18 @@ func (value LivePane) MarshalJSON() ([]byte, error) {
 		}
 		object["name"] = encodedField
 	}
+	if value.ResourceID.IsAbsent() {
+		delete(object, "resource_id")
+	} else if value.ResourceID.IsNull() {
+		object["resource_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ResourceID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode LivePane.ResourceID: %w", err)
+		}
+		object["resource_id"] = encodedField
+	}
 	return json.Marshal(object)
 }
 
@@ -7296,12 +7411,14 @@ func (value *LivePane) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode LivePane: expected object")
 	}
 	var fields struct {
-		ActiveTab *uint64                     `json:"active_tab"`
-		FocusedAt optionalNonNullJSON[uint64] `json:"focused_at"`
-		ID        *ID                         `json:"id"`
-		Name      RequiredNullable[string]    `json:"name"`
-		ShortID   optionalNonNullJSON[string] `json:"short_id"`
-		Tabs      *[]Tab                      `json:"tabs"`
+		ActiveTab  *uint64                            `json:"active_tab"`
+		FocusedAt  optionalNonNullJSON[uint64]        `json:"focused_at"`
+		ID         *ID                                `json:"id"`
+		Name       RequiredNullable[string]           `json:"name"`
+		ResourceID Presence[string]                   `json:"resource_id"`
+		ShortID    optionalNonNullJSON[string]        `json:"short_id"`
+		TabGroups  optionalNonNullJSON[[]TabGroupRun] `json:"tab_groups"`
+		Tabs       *[]Tab                             `json:"tabs"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("decode LivePane: %w", err)
@@ -7326,11 +7443,18 @@ func (value *LivePane) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode LivePane: required field name is missing")
 	}
 	decoded.Name = fields.Name
+	decoded.ResourceID = fields.ResourceID
 	if fields.ShortID.null {
 		return fmt.Errorf("decode LivePane: non-nullable field short_id is null")
 	}
 	if fields.ShortID.set {
 		decoded.ShortID = &fields.ShortID.value
+	}
+	if fields.TabGroups.null {
+		return fmt.Errorf("decode LivePane: non-nullable field tab_groups is null")
+	}
+	if fields.TabGroups.set {
+		decoded.TabGroups = &fields.TabGroups.value
 	}
 	if fields.Tabs == nil {
 		return fmt.Errorf("decode LivePane: required field tabs is missing or null")
@@ -10627,14 +10751,36 @@ func (value *SavedTabGroupRecord) UnmarshalJSON(data []byte) error {
 }
 
 type Screen struct {
-	Active     bool                     `json:"active"`
-	ActivePane ID                       `json:"active_pane"`
-	ID         ID                       `json:"id"`
-	Layout     Layout                   `json:"layout"`
-	Name       RequiredNullable[string] `json:"-"`
-	Panes      []Pane                   `json:"panes"`
-	ShortID    *string                  `json:"short_id,omitempty"`
-	ZoomedPane RequiredNullable[ID]     `json:"-"`
+	Active     bool `json:"active"`
+	ActivePane ID   `json:"active_pane"`
+	// The screen color.
+	Color Presence[string] `json:"-"`
+	// The screen's layout columns.
+	Columns *[]LayoutColumnNode `json:"columns,omitempty"`
+	// floating-panes-v1: panes above the tiled layout, back to front.
+	Floating *JSONValue `json:"floating,omitempty"`
+	// The screen group the screen is in.
+	Group Presence[string] `json:"-"`
+	// split-divider-visibility-v1: splits whose divider is hidden.
+	HiddenDividers *[]ID `json:"hidden_dividers,omitempty"`
+	// The screen icon.
+	Icon   Presence[string]         `json:"-"`
+	ID     ID                       `json:"id"`
+	Layout Layout                   `json:"layout"`
+	Name   RequiredNullable[string] `json:"-"`
+	Panes  []Pane                   `json:"panes"`
+	// The screen is pinned.
+	Pinned *bool `json:"pinned,omitempty"`
+	// quick-terminal-v1: the screen's quick terminal.
+	QuickTerminal *JSONValue `json:"quick_terminal,omitempty"`
+	// The screen's public id.
+	ResourceID Presence[string] `json:"-"`
+	ShortID    *string          `json:"short_id,omitempty"`
+	// The viewport width the split widths are relative to.
+	ViewportBaseWidth *float64 `json:"viewport_base_width,omitempty"`
+	// Viewport widths of splits.
+	ViewportSplits *[]ViewportSplitWidth `json:"viewport_splits,omitempty"`
+	ZoomedPane     RequiredNullable[ID]  `json:"-"`
 }
 
 func (value Screen) MarshalJSON() ([]byte, error) {
@@ -10646,6 +10792,42 @@ func (value Screen) MarshalJSON() ([]byte, error) {
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(encoded, &object); err != nil {
 		return nil, err
+	}
+	if value.Color.IsAbsent() {
+		delete(object, "color")
+	} else if value.Color.IsNull() {
+		object["color"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Color.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Screen.Color: %w", err)
+		}
+		object["color"] = encodedField
+	}
+	if value.Group.IsAbsent() {
+		delete(object, "group")
+	} else if value.Group.IsNull() {
+		object["group"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Group.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Screen.Group: %w", err)
+		}
+		object["group"] = encodedField
+	}
+	if value.Icon.IsAbsent() {
+		delete(object, "icon")
+	} else if value.Icon.IsNull() {
+		object["icon"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Icon.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Screen.Icon: %w", err)
+		}
+		object["icon"] = encodedField
 	}
 	if !value.Name.IsSet() {
 		return nil, fmt.Errorf("encode Screen: required nullable field name is missing")
@@ -10659,6 +10841,18 @@ func (value Screen) MarshalJSON() ([]byte, error) {
 			return nil, fmt.Errorf("encode Screen.Name: %w", err)
 		}
 		object["name"] = encodedField
+	}
+	if value.ResourceID.IsAbsent() {
+		delete(object, "resource_id")
+	} else if value.ResourceID.IsNull() {
+		object["resource_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ResourceID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Screen.ResourceID: %w", err)
+		}
+		object["resource_id"] = encodedField
 	}
 	if !value.ZoomedPane.IsSet() {
 		return nil, fmt.Errorf("encode Screen: required nullable field zoomed_pane is missing")
@@ -10681,14 +10875,25 @@ func (value *Screen) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode Screen: expected object")
 	}
 	var fields struct {
-		Active     *bool                       `json:"active"`
-		ActivePane *ID                         `json:"active_pane"`
-		ID         *ID                         `json:"id"`
-		Layout     *Layout                     `json:"layout"`
-		Name       RequiredNullable[string]    `json:"name"`
-		Panes      *[]Pane                     `json:"panes"`
-		ShortID    optionalNonNullJSON[string] `json:"short_id"`
-		ZoomedPane RequiredNullable[ID]        `json:"zoomed_pane"`
+		Active            *bool                                     `json:"active"`
+		ActivePane        *ID                                       `json:"active_pane"`
+		Color             Presence[string]                          `json:"color"`
+		Columns           optionalNonNullJSON[[]LayoutColumnNode]   `json:"columns"`
+		Floating          optionalNonNullJSON[JSONValue]            `json:"floating"`
+		Group             Presence[string]                          `json:"group"`
+		HiddenDividers    optionalNonNullJSON[[]ID]                 `json:"hidden_dividers"`
+		Icon              Presence[string]                          `json:"icon"`
+		ID                *ID                                       `json:"id"`
+		Layout            *Layout                                   `json:"layout"`
+		Name              RequiredNullable[string]                  `json:"name"`
+		Panes             *[]Pane                                   `json:"panes"`
+		Pinned            optionalNonNullJSON[bool]                 `json:"pinned"`
+		QuickTerminal     optionalNonNullJSON[JSONValue]            `json:"quick_terminal"`
+		ResourceID        Presence[string]                          `json:"resource_id"`
+		ShortID           optionalNonNullJSON[string]               `json:"short_id"`
+		ViewportBaseWidth optionalNonNullJSON[float64]              `json:"viewport_base_width"`
+		ViewportSplits    optionalNonNullJSON[[]ViewportSplitWidth] `json:"viewport_splits"`
+		ZoomedPane        RequiredNullable[ID]                      `json:"zoomed_pane"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("decode Screen: %w", err)
@@ -10703,6 +10908,27 @@ func (value *Screen) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode Screen: required field active_pane is missing or null")
 	}
 	decoded.ActivePane = *fields.ActivePane
+	decoded.Color = fields.Color
+	if fields.Columns.null {
+		return fmt.Errorf("decode Screen: non-nullable field columns is null")
+	}
+	if fields.Columns.set {
+		decoded.Columns = &fields.Columns.value
+	}
+	if fields.Floating.null {
+		return fmt.Errorf("decode Screen: non-nullable field floating is null")
+	}
+	if fields.Floating.set {
+		decoded.Floating = &fields.Floating.value
+	}
+	decoded.Group = fields.Group
+	if fields.HiddenDividers.null {
+		return fmt.Errorf("decode Screen: non-nullable field hidden_dividers is null")
+	}
+	if fields.HiddenDividers.set {
+		decoded.HiddenDividers = &fields.HiddenDividers.value
+	}
+	decoded.Icon = fields.Icon
 	if fields.ID == nil {
 		return fmt.Errorf("decode Screen: required field id is missing or null")
 	}
@@ -10719,17 +10945,150 @@ func (value *Screen) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode Screen: required field panes is missing or null")
 	}
 	decoded.Panes = *fields.Panes
+	if fields.Pinned.null {
+		return fmt.Errorf("decode Screen: non-nullable field pinned is null")
+	}
+	if fields.Pinned.set {
+		decoded.Pinned = &fields.Pinned.value
+	}
+	if fields.QuickTerminal.null {
+		return fmt.Errorf("decode Screen: non-nullable field quick_terminal is null")
+	}
+	if fields.QuickTerminal.set {
+		decoded.QuickTerminal = &fields.QuickTerminal.value
+	}
+	decoded.ResourceID = fields.ResourceID
 	if fields.ShortID.null {
 		return fmt.Errorf("decode Screen: non-nullable field short_id is null")
 	}
 	if fields.ShortID.set {
 		decoded.ShortID = &fields.ShortID.value
 	}
+	if fields.ViewportBaseWidth.null {
+		return fmt.Errorf("decode Screen: non-nullable field viewport_base_width is null")
+	}
+	if fields.ViewportBaseWidth.set {
+		decoded.ViewportBaseWidth = &fields.ViewportBaseWidth.value
+	}
+	if fields.ViewportSplits.null {
+		return fmt.Errorf("decode Screen: non-nullable field viewport_splits is null")
+	}
+	if fields.ViewportSplits.set {
+		decoded.ViewportSplits = &fields.ViewportSplits.value
+	}
 	if !fields.ZoomedPane.IsSet() {
 		return fmt.Errorf("decode Screen: required field zoomed_pane is missing")
 	}
 	decoded.ZoomedPane = fields.ZoomedPane
 	*value = Screen(decoded)
+	return nil
+}
+
+type ScreenGroupRun struct {
+	Collapsed bool                     `json:"collapsed"`
+	Color     string                   `json:"color"`
+	Count     uint64                   `json:"count"`
+	Icon      Presence[string]         `json:"-"`
+	ID        string                   `json:"id"`
+	Name      string                   `json:"name"`
+	SavedID   RequiredNullable[string] `json:"-"`
+	Screens   []ID                     `json:"screens"`
+	// The index of the run's first screen.
+	Start uint64 `json:"start"`
+}
+
+func (value ScreenGroupRun) MarshalJSON() ([]byte, error) {
+	type wire ScreenGroupRun
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Icon.IsAbsent() {
+		delete(object, "icon")
+	} else if value.Icon.IsNull() {
+		object["icon"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Icon.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ScreenGroupRun.Icon: %w", err)
+		}
+		object["icon"] = encodedField
+	}
+	if !value.SavedID.IsSet() {
+		return nil, fmt.Errorf("encode ScreenGroupRun: required nullable field saved_id is missing")
+	}
+	if value.SavedID.IsNull() {
+		object["saved_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.SavedID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ScreenGroupRun.SavedID: %w", err)
+		}
+		object["saved_id"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *ScreenGroupRun) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ScreenGroupRun: expected object")
+	}
+	var fields struct {
+		Collapsed *bool                    `json:"collapsed"`
+		Color     *string                  `json:"color"`
+		Count     *uint64                  `json:"count"`
+		Icon      Presence[string]         `json:"icon"`
+		ID        *string                  `json:"id"`
+		Name      *string                  `json:"name"`
+		SavedID   RequiredNullable[string] `json:"saved_id"`
+		Screens   *[]ID                    `json:"screens"`
+		Start     *uint64                  `json:"start"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ScreenGroupRun: %w", err)
+	}
+	type wire ScreenGroupRun
+	var decoded wire
+	if fields.Collapsed == nil {
+		return fmt.Errorf("decode ScreenGroupRun: required field collapsed is missing or null")
+	}
+	decoded.Collapsed = *fields.Collapsed
+	if fields.Color == nil {
+		return fmt.Errorf("decode ScreenGroupRun: required field color is missing or null")
+	}
+	decoded.Color = *fields.Color
+	if fields.Count == nil {
+		return fmt.Errorf("decode ScreenGroupRun: required field count is missing or null")
+	}
+	decoded.Count = *fields.Count
+	decoded.Icon = fields.Icon
+	if fields.ID == nil {
+		return fmt.Errorf("decode ScreenGroupRun: required field id is missing or null")
+	}
+	decoded.ID = *fields.ID
+	if fields.Name == nil {
+		return fmt.Errorf("decode ScreenGroupRun: required field name is missing or null")
+	}
+	decoded.Name = *fields.Name
+	if !fields.SavedID.IsSet() {
+		return fmt.Errorf("decode ScreenGroupRun: required field saved_id is missing")
+	}
+	decoded.SavedID = fields.SavedID
+	if fields.Screens == nil {
+		return fmt.Errorf("decode ScreenGroupRun: required field screens is missing or null")
+	}
+	decoded.Screens = *fields.Screens
+	if fields.Start == nil {
+		return fmt.Errorf("decode ScreenGroupRun: required field start is missing or null")
+	}
+	decoded.Start = *fields.Start
+	*value = ScreenGroupRun(decoded)
 	return nil
 }
 
@@ -14434,6 +14793,42 @@ func (value *SurfaceResult) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type TabBrowserRenderer string
+
+const (
+	TabBrowserRendererDaemon   TabBrowserRenderer = "daemon"
+	TabBrowserRendererFrontend TabBrowserRenderer = "frontend"
+)
+
+func (value TabBrowserRenderer) valid() bool {
+	switch value {
+	case TabBrowserRendererDaemon, TabBrowserRendererFrontend:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value TabBrowserRenderer) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "TabBrowserRenderer", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *TabBrowserRenderer) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := TabBrowserRenderer(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "TabBrowserRenderer", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type TabBrowserSource string
 
 const (
@@ -14510,14 +14905,15 @@ func (value *TabBrowserStatus) UnmarshalJSON(data []byte) error {
 type TabKind string
 
 const (
-	TabKindPTY          TabKind = "pty"
-	TabKindBrowser      TabKind = "browser"
-	TabKindConversation TabKind = "conversation"
+	TabKindPTY            TabKind = "pty"
+	TabKindBrowser        TabKind = "browser"
+	TabKindConversation   TabKind = "conversation"
+	TabKindRemoteTerminal TabKind = "remote-terminal"
 )
 
 func (value TabKind) valid() bool {
 	switch value {
-	case TabKindPTY, TabKindBrowser, TabKindConversation:
+	case TabKindPTY, TabKindBrowser, TabKindConversation, TabKindRemoteTerminal:
 		return true
 	default:
 		return false
@@ -14545,30 +14941,81 @@ func (value *TabKind) UnmarshalJSON(data []byte) error {
 }
 
 type Tab struct {
-	BrowserError                    Presence[string]                   `json:"-"`
-	BrowserFramesStalled            Presence[bool]                     `json:"-"`
-	BrowserSource                   RequiredNullable[TabBrowserSource] `json:"-"`
-	BrowserStatus                   Presence[TabBrowserStatus]         `json:"-"`
-	Dead                            bool                               `json:"dead"`
-	Kind                            TabKind                            `json:"kind"`
-	Name                            RequiredNullable[string]           `json:"-"`
-	Notification                    Presence[NotificationMarker]       `json:"-"`
-	ProgramStatus                   Presence[ShownProgramStatus]       `json:"-"`
-	ShortID                         *string                            `json:"short_id,omitempty"`
-	Size                            RequiredNullable[Size]             `json:"-"`
-	SupportsClearHistoryKeyFallback *bool                              `json:"supports_clear_history_key_fallback,omitempty"`
-	Surface                         ID                                 `json:"surface"`
+	// app-screens-v1: the app (and route) an app tab shows.
+	App *JSONValue `json:"app,omitempty"`
+	// tab-attention-v1: an agent needs the person in this tab.
+	Attention Presence[TabAttention] `json:"-"`
+	// A frontend browser's engine.
+	BrowserEngine        Presence[string] `json:"-"`
+	BrowserError         Presence[string] `json:"-"`
+	BrowserFramesStalled Presence[bool]   `json:"-"`
+	// The frontend that owns the browser.
+	BrowserOwner Presence[string] `json:"-"`
+	// A frontend browser's profile.
+	BrowserProfileID Presence[string] `json:"-"`
+	// Who renders a browser tab.
+	BrowserRenderer Presence[TabBrowserRenderer]       `json:"-"`
+	BrowserSource   RequiredNullable[TabBrowserSource] `json:"-"`
+	BrowserStatus   Presence[TabBrowserStatus]         `json:"-"`
+	// The public id of what the tab shows.
+	ContentResourceID Presence[string] `json:"-"`
+	// What a conversation tab shows.
+	Conversation Presence[ConversationTabRecord] `json:"-"`
+	// The terminal's working directory.
+	Cwd  Presence[string] `json:"-"`
+	Dead bool             `json:"dead"`
+	// terminal-state-v1: why a dead terminal ended.
+	End Presence[JSONValue] `json:"-"`
+	// A frontend browser's favicon.
+	FaviconURL Presence[string] `json:"-"`
+	// The git branch of cwd.
+	GitBranch Presence[string] `json:"-"`
+	// cwd's checkout has a detached HEAD.
+	GitDetached *bool `json:"git_detached,omitempty"`
+	// The tab group the tab is in.
+	Group Presence[string] `json:"-"`
+	// The record version of a terminal its host has but cannot adopt.
+	HostRecordVersion Presence[uint64]             `json:"-"`
+	Kind              TabKind                      `json:"kind"`
+	Name              RequiredNullable[string]     `json:"-"`
+	Notification      Presence[NotificationMarker] `json:"-"`
+	// The tab is pinned.
+	Pinned *bool `json:"pinned,omitempty"`
+	// A pinned browser tab's home URL.
+	PinnedURL     Presence[string]             `json:"-"`
+	ProgramStatus Presence[ShownProgramStatus] `json:"-"`
+	// How the tab relaunches after a restart.
+	Relaunch Presence[JSONValue] `json:"-"`
+	// A remote terminal tab's record.
+	Remote                          *JSONValue             `json:"remote,omitempty"`
+	ShortID                         *string                `json:"short_id,omitempty"`
+	Size                            RequiredNullable[Size] `json:"-"`
+	SupportsClearHistoryKeyFallback *bool                  `json:"supports_clear_history_key_fallback,omitempty"`
+	Surface                         ID                     `json:"surface"`
+	// The tab's public id.
+	TabResourceID Presence[string] `json:"-"`
 	// Why a terminal will end with something other than its shell although terminal hosts are on: `breakaway_denied` (Windows: the host runs inside the daemon's kill-on-close Job Object and ends when that job closes) or `host_start_failed` (no host; the daemon runs the terminal and it ends with the daemon). Null otherwise and for browser tabs. A string, not an enum: clients read an unknown value as a notice for another reason.
 	TerminalHostFallback Presence[string] `json:"-"`
 	TerminalID           Presence[string] `json:"-"`
 	TerminalIncarnation  Presence[string] `json:"-"`
 	TerminalResourceID   Presence[string] `json:"-"`
-	Title                string           `json:"title"`
-	TitleActivity        Presence[string] `json:"-"`
-	TitleText            *string          `json:"title_text,omitempty"`
+	// running, reconnecting, failed or exited, for a terminal tab.
+	TerminalState Presence[string] `json:"-"`
+	Title         string           `json:"title"`
+	TitleActivity Presence[string] `json:"-"`
+	TitleText     *string          `json:"title_text,omitempty"`
+	// A browser tab's URL.
+	URL Presence[string] `json:"-"`
 }
 
 func (value Tab) MarshalJSON() ([]byte, error) {
+	if fieldValue, ok := value.BrowserRenderer.Get(); ok {
+		switch fieldValue {
+		case "daemon", "frontend":
+		default:
+			return nil, fmt.Errorf("encode Tab.BrowserRenderer: invalid value %v", fieldValue)
+		}
+	}
 	if fieldValue, ok := value.BrowserSource.Get(); ok {
 		switch fieldValue {
 		case "external", "launched":
@@ -14584,7 +15031,7 @@ func (value Tab) MarshalJSON() ([]byte, error) {
 		}
 	}
 	switch value.Kind {
-	case "pty", "browser", "conversation":
+	case "pty", "browser", "conversation", "remote-terminal":
 	default:
 		return nil, fmt.Errorf("encode Tab.Kind: invalid value %v", value.Kind)
 	}
@@ -14596,6 +15043,30 @@ func (value Tab) MarshalJSON() ([]byte, error) {
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(encoded, &object); err != nil {
 		return nil, err
+	}
+	if value.Attention.IsAbsent() {
+		delete(object, "attention")
+	} else if value.Attention.IsNull() {
+		object["attention"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Attention.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Tab.Attention: %w", err)
+		}
+		object["attention"] = encodedField
+	}
+	if value.BrowserEngine.IsAbsent() {
+		delete(object, "browser_engine")
+	} else if value.BrowserEngine.IsNull() {
+		object["browser_engine"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.BrowserEngine.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Tab.BrowserEngine: %w", err)
+		}
+		object["browser_engine"] = encodedField
 	}
 	if value.BrowserError.IsAbsent() {
 		delete(object, "browser_error")
@@ -14620,6 +15091,42 @@ func (value Tab) MarshalJSON() ([]byte, error) {
 			return nil, fmt.Errorf("encode Tab.BrowserFramesStalled: %w", err)
 		}
 		object["browser_frames_stalled"] = encodedField
+	}
+	if value.BrowserOwner.IsAbsent() {
+		delete(object, "browser_owner")
+	} else if value.BrowserOwner.IsNull() {
+		object["browser_owner"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.BrowserOwner.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Tab.BrowserOwner: %w", err)
+		}
+		object["browser_owner"] = encodedField
+	}
+	if value.BrowserProfileID.IsAbsent() {
+		delete(object, "browser_profile_id")
+	} else if value.BrowserProfileID.IsNull() {
+		object["browser_profile_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.BrowserProfileID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Tab.BrowserProfileID: %w", err)
+		}
+		object["browser_profile_id"] = encodedField
+	}
+	if value.BrowserRenderer.IsAbsent() {
+		delete(object, "browser_renderer")
+	} else if value.BrowserRenderer.IsNull() {
+		object["browser_renderer"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.BrowserRenderer.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Tab.BrowserRenderer: %w", err)
+		}
+		object["browser_renderer"] = encodedField
 	}
 	if !value.BrowserSource.IsSet() {
 		return nil, fmt.Errorf("encode Tab: required nullable field browser_source is missing")
@@ -14646,6 +15153,102 @@ func (value Tab) MarshalJSON() ([]byte, error) {
 		}
 		object["browser_status"] = encodedField
 	}
+	if value.ContentResourceID.IsAbsent() {
+		delete(object, "content_resource_id")
+	} else if value.ContentResourceID.IsNull() {
+		object["content_resource_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ContentResourceID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Tab.ContentResourceID: %w", err)
+		}
+		object["content_resource_id"] = encodedField
+	}
+	if value.Conversation.IsAbsent() {
+		delete(object, "conversation")
+	} else if value.Conversation.IsNull() {
+		object["conversation"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Conversation.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Tab.Conversation: %w", err)
+		}
+		object["conversation"] = encodedField
+	}
+	if value.Cwd.IsAbsent() {
+		delete(object, "cwd")
+	} else if value.Cwd.IsNull() {
+		object["cwd"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Cwd.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Tab.Cwd: %w", err)
+		}
+		object["cwd"] = encodedField
+	}
+	if value.End.IsAbsent() {
+		delete(object, "end")
+	} else if value.End.IsNull() {
+		object["end"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.End.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Tab.End: %w", err)
+		}
+		object["end"] = encodedField
+	}
+	if value.FaviconURL.IsAbsent() {
+		delete(object, "favicon_url")
+	} else if value.FaviconURL.IsNull() {
+		object["favicon_url"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.FaviconURL.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Tab.FaviconURL: %w", err)
+		}
+		object["favicon_url"] = encodedField
+	}
+	if value.GitBranch.IsAbsent() {
+		delete(object, "git_branch")
+	} else if value.GitBranch.IsNull() {
+		object["git_branch"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.GitBranch.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Tab.GitBranch: %w", err)
+		}
+		object["git_branch"] = encodedField
+	}
+	if value.Group.IsAbsent() {
+		delete(object, "group")
+	} else if value.Group.IsNull() {
+		object["group"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Group.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Tab.Group: %w", err)
+		}
+		object["group"] = encodedField
+	}
+	if value.HostRecordVersion.IsAbsent() {
+		delete(object, "host_record_version")
+	} else if value.HostRecordVersion.IsNull() {
+		object["host_record_version"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.HostRecordVersion.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Tab.HostRecordVersion: %w", err)
+		}
+		object["host_record_version"] = encodedField
+	}
 	if !value.Name.IsSet() {
 		return nil, fmt.Errorf("encode Tab: required nullable field name is missing")
 	}
@@ -14671,6 +15274,18 @@ func (value Tab) MarshalJSON() ([]byte, error) {
 		}
 		object["notification"] = encodedField
 	}
+	if value.PinnedURL.IsAbsent() {
+		delete(object, "pinned_url")
+	} else if value.PinnedURL.IsNull() {
+		object["pinned_url"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.PinnedURL.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Tab.PinnedURL: %w", err)
+		}
+		object["pinned_url"] = encodedField
+	}
 	if value.ProgramStatus.IsAbsent() {
 		delete(object, "program_status")
 	} else if value.ProgramStatus.IsNull() {
@@ -14682,6 +15297,18 @@ func (value Tab) MarshalJSON() ([]byte, error) {
 			return nil, fmt.Errorf("encode Tab.ProgramStatus: %w", err)
 		}
 		object["program_status"] = encodedField
+	}
+	if value.Relaunch.IsAbsent() {
+		delete(object, "relaunch")
+	} else if value.Relaunch.IsNull() {
+		object["relaunch"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Relaunch.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Tab.Relaunch: %w", err)
+		}
+		object["relaunch"] = encodedField
 	}
 	if !value.Size.IsSet() {
 		return nil, fmt.Errorf("encode Tab: required nullable field size is missing")
@@ -14695,6 +15322,18 @@ func (value Tab) MarshalJSON() ([]byte, error) {
 			return nil, fmt.Errorf("encode Tab.Size: %w", err)
 		}
 		object["size"] = encodedField
+	}
+	if value.TabResourceID.IsAbsent() {
+		delete(object, "tab_resource_id")
+	} else if value.TabResourceID.IsNull() {
+		object["tab_resource_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.TabResourceID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Tab.TabResourceID: %w", err)
+		}
+		object["tab_resource_id"] = encodedField
 	}
 	if value.TerminalHostFallback.IsAbsent() {
 		delete(object, "terminal_host_fallback")
@@ -14744,6 +15383,18 @@ func (value Tab) MarshalJSON() ([]byte, error) {
 		}
 		object["terminal_resource_id"] = encodedField
 	}
+	if value.TerminalState.IsAbsent() {
+		delete(object, "terminal_state")
+	} else if value.TerminalState.IsNull() {
+		object["terminal_state"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.TerminalState.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Tab.TerminalState: %w", err)
+		}
+		object["terminal_state"] = encodedField
+	}
 	if value.TitleActivity.IsAbsent() {
 		delete(object, "title_activity")
 	} else if value.TitleActivity.IsNull() {
@@ -14756,6 +15407,18 @@ func (value Tab) MarshalJSON() ([]byte, error) {
 		}
 		object["title_activity"] = encodedField
 	}
+	if value.URL.IsAbsent() {
+		delete(object, "url")
+	} else if value.URL.IsNull() {
+		object["url"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.URL.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Tab.URL: %w", err)
+		}
+		object["url"] = encodedField
+	}
 	return json.Marshal(object)
 }
 
@@ -14764,49 +15427,96 @@ func (value *Tab) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode Tab: expected object")
 	}
 	var fields struct {
+		App                             optionalNonNullJSON[JSONValue]     `json:"app"`
+		Attention                       Presence[TabAttention]             `json:"attention"`
+		BrowserEngine                   Presence[string]                   `json:"browser_engine"`
 		BrowserError                    Presence[string]                   `json:"browser_error"`
 		BrowserFramesStalled            Presence[bool]                     `json:"browser_frames_stalled"`
+		BrowserOwner                    Presence[string]                   `json:"browser_owner"`
+		BrowserProfileID                Presence[string]                   `json:"browser_profile_id"`
+		BrowserRenderer                 Presence[TabBrowserRenderer]       `json:"browser_renderer"`
 		BrowserSource                   RequiredNullable[TabBrowserSource] `json:"browser_source"`
 		BrowserStatus                   Presence[TabBrowserStatus]         `json:"browser_status"`
+		ContentResourceID               Presence[string]                   `json:"content_resource_id"`
+		Conversation                    Presence[ConversationTabRecord]    `json:"conversation"`
+		Cwd                             Presence[string]                   `json:"cwd"`
 		Dead                            *bool                              `json:"dead"`
+		End                             Presence[JSONValue]                `json:"end"`
+		FaviconURL                      Presence[string]                   `json:"favicon_url"`
+		GitBranch                       Presence[string]                   `json:"git_branch"`
+		GitDetached                     optionalNonNullJSON[bool]          `json:"git_detached"`
+		Group                           Presence[string]                   `json:"group"`
+		HostRecordVersion               Presence[uint64]                   `json:"host_record_version"`
 		Kind                            *TabKind                           `json:"kind"`
 		Name                            RequiredNullable[string]           `json:"name"`
 		Notification                    Presence[NotificationMarker]       `json:"notification"`
+		Pinned                          optionalNonNullJSON[bool]          `json:"pinned"`
+		PinnedURL                       Presence[string]                   `json:"pinned_url"`
 		ProgramStatus                   Presence[ShownProgramStatus]       `json:"program_status"`
+		Relaunch                        Presence[JSONValue]                `json:"relaunch"`
+		Remote                          optionalNonNullJSON[JSONValue]     `json:"remote"`
 		ShortID                         optionalNonNullJSON[string]        `json:"short_id"`
 		Size                            RequiredNullable[Size]             `json:"size"`
 		SupportsClearHistoryKeyFallback optionalNonNullJSON[bool]          `json:"supports_clear_history_key_fallback"`
 		Surface                         *ID                                `json:"surface"`
+		TabResourceID                   Presence[string]                   `json:"tab_resource_id"`
 		TerminalHostFallback            Presence[string]                   `json:"terminal_host_fallback"`
 		TerminalID                      Presence[string]                   `json:"terminal_id"`
 		TerminalIncarnation             Presence[string]                   `json:"terminal_incarnation"`
 		TerminalResourceID              Presence[string]                   `json:"terminal_resource_id"`
+		TerminalState                   Presence[string]                   `json:"terminal_state"`
 		Title                           *string                            `json:"title"`
 		TitleActivity                   Presence[string]                   `json:"title_activity"`
 		TitleText                       optionalNonNullJSON[string]        `json:"title_text"`
+		URL                             Presence[string]                   `json:"url"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("decode Tab: %w", err)
 	}
 	type wire Tab
 	var decoded wire
+	if fields.App.null {
+		return fmt.Errorf("decode Tab: non-nullable field app is null")
+	}
+	if fields.App.set {
+		decoded.App = &fields.App.value
+	}
+	decoded.Attention = fields.Attention
+	decoded.BrowserEngine = fields.BrowserEngine
 	decoded.BrowserError = fields.BrowserError
 	decoded.BrowserFramesStalled = fields.BrowserFramesStalled
+	decoded.BrowserOwner = fields.BrowserOwner
+	decoded.BrowserProfileID = fields.BrowserProfileID
+	decoded.BrowserRenderer = fields.BrowserRenderer
 	if !fields.BrowserSource.IsSet() {
 		return fmt.Errorf("decode Tab: required field browser_source is missing")
 	}
 	decoded.BrowserSource = fields.BrowserSource
 	decoded.BrowserStatus = fields.BrowserStatus
+	decoded.ContentResourceID = fields.ContentResourceID
+	decoded.Conversation = fields.Conversation
+	decoded.Cwd = fields.Cwd
 	if fields.Dead == nil {
 		return fmt.Errorf("decode Tab: required field dead is missing or null")
 	}
 	decoded.Dead = *fields.Dead
+	decoded.End = fields.End
+	decoded.FaviconURL = fields.FaviconURL
+	decoded.GitBranch = fields.GitBranch
+	if fields.GitDetached.null {
+		return fmt.Errorf("decode Tab: non-nullable field git_detached is null")
+	}
+	if fields.GitDetached.set {
+		decoded.GitDetached = &fields.GitDetached.value
+	}
+	decoded.Group = fields.Group
+	decoded.HostRecordVersion = fields.HostRecordVersion
 	if fields.Kind == nil {
 		return fmt.Errorf("decode Tab: required field kind is missing or null")
 	}
 	decoded.Kind = *fields.Kind
 	switch decoded.Kind {
-	case "pty", "browser", "conversation":
+	case "pty", "browser", "conversation", "remote-terminal":
 	default:
 		return fmt.Errorf("decode Tab.Kind: invalid value %v", decoded.Kind)
 	}
@@ -14815,7 +15525,21 @@ func (value *Tab) UnmarshalJSON(data []byte) error {
 	}
 	decoded.Name = fields.Name
 	decoded.Notification = fields.Notification
+	if fields.Pinned.null {
+		return fmt.Errorf("decode Tab: non-nullable field pinned is null")
+	}
+	if fields.Pinned.set {
+		decoded.Pinned = &fields.Pinned.value
+	}
+	decoded.PinnedURL = fields.PinnedURL
 	decoded.ProgramStatus = fields.ProgramStatus
+	decoded.Relaunch = fields.Relaunch
+	if fields.Remote.null {
+		return fmt.Errorf("decode Tab: non-nullable field remote is null")
+	}
+	if fields.Remote.set {
+		decoded.Remote = &fields.Remote.value
+	}
 	if fields.ShortID.null {
 		return fmt.Errorf("decode Tab: non-nullable field short_id is null")
 	}
@@ -14836,10 +15560,12 @@ func (value *Tab) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode Tab: required field surface is missing or null")
 	}
 	decoded.Surface = *fields.Surface
+	decoded.TabResourceID = fields.TabResourceID
 	decoded.TerminalHostFallback = fields.TerminalHostFallback
 	decoded.TerminalID = fields.TerminalID
 	decoded.TerminalIncarnation = fields.TerminalIncarnation
 	decoded.TerminalResourceID = fields.TerminalResourceID
+	decoded.TerminalState = fields.TerminalState
 	if fields.Title == nil {
 		return fmt.Errorf("decode Tab: required field title is missing or null")
 	}
@@ -14851,7 +15577,40 @@ func (value *Tab) UnmarshalJSON(data []byte) error {
 	if fields.TitleText.set {
 		decoded.TitleText = &fields.TitleText.value
 	}
+	decoded.URL = fields.URL
 	*value = Tab(decoded)
+	return nil
+}
+
+type TabAttention struct {
+	// When it was marked, in Unix milliseconds.
+	AtMs uint64 `json:"at_ms"`
+	// Why the tab needs the person.
+	Reason string `json:"reason"`
+}
+
+func (value *TabAttention) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode TabAttention: expected object")
+	}
+	var fields struct {
+		AtMs   *uint64 `json:"at_ms"`
+		Reason *string `json:"reason"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode TabAttention: %w", err)
+	}
+	type wire TabAttention
+	var decoded wire
+	if fields.AtMs == nil {
+		return fmt.Errorf("decode TabAttention: required field at_ms is missing or null")
+	}
+	decoded.AtMs = *fields.AtMs
+	if fields.Reason == nil {
+		return fmt.Errorf("decode TabAttention: required field reason is missing or null")
+	}
+	decoded.Reason = *fields.Reason
+	*value = TabAttention(decoded)
 	return nil
 }
 
@@ -15160,8 +15919,10 @@ func (value *TabGroupRecord) UnmarshalJSON(data []byte) error {
 type TabGroupRun struct {
 	Collapsed bool `json:"collapsed"`
 	// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
-	Color   string                   `json:"color"`
-	Count   uint64                   `json:"count"`
+	Color string `json:"color"`
+	Count uint64 `json:"count"`
+	// tab-group-icon-v1: the group's icon string.
+	Icon    Presence[string]         `json:"-"`
 	ID      string                   `json:"id"`
 	Name    string                   `json:"name"`
 	Pane    *ID                      `json:"pane,omitempty"`
@@ -15184,10 +15945,22 @@ func (value TabGroupRun) MarshalJSON() ([]byte, error) {
 	}
 	for key, fieldValue := range value.Additional {
 		switch key {
-		case "collapsed", "color", "count", "id", "name", "pane", "saved_id", "start", "surfaces":
+		case "collapsed", "color", "count", "icon", "id", "name", "pane", "saved_id", "start", "surfaces":
 			continue
 		}
 		object[key] = append(json.RawMessage(nil), fieldValue...)
+	}
+	if value.Icon.IsAbsent() {
+		delete(object, "icon")
+	} else if value.Icon.IsNull() {
+		object["icon"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Icon.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode TabGroupRun.Icon: %w", err)
+		}
+		object["icon"] = encodedField
 	}
 	if !value.SavedID.IsSet() {
 		return nil, fmt.Errorf("encode TabGroupRun: required nullable field saved_id is missing")
@@ -15213,6 +15986,7 @@ func (value *TabGroupRun) UnmarshalJSON(data []byte) error {
 		Collapsed *bool                    `json:"collapsed"`
 		Color     *string                  `json:"color"`
 		Count     *uint64                  `json:"count"`
+		Icon      Presence[string]         `json:"icon"`
 		ID        *string                  `json:"id"`
 		Name      *string                  `json:"name"`
 		Pane      optionalNonNullJSON[ID]  `json:"pane"`
@@ -15237,6 +16011,7 @@ func (value *TabGroupRun) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode TabGroupRun: required field count is missing or null")
 	}
 	decoded.Count = *fields.Count
+	decoded.Icon = fields.Icon
 	if fields.ID == nil {
 		return fmt.Errorf("decode TabGroupRun: required field id is missing or null")
 	}
@@ -15269,7 +16044,7 @@ func (value *TabGroupRun) UnmarshalJSON(data []byte) error {
 	}
 	for key, fieldValue := range object {
 		switch key {
-		case "collapsed", "color", "count", "id", "name", "pane", "saved_id", "start", "surfaces":
+		case "collapsed", "color", "count", "icon", "id", "name", "pane", "saved_id", "start", "surfaces":
 			continue
 		}
 		if decoded.Additional == nil {
@@ -18067,22 +18842,26 @@ func (value *TerminalResumeCommandResult) UnmarshalJSON(data []byte) error {
 }
 
 type Tree struct {
-	Changed           *[]Workspace `json:"changed,omitempty"`
-	Delta             *bool        `json:"delta,omitempty"`
-	Epoch             *string      `json:"epoch,omitempty"`
-	Generation        *string      `json:"generation,omitempty"`
-	Next              *uint64      `json:"next,omitempty"`
-	Order             *[]ID        `json:"order,omitempty"`
-	PaneRevision      *uint64      `json:"pane_revision,omitempty"`
-	RegistryID        *string      `json:"registry_id,omitempty"`
-	Removed           *[]ID        `json:"removed,omitempty"`
-	Seq               *uint64      `json:"seq,omitempty"`
-	TerminalRevision  *uint64      `json:"terminal_revision,omitempty"`
-	Total             *uint64      `json:"total,omitempty"`
-	TreeRevision      *string      `json:"tree_revision,omitempty"`
-	Unchanged         *bool        `json:"unchanged,omitempty"`
-	WorkspaceRevision *uint64      `json:"workspace_revision,omitempty"`
-	Workspaces        []Workspace  `json:"workspaces"`
+	Changed    *[]Workspace `json:"changed,omitempty"`
+	Delta      *bool        `json:"delta,omitempty"`
+	Epoch      *string      `json:"epoch,omitempty"`
+	Generation *string      `json:"generation,omitempty"`
+	// The sidebar workspace groups.
+	Groups *[]WorkspaceGroup `json:"groups,omitempty"`
+	// How many lines the connection had written when the tree was read: a later line may carry a change the tree lacks.
+	LinesWrittenBeforeRead *uint64     `json:"lines_written_before_read,omitempty"`
+	Next                   *uint64     `json:"next,omitempty"`
+	Order                  *[]ID       `json:"order,omitempty"`
+	PaneRevision           *uint64     `json:"pane_revision,omitempty"`
+	RegistryID             *string     `json:"registry_id,omitempty"`
+	Removed                *[]ID       `json:"removed,omitempty"`
+	Seq                    *uint64     `json:"seq,omitempty"`
+	TerminalRevision       *uint64     `json:"terminal_revision,omitempty"`
+	Total                  *uint64     `json:"total,omitempty"`
+	TreeRevision           *string     `json:"tree_revision,omitempty"`
+	Unchanged              *bool       `json:"unchanged,omitempty"`
+	WorkspaceRevision      *uint64     `json:"workspace_revision,omitempty"`
+	Workspaces             []Workspace `json:"workspaces"`
 }
 
 func (value *Tree) UnmarshalJSON(data []byte) error {
@@ -18090,22 +18869,24 @@ func (value *Tree) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode Tree: expected object")
 	}
 	var fields struct {
-		Changed           optionalNonNullJSON[[]Workspace] `json:"changed"`
-		Delta             optionalNonNullJSON[bool]        `json:"delta"`
-		Epoch             optionalNonNullJSON[string]      `json:"epoch"`
-		Generation        optionalNonNullJSON[string]      `json:"generation"`
-		Next              optionalNonNullJSON[uint64]      `json:"next"`
-		Order             optionalNonNullJSON[[]ID]        `json:"order"`
-		PaneRevision      optionalNonNullJSON[uint64]      `json:"pane_revision"`
-		RegistryID        optionalNonNullJSON[string]      `json:"registry_id"`
-		Removed           optionalNonNullJSON[[]ID]        `json:"removed"`
-		Seq               optionalNonNullJSON[uint64]      `json:"seq"`
-		TerminalRevision  optionalNonNullJSON[uint64]      `json:"terminal_revision"`
-		Total             optionalNonNullJSON[uint64]      `json:"total"`
-		TreeRevision      optionalNonNullJSON[string]      `json:"tree_revision"`
-		Unchanged         optionalNonNullJSON[bool]        `json:"unchanged"`
-		WorkspaceRevision optionalNonNullJSON[uint64]      `json:"workspace_revision"`
-		Workspaces        *[]Workspace                     `json:"workspaces"`
+		Changed                optionalNonNullJSON[[]Workspace]      `json:"changed"`
+		Delta                  optionalNonNullJSON[bool]             `json:"delta"`
+		Epoch                  optionalNonNullJSON[string]           `json:"epoch"`
+		Generation             optionalNonNullJSON[string]           `json:"generation"`
+		Groups                 optionalNonNullJSON[[]WorkspaceGroup] `json:"groups"`
+		LinesWrittenBeforeRead optionalNonNullJSON[uint64]           `json:"lines_written_before_read"`
+		Next                   optionalNonNullJSON[uint64]           `json:"next"`
+		Order                  optionalNonNullJSON[[]ID]             `json:"order"`
+		PaneRevision           optionalNonNullJSON[uint64]           `json:"pane_revision"`
+		RegistryID             optionalNonNullJSON[string]           `json:"registry_id"`
+		Removed                optionalNonNullJSON[[]ID]             `json:"removed"`
+		Seq                    optionalNonNullJSON[uint64]           `json:"seq"`
+		TerminalRevision       optionalNonNullJSON[uint64]           `json:"terminal_revision"`
+		Total                  optionalNonNullJSON[uint64]           `json:"total"`
+		TreeRevision           optionalNonNullJSON[string]           `json:"tree_revision"`
+		Unchanged              optionalNonNullJSON[bool]             `json:"unchanged"`
+		WorkspaceRevision      optionalNonNullJSON[uint64]           `json:"workspace_revision"`
+		Workspaces             *[]Workspace                          `json:"workspaces"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("decode Tree: %w", err)
@@ -18135,6 +18916,18 @@ func (value *Tree) UnmarshalJSON(data []byte) error {
 	}
 	if fields.Generation.set {
 		decoded.Generation = &fields.Generation.value
+	}
+	if fields.Groups.null {
+		return fmt.Errorf("decode Tree: non-nullable field groups is null")
+	}
+	if fields.Groups.set {
+		decoded.Groups = &fields.Groups.value
+	}
+	if fields.LinesWrittenBeforeRead.null {
+		return fmt.Errorf("decode Tree: non-nullable field lines_written_before_read is null")
+	}
+	if fields.LinesWrittenBeforeRead.set {
+		decoded.LinesWrittenBeforeRead = &fields.LinesWrittenBeforeRead.value
 	}
 	if fields.Next.null {
 		return fmt.Errorf("decode Tree: non-nullable field next is null")
@@ -18271,6 +19064,36 @@ func (value *ViewportPaneWidthResult) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type ViewportSplitWidth struct {
+	Split ID      `json:"split"`
+	Width float64 `json:"width"`
+}
+
+func (value *ViewportSplitWidth) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ViewportSplitWidth: expected object")
+	}
+	var fields struct {
+		Split *ID      `json:"split"`
+		Width *float64 `json:"width"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ViewportSplitWidth: %w", err)
+	}
+	type wire ViewportSplitWidth
+	var decoded wire
+	if fields.Split == nil {
+		return fmt.Errorf("decode ViewportSplitWidth: required field split is missing or null")
+	}
+	decoded.Split = *fields.Split
+	if fields.Width == nil {
+		return fmt.Errorf("decode ViewportSplitWidth: required field width is missing or null")
+	}
+	decoded.Width = *fields.Width
+	*value = ViewportSplitWidth(decoded)
+	return nil
+}
+
 type VTStateResult struct {
 	Cols               uint16              `json:"cols"`
 	Data               Base64              `json:"data"`
@@ -18374,15 +19197,170 @@ func (value *WaitForResult) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type WorkspaceKind string
+
+const (
+	WorkspaceKindNormal WorkspaceKind = "normal"
+	WorkspaceKindHome   WorkspaceKind = "home"
+	WorkspaceKindApp    WorkspaceKind = "app"
+)
+
+func (value WorkspaceKind) valid() bool {
+	switch value {
+	case WorkspaceKindNormal, WorkspaceKindHome, WorkspaceKindApp:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value WorkspaceKind) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "WorkspaceKind", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *WorkspaceKind) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := WorkspaceKind(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "WorkspaceKind", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type Workspace struct {
-	Active       bool        `json:"active"`
-	ID           ID          `json:"id"`
-	Key          *string     `json:"key,omitempty"`
+	Active bool `json:"active"`
+	// The app an app workspace shows.
+	App Presence[string] `json:"-"`
+	// The workspace color.
+	Color Presence[string] `json:"-"`
+	// The sidebar group the workspace is in.
+	Group Presence[string] `json:"-"`
+	// The workspace icon.
+	Icon Presence[string] `json:"-"`
+	ID   ID               `json:"id"`
+	// workspace-keep-awake-v1: the freeing timer never ends this workspace's shells.
+	KeepAwake *bool   `json:"keep_awake,omitempty"`
+	Key       *string `json:"key,omitempty"`
+	// What the workspace is.
+	Kind *WorkspaceKind `json:"kind,omitempty"`
+	// The person marked the workspace unread.
+	MarkedUnread *bool       `json:"marked_unread,omitempty"`
 	Name         string      `json:"name"`
 	NameRevision *string     `json:"name_revision,omitempty"`
 	NameSource   *NameSource `json:"name_source,omitempty"`
-	Screens      []Screen    `json:"screens"`
-	ShortID      *string     `json:"short_id,omitempty"`
+	// The workspace is pinned.
+	Pinned *bool `json:"pinned,omitempty"`
+	// workspace-recovered-v1: every tab is a recovered terminal.
+	Recovered *bool `json:"recovered,omitempty"`
+	// The workspace's public id.
+	ResourceID Presence[string] `json:"-"`
+	// The workspace's screen group runs.
+	ScreenGroups *[]ScreenGroupRun `json:"screen_groups,omitempty"`
+	Screens      []Screen          `json:"screens"`
+	ShortID      *string           `json:"short_id,omitempty"`
+	// The workspace title.
+	Title Presence[string] `json:"-"`
+	// Tabs with an unread notification.
+	UnreadCount *uint64 `json:"unread_count,omitempty"`
+}
+
+func (value Workspace) MarshalJSON() ([]byte, error) {
+	if value.Kind != nil {
+		switch *value.Kind {
+		case "normal", "home", "app":
+		default:
+			return nil, fmt.Errorf("encode Workspace.Kind: invalid value %v", *value.Kind)
+		}
+	}
+	type wire Workspace
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.App.IsAbsent() {
+		delete(object, "app")
+	} else if value.App.IsNull() {
+		object["app"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.App.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Workspace.App: %w", err)
+		}
+		object["app"] = encodedField
+	}
+	if value.Color.IsAbsent() {
+		delete(object, "color")
+	} else if value.Color.IsNull() {
+		object["color"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Color.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Workspace.Color: %w", err)
+		}
+		object["color"] = encodedField
+	}
+	if value.Group.IsAbsent() {
+		delete(object, "group")
+	} else if value.Group.IsNull() {
+		object["group"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Group.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Workspace.Group: %w", err)
+		}
+		object["group"] = encodedField
+	}
+	if value.Icon.IsAbsent() {
+		delete(object, "icon")
+	} else if value.Icon.IsNull() {
+		object["icon"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Icon.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Workspace.Icon: %w", err)
+		}
+		object["icon"] = encodedField
+	}
+	if value.ResourceID.IsAbsent() {
+		delete(object, "resource_id")
+	} else if value.ResourceID.IsNull() {
+		object["resource_id"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ResourceID.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Workspace.ResourceID: %w", err)
+		}
+		object["resource_id"] = encodedField
+	}
+	if value.Title.IsAbsent() {
+		delete(object, "title")
+	} else if value.Title.IsNull() {
+		object["title"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Title.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode Workspace.Title: %w", err)
+		}
+		object["title"] = encodedField
+	}
+	return json.Marshal(object)
 }
 
 func (value *Workspace) UnmarshalJSON(data []byte) error {
@@ -18390,14 +19368,27 @@ func (value *Workspace) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode Workspace: expected object")
 	}
 	var fields struct {
-		Active       *bool                           `json:"active"`
-		ID           *ID                             `json:"id"`
-		Key          optionalNonNullJSON[string]     `json:"key"`
-		Name         *string                         `json:"name"`
-		NameRevision optionalNonNullJSON[string]     `json:"name_revision"`
-		NameSource   optionalNonNullJSON[NameSource] `json:"name_source"`
-		Screens      *[]Screen                       `json:"screens"`
-		ShortID      optionalNonNullJSON[string]     `json:"short_id"`
+		Active       *bool                                 `json:"active"`
+		App          Presence[string]                      `json:"app"`
+		Color        Presence[string]                      `json:"color"`
+		Group        Presence[string]                      `json:"group"`
+		Icon         Presence[string]                      `json:"icon"`
+		ID           *ID                                   `json:"id"`
+		KeepAwake    optionalNonNullJSON[bool]             `json:"keep_awake"`
+		Key          optionalNonNullJSON[string]           `json:"key"`
+		Kind         optionalNonNullJSON[WorkspaceKind]    `json:"kind"`
+		MarkedUnread optionalNonNullJSON[bool]             `json:"marked_unread"`
+		Name         *string                               `json:"name"`
+		NameRevision optionalNonNullJSON[string]           `json:"name_revision"`
+		NameSource   optionalNonNullJSON[NameSource]       `json:"name_source"`
+		Pinned       optionalNonNullJSON[bool]             `json:"pinned"`
+		Recovered    optionalNonNullJSON[bool]             `json:"recovered"`
+		ResourceID   Presence[string]                      `json:"resource_id"`
+		ScreenGroups optionalNonNullJSON[[]ScreenGroupRun] `json:"screen_groups"`
+		Screens      *[]Screen                             `json:"screens"`
+		ShortID      optionalNonNullJSON[string]           `json:"short_id"`
+		Title        Presence[string]                      `json:"title"`
+		UnreadCount  optionalNonNullJSON[uint64]           `json:"unread_count"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("decode Workspace: %w", err)
@@ -18408,15 +19399,42 @@ func (value *Workspace) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode Workspace: required field active is missing or null")
 	}
 	decoded.Active = *fields.Active
+	decoded.App = fields.App
+	decoded.Color = fields.Color
+	decoded.Group = fields.Group
+	decoded.Icon = fields.Icon
 	if fields.ID == nil {
 		return fmt.Errorf("decode Workspace: required field id is missing or null")
 	}
 	decoded.ID = *fields.ID
+	if fields.KeepAwake.null {
+		return fmt.Errorf("decode Workspace: non-nullable field keep_awake is null")
+	}
+	if fields.KeepAwake.set {
+		decoded.KeepAwake = &fields.KeepAwake.value
+	}
 	if fields.Key.null {
 		return fmt.Errorf("decode Workspace: non-nullable field key is null")
 	}
 	if fields.Key.set {
 		decoded.Key = &fields.Key.value
+	}
+	if fields.Kind.null {
+		return fmt.Errorf("decode Workspace: non-nullable field kind is null")
+	}
+	if fields.Kind.set {
+		decoded.Kind = &fields.Kind.value
+		switch *decoded.Kind {
+		case "normal", "home", "app":
+		default:
+			return fmt.Errorf("decode Workspace.Kind: invalid value %v", *decoded.Kind)
+		}
+	}
+	if fields.MarkedUnread.null {
+		return fmt.Errorf("decode Workspace: non-nullable field marked_unread is null")
+	}
+	if fields.MarkedUnread.set {
+		decoded.MarkedUnread = &fields.MarkedUnread.value
 	}
 	if fields.Name == nil {
 		return fmt.Errorf("decode Workspace: required field name is missing or null")
@@ -18434,6 +19452,25 @@ func (value *Workspace) UnmarshalJSON(data []byte) error {
 	if fields.NameSource.set {
 		decoded.NameSource = &fields.NameSource.value
 	}
+	if fields.Pinned.null {
+		return fmt.Errorf("decode Workspace: non-nullable field pinned is null")
+	}
+	if fields.Pinned.set {
+		decoded.Pinned = &fields.Pinned.value
+	}
+	if fields.Recovered.null {
+		return fmt.Errorf("decode Workspace: non-nullable field recovered is null")
+	}
+	if fields.Recovered.set {
+		decoded.Recovered = &fields.Recovered.value
+	}
+	decoded.ResourceID = fields.ResourceID
+	if fields.ScreenGroups.null {
+		return fmt.Errorf("decode Workspace: non-nullable field screen_groups is null")
+	}
+	if fields.ScreenGroups.set {
+		decoded.ScreenGroups = &fields.ScreenGroups.value
+	}
 	if fields.Screens == nil {
 		return fmt.Errorf("decode Workspace: required field screens is missing or null")
 	}
@@ -18443,6 +19480,13 @@ func (value *Workspace) UnmarshalJSON(data []byte) error {
 	}
 	if fields.ShortID.set {
 		decoded.ShortID = &fields.ShortID.value
+	}
+	decoded.Title = fields.Title
+	if fields.UnreadCount.null {
+		return fmt.Errorf("decode Workspace: non-nullable field unread_count is null")
+	}
+	if fields.UnreadCount.set {
+		decoded.UnreadCount = &fields.UnreadCount.value
 	}
 	*value = Workspace(decoded)
 	return nil
@@ -18723,6 +19767,80 @@ func NewWorkspaceFirstTabBrowser(value WorkspaceFirstTabBrowser) WorkspaceFirstT
 func (value WorkspaceFirstTab) AsBrowser() (WorkspaceFirstTabBrowser, bool) {
 	decoded, ok := value.Value.(WorkspaceFirstTabBrowser)
 	return decoded, ok
+}
+
+type WorkspaceGroup struct {
+	Collapsed bool                     `json:"collapsed"`
+	Color     RequiredNullable[string] `json:"-"`
+	ID        string                   `json:"id"`
+	Index     uint64                   `json:"index"`
+	Name      string                   `json:"name"`
+}
+
+func (value WorkspaceGroup) MarshalJSON() ([]byte, error) {
+	type wire WorkspaceGroup
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if !value.Color.IsSet() {
+		return nil, fmt.Errorf("encode WorkspaceGroup: required nullable field color is missing")
+	}
+	if value.Color.IsNull() {
+		object["color"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Color.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode WorkspaceGroup.Color: %w", err)
+		}
+		object["color"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *WorkspaceGroup) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode WorkspaceGroup: expected object")
+	}
+	var fields struct {
+		Collapsed *bool                    `json:"collapsed"`
+		Color     RequiredNullable[string] `json:"color"`
+		ID        *string                  `json:"id"`
+		Index     *uint64                  `json:"index"`
+		Name      *string                  `json:"name"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode WorkspaceGroup: %w", err)
+	}
+	type wire WorkspaceGroup
+	var decoded wire
+	if fields.Collapsed == nil {
+		return fmt.Errorf("decode WorkspaceGroup: required field collapsed is missing or null")
+	}
+	decoded.Collapsed = *fields.Collapsed
+	if !fields.Color.IsSet() {
+		return fmt.Errorf("decode WorkspaceGroup: required field color is missing")
+	}
+	decoded.Color = fields.Color
+	if fields.ID == nil {
+		return fmt.Errorf("decode WorkspaceGroup: required field id is missing or null")
+	}
+	decoded.ID = *fields.ID
+	if fields.Index == nil {
+		return fmt.Errorf("decode WorkspaceGroup: required field index is missing or null")
+	}
+	decoded.Index = *fields.Index
+	if fields.Name == nil {
+		return fmt.Errorf("decode WorkspaceGroup: required field name is missing or null")
+	}
+	decoded.Name = *fields.Name
+	*value = WorkspaceGroup(decoded)
+	return nil
 }
 
 type WorkspaceMutationResult struct {

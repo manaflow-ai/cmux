@@ -96,6 +96,7 @@ impl Gauges {
             "uptimeMs": millis(self.born.elapsed()),
             "startup": phases,
             "memory": memory(),
+            "coldRehydrates": cold_rehydrates().status(),
             "peerLists": peer_lists().status(),
             "peerNotices": peer_notices().status(),
             "recordWrites": record_writes().status(),
@@ -239,6 +240,9 @@ pub struct PeerLists {
     bytes: AtomicU64,
     peak_lists: AtomicU64,
     peak_bytes: AtomicU64,
+    /// Whole lists a newer list of the same peer replaced before the hub applied them
+    /// (`peer_notice_outbox.rs`), since the daemon started.
+    superseded: AtomicU64,
 }
 
 impl PeerLists {
@@ -257,8 +261,16 @@ impl PeerLists {
         let _ = self.bytes.fetch_update(Ordering::Relaxed, Ordering::Relaxed, less(bytes));
     }
 
+    /// A waiting list of `bytes` was replaced by a newer one of its peer: it is no longer
+    /// waiting, and is never applied.
+    pub fn superseded(&self, bytes: u64) {
+        self.taken(bytes);
+        self.superseded.fetch_add(1, Ordering::Relaxed);
+    }
+
     fn status(&self) -> Value {
         json!({
+            "superseded": self.superseded.load(Ordering::Relaxed),
             "lists": self.lists.load(Ordering::Relaxed),
             "bytes": self.bytes.load(Ordering::Relaxed),
             "peakLists": self.peak_lists.load(Ordering::Relaxed),
@@ -892,6 +904,48 @@ pub fn memory() -> Value {
         "peakRssBytes": peak_rss_bytes(),
         "closedRows": closed_rows().status(),
     })
+}
+
+/// The cold archive's churn (`hub/cold_archive.rs` `Recent`): chats brought back from their
+/// archive, how many the hub remembers as brought back lately and its bound, the ones it let go
+/// to stay under it, and the archives the automatic passes held back for a chat brought back
+/// lately, since the daemon started.
+pub fn cold_rehydrates() -> &'static ColdRehydratesGauge {
+    static COLD: OnceLock<ColdRehydratesGauge> = OnceLock::new();
+    COLD.get_or_init(ColdRehydratesGauge::default)
+}
+
+#[derive(Default)]
+pub struct ColdRehydratesGauge {
+    rehydrates: AtomicU64,
+    recent: AtomicU64,
+    cap: AtomicU64,
+    evicted: AtomicU64,
+    held_back: AtomicU64,
+}
+
+impl ColdRehydratesGauge {
+    pub fn rehydrated(&self, recent: usize, cap: usize, evicted: u64) {
+        let n = |v: usize| u64::try_from(v).unwrap_or(u64::MAX);
+        self.rehydrates.fetch_add(1, Ordering::Relaxed);
+        self.recent.store(n(recent), Ordering::Relaxed);
+        self.cap.store(n(cap), Ordering::Relaxed);
+        self.evicted.fetch_add(evicted, Ordering::Relaxed);
+    }
+
+    pub fn held_back(&self, chats: u64) {
+        self.held_back.fetch_add(chats, Ordering::Relaxed);
+    }
+
+    fn status(&self) -> Value {
+        json!({
+            "rehydrates": self.rehydrates.load(Ordering::Relaxed),
+            "recent": self.recent.load(Ordering::Relaxed),
+            "cap": self.cap.load(Ordering::Relaxed),
+            "evicted": self.evicted.load(Ordering::Relaxed),
+            "heldBack": self.held_back.load(Ordering::Relaxed),
+        })
+    }
 }
 
 /// The closed rows' cached bytes (`hub/closed_rows.rs`): the forms kept, their bytes, their

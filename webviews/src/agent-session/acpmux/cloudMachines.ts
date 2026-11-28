@@ -14,7 +14,14 @@ import { cloudPlanFromReply, type CloudPlanView } from "./cloudPlans";
 /// One machine of the account: its id, name and `CloudMachineStage` name (`ready`, `paused`,
 /// `requesting`, `creating`, `booting`, `connecting`, `failed`). `evictAt` (epoch ms) is when a
 /// machine left paused for 30 days is deleted unless it resumes; absent when the server does not say.
-export type CloudMachine = { id: string; name: string; stage: string; evictAt?: number; size?: CloudMachineSize };
+export type CloudMachine = {
+  id: string;
+  name: string;
+  stage: string;
+  evictAt?: number;
+  size?: CloudMachineSize;
+  cloudRegistryId?: string;
+};
 /// A machine's size as its record says it (`cloudMachine.list` `size`): vCPUs, memory and disk, each
 /// absent when the record does not say. The composer's machine card names it (MachineCard.tsx).
 export type CloudMachineSize = { cpu?: number; memoryMb?: number; diskMb?: number };
@@ -87,7 +94,7 @@ export function cloudMachinesFromReply(reply: unknown): CloudMachine[] {
   if (value?.signedIn !== true || value.loaded !== true || !Array.isArray(value.machines)) return [];
   const machines: CloudMachine[] = [];
   for (const raw of value.machines.slice(0, MAX_ROWS)) {
-    const { id, name, stage, evictAt, size: rawSize } = (raw ?? {}) as Record<string, unknown>;
+    const { id, name, stage, evictAt, size: rawSize, cloudRegistryId } = (raw ?? {}) as Record<string, unknown>;
     if (typeof id !== "string" || !id || typeof name !== "string" || !name || typeof stage !== "string") continue;
     const size = cloudMachineSize(rawSize);
     machines.push({
@@ -96,6 +103,7 @@ export function cloudMachinesFromReply(reply: unknown): CloudMachine[] {
       stage,
       ...(typeof evictAt === "number" && Number.isFinite(evictAt) && evictAt > 0 ? { evictAt } : {}),
       ...(size ? { size } : {}),
+      ...(typeof cloudRegistryId === "string" && cloudRegistryId ? { cloudRegistryId } : {}),
     });
   }
   return machines;
@@ -386,16 +394,24 @@ export function runCloudMachine(machine: CloudMachine, call: Call = postNative):
     );
 }
 
-/// A pick of a row from the kept list (lastSeenAt set) never acts on it: one fresh read first, then
-/// the machine as that read lists it, or none while the list is still the kept one or no longer
-/// lists the machine (the pick then does nothing).
-export async function freshCloudMachine(
-  machine: CloudMachine,
-  call: Call = postNative,
-): Promise<CloudMachine | undefined> {
-  await refreshCloudMachines(call);
-  if (lastSeenAt !== undefined) return undefined;
-  return machines.find((candidate) => candidate.id === machine.id);
+/// What a fresh read said of a kept row's machine (freshCloudMachine): listed (act on it as listed), the
+/// app still answering the kept list (cmux Cloud unreachable: nothing is done), or no longer listed.
+export type FreshCloudPick = { state: "fresh"; machine: CloudMachine } | { state: "unreachable" } | { state: "gone" };
+
+/// A pick of a row from the kept list (lastSeenAt set) never acts on it: one fresh read first
+/// (`{fresh: true}`: the app waits for the server rather than answering the kept list again), then
+/// the machine as that read lists it.
+export async function freshCloudMachine(machine: CloudMachine, call: Call = postNative): Promise<FreshCloudPick> {
+  await readCloudPlanFresh(call);
+  if (lastSeenAt !== undefined) return { state: "unreachable" };
+  const listed = machines.find((candidate) => candidate.id === machine.id);
+  return listed ? { state: "fresh", machine: listed } : { state: "gone" };
+}
+
+/// Retry over the kept list: one fresh read, resolved once the app answered it (the server's list, or the
+/// kept one again when cmux Cloud is still unreachable).
+export async function retryCloudMachines(call: Call = postNative): Promise<void> {
+  await readCloudPlanFresh(call);
 }
 
 /// After a pause or resume the app runs the action in the background and its list catches up
@@ -421,6 +437,12 @@ export async function readUntilMoved(
     const now = machines.find((candidate) => candidate.id === machine.id);
     if (now?.stage !== machine.stage) return;
   }
+}
+
+export function cloudMachineForRegistry(registryId: string | undefined): CloudMachine | undefined {
+  if (!registryId) return undefined;
+  const matches = machines.filter((machine) => machine.cloudRegistryId === registryId);
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 export function useCloudMachines(): readonly CloudMachine[] {

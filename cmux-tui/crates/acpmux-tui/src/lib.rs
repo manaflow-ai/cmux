@@ -31,6 +31,7 @@ mod composer_draft;
 mod composer_draft_tests;
 mod events;
 mod failure_copy;
+mod live_line;
 pub mod new_line;
 mod reconnect_wait;
 mod run;
@@ -54,6 +55,8 @@ fn entry(
     Box::pin(run(client, session))
 }
 pub use state::*;
+#[cfg(test)]
+mod bounds_tests;
 mod collapse;
 pub mod dialog;
 pub mod editor;
@@ -339,7 +342,8 @@ impl App {
         let next =
             (current as isize + delta).clamp(0, self.sidebar_nav.len() as isize - 1) as usize;
         self.sidebar_nav_pos = next;
-        match self.sidebar_nav[next].clone() {
+        let Some(item) = self.sidebar_nav.get(next).cloned() else { return };
+        match item {
             SidebarNav::Session(idx) => self.select(idx),
             SidebarNav::ShowMore(group) => {
                 self.expanded_groups.insert(group);
@@ -369,8 +373,8 @@ impl App {
         }
     }
     pub fn row_visible(&self, i: usize) -> bool {
-        if i < self.drafts.len() {
-            self.host_matches(self.drafts[i].peer.as_deref())
+        if let Some(draft) = self.drafts.get(i) {
+            self.host_matches(draft.peer.as_deref())
         } else {
             self.sessions
                 .get(i - self.drafts.len())
@@ -386,9 +390,8 @@ impl App {
         }
     }
     pub fn editor_mut(&mut self) -> &mut Editor {
-        if self.on_draft() {
-            let i = self.selected;
-            &mut self.drafts[i].text
+        if let Some(draft) = self.drafts.get_mut(self.selected) {
+            &mut draft.text
         } else {
             &mut self.input
         }
@@ -399,8 +402,8 @@ impl App {
     }
 
     fn take_prompt_images(&mut self) -> Vec<PromptImage> {
-        if self.on_draft() {
-            std::mem::take(&mut self.drafts[self.selected].images)
+        if let Some(draft) = self.drafts.get_mut(self.selected) {
+            std::mem::take(&mut draft.images)
         } else {
             std::mem::take(&mut self.input_images)
         }
@@ -430,7 +433,8 @@ impl App {
         for token in tokens {
             let token = token.trim_matches(|c| matches!(c, '"' | '\'' | '`'));
             let path = token.strip_prefix("file://").unwrap_or(token);
-            let path = if path.starts_with("localhost/") { &path[9..] } else { path };
+            let path =
+                path.strip_prefix("localhost").filter(|rest| rest.starts_with('/')).unwrap_or(path);
             let path = std::path::Path::new(path);
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
             let mime = match ext.as_str() {
@@ -458,8 +462,8 @@ impl App {
         if found.is_empty() {
             return false;
         }
-        if self.on_draft() {
-            self.drafts[self.selected].images.extend(found);
+        if let Some(draft) = self.drafts.get_mut(self.selected) {
+            draft.images.extend(found);
         } else {
             self.input_images.extend(found);
         }

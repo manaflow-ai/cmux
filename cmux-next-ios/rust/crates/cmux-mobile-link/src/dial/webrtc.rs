@@ -146,7 +146,7 @@ async fn new_peer_connection_for(
     };
     let ice_servers: &[crate::api::IceServer] = if udp_blocked { &[] } else { &options.ice_servers };
     let mut rtc_servers = Vec::with_capacity(ice_servers.len());
-    for server in ice_servers {
+    for server in ice_servers.iter().filter(|server| server.hop_config().is_none()) {
         rtc_servers.push(RTCIceServer {
             urls: literal_urls(&server.urls, &options.routes).await,
             username: server.username.clone().unwrap_or_default(),

@@ -4,15 +4,17 @@
 // chip and one glyph, so no row kind can drift taller than the others (Leo, 2026-11-17, on a
 // coordinator chat whose rows had grown apart: "these are too big").
 //
-// The row's height is its 22 line of words and the row air over them (transcriptGrid.ts
+// The row's height starts from its historical 22px pitch and adds row air (transcriptGrid.ts
 // ROW_AIR_LOOKS; Leo, 2026-11-22: "our is too much of a dense eyesore right now"), so the metric
 // shrinks the words, the chips, the glyphs and "Worked for"'s rule, and keeps the air between rows.
 //
-// conversation.css holds the same values as `--cv-tool-row-height`, `--cv-row-font-size`,
-// `--cv-row-chip-height` and `--cv-row-glyph`; model.ts estimates every one-line row from
-// transcriptGrid.ts TRANSCRIPT_LINE_ROW, which is ROW_METRIC.height; test/transcript-row-metric-tokens.test.ts fails when the stylesheet and this
-// file disagree, and test/transcript-activity-row-density.test.ts measures every row kind of
-// gallery entry agent-pane.activity-row-density against it.
+// conversation.css mirrors the row metric as `--cv-tool-row-height`, `--cv-row-font-size`,
+// `--cv-row-chip-height` and `--cv-row-glyph`; transcriptGrid.ts derives the shipped pitch from
+// the historical 22px pitch plus 10px of air. Tool text uses a 20px line inside that box.
+// model.ts uses ROW_METRIC for the Worked-for rule gaps.
+// test/transcript-row-metric-tokens.test.ts fails when the stylesheet, grid and metric disagree,
+// and test/transcript-activity-row-density.test.ts measures every row kind of gallery entry
+// agent-pane.activity-row-density against them.
 
 import { ROW_AIR_LOOKS, TRANSCRIPT_LINE_WORDS } from "./transcriptGrid";
 

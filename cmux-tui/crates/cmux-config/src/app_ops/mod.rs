@@ -20,16 +20,27 @@
 //!   the order is only for merging.
 
 pub mod build_defaults;
+pub mod backdrop_switch;
 pub mod chrome_theme;
 pub mod controller;
+pub mod custom;
 pub mod effective;
+pub mod fields;
 pub mod home_table;
+pub mod import;
 pub mod jsonc;
+pub mod keymap;
+pub mod layout;
+pub mod link_rules;
 pub mod looks;
+pub mod managed;
 pub mod notifications;
 pub mod quick_toggles;
 pub mod schema;
+pub mod section_reads;
+pub mod settings_window;
 pub mod shortcut;
+pub mod site_engines;
 pub mod snapshot;
 pub mod theme;
 
@@ -49,15 +60,26 @@ pub enum OpError {
 type AreaCall = fn(&str, &Value) -> Option<Result<Value, OpError>>;
 const AREAS: &[AreaCall] = &[
     build_defaults::call,
+    backdrop_switch::call,
     chrome_theme::call,
     controller::call,
+    custom::call,
     effective::call,
+    fields::call,
     home_table::call,
+    import::call,
+    keymap::call,
+    layout::call,
+    link_rules::call,
     looks::call,
     quick_toggles::call,
+    managed::call,
     notifications::call,
     schema::call,
+    section_reads::call,
+    settings_window::call,
     shortcut::call,
+    site_engines::call,
     snapshot::call,
     theme::call,
 ];
