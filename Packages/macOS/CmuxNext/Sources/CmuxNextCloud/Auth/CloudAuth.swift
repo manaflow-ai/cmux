@@ -201,6 +201,7 @@ public final class CloudAuth {
         let tokenStore: any StackAuthTokenStoreProtocol
         let client: any AuthClient
         let authDefaults: any CMUXAuthKeyValueStore
+        let tokenStorageAvailable: @Sendable () async -> Bool
         #if DEBUG
         if useCaptureFixture {
             let fixtureStore = CaptureFixtureTokenStore()
@@ -208,6 +209,7 @@ public final class CloudAuth {
             client = CaptureFixtureAuthClient(store: fixtureStore)
             // A capture must not inherit or persist this machine's auth state.
             authDefaults = CaptureFixtureKeyValueStore()
+            tokenStorageAvailable = { true }
         } else {
             let productionStore = Self.tokenStore(configuration: configuration, consentSession: consentSession,
                                                   autoLogin: signIn.autoLogin, memoryOnly: signIn.memoryOnly)
@@ -216,6 +218,7 @@ public final class CloudAuth {
             tokenStore = fencedStore
             authDefaults = signIn.memoryOnly ? MemoryAuthKeyValueStore() : defaults
             client = Self.stackClient(configuration: configuration, tokenStore: fencedStore)
+            tokenStorageAvailable = { await productionStore.isStorageAvailable() }
         }
         #else
         let productionStore = Self.tokenStore(configuration: configuration, consentSession: consentSession,
@@ -227,6 +230,7 @@ public final class CloudAuth {
         // never shows the file's account over the session in the Keychain.
         authDefaults = signIn.memoryOnly ? MemoryAuthKeyValueStore() : defaults
         client = Self.stackClient(configuration: configuration, tokenStore: fencedStore)
+        tokenStorageAvailable = { await productionStore.isStorageAvailable() }
         #endif
         let config = AuthConfig(
             stack: CMUXAuthConfig(projectId: configuration.stackProjectID, publishableClientKey: configuration.stackPublishableClientKey),
@@ -260,7 +264,8 @@ public final class CloudAuth {
                                       includesDevAuth: signIn.devAuth, replaceStoredSessionWithAutoLogin: login?.replaceSession ?? false,
                                       // A signed build signs in only from the file's resolved credentials, never raw launch keys.
                                       allowsEnvironmentAutoLogin: login?.allowsEnvironmentAutoLogin ?? signIn.devAuth),
-            isOnline: { !useCaptureFixture }
+            isOnline: { !useCaptureFixture },
+            isTokenStorageAvailable: tokenStorageAvailable
         )
         activeTeam = ActiveTeam(source: coordinator)
         callbackRouter = AuthCallbackRouter(extraAllowedScheme: configuration.callbackScheme)

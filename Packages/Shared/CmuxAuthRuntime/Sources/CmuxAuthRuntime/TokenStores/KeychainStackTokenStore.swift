@@ -76,6 +76,21 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         return "\(bundleIdentifier).auth"
     }
 
+    /// Reports whether the protected token store can currently be read.
+    /// An empty but readable keychain is available; transient Security errors
+    /// mean a nil token read is inconclusive and must not sign the user out.
+    public func isStorageAvailable() async -> Bool {
+#if canImport(Security)
+        let statuses = [
+            keychainReadStatus(account: Self.accessTokenAccount),
+            keychainReadStatus(account: Self.refreshTokenAccount),
+        ]
+        return statuses.allSatisfy { $0 == errSecSuccess || $0 == errSecItemNotFound }
+#else
+        return false
+#endif
+    }
+
     public func getStoredAccessToken() async -> String? {
         if let cachedAccessToken { return cachedAccessToken }
         return readOrAdoptLegacyToken(
@@ -288,6 +303,13 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
             return nil
         }
         return String(data: data, encoding: .utf8)
+    }
+
+    private func keychainReadStatus(account: String) -> OSStatus {
+        var query = baseQuery(account: account)
+        query[kSecReturnData as String] = false
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        return SecItemCopyMatching(KeychainNoPromptContext.applied(to: query) as CFDictionary, nil)
     }
 
     private func keychainWrite(_ value: String, account: String) -> Bool {
