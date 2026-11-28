@@ -43,7 +43,8 @@ import WebKit
         agent.markAgentDriven()
         for page in [person, agent] { page.webView.loadFileURL(target, allowingReadAccessTo: dir) }
         let deadline = ContinuousClock.now + .seconds(20)
-        while [person, agent].contains(where: { $0.webView.isLoading || $0.webView.url != target }), ContinuousClock.now < deadline {
+        while [person, agent].contains(where: { page in page.webView.isLoading || page.webView.url.map { $0 != target } ?? true }),
+              ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(50))
         }
         let personVisited = try #require(Self.visitedLinkStoreContains(person.webView, target), "no _visitedLinkStore")
