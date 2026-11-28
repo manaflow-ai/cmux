@@ -68,6 +68,9 @@ export function WorkingFor({
   const doing = sending ? t("send.sending", { target: sendName }) : shown;
   const parts = counts ? workingParts(counts) : [];
   const toggles = onToggle !== undefined && !row.below;
+  // Nothing under the fold yet (turns.ts `liveFoldHidesWork`): the chevron keeps its slot unseen and
+  // the label opens nothing, so the first finished step only shows the chevron and moves nothing.
+  const empty = toggles && row.foldEmpty === true;
   // The ticking "Working for 42s" the toggle holds room for: the same words at the widest time of
   // its shape across units, so a tick, "59s" into "1m 0s" too, moves nothing after the toggle.
   const ms = Math.max(0, until - row.at);
@@ -128,10 +131,16 @@ export function WorkingFor({
         // (`cv-worked__toggle-sizer`) shares their grid cell, so the toggle keeps its width while
         // the seconds tick and the slack sits after the chevron, never between it and the words.
         // Its chevron is the ended line's slot held unseen (turnFold.ts `isLiveClockNode`).
-        <button type="button" className="cv-worked__toggle" aria-expanded={expanded} onClick={onToggle}>
+        <button
+          type="button"
+          className="cv-worked__toggle"
+          aria-expanded={empty ? undefined : expanded}
+          disabled={empty}
+          onClick={empty ? undefined : onToggle}
+        >
           <span className="cv-worked__hug">
             {label}
-            <DisclosureChevron open={expanded} look="worked" />
+            <DisclosureChevron open={expanded && !empty} look="worked" reserved={empty} />
           </span>
           <span className="cv-worked__toggle-sizer" aria-hidden="true">
             {sizer && <span className="cv-worked__label">{sizer}</span>}

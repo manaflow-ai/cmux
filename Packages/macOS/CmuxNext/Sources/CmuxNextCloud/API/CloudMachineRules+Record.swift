@@ -16,7 +16,9 @@ extension CloudMachine {
         struct Request: Encodable { var record: CloudMachine, current: CloudMachine, connectedSinceRead: Bool }
         struct Reply: Decodable { var machine: CloudMachine }
         let request = Request(record: self, current: current, connectedSinceRead: connectedSinceRead)
-        return CloudMachineRules().call("cloud_machine_listed", request, as: Reply.self)?.machine ?? self
+        var listed = CloudMachineRules().call("cloud_machine_listed", request, as: Reply.self)?.machine ?? self
+        listed.environmentId = environmentId ?? current.environmentId
+        return listed
     }
 
     /// What a session does when this record replaces one whose status was `previous`.
@@ -43,10 +45,10 @@ extension CloudMachine {
         struct Request: Encodable { var machine: CloudMachine, connected: Bool, chats: Int? }
         struct Reply: Decodable { var entry: JSONValue }
         let reply = CloudMachineRules().call("cloud_machine_plan_entry", Request(machine: self, connected: connected, chats: chats), as: Reply.self)
-        guard let data = reply.flatMap({ try? JSONEncoder().encode($0.entry) }),
-              let entry = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            return ["id": id, "title": title, "status": shownStatus.rawValue, "connected": connected]
-        }
+        let data = reply.flatMap { try? JSONEncoder().encode($0.entry) }
+        var entry = data.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
+            ?? ["id": id, "title": title, "status": shownStatus.rawValue, "connected": connected]
+        entry["environment"] = environmentId
         return entry
     }
 
