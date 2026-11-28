@@ -211,6 +211,24 @@ check '[[ $status == 1 && $took -lt 120 ]] && grep -q "not holding this job for 
 status=0; (cd "$TMP/src" && env "${env_common[@]}" CMUX_TUI_TREE_CLIENT_REBUILD_ENDS=yes bash scripts/cmux-next/await-tree-client.sh "$key" "$own" 2>/dev/null) || status=$?
 check '[[ $status == 2 ]]' "a malformed rebuild-ends switch is a usage error"
 
+# With CMUX_TUI_TREE_CLIENT_FAILED_ENDS=1 (the signer's bundle step, fallback tree in hand) a completed
+# run that failed on an earlier attempt ends the wait at its first check, not a second one for a retry
+# (NIGHTLY 46146914237 held the signing Mac 254 s for that second look). Without it, two checks.
+completed_failed_run() { printf '%s\n' "{\"total_count\":1,\"workflow_runs\":[{\"id\":$2,\"status\":\"completed\",\"conclusion\":\"failure\",\"run_attempt\":1,\"head_sha\":\"$1\",\"head_branch\":\"feat-cmux-next\",\"created_at\":\"2023-11-14T22:00:00Z\"}]}" > "$runs_dir/runs-$1"; }
+completed_failed_jobs='{"jobs":[{"name":"build-linux / build aarch64-unknown-linux-musl","status":"completed","conclusion":"failure","runner_name":"bs-1","created_at":"2023-11-14T22:00:00Z"}]}'
+reset_cdn; set_runs "$no_runs"; completed_failed_run "$own" 9; jobs_file 9 "$completed_failed_jobs"
+started=$(date +%s); status=0
+out=$(cd "$TMP/src" && env "${env_common[@]}" CMUX_TUI_TREE_CLIENT_WAIT_SECONDS=600 CMUX_TUI_TREE_CLIENT_POLL_SECONDS=20 \
+  CMUX_TUI_TREE_CLIENT_RUN_CHECK_SECONDS=120 CMUX_TUI_TREE_CLIENT_FAILED_ENDS=1 \
+  bash scripts/cmux-next/await-tree-client.sh "$key" "$own" "$app" 2>"$TMP/err") || status=$?
+took=$(( $(date +%s) - started ))
+check '[[ $status == 1 && $took -lt 120 ]] && grep -q "(check 1 of 1)" "$TMP/err"' "a failed publisher ends the wait at its first check when CMUX_TUI_TREE_CLIENT_FAILED_ENDS=1 (took $took s)"
+reset_cdn; set_runs "$no_runs"; completed_failed_run "$own" 9; jobs_file 9 "$completed_failed_jobs"
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 120 ]] && grep -q "(check 2 of 2)" "$TMP/err"' "a failed publisher takes two checks without CMUX_TUI_TREE_CLIENT_FAILED_ENDS (took $took s)"
+status=0; (cd "$TMP/src" && env "${env_common[@]}" CMUX_TUI_TREE_CLIENT_FAILED_ENDS=yes bash scripts/cmux-next/await-tree-client.sh "$key" "$own" 2>/dev/null) || status=$?
+check '[[ $status == 2 ]]' "a malformed failed-ends switch is a usage error"
+
 # A publisher building normally gets no grace: the same late manifest misses the limit.
 reset_cdn; set_runs "$no_runs"; own_run "$own" 8 1
 jobs_file 8 '{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"in_progress","runner_name":"mac-1","created_at":"2023-11-14T22:00:00Z"}]}'

@@ -242,6 +242,7 @@ import Testing
             "did_finish_launching_start": 60.04, "dfl.settings_read": 70.1, "dfl.services": 90.26, "dfl.app_actions": 110, "dfl.bind": 120,
             "dfl.menu": 130.55, "daemon.prepare_start": 140, "daemon.prepare_end": 300.04, "daemon.socket_connected": 310,
             "daemon_connected": 320, "launch_snapshot_applied": 330, "launch_snapshot_shown": 340, "dfl.windows": 350,
+            "dfl.chromium_runtime": 352, "dfl.web_auth": 354, "dfl.opened_urls": 356,
             "did_finish_launching_end": 360, "cef.initialize_start": 400, "cef.ready": 900, "reveal.sidebar": 700,
             "main.warmup_started": 42, "main.environment": 43, "main.state_folder": 44, "main.reads_started": 45,
             "main.crash_handlers": 46, "main.nsapp_made": 47.5, "main.launch_shell_made": 47.6, "main.delegate.fields": 47.7, "main.control.fields": 47.8,

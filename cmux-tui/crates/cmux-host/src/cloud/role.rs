@@ -599,6 +599,8 @@ struct Worker {
     /// (`additions.rs`), and the thread that lists and sends their additions at that edge.
     additions_gate: super::additions::Gate,
     additions: Option<super::additions_thread::Additions>,
+    /// The cmux vault's pull: what devices sealed to this machine, into machine-secrets.env (`vault_thread.rs`).
+    vault: Option<super::vault_thread::VaultPull>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
     /// A carrier bind waiting for the session host's Noise key (its
@@ -690,6 +692,7 @@ impl Worker {
             gateway_token: None,
             additions_gate: super::additions::Gate::default(),
             additions: None,
+            vault: None,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
             noise_key_wait: None,
@@ -819,10 +822,16 @@ impl Worker {
                     return Ok(true);
                 }
                 "resume" => {
+                    // What may have woken the guest, before the pooled connection below is dropped: a peer's
+                    // close of it reads CLOSE_WAIT only until then (wake_sockets.rs).
+                    let sockets = super::wake_sockets::read_wake_sockets();
                     // Connections from before a pause are stale: the resume report below gets a fresh HTTPS
                     // connection instead of hanging.
                     if let Some(live) = &self.live {
                         live.client.reset_transport();
+                    }
+                    if let Some(vault) = &self.vault {
+                        vault.wake();
                     }
                     if let Some(bridge) = &mut self.bootstrap {
                         bridge.resume();
@@ -832,7 +841,7 @@ impl Worker {
                     }
                     let now = self.now();
                     if let Some(live) = self.live.as_mut() {
-                        let reqs = live.session.resume(now, wall_ms());
+                        let reqs = live.session.resume_with_sockets(now, wall_ms(), Some(sockets));
                         self.drive(reqs);
                     }
                     // A bind waiting out its backoff from before the stop retries now: the
@@ -1189,6 +1198,23 @@ impl Worker {
                 .ok();
             }
             Err(e) => log(&format!("additions: {e}")),
+        }
+        // The vault's first pull runs as its thread starts: at bind, and at an agent start on a bound machine.
+        self.vault = None;
+        match github_client(&bound, &key) {
+            Ok(client) => {
+                self.vault = super::vault_thread::VaultPull::spawn(
+                    client,
+                    self.paths.clone(),
+                    FileStore::new(self.paths.clone()),
+                    wall_ms,
+                    random_unit,
+                    log,
+                )
+                .map_err(|e| log(&format!("vault: {e}")))
+                .ok();
+            }
+            Err(e) => log(&format!("vault: {e}")),
         }
         // The first report carries the updater's block: after an update's restart, its swap.
         // After a flip's or a rollback's restart, degraded until the restarted session host
