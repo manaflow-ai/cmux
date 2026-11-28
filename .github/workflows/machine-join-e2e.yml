@@ -93,7 +93,7 @@ jobs:
     # Blacksmith only (16 vCPU; 32 while the overflow switch's record exists): a VM that runs
     # this one job and is destroyed. Never LINUX_RUNNER, which may name a persistent host, since
     # this job adds an OS user and holds the stack secrets.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-fleet-linux-x64' }} # frozen-label: holds account secrets; frozen to the linux_8 label it read (tests/test_machine_join_e2e_workflow.py)
     timeout-minutes: 90
     env:
       HUB_ORIGIN: https://cmux-platform-development.debussy.workers.dev
@@ -371,6 +371,13 @@ jobs:
           sudo -n -u "$JOIN_USER" -- /usr/bin/env -i HOME="$JOIN_HOME" PATH=/usr/bin:/bin \
             XDG_RUNTIME_DIR="/run/user/$JOIN_UID" \
             systemctl --user is-system-running || true
+          # What the joined user's services inherit, by name only (no values: they can be secret), and
+          # the machine-wide sources of it: a variable there that names another user's paths is what
+          # the host unit's config-dir drop-in guards against.
+          echo "user manager environment (names): $(sudo -n -u "$JOIN_USER" -- /usr/bin/env -i HOME="$JOIN_HOME" PATH=/usr/bin:/bin \
+            XDG_RUNTIME_DIR="/run/user/$JOIN_UID" systemctl --user show-environment 2>&1 | cut -d= -f1 | tr '\n' ' ')"
+          echo "/etc/environment (names): $(sed -n 's/^[[:space:]]*\(export[[:space:]]\+\)\{0,1\}\([A-Za-z_][A-Za-z0-9_]*\)=.*/\2/p' /etc/environment 2>/dev/null | tr '\n' ' ')"
+          echo "environment.d: $(ls /etc/environment.d /usr/lib/environment.d /usr/local/lib/environment.d 2>/dev/null | tr '\n' ' ')"
 
       # With bench=deps: cmux-tui's sources and the webviews manifest copied for the disposable user, the
       # toolchain root-owned beside acpmux, and scripts/cmux-next/deps-bench.sh (root-owned) to run while

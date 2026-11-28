@@ -111,9 +111,9 @@ import {
 import { snapshotCss } from "../scripts/agent-pane/snapshotCss.mjs";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
-import { classifyFrames, type FrameMetrics, type FrameRecord, type FrameRail } from "./firstLoadFrames";
+import { classifyFrames, type FrameMetrics, type FrameRail, type FrameRecord } from "./firstLoadFrames";
 import { perfRow } from "./perfRow";
-import { newestPage } from "./daemonPage";
+import { kindsMatch, newestPage } from "./daemonPage";
 import { connectDelay, LinkPipe, linkProfile } from "./linkModel";
 import { goneRows, liveTurnLine, restartSettled } from "./restartSettled";
 import { longRun } from "../src/agent-session/acpmux/sim/scenarios";
@@ -479,7 +479,7 @@ const session: Record<string, unknown> = NO_MODES ? listedBase : { ...listedRow,
 /// The newest page before `beforeSeq`, oldest first, and whether older ones remain: the page the daemon
 /// answers an attach or an older-history read with, cut by count and by `maxBytes` (daemonPage.ts).
 const newest = (limit: number, beforeSeq = Infinity, maxBytes?: unknown, kinds?: unknown) =>
-  newestPage(Array.isArray(kinds) ? events.filter((event) => kinds.includes(event.kind)) : events, {
+  newestPage(Array.isArray(kinds) ? events.filter((event) => kindsMatch(kinds, event)) : events, {
     limit,
     beforeSeq,
     maxBytes,
@@ -1616,8 +1616,26 @@ try {
     console.log(`pane sources read at ${sourceRef}: ${changed.join(", ") || "none"}`);
   }
   console.log(`pane source: ${sourceRef ?? "worktree"}`);
+  // The app's page runs main.tsx as pane.js, preloaded in <head> (build-agent-pane-web.sh): main's code is
+  // there when the document is. dev.tsx instead imports main only after it ran (and after its own awaited
+  // imports), a fetch the app never makes, idle main-thread time a restart here waited and the app's does not.
+  // So the bench's entry keeps dev.tsx's sheet imports (the page's sheet order) and imports main statically,
+  // in the same chunk; the dev host it would install is the init script's (hostScript), as the app's is there first.
+  const devEntry = path.join(webviews, "src/agent-session/acpmux/dev.tsx");
+  const appEntry = (source: string) =>
+    `${source
+      .split("\n")
+      .filter((line) => /^import "[^"]+\.css";$/.test(line))
+      .join("\n")}\nimport "./main";\n`;
   await build({
-    plugins: [{ name: "immutable-pane-baseline", enforce: "pre", load: (id) => priorSources.get(id) }],
+    plugins: [
+      {
+        name: "immutable-pane-baseline",
+        enforce: "pre",
+        load: (id) =>
+          id === devEntry ? appEntry(priorSources.get(id) ?? fs.readFileSync(id, "utf8")) : priorSources.get(id),
+      },
+    ],
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
     // PROFILE=1 keeps names, so the adopt profile names the pane's own functions.
     build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
@@ -1965,6 +1983,12 @@ try {
       // PARK=visible: the spare parks its chat view drawn but invisible (App SPARE_PARK_VISIBLE).
       if (process.env.PARK)
         await page.addInitScript((park) => Object.assign(window, { __cmuxSparePark: park }), process.env.PARK);
+      // REHEARSE=off: the spare skips its offscreen warm-up of a sample chat (spareRehearsal.tsx).
+      if (process.env.REHEARSE)
+        await page.addInitScript(
+          (rehearse) => Object.assign(window, { __cmuxSpareRehearse: rehearse }),
+          process.env.REHEARSE,
+        );
       await page.goto(spareUrl);
       await page.waitForFunction(
         (quietMs) => {
@@ -1977,6 +2001,20 @@ try {
         SETTLE_QUIET_MS,
         { timeout: 120_000, polling: 100 },
       );
+      // The app's spare sits parked for seconds or more, so its warm-up ends before a real adopt: wait for it.
+      if (process.env.REHEARSE !== "off")
+        await page
+          .waitForFunction(
+            (quietMs) => {
+              const at = Number(document.documentElement.dataset.spareRehearsed);
+              return at > 0 && performance.now() - at > quietMs;
+            },
+            SETTLE_QUIET_MS,
+            { timeout: 15_000, polling: 100 },
+          )
+          .catch(() => console.log("reopen-spare: no rehearsal finished within 15 s"));
+      // The off side idles as long, so only the warm-up differs between the two.
+      else await page.waitForTimeout(3_000);
       if (TRACE) console.log(`reopen-spare daemon calls before its adopt event: ${spareCalls.splice(0).join(", ")}`);
       if (TRACE)
         console.log(

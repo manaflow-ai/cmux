@@ -29,8 +29,14 @@
 # CMUX_TUI_TREE_CLIENT_WAIT_SECONDS (default 2700), checking every
 # CMUX_TUI_TREE_CLIENT_POLL_SECONDS (default 20). CMUX_TUI_TREE_CLIENT_WAIT_SECONDS=0
 # looks once (the tree, then each candidate's manifest) and exits 1 on a miss
-# without reading any runs list: app-bundle-cmux-tui-client.sh then bundles the
-# newest published tree instead of waiting (RFD 0021, row 1).
+# without reading any runs list. app-bundle-cmux-tui-client.sh, when it has a fallback tree,
+# waits CMUX_TUI_TREE_CLIENT_FALLBACK_WAIT_SECONDS (default 1500) here, then bundles the
+# newest published tree on a miss instead of failing (RFD 0021, row 1).
+# A publisher rebuilding its failed primary macOS leg (pin-cmux-tui.sh run-progress: rebuilding)
+# extends the limit by up to CMUX_TUI_TREE_CLIENT_REBUILD_GRACE_SECONDS (default 1200) while it
+# keeps reading so. That rebuild lands the tree about 30 min after a clean run would: 2026-11-27,
+# NIGHTLY 46057516701 (03fefcf7) stopped at its 1500 s limit, 6 min before artifacts run
+# 46057516735 uploaded the tip's manifest, and bundled the cmux and acpmux CLI of 2bfbcf5a.
 #
 # Usage: await-tree-client.sh <tree key> <candidate commit>...
 # Env: CMUX_TUI_PIN_BASE (default https://files.cmux.com/cmux-tui), GH_TOKEN
@@ -50,7 +56,10 @@ base="${CMUX_TUI_PIN_BASE:-https://files.cmux.com/cmux-tui}"
 wait_seconds="${CMUX_TUI_TREE_CLIENT_WAIT_SECONDS:-2700}"
 poll_seconds="${CMUX_TUI_TREE_CLIENT_POLL_SECONDS:-20}"
 check_seconds="${CMUX_TUI_TREE_CLIENT_RUN_CHECK_SECONDS:-300}"
+rebuild_grace="${CMUX_TUI_TREE_CLIENT_REBUILD_GRACE_SECONDS:-1200}"
 [[ "$wait_seconds" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_CLIENT_WAIT_SECONDS must be whole seconds" >&2; exit 2; }
+[[ "$rebuild_grace" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_CLIENT_REBUILD_GRACE_SECONDS must be whole seconds" >&2; exit 2; }
+rebuild_grace=$((10#$rebuild_grace))
 for value in "$poll_seconds" "$check_seconds"; do
   [[ "$value" =~ ^[1-9][0-9]*$ ]] || { echo "error: the CMUX_TUI_TREE_CLIENT_*_SECONDS values must be positive whole seconds" >&2; exit 2; }
 done
@@ -67,6 +76,7 @@ manifest_exists() {
 started=$(date +%s)
 next_check=0
 idle_checks=0
+rebuilding=false
 while :; do
   rc=0
   out="$(bash "$script_dir/pin-cmux-tui.sh" verify-key "$key" 2>/dev/null)" || rc=$?
@@ -100,10 +110,11 @@ while :; do
     # limit (2026-11-18: owner 44240874997's Linux build failed and the takeover run's Linux
     # builds sat queued on Blacksmith while nightly 44243166776 waited blind).
     # pin-cmux-tui.sh tree-publisher is the reading resolve-tree-pending.sh also uses.
-    publisher="" stuck=""
+    publisher="" stuck="" rebuilding=false
     found="$(bash "$script_dir/pin-cmux-tui.sh" tree-publisher "$key" "$@" 2>/dev/null || echo unknown)"
     case "$found" in
       building\ *) publisher="${found#building }" ;;
+      rebuilding\ *) publisher="${found#rebuilding }" rebuilding=true ;;
       stuck\ *) stuck="${found#stuck }" ;;
       ended|none) ;;
       *) publisher=unknown ;;
@@ -117,7 +128,13 @@ while :; do
         else
           echo "no active cmux-tui artifacts run has tree $key (check $idle_checks of 2)" >&2
         fi ;;
-      *) idle_checks=0; echo "the cmux-tui artifacts run of ${publisher:0:12} is building tree $key" >&2 ;;
+      *)
+        idle_checks=0
+        if [[ "$rebuilding" == true ]]; then
+          echo "the cmux-tui artifacts run of ${publisher:0:12} is building tree $key (rebuilding its failed primary macOS leg)" >&2
+        else
+          echo "the cmux-tui artifacts run of ${publisher:0:12} is building tree $key" >&2
+        fi ;;
     esac
     if (( idle_checks >= 2 )); then
       if [[ -n "$stuck" ]]; then
@@ -128,7 +145,12 @@ while :; do
       exit 1
     fi
   fi
-  if (( elapsed >= wait_seconds )); then
+  if (( elapsed >= wait_seconds )) && [[ "$rebuilding" == true ]] && (( elapsed < wait_seconds + rebuild_grace )); then
+    if [[ -z "${grace_noted:-}" ]]; then
+      grace_noted=1
+      echo "the limit of $(( wait_seconds / 60 )) min passed while ${publisher:0:12} rebuilds its macOS leg; waiting up to $(( rebuild_grace / 60 )) min more" >&2
+    fi
+  elif (( elapsed >= wait_seconds )); then
     echo "error: tree $key is not published and no candidate manifest is uploaded after $(( elapsed / 60 )) min" >&2
     exit 1
   fi

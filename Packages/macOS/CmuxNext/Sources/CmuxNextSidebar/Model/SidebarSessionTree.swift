@@ -142,9 +142,11 @@ public nonisolated struct SidebarSessionTreeState: Hashable, Sendable {
     public var foldsDeep: Bool
     /// Sessions started by agents stay out of the list (`sidebar.showAgentSessions` off, the default; Leo 2026-11-25
     /// about the nested helper sessions: "idk who asked for those in teh sidebar. it's weird"): a workspace with a
-    /// parent draws no row, except one that needs the person (``SidebarAgentState/blocked``), one in `keeps` (the
-    /// selection: a session opened from Command-K, a notification or its parent chat's list shows while selected),
-    /// and the agent-started ancestors those draw under. The parent chat lists them (Session Info's Subagents).
+    /// parent draws no row, except one that needs the person (``SidebarAgentState/blocked``) and one in `keeps` (the
+    /// selection: a session opened from Command-K, a notification or its parent chat's list shows while selected).
+    /// Those draw as their own top-level rows, never nested under a parent (Leo 2026-11-27, of the sidebar: "the
+    /// subagent sessoins being hidden per workspace"): no ancestor comes back with them. The parent chat lists them
+    /// (Session Info's Subagents).
     public var hidesStarted: Bool
     /// The agent-started sessions that draw while `hidesStarted` hides the rest: the selected ones.
     public var keeps: Set<WorkspaceID>
@@ -199,14 +201,13 @@ public nonisolated struct SidebarSessionTreeState: Hashable, Sendable {
 
     /// The agent-started sessions `hidesStarted` leaves out of the list, as indices into `ids` (one list's workspaces,
     /// nil: a group or an item); none while it is off. `state` reads a row's state by index. A kept row (it needs the
-    /// person, or `keeps` holds it) keeps every agent-started ancestor of it in the list too, so it draws under them.
+    /// person, or `keeps` holds it) stays alone: its agent-started ancestors stay hidden, since it draws flat.
     public func hiddenStarted(_ ids: [WorkspaceID?], state: (Int) -> SidebarAgentState) -> Set<Int> {
         guard hidesStarted, !parents.isEmpty else { return [] }
         var kept: Set<WorkspaceID> = []
         for (index, id) in ids.enumerated() {
             guard let id, parents[id] != nil, keeps.contains(id) || Self.needsPerson(state(index)) else { continue }
-            var current: WorkspaceID? = id
-            while let next = current, parents[next] != nil, kept.insert(next).inserted { current = parents[next] }
+            kept.insert(id)
         }
         var hidden: Set<Int> = []
         for (index, id) in ids.enumerated() {
@@ -388,10 +389,8 @@ public final class SidebarSessionTree {
     }
 
     /// Folds or opens the subtree under `id`. `folded`: whether its row draws it folded now (a
-    /// parent below the top level starts folded); nil reads the user's own fold. `keeping`: the rows
-    /// that are parents of subagents (a chat's subagents nest under its row, `SidebarSubagentStrip`),
-    /// whose folds stay though no session lists under them.
-    public func toggle(_ id: WorkspaceID, folded: Bool? = nil, keeping: Set<WorkspaceID> = []) {
+    /// parent below the top level starts folded); nil reads the user's own fold.
+    public func toggle(_ id: WorkspaceID, folded: Bool? = nil) {
         if folded ?? collapsed.contains(id) {
             collapsed.remove(id)
             opened.insert(id)
@@ -399,7 +398,7 @@ public final class SidebarSessionTree {
             collapsed.insert(id)
             opened.remove(id)
         }
-        save(keeping: keeping)
+        save()
     }
 
     /// Opens every fold above `id` (a selected session, or one the needs-you tray goes to) in each of `lists`
@@ -424,9 +423,9 @@ public final class SidebarSessionTree {
     /// prunes only on the user's own fold while the tree has parents: before the first pass every
     /// fold is kept, and `reveal` (which runs for the restored selection at launch, while the lanes
     /// may still be loading) never prunes.
-    private func save(pruning: Bool = true, keeping: Set<WorkspaceID> = []) {
+    private func save(pruning: Bool = true) {
         if pruning, let parents = state?.parents, !parents.isEmpty {
-            let live = Set(parents.values).union(keeping)
+            let live = Set(parents.values)
             collapsed = collapsed.filter(live.contains)
             opened = opened.filter(live.contains)
         }

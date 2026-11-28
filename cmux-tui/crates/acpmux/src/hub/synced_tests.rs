@@ -149,7 +149,7 @@ async fn edit(hub: &Hub, s: &Arc<Session>, kind: Kind, n: u32) {
             hub.synced_record(title_key(&s.id), json!(s.meta().name));
         }
         Kind::Read => {
-            let read = n % 2 == 0;
+            let read = n.is_multiple_of(2);
             if read {
                 hub.mark_read_answered(s).unwrap();
             } else {
@@ -178,7 +178,7 @@ fn shows(s: &Session, kind: Kind) -> Value {
 fn expected(kind: Kind, n: u32) -> Value {
     match kind {
         Kind::Title => json!(format!("title-{n}")),
-        Kind::Read => json!(n % 2 == 0),
+        Kind::Read => json!(n.is_multiple_of(2)),
         Kind::Pin => json!(n % 2 == 1),
         Kind::Draft => json!(format!("draft {n}")),
     }
@@ -287,4 +287,79 @@ async fn an_offline_edit_crosses_on_reconnect() {
     assert!(lacking.entries.is_empty());
     let (_, lacking, _) = b.synced().pull(&a.synced().vv());
     assert!(lacking.entries.is_empty());
+}
+
+/// A pin or a draft set here is heard by a watcher (a peer daemon following this list) at once,
+/// with no list read after it. Before, each only waited for the next list read, which a peer never
+/// makes: the peer's row kept the old pin until some other change of the chat (two-daemon check).
+#[tokio::test]
+async fn a_pin_or_draft_is_told_to_watchers_with_no_list_read() {
+    let (hub, s) = hub_with_chat();
+    let mut events = hub.subscribe();
+    let told = |events: &mut tokio::sync::broadcast::Receiver<super::super::HubEvent>| {
+        std::iter::from_fn(|| events.try_recv().ok())
+            .any(|e| e.session_id == CHAT && e.record.kind == "row")
+    };
+    hub.set_pinned(&s, true).unwrap();
+    assert!(told(&mut events), "the pin is told with no list read");
+    hub.set_composer_draft(&s, "half a thought").unwrap();
+    assert!(told(&mut events), "the draft is told with no list read");
+    hub.set_pinned(&s, false).unwrap();
+    assert!(told(&mut events), "the unpin is told with no list read");
+}
+
+#[test]
+fn presence_sync_summary_tracks_acknowledgements_and_disconnects() {
+    let hub = hub();
+    let synced = hub.synced();
+    assert!(hub.here_now(&json!({})).unwrap().sync.is_none());
+    assert!(hub.here_now(&json!({"includeSync": true})).unwrap().sync.unwrap().is_empty());
+    synced.note_peer("phone", synced.vv());
+    synced.record(title_key("one"), json!("first"));
+    synced.record(title_key("one"), json!("second"));
+    let status = synced.peer_status(|_| true);
+    assert!(status[0].connected);
+    assert!(!status[0].acknowledged);
+    assert_eq!(status[0].unacknowledged_edits, 2);
+    synced.note_peer("phone", synced.vv());
+    let status = hub.here_now(&json!({"includeSync": true})).unwrap().sync.unwrap();
+    assert!(status[0].acknowledged);
+    assert!(!status[0].connected, "an acknowledgement is not connectivity");
+    assert_eq!(status[0].unacknowledged_edits, 0);
+    // A peer ahead of us is not converged even though it covers all our edits.
+    let mut ahead = synced.vv();
+    ahead.set(Actor::new("remote"), 1);
+    synced.note_peer("phone", ahead);
+    assert!(!synced.peer_status(|_| true)[0].acknowledged);
+}
+
+#[test]
+fn presence_sync_summary_large_history() {
+    use std::hint::black_box;
+    use std::time::Instant;
+
+    let synced = Synced::open(None);
+    for i in 0..16 {
+        synced.note_peer(&format!("peer-{i:02}"), synced.vv());
+    }
+    let mut inserted = 0;
+    for size in [100, 100_000] {
+        for i in inserted..size {
+            synced.record(title_key(&format!("chat-{i}")), json!("title"));
+        }
+        inserted = size;
+        let start = Instant::now();
+        for _ in 0..1_000 {
+            let status = black_box(synced.peer_status(|_| true));
+            assert_eq!(status.len(), 16);
+            assert!(status.windows(2).all(|pair| pair[0].peer < pair[1].peer));
+            assert!(status.iter().all(|peer| !peer.acknowledged
+                && peer.connected
+                && peer.unacknowledged_edits == size));
+        }
+        eprintln!(
+            "presence_sync_summary: keys={size} peers=16 queries=1000 elapsed_us={}",
+            start.elapsed().as_micros()
+        );
+    }
 }

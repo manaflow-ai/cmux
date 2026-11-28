@@ -1,10 +1,17 @@
 use super::*;
 
 impl Config {
+    /// Whether the hub carrier binds its iroh path (`hub_carrier_iroh.rs`): `irohDirect` when it
+    /// is set, else on exactly where `directPort` names a port (not 0).
+    pub fn iroh_on(&self) -> bool {
+        iroh_on_by(self.iroh_direct, self.direct_port)
+    }
+
     /// Set a host-wide session resource setting from the CLI. `default`,
     /// `none`, and `clear` remove an override and restore the computed default.
     /// `acpmux config --set KEY=VALUE`: a permission-mode key
     /// (`set_permission_mode`), `remote_daemon` (a loopback `host:port`, or `none`),
+    /// `remote_pipe.ssh` (`true`/`false`),
     /// `lane_gh_broker` (the broker's socket path, or `none`), `lane_gh_carrier` (owners, comma
     /// separated, or `none`), `transport.wireguard` (`true`/`false`), else a
     /// session resource limit (`set_session_resource`).
@@ -40,6 +47,18 @@ impl Config {
             };
             return Ok(());
         }
+        // sshd on loopback :22 over the carrier, beside `remoteDaemon` (`cmux_tui_service.rs`).
+        if matches!(
+            key.trim().replace('-', "_").to_ascii_lowercase().as_str(),
+            "remote_pipe.ssh" | "remotepipe.ssh"
+        ) {
+            self.remote_pipe.ssh = match value.trim().to_ascii_lowercase().as_str() {
+                "true" | "on" | "1" => true,
+                "false" | "off" | "0" | "none" | "clear" | "default" => false,
+                _ => anyhow::bail!("remote_pipe.ssh must be true or false"),
+            };
+            return Ok(());
+        }
         if matches!(
             key.trim().replace('-', "_").to_ascii_lowercase().as_str(),
             "lane_gh_broker" | "laneghbroker"
@@ -70,6 +89,18 @@ impl Config {
                 port => Some(port.parse::<u16>().ok().filter(|p| *p != 0).ok_or_else(|| {
                     anyhow::anyhow!("direct_port must be a TCP port (1-65535) or none")
                 })?),
+            };
+            return Ok(());
+        }
+        if matches!(
+            key.trim().replace('-', "_").to_ascii_lowercase().as_str(),
+            "iroh_direct" | "irohdirect"
+        ) {
+            self.iroh_direct = match value.trim().to_ascii_lowercase().as_str() {
+                "true" | "on" | "1" => Some(true),
+                "false" | "off" | "0" => Some(false),
+                "" | "none" | "unset" => None,
+                _ => anyhow::bail!("iroh_direct must be true, false or none"),
             };
             return Ok(());
         }
@@ -575,4 +606,9 @@ pub(crate) fn parse_lane_gh_carrier(value: &str) -> Result<Option<Vec<String>>> 
         }
     }
     Ok(Some(owners))
+}
+
+/// [`Config::iroh_on`] from the two keys.
+pub(crate) fn iroh_on_by(iroh_direct: Option<bool>, direct_port: Option<u16>) -> bool {
+    iroh_direct.unwrap_or(matches!(direct_port, Some(port) if port != 0))
 }

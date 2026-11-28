@@ -7,14 +7,17 @@ hidden-tab freeze (2026-11-25, the in-tree video-freeze report).
 A hidden page freezes after `browser.freezeHiddenTabs` (30 s by default; BrowserHibernation), and Blink pauses each
 media element that plays when its frame freezes. Since M140 Blink never plays it again, so a muted live video (a
 canvas `captureStream()`, a camera preview, a dashboard's stream) stayed paused at the frame it froze on, forever.
-`CEFDocumentScripts.frozenMediaResume` plays it again when the frame resumes.
+So a page whose media plays, muted included, is never frozen (`PageProbe.mediaPlays`; Chrome freezes no such tab).
+Chromium pauses a hidden file video that never played unmuted itself (`WebMediaPlayerImpl::ShouldPausePlaybackWhenHidden`:
+`HasUnmutedAudio()` is false for it, audio track or not) and plays it again when the tab shows, so its page still freezes.
 
 It launches the tagged build (BenchApp: fresh state, no activation, the tag's daemons ended at the end), serves its
 pages on 127.0.0.1 and puts them in one workspace, each in its own pane:
 
   stream    a muted video of a canvas's captureStream()        must play after each show
-  frame     the same page in a same-origin iframe               must play after each show (the script runs in every frame)
-  file      a muted autoplay looping file video (VP8)           must play after each show (Chromium pauses it while hidden)
+  frame     the same page in a same-origin iframe               must play after each show (the tab reports media from every frame)
+  file      a muted autoplay looping file video (VP8)           must play after each show; must freeze in a long hide
+  audio     the same with an audio track (VP8 + Opus)           must play after each show; must freeze in a long hide
   paused    a stream video the page itself paused               must stay paused (nothing plays what the page paused)
 
 Then, per `--hides` (seconds), it shows another workspace for that long and comes back. While hidden it reads only the
@@ -22,7 +25,8 @@ app's own state (`debug.surfaces` hibernation.frozen: when each page froze) and 
 pages (an agent's call would thaw a page and restart its hidden clock). After the show it reads each video twice, 2 s
 apart: paused, currentTime, decoded frames, and the page's own freeze, resume and hidden-time counts. A hide shorter
 than the freeze threshold is the counter-proof: nothing freezes and every video plays. In a longer one the paused page
-(nothing plays there) must freeze, which proves the hide passed the threshold; whether the others froze is reported.
+(nothing plays there) must freeze, which proves the hide passed the threshold, and so must the two file pages (Chromium
+paused their videos at the hide, so nothing kept them awake); whether the stream pages froze is reported.
 `--record` records each show (the app's own window recorder, `debug.motion record_start`) to DIR/show-<seconds>s.mov.
 In a hide past the threshold it also reads each renderer's and the GPU process's CPU time from 4 s after the
 threshold to the end of the hide (`cpu` in the phase: percent of one core, per process and in total).
@@ -81,9 +85,14 @@ PAGES = {
 <iframe src="stream.html" style="border:0;width:100%;height:100vh"></iframe>""",
     "file.html": """<!doctype html><title>file</title><body style="margin:0;background:#111">
 <video muted autoplay loop playsinline src="clip.webm" style="width:100%;height:100vh;object-fit:contain"></video>""" + COUNTERS,
+    "audio.html": """<!doctype html><title>audio</title><body style="margin:0;background:#111">
+<video muted autoplay loop playsinline src="clip-audio.webm" style="width:100%;height:100vh;object-fit:contain"></video>""" + COUNTERS,
 }
 VIDEOS = {"stream": ("stream.html", True), "frame": ("frame.html", True), "file": ("file.html", True),
-          "paused": ("stream.html?pause", False)}  # name: (page, plays after each show)
+          "audio": ("audio.html", True), "paused": ("stream.html?pause", False)}  # name: (page, plays after each show)
+# Pages whose only media is a file video that never played unmuted: Chromium pauses it at the hide, so the page freezes.
+FILE_PAGES = ("file", "audio")
+CLIPS = {"clip.webm": "hidden-video-thaw-live.webm", "clip-audio.webm": "hidden-video-thaw-live-audio.webm"}
 # Read through the DOM (shared by every world): the frame page's video and counters are its iframe's.
 STATE = """(() => {
   const f = document.querySelector('iframe'); const doc = f ? f.contentDocument : document;
@@ -101,8 +110,8 @@ class Pages(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?", 1)[0].lstrip("/")
-        if path == "clip.webm":
-            body, kind = open(os.path.join(HERE, "hidden-video-thaw-live.webm"), "rb").read(), "video/webm"
+        if path in CLIPS:
+            body, kind = open(os.path.join(HERE, CLIPS[path]), "rb").read(), "video/webm"
         elif path in PAGES:
             body, kind = PAGES[path].encode(), "text/html; charset=utf-8"
         else:
@@ -293,6 +302,8 @@ def judge(result, threshold):
                   f"froze: {froze})", flush=True)
             return "inconclusive"
         check(True, f"{name}: the hide passed the freeze threshold: the paused page froze (froze at: {froze}; cpu: {result.get('cpu')})")
+        for label in FILE_PAGES:
+            check(label in froze, f"{name}: {label}: its muted file video kept nothing awake: the page froze (froze at: {froze})")
     else:
         check(not result["froze_at_s"], f"{name}: no page froze in a hide under the {threshold} s threshold ({result['froze_at_s']})")
     check(not result["frozen_after_show"], f"{name}: no page is still frozen once shown ({result['frozen_after_show']})")
@@ -332,7 +343,7 @@ try:
     RESULTS["ready"] = ready
     setup_ok = learned and all(tabs.values()) and all(
         (s.get("paused") is False) == plays for (label, (_p, plays)), s in zip(VIDEOS.items(), ready.values()))
-    check(setup_ok, f"setup: four Chromium video pages, the three live ones playing ({ready})")
+    check(setup_ok, f"setup: {len(VIDEOS)} Chromium video pages, all but the paused one playing ({ready})")
     save()
     if not setup_ok:
         status = 2
