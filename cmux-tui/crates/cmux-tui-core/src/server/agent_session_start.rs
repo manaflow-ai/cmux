@@ -766,6 +766,15 @@ pub(super) fn start(
     true
 }
 
+/// `_meta.acpmux.tags` for a person's start on a Cloud machine (`cloud`: this host is a Cloud VM
+/// of any kind, which the host gate admitted the caller to; `phone`: the phone's start): the
+/// gateway class `interactive`, which acpmux keeps on the chat before its agent first
+/// spawns (acpmux `asked_tag`). None elsewhere: the app proves the person to
+/// its own Mac's acpmux itself.
+pub(super) fn person_priority_tags(cloud: bool, phone: bool) -> Option<Value> {
+    (cloud || phone).then(|| json!({"priority": "interactive"}))
+}
+
 /// cx-0w0jj: with `require_person_key`, the start runs only when this
 /// machine's acpmux holds a person key for the caller's `person_instance`.
 /// Otherwise `needs_keyed_start` with [`keyed_restart_reason`] (never the
@@ -1206,6 +1215,14 @@ fn start_and_bind(
     }
     if params.claude_team_route {
         meta.insert("claudeTeamRoute", json!(true));
+    }
+    // A chat the person starts on a Cloud machine (the app, `cmux cloud start-chat`, the phone)
+    // runs at the gateways' interactive class: this daemon's unix socket proves no person to
+    // acpmux, so without the tag the chat was a script's, ran `background`, and the gateway
+    // refused its turns from the interactive reserve (429, 2026-11-28).
+    let cloud = mux.control_clients.agent_sessions.starts.on_cloud_vm();
+    if let Some(tags) = person_priority_tags(cloud, phone) {
+        meta.insert("tags", tags);
     }
     // The workspace of the tab, read here and never taken from the client:
     // acpmux gives the session that workspace's display (none without it).
