@@ -36,6 +36,14 @@ EXEMPTIONS: dict[str, str] = {
     # webviews/** whole (which contains each pull_request path) and the gallery's build inputs.
     "gallery-advisory.yml": "push covers webviews/** and the gallery's build inputs on feat-cmux-next; pull requests "
     "name the component-library paths inside webviews/** (#56329)",
+    # The workflow's own on: comment: feat-cmux-next requires `clippy (changed cmux-tui packages)`, so every pull
+    # request must start it (no paths); its `changes` job skips every job off the push list, the only list.
+    "cmux-tui-spec.yml": "pull requests take no paths so the required clippy check always reports; the changes "
+    "job applies the push list",
+    # Like cmux-next-hot-verify.yml: the push only registers the workflow for dispatch (#64660 runs it on
+    # pull requests and on dispatch for a ready-to-land head).
+    "cmux-next-ios-verify-auto.yml": "push names only its own file, to register the workflow for dispatch; pull "
+    "requests name the iOS compile and flow paths",
 }
 
 # name -> (filter, push-only patterns, why). A narrower exemption: only these
