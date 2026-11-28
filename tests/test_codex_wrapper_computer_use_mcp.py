@@ -772,6 +772,12 @@ exit 1
                     / "cmux-cua"
                 )
                 installed_helper.parent.mkdir(parents=True)
+                # The wrapper checks the helper's entire ancestry. Give the
+                # synthetic installation private directories on shared runners.
+                for directory in installed_helper.parents:
+                    if directory == tmp:
+                        break
+                    directory.chmod(0o700)
                 make_executable(
                     installed_helper,
                     FAKE_MCP_HELPER % CMUX_CUA_TOOL_ROSTER

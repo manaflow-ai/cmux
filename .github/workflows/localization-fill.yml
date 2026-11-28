@@ -1,0 +1,302 @@
+name: localization-fill
+
+# Pull requests write the source locales only (English and Japanese). This bot fills every other locale on main and
+# lands the result as its own pull request; until it does, those strings fall back to English at runtime
+# (web/i18n/messages.ts deep-merges English; a missing XCStrings entry shows the Swift defaultValue).
+# Leo, 2026-11-24: "thinking of better architectures overall in order for us to parallelize more work and to do more
+# as an agentic organization through codebases and design and delegation and getting work done".
+#
+#   gaps       scripts/localization_fill.py gaps: missing web keys and macOS entries in the bot locales, and
+#              translations whose English changed since the last fill. No secrets.
+#   translate  one Claude call with no tools: the rows in, structured translations out. Its job holds no pull
+#              request credential; only its JSON answer leaves it.
+#   open       on a fresh runner, the trusted helper (this workflow's own commit) validates each translation
+#              (placeholders, ICU arguments, tags, localization_catalog.merge_text), writes the ones that pass,
+#              pushes localization-fill/main and opens or refreshes its pull request with auto-merge.
+#
+# vars.LOCALIZATION_FILL: 0 turns it off; `pr` opens the pull request without auto-merge. On by default.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - web/messages/en.json
+      - "**/*.xcstrings"
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: localization-fill
+  cancel-in-progress: false
+
+jobs:
+  gaps:
+    name: Find unfilled locales
+    if: ${{ (vars.LOCALIZATION_FILL || 'on') != '0' && github.repository_owner == 'manaflow-ai' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 20
+    env:
+      # The wait gives up after 10 minutes; the next run fills what this one could not.
+      GH_BUDGET_WAIT_MAX_SECONDS: "600"
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      rows: ${{ steps.gaps.outputs.rows }}
+      head: ${{ steps.head.outputs.head }}
+    steps:
+      # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh), as billing-nightly.yml: every later gh
+      # call waits through a rate limit or a GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: refs/heads/main
+          path: main
+          sparse-checkout: |
+            scripts
+            web/messages
+            web/i18n
+            Resources
+            TunnelExtension
+            Packages/macOS
+          persist-credentials: false
+      - name: Pin the head
+        id: head
+        run: echo "head=$(git -C main rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      # The repository GITHUB_TOKEN hour is shared by every workflow; under its floor this hourly pass sends
+      # nothing on it and the next tick looks again (scripts/ci/job_token_floor.py; GET /rate_limit is free).
+      - name: Read the GITHUB_TOKEN floor
+        id: job-floor
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          JOB_TOKEN: ${{ github.token }}
+        run: python3 main/scripts/ci/job_token_floor.py localization-fill/gaps
+      # One fill in flight: while the bot's pull request is open, the next run would only redo it.
+      # Held under the floor, open stays unset, so List the gaps skips too.
+      - name: Skip while a fill is open
+        id: open
+        if: steps.job-floor.outputs.held != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          open="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&head=${GITHUB_REPOSITORY_OWNER}:localization-fill/main&per_page=1" --jq 'length')"
+          echo "open=$open" >> "$GITHUB_OUTPUT"
+      - name: List the gaps
+        id: gaps
+        if: ${{ steps.open.outputs.open == '0' || github.event_name == 'workflow_dispatch' }}
+        run: |
+          set -euo pipefail
+          previous="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("filledThrough",""))' main/scripts/localization-fill-state.json)"
+          [ -z "$previous" ] || git -C main fetch --quiet --depth=1 "https://github.com/$GITHUB_REPOSITORY.git" "$previous" || true
+          python3 -I main/scripts/localization_fill.py gaps --repo-dir main --out "$RUNNER_TEMP/packet.json" \
+            --prompt-out "$RUNNER_TEMP/prompt.txt" | tee -a "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ steps.gaps.outputs.rows != '' && steps.gaps.outputs.rows != '0' }}
+        with:
+          name: localization-packet
+          path: |
+            ${{ runner.temp }}/packet.json
+            ${{ runner.temp }}/prompt.txt
+          retention-days: 7
+
+  translate:
+    name: Translate
+    needs: gaps
+    if: ${{ needs.gaps.outputs.rows != '' && needs.gaps.outputs.rows != '0' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds the Claude token; CI_TRUSTED_RUNNER picks the Blacksmith size
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write # The tailnet join for the Claude login pool (.github/actions/claude-pool).
+    outputs:
+      limited: ${{ steps.ask.outputs.limited }}
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: localization-packet
+          path: ${{ runner.temp }}/packet
+      - name: Checkout the Claude login pool action
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .claude-pool
+          sparse-checkout: .github/actions/claude-pool
+          persist-credentials: false
+      # The pool's logins instead of the one shared token when the pool answers; '' keeps the token.
+      - name: Reach the Claude login pool
+        id: pool
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: ./.claude-pool/.github/actions/claude-pool
+        with:
+          oauth-client-id: ${{ vars.CLAUDE_POOL_TS_OIDC_CLIENT_ID }}
+          audience: ${{ vars.CLAUDE_POOL_TS_OIDC_AUDIENCE }}
+      # No tools: the rows are the whole input, structured translations the whole output.
+      - name: Ask for the translations
+        id: ask
+        timeout-minutes: 25
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_POOL_URL: ${{ steps.pool.outputs.base-url }}
+        run: |
+          set -euo pipefail
+          if [ -n "${CLAUDE_POOL_URL:-}" ]; then export ANTHROPIC_BASE_URL="$CLAUDE_POOL_URL" ANTHROPIC_AUTH_TOKEN=subrouter2; unset CLAUDE_CODE_OAUTH_TOKEN; fi
+          npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.284 >/dev/null
+          schema='{"type":"object","properties":{"translations":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"value":{},"localization":{"type":"object"}},"required":["id"]}}},"required":["translations"]}'
+          mkdir -p "$RUNNER_TEMP/empty"
+          rc=0
+          (cd "$RUNNER_TEMP/empty" && claude -p \
+            --disallowedTools "Bash,Read,Edit,Write,Glob,Grep,WebFetch,WebSearch,NotebookEdit,Task" \
+            --max-turns 4 --output-format json --json-schema "$schema" < "$RUNNER_TEMP/packet/prompt.txt") > "$RUNNER_TEMP/answer.json" || rc=$?
+          # The CLI writes its error into the JSON answer, not stderr: print it, or a failure here says nothing.
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::claude -p exited $rc (CLAUDE_CODE_OAUTH_TOKEN set: $([ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && echo yes || echo no))"
+            python3 -I -c 'import json,sys
+          raw=open(sys.argv[1]).read()
+          try:
+              a=json.loads(raw)
+          except ValueError:
+              print("answer (not JSON):", raw[:2000]); raise SystemExit
+          print({k: a.get(k) for k in ("subtype","is_error","api_error_status","terminal_reason","stop_reason","num_turns")})
+          print("result:", str(a.get("result"))[:2000])' "$RUNNER_TEMP/answer.json" || true
+            # The login's usage cap (429) is not a broken fill: the strings fall back to English until a later hourly
+            # pass gets an answer. Run 45952417153: CLAUDE_CODE_OAUTH_TOKEN's weekly cap turned main red for days.
+            # Read only the CLI's structured fields (is_error, api_error_status), never the result text, which the
+            # model writes from strings a PR controls (docs/handbook/shared-ci-credential-quota-reds-every-pr.md).
+            # A skip with a notice; any other failure stays red.
+            if python3 -I -c 'import json,sys
+          a=json.load(open(sys.argv[1]))
+          sys.exit(0 if a.get("is_error") is True and a.get("api_error_status") == 429 else 1)' "$RUNNER_TEMP/answer.json" 2>/dev/null; then
+              echo "limited=true" >> "$GITHUB_OUTPUT"
+              echo "::notice::localization-fill skipped: the Claude login is at its usage limit (429); a later pass fills these rows"
+              echo "localization-fill: skipped, Claude login at its usage limit; strings fall back to English until a later pass." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            exit "$rc"
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ steps.ask.outputs.limited != 'true' }}
+        with:
+          name: localization-answer
+          path: ${{ runner.temp }}/answer.json
+          retention-days: 7
+
+  # A fresh runner where nothing the translator wrote runs: the trusted helper validates every row before writing it.
+  open:
+    name: Open the fill
+    needs: [gaps, translate]
+    if: ${{ needs.translate.outputs.limited != 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    env:
+      # The wait gives up after 10 minutes; the next run fills what this one could not.
+      GH_BUDGET_WAIT_MAX_SECONDS: "600"
+    permissions:
+      contents: read
+    steps:
+      # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh), as billing-nightly.yml: every later gh
+      # call waits through a rate limit or a GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
+      # The helper at this workflow's own commit.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: trusted
+          sparse-checkout: |
+            scripts/localization_fill.py
+            scripts/localization_catalog.py
+            scripts/localization-allowed-omissions.json
+            scripts/localization-plurals.json
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ needs.gaps.outputs.head }}
+          path: fresh
+          sparse-checkout: |
+            scripts
+            web/messages
+            web/i18n
+            Resources
+            TunnelExtension
+            Packages/macOS
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: localization-packet
+          path: ${{ runner.temp }}/packet
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: localization-answer
+          path: ${{ runner.temp }}/answer
+      - name: Apply the translations
+        id: apply
+        run: |
+          set -euo pipefail
+          python3 -I trusted/scripts/localization_fill.py apply --repo-dir fresh --packet "$RUNNER_TEMP/packet/packet.json" \
+            --answer "$RUNNER_TEMP/answer/answer.json" | tee -a "$GITHUB_OUTPUT"
+          python3 -I trusted/scripts/localization_catalog.py check --root fresh
+      - name: Mint the pull request token
+        id: app-token
+        if: ${{ steps.apply.outputs.applied != '0' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Open the fill
+        if: ${{ steps.apply.outputs.applied != '0' }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          APPLIED: ${{ steps.apply.outputs.applied }}
+          REJECTED: ${{ steps.apply.outputs.rejected }}
+          MODE: ${{ vars.LOCALIZATION_FILL || 'on' }}
+        run: |
+          set -euo pipefail
+          auth="$(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+          export GIT_CONFIG_COUNT=3 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/dev/null GIT_CONFIG_KEY_2=core.fsmonitor GIT_CONFIG_VALUE_2=false
+          python3 -I trusted/scripts/localization_fill.py open --repo-dir fresh --repo "$GITHUB_REPOSITORY" --base main \
+            --push-url "https://github.com/$GITHUB_REPOSITORY.git" \
+            --summary "Filled $APPLIED translations; $REJECTED left for the next run (run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)." \
+            | tee "$RUNNER_TEMP/opened.txt"
+          number="$(sed -n 's/^number=//p' "$RUNNER_TEMP/opened.txt")"
+          if [ -n "$number" ] && [ "$number" != None ] && [ "$MODE" != pr ]; then
+            gh pr merge "$number" --repo "$GITHUB_REPOSITORY" --auto --squash || echo "auto-merge not enabled; the pull request stays open."
+          fi
+          cat "$RUNNER_TEMP/opened.txt" >> "$GITHUB_STEP_SUMMARY"

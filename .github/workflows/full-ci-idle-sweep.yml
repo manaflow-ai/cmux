@@ -1,0 +1,72 @@
+name: full-ci idle sweep
+
+# Takes a stale `full-ci` off idle lane pull requests into feat-cmux-next (scripts/ci/full_ci_idle_sweep.py holds
+# the policy): every later head of a pull request carrying it runs the full suite, base merges included, and nothing
+# else takes it off. Only `lane/` branches without `ready-to-land`, idle 6 h by their own commits and label adds; a
+# person's `full-ci` stays. 2026-11-26 13:15-16:28Z: 89 of 141 labelled pull requests qualified, and labelled pull
+# requests spent about 24% of all runner-min (goal ci-usage-per-pr-10x). Leo, 2026-11-23: "de facto, im asking for
+# 99% fewer minutes of ci time, period."
+#
+# Scheduled sweeps remove for real unless the repository variable FULL_CI_SWEEP_DRY_RUN is "true"; a manual dispatch
+# defaults to a dry run. One GraphQL search page per 50 labelled pull requests, one REST DELETE per removal.
+on:
+  schedule:
+    # Every 10 min, not hourly: the shared GITHUB_TOKEN hour is spent to 0 by about 27 min after each reset, so
+    # an hourly tick that lands late in the hour is held every time. 2026-11-26 19:22Z-2026-11-27 00:41Z: 5 of 6
+    # hourly ticks read remaining=0 of 5000 (resets at :54) and removed nothing; only the 20:22Z tick, in a fresh
+    # hour, acted (27 removed). A 10-min tick lands within 10 min of every reset. A held tick costs one free GET
+    # /rate_limit; a sweep costs at most --max (100) REST DELETEs (20:22Z: 27) plus GraphQL search pages, which
+    # draw on the separate GraphQL pool. The floor stays the default 30%.
+    - cron: "7,17,27,37,47,57 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "List what would be cleared without removing any label"
+        required: true
+        default: true
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: full-ci-idle-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    name: Clear stale full-ci from idle lane pull requests
+    if: github.repository == 'manaflow-ai/cmux'
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # Under the repository GITHUB_TOKEN floor the sweep removes nothing and the next tick looks again
+      # (scripts/ci/job_token_floor.py; GET /rate_limit is free).
+      - name: Read the GITHUB_TOKEN floor
+        id: job-floor
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          JOB_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/job_token_floor.py full-ci-idle-sweep/sweep
+
+      - name: Clear stale full-ci
+        if: steps.job-floor.outputs.held != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || vars.FULL_CI_SWEEP_DRY_RUN == 'true' && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          if [ "$DRY_RUN" = true ]; then
+            python3 -I scripts/ci/full_ci_idle_sweep.py | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            python3 -I scripts/ci/full_ci_idle_sweep.py --apply | tee -a "$GITHUB_STEP_SUMMARY"
+          fi

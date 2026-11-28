@@ -16,7 +16,7 @@ name: PR media privacy
 # tesseract on Linux, the same reader every publisher runs before it pushes;
 # the Apple Vision pass this scan once used took a macOS runner, and a backlog
 # of media outlived its 30 minute timeout on Blacksmith again and again, so the
-# marker never advanced) and matches them with
+# marker never advanced; the scan now advances it per chunk of commits within a time budget) and matches them with
 # scripts/ci/pr_media_privacy.py: generic fleet patterns plus the personal
 # names in the PR_MEDIA_PRIVATE_TERMS secret, which no output ever echoes.
 #
@@ -84,13 +84,13 @@ jobs:
     if: ${{ needs.check.outputs.changed == 'true' }}
     # Reads PR_MEDIA_PRIVATE_TERMS, so it runs on a one-job ephemeral Linux VM (the trusted selector), never the
     # persistent pool (tests/test_ci_fork_runner_routing.py secret-runner rule).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     permissions:
       contents: write
       pull-requests: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: |
             scripts/ci/pr_media_privacy.py
@@ -118,7 +118,8 @@ jobs:
           if [ -n "$SCANNED" ]; then
             refspecs+=(+refs/pr-media-privacy/scanned:refs/pr-media-privacy/scanned)
           fi
-          git fetch --no-tags --filter=blob:none --depth=1 origin "${refspecs[@]}"
+          # Commits and trees, no blobs: the scan walks the range in chunks and moves the marker per chunk.
+          git fetch --no-tags --filter=blob:none origin "${refspecs[@]}"
           from=""
           if [ -n "$SCANNED" ]; then from="$(git rev-parse refs/pr-media-privacy/scanned)"; fi
           {
@@ -135,6 +136,8 @@ jobs:
           PR_MEDIA_AGENT_AUTHORS: ${{ vars.PR_MEDIA_AGENT_AUTHORS }}
           FROM: ${{ steps.fetch.outputs.from }}
           TO: ${{ steps.fetch.outputs.to }}
+          # Stop at a chunk boundary after 10 min; the marker step then records that commit and the next tick resumes.
+          PR_MEDIA_SCAN_BUDGET_SECONDS: ${{ vars.PR_MEDIA_SCAN_BUDGET_SECONDS || '600' }}
         run: |
           set -uo pipefail
           git config user.name "github-actions[bot]"

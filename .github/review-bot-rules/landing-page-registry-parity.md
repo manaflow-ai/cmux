@@ -9,7 +9,7 @@ A new `(landing)` page must be registered in every one of these in the same PR:
 - `web/app/[locale]/(landing)/guides/page.tsx`: an `ARTICLES` entry, so the page is discoverable from the `/guides` index.
 - `landing.links` in `web/messages/en.json` (and a matching cross-link from related pages' `related` lists), so the new page is internally linked.
 
-Localization of the new page's copy into every locale is covered by `full-internationalization.md`; do not duplicate that check here, but do confirm the new `landing.*` namespace and `landing.links` entry exist in every locale.
+Localization of the new page's copy into every locale is covered by `full-internationalization.md`; do not duplicate that check here, but do confirm the new `landing.*` namespace and `landing.links` entry exist in `en` and `ja` (the `localization-fill` workflow fills the other locales on main).
 
 Report a failure when a diff:
 

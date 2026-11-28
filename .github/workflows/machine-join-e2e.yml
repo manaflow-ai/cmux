@@ -7,7 +7,16 @@ name: Machine join E2E (development)
 #
 # A dispatch runs the file at --ref, so feat-cmux-next's inputs and jobs win;
 # these inputs only mirror them for the Actions form.
+#
+# schedule: every 6 h the `share` job dispatches feat-cmux-next's copy with
+# share=true. The HQ probe screen-share-zero-touch reads the newest run's
+# evidence artifact (share.view.lumaVariance, share.hubApproval) for its
+# mac-linux row and calls it stale past 72 h; with only manual dispatch the
+# row went stale whenever nobody ran it. GitHub runs schedules only from the
+# default branch, so the schedule lives here.
 on:
+  schedule:
+    - cron: "23 */6 * * *"
   workflow_dispatch:
     inputs:
       name:
@@ -20,6 +29,28 @@ on:
         required: false
         default: ""
         type: string
+      bench:
+        description: "deps: while joined, time cold and warm Cargo and bun installs through `acpmux machine deps warm` (the platform's dependency cache); deps-slow: the same over a link with 150 ms more latency"
+        required: false
+        default: none
+        type: choice
+        options:
+          - none
+          - deps
+          - deps-slow
+      share:
+        description: "while joined, share the machine with no step on it: its daemon sets up cmux-rd's screen host, a viewer of the same account must decode a frame within 60 s, and another account must be refused"
+        required: false
+        default: false
+        type: boolean
+      share_install:
+        description: "with share: where the joined machine's cmux-rd comes from. build: the run's commit, linked into place before the join (tests the commit). channel: nothing is placed; the join line's own cmux-rd step installs it from the feat-cmux-next channel, which must carry cmux-rd"
+        required: false
+        default: build
+        type: choice
+        options:
+          - build
+          - channel
 
 permissions: {}
 
@@ -29,6 +60,58 @@ env:
 
 jobs:
   registration:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     steps:
       - run: echo "Machine join E2E is implemented on feat-cmux-next; dispatch it with --ref feat-cmux-next"
+
+  share:
+    name: dispatch the zero-touch share on feat-cmux-next
+    if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'schedule'
+    # Each 6-hourly run shares one group, so a backed-up runner holds one queued run, not a pile.
+    concurrency:
+      group: machine-join-e2e-schedule
+      cancel-in-progress: false
+    permissions:
+      actions: write # dispatch machine-join-e2e.yml on feat-cmux-next
+      contents: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || contains(fromJSON('["cmux-gcp-secret-jit-x64","cmux-gcp-nightly-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'cmux-gcp-nightly-jit-x64' }}
+    timeout-minutes: 20
+    env:
+      # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
+      GH_BUDGET_WAIT_MAX_SECONDS: "900"
+    steps:
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
+      # The job token shares the repository's hourly pool with every workflow; spent, the dispatch 403s and
+      # the share run silently does not start. The cmux bot App's token has its own hour; the job token
+      # stays the fallback. Detector: scripts/ci/cron_dispatch_token_lint.py.
+      - name: Mint the cmux bot App token
+        id: app-token
+        if: ${{ vars.CMUX_BOT_APP_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-contents: read
+      - name: Dispatch machine-join-e2e.yml share=true on feat-cmux-next
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run machine-join-e2e.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next -f share=true
+          echo "Dispatched machine-join-e2e.yml share=true on feat-cmux-next; its run writes the machine-join-e2e-evidence artifact screen-share-zero-touch reads." >> "$GITHUB_STEP_SUMMARY"

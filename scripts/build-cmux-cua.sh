@@ -26,6 +26,7 @@ OUTPUT=""
 HELPER_APP_OPTION=""
 ARCHS_RAW=""
 PRINT_HELPER_ID=""
+SOURCE_ONLY=""
 CACHE_DIR="${CMUX_CUA_CACHE_DIR:-${HOME:-/tmp}/Library/Caches/cmux/cmux-cua}"
 
 helper_bundle_id_for_host() {
@@ -33,6 +34,43 @@ helper_bundle_id_for_host() {
   # installed path, socket, credential, and state scope—not from minting a new
   # permission row for every host bundle.
   echo "com.cmuxterm.cua"
+}
+
+# The pinned-commit fetch is the only network call. CI hands its token in
+# CMUX_CUA_GIT_TOKEN because GitHub answers anonymous fetches from the owned
+# Macs' shared address with 403 and 429 under load (main's run 45760337662:
+# `git clone .../cmux-cua.git` 403 failed compile admission). The header goes
+# through GIT_CONFIG_* for these two commands only, so it is never written to
+# the cache's git config.
+remote_git() {
+  if [[ -z "${CMUX_CUA_GIT_TOKEN:-}" ]]; then
+    git "$@"
+    return
+  fi
+  local n="${GIT_CONFIG_COUNT:-0}" auth
+  auth="$(printf 'x-access-token:%s' "$CMUX_CUA_GIT_TOKEN" | base64 | tr -d '\n')"
+  env GIT_CONFIG_COUNT="$((n + 1))" \
+    "GIT_CONFIG_KEY_$n=http.https://github.com/.extraheader" \
+    "GIT_CONFIG_VALUE_$n=AUTHORIZATION: basic $auth" \
+    git "$@"
+}
+
+# Fetch exactly the pinned commit, depth 1, with bounded retries. A full clone
+# pulls all of cmux-cua's history (about 270 MB) to use one tree; main's run
+# 45883792920 spent ten minutes in that clone on an owned Mac and lost it to
+# `curl 18 Transferred a partial file`, failing compile admission. Nothing here
+# reads history: rev-parse, checkout, clean, status and apply need one commit.
+fetch_pinned_commit() {
+  local dir="$1" attempt=1 max="${CMUX_CUA_GIT_ATTEMPTS:-3}" delay="${CMUX_CUA_FETCH_RETRY_DELAY_SECONDS:-5}"
+  while ! remote_git -C "$dir" fetch --quiet --depth 1 origin "$CMUX_CUA_PINNED_SHA"; do
+    if (( attempt >= max )); then
+      echo "error: cmux-cua fetch of $CMUX_CUA_PINNED_SHA failed after $attempt attempts" >&2
+      return 1
+    fi
+    echo "warning: cmux-cua fetch failed (attempt $attempt of $max); retrying in $((delay * attempt))s" >&2
+    sleep "$((delay * attempt))"
+    attempt=$((attempt + 1))
+  done
 }
 
 validate_replaceable_helper_bundle() {
@@ -91,12 +129,15 @@ Options:
   --cache-dir <path>    clone/build cache dir (default: ~/Library/Caches/cmux/cmux-cua)
   --print-helper-id <host-bundle-id>
                          Print the TCC-facing helper identity and exit
+  --source-only         fetch and verify the pinned source into the cache,
+                         then exit (no --output, no cargo)
   -h, --help            show this help
 
 Environment:
   CMUX_CUA_SRC          existing cmux-cua checkout to read instead of cloning/fetching
   CMUX_CUA_CACHE_DIR    default cache dir override
   CMUX_CUA_REPO_URL     repo URL override, defaults to manaflow-ai/cmux-cua
+  CMUX_CUA_GIT_TOKEN    GitHub token sent with the clone and fetch only
 USAGE
 }
 
@@ -127,6 +168,10 @@ while (($#)); do
       PRINT_HELPER_ID="$2"
       shift 2
       ;;
+    --source-only)
+      SOURCE_ONLY=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -144,7 +189,7 @@ if [[ -n "$PRINT_HELPER_ID" ]]; then
   exit 0
 fi
 
-if [[ -z "$OUTPUT" ]]; then
+if [[ -z "$OUTPUT" && -z "$SOURCE_ONLY" ]]; then
   echo "error: --output is required" >&2
   usage
   exit 2
@@ -161,7 +206,7 @@ if ((${#ARCHS[@]} == 0)); then
 fi
 
 command -v git >/dev/null 2>&1 || { echo "error: git is required" >&2; exit 1; }
-command -v cargo >/dev/null 2>&1 || {
+[[ -n "$SOURCE_ONLY" ]] || command -v cargo >/dev/null 2>&1 || {
   echo "error: cargo is required to build the bundled cmux-cua" >&2
   echo "  local dev: install Rust via rustup (https://rustup.rs or \`brew install rustup && rustup-init\`)" >&2
   echo "  CI: run scripts/install-rust-ci.sh" >&2
@@ -337,7 +382,9 @@ else
       exit 1
     fi
     TMPDIR_CLONE="$(mktemp -d "$CACHE_DIR/.cmux-cua-clone.XXXXXX")"
-    git clone "$CMUX_CUA_REPO_URL" "$TMPDIR_CLONE"
+    git init --quiet "$TMPDIR_CLONE"
+    git -C "$TMPDIR_CLONE" remote add origin "$CMUX_CUA_REPO_URL"
+    fetch_pinned_commit "$TMPDIR_CLONE"
     printf '%s\n' "$CMUX_CUA_SOURCE_OWNER_VALUE" > "$TMPDIR_CLONE/$CMUX_CUA_SOURCE_OWNER_FILE"
     /bin/mv "$TMPDIR_CLONE" "$SRC_ROOT"
     TMPDIR_CLONE=""
@@ -353,7 +400,7 @@ else
   # builds keep working offline (or through GitHub outages) after the first
   # successful build.
   if ! git -C "$SRC_ROOT" cat-file -e "$CMUX_CUA_PINNED_SHA^{commit}" 2>/dev/null; then
-    git -C "$SRC_ROOT" fetch --quiet origin "$CMUX_CUA_PINNED_SHA"
+    fetch_pinned_commit "$SRC_ROOT"
   fi
   # Materialize the exact pinned tree. A plain `checkout --detach` at the
   # already-checked-out commit silently keeps modified tracked files, so a
@@ -375,6 +422,12 @@ ACTUAL_SHA="$(git -C "$SRC_ROOT" rev-parse HEAD)"
 if [[ "$ACTUAL_SHA" != "$CMUX_CUA_PINNED_SHA" ]]; then
   echo "error: cmux-cua checkout is at $ACTUAL_SHA, expected $CMUX_CUA_PINNED_SHA" >&2
   exit 1
+fi
+
+if [[ -n "$SOURCE_ONLY" ]]; then
+  release_src_lock
+  echo "cmux-cua source at $CMUX_CUA_PINNED_SHA: $SRC_ROOT"
+  exit 0
 fi
 
 TMPDIR_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/cmux-cua-build.XXXXXX")"

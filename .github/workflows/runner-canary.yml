@@ -18,6 +18,8 @@ on:
           - cmux-fleet-linux-x64
           - cmux-freestyle-linux-x64
           - cmux-gcp-lane-build-x64
+          - cmux-linux
+          - cmux-fleet-linux-arm64
       nonce:
         description: Unique id HQ finds this run by
         type: string

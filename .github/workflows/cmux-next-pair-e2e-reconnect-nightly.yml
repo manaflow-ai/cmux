@@ -1,0 +1,26 @@
+name: cmux NEXT pair-e2e reconnect, nightly (advisory)
+
+# Leo: "the connection did we figure out how it broke between the tui and stuff". pair-e2e's reconnect leg
+# (flows.json reconnect-after-drop: the paired Mac app and hostd stop for 10 s, then 60 s; the phone must
+# reattach by itself within 30 s each time) runs only when a PR's flow selects it, so nothing proves between
+# PRs that it still works (hq docs/findings/2026-11-27-ios-check-coverage.md, recommendation 5). Once a day
+# this file on main runs feat-cmux-next's cmux-next-pair-e2e-vm.yml at the feat-cmux-next head with
+# reconnect-drops=10,60. A schedule fires only from the default branch and that workflow lives on
+# feat-cmux-next, so this calls it there; no token, dispatcher or new runner label. Advisory: no PR, merge
+# queue or ruleset reads it. Bounded: one run a day, the called job's 150 min timeout, and its one-at-a-time
+# concurrency group, so it queues behind a lane's pair-e2e run instead of signing in to the account twice.
+on:
+  schedule:
+    - cron: "41 10 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reconnect:
+    if: github.repository == 'manaflow-ai/cmux'
+    uses: manaflow-ai/cmux/.github/workflows/cmux-next-pair-e2e-vm.yml@feat-cmux-next
+    with:
+      ref: feat-cmux-next
+      words: reconnect-drops=10,60

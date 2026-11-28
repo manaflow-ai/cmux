@@ -10,7 +10,7 @@ import {
   nextPlanPriceId,
 } from "../services/billing/nextPlans";
 import { nextPlanCards } from "../dashboard-app/screens/billing/next-plan-model";
-import { nextPlanMirrorMetadata } from "../services/billing/nextPlanBilling";
+import { nextPlanMirrorMetadata, syncNextPlanMetadata } from "../services/billing/nextPlanBilling";
 import { NextPlanUnavailableError, resolveNextPlanPrice } from "../services/billing/stripe";
 
 function subscription(price: { id: string; lookup_key?: string | null }, plan?: string) {
@@ -149,5 +149,28 @@ describe("cmux NEXT metadata mirror", () => {
     expect(nextPlanIdFromMetadata({ cmuxNextVmPlan: "next_pro", cmuxNextPlan: "next_plus" })).toBe("next_pro");
     expect(nextPlanIdFromMetadata({ cmuxNextPlan: "next_plus", cmuxPlan: "pro" })).toBe("next_plus");
     expect(nextPlanIdFromMetadata(null)).toBeNull();
+  });
+
+  test("an App Store NEXT plan and a Stripe NEXT subscription mirror the higher one, and a Stripe lapse keeps the App Store plan", async () => {
+    const lease = { refresh: async () => undefined } as unknown as Parameters<typeof syncNextPlanMetadata>[2];
+    const userWith = (metadata: Record<string, unknown>) => {
+      const user = {
+        id: "user-a",
+        clientReadOnlyMetadata: metadata as unknown,
+        update: async ({ clientReadOnlyMetadata }: { clientReadOnlyMetadata: unknown }) => {
+          user.clientReadOnlyMetadata = clientReadOnlyMetadata;
+        },
+      };
+      return user;
+    };
+    const both = userWith({});
+    await syncNextPlanMetadata(both, "next_plus", lease, "next_max");
+    expect(both.clientReadOnlyMetadata).toEqual({ cmuxNextPlan: "next_max", cmuxPlan: "next_max" });
+    const stripeLapsed = userWith({ cmuxNextPlan: "next_pro", cmuxPlan: "next_pro" });
+    expect(await syncNextPlanMetadata(stripeLapsed, null, lease, "next_pro")).toBeNull();
+    expect(stripeLapsed.clientReadOnlyMetadata).toEqual({ cmuxNextPlan: "next_pro", cmuxPlan: "next_pro" });
+    const appleLapsed = userWith({ cmuxNextPlan: "next_pro", cmuxPlan: "next_pro" });
+    await syncNextPlanMetadata(appleLapsed, null, lease, null);
+    expect(appleLapsed.clientReadOnlyMetadata).toEqual({});
   });
 });

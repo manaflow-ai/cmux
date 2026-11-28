@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime as dt
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -284,7 +285,12 @@ class OneStartPerWindowTests(unittest.TestCase):
         done = {**start, "status": "completed"}
         go, reason = rolling.decide(NOW, head=HEAD, head_runs=[done], jobs_of=lambda r: [], promotions=[],
                                     oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)), starts=[done])
-        self.assertTrue(go, "its finish promotes the newest tip")
+        self.assertFalse(go, "a finish inside the even cadence waits for the start that is due")
+        self.assertIn("due in 8 min", reason)
+        go, reason = rolling.decide(NOW, head=HEAD, head_runs=[done], jobs_of=lambda r: [], promotions=[],
+                                    oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)), starts=[done],
+                                    cadence_minutes=0)
+        self.assertTrue(go, "without the cadence its finish promotes the newest tip")
 
     def test_an_older_commit_s_newer_start_still_counts(self):
         """The newest start may be another commit's run (nightly-next moved on since)."""
@@ -413,6 +419,118 @@ class SignerStaggerTests(unittest.TestCase):
     def test_one_slot_is_unchanged(self):
         go, reason = self.decide([run(44, 20, head_sha=HEAD)], slots=1)
         self.assertFalse(go, reason)
+
+
+class EvenCadenceTests(unittest.TestCase):
+    """Leo, 2026-11-25 (ask-f1544451a4): "at least evenly space them out a bit instead of nothing for 3 hours then
+    3 at once?" No build starts within CADENCE_MINUTES of the newest start, whatever is building; the start that
+    falls due takes the newest buildable commit, and a gap already longer than the cadence promotes at once."""
+
+    def decide(self, starts, jobs=(), slots=1, waiting=True, promotions=(), cadence=rolling.CADENCE_MINUTES):
+        return rolling.decide(NOW, head=HEAD, head_runs=[r for r in starts if r.get("head_sha") == HEAD],
+                              jobs_of=lambda r: list(jobs), promotions=list(promotions),
+                              oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=30)) if waiting else None,
+                              starts=starts, slots=slots, cadence_minutes=cadence)
+
+    def test_the_default_cadence_is_twenty_minutes(self):
+        self.assertEqual(rolling.CADENCE_MINUTES, 20.0)
+
+    def test_nothing_building_inside_the_cadence_waits_and_says_when(self):
+        """2026-11-25 01:03/01:04Z: a build that left its slot at once let a second start a minute later."""
+        go, reason = self.decide([run(50, 6, status="completed", head_sha=HEAD)])
+        self.assertFalse(go, reason)
+        self.assertIn("started 6 of 20 min ago (even cadence)", reason)
+        self.assertIn("due in 14 min", reason)
+
+    def test_a_gap_longer_than_the_cadence_promotes_at_once(self):
+        go, reason = self.decide([run(51, 21, status="completed", head_sha=HEAD)])
+        self.assertTrue(go, reason)
+        self.assertIn("nothing is building", reason)
+
+    def test_no_start_at_all_promotes_at_once(self):
+        self.assertTrue(self.decide([])[0])
+
+    def test_nothing_waiting_still_reads_as_nothing_to_promote(self):
+        go, reason = self.decide([run(52, 6, status="completed", head_sha=HEAD)], waiting=False)
+        self.assertTrue(go, "with nothing waiting the promotion moves nothing, as before")
+
+    def test_a_promotion_in_flight_counts_as_the_newest_start(self):
+        promo = run(53, 4, status="in_progress", display_title="Promote nightly-next to tick:" + WAITING)
+        go, reason = self.decide([run(54, 40, status="completed", head_sha=HEAD)], promotions=[promo])
+        self.assertFalse(go, reason)
+
+    def test_a_free_second_slot_waits_for_the_cadence_too(self):
+        go, reason = self.decide([run(55, 18, head_sha=HEAD)], jobs=ONE_BUILDING, slots=2)
+        self.assertFalse(go, reason)
+        self.assertIn("1 of 2 nightly-next slots busy, and the newest build started 18 of 20", reason)
+        self.assertTrue(self.decide([run(56, 22, head_sha=HEAD)], jobs=ONE_BUILDING, slots=2)[0])
+
+    def test_zero_is_the_rule_before_it(self):
+        self.assertTrue(self.decide([run(57, 6, status="completed", head_sha=HEAD)], cadence=0)[0])
+
+    def test_a_failed_read_inside_the_cadence_waits(self):
+        api = api_for(compare("ahead", [(WAITING, 30)]), runs=[run(58, 12, status="completed", head_sha=HEAD)])
+        api.routes["event=workflow_dispatch"] = OSError("502")
+        go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api)
+        self.assertFalse(go, reason)
+        self.assertIn("even cadence", reason)
+
+    def test_main_reads_the_cadence_from_the_variable(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            seen = {}
+            real = rolling.evaluate
+            rolling.evaluate = lambda *a, **k: (seen.update(k), (False, "x"))[1]
+            try:
+                env = {"NIGHTLY_NEXT_CADENCE_MINUTES": "25", "GITHUB_OUTPUT": str(Path(scratch) / "out")}
+                old = {k: os.environ.get(k) for k in env}
+                os.environ.update(env)
+                try:
+                    rolling.main(["--repo", "o/r", "--tip", TIP])
+                finally:
+                    for k, v in old.items():
+                        if v is None:
+                            os.environ.pop(k, None)
+                        else:
+                            os.environ[k] = v
+            finally:
+                rolling.evaluate = real
+            self.assertEqual(seen["cadence_minutes"], 25.0)
+
+    def test_replay_of_the_measured_starts_keeps_every_gap_at_least_the_cadence(self):
+        """The nightly-next push starts of 2026-11-24 22:55Z to 2026-11-25 11:43Z, replayed one tick at each start
+        and every 5 minutes (the cron): the rule starts a build only when the newest is a cadence old."""
+        measured = ["22:55", "23:42", "23:58", "00:14", "01:03", "01:04", "01:59", "02:55", "04:03", "04:04", "04:42",
+                    "05:11", "06:04", "06:42", "07:22", "07:59", "08:18", "09:01", "09:57", "10:20", "11:43"]
+        base = dt.datetime(2026, 11, 24, tzinfo=dt.timezone.utc)
+
+        def clock(hhmm, day):
+            return base + dt.timedelta(days=day, hours=int(hhmm[:2]), minutes=int(hhmm[3:]))
+
+        landings, day, last = [], 0, None
+        for hhmm in measured:
+            if last and hhmm < last:
+                day = 1
+            landings.append(clock(hhmm, day))
+            last = hhmm
+        started, now, i = [], landings[0], 0
+        end = landings[-1] + dt.timedelta(minutes=30)
+        while now <= end:
+            waiting = [t for t in landings if t <= now and (not started or t > started[-1][1])]
+            if waiting:
+                starts = [{"id": n, "status": "completed", "head_sha": HEAD,
+                           "created_at": t.strftime("%Y-%m-%dT%H:%M:%SZ")} for n, (t, _) in enumerate(started)]
+                go, _ = rolling.decide(now, head=HEAD, head_runs=[], jobs_of=lambda r: [], promotions=[],
+                                       oldest_waiting=(WAITING, waiting[0]), starts=starts)
+                if go:
+                    started.append((now, waiting[-1]))
+            nxt = [t for t in landings if t > now]
+            now = min([now + dt.timedelta(minutes=5)] + nxt[:1])
+        gaps = [(b[0] - a[0]).total_seconds() / 60 for a, b in zip(started, started[1:])]
+        self.assertGreaterEqual(min(gaps), 20.0)
+        self.assertEqual(started[-1][1], landings[-1], "the newest push wins")
+        measured_gaps = [(b - a).total_seconds() / 60 for a, b in zip(landings, landings[1:])]
+        self.assertEqual(sum(g < 10 for g in measured_gaps), 2, "measured: 01:03/01:04 and 04:03/04:04")
+        self.assertEqual(sum(g < 10 for g in gaps), 0, "replayed: the second of each pair waits for its due start")
 
 
 class Api:
@@ -831,7 +949,7 @@ class GhApiSpareTokenTests(unittest.TestCase):
     def runner(self, answers):
         calls = []
 
-        def run(argv, capture_output, text, env):
+        def run(argv, capture_output, text, env, timeout=None):
             calls.append((env or {}).get("GH_TOKEN", "job"))
             code, out, err = answers.pop(0)
             return subprocess.CompletedProcess(argv, code, out, err)
@@ -856,10 +974,90 @@ class GhApiSpareTokenTests(unittest.TestCase):
         self.assertEqual(calls, ["job", "s"])
         self.assertIn("404", repr(caught.exception))
 
+    def test_a_hung_read_is_a_refused_read_and_goes_to_the_spare(self):
+        calls = []
+
+        def run(argv, capture_output, text, env, timeout=None):
+            calls.append(((env or {}).get("GH_TOKEN", "job"), timeout))
+            if len(calls) == 1:
+                raise subprocess.TimeoutExpired(argv, timeout)
+            return subprocess.CompletedProcess(argv, 0, '{"ok": 1}', "")
+        self.assertEqual(rolling.gh_api("repos/o/r/x", env={"SPARE_READ_TOKEN": "s"}, run=run), {"ok": 1})
+        self.assertEqual(calls, [("job", rolling.GH_API_SECONDS), ("s", rolling.GH_API_SECONDS)])
+
+    def test_a_hung_read_with_no_spare_names_the_bound(self):
+        def run(argv, capture_output, text, env, timeout=None):
+            raise subprocess.TimeoutExpired(argv, timeout)
+        with self.assertRaises(subprocess.CalledProcessError) as caught:
+            rolling.gh_api("repos/o/r/x", env={}, run=run)
+        self.assertIn(f"more than {rolling.GH_API_SECONDS} s", repr(caught.exception))
+
     def test_a_good_read_never_touches_the_spare(self):
         run, calls = self.runner([(0, "[]", "")])
         self.assertEqual(rolling.gh_api("repos/o/r/x", env={"SPARE_READ_TOKEN": "s"}, run=run), [])
         self.assertEqual(calls, ["job"])
+
+
+class GhApiNoTokenAndSecondaryWaitTests(unittest.TestCase):
+    """gh_api: both tokens refused, a read with no token answers; a secondary limit waits once, then reads again."""
+
+    SECONDARY = "HTTP 403: You have exceeded a secondary rate limit ... https://docs.github.com/en/site-policy/github-terms/github-terms-of-service"
+
+    def setUp(self):
+        rolling._secondary_waited = False
+        self.addCleanup(setattr, rolling, "_secondary_waited", False)
+
+    def runner(self, answers):
+        calls = []
+
+        def run(argv, capture_output, text, env, timeout=None):
+            calls.append((env or {}).get("GH_TOKEN", "job"))
+            code, out, err = answers.pop(0)
+            return subprocess.CompletedProcess(argv, code, out, err)
+        return run, calls
+
+    def test_both_tokens_refused_is_read_with_no_token(self):
+        run, calls = self.runner([(1, "", self.SECONDARY), (1, "", self.SECONDARY)])
+        asked = []
+        answer = rolling.gh_api("repos/o/r/actions/runs", env={"SPARE_READ_TOKEN": "s"}, run=run,
+                                anonymous=lambda path: asked.append(path) or {"workflow_runs": []},
+                                sleep=lambda s: self.fail("no wait when the no-token read answers"))
+        self.assertEqual(answer, {"workflow_runs": []})
+        self.assertEqual(calls, ["job", "s"])
+        self.assertEqual(asked, ["repos/o/r/actions/runs"])
+
+    def test_a_secondary_limit_everywhere_waits_once_then_reads(self):
+        run, calls = self.runner([(1, "", self.SECONDARY), (1, "", self.SECONDARY), (0, '{"ok": 1}', "")])
+        slept = []
+
+        def anonymous(path):
+            raise OSError("HTTP Error 403: rate limit exceeded")
+        answer = rolling.gh_api("repos/o/r/x", env={"SPARE_READ_TOKEN": "s"}, run=run, anonymous=anonymous,
+                                sleep=slept.append)
+        self.assertEqual(answer, {"ok": 1})
+        self.assertEqual(slept, [rolling.SECONDARY_WAIT_SECONDS])
+        self.assertEqual(calls, ["job", "s", "job"])
+
+    def test_the_wait_happens_once_per_process(self):
+        run, calls = self.runner([(1, "", self.SECONDARY)] * 3)
+        slept = []
+        for _ in range(2):
+            with self.assertRaises(subprocess.CalledProcessError) as caught:
+                rolling.gh_api("repos/o/r/x", env={}, run=run, sleep=slept.append)
+        self.assertEqual(slept, [rolling.SECONDARY_WAIT_SECONDS])
+        self.assertEqual(calls, ["job", "job", "job"])
+        self.assertIn("secondary rate limit", repr(caught.exception))
+
+    def test_a_plain_refusal_never_waits(self):
+        run, calls = self.runner([(1, "", "HTTP 404: Not Found")])
+        with self.assertRaises(subprocess.CalledProcessError):
+            rolling.gh_api("repos/o/r/x", env={}, run=run, sleep=lambda s: self.fail("waited on a 404"))
+        self.assertEqual(calls, ["job"])
+
+    def test_main_runs_the_rule_on_the_production_reads(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("api=production_api", text)
+        self.assertIn("anonymous=public_get, sleep=time.sleep", text)
 
 
 if __name__ == "__main__":

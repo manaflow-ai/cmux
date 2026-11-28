@@ -94,7 +94,10 @@ def test_bash_shim_refresh_is_silent_and_refreshes_under_noclobber() -> None:
 
     with tempfile.TemporaryDirectory(prefix="cmux-9356-") as td:
         tmp = Path(td)
-        (tmp / "home" / ".cmuxterm").mkdir(parents=True)
+        home = tmp / "home"
+        home.mkdir(mode=0o700)
+        cmuxterm = home / ".cmuxterm"
+        cmuxterm.mkdir(mode=0o700)
         proc = _run_driver(tmp)
         debug = (
             f"\nexit={proc.returncode}"

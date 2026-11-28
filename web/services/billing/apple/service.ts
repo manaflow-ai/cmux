@@ -13,7 +13,7 @@ import type {
 import { captureServerEvent, type ServerEventInput } from "../../analytics/serverEvents";
 import { appleBillingPeriodForProduct, isSignedAppleEnvironment } from "./config";
 import { applyEntitlements, captureEntitlementGranted, errorText, tokenOwner } from "./effects";
-import { activeAppleEntitlementForUser, type AppleEntitlementRow } from "./entitlement";
+import { activeAppleEntitlementForUser, type AppleEntitlementRow, type ApplePlanFamily } from "./entitlement";
 import {
   isProductionLocked,
   productionAccessOf,
@@ -57,7 +57,8 @@ export type AppleIapDependencies = {
    * The user's granting Apple subscription after a write, used to report
    * `subscription_entitlement_granted`. Without it no grant event is sent.
    */
-  readonly activeEntitlement?: (userId: string) => Promise<AppleEntitlementRow | null>;
+  /** The user's granting subscription of one plan family (classic when omitted). */
+  readonly activeEntitlement?: (userId: string, family?: ApplePlanFamily) => Promise<AppleEntitlementRow | null>;
   readonly now: () => Date;
   /** Configuration source; defaults to `process.env`. */
   readonly env?: Record<string, string | undefined>;
@@ -95,7 +96,7 @@ export function defaultAppleIapDependencies(): AppleIapDependencies {
       await applyPersonalPlanEntitlement(userId);
     },
     captureEvent: (input) => captureServerEvent(input),
-    activeEntitlement: (userId) => activeAppleEntitlementForUser(userId),
+    activeEntitlement: (userId, family) => activeAppleEntitlementForUser(userId, { family }),
     now: () => new Date(),
   };
   return defaultDependencies;

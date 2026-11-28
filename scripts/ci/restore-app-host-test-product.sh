@@ -88,20 +88,26 @@ products="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug"
 python3 scripts/ci/relocate_package_framework_rpaths.py "$products"
 stable="$RUNNER_TEMP/cmux-app-host-package-frameworks"
 stable_system="/private/tmp/cmux-app-host-package-frameworks"
-mkdir -p "$stable"
 framework_source="$(find "$products" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit 2>/dev/null || true)"
-test -n "$framework_source"
-rsync -aL --no-times "$(dirname "$framework_source")/" "$stable/"
-mkdir -p "$stable_system"
-rsync -aL --no-times "$(dirname "$framework_source")/" "$stable_system/"
-if [ -L "$products/PackageFrameworks" ]; then
-  rm "$products/PackageFrameworks"
+# The cli profile builds one scheme (cmux-cli), which links no package
+# framework; only the app-host product has frameworks to stage.
+if [ -z "$framework_source" ] && [ "${CMUX_PRODUCT_PROFILE:-}" = cli ]; then
+  echo "cli product: no package frameworks to stage"
+else
+  test -n "$framework_source" || { echo "::error::no CmuxAgentJournal package framework under $products"; exit 1; }
+  mkdir -p "$stable"
+  rsync -aL --no-times "$(dirname "$framework_source")/" "$stable/"
+  mkdir -p "$stable_system"
+  rsync -aL --no-times "$(dirname "$framework_source")/" "$stable_system/"
+  if [ -L "$products/PackageFrameworks" ]; then
+    rm "$products/PackageFrameworks"
+  fi
+  mkdir -p "$products/PackageFrameworks"
+  framework_source="$(find "$products" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit 2>/dev/null || true)"
+  test -n "$framework_source"
+  rsync -aL --no-times "$(dirname "$framework_source")/" "$products/PackageFrameworks/"
+  test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
 fi
-mkdir -p "$products/PackageFrameworks"
-framework_source="$(find "$products" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit 2>/dev/null || true)"
-test -n "$framework_source"
-rsync -aL --no-times "$(dirname "$framework_source")/" "$products/PackageFrameworks/"
-test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
 python3 scripts/ci/app_host_test_products.py restore "$CMUX_DERIVED_DATA_PATH"
 # Source-backed test fixtures resolve #fileID through this stable runtime
 # location, so consumers can alias their checkout without the producer root.
