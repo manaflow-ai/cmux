@@ -15,17 +15,17 @@
 //   - the policy's own bounds: one timer, the HOVER_RECENT chats remembered (eviction).
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
-import {
-  HOVER_DWELL_MS,
-  HOVER_RECENT,
-  HOVER_REFIRE_MS,
-  HoverPrefetch,
-  type HoverClock,
-} from "../src/agent-session/acpmux/hoverPrefetch";
-import { resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
+import type { HoverClock } from "../src/agent-session/acpmux/hoverPrefetch";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+type AcpmuxDirectClient = import("../src/agent-session/acpmux/direct").AcpmuxDirectClient;
+const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
+const { HOVER_DWELL_MS, HOVER_RECENT, HOVER_REFIRE_MS, HoverPrefetch } = await importWithDom(
+  () => import("../src/agent-session/acpmux/hoverPrefetch"),
+);
+const { resetKeptTailsForTests } = await importWithDom(() => import("../src/agent-session/acpmux/tailCache"));
 
 const START = Date.UTC(2026, 10, 1, 9, 0, 0);
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });

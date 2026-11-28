@@ -7,15 +7,19 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { HarnessesScreen } from "../src/agent-session/acpmux/harnesses/HarnessesScreen";
-import { INSTALL_COMMANDS } from "../src/agent-session/acpmux/harnesses/harnessRows";
 import { OFFLINE_MARK } from "../src/agent-session/acpmux/harnesses/installRetry";
-import { buildPickerCatalog, BUNDLED_MODEL_CATALOG } from "../src/agent-session/acpmux/modelCatalogData";
-import { NewTabScreen } from "../src/agent-session/acpmux/newtab/NewTabScreen";
 import type { HarnessHealth } from "../src/agent-session/acpmux/harnessHealthNoticeModel";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
-import { noChat } from "../src/gallery/fixtures/acpmux";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { HarnessesScreen } = await importWithDom(() => import("../src/agent-session/acpmux/harnesses/HarnessesScreen"));
+const { INSTALL_COMMANDS } = await importWithDom(() => import("../src/agent-session/acpmux/harnesses/harnessRows"));
+const { buildPickerCatalog, BUNDLED_MODEL_CATALOG } = await importWithDom(
+  () => import("../src/agent-session/acpmux/modelCatalogData"),
+);
+const { NewTabScreen } = await importWithDom(() => import("../src/agent-session/acpmux/newtab/NewTabScreen"));
+const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
