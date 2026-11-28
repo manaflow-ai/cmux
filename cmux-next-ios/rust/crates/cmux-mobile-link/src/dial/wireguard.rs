@@ -2790,9 +2790,7 @@ impl Underlay for HybridUnderlay {
         if let Some(rtt_us) = self.paths.take_turn_quiet()
             && let Some(turn) = self.turn.as_ref()
         {
-            // Two silence windows of the quiet route's smoothed RTT
-            // (max(8 x srtt, 200 ms)): the server's leg is part of that round trip.
-            turn.check_server(cmux_wg::silence_window(rtt_us) * 2);
+            turn.check_server(paths::Paths::turn_server_bound(rtt_us));
         }
         due
     }
@@ -4162,6 +4160,7 @@ mod tests {
         assert!(underlay.learned.contains(&cell_old), "the old socket's cell address is learned");
         // The phone's new socket announces itself.
         underlay.apply(Control::PeerEndpoints {
+            hop: None,
             endpoints: vec![cell_new.to_string(), relayed_new.to_string()],
             relayed: vec![relayed_new.to_string()],
             relayed_tls: vec![],
@@ -4207,6 +4206,7 @@ mod tests {
         underlay.authenticated(Origin { path: UDP_PATH, addr: Some(mapped) });
         assert!(underlay.learned.contains(&mapped));
         underlay.apply(Control::PeerEndpoints {
+            hop: None,
             endpoints: vec![relayed.to_string(), "198.51.100.30:9".to_string()],
             relayed: vec![relayed.to_string()],
             relayed_tls: vec![],
