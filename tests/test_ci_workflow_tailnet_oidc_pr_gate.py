@@ -161,6 +161,28 @@ class TailnetPullRequestGateTests(unittest.TestCase):
     def test_current_tree_passes(self) -> None:
         self.assertEqual(violations(sorted(WORKFLOWS.glob("*.y*ml"))), [])
 
+    def test_ios_e2e_tailnet_jobs_use_ephemeral_runners(self) -> None:
+        # Both jobs join and leave the tailnet. The backend also needs SSH user
+        # runner, which the persistent Linux pool does not guarantee.
+        workflow = yaml.safe_load((WORKFLOWS / "ios-e2e.yml").read_text(encoding="utf-8"))
+        selectors = {
+            "backend": (
+                "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                "github.event_name == 'pull_request' && "
+                "github.event.pull_request.head.repo.full_name != github.repository && "
+                "'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}"
+            ),
+            "mac-ios-e2e": (
+                "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+                "contains(fromJSON('[\"blacksmith-6vcpu-macos-26\",\"blacksmith-12vcpu-macos-26\"]'), "
+                "fromJSON(vars.RUNNER_POOLS || '{}').macos_26) && "
+                "fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}"
+            ),
+        }
+        for job, selector in selectors.items():
+            with self.subTest(job=job):
+                self.assertEqual(workflow["jobs"][job]["runs-on"], selector)
+
     def test_ungated_pull_request_join_is_rejected(self) -> None:
         failures = self.check(
             {"pull_request": None, "workflow_dispatch": None},
