@@ -37,10 +37,18 @@ extension AgentPaneTransport {
         }
         // A question's answers and annotations: the proof covers them too, else that daemon refuses
         // the answer. The ticket bound them to the person's pick (``AgentPaneGesturePick``).
-        if let answers = Self.param("answers", box) {
-            guard let proof = key.decisionProof(instance: context.instance, session: session, permission: permission,
-                                                option: option, nonce: context.nonce, answers: answers,
-                                                annotations: Self.param("annotations", box)) else {
+        // Read in place (RFD 0191 step 4): nil when the frame has no answers, else the proof (nil
+        // when the answers have no canonical form).
+        let answered: String?? = box.withFrame { object in
+            let params = object["params"] as? [String: Any]
+            func param(_ key: String) -> Any? { params?[key].flatMap { $0 is NSNull ? nil : $0 } }
+            guard let answers = param("answers") else { return nil }
+            return .some(key.decisionProof(instance: context.instance, session: session, permission: permission,
+                                           option: option, nonce: context.nonce, answers: answers,
+                                           annotations: param("annotations")))
+        }
+        if let answered {
+            guard let proof = answered else {
                 Self.logger.info("agent pane transport relayed answer without a canonical form: sent without a proof")
                 return nil
             }
@@ -51,14 +59,5 @@ extension AgentPaneTransport {
                                       nonce: context.nonce)
         box.setDecision(nonce: context.nonce, proof: proof)
         return nil
-    }
-
-    /// A param of the frame that is not null (a question's `answers` or `annotations`, a group's
-    /// `revision`).
-    static func param(_ key: String, _ box: FrameBox) -> Any? {
-        guard let text = box.encoded(id: nil),
-              let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
-              let value = (object["params"] as? [String: Any])?[key], !(value is NSNull) else { return nil }
-        return value
     }
 }
