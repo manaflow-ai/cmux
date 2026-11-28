@@ -17,6 +17,7 @@ const worktree = {
   cwd: "/Users/leo/.cmux/worktrees/atlas-web/fix-retry",
   repo: { root: repoRoot, worktree: true } satisfies TrustRepo,
 };
+const home = "/Users/leo/Library/Application Support/cmux/agent-home/chat-1";
 const atRoot = { cwd: repoRoot, repo: { root: repoRoot, worktree: false } };
 
 function ask(state: FolderTrustAsk["state"], where: Pick<FolderTrustAsk, "cwd" | "repo" | "via"> = { cwd }) {
@@ -117,6 +118,10 @@ export default componentEntry<Props>({
       note: "The repository's own folder: no separate Only this folder.",
       props: { initialAsk: ask("ask", atRoot) },
       play: notNow,
+    },
+    "ask-private": {
+      note: "A workspace chat's private folder: one Trust, Not now, no scope choice.",
+      props: { initialAsk: ask("ask", { cwd: home }) },
     },
     failed: { props: { initialAsk: ask("failed") } },
     "failed-with-reason": {
