@@ -117,18 +117,41 @@ fn a_virtual_display_takes_the_first_free_number() {
 
 #[test]
 fn the_session_unit_puts_a_desktop_on_the_display_and_stops_with_it() {
-    let unit =
-        session_unit(Path::new("/usr/bin/openbox-session"), Some(Path::new("/usr/bin/xterm")), 99);
+    let unit = session_unit(Path::new("/usr/bin/openbox-session"), 99);
     assert!(unit.contains("PartOf=cmux-screen-display.service\n"));
     assert!(unit.contains("WantedBy=cmux-screen-display.service\n"));
     assert!(unit.contains("Environment=DISPLAY=:99\n"));
     assert!(unit.contains("ExecStart=/usr/bin/openbox-session\n"));
-    assert!(unit.contains("/usr/bin/xterm -class CmuxDesktop "));
-    // systemd turns $$ into $; a bare $( or ${VAR:-x} it would expand or refuse.
-    assert!(unit.contains("$$(seq 1 100)") && unit.contains("$${SHELL:-/bin/bash}"));
+    // systemd turns $$ into $; a bare $( it would expand or refuse.
+    assert!(unit.contains("$$(seq 1 100)"));
     assert!(unit.contains("/tmp/.X11-unix/X99"));
-    let bare = session_unit(Path::new("/usr/bin/openbox"), None, 101);
-    assert!(!bare.contains("ExecStartPost"));
+    // The terminal is its own unit, started only on a display with no app window: started with
+    // the session it opened over the agent's browser and took its clicks.
+    assert!(!unit.contains("ExecStartPost") && !unit.contains("xterm"));
+}
+
+#[test]
+fn the_terminal_unit_is_started_on_demand_and_stops_with_the_display() {
+    let unit = terminal_unit(Path::new("/usr/bin/xterm"), 99);
+    assert!(unit.contains("PartOf=cmux-screen-display.service\n"));
+    assert!(unit.contains("After=cmux-screen-session.service\n"));
+    assert!(unit.contains("Environment=DISPLAY=:99\n"));
+    assert!(unit.contains("exec /usr/bin/xterm -class CmuxDesktop "));
+    assert!(unit.contains("$${SHELL:-/bin/bash}"));
+    // Not enabled with the display: the host starts it when the display shows nothing else.
+    assert!(!unit.contains("[Install]") && !unit.contains("WantedBy="));
+}
+
+#[test]
+fn an_old_session_unit_names_its_parts_and_a_current_one_none() {
+    // What `enable` wrote before the terminal had its own unit.
+    let old = "[Service]\nExecStart=/usr/bin/openbox-session\nExecStartPost=/bin/sh -c 'sleep 1; setsid /usr/bin/xterm -class CmuxDesktop -geometry 160x48+40+40 -e \"$${SHELL:-/bin/bash}\" -l >/dev/null 2>&1 &'\n";
+    assert_eq!(
+        old_session_parts(old),
+        Some((PathBuf::from("/usr/bin/openbox-session"), PathBuf::from("/usr/bin/xterm")))
+    );
+    assert_eq!(old_session_parts(&session_unit(Path::new("/usr/bin/openbox"), 99)), None);
+    assert_eq!(old_session_parts("ExecStart=/usr/bin/openbox\nExecStartPost=/bin/true\n"), None);
 }
 
 #[test]
