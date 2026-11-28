@@ -963,9 +963,8 @@ jobs:
           # profile.dev), the bulk of this step's ~5 minutes on every run (dependencies already build without it).
           CARGO_PROFILE_DEV_DEBUG: line-tables-only
         run: |
-          # One job per 6 GiB of a memory-capped pool slot (scripts/ci/cargo-mem-jobs.sh): -j at every host thread, and -j4 in 14 GiB, SIGKILLed rustc.
-          CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(bash "$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh" 2>/dev/null || true)}"
-          if [[ -n "$CARGO_BUILD_JOBS" ]]; then export CARGO_BUILD_JOBS; echo "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"; else unset CARGO_BUILD_JOBS; fi
+          # scripts/ci/cargo-mem-env.sh: one job per 6 GiB of a memory-capped slot, and the acpmux/cmux_tui rustc one at a time (-j2 alone still SIGKILLed both in 14 GiB).
+          source "$GITHUB_WORKSPACE/scripts/ci/cargo-mem-env.sh"
           cargo build --locked -p acpmux --bin acpmux
           # CARGO_TARGET_DIR (a fleet runner's shared target) moves the binary out of cmux-tui/target.
           target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
