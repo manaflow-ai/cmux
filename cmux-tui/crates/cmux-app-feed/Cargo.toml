@@ -1,0 +1,21 @@
+[package]
+name = "cmux-app-feed"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The cmux macOS app's Feed rules: what an agent's permission prompt posts to the Feed (scrubbed, cut, digested), whether a phone's approve proof holds, which answer goes back to the agent, the Feed's control replies, GitHub card actions, the phone's Needs You list and the update card's posting step. Pure: the app does the I/O over the app FFI"
+
+[lints]
+workspace = true
+
+[dependencies]
+base64.workspace = true
+# The phone's approve proof: ECDSA P-256 SHA-256 over the canonical message, as CryptoKit checks it.
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+unicode-segmentation.workspace = true

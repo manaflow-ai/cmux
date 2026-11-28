@@ -416,6 +416,9 @@ export function preclaimPublicMeta(): Record<string, string> {
   return { mode: "preclaim" };
 }
 
+/** The step a throw outside every step is recorded as (Journey.unrecorded). */
+export const UNRECORDED_THROW_STEP = "journey stopped outside a step";
+
 export class Journey {
   readonly steps: Step[] = [];
   readonly guestDiagnostics: GuestDiagnostics[] = [];
@@ -438,8 +441,21 @@ export class Journey {
       return value;
     } catch (error) {
       this.record({ step: name, status: "fail", ms: Date.now() - t0, detail: withNotes(String((error as Error)?.message ?? error)).slice(0, 1000) });
+      if (error !== null && typeof error === "object") this.recordedThrows.add(error);
       throw error;
     }
+  }
+  /** Errors a step recorded as its fail before rethrowing: the run's catch records any other throw (unrecorded). */
+  private readonly recordedThrows = new WeakSet<object>();
+  /**
+   * A throw that ended the run outside every step (a raw call between steps): a failed step of its own, so the run
+   * is red and names it. Without it the run read PASS with exit 0 and its later checks unrun (run 46134450737,
+   * kill-dst: the journey stopped after "GitHub connection (team status)" and the move drills never started).
+   */
+  unrecorded(error: unknown): void {
+    if (error !== null && typeof error === "object" && this.recordedThrows.has(error)) return;
+    const at = String((error as Error)?.stack ?? "").split("\n").find((l) => /cloud-journey[^/]*\.ts:\d+/.test(l))?.match(/[\w.-]+\.ts:\d+/)?.[0];
+    this.record({ step: UNRECORDED_THROW_STEP, status: "fail", ms: 0, detail: `${String((error as Error)?.message ?? error)}${at ? ` (at ${at})` : ""}`.slice(0, 1000) });
   }
   skip(name: string, why: string): void {
     this.record({ step: name, status: "skip", ms: 0, detail: why });
@@ -5647,8 +5663,9 @@ async function surgeMode(backend: Backend, outDir: string | null, email: string 
         return { value: null, detail };
       }).catch(() => undefined);
     }
-  } catch {
-    // The failed step is recorded; cleanup still runs.
+  } catch (error) {
+    // The failed step is recorded (a throw outside every step, here); cleanup still runs.
+    J.unrecorded(error);
   } finally {
     await cleanup();
     if (!surgeMachineIds(...receipts).length) J.skip("surge delete", "no slot named a machine_id");
@@ -8046,13 +8063,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: `${created.id} ${m?.status ?? "gone"}` };
       });
     }
-  } catch {
-    // The failed step is recorded. What the machine says, then the journey-only checks the failure cut off; cleanup below.
+  } catch (error) {
+    // The failed step is recorded (a throw outside every step, here). What the machine says, then the journey-only
+    // checks the failure cut off; cleanup below.
+    J.unrecorded(error);
     await readFailureFacts();
     // A red run is the one whose trace matters most: save it before cleanup deletes the machine.
     await saveSendTraceOnce();
-    await runJourneyOnly?.().catch(() => undefined);
-    await runScrollProbe?.().catch(() => undefined);
+    // Each may throw between its own steps too (run 46134450737's fs/write): recorded, never dropped.
+    await runJourneyOnly?.().catch((e) => J.unrecorded(e));
+    await runScrollProbe?.().catch((e) => J.unrecorded(e));
   } finally {
     await finishJourney(cleanup, firstTextObserver, onSignal);
   }
