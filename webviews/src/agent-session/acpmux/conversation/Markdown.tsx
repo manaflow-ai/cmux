@@ -6,7 +6,17 @@ import { BlockTail, InlineTail } from "./InlineTail";
 // code blocks rendered by @pierre/diffs (see CodeBlock.tsx), vega-lite charts (DiagramBlock.tsx), live
 // ```cmux-render pages (RenderCard.tsx), and `$…$`, `$$…$$`, `\(…\)`
 // and `\[…\]` math typeset by KaTeX (see Math.tsx).
-import { Fragment, memo, useId, useMemo, useRef, type CSSProperties, type ReactNode, useLayoutEffect } from "react";
+import {
+  Fragment,
+  memo,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  useLayoutEffect,
+} from "react";
 
 import { CodeBlock } from "./CodeBlock";
 import { InlinePreview } from "./InlinePreview";
@@ -373,6 +383,22 @@ function closedInline(prefix: string): boolean {
   );
 }
 
+/// One fading step (`.cv-fresh`). Its animation delay is read once, when the span mounts, and stays:
+/// a remount (a block that starts drawing its tail as spans) still picks the fade up where it is, but
+/// a re-render never writes the span's style again. Before, every streamed commit (60 a second under a
+/// stream) wrote each live span a new delay; WebKit re-timed each fade and restyled and repainted the
+/// reply's tail in every frame, and the re-timing ran each fade on by the time since its first frame
+/// again, so it ended early. composer-typing L3 WebKit, one pool host, three rounds: key paint p99
+/// 77/120/42 ms before, 48/46/42 ms after.
+function FreshSpan({ delay, children }: { delay: number; children: ReactNode }) {
+  const [style] = useState<CSSProperties>(() => ({ animationDelay: `${delay}ms` }));
+  return (
+    <span className="cv-fresh" style={style}>
+      {children}
+    </span>
+  );
+}
+
 /// `text` with its newest characters in spans that fade in (`.cv-fresh`). Each span keeps its key
 /// and a negative animation delay, so a re-render never restarts its fade. Only plain trailing
 /// text fades by step: when the newest text has Markdown syntax or a line break in it, the plain
@@ -399,9 +425,9 @@ function renderFresh(text: string, tail: FreshTail, opts: InlineOptions): ReactN
     const step = tail.steps[index]!;
     const start = Math.max(0, end - step.count);
     spans.unshift(
-      <span key={`f${step.id}`} className="cv-fresh" style={{ animationDelay: `${-(tail.now - step.born)}ms` }}>
+      <FreshSpan key={`f${step.id}`} delay={step.born - tail.now}>
         {fresh.slice(start, end)}
-      </span>,
+      </FreshSpan>,
     );
     end = start;
   }
