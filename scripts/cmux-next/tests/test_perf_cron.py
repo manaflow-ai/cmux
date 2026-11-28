@@ -1126,6 +1126,25 @@ class WebUiTests(unittest.TestCase):
         split = open(os.path.join(HERE, "..", "split-spring-terminal.py")).read()
         self.assertIn('"--suite=graceful-swap"', split, "the suite the part names is dispatched")
 
+    def test_every_goal_bench_row_has_a_recurring_part(self):
+        """Goal goals-born-owned-and-read: each Mac bench row a goal reads is made by a perf-cron part (or the
+        launch-tti / dev-loop schedules), never only by a hand step. The perf-cron rows must map to a Mac part."""
+        rows = {
+            "hot_swap.mac.unfocused_pane.p95_ms": "hot-swap",
+            "infinite_tabs.mac.memory_vs_empty": "infinite-tabs",
+            "chat_snappy.mac.send_paint.p95_ms": "chat-snappy",
+            "terminal.throughput.ratio_vs_ghostty": "throughput",
+        }
+        for row, part in rows.items():
+            self.assertEqual(cron.part_for_row(row + "@cmux20-bench"), part, row)
+            self.assertIn(part, FLEET, part)
+        p = cron.PART_BY_NAME["infinite-tabs"]
+        self.assertEqual(p["goal"], "infinite-tabs-flat")
+        self.assertIn("--suite=infinite-tabs", p["args"])
+        self.assertTrue(cron.REPORT_ONLY_ROW_RE.search("infinite_tabs.mac.memory_vs_empty"))
+        split = open(os.path.join(HERE, "..", "split-spring-terminal.py")).read()
+        self.assertIn('"--suite=infinite-tabs"', split)
+
     def test_the_cef_resize_part_owns_its_rows_and_judges_late_frames(self):
         """Live resize beside a Chromium page (cef-layer-hosting-DESIGN.md "Live resize"): every frame on time (0
         missed) and the frame's commit under half a display frame, from pane-perf-terminal.py --browser's summary."""
