@@ -133,21 +133,22 @@ extension AgentPaneTransport {
         case .failure(let refusal): return .refuse(refusal.decision, spend: nil)
         case .success(let decided): object = decided
         }
+        // One Rust call (cmux-agent-pane-policy `frame_rules`) runs the strips and both rules on the
+        // stripped frame; the session rule below still wins over the params and answers causes.
+        let rules = AcpmuxPaneMethods.frameRules(object, steps: [.initializeOptIns, .unknownParams, .params, .answers],
+                                                 modeFields: snapshot.modeFields, options: snapshot.options)
         // The handshake fails safe: an initialize's unknown `_meta.acpmux` opt-ins are removed
         // before every rule, so they never reach the daemon and never fail the connect (cmux#46563).
-        if let stripped = AcpmuxPaneMethods.strippingInitializeOptIns(object, modeFields: snapshot.modeFields) {
-            object = stripped.object
+        if !rules.initializeKeys.isEmpty {
             // Once per connection (an initialize is its first frame): the names only, each cut
             // to 64 characters and at most 8 of them, never a value.
-            let names = stripped.keys.prefix(8).map { String($0.prefix(64)) }.joined(separator: ",")
-            Self.logger.notice("agent pane initialize stripped unknown _meta.acpmux keys=\(names, privacy: .public) count=\(stripped.keys.count, privacy: .public)")
+            let names = rules.initializeKeys.prefix(8).map { String($0.prefix(64)) }.joined(separator: ",")
+            Self.logger.notice("agent pane initialize stripped unknown _meta.acpmux keys=\(names, privacy: .public) count=\(rules.initializeKeys.count, privacy: .public)")
         }
         // P0: any other key this app's lists do not name is dropped, not refused, so a page newer than the
         // app keeps its chats (``AcpmuxPaneMethods/strippingUnknownParams(_:modeFields:)``).
-        if let strip = AcpmuxPaneMethods.strippingUnknownParams(object, modeFields: snapshot.modeFields) {
-            object = strip.object
-            logDropped(method: object["method"] as? String, strip.dropped)
-        }
+        if let stripped = rules.object { object = stripped }
+        if !rules.dropped.isEmpty { logDropped(method: object["method"] as? String, rules.dropped) }
         let method = object["method"] as? String
         let pageID = object["id"].flatMap(AcpmuxPaneMethods.rawID)
         let params = object["params"] as? [String: Any] ?? [:]
@@ -156,14 +157,14 @@ extension AgentPaneTransport {
             return .refuse(refusal, spend: carried)
         }
         // P1: the method's known params, and no daemon mode field outside set_mode and set_config_option.
-        if let violation = AcpmuxPaneMethods.paramsRuleViolation(object, modeFields: snapshot.modeFields) {
+        if let violation = rules.paramsViolation {
             // The rule it broke and the chat it was for, so a refusal that fails every chat's start
             // or open (cmux#42185, #42460) names its cause in the app's log (cmux#44964).
             return .refuse(intentInvalid(.paramsRule, method: method, requestID: pageID, session: params["sessionId"] as? String,
                                          cause: violation, detail: violation), spend: carried)
         }
         // Answers go only to a pending question, keyed by its items and bounded (the answers rule).
-        if let violation = AcpmuxPaneMethods.answersRuleViolation(object, options: snapshot.options) {
+        if let violation = rules.answersViolation {
             return .refuse(intentInvalid(.answersRule, method: method, requestID: pageID, session: params["sessionId"] as? String,
                                          cause: violation), spend: carried)
         }
