@@ -149,3 +149,95 @@ fn a_run_skips_a_peer_instance_that_is_gone() {
     assert_eq!(rows.find_mux(&peers[0].name, "s1").unwrap().1.summary.updated_ms(), 1);
     assert_eq!(rows.find_mux(&peers[1].name, "s1").unwrap().1.summary.updated_ms(), 9);
 }
+
+fn changed(session: Value, kind: &str, seq: u64) -> PeerNotice {
+    PeerNotice::SessionChanged { session, kind: kind.into(), seq }
+}
+
+/// A turn's changes of one session as they come in a round: whole rows, the last the turn's end.
+fn turn(peer: &Arc<Peer>, session: usize, from: u64) -> Vec<(String, u64, PeerNotice)> {
+    ["status", "turn_started", "user_message", "turn_result", "turn_end", "status"]
+        .iter()
+        .enumerate()
+        .map(|(i, kind)| {
+            let at = from + i as u64;
+            (peer.name.clone(), peer.generation, changed(row(session, at as usize), kind, at))
+        })
+        .collect()
+}
+
+#[test]
+fn a_sessions_changes_in_one_run_are_one_row_built_and_each_still_announced() {
+    let (alone, alone_peers) = linked();
+    let (runs, run_peers) = linked();
+    // Two sessions' turns interleaved, as a round's notices queue behind each other.
+    let interleave = |peers: &[Arc<Peer>]| {
+        let (a, b) = (turn(&peers[0], 1, 10), turn(&peers[1], 2, 20));
+        a.into_iter().zip(b).flat_map(|(x, y)| [x, y]).collect::<Vec<_>>()
+    };
+    for (peer, generation, notice) in interleave(&alone_peers) {
+        alone.apply_peer_notice(&peer, generation, notice);
+    }
+    let mut heard = runs.events.subscribe();
+    let applied = runs.apply_session_changes(interleave(&run_peers));
+    assert_eq!(applied.len(), 2, "one row built and put in the table per session");
+    for change in applied {
+        runs.session_change_announce(change);
+    }
+    assert_eq!(table(&alone), table(&runs), "folding left another table");
+    let mut told: BTreeMap<String, Vec<(String, u64, u64)>> = BTreeMap::new();
+    while let Ok(ev) = heard.try_recv() {
+        let Some(remote) = ev.remote.as_ref() else { continue };
+        told.entry(remote.peer.clone()).or_default().push((
+            ev.record.kind.clone(),
+            ev.record.seq,
+            remote.summary.updated_ms(),
+        ));
+    }
+    for (peer, from) in [(&run_peers[0].name, 10), (&run_peers[1].name, 20)] {
+        let kinds = &told[peer];
+        let expected: Vec<_> = turn(&run_peers[0], 0, from)
+            .into_iter()
+            .map(|(_, _, n)| match n {
+                PeerNotice::SessionChanged { kind, seq, .. } => (kind, seq, from + 5),
+                _ => unreachable!(),
+            })
+            .collect();
+        assert_eq!(kinds, &expected, "every kind, in order, with the row it led to");
+    }
+}
+
+#[test]
+fn an_asks_change_never_folds_into_a_later_one() {
+    let (hub, peers) = linked();
+    let p = &peers[0];
+    let notices = vec![
+        (p.name.clone(), p.generation, changed(row(4, 30), "status", 30)),
+        (p.name.clone(), p.generation, changed(row(4, 31), "permission_request", 31)),
+        (p.name.clone(), p.generation, changed(row(4, 32), "status", 32)),
+        (p.name.clone(), p.generation, changed(row(4, 33), "turn_end", 33)),
+    ];
+    let mut heard = hub.events.subscribe();
+    let applied = hub.apply_session_changes(notices);
+    assert_eq!(applied.len(), 3, "the ask's row is its own: before it, it, after it");
+    for change in applied {
+        hub.session_change_announce(change);
+    }
+    let mut told = Vec::new();
+    while let Ok(ev) = heard.try_recv() {
+        if let Some(remote) = ev.remote.as_ref() {
+            told.push((ev.record.kind.clone(), remote.summary.updated_ms()));
+        }
+    }
+    assert_eq!(
+        told,
+        [
+            ("status".to_owned(), 30),
+            ("permission_request".to_owned(), 31),
+            ("status".to_owned(), 33),
+            ("turn_end".to_owned(), 33),
+        ]
+    );
+    let rows = hub.remote_sessions.read();
+    assert_eq!(rows.find_mux(&p.name, "s4").unwrap().1.summary.updated_ms(), 33);
+}

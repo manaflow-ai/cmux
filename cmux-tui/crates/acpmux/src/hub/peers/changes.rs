@@ -35,6 +35,9 @@ pub(in crate::hub) struct SessionChange {
     row: PeerRow,
     /// The row the table took, announced once the lock is released; None when it took none.
     announced: Option<PeerRow>,
+    /// The same session's changes queued ahead of this one in its run (`kind`, `seq`), in the
+    /// order they came: announced with this row, never built or put in the table themselves.
+    earlier: Vec<(String, u64)>,
 }
 
 impl SessionChange {
@@ -81,6 +84,7 @@ impl Hub {
             base,
             row,
             announced: None,
+            earlier: Vec::new(),
         })
     }
 
@@ -141,15 +145,32 @@ impl Hub {
     /// What follows a row the table took, once the writer lock is released: its asks, the
     /// peer's cache, the announcement, the closed rows' bound.
     pub(in crate::hub) fn session_change_announce(&self, change: SessionChange) {
-        let SessionChange { peer, generation, mux_id, kind, seq, summary, announced, .. } = change;
+        let SessionChange {
+            peer, generation, mux_id, kind, seq, summary, announced, earlier, ..
+        } = change;
         let Some(announced) = announced else { return };
+        // A change folded into a later one of its session still reaches every client as its own
+        // notice, its kind and seq as they came, with the row it led to.
+        for (kind, seq) in earlier {
+            self.session_change_send(&peer, &mux_id, kind, seq, announced.clone());
+        }
         // An ask decided there before the session was listed here never comes back.
         if matches!(kind.as_str(), "permission_decision" | "permission_resolved") {
             self.held_peer_asks.forget(&peer, &mux_id, None);
         }
         self.save_peer_cache(&peer, generation, false);
+        self.session_change_send(&peer, &mux_id, kind, seq, announced);
+        // The rest of its live asks that came before the session was listed, after the row.
+        self.release_held_peer_asks(&peer, generation);
+        // A row that closed can put the peer's closed rows past the bound.
+        if summary.get("status").and_then(Value::as_str) == Some("closed") {
+            self.trim_closed_peer_rows(&peer, generation);
+        }
+    }
+
+    fn session_change_send(&self, peer: &str, mux_id: &str, kind: String, seq: u64, row: PeerRow) {
         let _ = self.events.send_remote(HubEvent {
-            session_id: mux_id,
+            session_id: mux_id.to_owned(),
             record: Arc::new(EventRecord {
                 seq,
                 at: now_ms(),
@@ -158,19 +179,20 @@ impl Hub {
                 msg: Value::Null,
                 host_seq: None,
             }),
-            remote: Some(RemoteRef { peer: peer.clone(), summary: announced }),
+            remote: Some(RemoteRef { peer: peer.to_owned(), summary: row }),
             update_line: Default::default(),
             event_params: Default::default(),
             row: Default::default(),
             list_seq: 0,
             peer_batch: false,
         });
-        // The rest of its live asks that came before the session was listed, after the row.
-        self.release_held_peer_asks(&peer, generation);
-        // A row that closed can put the peer's closed rows past the bound.
-        if summary.get("status").and_then(Value::as_str) == Some("closed") {
-            self.trim_closed_peer_rows(&peer, generation);
-        }
+    }
+
+    /// Whether a change of `kind` may fold into a later change of its session in a run (its row
+    /// never built, the later one's announced for it): not a purge, and not an ask's, whose row
+    /// is the ask a client is shown (`notify_waiting.rs` reads `permission_request`'s row).
+    pub(in crate::hub) fn change_folds(kind: &str) -> bool {
+        kind != "purged" && !kind.starts_with("permission")
     }
 
     /// The session a notice changes when it can join a run under one writer hold: a change
@@ -196,16 +218,23 @@ impl Hub {
         (!closed).then_some(mux)
     }
 
-    /// A run of changed rows, each a different session (`batchable_change`), in one taking of
-    /// the rows writer lock: each built before it, put in the table under it in the order they
-    /// came, and announced after it in that order. The same as applying each alone
-    /// (`apply_peer_notice`), but the lock is taken once.
+    /// A run of changed rows in one taking of the rows writer lock: each built before it, put in
+    /// the table under it in the order they came, and announced after it in that order. The
+    /// same as applying each alone (`apply_peer_notice`), but the lock is taken once, and a
+    /// session's changes that came together (each a whole row, `change_folds`) are one row
+    /// built and put in the table, the last: the table it leaves is the same, and each change is
+    /// still announced (`SessionChange::earlier`). In a round of 2000 sessions' turns each
+    /// prompt was six changed rows of its session (status twice, turn_started, user_message,
+    /// turn_result, turn_end), each built, put in the table and its text written, while the
+    /// coordinator still had prompts to deliver (sessions-2000-attached, cut 2: about 40% of its
+    /// CPU, fanin `FANIN_PERF_ROLE=ctrl` profile of run 46187847264).
     pub(in crate::hub) fn apply_session_changes(
         &self,
         notices: Vec<(String, u64, crate::peer::PeerNotice)>,
     ) -> Vec<SessionChange> {
-        let mut built = Vec::with_capacity(notices.len());
-        for (peer, generation, notice) in notices {
+        let mut built: Vec<SessionChange> = Vec::with_capacity(notices.len());
+        for (session, earlier) in fold_session_changes(notices) {
+            let (peer, generation, notice) = session;
             let crate::peer::PeerNotice::SessionChanged { session, kind, seq } = notice else {
                 continue;
             };
@@ -213,9 +242,10 @@ impl Hub {
             else {
                 continue;
             };
-            if let Some(change) =
+            if let Some(mut change) =
                 self.session_change_build(&peer, generation, mux_id, session, kind, seq)
             {
+                change.earlier = earlier;
                 built.push(change);
             }
         }
@@ -233,4 +263,46 @@ impl Hub {
         built.retain(|c| c.announced.is_some());
         built
     }
+}
+
+type Notice = (String, u64, crate::peer::PeerNotice);
+
+/// A run's notices with each session's (peer instance and mux id) changes that fold
+/// (`Hub::change_folds`) kept as its last, in its place, and the ones before it as its
+/// `earlier` (kind, seq), in the order they came. A change that does not fold ends its
+/// session's fold: it and the ones after are kept as they came.
+fn fold_session_changes(notices: Vec<Notice>) -> Vec<(Notice, Vec<(String, u64)>)> {
+    use std::collections::HashMap;
+    let key = |n: &Notice| match &n.2 {
+        crate::peer::PeerNotice::SessionChanged { session, kind, .. } => session
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .map(|mux| ((n.0.clone(), n.1, mux.to_owned()), Hub::change_folds(kind))),
+        _ => None,
+    };
+    let mut out: Vec<Option<(Notice, Vec<(String, u64)>)>> = Vec::with_capacity(notices.len());
+    // Each session's last kept slot in `out`, while it still folds.
+    let mut open: HashMap<(String, u64, String), usize> = HashMap::new();
+    for notice in notices {
+        let Some((k, folds)) = key(&notice) else {
+            out.push(Some((notice, Vec::new())));
+            continue;
+        };
+        let mut earlier = Vec::new();
+        if let Some(at) = open.remove(&k) {
+            if folds {
+                if let Some((before, mut kinds)) = out[at].take() {
+                    if let crate::peer::PeerNotice::SessionChanged { kind, seq, .. } = before.2 {
+                        kinds.push((kind, seq));
+                    }
+                    earlier = kinds;
+                }
+            }
+        }
+        if folds {
+            open.insert(k, out.len());
+        }
+        out.push(Some((notice, earlier)));
+    }
+    out.into_iter().flatten().collect()
 }
