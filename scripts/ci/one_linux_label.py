@@ -98,7 +98,7 @@ FRESH_VM_JOBS = {
         "app-compile-placement", "dev-daily-place", "dev-daily-tree-wait", "dev-landing-place", "fast-tier-handback-placement",
         "fast-tier-rerun-placement", "macos-placement", "release-compile-fast-admission", "same-tree-cmux-tui",
         "same-tree-status-daemon", "same-tree-status-scheme", "swift-exports-cache")},
-    ("machine-join-e2e.yml", "e2e"): "holds account secrets; frozen to the linux_8 label it read (tests/test_machine_join_e2e_workflow.py)",
+    ("machine-vault-e2e.yml", "machine_join"): "holds account secrets; frozen to the linux_8 label it read (tests/test_machine_join_e2e_workflow.py)",
     ("cmux-next-web-perf.yml", "validate"): "validates head output with base code; tests/test_web_perf_validation_boundary.py "
                                             "keeps it off any runner the measuring job may have touched",
 }

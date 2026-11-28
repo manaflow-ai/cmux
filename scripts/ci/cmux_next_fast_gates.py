@@ -507,10 +507,13 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
     return table
 
 
-def gate_lanes(active: list[tuple[str, list[str]]]) -> list[list[tuple[str, list[str]]]]:
+def gate_lanes(active: list[tuple[str, list[str]]], shared_install: bool = False) -> list[list[tuple[str, list[str]]]]:
     """Group gates into lanes that run side by side; a lane's gates run one after another. Web lint and webviews
-    checks share a lane, since both may run bun install in webviews/; every other gate has its own."""
+    checks share a lane, since both may run bun install in webviews/ (a 220 s gate then a 280 s gate: the job's
+    critical path, 2026-11-28); SHARED_INSTALL says run() already installed webviews/ once, so each has its own."""
     bun = [entry for entry in active if entry[0] in {"web lint", "webviews checks"}]
+    if shared_install:
+        return [[entry] for entry in active]
     return [[entry] for entry in active if entry[0] not in {"web lint", "webviews checks"}] + ([bun] if bun else [])
 
 
@@ -682,6 +685,19 @@ def ensure_bun_tmpdir(env: dict) -> Path | None:
     return None
 
 
+def preinstall_webviews(repo: Path) -> bool:
+    """bun install --frozen-lockfile in webviews/ once, before web lint and webviews checks run side by side (each
+    would install there; web lint's own install then finds it current). False: not installed, they share a lane."""
+    if not (repo / "webviews").is_dir() or not shutil.which("bun"):
+        return False
+    started = time.monotonic()
+    code = subprocess.run(["bun", "install", "--frozen-lockfile", "--silent"], cwd=repo / "webviews",
+                          capture_output=True).returncode
+    print(f"fast-gates: webviews install {'ok' if code == 0 else f'failed ({code})'} in "
+          f"{time.monotonic() - started:.1f}s", flush=True)
+    return code == 0
+
+
 def run(args: argparse.Namespace) -> int:
     repo = args.repo.resolve()
     if not SHA.match(args.base) or not rev(repo, args.base):
@@ -708,7 +724,11 @@ def run(args: argparse.Namespace) -> int:
         # when both run. Every other gate reads the merge and its exported base tree and starts at once: on
         # 2026-11-22 webviews checks (93 s) waited out crash-class rules (61 s) in a second batch, a 157 s step whose
         # critical gate was 93 s (job 137149366688), and fast gates' p90 sat at 4.0 min against its 3.0 min budget.
-        lanes = gate_lanes(active)
+        names = {name for name, _ in active}
+        shared_install = {"web lint", "webviews checks"} <= names and preinstall_webviews(repo)
+        if shared_install:
+            active = [(n, a + ["--no-install"] if n == "webviews checks" else a) for n, a in active]
+        lanes = gate_lanes(active, shared_install)
         max_parallel = len(lanes)
         active_results = run_gate_batch(lanes, repo, deadline, holder / "gate-logs")
 

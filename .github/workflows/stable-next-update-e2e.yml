@@ -80,7 +80,7 @@ jobs:
           from=()
           [ -z "${FROM_BUILD:-}" ] || from=(--from "$FROM_BUILD")
           scripts/ci/frame-pacing/console-session.sh python3 -I "$GITHUB_WORKSPACE/scripts/cmux-next/update-e2e.py" \
-            --channel stable --click ${from[@]+"${from[@]}"} 2>&1 | tee "$RUNNER_TEMP/update-e2e.log"
+            --channel stable ${from[@]+"${from[@]}"} 2>&1 | tee "$RUNNER_TEMP/update-e2e.log"
 
       - name: Summary
         if: always()
@@ -99,4 +99,4 @@ jobs:
           name: stable-update-e2e-${{ github.run_id }}
           path: ${{ runner.temp }}/update-e2e.log
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 3

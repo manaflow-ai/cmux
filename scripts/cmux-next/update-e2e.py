@@ -625,6 +625,26 @@ def draft(acp, session):
         return f"error: {error}"
 
 
+class StableDone(Exception):
+    """The stable run is finished (its one leg is the click path); skip the nightly-only legs."""
+
+
+def stable_click_leg(app, path, to_item):
+    """What a person on the stable release gets: the stable app does not download by itself (automatic downloads are
+    off there, a default this run leaves alone), so it finds the newest build on the Stable feed, shows it, and one
+    click (palette.applyUpdateIfAvailable, the Install button) downloads, installs and relaunches into it."""
+    check = app.rpc("action.run", {"id": "palette.checkForUpdates"})
+    detected = wait(lambda: app.status().get("detected_version") if str(app.status().get("detected_version") or "").endswith(to_item["build"]) else None, 120, 2)
+    record("stable: the older build found the newest build on the Stable feed", bool(detected),
+           f"detected {detected}; check {json.dumps((check or {}).get('result'))}")
+    app.rpc("action.run", {"id": "palette.applyUpdateIfAvailable"})
+    # Sparkle downloads, installs and relaunches by itself (no launch environment).
+    relaunched = wait(lambda: bundle_build(path) == to_item["build"] and app.status().get("build") == to_item["build"], 900, 2)
+    record("stable: one click installed and Sparkle relaunched", bool(relaunched), f"bundle {bundle_build(path)}")
+    check_relaunched_build(app, path, to_item["build"], "stable click path")
+    raise StableDone()
+
+
 def main():
     preflight()
     before = snapshot()
@@ -652,6 +672,8 @@ def main():
 
         app = App(path, config)
         record("older build launched, control socket answers", bool(app.launch(log)))
+        if opts.channel == "stable":
+            stable_click_leg(app, path, to_item)
         note_sessions(work)
         app.cli("workspace", "create", "--name", "update-e2e")
         terminal = wait(lambda: next(iter(app.cli_json("terminal", "list") or []), None), 30)
@@ -771,6 +793,8 @@ def main():
             check_relaunched_build(app, path, to_item["build"], "click path")
 
         record("rollback refused when the store schema is newer", "PENDING", "cmux update rollback is not built yet")
+    except StableDone:
+        pass
     finally:
         try:
             Acpmux().call("acp.trust.set", {"cwd": work, "level": "unknown"}, timeout=3)
