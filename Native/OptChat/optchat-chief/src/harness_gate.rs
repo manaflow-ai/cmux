@@ -178,11 +178,112 @@ fn admitted(requested: &str, a: cmux_chief::policy::harness::Admission) -> Admit
     }
 }
 
-/// The text the Chief posts for a refused turn.
+/// Whether `reason` says the agent is not installed on this Mac (acpmux has no harness for it):
+/// the Set Up card's case, which it already shows with an Install button.
+pub fn harness_missing(reason: &str) -> bool {
+    let lower = reason.to_ascii_lowercase();
+    lower.contains("has no harness named") || lower.contains("acpmux has none")
+}
+
+/// The harness a ``harness_missing`` `reason` says acpmux lacks: the route that asked for one
+/// (`claude asks for one running `claude`; acpmux has none`), else the name after `has no harness
+/// named`. None for any other reason.
+pub fn missing_harness(reason: &str) -> Option<&str> {
+    if !harness_missing(reason) {
+        return None;
+    }
+    fn name(s: &str) -> Option<&str> {
+        let end = s
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+            .unwrap_or(s.len());
+        Some(&s[..end]).filter(|w| !w.is_empty())
+    }
+    if let Some((before, _)) = reason.split_once(" asks for one running ") {
+        return before.rsplit(char::is_whitespace).next().and_then(name);
+    }
+    reason
+        .split_once("has no harness named ")
+        .and_then(|(_, after)| name(after))
+}
+
+/// Whether `reason` says the harness the Chief's turns run on (`turn_harness`) is missing: the Set
+/// Up card's case, which shows it with an Install button, and the turn's own refusal says so. A
+/// compactor or line that needs another, missing agent (a Codex Chief that compacts on Claude Code)
+/// is no card's to show, so its memory notice stays (review of the first-run fixes).
+pub fn turn_agent_missing(reason: &str, turn_harness: &str) -> bool {
+    missing_harness(reason) == Some(turn_harness)
+}
+
+/// The text the Chief gives for a refused turn: plain sentences a person can act on, never the
+/// parts it is built from (first-run findings row 1: a fresh Mac's first reply named acpmux,
+/// claude-stdio, the CodeRouter CLI and `sr claude proxy`). `reason` stays in the host log and the
+/// trace's `harness.refused` (``trace_refusal``), where the person debugging it reads it. It starts
+/// with `refused: `, then what is wrong, then (after the first `. `) what to do; the chat posts it
+/// through ``refused_reply``.
 pub fn refusal(reason: &str) -> String {
-    format!(
-        "refused: {reason}. Fix the acpmux harness (`acpmux daemon harnesses` lists them; the CodeRouter CLI must have the configured route for claude-cr, `sr claude proxy --version` must succeed for claude-sr) and send the message again."
-    )
+    let lower = reason.to_ascii_lowercase();
+    // The agent the refused harness runs: Codex, else Claude Code for the Claude routes.
+    let agent = if lower.contains("codex") {
+        Some("Codex")
+    } else if lower.contains("claude") {
+        Some("Claude Code")
+    } else {
+        None
+    };
+    let missing = harness_missing(reason);
+    let (what, fix) = match (agent, missing) {
+        (Some(agent), true) => (
+            format!("Chief answers through {agent}, which is not on this Mac yet."),
+            format!("Install {agent} from the Set Up card above, then send again."),
+        ),
+        (Some(agent), false) => (
+            format!("Chief can't run {agent} on this Mac right now."),
+            format!("Check {agent} in Set Up cmux… (command palette), then send again."),
+        ),
+        (None, _) => (
+            "Chief couldn't start this reply.".to_owned(),
+            "Send again; if it keeps happening, check your agents in Set Up cmux… (command palette)."
+                .to_owned(),
+        ),
+    };
+    format!("refused: {what} {fix}")
+}
+
+/// What a refused turn posts in the chat (first-run findings row 8: the same tall refusal on every
+/// turn made the chat look stuck). `error` is ``refusal``'s text; `asked` is the person's message the
+/// turn answers (quoted by its start); `in_row` counts refused turns in a row, from 1. The first
+/// names the message and says what is wrong and what to do; a repeat is shorter, says how many in a
+/// row, and keeps only what to do. No two turns in a row post the same text.
+pub fn refused_reply(error: &str, asked: Option<&str>, in_row: u32) -> String {
+    let body = error.strip_prefix("refused: ").unwrap_or(error).trim();
+    let (what, fix) = body
+        .split_once(". ")
+        .map_or((body.to_owned(), String::new()), |(what, fix)| {
+            (format!("{what}."), fix.to_owned())
+        });
+    let quoted = asked.map(quote).filter(|q| !q.is_empty());
+    let text = match (in_row, quoted) {
+        (0 | 1, Some(q)) => format!("Can't answer “{q}” yet. {what} {fix}"),
+        (0 | 1, None) => format!("Can't answer yet. {what} {fix}"),
+        (n, Some(q)) => format!("Still can't answer “{q}” ({n} in a row). {fix}"),
+        (n, None) => format!("Still can't answer ({n} in a row). {fix}"),
+    };
+    text.trim().to_owned()
+}
+
+/// The start of a person's message for a refused reply: its first line, at most 32 characters.
+fn quote(text: &str) -> String {
+    const MAX: usize = 32;
+    let line = text
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("");
+    if line.chars().count() <= MAX {
+        return line.to_owned();
+    }
+    let cut: String = line.chars().take(MAX - 1).collect();
+    format!("{}…", cut.trim_end())
 }
 
 /// Admits `requested` against the daemon's current harnesses (asked at each
@@ -266,5 +367,134 @@ pub fn plan(answer: &Value, requested: &str) -> Plan {
             profile: requested.to_owned(),
             admitted,
         },
+    }
+}
+
+#[cfg(test)]
+mod refusal_text_tests {
+    use super::{missing_harness, refusal, turn_agent_missing};
+
+    /// Words a person must never see in Chief's reply: the parts it is built from.
+    const INTERNAL: [&str; 9] = [
+        "acpmux",
+        "claude-stdio",
+        "CodeRouter",
+        "coderouter",
+        "`sr ",
+        "claude-sr",
+        "claude-cr",
+        "adapter",
+        "harness",
+    ];
+
+    fn plain(shown: &str) {
+        assert!(shown.starts_with("refused: "), "{shown}");
+        for word in INTERNAL {
+            assert!(!shown.contains(word), "{word:?} in {shown}");
+        }
+    }
+
+    /// A fresh Mac with no Claude Code (first-run findings row 1): Chief's first reply named
+    /// acpmux, claude-stdio, the CodeRouter CLI and `sr claude proxy`. It says what is missing
+    /// and where to fix it, in plain words.
+    #[test]
+    fn a_mac_without_claude_code_gets_a_plain_install_line() {
+        let shown = refusal(
+            "the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio), and claude asks for one running `claude`; acpmux has none: acpmux has no harness named claude",
+        );
+        plain(&shown);
+        assert!(shown.contains("Claude Code"), "{shown}");
+        assert!(shown.contains("Install"), "{shown}");
+        assert!(shown.contains("Set Up"), "{shown}");
+    }
+
+    /// The missing harness a reason names: the route that asked, else the name acpmux lacks; the
+    /// memory notice is quiet only when it is the turns' own (review of the first-run fixes).
+    #[test]
+    fn a_missing_harness_is_named_and_matched_against_the_turns() {
+        let route = "the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio), and claude asks for one running `claude`; acpmux has none: acpmux has no harness named claude";
+        assert_eq!(missing_harness(route), Some("claude"));
+        assert_eq!(
+            missing_harness("acpmux has no harness named codex"),
+            Some("codex")
+        );
+        assert_eq!(
+            missing_harness("and claude-sr asks for one running sr; acpmux has none: x"),
+            Some("claude-sr")
+        );
+        assert_eq!(missing_harness("acpmux's claude-cr is unavailable"), None);
+        assert!(turn_agent_missing(route, "claude"));
+        assert!(!turn_agent_missing(route, "codex"));
+        assert!(!turn_agent_missing(route, "claude-sr"));
+    }
+
+    /// Every other refusal is plain too: an unavailable route, a Codex Chief with no Codex, a
+    /// permission mode that did not apply.
+    #[test]
+    fn every_other_refusal_names_no_internal_part() {
+        for (reason, agent) in [
+            (
+                "acpmux's claude-cr is unavailable: `cr team-route --version` failed: unknown command",
+                "Claude Code",
+            ),
+            ("acpmux has no harness named codex", "Codex"),
+            (
+                "the turn's permission mode default did not apply: no such mode",
+                "",
+            ),
+            ("acpmux did not say what its harnesses are (timed out)", ""),
+        ] {
+            let shown = refusal(reason);
+            plain(&shown);
+            assert!(shown.contains(agent), "{agent} in {shown}");
+        }
+    }
+
+    /// First-run findings row 8 ("chat looks stuck"): every refused turn posted the same tall text,
+    /// so in a small window the new reply looked exactly like the old one and the person's message
+    /// above it was out of view. Each reply now names the message it answers, stays short, and a
+    /// repeat says how many in a row: no two turns in a row post the same text.
+    #[test]
+    fn each_refused_turn_posts_a_short_reply_of_its_own() {
+        use super::refused_reply;
+        let error = refusal(
+            "the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio); acpmux has none: acpmux has no harness named claude",
+        );
+        let first = refused_reply(&error, Some("hello?"), 1);
+        let second = refused_reply(&error, Some("hello?"), 2);
+        let third = refused_reply(&error, Some("are you there"), 3);
+        for shown in [&first, &second, &third] {
+            assert!(!shown.starts_with('('), "no raw wrapper: {shown}");
+            assert!(!shown.contains("refused"), "{shown}");
+            for word in INTERNAL {
+                assert!(!shown.contains(word), "{word:?} in {shown}");
+            }
+            assert!(shown.contains("Install Claude Code"), "{shown}");
+            assert!(shown.chars().count() <= 200, "short: {shown}");
+        }
+        assert!(first.contains("“hello?”"), "{first}");
+        assert!(third.contains("“are you there”"), "{third}");
+        assert_ne!(first, second);
+        assert_ne!(second, third);
+        assert!(second.contains('2'), "{second}");
+        assert!(
+            second.chars().count() < first.chars().count(),
+            "a repeat is shorter: {second}"
+        );
+        // A long or multi-line message is quoted by its start only.
+        let long = refused_reply(
+            &error,
+            Some(&format!("{}\nsecond line", "x".repeat(300))),
+            1,
+        );
+        assert!(
+            long.chars().count() <= 200 && !long.contains('\n'),
+            "{long}"
+        );
+        // No message to quote (a wake turn): still plain and still per count.
+        assert_ne!(
+            refused_reply(&error, None, 1),
+            refused_reply(&error, None, 2)
+        );
     }
 }

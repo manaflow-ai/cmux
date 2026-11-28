@@ -11,6 +11,7 @@
 # Every command runs even after one fails. Output is printed per command, whole
 # and in input order, in a collapsed group with its duration; a failed command's
 # output is printed again at the end, and the exit status is 1 when any failed.
+# A passing command's `::error` lines print as text, never as annotations (print_passing_log).
 # --jobs defaults to twice the CPU count: most of these checks wait on child
 # processes and fixtures, not the CPU.
 #
@@ -38,6 +39,10 @@
 # with no name. A command that starts after EPOCH gets 1 s. --wait gives up 60 s after it too,
 # and every minute it waits it prints which of its commands are still running and for how long
 # (CHECK_POOL_HEARTBEAT seconds, 60 by default).
+#
+# --affected BASE (with --start or the plain form): a command whose inputs the change from BASE leaves as they
+# were is not run; it passes as "skipped: inputs unchanged" (scripts/ci/check_pool_affected.py reads each
+# command's inputs). An empty BASE, or a selection that fails, runs every command.
 set -euo pipefail
 
 jobs=""
@@ -45,6 +50,8 @@ mode=run
 dir=""
 name=""
 deadline_at=""
+affected=""
+affected_set=0
 usage() {
   echo "usage: run-checks-concurrently.sh [--jobs N] [--deadline-at EPOCH] < commands" >&2
   echo "       run-checks-concurrently.sh --start DIR [--jobs N] [--deadline-at EPOCH] < [name] lines and commands" >&2
@@ -55,6 +62,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --jobs) jobs="${2:-}"; shift 2 ;;
     --deadline-at) deadline_at="${2:-}"; shift 2 || usage ;;
+    --affected) affected="${2:-}"; affected_set=1; shift 2 || usage ;;
     --start) mode=start; dir="${2:-}"; shift 2 ;;
     --wait) mode=wait; dir="${2:-}"; name="${3:-}"; shift 3 || usage ;;
     *) usage ;;
@@ -81,10 +89,15 @@ CHECK_POOL_TIMEOUT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/timeout.sh"
 export CHECK_POOL_TIMEOUT
 
 run_one() {
-  local work="$1" index="$2" start status deadline="" limit
+  local work="$1" index="$2" start status deadline="" limit had_git=""
   start="$(date +%s)"
   echo "$start" > "$work/$index.started"
   status=0
+  # The checkout's own repository: every git read in the job needs it. A test that ran a workflow step body
+  # with the job's environment (`rm -rf "$GITHUB_WORKSPACE/.git"`) deleted it mid-pool, and ~20 checks then
+  # failed with "not a git repository" with no word of who did it (cmux-next.yml checks, run 45884200942).
+  # A command it was there for and is gone after fails and says so; the culprit is one of those it names.
+  [ -z "${GITHUB_WORKSPACE:-}" ] || [ ! -e "$GITHUB_WORKSPACE/.git" ] || had_git=1
   [ ! -s "$work/deadline" ] || read -r deadline < "$work/deadline"
   if [ -n "$deadline" ]; then
     limit=$(( deadline - start ))
@@ -99,26 +112,50 @@ run_one() {
   else
     bash -c "$(cat "$work/$index.cmd")" > "$work/$index.log" 2>&1 < /dev/null || status=$?
   fi
+  if [ -n "$had_git" ] && [ ! -e "$GITHUB_WORKSPACE/.git" ]; then
+    echo "check-pool: $GITHUB_WORKSPACE/.git was deleted while this command ran: it, or a command running alongside it, removed the checkout's repository (a test must point GITHUB_WORKSPACE at its own scratch directory)" >> "$work/$index.log"
+    [ "$status" != 0 ] || status=1
+  fi
   printf '%s %s\n' "$status" "$(( $(date +%s) - start ))" > "$work/$index.rc.tmp"
   mv "$work/$index.rc.tmp" "$work/$index.rc"
 }
 export -f run_one
 
+# Prints a passing command's log with each `::error` line inert: the line prints as text between
+# ::stop-commands:: and its resume token, so the runner makes no `##[error]` annotation of it. A passing
+# test's fixture stderr (a negative case's `::error::`) otherwise reads as the step's red to every log
+# reader (hq docs/handbook/red-quoted-from-a-passing-step.md, cmux#45463). Warnings and notices stay live.
+print_passing_log() {
+  local token="check-pool-inert-$$-$RANDOM$RANDOM"
+  awk -v token="$token" '/^[[:space:]]*::error[ :]/ { print "::stop-commands::" token; print; print "::" token "::"; next } { print }' "$1"
+}
+
 # Prints each listed command's output in order and exits 1 when any failed.
 report() {
   local work="$1"; shift
-  local failed=() index command status seconds verdict
+  local failed=() skipped=0 index command status seconds verdict
   for index in "$@"; do
     command="$(cat "$work/$index.cmd")"
     read -r status seconds < "$work/$index.rc" 2>/dev/null || { status=1; seconds=0; }
     verdict=ok
+    if [ -e "$work/$index.skipped" ]; then
+      echo "skipped (inputs unchanged): $command"
+      skipped=$((skipped + 1))
+      continue
+    fi
     [ "$status" = 0 ] || { verdict="failed (exit $status)"; failed+=("$index"); }
     [ ! -e "$work/$index.timedout" ] || verdict="timed out at the pool deadline after ${seconds}s"
     echo "::group::$command: $verdict, ${seconds}s"
-    cat "$work/$index.log" 2>/dev/null || echo "(no output: its result never came)"
+    if [ "$verdict" = ok ] && [ -e "$work/$index.log" ]; then
+      print_passing_log "$work/$index.log"
+    else
+      cat "$work/$index.log" 2>/dev/null || echo "(no output: its result never came)"
+    fi
     echo "::endgroup::"
   done
-  echo "$# checks, $jobs at a time: $(( $# - ${#failed[@]} )) passed, ${#failed[@]} failed"
+  local skipped_note=""
+  [ "$skipped" -eq 0 ] || skipped_note=", $skipped skipped (inputs unchanged)"
+  echo "$# checks, $jobs at a time: $(( $# - skipped - ${#failed[@]} )) passed, ${#failed[@]} failed$skipped_note"
   [ "${#failed[@]}" -eq 0 ] && exit 0
   for index in "${failed[@]}"; do
     command="$(cat "$work/$index.cmd")"
@@ -174,6 +211,19 @@ else
 fi
 count=0
 current=""
+: > "$work/run"
+lines_in=/dev/stdin
+if [ "$affected_set" = 1 ]; then
+  # Fails open: a selection that errors runs every command, unmarked.
+  cat > "$work/lines"
+  if [ -n "$affected" ] && python3 "$(dirname "${BASH_SOURCE[0]}")/check_pool_affected.py" --base "$affected" \
+      < "$work/lines" > "$work/lines.marked"; then
+    lines_in="$work/lines.marked"
+  else
+    [ -z "$affected" ] || echo "check-pool affected: the selection failed; every command runs" >&2
+    lines_in="$work/lines"
+  fi
+fi
 while IFS= read -r line || [ -n "$line" ]; do
   command="${line#"${line%%[![:space:]]*}"}"
   command="${command%"${command##*[![:space:]]}"}"
@@ -187,9 +237,16 @@ while IFS= read -r line || [ -n "$line" ]; do
     exit 2
   fi
   count=$((count + 1))
+  if [ "${command#@skip }" != "$command" ]; then
+    command="${command#@skip }"
+    : > "$work/$count.skipped"
+    echo "0 0" > "$work/$count.rc"
+  else
+    echo "$count" >> "$work/run"
+  fi
   printf '%s\n' "$command" > "$work/$count.cmd"
   if [ "$mode" = start ]; then echo "$count" >> "$work/names/$current"; fi
-done
+done < "$lines_in"
 [ "$count" -gt 0 ] || { echo "error: no commands on stdin" >&2; exit 2; }
 
 [ -z "$deadline_at" ] || echo "$deadline_at" > "$work/deadline"
@@ -197,17 +254,17 @@ if [ "$mode" = start ]; then
   echo "$jobs" > "$work/jobs"
   # Detached from this step: the job's later steps read the results; the runner ends the pool with the job.
   (
-    seq 1 "$count" | xargs -P "$jobs" -I{} bash -c 'run_one "$1" "$2"' _ "$work" {} || true
+    xargs -P "$jobs" -I{} bash -c 'run_one "$1" "$2"' _ "$work" {} < "$work/run" || true
     touch "$work/pool.done"
   ) < /dev/null > "$work/pool.log" 2>&1 &
   echo "$!" > "$work/pool.pid"
   for names in "$work/names"/*; do
     echo "${names##*/}: $(wc -l < "$names") commands"
   done
-  echo "$count commands started, $jobs at a time${deadline_at:+, deadline in $(( deadline_at - $(date +%s) ))s}"
+  echo "$(wc -l < "$work/run") of $count commands started, $jobs at a time${deadline_at:+, deadline in $(( deadline_at - $(date +%s) ))s}"
   exit 0
 fi
 
 # A killed xargs still leaves the logs it has to print; a missing result counts as failed.
-seq 1 "$count" | xargs -P "$jobs" -I{} bash -c 'run_one "$1" "$2"' _ "$work" {} || true
+xargs -P "$jobs" -I{} bash -c 'run_one "$1" "$2"' _ "$work" {} < "$work/run" || true
 report "$work" $(seq 1 "$count")

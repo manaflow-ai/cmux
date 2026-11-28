@@ -1,0 +1,76 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/ember-look",
+  "name": "Ember",
+  "tagline": "Dark glass with a coral accent.",
+  "description": "Dark glass, compact rows and one coral accent. Includes a light version. Remove it and everything you had comes back.",
+  "version": "1.1.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux-ember-look",
+  "screenshots": ["screenshots/ember-dark.png", "screenshots/ember-light.png"],
+
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "ember",
+
+    // The rest of cmux in the same hand. The Markdown viewer: the system face, 14 px at the chat's
+    // 1.5 line height and code scale, in a column as wide as the chat's (680 px is about 88
+    // characters).
+    "markdown.font.preset": "system",
+    "markdown.font.size": 14,
+    "markdown.font.lineHeight": 1.5,
+    "markdown.code.scale": 0.92,
+    "markdown.layout.width": 88,
+    // Diffs in the theme's own red and green, with a bar at each changed line.
+    "diff.colors": "theme",
+    "diff.diffIndicators": "bars",
+    // Sidebar group colors as glass tints over the window.
+    "sidebar.groupPalette": "glass",
+
+    // The chat in Inter at 14 px with a 1.5 line height (21 px lines, measured), code a touch
+    // smaller, a 680 px column, no minimap, harness marks as small symbols.
+    "agentPane.display.font.ui": "inter",
+    "agentPane.display.font.preset": "system",
+    "agentPane.display.font.size": 14,
+    "agentPane.display.font.lineHeight": 1.5,
+    "agentPane.display.code.scale": 0.92,
+    "agentPane.display.width": 680,
+    "agentPane.display.minimap": "off",
+    "agentPane.display.harnessPlacement": "symbols",
+    "agentPane.composerRing": "context",
+    // Pending cmux#46738: the prompt is one wide rounded field with + at the left and the mic at
+    // the right ("Ask anything, @ tools, or / for commands..."); no offered look draws that.
+    // "agentPane.composerLook": "auto",
+
+    // The sidebar as chat history: compact one-line rows without icons, grouped by recency under
+    // muted labels (Yesterday, This Week, Last Week), nothing on the row but its title and its
+    // work-in-progress mark.
+    // Pending cmux#46805: no launcher sidebar look exists (cmux, claude, codex, studio).
+    // "sidebar.look": "cmux",
+    "sidebar.density": "compact",
+    "sidebar.groupBy": "recents",
+    "sidebar.groupHeader.background": "sections",
+    "sidebar.groupHeader.memberCount": false,
+    "sidebar.chromeGroups": false,
+    "sidebar.detailedStatusIcons": false,
+    "sidebar.showTimestamps": false,
+    "sidebar.workspaceRow.icon": false,
+    "sidebar.workspaceRow.directory": false,
+    "sidebar.workspaceRow.branch": false,
+    "sidebar.workspaceRow.lastActivity": false,
+    "sidebar.workspaceRow.agentStatus": false,
+    "sidebar.workspaceRow.pullRequest": false,
+    "sidebar.workspaceRow.notification": false,
+    "sidebar.workspaceRow.working": true,
+    "sidebar.workspaceRow.progress": true,
+    "sidebar.hoverCards.enabled": true,
+    "sidebar.hoverCards.layout": "minimal",
+    "sidebar.hoverCards.delay": 300,
+
+    // The address field as the launcher's search bar: tall, large text, rounded, floating on a shadow.
+    "browser.omnibar.cornerRadius": 10,
+    "browser.omnibar.shadow": true,
+    "browser.omnibar.height": 40,
+    "browser.omnibar.fontSize": 15
+  }
+}

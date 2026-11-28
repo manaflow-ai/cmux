@@ -16,9 +16,10 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { Page } from "playwright";
+import type { Frame, Page } from "playwright";
 import { build, createServer } from "vite";
 import { warmViteServer } from "../../test/support/warmDevServer";
+import { SHARED_BUILD_DONE, SHARED_BUILD_ENV, sharedPageKey } from "./sharedBuilds";
 
 const webviews = path.resolve(import.meta.dir, "..", "..");
 
@@ -30,6 +31,8 @@ export interface BenchPage {
   url: string;
   /// A dev server serves it (so `--dev` was asked for): every number from it is a dev number.
   dev: boolean;
+  /// It is bench/web-ui-suite.ts's shared build of the page (no build ran for it here).
+  shared?: boolean;
   close: () => Promise<void>;
 }
 
@@ -62,33 +65,32 @@ export function benchPositionals(argv: readonly string[] = process.argv.slice(2)
   return argv.filter((arg) => !arg.startsWith("-"));
 }
 
-/// Serves `pagePath` (a path under `webviews/`, as the page's URL, e.g.
-/// "/test/browser/transcript-fling.html"). A build by default; a dev server with `dev: true`.
-///
-/// The build is per page and goes to a temporary `outDir` of its own, so two benches never race for
-/// one. It is a cold build every run (the directory is new, and `close` removes it), so a production
-/// bench pays a build before it measures anything; what it measures is the page after load, as the
-/// dev path does.
-export async function serveBenchPage(
-  pagePath: string,
-  { dev = devRequested(), config = "vite.config.ts", query = "", unminified = false }: BenchPageOptions = {},
-): Promise<BenchPage> {
-  const configFile = path.join(webviews, config);
-  if (dev) {
-    const server = await createServer({
-      root: webviews,
-      configFile,
-      server: { port: 0, host: "127.0.0.1", strictPort: false },
-      logLevel: "error",
-    });
-    await server.listen();
-    await warmViteServer(server, `${pagePath}${query}`);
-    const { port } = server.httpServer!.address() as { port: number };
-    return { url: `http://127.0.0.1:${port}${pagePath}${query}`, dev: true, close: () => server.close() };
+/// What a page's build emitted: the page's HTML and every file, by its name under the build's directory.
+export interface BuiltPage {
+  emitted: string;
+  files: string[];
+}
+
+/// The manifest a page's build leaves in its directory, so a shared build (bench/support/prebuild.ts) is served
+/// from exactly the files it emitted.
+const BUILT_PAGE_MANIFEST = "bench-page.json";
+
+function readBuiltPage(dir: string): BuiltPage | undefined {
+  try {
+    const got = JSON.parse(fs.readFileSync(path.join(dir, BUILT_PAGE_MANIFEST), "utf8")) as BuiltPage;
+    return typeof got.emitted === "string" && Array.isArray(got.files) ? got : undefined;
+  } catch {
+    return undefined;
   }
-  // Built to a temporary directory and served statically, as the benches that already measure a
-  // build do (bench/chat-100k-flat.bench.ts and its neighbours).
-  const outDir = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "bench-page-"));
+}
+
+/// Builds `pagePath` with `config` into `outDir` (a production build) and says what it emitted.
+export async function buildBenchPage(
+  pagePath: string,
+  { config = "vite.config.ts", unminified = false }: Pick<BenchPageOptions, "config" | "unminified">,
+  outDir: string,
+): Promise<BuiltPage> {
+  const configFile = path.join(webviews, config);
   const built = await build({
     root: webviews,
     configFile,
@@ -134,12 +136,55 @@ export async function serveBenchPage(
     );
   // Every file the build wrote, by its name under `outDir`. The server answers out of this list and
   // nothing else, so no request can reach a file the build did not emit.
-  const emittedFiles = new Set(
-    outputs
-      .flatMap((one) => one.output ?? [])
-      .map((asset) => asset.fileName)
-      .filter((name): name is string => typeof name === "string"),
-  );
+  const files = [
+    ...new Set(
+      outputs
+        .flatMap((one) => one.output ?? [])
+        .map((asset) => asset.fileName)
+        .filter((name): name is string => typeof name === "string"),
+    ),
+  ];
+  fs.writeFileSync(path.join(outDir, BUILT_PAGE_MANIFEST), JSON.stringify({ emitted, files }));
+  return { emitted, files };
+}
+
+/// Serves `pagePath` (a path under `webviews/`, as the page's URL, e.g.
+/// "/test/browser/transcript-fling.html"). A build by default; a dev server with `dev: true`.
+///
+/// The build is per page and goes to a temporary `outDir` of its own, so two benches never race for
+/// one. It is a cold build every run (the directory is new, and `close` removes it), so a production
+/// bench pays a build before it measures anything; what it measures is the page after load, as the
+/// dev path does. Under bench/web-ui-suite.ts the page is the suite's one shared build of it instead
+/// (CMUX_BENCH_PAGES_DIR, bench/support/sharedBuilds.ts), kept for the run's other users.
+export async function serveBenchPage(
+  pagePath: string,
+  { dev = devRequested(), config = "vite.config.ts", query = "", unminified = false }: BenchPageOptions = {},
+): Promise<BenchPage> {
+  const configFile = path.join(webviews, config);
+  if (dev) {
+    const server = await createServer({
+      root: webviews,
+      configFile,
+      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      logLevel: "error",
+    });
+    await server.listen();
+    await warmViteServer(server, `${pagePath}${query}`);
+    const { port } = server.httpServer!.address() as { port: number };
+    return { url: `http://127.0.0.1:${port}${pagePath}${query}`, dev: true, close: () => server.close() };
+  }
+  // Built to a temporary directory and served statically, as the benches that already measure a
+  // build do (bench/chat-100k-flat.bench.ts and its neighbours), unless bench/web-ui-suite.ts built
+  // this page once for its run already (bench/support/sharedBuilds.ts): the same build, outside
+  // this bench's timeout.
+  // The pages directory holds one directory per page, each with its own done marker.
+  const shared = unminified ? undefined : process.env[SHARED_BUILD_ENV.pages];
+  const sharedDir = shared && path.join(shared, sharedPageKey(config, pagePath));
+  const prebuilt =
+    sharedDir && fs.existsSync(path.join(sharedDir, SHARED_BUILD_DONE)) ? readBuiltPage(sharedDir) : undefined;
+  const outDir = prebuilt ? sharedDir! : fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "bench-page-"));
+  const { emitted, files } = prebuilt ?? (await buildBenchPage(pagePath, { config, unminified }, outDir));
+  const emittedFiles = new Set(files);
   // The tree's build emits chunks and assets at the output root (`chunks/x.mjs`, `assets/x.css`)
   // while a plugin rewrites the page's script URLs to be relative to the page, so a page emitted
   // under a directory of its own (`test/browser/transcript-fling.html`) asks for
@@ -159,6 +204,12 @@ export async function serveBenchPage(
     }
     return undefined;
   };
+  // The page is served at the root, as the app serves its pages. The build writes the page's own
+  // `<link>`s relative to it (`./assets/x.css`) while a lazy chunk's preload asks for its CSS from
+  // the root (`/assets/x.css`); under `test/browser/` those are two URLs, so the preload added every
+  // sheet a second time and each restyle matched the whole stylesheet twice (17,092 rules for
+  // 8,546): the transcript fling's forced row measures read about 30% slower than the app's.
+  const servedAt = path.basename(emitted);
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -172,17 +223,18 @@ export async function serveBenchPage(
         // A malformed escape is read as itself.
       }
       const asked = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
-      const found = resolveEmitted(asked);
+      const found = asked === servedAt ? emitted : resolveEmitted(asked);
       if (found === undefined) return new Response("not found", { status: 404 });
       return new Response(Bun.file(path.join(outDir, found)));
     },
   });
   return {
-    url: `http://127.0.0.1:${statics.port}/${emitted}${query}`,
+    url: `http://127.0.0.1:${statics.port}/${servedAt}${query}`,
     dev: false,
+    shared: Boolean(prebuilt),
     close: async () => {
       await statics.stop(true);
-      fs.rmSync(outDir, { recursive: true, force: true });
+      if (!prebuilt) fs.rmSync(outDir, { recursive: true, force: true });
     },
   };
 }
@@ -193,10 +245,7 @@ export async function gotoBenchPage(page: Page, served: BenchPage): Promise<void
   // A page that throws while it mounts installs none of its hooks, and the bench then fails 30 s
   // later as `waitForFunction: Timeout` with nothing to point at. So every page error and console
   // error is printed as it happens.
-  page.on("pageerror", (error) => console.error(`bench page error: ${error.message}`));
-  page.on("console", (message) => {
-    if (message.type() === "error") console.error(`bench page console: ${message.text()}`);
-  });
+  watchPageErrors(page);
   // Before the page's own code: the recorder has to see react-dom's request, and the pane clears the
   // resource list as it goes.
   await installReactWatch(page);
@@ -374,4 +423,58 @@ export async function requireProductionReact(page: Page, { dev }: { dev: boolean
 /// How a bench labels its numbers: `dev` when they came from a dev server, `production` otherwise.
 export function buildLabel({ dev }: { dev: boolean }): "dev" | "production" {
   return dev ? "dev" : "production";
+}
+
+/// Every page error and error-level console message the page has produced since this was called, in
+/// order, newest last. A bench that waits for a hook the page installs needs them: a page that threw
+/// while it mounted installs nothing, and the wait then fails as `waitForFunction: Timeout` with
+/// `log: []` and nothing to point at (2026-11-23: both arms of a composer-typing before/after run
+/// died that way, and the run reported no measurement at all).
+export function watchPageErrors(page: Page): string[] {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => {
+    errors.push(`page error: ${error.message}`);
+    console.error(`bench page error: ${error.message}`);
+  });
+  page.on("console", (message) => {
+    if (message.type() !== "error") return;
+    errors.push(`console: ${message.text()}`);
+    console.error(`bench page console: ${message.text()}`);
+  });
+  return errors;
+}
+
+/// Waits for the page to install `hook` on `window` and, when it does not, says what the page held
+/// instead: the errors it threw (`watchPageErrors`, when its list is given), its title, whether the
+/// React root has any children, and the start of its text. A 404 served as a body, a page that threw
+/// while mounting and a pane that mounted but installed nothing read identically through a bare
+/// `waitForFunction`; each of them is a different fix.
+export async function waitForPageHook(
+  surface: Page | Frame,
+  hook: string,
+  { timeout = 60_000, errors }: { timeout?: number; errors?: string[] } = {},
+): Promise<void> {
+  try {
+    await surface.waitForFunction((name) => name in window, hook, { timeout });
+  } catch (cause) {
+    const held = await surface
+      .evaluate(() => {
+        const root = document.querySelector("#root, [id*='root']");
+        return {
+          url: location.href,
+          title: document.title,
+          rootChildren: root ? root.childElementCount : -1,
+          text: (document.body?.innerText ?? "").slice(0, 200).replace(/\s+/g, " ").trim(),
+          hooks: Object.keys(window).filter((key) => key.startsWith("cmux")),
+        };
+      })
+      .catch((error: unknown) => ({ error: String(error) }));
+    const said = errors?.length ? ` The page's errors: ${errors.join(" | ")}.` : " The page threw nothing.";
+    throw new Error(
+      `bench: the page never installed window.${hook} within ${timeout} ms, so nothing could be measured.` +
+        `${said} What it held instead: ${JSON.stringify(held)}` +
+        " (bench/support/benchPage.ts waitForPageHook).",
+      { cause },
+    );
+  }
 }

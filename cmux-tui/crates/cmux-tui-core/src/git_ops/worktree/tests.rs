@@ -466,7 +466,7 @@ fn create_with_a_hook_that_writes_the_git_entry(
     let attempt = Attempt { root: root.clone(), branch, base, base_commit };
     let user_git = UserGit { root: &repository.root, deadline: deadline() };
 
-    let created = create(&repository, &user_git, &attempt, &main.join(".git"));
+    let created = create(&repository, &user_git, &attempt, &main.join(".git"), None);
 
     let written = std::fs::read_to_string(git_entry).unwrap_or_default();
     std::fs::remove_dir_all(top).unwrap();
@@ -527,6 +527,7 @@ fn own_tree_a_setup_starts_in_no_folder_outside_the_worktrees_folder_of_this_rep
         common.clone(),
         common.join("worktrees"),
         admin.join("below"),
+        // affected-reads: none
         admin.join("../../.."),
     ];
     std::fs::create_dir_all(&root).unwrap();
@@ -621,4 +622,36 @@ fn own_tree_a_new_git_entry_is_read_to_its_limit_and_a_pipe_with_no_end_is_not_w
 
     std::fs::remove_dir_all(top).unwrap();
     assert_eq!((found, joined), ((Some(None), Some(admin), None, None), true));
+}
+
+/// `worktrees.location` and `worktrees.branchPrefix`: a create puts the worktree in the named
+/// shared folder, under the project's name, on a branch with the named prefix; a name whose
+/// branch is taken under that prefix gets the next suffix. Unset, the prefix is `cmux/`.
+#[test]
+fn settings_a_create_uses_the_worktree_folder_and_branch_prefix_of_the_settings() {
+    let top = new_folder("names");
+    let main = top.join("proj");
+    std::fs::create_dir_all(&main).unwrap();
+    git(&main, &["init", "-q", "-b", "main"]);
+    git(&main, &["commit", "-q", "--allow-empty", "-m", "first"]);
+    git(&main, &["branch", "me/fix"]);
+    let shared = top.join("shared");
+    let names = Names {
+        place: SessionWorktrees::Shared,
+        location: Some(json!(shared.to_string_lossy())),
+        branch_prefix: worktree_names::branch_prefix(Some(&json!("me/"))),
+    };
+    let repository = super::super::open_repository(&main, OPERATION).unwrap();
+    let common = std::fs::canonicalize(main.join(".git")).unwrap();
+
+    let folder = storage_folder(&common, &names).unwrap();
+    let fields = json!({"name": "fix"}).as_object().unwrap().clone();
+    let attempt = plan(&repository, &folder, &names.branch_prefix, &fields).unwrap();
+    let default = plan(&repository, &folder, BRANCH_PREFIX, &fields).unwrap();
+
+    std::fs::remove_dir_all(top).unwrap();
+    assert_eq!(folder, shared.join("proj"));
+    assert_eq!(attempt.root, shared.join("proj").join("fix-2"));
+    assert_eq!(attempt.branch, "me/fix-2");
+    assert_eq!(default.branch, "cmux/fix");
 }

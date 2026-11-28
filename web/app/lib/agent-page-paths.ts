@@ -394,6 +394,10 @@ export function buildLlmsText(
     "",
     "> cmux is a free and open source (GPL), fully scriptable native macOS terminal built on libghostty, purpose-built for running AI coding agents. Every action is available through a CLI and a Unix socket API, so agents can drive the terminal itself. It works with the CLI agents you already use (Claude Code, Codex, OpenCode, Gemini CLI, Aider, and any CLI tool) and adds workspace organization, agent notification rings, and vertical tabs on top of a GPU-accelerated terminal.",
     "",
+    "## Set up cmux for a person",
+    "",
+    `If a person asked you, an agent, to set up cmux or cmux Cloud for them, read ${link(variantPathForPage(nextDocPublicPath("start"), "md"))} and follow its "If you are an agent" steps: install, sign in, find or make a Cloud machine, and start an agent there. Stop for the browser sign-ins and for the card that allows a paid machine; never type a password or approve a charge for the person.`,
+    "",
     "## What cmux is",
     "",
     "- Native macOS app: written in Swift and AppKit with no Electron, built on libghostty (the Ghostty engine) for GPU-accelerated rendering.",
@@ -441,6 +445,7 @@ export function buildLlmsText(
     "",
     "## Agent-readable pages",
     "",
+    `- [Every cmux NEXT docs page in full, as one Markdown file](${link("/llms-full.txt")})`,
     ...agentReadablePages.flatMap(({ path, title }) => [
       `- [${title}](${link(variantPathForPage(path, "md"))})`,
       `  - Text: ${link(variantPathForPage(path, "txt"))}`,

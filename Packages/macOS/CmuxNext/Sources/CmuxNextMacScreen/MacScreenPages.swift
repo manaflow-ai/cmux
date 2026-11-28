@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+public import CmuxNextRemoteView
 public import CmuxNextDevices
 public import CmuxNextWakeups
 import CmuxScreenKit
@@ -35,9 +36,11 @@ public struct MacScreenTabEvents {
 /// Mac Screen tabs, their own page tab kind (the app's `mac-screen` page):
 /// the user's devices through the device hub, this Mac as a hub host
 /// (`MacScreenHubHost`, its permissions in `MacScreenShareHost`), and each
-/// tab (`MacScreenTab`) by its page tab key. A device tab asks the hub only
-/// when a person opened it with a scope in this process; tabs that
-/// automation opened, or that were restored, wait at the Connect card.
+/// tab (`MacScreenTab`) by its page tab key. A device tab asks the hub when
+/// a person opened it with a scope in this process, or when an agent or the
+/// CLI opened it on the person's own device (`agentMayStartViewing`; it asks
+/// at once, shown or not, and says who started it). Other automation opens
+/// and restored tabs wait at the Connect card.
 /// Pairing links are gone: a tab restored on an old link record shows that
 /// they are no longer supported.
 @MainActor
@@ -48,13 +51,17 @@ public final class MacScreenPages {
     public let hubHost: MacScreenHubHost
     /// The host's approval prompt for device hub requests.
     public let approval = MacScreenApprovalPrompt()
+    /// Set up cmux and Start cmux on the user's own Macs (the app sets its daemon connection as the runner).
+    public let deviceSetup = MacScreenDeviceSetup()
     /// The device hub while this app is signed in to one (the app sets it on
     /// sign-in and clears it on sign-out): the user's devices, and the session
-    /// pushes Mac Screen follows.
+    /// pushes Mac Screen follows. Observed through ``hubBox``, so action reasons see it arrive (CMUX-572).
     public var hub: DeviceHub? {
-        didSet {
-            guard hub !== oldValue else { return }
-            hubBox.hub = hub
+        get { hubBox.hub }
+        set {
+            let oldValue = hubBox.hub
+            guard newValue !== oldValue else { return }
+            hubBox.hub = newValue
             hubChanged(from: oldValue)
         }
     }
@@ -89,10 +96,28 @@ public final class MacScreenPages {
     let hubBox = MacScreenHubBox()
     /// Scopes a person chose for a device on the home page, until its tab asks the hub.
     var pendingScopes: [String: SessionScope] = [:]
+    /// Device id -> the agent that started viewing it (`MacScreenActions`), until its tab is prepared.
+    var pendingStarters: [String: MacScreenStarter] = [:]
+    /// Tab key -> the agent that started its view without a person's click.
+    private var starters: [String: MacScreenStarter] = [:]
+    /// Settings > Devices > Only Your Click Starts Viewing a Screen
+    /// (`macScreen.onlyPersonStartsViewing`): on, a tab automation opens waits
+    /// at the Connect card, on any device. The app feeds it from the setting.
+    public var onlyPersonStartsViewing = false
+    /// Pushed viewer tickets (`pushed: true`) by host device id, until the tab opened for them makes its screen.
+    private(set) var pushedTickets: [String: SessionTicket] = [:]
+    /// Makes a device tab's session signaling from a ticket; tests replace it.
+    var makeSignaling: @MainActor (SessionTicket, DeviceHub) throws -> any ScreenSignaling = MacScreenHubViewer.ticketSignaling
     private var namesWatch: Task<Void, Never>?
+    /// Sharing on by default (MacScreenHubHost+DefaultSharing), while a hub is set.
+    private var defaultSharingWatch: Task<Void, Never>?
+    /// The hub's last word on this Mac's sharing bit (nil: none yet).
+    private var lastHostShared: Bool?
     /// Send System Shortcuts to the Remote Mac: the app's one system shortcut tap.
     public let systemShortcuts: MacScreenSystemShortcuts
     public var events = MacScreenTabEvents()
+    /// What a Sign In on the home page or a card signs in to ("Signs in to cmux.com"), the line under it.
+    public var signInBackend: String?
     /// Kept apart from app tab events so replacing those cannot disconnect the registered action.
     var shareThisMac: () -> Void = {}
     /// The app's shortcut matcher: true keeps a key down in cmux.
@@ -108,10 +133,47 @@ public final class MacScreenPages {
             #endif
         }
     }
+    /// Settings > cmux Remote > Screen Sharing Profile (`remote.screenSharingProfile`): `ultra`
+    /// when the person chose Ultra, nil for Balanced (the offer then asks for nothing extra). The app
+    /// feeds it from the setting; a running stream keeps its profile, its next session asks for this one.
+    public var encodeProfile: String? {
+        didSet {
+            guard encodeProfile != oldValue else { return }
+            for tab in tabs.values { tab.pane?.session?.encodeProfile = encodeProfile }
+        }
+    }
+    /// Settings > cmux Remote > Screen Sharing Quality and Bitrate Limit (`remoteDesktop.quality`,
+    /// `remoteDesktop.maxBitrateMbps`): the toolbar picks a new tab's session starts at, so its offer asks for them.
+    /// An open tab keeps the picks it has.
+    var defaultPreferences = ScreenPreferences()
+    /// `remoteDesktop.clipboard`: whether a session syncs clipboard text (default: own devices only).
+    public var clipboardSetting: RemoteDesktopSettings.Clipboard = .ownDevicesOnly
+    /// Settings > cmux Remote > Screen Sharing Frame Rate Limit (`remoteDesktop.maxFps`): the most the next
+    /// offer's `a=cmux-rd-max-fps` asks for; nil (Auto) leaves the quality's rate.
+    public var maxFpsCap: Int? {
+        didSet {
+            guard maxFpsCap != oldValue else { return }
+            for tab in tabs.values { tab.pane?.session?.maxFpsCap = maxFpsCap }
+        }
+    }
+    /// Settings > Customize "Sharper Text from Linux Machines" (`remoteDesktop.sharpLinuxText`): whether a
+    /// session's hello offers `video.sharp_text`. An open session takes it at its next connect.
+    public var sharpLinuxText = false {
+        didSet {
+            guard sharpLinuxText != oldValue else { return }
+            for tab in tabs.values { tab.pane?.session?.offersSharpText = sharpLinuxText }
+        }
+    }
     /// Tab key -> the record a person opened in it.
     private var confirmed: [String: MacScreenRecord] = [:]
     /// Tab key -> the record it shows, set before its view is made.
     private var records: [String: MacScreenRecord] = [:]
+    /// Tabs just opened on a run's screen link (it names a display): the person's own link, so the tab
+    /// connects when shown, View Only (Full Control only when a person opened it here).
+    private var runLinks: Set<String> = []
+    /// Tab key -> the scope a person chose for it, moved off ``pendingScopes`` (keyed by device) when the
+    /// tab is prepared, so a second tab on the same device cannot take or replace it.
+    private var tabScopes: [String: SessionScope] = [:]
     /// Open tabs (made views), by key.
     private(set) var tabs: [String: MacScreenTab] = [:]
     private var termination: (any NSObjectProtocol)?
@@ -133,7 +195,16 @@ public final class MacScreenPages {
             }
         }
         hubHost.hub = { [weak self] in self?.hub }
+        // The person's switch is kept on this Mac; read only once the file is.
+        hubHost.sharingTurnedOff = { [store] in store.isLoaded ? store.sharingTurnedOff : nil }
+        hubHost.sharingChosen = { [store] on in store.setSharingTurnedOff(!on) }
         approval.hub = { [weak self] in self?.hub }
+        // A Mac set up or started: read the devices again, so its row and tab show it online once it is.
+        deviceSetup.succeeded = { [weak self] _, _ in
+            guard let hub = self?.hub else { return }
+            // task-owner: one devices read after a finished run.
+            Task { await hub.refreshDevices() }
+        }
     }
 
     /// Whether the worker owns hosting and approval. The active NEXT app keeps this false and
@@ -150,6 +221,7 @@ public final class MacScreenPages {
 
     private func hubChanged(from old: DeviceHub?) {
         if old?.onSessionPush != nil { old?.onSessionPush = nil }
+        pushedTickets.removeAll()
         // Signed out (or another account): every session ends here.
         if old != nil {
             hubHost.closeAll()
@@ -157,7 +229,27 @@ public final class MacScreenPages {
         }
         hub?.onSessionPush = { [weak self] push in self?.handle(push) }
         approval.follow(remoteHosted ? nil : hub)
+        lastHostShared = nil
         watchDeviceNames()
+        // Tabs that asked before the hub came (a launch-time open while sign-in restored) ask now.
+        if hub != nil { for viewer in hubViewers { viewer.hubArrived() } }
+        watchDefaultSharing()
+    }
+
+    /// Takes the default's step each time it changes: the hub lists this Mac, the grant reads, the
+    /// person's switch. One step per change, so a failed write waits for the next one.
+    private func watchDefaultSharing() {
+        defaultSharingWatch?.cancel()
+        defaultSharingWatch = nil
+        guard hub != nil else { return }
+        let host = hubHost
+        // task-owner: one default-sharing follow per hub, cancelled when the hub changes
+        defaultSharingWatch = Task { [weak host] in
+            for await step in ObservationStream({ [weak host] in host?.defaultSharingStep ?? .none }) {
+                guard let host, !Task.isCancelled else { return }
+                if step != .none { await host.followDefaultSharing() }
+            }
+        }
     }
 
     /// One `session.*` push: the viewer tab or the host it is for.
@@ -169,27 +261,64 @@ public final class MacScreenPages {
             switch ticket.role {
             case .host: if !remoteHosted { hubHost.serve(ticket) }
             case .viewer:
-                // The tab whose session (or, before the request's answer, whose host) it names.
-                let viewers = hubViewers
-                let target = viewers.first(where: { $0.phase.sessionID == ticket.sessionId }) ?? viewers.first(where: { $0.accepts(ticket) })
-                target?.accept(ticket)
+                // The tab whose session (or, before the request's answer, whose host) it names; a pushed
+                // one no tab asked for opens (pages.ticketTarget).
+                let tabs = hubTabs
+                let target = RdUI.decode(RdUI.call("pages.ticketTarget", encoding: TicketArgs(
+                    sessionId: ticket.sessionId, pushed: ticket.pushed, tabs: Self.rdTabs(tabs, ticket: ticket))), as: TabAction.self)
+                switch target?.action {
+                case "accept": tabs.first { $0.key == target?.key }?.viewer.accept(ticket)
+                case "openPushed": openPushed(ticket)
+                default: break
+                }
             }
         case let .sessionDenied(id):
             for viewer in hubViewers where viewer.phase.sessionID == id { viewer.denied() }
         case let .sessionRevoked(id, reason):
             hubHost.sessionOver(id)
+            pushedTickets = pushedTickets.filter { $0.value.sessionId != id }
             for viewer in hubViewers where viewer.phase.sessionID == id { viewer.revoked(reason: reason) }
-        case let .sessionEnded(id, reason):
+        case let .sessionEnded(id, reason, _):
             hubHost.sessionOver(id)
+            pushedTickets = pushedTickets.filter { $0.value.sessionId != id }
             for viewer in hubViewers where viewer.phase.sessionID == id { viewer.ended(reason: reason) }
-        case .devicesChanged, .permissionsChanged, .relaysChanged, .pong, .unknown:
+        case .devicesChanged, .permissionsChanged, .relaysChanged, .settingsChanged, .pong, .unknown:
             break
         }
     }
 
     /// The device hub tabs' viewers, in key order.
     private var hubViewers: [MacScreenHubViewer] {
-        tabs.values.sorted { $0.key < $1.key }.compactMap { $0.pane?.model.hub }
+        hubTabs.map(\.viewer)
+    }
+
+    /// The device hub tabs and their viewers, in key order.
+    private var hubTabs: [(key: String, viewer: MacScreenHubViewer)] {
+        tabs.values.sorted { $0.key < $1.key }.compactMap { tab in tab.pane?.model.hub.map { (tab.key, $0) } }
+    }
+
+    /// A viewer ticket the hub pushed that no tab asked for, with no click. The tab of the session it
+    /// replaced takes it when the host is the same (the stream switches in place); else that tab, or
+    /// else a tab of that host that is not busy, gives its place to a new tab of that host, selected
+    /// (``replace(_:with:)``); else a new tab opens, selected, in the active window's focused pane
+    /// (`openInNewTab` with no tab beside it). The new tab takes the ticket once its screen is made
+    /// (``makeHubPane``); an end or revocation of that session drops it before then.
+    private func openPushed(_ ticket: SessionTicket) {
+        let device = ticket.peer.id
+        let tabs = hubTabs
+        let pushed = RdUI.decode(RdUI.call("pages.openPushed", encoding: PushedArgs(
+            deviceId: device, movedFrom: ticket.movedFrom, tabs: Self.rdTabs(tabs, ticket: nil))), as: TabAction.self)
+        let key = pushed?.key
+        switch pushed?.action {
+        case "acceptPushed": tabs.first { $0.key == key }?.viewer.acceptPushed(ticket)
+        case "replace":
+            pushedTickets[device] = ticket
+            if let key { replace(key, with: MacScreenRecord(deviceID: device)) }
+        case "open":
+            pushedTickets[device] = ticket
+            events.openInNewTab(MacScreenRecord(deviceID: device), "")
+        default: break
+        }
     }
 
     /// This Mac started viewing or controlling another Mac: the first-use guide is done.
@@ -199,7 +328,12 @@ public final class MacScreenPages {
 
     /// The hub says whether this Mac allows Mac Screen; on, the first-use guide is done.
     func hostSharingChanged(_ on: Bool) {
-        if on { store.markSharedBefore() }
+        defer { lastHostShared = on }
+        guard on else { return }
+        store.markSharedBefore()
+        // Seen turning on (or on at the first read): not off by the person. Clears what a file from
+        // before the switch was kept read as turned off.
+        if lastHostShared != true { store.setSharingTurnedOff(false) }
     }
 
     /// Device tabs take their device's name from the hub (renames show live).
@@ -231,7 +365,7 @@ public final class MacScreenPages {
 
     /// The name of device `id`: the hub's, else the last one seen, else "Mac".
     func deviceName(_ id: String) -> String {
-        hub?.devices.first { $0.id == id }?.name ?? store.deviceNames[id] ?? L.t("macScreen.hub.unknownDevice", "Mac")
+        hub?.deviceNames[id] ?? store.deviceNames[id] ?? L.t("macScreen.hub.unknownDevice", "Mac")
     }
 
     /// Device tabs whose view is not made yet (restored, not selected) take their device's name.
@@ -264,25 +398,34 @@ public final class MacScreenPages {
 
     /// The home page opens device `id` asking for `scope` (a person's click).
     func openDeviceFromHome(_ id: String, scope: SessionScope?, in key: String) {
-        if let scope { pendingScopes[id] = scope }
+        if let scope { want(scope, for: id, startedBy: nil) }
         replace(key, with: MacScreenRecord(deviceID: id))
     }
 
     /// The home page opens device `id` in a new tab beside it.
     func openDeviceInNewTab(_ id: String, scope: SessionScope?, from key: String) {
-        if let scope { pendingScopes[id] = scope }
+        if let scope { want(scope, for: id, startedBy: nil) }
         events.openInNewTab(MacScreenRecord(deviceID: id), key)
     }
 
     /// Makes a record for an already-resolved screen-device UUID. Machine routes,
     /// joined IDs and display names are not screen identities; callers that have
     /// a person-requested scope can carry it into the first connection.
-    public func record(forDevice device: String, requesting scope: SessionScope? = nil) -> MacScreenRecord {
+    /// `startedBy`: an agent started it without a person's click (``agentMayStartViewing(_:among:)``
+    /// allowed it): its tab is confirmed when prepared, asks at once and says who started it.
+    public func record(forDevice device: String, requesting scope: SessionScope? = nil,
+                       startedBy: MacScreenStarter? = nil) -> MacScreenRecord {
         guard let id = MacScreenRecord.normalizedDeviceID(device) else {
             return MacScreenRecord(macID: nil)
         }
-        if let scope { pendingScopes[id] = scope }
+        if let scope { want(scope, for: id, startedBy: startedBy) }
         return MacScreenRecord(deviceID: id)
+    }
+
+    /// Device `id`'s next tab asks for `scope`; `startedBy` names the agent that asked, nil for a person.
+    private func want(_ scope: SessionScope, for id: String, startedBy: MacScreenStarter?) {
+        pendingScopes[id] = scope
+        pendingStarters[id] = startedBy
     }
 
     /// At launch: the shortcut tap, the permissions, and the saved device names
@@ -300,10 +443,39 @@ public final class MacScreenPages {
     // MARK: Page tabs
 
     /// Tab `key` will show `record` (set up before its view is made). `byPerson`:
-    /// a person opened it here, so it connects without asking.
+    /// a person opened it here, so it connects without asking. A record an agent
+    /// started on the person's own device (`record(forDevice:requesting:startedBy:)`)
+    /// is confirmed too, and its view is made now, so it asks the hub even when
+    /// it opens in the background and is never shown.
     public func prepare(_ key: String, record: MacScreenRecord, byPerson: Bool) {
         records[key] = record
-        if byPerson { confirmed[key] = record } else { confirmed[key] = nil }
+        let starter = record.deviceID.flatMap { pendingStarters.removeValue(forKey: $0) }
+        starters[key] = byPerson ? nil : starter
+        let starts = byPerson || starter != nil
+        confirmed[key] = starts ? record : nil
+        if starts, let device = record.deviceID, let scope = pendingScopes.removeValue(forKey: device) { tabScopes[key] = scope }
+        if record.isRunLink { runLinks.insert(key) } else { runLinks.remove(key) }
+        if starters[key] != nil, tabs[key] == nil { _ = makeView(for: key) }
+    }
+
+    /// What runs once tab `key` exists: `created`, and for a tab opened unselected (`focus` false)
+    /// first ``connectInBackground(_:)``, so an autoconnect connects without being shown.
+    public func whenCreated(_ key: String, focus: Bool, then created: (@MainActor () -> Void)?) -> (@MainActor () -> Void)? {
+        if focus { return created }
+        return { [weak self] in
+            self?.connectInBackground(key)
+            created?()
+        }
+    }
+
+    /// Tab `key` opened unselected with a scope waiting (`macScreen.open --autoconnect`
+    /// into a background tab): its screen is made now and asks the hub, so it connects
+    /// without waiting to be shown. Any other tab waits to be shown, as before.
+    public func connectInBackground(_ key: String) {
+        guard let record = records[key], let device = record.deviceID, confirmed[key] == record,
+              pendingScopes[device] != nil || tabs[key] != nil else { return }
+        _ = makeView(for: key)
+        tabs[key]?.pane?.start()
     }
 
     /// What tab `key` shows, kept as its page tab route: "home",
@@ -313,30 +485,14 @@ public final class MacScreenPages {
         Self.route(of: tabs[key]?.record ?? records[key] ?? MacScreenRecord(macID: nil))
     }
 
-    /// The route of `record`.
-    static func route(of record: MacScreenRecord) -> String {
-        if let device = record.deviceID { return "device:" + device }
-        return record.macID.map { "mac:" + $0.uuidString } ?? "home"
-    }
-
-    /// The record a route names; nil for anything else.
-    public static func record(route: String) -> MacScreenRecord? {
-        if route == "home" { return MacScreenRecord(macID: nil) }
-        if route.hasPrefix("device:") {
-            let id = String(route.dropFirst(7))
-            guard MacScreenRecord.normalizedDeviceID(id) != nil else { return nil }
-            return MacScreenRecord(deviceID: id)
-        }
-        guard route.hasPrefix("mac:"), let id = UUID(uuidString: String(route.dropFirst(4))) else { return nil }
-        return MacScreenRecord(macID: id)
-    }
-
     /// A tab came back on `route` (relaunch, Reopen Closed): it shows that
     /// record and waits for Connect. An unknown route shows the home page.
     public func restore(_ route: String, for key: String) {
         guard records[key] == nil else { return }
         let record = Self.record(route: route) ?? MacScreenRecord(macID: nil)
         prepare(key, record: record, byPerson: false)
+        // A restored run's tab waits for Connect like any other.
+        runLinks.remove(key)
         // The strip may have asked for the title before the route came back: a device tab is retitled once its pane lists it.
         if record.deviceID != nil {
             Task { @MainActor [weak self] in self?.events.titleChanged(key) }
@@ -362,11 +518,31 @@ public final class MacScreenPages {
         return tab.view
     }
 
+    /// A new tab `key` opens showing `record` (``prepare(_:record:byPerson:)``); a person's open (or
+    /// `macScreen.open --autoconnect`) of a device also connects now (``startConnecting(_:)``), before the
+    /// tab exists in a strip: a tab opened into a pane or workspace not on screen would otherwise wait until focused.
+    public func prepareOpen(_ key: String, record: MacScreenRecord, byPerson: Bool) {
+        prepare(key, record: record, byPerson: byPerson)
+        startConnecting(key)
+    }
+
+    /// Tab `key`, which a person opened (or `macScreen.open --autoconnect`) on a device, asks the hub now:
+    /// its pane is made before the tab first shows (the tab's view, once asked for, is that pane's), and only
+    /// the picture waits for it to show. Any other tab waits for its view as before.
+    public func startConnecting(_ key: String) {
+        guard let record = records[key], record.deviceID != nil, confirmed[key] == record else { return }
+        _ = makeView(for: key)
+        tabs[key]?.pane?.start()
+    }
+
     /// Tab `key` closed: its session ends now.
     public func tabClosed(_ key: String) {
         tabs.removeValue(forKey: key)?.clear()
         records[key] = nil
         confirmed[key] = nil
+        starters[key] = nil
+        tabScopes[key] = nil
+        runLinks.remove(key)
         systemShortcuts.update()
     }
 
@@ -393,7 +569,10 @@ public final class MacScreenPages {
         tab.record = record
         let key = tab.key
         if let device = record.deviceID {
-            tab.install(makeHubPane(deviceID: device, record: record, key: key))
+            let pane = makeHubPane(deviceID: device, record: record, key: key)
+            tab.install(pane)
+            // An agent's start asks now, shown or not: a tab opened in the background still streams.
+            if starters[key] != nil { pane.start() }
             events.titleChanged(key)
             return
         }
@@ -414,27 +593,47 @@ public final class MacScreenPages {
         actions.openDevice = { [weak self] id, scope in self?.openDeviceFromHome(id, scope: scope, in: key) }
         actions.openDeviceInNewTab = { [weak self] id, scope in self?.openDeviceInNewTab(id, scope: scope, from: key) }
         actions.signIn = { [weak self] in self?.events.signIn() }
+        actions.signInBackend = signInBackend
         actions.shareThisMac = { [weak self] in self?.shareThisMac() }
         // In the tab's theme scope: Settings > Appearance changes show at once. The page fills the tab.
         return MacScreenHomeView(host: host, actions: actions, systemShortcuts: systemShortcuts, devices: MacScreenHomeDevices(pages: self))
     }
 
     /// A device hub device's screen. A tab a person opened with a scope asks
-    /// the hub when shown; any other waits at the Connect card.
+    /// the hub when shown, one an agent started asks at once (`show`); any
+    /// other waits at the Connect card.
     private func makeHubPane(deviceID: String, record: MacScreenRecord, key: String) -> MacScreenPane {
         let viewer = MacScreenHubViewer(deviceID: deviceID) { [weak self] in self?.hub }
+        viewer.makeSignaling = makeSignaling
         viewer.onStreaming = { [weak self] in self?.viewerStarted() }
-        let pane = MacScreenPane(hubDevice: viewer, name: deviceName(deviceID), preferences: ScreenPreferences())
-        if confirmed[key] == record, let scope = pendingScopes.removeValue(forKey: deviceID) { viewer.resumeScope = scope }
+        let pane = MacScreenPane(hubDevice: viewer, name: deviceName(deviceID), platform: hub?.devices.first { $0.id == deviceID }?.platform,
+                                 preferences: defaultPreferences)
+        if confirmed[key] == record, let scope = tabScopes.removeValue(forKey: key) ?? pendingScopes.removeValue(forKey: deviceID) {
+            viewer.resumeScope = scope
+        }
+        pane.model.startedBy = starters[key]
+        if runLinks.remove(key) != nil, viewer.resumeScope == nil, record.scope == .view || confirmed[key] == record {
+            viewer.resumeScope = record.scope
+        }
+        pane.session?.linkedDisplay = record.display
+        pane.model.runName = record.name
         #if DEBUG
         if relayOnly { pane.setRelayOnly(true) }
         #endif
+        pane.session?.encodeProfile = encodeProfile
+        pane.session?.offersClipboard = RemoteClipboardPolicy.allows(clipboardSetting, ownDevice: isOwnDevice(deviceID, among: viewableDevices))
+        pane.session?.maxFpsCap = maxFpsCap
+        pane.session?.offersSharpText = sharpLinuxText
         pane.handlers.closeTab = { [weak self] in self?.events.closeTab(key) }
         pane.handlers.openHome = { [weak self] in self?.replace(key, with: MacScreenRecord(macID: nil)) }
         pane.handlers.signIn = { [weak self] in self?.events.signIn() }
+        pane.handlers.signInBackend = signInBackend
         pane.handlers.isLocalShortcut = { [weak self] event in self?.isLocalShortcut(event) ?? false }
         pane.handlers.keyboardChanged = { [weak self] in self?.systemShortcuts.update() }
         pane.model.systemShortcuts = systemShortcuts
+        pane.model.deviceSetup = deviceSetup
+        // A tab opened for a pushed ticket takes it now that its screen is wired.
+        if let ticket = pushedTickets.removeValue(forKey: deviceID) { viewer.acceptPushed(ticket) }
         return pane
     }
 }

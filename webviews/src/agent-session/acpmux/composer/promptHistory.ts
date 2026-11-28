@@ -16,7 +16,8 @@ type PromptHistory = {
 
 /// `shown`: a sent prompt as the field takes it back (a Codex skill's `/$name` read `/name`,
 /// slashCommands.ts withoutSkillDollars), applied to a prompt only as it is recalled or compared.
-export function usePromptHistory(rows: readonly AcpmuxRow[], shown: (sent: string) => string = (sent) => sent) {
+export function usePromptHistory(rows: readonly AcpmuxRow[], shownAs?: (sent: string) => string) {
+  const shown = shownAs ?? ((sent: string) => sent);
   const history = useMemo<PromptHistory>(() => {
     const groups: PromptGroup[] = [];
     const byRowId = new Map<string, PromptGroup>();

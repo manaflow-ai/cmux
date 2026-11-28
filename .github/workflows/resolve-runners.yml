@@ -43,36 +43,40 @@ permissions:
   contents: read
 
 env:
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   resolve:
     name: Resolve runner capabilities
     # Not the map: the job that resolves the fleet cannot depend on the map it
     # publishes. A fork takes the GitHub-hosted owner branch (no Blacksmith
-    # there). In manaflow-ai (about 5 s of work) it takes the CI_TRUSTED_RUNNER
-    # selector (Blacksmith by default) on every attempt; it took GitHub-hosted
-    # Ubuntu on attempt 1 until 2026-11-18, when hosted runners left light jobs
-    # queued for hours (cmux#45735). No fromJSON(vars.*)
-    # here: an unset variable would fail every caller's workflow. Attempt 1
-    # took that selector alone, one Blacksmith size: on 2026-11-04 run
-    # 41762274751 job 126357110864 sat unassigned on
-    # blacksmith-2vcpu-ubuntu-2404 for 3 min, holding the webview verdict.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # there). In manaflow-ai (about 5 s of work, contents: read, no secret) a
+    # same-repository event's attempt 1 takes the owned persistent pool,
+    # cmux-linux; a fork pull request's run and every attempt 2+ (a re-run of a
+    # job that stalled there) take the CI_TRUSTED_RUNNER selector, Blacksmith
+    # by default, as overflow. Leo, 2026-11-19: "stop ... relying on it". On
+    # 2026-11-21 at 11:44Z this job sat queued on attempt 1 on
+    # blacksmith-4vcpu-ubuntu-2404 (16 queued there) while cmux-fleet-linux-x64
+    # had 1,311 idle runners. It took GitHub-hosted Ubuntu on attempt 1 until
+    # 2026-11-18, when hosted runners left light jobs queued for hours
+    # (cmux#45735). No fromJSON(vars.*) here: an unset variable would fail
+    # every caller's workflow.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'cmux-linux' || 'blacksmith-4vcpu-ubuntu-2404' }} # frozen-label: credentialed job, frozen to today's label
     timeout-minutes: 5
     outputs:
       map: ${{ steps.resolve.outputs.map }}
       fleet: ${{ steps.resolve.outputs.fleet }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
           sparse-checkout: |
             .github/runners.json
             scripts/ci/resolve_runners.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Resolve capability map

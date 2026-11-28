@@ -17,17 +17,31 @@ import { afterEach, beforeEach, expect, setSystemTime, spyOn, test } from "bun:t
 import { act, useMemo, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { transcriptColumn, type AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
-import { translate } from "../src/agent-session/acpmux/i18n";
-import { SESSION_INFO_PLACEMENT_KEY, setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
-import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
-import { setChipHost } from "../src/agent-session/acpmux/chips/host";
-import { resetPullRequestStore } from "../src/agent-session/acpmux/chips/pullRequestStore";
-import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
-import { resetChangesStatuses } from "../src/agent-session/acpmux/session-info/changesStatus";
-import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
-import { SESSION_INFO } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
-import {
+import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import type { StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
+import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
+import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { transcriptColumn } = await importWithDom(() => import("../src/agent-session/acpmux/model"));
+const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
+const { SESSION_INFO_PLACEMENT_KEY, setChatDisplay } = await importWithDom(
+  () => import("../src/agent-session/acpmux/chatDisplay"),
+);
+const { ChatHeaderTools } = await importWithDom(() => import("../src/agent-session/acpmux/header/ChatHeaderTools"));
+const { setChipHost } = await importWithDom(() => import("../src/agent-session/acpmux/chips/host"));
+const { resetPullRequestStore } = await importWithDom(
+  () => import("../src/agent-session/acpmux/chips/pullRequestStore"),
+);
+const { setHeaderState } = await importWithDom(() => import("../src/agent-session/acpmux/header/headerState"));
+const { resetChangesStatuses } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/changesStatus"),
+);
+const { SessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/SessionInfo"));
+const { SESSION_INFO } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/sessionInfoSelectors"),
+);
+const {
   sessionInfoTopOffset,
   sessionInfoOverChat,
   sessionInfoPushes,
@@ -40,30 +54,28 @@ import {
   sessionInfoFits,
   FLOAT_MARGIN,
   pushes,
-} from "../src/agent-session/acpmux/session-info/sessionInfoModel";
-import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
-import {
+} = await importWithDom(() => import("../src/agent-session/acpmux/session-info/sessionInfoModel"));
+const { useSessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/useSessionInfo"));
+const {
   SESSION_INFO_WIDTH,
   sessionInfoState,
   resetSessionInfoState,
   setSessionInfoMore,
   setSessionInfoOpen,
   setSessionInfoSection,
-} from "../src/agent-session/acpmux/session-info/sessionInfoState";
-import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
-import {
-  spawnedSessions,
-  startedSessions,
-  type StartedSession,
-} from "../src/agent-session/acpmux/started/startedSessions";
-import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
-import { openSourceFile } from "../src/agent-session/acpmux/session-info/sourcesSectionModel";
-import { NativeError } from "../src/agent-session/acpmux/nativeError";
-import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
-import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
-import { withCloudMachineSummary } from "../src/agent-session/acpmux/cloudSummary";
-import { SummaryCard } from "../src/agent-session/acpmux/summary/SummaryCard";
-import { settleReact } from "./support/domTeardown";
+} = await importWithDom(() => import("../src/agent-session/acpmux/session-info/sessionInfoState"));
+const { sessionEntry } = await importWithDom(() => import("../src/agent-session/acpmux/sessionList"));
+const { spawnedSessions, startedSessions } = await importWithDom(
+  () => import("../src/agent-session/acpmux/started/startedSessions"),
+);
+const { openSourceFile } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/sourcesSectionModel"),
+);
+const { NativeError } = await importWithDom(() => import("../src/agent-session/acpmux/nativeError"));
+const { sessionSummary } = await importWithDom(() => import("../src/agent-session/acpmux/summary/sessionSummary"));
+const { activity, assistant, chat, tool } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { withCloudMachineSummary } = await importWithDom(() => import("../src/agent-session/acpmux/cloudSummary"));
+const { SummaryCard } = await importWithDom(() => import("../src/agent-session/acpmux/summary/SummaryCard"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -136,7 +148,7 @@ afterEach(async () => {
 
 const noop = () => undefined;
 let paneWidth = 0;
-// The running line's counts call this (App.tsx `openAgents` / `openCommands`).
+// A tray command with no terminal calls this (App.tsx `openTrayCommand`).
 let reveal: ((section: "subagents" | "tasks") => void) | undefined;
 
 /// The pane's pieces as App.tsx places them: the toggle last in the header's tools, Session Info
@@ -941,7 +953,8 @@ test("Connectors says how many to reconnect, else how many connected, else None;
   const rows = [...section(container, "connectors")!.querySelectorAll(".acpmux-session-info-row")].map(
     (row) => row.textContent,
   );
-  expect(rows).toEqual(["githubConnected", "linearNeeds reconnect", "sentryConnecting"]);
+  // A server still connecting says nothing until that lasts the shared bound (lasting.ts `CONNECTION_QUIET_MS`).
+  expect(rows).toEqual(["githubConnected", "linearNeeds reconnect", "sentry"]);
 
   // None failed: how many the harness loaded, never a green connected count.
   await render(container, {
@@ -1268,7 +1281,7 @@ test("Subagents names each running one on its line, and folds the ended ones int
     root.render(<SessionInfo agents={agents} onOpenSubagent={(id) => shown.push(id)} />);
   });
   const subagents = section(container, "subagents")!;
-  expect(meta(subagents)).toBe("3 running · 1 failed · 39 done");
+  expect(meta(subagents)).toBe("1 failed · 3 · 39 done");
   // No row of identical avatars and no "+N": the running ones by name, oldest first.
   expect(subagents.querySelector(".acpmux-session-info-subagents__running .cv-subagent-avatar")).toBeNull();
   expect(subagents.textContent).not.toMatch(/\+\d/);
@@ -1371,7 +1384,7 @@ test("the chats the agent started are listed under Subagents, counted with them,
     );
   });
   const subagents = section(container, "subagents")!;
-  expect(meta(subagents)).toBe("1 waiting · 3 running · 1 failed · 2 done");
+  expect(meta(subagents)).toBe("1 waiting · 1 failed · 3 · 2 done");
   // Running: the chat waiting on the person first, then the subagent and the running chats.
   expect(lines(subagents)).toEqual([
     ["Rename the settings keys", "Waiting"],
@@ -1411,7 +1424,7 @@ test("with only started chats Subagents is still drawn, and the running line's c
   // What it runs (Subagents) comes after Context and before the Show more line's Usage and Connectors
   // (sectionOrder.ts DEFAULT_ORDER). The chat's code edits are no Outputs (chatOutputs.ts).
   expect(sectionIds(container)).toEqual(["environment", "context", "subagents", "usage", "connectors"]);
-  expect(meta(section(container, "subagents"))).toBe("1 running · 1 done");
+  expect(meta(section(container, "subagents"))).toBe("1 · 1 done");
   // Closed, with Subagents folded: the running line's "2 subagents" opens it at Subagents.
   await click(head(section(container, "subagents")!));
   await click(toggle(container)!);
@@ -1481,7 +1494,7 @@ test("a Cloud VM chat's children, as its machine's daemon lists them with the ch
     root.render(<SessionInfo sessions={children} onOpenSession={(id) => opened.push(id)} />);
   });
   const subagents = section(container, "subagents")!;
-  expect(meta(subagents)).toBe("1 running · 1 done");
+  expect(meta(subagents)).toBe("1 · 1 done");
   await click(endedRow(subagents)!);
   expect(lines(subagents)).toEqual([
     ["Run the e2e suite", "Running"],

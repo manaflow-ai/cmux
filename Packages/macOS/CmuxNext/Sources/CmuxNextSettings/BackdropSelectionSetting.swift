@@ -2,7 +2,7 @@ public import Foundation
 public import CmuxNextDesign
 
 /// Persists the selected background: bundled art, a macOS system wallpaper (`system:<path>`), the
-/// person's own image (`file:<path>`), the desktop picture (`desktop`), the paintings shuffled
+/// person's own image (`file:<path>`), the desktop picture (`desktop`), a live wallpaper (`live:<id>`), the paintings shuffled
 /// (`daily`), the pictures of a folder shuffled (`folder:<absolute path>`), or `none`. Unset is
 /// ``defaultSelection``. A shuffle turns as often as `appearance.backgroundRotation` says.
 public struct BackdropSelectionSetting: Sendable {
@@ -50,9 +50,7 @@ public struct BackdropSelectionSetting: Sendable {
     /// by the snapshot parser, Settings writes and the exported schema's
     /// domain marker so all entry points accept the same values.
     static func accepts(_ value: JSONValue) -> Bool {
-        guard let raw = value.stringValue else { return false }
-        return raw == "none" || raw == dailyID || raw == appearanceID || raw == scheduleID || folderPath(raw) != nil
-            || BackdropSelection(id: raw) != nil
+        SettingsRust.answer("backdrop.accepts", ["kind": .string("selection"), "value": value])["valid"]?.boolValue ?? false
     }
 
     /// The background when neither key is set, or the set one is invalid: off. Art is opt-in
@@ -70,7 +68,7 @@ public struct BackdropSelectionSetting: Sendable {
         if let value = root.value(at: Self.configPath) {
             guard let raw = value.stringValue else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.background",
-                                                      message: "expected none, daily, desktop, bundled art, folder:<absolute path>, or an absolute system wallpaper or image path"))
+                                                      message: "expected none, daily, desktop, bundled art, live:<id>, folder:<absolute path>, or an absolute system wallpaper or image path"))
                 return Self.defaultSelection
             }
             if raw == "none" { return nil }
@@ -87,7 +85,7 @@ public struct BackdropSelectionSetting: Sendable {
             if raw == Self.scheduleID { return nil }
             guard let selection = BackdropSelection(id: raw) else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.background",
-                                                      message: "expected none, daily, desktop, bundled art, folder:<absolute path>, or an absolute system wallpaper or image path"))
+                                                      message: "expected none, daily, desktop, bundled art, live:<id>, folder:<absolute path>, or an absolute system wallpaper or image path"))
                 return Self.defaultSelection
             }
             return selection

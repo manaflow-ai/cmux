@@ -4,7 +4,7 @@
 # commit and never sees the push token.
 #
 # The workflow's Changed areas step decides the repairs (GRAPH, STRINGS, SDK, CAPABILITIES, SHORTCUTS, APPHOST,
-# ACTIONS, SETTINGS, RATCHETS, CLOUD, LOCKS, FMT: true or false); the Mac job hands on its verdicts
+# ACTIONS, SETTINGS, RATCHETS, CLOUD, LOCKS, ACPMUXIR, IOSFFI, FMT, CLIPPY: true or false); the Mac job hands on its verdicts
 # (EXPORTS_VERIFIED, SETTINGS_VERIFIED) and its exports (EXPORTS_DIR, when it made any); the
 # webviews-fmt job hands on WEBVIEWS_PATCH. The CI target graph is dumped from REPO's own manifest
 # in the pinned Swift 6.2 Linux container (ci-target-graph.py).
@@ -23,6 +23,12 @@
 # (cmux-tui/spec/resource-operations-v2.json, backend/catalog/cloud-operations.json) never waits on
 # the Mac exports. #32097 changed resource-operations-v2.json while the Mac exports were deferred,
 # and app platform stayed red.
+#
+# CLIPPY=true runs cargo clippy --fix first (autofix-clippy.sh --affected: machine-applicable lints
+# only, on the crates the changed paths in the file can affect (cargo_affected.py), from
+# CLIPPY_CHANGED), so the cargo fmt after it sees its edits. A round on a moved tip makes it again
+# from the same paths. Until 2026-11-20 only the pull request job ran it, and a base clippy red was
+# fixed by hand in every pull request it blocked (#48173, #48184, #48186).
 #
 # Usage: scripts/cmux-next/base-autofix-repair.sh REPO
 # CMUX_BASE_AUTOFIX_SCRIPT: the repair (default: base-autofix.sh beside this one).
@@ -78,5 +84,11 @@ fi
 [[ "${RATCHETS:-}" == true ]] && args+=(--ratchets)
 [[ "${CLOUD:-}" == true ]] && args+=(--cloud-clients)
 [[ "${LOCKS:-}" == true ]] && args+=(--locks)
+[[ "${ACPMUXIR:-}" == true ]] && args+=(--acpmux-ir)
+[[ "${IOSFFI:-}" == true ]] && args+=(--ios-ffi)
 [[ "${FMT:-}" == true ]] || args+=(--no-fmt)
+if [[ "${CLIPPY:-}" == true && -n "${CLIPPY_CHANGED:-}" && -s "$CLIPPY_CHANGED" ]]; then
+  "${CMUX_BASE_AUTOFIX_CLIPPY:-$here/autofix-clippy.sh}" --affected "$repo" <"$CLIPPY_CHANGED" \
+    || echo "left: cargo clippy --fix failed (see the job log)"
+fi
 "$autofix" ${args[@]+"${args[@]}"} "$repo"

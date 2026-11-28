@@ -1,0 +1,22 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/paper-look",
+  "name": "Paper",
+  "tagline": "Warm and roomy, easy on the eyes.",
+  "description": "Warm and roomy for reading chats: serif replies on paper-colored pages and soft rounded prompts. Remove it and everything you had comes back.",
+  "version": "1.0.1",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux-paper-look",
+
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "paper",
+    "agentPane.display.font.preset": "serif",
+    "agentPane.display.font.size": 15,
+    "agentPane.display.font.lineHeight": 1.7,
+    "agentPane.display.width": 720,
+    "sidebar.density": "comfortable",
+    "sidebar.workspaceRow.icon": true,
+    "sidebar.workspaceRow.lastActivity": false
+  }
+}

@@ -18,6 +18,11 @@ export type NewTabIntent =
 export type NewTabIntentOptions = {
   /// The user's home folder, for `~` and `~/path`; without it those are text.
   home?: string;
+  /// The agent's command and skill names, without the `/` (the names the field draws blue). A
+  /// `/name` whose first word is one of them is a prompt, not a file at the disk's root (user
+  /// 2026-11-26: a picked `/emil-ask-emil` offered `file:///emil-ask-emil` on top). The page alone
+  /// knows them; the Swift `NewTabIntent` (CLI, MCP) has no agent list.
+  commands?: ReadonlySet<string>;
 };
 
 /// The leading character that turns the tab into a terminal.
@@ -102,7 +107,7 @@ export function classifyNewTabInput(input: string, options: NewTabIntentOptions 
   if (!trimmed) return { kind: "none" };
   if (containsPairingLink(trimmed)) return { kind: "refused", reason: "pairing_link" };
   if (trimmed.startsWith(TERMINAL_PREFIX)) return { kind: "terminal", command: trimmed.slice(1).trim() };
-  const url = newTabURL(trimmed, options.home);
+  const url = newTabURL(trimmed, options.home, options.commands);
   if (url) return { kind: "url", url };
   return { kind: "prompt", text: trimmed };
 }
@@ -110,12 +115,14 @@ export function classifyNewTabInput(input: string, options: NewTabIntentOptions 
 /// The address to load for `text`, or undefined for text. BrowserURLResolver's rules, plus
 /// Chromium internal pages (`chrome://`, `chrome-extension://`, `about:` aliases) in canonical
 /// form, which the app opens in a Chromium tab; then the file-name filter.
-export function newTabURL(input: string, home?: string): string | undefined {
+export function newTabURL(input: string, home?: string, commands?: ReadonlySet<string>): string | undefined {
   const trimmed = input.trim();
   if (!trimmed) return undefined;
+  // Before the wrap breaks go: `/emil-color` on its own line is no part of `/emil-colornow`.
+  if (namesCommand(trimmed, commands)) return undefined;
   const text = removingWrapBreaks(trimmed);
   if (text === undefined) return undefined;
-  const file = fileURL(text, home);
+  const file = fileURL(text, home, commands);
   if (file !== undefined) return file;
   if (/\s/u.test(text)) return undefined;
   const scheme = explicitScheme(text);
@@ -138,7 +145,19 @@ function removingWrapBreaks(text: string): string | undefined {
   return /\s/u.test(compacted) ? undefined : compacted;
 }
 
-function fileURL(text: string, home?: string): string | undefined {
+/// `/resume <id>`, `/model opus`: a slash command with its arguments, whose first word has no
+/// second `/`. Never a file (user 2026-11-20: New Tab offered `file:///resume%20<id>` on top); a
+/// path with a space after a folder (`/Users/me/My Notes.txt`) still is one.
+const isSlashCommandText = (text: string) => /^\/[^/\s]+\s/u.test(text);
+
+/// `/emil-color`, `/cmux:cmux-chat`: a first word that names one of the agent's `commands`, alone too.
+const namesCommand = (text: string, commands?: ReadonlySet<string>) => {
+  const name = /^\/([^/\s]+)(?:\s|$)/u.exec(text)?.[1];
+  return name !== undefined && !!commands?.has(name);
+};
+
+function fileURL(text: string, home?: string, commands?: ReadonlySet<string>): string | undefined {
+  if (isSlashCommandText(text) || namesCommand(text, commands)) return undefined;
   if (text.startsWith("/")) return "file://" + encodePath(text);
   if (!home || (text !== "~" && !text.startsWith("~/"))) return undefined;
   const base = home.endsWith("/") ? home : home + "/";

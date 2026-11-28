@@ -45,10 +45,11 @@ import Testing
         push(store, state: "running")
         #expect(label(store) == nil)
 
+        // A redial on its way says nothing (Leo, 2026-11-24: "let's just keep optimistically connecting").
         push(store, state: "reconnecting")
-        #expect(label(store) == "Reconnecting to the shell…")
+        #expect(label(store) == nil)
         push(store, state: "adopting")
-        #expect(label(store) == "Reconnecting to the shell…")
+        #expect(label(store) == nil)
 
         // The shell may still run and the daemon keeps retrying: no
         // "Close the tab to end it" dead end (Oct 30, an ssh tab).
@@ -66,28 +67,21 @@ import Testing
         #expect(label(store) == "Process exited")
     }
 
-    /// After every update handoff the new daemon marks each tab `adopting`
-    /// until it takes the shell's host back, and every visible terminal said
-    /// "Reconnecting to the shell…" at once. A transient reconnect now waits
-    /// out a grace that covers a normal adopt (a slow host: 1 s of connect
-    /// retries, 2 s of handshake, after up to 2 s for the owner to say ready),
-    /// and never shows if it clears within it. Lasting states show at once.
-    @Test func aHandoffAdoptionStaysQuietUnlessItLasts() async throws {
-        let grace = TerminalStatusBanner.reconnectingRevealDelay
-        #expect(grace >= 5)
-        #expect(TerminalStatusBanner.revealDelay(for: .connected, stall: .reconnecting) == grace)
-        #expect(TerminalStatusBanner.revealDelay(for: .disconnected(.connectionLost, reconnecting: true), stall: nil) == grace)
+    /// After every update handoff the new daemon marks each tab `adopting` until it takes the shell's host
+    /// back. That said "Reconnecting to the shell…" once it lasted 10 s; now it never does, at any age (Leo,
+    /// 2026-11-24: "all the connecting... indicators and the graying out of workspaces, nah let's not do that").
+    /// Lasting states a person can act on still show.
+    @Test func aHandoffAdoptionNeverSaysReconnecting() async throws {
         #expect(TerminalStatusBanner.revealDelay(for: .restoring, stall: nil) == TerminalStatusBanner.restoringRevealDelay)
-        #expect(TerminalStatusBanner.revealDelay(for: .restoring, stall: .reconnecting) == grace)
-        // Lasting: the quiet retries ran out, the daemon gave up, another build owns the shell, it ended.
-        // A drop that is not reconnecting by itself waits as long: a daemon restart drops every pane at once.
+        #expect(TerminalStatusBanner.revealDelay(for: .restoring, stall: .reconnecting) == TerminalStatusBanner.restoringRevealDelay)
         #expect(TerminalStatusBanner.revealDelay(for: .disconnected(.connectionLost, reconnecting: false), stall: nil)
             == TerminalStatusBanner.disconnectedRevealDelay)
         #expect(!TerminalStatusBanner.isInBetween(.disconnected(.connectionLost, reconnecting: false), stall: nil))
         #expect(TerminalStatusBanner.revealDelay(for: .connected, stall: .linkLost) == nil)
         #expect(TerminalStatusBanner.revealDelay(for: .connected, stall: .otherBuild) == nil)
-        #expect(TerminalStatusBanner.revealDelay(for: .exited, stall: .reconnecting) == nil)
-        #expect(TerminalStatusBanner.revealDelay(for: .disconnected(.turnedOffByOrganization, reconnecting: true), stall: nil) == nil)
+        #expect(TerminalStatusBanner.text(for: .connected, stall: .reconnecting) == nil)
+        #expect(TerminalStatusBanner.text(for: .disconnected(.connectionLost, reconnecting: true)) == nil)
+        #expect(TerminalStatusBanner.text(for: .disconnected(.turnedOffByOrganization, reconnecting: true)) == "Turned off by your organization")
 
         let store = store()
         let clock = ManualClock()
@@ -99,43 +93,31 @@ import Testing
         }
         push(store, state: "adopting")
         show()
-        #expect(view.statusText == nil, "the adopting label waits, it does not show at once")
-        #expect(view.statusLabelWaits)
-        // Adopted within the grace: the label never showed and nothing waits.
-        push(store, state: "running")
-        show()
         #expect(view.statusText == nil)
-        #expect(!view.statusLabelWaits)
-
-        // An adoption that lasts past the grace shows its label.
-        push(store, state: "adopting")
-        show()
-        try await clock.waitForSleeper()
-        clock.advance(by: .seconds(grace))
-        try await Self.until { view.statusText != nil }
-        #expect(view.statusText == "Reconnecting to the shell…")
+        #expect(!view.statusLabelWaits, "no wait that could end in a label")
+        clock.advance(by: .seconds(3_600))
+        for _ in 0..<1_000 { await Task.yield() }
+        #expect(view.statusText == nil, "an adoption that lasts an hour still says nothing")
 
         // A lasting failure shows at once.
-        push(store, state: "running")
-        show()
         push(store, state: "failed")
         show()
         #expect(view.statusText == "cmux lost its link to the shell · Still retrying")
         #expect(!view.statusLabelWaits)
 
-        // A dropped view's "Reconnecting…" waits too; its "Disconnected" waits the same delay
-        // from the same start, then says its words (not the in-between mark).
+        // A dropped view's reattach says nothing; its "Disconnected" waits its delay, then says its words.
         view.showShellStall(nil)
         view.showStatus(.connected)
         view.showStatus(.disconnected(.connectionLost, reconnecting: true))
         #expect(view.statusText == nil)
-        #expect(view.statusLabelWaits)
+        #expect(!view.statusLabelWaits)
         view.showStatus(.disconnected(.connectionLost, reconnecting: false))
         #expect(view.statusText == nil, "a drop that heals within the delay never shows")
         #expect(view.statusLabelWaits)
+        try await clock.waitForSleeper()
         clock.advance(by: .seconds(TerminalStatusBanner.disconnectedRevealDelay))
         try await Self.until { view.statusText != nil }
-        #expect(view.statusText == "Disconnected: connection lost · Click or type to reconnect")
+        #expect(view.statusText == "Disconnected: connection lost · Still retrying")
         #expect(view.statusLabel.banner?.showsMark == false)
     }
 
@@ -157,36 +139,29 @@ import Testing
         try await clock.waitForSleeper()
         clock.advance(by: .seconds(TerminalStatusBanner.disconnectedRevealDelay))
         try await Self.until { view.statusText != nil }
-        #expect(view.statusText == "Disconnected: the stream ended · Click or type to reconnect")
+        #expect(view.statusText == "Disconnected: the stream ended · Still retrying")
     }
 
-    /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up". A daemon restart, a
-    /// handoff or a drop that heals within 10 s puts no "Reconnecting…" mark on any pane: the pane keeps
-    /// its last screen and comes back by itself. The mark showed at 5 s on every visible pane.
-    @Test func aReconnectThatHealsWithinTenSecondsShowsNoMark() async throws {
-        #expect(TerminalStatusBanner.reconnectingRevealDelay >= 10)
+    /// A daemon restart, a handoff or a drop puts no "Reconnecting…" mark on any pane, however long it lasts: the
+    /// pane keeps its last screen and comes back by itself (Leo, 2026-11-24: "let's just keep optimistically
+    /// connecting and reinforcing the connection and sync-ups can be satisfying instead of making the user think
+    /// they're constsntly suspended in a state of connection limbo"). The mark showed at 10 s.
+    @Test func aReconnectNeverShowsAMark() async throws {
         let clock = ManualClock()
         let view = TerminalHostView(clock: clock)
         view.showStatus(.connected)
         view.showStatus(.disconnected(.connectionLost, reconnecting: true))
-        try await clock.waitForSleeper()
-        clock.advance(by: .milliseconds(9_900))
+        clock.advance(by: .seconds(3_600))
         for _ in 0..<1_000 { await Task.yield() }
-        #expect(view.statusText == nil, "a reconnect under 10 s shows nothing")
-        view.showStatus(.connected)
-        #expect(view.statusText == nil)
+        #expect(view.statusText == nil, "a reconnect says nothing, at any age")
         #expect(!view.statusLabelWaits)
 
-        // The daemon's own word that it re-adopts the shell waits as long.
+        // The daemon's own word that it re-adopts the shell says nothing either.
         view.showShellStall(.reconnecting)
-        try await clock.waitForSleeper()
-        clock.advance(by: .milliseconds(9_900))
+        clock.advance(by: .seconds(3_600))
         for _ in 0..<1_000 { await Task.yield() }
-        #expect(view.statusText == nil, "a re-adoption under 10 s shows nothing")
-        // One that lasts shows, once.
-        clock.advance(by: .milliseconds(100))
-        try await Self.until { view.statusText != nil }
-        #expect(view.statusText == "Reconnecting to the shell…")
+        #expect(view.statusText == nil, "a re-adoption says nothing, at any age")
+        #expect(!view.statusLabelWaits)
     }
 
     /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up". "Disconnected" over the
@@ -214,37 +189,33 @@ import Testing
         #expect(view.statusText == nil)
         clock.advance(by: .milliseconds(100))
         try await Self.until { view.statusText != nil }
-        #expect(view.statusText == "Disconnected: the stream ended · Click or type to reconnect")
+        #expect(view.statusText == "Disconnected: the stream ended · Still retrying")
         #expect(view.statusLabel.banner?.showsMark == false)
     }
 
-    /// Every connection label waits one shared quiet time instead of picking its own: the terminal's
-    /// Reconnecting and Disconnected and the sidebar's Connecting.
+    /// Every connection label that still shows waits one shared quiet time instead of picking its own.
     @Test func connectionLabelsShareOneQuietTime() {
         #expect(QuietHold.connectionDelay == .seconds(10))
         #expect(TerminalStatusBanner.disconnectedRevealDelay == QuietHold.connectionDelaySeconds)
-        #expect(TerminalStatusBanner.reconnectingRevealDelay == QuietHold.connectionDelaySeconds)
         #expect(SidebarPlaceholderGrace.connectingDelay == QuietHold.connectionDelay)
     }
 
-    /// Quiet re-attaches that run out turn "Reconnecting…" into "Disconnected" mid-wait: the label still
-    /// shows only 10 s after the drop began, never a fresh or shorter wait from the change.
-    @Test func aDisconnectAfterReconnectingWaitsFromTheDrop() async throws {
+    /// Quiet re-attaches that run out turn a silent reattach into "Disconnected": the label waits its full
+    /// delay from that change (the reattach before it said nothing and started no wait).
+    @Test func aDisconnectAfterReconnectingWaitsItsDelay() async throws {
         let clock = ManualClock()
         let view = TerminalHostView(clock: clock)
         view.showStatus(.connected)
         view.showStatus(.disconnected(.connectionLost, reconnecting: true))
-        try await clock.waitForSleeper()
         clock.advance(by: .seconds(5))
         view.showStatus(.disconnected(.connectionLost, reconnecting: false))
-        for _ in 0..<1_000 { await Task.yield() }
-        #expect(view.statusText == nil, "the change to Disconnected does not cut the wait short")
-        clock.advance(by: .milliseconds(4_900))
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(9_900))
         for _ in 0..<1_000 { await Task.yield() }
         #expect(view.statusText == nil)
         clock.advance(by: .milliseconds(100))
         try await Self.until { view.statusText != nil }
-        #expect(view.statusText == "Disconnected: connection lost · Click or type to reconnect")
+        #expect(view.statusText == "Disconnected: connection lost · Still retrying")
     }
 
     /// A state the app knows is final waits for nothing: the session ended (its shell exited, its host was
@@ -270,21 +241,17 @@ import Testing
         #expect(!off.statusLabelWaits)
     }
 
-    /// "Restoring…" turning into a reconnecting stall keeps the longer wait from the same start: the label
-    /// shows when the clock reaches the start plus the longer delay, not that delay after the change.
-    @Test func aLongerWaitKeepsItsStart() async throws {
+    /// "Restoring…" under a reconnecting stall says "Restoring…" after its own short delay, never "Reconnecting
+    /// to the shell…".
+    @Test func aRestoreUnderARedialSaysOnlyRestoring() async throws {
         let clock = ManualClock()
         let view = TerminalHostView(clock: clock)
         view.showStatus(.restoring)
-        try await clock.waitForSleeper()
-        clock.advance(by: .milliseconds(300))
         view.showShellStall(.reconnecting)
         try await clock.waitForSleeper()
-        #expect(clock.sleeperDeadlines == [ManualClock.Instant(offset: .seconds(TerminalStatusBanner.reconnectingRevealDelay))],
-                "the wait ends at its first start plus the longer delay")
-        clock.advance(by: .seconds(TerminalStatusBanner.reconnectingRevealDelay) - .milliseconds(300))
+        clock.advance(by: .seconds(TerminalStatusBanner.restoringRevealDelay))
         try await Self.until { view.statusText != nil }
-        #expect(view.statusText == "Reconnecting to the shell…")
+        #expect(view.statusText == "Restoring…")
     }
 
     /// Waits (a few main-actor turns) until `condition` holds: the reveal runs in the task the

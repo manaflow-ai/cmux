@@ -61,6 +61,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_http  # noqa: E402
 import pr_status  # noqa: E402
 
 LEGACY_MARKER = "<!-- cmux-red-checks -->"
@@ -82,7 +83,7 @@ NAMED = 3  # new red tests a line names before "(+N more)"
 # Jobs that only gather other jobs' verdicts, each with the jobs it gathers (its `needs`, as check names): never
 # compared with the base on their own. react-apps-check comes first: Web status gathers it too.
 AGGREGATES = {
-    "web / react-apps-check": re.compile(r"^web / (?:react-apps-(?:base-)?check \(\d+\)|react-doctor)$"),
+    "web / react-apps-check": re.compile(r"^web / react-apps-(?:base-)?check \(\d+\)$"),
     "web / Web status": re.compile(r"^web / (?!Web status$)"),  # it needs every routed web job
 }
 # A gathered job that ended with no verdict: the aggregate failed on it, and no base red explains that. Skipped is
@@ -170,8 +171,9 @@ class GitHub:
                                      headers={"Authorization": f"Bearer {self.token}",
                                               "Accept": "application/vnd.github+json",
                                               "X-GitHub-Api-Version": "2022-11-28"})
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read() or b"null")
+        # A read is asked again on a passing refusal (gh_http); a write is sent once.
+        _, body, _ = gh_http.request(req, 30, raise_errors=True)
+        return json.loads(body or b"null")
 
     def pages(self, path, key=None):
         out, page = [], 1
@@ -381,6 +383,47 @@ def git_head(pr, remote=None):
     return sha if re.fullmatch(r"[0-9a-f]{40}", sha) else None
 
 
+def status_sections(repo, pr):
+    """Every section of the status comment, from one read of the comments."""
+    found = pr_status.bot_comments(pr_status.list_comments(pr_status.http_api, repo, pr), pr_status.MARKER)
+    return pr_status.parse(found[0]["body"]) if found else {}
+
+
+def changed_files(pr, remote=None):
+    """The pull request's changed files from its merge ref, fetched without blobs (no API call), or None."""
+    remote = remote or os.environ.get("PR_HEAD_REMOTE") or "origin"
+    ref = f"refs/ran-line/{int(pr)}"
+    try:
+        from ci_process_tree import run_bounded  # noqa: PLC0415 - a timeout stops git's whole tree
+        shallow = run_bounded(["git", "rev-parse", "--is-shallow-repository"], capture_output=True, text=True,
+                              timeout=60, check=True).stdout.strip() == "true"
+        run_bounded(["git", "fetch", "--quiet", "--no-tags", *(["--depth=2"] if shallow else []), "--filter=blob:none", remote,
+                     f"+refs/pull/{int(pr)}/merge:{ref}"], capture_output=True, timeout=60, check=True)
+        out = run_bounded(["git", "diff", "--no-renames", "--name-only", f"{ref}^1", ref], capture_output=True,
+                          text=True, timeout=30, check=True).stdout
+    except (ImportError, OSError, subprocess.SubprocessError, ValueError):
+        return None
+    return [line for line in out.splitlines() if line]
+
+
+def write_ran_line(gh, pr, sha, existing):
+    """The `ran` line (scripts/ci/pr_ran_line.py): which workflows this diff started and why, written only when it
+    changed and only for the current head. Advisory: anything it cannot read leaves the line as it was."""
+    changed = changed_files(pr)
+    if not changed:
+        return
+    try:
+        import pr_ran_line  # noqa: PLC0415 - reads PyYAML, which only this line needs
+        text = pr_ran_line.ran_line(pr_ran_line.ROOT, os.environ.get("BASE_REF") or "feat-cmux-next", changed)
+    except Exception as err:  # noqa: BLE001 - an advisory line never fails the caller
+        print(f"pr-red-checks: ran line not computed ({str(err)[:200]})", file=sys.stderr)
+        return
+    if text == existing or live_head(gh, pr) != sha:
+        return
+    pr_status.upsert(gh.repo, int(pr), "ran", text)
+    print(f"pr-red-checks: #{pr} {sha[:12]}: {text[:200]}")
+
+
 def live_head(gh, pr):
     """The pull request's head now: git first, the REST pull request read when git fails."""
     head = git_head(pr)
@@ -394,7 +437,9 @@ def main():
     gh = GitHub(os.environ.get("GITHUB_API_URL", "https://api.github.com"), os.environ["GITHUB_REPOSITORY"],
                 os.environ["GITHUB_TOKEN"])
     pr, sha = os.environ["PR_NUMBER"], os.environ["HEAD_SHA"]
-    current = pr_status.section(gh.repo, int(pr), "checks")
+    sections = status_sections(gh.repo, int(pr))
+    current = sections.get("checks")
+    write_ran_line(gh, pr, sha, sections.get("ran"))
     if os.environ.get("OWN_CHECKS_GREEN") == "true" and (current is None or "red: " not in current):
         # The caller's own tracked checks passed and the line names no red: reading the head's
         # check runs could only find another workflow's red, which that workflow's own call (after

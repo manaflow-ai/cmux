@@ -38,13 +38,19 @@ public final class ChiefSources {
         case create
         /// The chief's Cloud brain is off: turn it on (``turnOn(_:)``).
         case turnOn(CloudChief)
-        /// The service failed or could not be reached: look again (``refresh()``).
+        /// The service failed or could not be reached: Home looks again on its own (``retryLookup()``
+        /// under an ``AutoRetry``), with no button.
         case retry
     }
 
     public internal(set) var cloudState: CloudState = .off
     /// The account's active Cloud Chiefs (`chief.list`), in the service's order.
     public private(set) var cloudChiefs: [CloudChief] = []
+    /// Each team host's name by its id (`team.hosts.list`), read while a Cloud Chief is placed on a
+    /// paired server, so Home tags that Chief with the server's name as the Mac does (its paired
+    /// servers come from the same list); empty until read.
+    public private(set) var serverNames: [String: String] = [:]
+    private var serverNamesRead: Task<Void, Never>?
     /// A create or turn-on request is running.
     public private(set) var isChanging = false
     /// Why the last create or turn-on failed (the service's answer); nil after a success.
@@ -160,7 +166,7 @@ public final class ChiefSources {
     /// Signed in: finds the user's Cloud Chief with this account's access
     /// token, and looks again whenever the app returns to the foreground
     /// while it has none.
-    public func start(userID: String, config: ChiefCloudConfig? = .current(),
+    public func start(userID: String, config: ChiefCloudConfig?,
                       accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String) {
         guard let config else {
             stop()
@@ -172,7 +178,7 @@ public final class ChiefSources {
         }
         self.userID = userID
         useHistory(of: userID)
-        http = ChiefCloudHTTP(base: config.baseURL, accessToken: accessToken)
+        http = ChiefCloudHTTP(base: config.baseURL, accessToken: accessToken, buildSpace: config.buildSpace)
         #if canImport(UIKit)
         if foregroundObserver == nil {
             foregroundObserver = NotificationCenter.default.addObserver(
@@ -230,6 +236,9 @@ public final class ChiefSources {
         cloudConversations = [:]
         cloudState = .off
         cloudChiefs = []
+        serverNamesRead?.cancel()
+        serverNamesRead = nil
+        serverNames = [:]
         changeError = nil
         brainsAvailable = false
         turningOnChief = nil
@@ -298,7 +307,20 @@ public final class ChiefSources {
 
     /// Reads `chief.list` (and the chief's brain state) and points the
     /// Cloud session at the preferred chief's main conversation.
-    public func refresh() {
+    public func refresh() { startLookup(showingLooking: true) }
+
+    /// One automatic look after a failed one (``CloudAction/retry``), for Home's ``AutoRetry``:
+    /// the failure stays as it is while it runs (no flicker to "looking" on each attempt), and
+    /// this returns once the look has answered. A failed look was only looked at again on a
+    /// return to the foreground or a network change before.
+    public func retryLookup() async {
+        guard case .unavailable(_, .retry?) = cloudState else { return }
+        startLookup(showingLooking: false)
+        let running = lookup
+        await running?.value
+    }
+
+    private func startLookup(showingLooking: Bool) {
         guard let http, let userID else {
             // No read follows to replace the new Chief's row.
             creatingChief = nil
@@ -307,13 +329,34 @@ public final class ChiefSources {
         generation += 1
         let current = generation
         lookup?.cancel()
-        if !isCloudReady { cloudState = .looking }
+        if showingLooking, !isCloudReady { cloudState = .looking }
         let selected = selectedChiefID
         lookup = Task { [weak self] in
             let found = await Self.lookUp(http, selected: selected)
             guard let self, self.generation == current, !Task.isCancelled else { return }
             self.apply(found, userID: userID, http: http)
         }
+    }
+
+    /// Reads ``serverNames`` once a listed Chief is placed on a host it has no name for.
+    private func readServerNames(_ http: ChiefCloudHTTP) {
+        let hosts = Set(cloudChiefs.compactMap { $0.brainPlace?.host })
+        guard serverNamesRead == nil, !hosts.isSubset(of: Set(serverNames.keys)) else { return }
+        serverNamesRead = Task { [weak self] in
+            let value = try? await Self.read(http, "team.hosts.list", [:])
+            guard let self, !Task.isCancelled else { return }
+            self.serverNamesRead = nil
+            if let names = value.map(Self.hostNames) { self.serverNames = names }
+        }
+    }
+
+    /// `team.hosts.list`'s hosts, name by id (a host with no name is left out).
+    nonisolated static func hostNames(_ value: [String: Any]) -> [String: String] {
+        var names: [String: String] = [:]
+        for host in value["hosts"] as? [[String: Any]] ?? [] {
+            if let id = host["id"] as? String, let name = host["name"] as? String, !name.isEmpty { names[id] = name }
+        }
+        return names
     }
 
     private func apply(_ found: Lookup, userID: String, http: ChiefCloudHTTP) {
@@ -330,6 +373,7 @@ public final class ChiefSources {
             return
         }
         if let chiefs = found.chiefs { cloudChiefs = chiefs }
+        readServerNames(http)
         if let available = found.brainsAvailable { brainsAvailable = available }
         defer { syncCloudChiefs(userID: userID, http: http) }
         switch found {
@@ -445,6 +489,7 @@ public final class ChiefSources {
                 record = fresh
             }
         }
+        // retry-prompt-ok: a write conflict on the person's own change; they choose whether it still applies
         throw ChiefCloudError.badReply(String(localized: "This Chief changed on another device. Try again."))
     }
 
@@ -532,6 +577,21 @@ public final class ChiefSources {
         cloudState = .ready(chief)
         cloud.use(ChiefMockBackend(identity: identity), identity: identity)
     }
+
+    /// Demo only (`chief-list` scenes): the account's Cloud Chiefs `chiefs`, `open` the one this phone has open,
+    /// over the mock Chief, so Home lists every one of them as the Mac's list does.
+    public func showDemoCloudChiefs(_ chiefs: [(name: String, isDefault: Bool, server: String?)], open: Int) {
+        let records = chiefs.enumerated().map { index, chief in
+            CloudChief(id: "agent_demo_cloud_\(index)", displayName: chief.name, isDefault: chief.isDefault,
+                       mainConversation: "conv_demo_cloud_\(index)", rev: 1,
+                       brainPlace: chief.server.map { CloudChief.BrainPlace(host: $0, install: "demo") })
+        }
+        guard records.indices.contains(open) else { return }
+        let identity = records[open].identity(userID: "user_demo")
+        cloudChiefs = records
+        cloudState = .ready(records[open])
+        cloud.use(ChiefMockBackend(identity: identity), identity: identity)
+    }
     #endif
 
     // MARK: Lookup
@@ -558,8 +618,9 @@ public final class ChiefSources {
     }
 
     nonisolated static let notOnThisServer = String(localized: "Cloud Chief is not available on this server.")
-    /// The service failed (a 5xx, an unexpected status, a refused read): no status code, and a Try Again.
-    nonisolated static let unavailableNow = String(localized: "Cloud Chief isn't available right now. Try again in a moment.")
+    /// The service failed (a 5xx, an unexpected status, a refused read): no status code; Home looks
+    /// again on its own and says this only past the quiet bound.
+    nonisolated static let unavailableNow = String(localized: "Cloud Chief isn't available right now.")
 
     /// A well-formed agent id no account owns: the brain route answers it
     /// 403 (forbidden) where Chief brains run, and 404 where they do not.

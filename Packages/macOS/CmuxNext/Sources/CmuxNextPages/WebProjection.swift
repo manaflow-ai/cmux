@@ -162,14 +162,14 @@ public final class WebProjection {
             servedFrom.setObject(want, forKey: webView)
             stale.append(webView)
         }
-        for webView in stale { webView.reload() }
+        WebBundleServedViews.swapReload(stale)
         if !stale.isEmpty { log.notice("reloaded \(stale.count) page(s) for their window's server") }
         return stale.count
     }
 
     /// The name of a projection window's first workspace.
     public static func workspaceName(_ worktree: String?) -> String {
-        let folder = worktree.map { URL(fileURLWithPath: $0).lastPathComponent }.flatMap { $0.isEmpty || $0 == "/" ? nil : $0 }
+        let folder = worktree.map { ($0 as NSString).lastPathComponent }.flatMap { $0.isEmpty || $0 == "/" ? nil : $0 }
         return folder.map { String(format: t("projection.workspace.named", "Projection: %@"), $0) } ?? t("projection.workspace", "Projection")
     }
 
@@ -182,6 +182,6 @@ public final class WebProjection {
     static var noTest: String { t("projection.refusal.noTest", "This projection has no test. Pass one with --test.") }
 
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 }

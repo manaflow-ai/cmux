@@ -5,7 +5,9 @@
 //!
 //! - Only that failure ([`crate::claude_auth::is_revoked_token`]), or a chat the gateway fallback
 //!   just moved onto cmux's gateway ([`crate::claude_auth::is_gateway_fallback`], `reason:
-//!   "gateway_fallback"`), only on the chat's first turn
+//!   "gateway_fallback"`), or a chat whose agent started before its Cloud machine's model route
+//!   resolved and restarts on it ([`crate::claude_auth::is_route_arrived`], `reason:
+//!   "model_route"`), only on the chat's first turn
 //!   (no turn before it, [`retries`]) and only for a prompt of its own, never an attempt
 //!   (`P~resume-n`): the retry is `P~resume-1`, so one that fails the same way is not retried
 //!   again and the chat shows the failure as before.
@@ -36,13 +38,17 @@ pub const FIRST_SEND_RETRY_MS: u64 = 2_000;
 /// Whether `error` is one a first send is retried on (`retry_row`, `settled_unretried`: a row
 /// may show its retry being decided).
 pub(super) fn retried_error(error: &str) -> bool {
-    crate::claude_auth::is_revoked_token(error) || crate::claude_auth::is_gateway_fallback(error)
+    crate::claude_auth::is_revoked_token(error)
+        || crate::claude_auth::is_gateway_fallback(error)
+        || crate::claude_auth::is_route_arrived(error)
 }
 
 /// The log's `reason` for a first send that goes again on `error`.
 fn retry_reason(error: &str) -> &'static str {
     if crate::claude_auth::is_gateway_fallback(error) {
         "gateway_fallback"
+    } else if crate::claude_auth::is_route_arrived(error) {
+        "model_route"
     } else {
         "token_revoked"
     }
@@ -73,6 +79,7 @@ impl Hub {
             trust_gate: cut.trust_gate,
             full_access_device: None,
             from: cut.from.map(str::to_owned),
+            person: false,
         };
         let (root, cut_turn) = (root.to_owned(), cut.turn_id.to_owned());
         let (hub, session) = (self.clone(), session.clone());

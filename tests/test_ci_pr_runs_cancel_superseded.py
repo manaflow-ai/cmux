@@ -21,10 +21,29 @@ labeled-only tour) gets no run from a push, so it is not judged either.
 
 Push, schedule and dispatch runs are not judged: workflows that also run on a
 push to feat-cmux-next or main keep their own policy there, usually
-`cancel-in-progress: ${{ github.event_name == 'pull_request' }}`.
+`cancel-in-progress: ${{ github.event_name == 'pull_request' }}`. But a pull
+request run that cancels must never share a group with one of them (a push to
+main or feat-cmux-next, a schedule, a dispatch), or the pull request run would
+cancel it: that is checked here too.
 
 A workflow that must not cancel a superseded pull request run goes in ALLOWED
 with the reason. Entries that stop being needed fail the test.
+
+The same fan-out comes from a title or description edit and from a comment
+(pattern pr-edit-fans-out-ci in cmuxterm-hq docs/handbook: 130 HOLD-line body
+edits queued about a dozen Blacksmith jobs each; Leo, 2026-11-17: "why is there
+so much stuck in blacksmith queue?"). So, with the same evaluator:
+
+- A workflow with `edited` in its pull request types that never reads the
+  description (no `pull_request.body`/`.title`/`changes.body`/`changes.title`,
+  and not in READS_DESCRIPTION) starts no job on a title-only or body-only
+  edit, runs it in a concurrency group of its own (so it never cancels or
+  replaces a push's run), and publishes each skipped job under another name
+  (a skipped job reads as success for a required or newest-by-name check).
+  `edited` stays for a base change, which re-judges the diff.
+- A workflow triggered by `issue_comment` starts no job for an ordinary
+  comment: every job's `if:` admits only the comment it serves, before a
+  runner is taken.
 
 A merged or closed pull request's run is the same waste, and a push never
 replaces it. A closed-cancel twin (CLOSED_TWINS) ends it: a workflow on
@@ -60,22 +79,40 @@ ALLOWED = {
     # `superseded`); a cancel would read as a red run. The batch job is never
     # cancelled. See OWN_SUPERSESSION in test_ci_required_checks_are_bounded.py.
     "cmux-next-batch.yml": "debounce runs supersede themselves; the batch is never cancelled",
-    # Serialised per pull request so two signature events never write the CLA
-    # ledger from different snapshots (comment on the CLAAssistant job).
-    "cla.yml": "one ledger writer at a time per pull request",
-    # A required check that also runs on metadata edits; a cancelled run would
-    # leave a cancelled required verdict (test_cla_guard_metadata_routing.py
-    # asserts it has no concurrency).
-    "cla-policy-guard.yml": "metadata events must not cancel required verdicts",
-    # The apply jobs migrate the staging and production databases; a cancel
-    # could stop one between applying a migration and recording it.
-    "backend-migrations.yml": "applies database migrations; never cancelled mid-apply",
-    # Deploys preview, staging and production backends; deploy workflows
-    # serialise instead of cancelling.
-    "backend.yml": "deploy workflow",
-    # Writes to the nightly R2 bucket; serialising is the safe answer there.
-    "repair-nightly-appcast-content-types.yml": "writes nightly R2 objects; serialised",
+    # Opt-in measurements (a marker line in the body): a new head runs beside the one running, never cancelled
+    # (cloud-resume-matrix.yml's header), so an hour of samples on staging machines is not thrown away mid-cell.
+    "cloud-resume-matrix.yml": "opt-in resume measurement; a new head runs beside the running one, never cancelled",
+    "cloud-wake-echo.yml": "opt-in wake measurement, as cloud-resume-matrix.yml: a new head runs beside the running one",
+
 }
+
+
+# These gates must finish even when a later push does not request a measurement.
+# Exempt only the named, bounded gate; every other job must cancel per PR.
+PRESERVED_GATES = {"chat-open-perf-report.yml": {"changed": 3}}
+
+
+def job_groups_problem(workflow: dict, name: str, event: str) -> str | None:
+    jobs = workflow.get("jobs") or {}
+    gates = PRESERVED_GATES.get(name, {})
+    if not jobs or not (set(jobs) - set(gates)):
+        return "no measuring job with a concurrency group"
+    for gate in gates:
+        if gate not in jobs:
+            return f"preserved gate {gate} no longer exists; remove its exception"
+    for job_id, job in jobs.items():
+        if job_id in gates:
+            timeout = job.get("timeout-minutes")
+            if type(timeout) not in (int, float) or not 0 < timeout <= gates[job_id]:
+                return f"{job_id}: preserved gate must finish within {gates[job_id]} minutes"
+            if job.get("concurrency"):
+                return f"{job_id}: preserved gate now has a group; remove its exception"
+            continue
+        reason = problem(job.get("concurrency"), workflow, event)
+        reason = reason or collision_problem(job.get("concurrency"), workflow, event)
+        if reason:
+            return f"{job_id}: {reason}"
+    return None
 
 
 # Closed-cancel twins: each ends its target's run for a pull request when that
@@ -84,7 +121,8 @@ CLOSED_TWINS = {
     "cmux-next-pr-closed-cancel.yml": "cmux-next.yml",
     "cmux-next-pr-autofix-closed-cancel.yml": "cmux-next-pr-autofix.yml",
     # The CI run of a merged PR held 15 Linux jobs after the merge (run 44326505154).
-    "ci-pr-closed-cancel.yml": "ci.yml",
+    # The retained dispatcher joins ci.yml on closed events.
+    "ci-pr-superseded-cancel.yml": "ci.yml",
 }
 
 
@@ -426,7 +464,41 @@ def push_starts_a_run(trigger: Any) -> bool:
     return bool(PUSH_TYPES & set(types))
 
 
-def workflow_problem(workflow: dict) -> str | None:
+# Runs a pull request run must never cancel: (event, ref) of each.
+NON_PR_RUNS = (
+    ("push", "refs/heads/feat-cmux-next"),
+    ("push", "refs/heads/main"),
+    ("schedule", "refs/heads/feat-cmux-next"),
+    ("workflow_dispatch", "refs/heads/feat-cmux-next"),
+    ("workflow_dispatch", "refs/heads/main"),
+)
+
+
+def non_pr_context(workflow: dict, event: str, ref: str) -> dict[str, Any]:
+    context = pr_context(workflow, "pull_request", 101, 1)
+    context["github"].update({"event_name": event, "ref": ref, "ref_name": ref.rsplit("/", 1)[-1],
+                              "head_ref": "", "base_ref": "", "event": {}, "run_id": 9000})
+    return context
+
+
+def collision_problem(concurrency: Any, workflow: dict, event: str) -> str | None:
+    """Why a cancelling pull request run of `event` could cancel a push, schedule or dispatch run, or None."""
+    if not isinstance(concurrency, dict):
+        return None
+    try:
+        pr_group = group_of(concurrency, pr_context(workflow, event, 101, 2))
+        for other, ref in NON_PR_RUNS:
+            if other not in triggers(workflow):
+                continue
+            if group_of(concurrency, non_pr_context(workflow, other, ref)) == pr_group:
+                return (f"a {event} run shares group {pr_group!r} with a {other} run on {ref} and cancels it: "
+                        "key the pull request group by its number")
+    except (ExpressionError, KeyError, IndexError, TypeError, ValueError) as error:
+        return f"cannot evaluate its group for a non-pull-request run: {error}"
+    return None
+
+
+def workflow_problem(workflow: dict, name: str = "") -> str | None:
     for event in PR_EVENTS:
         if event not in triggers(workflow):
             continue
@@ -434,6 +506,14 @@ def workflow_problem(workflow: dict) -> str | None:
             continue
         reason = problem(workflow.get("concurrency"), workflow, event)
         if reason is None:
+            collision = collision_problem(workflow.get("concurrency"), workflow, event)
+            if collision:
+                return f"{event}: {collision}"
+            continue
+        if name in PRESERVED_GATES and not workflow.get("concurrency"):
+            reason = job_groups_problem(workflow, name, event)
+            if reason:
+                return f"{event}: {reason}"
             continue
         jobs = jobs_on(workflow, event)
         job_reasons = {job_id: problem(job.get("concurrency"), workflow, event) for job_id, job in jobs.items()}
@@ -442,6 +522,165 @@ def workflow_problem(workflow: dict) -> str | None:
         bad_jobs = ", ".join(f"{j}: {r}" for j, r in job_reasons.items() if r)
         return f"{event}: {reason}" + (f" (jobs: {bad_jobs})" if workflow.get("jobs") and not workflow.get("concurrency") else "")
     return None
+
+
+# --- Title, body and comment events (pattern pr-edit-fans-out-ci) -------------
+
+# Text that shows a workflow reads the description in its own expressions.
+DESCRIPTION_READS = ("pull_request.body", "pull_request.title", "changes.body", "changes.title")
+
+# Workflows that run on every title or body edit although their own text never reads it, and why.
+READS_DESCRIPTION: dict[str, str] = {
+    "private-names.yml": "its checker (fetched from the private ops repository) reads the title and body over the API; "
+                         "an edit run re-checks the whole pull request at its head, so cancelling the push run loses nothing",
+}
+
+
+# Workflows whose edit skip lands in a pull request of its own, and why. An entry whose workflow
+# already passes the edit rule fails the test, so it is removed when that pull request lands.
+EDIT_SKIP_PENDING = {
+    "language-boundaries.yml": "changing the language-boundaries check itself merges only with Leo's "
+    "leo-approved-port label, so its edit skip is split out (branch lane/pr-edit-fanout-language-boundaries)",
+}
+
+
+def edit_context(workflow: dict, event: str, changes: dict) -> dict[str, Any]:
+    """The contexts of an `edited` run of pull request 101 with these `changes`."""
+    context = pr_context(workflow, event, 101, 1)
+    context["github"]["event"]["action"] = "edited"
+    context["github"]["event"]["changes"] = changes
+    return context
+
+
+METADATA_EDITS = {
+    "title-only edit": {"title": {"from": "old title"}},
+    "body-only edit": {"body": {"from": "old body"}},
+}
+
+STATUS_FUNCTION = re.compile(r"\b(always|cancelled|failure)\(\)")
+
+
+class _AnyOutput(dict):
+    """Every output name reads as one value."""
+
+    def __init__(self, value: str):
+        super().__init__()
+        self.value = value
+
+    def __missing__(self, key: str) -> str:
+        return self.value
+
+    def get(self, key: str, default: Any = None) -> str:
+        return self.value
+
+    def __contains__(self, key: object) -> bool:
+        return True
+
+
+def needs_guesses(needs: list[str]) -> list[dict[str, Any]]:
+    return [{parent: {"result": result, "outputs": _AnyOutput(output)} for parent in needs}
+            for result in ("success", "failure", "cancelled", "skipped") for output in ("true", "false", "")]
+
+
+def started_jobs(workflow: dict, context: dict[str, Any]) -> list[str]:
+    """Jobs that take a runner for this event: an `if` that holds, and needs that ran (or a status function)."""
+    jobs = {job_id: job for job_id, job in (workflow.get("jobs") or {}).items() if isinstance(job, dict)}
+    ran: dict[str, bool] = {}
+
+    def runs(job_id: str, seen: frozenset[str] = frozenset()) -> bool:
+        if job_id in ran:
+            return ran[job_id]
+        job = jobs.get(job_id) or {}
+        needs = job.get("needs") or []
+        needs = [needs] if isinstance(needs, str) else list(needs)
+        text = str(job.get("if", ""))
+        try:
+            # needs.* results and outputs are unknown here: a job gated on them counts as starting when any
+            # plausible value (each result, each output true, false or empty) makes its `if` hold.
+            holds = any(condition(job.get("if"), {**context, "needs": guess}) for guess in needs_guesses(needs)) \
+                if "needs." in text else condition(job.get("if"), context)
+        except (ExpressionError, KeyError, IndexError, TypeError, ValueError):
+            holds = True
+        if holds and needs and not STATUS_FUNCTION.search(text) and job_id not in seen:
+            holds = all(runs(parent, seen | {job_id}) for parent in needs if parent in jobs)
+        ran[job_id] = holds
+        return holds
+
+    return [job_id for job_id in jobs if runs(job_id)]
+
+
+def group_of(concurrency: Any, context: dict[str, Any]) -> str | None:
+    if not concurrency:
+        return None
+    group = concurrency if isinstance(concurrency, str) else concurrency.get("group")
+    return _text(resolve(group, context))
+
+
+def edit_problems(workflow: dict, text: str, name: str) -> list[str]:
+    """Why a title or body edit starts work in a workflow that never reads either."""
+    out: list[str] = []
+    reads = name in READS_DESCRIPTION or any(marker in text for marker in DESCRIPTION_READS)
+    for event in PR_EVENTS:
+        trigger = triggers(workflow).get(event)
+        types = trigger.get("types") if isinstance(trigger, dict) else None
+        types = [types] if isinstance(types, str) else list(types or [])
+        if "edited" not in types or reads:
+            continue
+        push = pr_context(workflow, event, 101, 1)
+        for kind, changes in METADATA_EDITS.items():
+            edit = edit_context(workflow, event, changes)
+            try:
+                started = started_jobs(workflow, edit)
+                if started:
+                    out.append(f"{event}: a {kind} starts {', '.join(started)}, and nothing here reads the "
+                               "description: skip it in each job's `if` (`edited` stays for a base change)")
+                scopes = [("workflow", workflow.get("concurrency"))] + [
+                    (f"job {job_id}", job.get("concurrency"))
+                    for job_id, job in (workflow.get("jobs") or {}).items() if isinstance(job, dict)]
+                for scope, concurrency in scopes:
+                    if concurrency and group_of(concurrency, edit) == group_of(concurrency, push):
+                        out.append(f"{event}: a {kind} shares the push's concurrency group in {scope}, so it "
+                                   "cancels or replaces the run that judges the head: add a '-metadata' suffix")
+                on_push = started_jobs(workflow, push)
+                for job_id, job in (workflow.get("jobs") or {}).items():
+                    # A named job that answers a push is a check someone gates on.
+                    if not isinstance(job, dict) or job_id in started or job_id not in on_push or not job.get("name"):
+                        continue
+                    pushed = _text(resolve(job["name"], push))
+                    edited = _text(resolve(job["name"], edit))
+                    if pushed == edited:
+                        out.append(f"{event}: job {job_id} skips a {kind} under its real name {pushed!r}; a "
+                                   "skipped check reads as a pass: name the skipped run differently")
+            except (ExpressionError, KeyError, IndexError, TypeError, ValueError) as error:
+                out.append(f"{event}: cannot evaluate a {kind}: {error}")
+    return out
+
+
+def comment_context(workflow: dict) -> dict[str, Any]:
+    """An ordinary pull request comment by a person: `issue_comment` `created`."""
+    context = pr_context(workflow, "pull_request", 101, 1)
+    context["github"]["event_name"] = "issue_comment"
+    context["github"]["ref"] = "refs/heads/main"
+    context["github"]["event"] = {
+        "action": "created",
+        "issue": {"number": 101, "pull_request": {"url": "https://api.github.com/repos/manaflow-ai/cmux/pulls/101"}},
+        "comment": {"id": 9, "body": "HOLD: waiting on the base\r\n", "user": {"login": "someone", "type": "User"},
+                    "author_association": "MEMBER"},
+    }
+    return context
+
+
+def comment_problems(workflow: dict) -> list[str]:
+    if "issue_comment" not in triggers(workflow):
+        return []
+    try:
+        started = started_jobs(workflow, comment_context(workflow))
+    except (ExpressionError, KeyError, IndexError, TypeError, ValueError) as error:
+        return [f"issue_comment: cannot evaluate an ordinary comment: {error}"]
+    if started:
+        return [f"issue_comment: an ordinary comment starts {', '.join(started)}: admit only the command it "
+                "serves in each job's `if` (github.event.comment.body), before a runner is taken"]
+    return []
 
 
 def closed_context(workflow: dict, number: int, labels: list[str]) -> dict[str, Any]:
@@ -459,8 +698,8 @@ def twin_problem(twin: dict, target: dict) -> str | None:
         return "the twin or its target has no workflow concurrency block"
     trigger = triggers(twin).get("pull_request")
     types = trigger.get("types") if isinstance(trigger, dict) else None
-    if list(types or []) != ["closed"]:
-        return f"the twin must run only on pull_request closed, not {types!r}"
+    if "closed" not in list(types or []):
+        return f"the twin must include pull_request closed, not {types!r}"
     try:
         closed = _text(resolve(twin_concurrency.get("group"), closed_context(twin, 101, [])))
         kept = _text(resolve(twin_concurrency.get("group"), closed_context(twin, 101, ["no-janitor"])))
@@ -495,6 +734,34 @@ def self_check() -> list[str]:
         verdict = problem(concurrency, on, "pull_request") is None
         if verdict != ok:
             failures.append(f"self-check {name!r}: expected {'pass' if ok else 'fail'}")
+    gate_workflow = {**on, "jobs": {
+        "changed": {"timeout-minutes": 3},
+        "report": {"concurrency": {"group": "w-${{ github.event.pull_request.number || github.ref }}",
+                                   "cancel-in-progress": "${{ github.event_name == 'pull_request' }}"}},
+    }}
+    gate_name = "chat-open-perf-report.yml"
+    if workflow_problem(gate_workflow, gate_name):
+        failures.append("self-check: a bounded gate beside a cancellable report must pass")
+    for jobs in (
+        {**gate_workflow["jobs"], "changed": {}},
+        {**gate_workflow["jobs"], "changed": {"timeout-minutes": 4}},
+        {**gate_workflow["jobs"], "report": {}},
+        {**gate_workflow["jobs"], "another": {}},
+        {"changed": {"timeout-minutes": 3}},
+    ):
+        if workflow_problem({**gate_workflow, "jobs": jobs}, gate_name) is None:
+            failures.append("self-check: preserved gates must not exempt unbounded or uncancelled jobs")
+    # A pull request into feat-cmux-next and a push to it both get `w-feat-cmux-next` (#47604's first fixture,
+    # `number || 'deploy'`, gave w-101 and w-deploy: no shared group, so it never failed).
+    shared = {"on": {"pull_request": None, "push": None},
+              "concurrency": {"group": "w-${{ github.event.pull_request.base.ref || github.ref_name }}",
+                              "cancel-in-progress": True}}
+    if workflow_problem(shared) is None:
+        failures.append("self-check: a pull request group that equals the push group must fail")
+    split = {**shared, "concurrency": {"group": "w-${{ github.event.pull_request.number || github.ref }}",
+                                       "cancel-in-progress": "${{ github.event_name == 'pull_request' }}"}}
+    if workflow_problem(split) is not None:
+        failures.append(f"self-check: a per-PR group with a ref fallback must pass: {workflow_problem(split)}")
     if workflow_problem({"on": {"pull_request": {"types": ["labeled"]}}, "concurrency": {"group": "w-${{ github.run_id }}"}}) is not None:
         failures.append("self-check: a labeled-only workflow gets no push run to cancel")
     if workflow_problem({"on": {"pull_request": {"types": ["labeled", "synchronize"]}}, "concurrency": {"group": "w-${{ github.run_id }}"}}) is None:
@@ -502,6 +769,39 @@ def self_check() -> list[str]:
     # pull_request_target runs carry the base branch in github.ref.
     if problem({"group": "w-${{ github.ref }}", "cancel-in-progress": True}, on, "pull_request_target") is None:
         failures.append("self-check: a github.ref group must not count as per-PR for pull_request_target")
+    # Title and body edits (pattern pr-edit-fans-out-ci).
+    meta = "github.event.action == 'edited' && !github.event.changes.base"
+    listens = {"pull_request_target": {"types": ["synchronize", "edited"]}}
+    naive = {"on": listens, "concurrency": {"group": "w-${{ github.event.pull_request.number }}", "cancel-in-progress": True},
+             "jobs": {"check": {"name": "check", "runs-on": "x"}}}
+    if not edit_problems(naive, "", "w.yml"):
+        failures.append("self-check: a workflow that runs on every edit and never reads the description must fail")
+    guarded = {"on": listens,
+               "concurrency": {"group": "w-${{ github.event.pull_request.number }}${{ " + meta + " && '-metadata' || '' }}",
+                               "cancel-in-progress": True},
+               "jobs": {"check": {"name": "${{ " + meta + " && 'check (ignored)' || 'check' }}",
+                                  "if": "${{ !(" + meta + ") }}", "runs-on": "x"}}}
+    if edit_problems(guarded, "", "w.yml"):
+        failures.append(f"self-check: the metadata-edit guard must pass: {edit_problems(guarded, '', 'w.yml')}")
+    same_name = {**guarded, "jobs": {"check": {"name": "check", "if": "${{ !(" + meta + ") }}", "runs-on": "x"}}}
+    if not any("real name" in p for p in edit_problems(same_name, "", "w.yml")):
+        failures.append("self-check: a skipped edit run under the check's own name must fail")
+    same_group = {**guarded, "concurrency": naive["concurrency"]}
+    if not any("concurrency group" in p for p in edit_problems(same_group, "", "w.yml")):
+        failures.append("self-check: an edit run in the push's concurrency group must fail")
+    if edit_problems(naive, "BODY: ${{ github.event.pull_request.body }}", "w.yml"):
+        failures.append("self-check: a workflow that reads the body may run on edits")
+    # Comments.
+    comments = {"on": {"issue_comment": {"types": ["created"]}}}
+    open_gate = {**comments, "jobs": {"rerun": {"if": "github.event.issue.pull_request != null", "runs-on": "x"}}}
+    if not comment_problems(open_gate):
+        failures.append("self-check: a comment workflow that starts on every PR comment must fail")
+    command = {**comments, "jobs": {"run": {"if": "github.event.issue.pull_request != null && "
+                                            "contains(github.event.comment.body, '@claude')", "runs-on": "x"}}}
+    if comment_problems(command):
+        failures.append("self-check: a comment workflow gated on its command must pass")
+
+
     target = {"name": "W", "concurrency": {"group": "${{ github.workflow }}-${{ github.ref }}"}}
     twin = {"on": {"pull_request": {"types": ["closed"]}}, "concurrency": {
         "group": "${{ contains(github.event.pull_request.labels.*.name, 'no-janitor') && 'kept' || format('W-refs/pull/{0}/merge', github.event.pull_request.number) }}",
@@ -518,10 +818,18 @@ def main() -> int:
     checked = 0
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
         workflow = load(path)
+        text = path.read_text(encoding="utf-8")
+        edits = edit_problems(workflow, text, path.name)
+        if path.name in EDIT_SKIP_PENDING:
+            if not edits:
+                failures.append(f"EDIT_SKIP_PENDING names {path.name}, which passes the edit rule now: remove it")
+            edits = []
+        for reason in edits + comment_problems(workflow):
+            failures.append(f"{path.relative_to(ROOT)}: {reason}")
         if not any(event in triggers(workflow) for event in PR_EVENTS):
             continue
         checked += 1
-        reason = workflow_problem(workflow)
+        reason = workflow_problem(workflow, path.name)
         if path.name in ALLOWED:
             if reason is None:
                 failures.append(f"{path.name} now cancels superseded runs; remove its ALLOWED entry")
@@ -538,6 +846,12 @@ def main() -> int:
     for name, why in sorted(ALLOWED.items()):
         if not why.strip() or not (WORKFLOWS / name).exists():
             failures.append(f"ALLOWED names {name}, which no longer exists or has no reason")
+    for name, why in sorted(READS_DESCRIPTION.items()):
+        if not why.strip() or not (WORKFLOWS / name).exists():
+            failures.append(f"READS_DESCRIPTION names {name}, which no longer exists or has no reason")
+    for name, why in sorted(EDIT_SKIP_PENDING.items()):
+        if not why.strip() or not (WORKFLOWS / name).exists():
+            failures.append(f"EDIT_SKIP_PENDING names {name}, which no longer exists or has no reason")
     if failures:
         print("superseded pull request runs that keep running:", file=sys.stderr)
         for failure in failures:

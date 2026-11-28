@@ -1,0 +1,156 @@
+// Prism Dark: the browser-as-sidebar look in Dark. The window is a frame tinted in one bright "space"
+// color (a deep indigo here) that holds the rows vertically, the work sits in one borderless near-black
+// card inset into that frame, an indigo-blue accent does selection, focus, Send and links, and
+// motion is a quick, slightly bouncy spring. Its twin is Prism (Light).
+{
+  "name": "Prism Dark",
+  "description": "Dark: a deep indigo frame around a near-black card, a periwinkle accent.",
+
+  "appearance.theme": "Builtin Dark",
+  "appearance.appTheme": "followTerminal",
+  // background: a near-black card with the frame's violet cast. foreground: a lavender-white, the
+  // popovers' text. selection: the accent at 30% over the card. accent: the light theme's indigo
+  // lifted to a periwinkle that reads on dark.
+  "colors": { "background": "#18171f", "foreground": "#ebe8f7", "selection": "#706fa9", "accent": "#7479f5" },
+  "appearance.accent": "theme",
+  // The terminal: the page and ink above, the cursor in the accent, the selection, and all sixteen
+  // ANSI colors at a vivid, cool chroma, each solved in OKLCH over the page (5.5:1, the bright ones
+  // 8.5:1; 0 the raised black 2:1; 8, the dim gray, 3.4:1).
+  "ghostty": [
+    "background = #18171f",
+    "foreground = #ebe8f7",
+    "cursor-color = #7479f5",
+    "cursor-text = #18171f",
+    "selection-background = #706fa9",
+    "selection-foreground = #ebe8f7",
+    "palette = 0=#454b50",
+    "palette = 1=#ec626b",
+    "palette = 2=#41a339",
+    "palette = 3=#b98703",
+    "palette = 4=#2f92f3",
+    "palette = 5=#c56dd3",
+    "palette = 6=#07a09f",
+    "palette = 7=#ebe8f7",
+    "palette = 8=#686d73",
+    "palette = 9=#ff978f",
+    "palette = 10=#36cd5f",
+    "palette = 11=#e6a908",
+    "palette = 12=#84b6fe",
+    "palette = 13=#fc88fa",
+    "palette = 14=#05c7cf",
+    "palette = 15=#eaecee"
+  ],
+  // The terminal face: SF Mono at 13 pt, the system's monospaced face under the bright frame.
+  "terminal.fontFamily": "SF Mono",
+  "terminal.fontSize": 13,
+  // A little extra color in the tint, as the frame is meant to be loud and the card quiet.
+  "appearance.saturation": 1.15,
+
+  // Material: behind-window glass shows through the frame only, taking the desktop's colors, so
+  // the space color reads as a tinted gradient rather than a flat fill.
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "glass",
+  "appearance.backgroundOpacity": 0.6,
+  "appearance.glassTransparency": 0.3,
+  "appearance.wallpaperTint": true,
+  "appearance.fontSmoothing": "antialiased",
+
+  // Layout: one borderless card inset into the colored frame on every side, no hairlines (the card
+  // edge against the frame is the only line), the frame shaded apart from the card.
+  "appearance.chromeStyle": "card",
+  "appearance.borders": "none",
+  "appearance.titleAreaTone": "subtleTone",
+  "appearance.focusIndicator": "tabs",
+  "appearance.density": "comfortable",
+  // Pending cmux#46780: the rows-as-tabs are soft rounded pills.
+  // "appearance.tabShape": "rounded",
+  // Pending cmux#46516: the selected row is a white lift on the frame, not an accent fill.
+  // "appearance.selection": "neutral",
+
+  // Proportions, measured from the source captures: a 40 pt top band (window buttons and the
+  // back, forward and reload row), a 216 pt sidebar with 32 pt rows (a hovered row is 64 px at
+  // 2x), 13 pt chrome text, an 8 pt frame around the card, no split divider (the frame is the gap).
+  "appearance.metrics.titlebarHeight": 40,
+  "appearance.metrics.sidebarWidth": 216,
+  "appearance.metrics.sidebarRowHeight": 32,
+  "appearance.metrics.chromeFontSize": 13,
+  "appearance.metrics.tabStripHeight": 32,
+  "appearance.metrics.tabFontSize": 12,
+  "appearance.metrics.tabMaxWidth": 240,
+  "appearance.metrics.tabMinActiveWidth": 120,
+  "appearance.metrics.tabMinInactiveWidth": 80,
+  "appearance.metrics.columnGap": 8,
+  "appearance.metrics.dividerThickness": 0,
+
+  // The frame: the space color, a little translucent so the desktop tints it, no edge line, and
+  // hairline-separated sections (pinned above, today below).
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#161430",
+  "appearance.surfaces.sidebar.opacity": 0.88,
+  "sidebar.style": "standard",
+  "sidebar.border": false,
+  "sidebar.sectionLook": "lines",
+
+  // The card: near-black; the tab strip a dark wash of the frame color so it reads as the card's
+  // own top edge; toolbar, docks and the browser's bar one step over the card with the same cast.
+  "appearance.surfaces.agentPane.color": "#18171f",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#211f30",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "appearance.surfaces.browserChrome.color": "#1f1e2a",
+  "appearance.surfaces.browserChrome.opacity": 1,
+  "appearance.surfaces.docks.color": "#1f1e2a",
+  "appearance.surfaces.docks.opacity": 1,
+  "appearance.surfaces.editor.color": "#18171f",
+  "appearance.surfaces.editor.opacity": 1,
+  "appearance.surfaces.diff.color": "#18171f",
+  "appearance.surfaces.diff.opacity": 1,
+  "appearance.surfaces.markdown.color": "#18171f",
+  "appearance.surfaces.markdown.opacity": 1,
+  "appearance.surfaces.splitDivider.color": "#161430",
+  "appearance.surfaces.splitDivider.opacity": 1,
+
+  // Settings and pages: a dark wash of the space color.
+  "appearance.surfaces.settings.color": "#1d1b29",
+  "appearance.surfaces.settings.opacity": 1,
+  "appearance.surfaces.internalPage.color": "#1d1b29",
+  "appearance.surfaces.internalPage.opacity": 1,
+  "appearance.surfaces.newTabPage.color": "#1d1b29",
+  "appearance.surfaces.newTabPage.opacity": 1,
+  "appearance.surfaces.home.color": "#1d1b29",
+  "appearance.surfaces.home.opacity": 1,
+
+  // Status: a spinning arc on the row while work runs, and on the tab too.
+  "appearance.statusIndicator.style": "arc",
+  "appearance.statusIndicator.animation": "animated",
+  "appearance.statusIndicator.showAgentWorkingOnTabs": true,
+
+  // The command bar floats as a glass panel tinted by the accent.
+  "browser.omnibar.glass": "regular",
+  "browser.omnibar.glassTint": "accent",
+  "browser.omnibar.glassTintStrength": 0.15,
+
+  // Motion: playful. A fast spring with a little overshoot (damping under 1) for color changes,
+  // so switching spaces swings the frame's color rather than fading it.
+  "ui.animationSpeed": "normal",
+  "appearance.colorTransition.enabled": true,
+  "appearance.colorTransition.curve": "spring",
+  "appearance.colorTransition.springResponse": 0.45,
+  "appearance.colorTransition.springDamping": 0.75,
+  "appearance.colorTransition.colorSpace": "oklab",
+  "appearance.colorTransition.reduceMotion": "crossfade"
+
+  // Pending cmux#46861 (layout and proportions): a browser sidebar: rows nearly edge to edge (4 pt inset) with 8 pt corners, 28 pt toolbar buttons with an 8 pt rounded fill, no toolbar hairline, a 44 pt command-bar composer. Uncomment once your build has it.
+  // "appearance.metrics.sidebarRowHeightWithSubtitle": 48,
+  // "appearance.metrics.sidebarRowInset": 4,
+  // "appearance.metrics.sidebarRowPadding": 10,
+  // "appearance.metrics.sidebarRowGap": 2,
+  // "appearance.metrics.toolbarButtonSize": 28,
+  // "appearance.metrics.toolbarButtonGap": 4,
+  // "appearance.metrics.toolbarButtonCornerRadius": 8,
+  // "appearance.metrics.toolbarButtonActiveFill": 0.12,
+  // "appearance.metrics.headerDivider": 0,
+  // "appearance.metrics.composerPadding": 12,
+  // "appearance.metrics.composerMinHeight": 44,
+  // "appearance.metrics.spacingScale": 1,
+}

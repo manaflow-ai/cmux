@@ -10,7 +10,7 @@
   margin: 0;
   gap: var(--grid-gap-inner);
   font-family: var(--cv-font);
-  font-size: var(--cv-font-size);
+  font-size: var(--cv-row-font-size);
   letter-spacing: var(--cv-tracking, 0px);
   -webkit-font-smoothing: antialiased;
 }
@@ -70,8 +70,8 @@
   border-radius: 6px;
   line-height: 20px;
   font-size: var(--text-control);
-  color: var(--cv-text);
-  background: color-mix(in srgb, var(--cv-fg, var(--cv-text)) 8%, transparent);
+  color: var(--cv-chip-ink);
+  background: var(--cv-chip-bg);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--cv-fg, var(--cv-text)) 10%, transparent);
   cursor: default;
   letter-spacing: var(--text-control--letter-spacing);
@@ -135,15 +135,25 @@ button.cv-agentmsg__name:focus-visible {
   > .cv-agentmsg__chevron {
   color: var(--cv-text);
 }
+/* The chevron's ink stands --cv-chip-chevron-gap (the grid's 8px) from the chip's edge. The "rest"
+   tokens are where its ink sits with no margin: the flex gap, the sentence's space and the glyph's
+   own inset, measured in the gallery (test/transcript-chevron-after-label.test.ts); opened the
+   chip is whole and its line one space nearer. Opened it used to overlap the chip by 1.8px (Leo,
+   2026-11-27: "these chevrons are too close dont we have any guidelines for these yet?"). */
+:root {
+  --cv-chip-chevron-gap: var(--grid-gap);
+  --cv-chip-chevron-rest: 14.6px;
+  --cv-chip-chevron-rest-open: 12.2px;
+}
 /* Shut and stacked, or opened (the first line is in the card then), the toggle holds no words: it
    takes back the line's gap before it, so the chevron sits right after the sender's or recipient's
    chip, as after any row's words (transcript-chevron-after-label). */
 .acpmux-row .cv-agentmsg:not([data-open]) .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:empty) {
-  margin-inline-start: calc(-1 * var(--grid-gap) - 0.5 * var(--ds-space-1));
+  margin-inline-start: calc(var(--cv-chip-chevron-gap) - var(--cv-chip-chevron-rest));
 }
 /* Opened, the sender's chip ends the words: its own end padding stands in for the rest of the gap. */
 .acpmux-row .cv-agentmsg.cv-received[data-open] .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:empty) {
-  margin-inline-start: calc(-1 * var(--grid-gap) - 1.5 * var(--ds-space-1));
+  margin-inline-start: calc(var(--cv-chip-chevron-gap) - var(--cv-chip-chevron-rest-open));
 }
 /* Stacked or opened, the toggle holds no words and has no box of its own: the line, which the
    pointer already toggles, shows its focus. */
@@ -188,13 +198,13 @@ button.cv-agentmsg__name:focus-visible {
 /* Keep today's card available as a gallery comparison; the selected surface is borderless. */
 :root[data-message-surfaces="bordered"] .cv-agentmsg__card {
   border-radius: 10px;
-  background: color-mix(in srgb, var(--cv-fg, var(--cv-text)) 5%, transparent);
+  background: var(--ds-surface-card);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px)
     color-mix(in srgb, var(--cv-fg, var(--cv-text)) 10%, transparent);
 }
 :root[data-message-surfaces="soft"] .cv-agentmsg__card {
   border-radius: 8px;
-  background: color-mix(in srgb, var(--cv-fg, var(--cv-text)) 3%, transparent);
+  background: var(--ds-surface-card);
 }
 /* What a caller adds under the card: a delivery line, its details. */
 .cv-agentmsg__under {
@@ -325,7 +335,7 @@ button.cv-agentmsg__name:focus-visible {
 }
 .acpmux-row .cv-tool:is(.cv-sent, .cv-agentmsg__line, .cv-message-group__head, [data-message-run]):is(:hover, :focus-visible, :has(:focus-visible)):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))),
 .acpmux-row .cv-received > .cv-disclosure__line:is(:hover, :has(:focus-visible)):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))),
-.acpmux-row .cv-tool.cv-message-group__head:is([aria-expanded="true"], :has([data-popup-open])),
+.acpmux-row .cv-tool.cv-message-group__head:is([aria-expanded="true"], [data-popup-within]),
 .acpmux-row .cv-agentmsg__card {
   color: var(--cv-text);
 }
@@ -372,7 +382,7 @@ button.cv-agentmsg__name:focus-visible {
   margin-inline-start: var(--grid-icon-box);
   padding: var(--grid-cards-padding);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--cv-text) 5%, transparent);
+  background: var(--ds-surface-card);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--cv-text) 12%, transparent);
   white-space: normal;
   max-height: none;
@@ -394,7 +404,14 @@ button.cv-agentmsg__name:focus-visible {
 .cv-agentmsg:is([data-look="card"], [data-look="corner"]) .cv-agentmsg__open > :not(.cv-agentmsg__card) {
   margin-inline-start: var(--grid-icon-box);
 }
-/* A sender acpmux could not verify (UnverifiedMark.tsx): a status-sized mark in the muted tone right
+/* A body that is a row, not words (a sent call with no text, AgentMessageRow `bare`): the row opens
+   bare under the line at the child step, as an opened group's rows do, never a row inside a card
+   (design/chat-row-anatomy.md: a row that holds rows opens them inline; one that holds content opens
+   one body). */
+.cv-agentmsg__bare {
+  min-width: 0;
+}
+/* A sender acpmux saw as a program (UnverifiedMark.tsx): a status-sized mark in the muted tone right
    after the name, never words in it. */
 .cv-unverified {
   display: inline-flex;
@@ -517,7 +534,7 @@ button.cv-agentmsg__name:focus-visible {
   opacity: 0;
 }
 .cv-sent-msg.look-hover .cv-agentmsg__open:hover .cv-sent__raw > .cv-received__more,
-.cv-sent-msg.look-hover .cv-agentmsg__open:has([data-popup-open]) .cv-sent__raw > .cv-received__more,
+.cv-sent-msg.look-hover .cv-agentmsg__open[data-popup-within] .cv-sent__raw > .cv-received__more,
 .cv-sent-msg.look-hover .cv-agentmsg__open:focus-within .cv-sent__raw > .cv-received__more {
   opacity: 1;
 }
@@ -526,7 +543,7 @@ button.cv-agentmsg__name:focus-visible {
     transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   }
   .cv-sent-msg.look-hover .cv-agentmsg__open:hover .cv-sent__raw > .cv-received__more,
-  .cv-sent-msg.look-hover .cv-agentmsg__open:has([data-popup-open]) .cv-sent__raw > .cv-received__more {
+  .cv-sent-msg.look-hover .cv-agentmsg__open[data-popup-within] .cv-sent__raw > .cv-received__more {
     transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
   }
   .cv-sent-msg.look-hover .cv-agentmsg__open:focus-within .cv-sent__raw > .cv-received__more {

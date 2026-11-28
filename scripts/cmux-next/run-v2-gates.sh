@@ -18,11 +18,22 @@ run_group() {
 
 # A filter that fails after writing its rows: every line its run appended gets
 # "gate_failed":true, and the v2 home reads those rows red with their numbers.
+# A filter that fails having written none is named here: the home can only say
+# its rows "did not report a measure", and this line says which command it was.
 run() {
-  local before=0
+  # A group's build step runs its runner with a filter no test matches: the build alone.
+  if [[ -n $build_only ]]; then
+    "$@"
+    return
+  fi
+  local before=0 after=0
   [[ -f $V2_GATE_OUT ]] && before=$(wc -l <"$V2_GATE_OUT")
   if ! "$@"; then
     failed=1
+    [[ -f $V2_GATE_OUT ]] && after=$(wc -l <"$V2_GATE_OUT")
+    if ((after == before)); then
+      printf 'v2 gates: failed before writing a measure: %s\n' "$*" >&2
+    fi
     mark_failed "$before"
   fi
 }
@@ -62,20 +73,31 @@ run_acpmux_test() {
 # The gate lines are in v2-gates.d, one file per row of the design doc's PR table:
 # `pr03d.gates` holds the lines whose tests write `v2.pr03d.*` rows, so a PR that adds
 # a gate edits only its own row's file. A line is `GROUP FILTER` (a `#` starts a
-# comment): GROUP is a word of the table below, FILTER the names of the gate tests the
+# comment): GROUP is a word of gate_runner below, FILTER the names of the gate tests the
 # group's runner starts. Inside a group the lines run in file name order, then in
 # line order. An unknown group or a line of another shape fails the script by name.
+# The script keeps to bash 3.2, a Mac's stock bash: no associative arrays.
 gates_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/v2-gates.d"
-declare -A group_runner=(
-  [book]=run_book
-  [client]=run_client
-  [core]=run_core
-  [acpmux-lib]=run_acpmux_lib
-  [tui-core-lib]=run_tui_core_lib
-  [acpmux-v2-connection]=run_acpmux_test
-)
-declare -A group_filters=()
+# Groups run in this order. tui-core-lib goes last: from a cold target its build alone took 31 to
+# 35 minutes on a 4-CPU pool runner (runs 45275598234, 45363239143) for one row (7c), so when the
+# step's limit cuts the run it costs that row, not acpmux-v2-connection's five 4.x rows (Nov 24,
+# goal v2-gate-home-reports). acpmux-v2-connection follows acpmux-lib on the same gate profile.
+gate_groups="book client core acpmux-lib acpmux-v2-connection tui-core-lib"
 
+# Each group word and the runner it starts. A group's timing line is named by its word.
+gate_runner() {
+  case $1 in
+    book) echo run_book ;;
+    client) echo run_client ;;
+    core) echo run_core ;;
+    acpmux-lib) echo run_acpmux_lib ;;
+    tui-core-lib) echo run_tui_core_lib ;;
+    acpmux-v2-connection) echo run_acpmux_test ;;
+    *) return 1 ;;
+  esac
+}
+
+gate_lines=()
 read_gates() {
   local LC_ALL=C file line number group filter rest
   for file in "$gates_dir"/*.gates; do
@@ -89,46 +111,38 @@ read_gates() {
         printf '%s:%d: a gate line is GROUP FILTER: %s\n' "$file" "$number" "$line" >&2
         return 1
       fi
-      if [[ -z ${group_runner[$group]+set} ]]; then
+      if ! gate_runner "$group" >/dev/null; then
         printf '%s:%d: %s is not a gate group\n' "$file" "$number" "$group" >&2
         return 1
       fi
-      group_filters[$group]+="$filter "
+      gate_lines+=("$group $filter")
     done <"$file"
   done
 }
 read_gates || exit 2
 
+# A group builds its test target once, then each of its filters runs against that build.
+# A group that does not build runs none of its gates and says so in one line: before, each
+# filter rebuilt it and failed again, so one acpmux compile error spent the nightly's whole
+# gate budget (run 45413199195, 75 minutes) and the v2 home step never wrote its rows.
+build_only=
 run_gates() {
-  local group=$1 filter
-  for filter in ${group_filters[$group]:-}; do
-    "${group_runner[$group]}" "$filter"
+  local runner line filters="" built=0
+  runner=$(gate_runner "$1")
+  for line in ${gate_lines[@]+"${gate_lines[@]}"}; do
+    if [[ ${line%% *} == "$1" ]]; then filters="$filters ${line#* }"; fi
   done
+  [[ -n $filters ]] || return 0
+  build_only=1
+  "$runner" v2_gates_build_only_no_test_matches && built=1
+  build_only=
+  if ((!built)); then
+    failed=1
+    printf 'v2 gates: group %s does not build; its gates did not run:%s\n' "$1" "$filters" >&2
+    return
+  fi
+  for line in $filters; do "$runner" "$line"; done
 }
-
-# acpmux-book (release)
-book_gates() {
-  run_gates book
-}
-run_group acpmux-book book_gates
-
-# acpmux-client (release)
-client_gates() {
-  run_gates client
-}
-run_group acpmux-client client_gates
-
-# acpmux-core (release)
-core_gates() {
-  run_gates core
-}
-run_group acpmux-core core_gates
-
-# acpmux library gates (the gate profile avoids the release test build).
-acpmux_lib_gates() {
-  run_gates acpmux-lib
-}
-run_group acpmux-lib acpmux_lib_gates
 
 # cmux-tui-core links libghostty-vt (ghostty-vt-sys): its build needs the ghostty-next
 # submodule's source and zig, which neither the nightly's Rust setup nor a plain `cmux-ci test`
@@ -185,21 +199,20 @@ tui_core_native_ready() {
   fi
 }
 
-# cmux-tui-core's list callers (row 7c), against an agent service in the test's process.
-tui_core_lib_gates() {
-  if ! tui_core_native_ready; then
+# A group's gates; tui-core-lib first gets or checks its native build inputs, once per run.
+group_gates() {
+  if [[ $1 == tui-core-lib ]] && ! tui_core_native_ready; then
     failed=1
     return
   fi
-  run_gates tui-core-lib
+  run_gates "$1"
 }
-run_group cmux-tui-core-lib tui_core_lib_gates
 
-# acpmux integration gates use the same gate profile and one v2_connection
-# test binary.
-acpmux_connection_gates() {
-  run_gates acpmux-v2-connection
-}
-run_group acpmux-v2-connection acpmux_connection_gates
+# book, client and core run the release test build; acpmux-lib, tui-core-lib (row 7c's
+# list callers, against an agent service in the test's process) and acpmux-v2-connection
+# (one v2_connection test binary) use the gate profile, which avoids it.
+for group in $gate_groups; do
+  run_group "$group" group_gates "$group"
+done
 
 exit "$failed"

@@ -9,11 +9,9 @@
 // they were drawn, the rows it reveals fade in and copies of the rows it hides fade out.
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
-import { MOTION_SETTLE_MS } from "../src/motion/scale.generated";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
-import { FOLD_SETTLE_MS } from "../src/agent-session/acpmux/conversation/foldAnchor";
 import { teardownDom } from "./support/domTeardown";
+import { openSettled } from "./support/openSettled";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -50,6 +48,9 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
+const { MOTION_SETTLE_MS } = await import("../src/motion/scale.generated");
+const { turnView, WORKED } = await import("../src/agent-session/acpmux/conversation/turns");
+const { FOLD_SETTLE_MS } = await import("../src/agent-session/acpmux/conversation/foldAnchor");
 
 const VIEWPORT = 600;
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => VIEWPORT });
@@ -211,6 +212,9 @@ test("closing an open Worked for scrolled up the transcript leaves its line wher
   };
   try {
     await act(async () => render());
+    // The scrolls below yield no frame, so they find turn 7 among the rows already mounted: the history
+    // above the view, which mounts after the open's first frame painted, not in its first commit.
+    await openSettled(dom.window);
     // Up the transcript until turn 7's open line is drawn, then with it 200 px down the view.
     for (let top = latest(); !line(7) && top > 0; top -= VIEWPORT / 2) await scrollTo(top);
     await scrollTo(scroller().scrollTop + line(7).getBoundingClientRect().top - 200);

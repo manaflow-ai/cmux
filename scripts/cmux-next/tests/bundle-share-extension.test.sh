@@ -33,14 +33,34 @@ for key in sys.argv[2].split("."):
 print("" if value is None else value)' "$1" "$2"
 }
 
+# The host claims what the app claims: Resources/Info.plist's document types and URL schemes, read from the
+# app's own plist so the stand-in cannot drift from it. A sandboxed extension may open files only with an
+# app that claims them, else Launch Services refuses with kLSAppDoesNotClaimTypeErr (-10820, "sandboxed
+# callers only") and the host never launches; a stand-in that claimed only an "Image" type and not the
+# app's "file" URL scheme got exactly that (measure step 2ef5d86b, 2026-11-26). An entry whose value is a
+# build setting still unresolved here ($(CMUX_...), like the http/https handler rank) is left out.
+APP_PLIST="$ROOT/Resources/Info.plist"
 write_app_plist() { # <app> <id> <name> <executable>
   mkdir -p "$1/Contents"
   python3 -I -c '
-import plistlib, sys
+import json, plistlib, sys
+source = plistlib.load(open(sys.argv[5], "rb"))
+def resolved(entry):
+    text = json.dumps(entry).replace("$(PRODUCT_BUNDLE_IDENTIFIER)", sys.argv[2])
+    return None if "$(" in text else json.loads(text)
+def claims(key):
+    return [e for e in map(resolved, source.get(key, [])) if e is not None]
+documents, schemes = claims("CFBundleDocumentTypes"), claims("CFBundleURLTypes")
+images = [d for d in documents if "public.image" in d.get("LSItemContentTypes", [])]
+files = [u for u in schemes if "file" in u.get("CFBundleURLSchemes", [])]
+if not images or not files:
+    sys.exit("%s claims no images or no file URL scheme" % sys.argv[5])
 plistlib.dump({"CFBundleIdentifier": sys.argv[2], "CFBundleName": sys.argv[3], "CFBundleExecutable": sys.argv[4],
                "CFBundlePackageType": "APPL", "CFBundleVersion": "4242", "CFBundleShortVersionString": "0.99.1",
-               "LSMinimumSystemVersion": "14.0", "LSUIElement": True}, open(sys.argv[1], "wb"))' \
-    "$1/Contents/Info.plist" "$2" "$3" "$4"
+               "LSMinimumSystemVersion": "14.0", "LSUIElement": True,
+               "CFBundleDocumentTypes": documents, "CFBundleURLTypes": schemes},
+              open(sys.argv[1], "wb"))' \
+    "$1/Contents/Info.plist" "$2" "$3" "$4" "$APP_PLIST" || fail "the stand-in Info.plist could not be written from $APP_PLIST"
 }
 
 check_plist() { # <appex Info.plist> <app id> <app name>
@@ -88,6 +108,11 @@ mkdir -p "$host_app/Contents/MacOS"
 cat > "$TMP/host.swift" <<'SWIFT'
 import AppKit
 final class Host: NSObject, NSApplicationDelegate {
+    // Written at launch, so a missing opened.txt says whether the host never started or started without the files.
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let out = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("launched.txt")
+        try? "\(ProcessInfo.processInfo.processIdentifier)\n".write(to: out, atomically: true, encoding: .utf8)
+    }
     func application(_ application: NSApplication, open urls: [URL]) {
         let out = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("opened.txt")
         try? (urls.map(\.path).joined(separator: "\n") + "\n").write(to: out, atomically: true, encoding: .utf8)
@@ -143,7 +168,8 @@ let title = arguments[1], url = URL(fileURLWithPath: arguments[2]), opened = arg
 _ = NSApplication.shared.setActivationPolicy(.accessory)
 let services = NSSharingService.sharingServices(forItems: [url])
 guard let service = services.first(where: { $0.title == title }) else {
-    print("no Share service titled \(title); offered: \(services.map(\.title))")
+    let image = NSImage(contentsOf: url).map { NSSharingService.sharingServices(forItems: [$0]).map(\.title) } ?? []
+    print("no Share service titled \(title); offered for the file: \(services.map(\.title)); for the image: \(image)")
     exit(2)
 }
 let watch = Watch()
@@ -158,8 +184,43 @@ print("shared: \(watch.shared.map(String.init(describing:)) ?? "no answer") \(wa
 exit(FileManager.default.fileExists(atPath: opened) ? 0 : 4)
 SWIFT
 xcrun swiftc "$TMP/perform.swift" -o "$TMP/perform" || fail "the performer did not compile"
-said=$("$TMP/perform" "$host_name Chat" "$TMP/shot.png" "$TMP/build/opened.txt" 2>&1) ||
-  fail "performing the Share service did not hand the PNG to the host within 15 s" "$said"
+ext_id="com.cmuxterm.test.share-host.$suffix.share"
+# Shared but no PNG at the host: whether the host launched, and what the extension, the sandbox and
+# LaunchServices logged while it ran.
+handoff_trace() {
+  local launched="never launched"
+  [[ -f "$TMP/build/launched.txt" ]] && launched="launched, pid $(cat "$TMP/build/launched.txt")"
+  printf 'host: %s\nlog:\n' "$launched"
+  /usr/bin/log show --last 2m --style compact --predicate \
+    'process == "CmuxShare" OR process == "ShareHost" OR eventMessage CONTAINS "CmuxShare" OR eventMessage CONTAINS "share-host"' \
+    2>&1 | grep -v '^Timestamp\|^Filtering' | tail -60 || true
+  # ShareViewController's own steps (loadView, beginRequest, each loadItem, the open and its answer): none at all
+  # means the extension's principal class never loaded.
+  printf 'extension steps (%s):\n' "$ext_id"
+  /usr/bin/log show --last 2m --style compact --info --predicate "subsystem == \"$ext_id\"" \
+    2>&1 | grep -v '^Timestamp\|^Filtering' | tail -30 || true
+  # What Launch Services holds for the host: the types and schemes a -10820 is judged against.
+  printf 'launch services record (%s):\n' "$host_app"
+  "$LSREGISTER" -dump 2>/dev/null | awk -v id="com.cmuxterm.test.share-host.$suffix" '
+    /^-{20,}/ { if (hit) exit; block = ""; next }
+    { block = block $0 "\n" }
+    index($0, id) && /identifier:/ { hit = 1 }
+    END { if (hit) printf "%s", block; else print "(no record)" }' |
+    grep -E 'identifier|path:|claim|bindings|schemes|rank|role|flags' | head -60 || true
+}
+said=$("$TMP/perform" "$host_name Chat" "$TMP/shot.png" "$TMP/build/opened.txt" 2>&1) || {
+  status=$?
+  # Not offered: say whether macOS registered it switched off (pluginkit's "-" or no mark), then switch it on
+  # (pluginkit -e use, what System Settings' Extensions pane does) and ask again.
+  [[ $status == 2 ]] ||
+    fail "performing the Share service did not hand the PNG to the host within 15 s" "$said"$'\n'"$(handoff_trace)"
+  election=$(/usr/bin/pluginkit -m -v -i "$ext_id" 2>&1 || true)
+  /usr/bin/pluginkit -e use -i "$ext_id" || fail "pluginkit -e use refused the extension" "$said"$'\n'"$election"
+  said=$("$TMP/perform" "$host_name Chat" "$TMP/shot.png" "$TMP/build/opened.txt" 2>&1) ||
+    fail "not offered as registered, nor after pluginkit -e use" \
+      "registered as: $election"$'\n'"$said"$'\n'"$(handoff_trace)"
+  echo "NOTE: offered only after pluginkit -e use; registered as: $election"
+}
 grep -qx "$(cd "$TMP" && pwd -P)/shot.png\|$TMP/shot.png" "$TMP/build/opened.txt" ||
   fail "the host was opened with something else" "$(cat "$TMP/build/opened.txt")"
 echo "PASS performing \"$host_name Chat\" opens the PNG with the app that carries the extension ($said)"

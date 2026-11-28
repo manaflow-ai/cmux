@@ -69,6 +69,33 @@ import Testing
         #expect(sent.map(\.params) == [#"{"text":"a"}"#], "sent in the task's first turn, as before")
     }
 
+    /// `CEFTab.startDevTools` (a Chromium page's setup, sent in one turn): a small call ahead of a large one goes in
+    /// the caller's turn, the large one is encoded off the main actor, the calls reach Chromium in the order they
+    /// were started, and each awaiter gets its own call's answer.
+    @Test func callsStartedInOneTurnKeepTheirOrderAndALargeOneEncodesOffTheMainActor() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        let order = ["Page.enable", "Page.addScriptToEvaluateOnNewDocument", "Runtime.enable"]
+        let answers = [
+            tab.startDevTools(method: order[0], params: [:]),
+            tab.startDevTools(method: order[1], params: ["source": Self.script, "runImmediately": true]),
+            tab.startDevTools(method: order[2], params: [:]),
+        ]
+        #expect(Recorder.sent(Set(order)).map(\.method) == [order[0]], "the small call ahead goes in the caller's turn")
+        let longest = await rig.longestMainActorJob { Recorder.sent(Set(order)).count == 3 }
+        #expect(Recorder.sent(Set(order)).map(\.method) == order, "in the order started")
+        #expect(Recorder.calls.suffix(3).map(\.method) == order)
+        #expect(longest < Self.budget, "\(Self.script.utf8.count >> 20) MB of script held the main actor \(longest) (budget \(Self.budget))")
+        let last = try #require(Recorder.lastMessage)
+        for (offset, message) in (last - 2...last).enumerated() {
+            rig.runtime.handle(.devToolsResult(browser: Rig.browser, messageID: message, success: true, json: #"{"n":\#(offset)}"#))
+        }
+        var results: [String] = []
+        for answer in answers { results.append(try await answer()) }
+        #expect(results == [#"{"n":0}"#, #"{"n":1}"#, #"{"n":2}"#])
+    }
+
     /// An agent's `browser screenshot` (`CEFTab.snapshot`): the answer is a viewport PNG as base64, megabytes for a
     /// Retina window; its base64 and PNG decode must not run on the main actor.
     @Test func aLargeScreenshotAnswerIsDecodedOffTheMainActor() async throws {
@@ -100,6 +127,69 @@ import Testing
         })
         let png = try #require(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
         return #"{"data":""# + png.base64EncodedString() + #""}"#
+    }
+
+    /// 12 of the 17 NIGHTLY hangs in `cmux_shim_devtools_call` of 2026-11-17/18 (HQ #8689, #13672; 2.1-4.6 s each)
+    /// came from builds whose hidden-page trim sent `Memory.simulatePressureNotification` once per hidden page.
+    /// Chromium answers it in the browser process only, by running every memory-pressure listener of the whole
+    /// process inside the send, on the main thread: N hidden pages were N process-wide purges in a row. One round
+    /// is one notice.
+    @Test func aTrimRoundOfManyHiddenPagesSendsOneNotice() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        var done = false
+        let trim = CEFHiddenPageTrim(hiddenPages: { [tab, tab, tab] }) { await CEFHiddenPageTrim.notice($0) }
+        Task { await trim.trim(); done = true }
+        var answered: Int32?
+        await rig.until {
+            // Chromium answers each notice: a trim that waits for one reply per page goes on to the next page.
+            if let message = Recorder.lastMessage, message != answered {
+                answered = message
+                rig.runtime.handle(.devToolsResult(browser: Rig.browser, messageID: message, success: true, json: "{}"))
+            }
+            return done
+        }
+        #expect(done)
+        #expect(Recorder.sent(["Memory.simulatePressureNotification"]).map(\.params) == [#"{"level":"critical"}"#],
+                "3 hidden pages, one browser-process purge")
+    }
+
+    /// A hidden page that cannot take the notice (it closes meanwhile) does not cost the round: the next one takes it,
+    /// and the round still ends at the first that did.
+    @Test func aPageThatCannotTakeTheNoticePassesItToTheNext() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        var tries = 0
+        let trim = CEFHiddenPageTrim(hiddenPages: { [tab, tab, tab] }) { _ in
+            tries += 1
+            return tries == 2
+        }
+        await trim.trim()
+        #expect(tries == 2, "the first page failed, the second took it, the third was not asked")
+        #expect(trim.notices == 1)
+    }
+
+    /// No timeout bounds the shim call: Chromium dispatches every DevTools message on the main thread, and a method
+    /// the browser process answers runs inside it. A call past one frame is recorded with its method and size, which
+    /// a hang report's stack does not name; a fast one is not.
+    @Test func aSendThatHoldsTheMainThreadIsRecordedWithItsMethodAndSize() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        Task { _ = try? await tab.devTools(method: "Input.insertText", params: ["text": "a"]) }
+        await rig.until { Recorder.sent(["Input.insertText"]).count == 1 }
+        #expect(rig.runtime.slowDevToolsSends.isEmpty, "a fast send is not recorded")
+
+        Recorder.sendNanos = 40_000_000
+        Task { _ = try? await tab.devTools(method: "Memory.simulatePressureNotification", params: ["level": "critical"]) }
+        await rig.until { !rig.runtime.slowDevToolsSends.isEmpty }
+        let slow = try #require(rig.runtime.slowDevToolsSends.first)
+        #expect(slow.method == "Memory.simulatePressureNotification")
+        #expect(slow.paramsBytes == #"{"level":"critical"}"#.utf8.count)
+        #expect(slow.took >= .milliseconds(40), "the shim call itself, entry to return")
+        #expect(rig.runtime.slowDevToolsSends.count == 1)
     }
 
     // MARK: Rig
@@ -164,12 +254,16 @@ private nonisolated enum Recorder {
     nonisolated(unsafe) static var nextMessage: Int32 = 1
     /// The message id the last DevTools call got.
     nonisolated(unsafe) static var lastMessage: Int32?
+    /// How long each DevTools call holds its caller, as Chromium's dispatch of a method the browser process
+    /// answers does (a critical memory-pressure notice: 2.1-4.6 s in NIGHTLY hang reports).
+    nonisolated(unsafe) static var sendNanos: UInt64 = 0
 
     static func reset(forkAPI api: Int32) {
         forkAPI = api
         calls = []
         nextMessage = 1
         lastMessage = nil
+        sendNanos = 0
     }
 
     /// The calls of `methods`, in the order they reached the shim.
@@ -182,6 +276,8 @@ private nonisolated enum Recorder {
             let bytes = params.map { strlen($0) } ?? 0
             Recorder.calls.append(Call(method: method.map { String(cString: $0) } ?? "",
                                        params: bytes < 256 ? params.map { String(cString: $0) } ?? "" : "", paramsBytes: bytes))
+            let end = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + Recorder.sendNanos
+            while clock_gettime_nsec_np(CLOCK_UPTIME_RAW) < end {}
             Recorder.nextMessage += 1
             Recorder.lastMessage = Recorder.nextMessage
             return Recorder.nextMessage

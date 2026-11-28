@@ -51,6 +51,9 @@ public final class WorkspaceModel: Identifiable {
     /// The task lane the person pinned (Mark as Done, Set Workspace Status,
     /// `workspace-status-v1`); nil is automatic. From the daemon's state resources.
     public internal(set) var taskStatus: WorkspaceTaskStatus?
+    /// Who made the workspace and why (`extra.created_by`): the person, an agent session or a
+    /// script; nil on a daemon that does not say. From the daemon's state resources.
+    public internal(set) var createdBy: WorkspaceCreator?
     /// Status line, progress, and newest log line hooks and the CLI report
     /// (`workspace_status.*`); from the daemon's state resources.
     public internal(set) var status: WorkspaceStatus?
@@ -66,6 +69,9 @@ public final class WorkspaceModel: Identifiable {
     @ObservationIgnored var tookOverStandIn: (pane: PaneID, firstTab: SurfaceID?)?
     /// Listed in the sidebar's Pinned section (`workspace-pin-v1`).
     public internal(set) var pinned: Bool
+    /// The daemon's copy of Keep Workspace Awake (`workspace-keep-awake-v1`), which its freeing timer honors;
+    /// the app's own set is `WorkspaceKeepAwakeStore`, mirrored here by `WorkspaceKeepAwakeFlags`.
+    public internal(set) var keepAwake = false
     /// Marked unread by hand (`notification-mark-unread-v1`), apart from
     /// notification markers; cleared when the workspace is used.
     public internal(set) var markedUnread: Bool { didSet { noteUnreadChange() } }
@@ -161,15 +167,16 @@ public final class WorkspaceModel: Identifiable {
         noteUnreadChange()
     }
 
-    /// The contribution the store last summed.
-    @ObservationIgnored private var summedContribution = UnreadTotals()
+    /// The contribution the store last summed (``DaemonStore/adoptUnread(from:)`` sets it when the workspace joins).
+    @ObservationIgnored var summedContribution = UnreadTotals()
 
-    /// Tells the store when what this workspace adds changed.
+    /// Tells the store when what this workspace adds changed: the store adds the difference, O(1).
     private func noteUnreadChange() {
         let contribution = unreadContribution
         guard contribution != summedContribution else { return }
+        let old = summedContribution
         summedContribution = contribution
-        unreadStore?.recountUnread()
+        unreadStore?.unreadContributionChanged(from: old, to: contribution)
     }
 
     init(_ s: WorkspaceSnapshot) {
@@ -187,6 +194,7 @@ public final class WorkspaceModel: Identifiable {
         icon = s.icon
         title = s.title
         pinned = s.pinned
+        keepAwake = s.keepAwake
         markedUnread = s.markedUnread
         kind = s.kind
         app = s.app
@@ -211,6 +219,7 @@ public final class WorkspaceModel: Identifiable {
         if icon != s.icon { icon = s.icon }
         if title != s.title { title = s.title }
         if pinned != s.pinned { pinned = s.pinned }
+        if keepAwake != s.keepAwake { keepAwake = s.keepAwake }
         if markedUnread != s.markedUnread { markedUnread = s.markedUnread }
         if kind != s.kind { kind = s.kind }
         if app != s.app { app = s.app }
@@ -230,6 +239,7 @@ public final class WorkspaceModel: Identifiable {
         if self.agentFolder != agentFolder { self.agentFolder = agentFolder }
         if workspaceDescription != notes.description { workspaceDescription = notes.description }
         if taskStatus != notes.taskStatus { taskStatus = notes.taskStatus }
+        if createdBy != notes.createdBy { createdBy = notes.createdBy }
         if self.status != status { self.status = status }
         if self.checklist != checklist { self.checklist = checklist }
         screenGroupsFromState = groups != nil

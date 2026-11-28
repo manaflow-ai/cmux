@@ -18,20 +18,21 @@ import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
 import { JSDOM } from "jsdom";
-import { parseGhosttyTheme } from "../src/gallery/theme/ghostty";
-import { themeInput } from "../src/gallery/theme/web";
-import {
-  css,
-  deriveTokens,
-  wallpaperTintOpacity,
-  withAlpha,
-  type ThemeRGB,
-  type ThemeTokens,
-} from "../src/gallery/theme/tokens";
-import { SELECTION_FILL_PROPERTY, updateSelectionFill } from "../src/ui/adaptiveSelection";
-import { HIGHLIGHT_FLOORS, over } from "../src/ui/highlightContrast";
-import { parseComputedColor } from "../src/backdrop";
-import { contrast, BLACK, WHITE, type RGB } from "../src/theme/color";
+import type { ThemeRGB, ThemeTokens } from "../src/gallery/theme/tokens";
+import type { RGB } from "../src/theme/color";
+import { importWithDom } from "./support/importWithDom";
+
+const { parseGhosttyTheme } = await importWithDom(() => import("../src/gallery/theme/ghostty"));
+const { themeInput } = await importWithDom(() => import("../src/gallery/theme/web"));
+const { css, deriveTokens, wallpaperTintOpacity, withAlpha } = await importWithDom(
+  () => import("../src/gallery/theme/tokens"),
+);
+const { SELECTION_FILL_PROPERTY, updateSelectionFill } = await importWithDom(
+  () => import("../src/ui/adaptiveSelection"),
+);
+const { HIGHLIGHT_FLOORS, over } = await importWithDom(() => import("../src/ui/highlightContrast"));
+const { parseComputedColor } = await importWithDom(() => import("../src/backdrop"));
+const { contrast, BLACK, WHITE } = await importWithDom(() => import("../src/theme/color"));
 
 const THEMES = path.resolve(import.meta.dir, "../../Resources/ghostty/themes");
 const FLOOR = HIGHLIGHT_FLOORS.selection;
@@ -53,8 +54,8 @@ const rgbaOf = (color: ThemeRGB) => ({ r: color.red * 255, g: color.green * 255,
 const SURFACES = {
   "assistant text": 0,
   "user bubble": 0.14, // .acpmux-shell .cv-user__bubble --glass-tint
-  "inline code": 0.11, // --cv-code-bg
-  "code block": 0.075, // --cv-codeblock-bg
+  "inline code": 0.08, // --cv-code-bg: the inset level (design-scale surfaces)
+  "code block": 0.04, // --cv-codeblock-bg: the card level
 } as const;
 
 /** `var(--name, fallback)` resolved against `variables`, as the engine does; JSDOM leaves it as is. */

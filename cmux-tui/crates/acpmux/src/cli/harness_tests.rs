@@ -20,6 +20,7 @@ fn options(env: &'static [(&'static str, &'static str)]) -> DoctorOptions {
             env.iter().find(|(k, _)| *k == var).map(|(_, v)| (*v).to_owned())
         }),
         lookup_keychain: Box::new(|_, _| Err("not found".into())),
+        extra_env: Default::default(),
     }
 }
 
@@ -106,6 +107,61 @@ async fn doctor_checks_a_folder_profile_only_when_enabled_and_inside_its_folder(
     assert!(step(&report, "profile").detail.contains("no harness"), "{}", report.text());
 }
 
+/// The sr2 launcher (`sr2 claude2`), headless, accepts only a session's stream-json
+/// shape and refuses `-p PROMPT`. The doctor's turn sent `-p PROMPT --output-format json`,
+/// so `cmux harness doctor claude-sr2` failed its prompt step with the launcher's "runs the
+/// Claude TUI only in a cmux terminal" while every claude-sr2 chat ran (cmux#57823). The
+/// stand-in refuses as the launcher does; the doctor's turn must pass through it.
+#[tokio::test(flavor = "multi_thread")]
+async fn doctor_turns_a_launcher_that_takes_only_stream_json() {
+    let root = temp("doctor-sr2-stream-json");
+    let launcher = root.join("claude-sr2");
+    crate::test_exec::write_executable(
+        &launcher,
+        r#"#!/usr/bin/env python3
+import json, sys
+args = sys.argv[1:]
+if "--version" in args:
+    sys.stderr.write("subrouter: sr2 claude2 runs the Claude TUI only in a cmux terminal\n")
+    sys.exit(1)
+def after(name):
+    return args[args.index(name) + 1] if name in args and args.index(name) + 1 < len(args) else ""
+if after("--input-format") != "stream-json" or after("--output-format") != "stream-json":
+    sys.stderr.write("subrouter: sr2 claude2 runs the Claude TUI only in a cmux terminal (it types /compact through the cmux CLI); elsewhere start a session with `acpmux new -m claude-sr2`\n")
+    sys.exit(1)
+print(json.dumps({"type": "system", "subtype": "init", "model": after("--model")}))
+lines = [json.loads(l) for l in sys.stdin if l.strip()]
+text = "".join(b["text"] for b in lines[0]["message"]["content"])
+assert lines[0]["type"] == "user" and "OK" in text, lines
+print(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "OK"}]}}))
+print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "OK"}))
+"#,
+    );
+    let path = root.join("claude-sr2.toml");
+    let text = format!(
+        "schema = 1\nid = \"claude-sr2\"\nfamily = \"claude-sr2\"\nprotocol = \"claude-stdio\"\n\
+         command = {:?}\n\n[defaults]\nmodel = \"claude-opus-5-5\"\n",
+        launcher.to_string_lossy()
+    );
+    std::fs::write(&path, &text).unwrap();
+    let (id, profile, meta, warnings) =
+        profiles::parse_profile_toml(&text, &path, Some("claude-sr2"), ProfileSource::UserFile)
+            .unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(profile.kind, HarnessKind::ClaudeStdio);
+    let mut cfg = Config::default();
+    cfg.harnesses.insert(id.clone(), profile);
+    cfg.profile_meta.insert(id, meta);
+
+    let report = doctor(&cfg, "claude-sr2", &options(&[])).await;
+    let prompt = step(&report, "prompt");
+    assert_eq!(prompt.status, StepStatus::Pass, "{}", report.text());
+    assert_eq!(report.reply.as_deref(), Some("OK"), "{}", report.text());
+    // No --version is a warning, never the verdict.
+    assert_eq!(step(&report, "launch").status, StepStatus::Warn, "{}", report.text());
+    assert!(report.ok, "{}", report.text());
+}
+
 /// A managed Codex install reports whether it told a running daemon to read its profiles again,
 /// so a daemon that was running does not keep offering the catalog it had before the install.
 #[test]
@@ -136,4 +192,113 @@ fn hermes_example_profile_loads_as_an_acp_harness() {
     assert_eq!(profile.kind, crate::config::HarnessKind::Acp);
     assert_eq!(profile.argv.last().map(String::as_str), Some("acp"));
     assert_eq!(meta.display_name.as_deref(), Some("Hermes Agent"));
+}
+
+fn add_into(dir: &Path, req: AddRequest) -> (Added, HarnessProfile) {
+    let sources = ProfileSources { user_dir: Some(dir.to_owned()), ..ProfileSources::none() };
+    let added = add(&req, &sources).unwrap();
+    let text = std::fs::read_to_string(&added.path).unwrap();
+    let (_, profile, _, _) =
+        profiles::parse_profile_toml(&text, &added.path, Some(&added.id), ProfileSource::UserFile)
+            .unwrap();
+    (added, profile)
+}
+
+#[test]
+fn add_writes_args_env_and_claude_home_into_the_example() {
+    let dir = temp("add-launch-claude");
+    let launch = LaunchEdits {
+        args: vec!["--verbose".into()],
+        env: parse_env_args(&["DISABLE_TELEMETRY=1".into()]).unwrap(),
+        home: Some("~/.claude-work".into()),
+    };
+    let req = AddRequest {
+        id: None,
+        command: Some("/opt/claude-beta/claude".into()),
+        protocol: "acp".into(),
+        example: Some("claude".into()),
+        force: false,
+        launch,
+    };
+    let (added, profile) = add_into(&dir, req);
+    assert_eq!(added.id, "claude", "the example's id: it replaces the built-in claude");
+    assert_eq!(profile.kind, HarnessKind::ClaudeStdio);
+    assert_eq!(profile.argv, ["/opt/claude-beta/claude", "--verbose"]);
+    assert_eq!(profile.env.get("CLAUDE_CONFIG_DIR").map(String::as_str), Some("~/.claude-work"));
+    assert_eq!(profile.env.get("DISABLE_TELEMETRY").map(String::as_str), Some("1"));
+    let text = std::fs::read_to_string(&added.path).unwrap();
+    assert!(text.contains("[sessions]"), "the example's other tables stay");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn add_writes_launch_into_a_scaffold_and_codex_home() {
+    let dir = temp("add-launch-codex");
+    let req = AddRequest {
+        id: Some("codex-work".into()),
+        command: Some("codex-acp".into()),
+        protocol: "acp".into(),
+        example: None,
+        force: false,
+        launch: LaunchEdits {
+            args: vec!["-c".into(), "x=1".into()],
+            env: vec![],
+            home: Some("/w/.codex".into()),
+        },
+    };
+    let (_, profile) = add_into(&dir, req);
+    assert_eq!(profile.argv, ["codex-acp", "-c", "x=1"]);
+    assert_eq!(profile.env.get("CODEX_HOME").map(String::as_str), Some("/w/.codex"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn add_without_launch_flags_writes_the_example_unchanged() {
+    let dir = temp("add-launch-none");
+    let req = AddRequest {
+        id: None,
+        command: None,
+        protocol: "acp".into(),
+        example: Some("codex".into()),
+        force: false,
+        launch: LaunchEdits::default(),
+    };
+    let (added, _) = add_into(&dir, req);
+    let text = std::fs::read_to_string(&added.path).unwrap();
+    assert_eq!(text, with_id(example("codex").unwrap(), "codex"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn env_flags_refuse_secrets_and_bad_names_and_home_needs_a_known_agent() {
+    assert!(parse_env_args(&["ANTHROPIC_API_KEY=sk-1".into()]).is_err());
+    assert!(parse_env_args(&["bad name=1".into()]).is_err());
+    assert!(parse_env_args(&["NOEQUALS".into()]).is_err());
+    assert_eq!(parse_env_args(&["A=b=c".into()]).unwrap(), [("A".to_owned(), "b=c".to_owned())]);
+    let launch = LaunchEdits { home: Some("/h".into()), ..Default::default() };
+    let err = with_launch(&scaffold("goose", "goose", "acp"), None, &launch).unwrap_err();
+    assert!(err.to_string().contains("--env ITS_HOME_VAR"), "{err}");
+}
+
+/// `cmux harness add --example cursor` (or `cursor-agent`) writes a profile
+/// that loads as an ACP harness running `cursor-agent acp`, signed in by `cursor-agent login`.
+#[test]
+fn cursor_example_profile_loads_as_an_acp_harness() {
+    let text = example("cursor").expect("a cursor example");
+    assert_eq!(example("cursor-agent"), Some(text));
+    let path = std::path::Path::new("/tmp/cursor.toml");
+    let (id, profile, meta, warnings) = crate::config::profiles::parse_profile_toml(
+        text,
+        path,
+        Some("cursor"),
+        crate::config::ProfileSource::UserFile,
+    )
+    .unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(id, "cursor");
+    assert_eq!(profile.kind, crate::config::HarnessKind::Acp);
+    assert_eq!(profile.argv.first().map(String::as_str), Some("cursor-agent"));
+    assert_eq!(profile.argv.last().map(String::as_str), Some("acp"));
+    assert_eq!(meta.display_name.as_deref(), Some("Cursor"));
+    assert_eq!(meta.auth.and_then(|a| a.login).as_deref(), Some("cursor-agent login"));
 }

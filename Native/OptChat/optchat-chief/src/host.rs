@@ -70,8 +70,7 @@ pub fn harness_choice(
 /// The compactor's harness when none is set (Lawrence 2026-10-09: "just
 /// always use haiku for default compactor"): the turns' own when it is a
 /// Claude harness (claude-sr stays claude-sr), else `claude`, the Claude
-/// route acpmux has (the configured CodeRouter route, else the user's own
-/// login).
+/// route acpmux has (the user's own login).
 pub fn default_compactor_harness(turn: &str, family: Family, claude: &str) -> String {
     if family == Family::Claude {
         turn.to_owned()
@@ -111,7 +110,7 @@ pub fn compactor_harness_for(
 /// harnesses the Chief can use, so its model probes never start another
 /// harness's agent (a Claude-only Chief never starts codex-acp). The set
 /// turn, compactor and subagent harnesses and engine.json's, and always the
-/// Claude routes (`DEFAULT_HARNESS`, `CODEROUTER_HARNESS`, `SR2_HARNESS`): the default turn
+/// Claude routes (`DEFAULT_HARNESS`, `SR2_HARNESS`): the default turn
 /// harness, and the compactor of a turn harness that is not Claude.
 pub fn probe_harnesses(
     chief: Option<&str>,
@@ -128,7 +127,7 @@ pub fn probe_harnesses(
     ]
     .into_iter()
     .flatten()
-    .chain([DEFAULT_HARNESS, CODEROUTER_HARNESS, SR2_HARNESS])
+    .chain([DEFAULT_HARNESS, SR2_HARNESS])
     .collect();
     names.into_iter().collect::<Vec<_>>().join(",")
 }
@@ -138,33 +137,19 @@ pub fn probe_harnesses(
 /// is only an explicit choice.
 pub const DEFAULT_HARNESS: &str = "claude";
 
-/// The harness the Chief uses when none is set: the configured CodeRouter
-/// route (`claude-cr`, which acpmux has only when `coderouterClaudeRoute`
-/// names one) whether or not it can run, so an unavailable route is
-/// refused with its reason instead of silently moving to another account;
-/// else the user's own Claude CLI (`DEFAULT_HARNESS`: the `claude` acpmux
-/// finds on the login shell's PATH, run with the user's own
-/// `~/.claude/settings.json` and login; Lawrence 2026-10-19: "make sure
-/// Chief, by default, will talk to the correct Claude, using the user's
-/// Claude CLI"). The subrouter2 route (`claude-sr2`) is an explicit choice
-/// (`chief engine set --harness claude-sr2`), and the default only when
-/// acpmux has no usable `claude` but can run sr2.
-pub fn default_harness(answer: &serde_json::Value) -> &'static str {
-    let harnesses = answer.get("harnesses");
-    if harnesses.and_then(|h| h.get(CODEROUTER_HARNESS)).is_some() {
-        return CODEROUTER_HARNESS;
-    }
-    let runnable_stdio = |name: &str| {
-        harnesses.and_then(|h| h.get(name)).is_some_and(|p| {
-            p.get("kind").and_then(serde_json::Value::as_str) == Some("claude-stdio")
-                && p.get("unavailable").is_none()
-        })
-    };
-    if !runnable_stdio(DEFAULT_HARNESS) && runnable_stdio(SR2_HARNESS) {
-        SR2_HARNESS
-    } else {
-        DEFAULT_HARNESS
-    }
+/// The harness the Chief uses when none is set: the user's own Claude CLI
+/// (`DEFAULT_HARNESS`: the `claude` acpmux finds on the login shell's PATH,
+/// run with the user's own `~/.claude/settings.json` and login; Lawrence
+/// 2026-10-19: "make sure Chief, by default, will talk to the correct
+/// Claude, using the user's Claude CLI"). No other route is ever picked for
+/// the person: not the CodeRouter route (Leo: "For cmux next, just rip it out
+/// for now then"), and the subrouter2 route (`claude-sr2`) only as an
+/// explicit choice (`chief engine set --harness claude-sr2`): a missing
+/// `claude` is refused with its reason, never moved to another route (Leo
+/// 2026-11-26: "identify all the weird opinoinated fleet things we shipped
+/// into the app and remove them").
+pub fn default_harness(_answer: &serde_json::Value) -> &'static str {
+    DEFAULT_HARNESS
 }
 
 /// Records which executable (and its `--version`) the turns, compactor and
@@ -231,9 +216,6 @@ fn trace_codex(paths: &Paths, trace: &crate::trace::Trace, log: &dyn Fn(String))
     }
 }
 
-/// acpmux's profile for a configured CodeRouter Claude route.
-pub const CODEROUTER_HARNESS: &str = "claude-cr";
-
 /// acpmux's profile for Claude Code through the subrouter2 gateway
 /// (`~/.config/cmux/harnesses/claude-sr2.toml`, command `sr2 claude`).
 pub const SR2_HARNESS: &str = "claude-sr2";
@@ -269,6 +251,13 @@ pub fn turn_preset(
     env.insert(
         session_dir::TURN_TOOLS_ENV.to_owned(),
         session_dir::CHIEF_CMUX_TOOLS.join(","),
+    );
+    // The cmux server reads the Chief's attached Cloud computer from its
+    // engine.json at each call: `cloud_computer`'s default machine (acpmux
+    // `agent_tools::CHIEF_ENGINE_ENV`, passed to the `cmux` server only).
+    env.insert(
+        session_dir::CHIEF_ENGINE_ENV.to_owned(),
+        crate::engine::path(home).display().to_string(),
     );
     if family == Family::Codex {
         env.insert(
@@ -647,6 +636,19 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
             return 1;
         }
     };
+    // A memory handed to this machine over a projected folder (memory_place.rs) is taken in
+    // before anything opens the memory; a mounted hand-out that is not this machine's refuses.
+    {
+        let capability =
+            crate::memory_place::daemon_capability(Path::new(&daemon_socket)).unwrap_or(false);
+        match crate::memory_place::at_host_start(&home, capability) {
+            Ok(line) => log(line),
+            Err(why) => {
+                log(format!("not starting: {why}"));
+                return crate::migrate::MOVED_EXIT;
+            }
+        }
+    }
     // A status left by a host that crashed mid-wait says nothing true now.
     let settle = crate::settle_status::SettleStatus::new(&paths.settle_status);
     settle.clear();
@@ -748,6 +750,18 @@ fn start(
     daemon_socket: &str,
     source: Source,
 ) -> Result<String, String> {
+    // The memory files (memory_files.rs): notes, standing rules and open
+    // loops beside the chat. A store that cannot open is kept in memory for
+    // this start, so the tools still answer.
+    let memory_files = Arc::new(
+        crate::memory_files::MemoryFiles::open_in(&paths.root).unwrap_or_else(|e| {
+            log(format!(
+                "{e}; memory files kept in memory until the next start"
+            ));
+            crate::memory_files::MemoryFiles::open(Path::new(":memory:"))
+                .expect("an in-memory SQLite database")
+        }),
+    );
     let exe = std::env::current_exe()
         .and_then(|p| p.canonicalize())
         .map_err(|e| format!("finding this executable: {e}"))?;
@@ -944,13 +958,14 @@ fn start(
             "chief": chief.unwrap_or_else(|| crate::paths::home_id(home)),
         }),
     );
-    // Spec 4 (gist 3c190e0): a compaction sends the turns' own system
-    // prompt, so it reads it from the turns' cache entry.
+    // Turns read the full system prompt; compactions have their own small
+    // prompt with the view and compaction contract, without the Chief's turn
+    // and cmux instructions.
     let claude_text =
         crate::prompt::system_text(instructions.as_deref(), &crate::prompt::Tools::Mcp);
     let mut config = Config {
         agent: crate::prompt::AGENT.to_owned(),
-        prompt: optchat_host::CompactPrompt::Custom(claude_text.clone()),
+        prompt: optchat_host::CompactPrompt::Custom(crate::prompt::compactor_system_text()),
         reporter: Arc::new(|r: &Report| log(format!("memory: {r}"))),
         db: Some(paths.memory_db.clone()),
         ..Config::default()
@@ -978,6 +993,9 @@ fn start(
     let uses_acpmux = !(engine_choice.as_deref() == Some("native") && route == CompactRoute::Api);
     let mut families = BTreeMap::new();
     let mut profiles_by_name: BTreeMap<String, String> = BTreeMap::new();
+    // The open-source brains (brain_home.rs): each one's state, and its home written for an
+    // installed one; read from acpmux's answer below.
+    let mut brain_states = crate::brain_home::States::new();
     // Claude only through acpmux's own Claude Code adapter (harness_gate):
     // each harness is found by kind and command, and a refused one leaves
     // the host up with each of its sessions refused in the chat.
@@ -1008,8 +1026,22 @@ fn start(
                 profiles_by_name.insert(name.clone(), p.profile.clone());
             }
         }
-        // Nothing set: the configured CodeRouter route when acpmux has one,
-        // else the user's own Claude CLI (default_harness).
+        {
+            let mut setup = crate::brain_home::BrainSetup::from_choice(&engine_choice_file, paths);
+            // OpenClaw takes no per-session MCP servers: cmux's go into its own config.
+            let cmux_cli = pinned
+                .get(crate::cmux_env::BUNDLED_CLI_KEY)
+                .map(std::path::PathBuf::from)
+                .or_else(|| exe.parent().map(|bin| bin.join("cmux")))
+                .filter(|cli| cli.is_file());
+            setup.mcp_servers = crate::brain_home::chief_mcp_servers(
+                paths,
+                &exe.display().to_string(),
+                cmux_cli.as_deref(),
+            );
+            brain_states = crate::brain_home::prepare(paths, &answer, &setup, &|line| log(line));
+        }
+        // Nothing set: the user's own Claude CLI (default_harness).
         if chief_set.is_none() {
             harness = default_harness(&answer).to_owned();
             if sub_set.is_none() {
@@ -1081,6 +1113,12 @@ fn start(
         chiefs_tool: chief_tools.grant().allows("chiefs"),
     };
     session_dir::write(paths, &setup).map_err(|e| format!("writing the session directory: {e}"))?;
+    // The open-source brains read the same instructions (brain_home.rs).
+    if let Err(e) = std::fs::read_to_string(paths.session.join("AGENTS.md"))
+        .and_then(|text| crate::brain_home::write_instructions(paths, &brain_states, &text))
+    {
+        log(format!("brains: writing the Chief's instructions: {e}"));
+    }
     // The skills cmux ships, shared by every Chief (skills.rs); a failure
     // costs only the skill, never the host.
     if let Err(e) = crate::skills::install_builtin(&crate::skills::shared_dir(&paths.home)) {
@@ -1116,6 +1154,9 @@ fn start(
         .map_err(|e| format!("writing the subagent directory: {e}"))?;
 
     let (base_url, api_key) = (config.base_url.clone(), config.api_key.clone());
+    let direct_base_url = optchat_host::DEFAULT_BASE_URL.to_owned();
+    let direct_api_key = optchat_host::api_key(&direct_base_url, env);
+    let has_direct_credentials = direct_api_key != optchat_host::SUBROUTER_KEY;
     let (payer, provider) = crate::usage::payer_provider("native", Some(&base_url));
     trace.emit(
         "usage.native_route",
@@ -1259,6 +1300,111 @@ fn start(
     if let Some(other) = other_preset {
         required.push(other);
     }
+    // Each installed brain's turn preset: the Chief's own home for it, cmux's Chief tools only.
+    let mut brains = crate::brain_home::BrainTurns {
+        root: Some(paths.root.clone()),
+        model: Some(crate::brain_home::BrainSetup::from_choice(&engine_choice_file, paths).model),
+        ..Default::default()
+    };
+    for brain in &crate::brain_home::BRAINS {
+        let Some(state) = brain_states.get(brain.family) else {
+            continue;
+        };
+        let ready = if state.state == "ready" {
+            Ok(())
+        } else {
+            Err(state.reason.clone().unwrap_or_else(|| state.state.clone()))
+        };
+        let harness = state
+            .harness
+            .clone()
+            .unwrap_or_else(|| brain.family.to_owned());
+        let admitted = families.contains_key(&harness);
+        let preset = (ready.is_ok() && admitted).then(|| {
+            let name = crate::brain_home::turn_preset_name(home, brain);
+            let mut env = session_dir::isolation_env(paths);
+            let (servers_key, servers) = session_dir::TURN_TOOL_SERVERS;
+            env.insert(servers_key.to_owned(), servers.to_owned());
+            env.insert(
+                session_dir::TURN_TOOLS_ENV.to_owned(),
+                session_dir::CHIEF_CMUX_TOOLS.join(","),
+            );
+            env.insert(
+                brain.home_env.to_owned(),
+                crate::brain_home::dir(paths, brain).display().to_string(),
+            );
+            for key in crate::brain_home::PROVIDER_KEYS {
+                env.insert(key.to_owned(), String::new());
+            }
+            env.extend(pinned.clone());
+            required.push(crate::acpmux::Preset {
+                name: name.clone(),
+                harness: profiles_by_name
+                    .get(&harness)
+                    .cloned()
+                    .unwrap_or(harness.clone()),
+                env,
+                args: Vec::new(),
+                system_prompt: None,
+            });
+            name
+        });
+        let ready = match ready {
+            Ok(()) if !admitted => Err(format!("acpmux does not run {harness}")),
+            other => other,
+        };
+        brains.by_harness.insert(
+            harness,
+            crate::brain_home::BrainTurn {
+                brain,
+                preset,
+                ready,
+                retry_at: None,
+                ran: 0,
+            },
+        );
+    }
+    // OpenClaw's `acp` bridge needs its Gateway: one per Chief while this host runs.
+    let _openclaw_gateway = brain_states
+        .get("openclaw")
+        .filter(|s| s.state == "ready")
+        .and_then(|s| s.program.clone())
+        .and_then(|program| {
+            let brain = crate::brain_home::brain("openclaw")?;
+            crate::brain_home_openclaw::start_gateway(
+                std::path::Path::new(&program),
+                &crate::brain_home::dir(paths, brain),
+                &|line| log(line),
+            )
+            .map_err(|e| {
+                log(format!("openclaw: starting its Gateway: {e}"));
+                if let Some(state) = brain_states.get("openclaw").and_then(|s| s.harness.clone()) {
+                    brains.disable(&state, &format!("its Gateway did not start: {e}"));
+                }
+            })
+            .ok()
+        });
+    // Hermes' `acp` is a viewer of a gateway daemon it would otherwise start as a launchd job
+    // outside this host (brain_gateway.rs): this host runs it, one per Chief.
+    let _hermes_gateway = brain_states
+        .get("hermes")
+        .filter(|s| s.state == "ready")
+        .and_then(|s| s.program.clone())
+        .and_then(|program| {
+            let brain = crate::brain_home::brain("hermes")?;
+            crate::brain_gateway::start_hermes(
+                std::path::Path::new(&program),
+                &crate::brain_home::dir(paths, brain),
+                &|line| log(line),
+            )
+            .map_err(|e| {
+                log(format!("hermes: starting its gateway: {e}"));
+                if let Some(state) = brain_states.get("hermes").and_then(|s| s.harness.clone()) {
+                    brains.disable(&state, &format!("its gateway did not start: {e}"));
+                }
+            })
+            .ok()
+        });
     let agents = Acpmux::new(acpmux_socket.clone(), preset, required);
     // A Chief that moved here reaches the subagents its move handed to this
     // machine's default acpmux daemon (placed_agents.rs); the brain and the
@@ -1535,6 +1681,15 @@ fn start(
                     .map(|v| v.to_string())
                     .map_err(late)
             }
+            ControlRequest::Automations(request) => {
+                let (reply, answer) = channel();
+                tx.send(Input::Automations { request, reply })
+                    .map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
             ControlRequest::Restart(names) => {
                 let (reply, answer) = channel();
                 tx.send(Input::RestartSubagents { names, reply })
@@ -1639,6 +1794,32 @@ fn start(
     } else {
         "this Chief host could not reach a cmux session to make the workspace in".to_owned()
     };
+    let gateway = uses_acpmux.then(|| {
+        let probe = crate::auto_resume::TcpProbe::from_env(
+            env,
+            std::env::var_os("HOME")
+                .map(std::path::PathBuf::from)
+                .as_deref(),
+        );
+        let endpoint = probe
+            .endpoints
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "api.anthropic.com:443".into());
+        let fallback = if has_direct_credentials {
+            crate::gateway::GatewayFallback::DirectAnthropic
+        } else {
+            crate::gateway::GatewayFallback::Harness("codex".into())
+        };
+        Arc::new(
+            crate::gateway::GatewayHealth::new(
+                endpoint,
+                crate::gateway::DEFAULT_THRESHOLD,
+                fallback,
+            )
+            .with_probe(Arc::new(probe)),
+        )
+    });
     let mut sub_starter = None;
     let orchestrator = uses_acpmux.then(|| {
         let spawner = crate::subagents::Spawner::new(
@@ -1661,11 +1842,14 @@ fn start(
         )
         .with_trace(trace.clone())
         .with_person(paths.person.clone())
+        .with_memory_files(memory_files.clone())
         .with_pinned_harness(sub_set.is_some())
         // goal.rs: Claude subagents work under /goal on Opus 5.5 until done.
         .with_goal(true)
+        .with_background_start(std::env::var("OPTCHAT_SPAWN_BACKGROUND").as_deref() == Ok("1"))
         .with_engine_file(Some(crate::engine::path(home)))
         .with_families(families.clone())
+        .with_gateway(gateway.clone())
         .with_harness_grant(chief_tools.clone())
         .with_workspaces(workspaces.clone())
         .with_no_workspace_reason(no_workspace_reason.clone())
@@ -1806,40 +1990,50 @@ fn start(
     {
         log(format!("OPTCHAT_CACHE_TTL={v:?} is not 5m or 1h; ignored"));
     }
+    let build_native_engine = |model_base_url: &str, model_api_key: &str| {
+        let native_config = NativeConfig {
+            model: env("OPTCHAT_CHIEF_MODEL").unwrap_or_else(|| NATIVE_MODEL.into()),
+            effort: Some(crate::effort::native_effort(env("OPTCHAT_CHIEF_EFFORT"))),
+            max_tokens: 64_000,
+            server_fallback: env("OPTCHAT_CHIEF_SERVER_FALLBACK").as_deref() == Some("1"),
+            system: crate::prompt::claude_md(instructions.as_deref()),
+            cwd: paths.session.clone(),
+            env: native_env(&setup, paths),
+            bash_timeout: BASH_TIMEOUT,
+            pwd_file: paths.root.join("bash.pwd"),
+        };
+        log(format!(
+            "turns: native engine, {} at effort {} via {}",
+            native_config.model,
+            native_config.effort.as_deref().unwrap_or("default"),
+            model_base_url
+        ));
+        let model = HttpModel::new(
+            model_base_url,
+            model_api_key.to_owned(),
+            native_config.server_fallback,
+        );
+        // The direct API: 5 minutes unless OPTCHAT_CACHE_TTL or cache.ttl
+        // says otherwise (read at host start).
+        let native_ttl = cache_ttl_env
+            .or(
+                crate::chief_settings::ChiefSettings::load(&paths.root.join("settings.json"))
+                    .cache_ttl,
+            )
+            .unwrap_or(crate::prompt::CacheTtl::FiveMinutes);
+        Engine::Native(Arc::new(
+            Native::new(native_config, Arc::new(model), crate::native::RETRY_BASE)
+                .with_trace(trace.clone())
+                .with_cache_ttl(native_ttl),
+        ))
+    };
+    let fallback_engine = if uses_acpmux && has_direct_credentials {
+        Some(build_native_engine(&direct_base_url, &direct_api_key))
+    } else {
+        None
+    };
     let engine = match engine_choice.as_deref() {
-        Some("native") => {
-            let native_config = NativeConfig {
-                model: env("OPTCHAT_CHIEF_MODEL").unwrap_or_else(|| NATIVE_MODEL.into()),
-                effort: Some(crate::effort::native_effort(env("OPTCHAT_CHIEF_EFFORT"))),
-                max_tokens: 64_000,
-                server_fallback: env("OPTCHAT_CHIEF_SERVER_FALLBACK").as_deref() == Some("1"),
-                system: crate::prompt::claude_md(instructions.as_deref()),
-                cwd: paths.session.clone(),
-                env: native_env(&setup, paths),
-                bash_timeout: BASH_TIMEOUT,
-                pwd_file: paths.root.join("bash.pwd"),
-            };
-            log(format!(
-                "turns: native engine, {} at effort {} via {}",
-                native_config.model,
-                native_config.effort.as_deref().unwrap_or("default"),
-                base_url
-            ));
-            let model = HttpModel::new(&base_url, api_key, native_config.server_fallback);
-            // The direct API: 5 minutes unless OPTCHAT_CACHE_TTL or cache.ttl
-            // says otherwise (read at host start).
-            let native_ttl = cache_ttl_env
-                .or(
-                    crate::chief_settings::ChiefSettings::load(&paths.root.join("settings.json"))
-                        .cache_ttl,
-                )
-                .unwrap_or(crate::prompt::CacheTtl::FiveMinutes);
-            Engine::Native(Arc::new(
-                Native::new(native_config, Arc::new(model), crate::native::RETRY_BASE)
-                    .with_trace(trace.clone())
-                    .with_cache_ttl(native_ttl),
-            ))
-        }
+        Some("native") => build_native_engine(&base_url, &api_key),
         None | Some("acpmux") => {
             log(format!(
                 "turns: {harness} sessions through acpmux ({}); no Messages API",
@@ -1886,6 +2080,7 @@ fn start(
         engine_file: Some(crate::engine::path(home)),
         families,
         codex_preset,
+        brains,
         settings_file: paths.root.join("settings.json"),
         trace_dir: Some(paths.root.join("traces")),
         cache_ttl: cache_ttl_env,
@@ -1894,7 +2089,6 @@ fn start(
         membership: membership.clone(),
         keep_turn_session: env("CHIEF_KEEP_TURN_SESSION").as_deref() != Some("0"),
         chief_inbox,
-        screen_share: Some(paths.screen.clone()),
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.
@@ -1959,6 +2153,8 @@ fn start(
         ))
     };
     let mut brain = brain;
+    brain.set_gateway(gateway.clone());
+    brain.set_fallback_engine(fallback_engine);
     brain.set_reported_elsewhere(reported_elsewhere);
     brain.set_sub_starter(sub_starter);
     let idle = brain.cloud_auto_pause_idle();
@@ -1976,6 +2172,21 @@ fn start(
     brain.set_max_live(crate::subagents::live_limit(
         env(crate::subagents::MAX_LIVE_ENV).as_deref(),
     ));
+    // The machine's own helper limit (machine_limits.rs): a ceiling from its
+    // cores and memory, and a hold while it is over budget. Queues, never
+    // refuses; OPTCHAT_MACHINE_HELPERS=0 turns it off.
+    let machine = crate::machine_limits::this_machine();
+    if let (Some(m), Some(ceiling)) = (
+        machine,
+        crate::machine_limits::ceiling_with(env(crate::machine_limits::ENV).as_deref(), machine),
+    ) {
+        brain.set_machine_limit(
+            ceiling,
+            Box::new(move || {
+                crate::machine_limits::over_budget(m, crate::machine_limits::load_now())
+            }),
+        );
+    }
     // Finished subagents' workspaces stay, names untouched, unless this says close.
     brain.set_sub_close_on_finish(env("OPTCHAT_SUBAGENT_ON_FINISH").as_deref() == Some("close"));
     // A person's message steered into the running turn and still unread
@@ -1991,6 +2202,34 @@ fn start(
     brain.set_auto_resume(crate::auto_resume::ResumePolicy::from_env(env), None);
     if let Some(describer) = describer {
         brain.set_describer(describer);
+    }
+    brain.set_memory_files(memory_files.clone());
+    // Check-ins (check_in.rs): auto by default, OPTCHAT_CHECK_INS=mornings|off.
+    brain.set_check_ins(crate::check_in::Mode::parse(
+        env("OPTCHAT_CHECK_INS").as_deref(),
+    ));
+    // The nightly memory review (dream.rs) on the same deny-all sessions as
+    // the reaction classifier; the Messages API route has none.
+    // Opus 5.5 on a Claude compactor; another family needs the model named.
+    let review_model = env("OPTCHAT_MEMORY_REVIEW_MODEL")
+        .or_else(|| (compactor_family == Family::Claude).then(|| "claude-opus-5-5".to_owned()));
+    match (&judge, review_model) {
+        (Some(judge), Some(model)) if env("OPTCHAT_MEMORY_REVIEW").as_deref() != Some("0") => {
+            crate::dream::spawn_nightly(
+                Arc::new(crate::dream::JudgeDream {
+                    judge: judge.clone(),
+                    model: model.clone(),
+                }),
+                model,
+                memory_files.clone(),
+                paths.memory_db.clone(),
+                paths.person.clone(),
+                Arc::new(|line: &str| log(line)),
+            );
+        }
+        _ => log(
+            "memory review: off (no deny-all model route, a compactor family with no OPTCHAT_MEMORY_REVIEW_MODEL, or OPTCHAT_MEMORY_REVIEW=0)",
+        ),
     }
     if let Some(judge) = judge {
         brain.set_reaction_judge(judge);
@@ -2047,7 +2286,7 @@ fn start(
                 },
                 Arc::new(crate::cloud::auth::InstallTokens::new(
                     *install,
-                    Arc::new(crate::cloud::auth::UreqHttp),
+                    Arc::new(crate::cloud::auth::UreqHttp::new()),
                 )),
                 sink,
                 brain_log,

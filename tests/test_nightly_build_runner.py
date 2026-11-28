@@ -818,7 +818,7 @@ class Workflow(unittest.TestCase):
                     self.assertEqual(label, SIDE)
                 else:
                     # The owned nightly pool, never the picker's Blacksmith label nor a dropped pick.
-                    self.assertEqual(label, "glaeda-nightly-std-xcode-26.6")
+                    self.assertEqual(label, "mac-nightly")
 
     def test_the_pickers_never_block_their_job(self) -> None:
         for job, pick in GUARDED.items():
@@ -936,7 +936,7 @@ class BuilderReadDeadline(unittest.TestCase):
     def test_a_slow_builder_read_takes_the_plain_label_within_the_deadline(self):
         import time as _time
         def slow(_token, _repo):
-            _time.sleep(5)
+            _time.sleep(5)  # sleep-ok: a simulated slow builder read, past the deadline under test
             return [{"status": "online", "busy": False, "labels": [{"name": picker.NIGHTLY_ONLY_BUILDER_LABEL}]}]
         with tempfile.TemporaryDirectory() as scratch:
             out = Path(scratch) / "output"

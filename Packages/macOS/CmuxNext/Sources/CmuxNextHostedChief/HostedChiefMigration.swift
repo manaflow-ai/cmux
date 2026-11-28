@@ -15,6 +15,8 @@ public final class HostedChiefMigration {
     public struct Wiring {
         public var apiBase: @MainActor () -> URL
         public var token: @MainActor () async throws -> String
+        /// Headers every API Worker request carries: a tagged dev build's `X-Cmux-Build-Space` (none otherwise).
+        public var headers: [String: String]
         /// `v1/ops` as the signed-in user; a refusal throws ``HostedChiefError/owner(code:message:)``.
         public var ops: @MainActor (_ body: [String: Any]) async throws -> [String: Any]
         /// The signed-in account's worker user id, nil when signed out.
@@ -30,17 +32,26 @@ public final class HostedChiefMigration {
 
         public init(apiBase: @escaping @MainActor () -> URL, token: @escaping @MainActor () async throws -> String,
                     ops: @escaping @MainActor (_ body: [String: Any]) async throws -> [String: Any], user: @escaping @MainActor () -> String?,
-                    debugBuild: Bool, owner: ChiefConversationOwner, localChief: String,
+                    debugBuild: Bool, owner: ChiefConversationOwner, localChief: String, headers: [String: String],
                     refreshTab: @escaping @MainActor () -> Void) {
             self.apiBase = apiBase
             self.token = token
+            self.headers = headers
             self.ops = ops
             self.user = user
-            self.copies = !debugBuild || ProcessInfo.processInfo.environment["CMUX_NEXT_HOSTED_CHIEF_COPY"] == "1"
+            self.copies = HostedChiefMigration.wiringCopies(debugBuild: debugBuild, environment: ProcessInfo.processInfo.environment)
             self.owner = owner
             self.localChief = localChief
             self.refreshTab = refreshTab
         }
+    }
+
+    /// Rust `chief_home.hosted_wiring_copies`; without the rules, no copy.
+    nonisolated static func wiringCopies(debugBuild: Bool, environment: [String: String]) -> Bool {
+        struct Request: Encodable { let debugBuild: Bool; let environment: [String: String] }
+        struct Reply: Decodable { let copies: Bool }
+        let reply: Reply? = try? ChiefHomeRules().call("hosted_wiring_copies", Request(debugBuild: debugBuild, environment: environment))
+        return reply?.copies ?? false
     }
 
     enum LocalHistory {
@@ -83,7 +94,7 @@ public final class HostedChiefMigration {
 
     private var http: HostedChiefCopy.HTTP? {
         guard let wiring else { return nil }
-        return HostedChiefCopy.HTTP(base: wiring.apiBase(), token: wiring.token)
+        return HostedChiefCopy.HTTP(base: wiring.apiBase(), token: wiring.token, headers: wiring.headers)
     }
 
     /// The Cloud Chief brain route as the signed-in user, for a hosted Chief's settings card
@@ -93,7 +104,7 @@ public final class HostedChiefMigration {
             guard let self, let wiring, wiring.user() != nil, let http else { throw HomeChiefHostedEngine.Failure.signedOut }
             let token: String
             do { token = try await wiring.token() } catch { throw HomeChiefHostedEngine.Failure.signedOut }
-            return try await HostedChiefCopy.HTTP(base: http.base, token: { token }).send(method, path, data: body)
+            return try await HostedChiefCopy.HTTP(base: http.base, token: { token }, headers: http.headers).send(method, path, data: body)
         }
     }
 
@@ -150,11 +161,26 @@ public final class HostedChiefMigration {
             set(notice: nil, brainOn: nil)
             return
         }
-        // One account per Chief home.
-        let copies = wiring.copies && ledger.account.map { $0 == user } ?? true
-        // The local Chief keeps the tab until the history and the memory are in (the brain is off while the memory copies).
-        let memoryDue = BundledChiefMemoryTool.bundled() != nil && Self.memoryExists(home.muxHome) && !ledger.done(.memory, chief: hosted.id)
-        pending = copies && (!ledger.done(.history, chief: hosted.id) || memoryDue)
+        // One account per Chief home; the local Chief keeps the tab until the history and the memory are in (the brain
+        // is off while the memory copies): Rust `chief_home.hosted_start`, which without the rules copies nothing.
+        struct Start: Encodable {
+            let user: String
+            let mainConversation: String
+            let hasHosted: Bool
+            let wiringCopies: Bool
+            let ledgerAccount: String?
+            let toolBundled: Bool
+            let memoryExists: Bool
+            let historyDone: Bool
+            let memoryDone: Bool
+        }
+        struct Plan: Decodable { let copies: Bool; let pending: Bool }
+        let request = Start(user: user, mainConversation: main, hasHosted: true, wiringCopies: wiring.copies, ledgerAccount: ledger.account,
+                            toolBundled: BundledChiefMemoryTool.bundled() != nil, memoryExists: Self.memoryExists(home.muxHome),
+                            historyDone: ledger.done(.history, chief: hosted.id), memoryDone: ledger.done(.memory, chief: hosted.id))
+        let plan: Plan? = try? ChiefHomeRules().call("hosted_start", request)
+        let copies = plan?.copies ?? false
+        pending = plan?.pending ?? false
         guard task == nil, let http else { return }
         let run = UUID()
         runID = run
@@ -192,11 +218,13 @@ public final class HostedChiefMigration {
                     ledger.mark(.history, chief: chiefID)
                 }
                 // 2. Memory: the store's own read-only export of this build's Chief home, never its database file.
-                if !ledger.done(.memory, chief: chiefID), !Self.memoryExists(muxHome) {
+                let tool = BundledChiefMemoryTool.bundled()
+                let step = Self.memoryStep(done: ledger.done(.memory, chief: chiefID), exists: Self.memoryExists(muxHome), toolBundled: tool != nil)
+                if step == "skip" {
                     // A Chief home whose Chief never ran has no memory store: nothing to copy.
                     logger.info("hosted chief memory: skipped, this Chief home has no memory store")
                     ledger.mark(.memory, chief: chiefID)
-                } else if !ledger.done(.memory, chief: chiefID), let tool = BundledChiefMemoryTool.bundled() {
+                } else if step == "export", let tool {
                     let folder = FileManager.default.temporaryDirectory.appendingPathComponent("hosted-chief-export-\(UUID().uuidString)", isDirectory: true)
                     defer { try? FileManager.default.removeItem(at: folder) }
                     try await tool.exportText(muxHome: muxHome, to: folder)
@@ -208,7 +236,7 @@ public final class HostedChiefMigration {
                     logger.info("hosted chief memory: \(String(describing: outcome), privacy: .public)")
                     if case .copied = outcome { copied = true }
                     ledger.mark(.memory, chief: chiefID)
-                } else if !ledger.done(.memory, chief: chiefID) {
+                } else if step == "wait" {
                     // Not marked: a later build with the tool copies the memory.
                     logger.info("hosted chief memory: not copied, this build bundles no memory tool")
                 }
@@ -217,49 +245,57 @@ public final class HostedChiefMigration {
             // 3. The brain answers from now on: turned on only for a Hosted Chief this Home just created, or after
             // this run turned it off or copied into it. A brain the user turned off stays off, and Home says so:
             // never a silent dead Chief.
-            var enabled = try await copy.brainEnabled()
+            let enabled = try await copy.brainEnabled()
             brainRead = true
             try current()
-            if !enabled, copy.brainTurnedOff || copied || HomeCloudChiefs.createdHere(chiefID) {
+            let brain = Self.brainPlan(enabled: enabled, brainTurnedOff: copy.brainTurnedOff, copied: copied,
+                                       createdHere: HomeCloudChiefs.createdHere(chiefID))
+            if brain.turnOn {
                 try await copy.setBrain(enabled: true)
-                enabled = true
                 try current()
             }
-            if enabled {
+            if brain.markBrain {
                 ledger.mark(.brain, chief: chiefID)
                 HomeCloudChiefs.createdHere(chiefID, false)
             }
             ledger.clearFailures(chief: chiefID)
-            set(notice: enabled ? nil : HomeCloudChiefs.brainOff, brainOn: enabled)
+            set(notice: brain.notice == "brainOff" ? HomeCloudChiefs.brainOff : nil, brainOn: brain.enabled)
         } catch {
-            if case HostedChiefError.owner(code: "brain_busy", message: _) = error {
+            var ownerCode: String?
+            if case let HostedChiefError.owner(code, _) = error { ownerCode = code }
+            let failure = Self.failurePlan(ownerCode: ownerCode, cancelled: error is CancellationError, current: runID == run,
+                                           brainRead: brainRead, copies: copies, failures: ledger.failed(chief: chiefID))
+            switch failure.action {
+            case "busy":
                 logger.info("hosted chief copy: the brain is busy, again on the next connect")
-            } else if !(error is CancellationError) {
+            case "cancelled":
+                break
+            default:
                 logger.error("hosted chief \(brainRead ? "brain" : "copy", privacy: .public): \(String(describing: error), privacy: .public)")
-                if runID == run {
-                    if brainRead {
-                        // The brain was off and could not be turned on: the Chief does not answer, say so.
-                        set(notice: HomeCloudChiefs.brainFailed, brainOn: false)
-                    } else if copies, HostedChiefLedger.isRefusal(error), ledger.failed(chief: chiefID) >= HostedChiefLedger.maxFailures {
-                        // A copy that fails at every connect (content the server refuses) must not keep
-                        // the local Chief in the tab for good: give up, log it, show the Hosted Chief.
-                        logger.error("hosted chief copy: gave up after \(HostedChiefLedger.maxFailures) failed runs")
-                        ledger.mark(.history, chief: chiefID)
-                        ledger.mark(.memory, chief: chiefID)
-                        set(notice: nil, brainOn: brainOn)
-                        settle()
-                    } else if copies {
-                        if HostedChiefLedger.isRefusal(error) { ledger.recordFailure(chief: chiefID) }
-                        set(notice: HomeCloudChiefs.copyFailed, brainOn: brainOn)
-                    }
-                    // A brain read that failed (offline) changes nothing: the next connect reads it again.
+                if failure.action == "giveUp" {
+                    // A copy that fails at every connect (content the server refuses) must not keep
+                    // the local Chief in the tab for good: give up, log it, show the Hosted Chief.
+                    logger.error("hosted chief copy: gave up after \(HostedChiefLedger.maxFailures) failed runs")
                 }
+                if failure.markSteps {
+                    ledger.mark(.history, chief: chiefID)
+                    ledger.mark(.memory, chief: chiefID)
+                }
+                if failure.recordFailure { ledger.recordFailure(chief: chiefID) }
+                if failure.setsNotice {
+                    // The brain was off and could not be turned on: the Chief does not answer, say so.
+                    let notice = failure.notice == "brainFailed" ? HomeCloudChiefs.brainFailed
+                        : failure.notice == "copyFailed" ? HomeCloudChiefs.copyFailed : nil
+                    set(notice: notice, brainOn: failure.brainOff ? false : brainOn)
+                }
+                if failure.markSteps { settle() }
+                // A brain read that failed (offline) changes nothing: the next connect reads it again.
             }
             // Never leave the brain off: a cancelled run's requests are cancelled too, so this one is its own task.
             if copy.brainTurnedOff {
                 // A fresh token while the account is unchanged; else this run's (the new account's cannot turn it on).
                 let fresh: @MainActor () async throws -> String = { wiring.user() == user ? try await wiring.token() : token }
-                let restore = HostedChiefCopy(http: HostedChiefCopy.HTTP(base: copy.http.base, token: fresh), ops: copy.ops,
+                let restore = HostedChiefCopy(http: HostedChiefCopy.HTTP(base: copy.http.base, token: fresh, headers: copy.http.headers), ops: copy.ops,
                                               chief: copy.chief, conversation: copy.conversation)
                 // task-owner: one brain PUT, ends at once
                 Task { @MainActor in try? await restore.setBrain(enabled: true) }
@@ -317,6 +353,53 @@ public final class HostedChiefMigration {
         return ["hosted": chief(cloud.hosted), "placed": chief(cloud.placed), "choice": choice.rawValue, "can_switch": tab.canSwitch,
                 "shown": shown ?? NSNull(), "pending": pending, "running": running, "brain_on": brainOn ?? NSNull(),
                 "notice": notice ?? NSNull(), "ledger": ledger?.steps ?? NSNull(), "account": ledger?.account ?? NSNull()]
+    }
+
+    /// Rust `chief_home.hosted_memory_step`: `done`, `skip`, `export` or `wait`; without the rules, `wait` (nothing marked).
+    private static func memoryStep(done: Bool, exists: Bool, toolBundled: Bool) -> String {
+        struct Request: Encodable { let memoryDone: Bool; let memoryExists: Bool; let toolBundled: Bool }
+        struct Reply: Decodable { let step: String }
+        let reply: Reply? = try? ChiefHomeRules().call("hosted_memory_step", Request(memoryDone: done, memoryExists: exists, toolBundled: toolBundled))
+        return reply?.step ?? "wait"
+    }
+
+    private struct BrainPlan: Decodable {
+        let turnOn: Bool
+        let enabled: Bool
+        let markBrain: Bool
+        let notice: String?
+    }
+
+    /// Rust `chief_home.hosted_brain`; without the rules the brain is left as read (and an off one says so).
+    private static func brainPlan(enabled: Bool, brainTurnedOff: Bool, copied: Bool, createdHere: Bool) -> BrainPlan {
+        struct Request: Encodable { let enabled: Bool; let brainTurnedOff: Bool; let copied: Bool; let createdHere: Bool }
+        let request = Request(enabled: enabled, brainTurnedOff: brainTurnedOff, copied: copied, createdHere: createdHere)
+        return (try? ChiefHomeRules().call("hosted_brain", request))
+            ?? BrainPlan(turnOn: false, enabled: enabled, markBrain: enabled, notice: enabled ? nil : "brainOff")
+    }
+
+    private struct FailurePlan: Decodable {
+        let action: String
+        let notice: String?
+        let setsNotice: Bool
+        let brainOff: Bool
+        let recordFailure: Bool
+        let markSteps: Bool
+    }
+
+    /// Rust `chief_home.hosted_failure`; without the rules a failure changes nothing (the next connect runs again).
+    private static func failurePlan(ownerCode: String?, cancelled: Bool, current: Bool, brainRead: Bool, copies: Bool, failures: Int) -> FailurePlan {
+        struct Request: Encodable {
+            let ownerCode: String?
+            let cancelled: Bool
+            let current: Bool
+            let brainRead: Bool
+            let copies: Bool
+            let failures: Int
+        }
+        let request = Request(ownerCode: ownerCode, cancelled: cancelled, current: current, brainRead: brainRead, copies: copies, failures: failures)
+        return (try? ChiefHomeRules().call("hosted_failure", request))
+            ?? FailurePlan(action: "none", notice: nil, setsNotice: false, brainOff: false, recordFailure: false, markSteps: false)
     }
 
     /// The Chief home has a memory store (a Chief that never ran has none).

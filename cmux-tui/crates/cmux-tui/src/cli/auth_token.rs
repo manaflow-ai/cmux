@@ -45,12 +45,22 @@ pub(crate) struct AppToken {
 /// token for `team`. `Err` names why there is none: no app answers, `not_signed_in`, or another
 /// refusal. Blocks up to the app's own mint limit; nothing here logs the token.
 pub(crate) fn app_token(team: &str) -> Result<AppToken, String> {
+    app_token_in(Some(team))
+}
+
+/// [`app_token`] for `team`, or for the app's current team when `None` (`cmux spill`'s Cloud
+/// machine whose row names no team).
+pub(crate) fn app_token_in(team: Option<&str>) -> Result<AppToken, String> {
     let global = GlobalArgs::default();
     let mut stream = super::app::connect_command(&global).map_err(|error| {
         error.get("code").and_then(Value::as_str).unwrap_or("app.unreachable").to_owned()
     })?;
-    let answer =
-        super::app::request(&mut stream, "auth.token", json!({"team": team}), AUTH_TOKEN_TIMEOUT)?;
+    let answer = super::app::request(
+        &mut stream,
+        "auth.token",
+        Value::Object(request(team)),
+        AUTH_TOKEN_TIMEOUT,
+    )?;
     let value = answer.map_err(|error| {
         error.get("code").and_then(Value::as_str).unwrap_or("refused").to_owned()
     })?;
@@ -68,6 +78,12 @@ pub(crate) fn app_token(team: &str) -> Result<AppToken, String> {
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, command_args) = super::parse_globals(args).ok()?;
     let rest = split(&command_args)?;
+    // `cmux auth handoff …` (auth_handoff.rs) has its own verbs and help.
+    #[cfg(unix)]
+    if let Some(("handoff", handoff)) = rest.split_first().map(|(verb, tail)| (verb.as_str(), tail))
+    {
+        return Some(super::auth_handoff::run(&global, handoff));
+    }
     Some(match parse(rest) {
         Ok(invocation) => run(&global, invocation),
         Err(error) => {
@@ -93,6 +109,34 @@ pub(super) fn account_alias(args: &[String]) -> Option<Vec<String>> {
     rewritten.extend(["vm".to_owned(), verb.to_owned()]);
     rewritten.extend(args.get(index + 1..)?.iter().cloned());
     Some(rewritten)
+}
+
+/// `cmux login --help` (or `logout`): the line naming the verb it is, printed before that verb's
+/// help, which alone never names `login` (the Cloud and remote command matrix).
+pub(super) fn account_alias_help_note(args: &[String]) -> Option<String> {
+    let (_, command) = super::parse_globals(args).ok()?;
+    let (first, rest) = command.split_first()?;
+    let verb = match first.as_str() {
+        "login" => "sign-in",
+        "logout" => "sign-out",
+        _ => return None,
+    };
+    rest.iter()
+        .take_while(|word| *word != "--")
+        .any(|word| matches!(word.as_str(), "-h" | "--help"))
+        .then(|| {
+            let japanese = crate::localization::catalog().is_japanese();
+            let device = match (first.as_str(), japanese) {
+                ("login", true) => "cmux アプリが応答しない時（または `--device`）は、リンクでサインインして CMUX_TOKEN を出力します（`cmux login --device --help`）。\n",
+                ("login", false) => "With no cmux app answering (or with `--device`), it signs in by link and prints a CMUX_TOKEN (`cmux login --device --help`).\n",
+                _ => "",
+            };
+            if japanese {
+                format!("`cmux {first}` は `cmux vm {verb}` と同じです。\n{device}\n")
+            } else {
+                format!("`cmux {first}` is `cmux vm {verb}`.\n{device}\n")
+            }
+        })
 }
 
 /// `cmux whoami [--json]`. `None` for any other command.

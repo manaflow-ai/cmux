@@ -359,7 +359,10 @@ async fn a_chat_added_or_removed_between_pages_breaks_no_page() {
 
 /// Every page of an ACP `session/list` read, quiet (`busy` false) or with a peer's chat changed
 /// before each page (`busy`, as streaming agents change rows many times a second): the read's
-/// whole time and its pages. Every row comes once.
+/// whole cost and its pages. Every row comes once. The cost is this thread's CPU time, not wall
+/// time: the caller runs on a current-thread runtime, so the connection, the hub and the list's
+/// row building all run on this thread, and a loaded runner that deschedules it adds nothing.
+#[cfg(unix)]
 async fn timed_read(hub: &Arc<crate::hub::Hub>, busy: bool) -> (Duration, usize) {
     let (input, incoming) = mpsc::channel(8);
     let (output, mut outgoing) = mpsc::channel(8);
@@ -369,7 +372,7 @@ async fn timed_read(hub: &Arc<crate::hub::Hub>, busy: bool) -> (Duration, usize)
         .await
         .unwrap();
     let (mut params, mut seen, mut pages) = (json!({}), HashSet::new(), 0);
-    let started = std::time::Instant::now();
+    let started = thread_cpu();
     for id in 2..1000_u64 {
         if busy {
             let changed = json!({"sessionId": "peer-0-chat-0", "name": "chat-0",
@@ -404,20 +407,32 @@ async fn timed_read(hub: &Arc<crate::hub::Hub>, busy: bool) -> (Duration, usize)
     }
     task.abort();
     assert_eq!(seen.len(), hub.remote_sessions().len(), "every chat once");
-    (started.elapsed(), pages)
+    (thread_cpu() - started, pages)
+}
+
+/// CPU time this thread has used.
+#[cfg(unix)]
+fn thread_cpu() -> Duration {
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: `ts` is a valid timespec for the call to write.
+    unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
+    Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32)
 }
 
 /// A paged ACP `session/list` of 10,000 rows with tools is read in a few seconds, quiet or busy,
 /// not pages times the whole list: before the list's pacer was removed (#42131) a quiet read took
 /// 18 s and a busy one 68-98 s (39 pages, each waiting a pacing window or building every row;
-/// aws-m4pro-2, 2026-11-12). The bound is loose for a loaded host; the growth it guards is 10x.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+/// aws-m4pro-2, 2026-11-12). The cost is this thread's CPU time, so a loaded host does not move
+/// it; the bound is loose, the growth it guards is 10x.
+#[tokio::test(flavor = "current_thread")]
+#[cfg(unix)]
 async fn a_paged_acp_list_costs_about_one_list_quiet_or_busy() {
     let hub = fleet_hub(20, 500).await;
-    let (quiet, pages) = timed_read(&hub, false).await;
-    let (busy, busy_pages) = timed_read(&hub, true).await;
-    assert!(pages >= 30 && busy_pages >= 30, "{pages} / {busy_pages} pages");
-    println!("ACP session/list 10,000 rows: quiet {quiet:?} ({pages} pages), busy {busy:?}");
+    let quiet = timed_read(&hub, false).await;
+    let busy = timed_read(&hub, true).await;
+    assert!(quiet.1 >= 30 && busy.1 >= 30, "{} / {} pages", quiet.1, busy.1);
+    let (quiet, busy) = (quiet.0, busy.0);
+    println!("ACP session/list 10,000 rows: quiet {quiet:?}, busy {busy:?} (CPU)");
     assert!(quiet < Duration::from_secs(10), "a quiet paged read took {quiet:?}");
     assert!(
         busy < quiet * 4 + Duration::from_secs(2),

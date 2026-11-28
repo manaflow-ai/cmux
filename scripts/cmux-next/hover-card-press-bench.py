@@ -55,6 +55,16 @@ def wait(check, seconds, step=0.2):
     return None
 
 
+def card_showing(showing=True):
+    """`debug.hover_cards` says a card shows (or, with showing=False, none shows and the coordinator is idle)."""
+    c = rpc("debug.hover_cards") or {}
+    if "error" in c:
+        return None
+    if showing:
+        return c.get("card_showing") == "true"
+    return c.get("card_showing") != "true" and c.get("phase", "idle") == "idle"
+
+
 def row():
     rows = ((rpc("debug.sidebar_rows") or {}).get("windows") or [{}])[0].get("rows") or []
     for r in rows:
@@ -73,7 +83,7 @@ def pct(a, q):
 def summarize(runs):
     out = {}
     for label in LABELS:
-        late, worst, press_ms, work = 0, [], [], []
+        late, worst, press_ms, work, morph_frames = 0, [], [], [], []
         refresh = 0
         for cyc in runs:
             c = cyc.get(label)
@@ -87,9 +97,11 @@ def summarize(runs):
             late += w > 1.5 * refresh
             press_ms.append(c["rpc_ms"])
             work += c["work"].get("hoverCard.detailsPress") or []
+            morph_frames.append(len(c["work"].get("hoverCard.morph") or []))
         out[label] = {"presses": len(worst), "late": late, "worst_gap_ms": round(max(worst, default=0), 1),
                       "refresh_ms": refresh, "press_rpc_ms_p50": round(pct(press_ms, .5), 2),
-                      "frame_start_work_ms_p50": round(pct(work, .5), 2), "frame_start_work_ms_p95": round(pct(work, .95), 2)}
+                      "frame_start_work_ms_p50": round(pct(work, .5), 2), "frame_start_work_ms_p95": round(pct(work, .95), 2),
+                      "morph_frames_p50": pct(morph_frames, .5)}
     return out
 
 
@@ -120,12 +132,15 @@ try:
     if not point:
         raise SystemExit("hover-card-press: no workspace row")
     rpc("debug.mouse", {"action": "move", "x": 700, "y": 500})
-    time.sleep(0.5)
+    if not wait(lambda: card_showing(False), 10, 0.05):
+        raise SystemExit("hover-card-press: a card still shows 10 s after the pointer left the rows")
     rpc("debug.mouse", {"action": "move", "x": point[0], "y": point[1]})
-    time.sleep(2.0)  # past the dwell: the card shows
+    if not wait(card_showing, 15, 0.05):  # past the dwell: the card shows
+        raise SystemExit("hover-card-press: the row's card did not show within 15 s of resting the pointer on it")
     for label in ("Show details", "Hide details"):  # warm-up
         rpc("debug.hover_cards", {"press": label})
         time.sleep(0.8)
+    print("CARD", json.dumps(rpc("debug.hover_cards") or {})[:600], flush=True)
     print("PID", app.pid, flush=True)
     for i in range(o.cycles):
         cyc = {}

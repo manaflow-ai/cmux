@@ -103,6 +103,20 @@ export interface BookmarksStoreOptions {
 
 const EMPTY_TREE = buildTree([]);
 
+/** The listing with each node whose fields all match the tree's kept as the tree's object: a list
+ * row takes its node as a prop, so a re-read after one change elsewhere re-renders that row only. */
+function keepUnchanged(listing: readonly Bookmark[], previous: ReadonlyMap<string, Bookmark>): Bookmark[] {
+  return listing.map((node) => {
+    const kept = previous.get(node.id);
+    return kept && sameFields(kept, node) ? kept : node;
+  });
+}
+
+function sameFields(a: Bookmark, b: Bookmark): boolean {
+  const keys = Object.keys(a) as (keyof Bookmark)[];
+  return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key]);
+}
+
 export class BookmarksStore {
   private snapshot: BookmarksSnapshot;
   private readonly listeners = new Set<() => void>();
@@ -300,7 +314,7 @@ export class BookmarksStore {
   }
 
   private take(listing: ListResult): void {
-    const tree = buildTree(listing.bookmarks);
+    const tree = buildTree(keepUnchanged(listing.bookmarks, this.snapshot.tree.nodes));
     const { folder, selection, focus } = this.snapshot;
     // A shown folder that went away (deleted elsewhere) falls back to the bar.
     const shown = isRoot(folder) || tree.nodes.has(folder) ? folder : "bar";
@@ -340,7 +354,14 @@ export class BookmarksStore {
     try {
       const reply = await this.client.call<SearchResult>(BookmarkOps.search, { browser_profile_id: profile, text });
       if (generation !== this.searchGeneration || profile !== this.snapshot.profile) return;
-      const results = reply.bookmarks;
+      // Each result that did not change keeps the object it had (as the last results or the tree
+      // hold it): a relist runs the search again, and a list row takes its node as a prop.
+      const last = new Map((this.snapshot.results ?? []).map((row) => [row.id, row]));
+      const nodes = this.snapshot.tree.nodes;
+      const results = reply.bookmarks.map((row) => {
+        const kept = last.get(row.id) ?? nodes.get(row.id);
+        return kept && sameFields(kept, row) ? kept : row;
+      });
       const shown = new Set(results.map((row) => row.id));
       this.set({ results, selection: this.snapshot.selection.filter((id) => shown.has(id)) });
     } catch (error) {
@@ -388,15 +409,32 @@ export class BookmarksStore {
     }
   }
 
-  /** Show in Folder and the `reveal` page command: clear the search, show the node's folder,
-   * select it and scroll to it. */
+  /** Show in Folder and the `reveal` page command: clear the search, open the folders it sits in
+   * (as Finder does), show the node's folder, select it and scroll to it. */
   reveal(id: string): void {
-    const node = this.snapshot.tree.nodes.get(id);
+    const { tree, collapsed } = this.snapshot;
+    const node = tree.nodes.get(id);
     // Asked before the tree arrived (the page opened to reveal it): shown with the first listing.
     this.pendingReveal = node ? undefined : id;
     if (!node) return;
+    // A folder inside a collapsed one is not a line of the left tree: open its folder and every
+    // folder above, in the update that selects it, so the tree lists it and scrolls to it.
+    let opened: Set<string> | undefined;
+    for (let folder: string | undefined = node.parent; folder !== undefined; folder = tree.nodes.get(folder)?.parent) {
+      if (!collapsed.has(folder)) continue;
+      opened ??= new Set(collapsed);
+      opened.delete(folder);
+    }
     this.searchGeneration += 1;
-    this.set({ text: "", results: null, folder: node.parent, selection: [id], focus: id, anchor: id });
+    this.set({
+      text: "",
+      results: null,
+      folder: node.parent,
+      selection: [id],
+      focus: id,
+      anchor: id,
+      ...(opened ? { collapsed: opened } : {}),
+    });
   }
 
   dismissNotice(): void {

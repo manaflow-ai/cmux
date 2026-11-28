@@ -5,6 +5,11 @@ public import CmuxNextDesign
 /// `consent_required` asks the person at this Mac once. The cmux dialog card in the floating dialog
 /// panel (``CmuxFloatingDialogPanel``), like Mac Screen's approval prompt: over every app and full
 /// screen, never taking the keyboard or the frontmost app. Only a press on its buttons answers.
+///
+/// SECURITY: it is left out of every capture cmux makes (screen sharing, `cmux rd serve`, the recorders
+/// read `CaptureExcludedWindows`), and Computer Use refuses it (`sharingType = .none`). Since macOS 15.4
+/// another app's capture may still show it, so the ask never relies on being unseen: only the person's
+/// own click answers Allow.
 @MainActor
 public final class JoinConsentAskPanel: CmuxFloatingDialogPanel {
     /// Weak: the model's `present` owns this panel.
@@ -27,6 +32,7 @@ public final class JoinConsentAskPanel: CmuxFloatingDialogPanel {
         self.model = model
         content = JoinConsentAskView(model: model)
         super.init(identifier: "cmux.joinConsentAsk")
+        sharingType = .none
     }
 
     /// The sheet's own events: the person's click on Allow is read from them (``CmuxDialogPersonClick``).
@@ -90,8 +96,9 @@ public final class JoinConsentAskPanel: CmuxFloatingDialogPanel {
     }
 }
 
-/// The sheet's content: the cmux dialog card with who asked for what, the question, a note, Deny (Escape) and
-/// Allow. Allow is person-only: it shows no key and no key presses it.
+/// The sheet's content: the cmux dialog card with who asked for what, the question, a note, Settings…, Deny
+/// (Escape) and Allow. Allow is person-only: it shows no key and no key presses it. Settings… opens Settings >
+/// Devices at the switch the sheet asks about and answers nothing, so any press may take it.
 @MainActor
 public final class JoinConsentAskView: CmuxDialogHostView {
     /// Weak: the model's `present` owns the panel that owns this view.
@@ -111,7 +118,8 @@ public final class JoinConsentAskView: CmuxDialogHostView {
         let spec = CmuxDialogSpec(
             title: JoinConsentStrings.askTitle(ask),
             lines: [JoinConsentStrings.askQuestion(ask.surface), JoinConsentStrings.askNote],
-            buttons: [
+            // Settings… only with Settings > Experiments > Themed Floating Prompts on (off by default, Leo's UI hold).
+            buttons: (DesignSettings.shared.themedPrompts ? [CmuxDialogButton(id: "settings", title: JoinConsentStrings.settings)] : []) + [
                 CmuxDialogButton(id: "deny", title: JoinConsentStrings.decline(ask.surface), role: .cancel),
                 CmuxDialogButton(id: "allow", title: JoinConsentStrings.allow, role: .default, personOnly: true),
             ],
@@ -120,10 +128,13 @@ public final class JoinConsentAskView: CmuxDialogHostView {
             // SECURITY: Allow's action answers nothing (the panel reads the person's click); outside a click the
             // sheet says why (``JoinConsentAskPanel/allowActionPressed()``). Deny takes any press.
             if id == "deny" { self?.denyPressed() }
+            // Settings… only shows the page: the sheet stays up and nothing is written.
+            if id == "settings" { self?.model?.showSettings() }
             if id == "allow" { (self?.window as? JoinConsentAskPanel)?.allowActionPressed() }
         }
         card.buttonView("allow")?.setAccessibilityIdentifier("cmux.joinConsentAsk.allow")
         card.buttonView("deny")?.setAccessibilityIdentifier("cmux.joinConsentAsk.deny")
+        card.buttonView("settings")?.setAccessibilityIdentifier("cmux.joinConsentAsk.settings")
         // Both stay disabled while a write is in flight: no press lands over a grant still landing.
         card.setButtonsEnabled(model.writing != true)
     }

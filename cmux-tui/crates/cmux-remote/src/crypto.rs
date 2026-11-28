@@ -7,6 +7,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use base64::Engine;
 use bytes::Bytes;
+use cmux_braid_session::{Capabilities, EARLY_DATA_MAX_BYTES, LinkFacts, NOISE_XX, Pattern};
 use cmux_link::carrier_grant::CarrierGrant;
 use cmux_remote_protocol::{Lane, REMOTE_PROTOCOL_VERSION, Service, SessionId};
 use serde::{Deserialize, Serialize};
@@ -18,11 +19,9 @@ use zeroize::Zeroizing;
 use crate::link::{FrameLink, LinkError};
 
 const HANDSHAKE_NAME: &str = "cmux-remote-noise";
-const NOISE_XX: &str = "Noise_XX_25519_ChaChaPoly_BLAKE2s";
 /// The Noise protocol of a link without an invitation. acpmux's hub carrier pins its hash to
 /// WireGuard's, since it reuses the machine's WireGuard key as this static key.
 pub const NOISE_XX_PROTOCOL: &str = NOISE_XX;
-const NOISE_XX_PSK3: &str = "Noise_XXpsk3_25519_ChaChaPoly_BLAKE2s";
 const NOISE_MAX_MESSAGE: usize = 65_535;
 const NOISE_TAG_BYTES: usize = 16;
 const NOISE_NONCE_BYTES: usize = 8;
@@ -120,6 +119,16 @@ pub struct ClientHandshake {
     pub generation: u64,
     pub connection_attempt: ConnectionAttemptId,
     pub resume: BTreeMap<Lane, u64>,
+    /// The daemon said, in an earlier welcome, that it takes Noise IK: with `expected_daemon`
+    /// set and no bearer secret in the hello, the link runs IK and its welcome is back one round
+    /// trip sooner (`cmux_braid_session::choose`).
+    pub daemon_takes_ik: bool,
+    /// Early data: encoded reliable Control frames (the reconnect's replay) for the hello, filled
+    /// only when the daemon's welcome offered `early_data`. They ride only an IK link of
+    /// generation 1 or later with no bearer secret (`cmux_braid_session::may_send_early`), at most
+    /// `EARLY_DATA_MAX_BYTES`; on any other link they are left out, and the session's replay after
+    /// the link commits sends them either way.
+    pub early: Vec<Bytes>,
     /// Bounds the prelude and Noise exchange of one link, the phase a live
     /// daemon answers immediately with no human involved. An endpoint that
     /// accepts the transport and then never speaks (a preview-gateway edge
@@ -245,13 +254,18 @@ pub struct ServiceAuthority {
     /// source of who the person is ([`Service::Acpmux`] names them to acpmux
     /// from it).
     grant: Option<Arc<CarrierGrant>>,
+    /// The session came over this machine's own user (kernel-verified unix peer or an SSH
+    /// login, [`InboundAuthEvidence::Kernel`] / [`InboundAuthEvidence::Ssh`]): its
+    /// `mux-control` streams carry the owner's role stamp ([`Self::mux_role`]), so a
+    /// personal box's daemon serves it the owner's file ops (a `cmux ssh --repo` seed).
+    same_owner: bool,
 }
 
 impl ServiceAuthority {
     /// Refuse every service. Callers add authority deliberately rather than
     /// inheriting access when the protocol gains a new service.
     pub fn none() -> Self {
-        Self { services: Box::new([]), grant: None }
+        Self { services: Box::new([]), grant: None, same_owner: false }
     }
 
     /// Preserve the service access held by devices before service-scoped
@@ -268,6 +282,7 @@ impl ServiceAuthority {
                 Service::ComputerUse,
             ]),
             grant: None,
+            same_owner: false,
         }
     }
 
@@ -279,7 +294,7 @@ impl ServiceAuthority {
                 unique.push(service);
             }
         }
-        Self { services: unique.into_boxed_slice(), grant: None }
+        Self { services: unique.into_boxed_slice(), grant: None, same_owner: false }
     }
 
     /// This authority, held by the session `grant` admitted.
@@ -296,6 +311,23 @@ impl ServiceAuthority {
     /// The carrier grant that admitted the session, if one did.
     pub fn grant(&self) -> Option<&Arc<CarrierGrant>> {
         self.grant.as_ref()
+    }
+
+    /// This authority, held by a session this machine's own user opened (kernel or SSH
+    /// evidence): see [`Self::mux_role`].
+    pub fn same_owner(mut self) -> Self {
+        self.same_owner = true;
+        self
+    }
+
+    /// The role to stamp on each `mux-control` stream (`mux_carrier_role.rs`): the grant's
+    /// signed role, the owner's for a same-owner session, and `None` (no stamp) otherwise.
+    pub fn mux_role(&self) -> Option<Option<cmux_link::token::VmKind>> {
+        match &self.grant {
+            Some(grant) => Some(grant.vm_kind),
+            None if self.same_owner => Some(Some(cmux_link::token::VmKind::Owner)),
+            None => None,
+        }
     }
 }
 
@@ -317,6 +349,9 @@ pub struct AcceptedSecureLink {
     pub link: SecureLink,
     pub grant: AuthGrant,
     pub resume: BTreeMap<Lane, u64>,
+    /// Early data from an IK resume's first message (`ClientHandshake::early`), checked against
+    /// the session when the link registers.
+    pub early: Vec<Bytes>,
     pub session: SessionId,
     pub lane: Lane,
     pub lanes: Vec<Lane>,
@@ -329,6 +364,7 @@ pub(crate) struct VerifiedSecureLink {
     request: AuthRequest,
     connection_attempt: ConnectionAttemptId,
     resume: BTreeMap<Lane, u64>,
+    early: Vec<Bytes>,
 }
 
 impl VerifiedSecureLink {
@@ -379,6 +415,10 @@ struct ClientPrelude {
     lanes: Vec<Lane>,
     generation: u64,
     connection_attempt: ConnectionAttemptId,
+    /// The Noise pattern that follows. Absent (an older client): XX, or XXpsk3 with an
+    /// invitation. Part of the prologue, so a relay that rewrites it breaks the handshake.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pattern: Option<Pattern>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -389,6 +429,10 @@ struct ClientHello {
     /// to the daemon's static key, never in the plaintext prelude.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     grant: Option<String>,
+    /// Early data (`ClientHandshake::early`), each frame base64. Absent from an older client; an
+    /// older daemon ignores it, and the frames reach it in the replay after the commit.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    early: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -398,6 +442,10 @@ struct ServerWelcome {
     daemon_name: Option<String>,
     device_id: Option<String>,
     revocation_generation: Option<u64>,
+    /// What this daemon's handshake takes beyond XX. Absent from an older daemon, which an
+    /// older client never reads either.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    capabilities: Option<Capabilities>,
 }
 
 pub struct SecureLink {
@@ -414,6 +462,15 @@ pub struct SecureLink {
     /// replay guard: a record whose nonce is not exactly this one (a duplicate, a reorder or a
     /// skip, as a relay in the middle could make) fails the link for good.
     receive_nonce: AtomicU64,
+    /// The daemon's welcome is still unread ([`initiate_secure_link_pipelined`]): the first
+    /// receive reads and checks it before handing back any record.
+    welcome_pending: std::sync::atomic::AtomicBool,
+    /// The pattern this link's handshake ran.
+    pattern: Pattern,
+    /// The daemon's welcome said it takes IK (set once the welcome is read).
+    peer_takes_ik: std::sync::atomic::AtomicBool,
+    /// The daemon's welcome said it takes early data (set once the welcome is read).
+    peer_takes_early_data: std::sync::atomic::AtomicBool,
 }
 
 /// `receive_nonce` once the link has failed; no record can carry it.
@@ -435,8 +492,30 @@ impl SecureLink {
         self.remote_static
     }
 
+    /// The Noise pattern this link's handshake ran.
+    pub fn pattern(&self) -> Pattern {
+        self.pattern
+    }
+
+    /// Whether the daemon's welcome said it takes IK, so the next link may run it. False until
+    /// the welcome is read (a pipelined link reads it with its first receive).
+    pub fn peer_takes_ik(&self) -> bool {
+        self.peer_takes_ik.load(Ordering::Acquire)
+    }
+
+    /// Whether the daemon's welcome said it takes early data in an IK link's first message.
+    pub fn peer_takes_early_data(&self) -> bool {
+        self.peer_takes_early_data.load(Ordering::Acquire)
+    }
+
     /// Fails the link on the first bad record: no later record is accepted and the inner link
     /// is closed.
+    fn note_welcome(&self, welcome: &ServerWelcome) {
+        let capabilities = welcome.capabilities.unwrap_or_default();
+        self.peer_takes_ik.store(capabilities.ik, Ordering::Release);
+        self.peer_takes_early_data.store(capabilities.early_data, Ordering::Release);
+    }
+
     async fn fail_receive(&self, reason: String) -> LinkError {
         self.receive_nonce.store(RECEIVE_FAILED, Ordering::Release);
         let _ = self.inner.close().await;
@@ -481,6 +560,29 @@ impl FrameLink for SecureLink {
     }
 
     async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+        if self.welcome_pending.swap(false, Ordering::AcqRel) {
+            let Some(encoded) = self.receive_record().await? else { return Ok(None) };
+            let welcome: ServerWelcome = serde_json::from_slice(&encoded)
+                .map_err(|error| LinkError::Protocol(format!("handshake JSON failed: {error}")))?;
+            self.note_welcome(&welcome);
+            if !welcome.accepted {
+                let _ = self.inner.close().await;
+                return Err(LinkError::Protocol(format!(
+                    "daemon rejected device: {}",
+                    welcome.error.unwrap_or_else(|| "no reason given".into())
+                )));
+            }
+        }
+        self.receive_record().await
+    }
+
+    async fn close(&self) -> Result<(), LinkError> {
+        self.inner.close().await
+    }
+}
+
+impl SecureLink {
+    async fn receive_record(&self) -> Result<Option<Bytes>, LinkError> {
         let Some(ciphertext) = self.inner.receive().await? else { return Ok(None) };
         if ciphertext.len() > NOISE_MAX_MESSAGE {
             return Err(LinkError::FrameTooLarge {
@@ -522,13 +624,42 @@ impl FrameLink for SecureLink {
         plaintext.truncate(size);
         Ok(Some(Bytes::from(plaintext)))
     }
-
-    async fn close(&self) -> Result<(), LinkError> {
-        self.inner.close().await
-    }
 }
 
 pub async fn initiate_secure_link(
+    link: Box<dyn FrameLink>,
+    config: ClientHandshake,
+) -> Result<SecureLink, CryptoError> {
+    let secure = complete_handshake(link, config).await?;
+    let welcome: ServerWelcome = receive_secure_json(&secure).await?;
+    secure.note_welcome(&welcome);
+    if !welcome.accepted {
+        return Err(CryptoError::Unauthorized(
+            welcome.error.unwrap_or_else(|| "daemon rejected device".into()),
+        ));
+    }
+    Ok(secure)
+}
+
+/// [`initiate_secure_link`] that returns once the Noise handshake is done, without waiting for
+/// the daemon's welcome: the caller's first record rides right behind the last handshake
+/// message, saving a round trip. The welcome is read and checked by the first receive, so a
+/// refusal still fails the link before any answer is handed back. Records sent before then go
+/// only to the pinned daemon key; use it only with `expected_daemon` set and an auth that never
+/// waits on a human (an invitation's welcome can).
+pub async fn initiate_secure_link_pipelined(
+    link: Box<dyn FrameLink>,
+    config: ClientHandshake,
+) -> Result<SecureLink, CryptoError> {
+    if config.expected_daemon.is_none() {
+        return Err(CryptoError::Link("a pipelined handshake needs a pinned daemon key".into()));
+    }
+    let secure = complete_handshake(link, config).await?;
+    secure.welcome_pending.store(true, Ordering::Release);
+    Ok(secure)
+}
+
+async fn complete_handshake(
     link: Box<dyn FrameLink>,
     config: ClientHandshake,
 ) -> Result<SecureLink, CryptoError> {
@@ -548,6 +679,29 @@ pub async fn initiate_secure_link(
         }
         _ => None,
     };
+    let facts = LinkFacts {
+        invitation: psk.is_some(),
+        pinned_peer: config.expected_daemon.is_some(),
+        peer_takes_ik: config.daemon_takes_ik,
+        carries_bearer_secret: grant.is_some(),
+    };
+    let pattern = cmux_braid_session::choose(facts);
+    // The caller fills `early` only for a daemon that offered it; the pattern, the generation and
+    // the bearer secret are checked here, where the hello is built.
+    let early = if cmux_braid_session::may_send_early(facts, config.generation, true) {
+        let mut total = 0_usize;
+        config
+            .early
+            .iter()
+            .take_while(|frame| {
+                total = total.saturating_add(frame.len());
+                total <= EARLY_DATA_MAX_BYTES
+            })
+            .map(|frame| base64::engine::general_purpose::STANDARD.encode(frame))
+            .collect()
+    } else {
+        Vec::new()
+    };
     let prelude = ClientPrelude {
         name: HANDSHAKE_NAME.into(),
         protocol: REMOTE_PROTOCOL_VERSION,
@@ -558,6 +712,8 @@ pub async fn initiate_secure_link(
         lanes: config.lanes,
         generation: config.generation,
         connection_attempt: config.connection_attempt,
+        // An XX link keeps the prelude an older daemon reads byte for byte.
+        pattern: (pattern == Pattern::Ik).then_some(Pattern::Ik),
     };
     validate_lanes(prelude.lane, &prelude.lanes)?;
     let prelude_bytes = serde_json::to_vec(&prelude).map_err(CryptoError::Json)?;
@@ -570,8 +726,7 @@ pub async fn initiate_secure_link(
     let handshake_phase = async {
         send_bytes(&*link, Bytes::copy_from_slice(&prelude_bytes)).await?;
 
-        let params: NoiseParams =
-            noise_pattern(psk.is_some()).parse().map_err(CryptoError::Noise)?;
+        let params: NoiseParams = pattern.noise_name().parse().map_err(CryptoError::Noise)?;
         let mut builder = snow::Builder::new(params)
             .prologue(&prelude_bytes)
             .map_err(CryptoError::Noise)?
@@ -579,6 +734,25 @@ pub async fn initiate_secure_link(
             .map_err(CryptoError::Noise)?;
         if let Some(psk) = psk {
             builder = builder.psk(3, psk).map_err(CryptoError::Noise)?;
+        }
+        let hello = serde_json::to_vec(&ClientHello {
+            device_name: config.device_name,
+            resume: config.resume,
+            grant,
+            early,
+        })
+        .map_err(CryptoError::Json)?;
+        // IK is chosen only with a pinned key.
+        if let Some(expected) = config.expected_daemon.filter(|_| pattern == Pattern::Ik) {
+            // `-> e es s ss` with the hello, `<- e ee se`: the daemon's key is the pinned one
+            // by construction, and its proof (msg2 decrypting) arrives with the welcome.
+            builder = builder.remote_public_key(&expected).map_err(CryptoError::Noise)?;
+            let mut handshake = builder.build_initiator().map_err(CryptoError::Noise)?;
+            write_handshake(&*link, &mut handshake, &hello).await?;
+            read_handshake(&*link, &mut handshake).await?;
+            let transport =
+                handshake.into_stateless_transport_mode().map_err(CryptoError::Noise)?;
+            return Ok((transport, expected));
         }
         let mut handshake = builder.build_initiator().map_err(CryptoError::Noise)?;
         write_handshake(&*link, &mut handshake, &[]).await?;
@@ -592,12 +766,6 @@ pub async fn initiate_secure_link(
             });
         }
 
-        let hello = serde_json::to_vec(&ClientHello {
-            device_name: config.device_name,
-            resume: config.resume,
-            grant,
-        })
-        .map_err(CryptoError::Json)?;
         write_handshake(&*link, &mut handshake, &hello).await?;
         let transport = handshake.into_stateless_transport_mode().map_err(CryptoError::Noise)?;
         Ok((transport, remote_static))
@@ -618,14 +786,7 @@ pub async fn initiate_secure_link(
                 return Err(CryptoError::HandshakeTimeout { timeout: config.handshake_timeout });
             }
         };
-    let secure = secure_link(link, transport, remote_static)?;
-    let welcome: ServerWelcome = receive_secure_json(&secure).await?;
-    if !welcome.accepted {
-        return Err(CryptoError::Unauthorized(
-            welcome.error.unwrap_or_else(|| "daemon rejected device".into()),
-        ));
-    }
-    Ok(secure)
+    secure_link(link, transport, remote_static, pattern)
 }
 
 pub async fn accept_secure_link(
@@ -669,8 +830,18 @@ pub(crate) async fn verify_secure_link(
             AuthKind::Enrolled | AuthKind::Carrier | AuthKind::Grant => None,
         };
 
-    let params: NoiseParams =
-        noise_pattern(invitation_secret.is_some()).parse().map_err(CryptoError::Noise)?;
+    let pattern = match (prelude.pattern, invitation_secret.is_some()) {
+        (None, true) => Pattern::XxPsk3,
+        (None, false) => Pattern::Xx,
+        (Some(Pattern::Ik), false) => Pattern::Ik,
+        (Some(other), _) => {
+            return Err(CryptoError::BadPrelude(format!(
+                "pattern {other:?} is not offered for {:?}",
+                prelude.auth
+            )));
+        }
+    };
+    let params: NoiseParams = pattern.noise_name().parse().map_err(CryptoError::Noise)?;
     let mut builder = snow::Builder::new(params)
         .prologue(&prelude_bytes)
         .map_err(CryptoError::Noise)?
@@ -680,13 +851,25 @@ pub(crate) async fn verify_secure_link(
         builder = builder.psk(3, secret).map_err(CryptoError::Noise)?;
     }
     let mut handshake = builder.build_responder().map_err(CryptoError::Noise)?;
-    read_handshake(&*link, &mut handshake).await?;
-    write_handshake(&*link, &mut handshake, &[]).await?;
-    let hello_payload = read_handshake(&*link, &mut handshake).await?;
+    let hello_payload = if pattern == Pattern::Ik {
+        // `-> e es s ss` carries the hello; `<- e ee se` finishes it.
+        let hello = read_handshake(&*link, &mut handshake).await?;
+        write_handshake(&*link, &mut handshake, &[]).await?;
+        hello
+    } else {
+        read_handshake(&*link, &mut handshake).await?;
+        write_handshake(&*link, &mut handshake, &[]).await?;
+        read_handshake(&*link, &mut handshake).await?
+    };
     let remote_static = handshake_remote_static(&handshake)?;
     let hello: ClientHello = serde_json::from_slice(&hello_payload).map_err(CryptoError::Json)?;
+    if pattern == Pattern::Ik && hello.grant.is_some() {
+        // IK's first message is not forward secret; a grant never rides it.
+        return Err(CryptoError::BadPrelude("a carrier grant needs an XX link".into()));
+    }
+    let early = hello_early(&hello, pattern, prelude.auth, prelude.generation)?;
     let transport = handshake.into_stateless_transport_mode().map_err(CryptoError::Noise)?;
-    let secure = secure_link(link, transport, remote_static)?;
+    let secure = secure_link(link, transport, remote_static, pattern)?;
 
     Ok(VerifiedSecureLink {
         link: secure,
@@ -706,6 +889,7 @@ pub(crate) async fn verify_secure_link(
         },
         connection_attempt: prelude.connection_attempt,
         resume: hello.resume,
+        early,
     })
 }
 
@@ -724,6 +908,11 @@ pub(crate) async fn authorize_secure_link(
                     daemon_name: Some(grant.daemon_name.clone()),
                     device_id: Some(grant.device_id.clone()),
                     revocation_generation: Some(grant.revocation_generation),
+                    capabilities: Some(Capabilities {
+                        ik: true,
+                        early_data: true,
+                        ..Capabilities::default()
+                    }),
                 },
             )
             .await?;
@@ -738,6 +927,7 @@ pub(crate) async fn authorize_secure_link(
                     daemon_name: None,
                     device_id: None,
                     revocation_generation: None,
+                    capabilities: None,
                 },
             )
             .await;
@@ -749,12 +939,51 @@ pub(crate) async fn authorize_secure_link(
         link: verified.link,
         grant,
         resume: verified.resume,
+        early: verified.early,
         session: verified.request.session,
         lane: verified.request.lane,
         lanes: verified.request.lanes,
         generation: verified.request.generation,
         connection_attempt: verified.connection_attempt,
     })
+}
+
+/// A hello's early data, decoded: only on an IK link of a reconnect with no bearer secret
+/// (`cmux_braid_session::may_send_early`), at most `EARLY_DATA_MAX_BYTES`. Anything else is
+/// refused rather than dropped: a client that sends it is not one this build wrote.
+fn hello_early(
+    hello: &ClientHello,
+    pattern: Pattern,
+    auth: AuthKind,
+    generation: u64,
+) -> Result<Vec<Bytes>, CryptoError> {
+    if hello.early.is_empty() {
+        return Ok(Vec::new());
+    }
+    let facts = LinkFacts {
+        invitation: auth == AuthKind::Invitation,
+        pinned_peer: pattern == Pattern::Ik,
+        peer_takes_ik: pattern == Pattern::Ik,
+        carries_bearer_secret: hello.grant.is_some(),
+    };
+    if !cmux_braid_session::may_send_early(facts, generation, true) {
+        return Err(CryptoError::BadPrelude(
+            "early data rides only an IK resume with no grant or invitation".into(),
+        ));
+    }
+    let mut total = 0_usize;
+    let mut early = Vec::with_capacity(hello.early.len());
+    for frame in &hello.early {
+        let frame = base64::engine::general_purpose::STANDARD
+            .decode(frame)
+            .map_err(|_| CryptoError::BadPrelude("early data is not base64".into()))?;
+        total = total.saturating_add(frame.len());
+        if total > EARLY_DATA_MAX_BYTES {
+            return Err(CryptoError::BadPrelude("early data is over its cap".into()));
+        }
+        early.push(Bytes::from(frame));
+    }
+    Ok(early)
 }
 
 fn validate_lanes(primary: Lane, lanes: &[Lane]) -> Result<(), CryptoError> {
@@ -770,14 +999,11 @@ fn validate_lanes(primary: Lane, lanes: &[Lane]) -> Result<(), CryptoError> {
     Ok(())
 }
 
-fn noise_pattern(invitation: bool) -> &'static str {
-    if invitation { NOISE_XX_PSK3 } else { NOISE_XX }
-}
-
 fn secure_link(
     inner: Box<dyn FrameLink>,
     transport: snow::StatelessTransportState,
     remote_static: [u8; 32],
+    pattern: Pattern,
 ) -> Result<SecureLink, CryptoError> {
     let link_maximum = inner.maximum_frame_bytes();
     let maximum_plaintext = link_maximum
@@ -794,6 +1020,10 @@ fn secure_link(
         send_order: tokio::sync::Mutex::new(()),
         send_nonce: AtomicU64::new(0),
         receive_nonce: AtomicU64::new(0),
+        welcome_pending: std::sync::atomic::AtomicBool::new(false),
+        pattern,
+        peer_takes_ik: std::sync::atomic::AtomicBool::new(false),
+        peer_takes_early_data: std::sync::atomic::AtomicBool::new(false),
     })
 }
 
@@ -911,7 +1141,13 @@ impl fmt::Display for CryptoError {
             Self::DaemonKeyMismatch { expected, actual } => {
                 write!(formatter, "daemon key mismatch: expected {expected}, got {actual}")
             }
-            Self::Unauthorized(message) => write!(formatter, "authorization failed: {message}"),
+            Self::Unauthorized(message) => {
+                write!(formatter, "authorization failed: {message}")?;
+                match unauthorized_next_step(message) {
+                    Some(step) => write!(formatter, "; {step}"),
+                    None => Ok(()),
+                }
+            }
             Self::HandshakeTimeout { timeout } => write!(
                 formatter,
                 "secure link handshake timed out after {}ms: the endpoint accepted the \
@@ -922,4 +1158,28 @@ impl fmt::Display for CryptoError {
     }
 }
 
+/// What a person does next after the host refused this device, from the host's words.
+fn unauthorized_next_step(message: &str) -> Option<&'static str> {
+    if message.contains("revoked") {
+        Some(
+            "the host's owner removed this device; ask for a new invitation (on the host: `cmux remote enroll create`), then join with `cmux remote connect --invite-file PATH`",
+        )
+    } else if message.contains("expired") || message.contains("already claimed") {
+        Some(
+            "ask for a new invitation (on the host: `cmux remote enroll create`), then join with `cmux remote connect --invite-file PATH`",
+        )
+    } else {
+        None
+    }
+}
+
 impl std::error::Error for CryptoError {}
+
+#[cfg(test)]
+#[path = "crypto_next_step_tests.rs"]
+mod next_step_tests;
+
+/// Lockstep: the IK prelude field and welcome offer, read by builds on either side of them.
+#[cfg(test)]
+#[path = "crypto_lockstep_tests.rs"]
+mod lockstep_tests;

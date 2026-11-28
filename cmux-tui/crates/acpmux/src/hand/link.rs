@@ -74,18 +74,17 @@ pub async fn run(cfg: HandConfig) -> Result<()> {
     // The hand's agents run on its own keyed acpmux daemon (daemon.rs), so its
     // connection is the proven person that answers their permission prompts.
     agents.set_ask(owner_ask(&out_tx, &approvals));
-    let idle = agents.clone();
-    tokio::spawn(async move {
-        let mut tick = tokio::time::interval(Duration::from_secs(60));
-        loop {
-            tick.tick().await;
-            idle.stop_idle().await;
-        }
-    });
+    // A supervised task that cannot go on ends the hand, so its service starts it again; its
+    // agents keep running in the hand's acpmux daemon (`crate::supervise`).
+    let fatal = crate::supervise::Fatal::default();
+    let _sweeper = idle_sweeper(agents.clone(), IDLE_SWEEP, &fatal);
     let mut backoff = Duration::from_secs(1);
     loop {
         let mut connected = false;
-        let ended = serve(&cfg, &agents, &approvals, &out_tx, &mut out_rx, &mut connected).await;
+        let ended = tokio::select! {
+            why = fatal.raised() => anyhow::bail!("hand: {why}; exiting so it starts again"),
+            ended = serve(&cfg, &agents, &approvals, &out_tx, &mut out_rx, &mut connected) => ended,
+        };
         // A link that came up starts the backoff again (a long-lived hand does not drift to the maximum).
         if connected && !matches!(ended, Err(Ended::Revoked(_))) {
             backoff = Duration::from_secs(1);
@@ -108,9 +107,35 @@ pub async fn run(cfg: HandConfig) -> Result<()> {
             }
         }
         // A bounded, intentional delay between reconnects (not synchronization).
-        tokio::time::sleep(backoff).await;
+        tokio::select! {
+            why = fatal.raised() => anyhow::bail!("hand: {why}; exiting so it starts again"),
+            () = tokio::time::sleep(backoff) => {}
+        }
         backoff = (backoff * 2).min(MAX_BACKOFF).max(Duration::from_secs(1));
     }
+}
+
+/// How often the hand stops its agents idle past their limit (`Agents::stop_idle`).
+const IDLE_SWEEP: Duration = Duration::from_secs(60);
+
+/// Stops `agents` idle past their limit every `every`. Supervised: a sweep that panics starts
+/// the sweeper again; before, the panic ended it and idle agents ran until the hand restarted.
+fn idle_sweeper(
+    agents: Agents,
+    every: Duration,
+    fatal: &crate::supervise::Fatal,
+) -> tokio::task::JoinHandle<()> {
+    crate::supervise::restarting("hand idle sweep", fatal, move || {
+        let idle = agents.clone();
+        async move {
+            let mut tick = tokio::time::interval(every);
+            loop {
+                tick.tick().await;
+                crate::supervise::panic_point("hand idle sweep", "");
+                idle.stop_idle().await;
+            }
+        }
+    })
 }
 
 /// An agent's permission prompt goes to the owner as an `approve` frame (the
@@ -153,7 +178,8 @@ fn owner_ask(out: &mpsc::Sender<Value>, approvals: &Approvals) -> super::agent::
 /// An exclusive lock on `<hand home>/hand.lock`, held for the process life.
 fn single_instance() -> Result<std::fs::File> {
     let path = super::config::home().join("hand.lock");
-    let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path)?;
+    let file =
+        crate::home_fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path)?;
     #[cfg(unix)]
     {
         use std::os::fd::AsRawFd;
@@ -195,8 +221,9 @@ async fn serve(
         "authorization",
         format!("Bearer {}", cfg.key).parse().map_err(|_| Ended::Failed("bad key".into()))?,
     );
+    cmux_build_space::insert(req.headers_mut()).map_err(|e| Ended::Failed(e.to_string()))?;
     let (ws, _) =
-        match tokio::time::timeout(Duration::from_secs(20), tokio_tungstenite::connect_async(req))
+        match tokio::time::timeout(Duration::from_secs(20), crate::happy_dial::connect_ws(req))
             .await
         {
             Err(_) => return Err(Ended::Failed("connect timed out".into())),
@@ -349,3 +376,7 @@ fn on_frame(
         _ => {}
     }
 }
+
+#[cfg(test)]
+#[path = "link_sweep_tests.rs"]
+mod sweep_tests;

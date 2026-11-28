@@ -27,6 +27,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 fn repo() -> PathBuf {
+    // affected-reads: Packages/macOS/CmuxNext/Sources/CmuxNextApp/MainMenu.swift Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/MacOSSystemShortcutsTests.swift schemas/keybindings/ghostty-reserved-keys.json first-party-apps examples/looks
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
@@ -669,4 +670,75 @@ fn screen_sharing_key_is_free_everywhere() {
     assert!(others.is_empty(), "shift+cmd+s is also {others:?}");
     assert_eq!(other_owners().get(&stroke), None, "shift+cmd+s has another owner");
     assert!(!taken_on_purpose().contains(&stroke));
+}
+
+/// Every `cmd+j` chord in the shipped looks' key files (`examples/looks/**`, the leader look's
+/// `cmd+j e` and the rest), as the stroke after the leader and the file it is in.
+fn look_leader_keys() -> Vec<(Stroke, String)> {
+    fn walk(dir: &Path, out: &mut Vec<(Stroke, String)>) {
+        let mut entries: Vec<_> = std::fs::read_dir(dir)
+            .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+            .flatten()
+            .map(|entry| entry.path())
+            .collect();
+        entries.sort();
+        for path in entries {
+            if path.is_dir() {
+                walk(&path, out);
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            for (at, _) in text.match_indices("\"cmd+j ") {
+                let rest = &text[at + "\"cmd+j ".len()..];
+                let keys = &rest[..rest.find(['"', '\\']).unwrap_or(rest.len())];
+                if let Some(second) = keys.split(' ').next().filter(|k| !k.is_empty()) {
+                    out.push((parse(second), path.display().to_string()));
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(&repo().join("examples/looks"), &mut out);
+    out
+}
+
+/// A default Command-J chord takes no key a shipped look already puts after Command-J: a person
+/// with that look would get the look's command and Settings would show the two in conflict. Found
+/// adding Open Workspace in Editor's chord, whose obvious Command-J E is the leader look's
+/// Equalize Splits; it is Command-J I.
+#[test]
+fn default_leader_chords_leave_the_looks_their_keys() {
+    let leader = parse("cmd+j");
+    let looks = look_leader_keys();
+    assert!(
+        looks.iter().any(|(stroke, _)| *stroke == parse("e")),
+        "the leader look's cmd+j e was not read"
+    );
+    let clashes: Vec<String> = actions()
+        .filter_map(|action| action.default_chord.as_ref().map(|chord| (action.id, chord)))
+        .filter(|(_, chord)| of(&chord.first) == leader)
+        .flat_map(|(id, chord)| {
+            let second = of(&chord.second);
+            looks.iter().filter(move |(stroke, _)| *stroke == second).map(move |(stroke, file)| {
+                format!("cmd+j {} = {id} is also in {file}", show(stroke))
+            })
+        })
+        .collect();
+    assert!(clashes.is_empty(), "{}", clashes.join("\n"));
+}
+
+/// Open Workspace in Editor is Command-J I, with no other default on it.
+#[test]
+fn open_in_editor_chord_is_command_j_i() {
+    let action =
+        cmux_action_catalog::find("workspace.openInEditor").expect("Open Workspace in Editor");
+    let chord = action.default_chord.as_ref().expect("Open Workspace in Editor has a chord");
+    assert_eq!((of(&chord.first), of(&chord.second)), (parse("cmd+j"), parse("i")));
+    assert!(
+        action.surfaces & cmux_action_catalog::KEYBOARD != 0,
+        "the chord is not on the keyboard surface"
+    );
 }

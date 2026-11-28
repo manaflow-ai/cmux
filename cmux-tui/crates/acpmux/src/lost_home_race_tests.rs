@@ -82,8 +82,12 @@ pub(crate) fn tree(dir: &Path) -> Vec<String> {
 /// A copy of the tree at `from` made at `to`: a seed for a new home restored from the old one,
 /// so a writer that reads the new home by path and writes the held one finds the same state in
 /// both, and a write by path would change the new home.
+/// Private modes on the copy (0700 dirs, 0600 files), whatever the checkout's umask left on
+/// the fixtures: the store refuses a group-writable state file, so a 0002 checkout read nothing.
 pub(crate) fn copy_tree(from: &Path, to: &Path) {
+    use std::os::unix::fs::PermissionsExt;
     std::fs::create_dir_all(to).unwrap();
+    std::fs::set_permissions(to, std::fs::Permissions::from_mode(0o700)).unwrap();
     for entry in std::fs::read_dir(from).unwrap() {
         let entry = entry.unwrap();
         let (path, target) = (entry.path(), to.join(entry.file_name()));
@@ -91,6 +95,7 @@ pub(crate) fn copy_tree(from: &Path, to: &Path) {
             copy_tree(&path, &target);
         } else {
             std::fs::copy(&path, &target).unwrap();
+            std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).unwrap();
         }
     }
 }
@@ -490,6 +495,37 @@ fn removing_a_tree_refuses_a_file_and_removes_only_a_link() {
             crate::home_fs::remove_dir_all(&link).expect("a symlink is removed");
             assert!(std::fs::symlink_metadata(&link).is_err(), "the symlink stayed");
             assert!(target.join("inside").exists(), "the symlink was followed");
+        },
+        |_, _| {},
+    );
+}
+
+/// A Unix socket an earlier daemon left under the held home reads as a socket, and is removed, so
+/// the next daemon binds its own there. On macOS the held read opened the name for events only,
+/// which a socket refuses (`EOPNOTSUPP`): the old `share-host/device.sock` read as "nothing",
+/// stayed, the bind failed, and the app never reached the daemon's device (one Mac, two device
+/// rows). Leo: "i cant connect from air blue to cosmic gray even after turning on tons of shit".
+#[cfg(unix)]
+#[test]
+fn a_left_socket_is_read_and_removed() {
+    isolated(
+        module_path!(),
+        "a_left_socket_is_read_and_removed",
+        |home| {
+            use std::os::unix::fs::FileTypeExt;
+            crate::config::hold_home();
+            let folder = home.join("share-host");
+            std::fs::create_dir(&folder).unwrap();
+            let path = folder.join("device.sock");
+            // Bound by its name in the folder: a temp path can pass the socket path limit.
+            std::env::set_current_dir(&folder).unwrap();
+            drop(std::os::unix::net::UnixListener::bind("device.sock").unwrap());
+            let meta = crate::home_fs::symlink_metadata(&path).expect("a left socket reads");
+            assert!(meta.file_type().is_socket(), "it read as {:?}", meta.file_type());
+            crate::home_fs::remove_file(&path).unwrap();
+            assert!(std::fs::symlink_metadata(&path).is_err(), "the left socket stayed");
+            std::os::unix::net::UnixListener::bind("device.sock")
+                .expect("the next bind takes the path");
         },
         |_, _| {},
     );

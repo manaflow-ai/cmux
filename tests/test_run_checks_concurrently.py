@@ -8,13 +8,19 @@ whole and in order, and any failure fails the step by name.
 """
 
 import os
+import re
 import subprocess
 import tempfile
 import time
 import unittest
 from pathlib import Path
 
+import sys
+
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cmux_next_step_text import inline_steps  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER = ROOT / "scripts/ci/run-checks-concurrently.sh"
@@ -49,6 +55,37 @@ class RunChecksConcurrently(unittest.TestCase):
         self.assertIn("::error title=check failed::exit 3", result.stdout)
         self.assertIn("2 passed, 1 failed", result.stdout)
 
+    def test_a_passing_commands_error_lines_print_inert_and_a_failing_ones_stay_live(self):
+        # cmux#45463: a passing script test printed a fixture `::error::` line; the runner made it a live
+        # `##[error]`, so the Script tests step read as errored and merge_hold quoted that fixture as the red
+        # (hq docs/handbook/red-quoted-from-a-passing-step.md). A passing command's error lines print as text
+        # between ::stop-commands:: and its resume token; a failing command's stay live, and warnings stay live.
+        result = run("printf '::error::fixture says no\\n::warning::kept live\\nfine\\n'\n"
+                     "printf '::error::real red\\n'; exit 4\n", "--jobs", "1")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        lines = result.stdout.splitlines()
+        live = None
+        for line in lines:
+            if live is None and line.startswith("::stop-commands::"):
+                live = "::" + line[len("::stop-commands::"):] + "::"
+                continue
+            if live is not None and line == live:
+                live = None
+                continue
+            if live is None:
+                self.assertNotEqual(line, "::error::fixture says no", result.stdout)
+        self.assertIsNone(live, "a stop-commands block was never resumed:\n" + result.stdout)
+        self.assertIn("::error::fixture says no", lines)
+        self.assertIn("::warning::kept live", lines)
+        index = lines.index("::error::fixture says no")
+        self.assertTrue(lines[index - 1].startswith("::stop-commands::check-pool-inert-"), result.stdout)
+        self.assertEqual(lines[index + 1], "::" + lines[index - 1][len("::stop-commands::"):] + "::")
+        # The failing command's own line is live in its group and again in the summary at the end.
+        real = [i for i, line in enumerate(lines) if line == "::error::real red"]
+        self.assertEqual(len(real), 2, result.stdout)
+        for i in real:
+            self.assertFalse(lines[i - 1].startswith("::stop-commands::"), result.stdout)
+
     def test_the_job_cpu_share_caps_the_pool(self):
         # A mini's runner hook grants a job its cores (CMUX_CI_CPU_BUDGET). The checks job asked for one check per
         # core of the whole 14-core mini while it held 5 (job 131984422217: prepush gate 693 s there, 238 s on a
@@ -65,15 +102,33 @@ class RunChecksConcurrently(unittest.TestCase):
     def test_the_checks_job_starts_the_prepush_gate_first(self):
         # The prepush gate suite is the pool's longest command (238 s on Linux, 693 s on a mini): started first, a
         # pool as narrow as the job's share does not leave it for last.
-        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        document = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))
         start = next(s for s in document["jobs"]["checks"]["steps"]
                      if "run-checks-concurrently.sh --start" in str(s.get("run", "")))
-        commands = [line.strip() for line in start["run"].split("<<'CHECKS'", 1)[1].splitlines()
+        listed = re.search(r"< (scripts/ci/\S+)\s*$", start["run"], re.M)
+        self.assertIsNotNone(listed, "the start reads its check list from a file under scripts/ci/")
+        commands = [line.strip() for line in (ROOT / listed.group(1)).read_text(encoding="utf-8").splitlines()
                     if line.strip() and not line.strip().startswith(("[", "#"))]
         # Its four parts (tests/unittest_shard.py; tests/test_unittest_shard.py) start first, each once.
         parts = [f"python3 tests/test_cmux_next_prepush_gate.py --shard {i}/4" for i in range(1, 5)]
         self.assertEqual(commands[:4], parts)
         self.assertEqual([c for c in commands if "test_cmux_next_prepush_gate.py" in c], parts)
+
+    def test_a_command_that_deletes_the_workspace_repository_fails_by_name(self):
+        # Runs 45871176600 and 45884200942: a test ran a workflow step body with the job's environment, its
+        # `rm -rf "$GITHUB_WORKSPACE/.git"` deleted the checkout's repository mid-pool, and ~20 checks failed with
+        # "not a git repository" and nothing named the deleter. A command the repository was there for and is
+        # gone after fails and says so; one that leaves it is untouched, and one that starts without it is not blamed.
+        with tempfile.TemporaryDirectory() as workspace:
+            (Path(workspace) / ".git").mkdir()
+            env = {key: value for key, value in os.environ.items() if key != "CMUX_CI_CPU_BUDGET"}
+            env["GITHUB_WORKSPACE"] = workspace
+            result = subprocess.run(["bash", str(RUNNER), "--jobs", "1"], input='true\nrm -rf "$GITHUB_WORKSPACE/.git"\ntrue\n',
+                                    capture_output=True, text=True, timeout=60, cwd=ROOT, env=env)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn('::error title=check failed::rm -rf "$GITHUB_WORKSPACE/.git"', result.stdout)
+        self.assertIn(".git was deleted while this command ran", result.stdout)
+        self.assertIn("2 passed, 1 failed", result.stdout)
 
     def test_skips_blank_lines_and_comments(self):
         result = run("\n  # a note\n  echo only\n")
@@ -84,7 +139,7 @@ class RunChecksConcurrently(unittest.TestCase):
         self.assertEqual(run("# nothing\n").returncode, 2)
 
     def test_the_checks_job_runs_its_script_tests_through_it(self):
-        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        document = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))
         checks = document["jobs"]["checks"]["steps"]
         step = next(step for step in checks if step.get("id") == "script-tests")
         self.assertIn('scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" script-tests',
@@ -94,7 +149,9 @@ class RunChecksConcurrently(unittest.TestCase):
         self.assertLess(checks.index(start), checks.index(step))
         self.assertIn("""scripts/ci/run-checks-concurrently.sh --start "$RUNNER_TEMP/background-checks" """,
                       start["run"])
-        listed = start["run"].split("[script-tests]", 1)[1]
+        list_file = re.search(r"< (scripts/ci/\S+)\s*$", start["run"], re.M)
+        self.assertIsNotNone(list_file, "the start reads its check list from a file under scripts/ci/")
+        listed = (ROOT / list_file.group(1)).read_text(encoding="utf-8").split("[script-tests]", 1)[1]
         # The waits these two assert run on a virtual clock, so the wide pool cannot slow them into a failure.
         for script in ("pin-cmux-tui-run-check.test.sh", "pin-cmux-tui-probe.test.sh"):
             self.assertIn(f"bash scripts/cmux-next/tests/{script}", listed.split("[", 1)[0])
@@ -141,7 +198,7 @@ class APoolDeadlineEndsInAVerdict(unittest.TestCase):
         self.assertIn("late", result.stdout)
 
     def test_the_checks_job_sets_a_deadline_inside_its_cap(self):
-        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        document = yaml.safe_load(inline_steps(WORKFLOW.read_text(encoding="utf-8")))
         job = document["jobs"]["checks"]
         start = next(s for s in job["steps"] if "run-checks-concurrently.sh --start" in str(s.get("run", "")))
         self.assertIn('--deadline-at "$deadline"', start["run"])
@@ -150,6 +207,39 @@ class APoolDeadlineEndsInAVerdict(unittest.TestCase):
         # The job clock starts when the runner writes the event file (Set up job), before the runner hook's wait.
         self.assertIn('"$GITHUB_EVENT_PATH"', start["run"])
         self.assertIn("POOL_TAIL_SECONDS", start["run"])
+
+
+class AffectedSkipsWhatTheChangeCannotReach(unittest.TestCase):
+    """--affected BASE: a command whose inputs the change leaves as they were passes as skipped, unrun."""
+
+    # Exits 2 (its usage) when run, so a pass proves it was skipped; tracked, so its inputs are known.
+    UNREACHED = "bash scripts/ci/timeout.sh"
+
+    def test_an_unreached_command_is_skipped_and_an_unreadable_one_runs(self):
+        # HEAD...HEAD changes nothing: the tracked script is unreached; `echo` is no test invocation, so it runs.
+        result = run(f"{self.UNREACHED}\necho ran\n", "--jobs", "2", "--affected", "HEAD")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"skipped (inputs unchanged): {self.UNREACHED}", result.stdout)
+        self.assertIn("ran", result.stdout)
+        self.assertIn("1 passed, 0 failed, 1 skipped (inputs unchanged)", result.stdout)
+
+    def test_no_base_or_an_unreadable_one_runs_everything(self):
+        for base in ("", "no-such-revision-xyz"):
+            with self.subTest(base=base):
+                result = run(f"{self.UNREACHED}\n", "--jobs", "1", "--affected", base)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn(f"::error title=check failed::{self.UNREACHED}", result.stdout)
+
+    def test_a_name_whose_commands_all_skipped_waits_green(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pool = os.path.join(tmp, "pool")
+            started = run(f"[a]\n{self.UNREACHED}\n[b]\necho b\n", "--start", pool, "--jobs", "2", "--affected", "HEAD")
+            self.assertEqual(started.returncode, 0, started.stdout + started.stderr)
+            self.assertIn("1 of 2 commands started", started.stdout)
+            for name in ("a", "b"):
+                waited = subprocess.run(["bash", str(RUNNER), "--wait", pool, name], capture_output=True, text=True,
+                                        timeout=60, cwd=ROOT)
+                self.assertEqual(waited.returncode, 0, waited.stdout + waited.stderr)
 
 
 if __name__ == "__main__":

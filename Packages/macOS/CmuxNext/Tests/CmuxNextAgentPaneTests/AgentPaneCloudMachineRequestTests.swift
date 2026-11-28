@@ -52,14 +52,15 @@ struct AgentPaneCloudMachineRequestTests {
         machines.list = {
             .init(signedIn: true, loaded: true, machines: [
                 .init(id: "vm-1", name: "build box", stage: "paused"),
-                .init(id: "vm-2", name: "gpu", stage: "ready"),
+                .init(id: "vm-2", name: "gpu", stage: "ready", cloudRegistryID: "registry-gpu"),
             ])
         }
         let reply = await AgentPaneCloudMachineRequest.list.reply(machines, gestures: gestures)
         let value = try #require(reply["value"] as? [String: Any])
         #expect(value["signedIn"] as? Bool == true && value["loaded"] as? Bool == true)
         let rows = try #require(value["machines"] as? [[String: String]])
-        #expect(rows == [["id": "vm-1", "name": "build box", "stage": "paused"], ["id": "vm-2", "name": "gpu", "stage": "ready"]])
+        #expect(rows == [["id": "vm-1", "name": "build box", "stage": "paused"],
+                         ["id": "vm-2", "name": "gpu", "stage": "ready", "cloudRegistryId": "registry-gpu"]])
         #expect(JSONSerialization.isValidJSONObject(reply))
         // Reading the list is not the person touching the page.
         let model = AgentPaneModel(host: NoHost())
@@ -170,6 +171,40 @@ struct AgentPaneCloudMachineRequestTests {
         let reply = await AgentPaneCloudMachineRequest.prewarm(id: "vm-paused").reply(machines, gestures: gestures)
         #expect(reply["ok"] as? Bool == true)
         #expect(hinted == ["vm-paused"])
+        #expect(gestures.isAvailable)
+    }
+
+    @Test func aWakeHintDecodesItsVersionAndIgnoresANewerPagesExtraFields() {
+        let hint = AgentPaneCloudMachineRequest.wakeHint(id: "vm-1", signal: "focus", version: 1)
+        #expect(Self.request("cloudMachine.wakeHint", ["v": 1, "id": "vm-1", "signal": "focus"]) == .cloudMachine(hint))
+        // A newer page: a higher version and fields this host does not know still decode.
+        #expect(Self.request("cloudMachine.wakeHint", ["v": 2, "id": "vm-1", "signal": "gaze", "confidence": 0.9])
+            == .cloudMachine(.wakeHint(id: "vm-1", signal: "gaze", version: 2)))
+        // No version, a bad id or a signal that is not a short name: refused.
+        let refused: [[String: Any]] = [
+            ["id": "vm-1", "signal": "focus"], ["v": 0, "id": "vm-1", "signal": "focus"],
+            ["v": 1, "id": "vm 1", "signal": "focus"], ["v": 1, "id": "vm-1", "signal": "fo cus"],
+            ["v": 1, "id": "vm-1", "signal": String(repeating: "a", count: 33)],
+        ]
+        for params in refused {
+            #expect(Self.request("cloudMachine.wakeHint", params) == .unsupported("cloudMachine.wakeHint"))
+        }
+    }
+
+    @Test func aWakeHintIsPassiveAndAHostWithoutItAnswersUnsupported() async {
+        let machines = AgentPaneCloudMachines()
+        let gestures = AgentPaneUserGestures()
+        let hint = AgentPaneCloudMachineRequest.wakeHint(id: "vm-paused", signal: "focus", version: 1)
+        // An App that never set it (an older host's shape): unsupported, which the page drops for good.
+        #expect(await hint.reply(machines, gestures: gestures)["ok"] as? Bool != true)
+        var forwarded: [String] = []
+        machines.wakeHint = { id, signal, version in forwarded.append("\(id):\(signal):\(version)"); return false }
+        gestures.record(click: true)
+        let reply = await hint.reply(machines, gestures: gestures)
+        // A skipped hint is an answer, not a failure.
+        #expect(reply["ok"] as? Bool == true)
+        #expect((reply["value"] as? [String: Any])?["resume"] as? Bool == false)
+        #expect(forwarded == ["vm-paused:focus:1"])
         #expect(gestures.isAvailable)
     }
 

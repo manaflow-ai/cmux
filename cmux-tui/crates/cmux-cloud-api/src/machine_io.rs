@@ -274,7 +274,8 @@ pub fn runtime_and_client() -> Result<(tokio::runtime::Runtime, reqwest::Client)
 /// provider, so this installs ring first: a process that builds a client before any install panics.
 pub fn http_client() -> Result<reqwest::Client, String> {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    reqwest::Client::builder()
+    cmux_egress::client_builder("cmux_cloud_api::machine_io")
+        .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .build()
@@ -287,11 +288,103 @@ pub fn now_ms() -> u64 {
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
-/// Runs `request` on the direct route when it can, else (or when that route hands it back) on the proxy.
+/// How a refusal for a paused machine is handled: the machine is resumed and the operation asked
+/// again until `budget` is spent.
+#[derive(Debug, Clone, Copy)]
+pub struct Resume {
+    pub budget: std::time::Duration,
+    pub poll: std::time::Duration,
+}
+
+impl Default for Resume {
+    fn default() -> Self {
+        Resume {
+            budget: std::time::Duration::from_secs(150),
+            poll: std::time::Duration::from_secs(3),
+        }
+    }
+}
+
+/// Whether `answer` is the refusal of a machine that is paused or stopped: the operation never ran.
+fn machine_asleep(answer: &Answer) -> bool {
+    // The code is the route's header, or (the platform's own refusals) in the body's error.
+    let code = answer
+        .code
+        .as_deref()
+        .or_else(|| answer.body.get("error").and_then(|e| e.get("code")).and_then(|c| c.as_str()));
+    answer.status == 409
+        && matches!(
+            code,
+            Some("vm_not_running" | "cloud.machine.paused" | "cloud.machine.not_running")
+        )
+}
+
+/// `POST /v1/machines/{machine}/resume`: asks the platform to wake the machine; a machine that
+/// runs answers as it is.
+async fn resume(client: &reqwest::Client, request: &Request) -> Result<(), String> {
+    let mut builder = client
+        .post(format!("{}/v1/machines/{}/resume", request.api, request.machine))
+        .timeout(std::time::Duration::from_secs(120))
+        .bearer_auth(&request.credential)
+        .header("X-Cmux-Client", "cmux-mac")
+        .header("X-Cmux-App-Version", request.app_version.as_deref().unwrap_or("cmux-next"));
+    if let Some(team) = &request.team {
+        builder = builder.header(crate::session::TEAM_HEADER, team);
+    }
+    match builder.send().await {
+        Ok(r) if r.status().is_success() => Ok(()),
+        Ok(r) => Err(format!("the resume was refused (HTTP {})", r.status().as_u16())),
+        Err(e) => Err(format!("the resume did not go through: {}", e.without_url())),
+    }
+}
+
+/// Runs `request`; a paused machine is resumed and asked again (see [`perform_with`]).
 pub async fn perform(
     client: &reqwest::Client,
     request: &Request,
     now: impl Fn() -> u64,
+) -> (Route, Answer) {
+    perform_with(client, request, now, Resume::default(), &|_| {}).await
+}
+
+/// [`perform`] with its resume policy and a `progress` line for each step of a wake. A machine
+/// that is paused is never refused: it is resumed, the operation is asked again every `poll`
+/// until it answers, and only a machine still asleep after `budget` ends as the refusal.
+pub async fn perform_with(
+    client: &reqwest::Client,
+    request: &Request,
+    now: impl Fn() -> u64,
+    policy: Resume,
+    progress: &(dyn Fn(&str) + Sync),
+) -> (Route, Answer) {
+    let first = perform_once(client, request, &now).await;
+    if !machine_asleep(&first.1) {
+        return first;
+    }
+    let began = std::time::Instant::now();
+    progress("the machine is paused; resuming it");
+    if let Err(why) = resume(client, request).await {
+        progress(&why);
+    }
+    let mut last = first;
+    loop {
+        if began.elapsed() >= policy.budget {
+            progress("the machine did not wake in time");
+            return last;
+        }
+        tokio::time::sleep(policy.poll).await;
+        last = perform_once(client, request, &now).await;
+        if !machine_asleep(&last.1) {
+            progress(&format!("the machine is running again ({} s)", began.elapsed().as_secs()));
+            return last;
+        }
+    }
+}
+
+async fn perform_once(
+    client: &reqwest::Client,
+    request: &Request,
+    now: &impl Fn() -> u64,
 ) -> (Route, Answer) {
     if request.route == RouteChoice::Proxy || !request.direct_ready() {
         return (Route::Proxy, proxy::run(client, request).await);
@@ -341,7 +434,8 @@ pub async fn perform(
 fn hold(cache: &Cache, now: &impl Fn() -> u64, status: u16) {
     let ms = session::hold_ms(status);
     if ms > 0 {
-        cache.store(&Entry::ProxyUntil { until_ms: now().saturating_add(ms) });
+        let at = now();
+        cache.store(&Entry::ProxyUntil { until_ms: at.saturating_add(ms) }, at);
     }
 }
 
@@ -367,7 +461,7 @@ async fn mint(
                 api_base_url: s.api_base_url,
             };
             let use_until_ms = session::use_until(s.expires_at, now());
-            cache.store(&Entry::Session { grant: grant.clone(), use_until_ms });
+            cache.store(&Entry::Session { grant: grant.clone(), use_until_ms }, now());
             Some(grant)
         }
         Err(refusal) => {
@@ -379,3 +473,6 @@ async fn mint(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod seeded_tests;

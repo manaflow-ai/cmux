@@ -22,5 +22,5 @@ enum HomeChannelsPageTab {
 }
 
 nonisolated enum HomeChannelsStrings {
-    static var title: String { String(localized: "homeChannels.page.title", defaultValue: "Channels", table: "Handlers", bundle: .module) }
+    static var title: String { String(localized: "homeChannels.page.title", defaultValue: "Channels", table: "Handlers", bundle: .module.inAppLanguage) }
 }

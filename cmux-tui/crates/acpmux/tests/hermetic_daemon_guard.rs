@@ -60,6 +60,9 @@ fn only_the_hermetic_helper_starts_the_acpmux_binary() {
         ("durable_agents.rs", "let exe = daemon_env::bin().to_path_buf();"),
         ("durable_agents/bg_replaced_binary.rs", "std::fs::copy(daemon_env::bin(), &copy)"),
         ("durable_agents/streaming_restart_gap.rs", "std::fs::copy(daemon_env::bin(), &copy)"),
+        // The copy a restart's check runs at the installed path; it starts with `command_at`,
+        // which calls `apply`.
+        ("daemon_handoff.rs", "std::fs::copy(daemon_env::bin(), &copy)"),
         // The god-chat bench's default binary; the next line starts it with `command_at`,
         // which calls `apply`.
         ("god_daemon.rs", ".unwrap_or_else(|| daemon_env::bin().to_path_buf());"),
@@ -70,6 +73,9 @@ fn only_the_hermetic_helper_starts_the_acpmux_binary() {
         // Machine A's send relay scripts: the hermetic daemon A (started by `cli`, which calls
         // `apply`) runs them, so the acpmux they start inherits its environment.
         ("cross_host_send_cli.rs", "let exe = daemon_env::sh_quote(daemon_env::bin().display());"),
+        // The session tail's default binary, or a base build for a before/after; it starts
+        // only through `command_at` (`Fixture::command`), which calls `apply`.
+        ("session_tail_orphan.rs", "let tail_bin = daemon_env::bin();"),
         // Compares an agent's ACPMUX_BIN with the binary; starts nothing.
         ("caller_declared_cli.rs", "canonical(daemon_env::bin())"),
     ];

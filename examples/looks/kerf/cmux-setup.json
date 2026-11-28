@@ -1,0 +1,73 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/kerf-look",
+  "name": "Kerf",
+  "tagline": "Tight and flat, for working fast.",
+  "description": "Tight and flat, with a dense project panel next to the chat and a blue accent. Light and dark. Remove it and everything you had comes back.",
+  "version": "1.1.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux-kerf-look",
+  "screenshots": ["screenshots/kerf-dark.png", "screenshots/kerf-light.png"],
+
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "kerf",
+
+    // The rest of cmux in the same hand. The Markdown viewer: the system face, 15 px at the chat's
+    // 1.6 line height and code scale, in a column as wide as the chat's (800 px is about 97
+    // characters).
+    "markdown.font.preset": "system",
+    "markdown.font.size": 15,
+    "markdown.font.lineHeight": 1.6,
+    "markdown.code.scale": 0.9,
+    "markdown.layout.width": 97,
+    // Diffs in the theme's own red and green, with + and - marks, the way a terminal prints a diff.
+    "diff.colors": "theme",
+    "diff.diffIndicators": "classic",
+    // Sidebar group colors from the theme's own palette (the theme files' terminal colors).
+    "sidebar.groupPalette": "theme",
+
+    // The agent panel: the whole chat in Plex Sans (the panel's own sans) at 15 px with a 1.6
+    // line height (the panel reads like prose), code at 0.9, and an 800 px column, the panel's width
+    // beside an editor and a project panel.
+    "agentPane.display.font.ui": "plex",
+    "agentPane.display.font.preset": "system",
+    "agentPane.display.font.size": 15,
+    "agentPane.display.font.lineHeight": 1.6,
+    "agentPane.display.code.scale": 0.9,
+    "agentPane.display.width": 800,
+    "agentPane.display.minimap": "off",
+    "agentPane.display.harnessPlacement": "compact",
+    "agentPane.composerRing": "context",
+    // Pending cmux#46738: no editor composer look exists (auto, codex, claude); a borderless
+    // placeholder field with a toolbar row under it (add, mode, model, a red stop square) is the gap.
+    // "agentPane.composerLook": "auto",
+
+    // The threads sidebar: threads grouped by project under plain headings, two lines each (the
+    // title, then branch and age), small status marks, no member counts.
+    // Pending cmux#46805: no editor sidebar look exists (cmux, claude, codex, studio).
+    // "sidebar.look": "cmux",
+    "sidebar.density": "comfortable",
+    "sidebar.groupBy": "folder",
+    "sidebar.groupHeader.background": "sections",
+    "sidebar.groupHeader.memberCount": false,
+    "sidebar.chromeGroups": false,
+    "sidebar.detailedStatusIcons": false,
+    "sidebar.showTimestamps": true,
+    "sidebar.workspaceRow.icon": true,
+    "sidebar.workspaceRow.directory": false,
+    "sidebar.workspaceRow.branch": true,
+    "sidebar.workspaceRow.lastActivity": true,
+    "sidebar.workspaceRow.agentStatus": false,
+    "sidebar.workspaceRow.pullRequest": false,
+    "sidebar.workspaceRow.working": true,
+    "sidebar.workspaceRow.progress": false,
+    "sidebar.workspaceRow.secondLineOrder": ["branch", "lastActivity"],
+    "sidebar.hoverCards.enabled": true,
+    "sidebar.hoverCards.delay": 500,
+
+    // The address field: square-ish (4 px), flat.
+    "browser.omnibar.cornerRadius": 4,
+    "browser.omnibar.shadow": false
+  }
+}

@@ -7,11 +7,21 @@
 // question opens its chat, whose card asks the whole of it. An answer goes the way Needs you sends
 // it; its row leaves in the frame the person decides and closes up over the house settle, and a
 // refusal brings it back with the reason under it.
-import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, {
+  createContext,
+  memo,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { age } from "../homeListsModel";
 import { useT, type Translate } from "../i18n";
-import { Keycap } from "../Keycap";
-import { AgentMark } from "../NewTabPage";
+import { KeyHint } from "../../../ui/KeyHint";
+import { AgentMark } from "../tabMarks";
 import type { NeedsYouAnswer } from "../needsYou/model";
 import { formatCost } from "../ledger/ledgerModel";
 import { SHORTCUT_ACTIONS, useShortcut } from "../shortcuts";
@@ -56,6 +66,10 @@ type Props = QueueActions & {
 type Notice = { tone: "ok" | "error"; text: string };
 
 const NO_ITEMS: QueueItem[] = [];
+
+/// The time the rows' ages count to (the read's, or the gallery's): a context, so a new read's time
+/// draws the age labels alone, not every row.
+const QueueNow = createContext<number | undefined>(undefined);
 const rowId = (id: string) => `wq-row-${id.replace(/[^A-Za-z0-9_-]/g, "_")}`;
 
 export function QueueScreen({
@@ -85,6 +99,13 @@ export function QueueScreen({
   const lastIndex = useRef(0);
   const list = useRef<HTMLDivElement>(null);
 
+  // The actions History hands in are new on each of the pane's renders: the rows get stable ones
+  // that call the latest, so a pane render draws no row.
+  const actions = useRef({ answer, verdict, open });
+  useLayoutEffect(() => {
+    actions.current = { answer, verdict, open };
+  });
+  const openItem = useCallback((item: QueueItem) => actions.current.open(item), []);
   const reply = "reply" in state ? state.reply : undefined;
   const all = useMemo(() => reply?.items ?? NO_ITEMS, [reply]);
   const items = useMemo(() => all.filter((item) => !answered.has(item.id)), [all, answered]);
@@ -140,10 +161,10 @@ export function QueueScreen({
   const give = useCallback(
     (item: QueueItem, choice: NeedsYouAnswer | undefined) => {
       if (!choice) return false;
-      settle(item, () => answer(item, choice), t("waiting.answerFailed"));
+      settle(item, () => actions.current.answer(item, choice), t("waiting.answerFailed"));
       return true;
     },
-    [answer, settle, t],
+    [settle, t],
   );
 
   const sendVerdict = useCallback(
@@ -156,7 +177,7 @@ export function QueueScreen({
       settle(
         item,
         async () => {
-          const reply = await verdict(item, kind, text);
+          const reply = await actions.current.verdict(item, kind, text);
           // The chat did not get the words: say where they went (historyPages.ts `verdict`).
           const copied = (reply as { commentCopied?: unknown } | null)?.commentCopied;
           if (copied === true) setNotice({ tone: "ok", text: t("waiting.commentCopied") });
@@ -170,7 +191,7 @@ export function QueueScreen({
       );
       list.current?.focus({ preventScroll: true });
     },
-    [settle, verdict, t, comments],
+    [settle, t, comments],
   );
 
   const runExport = useCallback(() => {
@@ -200,7 +221,7 @@ export function QueueScreen({
         return true;
       }
       if (!current) return false;
-      open(current);
+      openItem(current);
       return true;
     })();
     if (handled) event.preventDefault();
@@ -224,7 +245,7 @@ export function QueueScreen({
         queueAnswers(current).find((each) => each.tone === kind),
       )
     )
-      open(current);
+      openItem(current);
   };
   useEffect(() => {
     const events = [
@@ -238,6 +259,10 @@ export function QueueScreen({
   }, []);
   const allowKey = useShortcut(SHORTCUT_ACTIONS.permissionAllowOnce);
   const denyKey = useShortcut(SHORTCUT_ACTIONS.permissionDeny);
+  const cancelComment = useCallback(() => {
+    setComment(undefined);
+    list.current?.focus({ preventScroll: true });
+  }, [setComment]);
 
   const status =
     state.phase === "older"
@@ -278,35 +303,33 @@ export function QueueScreen({
         aria-keyshortcuts="j k Enter x"
         onKeyDown={onKeyDown}
       >
-        <ul className="wq-rows" aria-label={t("waiting.title")}>
-          {/* An answered row stays until acpmux drops it, collapsed: it leaves over the settle and the
+        <QueueNow.Provider value={now ?? reply?.now}>
+          <ul className="wq-rows" aria-label={t("waiting.title")}>
+            {/* An answered row stays until acpmux drops it, collapsed: it leaves over the settle and the
             rows below close up with it, never in a jump. */}
-          {all.map((item) => (
-            <Row
-              key={item.id}
-              item={item}
-              leaving={answered.has(item.id)}
-              enters={!firstRead.current?.has(item.id)}
-              look={look}
-              now={now ?? reply?.now}
-              selected={item === current}
-              failure={failures.get(item.id)}
-              comment={comment?.id === item.id ? comment.text : undefined}
-              onSelect={setSelected}
-              onOpen={open}
-              onAnswer={give}
-              allowKey={allowKey}
-              denyKey={denyKey}
-              onVerdict={sendVerdict}
-              onComment={setComment}
-              onOpenComment={comments.open}
-              onCancel={() => {
-                setComment(undefined);
-                list.current?.focus({ preventScroll: true });
-              }}
-            />
-          ))}
-        </ul>
+            {all.map((item) => (
+              <Row
+                key={item.id}
+                item={item}
+                leaving={answered.has(item.id)}
+                enters={!firstRead.current?.has(item.id)}
+                look={look}
+                selected={item === current}
+                failure={failures.get(item.id)}
+                comment={comment?.id === item.id ? comment.text : undefined}
+                onSelect={setSelected}
+                onOpen={openItem}
+                onAnswer={give}
+                allowKey={allowKey}
+                denyKey={denyKey}
+                onVerdict={sendVerdict}
+                onComment={setComment}
+                onOpenComment={comments.open}
+                onCancel={cancelComment}
+              />
+            ))}
+          </ul>
+        </QueueNow.Provider>
         {/* One status line, always the same height, so the list never moves when a read lands. */}
         <div className="wq-status" aria-live="polite">
           {status}
@@ -326,28 +349,28 @@ export function QueueScreen({
       <div className="wq-foot">
         <div className="wq-keys">
           <span>
-            <Keycap>j</Keycap>
-            <Keycap>k</Keycap>
+            <KeyHint keys="j" aria-hidden="true" />
+            <KeyHint keys="k" aria-hidden="true" />
             {t("waiting.key.move")}
           </span>
           <span>
-            <Keycap>↩</Keycap>
+            <KeyHint keys="↩" aria-hidden="true" />
             {t("waiting.key.open")}
           </span>
           {allowKey && (
             <span>
-              <Keycap>{allowKey}</Keycap>
+              <KeyHint keys={allowKey} aria-hidden="true" />
               {t("waiting.key.allow")}
             </span>
           )}
           {denyKey && (
             <span>
-              <Keycap>{denyKey}</Keycap>
+              <KeyHint keys={denyKey} aria-hidden="true" />
               {t("waiting.key.deny")}
             </span>
           )}
           <span>
-            <Keycap>x</Keycap>
+            <KeyHint keys="x" aria-hidden="true" />
             {t("waiting.key.export")}
           </span>
         </div>
@@ -402,7 +425,6 @@ type RowProps = {
   leaving: boolean;
   enters: boolean;
   look: QueueLook;
-  now?: number;
   selected: boolean;
   failure?: string;
   comment?: string;
@@ -426,7 +448,6 @@ const Row = memo(function Row({
   leaving,
   enters,
   look,
-  now,
   selected,
   failure,
   comment,
@@ -443,7 +464,6 @@ const Row = memo(function Row({
   const t = useT();
   const answers = queueAnswers(item);
   const reasons = queueReasons(item);
-  const when = age(item.at, now, t);
   const where = item.host ?? t("waiting.thisMac");
   const showsAnswers = look === "cards" || selected;
   const acceptKey = selected ? allowKey : undefined;
@@ -475,7 +495,7 @@ const Row = memo(function Row({
             <span className="wq-kind">{t(`waiting.kind.${item.kind}`)}</span>
             <span className="wq-ask">{item.ask || item.title}</span>
             <span className="wq-fill" />
-            {when && <span className="wq-meta wq-age">{when}</span>}
+            <QueueAge at={item.at} />
           </div>
           {look !== "compact" && (
             <div className="wq-line wq-sub">
@@ -509,7 +529,7 @@ const Row = memo(function Row({
                     aria-keyshortcuts={acceptKey}
                     onClick={() => onVerdict(item, "accept")}
                   >
-                    {acceptKey && <Keycap>{acceptKey}</Keycap>}
+                    {acceptKey && <KeyHint keys={acceptKey} aria-hidden="true" />}
                     {t("waiting.pr.accept")}
                   </button>
                   <button
@@ -519,7 +539,7 @@ const Row = memo(function Row({
                     aria-keyshortcuts={changesKey}
                     onClick={() => onOpenComment(item.id)}
                   >
-                    {changesKey && <Keycap>{changesKey}</Keycap>}
+                    {changesKey && <KeyHint keys={changesKey} aria-hidden="true" />}
                     {t("waiting.pr.changes")}
                   </button>
                 </>
@@ -536,7 +556,7 @@ const Row = memo(function Row({
                       aria-keyshortcuts={key}
                       onClick={() => onAnswer(item, each)}
                     >
-                      {key && <Keycap>{key}</Keycap>}
+                      {key && <KeyHint keys={key} aria-hidden="true" />}
                       {each.label}
                     </button>
                   );
@@ -616,4 +636,11 @@ function CommentBox({
       </div>
     </div>
   );
+}
+
+/// A row's age ("5m"), to the read's time: it draws again when a read brings a new time, its row does not.
+function QueueAge({ at }: { at: number }) {
+  const t = useT();
+  const when = age(at, useContext(QueueNow), t);
+  return when ? <span className="wq-meta wq-age">{when}</span> : null;
 }

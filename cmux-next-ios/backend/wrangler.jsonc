@@ -1,6 +1,6 @@
-// cmux-mobile-api: signaling, presence, WireGuard relay and device registry for the cmux-next-ios app
+// cmux-mobile-api: signaling, presence, the link's WebSocket relay (last resort) and device registry for the cmux-next-ios app
 // (cmux-next-ios/PROTOCOL.md). Top level is local/test only (no database: tests use the memory store).
-// Secrets per env (wrangler secret put --env <env>): TURN_KEY_ID, TURN_KEY_API_TOKEN, and optionally
+// Secrets per env (wrangler secret put --env <env>): TURN_KEY_ID, TURN_KEY_API_TOKEN (Cloudflare TURN, metered) or TURN_SELF_URLS + TURN_SELF_SECRET (our own relay, deploy/turn; wins when set), and optionally
 // STACK_SECRET_SERVER_KEY. The database URL lives only in the Hyperdrive config.
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
@@ -14,14 +14,14 @@
   "observability": { "enabled": true },
   "vars": {
     "ENVIRONMENT": "local",
-    "API_VERSION": "0.15.0",
+    "API_VERSION": "0.19.0",
     // Bundle ids phones may register push tokens for (test/apns-topics.test.ts pins dev and prod below).
     "APNS_TOPICS": "dev.cmux.mobile,dev.cmux.mobile.prod,dev.cmux.app.internal,com.cmux.app",
     // Stack projects whose users are accepted, primary first (src/auth.ts StackProject).
     "STACK_PROJECTS": "[{\"id\":\"454ecd03-1db2-4050-845e-4ce5b0cd9895\",\"label\":\"dev\",\"publishableClientKey\":\"pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g\",\"inviteCallbackUrl\":\"http://localhost:8102/handler/team-invitation\"},{\"id\":\"9790718f-14cd-4f7e-824d-eaf527a82b82\",\"label\":\"prod\",\"publishableClientKey\":\"\",\"inviteCallbackUrl\":\"https://cmux.com/handler/team-invitation\"}]"
   },
-  "durable_objects": { "bindings": [{ "name": "TEAM_HUB", "class_name": "TeamHub" }, { "name": "CONNECTIVITY_ALERT_DESK", "class_name": "ConnectivityAlertDesk" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamHub"] }, { "tag": "v2", "new_sqlite_classes": ["ConnectivityAlertDesk"] }],
+  "durable_objects": { "bindings": [{ "name": "TEAM_HUB", "class_name": "TeamHub" }, { "name": "CONNECTIVITY_ALERT_DESK", "class_name": "ConnectivityAlertDesk" }, { "name": "LINK_RELAY", "class_name": "LinkRelay" }, { "name": "HUB_RELAY", "class_name": "HubRelay" }, { "name": "CHUNK_CACHE", "class_name": "ChunkCache" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamHub"] }, { "tag": "v2", "new_sqlite_classes": ["ConnectivityAlertDesk"] }, { "tag": "v3", "new_sqlite_classes": ["LinkRelay"] }, { "tag": "v4", "new_sqlite_classes": ["HubRelay"] }, { "tag": "v5", "new_sqlite_classes": ["ChunkCache"] }],
   "env": {
     "dev": {
       "name": "cmux-mobile-api-dev",
@@ -31,7 +31,7 @@
       "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } },
       "vars": {
         "ENVIRONMENT": "dev",
-        "API_VERSION": "0.15.0",
+        "API_VERSION": "0.19.0",
         // Bundle ids phones may register push tokens for: Debug/Demo, Production, the TestFlight app
         // (cmux INTERNAL) and the App Store app (com.cmux.app). Notification extensions never register:
         // APNs topics are the app's own bundle id.
@@ -43,8 +43,8 @@
         // Dev (primary) and production Stack users: production mobile builds use this dev Worker too.
         "STACK_PROJECTS": "[{\"id\":\"454ecd03-1db2-4050-845e-4ce5b0cd9895\",\"label\":\"dev\",\"publishableClientKey\":\"pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g\",\"inviteCallbackUrl\":\"http://localhost:8102/handler/team-invitation\"},{\"id\":\"9790718f-14cd-4f7e-824d-eaf527a82b82\",\"label\":\"prod\",\"publishableClientKey\":\"\",\"inviteCallbackUrl\":\"https://cmux.com/handler/team-invitation\"}]"
       },
-      "durable_objects": { "bindings": [{ "name": "TEAM_HUB", "class_name": "TeamHub" }, { "name": "CONNECTIVITY_ALERT_DESK", "class_name": "ConnectivityAlertDesk" }] },
-      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamHub"] }, { "tag": "v2", "new_sqlite_classes": ["ConnectivityAlertDesk"] }],
+      "durable_objects": { "bindings": [{ "name": "TEAM_HUB", "class_name": "TeamHub" }, { "name": "CONNECTIVITY_ALERT_DESK", "class_name": "ConnectivityAlertDesk" }, { "name": "LINK_RELAY", "class_name": "LinkRelay" }, { "name": "HUB_RELAY", "class_name": "HubRelay" }, { "name": "CHUNK_CACHE", "class_name": "ChunkCache" }] },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamHub"] }, { "tag": "v2", "new_sqlite_classes": ["ConnectivityAlertDesk"] }, { "tag": "v3", "new_sqlite_classes": ["LinkRelay"] }, { "tag": "v4", "new_sqlite_classes": ["HubRelay"] }, { "tag": "v5", "new_sqlite_classes": ["ChunkCache"] }],
       // Retires the old per-team hubs every minute (src/index.ts retireAllTeamHubs, the 0.10.0 migration).
       "triggers": { "crons": ["* * * * *"] },
       // Hyperdrive configs here have
@@ -74,7 +74,7 @@
       "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } },
       "vars": {
         "ENVIRONMENT": "prod",
-        "API_VERSION": "0.15.0",
+        "API_VERSION": "0.19.0",
         // The TestFlight app (cmux INTERNAL) and the App Store app (com.cmux.app), both on this Worker.
         "APNS_TOPICS": "dev.cmux.mobile.prod,dev.cmux.app.internal,com.cmux.app",
         // Connectivity alerts: every post goes to #cmux-next-ios-alerts (channel ids are not secret).
@@ -82,8 +82,8 @@
         "CONNECTIVITY_ALERT_TEST_CHANNEL": "C0CHDSZJYU9",
         "STACK_PROJECTS": "[{\"id\":\"9790718f-14cd-4f7e-824d-eaf527a82b82\",\"label\":\"prod\",\"publishableClientKey\":\"\",\"inviteCallbackUrl\":\"https://cmux.com/handler/team-invitation\"}]"
       },
-      "durable_objects": { "bindings": [{ "name": "TEAM_HUB", "class_name": "TeamHub" }, { "name": "CONNECTIVITY_ALERT_DESK", "class_name": "ConnectivityAlertDesk" }] },
-      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamHub"] }, { "tag": "v2", "new_sqlite_classes": ["ConnectivityAlertDesk"] }],
+      "durable_objects": { "bindings": [{ "name": "TEAM_HUB", "class_name": "TeamHub" }, { "name": "CONNECTIVITY_ALERT_DESK", "class_name": "ConnectivityAlertDesk" }, { "name": "LINK_RELAY", "class_name": "LinkRelay" }, { "name": "HUB_RELAY", "class_name": "HubRelay" }, { "name": "CHUNK_CACHE", "class_name": "ChunkCache" }] },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamHub"] }, { "tag": "v2", "new_sqlite_classes": ["ConnectivityAlertDesk"] }, { "tag": "v3", "new_sqlite_classes": ["LinkRelay"] }, { "tag": "v4", "new_sqlite_classes": ["HubRelay"] }, { "tag": "v5", "new_sqlite_classes": ["ChunkCache"] }],
       // Retires the old per-team hubs every minute (src/index.ts retireAllTeamHubs, the 0.10.0 migration).
       "triggers": { "crons": ["* * * * *"] },
       "ratelimits": [

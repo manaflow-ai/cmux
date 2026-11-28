@@ -14,6 +14,7 @@ import type { PullRequestOps, HeaderOperationAction } from "./pullRequestOps";
 import type { WorktreeOps } from "./worktreeOps";
 import { pullRequestStatus, checkPresentation } from "./pullRequestOps";
 import type { HeaderWorktree } from "./worktreePillModel";
+import { intl } from "../../../ui/intl";
 
 export const NATIVE_MAX_TOOLS = 16;
 export const NATIVE_MAX_MENU_ITEMS = 32;
@@ -35,6 +36,9 @@ export interface NativeRowTool {
   text?: string;
   menu?: NativeRowMenuItem[];
   contextMenu?: NativeRowMenuItem[];
+  /// The glass toolbar experiment asks the host to draw this native control on its chrome glass.
+  /// Omitted when the experiment is off so the default payload remains unchanged.
+  glass?: boolean;
 }
 export interface NativeRowMenuItem {
   id: string;
@@ -78,7 +82,9 @@ export interface RowToolBinding {
   variableMenu?: NativeRowMenuItem[];
 }
 
-const characters = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+// Made on first use, not while the pane's modules evaluate ahead of its handshake.
+let segmenter: Intl.Segmenter | undefined;
+const characters = () => (segmenter ??= intl.Segmenter(undefined, { granularity: "grapheme" }));
 const encoder = new TextEncoder();
 
 /// Match AgentPaneTabRowTools.swift: non-empty, at most 64 graphemes and 256 UTF-8 bytes.
@@ -99,7 +105,7 @@ export function boundedNativeText(value: string, fallback = "…"): string {
 function boundTextNow(value: string, fallback: string): string {
   // Only the first graphemes are read: a long label (a prompt) is not segmented whole.
   const parts: string[] = [];
-  for (const part of characters.segment(value.trim())) {
+  for (const part of characters().segment(value.trim())) {
     if (parts.length >= NATIVE_MAX_TEXT_GRAPHEMES) break;
     parts.push(part.segment);
   }
@@ -110,7 +116,7 @@ function boundTextNow(value: string, fallback: string): string {
   }
   if (result) return result;
   const safeFallback =
-    Array.from(characters.segment(fallback), (part) => part.segment)
+    Array.from(characters().segment(fallback), (part) => part.segment)
       .slice(0, 1)
       .join("") || "…";
   return encoder.encode(safeFallback).byteLength <= NATIVE_MAX_TEXT_BYTES ? safeFallback : "…";
@@ -118,7 +124,7 @@ function boundTextNow(value: string, fallback: string): string {
 /// Visible text has a tighter budget than accessibility/menu labels. Keep both ends of branch names.
 export function nativeVisibleText(value: string, fallback = "…"): string {
   const clean = (value || fallback).replace(/[\r\n\v\f\u0085\u2028\u2029]/g, " ").trim() || "…";
-  const parts = Array.from(characters.segment(clean), (part) => part.segment);
+  const parts = Array.from(characters().segment(clean), (part) => part.segment);
   let left = Math.ceil(parts.length / 2),
     right = Math.floor(parts.length / 2);
   if (
@@ -426,6 +432,7 @@ export function nativeRowToolBindings(
   extras?: NativeRowExtras,
   t: Translate = translate,
   menuKeys = createNativeMenuKeys(),
+  glass = false,
 ): RowToolBinding[] {
   const key = menuKeys();
   const bindings: RowToolBinding[] = [
@@ -457,11 +464,13 @@ export function nativeRowToolBindings(
         label: boundedNativeText(label, id),
         enabled: !!run,
         toggled: pressed === true,
+        ...(glass ? { glass: true } : {}),
       },
       run,
     })),
   ];
-  return fitNativeRowMenus(fitMenus(bindings.slice(0, NATIVE_MAX_TOOLS)));
+  const result = fitNativeRowMenus(fitMenus(bindings.slice(0, NATIVE_MAX_TOOLS)));
+  return glass ? result.map((binding) => ({ ...binding, tool: { ...binding.tool, glass: true } })) : result;
 }
 function findMenuItem(items: readonly NativeRowMenuItem[] | undefined, id: string): NativeRowMenuItem | undefined {
   for (const item of items ?? []) {

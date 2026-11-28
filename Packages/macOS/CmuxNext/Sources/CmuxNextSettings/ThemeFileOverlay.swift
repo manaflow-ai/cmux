@@ -2,7 +2,7 @@ public import CmuxNextDesign
 import CmuxNextCompat
 public import Foundation
 
-/// One theme file (`appearance.themeFile`, `~/.config/cmux/themes/<name>.json`) read as a look: a
+/// One theme file (`appearance.themeFile`, `~/.config/cmux-next/themes/<name>.json`) read as a look: a
 /// partial overlay of the look settings, applied over cmux-next.json and under managed values. The
 /// file is JSONC in cmux-next.json's own shape, nested (`{"appearance": {"accent": "blue"}}`) or
 /// dotted at the top (`{"appearance.accent": "blue"}`), so a block copies between the two. Each value
@@ -15,6 +15,15 @@ public import Foundation
 ///   "0"..."15"}`, with `"palette": [16 colors]` inside it for the ANSI slots.
 /// - `"ghostty"`: a Ghostty theme block (a string or a list of lines: `background = #1a1b26`,
 ///   `palette = 4=#7aa2f7`), read as Ghostty theme files are (`ThemeFileColors`).
+///
+/// A theme file may also carry its own density (`"density"`): the shape of every tab and sidebar row, the toolbar's
+/// buttons and the sidebar's width. It starts from a built-in (`basedOn`) and sets the Density Playground's tokens
+/// over it (``DensityTokenCatalog``); while the file applies, that density is the one in use, over
+/// `appearance.density`:
+/// `"density": {"basedOn": "compact", "tokens": {"tabCornerRadius": 2, "sidebarCornerRadius": 2, "sidebarWidth": 250}}`.
+///
+/// It may bring its own font files (`"fonts": ["file:/…/Sakura-Mono.otf"]`, a theme pack's faces): they
+/// are registered for the app while the file applies (``ThemeFonts``), so `terminal.fontFamily` can name them.
 ///
 /// A background picture may be relative (`"file:harbor.jpg"`, `"folder:walls"`) or start at `~`: it
 /// resolves against the themes folder, so a theme and its pictures move together as one folder.
@@ -37,27 +46,16 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     public internal(set) var diagnostics: [SettingsDiagnostic]
     /// The color tokens raised for contrast (`foreground`), empty when none were.
     public let corrected: [String]
+    /// The file's own density (`"density"`), nil when it sets none.
+    public let density: DensityTokens?
+    /// The file's own font files (`"fonts"`, a theme pack's faces), registered while it applies
+    /// (``ThemeFonts``).
+    public let fontFiles: [URL]
 
-    /// Keys a theme file reads that are not settings.
-    static let reservedKeys: Set<String> = ["name", "description", "$schema", "colors", "ghostty"]
-    /// Look keys that are no part of a look: the theme file itself, the star list and its rotation,
-    /// per-machine and per-display maps, the sun location (where this Mac is), and the saved custom densities.
-    static let excludedKeys: Set<String> = [
-        ThemeFileSetting.configPath.joined(separator: "."), "appearance.favoriteThemes", "appearance.rotateFavoriteThemes",
-        "appearance.machineColors", "appearance.displayBackgrounds", "appearance.displayBackgroundRotations",
-        "appearance.customDensities", "appearance.backgroundLocation", ThemeFileExceptionsSetting.configPath.joined(separator: "."),
-    ]
-    static let lookPrefixes = ["appearance.", "ui.animation", "ui.calm", "ui.paneAnimations", "ui.reducedBackgrounds",
-                               "browser.omnibar.glass", "app.uiScale"]
-    /// Look keys outside those prefixes: the terminal font and the sidebar's shape and edges.
-    static let lookKeys: Set<String> = ["terminal.fontFamily", "terminal.fontSize", "sidebar.style", "sidebar.border",
-                                        "sidebar.borderWidth", "sidebar.sectionLook"]
-
-    /// Whether a theme file may set `descriptor`: a look setting an agent may set too.
+    /// Whether a theme file may set `descriptor`: a look setting an agent may set too. Rust answers
+    /// (`theme.is_look`, cmux-config's `theme_file::is_look`).
     public static func isLook(_ descriptor: SettingDescriptor) -> Bool {
-        let id = descriptor.id
-        return SettingsSchema.agentSettableKeys.contains(id) && !excludedKeys.contains(id)
-            && (lookKeys.contains(id) || lookPrefixes.contains { id.hasPrefix($0) })
+        SettingsRust.answer("theme.is_look", .object(["key": .string(descriptor.id)]))["look"]?.boolValue ?? false
     }
 
     /// Reads `name`'s file, the user's or else the one cmux ships (`ThemeFileSetting.bundledFolder`): its
@@ -81,12 +79,38 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     /// `folder`, the themes folder (nil leaves it relative, which the schema refuses).
     public init(name: String, source: Result<String, any Error>?, base: JSONValue, folder: URL? = nil) {
         self.name = name
+        var request: [String: JSONValue] = ["name": .string(name), "base": base]
+        if let folder { request["folder"] = .string(folder.path) }
+        switch source {
+        case .success(let text)?: request["text"] = .string(text)
+        case .failure(let error)?: request["error"] = .string(JSONC.problem(error, in: nil))
+        case nil: break
+        }
+        // Rust reads the settings, the colors and the contrast guard (`theme.read`); the density and
+        // the font files are read here, as they need the density catalog and file URLs.
+        let reply = SettingsRust.answer("theme.read", .object(request))
         var reader = Reader(file: "\(ThemeFileSetting.folderName)/\(name).\(ThemeFileSetting.fileExtension)", folder: folder)
-        isLoaded = reader.read(source, base: base)
-        isUnparsable = reader.isUnparsable
-        values = reader.values.sorted { $0.path.lexicographicallyPrecedes($1.path) }
+        reader.values = (reply["values"]?.arrayValue ?? []).compactMap { entry in
+            guard let path = entry["path"]?.arrayValue?.compactMap(\.stringValue), let value = entry["value"] else { return nil }
+            return (path, value)
+        }
+        reader.diagnostics = (reply["diagnostics"]?.arrayValue ?? []).compactMap { entry in
+            guard let kind = entry["kind"]?.stringValue.flatMap(SettingsDiagnostic.Kind.init(rawValue:)),
+                  let message = entry["message"]?.stringValue else { return nil }
+            return SettingsDiagnostic(kind: kind, path: entry["path"]?.stringValue ?? "", message: message,
+                                      file: entry["file"]?.stringValue, value: entry["value"]?.stringValue)
+        }
+        isLoaded = reply["loaded"]?.boolValue ?? false
+        isUnparsable = reply["unparsable"]?.boolValue ?? false
+        corrected = reply["corrected"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        if isLoaded {
+            if let value = reply["density"] { reader.readDensity(value, named: reply["title"]?.stringValue, base: base) }
+            if let value = reply["fonts"] { reader.readFonts(value) }
+        }
+        values = reader.values
         diagnostics = reader.diagnostics
-        corrected = reader.corrected
+        density = reader.density
+        fontFiles = reader.fontFiles
     }
 
     /// `root` with every value set, except keys a managed layer sets (dotted, as `managedKeys`).
@@ -98,8 +122,16 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         }
     }
 
+    /// The file's own density, unless a managed layer sets the density (`appearance.density` or
+    /// `appearance.customDensity`, dotted, as `managedKeys`).
+    public func density(under managed: Set<String>) -> DensityTokens? {
+        let rows = [DensitySetting.configPath, CustomDensitySelectionSetting.configPath].map { $0.joined(separator: ".") }
+        return managed.contains { key in rows.contains { $0 == key || $0.hasPrefix(key + ".") } } ? nil : density
+    }
+
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.name == rhs.name && lhs.isLoaded == rhs.isLoaded && lhs.isUnparsable == rhs.isUnparsable && lhs.diagnostics == rhs.diagnostics && lhs.corrected == rhs.corrected
+            && lhs.density == rhs.density && lhs.fontFiles == rhs.fontFiles
             && lhs.values.map(\.path) == rhs.values.map(\.path) && lhs.values.map(\.value) == rhs.values.map(\.value)
     }
 
@@ -108,54 +140,68 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         let folder: URL?
         var values: [(path: [String], value: JSONValue)] = []
         var diagnostics: [SettingsDiagnostic] = []
-        var corrected: [String] = []
-        var isUnparsable = false
+        var density: DensityTokens?
+        var fontFiles: [URL] = []
 
-        /// Reads the file's text; false when there is none or it is not a JSON object.
-        mutating func read(_ source: Result<String, any Error>?, base: JSONValue) -> Bool {
-            guard let source else {
-                refuse("", nil, "there is no file \(file)")
-                return false
-            }
-            let parsed: JSONValue
-            do {
-                parsed = try JSONC.parse(try source.get())
-            } catch {
-                unreadable(String(describing: error))
-                return false
-            }
-            guard case .object(let members) = parsed else {
-                unreadable("root is not an object")
-                return false
-            }
-            for (key, value) in members.sorted(by: { $0.key < $1.key }) where !ThemeFileOverlay.reservedKeys.contains(key) {
-                walk(value, path: CmuxConfigFile.keyPath(from: key))
-            }
-            readColors(members, base: base)
-            return true
-        }
-
-        mutating func walk(_ value: JSONValue, path: [String]) {
-            guard !path.isEmpty else { return }
-            if let descriptor = SettingsSchema.descriptor(for: path) {
-                take(descriptor, value)
-            } else if case .object(let members) = value {
-                for (key, member) in members.sorted(by: { $0.key < $1.key }) { walk(member, path: path + [key]) }
-            } else {
-                refuse(path.joined(separator: "."), value, "not a cmux setting")
+        /// `"fonts"`: font files as `file:` paths (absolute, `~`, or relative to the themes folder), at most 32.
+        mutating func readFonts(_ value: JSONValue) {
+            guard case .array(let items) = value else { return refuse("fonts", value, "expected a list of file: paths") }
+            for item in items.prefix(32) {
+                guard case .string(let resolved) = picture(item), resolved.hasPrefix("file:/") else {
+                    refuse("fonts", item, "expected a file: path")
+                    continue
+                }
+                let url = URL(filePath: String(resolved.dropFirst("file:".count)))
+                if !fontFiles.contains(url) { fontFiles.append(url) }
             }
         }
 
-        private mutating func take(_ descriptor: SettingDescriptor, _ written: JSONValue) {
-            guard ThemeFileOverlay.isLook(descriptor) else {
-                return refuse(descriptor.id, written, "a theme file sets only look settings")
+        /// `"density"`: a built-in (`basedOn`; else the one the file or `base` picks; else Default) with the file's
+        /// `level`, `spacing`, `fontSize` and `tokens` over it. A token the playground does not list, or a value of the
+        /// wrong type, is refused at its key; a number out of its range is clamped into it.
+        mutating func readDensity(_ value: JSONValue, named title: String?, base: JSONValue) {
+            guard case .object(let members) = value else { return refuse("density", value, "expected an object") }
+            let picked = values.first { $0.path == DensitySetting.configPath }?.value.stringValue
+                ?? base.value(at: DensitySetting.configPath)?.stringValue
+            var preset = picked.flatMap(DensityPreset.init(rawValue:)) ?? .cozy
+            if let raw = members["basedOn"] {
+                guard let named = raw.stringValue.flatMap(DensityPreset.init(rawValue:)) else {
+                    let choices = DensityPreset.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                    return refuse("density.basedOn", raw, "expected one of \(choices)")
+                }
+                preset = named
             }
-            let pictures = [BackdropSelectionSetting.configPath, BackdropSelectionSetting.lightPath, BackdropSelectionSetting.darkPath]
-            let value = pictures.contains(descriptor.path) ? picture(written) : written
-            guard descriptor.accepts(value) else { return refuse(descriptor.id, value, OmnibarSettingsSchema.expectation(descriptor)) }
-            // A key written twice (nested and dotted) keeps the later one in key order.
-            values.removeAll { $0.path == descriptor.path }
-            values.append((descriptor.path, value))
+            let name = title?.trimmingCharacters(in: .whitespacesAndNewlines).prefix(64)
+            var made = CustomDensitiesSetting.duplicate(preset.tokens, name: name.map(String.init).flatMap { $0.isEmpty ? nil : $0 } ?? "Theme",
+                                                        existing: [])
+            made.id = CustomDensitiesSetting.uniqueID(for: "theme \(made.name)", existing: [])
+            for (key, raw) in members.sorted(by: { $0.key < $1.key }) where key != "basedOn" {
+                switch key {
+                case "level", "spacing", "fontSize":
+                    guard let number = raw.doubleValue, number.isFinite else { refuse("density.\(key)", raw, "expected a number"); continue }
+                    if key == "level" {
+                        made.level = min(max(number, DensityTokens.levelRange.lowerBound), DensityTokens.levelRange.upperBound)
+                    } else if let entry = DensityTokenCatalog.entry(key) {
+                        made = DensityTokenCatalog.setting(entry, to: number, in: made)
+                    }
+                case "tokens":
+                    guard case .object(let tokens) = raw else { refuse("density.tokens", raw, "expected an object"); continue }
+                    for (token, written) in tokens.sorted(by: { $0.key < $1.key }) {
+                        guard let entry = DensityTokenCatalog.entry(token), entry.field == .token else {
+                            refuse("density.tokens.\(token)", written, "not a density token; the Density Playground lists them")
+                            continue
+                        }
+                        guard let number = written.doubleValue, number.isFinite else {
+                            refuse("density.tokens.\(token)", written, "expected a number")
+                            continue
+                        }
+                        made = DensityTokenCatalog.setting(entry, to: number, in: made)
+                    }
+                default:
+                    refuse("density.\(key)", raw, "expected basedOn, level, spacing, fontSize or tokens")
+                }
+            }
+            density = made
         }
 
         /// A `file:` or `folder:` background relative to the themes folder, or at `~`, as an absolute
@@ -170,13 +216,6 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
             return .string(prefix + folder.appending(path: path).standardizedFileURL.path)
         }
 
-        /// The file is there but does not parse: one `.unreadableFile` notice of the file whatever the
-        /// error says (its fingerprint is the file and the kind), worded as cmux-next.json's.
-        private mutating func unreadable(_ problem: String) {
-            isUnparsable = true
-            diagnostics.append(SettingsDiagnostic(kind: .unreadableFile, path: "", message: problem, file: file))
-        }
-
         /// A refused entry of the file at its key (`colors.background` for a color). The file itself
         /// (missing, unreadable) is `path` "": cmux-next.json's `appearance.themeFile` names it.
         private mutating func refuse(_ path: String, _ value: JSONValue?, _ message: String) {
@@ -185,94 +224,11 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
             }
             diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path, message: message, file: file, value: value?.compactText))
         }
-
-        /// `colors` and `ghostty` as `appearance.themeEdits` of the terminal theme the file (or `base`)
-        /// names, over `base`'s edits; then the contrast guard over every theme the file colors.
-        private mutating func readColors(_ members: [String: JSONValue], base: JSONValue) {
-            let editsPath = ThemeEditsSetting.configPath
-            let ownEdits = values.first { $0.path == editsPath }?.value.objectValue ?? [:]
-            var colors: [String: String] = [:]
-            if let ghostty = members["ghostty"] { readGhostty(ghostty, into: &colors) }
-            if let value = members["colors"] { readColorMap(value, into: &colors) }
-            var themes = Set(ownEdits.keys.compactMap { key in key.lastIndex(of: "/").map { String(key[..<$0]) } })
-            let shown = base.value(at: editsPath)?.objectValue ?? [:]
-            var edits = shown.merging(ownEdits) { $1 }
-            if !colors.isEmpty {
-                let themePath = AppThemeSetting.configPath
-                let theme = values.first { $0.path == themePath }?.value.stringValue ?? base.value(at: themePath)?.stringValue
-                if let theme, let spec = ThemeSpec(theme) {
-                    for name in Set([spec.light, spec.dark]) {
-                        themes.insert(name)
-                        for (token, color) in colors { edits[ThemeEditsSetting.key(theme: name, token: token)] = .string(color) }
-                    }
-                } else {
-                    refuse("colors", nil, "colors need appearance.theme: they edit that terminal theme")
-                }
-            }
-            guard !themes.isEmpty else { return }
-            for name in themes.sorted() { guardContrast(&edits, shown: shown, theme: name) }
-            values.removeAll { $0.path == editsPath }
-            values.append((editsPath, .object(edits)))
-        }
-
-        private mutating func readColorMap(_ value: JSONValue, into colors: inout [String: String]) {
-            guard case .object(let entries) = value else { return refuse("colors", value, "expected an object") }
-            for (token, entry) in entries.sorted(by: { $0.key < $1.key }) {
-                if token == "palette" {
-                    guard let list = entry.arrayValue, list.count <= 16 else {
-                        refuse("colors.palette", entry, "expected a list of up to 16 \"#RRGGBB\" colors")
-                        continue
-                    }
-                    for (index, item) in list.enumerated() { set(String(index), item, into: &colors) }
-                } else if ThemeEdits.tokens.contains(token) {
-                    set(token, entry, into: &colors)
-                } else {
-                    refuse("colors.\(token)", entry, "unknown color; expected background, foreground, cursor, selection, accent, 0 to 15 or palette")
-                }
-            }
-        }
-
-        private mutating func set(_ token: String, _ value: JSONValue, into colors: inout [String: String]) {
-            guard let text = value.stringValue, ThemeEdits.isColor(text) else {
-                return refuse("colors.\(token)", value, "expected \"#RRGGBB\"")
-            }
-            colors[token] = text.lowercased()
-        }
-
-        private mutating func readGhostty(_ value: JSONValue, into colors: inout [String: String]) {
-            let text = value.stringValue ?? value.arrayValue?.compactMap(\.stringValue).joined(separator: "\n")
-            guard let text, let theme = ThemeFileColors(name: file, themeFile: text) else {
-                return refuse("ghostty", value, "expected Ghostty theme lines with a background and a foreground")
-            }
-            colors["background"] = AppTheme.hex(theme.background)
-            colors["foreground"] = AppTheme.hex(theme.foreground)
-            for (index, color) in theme.palette.enumerated() { if let color { colors[String(index)] = AppTheme.hex(color) } }
-            if let color = theme.cursorColor { colors["cursor"] = AppTheme.hex(color) }
-            if let color = theme.selectionBackground { colors["selection"] = AppTheme.hex(color) }
-            if let color = theme.accent { colors["accent"] = AppTheme.hex(color) }
-        }
-
-        /// A foreground under 4.5:1 on its background takes the app theme's text color for them
-        /// (`AppTheme.derive`, the contract every chrome token meets). A pair the settings already
-        /// show (`shown`, their own edits) stays as it is: a file that copies the settings changes nothing.
-        private mutating func guardContrast(_ edits: inout [String: JSONValue], shown: [String: JSONValue], theme: String) {
-            func color(_ token: String, of edits: [String: JSONValue]) -> ThemeRGB? {
-                edits[ThemeEditsSetting.key(theme: theme, token: token)]?.stringValue.flatMap(ThemeRGB.init(cssHex:))
-            }
-            guard let background = color("background", of: edits), let foreground = color("foreground", of: edits),
-                  foreground.contrast(with: background) < AppTheme.textMinimum else { return }
-            let isShown = color("background", of: shown).map(AppTheme.hex) == AppTheme.hex(background)
-                && color("foreground", of: shown).map(AppTheme.hex) == AppTheme.hex(foreground)
-            guard !isShown else { return }
-            let written = AppTheme.hex(foreground)
-            let fixed = AppTheme.hex(AppTheme.derive(background: background, foreground: foreground, palette: (0..<16).map { color(String($0), of: edits) })[.text])
-            let ratio = (foreground.contrast(with: background) * 10).rounded() / 10
-            diagnostics.append(SettingsDiagnostic(
-                kind: .correctedValue, path: ThemeFileSetting.configPath.joined(separator: "."),
-                message: "\(theme)'s foreground \(written) is \(ratio):1 on its background, so cmux shows \(fixed) (4.5:1 or more)",
-                file: file, value: JSONValue.string(written).compactText))
-            edits[ThemeEditsSetting.key(theme: theme, token: "foreground")] = .string(fixed)
-            if !corrected.contains("foreground") { corrected.append("foreground") }
-        }
     }
+}
+
+nonisolated extension ThemeFileOverlay {
+    /// A `colors.light` or `colors.dark` half over a theme that is the same in both appearances
+    /// (cmux-config `theme_file::colors::HALF_NEEDS_PAIR`).
+    static let halfNeedsPair = "a light or dark half needs appearance.theme \"light:NAME,dark:NAME\""
 }

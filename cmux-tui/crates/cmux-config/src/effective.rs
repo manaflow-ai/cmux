@@ -26,7 +26,7 @@ pub struct EffectiveSettings {
 
 impl EffectiveSettings {
     /// Merges, highest first: MDM forced, team enforced, the user's file,
-    /// MDM recommended, team default, product default (an absent key).
+    /// MDM recommended, team default, the build's default, product default (an absent key).
     pub fn merge(
         file: &Value,
         managed: &ManagedPreferences,
@@ -35,7 +35,26 @@ impl EffectiveSettings {
     ) -> EffectiveSettings {
         let mut root = if file.is_object() { file.clone() } else { Value::Object(Map::new()) };
         // The team layer may only set catalog settings; MDM keys are limited by the reader.
-        let team = team.limited_to_catalog(schema);
+        let mut team = team.limited_to_catalog(schema);
+        // Each layer's retired keys answer for the row that replaced them in that layer, so a
+        // forced old key keeps its value and its lock (retired-keys.json `replaced_by`).
+        let policy_layer = |map: &BTreeMap<String, Value>| {
+            crate::managed::limit_github_login_policy(crate::schema::aliasing_replaced(map))
+        };
+        team.defaults = policy_layer(&team.defaults);
+        team.enforced = policy_layer(&team.enforced);
+        let managed = &ManagedPreferences {
+            forced: policy_layer(&managed.forced),
+            recommended: policy_layer(&managed.recommended),
+        };
+        // The file's own old keys likewise answer for the row before a lower layer fills it.
+        for replaced in crate::schema::replaced_keys() {
+            if value_at(&root, &replaced.row).is_none()
+                && let Some(to) = crate::schema::replaced_value(&replaced.row, &root)
+            {
+                root = with_value(&root, to.clone(), &replaced.row);
+            }
+        }
         let mut managed_keys = BTreeMap::new();
         let mut diagnostics = Vec::new();
 
@@ -47,6 +66,17 @@ impl EffectiveSettings {
         }
         for (key, value) in sorted_setting_entries(&team.defaults) {
             if value_at(&root, &key_path(key)).is_none() {
+                root = with_value(&root, value.clone(), &key_path(key));
+            }
+        }
+        // Lowest: the build's defaults (Swift `SettingsBuildDefaults.filling`). A key an old key
+        // it replaced still answers for is not unset: the person's old pick wins
+        // (`updates.downloadAutomatically: false` reads as `updates.automatic` Notify Only).
+        for (key, value) in sorted_setting_entries(schema.build_defaults()) {
+            let path = key_path(key);
+            if value_at(&root, &path).is_none()
+                && crate::schema::replaced_value(&path, &root).is_none()
+            {
                 root = with_value(&root, value.clone(), &key_path(key));
             }
         }

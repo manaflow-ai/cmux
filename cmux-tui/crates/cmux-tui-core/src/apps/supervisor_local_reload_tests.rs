@@ -158,6 +158,38 @@ fn apps_list_names_the_watched_local_folder() {
     assert_eq!(f.supervisor.list()["local_dir"], json!(local.to_string_lossy()));
 }
 
+/// Sets `local/spy`'s `contributes.menus` to one workspace-row row titled `title`.
+fn save_spy_menu(state: &Path, version: &str, title: &str) {
+    let path = state.join("apps/local/spy/cmux-app.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    manifest["version"] = json!(version);
+    manifest["contributes"] = json!({ "menus": [{ "id": "go", "target": "workspace", "title": title, "op": "local.spy.go" }] });
+    std::fs::write(&path, manifest.to_string()).unwrap();
+}
+
+/// A save that adds or retitles a `contributes.menus` row reaches the apps
+/// list with `apps-changed`, which the Mac's right-click menus read on their
+/// next open: no relaunch (base red: the schema had no `menus`, so the save
+/// was refused and the app left the list).
+#[test]
+fn a_save_that_changes_a_menu_row_lists_it_on_apps_changed() {
+    let f = fixture();
+    let mut prints = f.supervisor.reload_local_apps(&Default::default());
+    for (version, title) in [("1.0.1", "Copy Branch"), ("1.0.2", "Copy Branch Name")] {
+        save_spy_menu(&f.state, version, title);
+        prints = f.supervisor.reload_local_apps(&prints);
+        f.wait("apps-changed for the save", |e| {
+            e["event"] == "apps-changed"
+                && e["app"] == "local/spy"
+                && e["transaction"] == "local-reload"
+        });
+        let spy = app_entry(&f.supervisor.list(), "local/spy");
+        assert_eq!(spy["version"], version, "{spy}");
+        assert_eq!(spy["manifest"]["contributes"]["menus"][0]["title"], title, "{spy}");
+    }
+}
+
 /// An app in a `CMUX_APPS_DIRS` folder (`Sources::extra`: a person's own
 /// checkout of an extension, or a fork of a first-party app) reloads on a
 /// save like a local app, and its open view is mounted again with the saved
@@ -448,4 +480,127 @@ fn a_pass_for_named_folders_reads_those_folders_only() {
     assert_eq!(app_entry(&list, "local/a")["version"], "1.0.0", "an unnamed folder is not read");
     f.supervisor.reload_local_apps_saved(&prints, [local.join("a")]);
     assert_eq!(app_entry(&f.supervisor.list(), "local/a")["version"], "2.0.0");
+}
+
+/// The person's customize folder app (`local/customize`): sidebar row
+/// decorations, a sidebar section and a pane, from one script that draws
+/// `word` (`customize_script`).
+fn write_customize(dir: &Path, word: &str) {
+    std::fs::write(dir.join("main.js"), customize_script(word)).unwrap();
+    let manifest = json!({
+        "manifestVersion": 2, "id": "local/customize", "name": "Mine", "version": "1.0.0",
+        "description": "d", "engines": { "cmux": "^2.0" }, "runtime": { "main": "main.js" },
+        "implements": {
+            "cmux.sidebar.rows/1": { "export": "renderRows" },
+            "cmux.section/1": { "export": "renderSection", "title": "Mine" },
+            "cmux.pane/1": { "export": "renderPane", "title": "Mine", "symbol": "bolt" }
+        }
+    });
+    std::fs::write(dir.join("cmux-app.json"), manifest.to_string()).unwrap();
+}
+
+/// A customize script whose every view draws `word` (the scripted host's
+/// `SCENE_TEXT`).
+fn customize_script(word: &str) -> String {
+    format!("// SCENE_TEXT {word}\nvar __cmuxAppExports = {{}};\n")
+}
+
+/// Ten in-place saves of the customize folder's `main.js` (open, truncate,
+/// write: `edit-repaint.py`'s save), each through the real file watch, each
+/// redrawing the open `interface` view with the saved script. Returns each
+/// save's ms to the new scene.
+fn ten_saves_redraw_the_open_view(interface: &str) -> Vec<u128> {
+    let f = fixture_customize();
+    let dir = f.customize.clone().unwrap();
+    write_customize(&dir, "save0");
+    f.supervisor.reload_local_apps(&Default::default());
+    let entry = app_entry(&f.supervisor.list(), "local/customize");
+    assert_eq!(entry["installed"], true, "the customize app installs itself: {entry}");
+    f.supervisor.mount(CLIENT, "v1", "local/customize", interface, json!({})).unwrap();
+    let first = f.wait("the first scene", |e| e["event"] == "apps-scene" && e["mount_id"] == "v1");
+    assert_eq!(first["ops"][0]["props"]["text"], "save0", "{first}");
+    f.supervisor.start_local_watch_for_test();
+    // The watch reads once as it starts; let that settle.
+    std::thread::sleep(Duration::from_millis(500));
+    while f.events.try_recv().is_ok() {}
+    (1..=10)
+        .map(|n| {
+            let word = format!("save{n}");
+            let start = Instant::now();
+            std::fs::write(dir.join("main.js"), customize_script(&word)).unwrap();
+            f.wait(&format!("save {n} redraws the open {interface} view"), |e| {
+                e["event"] == "apps-scene"
+                    && e["mount_id"] == "v1"
+                    && e["ops"][0]["op"] == "create"
+                    && e["ops"][0]["props"]["text"] == word.as_str()
+            });
+            start.elapsed().as_millis()
+        })
+        .collect()
+}
+
+/// A save of the customize folder's script redraws the sidebar's row
+/// decorations (`cmux.sidebar.rows/1`), every time (capability matrix
+/// item 17: no test saved a rows change).
+#[test]
+fn a_rows_save_redraws_the_sidebar_rows_each_time() {
+    let ms = ten_saves_redraw_the_open_view("cmux.sidebar.rows/1");
+    eprintln!("rows save to scene ms: {ms:?}");
+}
+
+/// A save redraws an extension pane that is open (`cmux.pane/1`), every
+/// time, without closing it (capability matrix item 17: the DEV tour opened
+/// the pane after a reload, but never reloaded it while open).
+#[test]
+fn a_save_redraws_an_open_pane() {
+    let ms = ten_saves_redraw_the_open_view("cmux.pane/1");
+    eprintln!("pane save to scene ms: {ms:?}");
+}
+
+/// `edit-repaint.py`'s extension case on the daemon alone: ten in-place
+/// saves of the customize folder's `main.js` redraw its open sidebar
+/// section, every time (the fleet run saw 0 of 10 by pixels).
+#[test]
+fn a_customize_section_save_redraws_each_time() {
+    let ms = ten_saves_redraw_the_open_view("cmux.section/1");
+    eprintln!("section save to scene ms: {ms:?}");
+}
+
+/// Scene state (`cmux.state`) survives a hot reload: the restarted host is
+/// sent the values the old one kept as `init.state`, and an over-cap object
+/// (the VM is untrusted, so the supervisor checks again) is refused with a
+/// warn line while the last kept values stay.
+#[test]
+fn a_save_hands_the_kept_scene_state_to_the_restarted_host() {
+    let f = fixture();
+    let prints = f.supervisor.reload_local_apps(&Default::default());
+    f.install("local/spy");
+    f.mount(
+        "m1",
+        "local/spy",
+        "cmux.section/1",
+        json!({ "keep": { "scroll": 120, "open": ["row-2"] } }),
+    );
+    let many: serde_json::Map<String, Value> =
+        (0..300).map(|i| (format!("k{i}"), json!(1))).collect();
+    f.mount("m2", "local/spy", "cmux.section/1", json!({ "keep": Value::Object(many) }));
+    let messages = |f: &Fixture| -> Vec<String> {
+        f.supervisor.logs(CLIENT, "local/spy", false)["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|l| l["message"].as_str().map(String::from))
+            .collect()
+    };
+    assert!(messages(&f).iter().any(|m| m.contains("256 key cap")), "{:?}", messages(&f));
+    save_spy_version(&f.state, "1.0.1");
+    f.supervisor.reload_local_apps(&prints);
+    f.wait("the remount's scene", |e| {
+        e["event"] == "apps-scene" && e["mount_id"] == "m1" && e["ops"][0]["op"] == "create"
+    });
+    let lines = messages(&f);
+    let line =
+        lines.iter().find(|m| m.starts_with("init-state ")).unwrap_or_else(|| panic!("{lines:?}"));
+    let kept: Value = serde_json::from_str(line.trim_start_matches("init-state ")).unwrap();
+    assert_eq!(kept, json!({ "scroll": 120, "open": ["row-2"] }), "{line}");
 }

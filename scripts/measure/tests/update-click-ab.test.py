@@ -60,6 +60,31 @@ class UpdateClickAbTests(unittest.TestCase):
         self.assertEqual(medians["base"]["v2_home_first_page"], 3900)
         self.assertEqual(medians["head"]["prewarm_wait"], 950)
         self.assertIn("UCA-MEDIAN head", printed.getvalue())
+        self.assertEqual(medians["base"]["click_to_relaunch_p95"], 2100, "p95 of three updates is the slowest")
+        self.assertEqual(medians["head"]["click_to_v2_frame_p95"], 4000)
+
+    def test_phases_from_the_click(self):
+        result = timeline(3000, 1300)
+        result["timeline"]["click_to"].update({"windows_hidden.2": 40, "will_terminate": 3100})
+        result["timeline"]["click_to_v2"].update({"launch.sidebar_rows_shown": 4100, "launch.launch_snapshot_shown": 3950,
+                                                  "launch.daemon_snapshot_loaded": 4050})
+        m = uca.metrics(result)
+        self.assertEqual((m["windows_hidden"], m["will_terminate"], m["v2_process_start"]), (40, 3100, 3400))
+        self.assertEqual((m["click_to_v2_frame"], m["click_to_restored"]), (3900, 4100))
+        self.assertIsNone(uca.metrics(timeline(3000, 1300))["click_to_restored"], "restored needs all three marks")
+
+    def test_frames_verdicts_are_counted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            for i, bad in enumerate([True, False], 1):
+                run = out / f"run-head-{i}"
+                run.mkdir()
+                (run / "timeline.json").write_text(json.dumps(timeline(3000, 1300)))
+                (run / "frames-verdict.json").write_text(json.dumps({"transition_frames": bad, "windows": {}, "content": {}}))
+            with redirect_stdout(io.StringIO()):
+                uca.main(out)
+            medians = json.loads((out / "medians.json").read_text())
+        self.assertEqual((medians["head"]["updates_with_transition_frames"], medians["head"]["updates_judged"]), (1, 2))
 
 
 if __name__ == "__main__":

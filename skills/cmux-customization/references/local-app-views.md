@@ -1,7 +1,8 @@
 # Local app views
 
 A complete example for the request "a view of the PRs from the last 24h". It
-writes the customize app (`~/.config/cmux/customize`, id `local/customize`): a
+writes the customize app (id `local/customize`) in the `views` folder printed by
+`cmux customize paths`. That folder contains both files below. The app adds a
 sidebar section in the band under the workspace list, and a Session Info section
 that lists the chat branch's pull requests. cmux watches the folder: each save
 reloads the app, and the first save installs it. There is no restart and no
@@ -15,7 +16,7 @@ Session Info section (`cmux.session.info.section/1`).
 
 ## The manifest
 
-`~/.config/cmux/customize/cmux-app.json`:
+`cmux-app.json`:
 
 ```json
 {
@@ -59,7 +60,7 @@ scope; tell the person which one to turn on and why.
 
 ## The script
 
-`~/.config/cmux/customize/main.js` is a plain classic script, not a module: no
+`main.js` is a plain classic script, not a module: no
 `import` or `export`. The scene globals (`VStack`, `Row`, `ForEach`,
 `EmptyState`, `signal`, `computed`, `cmux`, ...) are already defined, and the
 script hands its render functions to cmux through `globalThis.__cmuxAppExports`.
@@ -150,6 +151,7 @@ changes. Nothing in the script picks a color or a size.
 | `Toggle(value, { label?, onChange })` | A switch row: the label leading, the native switch trailing. |
 | `Slider(value, { min, max, step, onChange })` | A native slider; set `step` so a drag sends few changes. |
 | `TextField(value, { placeholder, onSubmit })`, `Badge`, `EmptyState`, `ProgressView`, `Text`, `Icon` | Input, counts, empty and loading states, labels, SF Symbols. |
+| `.glass(level)` on any piece | The app's own glass under that piece: `"chrome"` (docked, like the sidebar's cards), `"popover"`, `"menu"` or `"chip"`. Liquid Glass on macOS 26, the older material before, opaque under Reduce Transparency. Paint only, so it never moves anything; it replaces `.background`. Older apps lack it: `typeof n.glass === "function" ? n.glass("chip") : n`. Details: docs/cmux-next/glass.md. |
 | `cmux.toast({ title, message?, tone? })` | A short notice in the app's own toast at the bottom of the window. One slot per app: a new toast replaces the app's last. The message shows when the pointer is on it, with the app's id. Needs no scope. |
 | `cmux.theme` | The tone names color props accept: `accent`, `text.primary`, `text.secondary`, `text.tertiary`, `success`, `warning`, `danger`, `separator`, `hover`, `selected`. |
 
@@ -174,7 +176,7 @@ pane that ...". `customize_example.rs` validates them too.
 
 #### Focus timer manifest
 
-`~/.config/cmux/customize/cmux-app.json`:
+`cmux-app.json`:
 
 ```json
 {
@@ -199,7 +201,7 @@ pane that ...". `customize_example.rs` validates them too.
 
 #### Focus timer script
 
-`~/.config/cmux/customize/main.js`:
+`main.js`:
 
 ```js
 const [minutes, setMinutes] = signal(25)

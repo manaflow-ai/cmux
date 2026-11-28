@@ -97,8 +97,8 @@ public final class ControlSocketServer: Sendable {
         /// Spacing of accept retries while descriptors are exhausted.
         var acceptBackoff = Backoff(initial: .milliseconds(50), maximum: .seconds(2))
         var acceptSuspended = false
-        /// Answers `auth.session.handoff` (cmux NIGHTLY only; ``setSessionHandoff(_:)``).
-        var sessionHandoff: SessionHandoffResponder?
+        /// Answers `auth.session.request` (cmux NIGHTLY only; ``setSessionConsent(_:)``).
+        var sessionConsent: SessionConsentResponder?
     }
 
     /// `accept(2)`, replaceable in tests.
@@ -129,11 +129,11 @@ public final class ControlSocketServer: Sendable {
 
     public var isRunning: Bool { state.withLock { $0.listener != nil } }
 
-    /// Makes this socket answer `auth.session.handoff` with `responder`, ahead of the access mode, for
+    /// Makes this socket answer `auth.session.request` with `responder`, ahead of the access mode, for
     /// connections accepted from now on (nil: the method is an unknown one again). Only cmux NIGHTLY sets
-    /// one; ``SessionHandoffResponder`` says who it answers.
-    public func setSessionHandoff(_ responder: SessionHandoffResponder?) {
-        state.withLock { $0.sessionHandoff = responder }
+    /// one; ``SessionConsentResponder`` says who it asks the person about.
+    public func setSessionConsent(_ responder: SessionConsentResponder?) {
+        state.withLock { $0.sessionConsent = responder }
     }
 
     /// Open client connections.
@@ -308,8 +308,8 @@ public final class ControlSocketServer: Sendable {
             setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
             _ = fcntl(client, F_SETFL, fcntl(client, F_GETFL) | O_NONBLOCK)
             let peer = Self.peer(of: client)
-            let handoff = state.withLock { $0.sessionHandoff }
-            let authorizer = ControlAuthorizer(configuration: configuration, peer: peer, handoff: handoff)
+            let consent = state.withLock { $0.sessionConsent }
+            let authorizer = ControlAuthorizer(configuration: configuration, peer: peer, consent: consent)
             let limits = ControlConnection.Limits(
                 maxLineBytes: configuration.maxLineBytes,
                 maxQueuedLines: configuration.maxQueuedLinesPerConnection,
@@ -348,8 +348,8 @@ public final class ControlSocketServer: Sendable {
     struct Peer: Sendable {
         var pid: pid_t?
         var uid: uid_t?
-        /// The kernel's uid and audit token for the peer, for ``SessionHandoffPolicy``.
-        var handoff: SessionHandoffPeer?
+        /// The uid and audit token `auth.session.request` checks.
+        var consent: SessionConsentPeer?
     }
 
     static func peer(of descriptor: Int32) -> Peer {
@@ -359,6 +359,6 @@ public final class ControlSocketServer: Sendable {
         var pid: pid_t = 0
         var length = socklen_t(MemoryLayout<pid_t>.size)
         let hasPID = getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, &pid, &length) == 0
-        return Peer(pid: hasPID ? pid : nil, uid: hasUID ? uid : nil, handoff: SessionHandoffPeer(connection: descriptor))
+        return Peer(pid: hasPID ? pid : nil, uid: hasUID ? uid : nil, consent: SessionConsentPeer(connection: descriptor))
     }
 }

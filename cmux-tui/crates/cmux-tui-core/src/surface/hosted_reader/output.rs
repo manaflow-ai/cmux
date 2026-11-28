@@ -13,6 +13,8 @@ impl HostedReader {
         journal_update: &mut Option<TerminalJournalUpdateGuard<'_>>,
     ) -> Flow {
         let mux = self.mux.clone();
+        // A terminal's output allocates too: its pages go back once it stops (malloc_quiet_trim.rs).
+        cmux_tui_platform::malloc_quiet_trim::note_activity();
         if let Some(delay) = self.output_apply_delay {
             std::thread::sleep(delay);
         }
@@ -25,7 +27,6 @@ impl HostedReader {
             follow_marks(pty, &output);
         }
         cmux_flow_trace::hop_on_traced("daemon.output.host", pty.flow_terminal_id());
-        let mut scroll_changed = None;
         let mut title_update = None;
         let terminal_notifications;
         let finished_commands;
@@ -43,11 +44,30 @@ impl HostedReader {
             let (rewritten, notifications) = pty
                 .observe_terminal_output_rewriting_titles(self.shell_marks.titles_mut(), &output);
             terminal_notifications = notifications;
-            let normalized = crate::prompt_mode_reset::write_rewritten_output(
-                &mut term,
-                rewritten,
-                &mut self.shell_marks,
-            );
+            // G3, the early forward: a plain Output from a smart host goes
+            // to the viewers run by run before this mirror parses each run,
+            // still under the terminal lock (so a snapshot or a resync sees
+            // both or neither), so viewers parse alongside the mirror rather
+            // than after it. A colors frame carries the state after the
+            // parse, and a legacy host's Output can still fail the colors
+            // check below, so both broadcast after the parse as before.
+            let early_forward = colors.is_none() && self.smart_renderer;
+            let normalized = if early_forward {
+                crate::prompt_mode_reset::write_rewritten_output_forwarding(
+                    &mut term,
+                    rewritten,
+                    &mut self.shell_marks,
+                    |run| {
+                        pty.broadcast_attach_output(run);
+                    },
+                )
+            } else {
+                crate::prompt_mode_reset::write_rewritten_output(
+                    &mut term,
+                    rewritten,
+                    &mut self.shell_marks,
+                )
+            };
             finished_commands = pty.observe_shell_marks(&mut term, || {
                 mux.upgrade()
                     .map_or(crate::shell_history::Recording::Off, |mux| mux.shell_recording())
@@ -93,7 +113,7 @@ impl HostedReader {
             let after = terminal_scroll_position(&term);
             // The parser already contains the complete
             // coupled state before any attach observer can
-            // see the Output or ColorsChanged callback.
+            // see an OutputWithColors (or a legacy Output).
             let journal_output = if colors.is_some() {
                 let journal_output = journal_enabled.then(|| output.clone());
                 pty.broadcast_attach_frame(AttachFrame::OutputWithColors {
@@ -102,7 +122,9 @@ impl HostedReader {
                 });
                 journal_output
             } else {
-                pty.broadcast_attach_output(&output);
+                if !early_forward {
+                    pty.broadcast_attach_output(&output);
+                }
                 journal_enabled.then_some(output)
             };
             if self.title_changed.swap(false, Ordering::Relaxed) {
@@ -117,7 +139,6 @@ impl HostedReader {
             }
             pty.record_terminal_directory(&term);
             if before != after {
-                scroll_changed = Some(after);
                 broadcast_render_scroll_locked(pty, after);
             }
             // Advance the output watermark while the
@@ -140,10 +161,6 @@ impl HostedReader {
         // next frame (a key's echo) must not wait for the registry (#35413).
         surface.queue_pending_publications();
         pty.stream_progress.notify();
-        // Published by the frame lane, once per frame (FrameRequests).
-        if let Some((offset, at_bottom)) = scroll_changed {
-            pty.frame_requests.defer_scroll(offset, at_bottom);
-        }
         pty.request_frame_from_reader(generation);
         if let Some(title) = title_update
             && let Some(mux) = mux.upgrade()

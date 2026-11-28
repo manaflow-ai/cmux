@@ -1,0 +1,150 @@
+// Kerf: a fast editor look, dark first, after the One family. Tight and flat: slate panels a step
+// above a deeper editor, one-pixel borders everywhere and no shadows, a soft sky blue for focus,
+// links and Send, a dense project panel of 24 pt rows, a title bar and status bar in the lightest
+// slate, and the One palette in the terminal. The chat sits in the agent panel's sans at a
+// reading size, your prompt in a hairline box, tool calls as one-line rows.
+{
+  "name": "Kerf",
+  "description": "Dark: cool slate, tight and flat, a sky-blue accent.",
+
+  // A neutral base the ghostty block below repaints whole: the editor slate, the One ink, the blue
+  // cursor, the editor selection and all sixteen ANSI colors. The window follows it.
+  "appearance.theme": "Builtin Dark",
+  "appearance.appTheme": "followTerminal",
+  // background: the editor (#282c33). foreground: the One text (#dce0e5). selection: the accent at
+  // 24% over the editor. accent: the One blue (#74ade8).
+  "colors": { "background": "#282c33", "foreground": "#dce0e5", "selection": "#657689", "accent": "#74ade8" },
+  "appearance.accent": "theme",
+  "ghostty": [
+    "background = #282c33",
+    "foreground = #dce0e5",
+    "cursor-color = #74ade8",
+    "cursor-text = #282c33",
+    "selection-background = #657689",
+    "selection-foreground = #dce0e5",
+    "palette = 0=#282c33",
+    "palette = 1=#e8777f",
+    "palette = 2=#98c379",
+    "palette = 3=#e5c07b",
+    "palette = 4=#61afef",
+    "palette = 5=#c678dd",
+    "palette = 6=#56b6c2",
+    "palette = 7=#dce0e5",
+    "palette = 8=#7f848e",
+    "palette = 9=#ea858b",
+    "palette = 10=#aad581",
+    "palette = 11=#ffd885",
+    "palette = 12=#85c1ff",
+    "palette = 13=#d398eb",
+    "palette = 14=#6ed5de",
+    "palette = 15=#fafafa"
+  ],
+  // The terminal face: SF Mono at 13 pt, the system's own monospaced face, as a native editor uses.
+  "terminal.fontFamily": "SF Mono",
+  "terminal.fontSize": 13,
+
+  // Opaque, no wallpaper, no glass, no shadows: every surface is a flat fill.
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "appearance.fontSmoothing": "antialiased",
+
+  // Layout: flat panes divided by one-pixel lines, the title bar and tab bar shaded apart from the
+  // editor, the active tab carrying the editor's own color (focus by tab, no ring).
+  "appearance.chromeStyle": "flat",
+  "appearance.borders": "default",
+  "appearance.titleAreaTone": "subtleTone",
+  "appearance.titleAreaContrast": 1,
+  "appearance.focusIndicator": "tabs",
+  "appearance.density": "compact",
+  // Pending cmux#46780: square-cornered tabs that sit flush on the bar, the active one in the
+  // editor's color with side borders.
+  // "appearance.tabShape": "block",
+  // Pending cmux#46516: the selected row in the neutral selected-element slate, not the accent.
+  // "appearance.selection": "neutral",
+
+  // Proportions, measured from the references at their 3x scale: a 34 pt title bar, a 260 pt threads
+  // sidebar with 24 pt rows (the project panel's), a 32 pt tab bar with tabs sized to their title,
+  // 13 pt chrome and tab text, panes that abut on 1 pt lines.
+  "appearance.metrics.titlebarHeight": 34,
+  "appearance.metrics.sidebarWidth": 260,
+  "appearance.metrics.sidebarRowHeight": 24,
+  "appearance.metrics.chromeFontSize": 13,
+  "appearance.metrics.tabStripHeight": 32,
+  "appearance.metrics.tabFontSize": 13,
+  "appearance.metrics.tabMaxWidth": 200,
+  "appearance.metrics.tabMinActiveWidth": 96,
+  "appearance.metrics.tabMinInactiveWidth": 72,
+  "appearance.metrics.columnGap": 0,
+  "appearance.metrics.dividerThickness": 1,
+
+  // The sidebar: the panel slate, a one-pixel border, sections as plain headings.
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#272c36",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "sidebar.style": "standard",
+  "sidebar.border": true,
+  "sidebar.borderWidth": 1,
+  "sidebar.sectionLook": "quiet",
+
+  // The agent panel in the panel slate; the editor, terminal, diffs and Markdown in the deeper
+  // editor slate; the title bar, tab bar, browser bar and docks in the lightest slate (#3b414d);
+  // borders #464b57.
+  "appearance.surfaces.agentPane.color": "#272c36",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.terminal.color": "#282c33",
+  "appearance.surfaces.terminal.opacity": 1,
+  "appearance.surfaces.editor.color": "#282c33",
+  "appearance.surfaces.editor.opacity": 1,
+  "appearance.surfaces.diff.color": "#282c33",
+  "appearance.surfaces.diff.opacity": 1,
+  "appearance.surfaces.markdown.color": "#282c33",
+  "appearance.surfaces.markdown.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#3b414d",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "appearance.surfaces.browserChrome.color": "#3b414d",
+  "appearance.surfaces.browserChrome.opacity": 1,
+  "appearance.surfaces.docks.color": "#272c36",
+  "appearance.surfaces.docks.opacity": 1,
+  "appearance.surfaces.splitDivider.color": "#464b57",
+  "appearance.surfaces.splitDivider.opacity": 1,
+
+  // Settings and pages: the editor slate, as the settings and onboarding pages open in a tab.
+  "appearance.surfaces.settings.color": "#282c33",
+  "appearance.surfaces.settings.opacity": 1,
+  "appearance.surfaces.internalPage.color": "#282c33",
+  "appearance.surfaces.internalPage.opacity": 1,
+  "appearance.surfaces.newTabPage.color": "#282c33",
+  "appearance.surfaces.newTabPage.opacity": 1,
+  "appearance.surfaces.home.color": "#282c33",
+  "appearance.surfaces.home.opacity": 1,
+
+  // Status: a thin spinning arc in the accent while a thread works, on tabs too.
+  "appearance.statusIndicator.style": "arc",
+  "appearance.statusIndicator.animation": "animated",
+  "appearance.statusIndicator.thickness": 1.5,
+  "appearance.statusIndicator.showAgentWorkingOnTabs": true,
+
+  "browser.omnibar.glass": "off",
+
+  // Motion: almost none. Fast, and color changes cut over in 80 ms.
+  "ui.animationSpeed": "fast",
+  "appearance.colorTransition.enabled": true,
+  "appearance.colorTransition.curve": "linear",
+  "appearance.colorTransition.duration": 80,
+  "appearance.colorTransition.colorSpace": "srgb",
+  "appearance.colorTransition.reduceMotion": "instant"
+
+  // Pending cmux#46861 (layout and proportions): a fast editor: 52 pt two-line thread rows with a 4 pt inset and no gaps, 24 pt square icon buttons with 4 pt corners and a faint active fill, one-pixel lines under every header, a short composer. Uncomment once your build has it.
+  // "appearance.metrics.sidebarRowHeightWithSubtitle": 52,
+  // "appearance.metrics.sidebarRowInset": 4,
+  // "appearance.metrics.sidebarRowPadding": 8,
+  // "appearance.metrics.sidebarRowGap": 0,
+  // "appearance.metrics.toolbarButtonSize": 24,
+  // "appearance.metrics.toolbarButtonGap": 2,
+  // "appearance.metrics.toolbarButtonCornerRadius": 4,
+  // "appearance.metrics.toolbarButtonActiveFill": 0.08,
+  // "appearance.metrics.headerDivider": 1,
+  // "appearance.metrics.composerPadding": 8,
+  // "appearance.metrics.composerMinHeight": 40,
+  // "appearance.metrics.spacingScale": 0.85,
+}

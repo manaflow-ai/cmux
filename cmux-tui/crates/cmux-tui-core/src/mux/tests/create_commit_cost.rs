@@ -234,7 +234,7 @@ fn file_session(workspaces: usize) -> FileSession {
         crate::workspace_registry::new_uuid_v4()
     ));
     let mux = open_persistent_test_mux("create-commit-cost", &root);
-    assert!(mux.disk_usage_stats().is_some(), "the registry of this session is not a file");
+    assert!(mux.disk_usage_stats(false).is_some(), "the registry of this session is not a file");
     assert!(mux.journal_writer_stats().is_some(), "this session has no journal writer thread");
     // Made with the debug cross-check off: with it, each create also runs a full projection.
     let (mux, target) = without_crosscheck(|| {

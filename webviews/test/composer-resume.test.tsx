@@ -4,9 +4,13 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
-import { noChat, summary, user } from "../src/gallery/fixtures/acpmux";
-import { canResumeFromComposer } from "../src/agent-session/acpmux/composer/resumeControl";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { noChat, summary, user } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { canResumeFromComposer } = await importWithDom(
+  () => import("../src/agent-session/acpmux/composer/resumeControl"),
+);
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
@@ -75,7 +79,7 @@ function stopped(): AcpmuxSnapshot {
 }
 const emptyState = {
   offered: true,
-  text: "",
+  blank: true,
   attachments: 0,
   pending: 0,
   shell: false,
@@ -90,8 +94,7 @@ test("Resume requires an empty stopped-turn offer and cannot race work, queue, g
   expect(canResumeFromComposer(snapshot, emptyState)).toBe(true);
   for (const change of [
     { offered: false },
-    { text: "next" },
-    { text: " " },
+    { blank: false },
     { attachments: 1 },
     { pending: 1 },
     { shell: true },

@@ -1,39 +1,25 @@
-/* The reference card uses the chat's reading size for its file list, with the header actions
-   and total counts one chrome step smaller. Its 64px header and 36px rows retain their height
-   contract with editedCardHeight; directory and diff colors keep the existing theme roles. */
+/* The reference card uses the chat's reading size, with the header actions and total counts one
+   chrome step smaller. Its 64px row keeps its height contract with editedCardHeight; directory and diff colors keep the existing theme roles. */
 .acpmux-edited .acpmux-edited-title {
   font-size: var(--text-content);
   line-height: var(--text-title--line-height);
 }
-.acpmux-edited .acpmux-edited-actions {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: var(--ds-space-3);
-  margin-inline-start: auto;
-}
 .acpmux-edited .acpmux-edited-title .acpmux-diff-counts,
-.acpmux-edited :is(.acpmux-edited-undo, .acpmux-review-changes) {
+.acpmux-edited .acpmux-edited-hover-label,
+.acpmux-edited .acpmux-edited-undo {
   font-size: var(--text-content);
-  letter-spacing: normal;
-}
-.acpmux-edited :is(.acpmux-edited-file, .acpmux-edited-more) {
-  font-size: var(--text-content);
-  line-height: var(--text-content--line-height);
   letter-spacing: normal;
 }
 
+/* The card level (design/chat-surfaces.md): the page's ink over clear, as every transcript card, never the
+   page colour (opaque in an opaque window, clear in a see-through one); its head is the card itself. */
 div.acpmux-edited {
-  background: var(--agent-page-bg);
+  background: var(--ds-surface-card);
 }
-.acpmux-edited .acpmux-edited-head {
-  background: color-mix(in srgb, var(--agent-text) 3%, transparent);
-}
+/* The glyph's tile is the inset level, one step over the card: never the page colour mixed with black,
+   which drew a dark hole over a see-through window's picture. */
 .acpmux-edited .acpmux-edited-icon {
-  background: light-dark(
-    color-mix(in srgb, var(--agent-page-bg) 94%, black),
-    color-mix(in srgb, var(--agent-page-bg) 68%, black)
-  );
+  background: var(--ds-surface-inset);
   box-shadow: none;
   color: var(--agent-muted);
 }
@@ -55,44 +41,135 @@ div.acpmux-edited {
   flex: 0 1000 auto;
   color: var(--agent-muted);
 }
-.acpmux-edited-summary {
-  all: unset;
-  position: relative;
-  display: grid;
+
+/* The head's words and Undo (cardFit.css): one line while the card is wide, Undo under the words
+   when it is narrow, its icon alone when narrower still. The name ends in an ellipsis, its whole
+   path in its tooltip; nothing is drawn over it (Leo, 2026-11-22: "overlapping text via the buttosn
+   when the pane is small"). */
+.acpmux-edited .acpmux-edited-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.acpmux-edited .acpmux-edited-name {
   max-width: 100%;
-  min-width: 0;
-  border-radius: var(--ds-radius-control);
-  color: var(--agent-muted);
-  cursor: default;
-  font-size: var(--text-content);
-  line-height: inherit;
 }
-.acpmux-edited-summary > span {
-  grid-area: 1 / 1;
-  min-width: 0;
+/* The chevron fills its 22px button: a shared button rule's 6px side padding left 10px, and the glyph shrank
+   into it at any size (Lucas, 2026-11-26: "the chevron is still the exact same"). */
+.acpmux-edited .acpmux-edited-chevron {
+  padding: 0;
 }
-.acpmux-edited-summary-link {
-  display: flex;
-  align-items: center;
-  gap: var(--ds-space-1);
-  opacity: 0;
-  white-space: nowrap;
-}
-.acpmux-edited-summary-link > svg {
+.acpmux-edited .acpmux-edited-chevron > svg {
   flex: none;
 }
-/* The counts and "View changes" swap at once, with no fade (Lucas, 2026-11-14). */
-.acpmux-edited-head:hover .acpmux-edited-summary-counts,
-.acpmux-edited-head:has([data-popup-open]) .acpmux-edited-summary-counts,
-.acpmux-edited-summary:focus-visible .acpmux-edited-summary-counts {
-  opacity: 0;
+/* The card's chevron and each file's turn with the fold they open (fold.ts), on its token, as every
+   transcript disclosure's does (conversation.css `.cv-rotor`); Reduce Motion and the motion gates snap them. */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-edited .acpmux-edited-chevron > svg,
+  .acpmux-edited-stack .cv-edit-diff__chevron {
+    transition: transform var(--cv-fold-duration) var(--cv-fold-ease, var(--agent-ease-out, ease-out));
+  }
 }
-.acpmux-edited-head:hover .acpmux-edited-summary-link,
-.acpmux-edited-head:has([data-popup-open]) .acpmux-edited-summary-link,
-.acpmux-edited-summary:focus-visible .acpmux-edited-summary-link {
-  opacity: 1;
+:root:is([data-agent-move="instant"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"])
+  :is(.acpmux-edited .acpmux-edited-chevron > svg, .acpmux-edited-stack .cv-edit-diff__chevron) {
+  transition: none;
 }
-.acpmux-edited-summary:focus-visible {
-  outline: var(--cmux-hairline) solid var(--ds-color-focus);
-  outline-offset: var(--ds-space-1);
+/* The one sign that the card opens; the whole head is its target (headerToggle.ts). */
+.acpmux-edited-head[data-interactive]:hover:not(:has(button:not(.acpmux-edited-toggle):hover)) .acpmux-edited-chevron {
+  color: var(--agent-text);
 }
+/* The opened card (Leo, 2026-11-25: "one row that expands out to the widest situation"): every file's
+   whole diff stacked in one box, at most 60% of the view tall, that scrolls once. Each file is the
+   diff viewer's section, not a card inside the card: no ring, no corner, no gap; its name stays at
+   the top of the box while its lines scroll under it. */
+.acpmux-edited .acpmux-edited-stack {
+  max-height: 60vh;
+  overflow: auto;
+  /* At either end a wheel goes on to the transcript, as the chat's other capped boxes do: the reader
+     is never held in the card. stackWheel.ts also brings the card into view first, and hands on mid-gesture. */
+  overscroll-behavior: auto;
+  /* A drawn scrollbar ("Show scroll bars: Always", scrollers.ts INSET_SCROLLER_ATTRIBUTE) runs under
+     the sticky file name, never beside it, and stops short of the card's rounded bottom corner. */
+  --cmux-inset-scroller-start: calc(var(--cv-font-size) * 32 / 14);
+  --cmux-inset-scroller-end: var(--ds-space-2);
+}
+.acpmux-edited-stack .cv-edit-diff {
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+  /* Not hidden: a hidden box would be the sticky name's scroller instead of the stack. */
+  overflow: clip;
+}
+.acpmux-edited-stack .cv-edit-diff__header {
+  position: sticky;
+  top: 0;
+  z-index: var(--layer-sticky);
+  /* The card's tint is ink over clear, and the page under it is clear too (the host paints the colour), so the
+     lines scrolling under the name showed through. The theme's page colour under the tint draws the card's
+     colour, solid; a see-through window's page colour keeps some alpha, and the lines fade out under the name
+     there (below). */
+  background: linear-gradient(var(--cv-codeblock-bg), var(--cv-codeblock-bg)), var(--agent-page-bg);
+  box-shadow: inset 0 1px 0 var(--ds-surface-card-line);
+}
+/* The code goes clear where it slides under its file name (stackEdge.ts), as macOS 26's scroll edge does
+   under a toolbar: Chromium's backdrop over a see-through window leaves the page's own text crisp, so no
+   line reads through the name. The fade grows with the slide (at most 12px), so it never pops in. */
+.acpmux-edited-stack .cv-edit-diff__body[data-under] {
+  --stack-under-fade: calc(var(--stack-under) + min(var(--stack-under), 12px));
+  -webkit-mask-image: linear-gradient(to bottom, transparent var(--stack-under), #000 var(--stack-under-fade));
+  mask-image: linear-gradient(to bottom, transparent var(--stack-under), #000 var(--stack-under-fade));
+}
+.acpmux-edited-plain {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: calc(9 * var(--grid-base));
+  padding: 0 var(--ds-space-1) 0 var(--ds-space-3);
+  box-shadow: inset 0 1px 0 var(--ds-surface-card-line);
+  color: var(--agent-text);
+  font-size: calc(var(--cv-font-size) * 13 / 14);
+}
+.acpmux-edited-plain > .acpmux-edited-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The closed card's counts give way to what a click on its head does, "View changes", while the head is
+   hovered or its chevron has keyboard focus. Open, the counts stay (the label is not drawn),
+   and after a click opens or closes it they stay until the pointer leaves the head (`data-hover-quiet`). Both share one grid cell, so the line never changes size. */
+.acpmux-edited-counts {
+  display: inline-grid;
+}
+.acpmux-edited-counts > * {
+  grid-area: 1 / 1;
+}
+.acpmux-edited-hover-label {
+  visibility: hidden;
+  color: var(--agent-muted);
+  white-space: nowrap;
+}
+.acpmux-edited:not([data-open]) .acpmux-edited-head[data-interactive]:not([data-hover-quiet]):is(:hover:not(:has(button:not(.acpmux-edited-toggle):hover)), :has(.acpmux-edited-toggle:focus-visible)) .acpmux-edited-counts > .acpmux-diff-counts {
+  visibility: hidden;
+}
+.acpmux-edited:not([data-open]) .acpmux-edited-head[data-interactive]:not([data-hover-quiet]):is(:hover:not(:has(button:not(.acpmux-edited-toggle):hover)), :has(.acpmux-edited-toggle:focus-visible)) .acpmux-edited-counts > .acpmux-edited-hover-label {
+  visibility: visible;
+}
+
+/* A file's own actions in its sticky name: Open (a Markdown file's page) and Open in Changes. */
+.acpmux-edited .acpmux-edited-open {
+  flex: none;
+  margin-inline-start: var(--ds-space-2);
+}
+/* In a file's name they sit with Wrap lines and Copy, one group at the same step (--cv-code-action-gap). */
+.acpmux-edited .cv-edit-diff__header > .acpmux-edited-open {
+  margin-inline-start: calc(var(--cv-code-action-gap) - var(--ds-space-2));
+}
+
+/* A narrow card (the chat beside a page, #47831's air-blue capture): the title clips to its own box with an
+   ellipsis, and Undo folds under it, then to its glyph, by cardFit.css's widths. Those query the card (.cv-fit),
+   so the head is no container of its own: as one, it was the narrower box the card's widths read. */
+.acpmux-edited .acpmux-edited-title > * {
+  max-width: 100%;
+  min-width: 0;
+}
+/* The head's own bottom line already edges the first file: its name takes no second line. */
+.acpmux-edited-stack > .acpmux-edited-section:first-child .cv-edit-diff__header{box-shadow:none}

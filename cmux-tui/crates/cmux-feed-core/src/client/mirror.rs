@@ -74,7 +74,10 @@ impl Reject {
     pub fn message(&self) -> String {
         match self {
             Reject::Closed(_) => "the request already closed".to_owned(),
-            Reject::Moving => "the item is moving to the cloud owner; try again".to_owned(),
+            Reject::Moving => {
+                "the item is moving to the cloud owner, so this answer was not applied yet"
+                    .to_owned()
+            }
             Reject::Invalid(message) | Reject::Other(message) => message.clone(),
             Reject::Disconnected => "the feed owner is unreachable".to_owned(),
         }
@@ -189,6 +192,12 @@ impl Mirror {
     /// The panel list (active items), in order: open requests, then the rest.
     pub fn list(&self) -> impl Iterator<Item = &FeedItem> {
         self.ledger.list_ids().filter_map(|id| self.ledger.visible.get(id))
+    }
+
+    /// How many items [`Self::list`] yields (its open requests are
+    /// [`Counts::open_requests`], and they come first).
+    pub fn list_len(&self) -> usize {
+        self.ledger.list_len()
     }
 
     /// Every visible item, newest first.
