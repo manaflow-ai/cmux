@@ -44,6 +44,7 @@ pub const PHONE_FRAMES: &str = "phone-frames-v1";
 pub const TAB_SNAPSHOTS: &str = "tab-snapshots-v1";
 pub const PHONE_PAGE: &str = "phone-page-v1";
 pub const BUNDLE: &str = "bundle-v1";
+pub const ZSTD_STREAM: &str = "zstd-stream-v1";
 pub const BROWSER_STREAM: &str = "browser-stream-v1";
 pub const BROWSER_VIDEO_TRACK: &str = "browser-video-track-v1";
 pub const SURFACE_STREAM: &str = "surface-stream-v1";
@@ -51,6 +52,7 @@ pub const CLOUD_DESKTOP: &str = "cloud-desktop-v1";
 pub const MAILBOX_SEND: &str = "mailbox-send-v1";
 pub const MAC_DISPLAY: &str = "mac-display-v1";
 pub const TRY_PR: &str = "try-pr-v1";
+pub const API_DESCRIBE: &str = "api-describe-v1";
 pub const SITE_DATA_HANDOFF: &str = "site-data-handoff-v1";
 
 pub const CLOUD_MOBILE_CHAT: &str = "cloud-mobile-chat-v1";
@@ -134,6 +136,14 @@ pub const ALL: &[Capability] = &[
     host(
         BUNDLE,
         "(2026-11-24) The host serves `bundle`: an attachment upload (`put`) or file open (`get`) as sealed content-defined chunks, so a file the far end already holds costs one round trip and its manifest.",
+    ),
+    host(
+        ZSTD_STREAM,
+        "(2026-11-24) An `acpmux` channel opened with `args.compressions` listing `zstd-stream-v1` carries every message through one zstd stream kept for the channel's life (`0x01` envelopes, PROTOCOL.md \"acpmux compression\").",
+    ),
+    host(
+        API_DESCRIBE,
+        "(2026-11-27) The host serves `api`: every method a phone may call on this Mac with its JSON Schemas (`list`, `describe`, `llms`), so a phone checks what this Mac answers instead of its version (cmux-mobile-api).",
     ),
     host(
         BROWSER_STREAM,

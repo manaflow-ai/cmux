@@ -541,6 +541,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-api-compat"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-auto-session"
 version = "0.1.0"
 dependencies = [
@@ -718,6 +726,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-mobile-api"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-mobile-auto"
 version = "0.1.0"
 dependencies = [
@@ -745,6 +760,7 @@ dependencies = [
  "base64 0.22.1",
  "blake3",
  "bytes",
+ "cmux-api-compat",
  "cmux-build-space",
  "cmux-bundle",
  "cmux-deadline",
@@ -752,6 +768,7 @@ dependencies = [
  "cmux-fault",
  "cmux-json",
  "cmux-message-preview",
+ "cmux-mobile-api",
  "cmux-mobile-core",
  "cmux-mobile-link",
  "cmux-output-paint",
@@ -847,6 +864,7 @@ dependencies = [
  "webrtc",
  "x25519-dalek",
  "zeroize",
+ "zstd",
 ]
 
 [[package]]
@@ -930,6 +948,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "wait-timeout",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

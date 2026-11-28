@@ -271,6 +271,7 @@ function SceneMotion({ look = "loops" }: { look?: Look }) {
       tick(store, counter.step);
     };
     next();
+    // gallery-capture: the tick stands in for the app's signal; each variant's `ready` play waits for the scene root, and the scene's first step is applied before the interval.
     const timer = window.setInterval(next, every ?? 1000);
     return () => window.clearInterval(timer);
   }, [fixture]);
