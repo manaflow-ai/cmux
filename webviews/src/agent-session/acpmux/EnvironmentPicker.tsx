@@ -4,10 +4,12 @@ import { MacBookGlyph } from "./MacBookGlyph";
 import { DeviceGlyphShapes } from "../../ui/DeviceGlyph";
 import { DEVICE_GLYPH_VIEWBOX } from "../../ui/deviceGlyphPaths";
 import { type DeviceKind, useDeviceKind } from "../../ui/deviceKinds";
+import { Button } from "../../ui/Button";
 import { COMBOBOX_VIRTUAL_AFTER, Combobox } from "../../ui/Combobox";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { KeyHint } from "../../ui/KeyHint";
 import { Popover } from "../../ui/Popover";
+import { Tooltip } from "../../ui/Tooltip";
 import { focusRoute } from "../../ui/focusRoute";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { translate as t, type StringKey, usePaneLanguage } from "./i18n";
@@ -1304,9 +1306,11 @@ export function EnvironmentPicker({
               </span>
             )}
             {ready && environment.loadWarning && (
-              <span className="acpmux-env-state" data-warning="true" title={environment.loadWarning}>
-                {environment.loadWarning}
-              </span>
+              <Tooltip label={environment.loadWarning}>
+                <span className="acpmux-env-state" data-warning="true">
+                  {environment.loadWarning}
+                </span>
+              </Tooltip>
             )}
             {/* Other devices marks every machine a chat can start on with the online dot. */}
             {ready &&
@@ -1434,8 +1438,8 @@ export function EnvironmentPicker({
             <span className="acpmux-env-last-seen-text">
               {retrying ? t("composer.envCloudChecking") : t("composer.envCloudUnreachable", { when: lastSeenWhen })}
             </span>
-            <button
-              type="button"
+            <Button
+              bare
               className="acpmux-env-last-seen-retry ui-ghost ui-ghost-sm"
               disabled={retrying}
               aria-busy={retrying || undefined}
@@ -1447,7 +1451,7 @@ export function EnvironmentPicker({
               }}
             >
               {t("composer.envCloudRetry")}
-            </button>
+            </Button>
           </output>
         )}
         <Combobox

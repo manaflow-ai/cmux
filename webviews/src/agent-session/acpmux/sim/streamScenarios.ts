@@ -1119,5 +1119,3 @@ export const STREAM_SCENARIOS: StreamScenario[] = [
   },
   ...timing,
 ];
-
-export const scenarioById = (id: string) => STREAM_SCENARIOS.find((scenario) => scenario.id === id);
