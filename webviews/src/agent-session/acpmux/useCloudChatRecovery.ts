@@ -9,6 +9,9 @@ type Props = {
   session?: string;
   active: boolean;
   recheck(): Promise<void>;
+  /// The chat itself answered for good (deleted, not found, gone, unreached, its machine deleted): a
+  /// resume ends there, since no machine coming back opens it (cmux#55066).
+  settled?: boolean;
   /// Each read's deadline (RECOVERY_READ_MS); tests shorten it.
   readMs?: number;
 };
@@ -55,7 +58,14 @@ export async function beforeDeadline<T>(
 // chat opens, the machine is deleted, a read fails for good, or the chat/account changes or
 // unmounts; the resume has no deadline, each read has RECOVERY_READ_MS. Past RESUME_SLOW_MS it is
 // `slow`, and Resume machine asks the machine to wake again while the reads continue.
-export function useCloudChatRecovery({ cloud, session, active, recheck, readMs = RECOVERY_READ_MS }: Props) {
+export function useCloudChatRecovery({
+  cloud,
+  session,
+  active,
+  recheck,
+  settled = false,
+  readMs = RECOVERY_READ_MS,
+}: Props) {
   const t = useT();
   const [state, setState] = useState<CloudChatState>();
   const [resuming, setResuming] = useState(false);
@@ -66,12 +76,18 @@ export function useCloudChatRecovery({ cloud, session, active, recheck, readMs =
   const [slow, setSlow] = useState(false);
   const resumeAttempt = useRef(0);
   const resumeInFlight = useRef(false);
+  // The chat itself answered for good, as the page last drew it: read by the resume after its own
+  // recheck, never as an effect dependency (a change alone must not restart the reads).
+  const settledNow = useRef(settled);
+  // A resume that ended because its chat is gone for good (deleted, not found): held prompts go back.
+  const [chatGone, setChatGone] = useState(false);
   const identity = cloud ? JSON.stringify(cloud) : undefined;
   useEffect(() => {
     resumeAttempt.current += 1;
     resumeInFlight.current = false;
     setResuming(false);
     setError(false);
+    setChatGone(false);
     return () => {
       resumeAttempt.current += 1;
     };
@@ -87,6 +103,9 @@ export function useCloudChatRecovery({ cloud, session, active, recheck, readMs =
   useEffect(() => {
     if (!resuming) resumeInFlight.current = false;
   }, [resuming]);
+  useEffect(() => {
+    settledNow.current = settled;
+  }, [settled]);
   useEffect(() => {
     setSlow(false);
     if (!resuming) return;
@@ -105,6 +124,14 @@ export function useCloudChatRecovery({ cloud, session, active, recheck, readMs =
       setResuming(false);
       if (failed) setError(true);
     };
+    // A woken machine's peer can read connected a moment before its chats are listed again, and the
+    // page then draws "deleted" for a chat that reopens a second later. The page's answer is sampled
+    // as each read starts, a second after the recheck before it, so what that recheck found is drawn;
+    // only two samples in a row that find the chat gone end the resume (cmux#55066).
+    // The read before this one finished its own recheck: only then is the page's answer what that
+    // recheck found, not a snapshot from the middle of one (its peers read, its chats not yet).
+    let lastReadRechecked = false;
+    let goneReads = 0;
     // A failed or superseded inventory read says nothing about the accepted wake.
     // Keep the paused card while the machine reconnects.
     const retry = () => {
@@ -116,6 +143,15 @@ export function useCloudChatRecovery({ cloud, session, active, recheck, readMs =
     // never answers no longer stops the reads for good. The card reads again only while resuming.
     const read = async () => {
       if (disposed || !identity || !active) return;
+      if (resuming && lastReadRechecked) {
+        goneReads = settledNow.current ? goneReads + 1 : 0;
+        if (goneReads >= 2) {
+          finishResume();
+          setChatGone(true);
+          return;
+        }
+      }
+      lastReadRechecked = false;
       const deadline = performance.now() + readMs;
       try {
         const replyResult = await beforeDeadline(
@@ -138,6 +174,7 @@ export function useCloudChatRecovery({ cloud, session, active, recheck, readMs =
             retry();
             return;
           }
+          lastReadRechecked = true;
         }
         if (disposed) return;
         if (next === "deleted") {
@@ -168,6 +205,7 @@ export function useCloudChatRecovery({ cloud, session, active, recheck, readMs =
     if (!cloud || (resuming && !again) || (resumeInFlight.current && !again)) return;
     resumeInFlight.current = true;
     setError(false);
+    setChatGone(false);
     setResumeRound((round) => round + 1);
     // Send the native call synchronously from the click: it consumes this gesture. The existing
     // attach path resumes this machine for either Cloud backend without opening another workspace.
@@ -191,5 +229,7 @@ export function useCloudChatRecovery({ cloud, session, active, recheck, readMs =
     /// The resume has run past RESUME_SLOW_MS: the card says so and Resume machine works again.
     slow: resuming && slow,
     error: error ? t("unavailable.resumeFailed") : undefined,
+    /// The resume ended because the chat itself is gone for good: what it held for the chat goes back.
+    chatGone,
   };
 }

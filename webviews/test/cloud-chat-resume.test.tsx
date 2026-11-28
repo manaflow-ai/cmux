@@ -759,3 +759,112 @@ test("beforeDeadline answers late past its deadline and drops a late refusal", a
   refuse(new Error("late"));
   await expect(beforeDeadline(Promise.reject(new Error("now")), performance.now() + 1_000)).rejects.toThrow("now");
 });
+
+// cmux#55066 review: a resume whose machine came back but whose chat answered for good (deleted, not
+// found) ends: no spinner under "This chat was deleted", no reads every second behind it. A "deleted"
+// that lasts one read only (the woken peer listed before its chats) keeps the resume going.
+test.serial("a resume ends once the chat itself answers for good, not on one passing read", async () => {
+  const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
+  const calls: string[] = [];
+  Object.assign(dom.window, {
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          postMessage: ({ method }: { method: string }) => {
+            calls.push(method);
+            if (method === "cloudMachine.attach") return { ok: true, value: {} };
+            return {
+              ok: true,
+              value: {
+                signedIn: true,
+                loaded: true,
+                complete: true,
+                account: ["user", null],
+                machines: [{ id: "vm-demo", name: "Demo machine", stage: "ready" }],
+              },
+            };
+          },
+        },
+      },
+    },
+  });
+  let seen: { resuming: boolean; chatGone: boolean; resume(): void } | undefined;
+  let rechecks = 0;
+  const recheck = async () => {
+    rechecks += 1;
+  };
+  const cloud = { id: "vm-demo", account: ["user", null] as [string, null] };
+  function Probe({ settled }: { settled: boolean }) {
+    const recovery = useCloudChatRecovery({ cloud, session: "chat-demo", active: true, recheck, settled });
+    seen = recovery;
+    return null;
+  }
+  const show = (settled: boolean) => act(async () => root.render(<Probe settled={settled} />));
+  const wait = (ms: number) => act(async () => new Promise((resolve) => setTimeout(resolve, ms)));
+  await show(false);
+  await act(async () => seen!.resume());
+  expect(seen!.resuming).toBe(true);
+  await wait(1_100);
+
+  // The page reads the chat gone for less than one read's interval, then finds it again: the resume
+  // goes on (each read samples the page once).
+  await show(true);
+  await wait(600);
+  await show(false);
+  await wait(2_200);
+  expect(rechecks).toBeGreaterThanOrEqual(3);
+  expect(seen!.resuming).toBe(true);
+  expect(seen!.chatGone).toBe(false);
+
+  // Gone on two reads in a row: the resume ends, says so, and reads no more.
+  await show(true);
+  await wait(2_300);
+  expect(seen!.resuming).toBe(false);
+  expect(seen!.chatGone).toBe(true);
+  const reads = calls.length;
+  await wait(1_200);
+  expect(calls.length).toBe(reads);
+  await act(async () => root.render(null));
+}, 15_000);
+
+// cmux#55066 review: a recheck that runs past its read's deadline is let go mid-way (its peers read,
+// its chats not yet). A page sampled after such a read, however long it reads "gone", ends nothing.
+test.serial("a resume never ends on samples taken after a recheck that was let go", async () => {
+  const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
+  Object.assign(dom.window, {
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          postMessage: ({ method }: { method: string }) => {
+            if (method === "cloudMachine.attach") return { ok: true, value: {} };
+            return {
+              ok: true,
+              value: {
+                signedIn: true,
+                loaded: true,
+                complete: true,
+                account: ["user", null],
+                machines: [{ id: "vm-demo", name: "Demo machine", stage: "ready" }],
+              },
+            };
+          },
+        },
+      },
+    },
+  });
+  let seen: { resuming: boolean; chatGone: boolean; resume(): void } | undefined;
+  // Every recheck hangs past the read's 50 ms deadline.
+  const recheck = () => new Promise<void>(() => {});
+  const cloud = { id: "vm-demo", account: ["user", null] as [string, null] };
+  function Probe({ settled }: { settled: boolean }) {
+    const recovery = useCloudChatRecovery({ cloud, session: "chat-demo", active: true, recheck, settled, readMs: 50 });
+    seen = recovery;
+    return null;
+  }
+  await act(async () => root.render(<Probe settled />));
+  await act(async () => seen!.resume());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 3_500)));
+  expect(seen!.resuming).toBe(true);
+  expect(seen!.chatGone).toBe(false);
+  await act(async () => root.render(null));
+});
