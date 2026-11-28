@@ -24,9 +24,9 @@ export type SettingsConnection = { section: string; focus: string; target: strin
  * catalog id, `connections/<id>`, and lands on its hub row once the hub draws it. */
 export const SETTINGS_CONNECTIONS: Readonly<Record<string, SettingsConnection>> = {
   github: { section: "accounts", focus: "connection.github", target: '[data-card="github-connection"]' },
-  claude: { section: "cloud", focus: "cloud.claude", target: '[data-cloud-row="claude"]' },
-  chatgpt: { section: "cloud", focus: "cloud.chatgpt", target: '[data-cloud-row="chatgpt"]' },
-  apiKey: { section: "cloud", focus: "cloud.apiKey", target: '[data-cloud-row="apiKey"]' },
+  claude: { section: "cloud", focus: "cloudModels.add.claude", target: '[data-card="cloudModels"]' },
+  chatgpt: { section: "cloud", focus: "cloudModels.add.chatgpt", target: '[data-card="cloudModels"]' },
+  apiKey: { section: "cloud", focus: "cloudModels.add", target: '[data-card="cloudModels"]' },
 };
 
 /** Other spellings of a connection (`api-key` from the URL scheme's kebab case). */

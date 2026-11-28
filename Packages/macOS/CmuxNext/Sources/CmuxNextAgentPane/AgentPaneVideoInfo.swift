@@ -370,15 +370,19 @@ nonisolated enum AgentPaneVideoInfo {
         return CGImageDestinationFinalize(destination) ? output as Data : nil
     }
 
-    /// `image` drawn at most `side` on its longest side; the image itself when it is already that small.
+    /// `image` drawn at most `side` on its longest side; the image itself when it is already that small. Clear pixels stay
+    /// clear (Leo 2026-11-27, ask-3729c9c563: "a fix for the black bg of the preview"): a chat over a see-through ground
+    /// keeps its alpha through the scale (it was drawn into a no-alpha context, which made every clear pixel black), so
+    /// the card's own fill shows through them. A picture with no alpha stays without one.
     static func scaled(_ image: CGImage, toFit side: Int) -> CGImage? {
         let longest = max(image.width, image.height)
         guard longest > side else { return image }
         let scale = Double(side) / Double(longest)
         let width = max(1, Int((Double(image.width) * scale).rounded())), height = max(1, Int((Double(image.height) * scale).rounded()))
+        let hasAlpha = ![CGImageAlphaInfo.none, .noneSkipFirst, .noneSkipLast].contains(image.alphaInfo)
         guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                                       space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+                                      bitmapInfo: (hasAlpha ? CGImageAlphaInfo.premultipliedLast : CGImageAlphaInfo.noneSkipLast).rawValue) else { return nil }
         context.interpolationQuality = .high
         context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
         return context.makeImage()

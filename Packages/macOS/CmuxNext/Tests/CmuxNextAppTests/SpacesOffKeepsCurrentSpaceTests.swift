@@ -161,6 +161,28 @@ struct SpacesOffKeepsCurrentSpaceTests {
         #expect(windows.pinSelections.isEmpty)
     }
 
+    /// A banner click (`reveal` -> `select`) on a workspace of another space, with a daemon delta before the pin lands: the
+    /// repair kept the window on the old workspace, so the probe saw no window showing the chat (notify-banner-click, Nightly
+    /// 4598798383801). The click's selection stays through the delta, and the landed pin still shows it.
+    @Test func aRevealedHiddenWorkspaceSurvivesADeltaBeforeItsPinLands() async throws {
+        let fixture = try await Fixture(settings: #"{"sidebar":{"showSpaces":true}}"#)
+        defer { fixture.close() }
+        let windows = fixture.services.windows
+        windows.switchProfile(Fixture.work, in: fixture.state)
+        try await fixture.write("{}")
+        windows.select("k2", in: fixture.state)
+
+        _ = windows.reveal(workspaceID: "k1")
+        #expect(fixture.state.workspaceID == "k1")
+        windows.reconcileMembership()
+        #expect(fixture.state.workspaceID == "k1", "a daemon delta before the pin landed sent the window back")
+        fixture.store.apply(snapshot: Fixture.tree(pinned: ["k1": Fixture.work]))
+        windows.reconcileMembership()
+        #expect(fixture.shown == ["k1", "k2", "k3"])
+        #expect(fixture.state.workspaceID == "k1")
+        #expect(windows.pinSelections.isEmpty)
+    }
+
     /// Merge All Windows while Spaces is off: the other window's workspaces join this window's view; it keeps its space.
     @Test func mergeAllKeepsThisWindowsViewAndShowsTheMergedWorkspaces() async throws {
         let fixture = try await Fixture(settings: #"{"sidebar":{"showSpaces":true}}"#)

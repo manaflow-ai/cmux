@@ -22,6 +22,9 @@ use std::time::Duration;
 use wait_timeout::ChildExt;
 use zeroize::Zeroizing;
 
+#[cfg(target_os = "macos")]
+pub(crate) mod macos;
+
 /// The secret store service every vault item uses.
 pub const SERVICE: &str = "cmux-vault";
 /// The code of a machine with no OS secret store.

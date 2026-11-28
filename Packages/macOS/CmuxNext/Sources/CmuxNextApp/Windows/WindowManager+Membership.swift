@@ -80,9 +80,9 @@ extension WindowManager {
             if home.personal.isLoaded, !home.isProvisional, home.profile(state.profileID) == nil {
                 state.enterProfile(WindowProfiles.fallback(for: state, members: members(), machines: machines) ?? .defaultProfile)
             }
-            // A reveal (a banner click) in another space while Spaces is off pins it here; no repair takes it back before the pin lands (burst-click).
-            var visible = WindowProfiles.shown(members(), profile: state.profileID, machines: machines, pick: state.workspaceID.flatMap { pinSelections[$0]?.window == window.id ? $0 : nil })
-            // A window waiting for the workspace it just created in a new or empty room keeps that room (asked only when the room shows nothing).
+            var visible = WindowProfiles.shown(members(), profile: state.profileID, machines: machines, keeping: !spacesOn ? state.workspaceID.flatMap { pinSelections[$0]?.window == window.id ? $0 : nil } : nil)
+            // A window waiting for the workspace it just created in a new
+            // or empty room keeps that room (asked only when the room shows nothing).
             if visible.isEmpty, !claims.pending.values.contains(window.id),
                let fallback = WindowProfiles.fallback(for: state, members: members(), machines: machines) {
                 state.enterProfile(fallback)

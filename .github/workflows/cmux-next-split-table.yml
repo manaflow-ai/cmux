@@ -52,16 +52,39 @@ jobs:
       ${{ github.repository == 'manaflow-ai/cmux' && vars.CI_EVAL_STEP_GATEWAY != ''
       && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository
       && !github.event.pull_request.draft)) }}
-    runs-on: glaeda-gateway-xcode-26.6 # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    runs-on: mac-gateway # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     timeout-minutes: 120
     permissions: {}
+    outputs:
+      detached: ${{ steps.measure.outputs.detached }}
     steps:
       # No checkout: the gateway runner takes only thin cmux-ci clients. The bench Mac checks the sha out itself.
       - name: split-scale (quick) on the bench Mac
+        id: measure
         env:
           SHA: ${{ inputs.ref || github.event.pull_request.head.sha }}
+          # Detached (the default): the job submits the step and ends; the controller posts the step's verdict, with
+          # the log tail that ends in the table (split-spring.sh prints it), as the check run REPORT_CHECK on the
+          # head (cmux-ci run --report-check --detach, report_check.go), so no runner waits for the one bench Mac.
+          # The 18-21Z window on 11-27 billed 1404.4 runner-min for 52 runs here (27 min a run, 11.3 per merged
+          # PR), nearly all of it the gateway runner waiting in the bench Mac's queue. CI_SPLIT_TABLE_DETACH=0
+          # waits here as before; a client without --detach waits too. Same cut as nightly-pr-build (#62619).
+          DETACH: ${{ vars.CI_SPLIT_TABLE_DETACH || '1' }}
+          REPORT_CHECK: cmux-next split table (report-only)
+          # A gateway Mac's own ~/.local/bin/cmux-ci can predate --detach (cmux#63089: nightly-pr-build's detach
+          # never took on those runners, 20.1 min a job). Then the step fetches the controller's client
+          # (sha256-checked against its manifest, as nightly-pr-build.yml does) and uses it.
+          # CI_SPLIT_TABLE_LOCAL_CLIENT=1 keeps the runner's own client.
+          CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+          LOCAL_CLIENT_ONLY: ${{ vars.CI_SPLIT_TABLE_LOCAL_CLIENT || '0' }}
           # The measure script's own build config (split-spring.sh --config=...): a bench build for the fleet step, never a shipped one.
           MEASURE_CONFIG: bench
+          # The longest this job holds its Mac mini gateway runner while the step waits in the exclusive queue. It was
+          # 3600 s: of the 19 "successful" runs in 16:43-21:15Z on 2026-11-27, 13 held a gateway runner 60-64 min
+          # waiting it out and returned no report (run 46063032927: step 5fef8fd13e39246893d2ef5a never left the
+          # queue; that class's p90 queue wait was 1124 min). 1200 s matches cmux-next-tab-switch.yml and
+          # nightly-pr-build.yml; past it the step is cancelled, so it gives its place back.
+          QUEUE_WAIT_S: "1200"
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
@@ -76,18 +99,78 @@ jobs:
           out="$RUNNER_TEMP/split-table"
           mkdir -p "$out"
           log="$out/run.log"
+          detach=()
+          usage="$("$client" run --help 2>/dev/null || true)"
+          if [[ "$DETACH" != 0 && "$usage" != *--detach* && "$LOCAL_CLIENT_ONLY" != 1 && -n "$CONTROLLER" ]]; then
+            fresh="$RUNNER_TEMP/fleet-client"
+            mkdir -p "$fresh"
+            if curl -fsS -m 30 "$CONTROLLER/v1/client/manifest" -o "$fresh/manifest.json" &&
+              python3 -I - "$fresh" "$CONTROLLER" <<'PY'
+          import hashlib, json, sys, urllib.request
+          from pathlib import Path
+          root, controller = Path(sys.argv[1]), sys.argv[2]
+          for name, digest in json.loads((root / "manifest.json").read_text())["files"].items():
+              if "/" in name or name.startswith("."):
+                  raise SystemExit(f"bad client file name {name!r}")
+              data = urllib.request.urlopen(f"{controller}/v1/client/files/{name}", timeout=30).read()
+              if hashlib.sha256(data).hexdigest() != digest:
+                  raise SystemExit(f"{name}: sha256 mismatch")
+              (root / name).write_bytes(data)
+          PY
+            then
+              printf '#!/bin/sh\nexec python3 -I %q "$@"\n' "$fresh/ci-client.py" > "$fresh/cmux-ci"
+              chmod +x "$fresh/cmux-ci"
+              fresh_usage="$("$fresh/cmux-ci" run --help 2>/dev/null || true)"
+              if [[ "$fresh_usage" == *--detach* ]]; then
+                echo "::notice title=Split table::runner $RUNNER_NAME's cmux-ci lacks --detach; using the controller's client"
+                client="$fresh/cmux-ci"
+                usage="$fresh_usage"
+              fi
+            else
+              echo "::warning title=Split table::could not fetch the controller's client; waiting on the local one"
+            fi
+          fi
+          if [[ "$DETACH" != 0 && "$usage" == *--detach* ]]; then
+            detach=(--repo "$GITHUB_REPOSITORY" --report-check "$REPORT_CHECK" --detach)
+          fi
+          status=0
           "$client" run --class exclusive --measurement --label bench --display \
-            --script scripts/measure/split-spring.sh --ref "$SHA" --timeout 5400 --queue-timeout 3600 \
+            --script scripts/measure/split-spring.sh --ref "$SHA" --timeout 5400 --queue-timeout "$QUEUE_WAIT_S" \
             --key "split-table-$SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
-            --artifact artifacts/split-spring/report.json \
+            --artifact artifacts/split-spring/report.json ${detach[@]+"${detach[@]}"} \
             --arg=--suite=split-scale --arg=--config=$MEASURE_CONFIG --arg=--quick --arg=--vdisplay=120 \
-            2>&1 | tee "$log" || echo "::warning title=Split table::the fleet step did not finish (report-only: nothing fails)"
+            2>&1 | tee "$log" || status=${PIPESTATUS[0]}
+          [[ "$status" == 0 ]] || echo "::warning title=Split table::the fleet step did not finish (exit $status; report-only: nothing fails)"
+          if [[ ${#detach[@]} -gt 0 ]] && grep -q ') detached; check run' "$log"; then
+            # Submitted: the check run carries the table when the bench Mac is done; nothing to fetch here.
+            echo "detached=1" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Split table::the bench Mac posts the table as check run \"$REPORT_CHECK\" on ${SHA:0:12}"
+            exit 0
+          fi
           step="$(grep -o -E '\b[0-9a-f]{24}\b' "$log" | head -1)"
+          if [[ "$status" == 75 && -n "$step" ]]; then
+            # Not started within QUEUE_WAIT_S: a queued step keeps its place after the client stops waiting and later
+            # runs on the bench Mac for nobody, ahead of every later measurement (cmux-next-tab-switch.yml does the same).
+            "$client" cancel "$step" --reason "split table: not started within ${QUEUE_WAIT_S}s" || true
+          fi
           if [[ -n "$step" ]]; then
             "$client" artifact "$step" "$out/report.json" || "$client" artifact --failed "$step" "$out/report.json" || true
           fi
           echo "fleet step ${step:-none}; report $([[ -s "$out/report.json" ]] && echo returned || echo none)"
           exit 0
+      # A newer push cancels this run (concurrency above), but the fleet step it queued keeps its place and later runs
+      # on the bench Mac for nobody. Cancel it too: the client prints the step id as soon as it is queued.
+      - name: Cancel the superseded fleet step
+        if: ${{ cancelled() }}
+        timeout-minutes: 2
+        run: |
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          log="$RUNNER_TEMP/split-table/run.log"
+          step="$( [[ -r "$log" ]] && grep -o -E '\b[0-9a-f]{24}\b' "$log" | head -1 || true)"
+          if [[ -x "$client" && -n "$step" ]]; then
+            "$client" cancel "$step" --reason "split table: superseded (run $GITHUB_RUN_ID cancelled)" || true
+          fi
       - name: Upload the report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -121,6 +204,8 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           SHA: ${{ inputs.ref || github.event.pull_request.head.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DETACHED: ${{ needs.measure-fleet.outputs.detached }}
+          CHECKS_URL: ${{ github.server_url }}/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/checks
         run: |
           # Report-only: a failed comment read or write warns, never fails the job (a bare `id="$(gh ...)"` under bash -e and pipefail exited 1 silently on #61185).
           set -uo pipefail
@@ -139,7 +224,11 @@ jobs:
               rows = None
           head = "<!-- cmux-next-split-table -->\n## Split table (report-only)\n\n"
           foot = f"\n\nSplit-scale quick (1 and 4 splits, empty and browser) at `{sha[:12]}`; [run]({run}). Report-only: no check reads it."
-          text = ssm.row_table_markdown(rows) if rows else "No table: the bench Mac returned no report (none free in time, or the run failed; see the run)."
+          if os.environ.get("DETACHED") == "1":
+              text = (f"The bench Mac posts this head's table as the check run **cmux-next split table (report-only)** "
+                      f"([checks]({os.environ['CHECKS_URL']})) when it is done; no runner waits for it here.")
+          else:
+              text = ssm.row_table_markdown(rows) if rows else "No table: the bench Mac returned no report (none free in time, or the run failed; see the run)."
           open(out, "w").write(head + text + foot)
           PY
           cat "$body" >> "$GITHUB_STEP_SUMMARY"
