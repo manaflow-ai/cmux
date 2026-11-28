@@ -321,3 +321,59 @@ async fn a_third_machine_moves_the_chat_and_its_queue_over_the_relay() {
     a.drive(id, "machine-b", "--after-turn", id).await;
     assert_eq!(user_texts(&all_events(&mut cb, id).await), expected);
 }
+
+/// The offload roundtrip (Leo: "any chat moves Mac↔Cloud and back in one action, keeping its
+/// live state"): the source moves its chat to a hub machine, pulls it back (`--from` that
+/// machine, `--machine local`), and the first prompt it sends the returned chat runs a turn and
+/// answers with its reply. The fleet probe of 2026-11-28 12:55Z got an empty answer in 0.4 s:
+/// no turn ran, and the target still listed the chat.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_chat_moved_out_and_pulled_back_answers_its_next_prompt_at_home() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let relay =
+        cmux_relay::Relay::new(cmux_relay::RelayConfig { allow_open: true, ..Default::default() })
+            .unwrap();
+    let (listener, router) = relay.server_parts(listener);
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    let proxy = Proxy::start(address).await;
+    let dir =
+        tempfile::Builder::new().prefix("home-").tempdir_in(dirs::home_dir().unwrap()).unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    std::fs::write(root.join(".git"), "gitdir: ./absent\n").unwrap();
+    let state = tempfile::tempdir().unwrap();
+    let machines = machines(&format!("relay+ws://127.0.0.1:{}", proxy.port), &root, state.path());
+    let [a, b, _] = machines.as_slice() else { unreachable!() };
+    let mut ca = client(a.hub.clone()).await;
+    let made = ca
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd":root, "mcpServers":[], "_meta":{"acpmux":{"name":"roundtrip"}}}),
+        )
+        .await;
+    let id = made["sessionId"].as_str().unwrap().to_owned();
+    let prompt = |key: &str, text: &str| {
+        json!({"sessionId":id, "prompt":[{"type":"text","text":text}],
+        "_meta":{"acpmux":{"promptId":key}}})
+    };
+    ca.call(method::SESSION_PROMPT, prompt("first", "first turn")).await;
+    a.drive(&id, "machine-b", "--after-turn", &id).await;
+    let mut cb = client(b.hub.clone()).await;
+    let there = cb.call(method::SESSION_PROMPT, prompt("there", "on the other machine")).await;
+    assert_eq!(there["stopReason"], "end_turn", "{there}");
+    a.drive(&format!("machine-b/{id}"), "local", "--after-turn", &id).await;
+    assert_eq!(cb.call(method::MUX_INFO, json!({"sessionId":id})).await["status"], "closed");
+    let back = ca.call(method::SESSION_PROMPT, prompt("home", "back home")).await;
+    let events = all_events(&mut ca, &id).await;
+    let replies: Vec<&str> = events
+        .iter()
+        .filter(|e| e["kind"] == "agent_message_chunk")
+        .filter_map(|e| e["msg"].pointer("/params/update/content/text").and_then(Value::as_str))
+        .collect();
+    assert_eq!(back["stopReason"], "end_turn", "{back}");
+    assert!(
+        back["_meta"]["acpmux"]["turnId"].is_string(),
+        "the prompt ran no turn at home: {back}"
+    );
+    assert!(replies.contains(&"echo: back home"), "no reply at home: {replies:?} / {back}");
+}
