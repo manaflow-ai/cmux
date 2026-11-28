@@ -50,20 +50,20 @@ async fn handle(
     let session = match hub.resolve(key) {
         Ok(session) => session,
         Err(e) => {
-            return Err(match hub.resolve_remote(key) {
-                Some((peer, _, _)) if m == method::MUX_ELEVATION_REQUEST => {
+            return Err(match hub.remote_route(key) {
+                Some((peer, _)) if m == method::MUX_ELEVATION_REQUEST => {
                     RpcError::invalid_params(format!(
                         "this chat runs on {}: a password never travels to another daemon, so \
                          ask from a chat on the machine whose acpmux runs it",
                         peer.name
                     ))
                 }
-                Some((peer, _, _)) if is_chat_secrets(m) => RpcError::invalid_params(format!(
+                Some((peer, _)) if is_chat_secrets(m) => RpcError::invalid_params(format!(
                     "this chat runs on {}: a chat secret is never forwarded, so set it on the \
                      acpmux of the machine that runs the chat",
                     peer.name
                 )),
-                Some((peer, _, _)) => on_peer(&peer.name),
+                Some((peer, _)) => on_peer(&peer.name),
                 None => e,
             });
         }

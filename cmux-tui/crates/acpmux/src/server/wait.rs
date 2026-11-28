@@ -166,8 +166,8 @@ pub(super) async fn wait(
                     // A peer's, else a chat the hub lists for another machine of this person
                     // (`hub/mesh_book.rs`), whose state each heartbeat's book read updates.
                     let id = hub
-                        .resolve_remote(k)
-                        .map(|(_, id, _)| id)
+                        .remote_route(k)
+                        .map(|(_, id)| id)
                         .or_else(|| hub.mesh_book_resolve(k))
                         .ok_or_else(|| RpcError::not_found(format!("no session matches {k:?}")))?;
                     ids.push(id);

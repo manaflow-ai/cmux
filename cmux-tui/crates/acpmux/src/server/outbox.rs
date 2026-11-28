@@ -164,7 +164,7 @@ pub(super) async fn queue(
     // A session here, one a peer lists, or one on a peer that is down now: anything else is no
     // session, said at once.
     if hub.resolve(&target).is_err()
-        && hub.resolve_remote(&target).is_none()
+        && hub.remote_route(&target).is_none()
         && hub.peer_down_for(&target).is_none()
         && hub.no_session_is_final(&target)
     {
@@ -412,8 +412,8 @@ async fn reconcile_forward(hub: &Arc<Hub>, delivery: &Delivery) -> Result<Value,
         }
         return Err(("cannot persist sender message projection".into(), Next::Retry));
     }
-    let (peer, target, _) = hub
-        .resolve_remote(&delivery.target)
+    let (peer, target) = hub
+        .remote_route(&delivery.target)
         .ok_or_else(|| ("the message receiver is not reachable yet".to_owned(), Next::Retry))?;
     let mut after = 0;
     loop {
@@ -545,7 +545,7 @@ async fn drop_own_uploads(hub: &Arc<Hub>, new: &Delivery, kept: &Delivery) {
             let _ =
                 tokio::task::spawn_blocking(move || crate::hub::file_uploads::cancel(&id, &params))
                     .await;
-        } else if let Some((peer, id, _)) = hub.resolve_remote(&new.target) {
+        } else if let Some((peer, id)) = hub.remote_route(&new.target) {
             let params = json!({"sessionId": id, "uploadId": upload, "ownerToken": token});
             let _ = peer.request(method::MUX_FILE_PUT_CANCEL, params).await;
         }
@@ -1468,7 +1468,7 @@ fn unknown_recipient_waits(e: &crate::mesh::HubError, attempt: u32) -> bool {
 /// Whether only the hub routes `target`: no session here, none a peer lists, no peer of it down.
 fn hub_only(hub: &Hub, target: &str) -> bool {
     hub.resolve(target).is_err()
-        && hub.resolve_remote(target).is_none()
+        && hub.remote_route(target).is_none()
         && hub.peer_down_for(target).is_none()
 }
 

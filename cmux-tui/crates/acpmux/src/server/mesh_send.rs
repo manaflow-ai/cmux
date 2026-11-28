@@ -74,7 +74,7 @@ fn down_peer_recipient(hub: &Hub, target: &str) -> Option<Target> {
     if hub.resolve(target).is_ok() {
         return None;
     }
-    if let Some((peer, id, _)) = hub.resolve_remote(target) {
+    if let Some((peer, id)) = hub.remote_route(target) {
         let down = !peer.connected.load(std::sync::atomic::Ordering::SeqCst);
         return down.then(|| Target { session_id: Some(id), ..Target::default() });
     }

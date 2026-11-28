@@ -145,7 +145,7 @@ fn plain_live(params: &Value) -> bool {
 /// Whether the request names a chat on a peer, not one on this daemon.
 fn names_a_peers_chat(hub: &Hub, params: &Value) -> bool {
     session_key(params)
-        .is_ok_and(|key| hub.resolve(key).is_err() && hub.resolve_remote(key).is_some())
+        .is_ok_and(|key| hub.resolve(key).is_err() && hub.remote_route(key).is_some())
 }
 
 /// What a turn fork keeps of the caller's request: the forward mark and full-access guard, and the
@@ -213,7 +213,7 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     // workspaces/folders/models/provides/harnesses").
     if live
         && hub.resolve(key).is_err()
-        && hub.resolve_remote(key).is_some()
+        && hub.remote_route(key).is_some()
         && params.get("throughSeq").is_none()
         && params.get("beforePromptId").is_none()
     {

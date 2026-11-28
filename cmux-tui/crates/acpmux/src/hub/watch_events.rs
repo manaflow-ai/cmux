@@ -137,7 +137,7 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
     let mut s = summary(hub, key);
     // A start's reply can beat the linked peer's inventory notification. The watch
     // already holds the returned exact id: ask its journal before calling it closed.
-    let linked = hub.resolve_remote(key).map(|(peer, id, _)| (peer, id)).or_else(|| {
+    let linked = hub.remote_route(key).or_else(|| {
         let (host, id) = key.split_once('/')?;
         Some((hub.peer(host)?, id.to_owned()))
     });

@@ -1858,5 +1858,8 @@ mod peer_changes_tests;
 mod restart_notice_tests;
 
 #[cfg(test)]
+#[path = "remote_route_tests.rs"]
+mod remote_route_tests;
+#[cfg(test)]
 #[path = "resolve_cost_bench.rs"]
 mod resolve_cost_bench;

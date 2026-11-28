@@ -65,8 +65,8 @@ pub(super) fn route(hub: &Hub, target: &str) -> Option<Route> {
     if hub.resolve(target).is_ok() {
         return None;
     }
-    let (peer, key) = match hub.resolve_remote(target) {
-        Some((peer, id, _)) => (peer, id),
+    let (peer, key) = match hub.remote_route(target) {
+        Some((peer, id)) => (peer, id),
         None => {
             let (host, key) = target.split_once('/')?;
             (hub.peer_by_name(host)?, key.to_owned())
