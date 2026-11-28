@@ -2566,7 +2566,12 @@ def reusable_perms_drift(repo: Path, base: str, head: str) -> list[str]:
             if archive.returncode != 0:
                 return None
             with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as tar:
-                tar.extractall(tmp, filter="data")
+                if hasattr(tarfile, "data_filter"):
+                    tar.extractall(tmp, filter="data")
+                else:  # a Python with no extraction filters (macOS's 3.9.6): only plain files, none outside tmp
+                    for member in tar.getmembers():
+                        if member.isfile() and not member.name.startswith("/") and ".." not in Path(member.name).parts:
+                            tar.extract(member, tmp)
             workflows = Path(tmp) / MAIN_TWIN_DIR
             try:
                 return perms.check_workflows_dir(workflows, "write")[1]
