@@ -251,6 +251,17 @@ class FixtureRepo(unittest.TestCase):
                                                   "pull_request", ["webviews/src/new.tsx"]))
         self.assertTrue(steps["tt-h"].run, steps["tt-h"].reason)
 
+    def test_pr_scope_keeps_the_whole_tree_rule_for_an_added_file(self):
+        # cmux#65513's class: a pull request added a script, tt-check-paths (tests/test_check_paths.py runs
+        # `git ls-files`) was deferred to the post-merge batch as a broad reason, and the base went red there.
+        steps = self.verdicts(tooling_steps.route(self.root, WORKFLOW, "tooling-tests", ["webviews/src/new.tsx"],
+                                                  "pull_request", ["webviews/src/new.tsx"], pr_scope=True))
+        self.assertTrue(steps["tt-h"].run, steps["tt-h"].reason)
+        self.assertIn("adds or deletes webviews/src/new.tsx", steps["tt-h"].reason)
+        steps = self.verdicts(tooling_steps.route(self.root, WORKFLOW, "tooling-tests", ["webviews/src/pane.tsx"],
+                                                  "pull_request", [], pr_scope=True))
+        self.assertFalse(steps["tt-h"].run, steps["tt-h"].reason)
+
     def test_a_command_run_from_a_variable_is_judged_only_for_a_non_product_diff(self):
         # tt-f's script runs `bash "$t"`: any file of tests/shell may run, so a tooling change runs it, but a diff of
         # product source alone (which no tooling test reads) skips it.

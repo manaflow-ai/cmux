@@ -100,6 +100,49 @@ class Legs(unittest.TestCase):
                 vs.load_budgets([empty])
 
 
+class ScreenSplit(unittest.TestCase):
+    """Screen's two parts: the marker app's draw (inject -> its `commit` line) and the composite
+    (commit -> ScreenCaptureKit's display time)."""
+
+    def breakdown(self, commits):
+        o = vs.Orchestrator(types.SimpleNamespace(
+            source="synthetic", host="h", viewer="v", via="ssh", root="/r", python="p", out=None))
+        timing = [{"recv_us": 1_000, "inject_us": 1_100},
+                  {"shown_us": 30_100, "arrived_us": 31_000, "release_us": 31_000,
+                   "encoded_us": 33_000, "sent_us": 34_000}]
+        timing += [{"commit_us": t} for t in commits]
+        sample = {"capture_us": 31_000, "sent_ns": 900_000, "first_rx_ns": 35_000_000,
+                  "complete_ns": 36_000_000, "decoded_ns": 38_000_000}
+        return o.breakdown({"sample_times": [sample]}, timing, 0)[0]
+
+    def test_commit_splits_screen_into_draw_and_composite(self):
+        # An earlier commit (before the inject) is not this press's; the first one after it is.
+        row = self.breakdown([500, 2_100, 9_000])
+        self.assertEqual((row["draw"], row["commit"], row["composite"]), (29.0, 1.0, 28.0))
+        named = rows_named(vs.build_budget({"rows": [row]}, None))
+        self.assertEqual(named[" Draw"]["cmux"]["p50"], 1.0)
+        self.assertEqual(named[" Composite"]["cmux"]["p50"], 28.0)
+        self.assertEqual(named["Screen"]["cmux"]["p50"], 29.0)
+
+    def test_without_a_commit_in_100_ms_the_parts_say_why(self):
+        row = self.breakdown([200_000])
+        self.assertEqual((row["commit"], row["composite"]), (None, None))
+        named = rows_named(vs.build_budget({"rows": [row]}, None))
+        self.assertIn("--verbose", named[" Draw"]["cmux"]["null"])
+        self.assertIn("commit", named[" Composite"]["cmux"]["null"])
+        self.assertEqual(named["Screen"]["cmux"]["p50"], 29.0)
+
+    def test_marker_commits_reads_only_commit_lines(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".log", delete=False) as f:
+            f.write("marker-origin 10,20\nkey -> 1\ncommit 1 5000\ncommit 2 4000\ncommit x\n")
+        try:
+            self.assertEqual(vs.marker_commits(f.name), [4000, 5000])
+        finally:
+            os.unlink(f.name)
+        self.assertEqual(vs.marker_commits(f.name), [])
+
+
 class CaptureSplit(unittest.TestCase):
     """Capture's two parts: the gate wait (ss-encode-transport's stage) and the Linux readback
     (ss-capture's capture_start_us)."""

@@ -410,6 +410,16 @@ if [[ "$sized_for" =~ ^[1-9][0-9]*$ && "$default_jobs" =~ ^[1-9][0-9]*$ ]] && [ 
   plain_jobs=$((jobs - browser_jobs))
   echo "this runner has $default_jobs of the $sized_for vCPU these widths are for: $jobs files at a time, $dev_jobs dev server files"
 fi
+# Once the plain pool is done, the browser files left run CMUX_WEB_TEST_BROWSER_ALONE_JOBS wide (default the dev
+# server width, which runs a browser per file too, never narrower than the browser pool): nothing else runs then.
+# On the 8 vCPU fleet runners the browser pool is 1 wide, and shard 8 of run 46177265997 ran its browser files one
+# at a time for 26 min after the plain pool drained, with three of its four slots idle. GNU xargs takes one more
+# worker per SIGUSR1; another xargs (BSD on a Mac) keeps the browser pool's width.
+browser_alone_jobs="${CMUX_WEB_TEST_BROWSER_ALONE_JOBS:-$((dev_jobs > browser_jobs ? dev_jobs : browser_jobs))}"
+[[ "$browser_alone_jobs" =~ ^[1-9][0-9]*$ ]] || browser_alone_jobs="$browser_jobs"
+if [ "$browser_alone_jobs" -gt "$jobs" ]; then browser_alone_jobs="$jobs"; fi
+xargs_grows=0
+if xargs --version 2> /dev/null | grep -q 'GNU findutils'; then xargs_grows=1; fi
 shard="${CMUX_WEB_TEST_SHARD:-}"
 shard_count="${CMUX_WEB_TEST_SHARD_COUNT:-}"
 durations="${CMUX_WEB_TEST_DURATIONS:-/dev/null}"
@@ -520,11 +530,28 @@ browser="$(tr -cd '\0' < "$results/browser" | wc -c | tr -d ' ')"
 shard_note=""
 if [ -n "$shard" ]; then shard_note=", shard $shard/$shard_count"; fi
 if [ "$plain_jobs" -ge 1 ]; then pool_note="$plain_jobs at a time, beside $browser browser files $browser_jobs at a time"
-else pool_note="$jobs at a time, then $browser browser files $browser_jobs at a time"; fi
+else pool_note="$jobs at a time, then $browser browser files $browser_alone_jobs at a time"; fi
+if [ "$plain_jobs" -ge 1 ] && [ "$xargs_grows" = 1 ] && [ "$browser_alone_jobs" -gt "$browser_jobs" ]; then
+  pool_note="$pool_note, $browser_alone_jobs once the plain pool is done"
+fi
 echo "running $count webviews test files${shard_note}, $pool_note ($serial dev server files after, $dev_jobs at a time), ${timeout_seconds}s each"
 : > "$results/summary"
 : > "$results/not-run"
 : > "$results/ran-none"
+# prep_limit DEFAULT: the seconds a once-per-run preparation (the warm below, the gallery build) may take. Under
+# CMUX_WEB_TEST_STOP_AT it takes at most half of what is left, so the files it prepares for always get the other half:
+# react-apps-base-check's first replay is guaranteed one file's time (webviews_test_results.py
+# --first-replay-stop-at), and on a cold 8 vCPU Freestyle runner the warm ran 310 s to an OOM kill and the gallery
+# build the remaining 587 s, so all 34 of its head-red files were "NOT RUN ... past CMUX_WEB_TEST_STOP_AT" and the
+# job ran into its 55 minutes with no base verdict (cmux#65070, job 141117153828).
+prep_limit() {
+  local limit=$1 left
+  if [[ "${CMUX_WEB_TEST_STOP_AT:-}" =~ ^[1-9][0-9]*$ ]]; then
+    left=$(( (CMUX_WEB_TEST_STOP_AT - $(date +%s)) / 2 ))
+    if [ "$left" -lt "$limit" ]; then limit=$left; fi
+  fi
+  echo "$limit"
+}
 # warm_transforms: once per run, before the first browser or dev server file, compile the agent pane's
 # modules into the run's React Compiler cache (webviews/scripts/warm-react-compiler-cache.mjs, about
 # 35 s), so the files that start together read it instead of each compiling App.tsx at once. A base
@@ -534,12 +561,9 @@ warm_transforms() {
   : > "$results/transforms-warmed"
   [ -f scripts/warm-react-compiler-cache.mjs ] || return 0
   { [ -s "$results/browser" ] || [ -s "$results/serial" ]; } || return 0
-  local limit=300
-  if [[ "${CMUX_WEB_TEST_STOP_AT:-}" =~ ^[1-9][0-9]*$ ]]; then
-    limit=$((CMUX_WEB_TEST_STOP_AT - $(date +%s)))
-    if [ "$limit" -lt 1 ]; then return 0; fi
-    if [ "$limit" -gt 300 ]; then limit=300; fi
-  fi
+  local limit
+  limit="$(prep_limit 300)"
+  if [ "$limit" -lt 1 ]; then return 0; fi
   if run_with_timeout "$limit" bun scripts/warm-react-compiler-cache.mjs > "$results/warm-transforms.log" 2>&1 < /dev/null; then
     grep '^warm-react-compiler-cache:' "$results/warm-transforms.log" || true
   else
@@ -563,11 +587,8 @@ gallery_stages() {
     : > "$results/gallery-tried"
     if grep -q '"gallery:build"' package.json 2> /dev/null && [ -f test/support/galleryStageServer.ts ] &&
       xargs -0 grep -lE -- "$gallery_stage_files" < "$results/files" > /dev/null 2>&1; then
-      local limit=600
-      if [[ "${CMUX_WEB_TEST_STOP_AT:-}" =~ ^[1-9][0-9]*$ ]]; then
-        limit=$((CMUX_WEB_TEST_STOP_AT - $(date +%s)))
-        if [ "$limit" -gt 600 ]; then limit=600; fi
-      fi
+      local limit
+      limit="$(prep_limit 600)"
       local started=$SECONDS
       if [ "$limit" -ge 1 ] && CMUX_GALLERY_STAGE_CSS=dev CMUX_GALLERY_OUT_DIR="$build" run_with_timeout "$limit" bun run gallery:build > "$results/gallery-build.log" 2>&1 < /dev/null &&
         [ -f "$build/frame.html" ]; then
@@ -584,11 +605,29 @@ gallery_stages() {
 }
 if [ "$plain_jobs" -ge 1 ] && [ -s "$results/browser" ] && [ -s "$results/plain" ]; then
   # The plain jsdom files start at once; the browser files wait for the warm, beside them.
-  { warm_transforms; gallery_stages; xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser"; } &
+  # The browser pool widens to browser_alone_jobs once the plain pool is done (plain-pool-done), still in this order.
+  {
+    warm_transforms
+    gallery_stages
+    xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser" &
+    browser_xargs=$!
+    if [ "$xargs_grows" = 1 ] && [ "$browser_alone_jobs" -gt "$browser_jobs" ]; then
+      # The 1 s before the first look also lets xargs set its SIGUSR1 handler before any signal reaches it.
+      sleep 1
+      while kill -0 "$browser_xargs" 2> /dev/null && [ ! -e "$results/plain-pool-done" ]; do sleep 1; done
+      if kill -0 "$browser_xargs" 2> /dev/null; then
+        echo "plain pool done: the browser files left run $browser_alone_jobs at a time"
+        # One signal per worker, apart: two pending at once are one signal, so one worker.
+        for ((grow = browser_jobs; grow < browser_alone_jobs; grow++)); do kill -USR1 "$browser_xargs" 2> /dev/null || true; sleep 0.2; done
+      fi
+    fi
+    wait "$browser_xargs"
+  } &
   browser_pool=$!
   # A failed plain pool still waits for the browser pool, so no worker outlives the results directory.
   plain_status=0
   xargs -0 -P "$plain_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/plain" || plain_status=$?
+  : > "$results/plain-pool-done"
   wait "$browser_pool"
   [ "$plain_status" -eq 0 ] || exit "$plain_status"
 else
@@ -598,7 +637,8 @@ else
   if [ -s "$results/browser" ]; then
     warm_transforms
     gallery_stages
-    xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser"
+    # Nothing runs beside them here: the browser files run at their alone width.
+    xargs -0 -P "$browser_alone_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser"
   fi
 fi
 [ ! -s "$results/serial" ] || warm_transforms

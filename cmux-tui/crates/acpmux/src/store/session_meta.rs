@@ -237,6 +237,11 @@ pub struct SessionMeta {
     pub turn_count: u64,
     #[serde(default)]
     pub usage: Option<Value>,
+    /// Absolute deadline of an open cold inbox batch. Compaction warms `usage` before
+    /// delivery, so a daemon restart must restore this deadline rather than open another
+    /// window from the new usage. None in older stores and after the batch is consumed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cold_batch_due: Option<u64>,
     /// Claude Code's newest /context breakdown (`claude_stdio::context_breakdown`),
     /// sent after each turn; none from any other harness.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -517,6 +522,12 @@ pub struct SessionMeta {
     /// recently touched dropped first. A fork starts with none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub touched_files: Vec<crate::touched_files::TouchedFile>,
+    /// Its taint letters (RFD 0179 idea 11, `hub/taint.rs`): each unusual thing its tool calls
+    /// did (a guard override, a forced rerun, an admin merge), by letter, with when it was first
+    /// seen (Unix ms). Kept for the session's life, like a kernel's taint mask. A fork starts
+    /// with none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub taint: BTreeMap<String, u64>,
     /// The session whose agent started this one with its `start_session`
     /// tool (`hub/subsessions.rs`), with its short name and depth. `None`
     /// for a session a person or client started. Never copied to a fork.
