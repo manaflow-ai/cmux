@@ -65,7 +65,14 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
   });
   const chunk = (text: string) => update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
   const thought = (text: string) => update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text } });
-  type Event = { sessionId: string; seq: number; at: number; dir: string; kind: string; msg: Record<string, unknown> };
+  type Event = {
+    sessionId: string;
+    seq: number;
+    at: number;
+    dir: string;
+    kind: string;
+    msg: Record<string, unknown>;
+  };
   const events: Event[] = [];
   const record = (dir: string, kind: string, msg: Record<string, unknown>): Event => {
     const event = { sessionId: SESSION, seq: events.length + 1, at: Date.now(), dir, kind, msg };
@@ -87,7 +94,10 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
   function answer(method: string): unknown {
     switch (method) {
       case "initialize":
-        return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+        return {
+          protocolVersion: 1,
+          _meta: { acpmux: { origin: "local", extensions: [], operations: [] } },
+        };
       case "_acpmux/watch":
         return { sessions: [summary()] };
       case "_acpmux/attach":
@@ -190,7 +200,13 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
     status = "running";
     const msg = `msg_${id.replace(/\W+/g, "")}`;
     emit("mux", "user_message", {
-      text: envelope({ id: msg, thread: msg, sender: "cli", name: `lane-${id}`, body: `Report ${id}: queue clear.` }),
+      text: envelope({
+        id: msg,
+        thread: msg,
+        sender: "cli",
+        name: `lane-${id}`,
+        body: `Report ${id}: queue clear.`,
+      }),
       promptId: `p-${id}`,
     });
     emit("mux", "turn_started", {});
@@ -262,7 +278,14 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  type Overlap = { t: number; upper: string; lower: string; box: number; ink: number; why?: string };
+  type Overlap = {
+    t: number;
+    upper: string;
+    lower: string;
+    box: number;
+    ink: number;
+    why?: string;
+  };
   type Report = {
     frames: number;
     /// Frames where one row's text draws over the next row's text (what the reader sees).
@@ -281,7 +304,14 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
   /// Clipping can reorder ink or hide intervening rows, so box adjacency alone misses collisions.
   const sample = (page: Page) =>
     page.evaluate(() => {
-      type Pair = { t: number; upper: string; lower: string; box: number; ink: number; why?: string };
+      type Pair = {
+        t: number;
+        upper: string;
+        lower: string;
+        box: number;
+        ink: number;
+        why?: string;
+      };
       const w = window as unknown as { __overlaps: Pair[]; __frames: number; __stop: () => void };
       w.__overlaps = [];
       w.__frames = 0;
@@ -420,7 +450,7 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
                         return `${[...new Set(props)].join("+")}@${Math.round((effect?.getComputedTiming().progress ?? 0) * 100)}`;
                       })
                       .join(",") +
-                    `|tr=${getComputedStyle(row).translate}|top=${row.style.top}|clip=${getComputedStyle(row).clipPath}|ink=${JSON.stringify(pairIndex === 0 ? upperInk : lowerInk)}`,
+                    `|tr=${getComputedStyle(row).translate}|top=${row.style.top}|clip=${getComputedStyle(row).clipPath}|ink=${JSON.stringify(pairIndex === 0 ? upperInk : lowerInk)}|box=${JSON.stringify(row.getBoundingClientRect())}|layout=${row.offsetTop},${row.offsetHeight}|transform=${getComputedStyle(row).transform}|margin=${getComputedStyle(row).marginTop}|frames=${JSON.stringify(row.getAnimations().map((animation) => (animation.effect as KeyframeEffect).getKeyframes()))}`,
                 )
                 .join(" ; "),
             });
@@ -453,7 +483,14 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
     });
   const stop = (page: Page): Promise<Report> =>
     page.evaluate(() => {
-      type Pair = { t: number; upper: string; lower: string; box: number; ink: number; why?: string };
+      type Pair = {
+        t: number;
+        upper: string;
+        lower: string;
+        box: number;
+        ink: number;
+        why?: string;
+      };
       const w = window as unknown as { __overlaps: Pair[]; __frames: number; __stop: () => void };
       w.__stop();
       // One read at rest: pairs that still cross once everything has settled are layout, not motion.
@@ -604,7 +641,11 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
         console.log(`OVERLAP_REPORT ${JSON.stringify({ engine: name, scenario: scenario.name, ...report })}`);
         await page.close();
         expect(report.frames).toBeGreaterThan(20);
-        expect({ overlapFrames: report.overlapFrames, examples: report.examples, heldClips }).toEqual({
+        expect({
+          overlapFrames: report.overlapFrames,
+          examples: report.examples,
+          heldClips,
+        }).toEqual({
           overlapFrames: 0,
           examples: [],
           heldClips: 0,
