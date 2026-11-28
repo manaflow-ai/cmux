@@ -1,49 +1,33 @@
 #if os(iOS)
-import CoreGraphics
-
 /// Which of the anchored rows the list puts back after an update (``PagedListController``'s restore):
-/// each anchored row still in the list, in anchor order (the row being read first), with its index
-/// before and after the update. Returns the position (in `rows`) of the row to keep still, or nil.
+/// each anchored row still in the list, with its index before and after the update, in the order the
+/// restore tries them (``candidates(count:reading:straddles:)``). Returns the position (in `rows`) of
+/// the row to keep still, or nil.
 enum PagedListAnchorPick {
     struct Row {
         var oldIndex: Int
         var newIndex: Int
-        /// How far the row moved on screen in the update (pt), at the anchor's own point (top, or
-        /// bottom for an anchor read from the bottom): where it is now less where the anchor held it.
-        var moved: CGFloat = 0
     }
 
-    /// The rows in place are the longest run that kept its order: sorted by where they were, their
-    /// new places rise along it (on a tie, the run that ends later, so a read row that may have moved
-    /// is not preferred). The first anchored row in place is kept: the row being read when it kept
-    /// its place, whatever arrived or left next to it (rows inserted right under it no longer make it
-    /// skipped); a row moved elsewhere (moveToNewest, a re-sort) is never kept.
-    /// The guard on a pick (inside an update): a correction larger than the update's own offset move
-    /// plus its rows' size changes means the pick left its place. Then the row to keep instead is
-    /// another row IN PLACE that moved least, never a row the run excluded (the reader included: it
-    /// may have moved far, 6c578603: falling back to it shifted 45,969 pt). nil keeps the pick.
-    static func guarded(_ rows: [Row], pick: Int, updateMove: CGFloat, sized: CGFloat) -> Int? {
-        if case .instead(let row) = guardVerdict(rows, pick: pick, updateMove: updateMove, sized: sized) { return row }
-        return nil
-    }
-
-    enum GuardVerdict: Equatable {
-        /// The pick's move is within what the update explains: keep it.
-        case keep
-        /// The pick left its place, and another in-place row moved less: keep that one instead.
-        case instead(Int)
-        /// The pick left its place, but no in-place row moved less (each is over the bound too, or the
-        /// pick is the only one): keep the pick, which is B's own choice and no worse than before the
-        /// guard, rather than any larger correction. The controller notes it `g0`.
-        case keepRejected
-    }
-
-    static func guardVerdict(_ rows: [Row], pick: Int, updateMove: CGFloat, sized: CGFloat) -> GuardVerdict {
-        guard rows.indices.contains(pick), abs(rows[pick].moved) > abs(updateMove) + abs(sized) + 0.5 else { return .keep }
-        let inPlace = inPlace(rows)
-        let others = rows.indices.filter { $0 != pick && inPlace.contains($0) && abs(rows[$0].moved) < abs(rows[pick].moved) }
-        guard let best = others.min(by: { abs(rows[$0].moved) < abs(rows[$1].moved) }) else { return .keepRejected }
-        return .instead(best)
+    /// The order in which the restore tries the anchored rows, as positions in the anchor (top to bottom
+    /// on screen, or lowest first for an anchor read from the bottom).
+    ///
+    /// `reading` is the row being read when the list was last laid out (the frame the reader saw): it
+    /// comes first, then the rows after it, then those before it, nearest first. A fling carries that
+    /// row a few points past the top edge between the frame that drew it and an update landing; it is
+    /// still the row the reader was looking at, and the one the frame-shift measure follows. Passing it
+    /// over as a row cut by the top edge kept the row under it still instead, so rows inserted right
+    /// under it moved it by their own height (one-row shifts of 126-146 pt in the insert and flood cases,
+    /// steps bd734f10 and 0b7d601b).
+    ///
+    /// Without it, every row in order, less the first when it is cut by the top edge (`straddles`): a
+    /// cut row that changes height then keeps the rows below it still (d20b5519).
+    static func candidates(count: Int, reading: Int?, straddles: Bool) -> [Int] {
+        guard count > 0 else { return [] }
+        if let reading, reading >= 0, reading < count {
+            return Array(reading ..< count) + Array((0 ..< reading).reversed())
+        }
+        return Array((straddles && count > 1 ? 1 : 0) ..< count)
     }
 
     /// The rows in place: the longest run that kept its order (sorted by where they were, their new
@@ -71,21 +55,17 @@ enum PagedListAnchorPick {
         return inPlace
     }
 
-    /// The row to keep still. B's rule: the first anchored row in place (the row being read when it
-    /// kept its place, whatever arrived or left next to it). When indices moved in the update (rows
-    /// came, went or moved), of the rows in place the one that moved least on screen: a row the load
-    /// moved can stay in order with one or two others during a fling, but it travelled. When no index
-    /// moved (edits only) B's rule stands: every row under a grown row moves on screen by design.
+    /// The row to keep still: the first of `rows` (in the restore's order) that is in place, whatever
+    /// arrived, left or changed height next to it. A row moved elsewhere is never kept.
+    ///
+    /// Not the in-place row that moved least on screen (the rule of 23f9d387, with its guard): a row
+    /// under an insert, a removal or a grown row moves on screen by design, so that rule kept a row
+    /// further down still and moved the row being read instead, by 40-444 pt under inserts, the flood
+    /// and a resting finger (step 0b7d601b, 26 of 30 cases red), and a second restore in the same update
+    /// could pick another row and undo the first (`g0+299 ... g0-299`, down-resting-inserts).
     static func pick(_ rows: [Row]) -> Int? {
         let inPlace = inPlace(rows)
-        guard !inPlace.isEmpty else { return nil }
-        let candidates = rows.indices.filter { inPlace.contains($0) }
-        let indicesMoved = rows.contains { $0.oldIndex != $0.newIndex }
-        guard indicesMoved else { return candidates.first }
-        return candidates.min { a, b in
-            let ma = abs(rows[a].moved), mb = abs(rows[b].moved)
-            return ma != mb ? ma < mb : a < b
-        }
+        return rows.indices.first { inPlace.contains($0) }
     }
 }
 #endif

@@ -22,7 +22,8 @@ final class PagedListScrollSpring {
     var apply: (CGFloat) -> Void = { _ in }
     /// The slide reached its target, after this many display frames.
     var finished: (_ frames: Int) -> Void = { _ in }
-    /// The list follows its newest row (the slide is pinned to the newest edge), read each frame.
+    /// The slide is the person's follow of the newest row (after their jump to it), read each frame:
+    /// held near the newest edge by the lag bound. An automatic follow is not pinned (no bound).
     var pinned: () -> Bool = { false }
     /// The list's visible height, read each frame (the lag bound is a quarter of it).
     var viewport: () -> CGFloat = { 0 }
@@ -73,7 +74,10 @@ final class PagedListScrollSpring {
             // Running already: it carries on (and jumps from here if motion went away). The person's
             // jump takes over an automatic slide uncapped; an automatic one never caps theirs.
             if jump { jumps = true }
-            if !capped {
+            // The person's jump taking over an automatic slide lands from where it is now. A slide that
+            // is theirs already carries on (each arrival under the person's follow asks again: restarting
+            // its landing there would hold the bound at the whole distance for as long as rows arrive).
+            if !capped, self.capped {
                 self.capped = false
                 landingFrom = (abs(target() - (current?() ?? position)), CACurrentMediaTime())
             }
@@ -183,7 +187,9 @@ final class PagedListScrollSpring {
     static let landing: Double = 0.35
 
     /// How far the slide may trail its goal (pt), or nil for no bound.
-    /// - pinned: the list follows its newest row (the newest edge). The slide never trails it by more
+    /// - pinned: the person's follow of the newest row, after their jump to it (the controller's
+    ///   `personFollows`; an automatic follow is never pinned: held to the bound it jumped by each batch
+    ///   of arrivals in one frame, 0b7d601b). The slide never trails it by more
     ///   than a quarter of the list (the newest-rows indicator's own threshold), so the newest row stays
     ///   in view however fast rows arrive; under a flood the spring alone settles about
     ///   speed x response / pi behind (4000 pt/s: ~445 pt, the bd734f10 pill case).

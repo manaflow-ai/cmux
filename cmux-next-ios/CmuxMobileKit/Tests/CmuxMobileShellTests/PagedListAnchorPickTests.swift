@@ -53,48 +53,50 @@ struct PagedListAnchorPickTests {
         #expect(PagedListAnchorPick.pick(rows([(100, 100), (99, 99), (98, 98)])) == 0)
     }
 
-    /// Defect (2): under mid-list inserts during a fling the reader is cut by the top edge (dropped)
-    /// and two anchored rows survive in order: one stayed on screen, one the load moved and that
-    /// travelled 416 pt with its index shifted by 3 (208073e6 up-fast-inserts `U-208, r'+416`). When
-    /// indices moved, of the rows in place the one that moved least is kept.
-    @Test func whenIndicesMovedTheInPlaceRowThatMovedLeastIsKept() {
-        let rows = [Row(oldIndex: 11, newIndex: 14, moved: 416), Row(oldIndex: 12, newIndex: 15, moved: 0)]
-        #expect(PagedListAnchorPick.pick(rows) == 1)
+    /// A row grew above the anchored rows (an edits-only update: no index moved): every row is in
+    /// place, so the first is kept, the row being read. How far each moved on screen is not a reason
+    /// to pass over it: a row under a grown row, an insert or a removal moves by design. Keeping the
+    /// in-place row that moved least instead (23f9d387, with its guard) moved the row being read by
+    /// 40-444 pt under inserts, the flood and a resting finger (0b7d601b, 26 of 30 stress cases red),
+    /// so the pick reads indices only.
+    @Test func anEditsOnlyUpdateKeepsTheFirstRow() {
+        #expect(PagedListAnchorPick.pick(rows([(20, 20), (21, 21), (22, 22)])) == 0)
     }
 
-    /// An edits-only update (no index moved): a row grew above two survivors, so both moved on screen
-    /// by its growth and the one below moved more. The pick is B's (the first in place): the move of a
-    /// row under a grown row is not a reason to pass over it (6c578603: the least-moved rule here moved
-    /// the kept row off the reader, edits cases 22-40 pt).
-    @Test func anEditsOnlyUpdateKeepsBsPick() {
-        let rows = [Row(oldIndex: 20, newIndex: 20, moved: 22), Row(oldIndex: 21, newIndex: 21, moved: 22), Row(oldIndex: 22, newIndex: 22, moved: 0)]
-        #expect(PagedListAnchorPick.pick(rows) == 0)
+    /// An insert far above and a removal right under the row being read: every survivor's index moved,
+    /// all are in place, and the row being read is kept (the least-moved rule kept the row under the
+    /// removed one: 0b7d601b down-fast-flood `U-74.3 ... r'+86.3`).
+    @Test func anInsertAboveAndARemovalUnderTheReadRowKeepTheReadRow() {
+        #expect(PagedListAnchorPick.pick(rows([(10, 11), (12, 12), (13, 13)])) == 0)
     }
 
-    /// The guard never falls back to a row B excluded: the reader moved far (its index jumped to the
-    /// newest end) and the in-place pick corrects 319 pt, more than the update's own 163 pt; the
-    /// fallback must be another row in place, never the moved reader (6c578603 down-slow-inserts:
-    /// `U-163, g+319, r-45364`, a 45,969 pt shift from falling back to it).
-    @Test func theGuardNeverFallsBackToARowThatMoved() {
-        let rows = [Row(oldIndex: 30, newIndex: 2, moved: -45364), Row(oldIndex: 31, newIndex: 34, moved: 319),
-                    Row(oldIndex: 32, newIndex: 35, moved: 2)]
-        let pick = 1
-        let instead = PagedListAnchorPick.guarded(rows, pick: pick, updateMove: -163, sized: 0)
-        #expect(instead != 0, "the guard fell back to the reader, which moved \(rows[0].moved) pt")
-        #expect(instead == 2, "the guard kept the 319 pt pick instead of the in-place row that moved 2 pt")
+    // MARK: The order the restore tries the rows in
+
+    /// The row being read (the last pass's) first, then the rows after it, then those before it,
+    /// nearest first.
+    @Test func theRowBeingReadIsTriedFirstThenTheRowsAfterItThenThoseBefore() {
+        #expect(PagedListAnchorPick.candidates(count: 5, reading: 2, straddles: true) == [2, 3, 4, 1, 0])
+        #expect(PagedListAnchorPick.candidates(count: 4, reading: 0, straddles: false) == [0, 1, 2, 3])
     }
 
-    /// The guard rejects the pick but no other in-place row moved less (the only other survivor moved
-    /// more, or is not in place): the pick is kept, B's own choice, never a larger correction.
-    @Test func whenNoInPlaceRowMovedLessTheGuardKeepsThePick() {
-        // Two in place, both over the bound; the pick moved less of the two.
-        let both = [Row(oldIndex: 11, newIndex: 14, moved: 300), Row(oldIndex: 12, newIndex: 15, moved: 420)]
-        #expect(PagedListAnchorPick.guardVerdict(both, pick: 0, updateMove: -100, sized: 0) == .keepRejected)
-        // The only other row moved far and is out of place (the reader moved to the newest end).
-        let alone = [Row(oldIndex: 30, newIndex: 2, moved: -45364), Row(oldIndex: 31, newIndex: 34, moved: 319)]
-        #expect(PagedListAnchorPick.guardVerdict(alone, pick: 1, updateMove: -163, sized: 0) == .keepRejected)
-        // Within the bound: kept with no verdict against it.
-        #expect(PagedListAnchorPick.guardVerdict(both, pick: 0, updateMove: -400, sized: 0) == .keep)
+    /// The row being read carried past the top edge before the update (a fling's step): it is still
+    /// the first one tried, though it is cut by the edge (bd734f10, 0b7d601b: one-row shifts of
+    /// 126-146 pt when the row under it was kept instead).
+    @Test func theRowBeingReadCutByTheTopEdgeIsStillTriedFirst() {
+        #expect(PagedListAnchorPick.candidates(count: 3, reading: 0, straddles: true) == [0, 1, 2])
+    }
+
+    /// No row being read among them (none had its top in view at the last pass, or it left the
+    /// anchor): every row in order, less a first row cut by the top edge (d20b5519: a cut row that
+    /// changes height keeps the rows below it still).
+    @Test func withoutTheRowBeingReadACutFirstRowIsSkipped() {
+        #expect(PagedListAnchorPick.candidates(count: 3, reading: nil, straddles: true) == [1, 2])
+        #expect(PagedListAnchorPick.candidates(count: 3, reading: nil, straddles: false) == [0, 1, 2])
+        // A cut row alone on screen keeps its own top.
+        #expect(PagedListAnchorPick.candidates(count: 1, reading: nil, straddles: true) == [0])
+        #expect(PagedListAnchorPick.candidates(count: 0, reading: nil, straddles: false).isEmpty)
+        // A stale position is ignored.
+        #expect(PagedListAnchorPick.candidates(count: 2, reading: 5, straddles: false) == [0, 1])
     }
 
     /// One row left: it is kept.

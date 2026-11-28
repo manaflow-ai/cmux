@@ -442,6 +442,18 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// While the reader scrolls: the row under the reader's top edge and its top on screen as drawn
     /// when a layout pass starts.
     private var passHold: (id: CellID, top: CGFloat)?
+    /// The row being read when the list was last laid out outside an update (the frame the reader
+    /// saw): the first row whose top is in view, or an `.up` list's lowest row at its newest end. An
+    /// update keeps it still first (``PagedListAnchorPick/candidates(count:reading:straddles:)``).
+    private var passReading: CellID?
+    /// An update is putting the reader back with its own anchor: the layout passes inside it (the
+    /// snapshot's, the restore's, the settle's) place nothing themselves.
+    private var placing = false
+    /// The person asked for the newest rows (the indicator's jump) and the list still follows them:
+    /// its slide stays theirs (uncapped, held near the newest row by the landing bound), arrivals
+    /// included, until they scroll. An automatic follow is capped and never bounded (no jump fallback
+    /// under a sustained flood).
+    private var personFollows = false
 
     init(direction: PagedListDirection, row: @escaping (Item) -> Row, edgeView: @escaping (PagedListEdge, PagedListEnd) -> AnyView) {
         self.direction = direction
@@ -501,7 +513,10 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         spring.holds = { [weak self] in self?.collectionView.isTracking ?? false }
         spring.apply = { [weak self] y in self?.moveOffset(to: y) }
         spring.willJump = { [weak self] in self?.deliberateJump = true }
-        spring.pinned = { [weak self] in self?.followsNewest ?? false }
+        // Only the person's follow is held near the newest row: an automatic follow held to the bound
+        // jumped by each batch of arrivals in one frame (0b7d601b: pushes of 146-270 pt with `o+164`,
+        // `o+253`, `o-152` steps in the flood, busy and insert cases).
+        spring.pinned = { [weak self] in self?.personFollows ?? false }
         spring.viewport = { [weak self] in
             guard let list = self?.collectionView else { return 0 }
             return list.bounds.height - list.adjustedContentInset.top - list.adjustedContentInset.bottom
@@ -548,7 +563,6 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         guard abs(delta) > 0.25 else { return }
         let above = attributes.frame.minY < readerTop - 0.5
         ledger.sized(item: attributes.indexPath.item, by: delta, aboveReader: above)
-        if updating { lastUpdateSized += abs(delta) }
         note(above ? "m" : "m_", delta)
     }
 
@@ -648,8 +662,11 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         stillQuerying = false
         querying -= 1
         updating = true
-        lastUpdateMove = 0
-        lastUpdateSized = 0
+        // With an anchor this update alone places the reader. A pass inside it that kept the reader too
+        // (keepReader with the place taken before the update, or taken mid-update) or pinned an `.up`
+        // list to its newest row fought the restore (0b7d601b: down-resting-inserts `g0+299 ... g0-299`;
+        // up-*-inserts `c+326, c+118` from stayOnNewest in the settle's pass, then `s-444`).
+        placing = anchor != nil
         // No diff animation: a page lands out of view, or under a reader who stays put; rows that
         // arrive at the newest end slide in on the list's spring below.
         dataSource.apply(snapshot, animatingDifferences: false)
@@ -670,9 +687,11 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             settle.drift = windowY(of: kept.id, bottom: anchor.fromBottom).map { $0 - kept.windowY } ?? 0
             if PagedListSettle.again(settle) {
                 note("s", settle.drift)
-                used = restore(anchor) ?? used
+                // The same row again: a second pick could choose another row and undo the first restore.
+                used = restore(anchor, keeping: kept.id) ?? used
             }
         }
+        placing = false
         keepReader()
         if !loaded, direction == .up { scrollToNewest() }
         updating = false
@@ -685,7 +704,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         if arrivals > 0 {
             if follows {
                 if animates {
-                    spring.run(from: collectionView.contentOffset.y)
+                    spring.run(from: collectionView.contentOffset.y, capped: !personFollows)
                 } else {
                     // No motion: the slide becomes a jump (HOME-15), not a push.
                     deliberateJump = true
@@ -697,7 +716,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
                 // drag that starts instead counts them on the indicator.
                 heldArrivals += arrivals
                 probe?.held?(arrivals)
-                spring.run(from: collectionView.contentOffset.y, jump: !animates)
+                spring.run(from: collectionView.contentOffset.y, jump: !animates, capped: !personFollows)
             } else {
                 newest.arrived += arrivals
             }
@@ -731,7 +750,12 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         /// (#47121 step d20b5519, video frames 351-352: the straddling row grew a line and the rows
         /// read moved down 20 pt).
         var straddles = false
+        /// The position in `rows` of the row being read when the list was last laid out
+        /// (``PagedListController/passReading``), when it is among them: the restore tries it first.
+        var reading: Int?
         var id: CellID? { rows.first?.id }
+        /// The positions the restore tries, in order.
+        var candidates: [Int] { PagedListAnchorPick.candidates(count: rows.count, reading: reading, straddles: straddles) }
     }
 
     private var readerTop: CGFloat { collectionView.contentOffset.y + collectionView.adjustedContentInset.top }
@@ -750,7 +774,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
                       let id = dataSource.itemIdentifier(for: indexPath), case .row = id else { continue }
                 rows.append(Anchor.Row(id: id, index: indexPath.item, windowY: windowY(attributes, bottom: true), bottom: true))
             }
-            return rows.isEmpty ? nil : Anchor(rows: rows, fromBottom: true)
+            return rows.isEmpty ? nil : Anchor(rows: rows, fromBottom: true, reading: rows.firstIndex { $0.id == passReading })
         }
         let top = readerTop
         var rows: [Anchor.Row] = []
@@ -762,7 +786,8 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             if rows.isEmpty { straddles = attributes.frame.minY < top - 0.5 }
             rows.append(Anchor.Row(id: id, index: indexPath.item, windowY: windowY(attributes)))
         }
-        return rows.isEmpty ? nil : Anchor(rows: rows, straddles: straddles && rows.count > 1)
+        return rows.isEmpty ? nil
+            : Anchor(rows: rows, straddles: straddles && rows.count > 1, reading: rows.firstIndex { $0.id == passReading })
     }
 
     private func windowY(_ attributes: UICollectionViewLayoutAttributes, bottom: Bool = false) -> CGFloat {
@@ -780,40 +805,27 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         collectionView.contentOffset.y + collectionView.bounds.height - collectionView.adjustedContentInset.bottom
     }
 
-    /// Puts the reader back: the first row of `anchor` that is still in the list and kept its place
-    /// among the others goes back to where it was on screen, moved by `shift` (the bottom edge's
-    /// move, when the rows ride it). A row that left (removed, filtered out) or moved (to the newest
-    /// end, re-sorted) is skipped: following it would carry the reader away. Returns the row used.
+    /// Puts the reader back: the first row of `anchor` (in its candidates' order, the row being read
+    /// first) that is still in the list and kept its place among the others goes back to where it was
+    /// on screen, moved by `shift` (the bottom edge's move, when the rows ride it). A row that left
+    /// (removed, filtered out) or moved (to the newest end, re-sorted) is skipped: following it would
+    /// carry the reader away. `keeping` puts that row back instead, when it is still in the list (the
+    /// settle's second restore keeps the row the first one kept). Returns the row used.
     @discardableResult
-    private func restore(_ anchor: Anchor, shiftedBy shift: CGFloat = 0, deliberate: Bool = false) -> Anchor.Row? {
-        let survivors = anchor.rows.dropFirst(anchor.straddles ? 1 : 0).compactMap { row in dataSource.indexPath(for: row.id).map { (row, $0.item) } }
-        guard !survivors.isEmpty else { return nil }
-        // Each survivor's move on screen in the update, at the anchor's own point (top, or bottom).
-        let rows = survivors.map { survivor in
-            PagedListAnchorPick.Row(oldIndex: survivor.0.index, newIndex: survivor.1,
-                                    moved: windowY(of: survivor.0.id, bottom: anchor.fromBottom).map { $0 - survivor.0.windowY } ?? 0)
+    private func restore(_ anchor: Anchor, shiftedBy shift: CGFloat = 0, deliberate: Bool = false, keeping: CellID? = nil) -> Anchor.Row? {
+        let order = anchor.candidates
+        let pick: Anchor.Row
+        if let keeping, let row = anchor.rows.first(where: { $0.id == keeping }), dataSource.indexPath(for: keeping) != nil {
+            pick = row
+        } else {
+            let survivors = order.compactMap { at in dataSource.indexPath(for: anchor.rows[at].id).map { (anchor.rows[at], $0.item) } }
+            guard let at = PagedListAnchorPick.pick(survivors.map { PagedListAnchorPick.Row(oldIndex: $0.0.index, newIndex: $0.1) })
+            else { return nil }
+            pick = survivors[at].0
         }
-        guard var at = PagedListAnchorPick.pick(rows) else { return nil }
-        // The guard (inside an update, where its own offset move is known): a pick whose correction is
-        // larger than that move plus the update's size changes left its place; another row in place
-        // that moved least is kept instead (never a row the run excluded). Noted "g" with the rejected
-        // correction.
-        if updating {
-            switch PagedListAnchorPick.guardVerdict(rows, pick: at, updateMove: lastUpdateMove, sized: lastUpdateSized) {
-            case .keep:
-                break
-            case .instead(let row):
-                note("g", rows[at].moved)
-                at = row
-            case .keepRejected:
-                // No in-place row moved less: keep the pick (B's choice), never a larger correction.
-                note("g0", rows[at].moved)
-            }
-        }
-        let pick = survivors[at].0
         guard let now = windowY(of: pick.id, bottom: anchor.fromBottom) else { return nil }
         let delta = now - (pick.windowY + shift)
-        note(pick.id == anchor.rows.first?.id ? "r" : "r'", delta)
+        note(order.first.map { anchor.rows[$0].id == pick.id } == true ? "r" : "r'", delta)
         guard abs(delta) > 0.25 else { return pick }
         if deliberate { moveOffset(to: collectionView.contentOffset.y + delta) } else { correctOffset(by: delta) }
         return pick
@@ -889,11 +901,6 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
 
     /// A move that cancels a shift (putting the reader back): not explained, so a correction that
     /// misses shows up in the measure.
-    /// UIKit's own offset move inside the current update's apply (the trail's `U`), for the anchor guard.
-    private var lastUpdateMove: CGFloat = 0
-    /// The rows' size changes rowSized saw in the current update, for the anchor guard.
-    private var lastUpdateSized: CGFloat = 0
-
     private func correctOffset(by delta: CGFloat) {
         corrections += 1
         collectionView.contentOffset.y += delta
@@ -936,6 +943,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     private func jumpToNewest() {
         showNewest?()
         followsNewest = true
+        personFollows = true
         newest.arrived = 0
         newest.isAway = false
         heldHeight = 0
@@ -1004,7 +1012,11 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         }
         laying = true
         defer { laying = false }
-        holdAcrossPass()
+        // Inside an update that keeps the reader with its own anchor, the update places them once its
+        // layout is done; this pass only sizes (the bottom gap below). The bottom edge's move waits for
+        // the next pass, which answers it.
+        let places = !placing
+        if places { holdAcrossPass() } else { passHold = nil }
         let width = collectionView.bounds.width
         let edgeNow = collectionView.window == nil ? nil : bottomEdge
         let edgeMove: CGFloat? = {
@@ -1012,8 +1024,11 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             return edgeNow - lastBottomEdge
         }()
         defer {
-            lastBoundsWidth = width
-            lastBottomEdge = edgeNow
+            if places {
+                lastBoundsWidth = width
+                lastBottomEdge = edgeNow
+                takePassReading()
+            }
             sampleShift(from: "layout")
         }
         if direction == .up {
@@ -1027,6 +1042,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
                 collectionView.contentInset.top += change
             }
         }
+        guard places else { return }
         guard loaded, !collectionView.isTracking else {
             keepReader()
             return
@@ -1044,6 +1060,14 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         } else {
             keepReader()
         }
+    }
+
+    /// Notes the row being read as this pass leaves the list (``passReading``).
+    private func takePassReading() {
+        guard loaded else { return }
+        querying += 1
+        passReading = committedReferenceRow()?.id
+        querying -= 1
     }
 
     private func textSizeChanged() {
@@ -1409,7 +1433,6 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             // Inside an update or a layout pass: the layout's or UIKit's own move (a row above
             // that sized itself, a batch update), never the finger or a fling, which move the
             // offset between passes.
-            if updating { lastUpdateMove += delta }
             note(updating ? "U" : collectionView.laying > 0 ? "L" : "S", delta)
         } else if ledger.pays(delta) {
             // The layout's own correction for a row above that changed height (UIKit may apply
@@ -1450,7 +1473,10 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         // At the end of the rows shown is the newest row only when the list holds it: a windowed
         // list's newer-edge spinner is not followed (its rows come from disk, not live).
         followsNewest = distanceToNewest - heldHeight <= 4 && newerEdge == .end
-        if !followsNewest { heldHeight = 0 }
+        if !followsNewest {
+            heldHeight = 0
+            personFollows = false
+        }
         if followsNewest, !wasFollowing { newest.arrived = 0 }
     }
 
@@ -1496,6 +1522,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         // The person's finger wins over the list's own slide; rows held for it count as new.
         spring.stop()
+        personFollows = false
         if heldArrivals > 0 {
             newest.arrived += heldArrivals
             heldArrivals = 0
@@ -1526,7 +1553,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         guard loaded, followsNewest, !spring.isRunning, abs(newestOffset - offset) > 0.5,
               direction == .up || offset > newestOffset else { return }
         if animatesNewest, !UIAccessibility.isReduceMotionEnabled {
-            spring.run(from: collectionView.contentOffset.y)
+            spring.run(from: collectionView.contentOffset.y, capped: !personFollows)
         } else {
             // No motion: the slide becomes a jump (HOME-15), not a push.
             deliberateJump = true
@@ -1536,6 +1563,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
 
     func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
         spring.stop()
+        personFollows = false
         if heldArrivals > 0 {
             newest.arrived += heldArrivals
             heldArrivals = 0
