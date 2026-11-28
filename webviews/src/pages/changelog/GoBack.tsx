@@ -14,7 +14,8 @@ import type { Strings } from "../shared/i18n";
 import type { RecentBuildRow, UpdateGoBack, UpdateSurfaceActions } from "./updateHighlights";
 import { cardVersion } from "./UpdateSurfaces";
 
-export type GoBackLook = "footer" | "header" | "list";
+/** `none` ships: the Updated card has no way back (Lawrence, 2026-11-23); Settings > Channels keeps it. */
+export type GoBackLook = "none" | "footer" | "header" | "list";
 
 /** "Nov 10" from `YYYY-MM-DD`, in the page's language; the text as given when it is not a date. */
 export function buildDay(date: string, language: string): string {

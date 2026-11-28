@@ -80,7 +80,7 @@ export function UpdatedNotes({
   actions,
   mode,
   look: lookProp,
-  goBackLook = "footer",
+  goBackLook = "none",
   goBackFixture,
   head = "mono",
 }: {
@@ -93,7 +93,7 @@ export function UpdatedNotes({
   mode?: UpdatedPreviewMode;
   /** How the changes stand (gallery); undefined reads the theme's. */
   look?: NotesLook;
-  /** Where the way back to an earlier build stands (GoBack.tsx; gallery); `footer` ships. */
+  /** Where the way back to an earlier build stands (GoBack.tsx; gallery); `none` ships: no Go back or Other builds on the card. */
   goBackLook?: GoBackLook;
   /** The way back's props held for a gallery still. */
   goBackFixture?: Pick<Parameters<typeof GoBack>[0], "builds" | "open" | "state">;
@@ -227,7 +227,7 @@ export function UpdatedNotes({
           {strings.format("updates.card.more", String(below))}
         </div>
       )}
-      {goBackLook !== "header" && (
+      {(goBackLook === "footer" || goBackLook === "list") && (
         <GoBack
           goBack={data.goBack}
           running={data.goBackRunning === true}

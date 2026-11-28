@@ -2,7 +2,7 @@
 // Going back to an earlier build from the Updated card's changes (GoBack.tsx). Leo 2026-11-11:
 // reverting the app to the previous nightly was slow, sometimes did not work, and needed a better
 // UI. One entry names the build ("Go Back to nightly 4288034 from Nov 10"); "Other builds" opens
-// the last few, each with its date and first change. Three looks, `footer` ships.
+// the last few, each with its date and first change. `none` ships since 2026-11-23; the looks below are kept for reference.
 import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import { createStrings } from "../shared/i18n";
@@ -143,8 +143,12 @@ export default componentEntry<Props>({
     await import("./updateSurfaces.css");
   },
   variants: {
+    shipped: {
+      note: 'Shipped (Lawrence 2026-11-23: "go back and other builds button is unnecessary"): the Updated card has no way back; Settings > Channels keeps it.',
+      props: { look: "none" },
+    },
     footer: {
-      note: 'Picked and shipped (Leo 2026-11-11: "reverting the app to previous nightly is really slow/doesn\'t work very well sometimes?/needs less [bad] ui"): one entry at the foot of the Updated card\'s changes names the build and its day, "Go Back to nightly 4288034 from Nov 10", with "Other builds" beside it. Chosen over the header link because it says where it goes before the click, and over the open list because the list is rarely needed and would push the changes up. The click quits with every session and opens the kept build; the sidebar\'s card names each step.',
+      note: 'Was shipped until 2026-11-23 (Leo 2026-11-11: "reverting the app to previous nightly is really slow/doesn\'t work very well sometimes?/needs less [bad] ui"): one entry at the foot of the Updated card\'s changes names the build and its day, "Go Back to nightly 4288034 from Nov 10", with "Other builds" beside it. Chosen over the header link because it says where it goes before the click, and over the open list because the list is rarely needed and would push the changes up. The click quits with every session and opens the kept build; the sidebar\'s card names each step.',
       props: { look: "footer" },
       play: async (ctx) => {
         await ctx.waitFor(
