@@ -1366,7 +1366,13 @@ if (import.meta.main) {
             const p = daemon.play;
             if (message.method === "_acpmux/attach" && p) p.socket = ws;
             if (message.id !== undefined)
-              ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: p ? answer(p, message.method, message.params) : null }));
+              ws.send(
+                JSON.stringify({
+                  jsonrpc: "2.0",
+                  id: message.id,
+                  result: p ? answer(p, message.method, message.params) : null,
+                }),
+              );
           },
         },
       });

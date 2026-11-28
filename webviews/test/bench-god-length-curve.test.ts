@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { curveRatios, godRows } from "../bench/god-length-curve.bench";
+import { curveRatios, godRows, median } from "../bench/god-length-curve.bench";
 
 describe("god-length-curve", () => {
   test("reads the god rows' p95 from a replay's output", () => {
@@ -24,6 +24,17 @@ describe("god-length-curve", () => {
     expect(ratios.thought_ms).toBeCloseTo(1);
     expect(ratios.heap_mb).toBeCloseTo(1.1);
     expect(max).toBeCloseTo(1.1);
+  });
+
+  test("a ratio reads each value at its floor or above: a few MB of heap on a small reading is not growth", () => {
+    const { ratios } = curveRatios([
+      { turns: 1000, rows: { heap_mb: 3.2, token_ms: 0.4 } },
+      { turns: 100000, rows: { heap_mb: 5, token_ms: 0.9 } },
+    ]);
+    expect(ratios.heap_mb).toBe(1);
+    expect(ratios.token_ms).toBe(1);
+    expect(median([29, 10, 11])).toBe(11);
+    expect(median([4, 1, 3, 2])).toBe(2.5);
   });
 
   test("a metric missing at either end is left out", () => {
