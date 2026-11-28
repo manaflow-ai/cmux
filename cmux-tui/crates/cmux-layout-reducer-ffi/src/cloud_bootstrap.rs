@@ -101,6 +101,20 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let request: Request = read(request)?;
             json!({ "definitive": create::is_definitive_refusal(&request.code) })
         }
+        b"cloud_create_machine_gone_retries" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                code: String,
+                #[serde(default)]
+                message: String,
+                #[serde(default)]
+                machine_named: bool,
+                attempt: u32,
+            }
+            let request: Request = read(request)?;
+            json!({ "retries": create::create_machine_gone_retries(&request.code, &request.message, request.machine_named, request.attempt) })
+        }
         b"cloud_create_team" => {
             let request: create::TeamRequest = read(request)?;
             json!({ "team": create::create_team(&request) })

@@ -49,6 +49,8 @@ final class MacScreenHomeView: MacScreenThemedView {
     var offlineExpanded = false
     /// The snapshot the rows were last built from (the page's own or a test's), for a rebuild after a local toggle.
     private(set) var built: MacScreenHomeSnapshot?
+    /// Holds This Mac's joining note until the join has lasted the quiet bound (`hubNoteShows`).
+    private lazy var hubJoining = MacScreenHomeSnapshot.hubJoiningHold()
     /// `.frame(maxWidth: 620).padding(.horizontal, 32)`: the column's width for the page's.
     private lazy var columnWidth = column.widthAnchor.constraint(equalToConstant: 620)
 
@@ -141,30 +143,6 @@ final class MacScreenHomeView: MacScreenThemedView {
         readPermissions(shown?.deviceIDs ?? [])
     }
 
-    /// When This Mac began waiting to join the device hub, and the redraw due once that wait has lasted the bound.
-    private var hubJoiningSince: ContinuousClock.Instant?
-    private let hubJoiningRedraw = DemandTimer(owner: "macScreen.home.hubJoining")
-
-    /// Whether This Mac has been joining the hub for `bound` (``NoticeTiming/connectionQuiet``): until then its
-    /// note stays out of sight, and the page redraws when the bound passes.
-    func hubJoiningLasted(_ joining: Bool, bound: Duration) -> Bool {
-        guard joining else {
-            hubJoiningSince = nil
-            hubJoiningRedraw.cancel()
-            return false
-        }
-        let now = ContinuousClock.now
-        let since = hubJoiningSince ?? now
-        hubJoiningSince = since
-        if now - since >= bound { return true }
-        if !hubJoiningRedraw.isScheduled {
-            hubJoiningRedraw.schedule(after: bound - (now - since), reason: "hub-joining-note") { @MainActor [weak self] in
-                self?.render()
-            }
-        }
-        return false
-    }
-
     // MARK: Drawing
 
     /// Reads the page's state and builds the rows when it changed; again on every change of what it read.
@@ -178,6 +156,15 @@ final class MacScreenHomeView: MacScreenThemedView {
         build(snapshot)
         if snapshot.sharing != nil, !hadSharing, window != nil { Task { [host] in await host.refreshPermissions() } }
         readPermissions(snapshot.deviceIDs)
+    }
+
+    /// Whether This Mac's hub note shows: never once registered; a failure at once; joining only once it has
+    /// lasted the quiet bound, when the hold draws the page again.
+    func hubNoteShows(registered: Bool, status: DeviceHub.Status) -> Bool {
+        var failed = false
+        if case .failed = status { failed = true }
+        hubJoining.update(!registered && !failed) { [weak self] in self?.render() }
+        return !registered && (failed || !hubJoining.held)
     }
 
     /// A switch shows its model's value, not the click: after a press, on the next turn (never
