@@ -16,7 +16,8 @@ extension PullRequestProbeService {
     ///   - repoDirectoriesBySlug: Repositories to fetch (slug → representative directory).
     ///   - candidateBranchesByRepo: The branches each repository must resolve.
     ///   - cacheBySlug: The caller-owned repo cache.
-    ///   - now: The refresh timestamp used for cache-freshness checks.
+    ///   - now: The refresh timestamp used for cache-freshness checks and for
+    ///     deciding whether a merged or closed PR is too old for a badge.
     ///   - allowCachedResults: Whether fresh cache entries may satisfy the fetch.
     /// - Returns: The repository results and the retry deadline for the exact
     ///   authorization credential used by this batch.
@@ -59,7 +60,8 @@ extension PullRequestProbeService {
                             && (cacheBySlug[repoSlug].map {
                                 now.timeIntervalSince($0.fetchedAt) < Self.repoCacheLifetime
                             } ?? false),
-                        authHeader: authHeader
+                        authHeader: authHeader,
+                        now: now
                     )
                     return (repoSlug, result)
                 }
@@ -88,7 +90,8 @@ extension PullRequestProbeService {
         candidateBranches: Set<String>,
         cachedEntry: WorkspacePullRequestRepoCacheEntry?,
         useFreshCache: Bool,
-        authHeader: String
+        authHeader: String,
+        now: Date
     ) async -> WorkspacePullRequestRepoFetchResult {
         let normalizedCandidateBranches = Set(
             candidateBranches.compactMap(GitMetadataService.normalizedBranchName)
@@ -113,7 +116,8 @@ extension PullRequestProbeService {
                 candidateBranches: unresolvedBranches,
                 baseEntry: cachedEntry,
                 refreshedAt: Date(),
-                authHeader: authHeader
+                authHeader: authHeader,
+                now: now
             )
             debugLog(
                 "workspace.prRefresh.repo.cache.miss repo=\(repoSlug) " +
@@ -136,7 +140,8 @@ extension PullRequestProbeService {
             candidateBranches: normalizedCandidateBranches.sorted(),
             baseEntry: baseEntry,
             refreshedAt: fetchTimestamp,
-            authHeader: authHeader
+            authHeader: authHeader,
+            now: now
         )
         debugLog(
             "workspace.prRefresh.repo.perBranch repo=\(repoSlug) " +
@@ -171,7 +176,8 @@ extension PullRequestProbeService {
         candidateBranches: [String],
         baseEntry: WorkspacePullRequestRepoCacheEntry,
         refreshedAt: Date,
-        authHeader: String
+        authHeader: String,
+        now: Date
     ) async -> WorkspacePullRequestBranchLookupOutcome {
         guard !candidateBranches.isEmpty else {
             return WorkspacePullRequestBranchLookupOutcome(
@@ -189,7 +195,8 @@ extension PullRequestProbeService {
                     let result = await self.branchFetchResult(
                         repoSlug: repoSlug,
                         branch: branch,
-                        authHeader: authHeader
+                        authHeader: authHeader,
+                        now: now
                     )
                     return (branch, result)
                 }
@@ -232,7 +239,8 @@ extension PullRequestProbeService {
     nonisolated func branchFetchResult(
         repoSlug: String,
         branch: String,
-        authHeader: String
+        authHeader: String,
+        now: Date
     ) async -> WorkspacePullRequestBranchFetchResult {
         guard let endpoint = Self.branchEndpoint(
             repoSlug: repoSlug,
@@ -283,7 +291,7 @@ extension PullRequestProbeService {
         let matchingPullRequests = pullRequests
             .map(Self.probeItem)
             .filter { GitMetadataService.normalizedBranchName($0.headRefName) == branch }
-        if let preferredPullRequest = Self.preferredPullRequest(from: matchingPullRequests) {
+        if let preferredPullRequest = Self.preferredPullRequest(from: matchingPullRequests, now: now) {
             return .found(preferredPullRequest)
         }
         // `200` with no PR matching this branch's head: same `.notFound` /
@@ -330,6 +338,7 @@ extension PullRequestProbeService {
             url: pullRequest.htmlURL,
             updatedAt: pullRequest.updatedAt,
             mergedAt: pullRequest.mergedAt,
+            closedAt: pullRequest.closedAt,
             headRefName: pullRequest.head.ref,
             baseRefName: pullRequest.base?.ref
         )

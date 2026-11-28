@@ -31,9 +31,11 @@ struct PullRequestProbeServiceFetchTests {
         number: Int,
         branch: String,
         state: String = "open",
-        mergedAt: String? = nil
+        mergedAt: String? = nil,
+        closedAt: String? = nil
     ) -> String {
         let mergedField = mergedAt.map { "\"\($0)\"" } ?? "null"
+        let closedField = closedAt.map { "\"\($0)\"" } ?? "null"
         return """
         {
           "number": \(number),
@@ -41,6 +43,7 @@ struct PullRequestProbeServiceFetchTests {
           "html_url": "https://github.com/\(repoSlug)/pull/\(number)",
           "updated_at": "2026-07-01T12:00:00Z",
           "merged_at": \(mergedField),
+          "closed_at": \(closedField),
           "head": {"ref": "\(branch)"},
           "base": {"ref": "main"}
         }
@@ -99,6 +102,36 @@ struct PullRequestProbeServiceFetchTests {
         // The defeated-cache pagination path (?state=all&sort=updated&…&page=N)
         // must be gone — no listing request should be issued.
         #expect(urls.allSatisfy { !hasQueryItem(named: "page", in: $0) })
+    }
+
+    @Test func coldFetchDropsPullRequestClosedLongAgoAndKeepsRecentAndUndatedOnes() async throws {
+        // The refresh time passed to the fetch decides staleness, not the host clock.
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-07-10T12:00:00Z"))
+        // Every response carries all three PRs (see multipleCandidateBranchesEachGetOwnHeadRequest).
+        let combined = listBody(
+            pullRequestJSON(number: 4100, branch: "develop", state: "closed", closedAt: "2026-06-01T12:00:00Z"),
+            pullRequestJSON(number: 4200, branch: "feat/dropped", state: "closed", closedAt: "2026-07-01T12:00:00Z"),
+            pullRequestJSON(number: 4300, branch: "feat/undated", state: "closed")
+        )
+        PullRequestProbeStubURLProtocol.reset(stubs: [
+            .init(statusCode: 200, data: combined),
+            .init(statusCode: 200, data: combined),
+            .init(statusCode: 200, data: combined),
+        ])
+        let service = makeService()
+
+        let result = await fetch(
+            service: service,
+            branches: ["develop", "feat/dropped", "feat/undated"],
+            now: now
+        )
+
+        let resolved = try #require(entry(from: result))
+        #expect(resolved.pullRequestsByBranch["develop"] == nil)
+        #expect(resolved.knownAbsentBranches.contains("develop"))
+        #expect(resolved.pullRequestsByBranch["feat/dropped"]?.number == 4200)
+        #expect(resolved.pullRequestsByBranch["feat/undated"]?.number == 4300)
+        #expect(resolved.knownAbsentBranches == ["develop"])
     }
 
     @Test func secondRefreshRevalidatesUnchangedBranchTo304() async throws {

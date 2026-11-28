@@ -3,7 +3,7 @@ public import Foundation
 extension PullRequestProbeService {
     /// Indexes pull requests by normalized head-branch name, keeping the
     /// preferred PR per branch and dropping non-candidates (unparseable state,
-    /// invalid URL, stale merged).
+    /// invalid URL, stale merged or closed).
     nonisolated static func pullRequestMapByNormalizedBranch(
         from pullRequests: [GitHubPullRequestProbeItem],
         now: Date = Date()
@@ -88,7 +88,7 @@ extension PullRequestProbeService {
     }
 
     /// Whether a PR can back a badge at all: parseable state, valid URL, and
-    /// not a stale merged PR.
+    /// not a stale merged or closed PR.
     nonisolated static func isBadgeCandidate(
         _ pullRequest: GitHubPullRequestProbeItem,
         now: Date
@@ -97,7 +97,7 @@ extension PullRequestProbeService {
               URL(string: pullRequest.url) != nil else {
             return false
         }
-        return !isStaleMerged(pullRequest, now: now)
+        return !isStaleMerged(pullRequest, now: now) && !isStaleClosed(pullRequest, now: now)
     }
 
     /// Whether a merged PR is older than ``mergedBadgeStaleAfter``.
@@ -112,19 +112,34 @@ extension PullRequestProbeService {
         return now.timeIntervalSince(mergedAt) > Self.mergedBadgeStaleAfter
     }
 
+    /// Whether a PR closed without merging has been closed for longer than
+    /// ``closedBadgeStaleAfter``. A closed PR with no usable `closedAt` is kept.
+    nonisolated static func isStaleClosed(
+        _ pullRequest: GitHubPullRequestProbeItem,
+        now: Date
+    ) -> Bool {
+        guard PullRequestStatus(githubState: pullRequest.state) == .closed,
+              let closedAt = githubTimestampDate(from: pullRequest.closedAt) else {
+            return false
+        }
+        return now.timeIntervalSince(closedAt) > Self.closedBadgeStaleAfter
+    }
+
     /// Parses a GitHub ISO-8601 timestamp (with or without fractional seconds).
     nonisolated static func githubTimestampDate(from rawTimestamp: String?) -> Date? {
         let timestamp = rawTimestamp?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !timestamp.isEmpty else { return nil }
 
-        let formatter = ISO8601DateFormatter()
-        if let date = formatter.date(from: timestamp) {
+        if let date = try? Self.githubTimestampStyle.parse(timestamp) {
             return date
         }
-
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.date(from: timestamp)
+        return try? Self.githubFractionalTimestampStyle.parse(timestamp)
     }
+
+    /// Value-type parsers shared by every candidate, so selection allocates no
+    /// formatter per pull request.
+    private static let githubTimestampStyle = Date.ISO8601FormatStyle()
+    private static let githubFractionalTimestampStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
 
     /// Decodes JSON `Data`, returning `nil` on any decode failure.
     nonisolated static func decodeJSON<T: Decodable>(_ type: T.Type, from data: Data) -> T? {
