@@ -1288,7 +1288,9 @@ jobs:
             cargo build -p cmux-tui --bin cmux-tui --locked
           fi
           test -x "$binary"
-          file "$binary" | grep -q 'ELF 64-bit'
+          # ELF 64-bit magic (7f 'E' 'L' 'F', class 2), read with coreutils: a runner image
+          # without file(1) failed this step after a good build.
+          test "$(head -c 5 "$binary" | od -An -tx1 | tr -d ' \n')" = 7f454c4602
           sha256sum "$binary"
           if [[ "$binary" = /* ]]; then
             echo "path=$binary" >> "$GITHUB_OUTPUT"

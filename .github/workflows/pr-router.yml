@@ -484,6 +484,16 @@ jobs:
       # dispatch starts cmux-next-frame-pacing.yml's `frames` suite on the pull request's branch.
       actions: write
 
+  # Leo, 2026-11-27: "A PR fetches only the baselines for its own areas". Not required: red only on 3 of 3 repeats
+  # >15% over the area's nightly baseline; a missing baseline or store warns and passes.
+  bench-baselines:
+    name: bench baselines
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'bench-relevance-pr.yml') }}
+    uses: ./.github/workflows/bench-relevance-pr.yml
+    permissions:
+      contents: read
+
   transcript-replay-perf-report:
     name: transcript-replay perf report
     needs: route
@@ -608,6 +618,8 @@ jobs:
       actions: read
       # ci/run's step-result store on the controller's public route (pr-pipeline.yml); GitHub mints none for a fork.
       id-token: write
+      # The ios fast verdict's plan reads the head's earlier cmux/ios-fast statuses (pr-pipeline.yml).
+      statuses: read
 
   web-pipeline:
     name: pr web pipeline
@@ -631,6 +643,8 @@ jobs:
       actions: read
       # ci/run's step-result store on the controller's public route (pr-pipeline.yml); GitHub mints none for a fork.
       id-token: write
+      # The ios fast verdict's plan reads the head's earlier cmux/ios-fast statuses (pr-pipeline.yml).
+      statuses: read
 
   # The ios fast verdict's result as `cmux/ios-fast` at the head (the route posted `pending`): success, failure, or
   # error when the verdict never ran (no Mac, the pipeline cancelled, or skipped though the route started it: red
@@ -683,7 +697,8 @@ jobs:
           if [ "$PIPELINE" = skipped ]; then
             state=error; desc="No verdict: the pr pipeline did not start on this head (fast gates red, or skipped); rerun it"
           elif [ "$RUN" = false ]; then
-            state=success; desc="The plan builds nothing on this head"
+            # A head that already passed on the same iOS inputs (scripts/ci/ios_fast_verdict.py reuse) says so.
+            state=success; case "$SUMMARY" in Reused*) desc="$SUMMARY" ;; *) desc="The plan builds nothing on this head" ;; esac
           elif [ "$VERDICT" = success ]; then
             state=success; desc="Passed: ${SUMMARY:-the changed iOS targets}"
           elif [ "$VERDICT" = failure ]; then

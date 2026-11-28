@@ -44,6 +44,12 @@ if (!flag("--latest") && !/^[0-9a-f]{40}$/.test(value("--commit") ?? "")) throw 
  * every push roll said "none of the 40 newest commits after the pin has a published build" while the channel moved
  * on, and the image lock fell 420 min behind (bound 120). A commit with no manifest is pinned from those files: the
  * sha256 is the signed channel's when it names the commit, otherwise the hash of the write-once bytes.
+ *
+ * One source line either way: the pin must write the same lock bytes whichever way it read the sha256. The roll
+ * pins at bake start and again at promote, and approve (auto-roll.ts) compares the two locks' digests. A bake takes
+ * ~45 min and the channel moves on to a newer commit meanwhile, so the bake's lock said "signed" and promote's said
+ * "sha256 of the bytes": rolls 46085354594 and 46091967248 (2026-11-28) passed every gate and promoted nothing
+ * ("the tip moved the image inputs since the bake"), with no input changed, and production's image fell 485 min behind.
  */
 async function machinePins(commit: string): Promise<Pin[]> {
   const channel = await fetch(served(`${FILES}/channels/cloud-machine.json`), { signal: AbortSignal.timeout(30_000) })
@@ -67,7 +73,6 @@ async function machinePins(commit: string): Promise<Pin[]> {
     const size = Number(head.headers.get("content-length") ?? "");
     if (!head.ok || !Number.isSafeInteger(size) || size <= 0) throw new Error(`${url}: HEAD ${head.status}, no size`);
     let sha256 = named[name]?.url === url && named[name]?.size === size ? (named[name]?.sha256 ?? "") : "";
-    let source = `${FILES}/channels/cloud-machine.json (signed; pinned by images/cmux-vm/pin-cmux-tui.ts)`;
     if (!/^[0-9a-f]{64}$/.test(sha256)) {
       const body = await fetch(served(url), { signal: AbortSignal.timeout(300_000) });
       if (!body.ok || !body.body) throw new Error(`${url}: GET ${body.status}`);
@@ -79,8 +84,8 @@ async function machinePins(commit: string): Promise<Pin[]> {
       }
       if (got !== size) throw new Error(`${url}: read ${got} of ${size} bytes`);
       sha256 = hash.digest("hex");
-      source = `${FILES}/${commit}/machine/ (the Cloud machine build, write-once; sha256 of the bytes; pinned by images/cmux-vm/pin-cmux-tui.ts)`;
     }
+    const source = `${FILES}/${commit}/machine/ (the Cloud machine build, write-once; pinned by images/cmux-vm/pin-cmux-tui.ts)`;
     pins.push({ name, version: commit, url, sha256, size, source });
   }
   return pins;
