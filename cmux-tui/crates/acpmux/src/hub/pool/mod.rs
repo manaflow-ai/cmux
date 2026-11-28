@@ -503,6 +503,8 @@ impl Hub {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         key_env(&spawn.env).hash(&mut h);
         credentials.hash(&mut h);
+        // The start's Claude auth choice keys it even where the spawn env drops it (a team route).
+        draft.session_env.get(crate::claude_cloud_auth::AUTH).hash(&mut h);
         // Codex's answer for the person's own `cmux` entry, asked once for this spec, off the
         // runtime.
         let answer = crate::agent_tools::CodexAnswer::default();
