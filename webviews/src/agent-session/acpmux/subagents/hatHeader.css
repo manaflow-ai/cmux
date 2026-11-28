@@ -283,3 +283,88 @@
 .acpmux-running-tray[data-line] .acpmux-hat-deck[data-look="strip"] > .acpmux-hat-deck__mark {
   height: var(--acpmux-tray-head-height);
 }
+
+/* ---------- a background command on the one line: a named chip (cmux#65782) ---------- */
+/* "2 background commands running" then two bare >_ marks said nothing about which commands they were
+   or what a click did. After the sentence each running command is a chip: its terminal mark, its name
+   (description or short command), its time, and a stop that shows while the pointer is on it. The chip
+   is the line's own height and text: muted, going to the text's ink on hover as the sentence does, no
+   accent and no border. Its stop keeps its room, so nothing moves when it shows. Two chips sit one
+   gap apart; a chip that no longer fits drops away whole (the strip's wrap-and-clip above), and the
+   first one shrinks its name rather than vanish. */
+.acpmux-running-tray[data-line] .acpmux-hat-deck[data-look="strip"] > .acpmux-hat-command {
+  flex: 0 1 auto;
+  justify-content: flex-start;
+  gap: var(--acpmux-tray-gap, 4px);
+  min-width: 0;
+  max-width: 22em;
+  margin-inline-start: var(--grid-half-step);
+  isolation: isolate;
+  color: var(--agent-muted);
+  cursor: pointer;
+  transition: color var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out);
+}
+/* Its hover wash is a control's height, centred in the line, not the bar's full height: the chip's
+   own box stays the bar's height so the strip's wrap-and-clip keeps working. */
+.acpmux-running-tray[data-line] .acpmux-hat-deck[data-look="strip"] > .acpmux-hat-command::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset-block: calc((var(--acpmux-tray-head-height) - var(--acpmux-tray-control, 20px)) / 2 + 1px);
+  inset-inline: 0;
+  border-radius: var(--ds-radius-control, 6px);
+  pointer-events: none;
+  transition: background-color var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out);
+}
+.acpmux-running-tray[data-line] .acpmux-hat-deck[data-look="strip"] > .acpmux-hat-command:hover {
+  color: var(--agent-text);
+}
+.acpmux-running-tray[data-line] .acpmux-hat-deck[data-look="strip"] > .acpmux-hat-command:hover::before {
+  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
+}
+.acpmux-hat-command > .acpmux-hat-deck__face {
+  flex: none;
+  color: inherit;
+}
+.acpmux-hat-command__name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-content);
+  line-height: var(--text-content--line-height);
+}
+.acpmux-hat-command__time {
+  flex: none;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-hat-command__stop {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--acpmux-tray-control, 20px) - 4px);
+  height: calc(var(--acpmux-tray-control, 20px) - 4px);
+  border-radius: var(--ds-radius-control, 6px);
+  color: var(--agent-muted);
+  opacity: 0;
+  transition: var(--cmux-hover-reveal-out-transition);
+}
+.acpmux-hat-command:hover > .acpmux-hat-command__stop,
+.acpmux-hat-command__stop[data-state="failed"] {
+  opacity: 1;
+  transition: var(--cmux-hover-reveal-in-transition);
+}
+.acpmux-hat-command__stop:hover {
+  color: var(--agent-status-failure);
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+}
+.acpmux-hat-command__stop[data-state="stopping"] {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.acpmux-hat-command__stop[data-state="failed"] {
+  color: var(--agent-status-failure);
+}

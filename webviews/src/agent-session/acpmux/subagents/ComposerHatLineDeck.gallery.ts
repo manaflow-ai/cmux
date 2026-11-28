@@ -92,6 +92,23 @@ const TWENTY = chat([
   summary(1, { status: "completed", durationMs: 600_000, toolCount: 3 }),
 ]);
 
+/// cmux#65782's screenshot: only two background commands, which read "2 background commands running"
+/// then two bare terminal marks. Each is now a chip: its name, its time, a stop on hover.
+/// A turn still runs: the chat knows these commands from its transcript, which counts them only then.
+const COMMANDS = chat(
+  [
+    user("Start the dev server and keep the tests watching", 6),
+    activity(
+      [
+        command("cd webviews && bun run dev --port 5173", "Start the webviews dev server", 5),
+        command("cargo test -p acpmux --lib", "", 2),
+      ],
+      5,
+    ),
+  ],
+  { isWorking: true },
+);
+
 /// Each variant pins the one line and its arm, so a later default never changes what it shows.
 const pins = (arm: HatLineArm) => ({ "subagent-tray-fold-head": "line", "composer-hat-line-deck": arm });
 
@@ -157,7 +174,7 @@ export default agentPaneEntry({
       { name: "the pointer on the second mark", run: thumbedTo(2) },
     ],
   },
-  keywords: ["composer hat", "running tray", "subagents", "rolodex", "thumb", "hide"],
+  keywords: ["composer hat", "running tray", "subagents", "rolodex", "thumb", "hide", "background commands"],
   variants: {
     ...Object.fromEntries(
       arms.flatMap(([arm, what]) => [
@@ -181,8 +198,14 @@ export default agentPaneEntry({
         ],
       ]),
     ),
+    "trail-commands": {
+      note: "Two background commands, the pick (cmux#65782): each a chip after the sentence with its name and time; hovering one shows its stop, a click opens its live output beside the chat.",
+      play: folded,
+      snapshot: COMMANDS,
+      experiments: pins("trail"),
+    },
     "trail-ten": {
-      note: "Ten subagents, the pick: the sentence whole, then as many whole marks as fit. In the narrow pane the marks give way before a word does (Leo, 2026-11-27: \"drop them away in favour of text when things shrink\").",
+      note: 'Ten subagents, the pick: the sentence whole, then as many whole marks as fit. In the narrow pane the marks give way before a word does (Leo, 2026-11-27: "drop them away in favour of text when things shrink").',
       play: wordsWin,
       snapshot: TEN,
       experiments: pins("trail"),

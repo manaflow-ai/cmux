@@ -10,7 +10,13 @@
 //
 // The marks are pointer twins of the list's lines (aria-hidden): the header button stays the one
 // keyboard control, and the open list reaches each line, as the stacked marks do today.
-import { type CSSProperties, type WheelEvent, useRef } from "react";
+//
+// After the one line's words (`trail`) a background command is no bare terminal mark but a chip that
+// says what it is: its name (its description or short command), how long it has run, and a stop at
+// its end (cmux#65782: the hat read "2 background commands running" then two bare >_ marks, and the
+// person asked "what is the purpose of this?"). A click on a chip opens the command's live output
+// beside the chat, as a mark's click does; its stop ends only that command.
+import { type CSSProperties, type MouseEvent, type WheelEvent, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -18,6 +24,8 @@ import { AgentIdentity } from "./AgentIdentity";
 import { SUBAGENT_FALLBACK } from "./agentIdentityModel";
 import { agentTone } from "./agentTones";
 import { SILENT_TURN_ICON, trayItemKey, type TrayItem } from "./runningTray";
+import { Elapsed } from "./Elapsed";
+import type { BackgroundCommand } from "../session-info/processes";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -48,6 +56,8 @@ export function HatHeadDeck({
   peeked,
   onPeek,
   onOpenItem,
+  nameOf,
+  stopCommand,
 }: {
   /// What runs, in the header's order (trayHeadOrder.ts, longest-running first).
   items: readonly TrayItem[];
@@ -60,13 +70,22 @@ export function HatHeadDeck({
   peeked: string | undefined;
   onPeek: (key: string | undefined) => void;
   onOpenItem: (item: TrayItem) => void;
+  /// A line's name, as the hat's lines name it: set, the `trail` deck draws each background command
+  /// as a named chip with its time and stop (``CommandChip``); unset, as a mark.
+  nameOf?: (item: TrayItem) => string;
+  /// Stops one background command (`_acpmux/process/kill`); undefined for one it cannot stop (a
+  /// command only the transcript knows has no process id), whose chip then draws no stop.
+  stopCommand?: (command: BackgroundCommand) => (() => Promise<unknown>) | undefined;
 }) {
   const t = useT();
   const shown = items.slice(0, DECK_MARKS);
   const rest = items.length - shown.length;
+  const chips = at === "trail" && look === "strip" && nameOf !== undefined;
+  const chipped = chips && shown.some((item) => item.kind === "command");
   // After the one line's words (`trail`) the deck keeps all DECK_MARKS slots, empty ones too, so "+N
   // more" sits in one place however many lines run and the bar never re-lays out as lines come and go.
-  const blanks = at === "trail" ? DECK_MARKS - shown.length : 0;
+  // A chip has its own width, so a deck with one keeps no empty slots.
+  const blanks = at === "trail" && !chipped ? DECK_MARKS - shown.length : 0;
   const wheel = useRef(0);
   // The `cards` look: the wheel over the deck thumbs from card to card, wrapping, from the one in front.
   const onWheel = (event: WheelEvent<HTMLSpanElement>) => {
@@ -97,6 +116,20 @@ export function HatHeadDeck({
     >
       {shown.map((item, index) => {
         const key = trayItemKey(item);
+        if (chips && item.kind === "command")
+          return (
+            <CommandChip
+              key={key}
+              deckKey={key}
+              command={item.command}
+              name={nameOf(item)}
+              stopLabel={t("tray.stopCommand")}
+              stop={stopCommand?.(item.command)}
+              // A chip names its own command: pointing at it gives the sentence back, never a peek.
+              onEnter={() => onPeek(undefined)}
+              onOpen={() => onOpenItem(item)}
+            />
+          );
         const mark = markOf(item, chatHarness);
         return (
           <span
@@ -136,6 +169,73 @@ export function HatHeadDeck({
         </span>
       ))}
       {rest > 0 && <span className="acpmux-summary-meta acpmux-hat-deck__rest">{t("tools.more", { n: rest })}</span>}
+    </span>
+  );
+}
+
+/// A running background command on the one line (cmux#65782): its terminal mark, its name, how long it
+/// has run and, where it can be stopped, a stop that shows while the pointer is on the chip (it keeps
+/// its room, so the chip never changes width). A pointer twin of its line in the open list, which keeps
+/// the keyboard's open and Stop. A click opens its live output; a click on the stop only stops it.
+function CommandChip({
+  deckKey,
+  command,
+  name,
+  stopLabel,
+  stop,
+  onEnter,
+  onOpen,
+}: {
+  deckKey: string;
+  command: BackgroundCommand;
+  name: string;
+  stopLabel: string;
+  stop: (() => Promise<unknown>) | undefined;
+  onEnter: () => void;
+  onOpen: () => void;
+}) {
+  const [stopping, setStopping] = useState<"idle" | "stopping" | "failed">("idle");
+  const onStop = (event: MouseEvent<HTMLSpanElement>) => {
+    event.stopPropagation();
+    if (!stop || stopping === "stopping") return;
+    setStopping("stopping");
+    stop().catch(() => setStopping("failed"));
+  };
+  return (
+    <span
+      className="acpmux-hat-deck__mark acpmux-hat-command"
+      aria-hidden="true"
+      data-deck-key={deckKey}
+      data-command-chip
+      // The whole command, for one its name shortens (a description, or the work of `cd X && …`).
+      title={command.command}
+      onPointerEnter={onEnter}
+      onClick={(event) => {
+        event.stopPropagation();
+        onOpen();
+      }}
+    >
+      <span className="acpmux-hat-deck__face">
+        <Icon name="terminal" size={ROW_ICON} row />
+      </span>
+      <span className="acpmux-hat-command__name">{name}</span>
+      {command.startedAt !== undefined && (
+        <Elapsed clock="acpmux-summary-meta acpmux-hat-command__time" since={command.startedAt} />
+      )}
+      {stop && (
+        <span
+          className="acpmux-hat-command__stop"
+          // A pointer twin, as the chip is: the open list's line keeps the keyboard's Stop.
+          aria-hidden="true"
+          data-state={stopping}
+          data-command-stop
+          title={stopLabel}
+          onClick={onStop}
+        >
+          {/* icon-scale-allow: the stop square rides inside the chip's one text line */}
+          <Icon name="action.stop" size={10} selected />
+        </span>
+      )}
     </span>
   );
 }
