@@ -46,7 +46,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -86,6 +86,11 @@ CONFIRM_RUNS = 2
 # 2026-11-27 this counted red batch runs instead, so the six reds whose chains died on the judge's rate limit
 # (cmux#60709) were capped for good without one finished bisect.
 MAX_REBISECTS = 2
+# A red with no green batch run in the LOOKBACK_BATCHES reach had no bisect ever: stuck_reds needs a last green. Run
+# 45971503699 (11-27 09:xxZ) called eight reds "a known red, no bisect" (acpmux-sim-sweep, cmux-tui-sdks protocol
+# contract, CmuxMobileKit tests ...), red since a commit three days back (0e0818af, 11-24), past the reach. Only for such
+# a red, the judges read this many batch runs further back, older than the reach's oldest run, to find its last green.
+DEEP_LOOKBACK_BATCHES = 72
 # A probe run with no verdict (cancelled, runner lost) is tried again this many times. Two: drill-8 lost two
 # runners within the hour (runs 44966393364 and 44980687386).
 MAX_PROBE_RETRIES = 2
@@ -159,15 +164,31 @@ def _core_reset() -> float | None:
         return None
 
 
+def _distinct(*tokens: str) -> list[str]:
+    return [t for i, t in enumerate(tokens) if t and t not in tokens[:i]] or [""]
+
+
 def read_tokens() -> list[str]:
     """Tokens a read may use, in order: the route App's (GH_READ_TOKEN, its own budget) first, then the job's
-    GH_TOKEN, whose budget every workflow in the repository shares and which is often spent."""
-    return [t for t in (os.environ.get("GH_READ_TOKEN", ""), os.environ.get("GH_TOKEN", "")) if t] or [""]
+    GH_TOKEN, whose budget every workflow in the repository shares and which is often spent, then
+    GH_FALLBACK_TOKEN (a token on yet another budget, set by a caller that has one)."""
+    env = os.environ.get
+    return _distinct(env("GH_READ_TOKEN", ""), env("GH_TOKEN", ""), env("GH_FALLBACK_TOKEN", ""))
+
+
+def write_tokens() -> list[str]:
+    """Tokens a write may use, in order: GH_TOKEN, then GH_FALLBACK_TOKEN. A rate-limited write never ran, so
+    trying it on another budget is safe. main's cmux-next-post-merge-dispatch.yml ticks on the cmux bot App's
+    token with the job token as the fallback: from 2026-11-27 23:55Z every tick for over 2 h ended "tick
+    skipped: ... API rate limit exceeded for installation ID 175618676" (the bot App, which every post-merge
+    read had moved onto) with the job token, on its own budget, never tried, and no batch ran."""
+    env = os.environ.get
+    return _distinct(env("GH_TOKEN", ""), env("GH_FALLBACK_TOKEN", ""))
 
 
 def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, run=subprocess.run, sleep=time.sleep, clock=time.time, reset_at=_core_reset, tokens=None) -> object:
-    """One GitHub API call through gh. A read tries each of read_tokens() in turn when one is rate limited; a
-    write uses GH_TOKEN. Fields go as JSON on stdin. Once every token is rate limited it waits for the reset and
+    """One GitHub API call through gh. A call tries each of read_tokens() (a read) or write_tokens() (a write) in
+    turn when one is rate limited. Fields go as JSON on stdin. Once every token is rate limited it waits for the reset and
     retries within API_WAIT_BUDGET."""
     argv = ["gh", "api", "-X", method, path]
     data = None
@@ -175,7 +196,7 @@ def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, run=su
         argv += ["--input", "-"]
         data = json.dumps(fields)
     if tokens is None:
-        tokens = read_tokens() if method == "GET" else [os.environ.get("GH_TOKEN", "")]
+        tokens = read_tokens() if method == "GET" else write_tokens()
     while True:
         for i, token in enumerate(tokens):
             env = {**os.environ, "GH_TOKEN": token} if token else None
@@ -366,7 +387,7 @@ def is_batch(run: dict) -> bool:
     return (run.get("display_title") or run.get("name") or "").split(" ", 1)[0] == BATCH
 
 
-def list_runs(repo: str, branch: str, api=None, before: int = 0, batches: int = 0) -> list[dict]:
+def list_runs(repo: str, branch: str, api=None, before: int = 0, batches: int = 0, created_before: str = "") -> list[dict]:
     """This workflow's runs on branch, newest first: one page, or with batches, the runs older than run id before
     (all, when 0) back to and including the batches-th batch run among them, paging at most MAX_RUNS_PAGES pages.
     A batch run's judge and its probes' judges pass the same before and batches, so they read the same batch runs."""
@@ -374,6 +395,7 @@ def list_runs(repo: str, branch: str, api=None, before: int = 0, batches: int = 
     runs: list[dict] = []
     for page in range(1, (MAX_RUNS_PAGES if batches else 1) + 1):
         data = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={branch}&per_page={RUNS_PAGE}"
+                   + (f"&created=%3C{created_before}" if created_before else "")
                    + (f"&page={page}" if page > 1 else ""))
         got = list((data or {}).get("workflow_runs") or [])
         runs += got
@@ -908,6 +930,39 @@ def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict],
     return out
 
 
+def unreached_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], jobs_of) -> list[str]:
+    """The reds of verdicts that some earlier judged batch run in runs also had red and none had green: their last green
+    is past the reach, so stuck_reds cannot bisect them without deeper runs (DEEP_LOOKBACK_BATCHES)."""
+    earlier = [r for r in runs if is_batch(r) and r.get("status") == "completed" and r.get("head_sha") != sha]
+    out = []
+    for name in sorted(n for n, (_, c) in verdicts.items() if c == "failure"):
+        seen = set()
+        for run in earlier:
+            got = jobs_of(run["id"])
+            got, judged = got if isinstance(got, tuple) else (got, True)
+            before = got.get(name)
+            if before and before[1] in ("success", "failure") and (judged or before[1] == "success"):
+                seen.add(before[1])
+            if "success" in seen:
+                break
+        if seen == {"failure"}:
+            out.append(name)
+    return out
+
+
+def with_deeper_runs(repo: str, branch: str, sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], jobs_of) -> list[dict]:
+    """runs, plus DEEP_LOOKBACK_BATCHES batch runs older than its oldest when a red of verdicts has no green in it. The batch
+    judge and each probe's judge call it on the same runs and verdicts for the job, so both read the same deeper runs."""
+    if not runs or not unreached_reds(sha, verdicts, runs, jobs_of):
+        return runs
+    oldest = min((r.get("created_at") or "") for r in runs)
+    if not oldest:
+        return runs
+    have = {r.get("id") for r in runs}
+    deeper = list_runs(repo, branch, batches=DEEP_LOOKBACK_BATCHES, created_before=oldest)
+    return runs + [r for r in deeper if r.get("id") not in have and (r.get("created_at") or "") < oldest]
+
+
 def stuck_chain_start(good: str, bad: str) -> str:
     """The sha a stuck red's bisect over good..bad starts at (stuck_probe's): stuck_reds counts finished bisects by it,
     in the batch judge and in each probe's judge alike, so both agree on whether the bisect is capped."""
@@ -1211,6 +1266,46 @@ def confirm_reuse_on() -> bool:
     return (os.environ.get(CONFIRM_REUSE_ENV) or "1").strip() != "0"
 
 
+JOB_PROBES_ENV = "POST_MERGE_JOB_PROBES_PER_DAY"
+# A red on every commit (an outside service, a base break no single merge made) is never pinned, yet each new batch red
+# made a new (good, bad) key, so MAX_REBISECTS bounded nothing: 11-27 19:20Z-23:55Z spent 98 probe runs on 8 suite jobs,
+# 52 of them confirm runs failing on both sides (rust-workspaces 17, web-tests 16, gallery-health 15, ...), about 70
+# probes a day per red job and 23k-34k runner minutes a day for the workflow. A suite job whose probes started this
+# many times in the last 24 h starts no new bisect from a batch run; a chain already running goes on. 0 turns it off.
+DEFAULT_JOB_PROBES_PER_DAY = 12
+
+
+def job_probes_per_day() -> int:
+    """vars.POST_MERGE_JOB_PROBES_PER_DAY: the daily probe cap per suite job, DEFAULT_JOB_PROBES_PER_DAY when unset; 0 is no cap."""
+    raw = (os.environ.get(JOB_PROBES_ENV) or "").strip()
+    return int(raw) if raw.isdigit() else DEFAULT_JOB_PROBES_PER_DAY
+
+
+def job_probes_today(runs: list[dict], suite: str, only: str, now: datetime) -> int:
+    """Probe runs of suite job only (all its confirm and states runs too) created in the 24 h before now."""
+    prefix = f"{PROBE} {suite} {only or 'all'} at "
+    count = 0
+    for r in runs:
+        if not (r.get("display_title") or "").startswith(prefix):
+            continue
+        try:
+            if (now - parse_time(r.get("created_at") or "")).total_seconds() < 86400:
+                count += 1
+        except ValueError:
+            continue
+    return count
+
+
+def over_probe_cap(runs: list[dict], suites: dict, suite: str, name: str, now: datetime) -> int:
+    """The suite job's probe count today when it is at or over job_probes_per_day(), else 0."""
+    cap = job_probes_per_day()
+    if cap <= 0 or suite not in suites:
+        return 0
+    only = suites[suite].probe_only(name.partition(" / ")[2])
+    n = job_probes_today(runs, suite, only, now)
+    return n if n >= cap else 0
+
+
 def runs_for_confirm(args: argparse.Namespace) -> list[dict]:
     if not confirm_reuse_on():
         return []
@@ -1301,7 +1396,8 @@ def cmd_judge(args: argparse.Namespace) -> int:
         # Only runs older than this one, as a probe's judge reads them (before its origin), so both agree.
         runs = list_runs(args.repo, args.branch, before=int(args.run_id or 0), batches=LOOKBACK_BATCHES)
         found, notes = new_reds(args.sha, verdicts, runs, jobs_of, suites, steps_of(args.run_id), steps_of)
-        stuck = stuck_reds(args.sha, verdicts, runs, jobs_of, suites, chain_start=stuck_chain_start,
+        deep = with_deeper_runs(args.repo, args.branch, args.sha, verdicts, runs, jobs_of)
+        stuck = stuck_reds(args.sha, verdicts, deep, jobs_of, suites, chain_start=stuck_chain_start,
                            steps=steps_of(args.run_id), steps_of=steps_of)
         stuck_names = {name for name, *_ in stuck}
         notes = [n for n in notes if not any(n.startswith(f"`{name}` was already red") for name in stuck_names)]
@@ -1309,6 +1405,14 @@ def cmd_judge(args: argparse.Namespace) -> int:
             summary(args.summary, f"- {note}")
         if not found:
             summary(args.summary, f"No new red on `{args.sha[:11]}` ({len(verdicts)} suite jobs finished).")
+        now = datetime.now(timezone.utc)
+        capped = [(name, n) for name, suite, *_ in found + stuck if (n := over_probe_cap(runs, suites, suite, name, now))]
+        capped_names = {name for name, _ in capped}
+        for name, n in capped:
+            summary(args.summary, f"- Red `{name}`: its suite job ran {n} probes in 24 h (cap {job_probes_per_day()}, "
+                                  f"vars.{JOB_PROBES_ENV}), named only, no new bisect.")
+        found = [f for f in found if f[0] not in capped_names]
+        stuck = [s for s in stuck if s[0] not in capped_names]
         for name, suite, good in found[:MAX_CHAINS]:
             inner = name.partition(" / ")[2]
             probe = Probe(suite, name, suites[suite].probe_only(inner), args.sha, good, "", str(args.run_id),
@@ -1359,7 +1463,8 @@ def cmd_judge(args: argparse.Namespace) -> int:
             # The same chain_start as the batch judge: without it every judged probe of the job since its first red
             # counted as a finished bisect, so a chain two steps in was refused as "not a new red" (probe run
             # 45971486391, 11-27 09:10Z: web / Web tests (1/4) at 27712e0b, the culprit step the batch had dispatched).
-            found += [(name, suite, good) for name, suite, good, _ in stuck_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of, suites,
+            deep = with_deeper_runs(args.repo, args.branch, origin.get("head_sha") or "", origin_verdicts, before, jobs_of)
+            found += [(name, suite, good) for name, suite, good, _ in stuck_reds(origin.get("head_sha") or "", origin_verdicts, deep, jobs_of, suites,
                                                                                   chain_start=stuck_chain_start,
                                                                                   steps=steps_of(origin["id"]),
                                                                                   steps_of=steps_of)]

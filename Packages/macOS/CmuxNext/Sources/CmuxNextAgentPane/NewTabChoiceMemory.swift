@@ -75,13 +75,11 @@ public final class NewTabChoiceMemory {
             // Cloud's own bucket: this Mac's last agent and picks stay as they were.
             let model = pick.model ?? (picks.cloud?.harness == pick.agent ? picks.cloud?.model : nil) ?? AgentPaneLastPicks.defaultModel
             picks.cloud = .init(harness: pick.agent, model: model)
-            // main-actor-ok: at most AgentPaneLastPicks.maxFolders (50) folder picks plus two global picks.
-            if let data = try? JSONEncoder().encode(picks) { defaults.set(data, forKey: Self.picksKey) }
-            return
+        } else {
+            defaults.set(pick.agent, forKey: Self.agentKey)
+            let model = pick.model ?? picks.lastModel(harness: pick.agent, folder: pick.folder) ?? AgentPaneLastPicks.defaultModel
+            picks.record(.init(harness: pick.agent, model: model), folder: pick.folder)
         }
-        defaults.set(pick.agent, forKey: Self.agentKey)
-        let model = pick.model ?? picks.lastModel(harness: pick.agent, folder: pick.folder) ?? AgentPaneLastPicks.defaultModel
-        picks.record(.init(harness: pick.agent, model: model), folder: pick.folder)
         // main-actor-ok: at most AgentPaneLastPicks.maxFolders (50) folder picks plus one global pick.
         if let data = try? JSONEncoder().encode(picks) { defaults.set(data, forKey: Self.picksKey) }
     }
