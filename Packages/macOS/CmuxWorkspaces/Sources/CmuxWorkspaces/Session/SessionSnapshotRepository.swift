@@ -75,6 +75,9 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         return .loaded(snapshot)
     }
 
+    /// Decodes without the import guard: the app's own snapshot and its
+    /// backups are trusted, and a large real session must still load so the
+    /// restore budget can trim it. Imports scan first (`importableSnapshot`).
     private func decodedSnapshot(from data: Data) -> SnapshotValue? {
         let decoder = JSONDecoder()
         for (key, value) in decoderUserInfo {
@@ -144,18 +147,82 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         guard (status.st_mode & S_IFMT) == S_IFREG, Int64(status.st_size) <= maximumBytes else {
             return .notRegularOrTooLarge
         }
-        guard let data = try? handle.readToEnd() else { return .unreadable }
-        return .data(data)
+        do {
+            // The file can grow after fstat (autosave/import races). Never
+            // call readToEnd on an untrusted path: one bounded read keeps the
+            // post-check allocation capped as well.
+            let data = try handle.read(upToCount: Int(maximumBytes) + 1) ?? Data()
+            guard Int64(data.count) <= maximumBytes else { return .notRegularOrTooLarge }
+            return .data(data)
+        } catch {
+            return .unreadable
+        }
     }
 
     /// Upper bound on a snapshot file accepted for import. Real snapshots
     /// (scrollback included) are a few MiB at most.
     static var maximumImportableSnapshotBytes: Int64 { 256 * 1024 * 1024 }
 
+    /// Lexical limits applied to an imported file before Foundation
+    /// materializes the Codable graph, so an arbitrary file can't build
+    /// millions of objects. Only imports are scanned: real snapshots run about
+    /// 110-345 tokens per panel, so a large own session can exceed these and
+    /// must still load for the restore budget to trim. String length is not
+    /// limited: the file size already bounds it, and the app's own snapshot
+    /// may legitimately hold a large draft or scrollback string.
+    // Generic types cannot declare static stored properties on the Swift
+    // versions supported by cmux; computed constants retain one source of
+    // truth without allocating per repository instance.
+    private static var maximumJSONNesting: Int { 512 }
+    private static var maximumJSONStructuralTokens: Int { 1_000_000 }
+
+    private static func jsonIsWithinDecodeLimits(_ data: Data) -> Bool {
+        var nesting = 0
+        var structuralTokens = 0
+        var inString = false
+        var escaped = false
+        for byte in data {
+            if inString {
+                if escaped {
+                    escaped = false
+                } else if byte == 92 { // backslash
+                    escaped = true
+                } else if byte == 34 { // quote
+                    inString = false
+                }
+                continue
+            }
+            switch byte {
+            case 34: // quote
+                inString = true
+            case 91, 123: // [ or {
+                structuralTokens += 1
+                nesting += 1
+                if nesting > maximumJSONNesting { return false }
+            case 93, 125: // ] or }
+                structuralTokens += 1
+                nesting -= 1
+                if nesting < 0 { return false }
+            case 58, 44: // : or ,
+                structuralTokens += 1
+            default:
+                break
+            }
+            if structuralTokens > maximumJSONStructuralTokens { return false }
+        }
+        return !inString && nesting == 0
+    }
+
     private func importableSnapshot(
         data: Data,
         fileURL: URL
     ) -> Result<SessionSnapshotImport<SnapshotValue>, SessionSnapshotImportError> {
+        // Schema probing is itself a Foundation decode. Apply the lexical
+        // guard before probing so hostile payloads cannot bypass the predecode
+        // limits through the version-check path.
+        guard Self.jsonIsWithinDecodeLimits(data) else {
+            return .failure(.notASessionSnapshot(fileURL))
+        }
         guard let version = probedSchemaVersion(of: data) else {
             return .failure(.notASessionSnapshot(fileURL))
         }
