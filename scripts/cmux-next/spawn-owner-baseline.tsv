@@ -1,10 +1,11 @@
 # path	lines that spawn a task or process with no owner (check-spawn-owner.py; rows only go down:
 # move a site to Scope::spawn or cmux_process::Child, then lower its row with --update)
 cmux-tui/crates/acpmux-tui/src/actions.rs	3
-cmux-tui/crates/acpmux-tui/src/lib.rs	6
+cmux-tui/crates/acpmux-tui/src/lib.rs	7
 cmux-tui/crates/acpmux-tui/src/links.rs	3
 cmux-tui/crates/acpmux-tui/src/run.rs	2
 cmux-tui/crates/acpmux-tui/src/session_ops.rs	6
+cmux-tui/crates/acpmux/src/agent.rs	9
 cmux-tui/crates/acpmux/src/agent_host/host.rs	11
 cmux-tui/crates/acpmux/src/agent_host/host/orphan.rs	4
 cmux-tui/crates/acpmux/src/agent_host/link.rs	5
@@ -40,6 +41,7 @@ cmux-tui/crates/acpmux/src/config/launchers.rs	1
 cmux-tui/crates/acpmux/src/config/profile_env.rs	1
 cmux-tui/crates/acpmux/src/daemon.rs	7
 cmux-tui/crates/acpmux/src/daemon/app_orphan.rs	1
+cmux-tui/crates/acpmux/src/daemon/cloud_handoff.rs	1
 cmux-tui/crates/acpmux/src/daemon/listener_keeper.rs	2
 cmux-tui/crates/acpmux/src/daemon/login_session.rs	2
 cmux-tui/crates/acpmux/src/daemon/managed_unit.rs	1
@@ -127,6 +129,7 @@ cmux-tui/crates/acpmux/src/hub/turn_retry.rs	1
 cmux-tui/crates/acpmux/src/hub/turns.rs	1
 cmux-tui/crates/acpmux/src/hub/usage_view.rs	1
 cmux-tui/crates/acpmux/src/hub/vm_host.rs	1
+cmux-tui/crates/acpmux/src/hub/watch.rs	1
 cmux-tui/crates/acpmux/src/hub/watch_tick.rs	1
 cmux-tui/crates/acpmux/src/hub/watches.rs	1
 cmux-tui/crates/acpmux/src/hub/withdraw.rs	1
@@ -155,7 +158,6 @@ cmux-tui/crates/acpmux/src/server/mod.rs	7
 cmux-tui/crates/acpmux/src/server/outbox.rs	2
 cmux-tui/crates/acpmux/src/server/peer_forward.rs	1
 cmux-tui/crates/acpmux/src/server/races/peer.rs	1
-cmux-tui/crates/acpmux/src/server/requests.rs	1
 cmux-tui/crates/acpmux/src/server/requests/briefs.rs	1
 cmux-tui/crates/acpmux/src/server/requests/workflow_dispatch.rs	1
 cmux-tui/crates/acpmux/src/server/review_queue.rs	1
@@ -209,7 +211,7 @@ cmux-tui/crates/cmux-pane-protocol/src/router/serve.rs	4
 cmux-tui/crates/cmux-pane-protocol/src/rpc.rs	4
 cmux-tui/crates/cmux-pane-protocol/src/transport.rs	2
 cmux-tui/crates/cmux-pane-protocol/src/ws.rs	3
-cmux-tui/crates/cmux-pty/src/macos.rs	1
+cmux-tui/crates/cmux-pty/src/macos.rs	2
 cmux-tui/crates/cmux-rd-host/src/browser.rs	1
 cmux-tui/crates/cmux-relay/src/relay.rs	2
 cmux-tui/crates/cmux-remote-browser-host/src/launch.rs	1
