@@ -7,6 +7,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { failureCopy, failureKind, failureRecovery } from "../src/agent-session/acpmux/failureCopy";
 import { readChatAccounts } from "../src/agent-session/acpmux/chatAccounts";
+import { openClaudeCloudSettings } from "../src/agent-session/acpmux/claudeConnect";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 
 import { teardownDom } from "./support/domTeardown";
@@ -76,8 +77,8 @@ test("cloud auth failures explain safe causes without leaking provider output or
   expect(failureCopy(t, "Claude failed to authenticate: credential is missing", cloud)).toBe(
     "This Cloud machine has no provider credential for Claude Code. Set it up to continue.",
   );
-  expect(failureCopy(t, "OAuth token expired (HTTP 401): raw-secret-value", cloud)).toBe(
-    "Claude Code’s provider credential has expired or been revoked on this Cloud machine. Set it up again to continue.",
+  expect(failureCopy(t, "OAuth token expired (HTTP 401): raw-secret-value", cloud, "claude_cloud_token_rejected")).toBe(
+    "Claude refused the Cloud sign-in. Set it up again.",
   );
   expect(failureCopy(t, "credential was revoked: raw-secret-value", cloud)).toBe(
     "Claude Code’s provider credential has expired or been revoked on this Cloud machine. Set it up again to continue.",
@@ -243,6 +244,35 @@ test("a Cloud 401 names the rejected credentials, never the machine's host", asy
     "The provider rejected Claude Code’s credentials on this Cloud machine (HTTP 401). Set them up again to continue.",
   );
   expect(card().textContent).not.toContain("private.internal");
+});
+
+test("a Claude Cloud setup token rejection opens Models for the affected machine on the user's click", async () => {
+  const calls: { method: string; params: Record<string, unknown> }[] = [];
+  let transferred = 0;
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider
+        value={{
+          route: { name: "Claude", harness: "claude", hostKind: "cloud" },
+          openClaudeCloudSettings: openClaudeCloudSettings(async (method, params) => {
+            calls.push({ method, params });
+          }, "vm_b"),
+          transferCloudCredentials: async () => {
+            transferred++;
+          },
+          switchModel: () => undefined,
+        }}
+      >
+        <TurnFooter row={{ ...failed("HTTP 401 Unauthorized", "claude_cloud_token_rejected"), retryable: true }} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  const renewal = button("Set up Claude for Cloud again");
+  expect(renewal?.classList.contains("cv-turn-error__primary")).toBe(true);
+  expect(calls).toEqual([]);
+  await act(async () => renewal!.click());
+  expect(calls).toEqual([{ method: "cloud.connect", params: { family: "claude", machine: "vm_b" } }]);
+  expect(transferred).toBe(0);
 });
 
 test("capacity puts Retry first, Switch model after it", async () => {

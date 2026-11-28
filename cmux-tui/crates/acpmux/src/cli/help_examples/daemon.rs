@@ -177,7 +177,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ("Probe every harness for its models again", "acpmux daemon models --refresh"),
         ],
     ),
-    ("daemon felt", &[("Show felt-latency p50, p90 and p99", "acpmux daemon felt")]),
+    (
+        "daemon felt",
+        &[
+            ("Show felt-latency p50, p90 and p99", "acpmux daemon felt"),
+            ("The same as JSON", "acpmux --json daemon felt"),
+        ],
+    ),
     (
         "daemon placement",
         &[(
