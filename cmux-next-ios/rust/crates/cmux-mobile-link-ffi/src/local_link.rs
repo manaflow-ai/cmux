@@ -409,6 +409,9 @@ mod tests {
         local_link_pair("mac-roam".into(), None);
     }
 
+    /// One network simulation, set on a request.
+    type Simulate = fn(&mut ConnectRequest);
+
     fn dial_request(mac: &str, simulate: impl FnOnce(&mut ConnectRequest)) -> ConnectRequest {
         let mut request = ConnectRequest {
             base_url: String::new(),
@@ -447,7 +450,7 @@ mod tests {
             let here = vec![LocalEndpoint { host: "127.0.0.1".into(), port }];
             assert!(local_link_observe("Mac Sim".into(), ad, here));
             assert!(local_link_nearby("mac-sim".into()));
-            let simulations: [(&str, fn(&mut ConnectRequest)); 5] = [
+            let simulations: [(&str, Simulate); 5] = [
                 ("relay only", |r| r.relay_only = true),
                 ("UDP blocked", |r| r.block_udp = true),
                 ("proxy only", |r| r.proxy_only = true),
