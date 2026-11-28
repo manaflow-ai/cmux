@@ -69,7 +69,7 @@ class Daemon:
             cfg = json.loads(config.read_text())
             # Peers are other machines' daemons: this run stays on this one.
             if not keep_peers:
-                cfg["peers"] = {} if isinstance(cfg.get("peers"), dict) else []
+                cfg["peers"] = {}
             # The daemon rejects group-writable config. Do not inherit the runner's
             # umask, including when --home reuses a file from an earlier run.
             fd = os.open(home / "config.json", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -86,7 +86,13 @@ class Daemon:
         )
         deadline = time.time() + 30
         while time.time() < deadline:
-            if self.run(["daemon", "status"], timeout=10).returncode == 0:
+            exited = self.proc.poll()
+            if exited is not None:
+                raise RuntimeError(f"isolated acpmux daemon exited with status {exited}; see {self.home / 'matrix-daemon.log'}")
+            # `daemon status` exits 0 even when it reports `running: false`.
+            # Only the process we started answering on our socket proves readiness.
+            code, status, _ = self.json(["daemon", "status"], timeout=10)
+            if code == 0 and isinstance(status, dict) and status.get("pid") == self.proc.pid:
                 return
             time.sleep(0.5)
         raise RuntimeError("isolated acpmux daemon did not come up")
