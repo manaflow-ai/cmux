@@ -496,6 +496,15 @@ def look_reason(env) -> str:
     return reason or "the look made no record"
 
 
+def settled_success(status: dict | None) -> bool:
+    """Whether cmux/ui-proof already reads success at this head (the router's UI-free success, a `Visual: none`
+    bypass, or a passing record). A look that could not run answers a question a success has closed: it must not
+    turn that success into failure (cmux#64036: router success 04:43Z, then "no fleet Mac took the look" 07:45Z,
+    "queue was full" 08:03Z, "pictures came without a receipt" 09:49Z; the newest status won and refused the merge).
+    A pending or absent status is not settled: the look failure still bounds a real UI PR's unanswered look."""
+    return bool(status and status.get("state") == "success")
+
+
 def kept_look_failure(status: dict | None) -> tuple[str, str] | None:
     """A look failure already posted at this head (STATUS: the combined status' cmux/ui-proof entry), which a gate
     rerun with no record keeps: a body edit must not turn it back into a pending nothing will answer."""
@@ -685,6 +694,17 @@ def main(argv: list[str] | None = None) -> int:
         tokens = [t for t in os.environ.get("TOKENS", "").split() if t]
         body = pr_body(os.environ.get("REPO", ""), args.pr, tokens)
         state, desc = look_failed_unless_declared(body, args.reason, args.pr, args.again)
+        repo, sha = os.environ.get("REPO", ""), os.environ.get("SHA", "")
+        for token in tokens:
+            try:
+                current = current_status(repo, sha, token)
+            except Exception:  # noqa: BLE001 - an unread status posts the failure: the bound stays
+                continue
+            if settled_success(current):
+                print(f"{STATUS_CONTEXT}: already success at {sha[:12]} ({current.get('description')}); "
+                      f"the look's failure ({desc}) is not posted")
+                return 0
+            break
         ok = post_status(state, desc, os.environ.get("REPO", ""), os.environ.get("SHA", ""), tokens,
                          os.environ.get("RUN_URL", ""))
         print(f"{STATUS_CONTEXT}: {state}: {desc}" + ("" if ok else " (NOT posted)"))

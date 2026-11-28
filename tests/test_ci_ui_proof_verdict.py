@@ -436,6 +436,27 @@ class LookFailedTest(unittest.TestCase):
         self.assertIsNone(u.kept_look_failure({"state": "pending", "description": failed["description"]}))
         self.assertIsNone(u.kept_look_failure(None))
 
+    def test_look_failure_never_replaces_a_success(self) -> None:
+        """cmux#64036: the router's no-UI success, then three look failures (capacity, queue, no receipt)."""
+        ok = {"context": u.STATUS_CONTEXT, "state": "success", "description": "Touches nothing a user sees"}
+        self.assertTrue(u.settled_success(ok))
+        for status in (None, {"state": "pending", "description": "Visual change, no look at this head"},
+                       {"state": "failure", "description": "UI proof at this head failed: x"}):
+            self.assertFalse(u.settled_success(status))
+        for reason in (self.CANCELLED, "the fleet's look queue was full (over 60 queued looks)",
+                       "the look's pictures came without a receipt"):
+            for state, posted in ((ok, 0), ({"state": "pending", "description": "x"}, 1)):
+                with mock.patch.object(u, "current_status", return_value=state), \
+                        mock.patch.object(u, "post_status", return_value=True) as post, \
+                        mock.patch.dict(os.environ, {"TOKENS": "t", "REPO": "r", "SHA": HEAD}):
+                    self.assertEqual(u.main(["look-failed", "--pr", "7", "--reason", reason]), 0)
+                self.assertEqual(post.call_count, posted)
+
+    def test_ui_free_paths_get_no_look(self) -> None:
+        self.assertEqual(u.affects(["webviews/scripts/intro-walk.mjs", "webviews/scripts/intro-walk-b.mjs"]), "")
+        wf = (Path(__file__).resolve().parents[1] / ".github/workflows/cmux-next-hot-verify.yml").read_text()
+        self.assertIn("ui_proof_verdict.py affects", wf.split("name: Dispatch the look")[0])
+
     def gate(self, status, records=None) -> tuple[str, str]:
         def api(path, token, *a, **k):
             if "/status" in path:
