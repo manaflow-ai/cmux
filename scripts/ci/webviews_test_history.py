@@ -32,6 +32,12 @@
         OUT_DIR/files) that shard I uploaded on pull request branch B in a run other than ID: the files that passed
         at the pull request's previous head, which a newer head's shard need not run again when its change cannot
         reach them (ci-web.yml). Two requests, the list and the download; any failure writes nothing
+        [--artifact NAME --max-age-hours H]: the feat-cmux-next post-merge batch's own list (ci-web.yml, NAME
+        react-apps-batch-passed-shard, BRANCH feat-cmux-next): files whose last real run (the list's `ran` file, `EPOCH
+        FILE` lines) is over H hours old are dropped, so every reused file still runs at least every H hours
+    webviews_test_history.py passed-ran PASSED_DIR --before BEFORE_DIR --reused FILE [--now EPOCH]
+        write PASSED_DIR/ran: each file in PASSED_DIR/files with the time it last really ran (BEFORE_DIR/ran's for a
+        file the run reused, listed in FILE; now for one it ran)
     webviews_test_history.py early-known EARLY_DIR --sha BASE_SHA --replay FILES --known BASE.json
         take into BASE (known's output) the verdicts react-apps-base-early's artifacts in EARLY_DIR hold for the
         FILES list (known's replay list) at BASE_SHA, and rewrite FILES with the files still to replay
@@ -86,6 +92,7 @@ without naming tests (a timeout, a crash) says nothing about that file's tests o
 from __future__ import annotations
 
 import argparse
+import datetime
 import hashlib
 import io
 import json
@@ -747,11 +754,31 @@ PASSED_ARTIFACT = "react-apps-passed-shard"
 PASSED_PAGE = 100  # the newest uploads of one shard's name, every pull request's: about two hours of runs
 
 
-def passed_before(repo: str, branch: str, shard: int, run_id: int, out: Path, get=_get) -> str:
+# The post-merge batch's own list (react-apps-check-shard on feat-cmux-next, a workflow_dispatch with inputs.sha): a name
+# of its own, so the pull requests' uploads (about 100 every two hours) do not push its few a day off the listing's page.
+BATCH_PASSED_ARTIFACT = "react-apps-batch-passed-shard"
+
+
+def _ran_times(text: str) -> dict:
+    """A `ran` file's {file: epoch}; a malformed line says nothing."""
+    out = {}
+    for line in text.splitlines():
+        stamp, _, file = line.strip().partition(" ")
+        if stamp.isdigit() and file:
+            out[file] = int(stamp)
+    return out
+
+
+def passed_before(repo: str, branch: str, shard: int, run_id: int, out: Path, get=_get,
+                  artifact: str = PASSED_ARTIFACT, max_age_hours: float = 0, now: float | None = None) -> str:
     """Write the newest list shard SHARD uploaded on BRANCH in a run other than RUN_ID to OUT (commit, files); say what
-    was read. Only this repository's runs: a fork's branch may share the name. Any failure writes nothing."""
+    was read. Only this repository's runs: a fork's branch may share the name. Any failure writes nothing.
+
+    MAX_AGE_HOURS > 0 (the batch's list) keeps only the files whose last real run, in the list's `ran` file, is that
+    recent, and writes their times to OUT/ran: a file no change reaches would otherwise be carried from list to list
+    and never run on the base again. A list with no `ran` file dates every file at the artifact's creation."""
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
-    name = f"{PASSED_ARTIFACT}{shard}"
+    name = f"{artifact}{shard}"
     query = urllib.parse.urlencode({"name": name, "per_page": PASSED_PAGE})
     token = os.environ.get("GITHUB_TOKEN")
     try:
@@ -780,15 +807,60 @@ def passed_before(repo: str, branch: str, shard: int, run_id: int, out: Path, ge
         with zipfile.ZipFile(io.BytesIO(body)) as archive:
             commit = archive.read("commit").decode().strip()
             files = archive.read("files").decode()
+            ran_text = archive.read("ran").decode() if "ran" in archive.namelist() else None
     except (OSError, ValueError, KeyError, zipfile.BadZipFile) as error:
         return f"reading the {name} artifact failed: {error}"
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         return f"{name} {best.get('id')} names no commit"
+    aged = ""
+    ran_out = None
+    if max_age_hours > 0:
+        now = time.time() if now is None else now
+        try:
+            created = datetime.datetime.strptime(str(best.get("created_at") or ""), "%Y-%m-%dT%H:%M:%SZ").replace(
+                tzinfo=datetime.timezone.utc).timestamp()
+        except ValueError:
+            created = 0
+        ran = _ran_times(ran_text) if ran_text is not None else {}
+        listed = [line.strip() for line in files.splitlines() if line.strip()]
+        kept = [f for f in listed if ran.get(f, created if ran_text is None else 0) >= now - max_age_hours * 3600]
+        aged = f", {len(listed) - len(kept)} last ran over {max_age_hours:g} h ago and run again"
+        files = "".join(f + "\n" for f in kept)
+        ran_out = "".join(f"{int(ran.get(f, created))} {f}\n" for f in kept)
     out.mkdir(parents=True, exist_ok=True)
     (out / "files").write_text(files, encoding="utf-8")
+    if ran_out is not None:
+        (out / "ran").write_text(ran_out, encoding="utf-8")
     (out / "commit").write_text(commit + "\n", encoding="utf-8")
     run = best.get("workflow_run") or {}
-    return f"{name} {best.get('id')} from run {run.get('id')} at {commit[:12]}: {len(files.splitlines())} files"
+    return f"{name} {best.get('id')} from run {run.get('id')} at {commit[:12]}: {len(files.splitlines())} files{aged}"
+
+
+def passed_ran(passed: Path, before: Path, reused: Path | None, now: float | None = None) -> int:
+    """Write PASSED/ran (`EPOCH FILE` lines) for PASSED/files: a reused file keeps BEFORE/ran's time, any other file
+    ran now. Returns the lines written; a missing list writes none."""
+    now = int(time.time() if now is None else now)
+    try:
+        listed = [line.strip() for line in (passed / "files").read_text(encoding="utf-8").splitlines() if line.strip()]
+    except OSError:
+        return 0
+    try:
+        carried = set(line.strip() for line in reused.read_text(encoding="utf-8").splitlines()) if reused else set()
+    except OSError:
+        carried = set()
+    try:
+        old = _ran_times((before / "ran").read_text(encoding="utf-8"))
+    except OSError:
+        old = {}
+    seen = set()
+    lines = []
+    for file in listed:
+        if file in seen:
+            continue
+        seen.add(file)
+        lines.append(f"{old.get(file, now) if file in carried else now} {file}\n")
+    (passed / "ran").write_text("".join(lines), encoding="utf-8")
+    return len(lines)
 
 
 # A pull request's base replay, shared with every other pull request at the same base. react-apps-base-check replays its
@@ -952,6 +1024,13 @@ def main(argv: list[str]) -> int:
     pb.add_argument("--branch", required=True)
     pb.add_argument("--shard", type=int, required=True)
     pb.add_argument("--run-id", type=int, required=True)
+    pb.add_argument("--artifact", default=PASSED_ARTIFACT)
+    pb.add_argument("--max-age-hours", type=float, default=0)
+    pr = sub.add_parser("passed-ran")
+    pr.add_argument("passed")
+    pr.add_argument("--before", required=True)
+    pr.add_argument("--reused", default="")
+    pr.add_argument("--now", type=float, default=None)
     sn = sub.add_parser("shared-name")
     sn.add_argument("--inputs", required=True)
     sn.add_argument("--runner", required=True)
@@ -992,7 +1071,13 @@ def main(argv: list[str]) -> int:
         print(f"webview test history: {said}")
         return 0
     if args.command == "passed-before":
-        print(f"files passed at the previous head: {passed_before(args.repo, args.branch, args.shard, args.run_id, Path(args.out))}")
+        said = passed_before(args.repo, args.branch, args.shard, args.run_id, Path(args.out),
+                             artifact=args.artifact, max_age_hours=args.max_age_hours)
+        print(f"files passed at the previous head: {said}")
+        return 0
+    if args.command == "passed-ran":
+        written = passed_ran(Path(args.passed), Path(args.before), Path(args.reused) if args.reused else None, args.now)
+        print(f"dated {written} passed files")
         return 0
     if args.command == "held-red-files":
         changed = set()
