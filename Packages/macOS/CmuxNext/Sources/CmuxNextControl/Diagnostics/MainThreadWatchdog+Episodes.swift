@@ -30,7 +30,9 @@ extension MainThreadWatchdog {
         let cpu = mainThreadCPU(sinceBeat: beat).map { Duration.nanoseconds(Int64(clamping: $0)) }
         let host = stallHost(beat: beat)
         let verdict = StallVerdict.classify(wall: duration, mainThreadCPU: cpu, host: host)
-        logger.fault("main thread hang: busy \(duration.fractionalMilliseconds, format: .fixed(precision: 0)) ms and counting, \(verdict.rawValue, privacy: .public): main thread cpu \(cpu?.fractionalMilliseconds ?? -1, format: .fixed(precision: 0)) ms, host load \(host?.one ?? -1, format: .fixed(precision: 1)) on \(host?.cores ?? 0) cores")
+        let cause = StallCause.classify(verdict: verdict, wall: duration, mainThreadCPU: cpu,
+                                        processCores: stallProcessCores(beat: beat), host: host)
+        logger.fault("main thread hang: busy \(duration.fractionalMilliseconds, format: .fixed(precision: 0)) ms and counting, \(verdict.rawValue, privacy: .public) (\(cause?.rawValue ?? "unknown", privacy: .public)): main thread cpu \(cpu?.fractionalMilliseconds ?? -1, format: .fixed(precision: 0)) ms, host load \(host?.one ?? -1, format: .fixed(precision: 1)) on \(host?.cores ?? 0) cores")
         let due = lastReportNanos.map { now >= $0 &+ hangIntervalNanos } ?? true
         let sink = due ? onHang : nil
         let recorder = episodes
@@ -99,6 +101,13 @@ extension MainThreadWatchdog {
             base?.host = peak
             return peak
         }
+    }
+
+    /// This process's CPU in cores since the watchdog first sampled the stall of `beat`; nil for
+    /// any other beat or when unread (``StallCause``: a starved stall's own queues or the host).
+    func stallProcessCores(beat: UInt64) -> Double? {
+        guard let counts = stallEvents.withLock({ $0?.beat == beat ? $0?.counts : nil }) else { return nil }
+        return counts.processCores(to: TaskEventCounts.current())
     }
 
     /// The hang of `beat`'s load so far: the main thread's CPU (`cpuNanos`), the process's

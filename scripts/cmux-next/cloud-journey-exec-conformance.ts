@@ -45,6 +45,45 @@ export function journeyAcpmuxPieces(gz: Uint8Array, pieceBytes = JOURNEY_ACPMUX_
   return out;
 }
 
+/** How many times one piece's fs/write is tried, and the waits between tries (ms). */
+export const JOURNEY_ACPMUX_WRITE_TRIES = 3;
+export const JOURNEY_ACPMUX_WRITE_BACKOFF_MS = [3_000, 10_000];
+
+type WriteAnswer = { status: number; body?: any };
+
+/** Whether a failed write is worth another try: a gateway answer (vm_unavailable is a 502), or no answer at all. */
+export function journeyAcpmuxWriteRetryable(w: WriteAnswer | null): boolean {
+  if (!w) return true;
+  const code = String(w.body?.error?.code ?? w.body?.code ?? "");
+  return w.status === 0 || w.status === 408 || w.status === 429 || w.status >= 500 || code === "vm_unavailable";
+}
+
+/**
+ * One piece's fs/write, tried up to JOURNEY_ACPMUX_WRITE_TRIES times on a retryable answer (run 46172370728: one 502
+ * vm_unavailable on the first piece cost the whole run its acpmux). Throws with every try's answer when none took.
+ */
+export async function journeyAcpmuxWrite(
+  path: string,
+  send: () => Promise<WriteAnswer>,
+  wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+): Promise<number> {
+  const said: string[] = [];
+  for (let attempt = 1; ; attempt++) {
+    let w: WriteAnswer | null = null;
+    try {
+      w = await send();
+      if (w.status >= 200 && w.status < 300 && w.body?.ok !== false) return attempt;
+      said.push(`HTTP ${w.status} ${String(w.body?.error?.code ?? w.body?.code ?? "").slice(0, 60)}`.trim());
+    } catch (e) {
+      said.push(String((e as Error)?.message ?? e).slice(0, 120));
+    }
+    if (attempt >= JOURNEY_ACPMUX_WRITE_TRIES || !journeyAcpmuxWriteRetryable(w)) {
+      throw new Error(`fs/write ${path}: ${said.join("; ")} (${attempt} ${attempt === 1 ? "try" : "tries"})`);
+    }
+    await wait(JOURNEY_ACPMUX_WRITE_BACKOFF_MS[attempt - 1] ?? JOURNEY_ACPMUX_WRITE_BACKOFF_MS.at(-1)!);
+  }
+}
+
 /** Joins the pieces into JOURNEY_ACPMUX_DIR/acpmux, checks it runs, and prints its version on an @@ec line. */
 export function journeyAcpmuxAssemble(pieces: number, sha256: string): string {
   const d = JOURNEY_ACPMUX_DIR;
