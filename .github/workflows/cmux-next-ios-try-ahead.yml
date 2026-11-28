@@ -138,13 +138,13 @@ jobs:
           {
             echo "### cmux Dev for PR #$PR at ${HEAD_SHA:0:12}"
             echo
-            if [[ "$state" == done ]]; then
+            if [[ "$state" == "done" ]]; then
               echo "Built ahead (fleet step \`${step:-?}\`). On a Mac with the phone attached: \`cmux-next-ios/scripts/try.sh $PR\`, or Settings > Developer > Try a pull request in cmux Dev."
             else
               echo "No build ahead (step state ${state:-unread}, client exit $status, step \`${step:-none}\`); try.sh builds it on request."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
-          if [[ "$state" == done ]]; then echo "outcome=built" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [[ "$state" == "done" ]]; then echo "outcome=built" >> "$GITHUB_OUTPUT"; exit 0; fi
           if grep -q 'is not the reviewed version' "$log"; then
             echo "::warning title=cmux Dev ahead::this head changes scripts/ci/cmux-next-ios-sim.sh, which the fleet runs only once reviewed on feat-cmux-next; not built ahead"
             exit 0

@@ -62,7 +62,9 @@ def main() -> int:
     invocation = [
         line.strip()
         for line in step.splitlines()
-        if '"$RUNNER_TEMP/actionlint"' in line
+        # A line that runs the binary; `ACTIONLINT="$RUNNER_TEMP/actionlint" python3 ...` only hands its path to
+        # another check (test_ci_workflow_start_lint.py) and is not the full-tree lint.
+        if line.strip().startswith('"$RUNNER_TEMP/actionlint"')
     ]
     check(
         invocation == ['"$RUNNER_TEMP/actionlint"'],

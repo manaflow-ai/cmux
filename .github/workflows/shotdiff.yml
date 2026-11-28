@@ -11,6 +11,7 @@ on:
   pull_request:
     paths:
       - cmux-tui/crates/cmux-shotdiff/**
+      - "!cmux-tui/crates/cmux-shotdiff/**/*.md"  # its README builds and tests nothing
       - .github/actions/shotdiff/**
       - .github/workflows/shotdiff.yml
       - scripts/ci/visual_baseline.py
@@ -19,6 +20,7 @@ on:
     branches: [main, feat-cmux-next]
     paths:
       - cmux-tui/crates/cmux-shotdiff/**
+      - "!cmux-tui/crates/cmux-shotdiff/**/*.md"  # its README builds and tests nothing
       - .github/actions/shotdiff/**
       - .github/workflows/shotdiff.yml
       - scripts/ci/visual_baseline.py

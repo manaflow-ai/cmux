@@ -49,6 +49,8 @@ on:
       - "docs/ci/health-report.md"
       - "docs/privacy.md"
       - "docs/network-requirements.md"
+      - "docs/ci/cmux-next-workflow-notes.md"
+      - "docs/benches/coverage-map.md"
       - "**/notices/**"
       - "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
       - "cmux-tui/README.md"

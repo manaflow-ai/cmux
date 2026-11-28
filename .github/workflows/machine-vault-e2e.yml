@@ -912,6 +912,8 @@ jobs:
         run: |
           set -uo pipefail
           out="$RUNNER_TEMP/machine-join-e2e/frame.png"
+          # The runner user writes $out; sudo only reads the viewer's file.
+          # shellcheck disable=SC2024
           if ! sudo -n -u "$VIEWER_USER" -- /bin/cat -- "$VIEWER_HOME/frame.png" > "$out" 2>/dev/null; then
             rm -f -- "$out"
             echo "no picture of the viewer's display"

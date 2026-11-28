@@ -37,6 +37,8 @@ self-hosted-runner:
     # cmux-gcp-*-jit-x64 labels appear only inside expressions, which
     # actionlint does not check.
     - cmux-gcp-repair-jit-x64
+    # The nightly publishing JIT pool (single-host-fallbacks.json); nightly.yml's restore-historical-notes names it bare.
+    - cmux-gcp-nightly-jit-x64
     - warp-ubuntu-latest-x64-4x
     # GitHub-hosted, not self-hosted (1.7.12 knows this label; the entry stays
     # for older local actionlint builds). actionlint 1.7.7 shipped a fixed list of

@@ -85,6 +85,8 @@ REACTS: dict[str, str] = {
     "cmux-next-batch.yml": "debounce only; hold and landing labels change batch eligibility",
     "cmux-next-media.yml": "labeled-only; its jobs already run only for media-tour / no-media-tour",
     "cmux-next-motion-golden.yml": "its job already runs only when motion-golden is the label added",
+    "ios-launch-tti-hosted.yml": "its measure job runs on a label event only when launch-tti is the label added "
+    "(#63619); any other label skips it with no runner",
     "cloud-resume-matrix.yml": "its plan job runs only for the resume-matrix labels (or the body marker on a "
     "non-label event); every other job needs plan",
 }
@@ -200,6 +202,10 @@ def reachable_by_label_event(body: dict, condition: str, event: str = "pull_requ
     # `github.event_name != 'pull_request' && ...` with no top-level || never runs on a pull_request event.
     if event == "pull_request" and condition.startswith("github.event_name != 'pull_request' &&") \
             and not top_level_or(condition):
+        return False
+    # Nor does one with `&& github.event_name != 'pull_request'` among its top-level terms (cmux-next.yml's
+    # push-head-preflight: `!cancelled() && (...) && github.event_name != 'pull_request'`).
+    if event == "pull_request" and "github.event_name != 'pull_request'" in top_level_and_terms(" ".join(condition.split())):
         return False
     if event == "pull_request" and ON_BRANCH_REF.match(" ".join(condition.split())) and not top_level_or(condition):
         return False

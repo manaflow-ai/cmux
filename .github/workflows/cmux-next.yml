@@ -98,6 +98,7 @@ on:
       # Why: 2026-11-24-paths-3.md
       - samples/apps/**
       - scripts/build-webviews-app.sh
+      - scripts/lib/bun-options.sh  # scripts/build-webviews-app.sh sources it
       - scripts/check-webviews-bun-version.sh
       - scripts/webviews_bun_version.py
       - scripts/cmux-next/build-agent-pane-web.sh
@@ -135,6 +136,7 @@ on:
       - tests/test_cmux_next_base_tier.py
       - tests/test_cargo_target_strip.py
       - scripts/ci/cargo_target_strip.py
+      - scripts/blacksmith-testbox-source-mtimes.py  # scripts/ci/cargo-target-delta.sh runs it
       - tests/test_cmux_next_dispatch_heavy_compiles.py
       - scripts/ci/cmux_next_base_tier.py
       - scripts/ci/github_quota_client.py
@@ -492,6 +494,7 @@ on:
       # Why: 2026-11-24-paths-3.md
       - samples/apps/**
       - scripts/build-webviews-app.sh
+      - scripts/lib/bun-options.sh  # scripts/build-webviews-app.sh sources it
       - scripts/check-webviews-bun-version.sh
       - scripts/webviews_bun_version.py
       - scripts/cmux-next/build-agent-pane-web.sh
@@ -529,6 +532,7 @@ on:
       - tests/test_cmux_next_base_tier.py
       - tests/test_cargo_target_strip.py
       - scripts/ci/cargo_target_strip.py
+      - scripts/blacksmith-testbox-source-mtimes.py  # scripts/ci/cargo-target-delta.sh runs it
       - tests/test_cmux_next_dispatch_heavy_compiles.py
       - scripts/ci/cmux_next_base_tier.py
       - scripts/ci/github_quota_client.py

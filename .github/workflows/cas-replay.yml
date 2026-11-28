@@ -44,6 +44,8 @@ on:
       - "tests/test_cas_derived_data_replay.py"
       - "tests/test_cas_mac_update_replay.py"
       - "tests/test_cas_acpmux_update_replay.py"
+      - "scripts/ci/cmux_tui_tree_key.py"  # scripts/cas/acpmux_update_replay.py imports it
+      - "scripts/cmux-next/cmux-tui-tree-inputs.txt"  # cmux_tui_tree_key.py reads it
       - "tests/test_cas_replay_workflow.py"
       - "tests/test_verify_cas_replay_artifact.py"
   pull_request:
@@ -60,6 +62,8 @@ on:
       - "tests/test_cas_derived_data_replay.py"
       - "tests/test_cas_mac_update_replay.py"
       - "tests/test_cas_acpmux_update_replay.py"
+      - "scripts/ci/cmux_tui_tree_key.py"  # scripts/cas/acpmux_update_replay.py imports it
+      - "scripts/cmux-next/cmux-tui-tree-inputs.txt"  # cmux_tui_tree_key.py reads it
       - "tests/test_cas_replay_workflow.py"
       - "tests/test_verify_cas_replay_artifact.py"
   workflow_dispatch:

@@ -22,6 +22,8 @@ on:
       - Packages/iOS/**
       - scripts/ci/cmux-next-ios-sim.sh
       - .github/workflows/ios-sim-screenshot-loop.yml
+      # Markdown alone (notes, READMEs) changes no measurement; docs_only_paths.py is the shared rule.
+      - "!**/*.md"
   workflow_dispatch:
 
 permissions:
