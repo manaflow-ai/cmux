@@ -2,8 +2,8 @@
   "cmuxSetup": 1,
   "id": "manaflow-ai/overdrive-look",
   "name": "Overdrive",
-  "tagline": "A loud, fast look for agent chats: hot pink and electric cyan on near-black, chunky round prompts and cards, bold tight type, motion at full speed.",
-  "description": "A whole cmux look built only from public surfaces: theme files for color (Overdrive, dark, the default; Overdrive Daylight), settings for a tight bold chat face, a roomy sidebar and fast motion, a stylesheet of cmux.agentPane.style/1 tokens that draws the prompt as a big round pink pill with a cyan rim, and a customize view for a score-card hover card and heavy sidebar rows. Remove it and everything you had comes back.",
+  "tagline": "Loud and fast: hot pink and cyan on black.",
+  "description": "Loud and fast: hot pink and electric cyan on near-black, chunky rounded cards, bold type and quick motion. Includes a daylight version. Remove it and everything you had comes back.",
   "version": "0.1.0",
   "license": "MIT",
 
