@@ -65,11 +65,15 @@ const DROP_DIR: &str = "events.cold-drop";
 const COLD_SEGMENTS_DROP_DIR: &str = "cold-segments.cold-drop";
 /// The header's schema.
 const SCHEMA: &str = "acpmux.cold.v1";
-/// zstd's strongest level that needs no large window to decode (19). Event logs are JSON lines
-/// that repeat their keys and much of their text, so it pays: about 10x on a Claude chat
-/// (`store/cold_tests.rs` prints a fixture's numbers). Archiving is rare and runs on a blocking
-/// thread, one chat at a time; decoding at any level is fast.
-const LEVEL: i32 = 19;
+/// zstd level 9: event logs are JSON lines that repeat their keys and much of their text, so even
+/// a middle level packs them about 14x, and it is about 50x faster than 19. 19 assumed archiving is
+/// rare. 2026-11-28, gcp-agent-lane-2: the passes took 0.5-2.3 GB each, 7 passes in 3 h, and
+/// `perf` put 57% of the daemon's CPU in `cold_pass` -> `copy_hashed` (zstd opt2), one core held
+/// for minutes. On 79 MB of that host's chat logs (one thread): level 19 packs at 3.5 MB/s to
+/// 16.4x, 9 at 187 MB/s to 14.3x, 3 at 850 MB/s to 11.7x. 9 keeps most of the bytes saved for 2%
+/// of the CPU. Decoding is about 4 GB/s at any level, and archives already written at 19 still
+/// read back.
+const LEVEL: i32 = 9;
 /// The longest header or trailer line read back.
 const LINE_MAX: u64 = 4 * 1024 * 1024;
 

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { stalePicks, statusCounts, summaryMarkdown } from "./cloud-test-sweep.ts";
+import { stalePicks, statusCounts, summaryMarkdown, sweepPicks } from "./cloud-test-sweep.ts";
+import { FAILED_JOURNEY_MS, SHORT_JOURNEY_MS } from "./cloud-journey.ts";
 
 const H = 3_600_000;
 const NOW = 1_800_000_000_000;
@@ -38,6 +39,28 @@ describe("stalePicks", () => {
     const [p] = stalePicks([row("a", "paused", 30)], NOW, DAY);
     expect(p.created).toBe(new Date(NOW - 30 * H).toISOString());
     expect(p.why).toContain("paused");
+  });
+});
+
+describe("sweepPicks", () => {
+  const tag = (agoMs: number) => `jr-${(NOW - agoMs).toString(36)}`;
+  const j = (id: string, name: string, status: string, ageH: number, creator = "u1") => ({ id, name, status, creator, created_at: NOW - ageH * H, last_active_at: null });
+  test("adds journey-owned leftovers younger than the window, in any state, under the creator filter (run 46115218791)", () => {
+    const rows = [
+      row("old", "paused", 30),
+      j("jr_paused", `cloud journey auto ${tag(SHORT_JOURNEY_MS + 60_000)}`, "paused", 2),
+      j("jr_failed", `cloud journey auto ${tag(FAILED_JOURNEY_MS + 60_000)} cold`, "failed", 1),
+      j("jr_young", `cloud journey auto ${tag(SHORT_JOURNEY_MS - 60_000)}`, "paused", 1),
+      j("jr_long", `cloud journey auto ${tag(SHORT_JOURNEY_MS + 60_000)} long`, "paused", 2),
+      j("jr_theirs", `cloud journey auto ${tag(SHORT_JOURNEY_MS + 60_000)}`, "paused", 2, "u2"),
+      j("person", "my dev box", "paused", 2),
+    ];
+    expect(sweepPicks(rows, NOW, DAY, "u1").map((p) => p.id)).toEqual(["old", "jr_paused", "jr_failed"]);
+    expect(sweepPicks(rows, NOW, DAY).map((p) => p.id)).toEqual(["old", "jr_paused", "jr_failed", "jr_theirs"]);
+  });
+  test("a row both rules take is picked once", () => {
+    const rows = [j("both", `cloud journey auto ${tag(30 * H)}`, "paused", 30)];
+    expect(sweepPicks(rows, NOW, DAY).map((p) => p.id)).toEqual(["both"]);
   });
 });
 

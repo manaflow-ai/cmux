@@ -18763,6 +18763,9 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "nightly-next-update-e2e.yml",
             # The chat-size ladder (#63929): the 1 MB and 1 GB chats' ratio, base vs head in one job (advisory).
             "chat-size-ladder.yml",
+            # iOS product UI on a fleet simulator: the gesture-conflict suite (#52373) and the composer and terminal
+            # keyboard screenshot loop (#62182).
+            "cmux-next-ios-gestures.yml", "ios-sim-screenshot-loop.yml",
             # Push-only checks that also run, advisory and path-gated, on PRs into feat-cmux-next (#47445): the
             # acpmux simulator sweep, Chief's evals, the mobile FFI, the cmux-next terminal and the Windows RD host.
             "acpmux-sim-sweep.yml", "chief-evals.yml", "cmux-mobile-ffi.yml", "cmux-next-terminal.yml",
@@ -20537,6 +20540,22 @@ class CalledWorkflowStepNames(unittest.TestCase):
                 names = excuse.workflow_step_names(REPO, self.job(name), ".github/workflows/caller.yml",
                                                    self.github(caller), {})
                 self.assertIs(names, excuse.STEP_NAMES_UNKNOWN)
+
+    def test_a_caller_with_no_name_is_named_by_its_id(self):
+        # 2026-11-28: cmux-next-post-merge.yml's `rust-workspaces:` job calls rust-workspaces.yml with no `name:`, so
+        # Actions names its job 'rust-workspaces / plan (changed Cargo workspaces)' (feat-cmux-next run 46113542594,
+        # job 140884231693). Read as STEP_NAMES_UNKNOWN, that base log was unplaced and cmux#64053's red of the same
+        # duplicate entry was refused ("its red base verdict's log does not map one to one onto its steps").
+        unnamed = self.CALLER.replace("    name: pr pipeline\n", "")
+        job = self.job("pipeline / linux")
+        names = excuse.workflow_step_names(REPO, job, ".github/workflows/caller.yml", self.github(unnamed), {})
+        self.assertIsNot(names, excuse.STEP_NAMES_UNKNOWN)
+        self.assertEqual(dict(names), {2: True, 3: True, 4: True})
+        owned = excuse.step_owners(job, self.LOG, step_names=names)
+        self.assertNotIn(excuse.AMBIGUOUS, {status for _, _, status in owned})
+        # Its id is its name only when it has none: a named caller is never matched by its id.
+        self.assertIs(excuse.workflow_step_names(REPO, job, ".github/workflows/caller.yml", self.github(), {}),
+                      excuse.STEP_NAMES_UNKNOWN)
 
     def test_a_workflow_that_calls_itself_ends(self):
         loop = self.CALLER.replace("./.github/workflows/callee.yml", "./.github/workflows/caller.yml")
