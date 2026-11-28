@@ -67,12 +67,3 @@ public struct RoomMembership: Equatable, Sendable {
         pins[workspace.session, default: [:]][workspace.key] = room
     }
 }
-
-extension RoomMembership {
-    /// `shown`, a window's `members` in its room, with `pinning`: a member the window selected while Spaces is off,
-    /// whose pin to that room is in flight. It shows there until the pin lands, so a delta that lands first keeps it.
-    public static func shown(_ shown: [String], pinning: String?, members: [String]) -> [String] {
-        guard let pinning, !shown.contains(pinning), members.contains(pinning) else { return shown }
-        return shown + [pinning]
-    }
-}

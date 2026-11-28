@@ -80,7 +80,7 @@ extension WindowManager {
             if home.personal.isLoaded, !home.isProvisional, home.profile(state.profileID) == nil {
                 state.enterProfile(WindowProfiles.fallback(for: state, members: members(), machines: machines) ?? .defaultProfile)
             }
-            var visible = WindowProfiles.shown(members(), profile: state.profileID, machines: machines, pinning: state.workspaceID.flatMap { pinSelections[$0]?.window == window.id ? $0 : nil }) // a pick whose pin is in flight stays
+            var visible = WindowProfiles.shown(members(), profile: state.profileID, machines: machines, keeping: !spacesOn ? state.workspaceID.flatMap { pinSelections[$0]?.window == window.id ? $0 : nil } : nil)
             // A window waiting for the workspace it just created in a new
             // or empty room keeps that room (asked only when the room shows nothing).
             if visible.isEmpty, !claims.pending.values.contains(window.id),
