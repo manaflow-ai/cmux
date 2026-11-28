@@ -241,10 +241,11 @@ fn a_stranded_start_deletes_its_machine_only_when_no_other_send_took_it() {
         "vm-new",
         "the pinned retry keeps its machine"
     );
+    // Released, not deleted: it is still the person's running machine, so a fresh send reuses it.
     assert_eq!(
         plan(&path, &on(&key()))["machine"],
-        Value::Null,
-        "a fresh send gets its own machine"
+        "vm-new",
+        "a fresh send reuses the person's machine"
     );
     // The second fails for good too, after a third was pinned to it: still shared.
     let third = key();
@@ -939,7 +940,8 @@ fn plan_and_pin_need_the_account_the_send_began_in() {
     // the person's machine the App lists for that team).
     let other = plan(&path, &request(json!("user-leo/team-b")));
     assert_eq!(other["machine"], json!("vm-free"), "{other}");
-    assert_eq!(other["create_key"], Value::Null, "{other}");
+    // Every answer carries the send's own keys (`moves::cli` refuses one without them).
+    assert_eq!(other["create_key"], json!(format!("cloud-start-chat-{key}")), "{other}");
     let retry =
         json!({"key": key, "account": ACCOUNT, "user": ME, "loaded": false, "machines": []});
     assert_eq!(plan(&path, &retry.to_string())["machine"], json!("vm-free"));
