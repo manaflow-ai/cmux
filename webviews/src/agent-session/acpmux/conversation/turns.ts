@@ -3161,11 +3161,9 @@ const tailArms = (agentFamily: string | undefined): string =>
     compactShortTurnsOn(),
   ].join("|");
 
-/// The same row for a stretch's shape: the same object, or one made again with the same id and
-/// version (`withTailAnswers` and `backgroundFooters` make each footer anew on every shape, versioned
-/// by the rows it ends).
-const sameRow = (a: AcpmuxRow, b: AcpmuxRow) =>
-  a === b || (a.id === b.id && a.version === b.version && a.kind === b.kind && a.at === b.at);
+/// The same rows, object for object.
+const sameRows = (a: readonly AcpmuxRow[], b: readonly AcpmuxRow[]) =>
+  a.length === b.length && a.every((row, at) => row === b[at]);
 
 const readsHold = (reads: Map<string, boolean>, set: Pick<ReadonlySet<string>, "has">) => {
   for (const [id, had] of reads) if (set.has(id) !== had) return false;
@@ -3200,8 +3198,7 @@ function foldTailTurnOnce(
     cached.agentFamily === agentFamily &&
     cached.expandedSize === expanded.size &&
     cached.endedSize === endedBackground.size &&
-    cached.stretch.length === stretch.length &&
-    cached.stretch.every((row, at) => sameRow(row, stretch[at]!)) &&
+    sameRows(cached.stretch, stretch) &&
     readsHold(cached.foldedReads, folded) &&
     readsHold(cached.expandedReads, expanded) &&
     readsHold(cached.endedReads, endedBackground)
@@ -3233,10 +3230,9 @@ function foldTailTurnOnce(
         foldedReads.set(id, had);
         return had;
       },
-      add(id) {
+      add: (id) => {
         added.push(id);
         folded.add(id);
-        return this;
       },
     },
   );
@@ -3262,7 +3258,7 @@ function foldTailTurn(
   endedBackground: IdSet,
   clockOffset: number,
   agentFamily: string | undefined,
-  folded: Pick<Set<string>, "has" | "add"> = new Set(),
+  folded: { has(id: string): boolean; add(id: string): unknown } = new Set(),
 ): AcpmuxRow[] {
   const lineAt = stretch.findIndex((row) => row.kind === BACKGROUND_TURN && row.background !== undefined);
   const line = lineAt >= 0 ? stretch[lineAt] : undefined;
@@ -3419,9 +3415,19 @@ function withTailAnswers(tail: AcpmuxRow[], endedBackground: IdSet, seq?: number
     const body = tail.slice(from, at);
     from = at + 1;
     if (row.text) continue;
+    // The same summary over the same rows is the same footer, object for object, so the stretch it ends
+    // keeps its shape (`foldTailTurnOnce`).
+    const kept = tailAnswers.get(row);
+    if (kept && sameRows(kept.body, body)) {
+      if (kept.row) (out ??= [...tail])[at] = kept.row;
+      continue;
+    }
     const answer = body[answerAt(body)];
     const parts = turnCopyParts(body);
-    if (!answer && !parts) continue;
+    if (!answer && !parts) {
+      tailAnswers.set(row, { body, row: undefined });
+      continue;
+    }
     out ??= [...tail];
     // The memoized footer redraws when its turn's rows do.
     const key = body.reduce((sum, each) => (sum * 31 + each.version) % VERSION_SPAN, body.length);
@@ -3432,10 +3438,18 @@ function withTailAnswers(tail: AcpmuxRow[], endedBackground: IdSet, seq?: number
       ...withWork(body),
       version: row.version * VERSION_SPAN + key,
     };
+    tailAnswers.set(row, { body, row: out[at] });
   }
   return backgroundFooters(out ?? tail, endedBackground, seq);
 }
 const NO_ENDED_BACKGROUND: ReadonlySet<string> = new Set();
+/// Each tail summary's footer (`withTailAnswers`), by the summary, with the rows it ends.
+const tailAnswers = new RowMemo<AcpmuxRow, { body: AcpmuxRow[]; row: AcpmuxRow | undefined }>();
+/// Each footer `backgroundFooters` added, by the row it follows, with what it was made from.
+const backgroundEnds = new RowMemo<
+  AcpmuxRow,
+  { rows: AcpmuxRow[]; through: number | undefined; callsAlone: boolean; footer: AcpmuxRow | undefined }
+>();
 
 /// A finished stretch's timed work, for its footer's Timeline (waterfallSpans.ts), when it has any.
 function withWork(rows: readonly AcpmuxRow[]): Pick<AcpmuxRow, "turnWork"> {
@@ -3500,8 +3514,17 @@ function backgroundFooters(tail: AcpmuxRow[], endedBackground: IdSet, seq?: numb
     const answer = body.rows[answerAt(body.rows)];
     if (answer?.streaming) return;
     const callsAlone = !answer && (callsArm === "every" || (callsArm === "last" && body === lastBody));
+    // The same rows end the same way, object for object, so the stretch keeps its shape (`foldTailTurnOnce`).
+    const kept = backgroundEnds.get(row);
+    if (kept && kept.through === through && kept.callsAlone === callsAlone && sameRows(kept.rows, body.rows)) {
+      if (kept.footer) out.push(kept.footer);
+      return;
+    }
     const parts = answer ? turnCopyParts(body.rows) : callsAlone ? turnCallParts(body.rows) : undefined;
-    if (!parts) return;
+    if (!parts) {
+      backgroundEnds.set(row, { rows: body.rows, through, callsAlone, footer: undefined });
+      return;
+    }
     out.push({
       id: `${BACKGROUND_END}-${id}`,
       kind: "turnSummary",
