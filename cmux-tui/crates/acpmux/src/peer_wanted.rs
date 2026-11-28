@@ -281,8 +281,17 @@ impl Peer {
     /// ran on the monotonic clock, which stood still, so the attempt would otherwise come up to
     /// a minute after the wake, while the network that failed before the sleep is likely back.
     pub(super) async fn wait_backoff(&self, delay: Duration) -> BackoffWait {
+        self.wait_backoff_after(delay, 0).await
+    }
+
+    /// `wait_backoff` for a peer that has failed `failures` attempts in a row: the bound a
+    /// client's ask gives (and the spacing between asks' cuts) grows with them
+    /// (`Backoff::wanted_cap`), so an unreachable peer that is asked about all the time is dialed
+    /// ever less often, not once per `WANTED_CAP` for as long as the asks last.
+    pub(super) async fn wait_backoff_after(&self, delay: Duration, failures: u32) -> BackoffWait {
         let started = Instant::now();
-        let wanted = Backoff::wanted(delay, crate::peer_link::jitter());
+        let cap = Backoff::wanted_cap(failures);
+        let wanted = Backoff::wanted_after(delay, crate::peer_link::jitter(), failures);
         // After a refused ssh login no ask shortens the wait: a chat that keeps asking would
         // otherwise send the remote one refused login a second (`Backoff::login_refused`).
         // A refused host key likewise waits its own short backoff (`Backoff::host_key_refused`).
@@ -317,7 +326,7 @@ impl Peer {
                     // per cap, not one per ask.
                     let now = Instant::now();
                     let mut cut = self.wanted.cut_at.lock().unwrap_or_else(|e| e.into_inner());
-                    if cut.is_none_or(|at| now.saturating_duration_since(at) >= Backoff::WANTED_CAP) {
+                    if cut.is_none_or(|at| now.saturating_duration_since(at) >= cap) {
                         *cut = Some(now);
                         return BackoffWait::Done;
                     }
@@ -437,6 +446,36 @@ mod tests {
         peer.want();
         assert_eq!(wait.await.unwrap(), BackoffWait::Done);
         assert!(again.elapsed() >= Backoff::WANTED_CAP / 2, "{:?}", again.elapsed());
+    }
+
+    /// 2026-11-28: 76 saved peers, most unreachable, each asked about by lists and watches: the
+    /// daemon redialed every one about once a second. A simulated unreachable peer asked about
+    /// every 100 ms for ten minutes gets few attempts, each further apart.
+    #[tokio::test(start_paused = true)]
+    async fn an_unreachable_peer_that_is_always_asked_about_is_dialed_ever_less_often() {
+        let peer = peer();
+        let asking = peer.clone();
+        let asker = tokio::spawn(async move {
+            loop {
+                asking.want();
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        });
+        let start = Instant::now();
+        let mut attempts = vec![];
+        let mut backoff = Backoff::default();
+        while start.elapsed() < Duration::from_secs(600) {
+            let delay = backoff.next(crate::peer_link::jitter());
+            assert_eq!(peer.wait_backoff_after(delay, backoff.failures()).await, BackoffWait::Done);
+            attempts.push(start.elapsed());
+        }
+        asker.abort();
+        // Before: one attempt per second (about 600). Now the gap reaches half the slow cap.
+        assert!(attempts.len() < 90, "{} attempts in 10 minutes", attempts.len());
+        let gaps: Vec<_> = attempts.windows(2).map(|w| w[1] - w[0]).collect();
+        for gap in gaps.iter().rev().take(10) {
+            assert!(*gap >= Backoff::WANTED_SLOW_CAP / 2 - Duration::from_millis(200), "{gap:?}");
+        }
     }
 
     /// Review of #38015 (F1): an ask made while the attempt was still opening its tunnel, before
