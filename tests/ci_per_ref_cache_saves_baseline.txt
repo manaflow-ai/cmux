@@ -5,7 +5,7 @@ backend.yml: test: Save the API Worker green marker (cache)
 ci-web.yml: agent-pane-real-acpmux: Save the agent pane green marker
 ci-web.yml: react-apps-check: Save the green marker (cache)
 ci-web.yml: webviews-test-durations: Save the duration manifest
-cmux-next-degenerate-lab.yml: lab: Save tonight's marker
+cmux-next-degenerate-lab.yml: report: Save tonight's marker
 cmux-next-perf-budgets.yml: blacksmith-mac: Save the warm cache
 cmux-next-web.yml: coalesce: Record this push as the last covered one
 cmux-next.yml: cmux-scheme-compile: Save the DEV compile cache (Blacksmith)
