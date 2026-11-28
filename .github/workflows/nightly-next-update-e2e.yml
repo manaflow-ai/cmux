@@ -1,0 +1,94 @@
+name: nightly-next update e2e
+# Auto-update of the published cmux NIGHTLY, end to end, on a CI Mac (scripts/cmux-next/update-e2e.py).
+# It installs the second-newest build Nightly apps are offered, has the app find the newest on the live
+# feed, stage it, install it on quit and relaunch it (terminal and agent turn kept), then (--click) installs
+# a third build with the one-click action. A failure files nothing and rolls nothing back: it is red here,
+# with the harness's per-check results in the job summary.
+#
+# Why it exists (Leo, 2026-11-27: "we need to make sure we have auto-update continuing to work"): the update
+# fixes before it (cmux#47862, cmux#57762, cmux#60109) were each checked once, by hand or not at all, and
+# the one harness that proves an update end to end still drove the cmux NEXT identity and the /next/ feed
+# that froze on 2026-11-05, so nothing noticed when an update stopped working. This runs it on every
+# change to it and every 6 hours.
+#
+# GitHub runs a schedule only from the default branch, so the schedule takes effect once this file is on main.
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      from_build:
+        description: The build installed first (digits). Empty takes the second-newest Nightly build.
+        required: false
+        default: ''
+        type: string
+  pull_request:
+    paths:
+      - .github/workflows/nightly-next-update-e2e.yml
+      - scripts/cmux-next/update-e2e.py
+
+permissions: {}
+
+concurrency:
+  group: nightly-next-update-e2e-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'feed' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # A pull request tests its own head; every other run takes feat-cmux-next's harness.
+  TOOLING_REF: ${{ github.event_name == 'pull_request' && github.sha || 'feat-cmux-next' }}
+
+jobs:
+  update:
+    if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    # No secrets and no environment: it runs the published app.
+    runs-on: ${{ vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ env.TOOLING_REF }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/cmux-next/update-e2e.py
+            scripts/ci/frame-pacing/console-session.sh
+            scripts/ci/lib/signing-runtime-guard.sh
+            cmux-tui/crates/acpmux/tests/fake_agent.py
+            # fake_agent.py reads the JSON files beside it (guidance_sources.json).
+            cmux-tui/crates/acpmux/tests/*.json
+            .gitmodules
+          sparse-checkout-cone-mode: false
+
+      - name: Update the published Nightly, end to end
+        timeout-minutes: 40
+        env:
+          FROM_BUILD: ${{ inputs.from_build }}
+        run: |
+          set -euo pipefail
+          source scripts/ci/lib/signing-runtime-guard.sh
+          cmux_signing_runtime_guard
+          from=()
+          [ -z "${FROM_BUILD:-}" ] || from=(--from "$FROM_BUILD")
+          scripts/ci/frame-pacing/console-session.sh python3 -I "$GITHUB_WORKSPACE/scripts/cmux-next/update-e2e.py" \
+            --click ${from[@]+"${from[@]}"} 2>&1 | tee "$RUNNER_TEMP/update-e2e.log"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### cmux NIGHTLY update e2e"
+            echo '```'
+            grep -E '^\[(PASS|FAIL|PENDING)\]|^feed ' "$RUNNER_TEMP/update-e2e.log" 2>/dev/null || echo "the harness wrote no results"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: update-e2e-${{ github.run_id }}
+          path: ${{ runner.temp }}/update-e2e.log
+          if-no-files-found: ignore
+          retention-days: 7

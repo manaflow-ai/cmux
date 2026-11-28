@@ -337,3 +337,94 @@ import Testing
         #expect(joiner.push(Self.envelope(text))?["method"]?.stringValue == "x")
     }
 }
+
+/// `zstd-stream-v1` (cmux-mobile-host `link_zstd.rs`): the 0x01 counterpart of the deflate
+/// envelope. The joiner joins an envelope's frames by its header and hands the zstd bytes to the
+/// channel's one decoder (Rust); a message that does not decode ends the channel.
+@MainActor
+@Suite struct AcpmuxZstdStreamTests {
+    /// A stand-in decoder whose "zstd bytes" are the text itself, refusing a wrong length.
+    final class PlainStream: ZstdStreamReading {
+        private(set) var calls = 0
+        func decode(_ body: Data, textLength: Int) -> Data? {
+            calls += 1
+            return body.count == textLength ? body : nil
+        }
+    }
+
+    nonisolated static func envelope(_ text: Data, textLength: Int? = nil) -> Data {
+        func u32(_ value: Int) -> Data { withUnsafeBytes(of: UInt32(value).bigEndian) { Data($0) } }
+        return Data([ZstdStreamMessage.marker]) + u32(textLength ?? text.count) + u32(text.count) + text
+    }
+
+    @Test func anEnvelopeAcrossFramesJoinsAndDecodes() throws {
+        let stream = PlainStream()
+        var joiner = AcpmuxConnection.MessageJoiner(zstd: stream)
+        let text = Data(#"{"jsonrpc":"2.0","method":"x","params":{"pad":"\#(String(repeating: "a", count: 40_000))"}}"#.utf8)
+        let bytes = Self.envelope(text)
+        let chunk = AcpmuxConnection.MessageJoiner.chunk
+        var value: JSONValue?
+        for start in stride(from: 0, to: bytes.count, by: chunk) {
+            value = joiner.push(bytes.subdata(in: start..<min(start + chunk, bytes.count)))
+        }
+        #expect(value?["method"]?.stringValue == "x")
+        #expect(stream.calls == 1)
+        #expect(!joiner.streamLost)
+        // A small one, and plain text, still read after it.
+        #expect(joiner.push(Self.envelope(Data(#"{"jsonrpc":"2.0","method":"y"}"#.utf8)))?["method"]?.stringValue == "y")
+        #expect(joiner.push(Data(#"{"jsonrpc":"2.0","method":"z"}"#.utf8))?["method"]?.stringValue == "z")
+    }
+
+    @Test func anEnvelopeThatDoesNotDecodeLosesTheStream() {
+        var joiner = AcpmuxConnection.MessageJoiner(zstd: PlainStream())
+        let text = Data(#"{"jsonrpc":"2.0","method":"x"}"#.utf8)
+        #expect(joiner.push(Self.envelope(text, textLength: text.count + 1)) == nil)
+        #expect(joiner.streamLost)
+    }
+
+    @Test func anEnvelopeLongerThanTheBudgetIsRefused() {
+        var joiner = AcpmuxConnection.MessageJoiner(zstd: PlainStream())
+        joiner.budget = 1024
+        let text = Data(#"{"jsonrpc":"2.0","method":"x","params":{"pad":"\#(String(repeating: "a", count: 40_000))"}}"#.utf8)
+        #expect(joiner.push(Self.envelope(text)) == nil)
+        #expect(joiner.takeRefused() != nil)
+        #expect(joiner.streamLost)
+    }
+
+    #if canImport(CmuxMobileLinkFFI)
+    /// Two envelopes the Mac's encoder wrote (cmux-mobile-link `StreamEncoder`), the second only
+    /// 27 bytes because it reuses the first's context.
+    static let hostEnvelopes = [
+        "01000000af0000008828b52ffd0050fc030052881a1b706bdaf5222dec90141a1a36dd48fa7dcbc3e180478b4beaff7f25adb5f643a101e5d2686d8340cb3049f8a53723fbf7648dfe736fcdd6554f5fa8b328241564ce85b4a682bfc3d30585e7ce0b1b644fcfc6843900dd0473f2efc92e9debe98163f0bb628d2e2bfe040600a03200abc13eb73d2a49a976cbdf0905",
+        "01000000b5000000127c000028616761696e0200384b5423a34c10",
+    ]
+
+    @Test func hostEnvelopesDecodeInOrderWithTheRustDecoder() throws {
+        var joiner = AcpmuxConnection.MessageJoiner(zstd: RustZstdStream())
+        var texts: [String] = []
+        for hex in Self.hostEnvelopes {
+            let digits = Array(hex)
+            var bytes = Data()
+            for at in stride(from: 0, to: digits.count, by: 2) {
+                bytes.append(try #require(UInt8(String(digits[at..<at + 2]), radix: 16)))
+            }
+            // `push` is mutating, and #require's function-call expansion takes it as immutable.
+            let pushed = joiner.push(bytes)
+            let value = try #require(pushed)
+            texts.append(try #require(value["params"]?["update"]?["content"]?["text"]?.stringValue))
+        }
+        #expect(texts == ["Hello from the Mac.", "Hello again from the Mac."])
+        // The second alone has no context to decode against.
+        var fresh = AcpmuxConnection.MessageJoiner(zstd: RustZstdStream())
+        let digits = Array(Self.hostEnvelopes[1])
+        let second = Data(stride(from: 0, to: digits.count, by: 2).map { UInt8(String(digits[$0..<$0 + 2]), radix: 16)! })
+        #expect(fresh.push(second) == nil)
+        #expect(fresh.streamLost)
+    }
+
+    @Test func theChannelAsksForTheStream() {
+        #expect(AcpmuxConnection.channelArgs["compression"] == "deflate")
+        #expect(AcpmuxConnection.channelArgs["compressions"] == "zstd-stream-v1,deflate")
+    }
+    #endif
+}

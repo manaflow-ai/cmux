@@ -131,6 +131,8 @@ pub mod forum;
 mod forum_held_turn_tests;
 pub mod forum_hosted;
 mod forward_wait;
+/// RFD 0158 §5: a fresh-context reviewer of a task's diff before "done" (harness magic).
+mod fresh_review;
 pub(crate) mod full_access_bound;
 pub(crate) mod full_access_children;
 mod gemini_plan;
@@ -237,6 +239,7 @@ mod model_lists;
 mod model_options;
 mod model_probe;
 mod models_view;
+pub(crate) mod move_authority;
 mod moved_forward;
 mod moved_prompt_fence;
 pub(crate) mod native_history;
@@ -508,6 +511,7 @@ mod update_repeats;
 mod usage_answer;
 // Opt-in team usage sharing: one record per turn (`cmux-usage-share`).
 mod sidecars;
+mod speculative;
 mod usage_share;
 mod usage_view;
 pub(crate) mod usage_warnings;
@@ -521,7 +525,7 @@ pub mod vm_boundary;
 pub mod vm_host;
 #[cfg(test)]
 mod wait_reason_tests;
-mod wake_place;
+pub(crate) mod wake_place;
 mod warm;
 mod watch;
 pub(crate) mod watch_events;
@@ -2293,6 +2297,7 @@ impl Hub {
             }
             return;
         };
+        tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: store listed");
         // The small index the chat logs load by (`log_load.rs`): agent hosts still running.
         let read = Self::read_live_host_sessions();
         // Records that can not be read may hide a host whose lines adoption holds again: an off
