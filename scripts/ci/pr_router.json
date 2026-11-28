@@ -226,9 +226,37 @@
     "config/vite-plus/**",
     "web/data/**"
    ],
-   "affects_why": "The preflight reads web-bundle-key.py --routed: all webviews, its checked-in protocol IR, design and type schemas, release highlights, the markdown viewer's Resources, macOS string catalogs and the page descriptor, the web bundle builders (scripts/cmux-next/*web*) and Bun pin, plus the external files imported by shipped webviews (examples, cloud generated types, vite-plus checks and the model catalog). Packages/macOS/** and scripts/cmux-next/** routed every Swift and cmux-next script head here: 76 of 121 routed merges in the 400 to 2026-11-27 20Z reached no web input and took a runner only for the job's first step to answer web=false. A webviews source that starts importing a file outside these patterns fails compile_preflight.py never-web-check at the head that adds the import, so the list cannot silently under-route; docs, Swift sources, Rust sources outside the protocol IR and unrelated tooling do not start the Linux runner. Unknown changed files still start it because pr_router.py routes more when it cannot read the diff.",
    "draft": true,
-   "draft_why": "A web-affecting draft still gets the fast build safety check; an unaffected draft has no compile-preflight caller job."
+   "paths-ignore": [
+    "**.rs",
+    "**/Cargo.toml",
+    "**/Cargo.lock",
+    "**.swift",
+    "!Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift",
+    "**.py",
+    "!scripts/webviews_bun_version.py",
+    "!scripts/cmux-next/web-bundle-key.py",
+    "!scripts/ci/compile_preflight.py",
+    "!scripts/ci/pr_router.py",
+    "!tests/test_ci_compile_preflight.py",
+    "!tests/test_webviews_no_duplicate_import_names.py",
+    "docs/**.md",
+    "plans/**.md",
+    ".github/workflows/**",
+    "!.github/workflows/cmux-next-compile-preflight.yml",
+    "!.github/workflows/pr-router.yml",
+    "!webviews/**",
+    "!schemas/**",
+    "!web/**",
+    "!clients/**",
+    "!examples/**",
+    "!config/**",
+    "!Resources/**",
+    "!release-notes/**",
+    "!Packages/macOS/CmuxNext/Sources/**/*.xcstrings.d/**"
+   ],
+   "draft_why": "Web-affecting drafts retain the build check; the web input skips known unrelated changes.",
+   "affects_why": "The caller runs independently of tier and carry decisions, so every web change can get a build verdict. The narrowed affects list still bounds the ordinary start list and never-web-check detects bundle inputs outside it. Restored paths-ignore skips known non-web changes before allocating a runner; possible inputs keep the exact router_web check and its fail-open behavior. A forced bundle consumer still runs the callee. Leo: \"surely we can just have legit build fail preflight checks\"."
   },
   "cmux-next-fast-gates.yml": {
    "types": [
@@ -263,6 +291,8 @@
   "nightly-pr-build.yml": {
    "land_affected": true,
    "land_ask_only": true,
+   "trunk_only": true,
+   "trunk_only_why": "Runs once per 30-minute window on the feat-cmux-next tip (its push trigger, base-coalesce.yml); base-red-watch bisects a red to name the PR. At 00Z 2026-11-28 the per-PR runs still took ~16.5k runner-min/day on ~28 PR heads an hour, while the Nightly compiles this configuration on the tip every 15 minutes. $CI_NIGHTLY_PR_BUILD_PER_PR=1 starts it on pull requests again.",
    "land_ask_only_why": "On the affected landing tier it starts only when land asks: the labeled event adding ready-to-land or full-ci (land-judge pulses it at the head it lands) and the merge train's tip, not on each push or base merge of a labelled or ask-named PR. 15-21Z 2026-11-27 its two Mac stubs were the 2nd and 3rd largest jobs (arm64 17.9, x86_64 17.5 runner-min per merged PR, 11,896 runner-min): 80% on PRs not merged by 21Z, 56% on base-merge heads, 25% on pushes after the label, and 31% of runs repeated an input key already compiled. $CI_NIGHTLY_PR_BUILD_AT_LAND=0 starts it on every landing head again.",
    "types": [
     "opened",
@@ -366,6 +396,31 @@
     ".github/workflows/transcript-replay-perf-report.yml"
    ],
    "affects_why": "webviews/bench/transcript-replay-ab.sh replays the long chat into the agent pane built from webviews/src/agent-session (and what it imports) at the merge base and the head, with the head's bench and its imports (browsers, godFixture, perfRow, replayLogs, stability, support/sharedBuilds, test/support foldFrameReport and paintedFrames); the duress reading runs scripts/measure/replay-under-load.sh and its bench; the summary is scripts/ci/transcript_replay_report.py. A change touching none of them moves no number in the report.",
+   "skip_docs_only": true
+  },
+  "cmux-next-motion-frames.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review"
+   ],
+   "affects": [
+    ".github/workflows/cmux-next-motion-frames.yml",
+    "scripts/ci/frame-pacing/motion_frames.py",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ScreenContentView+Motion*.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ScreenContentView+Visibility.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ScreenContentView+SnapFrame.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/LayoutPaneContentProvider.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/PaneCommitMotion*.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/PaneZoomDim*.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/LayoutModel+PaneClose.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/PendingPaneClose.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneCommitMotion*.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneController+PaneClose.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/**"
+   ],
+   "affects_why": "golden.py's motion_frames (scripts/ci/frame-pacing/motion_frames.py) records Cmd-Shift-Enter (split zoom), Cmd-P (the palette) and Cmd-W (a pane's close) on an owned Mac; the files listed are those gestures' motion and what each pane's content sees during it. A change touching none of them moves no frame it records.",
    "skip_docs_only": true
   }
  }

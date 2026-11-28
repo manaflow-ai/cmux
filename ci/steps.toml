@@ -981,6 +981,98 @@ python3 -I tests/test_ci_persisted_formats.py || status=1
 exit "$status"
 '''
 
+# The cmux-next.yml `checks` job's guards that turned the feat-cmux-next tip red after their changes merged green
+# (base tier run 46080642938, 2026-11-27: state roots, the FFI caller ratchet, the base-red classifier's workflow
+# classification, the dev landing workflow contract and the pin-mode bundle script tests). That job skips a pull
+# request into feat-cmux-next, so each red was seen only on the tip. These run on the pull request whose diff
+# touches their inputs. scripts/ci/new_red_only.sh fails only a red the change adds: one the base already has warns.
+# Each was timed on a loaded 8 vCPU lane host (load 12-25), so an idle runner takes less: state roots 56 s, the FFI
+# ratchet 52 s, the classifier's class 21 s, the landing contract 2.5 s, the three bundle tests 5 s together.
+[step.next-state-roots]
+job = "linux"
+timeout = 300
+title = "No literal state roots (cmux NEXT)"
+about = "check-state-roots.sh: no new literal state root and no new Classic path or id in cmux NEXT code (the cmux-next.yml checks step of the same name), red only when this change adds it"
+inputs = [
+  "Packages/macOS/**",
+  "cmux-tui/crates/**",
+  "webviews/**",
+  "scripts/cmux-next/**",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+scripts/ci/new_red_only.sh "No literal state roots" -- bash scripts/cmux-next/check-state-roots.sh .
+'''
+
+[step.next-ffi-caller-ratchet]
+job = "linux"
+timeout = 300
+title = "Every exported FFI function has a Swift caller"
+about = "ffi_caller_ratchet.py: no new cmux-tui C header export without a Swift caller, and the baseline only shrinks, red only when this change adds it"
+inputs = [
+  "cmux-tui/crates/*/include/**",
+  "Packages/**/*.swift",
+  "Packages/macOS/CmuxNext/app-ffi-pin.json",
+  "scripts/cmux-next/ffi-caller-baseline.txt",
+  "scripts/cmux-next/ffi_caller_ratchet.py",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+scripts/ci/new_red_only.sh "FFI caller ratchet" -- python3 -I scripts/cmux-next/ffi_caller_ratchet.py
+'''
+
+[step.next-base-red-classifier]
+job = "linux"
+timeout = 300
+title = "Every workflow is classified for the base-red classifier"
+about = "test_base_red_excuse.py's GuardJobsFollowTheWorkflows: every pull request workflow is a guard or named not one, red only when this change adds it"
+inputs = [
+  ".github/workflows/**",
+  "scripts/ci/base_red_excuse.py",
+  "scripts/ci/base_red_guard_jobs.json",
+  "tests/test_base_red_excuse.py",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+scripts/ci/new_red_only.sh "Base-red classifier" -- python3 -m unittest tests.test_base_red_excuse.GuardJobsFollowTheWorkflows
+'''
+
+[step.next-dev-landing-workflow]
+job = "linux"
+timeout = 120
+title = "cmux NEXT dev landing workflow contract"
+about = "test_cmux_next_dev_landing_workflow.py: the dev daily and landing jobs keep their runner placement and cache order, red only when this change adds it"
+inputs = [
+  ".github/workflows/cmux-next*.yml",
+  "tests/test_cmux_next_dev_landing_workflow.py",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+scripts/ci/new_red_only.sh "Dev landing workflow" -- python3 tests/test_cmux_next_dev_landing_workflow.py
+'''
+
+[step.next-bundle-pin-tests]
+job = "linux"
+timeout = 180
+title = "cmux-tui bundle pin-mode script tests"
+about = "the bundle-cmux-tui pin-mode, launch pre-read and screen-detection script tests (their fixtures copy every helper the bundle script calls), red only when this change adds it"
+inputs = [
+  "scripts/cmux-next/bundle-*.sh",
+  "scripts/cmux-next/link-folded-hosts.sh",
+  "scripts/cmux-next/write-cmux-tui-build-stamp.sh",
+  "scripts/cmux-next/tests/bundle-cmux-tui-*.test.sh",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+status=0
+for t in scripts/cmux-next/tests/bundle-cmux-tui-launch-preread.test.sh \
+  scripts/cmux-next/tests/bundle-cmux-tui-pin-no-fallback.test.sh \
+  scripts/cmux-next/tests/bundle-cmux-tui-screen-detection.test.sh; do
+  scripts/ci/new_red_only.sh "$(basename "$t")" -- bash "$t" || status=1
+done
+exit "$status"
+'''
+
 # ci-web.yml's web-typecheck job, which a feat-cmux-next pull request reached through ci.yml's `web` call when
 # web_subareas.py routed its `typecheck` subarea: a TS/JS/JSON file under web/, web/bun.lock, or ci-web.yml and
 # web_subareas.py themselves. The job keeps pushes, dispatch, the post-merge batch and pull requests into other
@@ -995,9 +1087,12 @@ exit "$status"
 # second parent), as the job's FIXIT_COMPILE_HEAD_SHA did. The job's always-uploaded ci_oops ledger artifact
 # (ci-oops-web-typecheck-RUN-ATTEMPT) is not kept: nothing reads it; retry.py still prints its verdict in the log.
 # 32 s cold on 2 CPUs through ci/run (an empty bun cache), 85 s when fixit-compile fixes an error and compiles again.
+# land_gate: it also runs on a landing head of the affected tier (cmux#61511 landed type errors there unchecked and
+# feat-cmux-next stayed red until #62788; ci_steps.py's `land_gate`).
 [step.web-typecheck]
 job = "linux"
 tier = "push"
+land_gate = true
 timeout = 300
 title = "Web typecheck"
 about = "web's locked dependencies install, the managed relay catalog's generated copies match config/iroh, and web typechecks (tsgo)"
@@ -1227,6 +1322,33 @@ status=0
 ./scripts/run-tests.sh --shard 4/4 --reporter=junit --reporter-outfile="$report_dir/junit.xml" || status=$?
 [ "$status" -ne 0 ] || rm -f "$report_dir/junit.xml"
 exit "$status"
+'''
+
+# The web tests a pull request can break from outside web/ (or from a web/ path its shards leave to the batch):
+# since #57511 a feat-cmux-next pull request routes web-tests-1..4 only on a named input, so an images/, .github/ or
+# catalog change that a web test imports or reads went red only in the post-merge batch (#53974, #57649). This step
+# routes on every pull request (pr_scope = false, inputs ["**"]) and asks scripts/ci/web_tests_affected.py for the
+# test files whose import closure or literal read paths hold a changed path; none (the usual case) exits in a few
+# seconds with no install. A path that reaches more than 80 tests (a message catalog, the preload) is left to the shards
+# and the batch, as is a whole set over 80. Unset $CI_PATHS_FILE (the batch, an unknown diff) exits 0: the shards
+# run every test there. Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period."
+[step.web-tests-affected]
+job = "linux"
+timeout = 300
+pr_scope = false
+needs = ["bun"]
+title = "Web tests the change reaches"
+about = "the web bun test files whose imports or read paths hold a changed file (scripts/ci/web_tests_affected.py), on a pull request"
+inputs = ["**"]
+run = '''
+[ -n "${CI_PATHS_FILE:-}" ] || { echo "No change list: the web-tests shards run every web test."; exit 0; }
+picked="$(python3 -I scripts/ci/web_tests_affected.py "$CI_PATHS_FILE")" || picked=""
+[ -n "$picked" ] || { echo "No web test reaches a changed path."; exit 0; }
+mapfile -t files <<<"$picked"
+echo "Web tests the change reaches (${#files[@]}):"; printf '  %s\n' "${files[@]}"
+cd web
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
+./scripts/run-tests.sh "${files[@]}"
 '''
 
 # ci-web.yml's web-production-build job: `bun run vercel-build` with the job's build-only env (no secrets: placeholder
@@ -1684,18 +1806,20 @@ python3 scripts/ci/pr_capture_check.py --body-file "$RUNNER_TEMP/capture-body.md
 job = "linux"
 timeout = 180
 title = "Bench relevance map"
-about = "cmux-bench for-paths: the index matches the scan (model-based), a 2,000-path lookup under 1 s and flat at 10x, joined with the coverage map, fails open"
+about = "cmux-bench for-paths: the index matches the scan (model-based), a 2,000-path lookup under 1 s and flat at 10x, joined with the coverage map, fails open; per-area baselines: only own areas fetched, 3-of-3 >15% rule, fail open"
 inputs = [
   "docs/benches/*",
   "docs/benches/templates/*",
   "scripts/bench/cmux-bench",
   "scripts/bench/benchlib/relevance.py",
+  "scripts/bench/benchlib/baselines.py",
   "tests/test_bench_relevance_map.py",
+  "tests/test_bench_baselines.py",
   "cmux-tui/crates/*/Cargo.toml",
   "cmux-next-ios/rust/crates/*/Cargo.toml",
   "Packages/*/*/Package.swift",
 ]
-run = "python3 -I tests/test_bench_relevance_map.py"
+run = "python3 -I tests/test_bench_relevance_map.py && python3 -I tests/test_bench_baselines.py"
 
 # What a pull request's paths need: the areas, benches, targeted tests and check templates the relevance map names
 # for them, in the advisory log, and the Linux benches those areas name (`run`), each against its area's budget_s.
@@ -1724,12 +1848,19 @@ if ! grep -q -- "--run" scripts/bench/cmux-bench 2>/dev/null; then
 fi
 # --run also runs the benches the matched areas name (`run`) and exits 1 only on a measured result over the
 # area's budget_s. A missing or failing bench, a timeout with no budget, or a broken map warns and passes.
+# --baselines (Leo, 2026-11-27: "A PR fetches only the baselines for its own areas"): each bench runs 3 times
+# against its areas' nightly baseline on this runner class (bench-baselines-nightly.yml, R2); it is red only when
+# all 3 repeats are more than 15% over. A missing baseline or an unreachable store warns and passes.
+extra=""
+if grep -q -- "--baselines" scripts/bench/cmux-bench 2>/dev/null; then
+  extra="--repeats 3 --baselines"
+fi
 set +e
-python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown --run --timeout 120 < "$paths"
+python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown --run --timeout 120 $extra < "$paths"
 code=$?
 set -e
 if [ "$code" -eq 1 ]; then
-  echo "::error::A bench for these paths is over its budget_s (docs/benches/relevance-map.toml); see the Bench runs above."
+  echo "::error::A bench for these paths is over its budget_s, or 3 of 3 repeats are >15% over its area's nightly baseline (docs/benches/relevance-map.toml); see the Bench runs above."
   exit 1
 elif [ "$code" -ne 0 ]; then
   echo "::notice::for-paths --run exited $code; fail open"

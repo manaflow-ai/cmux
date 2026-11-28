@@ -5,7 +5,7 @@
 // Every value was sampled from the pixels of the references in the README, at their 2x scale.
 {
   "name": "Basalt",
-  "description": "A near-black agent editor: #1a1a1a page, #1a1b1c sidebar, steel-blue Run, bordered prompt.",
+  "description": "Dark: near-black, a framed prompt, a steel-blue accent.",
 
   "appearance.theme": "Builtin Dark",
   // The window, sidebar and pages take this file's colors, over an App Theme of your own.
