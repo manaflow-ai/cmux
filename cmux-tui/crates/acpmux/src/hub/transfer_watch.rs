@@ -36,6 +36,13 @@ pub(super) const TRANSFER_LEASE: std::time::Duration = std::time::Duration::from
 /// client that lost only its connection opens another and reads on within it.
 pub(super) const CLIENT_GONE_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// How long a move whose client hung up, and whose bundle was read to its end, sits idle before
+/// the source asks its target whether it took the chat ([`Hub::watch_move_client`]) instead of
+/// waiting out [`TRANSFER_LEASE`]. Safe at any time: the target's forget and finish take turns
+/// (`transfer_in.rs` `RECEIVES`), so its answer is the truth and a move it took is committed,
+/// never rolled back; a client still about to finish only finds the move dropped there.
+pub(super) const CLIENT_GONE_ASK_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// How long the source waits for the target's answer to `transfer_forget`.
 const ASK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
@@ -395,12 +402,16 @@ impl Hub {
     }
 
     /// The connection that began move `transfer_id` (`transfer_begin`) ends with `ended`. Once
-    /// it does, the move ends at once rather than after a whole lease the chat spends frozen
-    /// (a mover killed at its timeout froze the chat for minutes, 2026-11-28): after
-    /// [`CLIENT_GONE_GRACE`], a move no client read from since, and whose bundle was not read
-    /// to its end, aborts (`client_gone`) and the chat runs here again. A bundle read to its end
-    /// may have landed on its target, so that move is left to its lease watch, which asks the
-    /// target; a client that came back on a new connection (its reads stamp `alive`) keeps it.
+    /// it does, the move ends within seconds rather than after a whole lease the chat spends
+    /// frozen (a mover killed at its timeout froze the chat for minutes, 2026-11-28):
+    /// - after [`CLIENT_GONE_GRACE`], a move nothing read from since, and whose bundle was not
+    ///   read to its end, aborts (`client_gone`) and the chat runs here again;
+    /// - a bundle read to its end may have landed on its target: once nothing has read from
+    ///   the move for [`CLIENT_GONE_ASK_GRACE`], the target is asked (as the lease watch asks
+    ///   it), and the move commits if it took the chat, else aborts (`client_gone`). A target
+    ///   that cannot say leaves the move to its lease watch;
+    /// - while something reads on (a client that came back on a new connection, or a target
+    ///   pulling over the hub; each read stamps `alive`), the move goes on.
     pub(crate) fn watch_move_client(
         self: &Arc<Self>,
         session_id: &str,
@@ -417,33 +428,63 @@ impl Hub {
             let _ = ended.wait_for(|ended| *ended).await;
             let gone_at = std::time::SystemTime::now();
             tokio::time::sleep(CLIENT_GONE_GRACE).await;
-            hub.end_move_of_gone_client(&session, &transfer_id, gone_at);
+            while let Some(wait) =
+                hub.end_move_of_gone_client(&session, &transfer_id, gone_at).await
+            {
+                tokio::time::sleep(wait).await;
+            }
         });
     }
 
-    fn end_move_of_gone_client(
+    /// One look at a move whose client hung up at `gone_at` ([`Hub::watch_move_client`]):
+    /// how long to wait before the next look, or None once it ended or is the lease's to end.
+    async fn end_move_of_gone_client(
         self: &Arc<Self>,
         session: &Arc<Session>,
         transfer_id: &str,
         gone_at: std::time::SystemTime,
-    ) {
+    ) -> Option<std::time::Duration> {
         if session.moving().as_deref() != Some(transfer_id) || session.meta().moved_to.is_some() {
-            return;
+            return None;
         }
         let dir = transfers_dir().join(transfer_id);
-        // Under `PAGES`: a read of a client that came back either stamped `alive` before this
-        // looks, or finds the move ended.
-        let _pages = PAGES.lock().unwrap_or_else(|e| e.into_inner());
-        if last_activity(&dir).is_some_and(|at| at > gone_at) || fully_read(&dir) != Some(false) {
-            return;
-        }
-        let Some(epoch) = Self::stalled_move_epoch(session, transfer_id, &dir) else { return };
-        tracing::info!(session = %session.id, transfer_id, "the client of a move hung up before the bundle was read; the move ends and the chat runs here again");
-        if let Err(e) =
-            self.transfer_abort_with_epoch(session, transfer_id, Some("client_gone"), Some(epoch))
+        let last = last_activity(&dir);
         {
-            tracing::warn!(session = %session.id, transfer_id, "ending a move whose client hung up: {}", e.message);
+            // Under `PAGES`: a read of a client that came back either stamped `alive` before
+            // this looks, or finds the move ended.
+            let _pages = PAGES.lock().unwrap_or_else(|e| e.into_inner());
+            match fully_read(&dir) {
+                None => return None,
+                // Something reads on: looked at again once it may have read the rest.
+                Some(false) if last.is_some_and(|at| at > gone_at) => {
+                    return Some(CLIENT_GONE_ASK_GRACE);
+                }
+                Some(false) => {
+                    let epoch = Self::stalled_move_epoch(session, transfer_id, &dir)?;
+                    tracing::info!(session = %session.id, transfer_id, "the client of a move hung up before the bundle was read; the move ends and the chat runs here again");
+                    if let Err(e) = self.transfer_abort_with_epoch(
+                        session,
+                        transfer_id,
+                        Some("client_gone"),
+                        Some(epoch),
+                    ) {
+                        tracing::warn!(session = %session.id, transfer_id, "ending a move whose client hung up: {}", e.message);
+                    }
+                    return None;
+                }
+                Some(true) => {}
+            }
         }
+        // Read whole: once nothing has read for the grace, the target is asked.
+        let idle = last.map_or(CLIENT_GONE_ASK_GRACE, |t| t.elapsed().unwrap_or_default());
+        if idle < CLIENT_GONE_ASK_GRACE {
+            return Some(CLIENT_GONE_ASK_GRACE - idle);
+        }
+        tracing::info!(session = %session.id, transfer_id, "the client of a move hung up after the bundle was read; its target is asked whether it took the chat");
+        if !self.end_stalled_move_as(session, transfer_id, &dir, "client_gone").await {
+            tracing::warn!(session = %session.id, transfer_id, "the target of a move whose client hung up cannot say whether it took the chat; its lease watch asks again");
+        }
+        None
     }
 
     /// The chat was offered back once (`transfer_undecided`): logged once per move, so a
@@ -523,6 +564,17 @@ impl Hub {
         transfer_id: &str,
         dir: &Path,
     ) -> bool {
+        self.end_stalled_move_as(session, transfer_id, dir, "stalled").await
+    }
+
+    /// [`Hub::end_stalled_move`], a move given back here logged with `reason`.
+    async fn end_stalled_move_as(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        transfer_id: &str,
+        dir: &Path,
+        reason: &'static str,
+    ) -> bool {
         let Some(epoch) = Self::stalled_move_epoch(session, transfer_id, dir) else {
             return false;
         };
@@ -543,12 +595,9 @@ impl Hub {
         {
             let _pages = PAGES.lock().unwrap_or_else(|e| e.into_inner());
             if fully_read(dir) == Some(false) {
-                if let Err(e) = self.transfer_abort_with_epoch(
-                    session,
-                    transfer_id,
-                    Some("stalled"),
-                    Some(epoch),
-                ) {
+                if let Err(e) =
+                    self.transfer_abort_with_epoch(session, transfer_id, Some(reason), Some(epoch))
+                {
                     tracing::warn!(session = %session.id, transfer_id, "ending a stalled move: {}", e.message);
                 }
                 return true;
@@ -590,7 +639,7 @@ impl Hub {
                     .map(|_| ())
             }
             TargetSays::NotLanded | TargetSays::Deleted => {
-                let reason = if says == TargetSays::Deleted { "target_deleted" } else { "stalled" };
+                let reason = if says == TargetSays::Deleted { "target_deleted" } else { reason };
                 let _pages = PAGES.lock().unwrap_or_else(|e| e.into_inner());
                 self.transfer_abort_with_epoch(session, transfer_id, Some(reason), Some(epoch))
                     .map(|_| ())
