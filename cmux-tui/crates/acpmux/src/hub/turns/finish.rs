@@ -141,6 +141,10 @@ impl Hub {
         if let Some(e) = result.as_ref().ok().and_then(Self::capacity_retry_error) {
             result = Err(e);
         }
+        // acpmux stopped a sandboxed agent that never wrote a line (`remote_start_bound.rs`).
+        if let Some(e) = result.as_ref().ok().and_then(Self::remote_start_bound_error) {
+            result = Err(e);
+        }
         // Apply queued stderr before classifying a dead process (a limit never resumes).
         Self::drain_inbound(session).await;
         // Before the message gains the stderr line: `recovery::annotate_as` below types it.

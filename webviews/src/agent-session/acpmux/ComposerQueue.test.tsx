@@ -1150,6 +1150,26 @@ test("an edit pulled back while its images load, from a row that turned out a te
   expect(touched).toEqual([]);
 });
 
+test("a prompt sent now that acpmux has not taken yet is an ordinary queued row: no Steering label, no Steer button", async () => {
+  // Leo, 2026-11-27: "this just shouldnt exist tho i think i just said that like it should just be
+  // steered if steered".
+  const container = await render(
+    async () => true,
+    async () => true,
+    [
+      { id: "n-1", prompt: "fix the space thing first", next: true },
+      { id: "n-2", prompt: "then the other one" },
+    ],
+  );
+  expect(container.querySelector(".acpmux-queued-kind")).toBeNull();
+  expect(container.textContent).not.toContain("composer.steering");
+  expect(container.querySelector('[data-prompt-id="n-1"] .acpmux-queued-text')?.textContent).toBe(
+    "fix the space thing first",
+  );
+  expect(actions(container, "n-1").some((b) => b.dataset.action === "steer")).toBe(false);
+  expect(actions(container, "n-2").some((b) => b.dataset.action === "steer")).toBe(true);
+});
+
 test("acpmux's ask to resume a subagent never draws in the composer's queue", async () => {
   // Leo, 2026-11-24: "why would a user steer or whatever on these? they should be separated out from
   // the user visible steer ui area." It lists in Session Info's Background tasks (agentSide.ts).
