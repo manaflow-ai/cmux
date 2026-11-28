@@ -118,6 +118,36 @@ import Testing
         #expect(looks.withLock { $0 } == 0)
     }
 
+    /// WebKit issues the download's sandbox extension, on the main thread,
+    /// for the file `decideDestinationUsing` answers: a file in Downloads
+    /// froze the app there even after the write probe (a fleet Mac's
+    /// NIGHTLY, `_sandbox_extension_issue` for 2 s and every control call
+    /// timed out). The engine writes in a staging folder outside the
+    /// folder, made off the main thread, and the file still lands there.
+    @Test func theEngineWritesOutsideTheFolderAndTheFileLandsInIt() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "cmux-stage-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let onMain = OSAllocatedUnfairLock<[Bool]>(initialState: [])
+        let placement = try await BrowserDownloadPolicy.place(
+            chosen: nil, suggestedFilename: "login.bin", directory: folder,
+            reservations: BrowserDownloadReservations(),
+            stagingFolder: { directory in
+                onMain.withLock { $0.append(Thread.isMainThread) }
+                return BrowserDownloadPlacement.stagingFolder(for: directory)
+            }
+        ).get()
+        #expect(onMain.withLock { $0 } == [false], "the staging folder was made on the main thread")
+        let staging = placement.temporaryURL.deletingLastPathComponent().standardizedFileURL
+        #expect(staging.path != folder.standardizedFileURL.path, "the engine writes in the downloads folder")
+        try Data("ok".utf8).write(to: placement.temporaryURL)
+        let landed = try placement.finish()
+        #expect(landed.standardizedFileURL.path == folder.appending(path: "login.bin").standardizedFileURL.path)
+        #expect(try String(contentsOf: landed, encoding: .utf8) == "ok")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == ["login.bin"])
+        #expect(!FileManager.default.fileExists(atPath: staging.path), "the staging folder was left behind")
+    }
+
     @Test func mayWriteLeavesNoFileAndReadsARefusal() throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: "cmux-maywrite-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

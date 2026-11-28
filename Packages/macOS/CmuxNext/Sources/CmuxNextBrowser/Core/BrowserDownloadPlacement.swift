@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// The Downloads names that running downloads of both engines hold, so two
 /// downloads that start together never pick the same name. A name is held
@@ -26,7 +27,8 @@ public final class BrowserDownloadReservations {
 }
 
 /// Where one download of either engine is written while it runs, a
-/// temporary sibling of its file, and where it lands when it completes
+/// temporary file in a staging folder of its own on the file's volume
+/// (`stagingFolder`), and where it lands when it completes
 /// (`finish`). A Downloads name lands with an exclusive rename: a file that
 /// appeared there meanwhile, even a dangling symlink, is never written over,
 /// and the download takes the next free name. A file the person confirmed
@@ -46,14 +48,18 @@ public final class BrowserDownloadPlacement {
     /// next free name.
     private let landingName: String
     private let reservations: BrowserDownloadReservations
+    /// The folder `stagingFolder` made for this download's temporary file
+    /// (removed when it settles), or nil: the file is a sibling.
+    private let staging: URL?
     private var settled = false
 
-    init(finalURL: URL, chosen: URL?, reservations: BrowserDownloadReservations) {
+    init(finalURL: URL, chosen: URL?, reservations: BrowserDownloadReservations, staging: URL? = nil) {
         self.finalURL = finalURL
         self.chosen = chosen
         landingName = finalURL.lastPathComponent
         self.reservations = reservations
-        temporaryURL = Self.temporarySibling(of: finalURL)
+        self.staging = staging
+        temporaryURL = Self.temporaryFile(for: finalURL, in: staging ?? finalURL.deletingLastPathComponent())
         reservations.insert(finalURL)
         reservations.tempFiles?.add(temporaryURL)
     }
@@ -104,6 +110,24 @@ public final class BrowserDownloadPlacement {
             try? FileManager.default.removeItem(at: url)
         }
         reservations.tempFiles?.remove(temporaryURL)
+        // Only the folder `stagingFolder` made, and only when empty (rmdir).
+        if let staging { rmdir(staging.path(percentEncoded: false)) }
+    }
+
+    /// A new folder for one download's temporary file, on the same volume
+    /// as `directory` (the landing rename stays a rename) and outside it:
+    /// the engine writes there, never in Downloads. nil when macOS gives
+    /// none (the temporary file is then a sibling, as before).
+    ///
+    /// WebKit issues the download's sandbox extension for the file
+    /// `decideDestinationUsing` answers, on the main thread; for a file in
+    /// a folder macOS protects (Downloads) that call waited on Files and
+    /// Folders and froze the app, every tab and the control socket (seen on
+    /// a fleet Mac with the write probe already passed). A file in the
+    /// app's own temporary folder asks nothing. Runs off the main thread.
+    public nonisolated static func stagingFolder(for directory: URL) -> URL? {
+        try? FileManager.checked.url(for: .itemReplacementDirectory, in: .userDomainMask,
+                                     appropriateFor: directory, create: true)
     }
 
     /// `renamex_np(RENAME_EXCL)`: fails with EEXIST when anything (a file,
@@ -113,13 +137,13 @@ public final class BrowserDownloadPlacement {
         if result != 0 { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
     }
 
-    /// `<name>.<8 hex>.cmuxdownload` next to `file`, short enough for
+    /// `<name>.<8 hex>.cmuxdownload` in `folder`, short enough for
     /// Chromium's `.crdownload` on top.
-    static func temporarySibling(of file: URL) -> URL {
+    static func temporaryFile(for file: URL, in folder: URL) -> URL {
         let tag = UUID().uuidString.prefix(8).lowercased()
         let suffix = ".\(tag).cmuxdownload"
         let room = DownloadDestination.maxNameBytes - DownloadDestination.fileSystemBytes(suffix + ".crdownload")
         let name = DownloadDestination.capped(file.lastPathComponent, bytes: room) + suffix
-        return file.deletingLastPathComponent().appending(path: name, directoryHint: .notDirectory)
+        return folder.appending(path: name, directoryHint: .notDirectory)
     }
 }
