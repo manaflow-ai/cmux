@@ -1,4 +1,3 @@
-import CmuxEgress
 public import CMUXAuthCore
 public import Foundation
 
@@ -10,18 +9,7 @@ public import Foundation
 /// cmux's `cmux cloud api`; ``daemon(_:_:timeout:)``): the requests, their deadlines and every refusal's reading are
 /// Rust's, and this type only forwards.
 ///
-/// The keyed start stays here on purpose: the person key never goes through `apps-run`, the local daemon or a Cloud
-/// op. Here it lives in one zeroed buffer and goes straight into one request body stream, never a `Data` or `String`
-/// copy (cx-kvmz, #13742 D16); through the daemon it would be copied into the child's stdin, the daemon's JSON
-/// params and its connection reader, none of which is wiped (#37350 says so). The person_holds check carries no key
-/// (the proof is checked here against the key the daemon never sees), so it is the daemon's.
-///
-/// The keyed start sets only `Authorization` (the Stack session, which the Worker's logs mask), `Content-Type`,
-/// `Content-Length`, `x-cmux-team` and, on a tagged dev build, `X-Cmux-Build-Space` (`dev:<slug>`, the build's
-/// public tag); URLSession adds `User-Agent`, `Accept`, `Accept-Language`, `Accept-Encoding` and `Host`, none of
-/// which holds a credential. The Worker's invocation logs (on in development) record the URL and every header but
-/// Authorization, so nothing outside the body may hold a key. No cache, no cookies, no redirect is followed, and
-/// nothing is retried.
+/// The keyed start carries the person key as the call's stdin tail, never an argv, JSON or env value (``acpmuxKeyedStart``).
 public struct CloudOwnerAPIClient: Sendable {
     public struct ForkRunChild: Sendable, Equatable, Decodable {
         public var id: String
@@ -45,7 +33,6 @@ public struct CloudOwnerAPIClient: Sendable {
     public let baseURL: URL
     let accessToken: AccessToken
     let teamID: TeamID
-    let session: URLSession
     /// A tagged dev build's cloud data space (``CloudConfiguration/buildSpace``); none for nightly; a misconfigured dev build's requests throw.
     let buildSpace: CMUXBuildSpaceState
 
@@ -61,51 +48,41 @@ public struct CloudOwnerAPIClient: Sendable {
         self.teamID = teamID
         self.buildSpace = buildSpace
         self.machineIO = machineIO
-        session = Self.transport
     }
 
     /// `cloud.<call>` with `args` on the daemon, as this person (`auth: owner`) in ``teamID``'s team: its body as JSON,
     /// or its failure as a ``CloudAPIError`` (``CloudDaemon/daemon(_:_:timeout:)``). `timeout` bounds the child; a
     /// misconfigured dev build refuses before anything runs.
-    func daemon(_ call: String, _ args: [String: any Sendable], timeout: Duration) async throws -> Data {
+    func daemon(_ call: String, _ args: [String: any Sendable], timeout: Duration, tail: Data? = nil) async throws -> Data {
         try buildSpace.check()
         let accessToken = accessToken
         var client = CloudDaemon.workerMachines(baseURL: baseURL, accessToken: { try await accessToken() }, teamID: teamID,
                                                    machineIO: machineIO, buildSpace: buildSpace)
         client.daemonCall = daemonCall
-        return try await client.daemon(call, args, timeout: timeout)
+        return try await client.daemon(call, args, timeout: timeout, tail: tail)
     }
 
     /// The daemon's bound for a call whose own deadline (Rust's) is `deadline`: its answer comes back before the child is killed.
     static func bound(_ deadline: Duration) -> Duration { deadline + .seconds(10) }
 
-    /// `request` with the person's session (`access`), the cmux team and the build space: every header this
-    /// client sets besides the body's `Content-Type` and `Content-Length`.
-    func authorized(_ request: URLRequest, access: String) async throws -> URLRequest {
-        var request = request
-        request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
-        if let team = await teamID() { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
-        try buildSpace.apply(to: &request)
-        return request
-    }
-
-    /// `POST /v1/cloud/machines/{machine}/acpmux/keyed-start`: restarts the machine's acpmux with
-    /// this app's person key. `writeKey` writes the key line (`keyLineLength` bytes) into the body
-    /// stream from the caller's own zeroed buffer: no `Data` or `String` copy here, and a stream
-    /// body is never resent. Answers the new
-    /// daemon run (`personInstance`).
+    /// `cloud.owner.acpmux_keyed_start` (`POST /v1/cloud/machines/{machine}/acpmux/keyed-start`, 100 s): restarts the
+    /// machine's acpmux with this app's person key. `writeKey` writes the key line (`keyLineLength` bytes) from the
+    /// caller's own zeroed buffer; the bytes go to the `cmux cloud api` child as the call's stdin tail (never argv or
+    /// JSON) and Rust sends them as the request body only, wiping them after (`owner.rs`); this copy is zeroed once the
+    /// child has them. Answers the new daemon run (`personInstance`). The call is never retried.
     public func acpmuxKeyedStart(_ machine: String, keyLineLength: Int, writeKey: (OutputStream) -> Bool) async throws -> String {
-        var input: InputStream?
-        var output: OutputStream?
-        Stream.getBoundStreams(withBufferSize: keyLineLength * 2, inputStream: &input, outputStream: &output)
-        guard let input, let output else { throw CloudAPIError.transport("no request body stream") }
-        output.open()
-        let wrote = writeKey(output)
-        output.close()
-        guard wrote else { throw CloudAPIError.transport("the key did not reach the request body") }
+        let stream = OutputStream.toMemory()
+        stream.open()
+        let wrote = writeKey(stream)
+        stream.close()
+        guard wrote, var key = stream.property(forKey: .dataWrittenToMemoryStreamKey) as? Data, key.count == keyLineLength else {
+            throw CloudAPIError.transport("the key did not reach the request body")
+        }
+        defer { key.resetBytes(in: 0..<key.count) }
         struct Started: Decodable { var personInstance: String }
-        return try await post(machine, "keyed-start", body: .stream(input, keyLineLength, "application/octet-stream"),
-                              timeout: .seconds(100), as: Started.self).personInstance
+        let data = try await daemon("owner.acpmux_keyed_start", ["machine": machine, "key_length": keyLineLength],
+                                    timeout: Self.bound(.seconds(100)), tail: key)
+        return try CloudMachineRules().answer(data, as: Started.self, context: "cloud.owner.acpmux_keyed_start").personInstance
     }
 
     /// `cloud.owner.acpmux_person_holds` (`POST /v1/cloud/machines/{machine}/acpmux/person-holds {nonce}`, 40 s): what
@@ -127,73 +104,6 @@ public struct CloudOwnerAPIClient: Sendable {
                                             "sourceMachine": sourceMachine, "session": session, "harnesses": harnesses]
         let data = try await daemon("owner.fork_run", args, timeout: Self.bound(.seconds(180)))
         return try CloudMachineRules().answer(data, as: Run.self, context: "cloud.owner.fork_run").children
-    }
-
-    enum Body {
-        case stream(InputStream, Int, String)
-    }
-
-    func post<T: Decodable>(_ machine: String, _ action: String, body: Body, timeout: Duration, as type: T.Type) async throws -> T {
-        // The machine id is the only path part that varies; anything else is refused before a request.
-        guard machine.range(of: #"^vm_[a-z0-9]{20}$"#, options: .regularExpression) != nil else {
-            throw CloudAPIError.transport("not a Cloud machine id")
-        }
-        let path = "/v1/cloud/machines/\(machine)/acpmux/\(action)"
-        let access: String
-        do { access = try await accessToken() } catch { throw CloudAPIError.notSignedIn }
-        guard let url = URL(string: baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + path) else {
-            throw CloudAPIError.transport("bad path \(path)")
-        }
-        var request = URLRequest(url: url, timeoutInterval: TimeInterval(timeout.components.seconds))
-        request.httpMethod = "POST"
-        // RULE (cx-kvmz, hq-84): this client sets only these headers: Authorization (the
-        // Worker's invocation log masks it), Content-Type, Content-Length, x-cmux-team and the
-        // build space (the build's public tag). The log records every other header and the URL, so
-        // no other header, no query and no path part that could hold a key may ever be added here.
-        request = try await authorized(request, access: access)
-        switch body {
-        case let .stream(stream, length, contentType):
-            request.setValue(contentType, forHTTPHeaderField: "Content-Type")
-            request.setValue(String(length), forHTTPHeaderField: "Content-Length")
-            request.httpBodyStream = stream
-        }
-        let data: Data
-        let response: URLResponse
-        do {
-            let session = session, prepared = request
-            (data, response) = try await withDeadline(timeout, label: "POST \(path)") { try await session.data(for: prepared) }
-        } catch is DeadlineExceeded {
-            throw CloudAPIError.timedOut(path)
-        } catch let error as URLError where error.code == .timedOut {
-            throw CloudAPIError.timedOut(path)
-        } catch {
-            throw CloudAPIError.transport(error.localizedDescription)
-        }
-        guard let http = response as? HTTPURLResponse else { throw CloudAPIError.transport("no HTTP response") }
-        // The Worker's shape: {ok: true, value} or {ok: false, error: {code, message}}.
-        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        guard (200..<300).contains(http.statusCode), object?["ok"] as? Bool == true, let value = object?["value"] else {
-            let error = object?["error"] as? [String: Any]
-            throw CloudAPIError.http(status: http.statusCode, code: error?["code"] as? String, message: error?["message"] as? String)
-        }
-        guard let reply = try? JSONSerialization.data(withJSONObject: value) else { throw CloudAPIError.decoding("\(path): not JSON") }
-        return try CloudMachineRules().answer(reply, as: T.self, context: path)
-    }
-
-    /// No cache, no cookies, and redirects refused: the Stack bearer never follows one.
-    public static let transport: URLSession = {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.urlCache = nil
-        configuration.httpShouldSetCookies = false
-        configuration.httpCookieAcceptPolicy = .never
-        return CmuxEgress.session(site: "CmuxNextCloud.CloudOwnerAPIClient", configuration: configuration, delegate: RefuseRedirects(), delegateQueue: nil)
-    }()
-
-    private final class RefuseRedirects: NSObject, URLSessionTaskDelegate, Sendable {
-        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                        newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
-            completionHandler(nil)
-        }
     }
 }
 
