@@ -18864,6 +18864,8 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "measure-swift-typecheck.yml",
             # The Nightly auto-update e2e (#62005): a PR touching it runs it against the live Nightly feed.
             "nightly-next-update-e2e.yml",
+            # Its stable-channel twin (ask-3683): the same harness, --channel stable, against the live Stable feed.
+            "stable-next-update-e2e.yml",
             # The chat-size ladder (#63929): the 1 MB and 1 GB chats' ratio, base vs head in one job (advisory).
             "chat-size-ladder.yml",
             # iOS product UI on a fleet simulator: the gesture-conflict suite (#52373) and the composer and terminal

@@ -29,7 +29,17 @@ refuses at the start otherwise (preflight), so it never touches a person's Night
 Everything this run creates (scratch folder, Sparkle cache, defaults domain,
 state dirs) is removed at the end; anything that existed before is kept.
 
-  scripts/cmux-next/update-e2e.py [--feed URL] [--from BUILD] [--to BUILD] [--click] [--idle] [--keep]
+Channels (--channel): `nightly` (default) is cmux NIGHTLY on the Nightly feed; `stable` is cmux NEXT Stable
+(com.cmuxterm.app.nightly.cmux-next-stable, scripts/ci/stable-next-identity.sh) on the Stable feed, the build
+people on the stable release run. The stable run installs the second-newest Stable build, has it find the newest
+on the live Stable appcast and relaunch into it. Both only READ their feed (GET appcast, GET DMG); nothing is
+published or written to either feed.
+
+After every relaunch the run reads the build back three ways (the bundle's CFBundleVersion on disk, the running
+app's `updates.status` build, the feed's expected build) and fails unless all three agree; the line
+"[PASS] <leg>: relaunched build N is the new build" carries N.
+
+  scripts/cmux-next/update-e2e.py [--channel nightly|stable] [--feed URL] [--from BUILD] [--to BUILD] [--click] [--idle] [--keep]
 """
 import argparse, json, os, plistlib, re, shutil, socket, subprocess, sys, tempfile, time, urllib.request
 from collections import deque
@@ -46,18 +56,49 @@ HOME = os.path.expanduser("~")
 # NIGHTLY's acpmux: its home, socket and config.
 ACPMUX_HOME = os.path.join(HOME, ".acpmux")
 ACPMUX_CONFIG = os.path.join(ACPMUX_HOME, "config.json")
+
+# cmux NEXT Stable (scripts/ci/stable-next-identity.sh) is a nightly-kind bundle with an id of its own, so
+# BuildIdentity gives it names of its key (Packages/macOS/CmuxNext/Sources/CmuxNextCompat/BuildIdentity*.swift):
+# control socket /tmp/cmux-nightly--<fnv1a32(key)>.sock, acpmux home ~/.acpmux/builds/<key>, key = the bundle id.
+STABLE_BUNDLE_ID = "com.cmuxterm.app.nightly.cmux-next-stable"
+STABLE_APP_NAME = "cmux NEXT Stable.app"
+NIGHTLY_FEED = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
+STABLE_FEED = "https://files-next.cmux.com/nightly-next/stable/appcast-arm64.xml"
+
+
+def fnv1a32(text):
+    h = 0x811c9dc5
+    for b in text.encode():
+        h = ((h ^ b) * 0x01000193) & 0xFFFFFFFF
+    return f"{h:08x}"
+
+
+def use_channel(channel):
+    """Points the identity globals (bundle, app name, control socket, acpmux home) at `channel`."""
+    global BUNDLE_ID, APP_NAME, SOCKET, ACPMUX_HOME, ACPMUX_CONFIG
+    if channel == "stable":
+        BUNDLE_ID, APP_NAME = STABLE_BUNDLE_ID, STABLE_APP_NAME
+        SOCKET = f"/tmp/cmux-nightly--{fnv1a32(STABLE_BUNDLE_ID)}.sock"
+        ACPMUX_HOME = os.path.join(HOME, ".acpmux", "builds", STABLE_BUNDLE_ID)
+        ACPMUX_CONFIG = os.path.join(ACPMUX_HOME, "config.json")
+
 FAKE_AGENT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../cmux-tui/crates/acpmux/tests/fake_agent.py")
 FAKE_HARNESS = "update-e2e-agent"
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--channel", choices=("nightly", "stable"), default="nightly",
+                    help="nightly: cmux NIGHTLY on the Nightly feed; stable: cmux NEXT Stable on the Stable feed")
 # The one Nightly feed (#36287), the one nightly-next-launch-smoke.yml reads; the /next/ appcast froze on 2026-11-05.
-parser.add_argument("--feed", default="https://files-next.cmux.com/nightly-next/appcast-arm64.xml")
+parser.add_argument("--feed", default=None, help="appcast to read (default: the channel's live feed)")
 parser.add_argument("--from", dest="from_build", help="installed build (default: the second newest build Nightly apps are offered)")
 parser.add_argument("--to", dest="to_build", help="expected build after the update (default: the newest build Nightly apps are offered)")
 parser.add_argument("--click", action="store_true", help="also prove the one-click install with an older build")
 parser.add_argument("--idle", action="store_true", help="also prove automatic install after a quiet idle window")
 parser.add_argument("--keep", action="store_true", help="keep the scratch folder (debugging)")
 opts = parser.parse_args()
+opts.feed = opts.feed or (STABLE_FEED if opts.channel == "stable" else NIGHTLY_FEED)
+use_channel(opts.channel)
+CHANNEL_LABEL = "cmux NEXT Stable" if opts.channel == "stable" else "cmux NIGHTLY"
 
 results = []  # (check, PASS|FAIL|PENDING, detail)
 
@@ -89,14 +130,14 @@ def preflight():
         sys.exit("refused: no Aqua GUI session for this user (launchctl print gui/<uid> failed)")
     running = run("pgrep", "-fl", f"{APP_NAME}/Contents/MacOS").stdout.strip()
     if running:
-        sys.exit(f"refused: a cmux NIGHTLY runs here:\n{running}")
+        sys.exit(f"refused: a {CHANNEL_LABEL} runs here:\n{running}")
     installed = [p for p in run("mdfind", f"kMDItemCFBundleIdentifier == '{BUNDLE_ID}'").stdout.splitlines() if p.endswith(".app")]
     if installed:
         sys.exit("refused: an app with bundle id %s is installed: %s" % (BUNDLE_ID, ", ".join(installed)))
     if os.path.exists(SOCKET):
-        sys.exit(f"refused: {SOCKET} exists (another cmux NIGHTLY's socket)")
+        sys.exit(f"refused: {SOCKET} exists (another {CHANNEL_LABEL}'s socket)")
     if os.path.exists(acpmux_socket()) and Acpmux().answers():
-        sys.exit(f"refused: an acpmux daemon answers at {acpmux_socket()} (another cmux NIGHTLY's)")
+        sys.exit(f"refused: an acpmux daemon answers at {acpmux_socket()} (another {CHANNEL_LABEL}'s)")
 
 
 # What may be created: compared before/after; only new entries are removed.
@@ -150,7 +191,8 @@ def cleanup(before, work):
             continue
         name = path.lower()
         # Only this run's paths.
-        if path.startswith(work) or "cmux-next" in name or "cmux next" in name or any(h in name for h in hashes):
+        if path.startswith(work) or "cmux-next" in name or "cmux next" in name or any(h in name for h in hashes) \
+                or os.path.basename(SOCKET) in name:
             print(f"removing created {path}")
             shutil.rmtree(path, ignore_errors=True) if os.path.isdir(path) and not os.path.islink(path) else os.unlink(path)
     for path in sorted(tops):
@@ -229,6 +271,18 @@ def check_identity(app):
 def bundle_build(app):
     with open(os.path.join(app, "Contents/Info.plist"), "rb") as f:
         return plistlib.load(f).get("CFBundleVersion")
+
+
+def check_relaunched_build(app, path, expected, leg):
+    """The relaunched app is the new build: the bundle on disk, the running app's own `updates.status` build and the
+    feed's expected build are one number. Prints "relaunched build N" so a run log names what was read back."""
+    on_disk = bundle_build(path)
+    running = wait(lambda: app.status().get("build"), 60)
+    ok = bool(expected) and on_disk == expected and running == expected
+    record(f"{leg}: relaunched build {running} is the new build", ok,
+           f"running {running}, bundle {on_disk}, feed expects {expected}")
+    print(f"relaunched build ({leg}): {running}", flush=True)
+    return ok
 
 
 # ---- app control -------------------------------------------------------------
@@ -675,6 +729,7 @@ def main():
                 print_install_logs(quit_started, pre_quit_log)
             record("relaunched", bool(app.launch(log)))
         record("running the newest build", app.status().get("build") == to_item["build"], app.status().get("build"))
+        check_relaunched_build(app, path, to_item["build"], "idle path" if opts.idle else "quit path")
         record("terminal output kept across the update", bool(wait(lambda: token in screen(), 20)))
         alive = shell_pid and run("kill", "-0", shell_pid).returncode == 0
         record("terminal shell process survived (daemon kept it)", bool(alive), f"pid {shell_pid}")
@@ -713,6 +768,7 @@ def main():
             # Sparkle relaunches the app by itself (no launch environment).
             relaunched = wait(lambda: bundle_build(path) == to_item["build"] and app.status().get("build") == to_item["build"], 300, 2)
             record("click path: one click installed and Sparkle relaunched", bool(relaunched), f"bundle {bundle_build(path)}")
+            check_relaunched_build(app, path, to_item["build"], "click path")
 
         record("rollback refused when the store schema is newer", "PENDING", "cmux update rollback is not built yet")
     finally:
