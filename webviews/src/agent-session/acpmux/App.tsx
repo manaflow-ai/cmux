@@ -180,6 +180,7 @@ import { useComposerKeyboard } from "./composerFocus";
 import { type AutomationCompose } from "./automation";
 import { acpmuxPerf } from "./perf";
 import { type PerfSend } from "./perfReporter";
+import type { ReadInspectorHistory } from "./InspectorTiming";
 import { startFromContext } from "./newtab/startHint";
 import { useSameValue } from "./session-info/sameValue";
 import { drawsAsIs, setStreamingRowBlocked, streamingRowBlocked, textOnlyRow } from "./streamingRow";
@@ -227,8 +228,9 @@ import { trustedLabel } from "./trustAskModel";
 import { ElevationCard } from "./ElevationCard";
 import { SecretCard } from "./SecretCard";
 import { ToolCards } from "./toolCards/ToolCards";
-import { type UploadProgressReport, uploadToMachine } from "./cloudUploads";
+import { type UploadCancelled, type UploadProgressReport, uploadToMachine } from "./cloudUploads";
 import { droppedPaths } from "./composer/intakeFiles";
+import { pushedDropPaths, uploadDropped } from "./composer/dropPush";
 import { useToolCards } from "./toolCards/toolCardStore";
 import {
   COMPUTER_USE_PREVIEW_RESERVE,
@@ -1339,6 +1341,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       directClient.current ? directClient.current.perf(params) : Promise.reject(new Error(translate("error.notOpen"))),
     [],
   );
+  /// `_acpmux/history` through the client connected now (the Inspector's Timing tab, InspectorTiming.tsx).
+  const readInspectorHistory = useCallback<ReadInspectorHistory>(
+    (sessionId) =>
+      directClient.current
+        ? directClient.current.inspectorHistory(sessionId)
+        : Promise.reject(new Error(translate("error.notOpen"))),
+    [],
+  );
   // acpmux's verdict on this Mac's load and swap (host_overload.rs): the composer draws it only when over.
   const readOverload = useCallback(
     () => directClient.current?.hostOverload() ?? Promise.reject(new Error("no client")),
@@ -2371,13 +2381,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     return taken?.kind === "still" ? taken.file : undefined;
   }, []);
   const uploadFiles = useCallback(
-    (files: File[], cancelled?: (index: number) => boolean, progress?: UploadProgressReport) =>
-      uploadToMachine(files, callNative, cancelled, progress),
+    (files: File[], cancelled?: UploadCancelled, progress?: UploadProgressReport) =>
+      uploadDropped(
+        files,
+        callNative,
+        (rest, restCancelled, restProgress) => uploadToMachine(rest, callNative, restCancelled, restProgress),
+        cancelled,
+        progress,
+      ),
     [],
   );
   // A chat on this Mac links a dropped or pasted folder, or a file no block takes, where it is.
   const localPaths = useCallback(
-    (kind: DroppedKind, files: File[], gestureAt?: number) => droppedPaths(kind, files, callNative, gestureAt),
+    (kind: DroppedKind, files: File[], gestureAt?: number) =>
+      kind === "drop"
+        ? pushedDropPaths(files, () => droppedPaths(kind, files, callNative, gestureAt))
+        : droppedPaths(kind, files, callNative, gestureAt),
     [],
   );
   const searchFiles = useCallback<FileSearchSource>(
@@ -11672,6 +11691,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setDisplayAnchor,
     closeInspector,
     sendPerf,
+    readInspectorHistory,
     setDock,
     dockFoot,
     paneToasts,
