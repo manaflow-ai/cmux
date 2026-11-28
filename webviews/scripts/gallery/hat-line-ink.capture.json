@@ -1,0 +1,76 @@
+{
+  "envs": [
+    [
+      "light",
+      "none"
+    ],
+    [
+      "dark",
+      "none"
+    ]
+  ],
+  "shots": [
+    {
+      "name": "hat-line-wide-open",
+      "entry": "agent-pane.composer-hat-line-deck",
+      "variant": "trail-twenty-open",
+      "width": 900,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "clip": ".acpmux-running-tray[data-line]",
+      "arms": {
+        "before": ".acpmux-running-tray[data-line] > .acpmux-running-tray__head > .acpmux-running-tray__title{color:var(--agent-link,var(--agent-accent))!important;background:var(--agent-control-hover)!important} .acpmux-running-tray[data-line] > .acpmux-running-tray__open{right:calc(var(--acpmux-tray-inset) + var(--acpmux-tray-chevron-width) + var(--acpmux-tray-gap))!important}",
+        "A-ink-no-chip (pick)": "",
+        "B-ink-neutral-chip": ".acpmux-running-tray[data-line] > .acpmux-running-tray__head > .acpmux-running-tray__title{background:var(--agent-control-hover)!important}",
+        "C-muted-underline": ".acpmux-running-tray[data-line] > .acpmux-running-tray__head > .acpmux-running-tray__title{color:var(--agent-muted)!important;text-decoration:underline;text-underline-offset:3px}"
+      }
+    },
+    {
+      "name": "hat-line-wide-hover",
+      "entry": "agent-pane.composer-hat-line-deck",
+      "variant": "trail-twenty-open",
+      "width": 900,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "clip": ".acpmux-running-tray[data-line]",
+      "arms": {
+        "before": ".acpmux-running-tray[data-line] > .acpmux-running-tray__head > .acpmux-running-tray__title{color:var(--agent-link,var(--agent-accent))!important;background:var(--agent-control-hover)!important} .acpmux-running-tray[data-line] > .acpmux-running-tray__open{right:calc(var(--acpmux-tray-inset) + var(--acpmux-tray-chevron-width) + var(--acpmux-tray-gap))!important}",
+        "A-ink-no-chip (pick)": "",
+        "B-ink-neutral-chip": ".acpmux-running-tray[data-line] > .acpmux-running-tray__head > .acpmux-running-tray__title{background:var(--agent-control-hover)!important}",
+        "C-muted-underline": ".acpmux-running-tray[data-line] > .acpmux-running-tray__head > .acpmux-running-tray__title{color:var(--agent-muted)!important;text-decoration:underline;text-underline-offset:3px}"
+      },
+      "hover": ".acpmux-running-tray[data-line] > .acpmux-running-tray__head"
+    },
+    {
+      "name": "hat-line-narrow-open",
+      "entry": "agent-pane.composer-hat-line-deck",
+      "variant": "trail-twenty-open",
+      "width": 360,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "clip": ".acpmux-running-tray[data-line]",
+      "arms": {
+        "before": ".acpmux-running-tray[data-line] > .acpmux-running-tray__head > .acpmux-running-tray__title{color:var(--agent-link,var(--agent-accent))!important;background:var(--agent-control-hover)!important} .acpmux-running-tray[data-line] > .acpmux-running-tray__open{right:calc(var(--acpmux-tray-inset) + var(--acpmux-tray-chevron-width) + var(--acpmux-tray-gap))!important}",
+        "A-ink-no-chip (pick)": "",
+        "B-ink-neutral-chip": ".acpmux-running-tray[data-line] > .acpmux-running-tray__head > .acpmux-running-tray__title{background:var(--agent-control-hover)!important}",
+        "C-muted-underline": ".acpmux-running-tray[data-line] > .acpmux-running-tray__head > .acpmux-running-tray__title{color:var(--agent-muted)!important;text-decoration:underline;text-underline-offset:3px}"
+      }
+    },
+    {
+      "name": "hat-line-narrow-hover",
+      "entry": "agent-pane.composer-hat-line-deck",
+      "variant": "trail-twenty-open",
+      "width": 360,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "clip": ".acpmux-running-tray[data-line]",
+      "arms": {
+        "before": ".acpmux-running-tray[data-line] > .acpmux-running-tray__head > .acpmux-running-tray__title{color:var(--agent-link,var(--agent-accent))!important;background:var(--agent-control-hover)!important} .acpmux-running-tray[data-line] > .acpmux-running-tray__open{right:calc(var(--acpmux-tray-inset) + var(--acpmux-tray-chevron-width) + var(--acpmux-tray-gap))!important}",
+        "A-ink-no-chip (pick)": "",
+        "B-ink-neutral-chip": ".acpmux-running-tray[data-line] > .acpmux-running-tray__head > .acpmux-running-tray__title{background:var(--agent-control-hover)!important}",
+        "C-muted-underline": ".acpmux-running-tray[data-line] > .acpmux-running-tray__head > .acpmux-running-tray__title{color:var(--agent-muted)!important;text-decoration:underline;text-underline-offset:3px}"
+      },
+      "hover": ".acpmux-running-tray[data-line] > .acpmux-running-tray__head"
+    }
+  ]
+}

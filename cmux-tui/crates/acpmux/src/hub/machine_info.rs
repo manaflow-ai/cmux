@@ -55,14 +55,20 @@ impl Hub {
             self.list_processes(Some(session)).get("processes").and_then(Value::as_array)
         {
             background_jobs.extend(
-                processes.iter().filter(|process| process["state"] == "running").map(|process| {
-                    json!({
-                        "id": process["id"],
-                        "kind": "background_process",
-                        "cwd": process["cwd"],
-                        "state": "running",
+                // A daemon task's row (`daemonTask`) is the background task listed above.
+                processes
+                    .iter()
+                    .filter(|process| {
+                        process["state"] == "running" && process["daemonTask"] != true
                     })
-                }),
+                    .map(|process| {
+                        json!({
+                            "id": process["id"],
+                            "kind": "background_process",
+                            "cwd": process["cwd"],
+                            "state": "running",
+                        })
+                    }),
             );
         }
 

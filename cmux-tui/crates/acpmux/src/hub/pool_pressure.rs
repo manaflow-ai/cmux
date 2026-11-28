@@ -188,6 +188,8 @@ impl Hub {
             leads,
             tag,
         );
+        // One a coordinator or the person waits on stays up (`wait_edges.rs`).
+        let priority = self.inherit_priority(session, priority);
         sleeps_sooner(pressure.as_ref(), priority)
     }
 }

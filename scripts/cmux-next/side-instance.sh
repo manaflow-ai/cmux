@@ -543,9 +543,13 @@ PY
     echo "$name stopped"
     ;;
   env)
-    app_of >/dev/null
-    printf 'export CMUX_NEXT_CONFIG_FILE=%q CMUX_CUSTOMIZE_DIR=%q CMUX_WEB_OVERLAY_DIR=%q CMUX_WEB_SLOT_STATE_DIR=%q\n' \
-      "$dir/config/cmux-next.json" "$dir/config/customize" "$dir/web-overlay" "$dir/web-slot"
+    copy="$(app_of)"
+    # CMUX_WEB_OVERLAY_APP: web-overlay.sh checks the overlay's web ABI against this copy, not the
+    # installed NIGHTLY. Without it, hot-verify's look of cmux#62321 (2026-11-27) was refused: the
+    # worker's stale installed NIGHTLY had ABI 7, while the copy, from NIGHTLY 4605751670101, had the
+    # head's ABI 9.
+    printf 'export CMUX_NEXT_CONFIG_FILE=%q CMUX_CUSTOMIZE_DIR=%q CMUX_WEB_OVERLAY_DIR=%q CMUX_WEB_SLOT_STATE_DIR=%q CMUX_WEB_OVERLAY_APP=%q\n' \
+      "$dir/config/cmux-next.json" "$dir/config/customize" "$dir/web-overlay" "$dir/web-slot" "$copy"
     ;;
   socket)
     app_of >/dev/null

@@ -108,13 +108,6 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         ),
         (method::MUX_COMPUTER_USE_MACHINES, Run(json!({}))),
         (
-            method::MUX_WHO_ELSE,
-            Any(
-                json!({"sessionId": "$S"}),
-                "an arm from before this row; any answer is right here",
-            ),
-        ),
-        (
             method::MUX_COMPUTER_USE_STATE,
             Any(
                 json!({}),
@@ -186,6 +179,19 @@ pub fn table() -> Vec<(&'static str, Ask)> {
                 json!({"kind": "set", "v": 1, "workspace": "w", "placement": {"ssh": "127.0.0.1:1"}}),
             ),
         ),
+        (method::MUX_CALLERS, Run(json!({}))),
+        (method::MUX_FELT_SNAPSHOT, Run(json!({}))),
+        (method::MUX_HEAP_PROFILE, Run(json!({}))),
+        (method::MUX_PERF, Run(json!({"op": "snapshot"}))),
+        (method::SESSION_SIGNATURE, Run(json!({"sessionIds": ["$S"]}))),
+        (
+            method::MUX_SEND_FANOUT,
+            Run(json!({"session": "$S", "hash": "00112233445566778899aabbccddeeff"})),
+        ),
+        (
+            method::MUX_SEND_HOP,
+            Any(json!({"host": "local"}), "only a paired peer daemon can query a relay"),
+        ),
         (method::MUX_STATUS, Run(json!({}))),
         (method::MUX_SESSIONS, Run(json!({"usage": true}))),
         (method::MUX_USAGE, Run(json!({}))),
@@ -202,6 +208,14 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_START_MODE, Run(json!({"harness": "fake", "cwd": "$CWD"}))),
         ("_acpmux/set_default_policy", Run(json!({"policy": "ask"}))),
         ("_acpmux/peers", Run(json!({}))),
+        ("_acpmux/host_overload", Run(json!({}))),
+        (
+            "_acpmux/wireguard_admit",
+            Any(
+                json!({"address": "127.0.0.1:51820", "publicKey": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="}),
+                "the in-process hub has no WireGuard transport",
+            ),
+        ),
         ("_acpmux/host_health", Run(json!({}))),
         ("_acpmux/peer_status", Run(json!({}))),
         ("_acpmux/vm_host", Run(json!({}))),
@@ -209,6 +223,13 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         ("_acpmux/host_notice", Run(json!({"text": "test notice"}))),
         ("_acpmux/peer_snapshot", Run(json!({"sessionId": "nopeer/x1"}))),
         ("_acpmux/place", Run(json!({}))),
+        ("_acpmux/place_set", Run(json!({"sessionId": "$S", "place": {"mode": "auto"}}))),
+        ("_acpmux/place_get", Run(json!({"sessionId": "$S"}))),
+        ("_acpmux/place_undo", Run(json!({"sessionId": "$S"}))),
+        ("_acpmux/chat_place_set", Run(json!({"chat": "$S", "mode": "auto"}))),
+        ("_acpmux/chat_place", Run(json!({"chat": "$S"}))),
+        (method::MUX_PLACE_CHAT, Run(json!({}))),
+        ("_acpmux/move_targets", Run(json!({"source": "local"}))),
         ("_acpmux/peer_snapshots_clear", Run(json!({}))),
         (
             "_acpmux/journal_restore",
@@ -331,6 +352,13 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_AUTO_SESSION_TRANSCRIPT, Run(json!({"sessionId": "$S"}))),
         (method::MUX_SIDE, Run(json!({"sessionId": "$S", "chat": "lso-no-such-chat"}))),
         (
+            method::MUX_HARNESS_DISABLE,
+            Any(
+                json!({"folder": "$CWD", "id": "fake"}),
+                "the in-memory configuration has no folder profile gate",
+            ),
+        ),
+        (
             method::MUX_HARNESS_ENABLE,
             Any(
                 json!({"folder": "$CWD", "id": "fake"}),
@@ -393,6 +421,54 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             method::MUX_ACCOUNT_USAGE,
             Skip("starts the account's `codex app-server`, which asks ChatGPT"),
         ),
+        (method::MUX_ACCOUNT_READINESS, Run(json!({}))),
+        (method::MUX_ACCOUNT_SIGN_IN, Run(json!({"account": "lso-no-such-account"}))),
+        (method::MUX_ACCOUNT_SWITCH, Run(json!({"account": "lso-no-such-account"}))),
+        (method::MUX_ACCOUNT_REMOVE, Run(json!({"account": "lso-no-such-account"}))),
+        (method::MUX_ACCOUNT_SIGN_OUT, Run(json!({"account": "lso-no-such-account"}))),
+        (
+            method::MUX_ACCOUNT_SIGN_IN_FINISH,
+            Any(
+                json!({"loginId": "lso-none"}),
+                "no real sign-in has started, so no pending login can finish",
+            ),
+        ),
+        (method::MUX_ACCOUNT_SIGN_IN_CANCEL, Run(json!({"loginId": "lso-none"}))),
+        (method::MUX_CONNECTIONS, Run(json!({}))),
+        (method::MUX_CONNECTIONS_ORDER_SET, Run(json!({"ids": []}))),
+        (method::MUX_CONNECTIONS_SPREAD_SET, Run(json!({"on": false}))),
+        (
+            method::MUX_CONNECTIONS_KEY_ADD,
+            Run(json!({"provider": "anthropic", "secret": "keychain:lso-key"})),
+        ),
+        (
+            method::MUX_CONNECTIONS_KEY_CHECK,
+            Run(json!({"provider": "anthropic", "secret": "not-an-anthropic-key"})),
+        ),
+        (method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD, Run(json!({"secret": "keychain:lso-token"}))),
+        (method::MUX_CONNECTIONS_REMOVE, Run(json!({"id": "anthropic-key"}))),
+        (method::MUX_CONNECTIONS_CHATGPT_BEGIN, Run(json!({"id": "lso-no-connection"}))),
+        (method::MUX_CONNECTIONS_CHATGPT_WAIT, Run(json!({"attempt": "lso-no-attempt"}))),
+        (method::MUX_CONNECTIONS_CHATGPT_CANCEL, Run(json!({"attempt": "lso-no-attempt"}))),
+        (
+            method::MUX_CONNECTIONS_CHATGPT_IMPORT,
+            Any(
+                json!({"secret_file": "$CWD/no-such-auth.json"}),
+                "the CI credential import is disabled on this hub",
+            ),
+        ),
+        (
+            method::MUX_CONNECTIONS_CLAUDE_TOKEN_BEGIN,
+            Skip("starts the real claude setup-token sign-in"),
+        ),
+        (method::MUX_CONNECTIONS_CLAUDE_TOKEN_WAIT, Run(json!({"attempt": "lso-no-attempt"}))),
+        (
+            method::MUX_CONNECTIONS_CLAUDE_TOKEN_CODE,
+            Run(json!({"attempt": "lso-no-attempt", "code": "000000"})),
+        ),
+        (method::MUX_CONNECTIONS_CLAUDE_TOKEN_CANCEL, Run(json!({"attempt": "lso-no-attempt"}))),
+        (method::MUX_CONNECTIONS_CHATGPT_TOKEN, Run(json!({"id": "lso-no-connection"}))),
+        (method::MUX_CONNECTIONS_CREDENTIAL, Run(json!({"id": "lso-no-connection"}))),
         (method::ACP_TRUST_GET, Run(json!({"cwd": "$CWD"}))),
         (method::ACP_TRUST_SET, Run(json!({"cwd": "$CWD", "level": "trusted"}))),
         (
@@ -461,6 +537,35 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             method::MUX_MAIL_SEND,
             Run(json!({"id": "m1", "sender": "$S", "target": "reports:test", "body": "hi"})),
         ),
+        (
+            method::MUX_CONTROLS,
+            Any(json!({"kinds": ["asks"]}), "only a peer daemon on a v2 link may open controls"),
+        ),
+        (method::MUX_BROWSER_WORKSPACE_SOURCE_SET, Run(json!({}))),
+        (method::MUX_BROWSER_WORKSPACES, Run(json!({}))),
+        (
+            method::MUX_PAUSED_FILES,
+            Any(
+                json!({"op": "list", "machine": "local", "path": "$CWD"}),
+                "only the person may browse files on a paused machine",
+            ),
+        ),
+        (method::MUX_SESSION_RESYNC, Run(json!({"sessionId": "$S"}))),
+        (
+            method::MUX_HERE_BEAT,
+            Run(
+                json!({"device": "test-device", "deviceKind": "vm", "seq": 1, "activity": "present", "scopes": ["$S"]}),
+            ),
+        ),
+        (method::MUX_HERE, Run(json!({"scope": "$S"}))),
+        (method::MUX_LIVE, Run(json!({}))),
+        (method::MUX_LIVE_LIST, Run(json!({}))),
+        (method::MUX_ROOMS, Run(json!({"chats": ["$S"]}))),
+        (method::MUX_FOLLOW, Run(json!({"target": null}))),
+        (method::MUX_PIN, Run(json!({"sessionId": "$S", "pinned": true}))),
+        (method::MUX_SEEN, Run(json!({"sessionId": "$S", "seq": 1}))),
+        (method::MUX_SYNC_PULL, Run(json!({"vv": {}}))),
+        (method::MUX_SYNC_PUSH, Run(json!({"delta": {"since": {}, "covers": {}, "entries": []}}))),
         (method::MUX_DETACH, Run(json!({"sessionId": "$S"}))),
         (method::MUX_MAIL_READ, Run(json!({"recipient": "reports:test"}))),
         (method::MUX_MAIL_WAIT, Run(json!({"recipient": "reports:test", "timeoutMs": 100}))),
@@ -489,6 +594,15 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (
             method::MUX_TEAM_ACK,
             Any(json!({"id": "x"}), "team messaging is off without a mesh relay (invalid params)"),
+        ),
+        (method::MUX_TEAM_NAVIGATOR, Any(json!({}), "team messaging is off without a mesh relay")),
+        (
+            method::MUX_TEAM_PICK,
+            Any(json!({"query": "test"}), "team messaging is off without a mesh relay"),
+        ),
+        (
+            method::MUX_TEAM_SESSION_INFO,
+            Any(json!({"sessionId": "$S"}), "team messaging is off without a mesh relay"),
         ),
         (
             method::MUX_TEAM_LISTEN,
@@ -565,6 +679,20 @@ pub fn table() -> Vec<(&'static str, Ask)> {
                 "the turn that send_queue started still runs (invalid params: retry.busy)",
             ),
         ),
+        (method::MUX_SUCCEED, Run(json!({"sessionId": "$S", "names": ["stack-former-session"]}))),
+        (method::MUX_ROLE, Run(json!({"op": "ls"}))),
+        (method::MUX_SUBAGENT_LIST, Run(json!({"sessionId": "$S"}))),
+        (
+            method::MUX_INBOX_SUBSCRIPTION_SET,
+            Run(json!({"sessionId": "$S", "threadId": "stack-thread"})),
+        ),
+        (method::MUX_INBOX_SUBSCRIPTIONS, Run(json!({"sessionId": "$S"}))),
+        (
+            method::MUX_INBOX_SUBSCRIPTION_REMOVE,
+            Run(json!({"sessionId": "$S", "threadId": "stack-thread"})),
+        ),
+        (method::MUX_SESSION_HOLD, Run(json!({"sessionId": "$S", "held": false}))),
+        (method::MUX_FLEET_HOLD, Run(json!({}))),
         (method::MUX_INBOX_DIGEST, Run(json!({"sessionId": "$S", "dryRun": true}))),
         (method::MUX_PERMISSION_GROUPS, Run(json!({"sessionId": "$S"}))),
         (
@@ -663,10 +791,13 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_HANDOFF_DISCARD, Run(json!({"handoffId": "h1"}))),
         (method::SESSION_CLOSE, Run(json!({"sessionId": "$T"}))),
         (method::SESSION_DELETE, Run(json!({"sessionId": "$T"}))),
-        (method::MUX_KILL, Run(json!({"sessionId": "$T"}))),
         // Pauses its own new chat, which the next `$T` row replaces.
         (method::MUX_PAUSE, Run(json!({"sessionId": "$T"}))),
         // `$S` runs: nothing to wake.
         (method::MUX_WAKE, Run(json!({"sessionId": "$S"}))),
+        // All other rows have finished with $S. Keep it for the list and restore requests.
+        (method::MUX_KILL, Run(json!({"sessionId": "$S", "purge": true, "grace": true}))),
+        (method::MUX_DELETED, Run(json!({}))),
+        (method::MUX_UNDELETE, Run(json!({"sessionId": "$S"}))),
     ]
 }
