@@ -117,6 +117,88 @@ import Testing
                               isUtteranceFinal: true) == "A B. C.")
     }
 
+    @Test func finalizedUntimedPhraseSurvivesLaterTimedResult() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "A", startTime: nil, endTime: nil,
+                          isUtteranceFinal: true)
+        #expect(merger.merged(base: "", transcript: "B", startTime: 3, endTime: 4,
+                              isUtteranceFinal: true) == "A B")
+    }
+
+    @Test func cumulativeTimedFinalReplacesFinalizedUntimedPrefix() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "A", startTime: nil, endTime: nil,
+                          isUtteranceFinal: true)
+        #expect(merger.merged(base: "", transcript: "A B", startTime: 0, endTime: 4,
+                              isUtteranceFinal: true) == "A B")
+    }
+
+    @Test func cumulativeTimedFinalPrunesHistoryAroundUntimedFinal() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "A", startTime: 0, endTime: 1,
+                          isUtteranceFinal: true)
+        _ = merger.merged(base: "", transcript: "B", startTime: nil, endTime: nil,
+                          isUtteranceFinal: true)
+        #expect(merger.merged(base: "", transcript: "A C", startTime: 0, endTime: 4,
+                              isUtteranceFinal: true) == "A C B")
+    }
+
+    @Test func cumulativeTimedFinalKeepsOrderAcrossUntimedFinals() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "A", startTime: nil, endTime: nil,
+                          isUtteranceFinal: true)
+        _ = merger.merged(base: "", transcript: "B", startTime: nil, endTime: nil,
+                          isUtteranceFinal: true)
+        #expect(merger.merged(base: "", transcript: "A C", startTime: 0, endTime: 4,
+                              isUtteranceFinal: true) == "A C B")
+    }
+
+    @Test func cumulativePartialKeepsCommittedUntimedPrefix() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "A", startTime: nil, endTime: nil,
+                          isUtteranceFinal: true)
+        #expect(merger.merged(base: "", transcript: "A B", startTime: 0, endTime: 2)
+            == "A B")
+        #expect(merger.merged(base: "", transcript: "C", startTime: nil, endTime: nil)
+            == "A C")
+    }
+
+    @Test func cumulativeFinalMatchesUntimedPhraseAfterTimedHistory() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "old", startTime: 0, endTime: 1,
+                          isUtteranceFinal: true)
+        _ = merger.merged(base: "", transcript: "new", startTime: nil, endTime: nil,
+                          isUtteranceFinal: true)
+        #expect(merger.merged(base: "", transcript: "new C", startTime: 0, endTime: 3,
+                              isUtteranceFinal: true) == "new C")
+    }
+
+    @Test func cumulativeFinalAfterInitialSilenceMatchesUntimedPhrase() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "A", startTime: nil, endTime: nil,
+                          isUtteranceFinal: true)
+        #expect(merger.merged(base: "", transcript: "A B", startTime: 0.2, endTime: 4,
+                              isUtteranceFinal: true) == "A B")
+    }
+
+    @Test func cumulativePartialAfterTimedHistoryKeepsUntimedPhraseOrder() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "old", startTime: 0, endTime: 1,
+                          isUtteranceFinal: true)
+        _ = merger.merged(base: "", transcript: "new", startTime: nil, endTime: nil,
+                          isUtteranceFinal: true)
+        #expect(merger.merged(base: "", transcript: "new C", startTime: 0, endTime: 3)
+            == "old new C")
+    }
+
+    @Test func cumulativePartialWithPunctuationKeepsAdjacency() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "A", startTime: nil, endTime: nil,
+                          isUtteranceFinal: true)
+        #expect(merger.merged(base: "", transcript: "A, B", startTime: 0, endTime: 2)
+            == "A, B")
+    }
+
     @Test func untimedCorrectionCannotKeepStaleTimingAndDuplicateItself() {
         var merger = ComposerDictationTextMerger()
         _ = merger.merged(base: "", transcript: "A", startTime: 0, endTime: 1.5)
