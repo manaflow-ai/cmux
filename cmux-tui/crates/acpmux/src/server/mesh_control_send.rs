@@ -40,7 +40,9 @@ fn start_params(params: &Value, answer: &str) -> Result<serde_json::Map<String, 
 fn error(error: HubError) -> RpcError {
     let code = error.code.as_deref().unwrap_or("mesh.unavailable");
     RpcError::new(-32000, error.message.clone()).with_data(json!({
-        "reason": code, "candidates": error.candidates, "retryable": !error.refused,
+        // A hub's 5xx or 429 passes too, as `mesh_retry::transient` says.
+        "reason": code, "candidates": error.candidates,
+        "retryable": crate::mesh_retry::transient(&error, false),
     }))
 }
 
@@ -228,7 +230,7 @@ async fn start_through(
 /// passes.
 /// A hub that fails to answer for a while (a 503 `mesh.unavailable`) is asked again until
 /// `until`: the start may already be running there, so one failed read is not its answer.
-/// Before, the first failed read failed the `new` although the session started (fs-agent-lane-47,
+/// Before, the first failed read failed the `new` although the session started (a lane host,
 /// 2026-11-28: a caller's retries left 8 idle duplicates).
 async fn settled(
     mesh: &dyn crate::mesh::MeshHub,
@@ -297,15 +299,19 @@ mod unsettled {
             let mut book = book().lock().unwrap_or_else(|e| e.into_inner());
             let unsettled = match outcome {
                 Ok(_) => false,
-                Err(e) => e.data.as_ref().and_then(|d| d.get("retryable")).and_then(Value::as_bool)
-                    == Some(true),
+                Err(e) => {
+                    e.data.as_ref().and_then(|d| d.get("retryable")).and_then(Value::as_bool)
+                        == Some(true)
+                }
             };
             if !unsettled {
                 book.remove(&self.0);
                 return;
             }
             if book.len() >= MOST && !book.contains_key(&self.0) {
-                if let Some(oldest) = book.iter().min_by_key(|(_, (_, at))| *at).map(|(k, _)| k.clone()) {
+                if let Some(oldest) =
+                    book.iter().min_by_key(|(_, (_, at))| *at).map(|(k, _)| k.clone())
+                {
                     book.remove(&oldest);
                 }
             }
