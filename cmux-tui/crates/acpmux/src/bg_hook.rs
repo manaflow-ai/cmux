@@ -360,6 +360,11 @@ as asked."
     if let Some(why) = slow {
         words.extend(["--slow".to_owned(), why.to_owned()]);
     }
+    // The call itself: the process registry lists the task under it, so the transcript's Bash
+    // row and the task are one (`hub/bg_registry.rs`).
+    if let Some(call) = input.get("tool_use_id").and_then(Value::as_str).filter(|c| !c.is_empty()) {
+        words.extend(["--tool-call".to_owned(), call.to_owned()]);
+    }
     words.extend(["--".to_owned(), cli.run_vm.as_deref().unwrap_or(command).to_owned()]);
     let mut tool_input = input.get("tool_input").filter(|t| t.is_object())?.clone();
     tool_input.set("command", json!(crate::agent_tools::quoted(&words)));
@@ -662,6 +667,11 @@ pub(crate) fn answer(home: &std::path::Path, session: &str, input: Value) -> Opt
         Some("PreToolUse") if mcp_call(&input) => {
             subagent_call_starts(home, session, &input);
             return None;
+        }
+        // Harness magic `router` (RFD 0158 §6, `model_router.rs`): a subagent start with no
+        // model names the one its kind is routed to.
+        Some("PreToolUse") if crate::model_router::starts_subagent(&input) => {
+            return crate::model_router::route(&input);
         }
         _ => {}
     }
