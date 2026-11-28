@@ -1260,6 +1260,7 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
     // again (the deny list, the protected apps and its place were checked
     // above and by prime_block_of, outside the scope).
     let mut title_before: Option<String> = None;
+    let mut place_before: Option<super::ax::MenuContext> = None;
     // A menu bar item's title and check mark before any scope: read back
     // after the settle (a toggle changes one of them).
     let item_toggle = if in_menu_bar { readback::Check::menu_item(&el) } else { None };
@@ -1296,6 +1297,9 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
             .map_err(|why| DesktopError::Unsupported(why.into()))?;
         // Readable here: prime_block_of blocks an unreadable title.
         title_before = el.attr("AXTitle").ok().flatten().and_then(|v| v.as_string());
+        // Its place, read before the scope: a title the app changes while
+        // validating it is held to the deny list again without an AX read.
+        place_before = super::ax::menu_context(&el);
         let (key, short) = enable_menu_item(d, &t, &el, element_id)?;
         item_timeout = Some(short);
         Some(key)
@@ -1323,12 +1327,16 @@ fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DRes
             press_actions(spec.button).iter().find(|a| available.iter().any(|x| x == *a))
     {
         // In a scope: focus still on the target, the item's title as before
-        // (short reads), then live (not stopped, not past its bound, the
+        // or a new one the deny list allows (short reads), then live (not stopped, not past its bound, the
         // person did not switch to the app) last, right before the press.
         if let Some(key) = menu_key.as_ref() {
             let title_now = el.attr("AXTitle").ok().flatten().and_then(|v| v.as_string());
             if let Err(why) = roles::primed_press(true, focused_on_target(&t), false)
-                .and_then(|()| roles::same_item(title_before.as_deref(), title_now.as_deref()))
+                .and_then(|()| {
+                    roles::same_or_allowed(title_before.as_deref(), title_now.as_deref(), |now| {
+                        d.menu_item_check_in(place_before.as_ref(), now, &workspace::apps_named)
+                    })
+                })
                 .and_then(|()| roles::primed_press(key.live(), true, false))
             {
                 return Err(scope_refusal(menu_key.take(), why));
@@ -2730,6 +2738,11 @@ fn press_keys_inner(
                 if let Some(why) = first.iter().find_map(|(el, _)| prime_block_of(el, None)) {
                     return Err(DesktopError::Unsupported(why.into()));
                 }
+                // Each match's place in the menus, read before any scope:
+                // a title its app changes while validating is held to the
+                // deny list again inside the scope without reading AX.
+                let places: Vec<Option<super::ax::MenuContext>> =
+                    first.iter().map(|(el, _)| super::ax::menu_context(el)).collect();
                 if let Some(key) = key_in_app(d, &t) {
                     // Every AX read inside the scope is short; restored on
                     // every exit.
@@ -2753,22 +2766,27 @@ fn press_keys_inner(
                         // enabled state are read again (short timeout, the
                         // bound checked between reads); the deny list and
                         // the protected apps were checked in the first walk,
-                        // outside it. A changed title fails closed.
+                        // outside it. A changed title is checked again (with
+                        // the place read before the scope); an unreadable one
+                        // fails closed.
                         let mut again = Vec::new();
-                        for (el, m0) in first {
+                        for ((el, m0), place) in first.into_iter().zip(places) {
                             if !key.live() {
                                 return Err(scope_refusal(
                                     Some(key),
                                     roles::primed_press(false, true, false).unwrap_err(),
                                 ));
                             }
-                            let mut m = m0.clone();
-                            m.enabled = el.bool("AXEnabled") == Some(true);
                             let title =
                                 el.attr("AXTitle").ok().flatten().and_then(|v| v.as_string());
-                            if roles::same_item(Some(&m0.title), title.as_deref()).is_err() {
-                                m.blocked = true;
-                            }
+                            // A retitled item (TextEdit's "Make Rich Text"
+                            // reads "Make Plain Text" once validated) is held
+                            // to the deny list again with the place read
+                            // before the scope: no AX read here.
+                            let mut m = roles::retitled_match(&m0, title.as_deref(), |now| {
+                                d.menu_item_check_in(place.as_ref(), now, &workspace::apps_named)
+                            });
+                            m.enabled = el.bool("AXEnabled") == Some(true);
                             again.push((el, m));
                         }
                         primed = Some(key);

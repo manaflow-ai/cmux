@@ -17,7 +17,8 @@ compresses DAYS days into minutes; each simulated day is:
     person comes back to: its hibernated agent wakes and goes again);
   - an archive and unarchive of a few chats;
   - a sleep/wake: every process of both trees stopped (SIGSTOP) for SLEEP seconds and continued;
-  - the acpmux idle timer fast-forwarded (ACPMUX_IDLE_CHILD_SECS, default 2 min in the product);
+  - the acpmux idle timer fast-forwarded (ACPMUX_IDLE_CHILD_SECS, default 2 min in the product), and its
+    chat eviction too (ACPMUX_EVICT_IDLE_SECS, default 10 min in the product; --evict-idle-secs=0 is off);
 then it waits for the idle agents to hibernate and samples an idle window.
 
 Each sample is per process role (acpmux, agent-host, agent, acpmux-child, cmux-tui, terminal-host, holder,
@@ -231,12 +232,36 @@ def file_groups(disks):
 KERNEL_MAPPINGS = {"[vdso]", "[vvar]", "[vsyscall]", "[uprobes]"}
 
 
+# The largest PROT_NONE mapping below a stack that still reads as its guard page.
+STACK_GUARD_MAX = 64 << 10
+
+
+def thread_stack_pointers(pid):
+    """Each thread's user stack pointer, from /proc/PID/task/TID/syscall (a thread blocked in a syscall, as an idle one
+    is): the second-to-last field. Empty where the kernel refuses the read."""
+    sps = []
+    try:
+        tids = os.listdir(f"/proc/{pid}/task")
+    except OSError:
+        return sps
+    for tid in tids:
+        try:
+            with open(f"/proc/{pid}/task/{tid}/syscall") as f:
+                fields = f.read().split()
+            if len(fields) >= 3:
+                sps.append(int(fields[-2], 16))
+        except (OSError, ValueError):
+            continue
+    return sps
+
+
 def smaps_kinds(pid):
     """One process's PSS in kB by mapping kind (its binary, heap, stacks, other files, anonymous), Linux only:
     where a role's per-process memory sits. Anonymous memory is split three ways: a malloc arena (glibc maps each at a 64 MB boundary), a
-    thread's stack (another mapping above a guard page) and the rest."""
+    thread's stack (the mapping a thread's stack pointer is in, or one above a guard page) and the rest."""
     kinds, name = {}, None
-    prev_end, prev_guard = None, False
+    prev_end, prev_guard = None, 0
+    sps = thread_stack_pointers(pid)
     try:
         exe = os.path.realpath(f"/proc/{pid}/exe")
         with open(f"/proc/{pid}/smaps") as f:
@@ -247,8 +272,11 @@ def smaps_kinds(pid):
                     start, end = (int(x, 16) for x in head[0].split("-"))
                     # The arena test first: glibc maps arenas side by side, each one's writable start on a 64 MB
                     # boundary right after the previous arena's PROT_NONE tail, which reads as a guard page too.
+                    # A guard is a page or two (glibc's default, Rust's); an allocator's reserved tail (a mimalloc
+                    # segment's, a glibc arena's) is far larger, and the mapping above it is heap, not a stack.
                     anon = ("arena" if start % (64 << 20) == 0 else
-                            "thread-stack" if prev_guard and prev_end == start else "anon")
+                            "thread-stack" if any(start <= sp < end for sp in sps) else
+                            "thread-stack" if 0 < prev_guard <= STACK_GUARD_MAX and prev_end == start else "anon")
                     name = ("binary" if path == exe else "heap" if path == "[heap]" else
                             "stack" if path.startswith("[stack") else anon if not path else
                             "vdso" if path in KERNEL_MAPPINGS or path.startswith("[vvar") else
@@ -256,7 +284,7 @@ def smaps_kinds(pid):
                             # allocator's heap, mimalloc's arenas above all, not the kernel's pages.
                             "heap:" + path[6:-1] if path.startswith("[anon:") else
                             anon if path.startswith("[") else "file:" + os.path.basename(path))
-                    prev_end, prev_guard = end, not path and head[1].startswith("---")
+                    prev_end, prev_guard = end, (end - start) if not path and head[1].startswith("---") else 0
                 elif head and head[0] == "Pss:" and name:
                     kinds[name] = kinds.get(name, 0) + int(head[1])
     except (OSError, ValueError, IndexError):
@@ -264,11 +292,24 @@ def smaps_kinds(pid):
     return dict(sorted(kinds.items(), key=lambda kv: -kv[1])[:8])
 
 
+# The running count's tui.log, where idle_window counts registry commits per thread.
+TUI_LOG = []
+
+
 def idle_window(top, seconds, disks):
     """Per-role totals: memory at the end, CPU and wakeups over `seconds` of nothing."""
     before = snapshot(top)
+    log_at = os.path.getsize(TUI_LOG[0]) if TUI_LOG and os.path.exists(TUI_LOG[0]) else None
     time.sleep(seconds)  # sleep-ok: the idle window itself, the span CPU and wakeups are measured over
     after = snapshot(top)
+    commits = {}
+    if log_at is not None:
+        with open(TUI_LOG[0], "rb") as f:
+            f.seek(log_at)
+            for line in f.read(64 << 20).decode(errors="replace").splitlines():
+                m = re.search(r"registry-commit thread=(\S+)", line)
+                if m:
+                    commits[m.group(1)] = commits.get(m.group(1), 0) + 1
     roles = {}
     for pid, s in after.items():
         r = roles.setdefault(s["role"], {"count": 0, "threads": 0, "rss": 0, "pss": 0, "fds": 0, "cpu_s": 0.0,
@@ -320,7 +361,7 @@ def idle_window(top, seconds, disks):
     for r in roles.values():
         r["pss_mb"] = round(r.pop("pss") / 1048576, 2)
         r["rss_mb"] = round(r.pop("rss") / 1048576, 2)
-    return {"total": total, "roles": roles, "disk": disk, "files": file_groups(disks)}
+    return {"total": total, "roles": roles, "disk": disk, "files": file_groups(disks), "commits": commits, "window": seconds}
 
 
 # ------------------------------------------------------------------ sockets
@@ -417,6 +458,9 @@ class Run:
             ACPMUX_UNUSED_EXIT_SECS="0",
             ACPMUX_SESSION_CPU_CLASS="normal",
             CMUX_TUI_CONFIG=os.path.join(self.tui_root, "config.json"),
+            # Each registry commit logs its thread to tui.log (workspace_registry/wal_durability.rs): idle_window
+            # counts them, naming the writer behind the syncer's idle wakeups.
+            CMUX_TUI_DEBUG_COMMIT_THREADS="1",
         )
         # The terminal model under test, never the caller's: the product default (a host per terminal),
         # a host per terminal, or the holder.
@@ -425,6 +469,10 @@ class Run:
             env["CMUX_TUI_TERMINAL_HOST_MODEL"] = self.args.terminal_host_model
         # The agent holder under test (acpmux agent_host/custody.rs), never the caller's.
         env["ACPMUX_AGENT_HOLDER"] = "1" if self.args.agent_holder == "on" else "0"
+        # Chat eviction under test (acpmux hub/evict.rs, on by default in acpmux), never the caller's: the
+        # product's period fast-forwarded like the idle timer, or 0, off. None (an older caller) is the
+        # binary's own default.
+        env.pop("ACPMUX_EVICT_IDLE_SECS", None)
         if self.args.evict_idle_secs is not None:
             env["ACPMUX_EVICT_IDLE_SECS"] = str(self.args.evict_idle_secs)
         # Lazy start under test (cmux-tui mux/terminal_respawn/lazy.rs, CMUX_TUI_LAZY_START, on by default in
@@ -450,7 +498,8 @@ class Run:
                                    start_new_session=True)
         self.procs.append(acp)
         self.wait_for(lambda: '"ready":true' in open(ready).read().replace(" ", ""), acp, "acpmux ready")
-        with open(os.path.join(self.root, "tui.log"), "w") as log_file:
+        TUI_LOG[:] = [os.path.join(self.root, "tui.log")]
+        with open(TUI_LOG[0], "w") as log_file:
             tui = subprocess.Popen([self.args.tui, "--headless", "--session", f"inf{os.getpid()}-{self.count}",
                                     "--socket", self.tui_sock, "--state", os.path.join(self.tui_root, "state"),
                                     # The app's owner reaps a closed tab's terminal after its grace (30 s,
@@ -642,8 +691,8 @@ class Run:
 
     def open_probe(self, k):
         """--open-probe K: opens K idle chats as the app does (attach, newest 400 records), each on a fresh
-        connection, after the last idle window so it moves no memory number. With --evict-idle-secs those
-        chats are evicted rows, so this is the open of an evicted chat; without it, of a resident one."""
+        connection, after the last idle window so it moves no memory number. With eviction on (the default) those
+        chats are evicted rows, so this is the open of an evicted chat; with --evict-idle-secs=0, of a resident one."""
         picks = random.Random(self.count).sample(self.idle, min(k, len(self.idle)))
         took = []
         for sid in picks:
@@ -700,7 +749,7 @@ class Run:
 
     def park_idle(self):
         """--park-idle: what the app's freeing tier does to a hibernated workspace (CmuxNextHibernation
-        WorkspaceFreeingPlanner, `workspaces.freeing.*`, off by default): `park-tabs` on every tab of the run's
+        WorkspaceFreeingPlanner, `workspaces.freeing.*`, on by default after a day idle): `park-tabs` on every tab of the run's
         workspaces. The shells end, the tabs stay (dead, `relaunch.on_show`); non-terminal tabs are left as they
         are. Headless cmux-tui has no app, so without this no shell is ever freed here."""
         if not self.args.park_idle or not self.workspaces:
@@ -968,6 +1017,8 @@ def report(results):
             t_ = s["total"]
             print(f"INFINITE-DAY {n} day={s['day']} mb={t_['pss_mb']} cpu={t_['cpu_pct']} wk={t_['wakeups_per_s']} "
                   f"procs={t_['procs']} thr={t_.get('threads')} fds={t_['fds']} disk={json.dumps(s['disk'])}", flush=True)
+            print(f"INFINITE-COMMITS {n} day={s['day']} per_s={round(sum(s.get('commits', {}).values()) / max(1, s.get('window', 1)), 2)} "
+                  f"by_thread={json.dumps(dict(sorted(s.get('commits', {}).items(), key=lambda kv: -kv[1])[:12]))}", flush=True)
             for k, v in (sorted(s["roles"].items()) if s is r["samples"][0] or s is r["samples"][-1] else []):
                 top_cmds = sorted(v.get("cmds", {}).items(), key=lambda kv: -kv[1])[:2]
                 print(f"INFINITE-ROLE {n} day={s['day']} {k} n={v['count']} thr={v.get('threads')} mb={v['pss_mb']} "
@@ -1033,8 +1084,8 @@ def main():
     p.add_argument("--idle-child-secs", type=int, default=5, help="ACPMUX_IDLE_CHILD_SECS (product: 120)")
     p.add_argument("--reap-grace-secs", type=int, default=5,
                    help="cmux-tui --terminal-reap-grace-seconds (the app's owner: 30)")
-    p.add_argument("--evict-idle-secs", type=int, default=None,
-                   help="ACPMUX_EVICT_IDLE_SECS: evict chats idle this long to a compact row (off when unset)")
+    p.add_argument("--evict-idle-secs", type=int, default=5,
+                   help="ACPMUX_EVICT_IDLE_SECS: evict chats idle this long to a compact row (product: 600; 0: off)")
     p.add_argument("--resident-cap", type=int, default=0,
                    help="ACPMUX_RESIDENT_CAP: keep at most this many chats in memory, the least recently used "
                         "evicted past it (off when 0)")
@@ -1056,11 +1107,12 @@ def main():
     p.add_argument("--browser-tabs", action="store_true", help="a browser tab in each workspace too (model only)")
     p.add_argument("--park-idle", action="store_true",
                    help="park every tab of the run's workspaces after the open and each day (park-tabs), as the app's "
-                        "freeing tier does to hibernated workspaces when workspaces.freeing is on (off by default)")
+                        "freeing tier does to hibernated workspaces (workspaces.freeing, on by default, after a day idle)")
     p.add_argument("--free-idle-seconds", type=int, default=0,
                    help="start cmux-tui with --freeing-idle-seconds N: the daemon's own freeing timer parks every "
-                        "terminal idle at its prompt with no client for N seconds (workspaces.freeing.*, off by "
-                        "default), with no park-tabs request; 0 (default) leaves it off")
+                        "terminal idle at its prompt with no client for N seconds (workspaces.freeing.*, on by default "
+                        "with a day's idle time, which a simulated day never reaches), with no park-tabs request; 0 "
+                        "(default) passes nothing, so the settings file decides")
     p.add_argument("--lazy-start", choices=("off", "on"), default="on",
                    help="CMUX_TUI_LAZY_START for cmux-tui: on, a never-shown plain shell (new-workspace, new-tab, "
                         "create-terminal in a workspace no client shows) gets no shell or host until its first need "
