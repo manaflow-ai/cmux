@@ -15,7 +15,7 @@ import {
 import { ApiError, badRequest, errorResponse, json, notFound } from "./errors";
 import { internalCall, why } from "./internalCall";
 import { REATTACH_TTL_S, TICKET_TTL_S, type Scope, mintTicket } from "./tickets";
-import { type IceServer, mintTurn } from "./turn";
+import { ICE_TTL_S, type IceServer, mintTurn, selfTurn } from "./turn";
 
 /** Who is calling: the hub user, the public origin, and the Stack token for the billing lookup (never stored). */
 interface CallContext {
@@ -1699,7 +1699,14 @@ export class UserDO extends DurableObject<Env> {
 
   /** The cmux relay ICE for a session's answer: minted only when paid, and an empty mint is logged. */
   private async relayIce(sessionId: string, answer: "paid" | "free" | "error"): Promise<IceServer[]> {
-    if (answer !== "paid") return [];
+    if (answer !== "paid") {
+      // An account TURN_SELF_ACCOUNTS names by id (not `*`) gets our own relay on any plan: the probe and team
+      // accounts, so a free test account still measures the relay path. Everyone else on free gets none.
+      const named = (this.env.TURN_SELF_ACCOUNTS ?? "").split(",").map((a) => a.trim()).includes(this.ownerId);
+      if (!named) return [];
+      const own = await selfTurn(this.env, ICE_TTL_S);
+      return own ? [own] : [];
+    }
     const ice = await mintTurn(this.env, { userId: this.ownerId });
     if (!hasTurn(ice)) console.error(`device-hub: relay mint empty for paid session ${sessionId} (source ${this.env.TURN_SOURCE ?? "local"})`);
     return ice;
