@@ -108,8 +108,11 @@ public protocol BrowserStreamOpening: Sendable {
     /// Opens a Mac phone tab's simulator (`surface` service, `tab`: `s<surface>`):
     /// the same stream as a browser tab's, from the simulator's framebuffer.
     func openSurface(tab: String, sink: any BrowserStreamSink) async throws -> any BrowserStreamConnection
-    /// Opens one connection to `port` on the Mac's loopback (`localhost` service,
-    /// PROTOCOL.md): a native browser tab's request to `localhost:<port>`.
+    /// Opens one connection to `port` on the Mac (`localhost` service,
+    /// PROTOCOL.md). `host` is nil for the Mac's loopback and is supplied for
+    /// a named private host when the Mac advertises `localhost-hosts-v1`.
+    func openLocalhost(port: UInt16, host: String?) async throws -> any LinkChannel
+    /// Compatibility spelling for a loopback-only caller.
     func openLocalhost(port: UInt16) async throws -> any LinkChannel
 }
 
@@ -120,7 +123,11 @@ extension BrowserStreamOpening {
         throw LinkError(code: "no_surface_host", message: "This Mac does not stream simulators")
     }
 
-    public func openLocalhost(port: UInt16) async throws -> any LinkChannel {
+    public func openLocalhost(port: UInt16, host: String?) async throws -> any LinkChannel {
         throw LinkError(code: "unknown_service", message: "This Mac does not forward localhost")
+    }
+
+    public func openLocalhost(port: UInt16) async throws -> any LinkChannel {
+        try await openLocalhost(port: port, host: nil)
     }
 }
