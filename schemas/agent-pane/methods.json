@@ -13,7 +13,11 @@
     "pane.inputEchoed": "launchInputEcho.ts reports launch timing to the host's AgentPaneRequest decoder, not to acpmux."
   },
   "refused_today": {
-    "_acpmux/inbox_threads": "direct.ts inboxThreads (the chat.inbox.threads action, App.tsx) sends {sessionId}; not in AcpmuxPaneMethods.requests, so the app relay refuses it."
+    "_acpmux/inbox_threads": "direct.ts inboxThreads (the chat.inbox.threads action, App.tsx) sends {sessionId}; not in AcpmuxPaneMethods.requests, so the app relay refuses it.",
+    "_acpmux/history": "direct.ts inspectorHistory (the inspector's Timing tab, cmux#61050) sends {sessionId, limit}; not in policy.json requests, so the app relay refuses it.",
+    "_acpmux/set_directories": "direct.ts setDirectories (cmux#32949) sends {sessionId, additionalDirectories, expectedAdditionalDirectories?}; not in policy.json requests, so the app relay refuses it.",
+    "_acpmux/turn_frames": "direct.ts turnFrames, turnFrameFull and latestFrame (liveFrames/turnFrames.ts, cmux#54952) send {sessionId, turnId or sinceSeq, index?}; not in policy.json requests, so the app relay refuses it.",
+    "session/signature": "direct.ts signatures (cmux#47075; asked only while appearance.agentSignature is on, off by default) sends {sessionIds}; not in policy.json requests, so the app relay refuses it (the sidebar asks acpmux itself, SidebarAgentSignature.swift)."
   },
   "methods": {
     "initialize": {"params": ["protocolVersion", "clientInfo", "clientCapabilities", "_meta"], "acpmux": ["peerRowBatches", "chunkDeltas", "sessionChangedDelta"], "frames": "initialize-params.json"},
@@ -152,6 +156,7 @@
     "_acpmux/subagents": {"params": ["sessionId", "ended"]},
     "_acpmux/account/sign_in": {"params": ["family", "sessionId"]},
     "_acpmux/account/sign_in.finish": {"params": ["loginId", "sessionId"]},
-    "_acpmux/account/sign_in.cancel": {"params": ["loginId", "sessionId"]}
+    "_acpmux/account/sign_in.cancel": {"params": ["loginId", "sessionId"]},
+    "_acpmux/pull_request_action": {"params": ["sessionId", "url", "headSha", "action"]}
   }
 }

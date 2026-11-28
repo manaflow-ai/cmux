@@ -27,14 +27,14 @@ const root = join(webviews, "..");
 const contract: Contract = JSON.parse(readFileSync(join(root, "schemas/agent-pane/methods.json"), "utf8"));
 const pane = join(webviews, "src/agent-session/acpmux");
 
-// The page's own code: no tests, galleries, the generated registry, or the mock daemon and
-// simulator (they write the daemon's frames, not the page's).
+// The page's own code: no tests, galleries, test fixtures, the generated registry, or the mock
+// daemon and simulator (they write the daemon's frames, not the page's).
 function sources(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
     const path = join(dir, name);
     if (statSync(path).isDirectory()) {
       if (name !== "generated" && name !== "sim") sources(path, out);
-    } else if (/\.tsx?$/.test(name) && !/\.(test|gallery)\.tsx?$/.test(name) && name !== "mock.ts") {
+    } else if (/\.tsx?$/.test(name) && !/\.(test|gallery|fixture)\.tsx?$/.test(name) && name !== "mock.ts") {
       out.push(path);
     }
   }
