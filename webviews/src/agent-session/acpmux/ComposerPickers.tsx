@@ -15,7 +15,7 @@ import React, {
 } from "react";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
-import { useClaudeConnectFlow } from "./ClaudeConnectRow";
+import { useClaudeConnectFlow } from "./useClaudeConnectFlow";
 import { CLAUDE_CONNECT_BRAND, CODEX_CONNECT_BRAND } from "./claudeConnect";
 import { CloudServedContext } from "./cloudServed";
 import type { QuickMenuExtras } from "./QuickModelMenu";
@@ -121,7 +121,8 @@ import {
 } from "../../ui/Menu";
 import { cx } from "../../ui/cx";
 import { registerPicker, ChatViewParked } from "./pickerOpeners";
-import { MENU_WINDOW_AT, MenuWindowRows, sectionStarts, useMenuWindow } from "../../ui/menuWindow";
+import { MENU_WINDOW_AT, sectionStarts, useMenuWindow } from "../../ui/menuWindow";
+import { MenuWindowRows } from "../../ui/MenuWindowRows";
 import { PLAN_TOGGLE_OPENER } from "./composerControls";
 import { SHORTCUT_ACTIONS, tooltipProps, useShortcut } from "./shortcuts";
 import { experimentArm } from "../../experiments/experiment";
@@ -594,7 +595,10 @@ export function ComposerPickers({
   // that model offering it (the effect above); the same model only changes the effort.
   // A pick in a chat on another machine names that machine's models: this one's new chats keep theirs.
   // A pick for a Cloud machine is the machine's (cloudAgentPick.ts), never this Mac's remembered pick.
-  const remembers = !summary?.host && summary?.hostKind !== "cloud" && !onCloud;
+  // Only a New Tab's pick is New Tab's (lastPick.ts): a started chat's pick is that chat's, which
+  // acpmux saves as the next chat's start (Leo 2026-11-27: "it should purely just be new tab"). A
+  // New Tab's chips name no session (newTabStart), and neither does its chat before it starts.
+  const remembers = !summary?.host && summary?.hostKind !== "cloud" && !onCloud && (onNewTab || !summary?.sessionId);
   // Before the chat has a session (a New Tab's deferred chat, a harness still starting) the switch
   // holds every pick and applies it before the first prompt (harnessSwitch.ts): a combo's effort and
   // Fast go to it at once, so a prompt sent right after the pick runs on the whole combo. An option
@@ -826,7 +830,7 @@ export function ComposerPickers({
   // pick here, else its profile's, else its first listed model, else the catalog's default.
   const startingId = (agent: string) => {
     const entry = pickerCatalog?.harnesses.find((candidate) => (candidate.acpmuxHarness ?? candidate.id) === agent);
-    const asked = defaultModel(agent, snapshot.catalog, harnessProfiles, folder ?? summary?.cwd);
+    const asked = defaultModel(agent, snapshot.catalog, harnessProfiles, folder ?? summary?.cwd, onNewTab);
     const id = asked && !isDefaultChoice({ id: asked }) ? asked : entry?.defaultModel;
     return id && !isDefaultChoice({ id }) ? id : undefined;
   };
@@ -1324,6 +1328,9 @@ export function ComposerPickers({
       pendingAccessModes: pendingAccessModes.map((choice) => choice.id),
     };
   });
+  // Each side keeps its own (chipMemory.ts `ChipPlace`, cmux#63719): a Cloud chat's level is Cloud's,
+  // never the one this Mac's next chat draws before it reports. A Cloud start's chips draw Cloud's own
+  // pick (cloudStartChip below), never this memory.
   useEffect(() => {
     // Only the level the person picked here: a level the session reports on its own is not kept.
     const picked = chipHarness && chipPlace ? levelPicked(chipHarness, chipPlace) : undefined;
@@ -1794,7 +1801,7 @@ function AccessMenu({
   // button keeps the mode's symbol.
   const iconless = numbered && heading !== undefined;
   // Past MENU_WINDOW_AT modes (an agent reports as many as it has) only the rows near the menu's
-  // viewport draw (menuWindow.tsx).
+  // viewport draw (menuWindow.ts).
   const menu = useMenuWindow(
     open,
     [modes.length],
@@ -2430,7 +2437,7 @@ export function Picker({
   const parked = useContext(ChatViewParked);
   useEffect(() => (parked ? undefined : registerPicker(label, open)), [label, open, parked]);
   // Past MENU_WINDOW_AT rows (the host's catalog rows are not bounded) only the rows near the
-  // menu's viewport draw (menuWindow.tsx).
+  // menu's viewport draw (menuWindow.ts).
   const sizes = sections.map((section) => section.choices.length);
   const starts = sectionStarts(sizes);
   const windowed = sizes.reduce((sum, size) => sum + size, 0) > MENU_WINDOW_AT;

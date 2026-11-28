@@ -19,6 +19,113 @@ async fn chat() -> (Arc<Hub>, Arc<Session>) {
     (hub, session)
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn automatic_restart_after_harness_update_waits_for_unreported_work() {
+    use std::{fs, os::unix::fs::PermissionsExt, time::Duration};
+
+    let root = tempfile::tempdir().unwrap();
+    let home = &root.path().canonicalize().unwrap();
+    let version = home.join("version");
+    let program = home.join(".local/share/claude/versions/fake-harness");
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    fs::create_dir_all(program.parent().unwrap()).unwrap();
+    fs::write(&version, "2.0.5\n").unwrap();
+    fs::write(
+        &program,
+        format!(
+            r#"#!/bin/sh
+case "$1" in
+  --version) cat '{version}' ;;
+  update) echo 2.0.9 > '{version}' ;;
+  *) export TEST_HARNESS_VERSION="$(cat '{version}')"; exec python3 '{fake}' "$@" ;;
+esac
+"#,
+            version = version.display(),
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": [program]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, home).unwrap();
+    let hub = Hub::new(cfg, store);
+    let clock = crate::clock::ManualClock::new();
+    hub.set_clock(clock.clone());
+    hub.set_idle_child(Some(Duration::from_secs(300)));
+    let cache = home.join("health.json");
+    let settings = crate::harness_health::Settings {
+        home: home.into(),
+        cache: Some(cache.clone()),
+        auto_update: Some(home.join("auto-update.json")),
+        ..Default::default()
+    };
+    // Use a real local version check and update plan with a cached registry answer.
+    hub.health.attach(settings.clone());
+    let mut rows = hub.health.check(hub.health_subjects().await, false).await;
+    assert_eq!(rows[0].version.as_deref(), Some("2.0.5"));
+    rows[0].latest = Some("2.0.9".into());
+    rows[0].latest_checked_at = Some(crate::store::now_ms());
+    fs::write(&cache, serde_json::to_vec(&rows).unwrap()).unwrap();
+    hub.health.attach(settings);
+
+    let session =
+        hub.new_session(NewRequest { cwd: Some(home.into()), ..Default::default() }).await.unwrap();
+    let prompt = |text: String| vec![json!({"type": "text", "text": text})];
+    let probe = home.join("child.json");
+    hub.prompt(&session, prompt(format!("class-probe: {}", probe.display())), "test", false)
+        .await
+        .unwrap();
+    assert!(hub.idle_eligible(&session), "work must be invisible to the ordinary gates");
+    let before = hub.child_for(&session).await.unwrap();
+    assert_eq!(hub.auto_update_harnesses().await, vec!["fake".to_owned()]);
+    assert_eq!(hub.health.rows()[0].version.as_deref(), Some("2.0.9"));
+    assert!(
+        Arc::ptr_eq(&before, &hub.child_for(&session).await.unwrap()),
+        "the updater replaced the harness while an unreported child was running"
+    );
+
+    clock.advance(quiet_respawn());
+    hub.stop_idle_children().await;
+    assert_ne!(session.idle_refusal_logged.load(Ordering::Relaxed), 0);
+    assert!(Arc::ptr_eq(&before, &hub.child_for(&session).await.unwrap()));
+
+    let child: Value = serde_json::from_slice(&fs::read(&probe).unwrap()).unwrap();
+    let pid = child["sleeper"].as_u64().unwrap() as u32;
+    // SAFETY: the fake harness just recorded this test's sleeper.
+    assert_eq!(unsafe { libc::kill(pid as i32, libc::SIGKILL) }, 0);
+    let harness_pid = before.pid.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !crate::agent_host::tree::under_shared(harness_pid)
+            .is_some_and(|children| children.iter().all(|child| child.pid != pid))
+        {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the sleeper ended");
+
+    // A census refusal backs off to the normal idle period.
+    clock.advance(Duration::from_secs(301));
+    hub.stop_idle_children().await;
+    assert!(session.child.lock().await.is_none());
+    assert!(hub.waking(&session));
+
+    hub.prompt(&session, prompt("env: TEST_HARNESS_VERSION".into()), "test", false).await.unwrap();
+    assert!(!Arc::ptr_eq(&before, &hub.child_for(&session).await.unwrap()));
+    let events = hub.events(&session.id, 0, 1000).unwrap();
+    assert!(events.iter().any(|e| {
+        e.msg.pointer("/params/update/content/text").and_then(Value::as_str)
+            == Some("TEST_HARNESS_VERSION=2.0.9")
+    }));
+    assert!(!hub.waking(&session));
+    hub.shutdown_all().await;
+}
+
 /// A ready chat with nothing going on is idle; an agent request waiting on its answer, a
 /// sub-session at work, a stored-less Claude chat with turns, and a queued prompt each keep it.
 #[tokio::test]
