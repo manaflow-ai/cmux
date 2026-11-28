@@ -4,8 +4,8 @@
 //! itself) commits the same way but leaves no closed-history record.
 
 use super::{
-    MAX_CLOSE_TABS_SURFACES, MutationRequest, Mux, TabRef, batch_close_terminals_json,
-    resolve_tab_refs, validate_client_transaction, workspace_mutation,
+    MAX_CLOSE_TABS_SURFACES, MutationRequest, Mux, TabRef, resolve_tab_refs,
+    validate_client_transaction, workspace_mutation,
 };
 use crate::mux::CloseReason;
 use crate::panic_free::JsonFields;
@@ -49,6 +49,21 @@ pub(super) fn run(
         reply.insert("transaction", json!(transaction));
     }
     Ok(reply)
+}
+
+pub(super) fn batch_close_terminals_json(outcome: &crate::mux::BatchCloseOutcome) -> Value {
+    Value::Array(
+        outcome
+            .terminals()
+            .into_iter()
+            .map(|terminal| {
+                json!({
+                    "terminal_id": terminal.terminal_id,
+                    "terminal_incarnation": terminal.terminal_incarnation,
+                })
+            })
+            .collect(),
+    )
 }
 
 #[cfg(test)]

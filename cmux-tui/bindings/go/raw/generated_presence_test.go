@@ -25363,6 +25363,58 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "since", true, "{\"epoch\":\"value\",\"seq\":1}")
 	})
+	t.Run("LiveAutoRequest.Worktree", func(t *testing.T) {
+		var missing LiveAutoRequest
+		if err := json.Unmarshal([]byte("{\"op\":\"value\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.Worktree.IsAbsent() {
+			t.Fatal("Worktree did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "worktree", false, "")
+		var nullValue LiveAutoRequest
+		if err := json.Unmarshal([]byte("{\"op\":\"value\",\"worktree\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Worktree.IsNull() {
+			t.Fatal("Worktree did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "worktree", true, "null")
+		var presentValue LiveAutoRequest
+		if err := json.Unmarshal([]byte("{\"op\":\"value\",\"worktree\":\"value\"}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Worktree.Get(); !ok {
+			t.Fatal("Worktree did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "worktree", true, "\"value\"")
+	})
+	t.Run("LiveAutoOptions.Worktree", func(t *testing.T) {
+		var missing LiveAutoOptions
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.Worktree.IsAbsent() {
+			t.Fatal("Worktree did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "worktree", false, "")
+		var nullValue LiveAutoOptions
+		if err := json.Unmarshal([]byte("{\"worktree\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Worktree.IsNull() {
+			t.Fatal("Worktree did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "worktree", true, "null")
+		var presentValue LiveAutoOptions
+		if err := json.Unmarshal([]byte("{\"worktree\":\"value\"}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Worktree.Get(); !ok {
+			t.Fatal("Worktree did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "worktree", true, "\"value\"")
+	})
 	t.Run("MintTerminalRendererRequest.TtlMs", func(t *testing.T) {
 		var missing MintTerminalRendererRequest
 		if err := json.Unmarshal([]byte("{\"surface\":1}"), &missing); err != nil {
@@ -55848,6 +55900,12 @@ func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {
 			t.Fatal("missing required field groups decoded successfully")
 		}
 	})
+	t.Run("LiveAutoRequest.Op", func(t *testing.T) {
+		var decoded LiveAutoRequest
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field op decoded successfully")
+		}
+	})
 	t.Run("MarkWorkspacesProviderManagedRequest.Authority", func(t *testing.T) {
 		var decoded MarkWorkspacesProviderManagedRequest
 		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
@@ -65091,6 +65149,12 @@ func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {
 			t.Fatal("required non-nullable field groups accepted null")
 		}
 	})
+	t.Run("LiveAutoRequest.Op", func(t *testing.T) {
+		var decoded LiveAutoRequest
+		if err := json.Unmarshal([]byte("{\"op\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field op accepted null")
+		}
+	})
 	t.Run("MarkWorkspacesProviderManagedRequest.Authority", func(t *testing.T) {
 		var decoded MarkWorkspacesProviderManagedRequest
 		if err := json.Unmarshal([]byte("{\"authority\":null}"), &decoded); err == nil {
@@ -70319,12 +70383,12 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1978
-	generatedOptionalNullableFieldCount    = 1367
+	generatedFieldShapeCount               = 1980
+	generatedOptionalNullableFieldCount    = 1369
 	generatedRequiredNullableFieldCount    = 178
 	generatedOptionalNonnullableFieldCount = 433
-	generatedRequiredFieldCount            = 1671
-	generatedRequiredNonnullableFieldCount = 1493
+	generatedRequiredFieldCount            = 1672
+	generatedRequiredNonnullableFieldCount = 1494
 	generatedConstrainedFieldCount         = 142
 	generatedEncodedConstrainedFieldCount  = 142
 )

@@ -224,14 +224,16 @@ def runtime_command_fields() -> dict[str, dict[str, RuntimeField]]:
             index += 1
             continue
         # A request struct in a handler module: `Variant(module::Params)`
-        # reads `server/<module>.rs`.
+        # reads `server/<module>.rs`; `Variant(crate::module::Params)` reads
+        # the crate-level `src/<module>.rs`.
         external = re.fullmatch(
-            r"    ([A-Z][A-Za-z0-9]*)\(([a-z_]+)::([A-Z][A-Za-z0-9]*)\),",
+            r"    ([A-Z][A-Za-z0-9]*)\((crate::)?([a-z_]+)::([A-Z][A-Za-z0-9]*)\),",
             line,
         )
         if external:
-            variant, module, request_type = external.groups()
-            module_path = SERVER.with_suffix("") / f"{module}.rs"
+            variant, crate_level, module, request_type = external.groups()
+            module_dir = SERVER.parent if crate_level else SERVER.with_suffix("")
+            module_path = module_dir / f"{module}.rs"
             try:
                 module_source = module_path.read_text(encoding="utf-8")
             except (OSError, UnicodeError) as error:

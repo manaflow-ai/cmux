@@ -32,6 +32,17 @@ use std::path::{Path, PathBuf};
 use anyhow::{anyhow, bail};
 use serde_json::{Value, json};
 
+/// The daemon's host wiring (`run_server`): agent-share audit rows go to the
+/// host's own audit log (config.rs), then the remote-host service, then
+/// `cmux live auto` watches again the checkouts this socket's daemon watched.
+pub(crate) fn configure_daemon(mux: &std::sync::Arc<cmux_tui_core::Mux>, socket_path: &Path) {
+    if let Ok(dir) = config::dir() {
+        cmux_tui_core::remote_host::set_agent_share_audit_dir(dir);
+    }
+    mux.configure_remote_host(socket_path);
+    cmux_tui_core::live_auto::resume(mux, socket_path);
+}
+
 const USAGE: &str = "usage: cmux host enable [--owner LOGIN] [--session NAME] [--port N] [--no-service] [--no-spawn] [--json]
        cmux host disable [--json]
        cmux host status [--json] [--remote]

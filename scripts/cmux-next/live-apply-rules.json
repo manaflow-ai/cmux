@@ -1,0 +1,23 @@
+{
+  "_comment": "The Swift diff-line rules and the verdict order of live_apply.py, one copy: live_apply.py (try-pr.sh, the hot-swap verdicts) and the cmux-tui daemon's save router (`cmux live auto`, cmux-tui-core src/live_auto/rules.rs) both read this file. The path rules are docs/benches/relevance-map.toml's [[live_rule]] table, which both read too (live_apply.py through its generated block). Python `re` syntax limited to what Rust's `regex` crate also compiles (no lookaround, no backreferences); the line rules match at the start of a diff line.",
+  "order": [
+    "rebuild",
+    "swift-live",
+    "daemon",
+    "web-live",
+    "strings",
+    "ios-only",
+    "no-app"
+  ],
+  "comment": "^\\s*(//|/\\*|\\*|\\*/)",
+  "stored": "^(\\s*)(@\\w+(\\([^)]*\\))?\\s+)*((public|private|fileprivate|internal|package|open|final|static|nonisolated|lazy|weak|unowned|override)(\\([^)]*\\))?\\s+)*(let|var)\\s+\\w+[^{]*$",
+  "func": "^\\s*(@\\w+(\\([^)]*\\))?\\s+)*((public|private|fileprivate|internal|package|open|final|static|class|override|mutating|nonisolated|required|convenience)(\\([^)]*\\))?\\s+)*(func\\s+\\w+|init[?!]?\\s*[(<]|subscript\\s*[(<])",
+  "type_decl": "^\\s*(@\\w+(\\([^)]*\\))?\\s+)*((public|private|fileprivate|internal|package|open|final|indirect)\\s+)*(struct|class|enum|actor|protocol|extension)\\s+\\w+",
+  "static_let": "^(\\s*)(@\\w+(\\([^)]*\\))?\\s+)*((public|private|fileprivate|internal|package|open|final|nonisolated(\\([^)]*\\))?)\\s+)*(static|class)\\s+((public|private|fileprivate|internal|package|open|final|nonisolated(\\([^)]*\\))?)\\s+)*let\\s+\\w+[^{]*=",
+  "file_let": "^((public|private|fileprivate|internal|package|nonisolated(\\([^)]*\\))?)\\s+)*let\\s+\\w+[^{]*=",
+  "entry": "^\\s*(@\\w+(\\([^)]*\\))?\\s+)*@main\\b",
+  "live_module": "^(CmuxNext[A-Za-z0-9_]*|MessagesLabHome|ViewShell)$",
+  "live_package": "(?:^|/)Packages/macOS/CmuxNext/Sources/|(?:^|/)Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/|(?:^|/)Prototypes/ViewShell/Sources/",
+  "swift_module": "(?:^|/)Sources/([^/]+)/",
+  "case": "^ {4}(\\t)?case\\s+\\w+|^\\tcase\\s+\\w+"
+}
