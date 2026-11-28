@@ -10,6 +10,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow, ConversationLayout } from "../src/agent-session/acpmux/model";
 import { teardownDom } from "./support/domTeardown";
+import { railFrame } from "./support/railFrame";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -112,6 +113,7 @@ async function mount(marked: number[]) {
       }),
     ),
   );
+  await railFrame();
   await settle();
   const tick = (index: number) => host.querySelector<HTMLElement>(`[data-tick="${index}"]`)!;
   const focus = (index: number) => act(async () => tick(index).focus());

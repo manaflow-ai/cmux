@@ -36,6 +36,12 @@
 # be done. A timeout retry starts only when its whole limit fits before it, and a failed file's
 # retry is cut at it, so the step stays inside its job's timeout-minutes however many files
 # timed out.
+# CMUX_WEB_TEST_RETRY_WALL: optional seconds the whole retry phase may take after the first pass ends; it pulls the
+# retry deadline in to then when that is earlier. The job-derived deadline alone let retries fill a 90 min shard: on a
+# base with 36-84 red webview files a shard, full-suite pull request runs spent 36-40 min retrying after a 39-44 min
+# first pass and clustered at ~4,800 s (jobs 138640454439, 138534278453, 138786846480, 138936477461; 3 of 26 alone
+# retries passed, so the breaker never tripped). A red left unretried goes to react-apps-base-check, which replays it on
+# the base and re-runs alone on the head any red it would charge to the change, so the verdict does not move.
 # CMUX_WEB_TEST_STOP_AT: optional epoch second after which no file starts; a file still running then is stopped at it
 # and, like a file that never started, left out of the results (named NOT RUN, and the run fails). For a job whose
 # timeout-minutes are shorter than its files can take: react-apps-base-early runs files red on the base, which fail at
@@ -106,7 +112,9 @@ set -euo pipefail
 
 # run_with_timeout SECONDS COMMAND...: exit 124 when SECONDS pass, as `timeout -k 10` does. scripts/ci/timeout.sh
 # runs the command in its own process group, so the TERM (and the KILL 10 s later) reach everything bun started.
-ci_timeout="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/timeout.sh"
+# This script's own folder, absolute: it later cds into webviews/, where a relative BASH_SOURCE no longer resolves.
+ci_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+ci_timeout="$ci_dir/timeout.sh"
 run_with_timeout() {
   bash "$ci_timeout" --kill-after=10 "$@"
 }
@@ -215,6 +223,8 @@ if [ "${1:-}" = --one ]; then
   if [ "$result" = PASS ] && [ -n "${CMUX_WEB_TEST_PASSED_OUT:-}" ]; then printf '%s\n' "$file" >> "$CMUX_WEB_TEST_PASSED_OUT"; fi
   # Each run's wall seconds; a retry's line comes after its first run's, which the manifest keeps.
   printf '%s %s\n' "$((SECONDS - started))" "$file" >> "$results/durations"
+  # The same with the verdict, for the manifest: a failed first run records no seconds (webviews_test_shards.py record).
+  printf '%s %s %s\n' "$((SECONDS - started))" "$result" "$file" >> "$results/timed"
   # Keep the named verdict immediate; the complete log is emitted once in the final summary below.
   echo "$result $file (raw log retained for the final bounded summary)"
   exit 0
@@ -277,7 +287,7 @@ elif [ "${CMUX_BROWSER_TESTS:-}" = 1 ] && [ "${GITHUB_ACTIONS:-}" != true ]; the
   ./node_modules/.bin/playwright install webkit
   # Chromium is the system Google Chrome (test/preload.ts), never Playwright's bundled build, which
   # lacks recent security fixes and runs unsandboxed. A host without a current Chrome skips Chromium.
-  chrome_out="$("$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ensure-system-chrome.sh" --optional)"
+  chrome_out="$("$ci_dir/ensure-system-chrome.sh" --optional)"
   printf '%s\n' "$chrome_out"
   shell_line="$(printf '%s\n' "$chrome_out" | grep '^CMUX_CHROME_HEADLESS_SHELL=' | tail -1 || true)"
   [ -n "$shell_line" ] && export CMUX_CHROME_HEADLESS_SHELL="${shell_line#CMUX_CHROME_HEADLESS_SHELL=}"
@@ -305,7 +315,7 @@ if [ "${GITHUB_ACTIONS:-}" = true ]; then
 fi
 git ls-files -z --cached ${others[@]+"${others[@]}"} -- '*.test.ts' '*.test.tsx' '*.test.js' '*.test.jsx' '*.test.mjs' \
   '*_test.ts' '*_test.tsx' '*.spec.ts' '*.spec.tsx' '*_spec.ts' '*_spec.tsx' > "$results/files"
-if [ -n "${CMUX_WEB_TEST_FILES:-}" ] || [ "${#selection[@]}" -gt 0 ]; then
+if [ -n "${CMUX_WEB_TEST_FILES:-}" ] || [ -n "${CMUX_WEB_TEST_FILES_FROM:-}" ] || [ "${#selection[@]}" -gt 0 ]; then
   python3 - "$results/files" ${selection[@]+"${selection[@]}"} <<'PY'
 import os
 import pathlib
@@ -313,7 +323,13 @@ import sys
 
 path = pathlib.Path(sys.argv[1])
 listed = [item.decode() for item in path.read_bytes().split(b"\0") if item]
-wanted = [line.strip() for line in os.environ.get("CMUX_WEB_TEST_FILES", "").splitlines() if line.strip()]
+text = os.environ.get("CMUX_WEB_TEST_FILES", "")
+# CMUX_WEB_TEST_FILES_FROM: a file with the same list, for lists past the 128 KiB a single environment
+# variable may hold (MAX_ARG_STRLEN): webviews_pr_shards.py passed a full-ci closure inline, the exec
+# failed with E2BIG and the shard pick fell back to every shard.
+if os.environ.get("CMUX_WEB_TEST_FILES_FROM"):
+    text += "\n" + pathlib.Path(os.environ["CMUX_WEB_TEST_FILES_FROM"]).read_text()
+wanted = [line.strip() for line in text.splitlines() if line.strip()]
 missing = [name for name in wanted if name not in listed]
 if missing:
     sys.exit("error: CMUX_WEB_TEST_FILES names files that are not webviews test files: " + ", ".join(missing))
@@ -417,9 +433,29 @@ PY
     if [ -n "${CMUX_WEB_TEST_PASSED_OUT:-}" ]; then cat "$results/reused" >> "$CMUX_WEB_TEST_PASSED_OUT"; fi
   fi
 fi
+# CMUX_WEB_TEST_HELD_REDS: a file of test files (one a line) red on every base push for a day or more
+# (webviews_test_history.py held-red-files). A pull request drops them after the split, as the reused files above, and
+# reports no verdict for them; the batch runs keep running them, so the history says when one goes green.
+: > "$results/held"
+if [ -n "${CMUX_WEB_TEST_HELD_REDS:-}" ] && [ -s "$CMUX_WEB_TEST_HELD_REDS" ]; then
+  python3 - "$results/files" "$CMUX_WEB_TEST_HELD_REDS" "$results/held" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+listed = [item.decode() for item in path.read_bytes().split(b"\0") if item]
+held = {line.strip() for line in pathlib.Path(sys.argv[2]).read_text().splitlines() if line.strip()}
+path.write_bytes(b"".join(name.encode() + b"\0" for name in listed if name not in held))
+pathlib.Path(sys.argv[3]).write_text("".join(name + "\n" for name in listed if name in held))
+PY
+  if [ -s "$results/held" ]; then
+    echo "red on the base for a day or more, so left to the batch runs: $(grep -c . "$results/held")"
+    sed 's/^/  HELD RED /' "$results/held"
+  fi
+fi
 count="$(tr -cd '\0' < "$results/files" | wc -c | tr -d ' ')"
-if [ "$count" -eq 0 ] && [ -s "$results/reused" ] && [ "${CMUX_WEB_TEST_LIST_ONLY:-}" != 1 ]; then
-  echo "### webviews tests: 0 files; all $(grep -c . "$results/reused") of this shard passed at the previous head"
+if [ "$count" -eq 0 ] && { [ -s "$results/reused" ] || [ -s "$results/held" ]; } && [ "${CMUX_WEB_TEST_LIST_ONLY:-}" != 1 ]; then
+  echo "### webviews tests: 0 files; $(cat "$results/reused" "$results/held" | grep -c .) of this shard passed at the previous head or are held base reds"
   if [ -n "${CMUX_WEB_TEST_RESULTS:-}" ]; then
     : > "$results/summary"
     python3 "$(dirname "$self")/webviews_test_results.py" "$results/summary" "$CMUX_WEB_TEST_RESULTS"
@@ -639,7 +675,15 @@ timeout_retry_budget="${CMUX_WEB_TEST_TIMEOUT_RETRY_BUDGET:-}"
 [[ "$timeout_retry_budget" =~ ^[0-9]+$ ]] || timeout_retry_budget=""
 retry_deadline="${CMUX_WEB_TEST_RETRY_DEADLINE:-}"
 [[ "$retry_deadline" =~ ^[0-9]+$ ]] || retry_deadline=""
-# deadline_left: seconds until CMUX_WEB_TEST_RETRY_DEADLINE (a large number when none is set).
+# CMUX_WEB_TEST_RETRY_WALL=S (unset: none): the whole retry phase (pool, alone and timeout retries) ends S seconds
+# after the first pass, by moving the retry deadline earlier when it is later. See the header.
+retry_wall="${CMUX_WEB_TEST_RETRY_WALL:-}"
+[[ "$retry_wall" =~ ^[0-9]+$ ]] || retry_wall=""
+if [ -n "$retry_wall" ]; then
+  wall_end=$((SECONDS + 10#$retry_wall))
+  if [ -z "$retry_deadline" ] || [ "$wall_end" -lt "$retry_deadline" ]; then retry_deadline=$wall_end; fi
+fi
+# deadline_left: seconds until the retry deadline (a large number when none is set).
 deadline_left() {
   if [ -n "$retry_deadline" ]; then echo $((retry_deadline - SECONDS)); else echo 999999; fi
 }
@@ -657,17 +701,75 @@ if [ "$retries" -ne 0 ] && [ -n "${CMUX_WEB_TEST_BASE_REDS:-}" ] && [ -s "$CMUX_
     : > "$results/base-red"
 fi
 base_red_skipped=0
-# CMUX_WEB_TEST_RETRY_BREAKER=K (0 or unset: off): once K alone retries have run and none passed, the rest of the red
+# CMUX_WEB_TEST_RETRY_BREAKER=K (0 or unset: off): once K alone retries in a row have failed again, the rest of the red
 # files get no alone retry and go to react-apps-base-check with their first run, as a base red does. A shard where
 # nothing passes alone is not losing races for the CPU, so its retries only re-confirm reds: 24 h of shards to
 # 2026-11-22 07:17Z had 2,440 jobs with a 30-80 min test step, and in 8 sampled long shards 7 of 88 alone retries
 # passed, while the gallery files (accent-glass-invariants, control-contrast) failed again at 470-615 s apiece.
 # The verdict does not move: the base check replays every red on the base and re-runs alone on the head any red it
 # would charge to the change (up to 25 a shard), so a contention flake the breaker left unretried still passes there.
-# Retries with a pass among the first K run as before (their shard is contended). Undo: set it to 0.
+# A pass resets the streak (its shard is contended while retries still pass). Undo: set it to 0.
 retry_breaker="${CMUX_WEB_TEST_RETRY_BREAKER:-0}"
 [[ "$retry_breaker" =~ ^[0-9]+$ ]] || retry_breaker=0
 breaker_skipped=0
+# The breaker counts alone retries that failed again since the last alone retry that passed (a streak, not a total): a
+# pass resets it. 4 long shard logs of 11-26 (cmux jobs 139837141437, 139914975059, 139931434150 and 139768823898's
+# siblings): 52 alone retries, 4 passed, 4,000 s of 18,000 s of test-step time; a pass among the first K, or a pooled
+# retry's pass, kept the old breaker off for the rest of the shard, so 13-19 retries ran after the last pass. With a
+# streak of K the same logs stop 2,300 s earlier, and the base check still replays and re-runs alone every red left.
+alone_fail_streak=0
+# CMUX_WEB_TEST_RETRY_SLOW_SECONDS=S (0 or unset: off): a red file whose first run took more than S seconds (a timeout
+# at a limit over S, or a long failure) gets no alone retry and goes to react-apps-base-check with its first run, as a
+# base red does. CMUX_WEB_TEST_ALONE_RETRY_BUDGET=B (unset: off): every alone retry, failed or timed out, starts within
+# B seconds of the retries' start; a failed file's starts only when its first run's seconds fit what is left and is cut
+# there (keeping its first failure), a timed-out file's only when its whole limit fits; the rest keep their first run.
+# Shard 2 of job 137151085368 retried 15 files alone for 26 min (09:36-10:02Z): accent-glass-invariants-3/5/9 at
+# 462-481 s apiece and agent-pane-reveal-in-place at 362 s each failed again, as on the base, and the base check then
+# judged all 11 reds anyway. Its 5 alone passes took 20-116 s each. A 120 s timeout is not over S=120, so it keeps its
+# retry: 3 of those 5 passes were 120 s timeouts. Undo: set both to 0 / empty.
+retry_slow="${CMUX_WEB_TEST_RETRY_SLOW_SECONDS:-0}"
+[[ "$retry_slow" =~ ^[0-9]+$ ]] || retry_slow=0
+alone_budget="${CMUX_WEB_TEST_ALONE_RETRY_BUDGET:-}"
+[[ "$alone_budget" =~ ^[0-9]+$ ]] || alone_budget=""
+slow_skipped=0
+alone_budget_skipped=0
+# Each file's first-run wall seconds (the last line before the retries; a warming file's earlier tries come first).
+cp "$results/durations" "$results/first-durations" 2> /dev/null || : > "$results/first-durations"
+first_seconds() {
+  awk -v f="$1" '$2 == f { s = $1 } END { print (s == "" ? 0 : s) }' "$results/first-durations"
+}
+# alone_left: seconds left of CMUX_WEB_TEST_ALONE_RETRY_BUDGET (a large number when none is set).
+alone_left() {
+  if [ -n "$alone_budget" ]; then echo $((alone_budget - (SECONDS - retry_started))); else echo 999999; fi
+}
+# keep_first FILE REASON: no alone retry for FILE; its first run is its verdict, for react-apps-base-check to judge.
+keep_first() {
+  echo "NO RETRY $result $file: $1; react-apps-base-check judges it"
+  printf '%s\n' "$file" >> "$results/retry-skipped"
+  printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
+}
+# retry_unreached FIRST_RESULT: a retry CMUX_WEB_TEST_STOP_AT stopped (or never started) writes no verdict, and one that
+# never started no log either, so the file keeps its first run's verdict and log instead of losing both. Without it a
+# stopped retry dropped the first run's FAIL (the file read NOT RUN, its log never printed), and one that never started
+# had its missing log read under set -e, ending the whole run before its summary, results and durations (post-merge
+# batch 46058976708 shard 3: about 30 FAIL lines, then `cat: ...tool-group-scroll.test.ts.log: No such file`, exit 1).
+retry_unreached() {
+  if grep -qF -- " $file $log" "$results/summary"; then return 1; fi
+  echo "retry of $file stopped at CMUX_WEB_TEST_STOP_AT: keeping its first run's $1"
+  if [ -f "$log" ]; then
+    { cat "$log.first"; echo "--- retry stopped at CMUX_WEB_TEST_STOP_AT (no verdict) ---"; cat "$log"; } > "$log.both"
+    mv "$log.both" "$log"
+    rm -f "$log.first"
+  else
+    mv "$log.first" "$log"
+  fi
+  if [ -f "$results/not-run" ]; then
+    grep -vxF -- "$file" "$results/not-run" > "$results/not-run.kept" || true
+    mv "$results/not-run.kept" "$results/not-run"
+  fi
+  printf '%s\n' "$file" >> "$results/retry-skipped"
+  printf '%s %s %s\n' "$1" "$file" "$log" >> "$results/summary"
+}
 # CMUX_WEB_TEST_RETRY_POOL=W (0 or unset: off): before the alone retries, the red files due one run again W at a time
 # on the otherwise idle runner (the first pass ran 12 files at once). Each pooled retry then settles its file
 # (webviews_retry_pool.py): a pass is a retry pass; a FAIL naming exactly its first run's red tests stays red with no
@@ -760,15 +862,28 @@ while read -r result file log; do
     printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
     continue
   fi
-  if [ "$retry_breaker" -gt 0 ] && [ $((retried + timeout_retried)) -ge "$retry_breaker" ] && [ ! -s "$results/retry-passed" ]; then
-    echo "NO RETRY $result $file: the first $retry_breaker alone retries all failed again (CMUX_WEB_TEST_RETRY_BREAKER); react-apps-base-check judges it"
+  if [ "$retry_breaker" -gt 0 ] && [ "$alone_fail_streak" -ge "$retry_breaker" ]; then
+    echo "NO RETRY $result $file: the last $retry_breaker alone retries all failed again (CMUX_WEB_TEST_RETRY_BREAKER); react-apps-base-check judges it"
     breaker_skipped=$((breaker_skipped + 1))
     printf '%s\n' "$file" >> "$results/retry-skipped"
     printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
     continue
   fi
+  took="$(first_seconds "$file")"
+  if [ "$retry_slow" -gt 0 ] && [ "$took" -gt "$retry_slow" ]; then
+    keep_first "its first run took ${took}s, over ${retry_slow}s (CMUX_WEB_TEST_RETRY_SLOW_SECONDS)"
+    slow_skipped=$((slow_skipped + 1))
+    continue
+  fi
   iteration_started=$SECONDS
   normal_limit="$(file_limit "$file" "$timeout_seconds")"
+  alone="$(alone_left)"
+  if [ "$result" = TIMEOUT ]; then need="$normal_limit"; else need=$((took > 0 ? took : 1)); fi
+  if [ "$alone" -lt "$need" ]; then
+    keep_first "the alone retry budget (${alone}s of ${alone_budget}s left, CMUX_WEB_TEST_ALONE_RETRY_BUDGET) cannot fit its ${need}s"
+    alone_budget_skipped=$((alone_budget_skipped + 1))
+    continue
+  fi
   if [ "$result" = TIMEOUT ]; then
     # The timed-out file's own retry: its own budget, its full limit, never cut short.
     timeout_remaining=999999
@@ -792,9 +907,13 @@ while read -r result file log; do
       if tr '\0' '\n' < "$results/serial" | grep -qxF -- "$file"; then cache="$vite/timeout-retry-$timeout_retried"; fi
       bash "$self" --one "$file" "$results" "$timeout_seconds" "$cache" < /dev/null
       if [ -n "$cache" ]; then rm -rf "$cache" || true; fi
-      if grep -qxF "PASS $file $log" "$results/summary"; then
+      if retry_unreached TIMEOUT; then
+        :
+      elif grep -qxF "PASS $file $log" "$results/summary"; then
         echo "$file (first run: TIMEOUT)" >> "$results/retry-passed"
+        alone_fail_streak=0
       else
+        alone_fail_streak=$((alone_fail_streak + 1))
         # TIMEOUT again stays TIMEOUT; a FAIL alone keeps the retry's named failures, as for a failed file.
         { echo "--- first run: TIMEOUT ---"; cat "$log.first"; echo "--- retry, alone ---"; cat "$log"; } > "$log.both"
         mv "$log.both" "$log"
@@ -807,6 +926,7 @@ while read -r result file log; do
   remaining=$((retry_budget - (SECONDS - retry_started - timeout_retry_spent)))
   left="$(deadline_left)"
   if [ "$left" -lt "$remaining" ]; then remaining="$left"; fi
+  if [ "$alone" -lt "$remaining" ]; then remaining="$alone"; fi
   if [ "$remaining" -le 0 ]; then
     echo "retry budget exhausted: keeping $result $file"
     printf '%s\n' "$file" >> "$results/retry-skipped"
@@ -822,7 +942,9 @@ while read -r result file log; do
   if tr '\0' '\n' < "$results/serial" | grep -qxF -- "$file"; then cache="$vite/retry-$retried"; fi
   CMUX_WEB_TEST_MAX_FILE_TIMEOUT="$retry_limit" bash "$self" --one "$file" "$results" "$timeout_seconds" "$cache" < /dev/null
   if [ -n "$cache" ]; then rm -rf "$cache" || true; fi
-  if [ "$retry_limit" -lt "$normal_limit" ] && grep -qxF "TIMEOUT $file $log" "$results/summary"; then
+  if retry_unreached "$result"; then
+    :
+  elif [ "$retry_limit" -lt "$normal_limit" ] && grep -qxF "TIMEOUT $file $log" "$results/summary"; then
     # An incomplete retry is not a full-file timeout: keep the first run's actual named
     # failure. Otherwise an old base assertion would become a new file-level head red.
     echo "retry budget exhausted during $file; retaining its first failure"
@@ -836,7 +958,9 @@ while read -r result file log; do
     mv "$log.both" "$log"
   elif grep -qxF "PASS $file $log" "$results/summary"; then
     echo "$file (first run: $result)" >> "$results/retry-passed"
+    alone_fail_streak=0
   else
+    alone_fail_streak=$((alone_fail_streak + 1))
     { echo "--- first run: $result ---"; cat "$log.first"; echo "--- retry, alone ---"; cat "$log"; } > "$log.both"
     mv "$log.both" "$log"
   fi
@@ -873,7 +997,7 @@ done < <(sort -k2 "$results/summary")
 
 if [ -n "${CMUX_WEB_TEST_DURATIONS_OUT:-}" ]; then
   mkdir -p "$(dirname "$CMUX_WEB_TEST_DURATIONS_OUT")"
-  python3 "$shards_py" record "$results/durations" "$CMUX_WEB_TEST_DURATIONS_OUT"
+  python3 "$shards_py" record "$results/timed" "$CMUX_WEB_TEST_DURATIONS_OUT"
 fi
 
 # Per-test results for webviews-tests-new-reds.sh, which compares them with the base's.
@@ -899,9 +1023,14 @@ if [ "$pooled" -gt 0 ]; then
   echo "retried beside other retries (CMUX_WEB_TEST_RETRY_POOL=$retry_pool): $pooled; red again on the same tests, so not retried alone: $pool_kept"
 fi
 if [ "$breaker_skipped" -gt 0 ]; then
-  breaker_line="alone retries skipped: $breaker_skipped, since the first $retry_breaker alone retries all failed again (not contention; react-apps-base-check judges them; CMUX_WEB_TEST_RETRY_BREAKER=0 retries every red file)"
+  breaker_line="alone retries skipped: $breaker_skipped, since the last $retry_breaker alone retries in a row all failed again (not contention; react-apps-base-check judges them; CMUX_WEB_TEST_RETRY_BREAKER=0 retries every red file)"
   echo "$breaker_line"
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then echo "$breaker_line" >> "$GITHUB_STEP_SUMMARY" || true; fi
+fi
+if [ $((slow_skipped + alone_budget_skipped)) -gt 0 ]; then
+  bound_line="alone retries skipped by the retry cost bound: $slow_skipped whose first run took over ${retry_slow}s (CMUX_WEB_TEST_RETRY_SLOW_SECONDS), $alone_budget_skipped past the ${alone_budget:-unset}s budget (CMUX_WEB_TEST_ALONE_RETRY_BUDGET); react-apps-base-check judges them"
+  echo "$bound_line"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then echo "$bound_line" >> "$GITHUB_STEP_SUMMARY" || true; fi
 fi
 if [ -s "$results/retry-passed" ]; then
   echo "passed only when run alone (failed or timed out beside other files):"

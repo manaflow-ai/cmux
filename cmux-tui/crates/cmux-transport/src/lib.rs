@@ -48,7 +48,7 @@ pub use hop::{
 pub use medium::{LocalNetwork, Medium, local_networks, medium_of};
 pub use path::{PathClass, PathId, PathKind};
 pub use probe::{Probe, ProbeError, ProbeKind};
-pub use relay_frame::{FrameKind, PeerId, RelayFrame, RelayFrameError};
+pub use relay_frame::{FrameKind, PeerId, RelayFrame, RelayFrameError, RelaySender, TaggedRecord};
 pub use selector::{
     PathState, PathView, ProbeOutcome, Selector, SelectorConfig, SelectorError, Switch,
 };

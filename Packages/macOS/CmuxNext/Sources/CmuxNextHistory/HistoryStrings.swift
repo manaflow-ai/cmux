@@ -12,8 +12,6 @@ nonisolated enum HistoryStrings {
     static var menuNothingClosed: String { t("titlebarHistory.nothingClosed", "Nothing closed yet") }
     static var menuClosedUnavailable: String { t("titlebarHistory.closedUnavailable", "Closed items appear once cmux connects") }
     static var readFailed: String { t("status.readFailed", "History didn't load") }
-    static var readFailedHint: String { t("status.readFailedHint", "cmux did not answer in time. Press Return to try again.") }
-    static var tryAgain: String { t("status.tryAgain", "Try Again") }
     static var stillLoading: String { t("status.stillLoading", "Still loading history…") }
     static func menuHeader(_ kind: LocationTrailMenuSection.Kind) -> String? {
         switch kind {

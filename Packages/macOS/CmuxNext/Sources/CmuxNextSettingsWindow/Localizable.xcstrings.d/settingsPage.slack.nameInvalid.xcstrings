@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.slack.nameInvalid" : {
+      "comment" : "Settings > Accounts > Slack connection card",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use 1 to 35 characters, without @ # < > * _ ~ or backticks."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "استخدم من 1 إلى 35 حرفًا، من دون @ # < > * _ ~ أو علامات الاقتباس العكسية."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Koristi 1 do 35 znakova, bez @ # < > * _ ~ ili backtickova."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Brug 1 til 35 tegn, uden @ # < > * _ ~ eller backticks."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verwende 1 bis 35 Zeichen, ohne @ # < > * _ ~ oder Backticks."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usa de 1 a 35 caracteres, sin @ # < > * _ ~ ni acentos graves."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utilisez de 1 à 35 caractères, sans @ # < > * _ ~ ni accents graves."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usa da 1 a 35 caratteri, senza @ # < > * _ ~ o apici inversi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1〜35 文字で入力してください。@ # < > * _ ~ とバッククォートは使用できません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ប្រើតួអក្សរ 1 ដល់ 35 ដោយគ្មាន @ # < > * _ ~ ឬ backtick។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1~35자로 입력하세요. @ # < > * _ ~ 및 백틱은 사용할 수 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bruk 1 til 35 tegn, uten @ # < > * _ ~ eller backticks."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Użyj od 1 do 35 znaków, bez @ # < > * _ ~ ani odwrotnych apostrofów."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use de 1 a 35 caracteres, sem @ # < > * _ ~ ou crases."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Используйте от 1 до 35 символов, без @ # < > * _ ~ и обратных кавычек."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ใช้ 1 ถึง 35 ตัวอักษร โดยไม่มี @ # < > * _ ~ หรือเครื่องหมายแบ็กทิก"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 ile 35 karakter kullanın; @ # < > * _ ~ veya ters tırnak olmasın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Використовуйте від 1 до 35 символів, без @ # < > * _ ~ та зворотних лапок."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dùng từ 1 đến 35 ký tự, không có @ # < > * _ ~ hoặc dấu backtick."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请使用 1 到 35 个字符，不含 @ # < > * _ ~ 或反引号。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請使用 1 到 35 個字元，不含 @ # < > * _ ~ 或反引號。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

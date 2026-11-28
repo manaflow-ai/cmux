@@ -12,8 +12,7 @@ extension SidebarPriorityFeed {
     static let toggleAction: ActionID = "sidebar.priorityView.toggle"
 
     convenience init(services: AppServices) {
-        let preferences = { DesignSettings.shared.sidebarSections }
-        self.init(settings: Settings(enabled: { preferences().priorityViewEnabled }, shown: { preferences().priorityViewShown }),
+        self.init(settings: .app,
                   hooks: Hooks(shortcut: { [weak services] in services?.registry.shortcutDisplay(for: Self.toggleAction) },
                                open: { [weak services] lane in if let services { Self.open(lane, services: services) } },
                                rowAction: { [weak services] action in

@@ -38,6 +38,7 @@ public nonisolated enum RefusalStrings {
     }
     /// Move Space to This Window or Merge All Windows would close a window still creating a workspace.
     public static var gatherWhileCreating: String {
+        // retry-prompt-ok: refuses a window gather that would close a window mid-create; deferring it is a CmuxNextApp follow-up (WindowManager+Profiles)
         text("handlers.refusal.gatherWhileCreating", "A new workspace is still opening in a window this would close. Try again in a moment.")
     }
     /// Move Space to This Window or Merge All Windows would take a workspace out of a window that keeps its own browser tabs.
@@ -46,6 +47,7 @@ public nonisolated enum RefusalStrings {
     }
     public static var chromiumUnavailable: String { text("handlers.refusal.chromiumUnavailable", "Chromium is not available in this build.") }
     /// A window action before the window has registered (the launch window, still restoring).
+    // retry-prompt-ok: refuses a profile change on a window mid-create; deferring it is a CmuxNextApp follow-up (WindowManager+Profiles)
     public static var windowNotReady: String { text("handlers.refusal.windowNotReady", "This window isn't ready yet. Try again in a moment.") }
     public static var homeNotReady: String { text("handlers.refusal.homeNotReady", "Home is not ready yet.") }
     /// Close New Message (`home.closeNewMessage`) while no New Message draft is open.
@@ -121,6 +123,7 @@ public nonisolated enum RefusalStrings {
     static var notInThisVersion: String { text("handlers.refusal.notInThisVersion", "Not available in this version of cmux yet.") }
     /// The local daemon has not answered yet (first connection or a restart).
     public static var daemonConnecting: String {
+        // retry-prompt-ok: only CLI/MCP/scripts read it; a person's own run waits and runs by itself (DaemonStartupWait)
         text("handlers.refusal.daemonConnecting", "cmux is still starting its background service. Try again in a moment.")
     }
     /// A new incognito window whose workspace the local daemon neither answered nor made within its bound
@@ -130,6 +133,7 @@ public nonisolated enum RefusalStrings {
     }
     /// The local daemon could not start (the window shows why).
     static var daemonUnavailable: String {
+        // retry-prompt-ok: quitting and reopening cmux is the person's call; the service also keeps retrying (RetryPolicy.localFirstConnect)
         text("handlers.refusal.daemonUnavailable", "cmux could not start its background service. Quit and reopen cmux to try again.")
     }
     /// Why a change or a start did not happen: the disk under cmux-tui's state is full (restore fuzz h2, h3).
@@ -170,10 +174,12 @@ public nonisolated enum RefusalStrings {
     }
     /// The home session's spaces and workspace groups are not loaded yet.
     static var personalStateLoading: String {
+        // retry-prompt-ok: only CLI/MCP/scripts read it; a person's own run waits and runs by itself (DaemonStartupWait)
         text("handlers.refusal.personalStateLoading", "Spaces and workspace groups are still loading. Try again in a moment.")
     }
     /// The home session registry has no record of this machine yet, so it has no icon to set.
     public static var machineIconNotRegistered: String {
+        // retry-prompt-ok: refuses an icon change before the machine registers; deferring it is a CmuxNextApp follow-up (MachineIconHandlers)
         text("handlers.refusal.machineIconNotRegistered", "This machine isn't registered yet. Try again in a moment.")
     }
     /// A Cloud machine's own cmux is older than this app.

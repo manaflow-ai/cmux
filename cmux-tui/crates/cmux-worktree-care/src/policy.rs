@@ -5,7 +5,8 @@
 //! The order of the rules is the order of the guarantees:
 //!
 //! 1. Never touch what is in use: a locked worktree, a git operation under
-//!    way, an open acpmux session in it, a process working in it.
+//!    way, an open acpmux session in it, a process working in it, an owner
+//!    (`wt-owner.json`) that is alive wherever it works.
 //! 2. Never lose work: a worktree whose work no archive can keep (a nested
 //!    repository, a changed submodule, too much data) is only trimmed.
 //! 3. Leave recent work alone: nothing was used for `recent`.
@@ -33,7 +34,7 @@ const DAY_MS: u64 = 24 * HOUR_MS;
 pub enum Pressure {
     /// Under `high`.
     Normal,
-    /// From `high` (80%).
+    /// From `high` (70%).
     High,
     /// From `critical` (90%).
     Critical,
@@ -43,7 +44,7 @@ pub enum Pressure {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
-    /// Used share from which the waits shrink (0.80).
+    /// Used share from which the waits shrink (0.70: the disk budget is 75%).
     pub high: f64,
     /// Used share from which they shrink most (0.90).
     pub critical: f64,
@@ -60,18 +61,25 @@ pub struct Settings {
     pub trim_hours: [u64; 3],
     /// Days an archive (its ref, bundle and manifest) is kept.
     pub keep_archive_days: u64,
+    /// No daemon watches sessions (a lane VM): an open session or a process
+    /// in a worktree keeps it only while its last activity is younger than
+    /// the recent wait; an older one is idle. Files held open still keep it
+    /// at removal time (`procs::open_inside`).
+    #[serde(default)]
+    pub headless: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            high: 0.80,
+            high: 0.70,
             critical: 0.90,
             recent_hours: [24, 12, 6],
             idle_pushed_hours: [72, 24, 6],
             idle_unpushed_hours: [7 * 24, 72, 24],
             trim_hours: [72, 12, 3],
             keep_archive_days: 14,
+            headless: false,
         }
     }
 }
@@ -92,6 +100,29 @@ fn hours(table: [u64; 3], pressure: Pressure) -> u64 {
     table[pressure as usize] * HOUR_MS
 }
 
+/// The managed checkout a PR-archived chat can reopen from a manifest.
+/// A different branch, HEAD, or repository at the old path belongs to somebody else.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ArchivedCheckout {
+    pub root: PathBuf,
+    pub common_dir: PathBuf,
+    pub branch: String,
+    pub head: String,
+}
+
+impl ArchivedCheckout {
+    fn reclaimable(&self, tree: &Worktree, facts: &crate::Facts) -> bool {
+        tree.path == self.root
+            && tree.branch.as_ref() == Some(&self.branch)
+            && tree.head.as_ref() == Some(&self.head)
+            && facts.git_dir.parent() == Some(self.common_dir.join("worktrees").as_path())
+            && facts.is_clean_and_pushed()
+            && facts.unarchivable.is_none()
+            && facts.build_output.is_empty()
+            && facts.submodules.is_empty()
+    }
+}
+
 /// An agent session and the folder it works in.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -100,8 +131,13 @@ pub struct Session {
     pub cwd: PathBuf,
     /// Not closed: it may run again in its folder.
     pub open: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archived_checkout: Option<ArchivedCheckout>,
     /// Milliseconds since the epoch of its last change.
     pub updated_ms: u64,
+    /// Every id it goes by (acpmux's, its harness's), which a worktree's
+    /// owner record may name.
+    pub ids: Vec<String>,
 }
 
 /// What happens to a worktree.
@@ -114,6 +150,8 @@ pub enum Action {
     Trim,
     /// Its folder goes: nothing lives only there (the manifest is kept).
     Reclaim,
+    /// The active path is released by moving the complete linked checkout into the archive store.
+    Park,
     /// Its work goes into an archive, then its folder goes.
     Archive,
 }
@@ -124,10 +162,13 @@ pub enum Action {
 pub struct Verdict {
     pub action: Action,
     pub reason: String,
+    /// Milliseconds since its last use, once a rule read it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub idle_ms: Option<u64>,
 }
 
 fn verdict(action: Action, reason: impl Into<String>) -> Verdict {
-    Verdict { action, reason: reason.into() }
+    Verdict { action, reason: reason.into(), idle_ms: None }
 }
 
 /// The verdict for `worktree` at `now_ms`.
@@ -153,14 +194,39 @@ pub fn decide(
     }
     // Sessions first, open or closed: a closed one's last change is use.
     let mut last_use = facts.last_activity_ms;
+    let mut pr_archived = false;
     for session in sessions.iter().filter(|s| inside(&s.cwd, &worktree.path)) {
-        if session.open {
-            return verdict(Keep, format!("session {} is open in it", session.name));
+        let stale = settings.headless
+            && now_ms.saturating_sub(session.updated_ms.max(facts.last_activity_ms))
+                >= hours(settings.recent_hours, pressure);
+        // Archived sessions still need the base's proof and intact-checkout
+        // parking, even when their headless activity timestamp is old.
+        if session.open && (!stale || session.archived_checkout.is_some()) {
+            if pr_archived
+                || !session
+                    .archived_checkout
+                    .as_ref()
+                    .is_some_and(|c| c.reclaimable(worktree, facts))
+            {
+                return verdict(Keep, format!("session {} is open in it", session.name));
+            }
+            pr_archived = true;
         }
         last_use = last_use.max(session.updated_ms);
     }
     if let Some(process) = procs::inside(processes, &worktree.path) {
-        return verdict(Keep, format!("process {} works in it", process.pid));
+        let stale = settings.headless
+            && now_ms.saturating_sub(last_use) >= hours(settings.recent_hours, pressure);
+        if !stale {
+            return verdict(Keep, format!("process {} works in it", process.pid));
+        }
+    }
+    // An owner may work in it from elsewhere (`git -C`, a loop whose folder
+    // is another): while it lives, the worktree is in use.
+    if let Some(why) =
+        facts.owner.as_ref().and_then(|owner| owner_alive(owner, sessions, processes))
+    {
+        return verdict(Keep, why);
     }
     // A session working in the main checkout may also work in worktrees it
     // made (Claude Code's own, a subagent's) between its tool calls: while
@@ -178,6 +244,9 @@ pub fn decide(
     };
     let idle = now_ms.saturating_sub(last_use);
     let idle_hours = idle / HOUR_MS;
+    // Every verdict from here on carries the idle time it was decided at.
+    let verdict =
+        |action, reason: String| Verdict { idle_ms: Some(idle), ..verdict(action, reason) };
     let trim = |reason: String| {
         if !facts.build_output.is_empty() && idle >= hours(settings.trim_hours, pressure) {
             verdict(Trim, format!("{reason}; build output idle {idle_hours} h"))
@@ -190,6 +259,9 @@ pub fn decide(
     }
     if idle < hours(settings.recent_hours, pressure) {
         return verdict(Keep, format!("used {} min ago", idle / 60_000));
+    }
+    if pr_archived {
+        return verdict(Park, format!("pull requests finished; idle {idle_hours} h"));
     }
     let only_here = !facts.is_clean_and_pushed();
     // Finished work (its PR merged or squashed in) needs no long wait.
@@ -207,6 +279,29 @@ pub fn decide(
         return verdict(Archive, format!("{}; idle {idle_hours} h", only_here_reason(facts)));
     }
     trim(format!("idle {idle_hours} h"))
+}
+
+/// Why `owner` is alive: its recorded process runs, an open session goes
+/// by one of its ids, or a registered process runs its session. `None`
+/// when none of these says so.
+fn owner_alive(
+    owner: &crate::inventory::Owner,
+    sessions: &[Session],
+    processes: &[Process],
+) -> Option<String> {
+    let name = owner.session_id.as_deref().unwrap_or("?");
+    if owner.runs
+        && let Some(pid) = owner.pid
+    {
+        return Some(format!("owner {name}'s process {pid} runs"));
+    }
+    if let Some(session) = sessions.iter().find(|s| s.open && s.ids.iter().any(|id| owner.is(id))) {
+        return Some(format!("owner session {} is open", session.name));
+    }
+    processes
+        .iter()
+        .find(|p| p.session_id.as_deref().is_some_and(|id| owner.is(id)))
+        .map(|p| format!("owner {name} runs as process {}", p.pid))
 }
 
 fn only_here_reason(facts: &crate::Facts) -> String {

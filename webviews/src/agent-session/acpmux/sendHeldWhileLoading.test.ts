@@ -12,6 +12,9 @@ const saved = {
   document: "document" in scope,
   values: { window: scope.window, document: scope.document },
 };
+// Importing the pane's send path loads computerUseState, which puts its setter on globalThis; the file takes it back out.
+const computerUseGlobal = "cmuxAcpmuxComputerUseState";
+const hadComputerUse = computerUseGlobal in scope;
 beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
@@ -21,6 +24,7 @@ afterAll(async () => {
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];
+  if (!hadComputerUse) delete scope[computerUseGlobal];
 });
 
 type Row = { id: string; kind: string; text?: string; failed?: boolean; delivery?: Record<string, unknown> };

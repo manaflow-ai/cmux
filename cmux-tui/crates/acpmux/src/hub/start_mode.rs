@@ -285,10 +285,15 @@ pub(super) fn file_allows_full_access() -> bool {
     match crate::user_settings::read() {
         crate::user_settings::Settings::Missing => true,
         crate::user_settings::Settings::Unreadable(_) => false,
-        crate::user_settings::Settings::Parsed(doc) => !matches!(
-            crate::user_settings::value(&doc, ALLOW_FULL_ACCESS),
-            Some(Value::Bool(false))
-        ),
+        // `agents.sandbox.mode` `workspaceWrite` keeps every agent in its workspace: no mode
+        // that drops the sandbox runs (`agent_sandbox.rs`).
+        crate::user_settings::Settings::Parsed(doc) => {
+            !matches!(
+                crate::user_settings::value(&doc, ALLOW_FULL_ACCESS),
+                Some(Value::Bool(false))
+            ) && crate::agent_sandbox::Sandbox::from_doc(&doc).mode
+                != crate::agent_sandbox::Mode::WorkspaceWrite
+        }
     }
 }
 
@@ -311,11 +316,12 @@ pub(crate) fn requests_full_access(m: &str, params: &Value) -> bool {
     value.and_then(Value::as_str).is_some_and(is_full_access)
 }
 
-/// The refusal of a full-access mode while `sessions.allowFullAccess` is off.
+/// The refusal of a full-access mode while `sessions.allowFullAccess` is off or
+/// `agents.sandbox.mode` is `workspaceWrite`.
 pub(crate) fn full_access_off() -> RpcError {
     RpcError::new(
         -32000,
-        "full-access modes are turned off in cmux Settings (sessions.allowFullAccess)",
+        "full-access modes are turned off in cmux Settings (sessions.allowFullAccess, agents.sandbox.mode)",
     )
     .with_data(json!({"reason": "full_access_off"}))
 }
@@ -1124,7 +1130,20 @@ impl Hub {
         if modes.is_empty() && options.is_empty() {
             return None;
         }
-        Some(json!({"modes": modes, "configOptions": options}))
+        let mut reported = json!({"modes": modes, "configOptions": options});
+        // The mode the harness's own `session/new` starts a chat in when acpmux sets none (its
+        // startup probe sets nothing; a chat's current mode is that chat's): Antigravity's
+        // `default`, which a new chat's Mode chip names where acpmux has no start mode for it.
+        if let Some(own) = probed
+            .as_ref()
+            .and_then(|(modes, _)| {
+                modes.as_ref()?.get("currentModeId")?.as_str().map(str::to_owned)
+            })
+            .filter(|own| modes.iter().any(|m| m.get("id").and_then(Value::as_str) == Some(own)))
+        {
+            reported.set("startModeId", json!(own));
+        }
+        Some(reported)
     }
 
     /// Tells local watchers a new chat's start mode may have changed

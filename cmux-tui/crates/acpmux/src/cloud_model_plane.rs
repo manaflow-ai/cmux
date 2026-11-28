@@ -148,11 +148,8 @@ pub fn where_resolves(
     plane: BTreeMap<String, String>,
     resolves: impl Fn(&str) -> bool,
 ) -> BTreeMap<String, String> {
-    let mut hosts: Vec<&str> =
-        BASE_URLS.iter().filter_map(|key| plane.get(*key)).map(|url| origin_host(url)).collect();
-    hosts.sort_unstable();
-    hosts.dedup();
-    if hosts.is_empty() || hosts.iter().any(|host| host.is_empty() || !resolves(host)) {
+    let hosts = plane_hosts(&plane);
+    if hosts.is_empty() || hosts.iter().any(|host| !resolves(host)) {
         return BTreeMap::new();
     }
     plane
@@ -169,24 +166,55 @@ fn origin_host(url: &str) -> &str {
 
 /// How long one spawn waits for the resolver before it starts without the route.
 const RESOLVE_WAIT: Duration = Duration::from_secs(5);
-/// How long an answer is reused, so a burst of spawns asks the resolver once.
+/// How long "it resolves" is reused, so a burst of spawns asks the resolver once.
 const ANSWER_REUSE: Duration = Duration::from_secs(60);
+/// How long "it does not resolve" is reused: a burst only. The edge's name can start resolving a
+/// moment after the machine binds (cmux-platform CloudCore.ts checkEdgeDns resets and kicks the
+/// guest's resolver then), and an agent started without the route keeps none for its whole life,
+/// so a "no" held for a minute signed out every agent started in that minute (production
+/// 2026-11-26 21:46 UTC, vm_c2229ccc0ebaabe2a575: both agents not edge-routed on a fresh create;
+/// cloud-chat-replies: "This Cloud machine's Claude has no model route").
+const NO_REUSE: Duration = Duration::from_secs(2);
 /// How long "the resolver did not answer" is reused: a hung resolver costs one wait per burst of
 /// spawns, not one per spawn.
 const NO_ANSWER_REUSE: Duration = Duration::from_secs(10);
 
-/// Whether `host` resolves here, from a short cache. The lookup asks for the same target as
-/// `codex_cloud_auth::host_resolves`; this one is blocking (spawns fill their env synchronously),
-/// so it runs on its own thread and gives up after [`RESOLVE_WAIT`] (unreachable).
-pub(crate) fn plane_host_resolves(host: &str) -> bool {
-    static CACHE: Mutex<Option<(String, Instant, bool)>> = Mutex::new(None);
-    let cache = || CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some((cached, until, ok)) = cache().as_ref()
-        && cached == host
-        && Instant::now() < *until
-    {
-        return *ok;
+/// One remembered resolver answer for one host.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Answer {
+    host: String,
+    until: Instant,
+    resolves: bool,
+}
+
+impl Answer {
+    /// `resolved`: the resolver's answer, `None` when it gave none within [`RESOLVE_WAIT`].
+    fn new(host: &str, now: Instant, resolved: Option<bool>) -> Self {
+        let (resolves, reuse) = match resolved {
+            Some(true) => (true, ANSWER_REUSE),
+            Some(false) => (false, NO_REUSE),
+            None => (false, NO_ANSWER_REUSE),
+        };
+        Answer { host: host.to_owned(), until: now + reuse, resolves }
     }
+
+    /// The answer for `host` at `now`, while it is still reused.
+    fn reused(&self, host: &str, now: Instant) -> Option<bool> {
+        (self.host == host && now < self.until).then_some(self.resolves)
+    }
+}
+
+static CACHE: Mutex<Option<Answer>> = Mutex::new(None);
+
+fn cache() -> std::sync::MutexGuard<'static, Option<Answer>> {
+    CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// One lookup of `host`, never from the cache, waiting at most [`RESOLVE_WAIT`]; its answer is
+/// kept for the next spawns ([`Answer`]). The lookup asks for the same target as
+/// `codex_cloud_auth::host_resolves`; this one is blocking (spawns fill their env synchronously),
+/// so it runs on its own thread.
+fn lookup_now(host: &str) -> bool {
     let target = crate::codex_cloud_auth::lookup_target(host.to_owned());
     let (tx, rx) = std::sync::mpsc::channel();
     let lookup = std::thread::Builder::new().name("model-plane-resolve".into()).spawn(move || {
@@ -196,12 +224,139 @@ pub(crate) fn plane_host_resolves(host: &str) -> bool {
     if lookup.is_err() {
         return false;
     }
-    let (ok, reuse) = match rx.recv_timeout(RESOLVE_WAIT) {
-        Ok(ok) => (ok, ANSWER_REUSE),
-        Err(_) => (false, NO_ANSWER_REUSE),
-    };
-    *cache() = Some((host.to_owned(), Instant::now() + reuse, ok));
+    let now = Instant::now();
+    let answer = Answer::new(host, now, rx.recv_timeout(RESOLVE_WAIT).ok());
+    let ok = answer.resolves;
+    *cache() = Some(answer);
+    let mut since = missing_since();
+    *since = missing_from(*since, ok, now);
     ok
+}
+
+/// When this process first found the route missing (a [`lookup_now`] "no" or no answer, or a turn
+/// that failed with no route), cleared once the route resolves. The young machine's
+/// [`ROUTE_WAIT`] runs from here: once per machine, not once per failed turn.
+static MISSING_SINCE: Mutex<Option<Instant>> = Mutex::new(None);
+
+fn missing_since() -> std::sync::MutexGuard<'static, Option<Instant>> {
+    MISSING_SINCE.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// The route's missing-since after an answer at `now`: the earliest "no" kept, a "yes" clears it.
+fn missing_from(since: Option<Instant>, resolves: bool, now: Instant) -> Option<Instant> {
+    if resolves { None } else { Some(since.unwrap_or(now)) }
+}
+
+/// What is left at `now` of a `wait` that began when the route was first found missing (`since`,
+/// or `now` when this is the first sign): the whole wait once, then less, then none. Production
+/// app-chat-production 2026-11-27 (runs 46003837951, vm_fbec1b5f122f8fb9017b): the moved chat's
+/// first prompt answered "has no model route" after 20.8 s (24.3 s at 12:44Z), the fresh 20 s
+/// wait again on a machine whose route had been missing since its first chat minutes before,
+/// while the same failure on the Mac answered in 2.5 s.
+pub fn wait_left(since: Option<Instant>, now: Instant, wait: Duration) -> Duration {
+    (since.unwrap_or(now) + wait).saturating_duration_since(now)
+}
+
+/// Whether `host` resolves here, from a short cache ([`Answer`]), else [`lookup_now`].
+pub(crate) fn plane_host_resolves(host: &str) -> bool {
+    if let Some(ok) = cache().as_ref().and_then(|answer| answer.reused(host, Instant::now())) {
+        return ok;
+    }
+    lookup_now(host)
+}
+
+/// How long a turn that failed with no model route waits for the machine's route to resolve
+/// ([`route_arrives`]) on a machine up less than [`YOUNG_MACHINE`]: the provider's edge rule for a
+/// machine made a moment ago. On an older machine the route is asked once: one that has not come
+/// by then is not coming, and its Sign in shows at once.
+pub const ROUTE_WAIT: Duration = Duration::from_secs(20);
+/// A machine up less than this may still be getting its edge rule.
+pub const YOUNG_MACHINE: Duration = Duration::from_secs(10 * 60);
+/// The pause between two lookups of [`route_arrives`].
+const ROUTE_STEP: Duration = Duration::from_secs(2);
+
+/// The hosts the image's route names (`/etc/cmux/model-plane.env`, trusted only as root's), or
+/// none: this machine was given no route to wait for.
+pub fn image_plane_hosts() -> Vec<String> {
+    if !crate::cloud_host::is_cloud_vm() {
+        return Vec::new();
+    }
+    plane_hosts(&read_at(Path::new(PLANE_FILE), true).unwrap_or_default())
+}
+
+/// The base URL hosts of `plane`, each once; empty when one names no host.
+pub fn plane_hosts(plane: &BTreeMap<String, String>) -> Vec<String> {
+    let mut hosts: Vec<String> = BASE_URLS
+        .iter()
+        .filter_map(|key| plane.get(*key))
+        .map(|url| origin_host(url).to_owned())
+        .collect();
+    hosts.sort_unstable();
+    hosts.dedup();
+    if hosts.iter().any(String::is_empty) {
+        return Vec::new();
+    }
+    hosts
+}
+
+/// How long this machine has been up (`/proc/uptime`), or None where that does not read.
+pub fn machine_uptime() -> Option<Duration> {
+    let text = std::fs::read_to_string("/proc/uptime").ok()?;
+    let secs: f64 = text.split_whitespace().next()?.parse().ok()?;
+    secs.is_finite().then(|| Duration::from_secs_f64(secs.max(0.0)))
+}
+
+/// How long [`route_arrives`] may wait on a machine up `uptime`: [`ROUTE_WAIT`] while young, else
+/// none (one round of lookups).
+pub fn route_wait_for(uptime: Option<Duration>) -> Duration {
+    match uptime {
+        Some(up) if up < YOUNG_MACHINE => ROUTE_WAIT,
+        _ => Duration::ZERO,
+    }
+}
+
+/// Whether every one of `hosts` resolves within `wait`: `resolves` asked for each until all do,
+/// `sleep` between rounds, `clock` the time since the first. No hosts: false (no route to wait for).
+pub fn arrives_within(
+    hosts: &[String],
+    wait: Duration,
+    mut resolves: impl FnMut(&str) -> bool,
+    mut sleep: impl FnMut(Duration),
+    clock: impl Fn() -> Duration,
+) -> bool {
+    if hosts.is_empty() {
+        return false;
+    }
+    loop {
+        if hosts.iter().all(|host| resolves(host)) {
+            return true;
+        }
+        let spent = clock();
+        if spent >= wait {
+            return false;
+        }
+        sleep(ROUTE_STEP.min(wait - spent));
+    }
+}
+
+/// Whether the image's model route resolves now, waiting for it as [`route_wait_for`] says:
+/// fresh lookups ([`lookup_now`]), so a "no" the cache held since the spawn does not answer, and
+/// a "yes" is kept, so the agent's restart gets the route. Blocking: call off the runtime.
+///
+/// The wait is the machine's, not the turn's ([`wait_left`]): it runs from the first sign the route
+/// was missing, so a later failed turn waits only for what is left of it. Once it is spent, the
+/// round asks through the burst cache ([`plane_host_resolves`]): a hung resolver this turn's own
+/// spawn just asked is not asked again for [`NO_ANSWER_REUSE`].
+pub fn route_arrives() -> bool {
+    let hosts = image_plane_hosts();
+    if hosts.is_empty() {
+        return false;
+    }
+    let began = Instant::now();
+    let since = *missing_since().get_or_insert(began);
+    let wait = wait_left(Some(since), began, route_wait_for(machine_uptime()));
+    let resolves: fn(&str) -> bool = if wait.is_zero() { plane_host_resolves } else { lookup_now };
+    arrives_within(&hosts, wait, resolves, std::thread::sleep, || began.elapsed())
 }
 
 /// The `plane` variables for each name `present` says the child does not have yet.

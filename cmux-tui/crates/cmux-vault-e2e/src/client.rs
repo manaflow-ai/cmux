@@ -25,14 +25,14 @@ pub trait Http {
         path: &str,
         headers: &[(&str, &str)],
         body: Option<&Value>,
-    ) -> std::result::Result<(u16, Value), String>;
+    ) -> Result<(u16, Value), String>;
 }
 
 /// This device's identity, in the OS secret store.
 pub trait DeviceStore {
     /// `(device id, private key)`, if this device has one.
-    fn load(&self) -> std::result::Result<Option<(String, Zeroizing<Vec<u8>>)>, String>;
-    fn save(&self, id: &str, private_key: &[u8]) -> std::result::Result<(), String>;
+    fn load(&self) -> Result<Option<DeviceRecord>, String>;
+    fn save(&self, id: &str, private_key: &[u8]) -> Result<(), String>;
 }
 
 /// A refusal or failure: a stable code and a message free of values.
@@ -60,7 +60,10 @@ impl From<crypto::CryptoError> for Failure {
     }
 }
 
-pub type VaultResult<T> = std::result::Result<T, Failure>;
+pub type VaultResult<T> = Result<T, Failure>;
+
+/// A device's id and its private key.
+pub type DeviceRecord = (String, Zeroizing<Vec<u8>>);
 
 /// `personal` or `team:<team id>`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -370,8 +373,12 @@ impl<'a, H: Http, S: DeviceStore> Vault<'a, H, S> {
             let epoch = snap.epoch + 1;
             let vk = VaultKey::generate()?;
             let wrap = crypto::wrap_key(&vk, &self.vault.0, &id, key.public_bytes(), epoch)?;
-            body["wrap"] =
-                json!({"epoch": epoch, "enc": b64::encode(&wrap.enc), "ct": b64::encode(&wrap.ct)});
+            if let Some(fields) = body.as_object_mut() {
+                fields.insert(
+                    "wrap".to_owned(),
+                    json!({"epoch": epoch, "enc": b64::encode(&wrap.enc), "ct": b64::encode(&wrap.ct)}),
+                );
+            }
         }
         self.call("POST", &format!("{BASE}/devices"), Some(&id), Some(&body))?;
         self.status()

@@ -134,19 +134,13 @@ public final class IPhoneHostService {
 
     /// `mobile.allowIPhoneConnections`, as the settings file has it.
     private(set) var allowed = false
-    /// Host-owned per-chat Remote Control policy. These are observed from the Rust host's replayable
-    /// supervisor state; the App never reads or writes the policy file itself.
-    private(set) var sessionExposureConfigured = false
-    private(set) var exposedSessionIDs: Set<String> = []
-    private(set) var blockedSessionIDs: Set<String> = []
-    private(set) var sessionExposureAvailable = false
-    private(set) var sessionExposureKnown = false
-    private(set) var sessionExposureRevision = 0
     /// Session Info's Remote Control switch every chat page shows (the App gives it to each page's model).
     public let remoteControl = AgentPaneRemoteControl()
     /// The service is wired and this build bundles hostd, so this Mac can serve cmux on iPhone
     /// (Session Info's Remote Control row shows only then). Observed: set once by `wire`.
     public internal(set) var servesPhones = false
+    /// What the card's Sign In signs in to ("Signs in to cmux.com"), the line under it; set by `wire`.
+    public internal(set) var signInBackend: String?
     private(set) var account: Account?
     private(set) var state = MobileHostState()
     /// The account's phones on the mobile service (Settings > Mobile's list with Remove).
@@ -235,6 +229,9 @@ public final class IPhoneHostService {
     @ObservationIgnored var identityRetryClock: any Clock<Duration> = ContinuousClock()
     /// The spacing of tries while cmux-tui's socket is not there yet (1 s doubling to 30 s), on the same clock.
     @ObservationIgnored private var daemonBackoff = Backoff(initial: .seconds(1), maximum: .seconds(30))
+    /// Waits between starts that failed past the daemon socket (a device id or identity read, say):
+    /// 1 s doubling to 60 s, reset once a hostd starts.
+    @ObservationIgnored var startBackoff = Backoff(initial: .seconds(1), maximum: .seconds(60))
     /// The account and team those refusals were counted for: another one starts from zero.
     @ObservationIgnored private var identityRefusalsKey: String?
     /// Device ids renewed in this launch because the service said another account owns them, by
@@ -286,18 +283,6 @@ public final class IPhoneHostService {
                 guard let self else { return }
                 let before = self.state
                 self.state = next
-                sessionExposureConfigured = next.sessionExposureConfigured
-                exposedSessionIDs = next.exposedSessionIDs
-                blockedSessionIDs = next.blockedSessionIDs
-                sessionExposureAvailable = next.sessionExposureAvailable
-                sessionExposureKnown = next.sessionExposureKnown
-                if next.sessionExposureKnown != before.sessionExposureKnown
-                    || next.sessionExposureConfigured != before.sessionExposureConfigured
-                    || next.exposedSessionIDs != before.exposedSessionIDs
-                    || next.blockedSessionIDs != before.blockedSessionIDs
-                    || next.sessionExposureAvailable != before.sessionExposureAvailable {
-                    sessionExposureRevision &+= 1
-                }
                 if next.phase == .removed, before.phase != .removed { self.recordRemoval() }
                 if next.phase == .deviceIDTaken, before.phase != .deviceIDTaken { self.renewDeviceID() }
                 // The list follows what hostd reports: online, and each phone that comes or goes.
@@ -644,9 +629,9 @@ public final class IPhoneHostService {
     /// Starts hostd again after cmux-tui's socket was not there for `key`, after the next
     /// ``daemonBackoff`` wait. Shares the identity retry's slot, so turning connections off or
     /// signing out ends it the same way; it never counts as a refused Keychain read.
-    private func retryStart(for key: String?) {
+    private func retryStart(for key: String?, delay given: Duration? = nil) {
         identityRetry?.cancel()
-        let delay = daemonBackoff.next()
+        let delay = given ?? daemonBackoff.next()
         // task-owner: stored in `identityRetry`; stop() and the next reconcile cancel it
         identityRetry = Task { [weak self, clock = identityRetryClock] in
             var wait = Backoff(initial: delay, maximum: delay, jitter: 0)
@@ -742,7 +727,8 @@ public final class IPhoneHostService {
                 // backend shared, readable only by the build that made it (-25293 for the others).
                 let store = MobileHostMacIdentityStore(bundleID: dependencies.keychainName
                                                        ?? dependencies.stateDirectory.deletingLastPathComponent().lastPathComponent,
-                                                stateDirectory: dependencies.stateDirectory, loginKeychain: loginKeychain)
+                                                stateDirectory: dependencies.stateDirectory,
+                                                keepsKeychainCopy: Self.mayUseFileStoreOnRefusal, loginKeychain: loginKeychain)
                 // task-owner: one Keychain read per hostd start; awaited here
                 if self?.identityRefusalsKey != key { self?.identityRefusals = 0; self?.identityBackoff.reset() }
                 let fileStore = Self.mayUseFileStoreOnRefusal && (self?.identityRefusals ?? 0) >= Self.identityRefusalsBeforeFileKey
@@ -760,6 +746,7 @@ public final class IPhoneHostService {
                     log: dependencies.stateDirectory.appendingPathComponent("cmux-mobile-host.log", isDirectory: false),
                     browserHosts: dependencies.browserHosts, macIdentity: identity,
                     surfaceHosts: dependencies.surfaceHosts, cloudLinks: dependencies.cloudLinks))
+                self?.startBackoff.reset()
             } catch let refusal as CMUXBuildSpaceError {
                 // Does not pass by itself (a rebuild with a tag does): no retry, as for a blocked daemon socket.
                 guard !Task.isCancelled, self?.running == key else { return }
@@ -785,8 +772,15 @@ public final class IPhoneHostService {
             } catch {
                 logger.error("iPhone host not started: \(String(describing: error), privacy: .public)")
                 await supervisor.stop(phase: .waiting(String(describing: error)))
-                // A later account or toggle change tries again.
-                if self?.running == key { self?.running = nil }
+                // Try again on the backoff, never only on a later account or toggle change: a start
+                // that gives up leaves the Mac with no hostd until a relaunch, and every phone fails
+                // to reach it (2026-11-25: a relaunched NIGHTLY ran 14:06 to 14:51Z with none). A
+                // cancelled start (stop, or a newer reconcile) owns what happens next.
+                guard self?.running == key else { return }
+                self?.running = nil
+                guard !Task.isCancelled, !(error is CancellationError), self?.reconcileGeneration == generation else { return }
+                guard let self else { return }
+                self.retryStart(for: key, delay: self.startBackoff.next())
             }
         }
     }

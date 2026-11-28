@@ -105,6 +105,8 @@ export interface WorkerBindings {
   readonly TRAJECTORY_DO: DurableObjectNamespace<TrajectoryDO>
   /** "1": the trajectory routes answer (development, tests). Unset: 404 cloud.trajectory.disabled. */
   readonly CLOUD_TRAJECTORIES_ENABLED?: string
+  /** "1": integration.approval.approve answers (approve-one-call.ts; development and staging). Unset: approval.one_call_off, and the Mac answers through feed.answer. */
+  readonly CLOUD_APPROVE_ONE_CALL?: string
   /** One TeamVmDO per team: the team VM record, wake leases, provider calls (plans/cmux-next/team-vm-plan.md S2). */
   readonly TEAM_VM_DO: DurableObjectNamespace<TeamVmDO>
   /**

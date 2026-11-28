@@ -46,7 +46,7 @@ public struct LinkFileArtifactSource: ArtifactSource {
             throw ArtifactUnavailable("\(artifact.reference) isn't inside a known folder on \(macName).")
         }
         guard let link = await link() else {
-            throw ArtifactUnavailable("Connect to \(macName) to open \(artifact.name).")
+            throw ArtifactUnavailable("Connect to \(macName) to open \(artifact.name).", transient: true)
         }
         let file = try await Self.read(path: path, over: link, macName: macName, for: artifact,
                                        capacity: availableCapacity, store: fileStore)
@@ -85,6 +85,10 @@ public struct LinkFileArtifactSource: ArtifactSource {
                 let size = try await previewSize(channel, path: path, macName: macName)
                 _ = try await download(channel, to: part, path: path, macName: macName, expectedSize: size, capacity: capacity)
                 try FileManager.default.moveItem(at: part, to: url)
+            } catch let error as LinkError {
+                // The size header's read failed on the link: say why (and whether it can pass).
+                await channel.close(code: "cancelled", reason: "preview ended")
+                throw Self.unavailable(error, path: path, macName: macName)
             } catch {
                 await channel.close(code: "cancelled", reason: "preview ended")
                 throw error
@@ -99,10 +103,11 @@ public struct LinkFileArtifactSource: ArtifactSource {
         struct Metadata: Decodable { let size: Int64 }
         guard let header = try await receive(channel, within: idleTimeout, macName: macName) else {
             if let closed = channel.closedBy { throw unavailable(closed, path: path, macName: macName) }
-            throw ArtifactUnavailable("Couldn't read the file size from \(macName).")
+            throw ArtifactUnavailable("Couldn't read the file size from \(macName).", transient: true)
         }
         guard header.count <= 1024, let metadata = try? JSONDecoder().decode(Metadata.self, from: header),
               metadata.size >= 0 else {
+            // A malformed header is the Mac's protocol, not a passing failure: not retried.
             throw ArtifactUnavailable("Couldn't read the file size from \(macName).")
         }
         return metadata.size
@@ -131,7 +136,7 @@ public struct LinkFileArtifactSource: ArtifactSource {
                 while let chunk = try await Self.receive(channel, within: idleTimeout, macName: macName) {
                     try Task.checkCancellation()
                     if let expectedSize, Int64(chunk.count) > expectedSize - written {
-                        throw ArtifactUnavailable("The file changed while downloading. Try again.")
+                        throw ArtifactUnavailable("The file changed while downloading.", transient: true)
                     }
                     try PreviewStorage.check(destination, path: path, size: expectedSize ?? written + Int64(chunk.count),
                                              remaining: expectedSize.map { $0 - written } ?? Int64(chunk.count), capacity: capacity)
@@ -146,7 +151,7 @@ public struct LinkFileArtifactSource: ArtifactSource {
                 throw Self.unavailable(closed, path: path, macName: macName)
             }
             if let expectedSize, written != expectedSize {
-                throw ArtifactUnavailable("The file changed while downloading. Try again.")
+                throw ArtifactUnavailable("The file changed while downloading.", transient: true)
             }
         } catch {
             if created { try? FileManager.default.removeItem(at: destination) }
@@ -164,7 +169,7 @@ public struct LinkFileArtifactSource: ArtifactSource {
     /// closed so the read ends.
     static func receive(_ channel: any LinkChannel, within limit: Duration, macName: String,
                         clock: any Clock<Duration> = ContinuousClock()) async throws -> Data? {
-        let stalled = ArtifactUnavailable("\(macName) stopped sending this file. Check that it's awake, then try again.")
+        let stalled = ArtifactUnavailable("\(macName) stopped sending this file. Check that it's awake.", transient: true)
         let timedOut = TimedOut()
         let next = try await withThrowingTaskGroup(of: Data?.self) { group in
             group.addTask { try await channel.receive() }
@@ -204,7 +209,8 @@ public struct LinkFileArtifactSource: ArtifactSource {
         case "forbidden": ArtifactUnavailable("\(name) is outside the folders \(macName) shares with this phone. \(Self.shareHint)")
         case "bad_request": ArtifactUnavailable("\(name) isn't a regular file.")
         case "unknown_service": ArtifactUnavailable("Update cmux on \(macName) to preview this file.")
-        default: ArtifactUnavailable(error.message.isEmpty ? "Couldn't read \(name) from \(macName)." : error.message)
+        // A dropped link, a timeout or a busy Mac: the same read can work next time.
+        default: ArtifactUnavailable(error.message.isEmpty ? "Couldn't read \(name) from \(macName)." : error.message, transient: true)
         }
     }
 

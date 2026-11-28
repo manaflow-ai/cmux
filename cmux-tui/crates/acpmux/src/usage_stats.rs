@@ -116,6 +116,10 @@ pub struct Source {
     pub argv: Option<Vec<String>>,
     /// The env its harness starts with (profile, preset, chat store, the chat's own).
     pub env: BTreeMap<String, String>,
+    /// No turn ran on this chat here and it carries no conversation from elsewhere (not
+    /// adopted, watched, resumed or forked): its harness has written no transcript yet, so
+    /// none found means it spent nothing, not that it went unmeasured.
+    pub unprompted: bool,
 }
 
 impl Source {
@@ -138,6 +142,7 @@ impl Source {
 struct Bucket {
     tokens: u64,
     by_model: BTreeMap<String, u64>,
+    cache_read_by_model: BTreeMap<String, u64>,
     cost_usd: f64,
     priced: bool,
     compactions: u64,
@@ -234,18 +239,31 @@ pub struct Tracker {
     /// None when one was not. A count whose window starts before it is lower than the truth,
     /// so it reads as unknown; the previous UTC hour needs only that hour covered, not the day.
     covered_since: Option<u64>,
+    /// When the chat's transcript was last written, while only its compressed copy is found
+    /// (`FILE.jsonl.zst`): leo-workspace `tools/transcript_hygiene.py` compresses a transcript in
+    /// place, keeping its mtime, only once its session is closed and the file is a day old or more.
+    /// No call was made since, so the counts are known, and zero, from then on. Before this, such
+    /// a closed chat had no stats at all and its machine's spend read as unmetered (2026-11-27).
+    archived_since: Option<u64>,
     /// The most a first read takes and the most one refresh reads, per file (tests set them).
     limits: Option<(u64, u64)>,
 }
 
 impl Tracker {
     /// Reads what the chat's harness appended since the last refresh and returns the stats as
-    /// of `now`; None while its transcript is not found.
+    /// of `now`; None while its transcript is not found, plain or compressed.
     pub fn refresh(&mut self, source: &Source, now: u64, models: &Models) -> Option<UsageStats> {
         if self.main.is_none() && now >= self.look_again_at {
-            match locate(source) {
-                Some(path) => self.main = Some(Tail { path, ..Tail::default() }),
-                None => self.look_again_at = now.saturating_add(LOOK_AGAIN_MS),
+            match locate(source, ".jsonl") {
+                Some(path) => {
+                    self.main = Some(Tail { path, ..Tail::default() });
+                    self.archived_since = None;
+                }
+                None => {
+                    self.look_again_at = now.saturating_add(LOOK_AGAIN_MS);
+                    self.archived_since =
+                        locate(source, ".jsonl.zst").and_then(|p| modified_ms(&p));
+                }
             }
         }
         let codex = source.family == "codex";
@@ -271,7 +289,9 @@ impl Tracker {
         self.minutes = self.minutes.split_off(&cutoff.saturating_sub(cutoff % MINUTE_MS));
         let window =
             self.context_window.or_else(|| self.model.as_deref().and_then(|m| models.window(m)));
-        self.main.as_ref()?;
+        if self.main.is_none() {
+            self.covered_since = Some(self.archived_since?);
+        }
         Some(self.stats(source, now, window))
     }
 
@@ -283,7 +303,9 @@ impl Tracker {
         let hour_known = covers(rolling_from.saturating_sub(rolling_from % MINUTE_MS));
         let (mut day, mut hour_spawns, mut priced) = (Bucket::default(), 0_u64, false);
         let mut hourly = BTreeMap::<String, u64>::new();
+        let mut cache_read_hourly = BTreeMap::<String, u64>::new();
         let mut previous_hour = BTreeMap::<String, u64>::new();
+        let mut cache_read_previous_hour = BTreeMap::<String, u64>::new();
         let hour_start = now - now % HOUR_MS;
         let previous = hour_start.saturating_sub(HOUR_MS)..hour_start;
         let previous_known = covers(previous.start);
@@ -301,12 +323,17 @@ impl Tracker {
             if rolling {
                 hour_spawns = hour_spawns.saturating_add(b.spawns);
             }
-            for (included, totals) in
-                [(rolling, &mut hourly), (previous.contains(minute), &mut previous_hour)]
-            {
+            for (included, totals, cache_read_totals) in [
+                (rolling, &mut hourly, &mut cache_read_hourly),
+                (previous.contains(minute), &mut previous_hour, &mut cache_read_previous_hour),
+            ] {
                 if included {
                     for (model, tokens) in &b.by_model {
                         let total = totals.entry(model.clone()).or_default();
+                        *total = total.saturating_add(*tokens);
+                    }
+                    for (model, tokens) in &b.cache_read_by_model {
+                        let total = cache_read_totals.entry(model.clone()).or_default();
                         *total = total.saturating_add(*tokens);
                     }
                 }
@@ -328,7 +355,10 @@ impl Tracker {
             subagents24h: known(day.spawns),
             tokens24h: known(day.tokens),
             tokens_by_model1h: hour_known.then_some(hourly),
+            cache_read_by_model1h: hour_known.then_some(cache_read_hourly),
             tokens_by_model_previous_utc_hour: previous_known.then_some(previous_hour),
+            cache_read_by_model_previous_utc_hour: previous_known
+                .then_some(cache_read_previous_hour),
             // Rounded to the cent's hundredth: a sum of list prices, not a bill.
             cost_usd24h: (complete && priced).then(|| (day.cost_usd * 10_000.0).round() / 10_000.0),
             calls24h: known(day.calls),
@@ -439,11 +469,11 @@ impl Tracker {
                 let cost = models.prices(&model).map(|p| t.cost(&p));
                 if let Some(b) = self.bucket(at, now) {
                     b.tokens = b.tokens.saturating_add(t.total);
-                    let total = b
-                        .by_model
-                        .entry(if model.is_empty() { "unknown".into() } else { model })
-                        .or_default();
+                    let model_key = if model.is_empty() { "unknown".into() } else { model };
+                    let total = b.by_model.entry(model_key.clone()).or_default();
                     *total = total.saturating_add(t.total);
+                    let cache_read = b.cache_read_by_model.entry(model_key).or_default();
+                    *cache_read = cache_read.saturating_add(t.cache_read);
                     b.calls = b.calls.saturating_add(1);
                     b.prompt_read = b.prompt_read.saturating_add(t.cache_read);
                     b.prompt_rest =
@@ -819,8 +849,8 @@ fn read_new(
 
 /// The chat's transcript: Claude's under its project folder (else any project
 /// folder, for a chat whose cwd moved), Codex's rollout under its creation day
-/// (else any day).
-fn locate(source: &Source) -> Option<PathBuf> {
+/// (else any day). Its file name ends in `ext`: `.jsonl`, or `.jsonl.zst` once compressed.
+fn locate(source: &Source, ext: &str) -> Option<PathBuf> {
     let sid = source.agent_session_id.as_str();
     if sid.is_empty() || sid.contains(['/', '\\']) {
         return None;
@@ -829,7 +859,7 @@ fn locate(source: &Source) -> Option<PathBuf> {
     match source.family.as_str() {
         "claude" => {
             let projects = home.join("projects");
-            let name = format!("{sid}.jsonl");
+            let name = format!("{sid}{ext}");
             let direct = projects.join(claude_project_dir(&source.cwd)).join(&name);
             if direct.is_file() {
                 return Some(direct);
@@ -839,7 +869,7 @@ fn locate(source: &Source) -> Option<PathBuf> {
         }
         "codex" => {
             let sessions = home.join("sessions");
-            let suffix = format!("-{sid}.jsonl");
+            let suffix = format!("-{sid}{ext}");
             let day = source.created_at / DAY_MS;
             let near = [day.saturating_sub(1), day, day.saturating_add(1)].map(|d| {
                 let (y, m, d) = civil_from_days(d);
@@ -886,7 +916,8 @@ pub fn launcher(argv: &[String]) -> Option<String> {
 /// `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` in its env, and no settings file (its own settings.json, a
 /// project's `.claude/settings.json` or `settings.local.json` in its folder or above) that names
 /// `autoCompactWindow` or either key in its `env`. acpmux then starts it with its own
-/// window (`harness_limits::CLAUDE_AUTOCOMPACT_WINDOW`). False when its argv is not this
+/// window when the settings name one (`harness_limits::claude_autocompact_window`). False when
+/// its argv is not this
 /// daemon's, or settings.json cannot be read.
 pub fn claude_autocompact_unset(source: &Source) -> bool {
     const KEYS: [&str; 2] = ["CLAUDE_CODE_AUTO_COMPACT_WINDOW", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"];
@@ -1087,7 +1118,7 @@ fn contains(hay: &[u8], needle: &[u8]) -> bool {
 }
 
 /// The proleptic Gregorian date of a day count since 1970-01-01.
-fn civil_from_days(days: u64) -> (i64, u32, u32) {
+pub(crate) fn civil_from_days(days: u64) -> (i64, u32, u32) {
     // A day of a unix-ms time (at most ~2.1e11) always fits an i64.
     crate::clock_text::civil_from_days(i64::try_from(days).unwrap_or(i64::MAX))
 }

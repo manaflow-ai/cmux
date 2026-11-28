@@ -1,0 +1,38 @@
+// The look's thinking glyph: four accent dots on a 2 by 2 grid, as the reference app draws its
+// working mark, lighting up one after another clockwise. A cmux.particles/1 document (ABI.md
+// "Particles choreography" in cmux-tui/crates/cmux-app-host/js). Each dot is [x, y, scale], x and y
+// in points from the center. Two other takes sit next to it: thinking-glyph-row.json and
+// thinking-glyph-pulse.json; point agentPane.display.thinking.glyph at either to try it.
+{
+  "$schema": "cmux.particles/1",
+  "particle": { "shape": "circle", "size": 2.6, "color": "accent", "max": 4 },
+  "phases": {
+    "lone": { "duration": 300, "frames": [{ "at": 0, "dots": [[-3, -3, 0.7], [3, -3, 0.7], [3, 3, 0.7], [-3, 3, 0.7]] }] },
+    "turn": {
+      "duration": 1200,
+      "ease": "easeInOut",
+      "frames": [
+        { "at": 0, "dots": [[-3, -3, 1.15], [3, -3, 0.6], [3, 3, 0.6], [-3, 3, 0.6]] },
+        { "at": 0.25, "dots": [[-3, -3, 0.6], [3, -3, 1.15], [3, 3, 0.6], [-3, 3, 0.6]] },
+        { "at": 0.5, "dots": [[-3, -3, 0.6], [3, -3, 0.6], [3, 3, 1.15], [-3, 3, 0.6]] },
+        { "at": 0.75, "dots": [[-3, -3, 0.6], [3, -3, 0.6], [3, 3, 0.6], [-3, 3, 1.15]] },
+        { "at": 1, "dots": [[-3, -3, 1.15], [3, -3, 0.6], [3, 3, 0.6], [-3, 3, 0.6]] }
+      ]
+    },
+    "breathe": {
+      "duration": 1400,
+      "ease": "easeInOut",
+      "frames": [
+        { "at": 0, "dots": [[-3, -3, 0.75], [3, -3, 0.75], [3, 3, 0.75], [-3, 3, 0.75]] },
+        { "at": 0.5, "dots": [[-3.6, -3.6, 1.0], [3.6, -3.6, 1.0], [3.6, 3.6, 1.0], [-3.6, 3.6, 1.0]] },
+        { "at": 1, "dots": [[-3, -3, 0.75], [3, -3, 0.75], [3, 3, 0.75], [-3, 3, 0.75]] }
+      ]
+    }
+  },
+  "triggers": {
+    "execute": ["turn"],
+    "read": ["turn"],
+    "sendMessage": { "intro": ["lone"], "loop": ["breathe"] },
+    "cycle": ["breathe"]
+  }
+}

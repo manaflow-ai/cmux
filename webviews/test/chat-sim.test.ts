@@ -8,10 +8,10 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { runSimulation, type RowProbe, type SimResult, createSimulation } from "../src/agent-session/acpmux/sim/run";
+import { createSimulation, runSimulation, type SimResult, type RowProbe } from "../src/agent-session/acpmux/sim/run";
 import { parseRecords, sanitizeRecords, scrubText } from "../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, SIM_SESSION } from "../src/agent-session/acpmux/sim/script";
-import { SCENARIOS, longRun } from "../src/agent-session/acpmux/sim/scenarios";
+import { SCENARIOS, longRun, FORK_MID_STREAM, forkMidStream } from "../src/agent-session/acpmux/sim/scenarios";
 import { TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_LIVE_STEP_GAP } from "../src/agent-session/acpmux/transcriptGrid";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "chat-sim");
@@ -41,6 +41,14 @@ describe("chat simulator: (d) received lines on the tool rows' pitch", () => {
       expect(broken(runSimulation(make()), "d-received")).toEqual([]);
     });
   }
+});
+
+// A turn the agent sent nothing draws its prompt and footer only (map.ts empty-turn); d-action-only
+// flags only a turn whose thoughts, calls or words all went missing. Found by the fold baseline for
+// cmux#52785 (Leo: "we need to compare against current behaviour").
+describe("chat simulator: no scenario ends a turn with only its action row", () => {
+  for (const [name, make] of Object.entries(SCENARIOS))
+    test(name, () => expect(broken(runSimulation(make()), "d-action-only")).toEqual([]));
 });
 
 /** Turn 2's rows at the first step its live line stands under the line that opened it (its calls fold into the live line). */
@@ -98,6 +106,20 @@ test("chat simulator: a person's prompt keeps the block gap over Working for", (
   const trace = result.traces.find((step) => step.rows?.some(isHead));
   const head = trace!.rows!.find(isHead)!;
   expect(head.gap).toBeGreaterThanOrEqual(24);
+});
+
+// Fork-hammer's invariant, the pane's half (#50021, #50094, #50089): a fork made mid-stream draws exactly the
+// turns its records hold (its prompts, and the cut-off reply), and is idle; the daemon's half checks those
+// turns are the ones its agent holds (acpmux tests/hub_integration/fork_context.rs).
+test("chat simulator: a fork made mid-stream draws the turns its records hold, the cut-off reply too, and is idle", () => {
+  const result = runSimulation(forkMidStream());
+  const last = result.traces.at(-1)!;
+  expect(last.working).toBe(false);
+  const rows = last.rows ?? [];
+  expect(rows.filter((row) => row.live)).toEqual([]);
+  const prompts = rows.filter((row) => row.opens).map((row) => row.text);
+  expect(prompts).toEqual(FORK_MID_STREAM.prompts.map((p) => p.slice(0, 80)));
+  expect(rows.some((row) => row.text?.startsWith(FORK_MID_STREAM.partial.slice(0, 40)))).toBe(true);
 });
 
 const replayed = () => {
@@ -266,7 +288,29 @@ test("chat simulator: compact-steer: one Worked for, under the steer, at every s
     .at(-1)!
     .rows!.filter((row) => row.turn >= 2)
     .map((row) => row.kind);
-  expect(last.slice(0, 4)).toEqual(["user", "compaction", "user", "worked"]);
+  expect(last.slice(0, 4)).toEqual(["user", "user", "compaction", "worked"]);
+});
+
+// Leo, 2026-11-25: "the animation for compaction and a message sent/steered during compaction is
+// weird ... layout shifts and awkward looking animations". Once the steer and the compaction's note
+// are drawn, nothing lands above either: the note ends where its live line stood, under the steer,
+// and the steer's Working for goes under the note, live and once the turn ends.
+test("chat simulator: compact-steer: the steer and the compaction's note never move once drawn", () => {
+  const result = runSimulation(SCENARIOS["compact-steer"]!());
+  const placed = new Map<string, number>();
+  for (const step of result.traces) {
+    const own = (step.rows ?? []).filter((row) => row.turn >= 2);
+    for (const [name, at] of [
+      ["steer", own.findIndex((row) => row.kind === "user" && row.text?.startsWith("then add a test"))],
+      ["note", own.findIndex((row) => row.kind === "compaction")],
+    ] as const) {
+      if (at < 0) continue;
+      const first = placed.get(name) ?? at;
+      placed.set(name, first);
+      expect({ step: step.step, name, at }).toEqual({ step: step.step, name, at: first });
+    }
+  }
+  expect([...placed.keys()].sort()).toEqual(["note", "steer"]);
 });
 
 // Leo, 2026-11-25: "this is extremely strange": a turn a background task's end opened (a notice
@@ -331,3 +375,23 @@ function order(rows: readonly { kind: string; text?: string; id: string }[]): st
     )
     .join(" ");
 }
+
+// Leo, 2026-11-24: "the extra spacing after thinking added more layout shifts". The live line under a thought stands
+// the gap the reply stands there, so the reply takes its place (transcriptGrid.ts MARK_LIVE_THOUGHT); under the 8 the
+// reply came 8 lower and everything over it moved 8 more than the reply's own line.
+test("chat simulator: think-then-answer: the live line under a thought stands the reply's gap", () => {
+  const result = runSimulation(SCENARIOS["think-then-answer"]!());
+  const live = new Set<number>();
+  const reply = new Set<number>();
+  // The first turn's work is the one thought (the second runs a command between its thoughts).
+  for (const trace of result.traces.filter((trace) => trace.turn === 1)) {
+    const rows = trace.rows ?? [];
+    rows.forEach((row, at) => {
+      if (at === 0 || rows[at - 1]!.kind !== "activity") return;
+      if (row.live && row.kind === "thinking") live.add(row.gap);
+      if (row.kind === "assistant" && rows.at(-1)?.live) reply.add(row.gap);
+    });
+  }
+  expect(reply.size).toBe(1);
+  expect([...live]).toEqual([...reply]);
+});

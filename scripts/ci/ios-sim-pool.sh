@@ -5,8 +5,11 @@
 # the simulator tests only when the pool gave none (a logged Mac fallback); unset or anything else leaves the pool out.
 #
 #   ios-sim-pool.sh pack      build for testing on this Mac and pack the products into $DIR/products
-#   ios-sim-pool.sh submit    submit the pool run (products: CMUX_IOS_PRODUCTS=<run id>/<artifact>) and return;
-#                             the client waits in the background and writes $DIR/exit and $DIR/finished
+#   ios-sim-pool.sh upload    put $DIR/products in the fleet's own store, in parts, for this run's pool step only;
+#                             writes their digests to $DIR/products.parts (nothing goes to a repository artifact)
+#   ios-sim-pool.sh submit    submit the pool run and return (products: PRODUCTS if set, a <run id>/<artifact> of
+#                             an older run; else $DIR/products.parts from upload); the client waits in the
+#                             background and writes $DIR/exit and $DIR/finished
 #   ios-sim-pool.sh collect   wait (up to CMUX_IOS_SIM_POOL_WAIT seconds) and print the verdict line:
 #                             "pass|fail|none <seconds> <reason>"
 #
@@ -20,6 +23,26 @@ dir="${CMUX_IOS_SIM_POOL_DIR:-${RUNNER_TEMP:?}/sim-pool}"
 mkdir -p "$dir"
 # The ios-kit step's own simulator skips (ci/steps.toml), so the pool runs what the Mac would.
 skips=(CmuxMobileInstantPerfTests)
+
+# fetch_client: the fleet client, from the controller, each file checked against the manifest's sha256.
+fetch_client() {
+  client="$dir/fleet-client"
+  [[ -f "$client/ci-client.py" ]] && return 0
+  mkdir -p "$client"
+  curl -fsS -m 30 "$CONTROLLER/v1/client/manifest" -o "$client/manifest.json"
+  python3 -I - "$client" "$CONTROLLER" <<'PY'
+import hashlib, json, sys, urllib.request
+from pathlib import Path
+root, controller = Path(sys.argv[1]), sys.argv[2]
+for name, digest in json.loads((root / "manifest.json").read_text())["files"].items():
+    if "/" in name or name.startswith("."):
+        raise SystemExit(f"bad client file name {name!r}")
+    data = urllib.request.urlopen(f"{controller}/v1/client/files/{name}", timeout=30).read()
+    if hashlib.sha256(data).hexdigest() != digest:
+        raise SystemExit(f"{name}: sha256 mismatch")
+    (root / name).write_bytes(data)
+PY
+}
 
 case "${1:-}" in
 pack)
@@ -40,24 +63,80 @@ pack)
   du -sh "$out"/*
   echo "build-for-testing and pack: $(( $(date +%s) - start )) s"
   ;;
-submit)
+upload)
   set -e
-  : "${CONTROLLER:?no CMUX_FLEET_CONTROLLER variable}" "${HEAD_SHA:?}" "${PRODUCTS:?}"
-  client="$dir/fleet-client"
-  mkdir -p "$client"
-  curl -fsS -m 30 "$CONTROLLER/v1/client/manifest" -o "$client/manifest.json"
-  python3 - "$client" "$CONTROLLER" <<'PY'
-import hashlib, json, sys, urllib.request
-from pathlib import Path
-root, controller = Path(sys.argv[1]), sys.argv[2]
-for name, digest in json.loads((root / "manifest.json").read_text())["files"].items():
-    if "/" in name or name.startswith("."):
-        raise SystemExit(f"bad client file name {name!r}")
-    data = urllib.request.urlopen(f"{controller}/v1/client/files/{name}", timeout=30).read()
-    if hashlib.sha256(data).hexdigest() != digest:
-        raise SystemExit(f"{name}: sha256 mismatch")
-    (root / name).write_bytes(data)
+  : "${CONTROLLER:?no CMUX_FLEET_CONTROLLER variable}" "${GITHUB_RUN_ID:?}"
+  start=$(date +%s)
+  fetch_client
+  # One plain tar of the products' tarballs, cut into parts the store takes (at most 512 MiB each, 4 parts).
+  parts="$dir/products-parts"
+  rm -rf "$parts" "$dir/products.parts"
+  mkdir -p "$parts"
+  (python3 -I - "$dir/products" "$parts" <<'PY'
+import hashlib, os, sys, tarfile
+src, out = sys.argv[1], sys.argv[2]
+limit = 448 << 20
+class Parts:
+    def __init__(self):
+        self.n, self.f, self.size = -1, None, limit
+    def write(self, data):
+        view = memoryview(data)
+        while view:
+            if self.size >= limit:
+                if self.f:
+                    self.f.close()
+                self.n += 1
+                if self.n >= 4:
+                    raise SystemExit("the products are over 4 parts (1.75 GiB)")
+                self.f, self.size = open(os.path.join(out, f"part{self.n}"), "xb"), 0
+            take = min(len(view), limit - self.size)
+            self.f.write(view[:take])
+            self.size += take
+            view = view[take:]
+        return len(data)
+    def close(self):
+        if self.f:
+            self.f.close()
+parts = Parts()
+with tarfile.open(fileobj=parts, mode="w|", format=tarfile.PAX_FORMAT) as tar:
+    for name in sorted(os.listdir(src)):
+        if name.endswith(".tar.gz"):
+            tar.add(os.path.join(src, name), arcname=name, recursive=False)
+parts.close()
+for i in range(parts.n + 1):
+    h = hashlib.sha256()
+    with open(os.path.join(out, f"part{i}"), "rb") as f:
+        while chunk := f.read(1 << 20):
+            h.update(chunk)
+    print(f"part{i} {h.hexdigest()}")
 PY
+  ) > "$parts/index"
+  lane="https://github.com/manaflow-ai/cmux/actions/runs/$GITHUB_RUN_ID"
+  pids=()
+  while read -r part digest; do
+    CMUX_CI_CONTROLLER="$CONTROLLER" python3 "$dir/fleet-client/ci-client.py" artifact-put "$parts/$part" \
+      --sha256 "$digest" --lane "$lane" > "$parts/$part.json" 2> "$parts/$part.log" &
+    pids+=($!)
+  done < "$parts/index"
+  failed=0
+  for pid in "${pids[@]}"; do wait "$pid" || failed=1; done
+  if [[ $failed -ne 0 ]]; then
+    cat "$parts"/*.log >&2 || true
+    echo "fleet pool: products upload failed" >&2
+    exit 1
+  fi
+  sed 's/^[^ ]* /sha256:/' "$parts/index" | paste -s -d , - > "$dir/products.parts"
+  echo "fleet pool: $(wc -l < "$parts/index") part(s) uploaded in $(( $(date +%s) - start ))s"
+  rm -f "$parts"/part[0-9]
+  ;;
+submit)
+  : "${CONTROLLER:?no CMUX_FLEET_CONTROLLER variable}" "${HEAD_SHA:?}"
+  if [[ -z "${PRODUCTS:-}" ]]; then
+    PRODUCTS="$(cat "$dir/products.parts" 2>/dev/null || true)"
+    [[ -n "$PRODUCTS" ]] || { echo "no products: set PRODUCTS or run upload first" >&2; exit 1; }
+  fi
+  export PRODUCTS
+  fetch_client || exit 1
   args=()
   for s in "${skips[@]}"; do args+=(--arg "skip=$s"); done
   date +%s > "$dir/started"

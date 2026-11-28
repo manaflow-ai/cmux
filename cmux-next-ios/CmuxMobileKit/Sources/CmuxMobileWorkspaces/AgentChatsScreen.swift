@@ -90,12 +90,23 @@ public final class AgentChatsModel {
         await loadFirstPage(pulled: pulled)
     }
 
-    private func loadFirstPage(pulled: Bool) async {
+    /// The screen's own retry of a failed first page (``AutoRetry``, never a button): the page
+    /// stays as it is while it asks, and the patience is not started over, so a Mac still
+    /// unreachable past the bound stays failed (and is asked again later) instead of blinking
+    /// back to the spinner on every try.
+    public func retryFailedLoad() async {
+        guard case .failed = phase else { return }
+        retryTask?.cancel()
+        retryTask = nil
+        await loadFirstPage(pulled: false, keepingFailure: true)
+    }
+
+    private func loadFirstPage(pulled: Bool, keepingFailure: Bool = false) async {
         guard let backend else {
             phase = .failed("Not connected to the Mac.")
             return
         }
-        if chats.isEmpty { phase = .loading }
+        if chats.isEmpty, !keepingFailure { phase = .loading }
         listGeneration &+= 1
         let generation = listGeneration
         loadingFirstPage = true
@@ -230,6 +241,15 @@ struct AgentChatsScreen: View {
     let source: WorkspaceTabsSource
     @State private var model: AgentChatsModel
     @State private var confirmingStopAll = false
+    /// A failed first page is read again on its own (no Try Again): the spinner stays, and the
+    /// failure shows only past the quiet bound, without a button.
+    @State private var autoRetry = AutoRetry()
+
+    /// The first page failed with no rows to show.
+    private var loadFailed: Bool {
+        if case .failed = model.phase { return true }
+        return false
+    }
 
     private var stopAllTitle: String {
         let count = model.activeChats.count
@@ -272,6 +292,7 @@ struct AgentChatsScreen: View {
             }
             .refreshable { await model.load(pulled: true) }
             .task { await model.load() }
+            .autoRetry(autoRetry, failing: loadFailed) { await model.retryFailedLoad() }
             .confirmationDialog(stopAllTitle, isPresented: $confirmingStopAll, titleVisibility: .visible) {
                 Button("Stop All Agents", role: .destructive) { Task { await model.stopAll() } }
                 Button("Cancel", role: .cancel) {}
@@ -295,29 +316,36 @@ struct AgentChatsScreen: View {
     private var content: some View {
         switch model.phase {
         case .loading:
-            // Never "Connecting to your Mac…" (Leo, 2026-11-23: "i dont wanna see connecting to
-            // cosmic-gray... with the spinner, i want it to just work"): the list's own load only.
-            // placeholder-ok: no cached chat page exists for this Mac yet.
-            CmuxSpinner(label: Text("Loading chats…"))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityIdentifier("agentChats.loading")
-                .placeholderBound("agentChats.loading", .milliseconds(2000))
+            loading
         case .failed(let message):
-            ContentUnavailableView {
-                Label("Couldn't load chats", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(message)
-            } actions: {
-                // The load replaces this page at once (phase .loading), which would cancel a
-                // task owned by the button: the screen's model runs it unowned.
-                RetryButton("Try Again") { Task { await model.load() } }
+            // Nothing to decide: `autoRetry` reads the list again on its own. The spinner stays
+            // through a short failure; past the quiet bound the page says why, with no button.
+            if autoRetry.isQuietLineShown {
+                ContentUnavailableView {
+                    Label("Couldn't load chats", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(message)
+                } actions: {
+                    AutoRetryQuietLine(autoRetry)
+                }
+                .accessibilityIdentifier("agentChats.failed")
+            } else {
+                loading
             }
-            .accessibilityIdentifier("agentChats.failed")
         case .loaded:
             list
         }
     }
 
+    // Never "Connecting to your Mac…" (Leo, 2026-11-23: "i dont wanna see connecting to
+    // cosmic-gray... with the spinner, i want it to just work"): the list's own load only.
+    private var loading: some View {
+        // placeholder-ok: no cached chat page exists for this Mac yet.
+        CmuxSpinner(label: Text("Loading chats…"))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityIdentifier("agentChats.loading")
+            .placeholderBound("agentChats.loading", .milliseconds(2000))
+    }
 
     private var list: some View {
         let rows = model.visible

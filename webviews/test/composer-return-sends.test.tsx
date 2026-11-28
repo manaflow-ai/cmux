@@ -679,13 +679,60 @@ for (const inputType of ["insertParagraph", "insertLineBreak"]) {
   }
 }
 
-test("a paragraph the input method inserts on its own sends instead", async () => {
+// Leo: "wait that message got split up and queued". Dictation's "new paragraph" (or a voice tool
+// typing a message) inserts a paragraph with no Return key behind it; sending there split one
+// spoken message into queued pieces.
+test("a paragraph the input method inserts with no Return key behind it adds a line and sends nothing", async () => {
   const { field, sent } = await composer(working(), "What is Spotlight?");
   const inserted = await dispatch(
     field,
     new window.InputEvent("beforeinput", { inputType: "insertParagraph", bubbles: true, cancelable: true }),
   );
-  expect({ sent, inserted }).toEqual({ sent: [{ text: "What is Spotlight?", steer: true }], inserted: false });
+  expect({ sent, inserted, lines: lines(field) }).toEqual({ sent: [], inserted: false, lines: 2 });
+});
+
+test("a dictated message with paragraphs stays one draft until Return sends it once", async () => {
+  const { field, sent } = await composer(chat(), "First paragraph");
+  for (const inputType of ["insertParagraph", "insertLineBreak"])
+    await dispatch(field, new window.InputEvent("beforeinput", { inputType, bubbles: true, cancelable: true }));
+  expect({ sent, lines: lines(field) }).toEqual({ sent: [], lines: 3 });
+  await dispatch(field, key({ key: "Enter", keyCode: 13 }));
+  expect(sent.length).toBe(1);
+  expect(sent[0]!.text.startsWith("First paragraph")).toBe(true);
+});
+
+test("a busy chat sends both screenshots and its words together after a paragraph break", async () => {
+  const page = await composer(working(), "Compare these screenshots");
+  const files = [
+    new File([PNG], "before.png", { type: "image/png" }),
+    new File([PNG, Uint8Array.of(1)], "after.png", { type: "image/png" }),
+  ];
+  const paste = new window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"], getData: () => "" } });
+  await dispatch(page.field, paste);
+  await dispatch(
+    page.field,
+    new window.InputEvent("beforeinput", { inputType: "insertParagraph", bubbles: true, cancelable: true }),
+  );
+  expect(page.sent).toEqual([]);
+  await dispatch(page.field, key({ key: "Enter", keyCode: 13 }));
+  expect(page.sent).toHaveLength(1);
+  expect(page.sent[0]!.text).toContain("Compare these screenshots");
+  expect(page.sentAttachments).toEqual([["before.png", "after.png"]]);
+});
+
+test("a dictated Return (keyCode 229) still sends, once, with the paragraph input that follows it", async () => {
+  const { field, sent } = await composer(chat(), "日本語");
+  await dispatch(field, new window.CompositionEvent("compositionstart", { bubbles: true }), 1_000);
+  await dispatch(field, new window.CompositionEvent("compositionend", { bubbles: true }), 2_000);
+  // Past the commit window this 229 Return is taken and sends; its paragraph input is the same Return.
+  await dispatch(field, key({ key: "Enter", keyCode: 229 }), 6_000);
+  await dispatch(
+    field,
+    new window.InputEvent("beforeinput", { inputType: "insertParagraph", bubbles: true, cancelable: true }),
+    6_001,
+  );
+  expect(sent).toEqual([{ text: "日本語", steer: false }]);
 });
 
 test("Return with the command menu closed sends the typed /word", async () => {

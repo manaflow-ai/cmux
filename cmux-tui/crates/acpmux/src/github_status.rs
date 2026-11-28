@@ -35,8 +35,8 @@ pub const TOOL: &str = "github_status";
 
 /// What a chat with the tool is told, in the server's instructions and `cmux_exec`'s description.
 pub const STEER: &str = "When asked about the person's GitHub, call github_status instead of \
-running gh or reading git config (it covers cmux Cloud machines too); answer with its logins, \
-connected through cmux; an organization account is their cmux team's, not the person's.";
+running gh or reading git config (it covers Cloud machines too); an organization login is their \
+cmux team's, not the person's.";
 
 /// The Cloud agent's socket (`cmux_host::cloud::wire::AGENT_SOCKET`).
 pub const CLOUD_AGENT_SOCKET: &str = "/run/cmux-vm-agent/agent.sock";

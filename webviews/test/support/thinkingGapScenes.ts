@@ -6,7 +6,9 @@ import type { AcpmuxActivity, AcpmuxRow } from "../../src/agent-session/acpmux/m
 import { received } from "../../src/agent-session/acpmux/incomingFixture";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
-export type Step = { name: string; rows: AcpmuxRow[]; width?: number; scroll?: "up" | "down" };
+/// `working: false` on the step that ends the turn (an `end` event): the harness draws it at rest,
+/// so the turn-end fold plays.
+export type Step = { name: string; rows: AcpmuxRow[]; width?: number; scroll?: "up" | "down"; working?: false };
 
 /// One event of a running turn: what it adds to the turn's rows.
 export type GapEvent =
@@ -20,6 +22,13 @@ export type GapEvent =
   | { kind: "reply"; text?: string; streaming?: boolean }
   | { kind: "steer" }
   | { kind: "message" }
+  | { kind: "plan" }
+  /// A subagent starts (its group row joins the turn), or the oldest running one ends: its group
+  /// reads it ended and its "Subagent finished" line lands where it ended (a harness event).
+  | { kind: "subagent" }
+  | { kind: "subagentEnd"; state?: "completed" | "disconnected" | "failed" }
+  /// The turn ends: its turnSummary lands and the turn is drawn at rest.
+  | { kind: "end" }
   | { kind: "width"; px: number }
   | { kind: "scroll"; to: "up" | "down" };
 
@@ -56,6 +65,8 @@ export function playTurn(events: readonly GapEvent[], start = Date.now() - 60_00
   let calls = 0;
   let rowsMade = 0;
   let width: number | undefined;
+  let ended = false;
+  let agents = 0;
   const steps: Step[] = [];
   /// The open activity row the next call joins (a run), if the last row is one.
   const openRun = () => {
@@ -213,6 +224,66 @@ export function playTurn(events: readonly GapEvent[], start = Date.now() - 60_00
           version: ++version,
         });
         break;
+      case "plan":
+        turn.push({
+          id: `plan-${++rowsMade}`,
+          version: ++version,
+          at,
+          kind: "plan",
+          plan: [
+            { content: "Check lanes", status: "completed" },
+            { content: "Land green PRs", status: "in_progress" },
+            { content: "Report", status: "pending" },
+          ],
+        } as AcpmuxRow);
+        break;
+      case "subagent": {
+        const id = `agent-${++agents}`;
+        turn.push({
+          id: `group-${id}`,
+          version: ++version,
+          at,
+          kind: "subagents",
+          subagents: [
+            {
+              id,
+              parent: null,
+              name: `helper-${agents}`,
+              task: `Check lane ${agents}`,
+              state: "running",
+              startedAt: at,
+            },
+          ],
+        } as AcpmuxRow);
+        break;
+      }
+      case "subagentEnd": {
+        const index = turn.findIndex((row) => row.kind === "subagents" && row.subagents?.[0]?.state === "running");
+        if (index < 0) break;
+        const group = turn[index]!;
+        const agent = { ...group.subagents![0]!, state: event.state ?? "completed", endedAt: at };
+        turn[index] = { ...group, version: ++version, subagents: [agent] } as AcpmuxRow;
+        turn.push({
+          id: `subagentDone:${agent.id}`,
+          version: ++version,
+          at,
+          kind: "subagentDone",
+          subagents: [agent],
+        } as AcpmuxRow);
+        break;
+      }
+      case "end":
+        turn.push({
+          id: `summary-${++rowsMade}`,
+          version: ++version,
+          at,
+          kind: "turnSummary",
+          status: "completed",
+          durationMs: at - start,
+          toolCount: calls,
+        } as AcpmuxRow);
+        ended = true;
+        break;
       case "width":
         width = event.px;
         break;
@@ -225,6 +296,7 @@ export function playTurn(events: readonly GapEvent[], start = Date.now() - 60_00
       rows: [...base, ...turn],
       ...(width !== undefined && { width }),
       ...(scroll && { scroll }),
+      ...(ended && { working: false as const }),
     });
   }
   return steps;

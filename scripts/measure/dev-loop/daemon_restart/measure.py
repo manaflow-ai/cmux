@@ -7,8 +7,8 @@ with the same cargo command, and swap the running daemon (`server restart`, else
 `server ensure`) with its terminals kept. The daemon is a scratch one: its socket, state and home in a
 short temporary folder, never the host's, with N shells in it.
 
-Each round writes a one-line edit into `identify` in cmux-tui-core (a field the daemon's `identify`
-answer then carries) and times, on one clock (time.time()):
+Each round writes a one-line edit into the daemon's `identify` reply (rust-live.py's EDIT_FILE, in the
+cmux-tui binary crate since dev-loop-ceiling idea c; a field the daemon's `identify` answer then carries) and times, on one clock (time.time()):
   fs_event      the save's mtime -> the loop seeing it (rust-live's poll + settle)
   compile       the first rustc cargo starts -> the daemon binary's linker starting (every crate rebuilt)
   link          the linker's run (rustc_wrap.py stands in as the linker and runs the configured one)
@@ -16,6 +16,9 @@ answer then carries) and times, on one clock (time.time()):
   first_answer  one `identify` round trip that answers with the edit
   unattributed  the rest: cargo's start before the first rustc, the build's tail after the link,
                 the copy of the binary, the loop's bookkeeping, the wake to ask
+After the rounds, one more round edits cmux-tui-core instead (`ping` in server/cmd_server.rs), the rebuild a
+daemon edit anywhere else in core pays (core, the cmux-tui library, the binary): `core_edit_s`, reported
+beside the loop and not part of its ratio.
 Then floors (see notes in the json) and the report OUT/daemon_restart.json (schema dev-loop-ceiling/loop/v1).
 """
 
@@ -47,7 +50,11 @@ sys.modules["rust_live"] = rl  # its dataclasses look their module up by name
 spec.loader.exec_module(rl)
 
 BIN_FILE = "cmux-tui/crates/cmux-tui/src/bin/cmux-tui.rs"  # the daemon binary crate's root (link floor)
-EDITED_CRATE = "cmux_tui_core"
+# The crate rust-live's edit lands in (crate name, crate type): the cmux-tui binary crate.
+EDITED_CRATE = ("cmux_tui", "bin")
+# The core-edit round (core_edit_s): a field in `ping`'s answer, in cmux-tui-core.
+CORE_FILE = "cmux-tui/crates/cmux-tui-core/src/server/cmd_server.rs"
+CORE_ANCHOR = '        "ok": true,\n'
 STAGES = ["fs_event", "compile", "link", "swap", "first_answer"]
 
 
@@ -72,34 +79,35 @@ def records(log_dir: Path, since: float, until: float) -> list[dict]:
 
 
 class TimedBuilder(rl.Builder):
-    """rust-live's Builder, with the wall time of each build and copy kept for the round."""
+    """rust-live's Builder, with the wall time of each build and copy kept for the round (in `timed`: rust-live's
+    own classes keep monotonic `marks`, and Swapper.swap resets its `marks` on each call)."""
 
     def __init__(self, *a, **k):
         super().__init__(*a, **k)
-        self.marks: dict[str, float] = {}
+        self.timed: dict[str, float] = {}
 
     def build(self, daemons):
-        self.marks["build_start"] = time.time()
+        self.timed["build_start"] = time.time()
         result = super().build(daemons)
-        self.marks["build_end"] = time.time()
+        self.timed["build_end"] = time.time()
         return result
 
     def fetch(self, daemons, generation):
-        self.marks["fetch_start"] = time.time()
+        self.timed["fetch_start"] = time.time()
         result = super().fetch(daemons, generation)
-        self.marks["fetch_end"] = time.time()
+        self.timed["fetch_end"] = time.time()
         return result
 
 
 class TimedSwapper(rl.Swapper):
     def __init__(self, *a, **k):
         super().__init__(*a, **k)
-        self.marks: dict[str, float] = {}
+        self.timed: dict[str, float] = {}
 
     def swap(self, built):
-        self.marks["swap_start"] = time.time()
+        self.timed["swap_start"] = time.time()
         result = super().swap(built)
-        self.marks["swap_end"] = time.time()
+        self.timed["swap_end"] = time.time()
         return result
 
 
@@ -118,7 +126,7 @@ def main() -> int:
     report: dict = {
         "schema": "dev-loop-ceiling/loop/v1", "loop": "daemon_restart", "commit": commit,
         "host": socket.gethostname(), "measured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "target": ("one-line edit in cmux-tui-core `identify` (crates/cmux-tui-core/src/server/cmd_server.rs) through "
+        "target": ("one-line edit in the daemon's `identify` (crates/cmux-tui/src/bin/cmux-tui/identify.rs) through "
                    "`cmux live start --rust`'s own loop (scripts/cmux-next/rust-live.py Loop/Builder/Swapper, "
                    "building here, profile " + rl.PROFILE + "), to a scratch daemon with "
                    f"{args.terminals} shells answering `identify` with the edit"),
@@ -139,6 +147,8 @@ def main() -> int:
     bin_path = tree / BIN_FILE
     original = edit_path.read_text()
     bin_original = bin_path.read_bytes()
+    core_path = tree / CORE_FILE
+    core_original = core_path.read_text()
     if rl.EDIT_ANCHOR not in original:
         report["error"] = f"{rl.EDIT_FILE} no longer has rust-live's edit anchor"
         (out / "daemon_restart.json").write_text(json.dumps(report, indent=2) + "\n")
@@ -169,7 +179,7 @@ def main() -> int:
 
     def on_swap(entry: dict) -> None:
         with swapped:
-            entry["_marks"] = {**builder.marks, **swapper.marks}
+            entry["_marks"] = {**builder.timed, **swapper.timed}
             swaps.append(entry)
             swapped.notify_all()
 
@@ -297,7 +307,7 @@ def main() -> int:
                     "swapped_to_ask": ms(q0 - m["swap_end"])},
             })
             # The edit's own rustc, captured for the compile floor's replay.
-            core = [r for r in compiles if r["crate"] == EDITED_CRATE]
+            core = [r for r in compiles if (r["crate"], r["kind"]) == EDITED_CRATE]
             if core:
                 (work / "core-rustc.json").write_text(json.dumps(core[-1]))
             checks = check_terminals(f"PID{run_index + 1}", time.monotonic() + 30)
@@ -310,6 +320,35 @@ def main() -> int:
             if not survived:
                 raise RuntimeError(f"round {run_index}: a terminal did not survive the swap: {checks}")
             ok_rounds += 1
+
+        # The core-edit round: what an edit in cmux-tui-core outside `identify` pays, reported, not in the ratio.
+        if CORE_ANCHOR in core_original:
+            token = f"core-{os.getpid()}"
+            seen = len(swaps)
+            core_path.write_text(core_original.replace(CORE_ANCHOR, CORE_ANCHOR + f'        "core_probe": "{token}",\n', 1))
+            saved_at = core_path.stat().st_mtime_ns / 1e9
+            with swapped:
+                swapped.wait_for(lambda: len(swaps) > seen, timeout=args.timeout)
+            entry = swaps[seen] if len(swaps) > seen else {"outcome": "timed_out"}
+            core_detail: dict = {"outcome": entry.get("outcome")}
+            if entry.get("outcome") == "swapped":
+                deadline = time.monotonic() + 30
+                while (answer := request(sock, {"cmd": "ping"})).get("core_probe") != token and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                answered = time.time()
+                if answer.get("core_probe") == token:
+                    report["core_edit_s"] = round(answered - saved_at, 3)
+                m = entry["_marks"]
+                core_detail["crates"] = sorted({f"{r['crate']}:{r['kind']}" for r in records(rustc_log, m["build_start"], m["build_end"])
+                                                if r["kind"] not in ("link", "probe")})
+            report["detail"]["core_edit"] = core_detail
+            core_path.write_text(core_original)
+            log(f"core edit round: {report.get('core_edit_s')} s {core_detail}")
+            notes.append("core_edit_s: one edit in cmux-tui-core (`ping`, server/cmd_server.rs) through the same loop, save "
+                         "to the swapped daemon answering `ping` with it; what a daemon edit outside the binary crate "
+                         "pays. Reported only: not a round, not in the p50 or the ratio.")
+        else:
+            notes.append(f"core_edit_s: not measured, {CORE_FILE} no longer has its anchor")
 
         # ---- floors (the watcher stops first: nothing below is a save it should build)
         loop.stop_event.set()
@@ -383,7 +422,7 @@ def main() -> int:
         log("compile floor")
         capture = work / "core-rustc.json"
         if not capture.is_file():
-            raise RuntimeError("compile floor: no cmux-tui-core rustc was captured in the rounds")
+            raise RuntimeError("compile floor: no rustc of the edited crate (%s) was captured in the rounds" % (EDITED_CRATE,))
         core = json.loads(capture.read_text())
         renv = {k: v for k, v in os.environ.items() if not k.startswith("CARGO")}
         renv.update(core["env"])
@@ -397,12 +436,17 @@ def main() -> int:
             t1 = time.time()
             if res.returncode != 0:
                 raise RuntimeError("compile floor: replayed rustc failed: " + (res.stderr or res.stdout).strip()[-2000:])
-            recs = [r for r in records(rustc_log, t0, t1) if r["crate"] == EDITED_CRATE]
-            floors["compile"].append(ms(recs[-1]["end"] - recs[-1]["start"]) if recs else ms(t1 - t0))
-        notes.append("compile floor: cmux-tui-core alone, its dependencies fresh: the rustc invocation cargo ran for it "
-                     "in the last round (same argv, incremental folder, environment; cargo's jobserver dropped) replayed "
-                     "after a new one-line edit in `identify`. The real path's compile stage also rebuilds every crate "
-                     "that depends on it on the way to the daemon (detail.rounds[].crates).")
+            window = records(rustc_log, t0, t1)
+            recs = [r for r in window if (r["crate"], r["kind"]) == EDITED_CRATE]
+            links = [r for r in window if r["kind"] == "link"]
+            # The binary crate's rustc runs the link inside it: the compile floor ends where the link starts.
+            start = recs[-1]["start"] if recs else t0
+            end = links[-1]["start"] if links else (recs[-1]["end"] if recs else t1)
+            floors["compile"].append(ms(end - start))
+        notes.append("compile floor: the edited crate (the cmux-tui binary crate) alone, its dependencies fresh: the "
+                     "rustc invocation cargo ran for it in the last round (same argv, incremental folder, environment; "
+                     "cargo's jobserver dropped) replayed after a new one-line edit in `identify`, up to its link's "
+                     "start. The real path's compile stage is every crate cargo reran (detail.rounds[].crates).")
         notes.append("graph: a plain chain. rustc already pipelines the dependent crates on cmux-tui-core's metadata "
                      "inside compile; the swap cannot start before the link, nor the answer before the swap.")
     except KeyboardInterrupt:
@@ -415,6 +459,8 @@ def main() -> int:
         if watcher is not None:
             watcher.join(timeout=120)
         edit_path.write_text(original)
+        if core_path.read_text() != core_original:
+            core_path.write_text(core_original)
         if bin_path.read_bytes() != bin_original:
             bin_path.write_bytes(bin_original)
         try:

@@ -110,8 +110,8 @@ pub struct Warnings {
 }
 
 /// What a close must read before it knows its question.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Reads {
     /// The working agents of the closing live terminals, as the question names
     /// them (nil: an unnamed agent, "The agent").
@@ -205,6 +205,42 @@ pub fn warning(
         return Some(Warning::Programs { programs, unanswered });
     }
     None
+}
+
+/// What a close knows of one closing terminal before the daemon's read
+/// ([`runs_known_program`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ProgramFacts {
+    /// Its shell reported a running command (OSC 133 C) at this time.
+    pub command_since_ms: Option<u64>,
+    /// Its shell shows a prompt since this time.
+    pub prompt_since_ms: Option<u64>,
+    /// An agent reports from it (hooks): `Some(true)` once its session ended (`done`).
+    pub agent_done: Option<bool>,
+    /// It reports a program status (OSC 7501 `programStatus`).
+    pub program_status: bool,
+}
+
+/// A terminal known to run a program in front: its shell reported a running
+/// command, or an agent reports from it (idle between turns too, but not
+/// `done`, its session's end) or it reports a program status, while no prompt
+/// shows. An agent launched as the terminal's program has no shell to report
+/// a command; a shell back at its prompt after its agent quit shows the prompt.
+pub fn runs_known_program(tab: &ProgramFacts) -> bool {
+    tab.command_since_ms.is_some()
+        || tab.prompt_since_ms.is_none() && (tab.agent_done == Some(false) || tab.program_status)
+}
+
+/// Whether the close's question is known before the daemon's read: an agent
+/// at work in a closing terminal (with `warn_agent`), or a read terminal (one
+/// of `reads.others`, indices into `tabs`) known to run a program in front.
+/// Such a close keeps its tabs in place through the read and the question; a
+/// shell at its prompt is not known, so that close takes its tabs out at once
+/// (SL-3, #31875).
+pub fn known_to_ask(reads: &Reads, tabs: &[ProgramFacts], warnings: Warnings) -> bool {
+    warnings.warn_agent && !reads.agents.is_empty()
+        || reads.others.iter().any(|&index| tabs.get(index).is_some_and(runs_known_program))
 }
 
 #[cfg(test)]

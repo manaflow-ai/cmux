@@ -1,11 +1,13 @@
 // l10n-allow-file: experiment descriptions are gallery (developer tool) text, never shown in the pane.
 import { defineExperiment } from "../../../experiments/experiment";
 
-/// The glass engine (engine/engineRenderer.ts): the lens's glass drawn as a refracting slab with a
-/// pointer-lit rim, an adaptive veil and motion response, from a once-blurred still. Off ships. It
-/// draws only where the lens draws (Debug > Liquid Glass: Lens, Spectrum or Glass Engine, a
-/// wallpaper behind the page); the Debug choice Glass Engine turns it on without this key. To try
-/// it in a pane, set `cmux.experiments` to `{"glass-engine":"on"}` in its web inspector and reload.
+/** The glass engine (engine/engineRenderer.ts): the lens's glass drawn as a refracting slab with a
+ * pointer-lit rim, an adaptive veil and motion response, from a once-blurred still. Off ships. It
+ * draws only where the lens draws (Debug > Liquid Glass: Lens, Spectrum or Glass Engine, a
+ * wallpaper behind the page); the Debug choice Glass Engine turns it on without this key. To try
+ * it in a pane, set `cmux.experiments` to `{"glass-engine":"on"}` in its web inspector and reload.
+ * @status experimental
+ */
 export const glassEngine = defineExperiment({
   id: "glass-engine",
   title: "Glass engine",

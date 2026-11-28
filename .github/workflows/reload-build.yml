@@ -44,6 +44,12 @@ on:
         required: false
         default: remote
         type: string
+      # Callers measure or ship what they build (frame pacing), so they keep
+      # the full release profile unless they ask.
+      acpmux_profile:
+        required: false
+        default: release
+        type: string
       release:
         required: false
         default: false
@@ -108,6 +114,18 @@ on:
         required: false
         default: false
         type: boolean
+      acpmux_profile:
+        description: >-
+          acpmux Cargo profile. devbuild (the default for a tagged reload) is
+          tools/devbuild's: no LTO, 16 codegen units, incremental, cached apart
+          from release builds. release is the shipped profile. The release
+          input always builds acpmux with release.
+        required: false
+        default: devbuild
+        type: choice
+        options:
+          - devbuild
+          - release
 
 # Surface tag/platform/nonce in the run title so the dispatcher can match its run
 # by the nonce it passed (gh workflow run does not return a run id).
@@ -154,7 +172,7 @@ jobs:
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
     steps:
       - name: Checkout source ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.resolve-ref.outputs.sha }}
           submodules: recursive
@@ -191,13 +209,22 @@ jobs:
         run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
 
       - name: Select Xcode
+        env:
+          BUILD_PLATFORM: ${{ inputs.platform }}
         run: |
           set -euo pipefail
-          # Cap the newest-SDK ranking at the repo's pinned toolchain major:
-          # hosted images now also carry the Xcode 27 RC, whose SDK main's
-          # iOS SwiftUI does not compile under (toolbarMinimizeBehavior).
-          pin_major="$(cut -d. -f1 .xcode-version 2>/dev/null || true)"
-          CMUX_CI_MAX_MACOS_SDK_MAJOR="${pin_major:-}" ./scripts/select-ci-xcode.sh
+          # A macOS build takes the newest Xcode on the runner (Xcode 27.2 on
+          # the fleet and on Blacksmith's macos-26 image), which still deploys
+          # to macOS 14. Only an iOS build caps the SDK at the repo's pinned
+          # major: Xcode 27's SDK broke iOS SwiftUI (toolbarMinimizeBehavior).
+          # The macOS cap made every Blacksmith build fail here once that image
+          # carried only Xcode 27.2 ("maximum major is 26").
+          if [ "$BUILD_PLATFORM" = ios ]; then
+            pin_major="$(cut -d. -f1 .xcode-version 2>/dev/null || true)"
+            CMUX_CI_MAX_MACOS_SDK_MAJOR="${pin_major:-}" ./scripts/select-ci-xcode.sh
+          else
+            ./scripts/select-ci-xcode.sh
+          fi
 
       # The webviews app's `vp build` must run on node: on bun it emits
       # different bytes (build-web-bundles.sh).
@@ -230,8 +257,20 @@ jobs:
       # same commit-addressed cache when one has already been provisioned.
       - name: Build in-tree acpmux (macOS)
         if: ${{ inputs.platform == 'macos' && hashFiles('scripts/cmux-next/build-acpmux.sh') != '' }}
+        env:
+          ACPMUX_PROFILE: ${{ inputs.release != true && inputs.acpmux_profile || 'release' }}
         run: |
           set -euo pipefail
+          # tools/devbuild's profile: a one-file change relinks in seconds
+          # instead of the full profile's LTO pass. build-acpmux.sh names these
+          # overrides in its cache and target-dir keys, so a release-profile
+          # build never reuses this binary.
+          if [[ "$ACPMUX_PROFILE" == devbuild ]]; then
+            export CARGO_PROFILE_RELEASE_LTO=off
+            export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
+            export CARGO_PROFILE_RELEASE_INCREMENTAL=true
+          fi
+          acpmux_started=$SECONDS
           ./scripts/install-rust-ci.sh
           # ghostty-vt-sys runs `zig build` in ghostty-next with ghostty-next's
           # own Zig (as cloud-chat-proof.yml does); without it the build stops at
@@ -243,7 +282,9 @@ jobs:
             export ZIG="$vt_zig"
           fi
           acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
+          build_started=$SECONDS
           scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
+          echo "::notice::acpmux ($ACPMUX_PROFILE profile) built in $((SECONDS - build_started)) s; step $((SECONDS - acpmux_started)) s"
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
 
       # Reuse an immutable client built from the exact cmux-tui/Ghostty inputs.
@@ -1111,7 +1152,7 @@ jobs:
     environment:
       name: artifacts
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -1119,7 +1160,7 @@ jobs:
       COMMIT: ${{ needs.resolve-ref.outputs.sha }}
     steps:
       # The workflow's own ref, sparse: the signer, the uploader, the pointer tool and the trusted keys.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -1134,7 +1175,10 @@ jobs:
         shell: bash
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       # One signed file per commit, written once: a rerun of a published commit keeps it (a rebuild's bytes

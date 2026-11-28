@@ -312,6 +312,12 @@ class WorkflowWiring(unittest.TestCase):
         self.assertEqual(marker, "${{ runner.temp }}/api-workerd-no-verdict")
         self.assertIn('"$RUNNER_TEMP/api-workerd-no-verdict"', record["run"])
         self.assertEqual(upload["with"]["if-no-files-found"], "ignore")
+        # A tree-result hit skips the tests (this input tree already passed them): it still records `success`, or the
+        # gate would take the missing verdict for a dead runner and rerun a green shard.
+        if "steps.tree.outputs.hit" in str(test_step.get("if", "")):
+            for s in (record, upload):
+                self.assertIn("steps.tree.outputs.hit == 'true'", s["if"])
+            self.assertIn('[ "${{ steps.tree.outputs.hit }}" = true ] && outcome=success', record["run"])
 
         gate = self.jobs["test"]["steps"]
         download = find_step(gate, "Download the API Worker shards' test verdicts")

@@ -66,6 +66,9 @@ pub struct RelayOptions {
     /// Called when the hub takes a heartbeat again after failing ones (the joined relay states
     /// the machine's capabilities then, `cli/cloud_join/self_capabilities.rs`).
     pub on_reconnect: Option<fn()>,
+    /// A joined machine's capacity report to its team's placement, this often
+    /// (`joined_capacity.rs`); none for any other relay.
+    pub capacity_every: Option<Duration>,
 }
 
 impl Default for RelayOptions {
@@ -79,6 +82,7 @@ impl Default for RelayOptions {
             refused_retry: Duration::from_secs(60),
             max_in_flight: 32,
             on_reconnect: None,
+            capacity_every: None,
         }
     }
 }
@@ -104,6 +108,8 @@ impl MeshRelay {
         let (daemon, own) = watch::channel(None);
         let refusals = Arc::new(Refusals::default());
         let beat = Arc::new(Beat::new());
+        // A chat moved here lists itself before its move answers (`Hub::list_on_mesh_now`).
+        *hub.mesh_beat.lock_or_recover() = Arc::downgrade(&beat);
         let beats = heartbeats(
             Arc::downgrade(hub),
             client.clone(),
@@ -113,6 +119,24 @@ impl MeshRelay {
             refusals.clone(),
             stopped.clone(),
         );
+        // A joined machine's capacity reports run beside its heartbeat, on the heartbeat's task:
+        // both end as the relay does.
+        let reports = options.capacity_every.map(|every| {
+            capacity_reports(
+                Arc::downgrade(hub),
+                client.clone(),
+                options.clone(),
+                every,
+                stopped.clone(),
+            )
+        });
+        let beats = async move {
+            tokio::join!(beats, async {
+                if let Some(reports) = reports {
+                    reports.await;
+                }
+            });
+        };
         let inbox =
             inbox(Arc::downgrade(hub), client, control, options, own, beat, refusals, stopped);
         let tasks = vec![tokio::spawn(beats), tokio::spawn(inbox)];
@@ -225,7 +249,9 @@ pub async fn start_configured(hub: &Arc<Hub>) -> Option<MeshRelay> {
     // them then, too.
     let on_reconnect =
         joined.then_some(crate::cli::cloud_join::state_capabilities_on_reconnect as fn());
-    let options = RelayOptions { on_reconnect, ..RelayOptions::default() };
+    // A joined machine is capacity for its team's placement (RFD 0004 step 3).
+    let capacity_every = joined.then_some(super::joined_capacity::EVERY);
+    let options = RelayOptions { on_reconnect, capacity_every, ..RelayOptions::default() };
     Some(MeshRelay::start(hub, client, control, options))
 }
 
@@ -258,6 +284,15 @@ async fn read_book(
         return;
     };
     if let Some(hub) = hub.upgrade() {
+        // RFD 0170: the same read feeds the team directory; an unchanged book keeps its snapshot.
+        if let Some(team) = crate::machine_record::machine_credential()
+            .ok()
+            .flatten()
+            .map(|c| c.team_id)
+            .filter(|t| !t.is_empty())
+        {
+            hub.apply_team_book(&team, Some(&own_user), &book);
+        }
         hub.apply_mesh_book(book, &own_user, own_daemon);
     }
 }
@@ -270,7 +305,7 @@ const START_LISTED_WAIT: Duration = Duration::from_secs(5);
 /// session was taken, so the sender's next message to it finds it in the hub's address book
 /// (the hub routes a name only to a session a heartbeat listed, `mesh.unknown_recipient`
 /// otherwise); waiting for the timer left a send right after the start refused for up to 30 s.
-struct Beat {
+pub(crate) struct Beat {
     nudge: tokio::sync::Notify,
     /// Requests made; a heartbeat covers every request made before it read the sessions.
     asked: std::sync::atomic::AtomicU64,
@@ -289,7 +324,7 @@ impl Beat {
 
     /// A heartbeat now (no sooner than the floor after the last one), and its taking, waited
     /// for at most `within`.
-    async fn now(&self, within: Duration) {
+    pub(crate) async fn now(&self, within: Duration) {
         let want = self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         let mut listed = self.listed.subscribe();
         self.nudge.notify_one();
@@ -347,18 +382,44 @@ async fn heartbeats(
     let host = crate::pairing::mesh_host();
     let mut backoff = Backoff::new(options.backoff_first, options.backoff_cap);
     let mut failing = false;
+    // The last health reading and the requests the last heartbeat covered: a requested beat (a
+    // chat started or moved in waits on it) sends the last reading instead of taking another,
+    // which waits up to 3 s on a loaded machine inside a move's freeze.
+    let mut last_health: Option<serde_json::Value> = None;
+    let mut last_covered = 0u64;
     loop {
         if hub_ended(&hub) {
             break;
         }
         let began = tokio::time::Instant::now();
         let covered = beat.covers();
+        let requested = std::mem::replace(&mut last_covered, covered) < covered;
         let sessions = match hub.upgrade() {
             Some(_) if refusals.inbox.load(Ordering::SeqCst) => Vec::new(),
             Some(hub) => hub.mesh_rows().await,
             None => break,
         };
-        let listing = Heartbeat { host: host.clone(), sessions, leaving: false };
+        let health = match hub.upgrade() {
+            Some(_) if requested && last_health.is_some() => last_health.clone(),
+            Some(hub) => {
+                // timeout: a slow reading is left off this heartbeat; the beat itself never waits on it.
+                let reading = tokio::time::timeout(
+                    Duration::from_secs(3),
+                    super::peer_status::host_health(&hub, crate::conn_origin::Origin::Peer),
+                )
+                .await
+                .ok();
+                let health = reading
+                    .map(|r| crate::peer::health::wire(&r))
+                    .filter(|w| w.as_object().is_some_and(|o| !o.is_empty()));
+                if health.is_some() {
+                    last_health.clone_from(&health);
+                }
+                health
+            }
+            None => break,
+        };
+        let listing = Heartbeat { host: host.clone(), sessions, leaving: false, health };
         let mut taken = false;
         let wait = tokio::select! {
             r = client.heartbeat(&listing) => match r {
@@ -433,13 +494,11 @@ async fn heartbeats(
             }
             std::future::pending::<()>().await
         };
+        // A request ends the pause at the floor without waiting on the receipts: they go with a
+        // later heartbeat, as ones past their budget do.
         tokio::select! {
-            () = async {
-                tokio::join!(
-                    async { tokio::select! { () = tokio::time::sleep(wait) => {}, () = nudged => {} } },
-                    read_receipts
-                );
-            } => {}
+            () = async { tokio::join!(tokio::time::sleep(wait), read_receipts); } => {}
+            () = nudged => {}
             // The book read never holds back a heartbeat: dropped once the pause ends.
             () = book => {}
             () = ended(&mut stop, &hub) => break,
@@ -450,9 +509,72 @@ async fn heartbeats(
         hub.set_mesh_book_machines(Default::default());
         hub.set_mesh_book(Default::default(), Vec::new());
     }
-    let last = Heartbeat { host, sessions: Vec::new(), leaving: true };
+    let last = Heartbeat { host, sessions: Vec::new(), leaving: true, health: None };
     // timeout: the leaving heartbeat is best effort; the relay must still end.
     let _ = tokio::time::timeout(Duration::from_secs(5), client.heartbeat(&last)).await;
+}
+
+/// Reports this joined machine's free capacity every `every` (`joined_capacity.rs`), from the
+/// daemon's startup until the relay ends. A refusal (an older hub, a registry that is off) is
+/// logged once and asked again every [`super::joined_capacity::REFUSED_RETRY`]; no answer backs
+/// off as the other loops do. It never ends or pauses the relay: the heartbeat speaks for the
+/// credential. Nothing is sent at the end: the hub drops the machine two minutes after its last.
+async fn capacity_reports(
+    hub: Weak<Hub>,
+    client: Arc<dyn MeshHub>,
+    options: Arc<RelayOptions>,
+    every: Duration,
+    mut stop: watch::Receiver<bool>,
+) {
+    use super::joined_capacity::{REFUSED_RETRY, capacity_now};
+    if !started(&hub, &mut stop).await {
+        return;
+    }
+    let host = crate::pairing::machine_name();
+    let mut backoff = Backoff::new(options.backoff_first, options.backoff_cap);
+    let (mut failing, mut refused) = (false, false);
+    loop {
+        let report = match hub.upgrade() {
+            Some(hub) if !hub.is_stopping() => capacity_now(&hub, &host).await,
+            _ => break,
+        };
+        let Some(report) = report else {
+            tracing::info!("joined capacity: this platform reports none");
+            return;
+        };
+        let wait = tokio::select! {
+            r = client.capacity(&report) => match r {
+                Ok(()) => {
+                    if std::mem::take(&mut failing) | std::mem::take(&mut refused) {
+                        tracing::info!("joined capacity: the hub takes reports again");
+                    }
+                    backoff.reset();
+                    every
+                }
+                Err(e) if e.refused && e.retry_after.is_none() => {
+                    if !std::mem::replace(&mut refused, true) {
+                        tracing::warn!(
+                            "joined capacity: the hub refused the report ({e}); asking again every {}s",
+                            REFUSED_RETRY.as_secs()
+                        );
+                    }
+                    backoff.reset();
+                    REFUSED_RETRY.max(every)
+                }
+                Err(e) => {
+                    if !std::mem::replace(&mut failing, true) {
+                        tracing::warn!("joined capacity: report failed ({e}); retrying with backoff");
+                    }
+                    after_failure(&mut backoff, &e).min(every).max(options.min_poll_gap)
+                }
+            },
+            () = ended(&mut stop, &hub) => break,
+        };
+        tokio::select! {
+            () = tokio::time::sleep(wait) => {}
+            () = ended(&mut stop, &hub) => break,
+        }
+    }
 }
 
 async fn inbox(
@@ -738,6 +860,15 @@ impl ControlHook for MeshControlHook {
             {
                 return Some(Ack::refused("mesh.control_not_allowed"));
             }
+            // A mixed grant may allow the daemon without matching its user. Only the
+            // hub-stamped person can confer the owner's host execution profile.
+            let same_person = own_user
+                .as_deref()
+                .filter(|user| !user.is_empty())
+                .is_some_and(|user| message.from.user.as_deref() == Some(user))
+                && self.allowed.iter().any(|entry| {
+                    entry.same_user && entry.allows(&message.from, own_user.as_deref(), op)
+                });
             // The widest policy the owner granted this sender for `op` here (`maxPolicy`).
             let cap = crate::mesh_relay_config::control_cap(
                 &self.allowed,
@@ -749,7 +880,7 @@ impl ControlHook for MeshControlHook {
             // A read changes nothing, so it needs no ledger: a repeat runs again and answers
             // the session as it is then.
             if op == "read" {
-                // A rename or retry through the hub is a change: only a sender trusted with a lifecycle op
+                // A rename, retry, hold or tag through the hub is a change: only a sender trusted with a lifecycle op
                 // here may make one (`read::WRITE_METHODS`), never one granted `read` alone.
                 let writes = ["start", "resume", "stop"].iter().any(|op| {
                     self.allowed
@@ -793,7 +924,7 @@ impl ControlHook for MeshControlHook {
                             return;
                         }
                         let outcome = tokio::select! {
-                            ack = run_control(&hub, &message, cap) => ack,
+                            ack = run_control(&hub, &message, cap, same_person) => ack,
                             () = &mut shutdown => None,
                         };
                         if let Some(ack) = outcome {
@@ -848,6 +979,7 @@ async fn run_control(
     hub: &Arc<Hub>,
     message: &InMessage,
     cap: crate::config::PermissionPolicy,
+    same_person: bool,
 ) -> Option<Ack> {
     let Some(op) = message.op.as_deref() else {
         return Some(Ack::refused("control message has no operation"));
@@ -949,7 +1081,7 @@ async fn run_control(
         };
         params["sessionId"] = serde_json::Value::String(session.id.clone());
     }
-    let session_id = params.get("sessionId").cloned();
+    super::lane_parent::mark_control_boundary(&mut params, same_person);
     let (tx, mut rx) = relay_connection_as(hub, control_auth(cap));
     let initialized = rpc_call(
         &tx,
@@ -973,7 +1105,9 @@ async fn run_control(
         // `session resume` operation instead releases a held queue item, so use the same
         // queue-edit path here.
         "resume" => {
-            let info = match rpc_call(&tx, &mut rx, 2, crate::rpc::method::MUX_INFO, params).await {
+            let info = match rpc_call(&tx, &mut rx, 2, crate::rpc::method::MUX_INFO, params.clone())
+                .await
+            {
                 Ok(info) => info,
                 Err(error) => return error.ack(),
             };
@@ -986,18 +1120,10 @@ async fn run_control(
                 .map(str::to_owned);
             match held {
                 Some(prompt_id) => {
-                    rpc_call(
-                        &tx,
-                        &mut rx,
-                        3,
-                        crate::rpc::method::MUX_QUEUE_EDIT,
-                        serde_json::json!({
-                            "sessionId": session_id,
-                            "promptId": prompt_id,
-                            "op": "resume"
-                        }),
-                    )
-                    .await
+                    // Keep the same server-derived provenance on the write after the read.
+                    params["promptId"] = serde_json::json!(prompt_id);
+                    params["op"] = serde_json::json!("resume");
+                    rpc_call(&tx, &mut rx, 3, crate::rpc::method::MUX_QUEUE_EDIT, params).await
                 }
                 None => Ok(serde_json::json!({"resumed": false})),
             }
@@ -1240,6 +1366,14 @@ pub async fn deliver(
     // receiver never starts a turn.
     let (class, text) =
         if team { (None, message.body.as_str()) } else { inline_class(&message.body) };
+    // A plain send no agent made (a shell's `acpmux send HOST/ID`, a probe's) runs as a prompt
+    // over a peer link, as it does on its own machine. Named here so its label is the machine
+    // the hub proved, it would file as an unclassed agent's FYI, which no longer wakes an idle
+    // chat on a first lease (#58035): the turn a hub-moved chat owed never ran. It asks as a
+    // question, which wakes the chat as the peer link's prompt does.
+    let class = class.or_else(|| {
+        (!team && names_no_sender(message)).then_some(crate::prompt_class::PromptClass::Question)
+    });
     let body = if team {
         format!(
             "Team message from {}: {}\nThe team hub allows this message to start work; normal session permissions still apply.",
@@ -1255,6 +1389,8 @@ pub async fn deliver(
             "steer": !team && message.mode == Mode::Now,
             "promptId": prompt_id,
             "resend": true,
+            // Only a lease after the first waited (`prompt_provenance::resend_waited`).
+            (crate::prompt_provenance::LEASE_ATTEMPT): message.attempt,
             "fromAgent": from_name,
             "teamMessage": team,
             "startWork": message.start_work,
@@ -1292,27 +1428,71 @@ pub async fn deliver(
         Err((why, Next::Fail)) => {
             Some(Ack { prompt_id: Some(prompt_id.to_owned()), ..Ack::refused(why) })
         }
-        // No such session here is the lease's to bring back too, as before (`Next::NoSession`
-        // settles only an outbox delivery).
-        // A chat moved away or mid-move: the lease brings it back too. A relayed prompt runs
-        // as a peer's (`Origin::Peer`), so it is not handed to this daemon's own outbox, whose
-        // attempts go as the local socket's.
-        Err((
-            why,
-            Next::Retry
-            | Next::Unsent
-            | Next::NoSession
-            | Next::Stale
-            | Next::Moved(_)
-            | Next::MovedToSocket { .. }
-            | Next::Moving,
-        )) => {
+        // A chat mid-move: the lease brings it back, and it runs here if the move aborts or
+        // is refused below once it commits.
+        Err((why, Next::Moving)) => {
+            tracing::info!(
+                "mesh relay: {prompt_id} not delivered yet ({why}); its lease brings it back"
+            );
+            None
+        }
+        // Nothing here will ever run it: a chat that moved away (the hub leases it to this
+        // daemon again, never where the chat went), or no such session any more. Refused at
+        // once with why, so the sender reads where the chat went instead of the hub's "leased
+        // 60 times and never acked" an hour on. A relayed prompt runs as a peer's
+        // (`Origin::Peer`), so it is not handed to this daemon's own outbox to follow.
+        Err((why, next @ (Next::NoSession | Next::Moved(_) | Next::MovedToSocket { .. }))) => {
+            Some(Ack {
+                prompt_id: Some(prompt_id.to_owned()),
+                ..Ack::refused(gone_reason(&why, &next))
+            })
+        }
+        // Tried again on its next lease, up to [`MAX_RETRY_LEASES`]: then refused with the
+        // last error, never left to the hub's hour of leases.
+        Err((why, Next::Retry | Next::Unsent | Next::Stale)) => {
+            if message.attempt >= MAX_RETRY_LEASES {
+                return Some(Ack {
+                    prompt_id: Some(prompt_id.to_owned()),
+                    ..Ack::refused(format!("not delivered after {} leases: {why}", message.attempt))
+                });
+            }
             tracing::info!(
                 "mesh relay: {prompt_id} not delivered yet ({why}); its lease brings it back"
             );
             None
         }
     }
+}
+
+/// How many leases a relayed prompt whose attempt failed for a reason that may pass (a timeout,
+/// a busy agent, a session made again) is tried on before the relay refuses it with that reason.
+/// The hub's lease is a minute and it expires a message after 60 (cmux-platform mesh `Core.ts`),
+/// so the sender heard only "leased 60 times and never acked", an hour on, and never why.
+pub const MAX_RETRY_LEASES: u32 = 10;
+
+/// The refusal of a relayed prompt nothing on this daemon will run: `why`, and where the chat
+/// went when it moved.
+fn gone_reason(why: &str, next: &super::outbox::Next) -> String {
+    use super::outbox::Next;
+    match next {
+        Next::Moved(to) => format!("the chat moved to {to}: {why}"),
+        Next::MovedToSocket { socket, session } => {
+            format!("the chat moved to daemon {socket} as {session}: {why}")
+        }
+        _ => why.to_owned(),
+    }
+}
+
+/// Whether `message` names no sender at all: no session, no name, no relay record, no team
+/// address. A plain `acpmux send` outside any agent and session, which a peer link carries as a
+/// plain prompt (`peer_forward::name_sender` names only a proven caller).
+fn names_no_sender(message: &InMessage) -> bool {
+    let blank = |v: Option<&str>| v.is_none_or(|v| v.trim().is_empty());
+    let from = &message.from;
+    blank(from.session_id.as_deref())
+        && blank(from.name.as_deref())
+        && blank(from.team_address.as_deref())
+        && from.relay.is_none()
 }
 
 /// Whether `message` is delivered by the team rules (information unless the hub allows work).
@@ -1357,6 +1537,87 @@ fn inline_class(body: &str) -> (Option<crate::prompt_class::PromptClass>, &str) 
 mod tests {
     use super::*;
     use crate::mesh::{AckState, Sender, Target};
+    use futures::future::BoxFuture;
+
+    /// Records each heartbeat and when it came; nothing else is called.
+    #[derive(Default)]
+    struct Beats(std::sync::Mutex<Vec<(tokio::time::Instant, Heartbeat)>>);
+
+    impl MeshHub for Beats {
+        fn inbox(&self, _: Duration, _: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+            Box::pin(std::future::pending())
+        }
+        fn ack<'a>(&'a self, _: &'a str, _: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn heartbeat<'a>(
+            &'a self,
+            beat: &'a Heartbeat,
+        ) -> BoxFuture<'a, Result<crate::mesh::HeartbeatReply, HubError>> {
+            self.0.lock().unwrap().push((tokio::time::Instant::now(), beat.clone()));
+            Box::pin(async {
+                Ok(crate::mesh::HeartbeatReply { daemon_id: "inst_a".into(), ttl_seconds: 90 })
+            })
+        }
+        fn send<'a>(
+            &'a self,
+            _: &'a crate::mesh::OutMessage,
+        ) -> BoxFuture<'a, Result<crate::mesh::Receipt, HubError>> {
+            unreachable!()
+        }
+        fn receipt<'a>(
+            &'a self,
+            _: &'a str,
+        ) -> BoxFuture<'a, Result<crate::mesh::Receipt, HubError>> {
+            unreachable!()
+        }
+    }
+
+    /// A requested heartbeat (a chat moved in waits on it inside the move's freeze) goes as soon
+    /// as the floor allows, carrying the last health reading instead of taking a new one, which
+    /// waits up to 3 s on a loaded machine (super-highway freeze p95 3015 ms against 500 ms).
+    #[tokio::test]
+    async fn a_requested_heartbeat_sends_the_last_health_reading_at_once() {
+        let mut config: crate::config::Config = serde_json::from_value(json!({})).unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+        let fake = Arc::new(Beats::default());
+        let beat = Arc::new(Beat::new());
+        let (stop_tx, stop) = watch::channel(false);
+        let options = Arc::new(RelayOptions {
+            heartbeat_every: Duration::from_secs(60),
+            ..Default::default()
+        });
+        let beats = tokio::spawn(heartbeats(
+            Arc::downgrade(&hub),
+            fake.clone(),
+            options,
+            watch::channel(None).0,
+            beat.clone(),
+            Default::default(),
+            stop,
+        ));
+        let first = async {
+            while fake.0.lock().unwrap().is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(10), first).await.expect("a first heartbeat");
+        tokio::time::sleep(HEARTBEAT_FLOOR).await;
+        let asked = tokio::time::Instant::now();
+        beat.now(Duration::from_secs(5)).await;
+        let took = asked.elapsed();
+        let sent = fake.0.lock().unwrap().clone();
+        assert_eq!(sent.len(), 2, "one requested heartbeat after the first");
+        assert!(took < Duration::from_millis(500), "the requested heartbeat took {took:?}");
+        if sent[0].1.health.is_some() {
+            assert_eq!(sent[1].1.health, sent[0].1.health, "the last reading, not a new one");
+        }
+        stop_tx.send(true).unwrap();
+        let _ = tokio::time::timeout(Duration::from_secs(10), beats).await;
+    }
 
     /// A block or question sent over the mesh files as that class on the receiver, so an idle
     /// receiver wakes (`hub/inbox.rs`): the sender's inline line (`mesh_send.rs`) parses back.
@@ -1369,6 +1630,44 @@ mod tests {
             assert_eq!(inline_class(&body), (Some(class), "You stopped on a 529."), "{class}");
         }
         assert_eq!(inline_class("[blocker]\nfix it"), (Some(PromptClass::Block), "fix it"));
+    }
+
+    /// Only a send that names no one at all asks as a question (`deliver`): a session's, a named
+    /// program's, a relay's or a team address's message keeps its class.
+    #[test]
+    fn only_a_send_naming_no_one_names_no_sender() {
+        let mut bare = from("h", "n");
+        bare.from.name = None;
+        assert!(names_no_sender(&bare));
+        bare.from.name = Some("  ".into());
+        assert!(names_no_sender(&bare));
+        assert!(!names_no_sender(&from("h", "n")));
+        let mut session = bare.clone();
+        session.from.session_id = Some("s-1".into());
+        assert!(!names_no_sender(&session));
+        let mut relayed = bare.clone();
+        relayed.from.relay = Some(json!({"by": "lane-gh", "machine": "h"}));
+        assert!(!names_no_sender(&relayed));
+        let mut team = bare;
+        team.from.team_address = Some("@member/coordinator".into());
+        assert!(!names_no_sender(&team));
+    }
+
+    /// A refusal for a chat that moved away names where it went.
+    #[test]
+    fn a_moved_chats_refusal_names_where_it_went() {
+        use super::super::outbox::Next;
+        let why = "transfer.moved: this chat moved";
+        assert_eq!(
+            gone_reason(why, &Next::Moved("host-b/s-2".into())),
+            format!("the chat moved to host-b/s-2: {why}")
+        );
+        let socket = Next::MovedToSocket { socket: "/run/a.sock".into(), session: "s-3".into() };
+        assert_eq!(
+            gone_reason(why, &socket),
+            format!("the chat moved to daemon /run/a.sock as s-3: {why}")
+        );
+        assert_eq!(gone_reason("no session matches", &Next::NoSession), "no session matches");
     }
 
     #[test]
