@@ -16,6 +16,8 @@
 #                   an error pasted into it, a second chat started by hand, the first found again (Search Agent Chats),
 #                   and a file attached. Signed out, as a person bringing nothing yet: the walk records what they see.
 # mode=p1-casual    p1, then p0-casual's terminal tasks (the 2024 person still lives in the terminal).
+# mode=p2           p0, then P2 (2025): claude in two worktree tabs, a background tab's ask, the needs-you mark and its
+#                   click (scripts/measure/persona-walk-p2.sh).
 # New terminals open with Ctrl-` (Cmd-T opens a chat); Cmd-Q asks once, so quit presses it twice.
 # Each task is judged by its effect, not by the keys sent: the command typed writes a marker file, and a task whose
 # marker never appears is a STUCK line (a person would have been stuck there too).
@@ -280,6 +282,7 @@ case "$mode" in
   p0-hardcore) p0 && p0_casual && p0_hardcore; finish ;;
   p1) p0 && p1; finish ;;
   p1-casual) p0 && p1 && p0_casual; finish ;;
+  p2) . scripts/measure/persona-walk-p2.sh; p0 && p2; finish ;;  # P2 (2025): claude in two worktree tabs, needs-you
   *) echo "unknown mode $mode" >&2; exit 2 ;;
 esac
 [ "$blind" = 1 ] && { note "done BLIND: this host's cua-driver lacks its grants; no timing here is valid"; exit 3; }

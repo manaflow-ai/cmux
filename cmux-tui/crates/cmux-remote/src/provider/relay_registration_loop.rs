@@ -88,6 +88,10 @@ async fn run_registration_attempts(
             Err(error) if is_credential_source_error(error) => {
                 RegistrationState::CredentialUnavailable { error: error.to_string() }
             }
+            Err(ProviderError::RelayBusy { retry_after, .. }) => RegistrationState::RelayBusy {
+                error: result.as_ref().err().map(ToString::to_string).unwrap_or_default(),
+                retry_after: *retry_after,
+            },
             Err(error) => RegistrationState::RelayUnavailable { error: error.to_string() },
         });
         // A pause the registration did not survive outlived its circuits too.
@@ -110,6 +114,8 @@ async fn run_registration_attempts(
             Ended::Resumed
         } else if credential_failure {
             Ended::Credential
+        } else if let Err(ProviderError::RelayBusy { retry_after, .. }) = &result {
+            Ended::Busy { retry_after: *retry_after }
         } else {
             Ended::Relay
         };
