@@ -53,7 +53,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Managed/ManagedPreferences.swif
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Managed/ManagedPreferences.swift	com.cmuxterm.app"	1	keep	MDM forced prefs from the legacy domain, which admins set for Classic and NEXT alike
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Managed/ManagedStatusReport.swift	com.cmuxterm.app"	1	keep	MDM status report: the legacy-domain file name admins already read
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/ManagedUpdatePolicy.swift	com.cmuxterm.app"	1	keep	MDM forced prefs from the legacy domain (ManagedUpdatePolicy.swift:26)
-cmux-tui/crates/acpmux/src/agent/command.rs	.config/cmux/	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/agent/session_tmp.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/agent_login.rs	.cache/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/agent_login.rs	.config/cmux/	3	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
