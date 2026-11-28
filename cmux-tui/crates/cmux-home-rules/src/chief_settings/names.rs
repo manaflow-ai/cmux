@@ -94,18 +94,11 @@ pub fn backend_badge(harness: Option<&str>, strings: &Strings) -> Option<String>
     Some(backend_title(harness, strings))
 }
 
-/// The harness picker's ids: the official engines (with the CodeRouter Claude route after Claude
-/// when it is configured), then this Mac's other acpmux harnesses.
-pub fn harnesses(route_configured: bool, listed: &[String]) -> Vec<String> {
-    let mut offered: Vec<String> = if route_configured {
-        let mut ids = vec!["claude".to_owned(), "claude-cr".to_owned()];
-        ids.extend(
-            OFFICIAL.iter().filter(|(id, _)| *id != "claude").map(|(id, _)| (*id).to_owned()),
-        );
-        ids
-    } else {
-        OFFICIAL.iter().map(|(id, _)| (*id).to_owned()).collect()
-    };
+/// The harness picker's ids: the official engines, then this Mac's other acpmux harnesses. The
+/// CodeRouter Claude route (`claude-cr`) is no longer offered (Leo: "For cmux next, just rip it
+/// out for now then"); `route_configured` stays in the signature until the app stops sending it.
+pub fn harnesses(_route_configured: bool, listed: &[String]) -> Vec<String> {
+    let mut offered: Vec<String> = OFFICIAL.iter().map(|(id, _)| (*id).to_owned()).collect();
     for id in listed {
         if !id.is_empty() && !offered.contains(id) {
             offered.push(id.clone());
