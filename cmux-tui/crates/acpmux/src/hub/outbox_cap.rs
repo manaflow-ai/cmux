@@ -51,6 +51,19 @@ impl Book {
         }
         dropped
     }
+
+    /// How many changes that leave a delivery settled can pass before [`Self::cap_settled`]
+    /// has anything to drop: it drops only from a class past its bound, and each such change
+    /// grows a class by at most one. A busy daemon holding up to 20,000 receipts is always
+    /// past the count gate, so the classes' room is what spares it a walk on every change.
+    pub(super) fn cap_room(&self) -> usize {
+        let room = |count: usize, cap: usize| (cap + cap / 10 + 1).saturating_sub(count);
+        let mut counts = [0usize; 2];
+        for d in self.deliveries.values().filter(|d| d.settled() && !d.open_on_peer) {
+            counts[usize::from(d.is_team_receipt())] += 1;
+        }
+        room(counts[0], MAX_SETTLED).min(room(counts[1], MAX_SETTLED_RECEIPTS))
+    }
 }
 
 #[cfg(test)]

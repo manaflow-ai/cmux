@@ -92,6 +92,40 @@ fn a_change_costs_the_same_with_thousands_of_deliveries_kept() {
     assert_flat_with_size("outbox write bytes per change (100 vs 5000 kept)", small, god, 64.0);
 }
 
+/// 2026-11-28, a control-plane daemon at 160% CPU: it held 20,000 team receipts and 5,000
+/// settled deliveries, and every change (each peer snapshot write is one) walked all of them
+/// three times through `Value::pointer`. A change now walks none of them until one can lapse,
+/// age out or pass a count bound.
+#[test]
+fn a_change_walks_no_delivery_while_none_is_due() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("outbox.json");
+    let now = crate::store::now_ms();
+    let mut book: BTreeMap<String, Delivery> = BTreeMap::new();
+    for i in 0..crate::hub::outbox::MAX_SETTLED_RECEIPTS {
+        let mut d = delivery(&format!("mesh:{i:06}"), State::Delivered, now - HOUR_MS);
+        d.request = json!({"teamOrigin": true, "_meta": {"acpmux": {"promptId": d.id}}});
+        book.insert(d.id.clone(), d);
+    }
+    for i in 0..crate::hub::outbox::MAX_SETTLED {
+        let id = format!("d-{i:06}");
+        book.insert(id.clone(), delivery(&id, State::Delivered, now - HOUR_MS));
+    }
+    book.insert("live".into(), delivery("live", State::Queued, now));
+    std::fs::write(&path, serde_json::to_vec(&book).unwrap()).unwrap();
+    let outbox = Outbox::default();
+    outbox.open(&path);
+    let ops = 2_000u32;
+    let (sweeps, started) = (outbox.sweeps(), std::time::Instant::now());
+    for n in 0..ops {
+        outbox.update("live", |d| d.attempts = n);
+    }
+    let per_change = started.elapsed() / ops;
+    let walked = outbox.sweeps() - sweeps;
+    eprintln!("outbox: {ops} changes with 25,001 kept: {walked} sweeps, {per_change:?} a change");
+    assert!(walked <= 1, "{walked} whole walks of 25,001 deliveries for {ops} changes");
+}
+
 /// A day and a half of sends, one a minute, on this thread's compressed clock
 /// (`store::test_clock`): once the first sends are a day old, each new one replaces one that
 /// expires, so what is on disk stops growing.
