@@ -1,3 +1,6 @@
+# Python test execution registry: tests/test_update_*.py. Keep entries sorted by path;
+# scripts/ci/test_execution_registry.py says how the registry is split and read.
+
 [[test]]
 path = "tests/test_update_e2e_diagnostics.py"
 lane = "linux-guard"
