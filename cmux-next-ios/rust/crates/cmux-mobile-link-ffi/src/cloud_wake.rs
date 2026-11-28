@@ -109,6 +109,9 @@ fn to_hint(hint: CloudWakeHint) -> Hint {
         allowed: hint.allowed,
         loaded: hint.loaded,
         status: hint.status,
+        // The phone has no shell that serves a paused machine's chat from its copy (RFD 0144 piece 2
+        // is the Mac's), so its focus and unlock still wake, as before.
+        reads_without_wake: false,
     }
 }
 
