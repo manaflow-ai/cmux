@@ -186,6 +186,7 @@ class Hit:
     index: int = 0  # the hit's line within its unit's lines
     hops: int = 0  # how many providers it came through
     origin: str = ""  # the file the words are in (the provider's, for a hit passed on)
+    table: bool = False  # passed on by a label table or strings member, which keeps its two-hop budget
 
 
 @dataclass
@@ -329,7 +330,11 @@ def units_of(path: str, source: str) -> list[tuple[str, int, int]]:
         m = top.match(line)
         if m:
             name = next(g for g in m.groups() if g)
-            starts.append((i, name.split(".")[0] if path.endswith(".swift") else name))
+            # `extension CloudAgentCredentials.Failure` is the error type's own copy, not its parent's: it keeps the
+            # dotted name, so it is judged as an outcome (ERROR_TYPE) like a top-level `enum Failure`.
+            if path.endswith(".swift") and not ERROR_TYPE.search(name):
+                name = name.split(".")[0]
+            starts.append((i, name))
     spans = []
     for n, (i, name) in enumerate(starts):
         end = starts[n + 1][0] - 1 if n + 1 < len(starts) else len(lines) - 1
@@ -443,6 +448,11 @@ def scan(tree: Tree) -> list[Unit]:
                               if int(m.group(2).replace("_", "")) < bound]
         unit.literal_grace += [m.group(0) + ")" for m in SWIFT_LITERAL_GRACE.finditer(text)
                                if int(m.group(2).replace("_", "")) * (1000 if m.group(1) == "seconds" else 1) < bound]
+    for unit in units.values():
+        if outcome_unit(unit):
+            # An error type's or failure helper's copy is the outcome of a request wherever it is drawn
+            # (`deviceFailure` drawn by `ChatGPTDeviceForm`): it shows no connection state to pass on.
+            unit.hits = []
     drawn_actions(units, imports)
     swift_drawn_actions(units)
     propagate(units, imports)
@@ -451,7 +461,11 @@ def scan(tree: Tree) -> list[Unit]:
     for unit in units.values():
         unit.lines = []
         unit.numbers = []
-    return [u for u in units.values() if u.hits and not ERROR_TYPE.search(u.name) and not OUTCOME_UNIT.search(u.name)]
+    return [u for u in units.values() if u.hits and not outcome_unit(u)]
+
+
+def outcome_unit(unit: Unit) -> bool:
+    return bool(ERROR_TYPE.search(unit.name) or OUTCOME_UNIT.search(unit.name))
 
 
 # A component named for the action it draws (`ConnectButton`, `RetryAction`, `CardActions`); a component that only
@@ -548,8 +562,10 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
                 continue
             members = {member_at(unit, h.index) for h in unit.hits}
             # A label table or strings type passes its words on through two hops; a helper function through one,
-            # so a call chain (a host bridge's error key) does not spread to every caller.
-            if min(h.hops for h in unit.hits) >= (1 if None in members else 2):
+            # so a call chain (a host bridge's error key) does not spread to every caller. A helper that only relays
+            # a table's words (`cloudPickerReason` reading `reasonLabels`) spends the table's budget, not its own.
+            helper = None in members and not all(h.table for h in unit.hits)
+            if min(h.hops for h in unit.hits) >= (1 if helper else 2):
                 continue
             name = re.escape(unit.name)
             if None in members:
@@ -603,7 +619,8 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
                 continue
             for other, i, said in consumers:
                 hops = min(h.hops for h in unit.hits) + 1
-                other.hits.append(Hit(other.numbers[i], f"{unit.name}: {said.text}", i, hops, said.origin))
+                other.hits.append(Hit(other.numbers[i], f"{unit.name}: {said.text}", i, hops, said.origin,
+                                      None not in members))
             unit.hits = []
             moved = True
         if not moved:
@@ -629,6 +646,21 @@ def inline_presenter(unit: Unit) -> bool:
     return tags <= INLINE_TAGS | children
 
 
+# A row that draws its caller's controls (`{children}`) beside a state its caller sets by prop (`ModelRow`'s spinner
+# label while `loading`) holds no state of its own: each mount composing those controls owns the state. A live region,
+# an alert or a component with its own hooks keeps its finding.
+CHILDREN_SLOT = re.compile(r"\{\s*children\s*\}")
+LIVE_ROLE = re.compile(r"""\baria-live\s*=|\brole\s*=\s*\{?\s*["'](?:status|alert|log)["']""")
+
+
+def slot_presenter(unit: Unit) -> bool:
+    if not unit.path.endswith(".tsx") or not unit.name[:1].isupper() or unit.literal_grace:
+        return False
+    body = "\n".join(unit.lines)
+    return bool(RETURN_TAG.search(body) and CHILDREN_SLOT.search(body) and not LIVE_ROLE.search(body)
+                and not re.search(r"\buse(?!\w*Strings\b|T\b)\w+\(", body))
+
+
 def attribute_presenters(units: dict[str, Unit], imports: dict[str, list[tuple[str, str, str]]],
                          opaque_modules: set[str], unresolved_exports: set[str]) -> None:
     """Follow known JSX mounts of passive inline copy to each drawing. A value use, orphan,
@@ -640,7 +672,7 @@ def attribute_presenters(units: dict[str, Unit], imports: dict[str, list[tuple[s
     for _ in range(4):  # same bounded depth as copy propagation; longer chains retain a finding
         moved = False
         for unit in units.values():
-            if unit.ok or not inline_presenter(unit) or max(h.hops for h in unit.hits) >= 4:
+            if unit.ok or not (inline_presenter(unit) or slot_presenter(unit)) or max(h.hops for h in unit.hits) >= 4:
                 continue
             stem = unit.path[:-len(".tsx")]
             targets = {stem, stem.removesuffix("/index")}

@@ -366,6 +366,89 @@ class WebShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 1, out)
 
+    def test_a_failure_helper_drawn_by_a_form_stays_an_outcome(self):
+        """`deviceFailure` (ChatGPTDevicePanel.tsx) maps a sign-in's error to its copy; the form drawing it shows the
+        outcome of the person's request, not a connection state. A non-outcome helper still passes its words on."""
+        for helper, code_wanted in (("deviceFailure", 0), ("deviceNote", 1)):
+            with self.subTest(helper=helper):
+                tree = Tree(self)
+                tree.write(f"{WEB}/Device.tsx", f"""
+                    function {helper}(state) {{ return state.error === "x" ? "Offline" : "Not connected"; }}
+                    export function DeviceForm({{ state }}) {{ return <p className="error">{{{helper}(state)}}</p>; }}
+                """)
+                code, out = tree.check()
+                self.assertEqual(code, code_wanted, out)
+                if code_wanted:
+                    self.assertIn("DeviceForm shows a connection state", out)
+
+    def test_a_helper_relaying_a_label_table_spends_the_tables_budget(self):
+        """`cloudPickerReason` returns `reasonLabels[...]`; the picker drawing it beside its connect action passes.
+        A helper with its own words still moves one hop only."""
+        table = """
+            const reasonLabels = {
+              none: "Not connected",
+              off: "Connection off",
+            };
+            export function pickerReason(r) { return reasonLabels[r || "none"]; }
+        """
+        tree = Tree(self)
+        tree.write(f"{WEB}/served.ts", table)
+        tree.write(f"{WEB}/Picker.tsx", """
+            import { pickerReason } from "./served";
+            export function Picker({ r, connect }) { return <div>{pickerReason(r)}<button onClick={connect}>Connect</button></div>; }
+        """)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree = Tree(self)
+        tree.write(f"{WEB}/served.ts", table)
+        tree.write(f"{WEB}/Picker.tsx", """
+            import { pickerReason } from "./served";
+            export function Picker({ r }) { return <div>{pickerReason(r)}</div>; }
+        """)
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("Picker shows a connection state", out)
+        tree = Tree(self)
+        tree.write(f"{WEB}/served.ts", """
+            function word(r) { return r ? "Not connected" : "Offline"; }
+            export function pickerReason(r) { return word(r); }
+        """)
+        tree.write(f"{WEB}/Picker.tsx", """
+            import { pickerReason } from "./served";
+            export function Picker({ r, connect }) { return <div>{pickerReason(r)}<button onClick={connect}>Connect</button></div>; }
+        """)
+        code, out = tree.check()
+        self.assertEqual(code, 1, "a helper's own words still stop after one hop")
+        self.assertIn("pickerReason shows a connection state", out)
+
+    def test_a_row_drawing_its_callers_controls_hands_its_state_to_each_mount(self):
+        """`ModelRow` labels its spinner "Connecting…" while its caller sets `loading`, and draws the caller's buttons
+        as `{children}`: the mount composing those buttons owns the state. A live region keeps its finding, and a
+        mount with no action is still a finding."""
+        row = """
+            export function Row({ loading, children }) {
+              const label = loading ? "Connecting…" : undefined;
+              return <div className="row"><span ROLE aria-label={label} />{children}</div>;
+            }
+        """
+        for role, mount, wanted in (
+            ("", '<Row loading={busy}><button onClick={cancel}>Cancel</button></Row>', None),
+            ("", "<Row loading={busy} />", "Card shows a connection state"),
+            ('role="status"', '<Row loading={busy}><button onClick={cancel}>Cancel</button></Row>',
+             "Row shows a connection state"),
+        ):
+            with self.subTest(role=role, mount=mount):
+                tree = Tree(self)
+                tree.write(f"{WEB}/Row.tsx", row.replace("ROLE", role))
+                tree.write(f"{WEB}/Card.tsx", f"""
+                    import {{ Row }} from "./Row";
+                    export function Card({{ busy, cancel }}) {{ return <section>{mount}</section>; }}
+                """)
+                code, out = tree.check()
+                self.assertEqual(code, 1 if wanted else 0, out)
+                if wanted:
+                    self.assertIn(wanted, out)
+
     def test_inline_copy_is_judged_at_each_row_that_draws_it(self):
         tree = Tree(self)
         tree.write(f"{WEB}/strings.ts", PAGE_STRINGS)
@@ -525,6 +608,25 @@ class NativeShapes(unittest.TestCase):
         tree.write(f"{MAC}/RemoteTerminalPlaceholderView.swift", SWIFT_VIEW_FIXED)
         code, out = tree.check()
         self.assertEqual(code, 0, out)
+
+    def test_an_error_types_extension_is_judged_as_the_error_type(self):
+        """`extension CloudAgentCredentials.Failure` maps a refusal to its copy: it is the error type's outcome copy,
+        not a state of `CloudAgentCredentials`. An extension of a non-error nested type still merges into its parent."""
+        for nested, wanted in (("Failure", 0), ("Status", 1)):
+            with self.subTest(nested=nested):
+                tree = Tree(self)
+                tree.write(f"{MAC}/Credentials.swift", f"""
+                    struct Credentials {{
+                        enum {nested} {{ case offline }}
+                    }}
+                    extension Credentials.{nested} {{
+                        func notice() -> String {{ String(localized: "cloud.model.offline", defaultValue: "Offline") }}
+                    }}
+                """)
+                code, out = tree.check()
+                self.assertEqual(code, wanted, out)
+                if wanted:
+                    self.assertIn("Credentials shows a connection state", out)
 
     def test_a_refusal_answering_the_persons_own_action_is_not_a_state(self):
         tree = Tree(self)
