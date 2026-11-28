@@ -6,6 +6,7 @@ import { useStore } from "../context";
 import type { WorkspaceBackground } from "../ops";
 import { t } from "../strings";
 import { rangeFill } from "../format";
+import { rangeDragEnd } from "../../../ui/rangeRelease";
 
 /** The tile that clears a workspace's own background, so it follows All Workspaces again. */
 export const FOLLOW_ID = "follow";
@@ -155,14 +156,11 @@ export function WorkspaceOpacity({
                 onPointerDown={() => {
                   dragging.current = true;
                 }}
-                onPointerUp={() => {
+                // A drag on the thumb ends on its mouseup, with no pointerup (rangeRelease.ts).
+                {...rangeDragEnd(() => {
                   dragging.current = false;
                   release();
-                }}
-                onBlur={() => {
-                  dragging.current = false;
-                  release();
-                }}
+                })}
               />
               {stored !== null && (
                 <Button variant="ghost" size="sm" type="button" className="link-button" onClick={() => void save(null)}>
