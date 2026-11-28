@@ -1,0 +1,12 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/codex-settings",
+  "name": "Codex settings",
+  "description": "Open settings from Session Info, including appearance, chat text, and keyboard shortcuts.",
+  "version": "1.0.0",
+  "cmuxProfile": 1,
+  "settings": {},
+  "screenshots": [
+    "screenshots/theme-selection-light.webp"
+  ]
+}

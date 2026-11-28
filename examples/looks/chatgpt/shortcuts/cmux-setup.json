@@ -1,0 +1,12 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/codex-shortcuts",
+  "name": "Codex keyboard shortcuts",
+  "description": "Bind common desktop navigation, thread, composer, and review commands.",
+  "version": "1.0.0",
+  "cmuxProfile": 1,
+  "settings": {},
+  "screenshots": [
+    "screenshots/codex-app-basic-light.webp"
+  ]
+}

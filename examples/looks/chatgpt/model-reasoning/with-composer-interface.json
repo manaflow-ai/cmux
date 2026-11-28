@@ -1,0 +1,12 @@
+{
+  "cmuxProfile": 1,
+  "name": "Codex model and reasoning picker with composer interface",
+  "description": "A compact provider rail and a shortcut to the focused chat’s native model picker.",
+  "settings": {
+    "agentPane.display.harnessPlacement": "compact"
+  },
+  "files": {
+    "keybindings.json": "[\n  { \"key\": \"ctrl+shift+m\", \"command\": \"agentPane.switchModel\" }\n]\n",
+    "customize/cmux-app.json": "{\n  \"$schema\": \"https://cmux.dev/schemas/cmux-app/2.json\",\n  \"manifestVersion\": 2,\n  \"id\": \"local/customize\",\n  \"name\": {\n    \"en\": \"Codex model and effort pickers\"\n  },\n  \"version\": \"1.0.0\",\n  \"description\": \"Search live models and choose reasoning effort from a separate composer control.\",\n  \"engines\": {\n    \"cmux\": \"^2.0\"\n  },\n  \"implements\": {\n    \"cmux.composer.model.picker/1\": {\n      \"options\": {\n        \"modelMenu\": \"search\",\n        \"reasoningMenu\": \"separate\"\n      }\n    }\n  }\n}\n"
+  }
+}

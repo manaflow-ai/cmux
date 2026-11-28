@@ -1,0 +1,11 @@
+{
+  "cmuxProfile": 1,
+  "name": "Codex Add menu",
+  "description": "A wide Add popover with rounded rows and an attachment strip.",
+  "settings": {
+    "agentPane.attachmentView": "strip"
+  },
+  "files": {
+    "agent-pane/theme.css": "/* Both the anchored and portaled versions use the same menu dimensions. */\n.acpmux-composer-plus .acpmux-menu,\n.acpmux-menu.acpmux-composer-plus {\n  width: min(736px, calc(100vw - 16px));\n  max-width: calc(100vw - 16px);\n  --ui-popup-radius: 18px;\n  --ui-row-height: calc(28px * var(--cmux-interface-scale, 1));\n  --ui-row-radius: 999px;\n}\n"
+  }
+}

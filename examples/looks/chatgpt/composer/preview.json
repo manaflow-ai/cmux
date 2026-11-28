@@ -1,0 +1,13 @@
+{
+  "cmuxProfile": 1,
+  "name": "Codex composer",
+  "description": "A rounded prompt card with dictation and a context usage ring.",
+  "settings": {
+    "agentPane.showDictation": true,
+    "agentPane.showContextUsage": true,
+    "agentPane.composerRing": "context"
+  },
+  "files": {
+    "agent-pane/theme.css": "/* Adapt the Codex demo's prompt to the active color scheme. */\n.acpmux-shell {\n  --acpmux-composer-bg: color-mix(in srgb, var(--agent-text) 8%, var(--agent-page-bg));\n  --acpmux-composer-edge: color-mix(in srgb, var(--agent-text) 14%, var(--agent-page-bg));\n}\n\n.acpmux-shell .acpmux-composer-box {\n  --acpmux-composer-radius: 22px;\n  box-shadow: var(--acpmux-card-ring), 0 2px 8px rgb(0 0 0 / 6%);\n}\n"
+  }
+}

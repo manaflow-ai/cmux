@@ -1,0 +1,9 @@
+{
+  "cmuxProfile": 1,
+  "name": "Codex keyboard shortcuts",
+  "description": "Bind common desktop navigation, thread, composer, and review commands.",
+  "settings": {},
+  "files": {
+    "keybindings.json": "[\n  {\n    \"key\": \"cmd+,\",\n    \"command\": \"openSettings\"\n  },\n  {\n    \"key\": \"cmd+slash\",\n    \"command\": \"keybindings.open\"\n  },\n  {\n    \"key\": \"cmd+b\",\n    \"command\": \"toggleSidebar\"\n  },\n  {\n    \"key\": \"cmd+shift+p\",\n    \"command\": \"commandPalette\"\n  },\n  {\n    \"key\": \"cmd+shift+o\",\n    \"command\": \"palette.newAgentChat\",\n    \"args\": {\n      \"harness\": \"codex\"\n    }\n  },\n  {\n    \"key\": \"cmd+shift+a\",\n    \"command\": \"agentPane.archiveChat\",\n    \"when\": \"agentPaneFocused\"\n  },\n  {\n    \"key\": \"cmd+shift+leftbracket\",\n    \"command\": \"prevSidebarTab\"\n  },\n  {\n    \"key\": \"cmd+shift+rightbracket\",\n    \"command\": \"nextSidebarTab\"\n  },\n  {\n    \"key\": \"ctrl+shift+m\",\n    \"command\": \"agentPane.switchModel\",\n    \"when\": \"agentPaneFocused\"\n  },\n  {\n    \"key\": \"ctrl+shift+g\",\n    \"command\": \"openDiffViewer\"\n  },\n  {\n    \"key\": \"cmd+alt+shift+o\",\n    \"command\": \"agentPane.composer.chooseFolder\",\n    \"when\": \"agentPaneFocused\"\n  }\n]\n"
+  }
+}

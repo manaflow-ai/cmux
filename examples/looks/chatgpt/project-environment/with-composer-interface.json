@@ -1,0 +1,12 @@
+{
+  "cmuxProfile": 1,
+  "name": "Codex project and environment pickers with composer interface",
+  "description": "Rounded project and machine popovers with the selected environment displayed on the left.",
+  "settings": {
+    "agentPane.display.environment.placement": "left"
+  },
+  "files": {
+    "agent-pane/theme.css": "/* Preserve native search, scrolling and viewport bounds. */\n.acpmux-menu.acpmux-location-menu.acpmux-folder-popover {\n  --ui-popup-radius: 14px;\n  --ui-row-height: calc(28px * var(--cmux-interface-scale, 1));\n  --ui-row-radius: 8px;\n  --cmux-menu-highlight-radius: 8px;\n}\n",
+    "customize/cmux-app.json": "{\n  \"$schema\": \"https://cmux.dev/schemas/cmux-app/2.json\",\n  \"manifestVersion\": 2,\n  \"id\": \"local/customize\",\n  \"name\": {\n    \"en\": \"Codex project picker\"\n  },\n  \"version\": \"1.0.0\",\n  \"description\": \"Expose the active composer's project action beside the draft.\",\n  \"engines\": {\n    \"cmux\": \"^2.0\"\n  },\n  \"implements\": {\n    \"cmux.composer.toolbar/1\": {\n      \"options\": {\n        \"buttons\": [\n          {\n            \"action\": \"composer.chooseProject\",\n            \"label\": \"Work in a project\"\n          }\n        ]\n      }\n    }\n  }\n}\n"
+  }
+}

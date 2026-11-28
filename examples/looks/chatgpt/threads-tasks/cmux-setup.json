@@ -1,0 +1,19 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/chatgpt-threads-tasks",
+  "name": "Codex threads and tasks",
+  "version": "1.0.0",
+  "description": "Start a Codex thread, reopen chats on New Tab, and follow a running turn's checklist and agents.",
+  "screenshots": [
+    "screenshots/source-threads.webp"
+  ],
+  "cmuxProfile": 1,
+  "settings": {
+    "sidebar.showChats": true,
+    "agentPane.display.pinnedPlan": true,
+    "agentPane.display.trayTucked": false
+  },
+  "files": {
+    "keybindings.json": "[{\"key\":\"cmd+shift+o\",\"command\":\"palette.newAgentChat\",\"args\":{\"harness\":\"codex\"}}]"
+  }
+}

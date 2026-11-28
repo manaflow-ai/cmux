@@ -1,0 +1,27 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "Codex settings",
+  "version": "1.0.0",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "main.js"
+  },
+  "implements": {
+    "cmux.session.info.section/1": {
+      "export": "renderSettings",
+      "title": "Settings",
+      "symbol": "gearshape",
+      "options": {
+        "maxRows": 5
+      }
+    }
+  },
+  "scopes": {
+    "actions:run": "Open the selected preferences page."
+  },
+  "description": "Open native appearance, chat font, and keyboard preferences for this setup."
+}

@@ -1,0 +1,7 @@
+/* Preserve native search, scrolling and viewport bounds. */
+.acpmux-menu.acpmux-location-menu.acpmux-folder-popover {
+  --ui-popup-radius: 14px;
+  --ui-row-height: calc(28px * var(--cmux-interface-scale, 1));
+  --ui-row-radius: 8px;
+  --cmux-menu-highlight-radius: 8px;
+}

@@ -1,0 +1,16 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/chatgpt-archiving",
+  "name": "Codex chat archive",
+  "version": "1.0.0",
+  "description": "Archive a specific chat from its Priority row or archive the focused conversation with Shift-Command-A.",
+  "cmuxProfile": 1,
+  "settings": {
+    "sidebar.priorityView.enabled": true,
+    "sidebar.priorityView.shown": true,
+    "sidebar.controlsOnHover": true
+  },
+  "files": {
+    "keybindings.json": "[{\"key\":\"cmd+shift+a\",\"when\":\"agentPaneFocused\",\"command\":\"agentPane.archiveChat\"}]"
+  }
+}

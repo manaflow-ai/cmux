@@ -1,0 +1,9 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/codex-open-in-editor",
+  "name": "Codex Open in editor",
+  "description": "Open a local thread’s working folder in a desktop editor or file manager.",
+  "version": "1.0.0",
+  "cmuxProfile": 1,
+  "settings": {}
+}

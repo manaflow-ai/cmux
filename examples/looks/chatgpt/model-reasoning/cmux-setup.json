@@ -1,0 +1,14 @@
+{
+  "cmuxSetup": 1,
+  "cmuxProfile": 1,
+  "id": "manaflow-ai/chatgpt-model-reasoning",
+  "name": "Codex model and reasoning picker",
+  "description": "A compact provider rail and a shortcut to the focused chat’s native model picker.",
+  "version": "1.0.0",
+  "screenshots": [
+    "screenshots/source-desktop.webp"
+  ],
+  "settings": {
+    "agentPane.display.harnessPlacement": "compact"
+  }
+}

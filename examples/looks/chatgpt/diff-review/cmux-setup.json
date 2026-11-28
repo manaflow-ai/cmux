@@ -1,0 +1,20 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/codex-diff-review",
+  "name": "Codex Diff review",
+  "description": "Review each turn’s changed files in a unified diff with line numbers.",
+  "version": "1.0.0",
+  "cmuxProfile": 1,
+  "settings": {
+    "diff.layout": "unified",
+    "diff.diffIndicators": "classic",
+    "diff.lineNumbers": true,
+    "diff.showBackgrounds": true,
+    "agentPane.editedFiles.show": "collapsed",
+    "agentPane.editedFiles.scope": "turn",
+    "agentPane.display.sessionInfo.placement": "push"
+  },
+  "screenshots": [
+    "screenshots/source-review.webp"
+  ]
+}

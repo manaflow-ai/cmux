@@ -1,0 +1,15 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/codex-execution-modes",
+  "name": "Codex Execution modes",
+  "description": "Choose the machine and checkout for a Codex thread.",
+  "version": "1.0.0",
+  "cmuxProfile": 1,
+  "settings": {
+    "agentPane.newChatsIn": "local",
+    "agentPane.display.environment.placement": "left"
+  },
+  "screenshots": [
+    "screenshots/source-modes.webp"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "cmuxProfile": 1,
+  "name": "Codex settings",
+  "description": "Open settings from Session Info, including appearance, chat text, and keyboard shortcuts.",
+  "settings": {},
+  "files": {
+    "customize/cmux-app.json": "{\n  \"$schema\": \"https://cmux.dev/schemas/cmux-app/2.json\",\n  \"manifestVersion\": 2,\n  \"id\": \"local/customize\",\n  \"name\": \"Codex settings\",\n  \"version\": \"1.0.0\",\n  \"engines\": {\n    \"cmux\": \"^2.0\"\n  },\n  \"runtime\": {\n    \"main\": \"main.js\"\n  },\n  \"implements\": {\n    \"cmux.session.info.section/1\": {\n      \"export\": \"renderSettings\",\n      \"title\": \"Settings\",\n      \"symbol\": \"gearshape\",\n      \"options\": {\n        \"maxRows\": 5\n      }\n    }\n  },\n  \"scopes\": {\n    \"actions:run\": \"Open the selected preferences page.\"\n  },\n  \"description\": \"Open native appearance, chat font, and keyboard preferences for this setup.\"\n}\n",
+    "customize/main.js": "function renderSettings() {\n  const open = (action, args = {}) => cmux.actions.run(action, args).catch(error => cmux.toast({ title: \"Settings\", message: String(error), tone: \"warning\" }))\n  return VStack({ spacing: 4 }, [\n    Button(\"Settings…\", () => open(\"openSettings\")),\n    Button(\"Appearance\", () => open(\"openSettings\", { setting: \"appearance.themeFile\" })),\n    Button(\"Chat font\", () => open(\"openSettings\", { setting: \"agentPane.display.font.size\" })),\n    Button(\"Keyboard shortcuts\", () => open(\"keybindings.open\"))\n  ])\n}\n\nglobalThis.__cmuxAppExports = { renderSettings }\n"
+  }
+}
