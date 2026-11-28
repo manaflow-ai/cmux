@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Reads (scripts/ci/guard_step_inputs.py; check_pool_affected.py --verify --match check-main-actor-work.py holds it):
+# guard-inputs: Packages/macOS/CmuxNext/Package.swift Packages/macOS/CmuxNext/Sources/**/*.swift
 """Ratchet for heavy non-UI work on the main actor in CmuxNext.
 
 plans/cmux-next/architecture.md section 5a: the main thread never waits and
