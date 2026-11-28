@@ -4,35 +4,18 @@ import type { AutoSizeWarningProps } from "./AutoSizeWarning";
 import type { AutoSizeWarning as AutoSizeWarningModel } from "./autoSizeWarningModel";
 
 const labels = {
-  title: "This build may be too large for this machine",
-  resizeNow: "Resize now",
-  runOnBuildMachine: "Run it on a build machine",
-  carryOn: "Carry on",
+  title: "Sized for this build",
+  dismiss: "Dismiss",
 };
 
+// Texts are what `heavy_precheck::notice` and the run VM sizing notice print.
 const chromium: AutoSizeWarningModel = {
-  command: "fetch --nohooks chromium && autoninja -C out/Default chrome",
+  command: "autoninja -C out/Default chrome",
   project: "chromium",
   short: ["disk", "memory"],
   needsDisk: 100_000_000_000,
   needsMemory: 16_000_000_000,
-  text: "Chromium needs 100 GB of disk and 16 GB of memory; this machine has 20 GB free and 4 GB. About 20 hours here if it fit, about 1.5 hours and $3 on 32 vCPU.",
-};
-
-const llvm: AutoSizeWarningModel = {
-  command: "cmake -S llvm-project/llvm -B build -G Ninja",
-  project: "llvm",
-  short: ["disk"],
-  needsDisk: 20_000_000_000,
-  text: "LLVM needs more free disk than this machine has. Run it on a larger machine to keep this chat moving.",
-};
-
-const cargo: AutoSizeWarningModel = {
-  command: "cargo build --release",
-  short: ["disk", "memory"],
-  needsDisk: 40 * 1_073_741_824,
-  needsMemory: 3 * 1_073_741_824,
-  text: "This build wants more than this machine has: `cargo build --release` in a 40 GiB checkout, with 3.0 GiB of memory free on 2 vCPUs.",
+  text: "Chromium needs 100 GB of disk and 16 GB of memory; this machine has 20 GB free and 4 GB. Running it on a run VM with 8 vCPU and 16 GiB, sized from Chromium's published memory minimum.",
 };
 
 const rustc: AutoSizeWarningModel = {
@@ -40,43 +23,53 @@ const rustc: AutoSizeWarningModel = {
   project: "rustc",
   short: ["memory"],
   needsMemory: 8_000_000_000,
-  text: "rustc needs more memory than this machine has. Resize now, run it on a build machine, or carry on here.",
+  text: "rustc needs 8 GB of memory; this machine has 4 GB. Running it here; this machine grows as it works.",
 };
 
-const props = (warning: AutoSizeWarningModel): AutoSizeWarningProps => ({
+const cargo: AutoSizeWarningModel = {
+  command: "cargo build --release",
+  short: ["disk"],
+  needsDisk: 40 * 1_073_741_824,
+  text: "`cargo build --release` in a 40 GiB checkout wants more free disk than this machine has. Running it here as it is.",
+};
+
+const props = (warning: AutoSizeWarningModel, look: AutoSizeWarningProps["look"]): AutoSizeWarningProps => ({
   warning,
   labels,
-  onResizeNow() {},
-  onRunOnBuildMachine() {},
-  onCarryOn() {},
+  look,
+  onDismiss() {},
 });
 
 export default componentEntry<AutoSizeWarningProps>({
   id: "agent-pane.autosize-warning",
-  title: "AutoSize known-heavy warning",
+  title: "AutoSize notice row (RFD 0144 piece 8)",
   area: "Agent pane",
   pane: true,
-  height: 220,
+  height: 180,
   widths: { narrow: 360, normal: 620, wide: 820 },
   covers: ["agent-session/acpmux/autoSize/AutoSizeWarning.tsx#AutoSizeWarning"],
   styles: () => import("./autoSizeWarning.css"),
   load: () => import("./AutoSizeWarning").then((module) => module.AutoSizeWarning),
   variants: {
-    chromium: {
-      note: "A known Chromium build is short on both disk and memory. The warning keeps the complete Rust explanation and all three RFD 0133 actions.",
-      props: props(chromium),
+    "card-chromium": {
+      note: "A. Card: an inline notice card, no buttons. Chromium moved to a run VM sized from its published minimum.",
+      props: props(chromium, "card"),
     },
-    llvm: {
-      note: "An LLVM build is short on disk only. The same row stays compact when the precheck reports one shortage.",
-      props: props(llvm),
+    "line-chromium": {
+      note: "B. Line: one quiet transcript line with an accent dot, no card. Same Chromium text.",
+      props: props(chromium, "line"),
     },
-    "large-cargo": {
-      note: "A generic large checkout has no named project. The warning still identifies the command and explains the machine limits.",
-      props: props(cargo),
+    "dismissible-chromium": {
+      note: "C. Dismissible: the card with an ×, still no actions. Same Chromium text.",
+      props: props(chromium, "dismissible"),
     },
-    rustc: {
-      note: "A rustc build is short on memory only, showing the project-specific payload shape.",
-      props: props(rustc),
+    "line-rustc-here": {
+      note: "B on rustc kept here with AutoCloud's grow-as-it-works.",
+      props: props(rustc, "line"),
+    },
+    "card-cargo-as-is": {
+      note: "A on a generic cargo build kept here as it is (no named project, AutoCloud off).",
+      props: props(cargo, "card"),
     },
   },
 });
