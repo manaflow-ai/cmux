@@ -59,6 +59,12 @@
         "after_merge": "push to feat-cmux-next, same paths",
         "why": "advisory timing on display Macs; merge_hold already skips it by its (advisory) name, listed so the tier is the whole answer (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
       }
+    },
+    "housekeeping": {
+      "ci-pr-superseded-cancel.yml": {
+        "workflow": "CI PR run cleanup",
+        "why": "bookkeeping on the pull request's own runs (job 'Cancel runs on older heads' cancels older heads' runs); it judges no code, so merge_hold (leo-workspace tools/land_judge merge_tier) never waits for or reruns a queued, running, cancelled or stale run of it, whatever the switch; a finished red still holds. cmux#63955 at fa25a779 (2026-11-28): its 3-minute job timed out on a hung checkout and glaeda reran it to rerun_failed_cap"
+      }
     }
   },
   "workflows": {
@@ -196,7 +202,7 @@
     },
     "cmux-next-web-lint.yml": {
       "kind": "publish",
-      "why": "saves the lint-tool and Bun caches pull requests restore; its hook tests and whole-tree typecheck run on the pull request (ci/steps.toml webviews-typecheck), its lint verdict is cmux-next-fast-gates.yml's"
+      "why": "saves the lint-tool and Bun caches pull requests restore; its hook tests and whole-tree typecheck run on the pull request (ci/steps.toml web-lint-hook-tests and webviews-typecheck), its lint verdict is cmux-next-fast-gates.yml's"
     },
     "cmux-rd-windows.yml": {
       "kind": "check",
