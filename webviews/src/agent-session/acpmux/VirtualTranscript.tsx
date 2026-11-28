@@ -101,6 +101,7 @@ import { useCountedRender } from "./perfRender";
 import { drewStreamingRow, noteDrewTail, useStreamingRowCatchUp } from "./streamingRow";
 import { drewThoughts, lineHeardNow, liveThoughtHeard, rowsDrawnNow } from "./liveThought";
 import { drewLiveLine, liveCallLineHeard } from "./liveCallLine";
+import { drewHiddenRows } from "./hiddenReply";
 import { followTrace } from "./followTrace";
 import {
   FIELD_GROWTH_EVENT,
@@ -1080,6 +1081,7 @@ function TranscriptView({
       );
     if (!streams) return;
     drewThoughts(paneRows);
+    drewHiddenRows(paneRows);
     for (let index = paneRows.length - 1; index >= 0; index -= 1) {
       const row = paneRows[index]!;
       if (row.kind === "assistant" && row.streaming) {
