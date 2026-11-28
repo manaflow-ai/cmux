@@ -104,7 +104,7 @@ jobs:
             --queue-timeout "$QUEUE_S" --timeout "$RUN_S" ${rank[@]+"${rank[@]}"} \
             --artifact artifacts/ios-sim/evidence.zip --arg energy 2>&1 | tee "$log"
           status=${PIPESTATUS[0]}
-          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
+          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2 || true)"
           zip="$RUNNER_TEMP/energy.zip"
           out="$RUNNER_TEMP/energy-bench"
           mkdir -p "$out"

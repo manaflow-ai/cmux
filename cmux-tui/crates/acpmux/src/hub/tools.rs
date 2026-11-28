@@ -80,8 +80,9 @@ impl Hub {
             }
         };
         let mut cmux = tools.tool_rows(claude, claude);
-        let all =
-            crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env, &meta.cwd);
+        let all = crate::session_manifest::all_tools(meta.manifest.as_ref(), &meta.cwd, || {
+            crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env, &meta.cwd)
+        });
         let source_tools = tools.listing(all);
         // ACP receives its immutable server list without Claude's off switch.
         let source_tools =

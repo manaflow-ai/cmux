@@ -19,8 +19,8 @@
 //! One case per variation would be some 70 tests of the same lines; one table names each failing
 //! variation in a single run instead.
 
-use super::*;
 use crate::hub::NewRequest;
+use crate::hub::*;
 use std::time::Duration;
 
 /// How long one fork, or one prompt, may take before the variation counts as hung.
