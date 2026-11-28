@@ -292,3 +292,19 @@ async fn bg_count_bench() {
     eprintln!("bg_count_bench running={RUNNING} lost={LOST}: count {count:?}, list {list:?}");
     drop(held);
 }
+
+/// A listing here before the move re-armed the wait marked the old row `lost` (this machine has no
+/// record of a task that ran on the other one): the move still ends it and takes its call.
+#[tokio::test]
+async fn a_move_after_a_listing_lost_the_old_row_still_takes_its_call() {
+    let (hub, session) = hub_with_chat("bg-row-moved-late");
+    let _lock = hub.bg_fake_running(&session, false).unwrap();
+    let (dir, record) = only_task(&hub, &session, |r| r.tool_call_id = Some("toolu_wait".into()));
+    hub.bg_publish(&session, &dir, &record);
+    std::fs::remove_file(dir.join(format!("{}.json", record.id))).unwrap();
+    assert_eq!(listed(&hub, &session)[0]["state"], "lost");
+    hub.bg_moved(&session, &record.id);
+    let row = listed(&hub, &session).remove(0);
+    assert_eq!(row["reason"], "moved", "{row}");
+    assert_eq!(row["toolCallId"], "");
+}

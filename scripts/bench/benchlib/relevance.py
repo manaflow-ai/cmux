@@ -180,7 +180,11 @@ class Index:
         self.buckets: dict[str, list[tuple[Rule, str, int]]] = {}
         self._compiled: dict[str, list[tuple[Rule, re.Pattern[str], int]]] = {}
         self.situation_by_name: dict[str, list[Rule]] = {}
+        # Every rule of one (kind, name): plan() merges an area filed twice into one entry (_area_entry), read here
+        # once per index rather than by a scan of every rule per matched area (the Bench tooling bench, 0.096 s).
+        self.by_name: dict[tuple[str, str], list[Rule]] = {}
         for rule in rules:
+            self.by_name.setdefault((rule.kind, rule.name), []).append(rule)
             for glob in rule.globs:
                 prefix = literal_prefix(glob).rstrip("/")
                 # Specificity: literal characters before the first wildcard, so `a/b/c.swift` beats `a/b/**`.
@@ -275,6 +279,20 @@ def load(path: Path = MAP, steps: Path | None = STEPS) -> Index:
 
 # ---- what a set of paths needs -------------------------------------------------------------------------------
 
+def _area_entry(same: list[Rule]) -> dict:
+    """One plan entry for every [[area]] of one name: a name filed twice (docs/benches/coverage-map.md's row and a
+    hand-tuned one) is one area, so a path matching either gets both entries' benches, tests and `run` commands, under
+    the tightest budget_s. The first entry alone dropped the second's `run` (Model picker search ran no bench)."""
+    first = same[0]
+    budgets = [r.budget_s for r in same if r.budget_s is not None]
+    return {"name": first.name, "kind": first.kind,
+            "benches": list(dict.fromkeys(b for r in same for b in r.benches)),
+            "tests": list(dict.fromkeys(t for r in same for t in r.tests)),
+            "budget": next((r.budget for r in same if r.budget), ""),
+            "run": list(dict.fromkeys(c for r in same for c in r.run)),
+            "budget_s": min(budgets) if budgets else None, "paths": []}
+
+
 def plan(index: Index, paths: list[str]) -> dict:
     """The benches, tests and templates a change's paths need, and the paths only a default covers."""
     hits = [index.match(p) for p in paths]
@@ -288,9 +306,9 @@ def plan(index: Index, paths: list[str]) -> dict:
         for rule in (h.area, h.unit):
             if rule is None:
                 continue
-            a = areas.setdefault(rule.name, {"name": rule.name, "kind": rule.kind, "benches": list(rule.benches),
-                                             "tests": list(rule.tests), "budget": rule.budget,
-                                             "run": list(rule.run), "budget_s": rule.budget_s, "paths": []})
+            a = areas.get(rule.name)
+            if a is None:
+                a = areas[rule.name] = _area_entry(index.by_name.get((rule.kind, rule.name)) or [rule])
             a["paths"].append(h.path)
         sit_rules = list(h.situations)
         for name in (h.area.situations if h.area else ()):
@@ -304,8 +322,7 @@ def plan(index: Index, paths: list[str]) -> dict:
                      "situations": sorted({s.name for s in sit_rules}),
                      "default": None if h.mapped else h.default_area})
     benches = sorted({b for a in areas.values() for b in a["benches"]})
-    tests = list(dict.fromkeys([t for a in areas.values() for t in a["tests"]]
-                               + [t for t in (self_test(h.path) for h in hits) if t]))
+    tests = list(dict.fromkeys(t for h in hits for t in _path_tests(h, areas)))
     defaults = sorted({index.match(p).default_area for p in unmapped})
     ci_steps = sorted({s.name for h in hits for s in h.steps})
     return {"schema": "cmux-bench/for-paths/v1", "paths": rows, "areas": list(areas.values()), "benches": benches,
@@ -440,6 +457,20 @@ def coverage(index: Index, changes: list[list[str]]) -> dict:
             "top_unchecked": sorted(unchecked.items(), key=lambda kv: -kv[1])[:25]}
 
 
+def _path_tests(h: Hit, areas: dict[str, dict]) -> list[str]:
+    """The narrowest tests that cover one path: a changed test file runs itself; else its [[area]]'s tests when the
+    area names any (hand-tuned, so it wins over the generated unit's whole-target command); else its unit's. Both
+    at once sent an updater change to `swift test --filter CmuxNextAppTests`, the whole app test target, beside the
+    update tests the area named (cmux#63214's files)."""
+    own = self_test(h.path)
+    if own:
+        return [own]
+    area = areas.get(h.area.name)["tests"] if h.area is not None else []
+    if area:
+        return area
+    return areas.get(h.unit.name)["tests"] if h.unit is not None else []
+
+
 SELF_TESTS = (re.compile(r"(?:.*/)?tests?/test_[^/]*\.py\Z"), re.compile(r".*\.test\.tsx?\Z"),
               re.compile(r".*/Tests/[^/]+/.*\.swift\Z"))
 
@@ -450,6 +481,10 @@ def self_test(path: str) -> str | None:
         return f"python3 -I {path}"
     if SELF_TESTS[1].match(path) and path.startswith("webviews/"):
         return f"bash scripts/ci/run-webviews-tests.sh {path.removeprefix('webviews/')}"
+    if SELF_TESTS[2].match(path):
+        pkg, _, rest = path.partition("/Tests/")
+        if (ROOT / pkg / "Package.swift").is_file():
+            return f"swift test --package-path {pkg} --filter {Path(rest).stem}"
     return None
 
 
@@ -494,8 +529,41 @@ def _crate_name(root: Path, crate_dir: str) -> str:
         return crate_dir.rsplit("/", 1)[-1]
 
 
+def _crate_deps(root: Path, crate_dir: str) -> set[str]:
+    """The package names a crate's Cargo.toml depends on: normal, dev and build, any target, renames resolved."""
+    try:
+        doc = tomllib.loads((root / crate_dir / "Cargo.toml").read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return set()
+    out: set[str] = set()
+    for table in [doc, *(doc.get("target") or {}).values()]:
+        for key in ("dependencies", "dev-dependencies", "build-dependencies"):
+            for name, spec in (table.get(key) or {}).items():
+                out.add(spec.get("package", name) if isinstance(spec, dict) else name)
+    return out
+
+
+def reverse_dependents(root: Path, crate_dirs: list[str]) -> dict[str, list[str]]:
+    """crate name -> the crates of its own workspace that depend on it directly (a change to it can break them).
+
+    Direct only: a crate's own tests plus its direct dependents' tests catch the API and format breaks the
+    folder layout misses (cmux-history's Visit field broke cmux-tui-core; a new cmux-action-catalog action
+    broke cmux-palette-eval and cmux-layout-reducer), and the widest crate (cmux-process) adds 32, not 200."""
+    by_ws: dict[str, dict[str, set[str]]] = {}
+    for d in crate_dirs:
+        by_ws.setdefault(d.rsplit("/crates/", 1)[0], {})[_crate_name(root, d)] = _crate_deps(root, d)
+    out: dict[str, list[str]] = {}
+    for crates in by_ws.values():
+        for name in crates:
+            out[name] = sorted(c for c, deps in crates.items() if name in deps and c != name)
+    return out
+
+
 def generate_units(root: Path = ROOT, files: list[str] | None = None) -> list[dict]:
-    """One unit per testable folder of the repo layout, with the command that tests just that folder."""
+    """One unit per testable folder of the repo layout, with the command that tests just that folder.
+
+    A Rust crate's unit also runs the tests of the crates that depend on it directly, so a unit follows the
+    import graph, not only the folder."""
     files = files if files is not None else _tracked(root)
     dirs: set[str] = set()
     for f in files:
@@ -503,9 +571,16 @@ def generate_units(root: Path = ROOT, files: list[str] | None = None) -> list[di
         for depth in range(1, min(len(parts), 6)):
             dirs.add("/".join(parts[:depth]))
     units: list[dict] = []
+    crate_dirs = [d for d in sorted(dirs) if len(d.split("/")) >= 2 and d.split("/")[-2] == "crates"
+                  and (root / d / "Cargo.toml").is_file()]
+    rdeps = reverse_dependents(root, crate_dirs)
 
-    def add(name: str, path: str, tests: list[str] | None = None):
-        units.append({"name": name, "paths": [path + "/**"], "tests": tests or []})
+    def add(name: str, path: str, tests: list[str] | None = None, dependents: list[str] | None = None):
+        units.append({"name": name, "paths": [path + "/**"], "tests": tests or [], "dependents": dependents or []})
+
+    # Top-level tests/*.py and friends: each is its own test (self_test), and the folder is mapped, not default.
+    if any(f.startswith("tests/") and f.count("/") == 1 for f in files):
+        units.append({"name": "tests:(top level)", "paths": ["tests/*"], "tests": [], "dependents": []})
 
     for d in sorted(dirs):
         parts = d.split("/")
@@ -513,7 +588,11 @@ def generate_units(root: Path = ROOT, files: list[str] | None = None) -> list[di
         if len(parts) >= 2 and parts[-2] == "crates" and (root / d / "Cargo.toml").is_file():
             workspace = "/".join(parts[:-2])
             crate = _crate_name(root, d)
-            add(f"rust:{crate}", d, [f"cargo test --manifest-path {workspace}/Cargo.toml -p {crate}"])
+            deps = rdeps.get(crate, [])
+            tests = [f"cargo test --manifest-path {workspace}/Cargo.toml -p {crate}"]
+            if deps:
+                tests.append(f"cargo test --manifest-path {workspace}/Cargo.toml " + " ".join(f"-p {c}" for c in deps))
+            add(f"rust:{crate}", d, tests, deps)
         # Swift packages: <pkg>/Sources/<Module> and <pkg>/Tests/<Target> with a Package.swift beside them.
         elif len(parts) >= 3 and parts[-2] in ("Sources", "Tests") and (root / "/".join(parts[:-2]) / "Package.swift").is_file():
             pkg = "/".join(parts[:-2])
@@ -548,6 +627,8 @@ def render_units(units: list[dict]) -> str:
         out.append("paths = [" + ", ".join(q(p) for p in u["paths"]) + "]")
         if u["tests"]:
             out.append("tests = [" + ", ".join(q(t) for t in u["tests"]) + "]")
+        if u.get("dependents"):
+            out.append("dependents = [" + ", ".join(q(t) for t in u["dependents"]) + "]")
         out.append("")
     return "\n".join(out)
 
