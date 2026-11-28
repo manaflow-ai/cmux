@@ -53,6 +53,7 @@ struct WorkstreamItemAgentDisplayNameTests {
         #expect(item.sourceID == source)
         #expect(item.agentDisplayName == name)
         #expect(!item.sourceIsListed)
+        #expect(item.listedSource == nil)
     }
 
     @Test("An agent cmux has no name for shows the id it sent")
@@ -67,6 +68,7 @@ struct WorkstreamItemAgentDisplayNameTests {
         #expect(item.sourceID == nil)
         #expect(item.agentDisplayName == source.displayName)
         #expect(item.sourceIsListed)
+        #expect(item.listedSource == source)
     }
 
     @Test("A stored row whose raw id is a listed source takes that source's name")
@@ -80,5 +82,6 @@ struct WorkstreamItemAgentDisplayNameTests {
         )
         #expect(item.agentDisplayName == "Grok")
         #expect(item.sourceIsListed)
+        #expect(item.listedSource == .grok)
     }
 }

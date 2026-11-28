@@ -119,4 +119,10 @@ extension WorkstreamItem {
         guard let sourceID else { return true }
         return WorkstreamSource(wireName: sourceID) != nil
     }
+
+    /// The listed source this item's card is drawn for, or `nil` for a
+    /// producer `WorkstreamSource` doesn't list.
+    public var listedSource: WorkstreamSource? {
+        sourceIsListed ? source : nil
+    }
 }
