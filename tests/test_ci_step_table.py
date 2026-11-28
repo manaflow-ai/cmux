@@ -1098,11 +1098,11 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(start, ["pr-pipeline.yml"])
         self.assertIn("indexnow", why["pr-pipeline.yml"])
         self.assertEqual(started(["docs/x.md"])[0], [])
-        # A cheap head (a draft) starts none of its jobs, even when the changed files are unknown.
+        # A cheap head starts no broad jobs; unknown files conservatively select the narrow screen assertion.
         start, why = started(["web/app/lib/indexnow.ts"], draft=True)
         self.assertEqual(start, [])
         self.assertIn("cheap tier", why["pr-pipeline.yml"])
-        self.assertEqual(started(None, draft=True)[0], [])
+        self.assertEqual(started(None, draft=True)[0], ["pr-pipeline.yml"])
         self.assertEqual(started(None)[0], ["pr-pipeline.yml"])
         # Under --pr-scope a whole-tree `**` routes nothing, so tt-ci-step-table runs on a pull request only through
         # tooling-tests-5's named inputs: a change to the table or a workflow routes it.
@@ -1182,7 +1182,9 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(router["jobs"]["route"]["outputs"]["table"], "${{ steps.route.outputs.table }}")
         self.assertEqual(router["jobs"]["pipeline"]["with"], {
             "jobs": "${{ needs.route.outputs.table || '' }}",
-            "only": "${{ needs.route.outputs.only || '' }}", "defer_web_browser": True})
+            "only": "${{ needs.route.outputs.only || '' }}", "defer_web_browser": True,
+            "mac_integration": "${{ needs.route.outputs.mac_integration || '' }}",
+            "mac_integration_only": "${{ needs.route.outputs.mac_integration_only || '' }}"})
 
     def test_browser_suites_run_on_a_pr_only_with_full_ci(self) -> None:
         """NOW's pr_verdict, 2026-11-26 08:57Z: `pr router / pr pipeline / web-browser` ended 3 of the newest 20 PR
@@ -1273,7 +1275,11 @@ class PipelineTest(unittest.TestCase):
                 if name in PIPELINE_LAND_TIER_JOBS:
                     # The land tier (#54886's condition and label guard): runs only at the head handed to land.
                     deferred = "!inputs.defer_web_browser && " if name == "web-browser" else ""
-                    self.assertEqual(job["if"], f"${{{{ {deferred}({routed}) && {PIPELINE_LAND_TIER} && {PIPELINE_LABEL_GUARD} }}}}")
+                    land_tier = PIPELINE_LAND_TIER
+                    if name == "mac":
+                        # Explicit native assertions also run in the cheap PR tier.
+                        land_tier = land_tier.replace("(github.event_name", "(inputs.mac_integration != '' || github.event_name", 1)
+                    self.assertEqual(job["if"], f"${{{{ {deferred}({routed}) && {land_tier} && {PIPELINE_LABEL_GUARD} }}}}")
                 else:
                     self.assertEqual(job["if"], f"${{{{ {routed} }}}}")
                 runs = [s for s in job["steps"] if f"ci/run run --job {name} " in s.get("run", "")]
@@ -1739,7 +1745,11 @@ class MacJobTest(unittest.TestCase):
 
     def test_each_step_asks_the_router_first(self) -> None:
         steps = [s for s in ci_steps.load().steps.values() if s.job == "mac"]
-        self.assertEqual(sorted(s.name for s in steps), ["mac-fast-tier"])
+        self.assertEqual(sorted(s.name for s in steps), ["mac-fast-tier", "screen-webrtc-headless"])
+        screen = next(s for s in steps if s.name == "screen-webrtc-headless")
+        self.assertIn("HeadlessSyntheticScreenStreamTests", screen.run)
+        self.assertTrue(screen.inputs and screen.blocks and screen.alone)
+        steps = [s for s in steps if s.name != screen.name]
         canary = ci_steps.load().steps["swift-canary"]
         for step in steps + [canary]:
             with self.subTest(step=step.name):
