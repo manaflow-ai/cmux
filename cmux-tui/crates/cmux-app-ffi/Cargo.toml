@@ -135,6 +135,12 @@ opt-level = 3
 opt-level = 3
 [profile.release.package.cmux-rd-screen]
 opt-level = 3
+[profile.release.package.cmux-agent-pane-policy]
+opt-level = 3
+[profile.release.package.cmux-acpmux-remote-wire]
+opt-level = 3
+[profile.release.package.cmux-keymap]
+opt-level = 3
 
 [profile.release.build-override]
 strip = false
