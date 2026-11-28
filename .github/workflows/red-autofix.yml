@@ -94,15 +94,34 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/main
-          fetch-depth: 0
+          # Only main's tip: the next step fetches the three base branches' whole history. fetch-depth 0 fetched
+          # every branch and tag in the repository (62 s of run 46126384098's checkout) for nothing triage reads.
+          fetch-depth: 1
           filter: blob:none
           persist-credentials: false
       - name: Fetch the base branches
-        run: git fetch --quiet --filter=blob:none https://github.com/${{ github.repository }}.git +refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next +refs/heads/nightly-next:refs/remotes/origin/nightly-next +refs/heads/main:refs/remotes/origin/main
+        run: git fetch --quiet --unshallow --filter=blob:none https://github.com/${{ github.repository }}.git +refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next +refs/heads/nightly-next:refs/remotes/origin/nightly-next +refs/heads/main:refs/remotes/origin/main
+      # A spare read budget: github.token's is shared by every workflow here, and run 46126384098 went red at its
+      # first read when it was spent. Triage runs only main's script and reads, so a read-only token is safe here.
+      # No mint (an app without these permissions) leaves triage on github.token alone, as before.
+      - name: Mint the spare read token
+        id: spare-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: read
+          permission-contents: read
+          permission-pull-requests: read
+          skip-token-revoke: true
       - name: Triage
         id: triage
         env:
           GH_TOKEN: ${{ github.token }}
+          RED_AUTOFIX_SPARE_TOKEN: ${{ steps.spare-token.outputs.token }}
           RED_AUTOFIX: ${{ vars.RED_AUTOFIX }}
           RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
           RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}

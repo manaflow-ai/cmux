@@ -106,6 +106,12 @@ REGEN = [{"job": re.compile(r"generated files", re.I), "artifact": "cmux-next-ge
 
 API_WAIT_BUDGET_S = int(os.environ.get("RED_AUTOFIX_API_WAIT_S") or 240)
 _api_waited = 0.0
+# A second token with its own rate-limit budget (triage: a read-only glaeda-route installation token). github.token's
+# budget is shared by every workflow in the repository, and when it is spent no wait inside the job reaches its
+# hourly reset: run 46126384098 waited its whole 240 s budget at the first read and went red. The first rate limit
+# moves every later call in this process onto the spare token, with no wait.
+_spare_token = os.environ.get("RED_AUTOFIX_SPARE_TOKEN") or ""
+_api_env: dict | None = None
 
 
 def _api_wait(seconds: float, what: str, stderr: str) -> None:
@@ -133,9 +139,12 @@ def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, raw: b
         argv += ["--input", "-"]
     if raw:
         argv += ["-H", "Accept: application/vnd.github.raw", "--allow-escape-sequences"]
+    global _api_env, _spare_token
     limited = 0
     for attempt in range(8):
-        out = run(argv, input=json.dumps(fields) if fields is not None else None, capture_output=True, text=True)
+        extra = {"env": _api_env} if _api_env is not None else {}
+        out = run(argv, input=json.dumps(fields) if fields is not None else None, capture_output=True, text=True,
+                  **extra)
         if out.returncode == 0:
             if raw:
                 return out.stdout
@@ -144,7 +153,14 @@ def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, raw: b
             argv.remove("--allow-escape-sequences")  # a gh older than the flag prints escapes as they are
             continue
         wait = re.search(r"retry after (\d+)s", out.stderr)
-        if re.search(r"API rate limit exceeded|secondary rate limit", out.stderr, re.I) and limited < 4:
+        rate_limited = re.search(r"API rate limit exceeded|secondary rate limit", out.stderr, re.I)
+        if rate_limited and _spare_token:
+            print(f"red-autofix: {method} {path}: rate-limited; switching to the spare token's budget",
+                  file=sys.stderr, flush=True)
+            _api_env = {**os.environ, "GH_TOKEN": _spare_token}
+            _spare_token = ""  # once: a spent spare is waited out like the first token
+            continue
+        if rate_limited and limited < 4:
             limited += 1
             _api_wait(int(wait.group(1)) + 1 if wait else 30 * 2 ** limited, f"{method} {path}: rate-limited",
                       out.stderr)  # 60, 120, 240 s, then 480, within the budget
