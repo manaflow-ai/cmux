@@ -2610,9 +2610,12 @@ dependencies = [
 name = "cmux-mobile-ffi"
 version = "0.1.0"
 dependencies = [
+ "base64",
+ "cmux-cloud-config",
  "cmux-conversation",
  "cmux-mobile-core",
  "cmux-rd-screen",
+ "serde",
  "serde_json",
  "uniffi",
 ]
