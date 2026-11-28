@@ -4,12 +4,14 @@
 // create popover, the inline editor, the keyboard's current message and a short notice.
 import { Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
-import { useLasting } from "../../ui/lasting";
 import { AttachmentContext } from "./AttachmentViews";
 import { AvatarContext } from "./avatars";
 import { Avatar, ChannelMark, PicturesContext } from "./Avatar";
 import { Composer } from "./Composer";
 import { ChiefTaskHat } from "./ChiefTaskHat";
+import { ScheduledStrip } from "./ScheduledStrip";
+import { useScheduled } from "./scheduled";
+import type { SendLaterStyle } from "./SendLater";
 import { GoalStrip } from "./GoalStrip";
 import { useHostSelection, type HomeSelection } from "./hostSelection";
 import { useHostMove } from "./hostMove";
@@ -18,6 +20,7 @@ import { HomeIcon } from "./icons";
 import {
   activityAt,
   channelIds,
+  chiefNamer,
   chiefState,
   chronological,
   conversationName,
@@ -31,7 +34,6 @@ import {
   threadSummaries,
   threadOf,
   timelineRows,
-  withChiefNames,
   withDraft,
 } from "./model";
 import type { PaletteItem } from "./Palette";
@@ -51,8 +53,9 @@ import { Timeline } from "./Timeline";
 import type { HomeConversation, HomeMessage, HomeParticipant, HomeRun } from "./types";
 import { useHomeKeys } from "./useHomeKeys";
 import { useWebSwapHold } from "../shared/useWebSwapHold";
-import { PresentationToggle, usePresentation } from "./presentation";
+import { DetailToggle, useDetail } from "./presentation";
 import { sliceWhole } from "../../ui/wholeChars";
+import { KeyHint } from "../../ui/KeyHint";
 
 const NOTICE_MS = 1600;
 
@@ -68,6 +71,7 @@ export function HomeChannelsPage({
   strings,
   pane: fixedPane,
   cloudEntry,
+  sendLaterStyle = "clock",
 }: {
   store: HomeChannelsStore;
   strings: Strings;
@@ -75,12 +79,14 @@ export function HomeChannelsPage({
   pane?: Pane;
   /** Where the list shows New Cloud Machine (default: a row under the search field). */
   cloudEntry?: CloudEntryLook;
+  /** Where the composer puts Send Later (the gallery shows both). */
+  sendLaterStyle?: SendLaterStyle;
 }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   // The sheets and the palette are not in the startup JS (lazySheets.tsx): fetch them once the
   // first frame is in, so the first open finds them loaded.
   useEffect(preloadSheets, []);
-  const presentation = usePresentation(snap.selected);
+  const detail = useDetail(snap.selected);
   // WEB-SWAP: a web update's reload waits while a message lives only in this page: one on its way
   // to the owner, or a failed one with Retry (pages/shared/webSwap.ts).
   useWebSwapHold(
@@ -94,6 +100,7 @@ export function HomeChannelsPage({
   const pane = fixedPane ?? hashPane;
   const sheetState = useSyncExternalStore(store.sheets.subscribe, store.sheets.getSnapshot);
   const caps = sheetState.capabilities;
+  const scheduled = useScheduled(store.scheduled, snap.selected);
   // New Chief and Edit Chief are a page on the right side, in place of the conversation (u2586).
   const chiefPage = sheetState.route?.kind === "newChief" || sheetState.route?.kind === "editChief";
   const [palette, setPalette] = useState(false);
@@ -133,11 +140,13 @@ export function HomeChannelsPage({
   const column = useRef<HTMLDivElement | null>(null);
   const me = snap.me?.id;
   const channels = useMemo(() => channelIds(snap.conversations.values(), me), [snap.conversations, me]);
+  // The renamed conversations of the last pass, kept while their input and name hold (model.ts).
+  const [renameChiefs] = useState(chiefNamer);
   // A Chief's direct message shows the Chief's current name (its record), not the name its
   // conversation was made with ("Chief" for every brain's own DM).
   const conversations = useMemo(
-    () => withChiefNames(snap.conversations, channels, me, sheetState.chiefs),
-    [snap.conversations, channels, me, sheetState.chiefs],
+    () => renameChiefs(snap.conversations, channels, me, sheetState.chiefs),
+    [renameChiefs, snap.conversations, channels, me, sheetState.chiefs],
   );
   const open = snap.selected ? conversations.get(snap.selected) : undefined;
   const pendingByKey = useMemo(() => new Map(snap.pending.map((entry) => [entry.key, entry])), [snap.pending]);
@@ -169,14 +178,11 @@ export function HomeChannelsPage({
     return map;
   }, [conversations, snap.me]);
   const runsWithPeople = useMemo<RunsContextValue>(
-    () => ({ ...runs, people, draftTurn: snap.draft?.turn, presentation }),
-    [runs, people, snap.draft?.turn, presentation],
+    () => ({ ...runs, people, draftTurn: snap.draft?.turn, detail }),
+    [runs, people, snap.draft?.turn, detail],
   );
   const mentionable = useMemo(() => others(open, me), [open, me]);
   const online = snap.connection === "online";
-  // The header says the page is offline or connecting only once that has lasted past the grace
-  // (ui/lasting.ts): a daemon restart or a dropped link that comes back shows nothing.
-  const offlineLasting = useLasting(!online);
   const name = open ? conversationName(open, me) : "";
   const channel = open ? channels.has(open.id) : false;
   const place = channel ? `#${name}` : name;
@@ -324,12 +330,17 @@ export function HomeChannelsPage({
     [measured, listShown, snap.selected, selectionMessage],
   );
   useHostSelection(store.host, selection);
-  const moveList = (delta: 1 | -1, unreadOnly: boolean): boolean => {
-    // The order the list shows: my pins first, then newest activity.
+  // The order the list shows (my pins first, then newest activity) and each conversation's place in
+  // it, once per change of the conversations: a move finds the selection without a pass over them.
+  const listed = useMemo(() => {
     const { pinned, rest } = listOrder(snap.conversations.values());
     const order = [...pinned, ...rest];
+    return { order, place: new Map(order.map((c, index) => [c.id, index])) };
+  }, [snap.conversations]);
+  const moveList = (delta: 1 | -1, unreadOnly: boolean): boolean => {
+    const { order } = listed;
     const n = order.length;
-    const start = order.findIndex((c) => c.id === snap.selected);
+    const start = snap.selected === undefined ? -1 : (listed.place.get(snap.selected) ?? -1);
     const base = start < 0 ? (delta > 0 ? -1 : n) : start;
     for (let step = 1; step <= n; step += 1) {
       const next = order[(((base + delta * step) % n) + n) % n];
@@ -629,7 +640,7 @@ export function HomeChannelsPage({
                         )}
                       </p>
                       <span className="lg-spacer" />
-                      <PresentationToggle conversation={open.id} strings={strings} />
+                      <DetailToggle conversation={open.id} strings={strings} />
                       {caps.chiefWork && openChief && open.owner === "local" && (
                         <button
                           type="button"
@@ -645,11 +656,6 @@ export function HomeChannelsPage({
                         >
                           <HomeIcon name="bulletList" size={16} />
                         </button>
-                      )}
-                      {offlineLasting && (
-                        <output className="lg-connection">
-                          {t(snap.connection === "connecting" ? "connection.connecting" : "connection.offline")}
-                        </output>
                       )}
                       {notice && <output className="lg-notice">{notice}</output>}
                       {/* Who else has the chat open: the agent chat's faces (multiplayer/Faces.tsx). */}
@@ -738,12 +744,18 @@ export function HomeChannelsPage({
                         />
                         <ChiefTaskHat book={store.runs} conversation={open.id} strings={strings} />
                         <div className="lg-main-compose">
+                          <ScheduledStrip
+                            entries={scheduled}
+                            book={store.scheduled}
+                            strings={strings}
+                            disabled={!online}
+                          />
                           <Composer
                             key={open.id}
                             strings={strings}
                             placeholder={format("composer.placeholder", place)}
                             label={format("composer.placeholder", name)}
-                            disabled={!online}
+                            held={!online}
                             people={mentionable}
                             onEditLast={() => {
                               const last = lastEditable(
@@ -756,6 +768,14 @@ export function HomeChannelsPage({
                             attachments={uploads}
                             dropZone={column}
                             onSend={(text, files) => store.send(text, undefined, undefined, files)}
+                            sendLater={
+                              caps.sendLater && open.owner === "local"
+                                ? {
+                                    style: sendLaterStyle,
+                                    onSchedule: (text, files, at) => store.scheduled.create(open.id, text, at, files),
+                                  }
+                                : undefined
+                            }
                           />
                         </div>
                         {snap.thread && (
@@ -878,7 +898,7 @@ function EmptyState({
         )}
         <button type="button" className="lg-button" onClick={onPalette}>
           <span>{t("rail.jump")}</span>
-          <kbd className="lg-kbd">⌘K</kbd>
+          <KeyHint keys="⌘K" />
         </button>
       </div>
     </div>

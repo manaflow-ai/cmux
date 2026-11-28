@@ -31,7 +31,7 @@ VARIANT = ROOT / "scripts/ci/nightly-steps/app-build-live-code.sh"
 
 STUBS = {
     "scripts/ci/fleet-compilation-cache.sh": "",
-    "scripts/cmux-next/lib/compilation-cache.sh": "cmux_next_runtime_cas_failed() { return 1; }\n",
+    "scripts/cmux-next/lib/compilation-cache.sh": "cmux_next_runtime_cas_failed() { return 1; }\ncmux_next_build_service_crashed() { return 1; }\n",
     "scripts/ci/nightly-steps/app-host-build-root.sh": 'host_root=""\nbuild_root="$PWD"\nderived_data=dd\n',
     "scripts/cmux-next/lib/nightly-swift-defines.sh": 'CMUX_NIGHTLY_NEXT_SWIFT_DEFINES="-DCMUX_BLOCKING_CHECKS"\n',
     "scripts/ci/run-with-helper-prebuild.py": (

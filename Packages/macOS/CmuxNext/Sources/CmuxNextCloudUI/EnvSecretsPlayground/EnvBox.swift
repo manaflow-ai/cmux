@@ -15,20 +15,23 @@ final class EnvBox: NSView {
     var border: NSColor? { didSet { needsDisplay = true } }
     private let corner: Corner
     private let dash: [CGFloat]?
+    private let borderWidth: CGFloat
 
     /// - Parameters:
     ///   - content: the view inside, or nil for a plain shape (a divider line, a dot).
     ///   - padding: the room between the shape's edge and `content`.
     ///   - fill: the shape's fill; nil draws none.
-    ///   - border: a one-point inside border; nil draws none.
+    ///   - border: an inside border; nil draws none.
+    ///   - borderWidth: the border's width in points.
     ///   - corner: the corner radius, or a capsule.
     ///   - dash: a dash pattern for the border.
     init(_ content: NSView?, padding: NSEdgeInsets = NSEdgeInsetsZero, fill: NSColor? = nil, border: NSColor? = nil,
-         corner: Corner = .radius(0), dash: [CGFloat]? = nil) {
+         borderWidth: CGFloat = 1, corner: Corner = .radius(0), dash: [CGFloat]? = nil) {
         self.fill = fill
         self.border = border
         self.corner = corner
         self.dash = dash
+        self.borderWidth = borderWidth
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         guard let content else { return }
@@ -58,8 +61,9 @@ final class EnvBox: NSView {
         }
         if let border {
             border.setStroke()
-            let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: max(radius - 0.5, 0), yRadius: max(radius - 0.5, 0))
-            path.lineWidth = 1
+            let half = borderWidth / 2
+            let path = NSBezierPath(roundedRect: bounds.insetBy(dx: half, dy: half), xRadius: max(radius - half, 0), yRadius: max(radius - half, 0))
+            path.lineWidth = borderWidth
             if let dash { path.setLineDash(dash, count: dash.count, phase: 0) }
             path.stroke()
         }

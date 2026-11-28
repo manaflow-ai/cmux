@@ -75,6 +75,11 @@
 .acpmux-session-info-usage__action:disabled {
   opacity: 0.5;
 }
+/* Why the action is off, beside it in the quieter ink (a disabled button gets no hover). */
+.acpmux-session-info-usage__soon {
+  min-width: 0;
+  color: var(--agent-muted);
+}
 .acpmux-session-info-usage__action:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;

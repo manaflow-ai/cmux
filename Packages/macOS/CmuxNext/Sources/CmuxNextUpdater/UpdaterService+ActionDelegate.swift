@@ -9,13 +9,18 @@ extension UpdaterService: UpdateActionDelegate {
     /// survive the relaunch. Sparkle's terminate goes through the normal
     /// `applicationShouldTerminate` path.
     public func updaterWillRelaunchApplication() {
+        stopPrewarmForInstall()
         let waited = installStartedAt.map { " after \(Int(now().timeIntervalSince($0))) s of install" } ?? ""
-        log.append("relaunching for update\(waited)")
+        log.append("relaunching for update\(waited) (\(updateClicks) update click\(updateClicks == 1 ? "" : "s"))")
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("will_relaunch")
+        UpdateHarness.mark("update_clicks_\(updateClicks)")
         #endif
+        relaunchingForUpdate = true
         recordRelaunchFocus()
-        UpdateInstallCheck.write(installingBuild.map { .init(fromBuild: identity.build, targetBuild: $0, recordedAt: now()) }, defaults: defaults)
+        let clicks = updateClicks
+        UpdateInstallCheck.write(installingBuild.map { .init(fromBuild: identity.build, targetBuild: $0, recordedAt: now(), clicks: clicks) },
+                                 defaults: defaults)
         willRelaunch?()
         // Only a relaunch the person asked for (a click, or a click that took an automatic install
         // over) takes the windows off the screen; its failure and stall paths bring them back. An

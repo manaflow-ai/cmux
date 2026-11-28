@@ -1,0 +1,19 @@
+{
+  "family": "usage",
+  "ops": {
+    "usage.cap.set": {
+      "source": "cloud",
+      "owner": "cloud:UsageMeterDO",
+      "class": "mutation",
+      "risk": "money",
+      "digest": "da03a542c1ff6b15"
+    },
+    "usage.summary": {
+      "source": "cloud",
+      "owner": "cloud:UsageMeterDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "186d493d127e63ad"
+    }
+  }
+}

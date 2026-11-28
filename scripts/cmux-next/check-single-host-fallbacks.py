@@ -36,7 +36,7 @@ The hook runs only installed code, so the installer puts tests/workflow_jobs.py 
 scripts/git-hooks/checks-copy-inputs, which also stamps the copy, so a resolver change alone reaches the hook); it
 loads that copy first, else the repository's.
 
-Where it runs. No CI gate (CLAUDE.md, Lawrence 2026-10-23: no new CI gates or tests). The mode is an explicit
+Where it runs. No CI gate (built under Lawrence's 2026-10-23 no-new-CI rule, since lifted). The mode is an explicit
 flag, never read from the environment:
 - strict (the default): print each finding and exit 1. scripts/cmux-next/prepush-gate.py runs it on the pre-push
   hook and a plain local run when a push changes .github/workflows/ or the declaration, and refuses only names
@@ -58,6 +58,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 from collections.abc import Iterable, Iterator
 from pathlib import Path
@@ -209,6 +210,16 @@ def first_line(paths: list[Path], pattern: re.Pattern) -> tuple[Path, int]:
     return paths[0], 1
 
 
+# The build-fleet test's nightly scan (nightly_terminal_references): a workflow is a nightly one when its file name
+# holds the policy's nightly_workflow_marker ("nightly"); each label a nightly runs-on can end on must be declared in
+# nightly_terminal_labels (or be a Blacksmith pool label), and each `needs.JOB.outputs.NAME` it reads in
+# nightly_job_outputs. This file holds only part of that policy (build-fleet declares its own pool labels), so the
+# nightly scan judges only what a change adds (--new-since).
+NIGHTLY_MARKER = "nightly"
+NEEDS_OUTPUT = re.compile(r"needs\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+)")
+# A runs-on array spelled as a string literal inside fromJSON(...): '["cmux-mac","xcode-27.0"]'.
+ARRAY_LITERAL = re.compile(r"'(\[[^']*\])'")
+
 # A repository variable read at all, for the line of one whose name is an expression.
 ANY_VAR = re.compile(r"\bvars\s*[.\[]", re.IGNORECASE)
 
@@ -224,11 +235,23 @@ class Reads:
         self.unverifiable: list[tuple[str, str, int]] = []  # (where, file, line) of a trace the resolver refused
         self.unsettled: list[tuple[str, str, int, str]] = []  # (where, file, line, term) of a part nothing settles
         self.unreadable: list[str] = []
+        # Nightly workflows only (a name holding NIGHTLY_MARKER): (workflow, job, file, line, label) of each label a
+        # runs-on can end on, and (workflow, job, file, line, "<workflow>:<job>.<output>") of each picker output it reads.
+        self.nightly_labels: list[tuple[str, str, str, int, str]] = []
+        self.nightly_outputs: list[tuple[str, str, str, int, str]] = []
 
 
 # The contexts a settled runs-on operand reads by name (settled()): each is either declared here (vars) or a value
 # a placement job or a dispatch picks at run time, whose own policy is the job's business.
 SETTLED_READS = {"vars": 2, "inputs": 2, "needs": 4}
+
+# CI v2's scheduler-granted label (cmuxterm-hq docs/design/ci-v2.md, "The queue and the grant"): one label per run
+# and attempt, which nothing but the one-job JIT runner the scheduler starts for that run carries (hq
+# tools/fleet-reconcilers/runner_pool.py scheduler_plan). It is never a single host, and its fallback is the
+# overflow switch the same runs-on reads first (vars.CI_OVERFLOW_LINUX, declared in variables). Only this exact
+# form is settled; any other format() stays a finding.
+SCHEDULER_GRANT = re.compile(
+    r"format\(\s*'cmux-\{0\}-\{1\}-(?:linux|mac)'\s*,\s*github\.run_id\s*,\s*github\.run_attempt\s*\)")
 
 
 def _split_top(text: str, operator: str) -> list[str]:
@@ -285,6 +308,8 @@ def _settled_operand(operand: str) -> bool:
         else:
             return settled(operand[spans[0].end:spans[-1].start])
     if len(stream) == 1 and stream[0][0] == "string":
+        return True
+    if SCHEDULER_GRANT.fullmatch(operand.strip()):
         return True
     head = stream[0][1].lower() if stream[0][0] == "name" else ""
     if head == "fromjson" and len(stream) >= 3 and stream[1] == ("op", "("):
@@ -366,6 +391,8 @@ def references(workflow_dirs: Iterable[Path]) -> Reads:
                     for label in LABEL.findall(value):
                         _, line = first_line([paths[name]], re.compile(rf"(?<![A-Za-z0-9_.-]){re.escape(label)}(?![A-Za-z0-9_.-])"))
                         reads.lines.append((rel, line, label))
+                if NIGHTLY_MARKER in name.lower():
+                    nightly_reads(reads, name, job_id, rel, paths[name], resolved)
                 if resolved.matrix_audit is None:
                     for term in sorted(t for t in resolved.runs_on_unresolved if not settled(t)):
                         _, line = first_line([paths[name]], re.compile(r"^\s*runs-on\s*:"))
@@ -373,7 +400,47 @@ def references(workflow_dirs: Iterable[Path]) -> Reads:
     return reads
 
 
-def findings(workflow_dirs: Iterable[Path], policy: dict) -> list[dict]:
+def nightly_reads(reads: Reads, name: str, job_id: str, rel: str, path: Path, resolved) -> None:
+    """Record the labels a nightly job's runs-on can end on and the picker outputs it reads."""
+    labels = set(resolved.runs_on)
+    for term in resolved.runs_on_unresolved:
+        for array in ARRAY_LITERAL.findall(term):
+            try:
+                values = json.loads(array)
+            except ValueError:
+                continue
+            labels.update(v for v in values if isinstance(v, str) and not v.startswith(ARRAY_PIN))
+        for match in NEEDS_OUTPUT.finditer(term):
+            key = f"{name}:{match.group(1)}.{match.group(2)}"
+            _, line = first_line([path], re.compile(re.escape(match.group(0))))
+            reads.nightly_outputs.append((name, job_id, rel, line, key))
+    for label in sorted(labels):
+        _, line = first_line([path], re.compile(rf"(?<![A-Za-z0-9_.-]){re.escape(label)}(?![A-Za-z0-9_.-])"))
+        reads.nightly_labels.append((name, job_id, rel, line, label))
+
+
+def nightly_findings(reads: Reads, policy: dict) -> list[dict]:
+    """Each nightly runs-on label or picker output with no declaration in this file."""
+    terminals = policy.get("nightly_terminal_labels", {}) if isinstance(policy.get("nightly_terminal_labels"), dict) else {}
+    outputs = policy.get("nightly_job_outputs", {}) if isinstance(policy.get("nightly_job_outputs"), dict) else {}
+    found = []
+    for workflow, job, rel, line, label in reads.nightly_labels:
+        if label in terminals or BLACKSMITH_POOL.fullmatch(label):
+            continue
+        found.append({"key": f"nightly-label:{workflow}:{label}", "file": rel, "line": line, "status": FOUND,
+                      "message": f"{workflow}:{line}: job {job}: {label} is a nightly runs-on label with no declared "
+                                 f"fallback (nightly_terminal_labels.{label} in {DECLARATION})"})
+    for workflow, job, rel, line, key in reads.nightly_outputs:
+        if key in outputs:
+            continue
+        found.append({"key": f"nightly-output:{key}", "file": rel, "line": line, "status": FOUND,
+                      "message": f"{workflow}:{line}: job {job}: its runs-on reads {key.split(':', 1)[1]}, a label picked "
+                                 f"at run time, and nightly_job_outputs does not declare {key} in {DECLARATION} "
+                                 "(the labels it can emit, constrained_by, empty_falls_back_to)"})
+    return found
+
+
+def findings(workflow_dirs: Iterable[Path], policy: dict, nightly: bool = False) -> list[dict]:
     """Each runs-on variable or single-host label with no declared fallback, and what could not be read.
 
     A finding is {"key", "message", "file", "line"}; `key` names the undeclared thing (`vars.NAME`, a label),
@@ -413,6 +480,8 @@ def findings(workflow_dirs: Iterable[Path], policy: dict) -> list[dict]:
             found.append({"key": f"label:{label}", "file": rel, "line": number, "status": FOUND,
                           "message": f"{Path(rel).name}:{number}: {label} is a single-host label with no declared "
                                      f"fallback (labels.{label})"})
+    if nightly:
+        found.extend(nightly_findings(reads, policy))
     return found
 
 
@@ -420,7 +489,7 @@ def undeclared(workflow_dirs: Iterable[Path], policy: dict) -> list[str]:
     return [finding["message"] for finding in findings(workflow_dirs, policy)]
 
 
-def check(root: Path) -> list[dict]:
+def check(root: Path, nightly: bool = False) -> list[dict]:
     """Every finding for the repository at ROOT: the declaration's own faults, then the workflows'.
 
     A declaration the scan cannot walk (missing, not JSON, a section of the wrong type) gives INCOMPLETE findings
@@ -442,7 +511,40 @@ def check(root: Path) -> list[dict]:
                 for fault in faults or ["a section the scan reads has the wrong type"]]
     found = [{"key": f"declaration:{fault}", "file": DECLARATION, "line": 1, "status": FOUND,
               "message": f"{DECLARATION}: {fault}"} for fault in faults]
-    return found + findings([root / WORKFLOWS], policy)
+    return found + findings([root / WORKFLOWS], policy, nightly)
+
+
+def base_tree(root: Path, rev: str, into: Path) -> None:
+    """The .github of REV in ROOT's repository, written under INTO."""
+    archive = subprocess.run(["git", "-C", str(root), "archive", "--format=tar", rev, ".github"],
+                             capture_output=True, check=False)
+    if archive.returncode != 0:
+        raise RuntimeError(f"git archive {rev} .github failed: {archive.stderr.decode(errors='replace').strip()}")
+    subprocess.run(["tar", "-x", "-C", str(into)], input=archive.stdout, check=True)
+
+
+def new_since(root: Path, rev: str) -> int:
+    """The pull request gate: fail on each finding (nightly labels and picker outputs included) the head has and REV
+    did not, and on any finding the head scan could not finish. A name REV already used is left alone."""
+    import tempfile
+
+    head = check(root, nightly=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            base_tree(root, rev, Path(tmp))
+        except (RuntimeError, OSError, subprocess.CalledProcessError) as error:
+            print(f"single-host fallbacks: cannot read the base {rev}: {error}", file=sys.stderr)
+            return 2
+        old = {finding["key"] for finding in check(Path(tmp), nightly=True)}
+    added = [f for f in head if f["status"] == INCOMPLETE or f["key"] not in old]
+    for finding in added:
+        print(finding["message"])
+    if added:
+        print(f"single-host fallbacks: this change adds {len(added)} runs-on name(s) with no declared fallback; "
+              f"declare each in {DECLARATION} (build-fleet's runner label policy reads it)", file=sys.stderr)
+        return 1
+    print(f"single-host fallbacks: this change adds no undeclared runs-on name ({len(head)} older finding(s) left alone)")
+    return 0
 
 
 def escape(text: str, properties: bool = False) -> str:
@@ -481,9 +583,13 @@ def main(argv: list[str]) -> int:
     mode.add_argument("--advisory", action="store_true",
                       help="CI: one ::warning per finding and a step summary line, exit 0")
     mode.add_argument("--json", action="store_true", help="print the findings as JSON, exit 0 (the pre-push gate)")
+    mode.add_argument("--new-since", metavar="REV",
+                      help="CI: exit 1 on each finding, nightly labels and picker outputs too, that REV did not have")
     args = parser.parse_args(argv)
     if args.advisory:
         return advisory(args.root)
+    if args.new_since:
+        return new_since(args.root, args.new_since)
     found = check(args.root)
     if args.json:
         print(json.dumps(found))

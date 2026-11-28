@@ -27,7 +27,9 @@ change's regression). Two raises are allowed, each on purpose:
                     much. A hit REF was already red on never moves into a row.
 --baseline-against BASE_TREE judges a change's baseline against the base's (the CI
 job and safe-push run it): a counted row above the base's row (after proven moves)
-fails, a waived row above it is printed as a recorded waiver.
+fails, a waived row above it is printed as a recorded waiver. A row no higher than
+the base's row plus the hits the old cut hid in the base tree (behind a mid-file
+test module) is recorded debt, not a raise.
 
   Swift (Packages/macOS/CmuxNext/Sources and the Sources of every package in its
   `.package(path:)` closure, so code the app links is in scope, except third-party
@@ -91,7 +93,7 @@ fails, a waived row above it is printed as a recorded waiver.
                       left it reading a NULL or freed entry (SIGSEGV, cx-9dh7). Children
                       get their variables through their spawn environment. At run time,
                       ProcessEnvironmentGuard.write refuses an allowed write after its freeze.
-  Rust (cmux-tui/crates/*/src, code before an inline #[cfg(test)] module, no tests/ folders):
+  Rust (cmux-tui/crates/*/src, code outside inline #[cfg(test)] module blocks, no tests/ folders):
     unwrap            .unwrap()
     expect            .expect(
     panic_macro       panic!, unreachable!, todo!, unimplemented!
@@ -109,8 +111,10 @@ Exit 1 when a module or crate gained a hit or a waived hit; with --update-baseli
 a row stays above the baseline; with --baseline-against, when a counted row rose.
 """
 import argparse
+import functools
 import subprocess
 import json
+import multiprocessing
 import os
 import re
 import sys
@@ -155,8 +159,8 @@ RENDER_FONT = re.compile(
     r"|(?<![\w.])\.(?:systemFont|boldSystemFont|monospacedSystemFont|monospacedDigitSystemFont)\(ofSize")
 STATIC_LET = re.compile(r"\bstatic\s+let\b")
 # Modules that decode external input or draw on background threads (Lawrence, 2026-10-09).
-INDEX_MODULES = {"MessagesLabHome", "MessagesLabSidebar", "CmuxHomeRender", "CMUXMobileCore", "CmuxIrxTransport",
-                 "CmuxIrohTransport", "CmuxNextDaemon", "CmuxNextControl", "CmuxNextMobile", "CmuxTerminalSizing"}
+INDEX_MODULES = {"MessagesLabHome", "MessagesLabSidebar", "CmuxHomeRender", "CMUXMobileCore",
+                 "CmuxNextDaemon", "CmuxNextControl", "CmuxNextMobile", "CmuxTerminalSizing"}
 INDEX_SUBSCRIPT = re.compile(r"(?<![\w.])(?:[a-z_]\w*|self)(?:\.\w+)*(?:\(\))?\[([^\[\]]+)\]")
 OPTIONAL_BINDING = re.compile(r"\b(?:if|guard|while)\s+(?:let|var)\b|,\s*let\s+\w+\s*=")
 INT_CONVERSION = re.compile(
@@ -620,11 +624,37 @@ RUST_PATH_ATTR = re.compile(r'#\[path\s*=\s*"(?P<path>[^"]+)"\s*\]')
 UNREACHABLE_INIT = re.compile(r"\binit\??\((coder|rootView)\b")
 
 
+@functools.lru_cache(maxsize=1 << 18)
 def swift_code(line):
     """LINE without its comments and with string literal text blanked (quotes and
     interpolated code kept), so `"Hello! world"` or `// x!` never count and
     `"\\(value!)"` still does. One line at a time: the inside of a multi-line string
-    literal is read as code."""
+    literal is read as code. Cached: several scans strip the same lines (each tree's
+    scan_swift, scan_env_writes and the declaration reads)."""
+    if '"' not in line:
+        # No string literal: only comments to drop, the same as the walk below does.
+        if "/" not in line:
+            return line
+        out, i = [], 0
+        while True:
+            line_comment, block = line.find("//", i), line.find("/*", i)
+            if line_comment < 0 and block < 0:
+                out.append(line[i:])
+                break
+            if block < 0 or 0 <= line_comment < block:
+                out.append(line[i:line_comment])
+                break
+            out.append(line[i:block])
+            end = line.find("*/", block + 2)
+            if end < 0:
+                break
+            out.append(" " * (end + 2 - block))
+            i = end + 2
+        return "".join(out)
+    return _swift_code_walk(line)
+
+
+def _swift_code_walk(line):
     out, i, n = [], 0, len(line)
     in_string, depth = False, 0  # depth > 0: inside \( ... ) of a string
     while i < n:
@@ -824,6 +854,42 @@ def swift_line_hits(lines, index, module=None, dictionaries=frozenset()):
     return hits
 
 
+def _collections_of_file(item):
+    module, path = item
+    lines = open(path, encoding="utf-8", errors="replace").read().split("\n")
+    return module, collection_kinds(lines)
+
+
+# The scan reads every Swift and Rust source file one after another in pure Python: 54 s on a 4 vCPU
+# Blacksmith runner and 108-121 s on a pool VM, the critical path of cmux-next fast gates (p90 3.5 min against its
+# 3 min budget, 2026-11-22). Files are independent and every total is a sum, so the per-file work fans out over the
+# cores (a fork pool: the workers inherit _CONTEXT) and the parent adds each file's hits in the order of the files,
+# so the counts and the lines are the serial scan's, whatever the worker count. CRASH_RATCHET_JOBS=1 scans serially.
+_CONTEXT = {}
+
+
+def _worker_count(items):
+    try:
+        wanted = int(os.environ.get("CRASH_RATCHET_JOBS") or 0)
+    except ValueError:
+        wanted = 0
+    cores = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
+    return max(1, min(wanted or cores, 16, items // 8))
+
+
+def parallel_map(fn, items):
+    """[fn(item) for item in items], in order, over a fork pool when there are cores and files enough."""
+    items = list(items)
+    workers = _worker_count(len(items))
+    if workers > 1:
+        try:
+            with multiprocessing.get_context("fork").Pool(workers) as pool:
+                return pool.map(fn, items, chunksize=max(1, len(items) // (workers * 8)))
+        except Exception:  # noqa: BLE001 - a pool that cannot start: the serial scan below answers, or raises the same
+            pass
+    return [fn(item) for item in items]
+
+
 def module_dictionaries(repo, exported):
     """{index module: names it declares as dictionaries and never as arrays}."""
     return {module: d for module, (d, _) in module_collections(repo, exported).items()}
@@ -833,17 +899,19 @@ def module_collections(repo, exported):
     """{index module: (names it declares as dictionaries and never otherwise, names it declares
     as an indexable non-dictionary anywhere)}."""
     declared = {}
+    items = []
     for root in swift_source_roots(repo):
         sources = os.path.join(repo, root)
         for path in tracked_files(repo, sources, exported):
             module = os.path.relpath(path, sources).split(os.sep)[0]
             if module not in INDEX_MODULES or not path.endswith(".swift") or not os.path.isfile(path):
                 continue
-            dicts, arrays, others = collection_kinds(open(path, encoding="utf-8", errors="replace").read().split("\n"))
-            entry = declared.setdefault(module, (set(), set(), set()))
-            entry[0].update(dicts)
-            entry[1].update(arrays)
-            entry[2].update(others)
+            items.append((module, path))
+    for module, (dicts, arrays, others) in parallel_map(_collections_of_file, items):
+        entry = declared.setdefault(module, (set(), set(), set()))
+        entry[0].update(dicts)
+        entry[1].update(arrays)
+        entry[2].update(others)
     return {module: (frozenset(d - a - o), frozenset(a)) for module, (d, a, o) in declared.items()}
 
 
@@ -892,29 +960,48 @@ def scan_tree(repo, exported):
 def scan_swift(repo, scan, exported):
     """Ratchet hits per module into SCAN (counted, or waived by a crash-allow); hits of banned
     classes per file (crash-allow ignored) into its banned_files."""
-    banned = banned_kinds("swift")
-    banned_modules = banned_in("swift")
-    collections = module_collections(repo, exported)
+    _CONTEXT.update(repo=repo, banned=banned_kinds("swift"), banned_modules=banned_in("swift"),
+                    collections=module_collections(repo, exported))
+    items = []
     for root in swift_source_roots(repo):
         sources = os.path.join(repo, root)
         for path in tracked_files(repo, sources, exported):
             name = os.path.basename(path)
             if not name.endswith(".swift") or not os.path.isfile(path):
                 continue
-            rel = os.path.relpath(path, sources).split(os.sep)[0]  # the Swift module
-            lines = open(path, encoding="utf-8", errors="replace").read().split("\n")
-            module_dicts, module_arrays = collections.get(rel, (frozenset(), frozenset()))
-            file_dicts = file_dictionaries(lines, module_dicts, module_arrays) if rel in INDEX_MODULES else frozenset()
-            for index, line in enumerate(lines):
-                if line.lstrip().startswith("//"):
-                    continue
-                is_allowed = allowed(lines, index)
-                for kind, hits in swift_line_hits(lines, index, rel, file_dicts).items():
-                    if kind in banned or (kind, rel) in banned_modules:
-                        key = (kind, os.path.relpath(path, repo))
-                        scan.banned_files[key] = scan.banned_files.get(key, 0) + hits
-                        continue
-                    scan.add(is_allowed, "swift", kind, rel, line, hits)
+            items.append((path, os.path.relpath(path, sources).split(os.sep)[0]))  # the path, the Swift module
+    for events in parallel_map(_swift_file_events, items):
+        replay(scan, events)
+
+
+def replay(scan, events):
+    """Add one file's hits (from _swift_file_events or _rust_file_events) to SCAN."""
+    for event in events:
+        if event[0] == "banned":
+            scan.banned_files[event[1]] = scan.banned_files.get(event[1], 0) + event[2]
+        else:
+            scan.add(*event[1:])
+
+
+def _swift_file_events(item):
+    """One Swift file's hits: ("banned", (kind, repo-relative path), hits) or ("add", waived, "swift", kind, module,
+    line, hits), in the file's order."""
+    path, rel = item
+    banned, banned_modules = _CONTEXT["banned"], _CONTEXT["banned_modules"]
+    events = []
+    lines = open(path, encoding="utf-8", errors="replace").read().split("\n")
+    module_dicts, module_arrays = _CONTEXT["collections"].get(rel, (frozenset(), frozenset()))
+    file_dicts = file_dictionaries(lines, module_dicts, module_arrays) if rel in INDEX_MODULES else frozenset()
+    for index, line in enumerate(lines):
+        if line.lstrip().startswith("//"):
+            continue
+        is_allowed = allowed(lines, index)
+        for kind, hits in swift_line_hits(lines, index, rel, file_dicts).items():
+            if kind in banned or (kind, rel) in banned_modules:
+                events.append(("banned", (kind, os.path.relpath(path, _CONTEXT["repo"])), hits))
+                continue
+            events.append(("add", is_allowed, "swift", kind, rel, line, hits))
+    return events
 
 
 def load_allowlist():
@@ -1040,6 +1127,7 @@ def scan_rust(repo, scan, exported):
     skipped_dirs = {"target", "tests", "benches", "examples", "node_modules", "fixtures"}
     paths = tracked_files(repo, crates, exported)
     test_files, test_folders = rust_test_modules(paths)
+    items = []
     for path in paths:
         dirpath, name = os.path.split(path)
         parts = os.path.relpath(dirpath, crates).split(os.sep)
@@ -1052,22 +1140,88 @@ def scan_rust(repo, scan, exported):
         norm = os.path.normpath(path)
         if norm in test_files or any(norm.startswith(folder + os.sep) for folder in test_folders):
             continue
-        rel = os.path.relpath(path, crates).split(os.sep)[0]  # the crate
-        text = open(path, encoding="utf-8", errors="replace").read()
-        # Inline test modules (`#[cfg(test)] mod x {`) are cut; a
-        # `#[cfg(test)] mod x;` declaration is not code.
+        items.append((path, os.path.relpath(path, crates).split(os.sep)[0]))  # the path, the crate
+    for events in parallel_map(_rust_file_events, items):
+        replay(scan, events)
+
+
+# Set to 1 to read with the old cut (everything after the first inline test module dropped): hidden_debt's second
+# scan. An environment variable, so parallel_map's worker processes see it whatever their start method.
+OLD_CUT_ENV = "CRASH_RATCHET_OLD_CUT"
+
+
+def hidden_debt(tree, exported):
+    """{row: hits} the old cut hid in TREE: this reader's count over the old cut's, where it is higher. Only the
+    reader's change, never a hit the tree was red on."""
+    new = scan_rows(scan_tree(tree, exported))
+    previous = os.environ.get(OLD_CUT_ENV)
+    os.environ[OLD_CUT_ENV] = "1"
+    try:
+        old = scan_rows(scan_tree(tree, exported))
+    finally:
+        if previous is None:
+            os.environ.pop(OLD_CUT_ENV, None)
+        else:
+            os.environ[OLD_CUT_ENV] = previous
+    return {row: n - old.get(row, 0) for row, n in new.items() if n > old.get(row, 0)}
+
+
+@functools.lru_cache(maxsize=1)
+def _test_module_blocks():
+    """rust_test_modules.py beside this file (its brace matcher), or None in a folder without it."""
+    import importlib.util
+    path = os.path.join(HERE, "rust_test_modules.py")
+    if not os.path.isfile(path):
+        return None
+    spec = importlib.util.spec_from_file_location("cmux_crash_rust_test_modules", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module if hasattr(module, "_block_end") else None
+
+
+def rust_product_text(text):
+    """TEXT with each inline test module's own `{ ... }` block blanked (newlines kept, so line numbers hold).
+    Product code after a mid-file test module still counts: the old cut at the first one hid it, and a sweep that
+    moved such a module out then read as adding hits that were already there (lane/inline-tests-sweep-8,
+    2026-11-27: cmux-tui-core expect.waived 4 -> 5). Without rust_test_modules.py beside this file, the old cut."""
+    blocks = None if os.environ.get(OLD_CUT_ENV) == "1" else _test_module_blocks()
+    if blocks is None:
         inline = INLINE_TESTS.search(text)
-        lines = (text if not inline else text[:inline.start()]).split("\n")
-        for index, line in enumerate(lines):
-            stripped = line.lstrip()
-            if stripped.startswith("//"):
-                continue
-            is_allowed = allowed(lines, index)
-            code = line.split("//", 1)[0] if '"' not in line else line
-            for kind, pattern in RUST.items():
-                hits = len(pattern.findall(code))
-                if hits:
-                    scan.add(is_allowed, "rust", kind, rel, line, hits)
+        return text if not inline else text[:inline.start()]
+    out, pos = [], 0
+    while True:
+        match = INLINE_TESTS.search(text, pos)
+        if not match:
+            out.append(text[pos:])
+            return "".join(out)
+        end = blocks._block_end(text, match.end() - 1)
+        out.append(text[pos:match.start()])
+        if end is None:
+            out.append("\n" * text.count("\n", match.start()))
+            return "".join(out)
+        out.append("\n" * text.count("\n", match.start(), end))
+        pos = end
+
+
+def _rust_file_events(item):
+    """One Rust file's hits, as _swift_file_events's ("add", ...) events."""
+    path, rel = item
+    events = []
+    text = open(path, encoding="utf-8", errors="replace").read()
+    # Inline test modules (`#[cfg(test)] mod x { ... }`) are blanked, each its own block only; a
+    # `#[cfg(test)] mod x;` declaration is not code.
+    lines = rust_product_text(text).split("\n")
+    for index, line in enumerate(lines):
+        stripped = line.lstrip()
+        if stripped.startswith("//"):
+            continue
+        is_allowed = allowed(lines, index)
+        code = line.split("//", 1)[0] if '"' not in line else line
+        for kind, pattern in RUST.items():
+            hits = len(pattern.findall(code))
+            if hits:
+                events.append(("add", is_allowed, "rust", kind, rel, line, hits))
+    return events
 
 
 # The baseline's path in a tree (a checkout, or a git archive export of a ref).
@@ -1260,6 +1414,15 @@ def baseline_against(repo, exported, base_tree):
     moves = proven_moves(scan_tree(base_tree, True), scan_tree(repo, exported)) if risen else {}
     allowance, carried = carry_moves(base_rows, risen, moves)
     print_moves(carried)
+    # Hits already in the base tree that the old cut hid (product code after a mid-file test module): a row may
+    # record them. Recorded, not added; a hit the base was red on is not among them.
+    hidden = hidden_debt(base_tree, True) if any(n > allowance.get(r, 0) for r, n in risen.items()) else {}
+    for row, n in sorted(risen.items()):
+        limit = allowance.get(row, 0)
+        if n > limit and hidden.get(row):
+            allowance[row] = limit + min(hidden[row], n - limit)
+            print(f"crash-ratchet: recorded: {row_label(row)} base row {base_rows.get(row, 0)}, head {n}: "
+                  f"{allowance[row] - limit} hit(s) the base tree had behind a mid-file test module")
     raised = 0
     for row, n in sorted(head_rows.items()):
         limit, was = allowance.get(row, 0), base_rows.get(row, 0)

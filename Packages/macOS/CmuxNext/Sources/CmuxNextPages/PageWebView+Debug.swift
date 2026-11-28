@@ -43,6 +43,10 @@ extension PageWebView {
         // Which engine shows the page, and why when it is WebKit (``PageEnginePolicy``).
         members["engine"] = .string(chromiumSession != nil ? "chromium" : "webkit")
         members["webkit_reason"] = chromiumSession != nil ? .null : engineDecision.webKitReason.map { .string($0.rawValue) } ?? .null
+        if let pushes = chromiumSession?.bridge.pushes {
+            members["pushes"] = ["scripts": .number(Double(pushes.scripts)), "batches": .number(Double(pushes.batches)),
+                                 "bytes": .number(Double(pushes.bytes))]
+        }
         return .object(members)
     }
 

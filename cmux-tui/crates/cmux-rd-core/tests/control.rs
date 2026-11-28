@@ -1,9 +1,9 @@
-//! Flow control, input delivery, congestion control and the quality ladder.
+//! Flow control, input delivery and congestion control (the resolution ladder's tests are in
+//! `resolution.rs`).
 
 use cmux_rd_core::cc::{CcConfig, CongestionController, PathKind, Usage};
 use cmux_rd_core::flow::{FlowAction, FrameGate, Rect};
 use cmux_rd_core::input::{InputApplier, InputSender, MAX_SENDS};
-use cmux_rd_core::ladder::{ContentClass, LadderInput, choose};
 use cmux_rd_proto::{Arrival, HEADER_LEN, InputEvent, InputPacket, MAX_DATAGRAM_VPC};
 use proptest::prelude::*;
 
@@ -223,6 +223,39 @@ fn rising_delay_lowers_the_target_and_flat_delay_raises_it() {
 }
 
 #[test]
+fn light_loss_on_a_flat_path_never_cuts_and_still_grows() {
+    // Random loss with no rising delay (a Wi-Fi radio's drops, a lossy last hop) is not a
+    // queue: up to the 10% loss line the target never goes down, and a flat delay keeps
+    // growing it. Over that line a flat delay with heavy loss is a policer or a short
+    // buffer, and `heavy_loss_cuts_the_target` covers that cut.
+    for (every, loss) in [(20u64, 0.05), (10, 0.10)] {
+        let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
+        let start = cc.target_bps();
+        let (mut seq, mut now) = (0u16, 0u64);
+        for _ in 0..60 {
+            let mut arrivals = Vec::new();
+            for i in 0..10u64 {
+                cc.on_sent(seq, now + i * 100);
+                if u64::from(seq) % every != 0 {
+                    let arrival = now + i * 100 + 5_000;
+                    arrivals.push(Arrival { transport_seq: seq, arrival_us: arrival as u32 });
+                }
+                seq = seq.wrapping_add(1);
+            }
+            now += 16_667;
+            let before = cc.target_bps();
+            cc.on_feedback(&arrivals, loss, now);
+            assert!(
+                cc.target_bps() >= before,
+                "{loss} loss on a flat path cut the target at {now} us"
+            );
+        }
+        assert_ne!(cc.usage(), Usage::Overuse);
+        assert!(cc.target_bps() > start, "{loss} loss on a flat path stopped growth");
+    }
+}
+
+#[test]
 fn relay_path_caps_the_target_at_once() {
     let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
     assert!(cc.target_bps() > 4_000_000);
@@ -236,29 +269,6 @@ fn heavy_loss_cuts_the_target() {
     let before = cc.target_bps();
     cc.on_feedback(&[], 0.4, 0);
     assert!(cc.target_bps() < before);
-}
-
-#[test]
-fn ladder_keeps_text_sharp_and_motion_smooth() {
-    let base = LadderInput {
-        target_bps: 2_000_000,
-        content: ContentClass::Text,
-        path: PathKind::DirectWan,
-        display_fps: 60,
-        relay_max_fps: 15,
-        encode_us: 0,
-        min_bits_per_pixel: 0.02,
-        pixels: 1920 * 1080,
-    };
-    let text = choose(base);
-    assert_eq!(text.scale, 1.0);
-    assert!(text.fps < 60);
-    let motion = choose(LadderInput { content: ContentClass::Motion, ..base });
-    assert!(motion.scale < 1.0);
-    let relay = choose(LadderInput { path: PathKind::DoRelay, target_bps: 100_000_000, ..base });
-    assert!(relay.fps <= 15);
-    let slow_encoder = choose(LadderInput { encode_us: 40_000, target_bps: 100_000_000, ..base });
-    assert!(slow_encoder.fps <= 25);
 }
 
 #[test]

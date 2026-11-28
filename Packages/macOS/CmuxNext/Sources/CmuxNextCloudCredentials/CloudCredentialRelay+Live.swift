@@ -6,12 +6,13 @@ import os
 
 public nonisolated extension CloudCredentialRelay {
     /// One install-bound relay shared by the app provider and private link carrier.
-    static func live(identity: MacInstallIdentity, baseURL: URL, buildSpace: CMUXBuildSpaceState, capability: CloudPreApproval? = nil,
+    static func live(identity: MacInstallIdentity, baseURL: URL, buildSpace: CMUXBuildSpaceState, machineIO: CloudMachineIO?, capability: CloudPreApproval? = nil,
                      signedIn: @escaping @Sendable () async -> Bool,
                      allowedOps: @escaping @Sendable () async -> Set<String>,
                      carrierSocket: @escaping CarrierSocket = CloudCredentialRelay.noCarrier) -> CloudCredentialRelay {
-        let transport = InstallHTTPTransport(baseURL: baseURL, buildSpace: buildSpace)
+        let transport = InstallHTTPTransport(baseURL: baseURL, buildSpace: buildSpace, machineIO: machineIO)
         let headers = identity.requestHeaders
+        let backendOrigin = CloudCredentialRelay.normalizedOrigin(baseURL.absoluteString)
         return CloudCredentialRelay(
             // The person's pre-approval rides on every call (cmux-platform#1126); none held, the server checks in full.
             post: { path, body, bearer in
@@ -28,12 +29,14 @@ public nonisolated extension CloudCredentialRelay {
                 guard await signedIn() else { return Session(signedIn: false, team: nil) }
                 // Bill the install token's backend team, never the Stack team ID.
                 let token = try? await identity.installToken()
-                return Session(signedIn: true, team: token.flatMap(MacInstallIdentity.team(ofToken:)))
+                return Session(signedIn: true, team: token.flatMap(MacInstallIdentity.team(ofToken:)), backend: backendOrigin)
             },
             // The relay's own checks never mint: a relayed op mints once, in its `token` step.
             signedIn: signedIn,
             allowedOps: allowedOps,
-            carrierSocket: carrierSocket)
+            carrierSocket: carrierSocket,
+            backendOrigin: backendOrigin,
+            tokenTeam: MacInstallIdentity.team(ofToken:))
     }
 }
 
@@ -46,13 +49,15 @@ public struct CloudPreApproval: Sendable {
     private let platform: URL
     private let headers: [String: String]
     private let buildSpace: CMUXBuildSpaceState
+    private let machineIO: CloudMachineIO?
 
     /// `platform`: the origin that serves `POST /v1/cloud/capability`; `headers`: the install's request headers;
-    /// `buildSpace`: a tagged dev build's cloud data space (``CloudConfiguration/buildSpace``).
-    public init(platform: URL, headers: [String: String], buildSpace: CMUXBuildSpaceState) {
+    /// `buildSpace`: a tagged dev build's cloud data space (``CloudConfiguration/buildSpace``); `machineIO`: the bundled cmux that sends.
+    public init(platform: URL, headers: [String: String], buildSpace: CMUXBuildSpaceState, machineIO: CloudMachineIO?) {
         self.platform = platform
         self.headers = headers
         self.buildSpace = buildSpace
+        self.machineIO = machineIO
     }
 
     /// The header for one call made with `installToken`; starts the fetch in the background when Rust says so.
@@ -76,7 +81,7 @@ public struct CloudPreApproval: Sendable {
 
     private func fetch(team: String, installToken: String) {
         let sent = Self.nowMs()
-        let transport = InstallHTTPTransport(baseURL: platform, buildSpace: buildSpace)
+        let transport = InstallHTTPTransport(baseURL: platform, buildSpace: buildSpace, machineIO: machineIO)
         // task-owner: fire and forget; bounded by the transport's own timeout, and its answer only reaches Rust.
         Task { [headers] in
             let answer: (status: Int, body: Data) = (try? await transport.post("v1/cloud/capability", json: Data("{}".utf8), bearer: installToken, headers: headers)) ?? (status: 0, body: Data())

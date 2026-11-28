@@ -8,7 +8,13 @@ use bytes::{Buf, Bytes};
 use smoltcp::socket::tcp;
 use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 
-use super::{Conn, Handoff, INBOUND_CHUNK_BYTES, LISTEN_SPARES, PeerKey, TcpStack, socket_flow};
+use smoltcp::iface::SocketHandle;
+use tokio::sync::mpsc;
+
+use super::{
+    Accepted, Conn, FlowKey, Handoff, INBOUND_CHUNK_BYTES, LISTEN_SPARES, PeerKey, TcpStack,
+    socket_flow,
+};
 use crate::error::WgError;
 use crate::stream::Outbound;
 
@@ -113,9 +119,9 @@ impl TcpStack {
             let mut listen_count = 0;
             let mut half_open = 0;
             for handle in handles {
-                let (state, flow) = {
+                let (state, flow, early) = {
                     let socket = self.sockets.get::<tcp::Socket>(handle);
-                    (socket.state(), socket_flow(socket))
+                    (socket.state(), socket_flow(socket), socket.syn_data_acked())
                 };
                 match state {
                     // The peer's FIN can arrive in the same poll as the ACK
@@ -123,31 +129,19 @@ impl TcpStack {
                     // half-closed at once, or the two reordered): the socket
                     // goes from SYN-RECEIVED straight to CLOSE-WAIT, and is a
                     // connection all the same.
+                    //
+                    // With data on the SYN (`SYN_DATA_ENV`), a half-open
+                    // whose SYN|ACK acknowledged that data is one too: its
+                    // owner reads the request and replies before the
+                    // handshake's last ACK, a round trip sooner.
                     tcp::State::Established | tcp::State::CloseWait => {
-                        let Some((local, remote)) = flow else {
-                            self.sockets.remove(handle);
-                            continue;
-                        };
-                        // Tagged mode: the key comes from the session that
-                        // delivered the SYN. Without one the connection is
-                        // reset, never matched to a peer by its address.
-                        let peer = match self.syn_origins.as_mut() {
-                            None => None,
-                            Some(origins) => match origins.remove(&(local, remote)) {
-                                Some(origin) => Some(origin),
-                                None => {
-                                    self.sockets.get_mut::<tcp::Socket>(handle).abort();
-                                    self.sockets.remove(handle);
-                                    continue;
-                                }
-                            },
-                        };
-                        let accept = accept.clone();
-                        let (conn, stream) = self.bridge(handle, local, remote, peer);
-                        self.conns.push(Conn {
-                            pending_stream: Some((Handoff::Accept(accept), stream)),
-                            ..conn
-                        });
+                        self.accept_now(handle, flow, &accept)
+                    }
+                    tcp::State::SynReceived if early => {
+                        // Still half-open until the last ACK: no spare
+                        // Listen socket beside it (see the refill below).
+                        half_open += 1;
+                        self.accept_now(handle, flow, &accept);
                     }
                     tcp::State::Listen => {
                         listen_count += 1;
@@ -166,6 +160,16 @@ impl TcpStack {
                     }
                 }
             }
+            // A half-open handed over early, for this port, still counts.
+            half_open += self
+                .conns
+                .iter()
+                .filter(|conn| {
+                    let socket = self.sockets.get::<tcp::Socket>(conn.handle);
+                    socket.state() == tcp::State::SynReceived
+                        && socket.local_endpoint().is_some_and(|local| local.port == port)
+                })
+                .count();
             // Refill only while no handshake is in flight. A new Listen socket
             // added beside a live half-open can be assigned a lower socket slot
             // (freed by a closed connection), and smoltcp would then route a
@@ -189,6 +193,38 @@ impl TcpStack {
         }
     }
 
+    /// Hand a listener's connection to its owner.
+    fn accept_now(
+        &mut self,
+        handle: SocketHandle,
+        flow: Option<FlowKey>,
+        accept: &mpsc::Sender<Accepted>,
+    ) {
+        let Some((local, remote)) = flow else {
+            self.sockets.remove(handle);
+            return;
+        };
+        // Tagged mode: the key comes from the session that delivered the
+        // SYN. Without one the connection is reset, never matched to a peer
+        // by its address.
+        let peer = match self.syn_origins.as_mut() {
+            None => None,
+            Some(origins) => match origins.remove(&(local, remote)) {
+                Some(origin) => Some(origin),
+                None => {
+                    self.sockets.get_mut::<tcp::Socket>(handle).abort();
+                    self.sockets.remove(handle);
+                    return;
+                }
+            },
+        };
+        let (conn, stream) = self.bridge(handle, local, remote, peer);
+        self.admit(Conn {
+            pending_stream: Some((Handoff::Accept(accept.clone()), stream)),
+            ..conn
+        });
+    }
+
     /// Returns whether any byte moved, so the caller can poll again.
     pub(crate) fn process_conns(&mut self) -> bool {
         let closing = self.closing;
@@ -208,7 +244,17 @@ impl TcpStack {
                     self.conns.swap_remove(index);
                     continue;
                 }
-                if matches!(socket.state(), tcp::State::Established | tcp::State::CloseWait) {
+                // With data on the SYN (`SYN_DATA_ENV`) the owner gets the
+                // stream before the handshake ends: a connect's first write
+                // rides on the SYN, and an accepted half-open whose SYN|ACK
+                // acknowledged SYN data can read it and reply.
+                let early = socket.syn_data_acked()
+                    || (socket.syn_data()
+                        && socket.state() == tcp::State::SynSent
+                        && matches!(&handoff, Handoff::Connect(_)));
+                if early
+                    || matches!(socket.state(), tcp::State::Established | tcp::State::CloseWait)
+                {
                     match handoff {
                         Handoff::Connect(reply) => {
                             let _ = reply.send(Ok(stream));
@@ -273,6 +319,10 @@ impl TcpStack {
                     }
                     match socket.send_slice(pending) {
                         Ok(written) => {
+                            if let Some(local) = socket.local_endpoint() {
+                                crate::stall_trace::tcp_write(local.port, &socket.state(), written);
+                            }
+                            conn.send.moved(written);
                             pending.advance(written);
                             progressed |= written > 0;
                             if pending.is_empty() {

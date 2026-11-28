@@ -15,6 +15,9 @@ export type AgentMessage = {
   from?: string;
   /// The recipient: a session, a terminal surface or workspace, or a mailbox.
   to?: string;
+  /// The name the daemon gave `to` (a SendMessage's subagent, `tool.recipient`): the row reads it
+  /// when the page holds no row of the Agent call that named the subagent.
+  toName?: string;
   /// The message, or its summary when the tool carries one; empty when it came from stdin.
   text: string;
 };
@@ -43,7 +46,12 @@ export function agentMessage(tool: Tool): AgentMessage | undefined {
   if (input && /^send ?message$/i.test(tool.title.trim()) && typeof input.to === "string") {
     const body = input.message ?? input.summary ?? input.content;
     const text = typeof body === "string" ? body : body === undefined ? "" : JSON.stringify(body, null, 2);
-    return { channel: "agent", to: input.to, text: oneMessage(text) };
+    return {
+      channel: "agent",
+      to: input.to,
+      ...(tool.recipient ? { toName: tool.recipient } : {}),
+      text: oneMessage(text),
+    };
   }
   // The cmux-sessions MCP server's message to a chat (session_mcp.rs, #21858), as a harness names
   // an MCP tool: `mcp__cmux-sessions__send_to_session`, `cmux-sessions.send_to_session` or bare.
@@ -144,6 +152,20 @@ const FEEDS = new Set(["echo", "printf", "cat"]);
 /// also builds, pushes or tests (`git push && tell-coordinator "pushed"`) stays a command row,
 /// so its output stays reachable.
 export function commandMessage(command: string): AgentMessage | undefined {
+  // Read for every shell row on every reshape of the running turn: the same command line is split
+  // and tokenized once. A copy goes out, so no caller shares the kept one.
+  let kept = commandMessages.get(command);
+  if (kept === undefined) {
+    if (commandMessages.size >= 2000) commandMessages.clear();
+    kept = readCommandMessage(command) ?? null;
+    commandMessages.set(command, kept);
+  }
+  return kept ? { ...kept } : undefined;
+}
+
+const commandMessages = new Map<string, AgentMessage | null>();
+
+function readCommandMessage(command: string): AgentMessage | undefined {
   const heredoc = heredocBody(command);
   const steps = shellStepParts(withoutHeredoc(command)).map(({ text, pipesNext }) => {
     const { words, redirects } = parseStep(text);
@@ -228,7 +250,8 @@ function sendMessage(args: string[]): AgentMessage | undefined {
 /// How far a send got, as one word on its line (Leo 2026-10-21: the raw result is "immediately
 /// TMI"): from the call's state and what it printed. Claude Code's SendMessage answers with JSON
 /// (`{"success":true,"message":"Message queued for delivery to …"}`), `acpmux send --no-wait`
-/// prints `queued` or `steered` (or `--json`'s `{"queued":…,"steered":…}`), tell-coordinator its
+/// prints `sent STATE id=ID to=TARGET` first (older builds `queued` or `steered`; `--json`'s
+/// `{"queued":…,"steered":…}`), tell-coordinator its
 /// receipt (`delivered to leoli-24 (id …)`). Anything else that finished reads as sent; a result
 /// that says it failed reads as failed.
 export type Delivery = "sending" | "sent" | "queued" | "delivered" | "failed";
@@ -280,6 +303,10 @@ function receiptWords(text: string, message?: Pick<AgentMessage, "text" | "to">)
 
 /// A send's printed words, read for how far it got.
 function deliveryWords(text: string): Delivery {
+  // `acpmux send`'s stable first line, `sent STATE id=ID to=TARGET`: its state alone, so a
+  // recipient named like a failure word is never read as one.
+  const sent = /^\s*sent (queued|held|delivered|steered) id=\S* to=/.exec(text)?.[1];
+  if (sent) return sent === "queued" || sent === "held" ? "queued" : "delivered";
   // Chief's tell tool returns a plain-text outcome rather than JSON. Refusals are
   // successful tool calls at the transport layer, so the generic empty-output
   // fallback would otherwise label a cancelled or deleted agent as Sent.

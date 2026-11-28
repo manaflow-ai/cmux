@@ -4,20 +4,23 @@ import * as automation from "./automation";
 import type { AcpmuxRow } from "./model";
 import type { PermissionDecision } from "./permissions/protocol";
 import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "./perf";
+import { chatSnapshotTimes } from "./chatSnapshot/live";
 import { openPicker, pickerLabels } from "./pickerOpeners";
 import { takeNativePosts } from "./native";
 import type { StreamOptions } from "./streamDebug";
-import type { LoadRunOptions, LoadTickOptions } from "./loadDebug";
+import type { LoadRunOptions, LoadTickOptions, LoadToolsOptions, SessionChurnOptions } from "./loadDebug";
 import { shownPresence } from "./multiplayer/livePresenceModel";
 import { acpWire, type AcpWireLog } from "./wire";
 import { tickWatch } from "./tickWatch";
+import { focusRoute } from "../../ui/focusRoute";
 import { wantAllSessions } from "./sessionPages";
 import { followTrace } from "./followTrace";
-import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
+import { composerChips, layoutWatch, type LayoutWatchOptions, composerFrames } from "./layoutWatch";
 import type { IdleProbeOptions } from "./idleProbe";
 import { queuedRowsState } from "./queuedRowsState";
 import { composerAttachmentsState } from "./composerAttachmentsState";
 import { cloudSignedInForDebug } from "./cloudMachines";
+import { chipProbe } from "./chipProbe";
 import type { SeedSnapshotFields } from "./waitingSteersFixture";
 import type { PasteProbeOptions } from "./pasteProbe";
 import type { TypingLoadOptions } from "./typingLoadDebug";
@@ -54,7 +57,9 @@ export type AcpmuxDebug = {
   tickWatch(options?: { stop?: boolean; nominal_ms?: number }): Record<string, unknown>;
   agentLatency(): Record<string, unknown>;
   typingStats(): Record<string, unknown>;
-  resetTyping(): Record<string, unknown>;
+  /** Clears the typing samples; with `draft` N, first types N characters at the prompt's end, so the measured
+   *  keys go into a long prompt (one paragraph of words; `chars` is what the prompt then holds). */
+  resetTyping(draft?: number): Promise<Record<string, unknown>>;
   /// Opens the composer menu labelled `label` and resolves once it has painted.
   openMenu(label: string): Promise<Record<string, unknown>>;
   /** The newest `limit` wire log entries (all when omitted) and the log's stats. */
@@ -100,6 +105,10 @@ export type AcpmuxDebug = {
   typingLoad(options?: TypingLoadOptions): Promise<Record<string, unknown>>;
   /** Scrolls it while a tool call runs and another chat changes, and counts row renders (loadDebug.ts). */
   loadTick(options?: LoadTickOptions): Promise<Record<string, unknown>>;
+  /** Changes listed sessions at a steady rate, as the daemon's `session_changed` does (loadDebug.ts). */
+  sessionChurn(options?: SessionChurnOptions): Promise<Record<string, unknown>>;
+  /** Adds short tool calls (each its call, then its result) to its running turn (loadDebug.ts). */
+  loadTools(options?: LoadToolsOptions): Promise<Record<string, unknown>>;
   /** Committed renders per component since the last call (perf.ts `renders`: `row:<id>`, `content:<id>`,
    * `mount:<id>`), then counts from zero; the first call turns measurement on (transcript bench PROBE=1). */
   renders(): Record<string, number>;
@@ -184,7 +193,9 @@ export function createAcpmuxDebug(
     async seedRows(count = 5000, fixture, agents) {
       const {
         syntheticRows,
+        workedResizeRows,
         workedTurnRows,
+        workedTurnPageRows,
         incomingRows,
         linkRows,
         LINKED_GITHUB_PULL_REQUEST,
@@ -213,27 +224,34 @@ export function createAcpmuxDebug(
       const rows =
         fixture === "subagents"
           ? subagentTrayRows(trayStep(count), trayOrigin(count), agents ?? 2)
-          : fixture === "worked-turn" || fixture === "goal"
-            ? workedTurnRows(Date.now() - 60_000)
-            : fixture === "incoming"
-              ? incomingRows(Date.now() - 120_000)
-              : fixture === "link" || fixture === "github-link"
-                ? linkRows(Date.now() - 30_000, fixture === "link" ? undefined : LINKED_GITHUB_PULL_REQUEST)
-                : fixture === "selection"
-                  ? selectionRows(Date.now() - 60_000)
-                  : fixture === "mermaid"
-                    ? mermaidRows(Date.now() - 60_000)
-                    : fixture === "organization"
-                      ? organizationRows(Date.now() - 120_000)
-                      : fixture === "tool-summary"
-                        ? toolSummaryRows(Date.now() - 60_000)
-                        : fixture === "shared"
-                          ? sharedRows(Date.now() - 1_020_000)
-                          : fixture === "waiting-steers"
-                            ? waitingSteersRows(Date.now() - 90_000)
-                            : fixture === "subagent-report"
-                              ? subagentReportRows(Date.now() - 5_000_000)
-                              : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
+          : fixture === "worked-resize"
+            ? workedResizeRows(Math.max(3, Math.floor(count)))
+            : fixture === "worked-turn" || fixture === "goal"
+              ? workedTurnRows(Date.now() - 60_000)
+              : fixture === "worked-turn-page"
+                ? workedTurnPageRows(Date.now() - 60_000)
+                : fixture === "incoming"
+                  ? incomingRows(Date.now() - 120_000)
+                  : fixture === "link" || fixture === "github-link"
+                    ? linkRows(Date.now() - 30_000, fixture === "link" ? undefined : LINKED_GITHUB_PULL_REQUEST)
+                    : fixture === "selection"
+                      ? selectionRows(Date.now() - 60_000)
+                      : fixture === "mermaid"
+                        ? mermaidRows(Date.now() - 60_000)
+                        : fixture === "organization"
+                          ? organizationRows(Date.now() - 120_000)
+                          : fixture === "tool-summary"
+                            ? toolSummaryRows(Date.now() - 60_000)
+                            : fixture === "shared"
+                              ? sharedRows(Date.now() - 1_020_000)
+                              : fixture === "waiting-steers"
+                                ? waitingSteersRows(Date.now() - 90_000)
+                                : fixture === "subagent-report"
+                                  ? subagentReportRows(Date.now() - 5_000_000)
+                                  : syntheticRows(
+                                      Math.max(3, Math.floor(count)),
+                                      fixture === "short" ? "short" : "mixed",
+                                    );
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(
@@ -343,7 +361,8 @@ export function createAcpmuxDebug(
         ...acpmuxPerf.stats(options.raw === true),
         agent: acpmuxPerf.agentLatency(),
         start_state_shown: acpmuxPerf.startStateShown() ?? null,
-        launch: acpmuxPerf.launchTimeline(),
+        start_state_trail: acpmuxPerf.startStateTrail(),
+        launch: { ...acpmuxPerf.launchTimeline(), ...copyTimeline() },
       };
     },
 
@@ -365,11 +384,32 @@ export function createAcpmuxDebug(
       };
     },
 
-    resetTyping() {
+    async resetTyping(draft = 0) {
       acpmuxPerf.enable();
+      let chars: number | undefined;
+      const wanted = Math.max(0, Math.min(100_000, Math.floor(Number(draft) || 0)));
+      if (wanted > 0) {
+        const prompt = document.querySelector<HTMLElement>(
+          '.acpmux-composer-prompt[contenteditable="true"], .acpmux-composer-prompt [contenteditable="true"]',
+        );
+        if (!prompt) return { error: "no prompt" };
+        if (!focusRoute(prompt, "system", "debug reset_typing fills the prompt's draft"))
+          return { error: "focus refused" };
+        const range = document.createRange();
+        range.selectNodeContents(prompt);
+        range.collapse(false);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        const words = "the quick brown fox jumps over the lazy dog ";
+        document.execCommand("insertText", false, words.repeat(Math.ceil(wanted / words.length)).slice(0, wanted));
+        await nextFrame();
+        await nextFrame();
+        chars = prompt.textContent?.length ?? 0;
+      }
       acpmuxPerf.typing.length = 0;
       takeNativePosts();
-      return { keys: 0 };
+      return chars === undefined ? { keys: 0 } : { keys: 0, chars };
     },
 
     // Not a measurement, so it leaves acpmuxPerf off.
@@ -466,9 +506,16 @@ export function createAcpmuxDebug(
             userBubbles: userBubblesState(),
             // The queued prompts as drawn: each row's text, its image ids and each thumbnail's state.
             queued: queuedRowsState(),
-            subagentOf: document.querySelector(".cv-subagent-of__parent")?.textContent ?? null,
+            // A subagent's view draws its close and Resume in the corner (subagents/SubagentViewCorner.tsx).
+            subagentCorner: document.querySelector(".cv-subagent-corner") !== null,
             // The composer's chips as drawn (model, effort, access), keyed by their menu label.
             composer: composerChips(),
+            // Where the composer's controls are drawn: a mode or place switch moves none of them.
+            composerFrames: composerFrames(),
+            // What the access chip decided its face from on its last render (chipProbe.ts).
+            composerInputs: chipProbe.last,
+            // What decides whether the run row is offered now.
+            runPlace: host.automation.compose?.runPlace?.() ?? null,
             // The composer's attachment tiles as drawn: loading (with its upload's percent), failed (why) or staged.
             attachments: composerAttachmentsState(),
             // The Cloud auth state consumed by EnvironmentPicker; undefined is the fresh-home
@@ -551,6 +598,14 @@ export function createAcpmuxDebug(
       const { loadTick } = await import("./loadDebug");
       return loadTick({ sessionId: () => host.sessionId?.(), rowIds: () => host.rowIds?.() ?? [] }, options);
     },
+    async sessionChurn(options = {}) {
+      const { sessionChurn } = await import("./loadDebug");
+      return sessionChurn(options);
+    },
+    async loadTools(options = {}) {
+      const { loadTools } = await import("./loadDebug");
+      return loadTools({ sessionId: () => host.sessionId?.(), rowCount: host.rowCount }, options);
+    },
     renders() {
       acpmuxPerf.enable();
       const out = Object.fromEntries(acpmuxPerf.renders);
@@ -595,4 +650,14 @@ function summaryCardState() {
       current: row.getAttribute("aria-current") === "true",
     })),
   };
+}
+
+/// When this document drew the chat's saved copy and when the live page took over from it, on the wall clock
+/// (`perf_stats` `launch`, beside the page's launch marks): the relaunch bench's `copyPainted` and `copySwapped`.
+function copyTimeline(): Record<string, number> {
+  const times = chatSnapshotTimes();
+  if (!times || !Number.isFinite(performance.timeOrigin)) return {};
+  const out: Record<string, number> = { copyPainted_epoch_ms: Math.round(performance.timeOrigin + times.painted_ms) };
+  if (times.swapped_ms !== null) out.copySwapped_epoch_ms = Math.round(performance.timeOrigin + times.swapped_ms);
+  return out;
 }

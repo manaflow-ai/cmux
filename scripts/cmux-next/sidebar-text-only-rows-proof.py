@@ -20,6 +20,7 @@ Stop the app afterwards with "$NX_APP_STOP".
 import argparse, http.server, json, os, socket, struct, subprocess, sys, tempfile, threading, time, zlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -251,7 +252,11 @@ try:
     # Select the first workspace (the plain terminal) so the agent rows are unselected.
     action("workspace.selectFirst")
     rpc("debug.mouse", {"x": 700, "y": 400, "action": "hover"})
-    time.sleep(2)  # the favicon and agent reports settle
+    # The first workspace took the selection, then the rows (favicon, agent reports) stop changing.
+    check(bool(wait(lambda: (workspace_rows(sidebar()).get("terminal") or {}).get("selected"), 10, step=0.1)),
+          "terminal: the first workspace is selected")
+    if wait_stable(lambda: sidebar().get("rows"), "the sidebar rows", timeout=15, interval=0.25, raise_on_timeout=False) is None:
+        safe_print("the sidebar rows still changed 15 s after the selection", flush=True)
     # The agents' turns reached the sidebar (before this fix their rows drew the brand mark here).
     check(bool(wait(lambda: all(str((workspace_rows(sidebar()).get(t) or {}).get("activity", "")).startswith("working")
                                 for t in ("claude", "codex")), 15)), "claude and codex: their rows show the agent working")

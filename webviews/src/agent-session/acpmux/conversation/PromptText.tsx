@@ -6,7 +6,7 @@
 // these out."). The choice is kept by the row's id (transcriptDisclosure.tsx), so a prompt scrolled
 // out and back, or drawn again from history, stays as the reader left it. Find opens a collapsed
 // prompt that holds its current match. The bubble keeps the whole text; Copy copies all of it.
-import { type ReactNode, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useT } from "../i18n";
 import { FindReveal, foldFind } from "./chatFind";
@@ -22,7 +22,6 @@ import {
   recordedBody,
 } from "./promptCollapse";
 import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
-import { foldMotion, foldMs, markHeightFold } from "./fold";
 import { type BlockHold, holdBlock } from "./useAnchoredCollapse";
 import { Markdown } from "./Markdown";
 import { SoftBroken } from "./softBreaks";
@@ -35,6 +34,8 @@ import { withForeignFiles } from "../chips/linkedText";
 import { foreignFileIds, textLinks } from "../chips/paths";
 import { deeplinks } from "../composer/deeplinks";
 import { CmuxLinkChip } from "../chips/CmuxLinkChip";
+import { ToolBadge } from "../chips/ToolBadge";
+import { toolOfHref, toolWords } from "../toolMentions";
 import { cmuxLinkTarget } from "./cmuxLinks";
 import { leadCommand, SkillWordsContext } from "./skillWords";
 import { withSkillWords } from "./withSkillWords";
@@ -53,6 +54,7 @@ const LONG_PROMPTS_KEPT = 2000;
 
 export function PromptText({
   rowId,
+  messageAt,
   text,
   pasted,
   show,
@@ -61,6 +63,7 @@ export function PromptText({
   findText,
 }: {
   rowId: string;
+  messageAt?: number;
   /// The prompt as recorded: what Find searches and the paste ranges point into.
   text: string;
   /// What Find searches when it is more than `text` (an inline prompt's text files' bodies), so a
@@ -177,79 +180,24 @@ export function PromptText({
       head ? headParts(parts, HUGE_PROMPT_HEAD_CHARS, (part) => (part.kind === "text" ? part.text : undefined)) : parts,
     [head, parts],
   );
-  // Show more and Show less (Leo 2026-10-21: "these all need animations for expand and collpase"),
-  // over the fold's token, without moving what the reader looks at ("just expand the area at the
-  // bottom and you're in the same place"):
-  // - Show more holds the bubble's top: the text grows below it, and the button rides the bubble's
-  //   bottom edge down instead of jumping there.
+  // Show more and Show less hold what the reader looks at ("just expand the area at the bottom and
+  // you're in the same place"); the bubble takes its new height in one frame (no height is animated,
+  // cmuxterm-hq docs/design/transcript-motion-model.md rule 7) and the transcript places the rows
+  // under it once:
+  // - Show more holds the bubble's top: the text grows below it.
   // - Show less with the view where Show more left it holds the same top, so the pair puts the view
   //   back where it was however often the reader does it (`holdBlock`; Leo, 2026-11-08: "as you do
-  //   that more and more ... there's the drift"). Holding the button here, as since #24050, moved the
-  //   view down by what opened on every pair.
+  //   that more and more ... there's the drift").
   // - Show less after a scroll (under a long prompt scrolled down to) holds the bubble's top while it
-  //   is in view, else the button, where the reader clicked it: the text shrinks back above it.
+  //   is in view, else the button, where the reader clicked it.
   // At the very bottom a close pins the bottom, as every close there does (VirtualTranscript).
-  // A toggle midway starts from the drawn height; unmounting cancels what plays.
-  const resized = useRef<number | undefined>(undefined);
-  const resizing = useRef<Animation[]>([]);
-  const stopResize = () => {
-    for (const animation of resizing.current) animation.cancel();
-    resizing.current = [];
-  };
-  useEffect(() => stopResize, []);
   const more = () => body.current?.parentElement?.querySelector<HTMLElement>(":scope > .cv-user__more") ?? null;
   const held = useRef<BlockHold["current"]>(undefined);
   const showMore = (next: boolean) => {
     const bubble = body.current?.parentElement;
-    if (bubble) {
-      holdBlock(bubble, more(), held, next);
-      resized.current = bubble.getBoundingClientRect().height;
-    }
-    stopResize();
+    if (bubble) holdBlock(bubble, more(), held, next);
     setOpen(next);
   };
-  useLayoutEffect(() => {
-    const from = resized.current;
-    resized.current = undefined;
-    const bubble = body.current?.parentElement;
-    const text = body.current;
-    // A mount has no previous height to animate. Avoid resolving motion styles until a toggle
-    // actually requested a fold; those computed-style reads otherwise flush the cold send layout.
-    if (from === undefined || !bubble || !text) return;
-    const ms = foldMs(bubble);
-    if (ms <= 0) return;
-    const to = bubble.getBoundingClientRect().height;
-    if (Math.abs(to - from) < 1) return;
-    const timing = { duration: ms, easing: foldMotion.easing(bubble) };
-    // The rows below are placed before paint while the bubble resizes, as under a fold.
-    markHeightFold(bubble, ms);
-    if (collapsed) {
-      // The clamped text is a box again: it starts as tall as the whole text was drawn.
-      const clamped = text.getBoundingClientRect().height;
-      resizing.current.push(
-        text.animate(
-          [
-            { height: `${clamped + from - to}px`, maxHeight: "none" },
-            { height: `${clamped}px`, maxHeight: "none" },
-          ],
-          timing,
-        ),
-      );
-      return;
-    }
-    resizing.current.push(
-      bubble.animate(
-        [
-          { height: `${from}px`, overflow: "hidden" },
-          { height: `${to}px`, overflow: "hidden" },
-        ],
-        timing,
-      ),
-    );
-    const button = more();
-    if (button)
-      resizing.current.push(button.animate([{ translate: `0 ${from - to}px` }, { translate: "0 0" }], timing));
-  }, [collapsed]);
   // Find's current match in this prompt opens it; one in a typed part past the fold, or in a paste,
   // needs it open to draw.
   const reveal = useContext(FindReveal);
@@ -273,6 +221,7 @@ export function PromptText({
                 part.kind === "text" ? (
                   <PromptTyped
                     key={index}
+                    messageAt={messageAt}
                     text={part.text}
                     show={show}
                     plain={"huge" in part && part.huge === true}
@@ -338,12 +287,14 @@ function laidOutHeight(node: Node): number {
 /// (InlinePromptContent.tsx), so a placed prompt reads as a legacy one does.
 export function PromptTyped({
   text,
+  messageAt,
   show,
   plain,
   slot = "typed:0",
   lead = false,
 }: {
   text: string;
+  messageAt?: number;
   /// It starts the prompt: its first word draws as a command when it names any (skillWords.ts
   /// leadCommand), as the composer draws the prompt's first word.
   lead?: boolean;
@@ -384,6 +335,7 @@ export function PromptTyped({
         typed={(part, index) => (
           <PromptTyped
             text={part}
+            messageAt={messageAt}
             show={show}
             plain={plain}
             lead={lead && index === picks.findIndex((segment) => segment.kind === "text" && segment.text.trim())}
@@ -395,7 +347,14 @@ export function PromptTyped({
   // Drawn as Markdown, the renderer reads its code as send does (`commonmark`) and lights skills
   // only in its own plain text.
   return isPromptMarkdown(text) ? (
-    <Markdown className="cv-user__markdown" thumbnails={false} skills={markdownSkills} commonmark>
+    <Markdown
+      className="cv-user__markdown"
+      thumbnails={false}
+      skills={markdownSkills}
+      tools
+      commonmark
+      messageAt={messageAt}
+    >
       {shown}
     </Markdown>
   ) : (
@@ -424,6 +383,19 @@ function plainWithForeignFiles(text: string): ReactNode {
 /// link (`cmux://workspace/…`, `cmux-nightly://agent/…`) a link the host opens in the app, as a
 /// reply's app link draws (Markdown.tsx); the rest keeps its break points (softBreaks.tsx).
 function LiteralText({ text }: { text: string }) {
+  // `@computer-use` and `@browser-use` draw as their badges, as the composer drew them (chips/ToolBadge.tsx).
+  const tools = toolWords(text);
+  if (tools.length) {
+    const out: ReactNode[] = [];
+    let at = 0;
+    tools.forEach((word, index) => {
+      if (word.start > at) out.push(<LiteralText key={`w${index}`} text={text.slice(at, word.start)} />);
+      out.push(<ToolBadge key={`b${index}`} tool={toolOfHref(word.href)!.id} />);
+      at = word.end;
+    });
+    if (at < text.length) out.push(<LiteralText key="wt" text={text.slice(at)} />);
+    return <>{out}</>;
+  }
   const links = text.includes("://") ? promptLinks(text) : [];
   if (!links.length) return <>{withForeignFiles(text, "f", softBreaks)}</>;
   const out: ReactNode[] = [];

@@ -59,7 +59,7 @@ public final class MacHomeRowsCache: @unchecked Sendable {
     /// small head file (``firstScreenRows`` rows) read in this turn, as the Workspaces cache's
     /// head is (`LiveSnapshotStore.loadFirstScreen`). Nil when nothing is kept, or the list was
     /// kept before head files (``load(_:)`` reads it off the main thread then). Leo, 2026-11-14:
-    /// "i also want all our connectivity stuff to shut the fuck up and load faster".
+    /// "i also want all our connectivity stuff to shut the f*** up and load faster".
     @MainActor public func firstScreen(_ key: String) -> [MacHomeRow]? {
         if let held = memory[key] { return held }
         // A bounded read (at most `firstScreenRows` rows) on the main actor, on purpose: the

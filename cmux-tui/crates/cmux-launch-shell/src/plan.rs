@@ -45,6 +45,9 @@ pub struct Now<'a> {
     pub build: &'a str,
     pub appearance: Appearance,
     pub displays: &'a [Display],
+    /// The daemon registry id this home last saw live (cmux-window-rules
+    /// `launch::current_registry_id`); None when unknown.
+    pub registry_id: Option<&'a str>,
 }
 
 /// One saved window, as the launch record holds it. A v1 record has no scale or key
@@ -64,6 +67,8 @@ pub struct SavedWindow {
     pub fullscreen: bool,
     /// `<build>/<window_id>/<generation>`: the image's file is `<image_dir>/<window_id>.<generation>.png`.
     pub image_key: String,
+    /// The daemon registry id the record's windows belonged to (record v3); empty when unknown.
+    pub registry_id: String,
 }
 
 /// Why the plan is what it is. Only `Image` draws the saved image.
@@ -74,7 +79,8 @@ pub enum Reason {
     /// No record and no state of an earlier run (`launch-times.jsonl`): a first launch ever.
     FreshInstall = 1,
     NoWindows = 2,
-    /// The image's key names another build, or the record is v1 (no key).
+    /// The record is v1 (no scale, display or image key): its picture cannot be trusted. Another
+    /// build's picture is drawn (`image_for`).
     BuildDiffers = 3,
     LayoutDiffers = 4,
     ScaleDiffers = 5,
@@ -85,19 +91,33 @@ pub enum Reason {
     /// No record, but an earlier run left its state: an upgrade from a build without the writer,
     /// whose session can restore a window anywhere.
     Upgrade = 10,
+    /// The record's windows belong to another daemon session than the one this home last saw
+    /// live (a reset daemon state, a restored backup): the real launch restores none of them
+    /// (cmux-window-rules `otherSession`), so stage 0 draws none: the plain shell at the default
+    /// frame.
+    SessionDiffers = 11,
 }
 
 impl Reason {
-    /// Stage 0 makes a window at all. Not when the real window's place cannot be known without
-    /// the services (its display changed, it was full screen, or an earlier run's session the
-    /// record never saw restores it): a window there would jump at the swap, so the launch is today's.
+    /// Stage 0 makes a window at all: only to draw the saved picture or the bare launch's Home.
+    /// Never the plain shell (an opaque fill in the saved colours over where the window will be):
+    /// it is a cover, not the window as it was (Leo, 2026-11-27: "stop putting the opaque thing
+    /// from the start"), so without a picture the real window, drawn from saved state, is the
+    /// first frame.
     pub fn shows_window(self) -> bool {
-        !matches!(self, Self::Upgrade | Self::LayoutDiffers | Self::FullScreen)
+        matches!(self, Self::Image) || self.shows_bare()
     }
 
-    /// Nothing to restore (a first launch ever, or no window open at the last quit): the app's
-    /// default frame and the bare launch's content.
+    /// Nothing of the record is restored (a first launch ever, no window open at the last quit,
+    /// or another session's windows): the app's default frame.
     pub fn uses_default_frame(self) -> bool {
+        matches!(self, Self::FreshInstall | Self::NoWindows | Self::SessionDiffers)
+    }
+
+    /// The bare launch's content (Home with its composer): only when the real launch lands on
+    /// Home. After another session's record it shows its connecting state instead, so stage 0
+    /// shows the plain shell.
+    pub fn shows_bare(self) -> bool {
         matches!(self, Self::FreshInstall | Self::NoWindows)
     }
 }
@@ -126,6 +146,13 @@ pub fn plan(
     let Some(front) = windows.first().filter(|w| frame_is_usable(&w.frame)) else {
         return Plan { window: None, image: None, reason: Reason::NoWindows };
     };
+    // Both ids known and different; an unknown one draws as before (the real launch does too).
+    if let Some(current) = now.registry_id
+        && !front.registry_id.is_empty()
+        && front.registry_id != current
+    {
+        return Plan { window: Some(front.clone()), image: None, reason: Reason::SessionDiffers };
+    }
     let (image, reason) = match image_for(front, image_dir, now) {
         Ok(path) => (Some(path), Reason::Image),
         Err(reason) => (None, reason),
@@ -146,10 +173,11 @@ fn image_for(w: &SavedWindow, image_dir: &Path, now: &Now<'_>) -> Result<PathBuf
     if display.scale != w.backing_scale {
         return Err(Reason::ScaleDiffers);
     }
+    // Another build's picture still draws: it is how the window looked at the quit, and an
+    // update's relaunch is always another build. The real window swaps in at its own commit, drawn
+    // from saved state, so a build that draws differently corrects itself there (Leo, 2026-11-27:
+    // "it should just load fast look like as it was asap").
     let key = ImageKey::parse(&w.image_key).ok_or(Reason::ImageUnreadable)?;
-    if key.build != now.build {
-        return Err(Reason::BuildDiffers);
-    }
     if key.window_id != w.id {
         return Err(Reason::ImageUnreadable);
     }
@@ -212,6 +240,35 @@ fn is_component(s: &str) -> bool {
         && s != ".."
         && s.len() <= 128
         && s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'+'))
+}
+
+/// The launch record's windows, front first, as the plan reads them. A v1 record's carry no scale
+/// or key (`backing_scale` 0), so their image is stale and their frame stands.
+pub fn saved_windows(record: &cmux_launch_record::LaunchRecord) -> Vec<SavedWindow> {
+    let frame =
+        |f: cmux_launch_record::Frame| Frame { x: f.x, y: f.y, width: f.width, height: f.height };
+    record
+        .windows()
+        .map(|w| SavedWindow {
+            id: w.id.to_owned(),
+            frame: frame(w.frame),
+            background_rgba: w.background_rgba,
+            bar_rgba: w.bar_rgba,
+            backing_scale: w.backing_scale,
+            appearance: Appearance::from_u8(w.appearance),
+            appearance_follows_system: w.appearance_follows_system != 0,
+            screen_frame: frame(w.screen_frame),
+            fullscreen: w.fullscreen != 0,
+            image_key: w.image_key.to_owned(),
+            registry_id: record.session_registry_id().to_owned(),
+        })
+        .collect()
+}
+
+/// An earlier run left its state in the app's support folder: every past build wrote
+/// `launch-times.jsonl` there. One stat, read only when there is no record.
+pub fn prior_state(support_dir: &Path) -> bool {
+    support_dir.join("launch-times.jsonl").exists()
 }
 
 /// A PNG's pixel size from its first 24 bytes (signature and IHDR); never reads the image.

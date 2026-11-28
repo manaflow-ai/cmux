@@ -371,6 +371,33 @@ fn server_pairing_wait_lasts_until_the_server_must_have_expired_the_code() {
 }
 
 #[test]
+fn server_pairing_challenge_names_only_the_unknown_or_revoked_refusal() {
+    let refused = r#"{"_tag":"Forbidden","code":"auth.forbidden","message":"challenge refused"}"#;
+    let failed = r#"{"_tag":"Forbidden","code":"auth.forbidden","message":"challenge failed"}"#;
+    let invalid = r#"{"_tag":"BadRequest","code":"validation.invalid","message":"bad install"}"#;
+    for (status, body, want) in [
+        (403, refused, crate::pairing::unpair::CHALLENGE_REFUSED),
+        (403, failed, "server.pair.api_refused"),
+        (403, "not json", "server.pair.api_refused"),
+        (400, invalid, "server.pair.api_refused"),
+        (429, refused, "server.pair.api_refused"),
+    ] {
+        let (api, worker) = http(status, body.into(), String::new());
+        let error = loopback_http()
+            .backend_post(&api, "/v1/auth/challenge", &serde_json::json!({}), None)
+            .unwrap_err();
+        worker.join().unwrap();
+        assert_eq!((error.kind, error.message.as_str()), (crate::ExitKind::Rejected, want));
+    }
+    // Only the challenge route reads its refusal that way.
+    let (api, worker) = http(403, refused.into(), String::new());
+    let error =
+        loopback_http().backend_post(&api, "/v1/ops", &serde_json::json!({}), None).unwrap_err();
+    worker.join().unwrap();
+    assert_eq!(error.message, "server.pair.api_refused");
+}
+
+#[test]
 fn server_pairing_http_marks_a_busy_begin_route_as_unsent() {
     let (api, worker) = http(503, "{}".into(), String::new());
     let error = loopback_http().begin(&api, &serde_json::json!({})).unwrap_err();

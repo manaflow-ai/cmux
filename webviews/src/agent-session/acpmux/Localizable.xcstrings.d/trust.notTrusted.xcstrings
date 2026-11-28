@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "trust.notTrusted" : {
+      "comment" : "Agent pane: the folder trust question above the composer (scope: repo or folder; what trusting allows; Not now)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "غير موثوق: لن يعمل {agent} في {folder}"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nije povjerljivo: {agent} se neće pokretati u {folder}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ikke betroet: {agent} kører ikke i {folder}"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nicht vertraut: {agent} läuft nicht in {folder}"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not trusted: {agent} won't run in {folder}"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sin confianza: {agent} no se ejecutará en {folder}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Non approuvé : {agent} ne s'exécutera pas dans {folder}"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Non attendibile: {agent} non verrà eseguito in {folder}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未信頼: {agent} は {folder} で実行されません"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មិនបានទុកចិត្ត៖ {agent} នឹងមិនដំណើរការក្នុង {folder} ទេ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "신뢰 안 함: {agent}은(는) {folder}에서 실행되지 않습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ikke betrodd: {agent} kjører ikke i {folder}"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Niezaufane: {agent} nie uruchomi się w {folder}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Não confiável: {agent} não será executado em {folder}"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Нет доверия: {agent} не будет запускаться в {folder}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไม่เชื่อถือ: {agent} จะไม่ทำงานใน {folder}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Güvenilmedi: {agent}, {folder} içinde çalışmaz"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Немає довіри: {agent} не запускатиметься в {folder}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không tin cậy: {agent} sẽ không chạy trong {folder}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "未信任：{agent} 不会在 {folder} 中运行"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "未信任：{agent} 不會在 {folder} 中執行"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

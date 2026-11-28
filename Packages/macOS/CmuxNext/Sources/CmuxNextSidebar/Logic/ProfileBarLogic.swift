@@ -13,10 +13,15 @@ public nonisolated enum ProfileBarLogic {
     public static func isVisible(profileCount: Int) -> Bool { profileCount > 1 }
 
     /// The profile `delta` steps from `current` (swipe, next/previous),
-    /// clamped at the ends (no wrap). Nil when nothing changes.
+    /// clamped at the ends (no wrap). Nil when nothing changes. With no
+    /// current space in `order` (none yet, or it was just deleted) the strip
+    /// is entered from its ends: Next lands on the first space and Previous
+    /// on the last, so no step skips the first space or does nothing.
     public static func step(from current: ProfileKey?, by delta: Int, in order: [ProfileKey]) -> ProfileKey? {
         guard !order.isEmpty, delta != 0 else { return nil }
-        let index = current.flatMap { order.firstIndex(of: $0) } ?? 0
+        guard let index = current.flatMap({ order.firstIndex(of: $0) }) else {
+            return order[delta > 0 ? min(delta - 1, order.count - 1) : max(order.count + delta, 0)]
+        }
         let target = min(max(index + delta, 0), order.count - 1)
         return target == index ? nil : order[target]
     }

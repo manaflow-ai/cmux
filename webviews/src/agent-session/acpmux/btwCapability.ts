@@ -1,4 +1,4 @@
-import type { TrustRefusal } from "./direct";
+import type { TrustRefusal } from "./trustRefusal";
 
 /** The daemon capability required for the inline /btw reply shape. */
 export const BTW_INLINE = "btw-inline-v1";

@@ -291,6 +291,10 @@ pub trait AgentPort: Send + Sync {
     fn end_session(&self, session: &str) -> Result<(), String>;
     /// A session's id by name.
     fn find(&self, name: &str) -> Result<Option<String>, String>;
+    /// The names of every session this daemon holds (`_acpmux/sessions`).
+    fn session_names(&self) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
+    }
     /// A session's summary by id (None: no such session).
     fn session(&self, _id: &str) -> Result<Option<SessionSummary>, String> {
         Ok(None)
@@ -325,11 +329,6 @@ pub trait AgentPort: Send + Sync {
     /// Blocks until the harness answers.
     fn withdraw_steer(&self, _session: &str, _prompt_id: &str) -> Result<bool, String> {
         Ok(false)
-    }
-    /// Keeps `session`'s task list (`_acpmux/task_list/set`): `items` is the whole
-    /// list, `[{content, status}]`, `[]` clears it. The list's summary, null for none.
-    fn task_list_set(&self, _session: &str, _items: &Value) -> Result<Value, String> {
-        Err("task lists are not supported".into())
     }
     /// Sets `session`'s harness mode (`session/set_mode`).
     fn set_mode(&self, _session: &str, _mode: &str) -> Result<(), String> {
@@ -1359,6 +1358,14 @@ pub fn new_session_watching(
     keep_waiting: &mut dyn FnMut(Duration) -> bool,
 ) -> Result<String, String> {
     let mut meta = session_meta(spec, preset);
+    // A Cloud machine's Chief: its own Claude sessions sign in with the host's credential, as a
+    // Cloud chat's launch does (turn_credential.rs). Only here, at the send: `session_meta` has
+    // other readers.
+    if let Some(credentials) =
+        crate::turn_credential::meta_for(spec, crate::turn_credential::current())
+    {
+        meta["credentials"] = credentials;
+    }
     let deadline = if waits_on_harness(spec) {
         START_WAIT_CEILING
     } else {
@@ -1541,6 +1548,13 @@ impl AgentPort for Acpmux {
         find_named(&*self.client()?, name)
     }
 
+    fn session_names(&self) -> Result<Vec<String>, String> {
+        Ok(sessions(&*self.client()?)?
+            .into_iter()
+            .map(|s| s.name)
+            .collect())
+    }
+
     fn session(&self, id: &str) -> Result<Option<SessionSummary>, String> {
         session_info(&*self.client()?, id)
     }
@@ -1603,15 +1617,6 @@ impl AgentPort for Acpmux {
             )
             .map(|v| v["removed"].as_bool().unwrap_or(false))
             .map_err(|e| format!("queue_remove: {e}"))
-    }
-
-    fn task_list_set(&self, session: &str, items: &Value) -> Result<Value, String> {
-        self.client()?
-            .request(
-                "_acpmux/task_list/set",
-                json!({"sessionId": session, "items": items}),
-            )
-            .map_err(|e| format!("task_list/set: {e}"))
     }
 
     fn set_mode(&self, session: &str, mode: &str) -> Result<(), String> {

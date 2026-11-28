@@ -30,6 +30,8 @@ pub(super) fn dev_options(dir: &Path) -> DevOptions {
         build: None,
         build_timeout: dev::BUILD_TIMEOUT,
         bun: None,
+        headless: false,
+        every_size: false,
     }
 }
 
@@ -136,6 +138,7 @@ fn capabilities_parse_and_print_the_manifest_rows() {
     let fetch = all.lines().find(|l| l.starts_with("net.fetch ")).expect("net.fetch");
     assert!(fetch.contains("refused when sandboxed"), "{fetch}");
     assert!(all.contains("ops no app may call") && all.contains("cmux app API "), "{all}");
+    assert!(all.contains("cmux customize docs") && all.contains("cmux customize prompts"), "{all}");
     let never = table.never().next().unwrap();
     let one = super::capabilities_table(&table.manifest_json(Some(never)).unwrap());
     assert!(one.lines().nth(1).unwrap().contains("never"), "{one}");
@@ -176,6 +179,90 @@ fn the_scaffold_is_a_valid_package_with_its_export_built() {
     assert!(scaffold::scaffold(&dir, "my-prs", "section").is_err(), "a folder with files stays");
 }
 
+#[test]
+fn headless_loads_catalog_exports_without_invoking_commands() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("hello");
+    scaffold::scaffold(&dir, "hello", "command").unwrap();
+    std::fs::write(
+        dir.join("dist/main.js"),
+        r#"function hello() { throw new Error("command invoked"); }
+globalThis.__cmuxAppExports = Object.freeze({ hello });"#,
+    )
+    .unwrap();
+    let mut options = dev_options(&dir);
+    options.headless = true;
+    let outcome = dev::once(&global(&root.path().join("no-daemon.sock")), &options, false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert!(
+        outcome.next.as_deref().is_some_and(|next| next.contains("loaded catalog command exports")),
+        "{:?}",
+        outcome.next
+    );
+}
+
+#[test]
+fn headless_rejects_catalog_commands_that_cannot_load() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("hello");
+    scaffold::scaffold(&dir, "hello", "command").unwrap();
+    let mut options = dev_options(&dir);
+    options.headless = true;
+    let args = global(&root.path().join("no-daemon.sock"));
+    for (script, expected) in [
+        ("throw new Error('broken init')", "broken init"),
+        ("globalThis.__cmuxAppExports = {}", "missing catalog command function: hello"),
+        ("globalThis.__cmuxAppExports = { hello: 42 }", "missing catalog command function: hello"),
+        (
+            "globalThis.__cmuxAppExports = Object.create({ hello() {} })",
+            "missing catalog command function: hello",
+        ),
+    ] {
+        std::fs::write(dir.join("dist/main.js"), script).unwrap();
+        let outcome = dev::once(&args, &options, false);
+        assert_eq!(outcome.phase, Phase::Load, "{:?}", outcome.errors);
+        assert!(
+            outcome.errors.iter().any(|e| e.message.contains(expected)),
+            "{:?}",
+            outcome.errors
+        );
+    }
+}
+
+#[test]
+fn headless_keeps_manifest_only_composer_extensions_load_free() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("composer");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("cmux-app.json"),
+        r#"{
+          "manifestVersion": 2,
+          "id": "local/composer",
+          "name": "Composer",
+          "version": "1.0.0",
+          "description": "A manifest-only composer extension.",
+          "engines": { "cmux": "^2.0" },
+          "implements": {
+            "cmux.composer.command/1": {
+              "title": "Composer",
+              "options": {
+                "commands": [
+                  { "name": "hello", "insert": "Say hello." }
+                ]
+              }
+            }
+          }
+        }"#,
+    )
+    .unwrap();
+    let mut options = dev_options(&dir);
+    options.headless = true;
+    let outcome = dev::once(&global(&root.path().join("no-daemon.sock")), &options, false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert!(outcome.probe.is_none());
+}
+
 /// A folder outside a cmux checkout (a sample copied out, one a person
 /// installs) has no copy of `cmux-extension-sdk`: the packer gets the SDK the
 /// CLI carries, whole, so it builds with no install.
@@ -185,15 +272,25 @@ fn the_packer_carries_the_sdk_so_a_folder_outside_a_checkout_builds() {
     let entry = dev::write_packer(packer.path()).unwrap();
     let index = std::fs::read_to_string(&entry).unwrap();
     assert!(index.contains("export function section("), "the SDK's own source");
-    let relative: Vec<&str> = index
-        .lines()
-        .filter_map(|l| l.split(" from \"").nth(1)?.split('"').next())
-        .filter(|p| p.starts_with('.'))
-        .collect();
-    assert!(!relative.is_empty(), "the SDK imports its tables");
-    for path in relative {
-        let file = entry.parent().unwrap().join(path);
-        assert!(file.is_file(), "{path} is carried with the SDK ({})", file.display());
+    // Check imports in every runtime module, including transitive imports and re-exports.
+    for (path, source) in scaffold::runtime_sdk_files() {
+        if !path.ends_with(".ts") {
+            continue;
+        }
+        let parent = packer.path().join(path);
+        let parent = parent.parent().unwrap();
+        for line in source.lines().map(str::trim_start) {
+            if !(line.starts_with("import ") || line.starts_with("export ")) {
+                continue;
+            }
+            let specifier = line.split_once(" from ").map_or(&line[7..], |(_, from)| from);
+            if let Some(quote @ ('"' | '\'')) = specifier.chars().next()
+                && let Some((import, _)) = specifier[1..].split_once(quote)
+                && import.starts_with('.')
+            {
+                assert!(parent.join(import).is_file(), "{path} imports missing {import}");
+            }
+        }
     }
     // `cmux-extension-sdk/customize`, written from this build's schema.
     let types = entry.parent().unwrap().join("generated/customize.ts");
@@ -566,11 +663,12 @@ fn serve(
         match request["cmd"].as_str().unwrap_or("") {
             "apps-list" => {
                 let apps = if local.join(name).is_dir() {
-                    vec![
-                        json!({"id": app, "version": "0.1.0", "installed": installed, "enabled": true,
+                    vec![json!({"id": app, "version": "0.1.0", "installed": installed,
+                        // As the daemon answers: an app never installed has the absent
+                        // record (mirror.rs `absent`), which is not enabled.
+                        "enabled": installed,
                         "hidden": false, "available": true, "bundle_dir": local.join(name),
-                        "web_pages": served_web_pages(&local.join(name))}),
-                    ]
+                        "web_pages": served_web_pages(&local.join(name))})]
                 } else {
                     vec![]
                 };
@@ -589,8 +687,14 @@ fn serve(
                             .unwrap_or_default();
                     let interface = request["interface"].as_str().unwrap_or("");
                     let export = manifest["implements"][interface]["export"].as_str().unwrap_or("");
+                    // As the daemon does (cmux-tui-core apps/widgets.rs): a widget renders with
+                    // `surface: "widget"`, which gives its ctx the host-owned now() clock.
+                    let mut context = request["context"].clone();
+                    if interface == "cmux.widget/1" && context.is_object() {
+                        context["surface"] = json!("widget");
+                    }
                     out.push(
-                        match host_scene(app, &script, export, &request["context"]) {
+                        match super::headless::host_scene(app, &script, export, &context) {
                             Ok(ops) => json!({"event": "apps-scene", "mount_id": mount_id, "ops": ops}),
                             Err(reason) => json!({"event": "apps-mount-failed", "mount_id": mount_id, "reason": reason}),
                         },
@@ -671,51 +775,6 @@ fn serve(
             }
         }
     }
-}
-
-/// What the real app host renders when `export` of the script `main` mounts:
-/// QuickJS runs it as the daemon's host does, every call it makes is answered
-/// with no value, and the scene's op batches are returned in order (or the
-/// init or mount failure).
-fn host_scene(app: &str, main: &str, export: &str, context: &Value) -> Result<Value, String> {
-    use cmux_app_host::{AppInfo, AppVm, FromHost, InitParams, Limits};
-    let mut vm = AppVm::new(Limits::default())?;
-    vm.init(InitParams {
-        app: AppInfo { id: app.into(), version: "0.1.0".into() },
-        settings: json!({}),
-        api_version: cmux_app_manifest::capabilities::Capabilities::get().api_version.clone(),
-        ops: None,
-        known_ops: None,
-        locale: None,
-        strings: Value::Null,
-        main: main.into(),
-        main_name: Some("dist/main.js".into()),
-    })
-    .map_err(|e| format!("init: {e:?}"))?;
-    if let Some(refused) = vm.mount("probe", export, context).map_err(|e| format!("{e:?}"))? {
-        return Err(refused);
-    }
-    let mut ops = Vec::new();
-    for _ in 0..32 {
-        let outbox = vm.take_outbox();
-        if outbox.is_empty() {
-            break;
-        }
-        for message in outbox {
-            match message {
-                FromHost::Scene { ops: batch, .. } => {
-                    ops.extend(batch.as_array().cloned().unwrap_or_default());
-                }
-                FromHost::Call { cb, .. } => {
-                    vm.resolve(cb, true, &json!({ "value": null }))
-                        .map_err(|e| format!("{e:?}"))?;
-                }
-                FromHost::Fatal { .. } => return Err(format!("{message:?}")),
-                _ => {}
-            }
-        }
-    }
-    Ok(Value::Array(ops))
 }
 
 #[test]
@@ -890,6 +949,11 @@ fn parses_shot_as_one_reload_with_an_out_path() {
     assert_eq!(options.dev.dir, PathBuf::from("."));
     assert!(options.dev.once && !options.dev.install, "one reload, no install card");
     assert_eq!(options.out, None);
+    assert!(!options.record);
+    assert!(!options.dev.every_size, "a plain shot probes one size");
+    let Ok(Request::Shot(options)) = parse(&words("shot --record")) else { panic!("--record") };
+    assert!(options.record);
+    assert!(options.dev.every_size, "--record records each declared widget size");
     let Ok(Request::Shot(options)) = parse(&words("shot ext/x --out a.png --build make")) else {
         panic!("shot with options")
     };
@@ -897,6 +961,13 @@ fn parses_shot_as_one_reload_with_an_out_path() {
     assert_eq!(options.out, Some(PathBuf::from("a.png")));
     assert_eq!(options.dev.build.as_deref(), Some("make"));
     assert_eq!(parse(&words("shot --help")), Ok(Request::Help));
+    assert_eq!(
+        parse(&words("design --listing ext/x")),
+        Ok(Request::DesignListing { dir: PathBuf::from("ext/x") })
+    );
+    for bad in ["design --listing", "design --listing x a.json", "design --listing x --widget"] {
+        assert!(parse(&words(bad)).is_err(), "{bad}");
+    }
     for bad in [
         "shot --out",
         "shot --out -",
@@ -1009,15 +1080,35 @@ fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
     assert_eq!(outcome.to_json(&dir)["scene"][1], "  Text text=\"Hello from hello\" font=headline");
     // Not installed: it rendered as a preview, which no window shows.
     assert!(!shot::shown(&outcome));
-    let (text, code) = shot::report(&outcome, &dir, None, false);
+    let (text, code) = shot::report(&outcome, &dir, None, None, false);
     assert_eq!(code, exit::SHOT_FAILED);
     assert!(text.contains("rendered cmux.section/1:\n  VStack\n    Text"), "{text}");
     assert!(text.contains("no picture: cmux apps install local/pic"), "{text}");
-    let (json_text, _) = shot::report(&outcome, &dir, None, true);
+    let (json_text, _) = shot::report(&outcome, &dir, None, None, true);
     let json: Value = serde_json::from_str(&json_text).unwrap();
     assert_eq!((json["ok"].clone(), json["phase"].clone()), (json!(false), json!("shot")));
     assert_eq!(json["exitCode"], exit::SHOT_FAILED);
     assert!(json["shot"]["error"].as_str().unwrap().starts_with("no picture"));
+    // `ext shot --json` carries the design check, as `ext dev --once --json` does: the
+    // skill's loop reads it there (`hello_scene` is clean, so an empty list, not a missing key).
+    assert_eq!(json["design"], outcome.to_json(&dir)["design"]);
+    assert_eq!(json["design"], json!([]));
+
+    // `--record`: the scene goes into preview/scenes.json by name, beside the file's others.
+    std::fs::create_dir_all(dir.join("preview")).unwrap();
+    std::fs::write(dir.join("preview/scenes.json"), r#"{"cmux.pane/1":{"ops":[]}}"#).unwrap();
+    let recorded = shot::record(&dir, &outcome);
+    assert_eq!(recorded, Ok(dir.join("preview/scenes.json")));
+    let file: Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("preview/scenes.json")).unwrap())
+            .unwrap();
+    assert_eq!(file["cmux.section/1"]["ops"], hello_scene());
+    assert_eq!(file["cmux.pane/1"]["ops"], json!([]));
+    let (text, _) = shot::report(&outcome, &dir, None, Some(&recorded), false);
+    assert!(text.contains("recorded the scene in"), "{text}");
+    let (json_text, _) = shot::report(&outcome, &dir, None, Some(&recorded), true);
+    let json: Value = serde_json::from_str(&json_text).unwrap();
+    assert_eq!(json["recorded"], json!(dir.join("preview/scenes.json")));
 
     // Installed and shown: the picture is reported with where the extension is.
     let fake = FakeDaemon::start(&local, "local/pic", true);
@@ -1025,13 +1116,13 @@ fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
     assert!(shot::shown(&outcome), "{:?}", outcome.placed);
     let picture =
         Ok(shot::Picture { path: "/tmp/p.png".into(), width: Some(10), height: Some(20) });
-    let (text, code) = shot::report(&outcome, &dir, Some(&picture), false);
+    let (text, code) = shot::report(&outcome, &dir, Some(&picture), None, false);
     assert_eq!(code, exit::OK);
     assert!(
         text.ends_with("picture of the window (10x20): /tmp/p.png; the extension is in the sidebar, bottom region"),
         "{text}"
     );
-    let (json_text, _) = shot::report(&outcome, &dir, Some(&picture), true);
+    let (json_text, _) = shot::report(&outcome, &dir, Some(&picture), None, true);
     let json: Value = serde_json::from_str(&json_text).unwrap();
     assert_eq!((json["ok"].clone(), json["phase"].clone()), (json!(true), json!("done")));
     assert_eq!(json["shot"]["path"], "/tmp/p.png");
@@ -1039,8 +1130,105 @@ fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
     // A failed load is reported as ext dev reports it: its own exit code, no picture.
     std::fs::write(dir.join("dist/main.js"), "// THROW_AT_INIT\n").unwrap();
     let broken = dev::once(&global(&fake.socket), &dev_options(&dir), false);
-    let (_, code) = shot::report(&broken, &dir, None, false);
+    let (_, code) = shot::report(&broken, &dir, None, None, false);
     assert_eq!(code, exit::LOAD_FAILED);
+}
+
+/// `ext shot --record` that cannot write `preview/scenes.json` says why and exits
+/// RECORD_FAILED, even with a picture taken: a script must not go on with stale scenes.
+#[test]
+fn a_record_that_cannot_be_written_fails_the_shot() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = new_extension(root.path(), "unwritable");
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/unwritable", true);
+    let outcome = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    // `preview` is a file, so the folder for scenes.json cannot be made.
+    std::fs::write(dir.join("preview"), "not a folder").unwrap();
+    let recorded = shot::record(&dir, &outcome);
+    let error = recorded.clone().unwrap_err();
+    assert!(error.starts_with("cannot create"), "{error}");
+    let picture =
+        Ok(shot::Picture { path: "/tmp/p.png".into(), width: Some(10), height: Some(20) });
+    let (text, code) = shot::report(&outcome, &dir, Some(&picture), Some(&recorded), false);
+    assert_eq!(code, exit::RECORD_FAILED);
+    assert!(text.contains("not recorded: cannot create"), "{text}");
+    let (json_text, code) = shot::report(&outcome, &dir, Some(&picture), Some(&recorded), true);
+    assert_eq!(code, exit::RECORD_FAILED);
+    let json: Value = serde_json::from_str(&json_text).unwrap();
+    assert_eq!((json["ok"].clone(), json["phase"].clone()), (json!(false), json!("record")));
+    assert_eq!(json["exitCode"], exit::RECORD_FAILED);
+    assert!(json["recorded"]["error"].as_str().unwrap().starts_with("cannot create"));
+    // Nothing drawn to record is a failed record too, not a quiet success.
+    let mut nothing = outcome;
+    nothing.recorded.clear();
+    let recorded = shot::record(&dir, &nothing);
+    assert!(recorded.as_ref().unwrap_err().starts_with("nothing to record"), "{recorded:?}");
+    let (_, code) = shot::report(&nothing, &dir, Some(&picture), Some(&recorded), false);
+    assert_eq!(code, exit::RECORD_FAILED);
+}
+
+/// `ext shot --record` of a widget probes and records each size its manifest declares (and
+/// only those a person can place); a plain reload probes one.
+#[test]
+fn recording_a_widget_records_each_declared_size() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("tile");
+    scaffold::scaffold(&dir, "tile", "widget").unwrap();
+    let path = dir.join("cmux-app.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    manifest["implements"]["cmux.widget/1"]["options"] =
+        json!({ "sizes": ["small", "medium", "large"] });
+    std::fs::write(&path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/tile", false);
+    let mounted = |fake: &FakeDaemon| -> Vec<Value> {
+        fake.requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r["cmd"] == "apps-mount")
+            .map(|r| r["context"]["size"].clone())
+            .collect()
+    };
+
+    let one = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+    assert_eq!(one.phase, Phase::Done, "{:?}", one.errors);
+    let names: Vec<&str> = one.recorded.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(names.len(), 1, "{names:?}");
+    assert_eq!(mounted(&fake).len(), 1);
+
+    let mut options = dev_options(&dir);
+    options.every_size = true;
+    let every = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(every.phase, Phase::Done, "{:?}", every.errors);
+    let mut names: Vec<&str> = every.recorded.iter().map(|(n, _)| n.as_str()).collect();
+    names.sort();
+    assert_eq!(names, ["cmux.widget/1 large", "cmux.widget/1 medium", "cmux.widget/1 small"]);
+    let mut sizes: Vec<String> =
+        mounted(&fake).iter().skip(1).map(|size| size.as_str().unwrap_or("").to_string()).collect();
+    sizes.sort();
+    assert_eq!(sizes, ["large", "medium", "small"], "each size mounted once");
+
+    let recorded = shot::record(&dir, &every);
+    assert_eq!(recorded, Ok(dir.join("preview/scenes.json")));
+    let file: Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("preview/scenes.json")).unwrap())
+            .unwrap();
+    for size in ["small", "medium", "large"] {
+        assert!(file[format!("cmux.widget/1 {size}")]["ops"].is_array(), "{size}: {file}");
+    }
+    let (text, code) = shot::report(&every, &dir, None, Some(&recorded), false);
+    assert_eq!(code, exit::SHOT_FAILED, "a preview has no picture: {text}");
+    assert!(text.contains("recorded 3 scenes ("), "{text}");
+
+    // A sidebar-only widget cannot be large: that size is not probed.
+    manifest["implements"]["cmux.widget/1"]["options"]["places"] = json!(["sidebar"]);
+    let sizes: Vec<String> =
+        dev::widget_sizes(&manifest).into_iter().map(|(size, _)| size).collect();
+    assert_eq!(sizes, ["small", "medium"]);
 }
 
 // --- ext add / share / search ---------------------------------------------------------------
@@ -1080,8 +1268,14 @@ fn parses_add_share_and_search() {
         parse(&words("add ./x --no-install")),
         Ok(Request::Add(share::AddOptions { source: "./x".into(), install: false }))
     );
-    assert_eq!(parse(&words("share")), Ok(Request::Share { dir: None }));
-    assert_eq!(parse(&words("share ext/x")), Ok(Request::Share { dir: Some("ext/x".into()) }));
+    assert_eq!(
+        parse(&words("share")),
+        Ok(Request::Share { dir: ".".into(), name: None, private: false })
+    );
+    assert_eq!(
+        parse(&words("share ext/x")),
+        Ok(Request::Share { dir: "ext/x".into(), name: None, private: false })
+    );
     assert_eq!(parse(&words("search")), Ok(Request::Search { query: None }));
     assert_eq!(
         parse(&words("search pull requests")),
@@ -1508,7 +1702,7 @@ fn an_older_daemon_reloads_on_its_watch() {
     assert!(outcome.changed);
 }
 
-/// `ext dev` says where a whole New Tab page shows: only once the person picks it.
+/// `ext dev` says where a New Tab view shows: over the composer, only once the person picks it.
 #[test]
 fn a_new_tab_page_is_placed_where_the_person_picks_it() {
     let manifest = json!({ "implements": { "cmux.newtab/1": { "export": "renderNewTab" } } });

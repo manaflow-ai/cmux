@@ -12,7 +12,7 @@
 
 use cmux_json::JsonSet as _;
 
-mod activity;
+pub(crate) mod activity;
 pub(crate) mod brand;
 mod follow;
 #[cfg(target_os = "macos")]
@@ -23,6 +23,8 @@ mod resolve;
 pub mod search;
 mod settings;
 pub(crate) mod sources;
+pub(crate) mod terminal;
+pub mod terms;
 pub mod text;
 mod watch;
 mod window;
@@ -38,9 +40,7 @@ use cmux_chat_index::{
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
-pub use activity::{
-    ActivityCache, ChatActivity, activity_change, changes_activity, session_chat_key,
-};
+pub use activity::{ChatActivity, changes_activity};
 pub use brand::brand_for;
 pub(crate) use open::store_dirs;
 pub use open::{StoreProfile, plan_open, store_profiles};
@@ -101,7 +101,10 @@ impl ChatService {
         let (found, settings_refused) = discover_roots(&sources, recorded.roots(), &settings);
         let index = ChatIndex::load(&cache_path(&sources), found.roots);
         let (changes, _) = broadcast::channel(256);
-        let text = text::ChatText::new(text_path(&sources));
+        let text = text::ChatText::with_legacy(
+            text_path(&sources),
+            sources.acpmux_home.join("chat-index/text-v1.json"),
+        );
         let service = Arc::new(Self {
             sources,
             state: Mutex::new(State {
@@ -577,7 +580,7 @@ fn cache_path(sources: &ChatSources) -> PathBuf {
 }
 
 fn text_path(sources: &ChatSources) -> PathBuf {
-    sources.acpmux_home.join("chat-index/text-v1.json")
+    sources.acpmux_home.join("chat-index/text-v2.bin")
 }
 
 /// The text thread reads changed chats this long after a change, so a chat being written is read
@@ -664,10 +667,15 @@ pub fn key_text(key: &ChatKey) -> String {
     format!("{}:{}", key.harness.id(), key.session_id)
 }
 
-/// Parses `key_text`.
+/// Parses `key_text`. The acpmux harness id `claude` (what classic cmux recorded and the
+/// classic import passes on) reads as the index's `claude-code`, so a key built from a
+/// session's harness opens its chat instead of refusing it.
 pub fn parse_key(text: &str) -> Option<ChatKey> {
     let (harness, session_id) = text.split_once(':')?;
-    let harness = AdapterKind::from_id(harness)?;
+    let harness = match harness {
+        "claude" => AdapterKind::ClaudeCode,
+        id => AdapterKind::from_id(id)?,
+    };
     (!session_id.is_empty()).then(|| ChatKey { harness, session_id: session_id.to_owned() })
 }
 
@@ -693,65 +701,6 @@ pub fn change_value(numbered: &SeqChange) -> Value {
     }
 }
 
-impl crate::hub::Hub {
-    /// Starts the chat index once (later calls do nothing). Waits for the
-    /// first scan; `_acpmux/chats` answers `ready: false` until then.
-    pub async fn start_chats(self: &Arc<Self>, sources: ChatSources) -> Result<(), String> {
-        if self.chats.get().is_some() {
-            return Ok(());
-        }
-        let service = tokio::task::spawn_blocking(move || ChatService::start(sources))
-            .await
-            .map_err(|e| format!("chat index start: {e}"))?;
-        let _ = self.chats.set(service.clone());
-        // Taken under the waiters' lock after the set: a later waiter sees the index.
-        let waiters = std::mem::take(&mut *lock(&self.chats_waiters));
-        for waiter in waiters {
-            waiter(&service);
-        }
-        // Settings sent during the first scan went only to the file.
-        tokio::task::spawn_blocking(move || service.reload_settings())
-            .await
-            .map_err(|e| format!("chat settings: {e}"))?;
-        Ok(())
-    }
-
-    /// Applies the app's chat settings; before the index runs, saves them
-    /// for its start. Blocking.
-    pub fn apply_chat_settings(&self, settings: ChatSettings) -> Result<bool, String> {
-        if let Some(service) = self.chats.get() {
-            return service.apply_settings(settings).map(|()| true);
-        }
-        settings
-            .save(&crate::config::home().join("chat-settings.json"))
-            .map_err(|e| format!("save the chat settings: {e}"))?;
-        // The index may have started between the check and the save.
-        match self.chats.get() {
-            Some(service) => {
-                service.reload_settings();
-                Ok(true)
-            }
-            None => Ok(false),
-        }
-    }
-
-    /// Runs `waiter` once the chat index has started: now when it runs.
-    pub fn when_chats_ready(&self, waiter: ChatsWaiter) {
-        let mut waiters = lock(&self.chats_waiters);
-        match self.chats.get() {
-            Some(service) => {
-                drop(waiters);
-                waiter(service);
-            }
-            None => waiters.push(waiter),
-        }
-    }
-
-    pub fn chat_index(&self) -> Option<&Arc<ChatService>> {
-        self.chats.get()
-    }
-}
-
 // What one activity change costs a chat window at 100, 1,000 and 3,000 chats (manual).
 #[cfg(test)]
 #[path = "update_cost_bench.rs"]
@@ -762,3 +711,20 @@ mod update_cost_bench;
 #[cfg(all(test, target_os = "linux"))]
 #[path = "follow_bench.rs"]
 mod follow_bench;
+
+#[cfg(test)]
+mod parse_key_tests {
+    use super::*;
+
+    #[test]
+    fn index_ids_and_the_acpmux_claude_harness_both_parse() {
+        let claude = parse_key("claude:s-1").unwrap();
+        assert_eq!((claude.harness, claude.session_id.as_str()), (AdapterKind::ClaudeCode, "s-1"));
+        assert_eq!(parse_key("claude-code:s-1").unwrap().harness, AdapterKind::ClaudeCode);
+        assert_eq!(parse_key("codex:s-2").unwrap().harness, AdapterKind::Codex);
+        assert_eq!(key_text(&claude), "claude-code:s-1");
+        assert!(parse_key("claude:").is_none());
+        assert!(parse_key("aider:s-3").is_none());
+        assert!(parse_key("no-colon").is_none());
+    }
+}

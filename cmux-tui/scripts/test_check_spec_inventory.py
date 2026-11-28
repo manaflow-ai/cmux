@@ -82,13 +82,14 @@ enum Action {
     def test_secondary_protocols_include_bare_final_and_tuple_variants(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
-            host = tui / "crates/cmux-tui-core/src/terminal_host_protocol.rs"
+            host = tui / "crates/cmux-terminal-host-protocol/src/terminal_host_protocol.rs"
             provider = tui / "crates/cmux-tui-machine-protocol/src/lib.rs"
             agent = tui / "crates/cmux-tui-machine-agent-protocol/src/lib.rs"
             management = tui / "crates/cmux-tui-core/src/provider_management.rs"
             host.parent.mkdir(parents=True)
             provider.parent.mkdir(parents=True)
             agent.parent.mkdir(parents=True)
+            management.parent.mkdir(parents=True)
             host.write_text(
                 """\
 enum MessageKind {
@@ -722,6 +723,23 @@ class InventoryContractTests(unittest.TestCase):
         with redirect_stderr(errors), self.assertRaises(SystemExit):
             CHECKER.validate_events(inventory)
         self.assertIn("event stream", errors.getvalue())
+
+    def test_the_client_wide_kick_notice_is_a_declared_control_event(self) -> None:
+        # dd19a6ecf137 sends {"event":"client-disconnected-by"} from server/disconnect.rs on the
+        # kicked client's control connection, even before any attach. The catalog did not declare
+        # it, so this checker failed on every later tree and safe-push refused every cmux-tui push.
+        self.assertIn("client-disconnected-by", CHECKER.event_names())
+        schema = json.loads((CHECKER.SPEC / "sdk-schema.json").read_text())
+        event = schema["events"].get("client-disconnected-by")
+        self.assertIsNotNone(event, "client-disconnected-by is missing from sdk-schema.json")
+        self.assertEqual(event["streams"], ["control"])
+        fields = event["payload"]["fields"]
+        self.assertEqual(set(fields), {"event", "by"})
+        self.assertEqual(fields["by"]["presence"], "optional")
+        self.assertEqual(fields["by"]["type"], {"kind": "ref", "name": "SizeDetachActor"})
+        inventory = {event["name"]: event["streams"] for event in self.inventory()["events"]}
+        self.assertEqual(inventory.get("client-disconnected-by"), ["control"])
+        CHECKER.validate_events(self.inventory())
 
     def test_event_discovery_excludes_test_modules_without_losing_production(self) -> None:
         for module in ("server.rs", "server/message_writer.rs", "server/url_open.rs"):

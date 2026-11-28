@@ -14,6 +14,7 @@ import { useStore } from "../context";
 import { Select } from "../editors/Select";
 import type { AgentMcpRun, AgentMcpServer, AgentMcpState } from "../ops";
 import { t } from "../strings";
+import { WithFacts } from "../../../agent-session/acpmux/chips/FactsHoverCard";
 
 type Agent = AgentMcpServer["agent"];
 type Gesture = Exclude<AgentMcpRun, { action: "refresh" | "pickFolder" | "add" }>["action"];
@@ -80,9 +81,13 @@ function Row({
             {row.name}
           </div>
           <div className="row-help selectable">{details.join(" · ")}</div>
-          <div className="row-help selectable font-mono" title={row.file}>
-            {runs(row)}
-          </div>
+          <WithFacts facts={[{ value: row.file, code: true }]}>
+            {(facts) => (
+              <div {...facts} className="row-help selectable font-mono">
+                {runs(row)}
+              </div>
+            )}
+          </WithFacts>
           {row.approval === "pending" && (
             <div className="row-help" data-agent-mcp-pending="">
               {t("settingsWindow.agentMcp.pending")}
@@ -127,6 +132,7 @@ function Row({
         <div
           className="accounts-form"
           data-agent-mcp-confirm=""
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a fieldset would draw its own border and inset in the settings form
           role="group"
           aria-label={t("settingsWindow.mcpServers.removeTitle", row.name)}
         >
@@ -191,6 +197,7 @@ function AddForm({
     <div
       className="accounts-form"
       data-agent-mcp-add={agent}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a fieldset would draw its own border and inset in the settings form
       role="group"
       aria-label={t("settingsWindow.agentMcp.add")}
     >
@@ -233,6 +240,7 @@ function AddForm({
       </label>
       <textarea
         id={envId}
+        aria-label={t(url ? "settingsWindow.agentMcp.headersLabel" : "settingsWindow.agentMcp.envLabel")}
         className="field font-mono"
         rows={2}
         spellCheck={false}

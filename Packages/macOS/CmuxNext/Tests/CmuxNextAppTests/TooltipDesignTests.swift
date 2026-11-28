@@ -4,14 +4,14 @@ import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-11-20: "tooltips everywhere needs to be redesigned to be better and consistent",
-/// on the composer's "Select effort ⌃⇧M": one line of regular text, then the shortcut's keys on a
-/// small keycap plate. Every native tooltip draws ``TooltipContentView`` on the one panel, a page's
+/// on the composer's "Select effort ⌃⇧M": one line of regular text, then the shortcut's keys as plain
+/// glyphs, no plate (Leo 2026-11-22: "a bullshit looking fucking command icon"). Every native tooltip draws ``TooltipContentView`` on the one panel, a page's
 /// tooltip past its window's edge included (before: a menu row, 13 pt, its keys as plain text), in
 /// one height whether it has keys or not, with corners that nest, and it shows and goes in one frame.
 @MainActor @Suite(.closesItsWindows, .serialized) struct TooltipDesignTests {
     static var scale: CGFloat { Typography.userScale }
 
-    @Test func aShortcutSitsOnAKeycapAfterTheTextWithNestedCorners() throws {
+    @Test func aShortcutIsPlainGlyphsAfterTheText() throws {
         let content = TooltipContentView()
         content.set(text: "Select effort", shortcut: "⌃⇧M")
         let size = content.fittingSurfaceSize()
@@ -19,18 +19,19 @@ import Testing
         content.layoutSubtreeIfNeeded()
         let keycap = try #require(content.keycap, "the shortcut has no keycap")
         #expect(keycap.label.stringValue == "⌃⇧M")
-        #expect(keycap.style == .linearKbd, "the tooltip's keycap is not the dialogs' Linear keycap")
-        let inset = TooltipMetrics.keycapInset * Self.scale
-        // The plate is inset the same from the top, the bottom and the end (content is flipped).
+        #expect(keycap.style == .plainGlyph, "the tooltip's keys sit on a plate")
+        #expect(!keycap.style.hasPlate)
+        // The keys end at the inline padding.
+        let inset = TooltipMetrics.paddingInline * Self.scale
         #expect(abs(keycap.frame.maxX - (size.width - inset)) < 0.5, "keycap at \(keycap.frame), surface \(size)")
-        #expect(abs(keycap.frame.minY - inset) < 0.5)
-        #expect(abs((size.height - keycap.frame.maxY) - inset) < 0.5)
-        #expect(keycap.frame.height == TooltipMetrics.keycapHeight * Self.scale)
-        // After the text, with the gap between them, and centred on its line.
-        #expect(content.text.frame.maxX + TooltipMetrics.keycapGap * Self.scale <= keycap.frame.minX + 0.5)
-        #expect(abs(content.text.frame.midY - keycap.frame.midY) <= 1, "text \(content.text.frame) keycap \(keycap.frame)")
-        // Its corner nests in the tooltip's: the tooltip's radius less the inset.
-        #expect(keycap.layer?.cornerRadius == (TooltipMetrics.radius - TooltipMetrics.keycapInset) * Self.scale)
+        // After the text, with the gap between them, and centred on its line. The label's frame holds 2 pt of line
+        // padding each side of its glyphs; its alignment rect is the glyphs' box, which starts at the inline padding.
+        let glyphs = content.text.alignmentRect(forFrame: content.text.frame)
+        #expect(abs(glyphs.minX - TooltipMetrics.paddingInline * Self.scale) < 0.5, "text starts at \(glyphs.minX)")
+        #expect(glyphs.maxX + TooltipMetrics.keycapGap * Self.scale <= keycap.frame.minX + 0.5, "text \(glyphs) keycap \(keycap.frame)")
+        #expect(abs(glyphs.midY - keycap.frame.midY) <= 0.5, "text \(glyphs) keycap \(keycap.frame)")
+        // No plate: no fill, no corner.
+        #expect(keycap.layer?.cornerRadius ?? 0 == 0)
         // Regular text at the detail size, never the old bold caption.
         let font = try #require(content.text.font)
         #expect(font.pointSize == TooltipMetrics.fontSize * Self.scale)
@@ -51,16 +52,23 @@ import Testing
         #expect(keyed.keycap == nil)
     }
 
-    @Test func longTextWrapsInsideTheMaximumWidth() {
-        let content = TooltipContentView()
-        content.set(text: String(repeating: "a long tooltip that has to wrap ", count: 8), shortcut: "⌘K")
-        let size = content.fittingSurfaceSize()
+    /// a1315 (UI simplification lead; Lawrence: "drastically simplify all parts of the UI"): a tooltip is the
+    /// control's name and its shortcut, on one line. Text past the maximum width ends in an ellipsis, and a second
+    /// line never shows.
+    @Test func aTooltipIsOneLineAtMostTheMaximumWidth() {
+        let oneLine = ceil((TooltipMetrics.lineHeight + TooltipMetrics.paddingBlock * 2) * Self.scale)
+        let long = TooltipContentView()
+        long.set(text: String(repeating: "a long tooltip that would wrap ", count: 8), shortcut: "⌘K")
+        let size = long.fittingSurfaceSize()
+        #expect(size.height == oneLine, "a long tooltip took \(size.height) pt, more than one line")
         #expect(size.width <= TooltipMetrics.maxWidth * Self.scale + 0.5)
-        #expect(size.height > (TooltipMetrics.lineHeight * 2) * Self.scale)
+        let twoLines = TooltipContentView()
+        twoLines.set(text: "Reload\nRun the script again from its saved files", shortcut: nil)
+        #expect(twoLines.text.stringValue == "Reload", "the second line showed")
+        #expect(twoLines.fittingSurfaceSize().height == oneLine)
     }
 
-    /// David Beyer, 2026-11-20: tooltips "look strangely wide". A tooltip is as wide as its text; a wrapped one
-    /// keeps its line count and loses the empty room beside its lines.
+    /// David Beyer, 2026-11-20: tooltips "look strangely wide". A tooltip is as wide as its text.
     @Test func aTooltipIsAsWideAsItsText() {
         let scale = Self.scale
         let pad = TooltipMetrics.paddingInline * scale
@@ -68,16 +76,6 @@ import Testing
         short.set(text: "Back", shortcut: nil)
         let label = ("Back" as NSString).size(withAttributes: [.font: TooltipContentView.font]).width
         #expect(short.fittingSurfaceSize().width <= ceil(label) + 2 * pad + 8 * scale, "a one-word tooltip is wider than its word")
-        // Just past one line at the maximum: two lines, each about half, not one full line and a word.
-        let max = TooltipMetrics.maxWidth * scale
-        let words = "Open the session in a new window beside this one, keeping its scroll position"
-        let wrapped = TooltipContentView()
-        wrapped.set(text: words, shortcut: nil)
-        let size = wrapped.fittingSurfaceSize()
-        wrapped.text.preferredMaxLayoutWidth = max - 2 * pad
-        let atMax = wrapped.text.fittingSize.height
-        #expect(size.height == ceil(atMax + TooltipMetrics.paddingBlock * scale * 2), "the fit changed the line count")
-        #expect(size.width < max * 0.9, "a two-line tooltip kept the maximum width: \(size.width) of \(max)")
     }
 
     @Test func thePanelHasTheTooltipCornerWhateverThePaneCorners() {

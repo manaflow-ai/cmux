@@ -24,6 +24,7 @@ import {
   type ActivitySession,
   type ActivityState,
 } from "./model";
+import { intl } from "../ui/intl";
 
 /** Reads one frame from the host as an image URL (`cmux.agentActivity.frame`). */
 export type FrameLoader = (frame: ActivityFrame, size: ActivityFrameSize, session: string) => Promise<string>;
@@ -51,7 +52,7 @@ function ownsArrows(target: EventTarget | null): boolean {
   );
 }
 
-const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" });
+const timeFormat = intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" });
 export const frameTime = (event: ActivityEvent) => timeFormat.format(new Date(event.time));
 
 /** Whether `element` is in view of its scroller (always, where IntersectionObserver is missing). */

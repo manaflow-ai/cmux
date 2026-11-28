@@ -11,6 +11,8 @@
 //! - `update-swap` (F9): an update moves the daemon's executable under `backup/` and puts a new
 //!   build at the installed path; within 2 s `_acpmux/status` answers from the installed path. A
 //!   new build that does not run is dropped and the old daemon serves on.
+//!   A swap that failed tries again by itself, and the app's stop of a replaced daemon with
+//!   `swapIfReplaced` swaps it instead of stopping it.
 #![cfg(target_os = "linux")]
 
 #[path = "support/daemon_env.rs"]
@@ -101,15 +103,31 @@ impl Drop for Daemon {
 }
 
 fn spawn_daemon(binary: &Path, dir: &Path, env: &[(&str, &str)]) -> Daemon {
+    spawn_daemon_logging(binary, dir, env, "warn")
+}
+
+/// [`spawn_daemon`] at log level `log`.
+fn spawn_daemon_logging(binary: &Path, dir: &Path, env: &[(&str, &str)], log: &str) -> Daemon {
     let mut cmd =
         with_home(daemon_env::command_at(binary, dir, daemon_env::Agents::StandIn, &[]), dir);
-    cmd.args(["daemon", "run", "--ready-fd", "1", "--log", "warn"]);
+    cmd.args(["daemon", "run", "--ready-fd", "1", "--log", log]);
     for (k, v) in env {
         cmd.env(k, v);
     }
     // Its stdout carries the ready line and its log (`log_sink.rs`): both come through `lines`.
-    let mut child =
-        cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    // A binary another test of this file just copied can still be open for writing in a child
+    // forked meanwhile (until its exec closes it): ETXTBSY for a moment, not a fault of the daemon.
+    let mut busy = 0;
+    let mut child = loop {
+        match cmd.spawn() {
+            Err(e) if e.raw_os_error() == Some(libc::ETXTBSY) && busy < 100 => {
+                busy += 1;
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            spawned => break spawned.unwrap(),
+        }
+    };
     let stdout = child.stdout.take().unwrap();
     let (tx, lines) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -290,4 +308,390 @@ fn an_update_whose_new_build_does_not_run_keeps_the_old_daemon_serving() {
         .expect("the old daemon logs that it kept serving");
     let now = status(&dir).expect("the old daemon still answers");
     assert_eq!(now["pid"].as_u64(), Some(old_pid), "{now}");
+}
+
+/// One JSON-RPC request on a new connection to `socket`, as the app's `AcpmuxStatusClient` sends
+/// it: the answer to it (lines the daemon sends first are skipped), or `None` when nothing listens
+/// or nothing answered in 10 s.
+fn call(socket: &Path, method: &str, params: Value) -> Option<Value> {
+    use std::io::Write as _;
+    let mut s = std::os::unix::net::UnixStream::connect(socket).ok()?;
+    s.set_read_timeout(Some(Duration::from_secs(10))).ok()?;
+    let line = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
+    s.write_all(format!("{line}\n").as_bytes()).ok()?;
+    let mut reader = BufReader::new(&s);
+    loop {
+        let mut reply = String::new();
+        if reader.read_line(&mut reply).ok()? == 0 {
+            return None;
+        }
+        if let Ok(v) = serde_json::from_str::<Value>(&reply)
+            && v["id"] == 1
+        {
+            return Some(v);
+        }
+    }
+}
+
+/// The pid of the daemon answering on `socket`, if one does.
+fn serving_pid(socket: &Path) -> Option<u64> {
+    call(socket, "_acpmux/status", json!({}))?["result"]["pid"].as_u64()
+}
+
+/// A new build that answers `--version` but whose take-over start fails until `flag` exists: the
+/// update's own swap fails, as on Leo's NIGHTLY at 2026-11-22 23:44Z ("the take-over start never
+/// asked to take over"), and the replaced daemon serves on from the backup bundle.
+fn update_with_late_build(dir: &Path, flag: &Path) {
+    let real = daemon_env::bin().display().to_string();
+    let script = format!(
+        "#!/bin/sh\nif [ \"$1\" = --version ]; then exec '{real}' --version; fi\n\
+         if [ -e '{}' ]; then exec '{real}' \"$@\"; fi\nexit 3\n",
+        flag.display()
+    );
+    update(dir, |at| {
+        fs::write(at, script).unwrap();
+        fs::set_permissions(at, fs::Permissions::from_mode(0o755)).unwrap();
+    });
+}
+
+/// Waits up to `within` for a daemon other than `old_pid` to answer on `socket`: the one the swap
+/// started. Nothing in this test starts a daemon, so only the swap can.
+fn successor(socket: &Path, old_pid: u64, within: Duration) -> Option<(u64, Duration)> {
+    let from = Instant::now();
+    while from.elapsed() < within {
+        if let Some(pid) = serving_pid(socket)
+            && pid != old_pid
+        {
+            return Some((pid, from.elapsed()));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    None
+}
+
+/// The app's stop for a daemon whose bundle an update replaced (it cannot hand that daemon this
+/// launch's person key, `AcpmuxPersonKey.swift`), with `swapIfReplaced`: the daemon swaps to the
+/// installed build make-before-break instead of stopping, so a new daemon serves the home with
+/// nothing else starting one. Before, it
+/// stopped, and every chat was without a daemon until the app's next one started (4.6 s at
+/// 23:44Z).
+#[test]
+fn a_replaced_daemon_the_app_asks_to_stop_swaps_to_the_installed_build_instead() {
+    let dir = scratch("swapask");
+    let _shutdown = Shutdown(&dir);
+    let installed = install(&dir);
+    let old = spawn_daemon(&installed, &dir, &[]);
+    let old_pid = old.ready(Duration::from_secs(60))["pid"].as_u64().unwrap();
+    let socket = PathBuf::from(status(&dir).unwrap()["socket"].as_str().unwrap());
+    let flag = dir.join("the-new-build-runs");
+    update_with_late_build(&dir, &flag);
+    old.line(Duration::from_secs(20), |l| l.contains("the new build did not take over"))
+        .expect("the update's own swap fails");
+    fs::write(&flag, "").unwrap();
+    let answer = call(
+        &socket,
+        "_acpmux/shutdown",
+        json!({"reason": "app: person key: acpmux runs a bundle an update replaced, which cannot take this launch's person key",
+               "swapIfReplaced": true}),
+    )
+    .expect("the daemon answers the app's stop");
+    assert_eq!(answer["result"]["swapping"], true, "swapped, not stopped: {answer}");
+    let (pid, after) = successor(&socket, old_pid, Duration::from_secs(30))
+        .expect("the installed build serves the home");
+    eprintln!("swap-ask: the installed build (pid {pid}) served {after:?} after the app's ask");
+    let stops = fs::read_to_string(dir.join("daemon.stops.json")).unwrap_or_default();
+    assert!(!stops.contains("cannot take this launch's person key"), "no app stop: {stops}");
+}
+
+/// The update's own swap that failed tries again by itself (`RETRY_AFTER` in `exe_swap.rs`, 5 s
+/// first) instead of serving on from the replaced bundle until the next update or the app's stop.
+#[test]
+fn a_failed_update_swap_tries_again_without_a_new_change() {
+    let dir = scratch("swapretry");
+    let _shutdown = Shutdown(&dir);
+    let installed = install(&dir);
+    let old = spawn_daemon(&installed, &dir, &[]);
+    let old_pid = old.ready(Duration::from_secs(60))["pid"].as_u64().unwrap();
+    let socket = PathBuf::from(status(&dir).unwrap()["socket"].as_str().unwrap());
+    let flag = dir.join("the-new-build-runs");
+    update_with_late_build(&dir, &flag);
+    old.line(Duration::from_secs(20), |l| l.contains("the new build did not take over"))
+        .expect("the update's own swap fails");
+    fs::write(&flag, "").unwrap();
+    let (pid, after) = successor(&socket, old_pid, Duration::from_secs(30))
+        .expect("the swap tried again and the installed build serves the home");
+    eprintln!("swap-retry: the installed build (pid {pid}) served {after:?} after the build ran");
+}
+
+/// A stand-in for the app: a python3 process (the same executable each launch, as an app bundle
+/// relaunched at its path). With `socket`, it connects once and holds the connection, as the
+/// relaunched app's panes do; else it only runs.
+fn fake_app(socket: Option<&Path>) -> Child {
+    let script = "import socket, sys, time\n\
+        if len(sys.argv) > 1:\n\
+        \x20   s = socket.socket(socket.AF_UNIX); s.connect(sys.argv[1])\n\
+        \x20   s.sendall(b'{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/status\",\"params\":{}}\\n')\n\
+        \x20   s.recv(65536)\n\
+        time.sleep(600)\n";
+    let mut cmd = Command::new("python3");
+    cmd.arg("-c").arg(script);
+    if let Some(socket) = socket {
+        cmd.arg(socket);
+    }
+    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap()
+}
+
+fn end_child(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+/// One connection that only observes (`_meta.acpmux.observer`, as the app's cmux-tui notices
+/// watch): once the owner app is gone it keeps nothing, so the daemon's own stop rule is what is
+/// tested. It asks `_acpmux/status` every 20 ms and records the longest time without an answer.
+struct Probe {
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    thread: std::thread::JoinHandle<(Duration, u64, Option<String>)>,
+}
+
+impl Probe {
+    fn start(socket: &Path) -> Self {
+        use std::io::Write as _;
+        let mut s = std::os::unix::net::UnixStream::connect(socket).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut reader = BufReader::new(s.try_clone().unwrap());
+        let mut ask =
+            move |s: &mut std::os::unix::net::UnixStream, id: u64, method: &str, params: Value| {
+                let line = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
+                s.write_all(format!("{line}\n").as_bytes()).map_err(|e| e.to_string())?;
+                loop {
+                    let mut reply = String::new();
+                    if reader.read_line(&mut reply).map_err(|e| e.to_string())? == 0 {
+                        return Err("the daemon closed the connection".to_owned());
+                    }
+                    if let Ok(v) = serde_json::from_str::<Value>(&reply)
+                        && v["id"] == id
+                    {
+                        return Ok(());
+                    }
+                }
+            };
+        ask(
+            &mut s,
+            1,
+            "initialize",
+            json!({"protocolVersion": 1, "clientInfo": {"name": "probe", "version": "1"},
+            "clientCapabilities": {}, "_meta": {"acpmux": {"observer": true}}}),
+        )
+        .unwrap();
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stopping = stop.clone();
+        let thread = std::thread::spawn(move || {
+            let (mut longest, mut answers, mut last, mut id) =
+                (Duration::ZERO, 0u64, Instant::now(), 1);
+            while !stopping.load(std::sync::atomic::Ordering::Relaxed) {
+                id += 1;
+                if let Err(error) = ask(&mut s, id, "_acpmux/status", json!({})) {
+                    return (longest.max(last.elapsed()), answers, Some(error));
+                }
+                answers += 1;
+                longest = longest.max(last.elapsed());
+                last = Instant::now();
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            (longest, answers, None)
+        });
+        Self { stop, thread }
+    }
+
+    /// The longest time between answers, how many came, and the error that ended them, if any.
+    fn finish(self) -> (Duration, u64, Option<String>) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.thread.join().unwrap()
+    }
+}
+
+/// Waits up to `within` for `child` to exit.
+fn exits_within(child: &mut Child, within: Duration) -> Option<std::process::ExitStatus> {
+    let deadline = Instant::now() + within;
+    while Instant::now() < deadline {
+        if let Some(status) = child.try_wait().unwrap() {
+            return Some(status);
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    None
+}
+
+/// After every app update the chats showed "The agent service stopped. [Retry]". The update quits the app
+/// and opens the new one; the daemon of idle chats followed the old app's pid and stopped 2 s
+/// after it was gone (`owner_exit::OWNER_EXIT_GRACE`), before the new app was up. With the
+/// relaunch marker (`acpmux daemon expect-relaunch`, `owner_relaunch.rs`) the daemon serves on
+/// through the gap, adopts the relaunched app when it connects, and then follows it: it stops once
+/// that app is gone. Its socket answers throughout.
+#[test]
+fn update_handoff_the_daemon_waits_for_the_relaunched_app_and_follows_it() {
+    let dir = scratch("relaunch");
+    let _shutdown = Shutdown(&dir);
+    let mut old_app = fake_app(None);
+    let mut daemon = spawn_daemon(
+        daemon_env::bin(),
+        &dir,
+        &[("ACPMUX_OWNER_APP_PID", &old_app.id().to_string())],
+    );
+    let pid = daemon.ready(Duration::from_secs(60))["pid"].as_u64().unwrap();
+    let socket = PathBuf::from(status(&dir).unwrap()["socket"].as_str().unwrap());
+    let out =
+        cli(&dir, &["daemon", "expect-relaunch", "--within", "30", "--reason", "a test update"]);
+    assert!(out.status.success(), "{}", text(&out));
+    let marker = dir.join("owner-relaunch.json");
+    assert!(marker.exists(), "the marker is written: {}", text(&out));
+    let probe = Probe::start(&socket);
+    // The update quits the app; the new one takes 5 s to come up, past the 2 s grace.
+    end_child(&mut old_app);
+    std::thread::sleep(Duration::from_secs(5));
+    assert!(
+        daemon.child.try_wait().unwrap().is_none(),
+        "the daemon stopped while a relaunch was expected"
+    );
+    let quit_to_back = Instant::now();
+    let mut new_app = fake_app(Some(&socket));
+    while marker.exists() {
+        if quit_to_back.elapsed() >= Duration::from_secs(10) {
+            let mut seen = Vec::new();
+            while let Some(l) = daemon.line(Duration::from_millis(300), |_| true) {
+                seen.push(l);
+            }
+            panic!(
+                "the relaunched app was never adopted; app alive {:?}; daemon said:\n{}",
+                new_app.try_wait(),
+                seen.join("\n")
+            );
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    eprintln!(
+        "update-handoff: relaunched app adopted {:?} after it started",
+        quit_to_back.elapsed()
+    );
+    std::thread::sleep(Duration::from_secs(3));
+    let (longest, answers, error) = probe.finish();
+    eprintln!("update-handoff: {answers} answers, longest gap {longest:?}, ended by {error:?}");
+    assert!(error.is_none(), "the probe lost the daemon: {error:?}");
+    assert!(longest < Duration::from_millis(500), "the socket went {longest:?} without an answer");
+    assert_eq!(serving_pid(&socket), Some(pid), "the same daemon serves");
+    // It follows the new app now: once that app is gone, with nothing to keep it, it stops.
+    end_child(&mut new_app);
+    let stopped = exits_within(&mut daemon.child, Duration::from_secs(15));
+    assert!(stopped.is_some(), "the daemon did not follow the relaunched app");
+    let log = fs::read_to_string(dir.join("daemon.log")).unwrap_or_default();
+    eprintln!(
+        "update-handoff: stop line: {:?}",
+        log.lines().filter(|l| l.contains("its app quit")).last()
+    );
+}
+
+/// Without a marker an owner's exit is a quit: the daemon of idle chats stops 2 s after (the
+/// quit-leaves-no-helpers rule stays).
+#[test]
+fn update_handoff_without_a_marker_a_quit_still_stops_the_daemon() {
+    let dir = scratch("noreln");
+    let _shutdown = Shutdown(&dir);
+    let mut app = fake_app(None);
+    let mut daemon =
+        spawn_daemon(daemon_env::bin(), &dir, &[("ACPMUX_OWNER_APP_PID", &app.id().to_string())]);
+    daemon.ready(Duration::from_secs(60));
+    end_child(&mut app);
+    let quit = Instant::now();
+    assert!(
+        exits_within(&mut daemon.child, Duration::from_secs(15)).is_some(),
+        "still ran after its app quit"
+    );
+    eprintln!("update-handoff: no marker: stopped {:?} after the quit", quit.elapsed());
+}
+
+/// An update that replaces the daemon's executable after the app relaunched: the successor
+/// (`exe_swap.rs`) follows the relaunched app, not the old app's pid it used to inherit. Before,
+/// it started already following a dead owner and stopped 2 s after its startup with no non-
+/// observer client, while the new app ran. The socket answers across the swap.
+#[test]
+fn update_handoff_a_swapped_daemon_follows_the_relaunched_app() {
+    let dir = scratch("swapown");
+    let _shutdown = Shutdown(&dir);
+    let installed = install(&dir);
+    let mut old_app = fake_app(None);
+    let owner = old_app.id().to_string();
+    let old = spawn_daemon_logging(&installed, &dir, &[("ACPMUX_OWNER_APP_PID", &owner)], "info");
+    let old_pid = old.ready(Duration::from_secs(60))["pid"].as_u64().unwrap();
+    let socket = PathBuf::from(status(&dir).unwrap()["socket"].as_str().unwrap());
+    // The app quits with Keep Sessions while a client is connected; the new app connects.
+    let mut holder = std::os::unix::net::UnixStream::connect(&socket).unwrap();
+    {
+        use std::io::Write as _;
+        holder
+            .write_all(
+                b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/status\",\"params\":{}}\n",
+            )
+            .unwrap();
+    }
+    end_child(&mut old_app);
+    std::thread::sleep(Duration::from_millis(500));
+    let mut new_app = fake_app(Some(&socket));
+    let seen = std::cell::RefCell::new(Vec::new());
+    let adopted = old.line(Duration::from_secs(10), |l| {
+        seen.borrow_mut().push(l.to_owned());
+        l.contains("the owner app is back")
+    });
+    drop(holder);
+    // Every 20 ms a fresh connection across the swap: the listener's gap.
+    let tmp = dir.join("acpmux.new");
+    fs::copy(daemon_env::bin(), &tmp).unwrap();
+    fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755)).unwrap();
+    update(&dir, |at| fs::rename(&tmp, at).unwrap());
+    let (mut longest, mut last, from) = (Duration::ZERO, Instant::now(), Instant::now());
+    let (mut new_pid, mut refused) = (None, 0);
+    while from.elapsed() < Duration::from_secs(20) {
+        refused += usize::from(std::os::unix::net::UnixStream::connect(&socket).is_err());
+        if let Some(pid) = serving_pid(&socket) {
+            longest = longest.max(last.elapsed());
+            last = Instant::now();
+            if pid != old_pid {
+                new_pid = Some(pid);
+                break;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let Some(new_pid) = new_pid else {
+        while let Some(l) = old.line(Duration::from_millis(200), |_| true) {
+            seen.borrow_mut().push(l);
+        }
+        panic!(
+            "the installed build did not take over; old alive {}, adopted {adopted:?}, status {:?}, old daemon said:\n{}\ndaemon.log:\n{}",
+            unsafe { libc::kill(old_pid as i32, 0) } == 0,
+            status(&dir),
+            seen.borrow().join("\n"),
+            fs::read_to_string(dir.join("daemon.log")).unwrap_or_default()
+        );
+    };
+    eprintln!(
+        "update-handoff: swap {old_pid} -> {new_pid}, {refused} refused connects, longest wait for an answer {longest:?}; adopted line: {adopted:?}"
+    );
+    assert!(adopted.is_some(), "the relaunched app was not adopted before the swap");
+    // Where the scratch home is too long for the side socket (`listener_handover::Side::open`),
+    // the successor binds again instead of taking the listener: connects in between are refused
+    // (counted above, 1 to 21 measured) and it answers once it is up, which a loaded host
+    // stretches (1.6 s at load 23; 66 ms idle).
+    assert!(longest < Duration::from_secs(5), "the listener went {longest:?} without an answer");
+    // No client now; the new app runs: the successor stays.
+    std::thread::sleep(Duration::from_secs(6));
+    let alive = unsafe { libc::kill(new_pid as i32, 0) } == 0;
+    assert!(alive, "the swapped daemon stopped while the relaunched app runs");
+    // And it stops once that app is gone.
+    end_child(&mut new_app);
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while unsafe { libc::kill(new_pid as i32, 0) } == 0 {
+        assert!(Instant::now() < deadline, "the swapped daemon did not follow the relaunched app");
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }

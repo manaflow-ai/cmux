@@ -248,8 +248,11 @@ class DailyPickerTests(unittest.TestCase):
 
         def overflow():
             return place.blacksmith_overflow(overrides.get("BLACKSMITH_CANDIDATE", ""), snapshot, NOW)
+
+        def room(class_label, online):
+            return place.owned_room(class_label, online, snapshot, NOW)
         return place.place(self.env(**overrides), read_runners, lambda host: holders.get(host, []),
-                           read_in_flight=never, sleep=never, clock=lambda: 0.0, overflow=overflow)
+                           read_in_flight=never, sleep=never, clock=lambda: 0.0, overflow=overflow, room=room)
 
     def test_the_nearest_pinned_slot_wins_over_a_farther_slot_and_root(self):
         runners = [slot("cmux8s-glaeda-2"), slot("cmux11s-glaeda-2"), root_runner("cmux11s-glaeda")]
@@ -298,11 +301,13 @@ class DailyPickerTests(unittest.TestCase):
         result = self.daily([slot("cmux8s-glaeda-2", busy=True), slot("cmux11s-glaeda-2")], self.records(cmux8s=0, cmux11s=9))
         self.assertEqual(result["host"], "cmux11s")
 
-    def test_without_a_claimable_warm_host_the_shared_slot_label_then_side_then_blacksmith(self):
+    def test_without_a_claimable_warm_host_the_shared_slot_label_then_blacksmith_never_side(self):
         result = self.daily([slot("cmux8s-glaeda-2"), runner("cmux13s-glaeda-9", SIDE)], {})
         self.assertEqual((json.loads(result["runs_on"]), result["pool"], result["host"]), (FRESH, "owned", ""))
+        # An idle side runner in the listing is no place in line: the side label's queue is handed out oldest first
+        # (run 44941204257, 2026-11-21: 76 min behind about 130 PR jobs on it, then refused for capacity).
         result = self.daily([slot("cmux8s-glaeda-2", busy=True), runner("cmux13s-glaeda-9", SIDE)], self.records(cmux8s=1))
-        self.assertEqual((json.loads(result["runs_on"]), result["pool"]), (SIDE, "owned"))
+        self.assertEqual((json.loads(result["runs_on"]), result["runner_label"], result["pool"]), (SMALL, SMALL, "blacksmith"))
         result = self.daily([slot("cmux8s-glaeda-2", status="offline"), runner("cmux13s-glaeda-9", SIDE, busy=True)],
                             self.records(cmux8s=1))
         self.assertEqual((json.loads(result["runs_on"]), result["runner_label"], result["pool"]), (SMALL, SMALL, "blacksmith"))
@@ -313,13 +318,16 @@ class DailyPickerTests(unittest.TestCase):
         # every reservation has a fallback within minutes. Blacksmith macOS is the routing order's last resort.
         busy = [slot("cmux8s-glaeda-2", busy=True), slot("cmux11s-glaeda-2", status="offline"),
                 runner("cmux13s-glaeda-9", SIDE, busy=True)]
-        for snap, label in ((snapshot({SMALL: 0, LARGE: 0}), SMALL), (snapshot({SMALL: 40, LARGE: 0}), LARGE),
-                            (None, SMALL)):
+        for snap, label in ((snapshot({SMALL: 0, LARGE: 0}), SMALL), (None, SMALL)):
             with self.subTest(snapshot=snap):
                 result = self.daily(busy, self.records(cmux8s=1, cmux11s=0), snap)
                 self.assertEqual((json.loads(result["runs_on"]), result["runner_label"], result["pool"], result["host"]),
                                  (label, label, "blacksmith", ""))
                 self.assertNotEqual(json.loads(result["runs_on"]), FRESH)
+        # 6 vCPU stalled with a job queued: 12 vCPU shares its pool and starts nothing while any job queues there
+        # (hosted#1014), so the compile waits on the DEV slot, not behind the pool.
+        result = self.daily(busy, self.records(cmux8s=1, cmux11s=0), snapshot({SMALL: 40, LARGE: 0}))
+        self.assertEqual((json.loads(result["runs_on"]), result["pool"]), (FRESH, "owned"))
         # The variable's size comes first while it moves.
         result = self.daily(busy, {}, snapshot({SMALL: 0, LARGE: 0}), BLACKSMITH_CANDIDATE=LARGE)
         self.assertEqual(json.loads(result["runs_on"]), LARGE)
@@ -355,18 +363,107 @@ class DailyPickerTests(unittest.TestCase):
                 result = self.daily(busy, {}, counted({SMALL: 56, LARGE: 5}, age))
                 self.assertEqual((json.loads(result["runs_on"]), result["pool"]), (FRESH, "owned"))
                 self.assertIn("DEV slot", result["reason"])
+                # 12 vCPU under its own slot count is still no overflow while 6 vCPU queues in the shared pool.
                 result = self.daily(busy, {}, counted({SMALL: 56, LARGE: 2}, age))
-                self.assertEqual((json.loads(result["runs_on"]), result["pool"]), (LARGE, "blacksmith"))
+                self.assertEqual((json.loads(result["runs_on"]), result["pool"]), (FRESH, "owned"))
         # Under its slot count it is still the overflow; a snapshot past 45 min counts nothing.
         result = self.daily(busy, {}, counted({SMALL: 9, LARGE: 5}, 2))
         self.assertEqual(json.loads(result["runs_on"]), SMALL)
         result = self.daily(busy, {}, counted({SMALL: 56, LARGE: 5}, 60))
         self.assertEqual(json.loads(result["runs_on"]), SMALL)
 
-    def test_an_idle_owned_runner_always_beats_blacksmith(self):
-        result = self.daily([slot("cmux8s-glaeda-2", busy=True), runner("cmux13s-glaeda-9", SIDE)], {},
+    def test_12_vcpu_is_no_overflow_while_any_blacksmith_macos_job_queues_in_its_shared_pool(self):
+        # hosted#1014, 2026-11-27: five DEV daily compiles took blacksmith-12vcpu-macos-26 from 19:29Z, past 6 vCPU
+        # queued at its slot count; at 22:51Z 12 vCPU ran 0 with 20 queued (oldest 202 min) while 6 vCPU ran 17.
+        busy = [slot("cmux8s-glaeda-2", busy=True), runner("cmux13s-glaeda-9", SIDE, busy=True)]
+        snap = snapshot({SMALL: 3, LARGE: 0, "blacksmith-6vcpu-macos-15": 0})
+        snap["pools"][SMALL].update(queued=13, running=17)
+        snap["pools"][LARGE].update(queued=0, running=0)
+        snap["pools"]["blacksmith-6vcpu-macos-15"].update(queued=11, running=0)
+        for candidate in ("", LARGE):
+            with self.subTest(candidate=candidate):
+                result = self.daily(busy, {}, snap, BLACKSMITH_CANDIDATE=candidate)
+                self.assertNotEqual(json.loads(result["runs_on"]), LARGE)
+        # A queue on any pool label (here only macos-15) holds 12 vCPU back when 6 vCPU is full.
+        only15 = snapshot({SMALL: 5, LARGE: 0, "blacksmith-6vcpu-macos-15": 5})
+        only15["pools"][SMALL]["queued"] = 56
+        result = self.daily(busy, {}, only15)
+        self.assertEqual((json.loads(result["runs_on"]), result["pool"]), (FRESH, "owned"))
+        self.assertIn("shared pool", result["reason"])
+        # With nothing queued anywhere, 12 vCPU is still the variable's moving pick.
+        idle = snapshot({SMALL: 0, LARGE: 0})
+        result = self.daily(busy, {}, idle, BLACKSMITH_CANDIDATE=LARGE)
+        self.assertEqual((json.loads(result["runs_on"]), result["pool"]), (LARGE, "blacksmith"))
+
+    def test_an_idle_dev_slot_beats_blacksmith_but_an_idle_side_runner_never_places_it(self):
+        result = self.daily([slot("cmux8s-glaeda-2"), runner("cmux13s-glaeda-9", SIDE)], {},
                             snapshot({SMALL: 0, LARGE: 0}))
-        self.assertEqual((json.loads(result["runs_on"]), result["pool"]), (SIDE, "owned"))
+        self.assertEqual((json.loads(result["runs_on"]), result["pool"]), (FRESH, "owned"))
+        for snap in (snapshot({SMALL: 0, LARGE: 0}), snapshot({SMALL: 49, LARGE: 30}), None):
+            with self.subTest(snapshot=snap):
+                result = self.daily([slot("cmux8s-glaeda-2", busy=True), runner("cmux13s-glaeda-9", SIDE)], {}, snap)
+                self.assertNotEqual(json.loads(result["runs_on"]) if result["runs_on"] else "", SIDE)
+                self.assertNotEqual(result.get("runner_label"), SIDE)
+
+    def test_an_idle_nightly_slot_comes_after_the_nearest_cache_and_before_the_dev_slot_and_blacksmith(self):
+        # The runner hook ranks the DEV daily compile nightly-tier, so the nightly slot admits it. Leo: "Nightlies
+        # come first on the fleet". Order: owned idle on the nearest cache, idle nightly slot, DEV slot, Blacksmith.
+        nightly = "glaeda-nightly-std-xcode-26.6"
+        night = runner("cmux20s-glaeda-nightly", nightly)
+        # A claimable warm host still wins.
+        result = self.daily([slot("cmux8s-glaeda-2"), night], self.records(cmux8s=1), NIGHTLY_LABEL=nightly)
+        self.assertEqual((result["runner_label"], result["host"]), (FRESH, "cmux8s"))
+        # Without one, the idle nightly slot beats the idle DEV slot label and Blacksmith.
+        for runners in ([slot("cmux8s-glaeda-2"), slot("cmux9s-glaeda-2"), night],
+                        [slot("cmux8s-glaeda-2", busy=True), runner("cmux13s-glaeda-9", SIDE), night]):
+            with self.subTest(runners=[r["name"] for r in runners]):
+                result = self.daily(runners, {}, snapshot({SMALL: 0, LARGE: 0}), NIGHTLY_LABEL=nightly)
+                self.assertEqual((json.loads(result["runs_on"]), result["runner_label"], result["pool"]),
+                                 (nightly, nightly, "owned"))
+        # A busy or offline nightly slot is no pick: the DEV slot, then Blacksmith, as before.
+        for state in (dict(busy=True), dict(status="offline")):
+            with self.subTest(**state):
+                busy_night = runner("cmux20s-glaeda-nightly", nightly, **state)
+                result = self.daily([slot("cmux8s-glaeda-2"), slot("cmux9s-glaeda-2"), busy_night], {},
+                                    NIGHTLY_LABEL=nightly)
+                self.assertEqual(json.loads(result["runs_on"]), FRESH)
+                result = self.daily([slot("cmux8s-glaeda-2", busy=True), busy_night], {},
+                                    snapshot({SMALL: 0, LARGE: 0}), NIGHTLY_LABEL=nightly)
+                self.assertEqual((json.loads(result["runs_on"]), result["pool"]), (SMALL, "blacksmith"))
+        # Unset, it is never read.
+        result = self.daily([slot("cmux8s-glaeda-2"), slot("cmux9s-glaeda-2"), night], {})
+        self.assertEqual(json.loads(result["runs_on"]), FRESH)
+
+    def test_an_owned_class_pool_with_room_comes_before_blacksmith(self):
+        # 2026-11-27 19:29Z-19:54Z: five DEV daily compiles (runs 46056807213 to 46059643627) placed "no owned runner
+        # is idle; Blacksmith macOS overflow: blacksmith-12vcpu-macos-26", which started nothing for 93 minutes, while
+        # glaeda-std-xcode-26.6 ran 8 jobs with 1 queued and a p90 wait of 54 s.
+        std = SIDE.replace("glaeda-side-", "glaeda-")
+        busy_slot = slot("cmux8s-glaeda-2", busy=True)
+        pool = [runner("cmux30s-glaeda", std), runner("cmux31s-glaeda", std), runner("cmux32s-glaeda", std, busy=True)]
+        moving = snapshot({SMALL: 0, LARGE: 0})
+        moving["pools"][SIDE] = {"queued": 1, "running": 8}
+        result = self.daily([busy_slot, *pool], {}, moving)
+        self.assertEqual((json.loads(result["runs_on"]), result["runner_label"], result["pool"]), (std, std, "owned"))
+        self.assertIn("2 idle runners and its family 1 jobs queued", result["reason"])
+        # Every idle runner is spoken for by the family's queue (side jobs count: the same Macs): Blacksmith, as before.
+        full = snapshot({SMALL: 0, LARGE: 0})
+        full["pools"][SIDE] = {"queued": 2, "running": 8}
+        result = self.daily([busy_slot, *pool], {}, full)
+        self.assertEqual((json.loads(result["runs_on"]), result["pool"]), (SMALL, "blacksmith"))
+        # No snapshot, or one past ROOM_SNAPSHOT_MINUTES: the family's queue is unknown, so no room is claimed.
+        for snap in (None, snapshot({SMALL: 0, LARGE: 0}, age_minutes=place.ROOM_SNAPSHOT_MINUTES + 5)):
+            with self.subTest(snapshot=bool(snap)):
+                result = self.daily([busy_slot, *pool], {}, snap)
+                self.assertEqual(result["pool"], "blacksmith")
+        # Room never outranks the nearest cache, the nightly slot or an idle DEV slot.
+        result = self.daily([slot("cmux8s-glaeda-2"), *pool], self.records(cmux8s=1), moving)
+        self.assertEqual((result["runner_label"], result["host"]), (FRESH, "cmux8s"))
+        result = self.daily([slot("cmux8s-glaeda-2"), *pool], {}, moving)
+        self.assertEqual(json.loads(result["runs_on"]), FRESH)
+        # An idle side-only runner is still no place (the side queue is handed out oldest first).
+        result = self.daily([busy_slot, runner("cmux13s-glaeda-9", SIDE)], {}, moving)
+        self.assertEqual(result["pool"], "blacksmith")
 
     def test_unreadable_runners_or_owned_pools_off_keep_the_route(self):
         def refused():

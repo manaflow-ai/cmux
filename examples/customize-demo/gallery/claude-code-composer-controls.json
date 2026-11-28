@@ -1,0 +1,15 @@
+{
+  "cmuxProfile": 1,
+  "name": "setup-manaflow-ai-claude-code-composer-controls",
+  "description": "Open the model picker with Option-P or Command-Shift-I or the attachment and command menu with Command-J then A.",
+  "created_ms": 0,
+  "settings": {},
+  "files": {
+    "keybindings.json": "[\n  {\"key\": \"cmd+shift+i\", \"command\": \"agentPane.switchModel\", \"when\": \"agentPaneFocused\"},\n  {\"key\": \"opt+p\", \"command\": \"agentPane.switchModel\", \"when\": \"agentPaneFocused\"},\n  {\"key\": \"cmd+j a\", \"command\": \"agentPane.composer.addMenu\", \"when\": \"agentPaneFocused\"}\n]\n"
+  },
+  "x-setup": {
+    "id": "manaflow-ai/claude-code-composer-controls",
+    "name": "Claude Code composer controls",
+    "source": "looks/claude-code/composer-controls"
+  }
+}

@@ -1,6 +1,7 @@
 // Strings come from pages/diff/Localizable.xcstrings through scripts/pages/gen-strings.mjs.
 import english from "./pages/diff/generated/locales/en.json";
 import { diffLocaleLoaders } from "./pages/diff/generated/localeLoaders";
+import { appLanguages } from "./pages/shared/appLanguage";
 import { resolveLanguage } from "./pages/shared/i18n";
 import { DiffLabelCatalog } from "./diff/labelCatalog";
 
@@ -15,9 +16,7 @@ export type DiffViewerLabelResolver = (key: DiffViewerLabelKey) => string;
 export type DiffViewerLanguage = string;
 
 /** The first supported app locale, using the same resolution as every page. */
-export function diffViewerLanguage(
-  languages: readonly string[] = globalThis.navigator?.languages ?? [],
-): DiffViewerLanguage {
+export function diffViewerLanguage(languages: readonly string[] = appLanguages()): DiffViewerLanguage {
   return resolveLanguage(languages, availableLanguages);
 }
 
@@ -32,10 +31,6 @@ export function diffViewerLabelsFor(language: DiffViewerLanguage): Record<DiffVi
 /** The viewer's own keys; the table also carries the changes view's git strings (diff-viewer/git.ts). */
 const viewerKeys = (keys: string[]) => keys.filter((key) => key.startsWith("diffViewer."));
 
-export const DEFAULT_DIFF_VIEWER_LABELS = Object.fromEntries(
-  viewerKeys(Object.keys(english)).map((key) => [key.slice("diffViewer.".length), english[key as CatalogKey]]),
-) as Record<DiffViewerLabelKey, string>;
-
 /** The loaded table's changes view strings in `language` and English, for the reused Stage, Commit and Push. */
 export function diffGitStrings(language: DiffViewerLanguage): Record<string, Record<string, string>> {
   const pick = (table: Record<string, string>) =>
@@ -49,7 +44,7 @@ export function loadDiffViewerLabels(language: DiffViewerLanguage = diffViewerLa
 
 type LabelResolverOptions = {
   assertMissing?: boolean;
-  /** Overrides the language read from navigator.languages (tests). */
+  /** Overrides the language read from appLanguages() (tests). */
   language?: DiffViewerLanguage;
 };
 

@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { setCloudMachinesForTest } from "../cloudMachines";
 import { newTabScreenActions } from "./screenActions";
 
 test("fix-from-link selects the created chat while New Tab stays mounted", async () => {
@@ -101,4 +102,144 @@ test("every pick from the field opens in the page's tab, never a split; Option-R
     { kind: "browser", text: "https://example.com/", beside: true },
     { kind: "browser", text: "cmux docs", search: true, beside: true },
   ]);
+});
+
+test("onAsk asks the hold first, and a held send starts nothing (the screen keeps the prompt: NewTabScreen.test)", async () => {
+  const calls: string[] = [];
+  const asked: string[] = [];
+  const actions = newTabScreenActions({
+    callNative: async (method) => {
+      calls.push(method);
+      return { sessionId: "s1" };
+    },
+    leave: () => calls.push("leave"),
+    selectSession: () => {},
+    showAllChats: () => {},
+    runShell: () => {},
+    holdsSend: (text, here) => {
+      asked.push(`${here ? "here" : "elsewhere"}: ${text}`);
+      return true;
+    },
+  });
+  const sent = actions.onAsk("claude", "open the settings app with @computer-use", undefined, undefined, true);
+  await expect(sent).rejects.toBeDefined();
+  expect(asked).toEqual(["here: open the settings app with @computer-use"]);
+  expect(calls).toEqual([]);
+});
+
+test("a send to a chat on another machine is asked about too, as not here (#48541)", async () => {
+  const calls: string[] = [];
+  const asked: string[] = [];
+  const deps = {
+    callNative: async (method: string) => {
+      calls.push(method);
+      return { sessionId: "s1" };
+    },
+    leave: () => calls.push("leave"),
+    selectSession: () => {},
+    showAllChats: () => {},
+    runShell: () => {},
+    holdsSend: (text: string, here: boolean) => {
+      asked.push(`${here ? "here" : "elsewhere"}: ${text}`);
+      return !here;
+    },
+  };
+  const text = "open the settings app with @computer-use";
+  // A saved environment on a peer.
+  const onPeer = newTabScreenActions(deps).onAsk("claude", text, undefined, undefined, true, undefined, {
+    peer: "studio",
+  });
+  await expect(onPeer).rejects.toBeDefined();
+  // The page's chats run on another machine.
+  const elsewhere = newTabScreenActions({ ...deps, startsHere: () => false }).onAsk(
+    "claude",
+    text,
+    undefined,
+    undefined,
+    true,
+  );
+  await expect(elsewhere).rejects.toBeDefined();
+  expect(asked).toEqual([`elsewhere: ${text}`, `elsewhere: ${text}`]);
+  expect(calls).toEqual([]);
+});
+
+// CMUX-682: a folder question can take long enough for Computer Use to change; the chat's start asks again.
+test("the hold is asked again when the chat starts after the folder question, and a held start opens nothing", async () => {
+  const calls: string[] = [];
+  let answers = 0;
+  let startLater: (() => void) | undefined;
+  const actions = newTabScreenActions({
+    callNative: async (method) => {
+      calls.push(method);
+      return { sessionId: "s1" };
+    },
+    leave: () => calls.push("leave"),
+    selectSession: () => {},
+    showAllChats: () => {},
+    runShell: () => {},
+    requestFolder: (cwd, start) => {
+      startLater = () => start(cwd);
+    },
+    holdsSend: () => ++answers > 1,
+  });
+  const sent = actions.onAsk("claude", "open Notes with @computer-use", "/Users/you/src/app");
+  expect(answers).toBe(1);
+  expect(startLater).toBeDefined();
+  startLater!();
+  await expect(sent).rejects.toBeDefined();
+  expect(answers).toBe(2);
+  expect(calls).not.toContain("chat.new");
+  expect(calls).not.toContain("chat.send");
+});
+
+test("a direct Cloud peer send requires proof it belongs to the selected environment", async () => {
+  const env = "env_0123456789abcdef01234567";
+  const calls: Array<[string, unknown]> = [];
+  let matches = false;
+  let registry: string | undefined = "registry-a";
+  let replacePeer = false;
+  setCloudMachinesForTest([
+    { id: "vm_a", name: "Renamed", stage: "ready", cloudRegistryId: "registry-a" },
+    { id: "vm_b", name: "Builder", stage: "ready", cloudRegistryId: "registry-b" },
+  ]);
+  try {
+    const actions = newTabScreenActions({
+      callNative: async (method, params) => {
+        calls.push([method, params]);
+        if (method === "cloud.setup.state") {
+          if (replacePeer) registry = "registry-b";
+          return { environmentMatches: matches };
+        }
+        return "chat";
+      },
+      leave: () => {},
+      selectSession: () => {},
+      showAllChats: () => {},
+      runShell: () => {},
+      peerCloudRegistry: () => registry,
+    });
+    const send = () =>
+      Promise.resolve(
+        actions.onAsk("claude", "prompt", "/work", undefined, false, [], {
+          peer: "Builder",
+          cloudEnvironment: env,
+        }),
+      );
+    await expect(send()).rejects.toThrow();
+    expect(calls).toEqual([["cloud.setup.state", { machine: "vm_a", environment: env }]]);
+    matches = true;
+    await send();
+    expect(calls.slice(1).map(([method]) => method)).toEqual(["cloud.setup.state", "chat.new", "chat.send"]);
+    expect(calls[2]?.[1]).toEqual({ harness: "claude", peer: "Builder", cwd: "/work", cloudRegistryId: "registry-a" });
+    calls.length = 0;
+    replacePeer = true;
+    await expect(send()).rejects.toThrow();
+    expect(calls.map(([method]) => method)).toEqual(["cloud.setup.state"]);
+    calls.length = 0;
+    registry = undefined;
+    await expect(send()).rejects.toThrow();
+    expect(calls).toEqual([]);
+  } finally {
+    setCloudMachinesForTest([]);
+  }
 });

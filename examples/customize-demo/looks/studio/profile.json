@@ -10,6 +10,7 @@
       "agentPane.searchChats"
     ],
     "sidebar.groupBy": "folder",
+    "sidebar.settleFinished": true,
     "sidebar.showSpaces": false,
     "sidebar.cards.tips": false,
     "sidebar.groupHeader.background": "sections",
@@ -61,6 +62,7 @@
     "sidebar.workspaceRow.process": true,
     "sidebar.workspaceRow.ports": false,
     "sidebar.workspaceRow.notification": true,
-    "workspaceColors.indicatorStyle": "fill"
+    "workspaceColors.indicatorStyle": "fill",
+    "tabs.nativeNewTabPage": false
   }
 }

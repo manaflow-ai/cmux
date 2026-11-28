@@ -48,6 +48,7 @@ check "a process the step started is stopped too" gone
 
 # 2. A long quiet step says it is alive, with its log's last line.
 set +e
+# sleep-ok: the step stays quiet for 3 s on purpose so the 1 s heartbeat prints while it runs.
 out="$(cd "$repo" && source scripts/measure/tab-switch.sh && TSW_STEP_EVERY=1 tsw_step TSW seeder 30 "$tmp/quiet.log" -- bash -c 'echo compiling scale_home; sleep 3; exit 0' 2>&1)"
 rc=$?
 set -e

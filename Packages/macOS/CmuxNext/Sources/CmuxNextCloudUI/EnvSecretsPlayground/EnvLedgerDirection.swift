@@ -206,6 +206,7 @@ struct EnvLedgerDirection {
     private func noHost() -> NSView {
         let entry = sample.noHost
         let field = NSTextField()
+        field.focusRingType = .none
         field.placeholderString = "api.example.com"
         field.bezelStyle = .roundedBezel
         field.controlSize = .small
@@ -295,6 +296,7 @@ struct EnvLedgerDirection {
                           envLabel("from “\(sample.requestChat)”", color: EnvInk.secondary), envSpacer()], spacing: 6)
         let key: (String) -> NSView = { envLabel($0, color: EnvInk.secondary) }
         let value = NSSecureTextField()
+        value.focusRingType = .none
         value.placeholderString = "Paste or type the value"
         value.bezelStyle = .roundedBezel
         value.font = .systemFont(ofSize: TypeScale.detail)

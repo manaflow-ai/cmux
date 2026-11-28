@@ -3,6 +3,7 @@
 import type { AllChatsPage } from "./allChatsListModel";
 import type { NewTabOpenHow, NewTabScreenActions } from "./NewTabScreen";
 import { savedEnvironmentHost } from "../environments";
+import { cloudMachineForRegistry } from "../cloudMachines";
 import { rememberStartedProject } from "./startedProject";
 import { rememberPick } from "../lastPick";
 import { translate } from "../i18n";
@@ -36,8 +37,13 @@ export function newTabScreenActions(deps: {
   requestFolder?(cwd: string, start: (folder: string) => void, cancel?: (refusal?: unknown) => void): void;
   /// false: the page's chats run on another machine, whose folders are never this Mac's default.
   startsHere?(): boolean;
+  /// true: the chat may not take `text` now (`@computer-use` while Computer Use is not ready on this
+  /// Mac, toolMentions.ts, or for a chat on another machine, `here` false, which has no Computer Use
+  /// tools, #48541); the pane opened its setup or said why, and the page keeps the prompt.
+  holdsSend?(text: string, here: boolean): boolean;
   /// Captures the page/selection owning this attempt, before any asynchronous work.
   startScope?(allowReconnect: boolean): () => boolean;
+  peerCloudRegistry?(peer: string): string | undefined;
   clearError?(): void;
   showError?(error: unknown): void;
 }): NewTabScreenActions {
@@ -48,10 +54,31 @@ export function newTabScreenActions(deps: {
   const remember = (agent: string, model: string | undefined, folder: string | undefined) =>
     rememberPick({ harness: agent, ...(model ? { model } : {}) }, folder, callNative);
   return {
-    onAsk(harness, text, picked, model, noProject, attachments, saved) {
+    async onAsk(harness, text, picked, model, noProject, attachments, saved) {
       const peer = saved?.peer;
+      // A newer folder pick made while this chat starts stays the next New Tab's default.
+      const sentAt = Date.now();
+      // Held for Computer Use (decided at once): the page keeps the prompt, nothing starts.
+      if (deps.holdsSend?.(text, !peer && deps.startsHere?.() !== false)) return Promise.reject(startCancelled());
       const queuedStart = !!harness && !peer && !noProject;
       const current = deps.startScope?.(queuedStart) ?? (() => true);
+      const cloudRegistryId = peer ? deps.peerCloudRegistry?.(peer) : undefined;
+      if (peer && saved?.cloudEnvironment) {
+        const machine = cloudMachineForRegistry(cloudRegistryId);
+        const readiness =
+          machine &&
+          (await callNative("cloud.setup.state", {
+            machine: machine.id,
+            environment: saved.cloudEnvironment,
+          }).catch(() => undefined));
+        if (!current()) throw startCancelled();
+        if (
+          (readiness as { environmentMatches?: boolean } | undefined)?.environmentMatches !== true ||
+          deps.peerCloudRegistry?.(peer) !== cloudRegistryId
+        ) {
+          throw new Error(translate("composer.envNotConnected"));
+        }
+      }
       // The prompt goes in the same turn as the switch: the switch queues it, and a folder trust
       // refusal then holds it with the send's gesture (holdPrompt), so Trust sends it. Sending
       // after `chat.new` settled lost it: the switch had stopped on the refusal with nothing
@@ -63,6 +90,9 @@ export function newTabScreenActions(deps: {
           settleFailed(isStartCancelled(error) || !current() ? startCancelled() : error);
         const start = (folder?: string) => {
           if (!current()) return reject(startCancelled());
+          // Asked again when the chat starts: a folder question or a new worktree can take long enough for
+          // Computer Use to change, so the page keeps the prompt and says why (CMUX-682).
+          if (text && deps.holdsSend?.(text, !peer && deps.startsHere?.() !== false)) return reject(startCancelled());
           // In the folder the chat starts in, which the next New Tab there reads; a chat on another
           // machine names that machine's agents, so this Mac's new chats keep theirs.
           if (!peer) remember(harness, model, folder);
@@ -73,6 +103,7 @@ export function newTabScreenActions(deps: {
             ...(folder ? { cwd: folder } : noProject ? { noProject: true } : {}),
             ...(model ? { model } : {}),
             ...(peer ? { peer } : {}),
+            ...(cloudRegistryId ? { cloudRegistryId } : {}),
           });
           const message = { text, ...(attachments?.length ? { attachments } : {}) };
           const asks = !!text || !!attachments?.length;
@@ -81,7 +112,7 @@ export function newTabScreenActions(deps: {
               .then(async (started) => {
                 if (!current()) throw startCancelled();
                 if (!started) throw new Error(translate("switch.noSession"));
-                if (!peer && asks && deps.startsHere?.() !== false) rememberStartedProject(folder, callNative);
+                if (!peer && asks && deps.startsHere?.() !== false) rememberStartedProject(folder, callNative, sentAt);
                 // The send names this start's session; a later selected chat cannot take it.
                 if (asks) {
                   let taken = false;
@@ -110,7 +141,7 @@ export function newTabScreenActions(deps: {
           const accepted = opened.then((started) => {
             if (!current()) throw startCancelled();
             if (started) {
-              if (asks && deps.startsHere?.() !== false) rememberStartedProject(folder, callNative);
+              if (asks && deps.startsHere?.() !== false) rememberStartedProject(folder, callNative, sentAt);
               if (!asks) deps.leave();
             } else if (!asks) throw new Error(translate("switch.noSession"));
           });

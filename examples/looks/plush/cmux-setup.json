@@ -1,0 +1,37 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/plush-look",
+  "name": "Plush",
+  "tagline": "Soft raised panels on one colored surface.",
+  "description": "One soft colored surface with panels raised out of it, no borders or glass, and one bright accent. Comes in several colors, light and dark. Remove it and everything you had comes back.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/examples/looks/plush",
+  "screenshots": ["screenshots/plush-light.png", "screenshots/plush-dark.png", "screenshots/plush-dusk.png", "screenshots/plush-dusk-dark.png", "screenshots/plush-clay.png", "screenshots/plush-clay-dark.png"],
+
+  "cmuxProfile": 1,
+  "settings": {
+    // Plush (light) is the default; plush-dark, plush-dusk, plush-dusk-dark, plush-clay and
+    // plush-clay-dark are the other five (README).
+    "appearance.themeFile": "plush",
+
+    // The chat: Hanken Grotesk (a soft, round sans) at 15 px with a 1.6 line height, code at 0.9.
+    "agentPane.display.font.ui": "hanken",
+    "agentPane.display.font.size": 15,
+    "agentPane.display.font.lineHeight": 1.6,
+    "agentPane.display.code.scale": 0.9,
+
+    // The Markdown viewer in the same hand, painted by markdown/theme.css.
+    "markdown.font.preset": "system",
+    "markdown.font.size": 15,
+    "markdown.font.lineHeight": 1.6,
+    "markdown.code.scale": 0.9,
+    // Diffs and sidebar group colors from the theme's own palette.
+    "diff.colors": "theme",
+    "sidebar.groupPalette": "theme",
+
+    // The address field: round (12 px) and lifted off the page.
+    "browser.omnibar.cornerRadius": 12,
+    "browser.omnibar.shadow": true
+  }
+}

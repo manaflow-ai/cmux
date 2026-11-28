@@ -22,3 +22,8 @@ public nonisolated struct AppPresence: Sendable, Equatable {
 
     public func isPresented(_ id: String) -> Bool { presented.contains(id) }
 }
+
+extension AppsClient {
+    /// The presence of every app now (observed through `apps`; the rule: `AppPresence`).
+    public var presence: AppPresence { AppPresence(apps) }
+}

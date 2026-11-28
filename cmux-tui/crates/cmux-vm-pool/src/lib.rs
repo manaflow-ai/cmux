@@ -11,6 +11,9 @@
 //! - `pause` pauses (Freestyle) or suspends (GCE) machines whose runners are all idle.
 //! - `schedule` is the loop: queued `cmux-linux` jobs resume machines, machines idle past a window pause.
 //!
+//! `cmux vm runner new|ls|park` (runner.rs, runner_cli.rs) makes or resumes one Freestyle runner VM for one job, with
+//! the user's own Freestyle key and GitHub credential.
+//!
 //! Nothing here deletes, stops for good or re-creates a machine: there is no delete call in this crate
 //! (`tests::no_delete_path`).
 
@@ -22,6 +25,8 @@ pub mod http;
 pub mod load;
 pub mod model;
 pub mod plan;
+pub mod runner;
+pub mod runner_cli;
 pub mod schedule;
 pub mod watch;
 

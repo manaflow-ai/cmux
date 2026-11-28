@@ -51,11 +51,14 @@ The pre-push gate (`scripts/cmux-next/prepush-gate.py`) and CI enforce most of t
   one, never as a one-off script; perf PRs cite `cmux-bench compare` output ([scripts/bench/README.md](../../scripts/bench/README.md)).
 - Budget: every action reaches its committed frame in < 10 ms p95; motion runs at full refresh, 0 drops.
   Measure on the fleet yourself, light and STRESS ([perf-lead.md](../../plans/cmux-next/perf-lead.md)), before and after.
-- Never add CI gates, perf-gate rows or budgets, CI jobs or steps, or CI tests (Lawrence 2026-10-23: "not to
-  add gates/tests in CI, but you have to run them yourself"). This rule is about CI only; it does not remove
-  regression tests. Each fix still gets a regression test that fails without it; each agent runs its own
-  regression tests itself on the fleet (cmux-ci, nx-remote) before and after the fix, and says the result in
-  the commit. Do not move a test into CI to have it run for you.
+- Agents may add CI gates, perf-gate rows and budgets, CI jobs, steps and tests (Aziz 2026-11-18 lifted the
+  2026-10-23 "no new CI" rule; comments that cite it describe why older checks stayed local). Lawrence's separate
+  perf decision still stands: a perf run never blocks or slows a push, a pull request merge or a nightly; it runs on
+  the perf cron (`scripts/cmux-next/perf-cron.py`, [perf-lead.md](../../plans/cmux-next/perf-lead.md) F9). CI is
+  in addition to your own run, never instead of it: each fix still gets a regression test that fails without it,
+  you run it yourself on the fleet (cmux-ci, nx-remote) before and after the fix, and the commit says the result.
+  Keep pull request CI fast: a check that takes more than about 10 minutes runs behind a path filter, on a
+  schedule or on dispatch, not on every pull request.
 - `// perf-hot: <budget> <path-id>` marks a per-frame, per-key or per-switch function; the pre-push hook names
   its bench ([perf-hot-benches.json](../../scripts/cmux-next/perf-hot-benches.json)). Mark new hot paths the same way.
 - Read [OWNERS.md](../../plans/cmux-next/OWNERS.md) before you change an owned area, and tell the owner.

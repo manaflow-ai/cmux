@@ -9,8 +9,9 @@ import Testing
 /// The user, 2026-11-19 (msg 40501): "vault h1 h2 is pinned workspace but it shows gh logo instead of the pin logo".
 /// A workspace with no icon of its own takes its shown tab's favicon as its row icon (the GitHub mark of a pull request
 /// page), and the pinned row drew that favicon in the pin's place as if it were the workspace's own icon
-/// (`SidebarPinnedRowLeading.ownIcon`). The favicon belongs to the tab, not the workspace: a pinned row shows its pin
-/// whatever its shown tab is, and only an icon or color the user chose takes the pin's place.
+/// (`SidebarPinnedRowLeading.ownIcon`). Leo 2026-11-23 (ask c-b5d3e0efb6: "it puts a symbol at the left. immediately
+/// questionable") took the pin off pinned rows: a pinned row now leads exactly as its list row does, so it shows the
+/// favicon its list row shows, and no pin.
 @MainActor @Suite(.serialized, .closesItsWindows) struct PinnedRowShownTabIconTests {
     static let home = LayoutItem(id: LayoutItemID("itm_tabicon_home"), ref: .builtIn(.home))
     static let page = LayoutItem(id: LayoutItemID("itm_tabicon_page"), ref: .workspace("local:ws-tabicon-page"))
@@ -80,18 +81,17 @@ import Testing
         }
     }
 
-    /// A pinned workspace whose shown tab is a GitHub page draws the pin, not the page's favicon, and its title starts
-    /// at Home's label x as every pinned row's does.
-    @Test func aPinnedRowShowsItsPinWhateverItsShownTabIs() throws {
+    /// A pinned workspace whose shown tab is a GitHub page leads as its list row does (Leo 2026-11-23, ask
+    /// c-b5d3e0efb6): the page's favicon, no pin, and its title at Home's label x after the icon.
+    @Test func aPinnedRowLeadsWithItsShownTabsIconAsItsRowDoes() throws {
         try Self.atDefaultLook {
             let row = try Self.pageRow()
-            // The list row keeps the page's favicon: only the pinned row's leading column changes.
+            // The list row keeps the page's favicon, and the pinned row draws the same leading icon.
             #expect(row.icon == .favicon(PinnedSummaryDensityTests.favicon), "the workspace row lost its page's favicon")
             let (list, window) = Self.list(row)
             defer { window.close() }
             let pinned = try HomePinnedRowAlignmentTests.item(list, Self.page.id)
-            #expect(pinned.pinSquareFrame != nil, "the pinned row whose shown tab is a GitHub page draws no pin")
-            #expect(pinned.glyphInkFrame == nil, "the pinned row draws its shown tab's favicon beside or instead of the pin")
+            #expect(pinned.pinSquareFrame == nil, "the pinned row whose shown tab is a GitHub page draws a pin")
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
             let homeText = list.convert(home.titleFrame, from: home).minX
             let pageText = list.convert(pinned.titleFrame, from: pinned).minX
@@ -99,7 +99,7 @@ import Testing
         }
     }
 
-    /// An icon the user chose still takes the pin's place (#38061): only a shown tab's favicon gives way to the pin.
+    /// An icon the user chose leads the pinned row, with no pin before it.
     @Test func aPinnedRowWithItsOwnIconKeepsIt() throws {
         try Self.atDefaultLook {
             let (list, window) = Self.list(try Self.pageRow())

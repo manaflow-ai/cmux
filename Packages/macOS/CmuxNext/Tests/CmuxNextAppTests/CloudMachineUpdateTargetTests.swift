@@ -1,4 +1,5 @@
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
@@ -207,6 +208,28 @@ struct CloudMachineUpdateTargetTests {
         #expect((tries, relinks) == (2, 1))
     }
 
+    /// cosmic-gray 2026-11-27: 2 AutoCloud starts failed "started but its agent didn't (timed out: identify (no progress
+    /// for 10.0 s))": the retry's relink took the stale link the app still held. A first-request timeout is a stale link,
+    /// and the relink sees that failure so it can make a new link; a closed or missing link is dropped, not stale.
+    @Test func aFirstRequestTimeoutIsAStaleLinkTheRelinkSees() async throws {
+        let identify = DaemonError.timedOut("identify (no progress for 10.0 s)")
+        #expect(CloudWait.linkStale(identify))
+        #expect(CloudWait.linkStale(DaemonError.timedOut("set-client-info (no progress for 10.0 s)")))
+        #expect(CloudWait.linkDropped(identify))
+        #expect(!CloudWait.linkStale(DaemonError.timedOut("agent-session-start (no progress for 10.0 s)")))
+        #expect(!CloudWait.linkStale(DaemonError.connectionClosed(reason: "EOF")))
+        #expect(!CloudWait.linkStale(DaemonError.connectFailed(path: "/tmp/x.sock", errno: ENOENT)))
+
+        var tries = 0, staleRelinks = 0
+        let started = try await CloudWait.retriedOnce({
+            tries += 1
+            if tries == 1 { throw identify }
+            return "session"
+        }, closed: CloudWait.linkDropped, relinkAfter: { if CloudWait.linkStale($0) { staleRelinks += 1 }; return true })
+        #expect(started == "session")
+        #expect((tries, staleRelinks) == (2, 1), "the relink never heard the link was stale")
+    }
+
     /// The same run's root: a start an older daemon refused updates the machine and starts again, and the update
     /// restarts the daemon. The second start waits for the new handshake first; with no update turn it waits for nothing.
     @Test func aRefusedStartsUpdateWaitsForTheNewLinkBeforeStartingAgain() async {
@@ -248,6 +271,60 @@ struct CloudMachineUpdateTargetTests {
         #expect(!gate.contains("vm-2"))
         gate.leave("vm-1")
         #expect(!gate.contains("vm-1"))
+    }
+
+    /// A start whose agent runs holds the machine through its first turn, so the update turned away during the
+    /// start does not restart the daemon under the first reply (prod probe 2026-11-23T19:54Z: 146.8 s after the start).
+    @Test func theStartGateHoldsTheMachineThroughTheFirstTurn() {
+        var clock = ContinuousClock.now
+        let gate = CloudStartGate(now: { clock })
+        gate.enter("vm-1")
+        gate.started("vm-1")
+        gate.leave("vm-1")
+        #expect(gate.contains("vm-1"), "the first turn runs")
+        clock += .seconds(120)
+        #expect(gate.contains("vm-1"), "the update's first busy retry still finds it held")
+        clock += .seconds(61)
+        #expect(!gate.contains("vm-1"), "after the hold the update runs")
+        gate.enter("vm-2")
+        gate.leave("vm-2")
+        #expect(!gate.contains("vm-2"), "a start that failed holds nothing")
+    }
+
+    /// The composer's start (`cloud start-chat`) runs inside the gate and holds the machine after it only when it succeeded.
+    @Test func theComposersStartIsHeldAndHoldsOnlyWhenItSucceeded() async {
+        var clock = ContinuousClock.now
+        let gate = CloudStartGate(now: { clock })
+        let inside = try? await gate.holding("vm-1") { gate.contains("vm-1") }
+        #expect(inside == true, "held while the start runs")
+        #expect(gate.contains("vm-1"), "and through the first turn")
+        clock += CloudStartGate.firstTurnHold
+        #expect(!gate.contains("vm-1"))
+        struct Refused: Error {}
+        _ = try? await gate.holding("vm-2") { throw Refused() }
+        #expect(!gate.contains("vm-2"), "a failed start holds nothing")
+    }
+
+    /// cmux#55519: the composer's start holds its machine from before the link connects, through the hand-over to the start's
+    /// steps, so the automatic update its handshake offers answers busy. RED before: the gate was entered only after the
+    /// connect and the route check, and the update restarted the daemon under the start (a warm spare, about 21 s).
+    @Test func theComposersStartHoldsItsMachineFromBeforeTheConnectWithNoGap() async throws {
+        var clock = ContinuousClock.now
+        let gate = CloudStartGate(now: { clock }) // the update's `starting` is `gate.contains` (CloudMachineUpdates.target)
+        let heldDuringConnect = try await gate.entering("vm-1") { gate.contains("vm-1") } // the handshake's offer, mid-connect
+        #expect(heldDuringConnect, "no restart while the link comes up")
+        #expect(gate.contains("vm-1"), "still held between the connect and the start's steps")
+        let inside = try await gate.holding("vm-1", entered: true) { gate.contains("vm-1") }
+        #expect(inside, "the steps take the same hold over")
+        #expect(gate.contains("vm-1"), "and through the first turn")
+        clock += CloudStartGate.firstTurnHold
+        #expect(!gate.contains("vm-1"), "one hold, not two: it ends after the first turn")
+        struct Refused: Error {}
+        _ = try? await gate.entering("vm-2") { throw Refused() }
+        #expect(!gate.contains("vm-2"), "a connect that failed holds nothing")
+        gate.enter("vm-3")
+        _ = try? await gate.holding("vm-3", entered: true) { throw Refused() }
+        #expect(!gate.contains("vm-3"), "a start that failed after its connect lets go of the hold it took over")
     }
 
     /// A refused daemon can't connect, so nothing on it is in use through the app: it goes first,

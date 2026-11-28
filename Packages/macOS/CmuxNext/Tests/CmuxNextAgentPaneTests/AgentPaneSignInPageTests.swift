@@ -55,15 +55,32 @@ struct AgentPaneSignInPageTests {
     }
 
     @Test func onlyProviderSignInPagesAreAllowed() {
-        #expect(AgentPaneSignInPage.allowed(Self.page))
-        #expect(AgentPaneSignInPage.allowed(URL(string: "https://auth.openai.com/codex/device")!))
-        #expect(AgentPaneSignInPage.allowed(URL(string: "https://accounts.x.ai/device")!))
-        #expect(!AgentPaneSignInPage.allowed(URL(string: "https://evil.x.ai/device")!))
-        #expect(AgentPaneSignInPage.allowed(URL(string: "https://cursor.com/loginDeepControl?challenge=c")!))
-        #expect(!AgentPaneSignInPage.allowed(URL(string: "https://cursor.com.evil.example/login")!))
-        #expect(!AgentPaneSignInPage.allowed(URL(string: "https://claude.ai.evil.example/oauth")!))
-        #expect(!AgentPaneSignInPage.allowed(URL(string: "https://user:pass@claude.ai/oauth")!))
-        #expect(!AgentPaneSignInPage.allowed(URL(string: "javascript:alert(1)")!))
+        #expect(AgentPaneSignInPage().allowed(Self.page))
+        #expect(AgentPaneSignInPage().allowed(URL(string: "https://auth.openai.com/codex/device")!))
+        #expect(AgentPaneSignInPage().allowed(URL(string: "https://accounts.x.ai/device")!))
+        #expect(!AgentPaneSignInPage().allowed(URL(string: "https://evil.x.ai/device")!))
+        #expect(AgentPaneSignInPage().allowed(URL(string: "https://cursor.com/loginDeepControl?challenge=c")!))
+        #expect(!AgentPaneSignInPage().allowed(URL(string: "https://cursor.com.evil.example/login")!))
+        #expect(!AgentPaneSignInPage().allowed(URL(string: "https://claude.ai.evil.example/oauth")!))
+        #expect(!AgentPaneSignInPage().allowed(URL(string: "https://user:pass@claude.ai/oauth")!))
+        #expect(!AgentPaneSignInPage().allowed(URL(string: "javascript:alert(1)")!))
+    }
+
+    /// GitHub's device page, and only it: no other github.com page, no query, no lookalike host.
+    @Test func onlyGitHubsDevicePageIsAllowedOnGitHub() {
+        #expect(AgentPaneSignInPage.allowed(URL(string: "https://github.com/login/device")!))
+        #expect(AgentPaneSignInPage.allowed(URL(string: "https://GitHub.com/login/device")!))
+        #expect(!AgentPaneSignInPage.allowed(URL(string: "http://github.com/login/device")!))
+        #expect(!AgentPaneSignInPage.allowed(URL(string: "https://github.com/")!))
+        #expect(!AgentPaneSignInPage.allowed(URL(string: "https://github.com/settings/tokens")!))
+        #expect(!AgentPaneSignInPage.allowed(URL(string: "https://github.com/login/device/select_account")!))
+        #expect(!AgentPaneSignInPage.allowed(URL(string: "https://github.com/login/device?next=/evil")!))
+        #expect(!AgentPaneSignInPage.allowed(URL(string: "https://github.com/login/device#x")!))
+        #expect(!AgentPaneSignInPage.allowed(URL(string: "https://github.com:8443/login/device")!))
+        #expect(!AgentPaneSignInPage.allowed(URL(string: "https://user@github.com/login/device")!))
+        #expect(!AgentPaneSignInPage.allowed(URL(string: "https://gist.github.com/login/device")!))
+        #expect(!AgentPaneSignInPage.allowed(URL(string: "https://github.com.evil.example/login/device")!))
+        #expect(AgentPaneSignInPage.callbackPort(URL(string: "https://github.com/login/device")!) == nil)
     }
 
     static let automatic = URL(string: "https://claude.com/cai/oauth/authorize?code=true&redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback&state=s")!

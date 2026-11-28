@@ -36,15 +36,38 @@ describe("probeControl", () => {
     expect(requests).toEqual(["GET /v5/vms/vm-1", "GET /v5/vms/vm-1/fs/stat?path=%2F"]);
   });
 
-  test("409 stale runtime and 5xx from fs/stat are hung; 401 and 429 are probe errors; 404 is gone", async () => {
-    const cases: Array<[number, string]> = [[409, "hung"], [502, "hung"], [504, "hung"], [401, "error"], [429, "error"], [404, "gone"]];
-    for (const [status, outcome] of cases) {
+  test("the guest request receives a fresh timeout after the provider state read", async () => {
+    const signals: (AbortSignal | null | undefined)[] = [];
+    const { inventory } = client((path, init) => {
+      signals.push(init.signal);
+      return path.includes("/fs/stat") ? json(200, {}) : json(200, { state: "running" });
+    });
+    expect((await inventory.probeControl("vm-1", { timeoutMs: 1_000 })).outcome).toBe("ok");
+    expect(signals).toHaveLength(2);
+    expect(signals[0]).toBeInstanceOf(AbortSignal);
+    expect(signals[1]).toBeInstanceOf(AbortSignal);
+    expect(signals[0]).not.toBe(signals[1]);
+  });
+
+  test("only explicit guest failures are hung on fs/stat error responses", async () => {
+    const cases = [
+      [409, "CONFLICT", "vm runtime stale runtime instance responsive=false", "hung"],
+      [409, "VM_NON_RESPONSIVE", "", "hung"],
+      [502, "VM_NON_RESPONSIVE", "", "hung"],
+      [409, "CONFLICT", "no manager has enough capacity", "error"],
+      [409, "CONFLICT", "stale runtime instance", "error"],
+      [503, "UNAVAILABLE", "upstream", "error"],
+      [504, "", "", "error"],
+      [401, "VM_NON_RESPONSIVE", "", "error"],
+      [429, "CONFLICT", "", "error"],
+      [404, "", "", "gone"],
+    ] as const;
+    for (const [status, code, message, outcome] of cases) {
       const { inventory } = client((path) => path.includes("/fs/stat")
-        ? json(status, { code: "CONFLICT", message: "vm runtime stale runtime instance responsive=false" })
+        ? json(status, { code, message })
         : json(200, { state: "running" }));
       const probe = await inventory.probeControl("vm-1", { timeoutMs: 1_000 });
-      expect(`${status}:${probe.outcome}`).toBe(`${status}:${outcome}`);
-      if (probe.outcome === "hung") expect(probe.detail).toContain(`${status} CONFLICT`);
+      expect(`${status} ${code}: ${probe.outcome}`).toBe(`${status} ${code}: ${outcome}`);
     }
   });
 
@@ -64,12 +87,12 @@ describe("probeControl", () => {
     expect(requests).toHaveLength(1);
   });
 
-  test("an fs/stat that never answers is hung at the timeout", async () => {
+  test("a local fs/stat deadline leaves guest connectivity unknown", async () => {
     const { inventory } = client((path, init) => path.includes("/fs/stat")
       ? new Promise<Response>((_, reject) => init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))))
       : json(200, { state: "running" }));
     const probe = await inventory.probeControl("vm-1", { timeoutMs: 150 });
-    expect(probe.outcome).toBe("hung");
+    expect(probe).toMatchObject({ outcome: "error", detail: "fs/stat: request timed out" });
   });
 });
 
@@ -88,6 +111,25 @@ describe("account listings", () => {
     const result = await inventory.listAccountVms({ deadlineAtMs: Date.now() + 10_000 });
     expect(result.vms).toHaveLength(149);
     expect(result.complete).toBe(false);
+  });
+
+  test("VM pages are fetched in bounded batches after the count-bearing first page", async () => {
+    let active = 0;
+    let peak = 0;
+    const { inventory } = client(() => json(500, {}), {
+      vms: async (offset) => {
+        active += 1;
+        peak = Math.max(peak, active);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        active -= 1;
+        const count = offset === 0 ? 100 : Math.min(100, 401 - offset);
+        return { vms: ids("vm-", offset, Math.max(0, count)).map(vm), totalCount: 401 };
+      },
+    });
+    const result = await inventory.listAccountVms({ deadlineAtMs: Date.now() + 10_000 });
+    expect(result.vms).toHaveLength(401);
+    expect(result.complete).toBe(true);
+    expect(peak).toBe(4);
   });
 
   test("TLS paging dedupes a rule repeated by a mid-walk create", async () => {

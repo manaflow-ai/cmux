@@ -11,7 +11,8 @@
 //! thread looks at the boot clock every [`PAUSE_TICK`] and reports a sleep
 //! that ended more than [`crate::agent::PAUSE_GAP`] late
 //! ([`crate::agent::paused_for`]). [`ResumeOnce`] keeps a resume both see
-//! to one `Resumed`.
+//! to one `Resumed`. A shorter stop ([`crate::agent::stopped_for`]) is only
+//! counted for the updater's resume hold.
 
 pub mod fds;
 pub mod identity;
@@ -29,7 +30,9 @@ use std::process::Child;
 use std::sync::{Arc, Weak};
 use std::time::Instant;
 
-use crate::agent::{Exit, PAUSE_TICK, Platform, ResumeOnce, ResumeSource, Wake, paused_for};
+use crate::agent::{
+    Exit, PAUSE_TICK, Platform, ResumeOnce, ResumeSource, Wake, paused_for, stopped_for,
+};
 use crate::announce::{arping_args, is_announce_target, is_global_address};
 use crate::config::{
     AGENT_DIR, BAKE_FILE_NAME, BAKE_INSTANCE_FILE, BOUND_INSTANCE_FILE, Config, DAEMON_PID_FILE,
@@ -314,6 +317,8 @@ impl LinuxPlatform {
         spec.args.extend(carrier.iter().cloned());
         spec.set_env.extend(crate::turn_scope::environment(&paths)?);
         ensure_run_dir(&paths, &layout);
+        // The compiler cache settings for acpmux: `/run` is empty after a boot (`sccache_env.rs`).
+        crate::sccache_env::publish(&paths);
         // Every spawn runs the installed build: nothing waits any more.
         self.clear_host_deferred();
         let child = spawn::spawn_daemon_supervised(&spec, self.bootstrap.as_deref())?;
@@ -585,7 +590,8 @@ pub(crate) fn realtime_minus_boottime_ns() -> i128 {
 
 /// The pause watch: a thread that sleeps [`PAUSE_TICK`] at a time and sends
 /// `tx` the stopped milliseconds of every sleep the boot clock says ended
-/// far past its tick. It never wakes the agent otherwise, and ends within a
+/// far past its tick ([`paused_for`]), and counts every shorter stop
+/// ([`stopped_for`]) in [`crate::agent::PAUSES`]. It never wakes the agent otherwise, and ends within a
 /// tick of `alive`'s platform being dropped, or when `tx`'s peer is gone. It
 /// sleeps on its own thread so a busy agent thread (a metadata read, a
 /// role's stop) never looks like a pause.
@@ -599,8 +605,9 @@ fn spawn_pause_watch(alive: Weak<()>, tx: UnixDatagram) -> io::Result<()> {
             }
             let after = clock_ns(libc::CLOCK_BOOTTIME);
             let found = paused_for(before, after);
-            // Before the report: a flip that looks now already sees it.
-            crate::agent::PAUSES.looked(after, found.is_some());
+            // Before the report: a flip that looks now already sees it. A
+            // stop too short to be a resume still holds the updater's flip.
+            crate::agent::PAUSES.looked(after, stopped_for(before, after).is_some());
             if let Some(stopped) = found {
                 let ms = u64::try_from(stopped.as_millis()).unwrap_or(u64::MAX);
                 if tx.send(&ms.to_le_bytes()).is_err() {
@@ -617,6 +624,21 @@ impl Platform for LinuxPlatform {
         if let Some(bootstrap) = &self.bootstrap {
             bootstrap.invalidate();
         }
+    }
+
+    fn page_in_harnesses(&self) {
+        // Outside the real root (tests on a shared machine) nothing here paused.
+        if !self.cfg.paths.is_system_root() {
+            return;
+        }
+        let homes = match &self.layout {
+            Some(layout) => vec![layout.home.clone()],
+            None => vec![
+                PathBuf::from(crate::daemon_spec::WORK_HOME),
+                PathBuf::from(crate::daemon_spec::ROOT_HOME),
+            ],
+        };
+        crate::cloud::page_in::spawn(homes);
     }
 
     fn wait(&mut self) -> io::Result<Vec<Wake>> {

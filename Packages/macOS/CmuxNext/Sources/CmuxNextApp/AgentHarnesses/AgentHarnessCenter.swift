@@ -80,8 +80,8 @@ final class AgentHarnessCenter {
 
     /// Moves a user profile aside (`_acpmux/harness/remove`); the answer's `backup` restores it.
     @discardableResult
-    func remove(id: String) async throws -> JSONValue {
-        let answer = try await manage(.remove, ["id": id])
+    func remove(id: String, endpointRevision: String? = nil) async throws -> JSONValue {
+        let answer = try await manage(.remove, ["id": id, "endpointRevision": endpointRevision].compactMapValues { $0 })
         removed = ["id": .string(id), "backup": answer["backup"] ?? .null]
         doctors[id] = nil
         await refresh()
@@ -171,6 +171,22 @@ final class AgentHarnessCenter {
         try await call(.list)["harnesses"]?.objectValue.map { Array($0.keys) } ?? []
     }
 
+    /// The daemon's harnesses a Chief's own turns can run on, for the Chief Settings picker: the
+    /// Chief harness (family `chief`, the person's chat with a Chief) and terminal-only harnesses
+    /// never run a Chief turn (the brain refuses both, `harness_gate`), so they are not offered.
+    func chiefEngines() async throws -> [String] {
+        Self.chiefEngines(in: try await call(.list)["harnesses"]?.objectValue ?? [:])
+    }
+
+    /// ``chiefEngines()`` over one `_acpmux/harnesses` `harnesses` object, sorted by id.
+    nonisolated static func chiefEngines(in harnesses: [String: JSONValue]) -> [String] {
+        harnesses.compactMap { id, profile in
+            let family = profile["family"]?.stringValue
+            let kind = profile["kind"]?.stringValue
+            return family == "chief" || kind == "terminal" ? nil : id
+        }.sorted()
+    }
+
     /// `_acpmux/harness/health` (cx-ny85): the daemon's last check of every harness.
     func health() async throws -> [JSONValue] {
         try await call(.health)["harnesses"]?.arrayValue ?? []
@@ -201,5 +217,19 @@ final class AgentHarnessCenter {
     static func text(_ error: any Error) -> String {
         (error as? AgentHarnessFailure)?.message ?? (error as? AcpmuxRPCError)?.message
             ?? (error as? ActionFailure)?.message ?? error.localizedDescription
+    }
+}
+
+nonisolated enum AgentHarnessFailure: Error, Equatable {
+    /// No local acpmux (a mock agent host, or no binary).
+    case noDaemon
+    /// The daemon predates the harness operations.
+    case unsupported
+
+    var message: String {
+        switch self {
+        case .noDaemon: AgentHarnessStrings.noDaemon
+        case .unsupported: AgentHarnessStrings.unsupported
+        }
     }
 }

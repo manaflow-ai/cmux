@@ -278,7 +278,7 @@ The Cards, Default, Threads and Console pages no longer ship as templates: each 
 
 ## `tabs.newTabApp`
 
-An extension that draws the whole New Tab page, by its app id. The extension implements
+An extension that draws over the New Tab composer, by its app id. The extension implements
 `cmux.newtab/1` (see `cmux-tui/crates/cmux-extension-sdk/README.md`). Unset (the default), cmux
 draws its own page, as above.
 
@@ -403,6 +403,18 @@ Off by default: hovering or scrolling over a pane leaves keyboard focus where yo
 - `true`: the pointer entering a pane, the first scroll of a gesture, or a mouse-wheel notch focuses the pane under the pointer.
 
 With it on, focus still stays where it is for momentum (the coast after a flick that started in another pane), for a scroll that moves columns or rows, while a mouse button is held, within a second of typing, and over a window that is not active. A pointer that stays inside one pane does not undo a keyboard move to another pane. Change it in **Settings > General > Columns**, with **Focus Follows Mouse** in the command palette (Cmd+Shift+P), or with `cmux settings set layout.focusFollowsMouse true`. It replaces `layout.focusPaneOnScroll`, which was on by default.
+
+## `layout.fadeInactivePanes`
+
+Off by default. Turn it on to fade every pane except the one you are working in: when focus moves to another pane, the pane you left fades under a light veil of the pane color, and the pane you moved to fades back to full strength. With one pane on screen nothing fades.
+
+```json
+{
+  "layout": { "fadeInactivePanes": true }
+}
+```
+
+The fade's strength is the theme's inactive-pane dim (Debug Settings: `panes.inactiveDimming`); a Ghostty `unfocused-split-opacity` you set still wins. Change it in **Settings > General > Scrolling and Focus**, with **Fade Inactive Panes** in the command palette (Cmd+Shift+P), or with `cmux settings set layout.fadeInactivePanes true`.
 
 ## `layout.scrollAreas`
 
@@ -692,6 +704,22 @@ The panel can also open while another app is in front. This system-wide key is o
 
 Turn it on in Settings > General > Start Agent from Any App. Its key is a separate row, Start Agent from Any App (default Ctrl+Option+Cmd+Space), rebound from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.startAgentFromAnyApp"]`. When another app (or another cmux global key) already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
 
+## Capture Screenshot to Chat and `app.captureScreenshotGlobalHotKey`
+
+Capture Screenshot to Chat (command palette, Ctrl+Option+Cmd+S) runs the system's region picker. The screenshot goes into the focused agent chat's composer as an unsent draft, or into a new agent chat when none is focused. cmux then comes forward with the composer focused. Escape in the picker takes nothing. The picker is macOS's own, so the first capture may ask for the Screen Recording permission.
+
+To use the same key while another app is in front, turn on Settings > General > Capture Screenshot to Chat from Any App. It is off by default, because it takes the key from every other app:
+
+```json
+{
+  "app": {
+    "captureScreenshotGlobalHotKey": true
+  }
+}
+```
+
+Rebind it from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.captureScreenshotToChat"]`. Scripts can start the same picker with `cmux app call chat.capture.toChat '{}'`, which answers `{"session", "path", "bytes"}` once a person picks a region; `cmux app call chat.composer.get '{}'` reads back what the composer holds. A script cannot name the region itself: the call refuses one, because a picture of the screen needs a person's pick.
+
 ## Background mode and `app.hideDockIconWithoutWindows`
 
 When you close the last cmux window, cmux keeps running, and so do your terminals and agents. By default its Dock icon stays, so a click on it opens a window again. To have cmux leave the Dock and the app switcher (Cmd-Tab) while no window is open, turn it on:
@@ -734,6 +762,18 @@ Or turn off Settings > General > Show Menu Bar Icon. With the icon off and no cm
 ## Message the Chief from any app
 
 Message the Chief (command palette) shows the floating Chief pet with its reply box open. With the pet off, it shows the pet for that message only and hides it again when the box closes; `home.chiefPetEnabled` stays off. Its system-wide key is a separate Keyboard Shortcuts row, Message the Chief from Any App (default Ctrl+Option+Cmd+C), rebound with `shortcuts.bindings["home.messageChiefFromAnyApp"]`. It works from any app, cmux included, while the Chief pet is on (`home.chiefPetEnabled`, Settings > Home > Show Chief Pet or View > Show Chief Pet). With the pet off, cmux leaves the key to other apps; use Message the Chief in the command palette. When another app already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
+
+## The Chief's + menu and `home.clipboardHistory`
+
+The + button beside the Chief's message box opens a menu. Attach Files or Images… opens the file picker (files only; to send a folder, attach its files or a ZIP of it). Below it, the Clipboard section lists text and images from your clipboard, newest first: what was on it each time you opened the menu, plus, when cmux may read the clipboard without asking (below), what you copied in other apps before switching back to cmux. Click a text row to type it at the caret, or an image row to attach the image as if you had pasted it.
+
+The history is on by default. It stays in memory on this Mac: it's never written to disk or sent anywhere, and it's gone when cmux quits. cmux reads the clipboard for it only when you open the + menu and, if macOS's clipboard privacy lets cmux read without asking (Always Allow, or a macOS before 15.4), when cmux becomes the active app. It never reads on a timer, so something you copy and replace while you're in another app doesn't show. When the history has nothing to list, the + button opens the file picker directly. It skips anything a password manager or clipboard-aware app marks as concealed, transient or auto-generated (the [nspasteboard.org](http://nspasteboard.org) types), and it skips copied files and text over 256 KB. Images of any size are kept; the oldest entries go first when the history passes its total size, but the newest one always stays. Turn it off in Settings > Privacy and Security > Clipboard History in the + Menu, or:
+
+```json
+{ "home": { "clipboardHistory": false } }
+```
+
+When it's off, cmux doesn't read your clipboard for the menu, and the Clipboard section is gone. The Chief's composer has no @-mentions, slash commands or plan mode yet, so its + menu doesn't show those rows from the agent chat's + menu.
 
 ## `palette.scopes.<scope>.prefix`
 
@@ -1035,7 +1075,7 @@ server (`optchat-chief agent-memory mcp`) with `memory_search`, `memory_get` and
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `enabled` | `false` | Register the server for the agent sessions cmux starts, and let the Agent Memory app's search use the index. Only `true` turns it on; a settings file that cannot be read keeps it off. |
-| `owner` | unset | The route of the machine that owns the index (`ssh://HOST` uses your ssh config; any `cmux remote` route works). Unset: this machine owns it. |
+| `owner` | unset | The route of the machine that owns the index (`ssh://HOST` uses your ssh config; any `cmux remote` route works). Unset: this machine owns it, and a chat that moves from here to another of your machines takes the route back with it (this machine's `remoteDaemon` through the hub carrier, `--via-machine`), so its memory still searches this index. |
 | `ownerArgs` | `[]` | Extra `cmux remote rpc` options for that route, such as `--daemon FINGERPRINT` or `--ssh-arg ARG`. |
 | `ownerCommand` | unset | The owner's `optchat-chief`, as argv, when it is not in a cmux app bundle, on its `PATH` or in `~/.local/bin`. |
 | `remember` | `true` | Whether agents may save notes. `false` hides `memory_remember`. |
@@ -1090,7 +1130,7 @@ shows the same keys.
     "omnibar": {
       "remoteSuggestions": true,
       "inlineAutocomplete": true,
-      "maxRows": 8,
+      "maxRows": 6,
       "calculator": true,
       "showFullURLs": false,
       "glass": "off",
@@ -1120,7 +1160,7 @@ shows the same keys.
 - `omnibar.inlineAutocomplete`: complete the typed text to a site's address in the field
   when the text is the start of the host and you typed that address before or visited it
   at least 4 times. Default: `true`.
-- `omnibar.maxRows`: suggestion rows shown, `3` to `15`. Default: `8`.
+- `omnibar.maxRows`: suggestion rows shown, `3` to `15`. Default: `6`.
 - `omnibar.showFullURLs`: show the whole address, with `https://` and `www.`, when you are not
   editing it (Chrome's "Always Show Full URLs"; the address bar's right-click menu toggles it).
   Default: `false`.

@@ -74,6 +74,8 @@ impl Projector {
             return;
         }
         match rec.kind.as_str() {
+            // A line the harness wrote into a turn: not the person's words.
+            "user_message" if crate::adopt_replay::harness_row(&rec.msg) => {}
             "user_message" => {
                 self.open = None;
                 if let Some(text) = rec.msg.get("text").and_then(Value::as_str) {
@@ -214,6 +216,8 @@ pub(crate) struct MessageHit {
     pub role: Role,
     pub snippet: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn_started_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub turn_time: Option<String>,
 }
 
@@ -252,11 +256,15 @@ pub(crate) fn search_messages(
         {
             return;
         }
+        // A peer's text is matched as masked: the mask's labels are words too.
         let text = if view == TextView::PeerConversation {
             crate::secret_scan::mask(&entry.text)
         } else {
             entry.text
         };
+        if !query.needle.may_match(&text) {
+            return;
+        }
         let flat = flatten(&text);
         if let Some(at) = query.needle.find(&flat) {
             if hits.len() >= query.limit {
@@ -267,6 +275,7 @@ pub(crate) fn search_messages(
                 at: entry.at,
                 role: entry.role,
                 snippet: snippet(&flat, at),
+                turn_started_at: if query.with_turn_time { turn_at } else { None },
                 turn_time: (view != TextView::Session || query.with_turn_time)
                     .then(|| crate::clock_text::iso(turn_at.unwrap_or(entry.at))),
             });
@@ -288,3 +297,7 @@ pub(crate) fn search_messages(
 #[cfg(test)]
 #[path = "session_search_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "session_search_bench_tests.rs"]
+mod bench_tests;

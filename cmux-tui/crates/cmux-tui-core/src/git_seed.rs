@@ -65,6 +65,21 @@ pub const GIT_SEED_HOLD_CAPABILITY: &str = "git-seed-hold-v2";
 pub const GIT_SEED_HOLD_COMMANDS: [&str; 3] =
     ["git.seed.hold", "git.seed.hold.head", "git.seed.hold.end"];
 
+/// A seed whose sender carries the base ([`StartParams`]'s `carry`): the machine builds a fresh
+/// folder from the sender's depth-1 pack instead of cloning (`run/carry.rs`). No new op: an older
+/// machine ignores the param and clones, so a sender asks for this capability before it spends the
+/// upload.
+pub const GIT_SEED_CARRY_CAPABILITY: &str = "git-seed-carry-v1";
+
+/// A machine that answers `git.seed.borrowable` (`run/borrow.rs`): whether a fresh seed of a
+/// folder at a base would borrow a warm mirror there. A sender asks before it builds its carry
+/// pack and skips the pack on `{"borrow": true}`; an older machine lacks the capability and the
+/// sender carries as before.
+pub const GIT_SEED_BORROW_CAPABILITY: &str = "git-seed-borrow-v1";
+
+/// The ops of `git-seed-borrow-v1`, exactly.
+pub const GIT_SEED_BORROW_COMMANDS: [&str; 1] = ["git.seed.borrowable"];
+
 /// Whether a chat's `subpath` can name a head literally (`params::HeadFirst`): a hold or a
 /// head-first seed with another subpath is refused, so the Mac copies such a folder plainly.
 pub fn head_subpath_is_literal(subpath: &str) -> bool {
@@ -140,13 +155,19 @@ pub fn installed() -> Option<&'static GitSeedService> {
 #[must_use]
 pub fn advertised() -> Vec<&'static str> {
     match crate::fs_ops::installed() {
-        Some(_) => vec![GIT_SEED_CAPABILITY, GIT_SEED_EXPORT_CAPABILITY, GIT_SEED_HOLD_CAPABILITY],
+        Some(_) => vec![
+            GIT_SEED_CAPABILITY,
+            GIT_SEED_EXPORT_CAPABILITY,
+            GIT_SEED_HOLD_CAPABILITY,
+            GIT_SEED_CARRY_CAPABILITY,
+            GIT_SEED_BORROW_CAPABILITY,
+        ],
         None => Vec::new(),
     }
 }
 
-/// The `cmd` of `line` when it is one of [`GIT_SEED_COMMANDS`], [`GIT_SEED_EXPORT_COMMANDS`] or
-/// [`GIT_SEED_HOLD_COMMANDS`], exactly.
+/// The `cmd` of `line` when it is one of [`GIT_SEED_COMMANDS`], [`GIT_SEED_EXPORT_COMMANDS`],
+/// [`GIT_SEED_HOLD_COMMANDS`] or [`GIT_SEED_BORROW_COMMANDS`], exactly.
 #[must_use]
 pub fn frame_command(line: &str) -> Option<&'static str> {
     let value: Value = serde_json::from_str(line).ok()?;
@@ -160,6 +181,7 @@ pub fn frame_command(line: &str) -> Option<&'static str> {
         .iter()
         .chain(&GIT_SEED_EXPORT_COMMANDS)
         .chain(&GIT_SEED_HOLD_COMMANDS)
+        .chain(&GIT_SEED_BORROW_COMMANDS)
         .copied()
         .find(|known| *known == cmd)
 }

@@ -6,14 +6,18 @@ use optchat_core::{CompactPrompt, VIEW};
 use crate::report::{stderr_reporter, Reporter};
 use crate::RETRY_BASE;
 
-/// The team subrouter, which speaks the Anthropic Messages API and ignores the key.
-pub const DEFAULT_BASE_URL: &str = "http://cmux-lawrences-mac-mini:31415";
+/// The official Anthropic Messages API. A gateway or router comes from the person's own
+/// setting (`OPTCHAT_ANTHROPIC_BASE_URL`), never from a built-in host.
+pub const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
+/// Environment variable that lets `ANTHROPIC_API_KEY` go to a base URL that is not the official
+/// API (`1`); without it such a URL gets no key (cmux#13742).
+pub const SEND_KEY_ENV: &str = "OPTCHAT_SEND_KEY_TO_BASE_URL";
 /// Environment variable that overrides `DEFAULT_BASE_URL`.
 pub const BASE_URL_ENV: &str = "OPTCHAT_ANTHROPIC_BASE_URL";
 /// Environment variable with the key for a base URL that needs one.
 pub const API_KEY_ENV: &str = "OPTCHAT_ANTHROPIC_API_KEY";
-/// What the team subrouter gets: it ignores the key, and a real key must not
-/// travel to it.
+/// What a base URL gets when no key may go to it: a keyless gateway ignores it, and a real key
+/// must not travel to a host the person did not name for it.
 pub const SUBROUTER_KEY: &str = "subrouter";
 /// The compactor model: Claude Haiku 5.5 (the reference client's), at
 /// `DEFAULT_EFFORT` (section 4.2 uses Sonnet at medium). About half the time
@@ -28,12 +32,6 @@ pub const DEFAULT_MODEL: &str = "claude-haiku-5-5";
 /// good; low was cheaper still but leaked reasoning into 3 of 12 lines and
 /// left 2 over the size limit.
 pub const DEFAULT_EFFORT: &str = "medium";
-/// Where a node goes when the compactor model declines it. Claude Sonnet 5
-/// declines in fewer safeguard categories than Sonnet 5.5 (no bio,
-/// reasoning-extraction or general-harms classifiers on the same scale), so a
-/// pasted exploit write-up or a log with odd content still gets its line.
-pub const DEFAULT_FALLBACK_MODEL: &str = "claude-sonnet-5";
-
 /// How one chat runs. Fixed for the life of the process: the compactor's
 /// system prompt heads every cached prefix, so it must not change per call.
 #[derive(Clone)]
@@ -44,10 +42,10 @@ pub struct Config {
     pub prompt: CompactPrompt,
     /// Compactor model id.
     pub model: String,
-    /// Model a declined node (`stop_reason: refusal`) is built with instead;
-    /// None keeps retrying the same call every `retry`. A refusal repeats on
-    /// every try, so without a fallback one message would block rule 3, and
-    /// with it every later turn, forever.
+    /// Model a declined node (`stop_reason: refusal`) is built with instead.
+    /// None by default: no other model is picked for the person; a declined
+    /// node keeps its input, cut to the room, as its line, so one message
+    /// never blocks rule 3.
     pub fallback_model: Option<String>,
     /// Also send the Messages API's server-side `fallbacks: "default"` (beta
     /// `server-side-fallback-2026-07-01`). Off by default: the team subrouter
@@ -91,7 +89,7 @@ impl Default for Config {
             agent: "OptChat".to_string(),
             prompt: CompactPrompt::Taelin,
             model: DEFAULT_MODEL.to_string(),
-            fallback_model: Some(DEFAULT_FALLBACK_MODEL.to_string()),
+            fallback_model: None,
             server_fallback: false,
             effort: Some(DEFAULT_EFFORT.to_string()),
             api_key: api_key(&base_url, |k| std::env::var(k).ok()),
@@ -107,17 +105,17 @@ impl Default for Config {
     }
 }
 
-/// The key for `base_url`: `OPTCHAT_ANTHROPIC_API_KEY` when set; else, for
-/// any base URL but the team subrouter, `ANTHROPIC_API_KEY`; else the
-/// placeholder the subrouter ignores. An always-on Mac mini off the tailnet
-/// points the base URL at api.anthropic.com and needs a real key, or every
-/// call is a 401 retried forever and no turn ever starts.
+/// The key for `base_url`: `OPTCHAT_ANTHROPIC_API_KEY` when set (the person's key for the URL
+/// they configured); else `ANTHROPIC_API_KEY` for the official API, or for another URL only
+/// when `OPTCHAT_SEND_KEY_TO_BASE_URL=1`; else the placeholder. A typo, a proxy or a third-party
+/// URL never receives the person's real key unasked (cmux#13742).
 pub fn api_key(base_url: &str, env: impl Fn(&str) -> Option<String>) -> String {
     let set = |k: &str| env(k).filter(|v| !v.trim().is_empty());
     if let Some(key) = set(API_KEY_ENV) {
         return key;
     }
-    if base_url.trim_end_matches('/') != DEFAULT_BASE_URL {
+    let official = base_url.trim_end_matches('/') == DEFAULT_BASE_URL;
+    if official || set(SEND_KEY_ENV).as_deref() == Some("1") {
         if let Some(key) = set("ANTHROPIC_API_KEY") {
             return key;
         }

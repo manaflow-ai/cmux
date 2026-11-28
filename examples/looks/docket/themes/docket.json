@@ -5,13 +5,13 @@
 // a 220 px sidebar, quick ease-out motion.
 {
   "name": "Docket",
-  "description": "A dense, calm issue-tracker look, Dark: a near-black sidebar, one outlined panel, gray text steps, one indigo.",
+  "description": "Dark: a near-black sidebar, one outlined panel, one indigo.",
 
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",
   // background: the panel (#161718, sampled). foreground: the panel's body text (#E4E5E8, sampled).
   // selection: the indigo at about a fifth over the panel. accent: the indigo.
-  "colors": { "background": "#161718", "foreground": "#e4e5e8", "selection": "#2c3157", "accent": "#5e6ad2" },
+  "colors": { "background": "#161718", "foreground": "#e4e5e8", "selection": "#6d7298", "accent": "#5e6ad2" },
   "appearance.accent": "theme",
   // The terminal: the page and ink above, the cursor in the accent, the selection, and all sixteen
   // ANSI colors at a muted chroma, each solved in OKLCH over the page (5.5:1, the bright ones
@@ -21,7 +21,7 @@
     "foreground = #e4e5e8",
     "cursor-color = #5e6ad2",
     "cursor-text = #161718",
-    "selection-background = #2c3157",
+    "selection-background = #6d7298",
     "selection-foreground = #e4e5e8",
     "palette = 0=#454a50",
     "palette = 1=#c87973",

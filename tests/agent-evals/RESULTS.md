@@ -11,6 +11,11 @@ bun tests/agent-evals/run.mjs --run NAME --agents claude:cli,claude:mcp,codex:cl
 
 Per-run artifacts (snapshots, agent output, call logs): `artifacts/agent-evals/<run>/` (not committed).
 
+Every pass rate has its Wilson 95% interval beside it, and a comparison of two columns is a paired per-task
+difference with a paired bootstrap interval (`report.mjs` `wilson`, `pairedComparison`; `renderResults({ compare })`
+prints it). "Not distinguishable" means the interval spans zero: with 9 tasks and one run each, a gap of two or three
+tasks often is.
+
 ## Run split-focus-2026-10-20 (2026-10-20): after the split-keeps-focus fix
 
 Same headless tier, agents and settings as the baseline below, one run per
@@ -19,16 +24,23 @@ cell. The cmux CLI and daemon were built on the fleet from 565d372d356 (fix:
 the updated `cmux-workspace` and `cmux` skills installed. Command:
 `bun tests/agent-evals/run.mjs --run split-focus-2026-10-20 --cli <fleet-built cmux> --agents claude:cli,claude:mcp,codex:cli,codex:mcp,opencode:cli,opencode:mcp,cursor-agent:cli --parallel 5`.
 
-| Agent | Surface | Passed (baseline) | Passed (now) | Top failures now |
-| --- | --- | --- | --- | --- |
-| claude | cli | 6/9 | 9/9 | |
-| codex | cli | 5/9 | 9/9 | |
-| codex | mcp | 3/9 | 8/9 | wrong_place 1 |
-| claude | mcp | 3/9 | 7/9 | focus_stolen 1, wrong_place 1 |
-| opencode | mcp | 4/9 | 7/9 | focus_stolen 1, wrong_place 1 |
-| opencode | cli | 2/9 | 7/9 | left_session 1, not_done 1 |
-| cursor-agent | cli | 5/9 | 5/9 | agent_error 3, left_session 1 |
-| **all** | | **28/63** | **52/63** | |
+| Agent | Surface | Passed (baseline) | 95% CI | Passed (now) | 95% CI | Top failures now |
+| --- | --- | --- | --- | --- | --- | --- |
+| claude | cli | 6/9 | 35-88% | 9/9 | 70-100% | |
+| codex | cli | 5/9 | 27-81% | 9/9 | 70-100% | |
+| codex | mcp | 3/9 | 12-65% | 8/9 | 57-98% | wrong_place 1 |
+| claude | mcp | 3/9 | 12-65% | 7/9 | 45-94% | focus_stolen 1, wrong_place 1 |
+| opencode | mcp | 4/9 | 19-73% | 7/9 | 45-94% | focus_stolen 1, wrong_place 1 |
+| opencode | cli | 2/9 | 6-55% | 7/9 | 45-94% | left_session 1, not_done 1 |
+| cursor-agent | cli | 5/9 | 27-81% | 5/9 | 27-81% | agent_error 3, left_session 1 |
+| **all** | | **28/63** | **33-57%** | **52/63** | **71-90%** | |
+
+Paired per task, baseline to now (the same 9 tasks for each of the 7 pairs):
+
+- all 63 cells: +38 pts per task (95% CI +25 to +51, 25 vs 1 discordant): the fix is distinguishable.
+- per pair: codex/cli +44 (+11 to +78), codex/mcp +56 (+22 to +89), claude/mcp +44 (+11 to +78), opencode/cli +56
+  (+22 to +89) are distinguishable; claude/cli +33 (+0 to +67), opencode/mcp +33 (+0 to +67) and cursor-agent/cli
+  +0 (-33 to +33) are not distinguishable on their own.
 
 `focus_stolen` went from 26 runs to 2. The 2 left are `new-workspace-background`
 over MCP: `workspace.create` (CLI and MCP alike) makes the new workspace the
@@ -62,12 +74,12 @@ bun tests/agent-evals/run.mjs --run codemode-vs-all-r1 \
   --agents claude:mcp,claude:mcp-all,codex:mcp,codex:mcp-all --parallel 4
 ```
 
-| Agent | Tools | Passed | Mean score | Median input tokens | Median cost | Median time (s) | Failures |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| claude | code mode | 6/12 | 0.89 | 202,686 | $0.211 | 33 | focus_stolen 4, wrong_place 2 |
-| claude | all tools | 8/12 | 0.95 | 162,308 | $0.114 | 25 | focus_stolen 4 |
-| codex | code mode | 10/12 | 0.96 | 216,492 | | 134 | wrong_place 1, focus_stolen 1 |
-| codex | all tools | 10/12 | 0.94 | 204,853 | | 126 | wrong_place 2 |
+| Agent | Tools | Passed | 95% CI | Mean score | Median input tokens | Median cost | Median time (s) | Failures |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| claude | code mode | 6/12 | 25-75% | 0.89 | 202,686 | $0.211 | 33 | focus_stolen 4, wrong_place 2 |
+| claude | all tools | 8/12 | 39-86% | 0.95 | 162,308 | $0.114 | 25 | focus_stolen 4 |
+| codex | code mode | 10/12 | 55-95% | 0.96 | 216,492 | | 134 | wrong_place 1, focus_stolen 1 |
+| codex | all tools | 10/12 | 55-95% | 0.94 | 204,853 | | 126 | wrong_place 2 |
 
 | Task | claude code mode | claude all tools | codex code mode | codex all tools |
 | --- | --- | --- | --- | --- |
@@ -78,7 +90,12 @@ bun tests/agent-evals/run.mjs --run codemode-vs-all-r1 \
 | terminal-right | 0/2 focus_stolen | 0/2 focus_stolen | 1/2 | 2/2 |
 | reuse-right | 0/2 wrong_place | 2/2 | 1/2 | 0/2 wrong_place |
 
-Result: code mode passes fewer Claude tasks (reuse-right) and costs more per task; for Codex
+Paired per task (each task's 2 runs as one pass fraction, 6 tasks): claude all tools - code mode +17 pts per task
+(95% CI +0 to +50, 1 vs 0 discordant): not distinguishable; codex all tools - code mode +0 (95% CI -25 to +25, 1 vs 1):
+not distinguishable.
+
+Result: code mode passes fewer Claude tasks (reuse-right; one task, not distinguishable from no difference) and costs
+more per task; for Codex
 the pass rate is equal and the input tokens are slightly higher. The ~23 KB of tool names that
 all tools adds to each request is less than the discovery calls code mode makes. acpmux keeps
 every tool for Claude Code and Codex; `CMUX_MCP_CODE_MODE=1` in a profile's env opts in to code
@@ -86,17 +103,17 @@ mode.
 
 ## Run baseline-2026-10-20 (2026-10-20)
 
-| Agent | Surface | Passed | Mean score | Median cmux calls | Median time (s) | Top failures |
-| --- | --- | --- | --- | --- | --- | --- |
-| claude | cli | 6/9 | 0.97 | 13 | 26 | focus_stolen 3 |
-| codex | cli | 5/9 | 0.90 | 14 | 165 | focus_stolen 2, not_done 1, wrong_place 1 |
-| cursor-agent | cli | 5/9 | 0.90 | 15 | 71 | agent_error 4 |
-| claude | mcp | 3/9 | 0.89 | 7 | 26 | focus_stolen 5, wrong_place 1 |
-| codex | mcp | 3/9 | 0.89 | 12 | 229 | focus_stolen 3, not_done 2, wrong_place 1 |
-| opencode | mcp | 4/9 | 0.89 | 11 | 103 | focus_stolen 3, not_done 1, wrong_place 1 |
-| opencode | cli | 2/9 | 0.76 | 10 | 87 | focus_stolen 2, not_done 2, left_session 1 |
-| amp | cli | skipped (no_login) | | | | |
-| gemini | cli | skipped (no_login) | | | | |
+| Agent | Surface | Passed | 95% CI | Mean score | Median cmux calls | Median time (s) | Top failures |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| claude | cli | 6/9 | 35-88% | 0.97 | 13 | 26 | focus_stolen 3 |
+| codex | cli | 5/9 | 27-81% | 0.90 | 14 | 165 | focus_stolen 2, not_done 1, wrong_place 1 |
+| cursor-agent | cli | 5/9 | 27-81% | 0.90 | 15 | 71 | agent_error 4 |
+| claude | mcp | 3/9 | 12-65% | 0.89 | 7 | 26 | focus_stolen 5, wrong_place 1 |
+| codex | mcp | 3/9 | 12-65% | 0.89 | 12 | 229 | focus_stolen 3, not_done 2, wrong_place 1 |
+| opencode | mcp | 4/9 | 19-73% | 0.89 | 11 | 103 | focus_stolen 3, not_done 1, wrong_place 1 |
+| opencode | cli | 2/9 | 6-55% | 0.76 | 10 | 87 | focus_stolen 2, not_done 2, left_session 1 |
+| amp | cli | skipped (no_login) | | | | | |
+| gemini | cli | skipped (no_login) | | | | | |
 
 | Task | claude/cli | codex/cli | cursor-agent/cli | claude/mcp | codex/mcp | opencode/mcp | opencode/cli |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -156,7 +173,8 @@ Not scored:
 
 - In the headless tier, the commands that only the app answers fail. Real use
   has the app, so failure mode 4 counts somewhat more here than in real use.
-- MCP did worse than CLI for Claude (3/9 against 6/9). The CLI shows the
+- MCP did worse than CLI for Claude (3/9 against 6/9; paired per task -33 pts, 95% CI -67 to +0, 0 vs 3 discordant:
+  not distinguishable). The CLI shows the
   `pane split` focus change in `pane list`, and Claude CLI noticed it and
   refocused. Through MCP it did not notice.
 - One run per cell. Expect noise of about one task per row.

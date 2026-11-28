@@ -3,8 +3,16 @@
 // thinking-tool-swap-stills.test.ts draws it for review, thinking-tool-swap-frames.test.ts holds it to
 // its bounds.
 import type { Page } from "playwright";
+import { TRANSCRIPT_ROW } from "../../src/agent-session/acpmux/transcriptSelectors";
 
 export const SWAP_PAGE = "/test/browser/send-stream-motion.html";
+
+/// The live-turn-work arm the hand-over is drawn under, a part of SWAP_PAGE's query. Since #51082
+/// (#50987) a running turn ships `folded`: its finished calls stay under a closed "Working for" and
+/// no call's row arrives over the live line, so there is no hand-over to draw. The reader who opens
+/// that "Working for" sees the turn as `open` draws it (liveTurnWork.experiment.ts), each finished
+/// call arriving on its own line: the hand-over these checks hold.
+export const SWAP_ARM_QUERY = "&liveTurnWork=open";
 
 /// One box in the viewport, px.
 export type Box = { top: number; bottom: number; left: number; right: number };
@@ -87,7 +95,7 @@ export function swapFrameGate() {
 }
 
 /// Reads one frame (runs in the page).
-export function readSwapFrame(): SwapFrame {
+export function readSwapFrame(rowSelector: string): SwapFrame {
   const box = (rect: DOMRect | Box): Box => ({
     top: Math.round(rect.top * 100) / 100,
     bottom: Math.round(rect.bottom * 100) / 100,
@@ -127,7 +135,7 @@ export function readSwapFrame(): SwapFrame {
     return { box: drawn, ink: value, text: text.slice(0, 40) };
   };
   const rows: SwapFrame["rows"] = [];
-  const turn = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")].filter((row) => {
+  const turn = [...scroller.querySelectorAll<HTMLElement>(rowSelector)].filter((row) => {
     const id = row.dataset.rowId!;
     return id.startsWith("live-") && row !== liveRow;
   });
@@ -235,7 +243,7 @@ export async function recordSwap(
   let landed = -1;
   for (let index = 0; index < 400 && (landed < 0 || index - landed <= 48); index += 1) {
     if (index > 0) await page.evaluate(() => (window as unknown as { __advance: () => Promise<void> }).__advance());
-    const frame = await page.evaluate(readSwapFrame);
+    const frame = await page.evaluate(readSwapFrame, TRANSCRIPT_ROW);
     if (landed < 0 && frame.phase === "land") landed = index;
     frames.push(frame);
     await each?.(frame, index, landed);

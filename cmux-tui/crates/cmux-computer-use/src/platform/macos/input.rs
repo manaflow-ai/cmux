@@ -22,9 +22,12 @@
 //! the caret; 27.0.1 dropped it). There is nothing to raise in the front
 //! app, so it is addressed (`super::press_aiming`, read right before the post). Clicks on controls and list
 //! rows go through accessibility instead (`actions::ax_click_at`), which
-//! raises nothing. Foreground delivery posts at the HID tap, except key
-//! chords while an app is denied, which go to the raised target's process
-//! (so no other app's global hotkey fires).
+//! raises nothing. Foreground delivery raises the window, then posts
+//! pointer events to its (now front) process too, addressed: no
+//! computer-use pointer event goes to the HID tap, so the person's pointer
+//! never moves. Foreground keys post at the HID tap (keys move no pointer),
+//! except key chords while an app is denied, which go to the raised
+//! target's process (so no other app's global hotkey fires).
 //!
 //! Events come from a private event source, so the person's held modifier
 //! keys never leak into an agent's event (and the reverse).
@@ -80,7 +83,9 @@ const DRAG_STEP: std::time::Duration = std::time::Duration::from_millis(8);
 pub enum Route {
     /// To one process, aimed at one window (CGWindowID).
     Pid { pid: i32, window: u32 },
-    /// System-wide, at the HID tap (moves the real pointer).
+    /// System-wide, at the HID tap. Keys only: a pointer event here would
+    /// move the person's real pointer (`actions::pointer_route` never
+    /// returns it).
     Hid,
 }
 
@@ -117,6 +122,8 @@ fn source() -> DResult<Cf> {
 }
 
 fn post(route: Route, event: &Cf) {
+    // Ours, so the takeover watch never reads it as the person (idle.rs).
+    super::idle::mark_injection();
     // SAFETY: event is a live CGEvent.
     unsafe {
         match route {
@@ -274,6 +281,17 @@ pub fn drag(p: &Posting, from: Point, to: Point, button: Button, front: bool) ->
         }
     }
     post_mouse(route, aim, &press(up, to)?, to);
+    Ok(())
+}
+
+/// Moves the pointer to `at` and presses nothing (a hover). On a process
+/// route the move names the window and its point inside it, as a scroll
+/// does: a mouse-moved event raises no window, so it is always addressed.
+/// The person's real pointer does not move.
+pub fn move_to(p: &Posting, at: Point) -> DResult<()> {
+    let route = p.route();
+    let src = source()?;
+    post_mouse(route, Aim::of(route), &mouse_event(&src, MOUSE_MOVED, at, Button::Left, 0)?, at);
     Ok(())
 }
 

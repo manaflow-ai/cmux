@@ -17,6 +17,7 @@ extension UpdaterService {
         // Update Available button (``availableButton``), not this card; a check they asked for shows here.
         if let newestCard { return newestCard }
         if let cancelledDownloadCard { return cancelledDownloadCard }
+        if let healthCard { return healthCard }
         guard !stagedPulledHeld, let card = flow.card(downloadsAutomatically: true) else { return nil }
         if card == .installing, installCardDismissed { return nil }
         if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return nil }
@@ -50,6 +51,7 @@ extension UpdaterService {
     /// (the download already running, or staged) does nothing.
     public func downloadClicked() {
         syncFlowPhase()
+        updateClicks += 1
         log.append("download clicked (\(flow.phase))")
         if downloadAgainIfCancelled() { return }
         guard case .available = flow.phase else {
@@ -65,7 +67,9 @@ extension UpdaterService {
     /// Restart to Update (the Update Ready card, the footer pill): install and relaunch, at once
     /// or when the download finishes. `willRelaunch` records keep sessions.
     public func installClicked() {
+        if relaunchIntoInstalledBuild() { return }
         syncFlowPhase()
+        updateClicks += 1
         log.append("restart to update clicked (\(flow.phase))")
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("install_clicked")
@@ -84,8 +88,12 @@ extension UpdaterService {
     /// (``stagedPulledHeld``), cancel the staged update's installer before the app exits. A pulled
     /// build whose installer this app does not hold (Sparkle's silent cycle still resuming) cannot
     /// be cancelled: the quit proceeds and says so.
+    ///
+    /// Every decided quit stops the staged build's pre-warm first (cmux#63767): its processes outlive the app, and
+    /// Sparkle installs (or the cancel below removes) the staged copy they run from as the app exits.
     @discardableResult
     public func prepareForQuit() -> UpdateQuitAction {
+        stopPrewarm(" for the quit")
         syncFlowPhase()
         if case .downloading(let transfer) = flow.phase,
            transfer.stage != .preparing,
@@ -95,8 +103,17 @@ extension UpdaterService {
         var action = flow.handle(.quitRequested, preferences: preferences).lazy.compactMap { effect -> UpdateQuitAction? in
             if case .quit(let action) = effect { action } else { nil }
         }.first ?? .proceed
+        if rollbackQuitPending {
+            // A rollback's quit: a staged update would install over the build just put in place
+            // and relaunch forward (cmux#41013 review F2). One staged after the swap is cancelled.
+            if let staged = stagedBuild(), !staged.isEmpty {
+                log.append(cancelStagedUpdate() ? "quit: a rollback quits, cancelled the staged update \(staged)"
+                                          : "quit: a rollback quits, but the staged update \(staged) could not be cancelled")
+            }
+            return .cancelPendingInstall
+        }
         if action == .proceed, stagedPulledHeld {
-            if cancelStaged() {
+            if cancelStagedUpdate() {
                 log.append("quit: the staged build was pulled, cancelled it instead of installing on quit")
                 action = .cancelPendingInstall
             } else {
@@ -104,7 +121,7 @@ extension UpdaterService {
             }
         } else if action == .cancelPendingInstall {
             log.append("quit: install on quit is off, cancelling the staged update")
-            _ = cancelStaged()
+            _ = cancelStagedUpdate()
         }
         return action
     }
@@ -141,6 +158,8 @@ extension UpdaterService {
         switch effect {
         case .install:
             stagedRefresh.installStarted()
+            installClickedAt = ContinuousClock.now
+            picturesAtClick?()
             automaticInstallInFlight = false
             automaticInstallFrontmost = nil
             // The staged build's pre-warm, if it still runs, goes at the click's priority from now on.
@@ -201,6 +220,8 @@ extension UpdaterService {
         dropPulledAvailable()
         let phase = indicatorPhase
         guard phase != flow.phase else { return }
+        // Nothing found, staged or installing: the next update's clicks count from zero.
+        if case .hidden = phase { updateClicks = 0 }
         transferRate.record(phase, at: now())
         if userCheckRunning, phase != .checking { userCheckRunning = false }
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -281,6 +302,12 @@ extension UpdaterService {
                           metered: UpdateMeteredMode = .deferLowData, ring: String? = nil,
                           idleInstall: (maxWait: TimeInterval, quiet: TimeInterval)? = nil,
                           installWhenIdleMinutes: TimeInterval? = nil) {
+        // Paused (``AutomaticUpdatePause``): the settings keep their values, nothing automatic runs.
+        let paused = pausesAutomaticUpdates
+        let checkAutomatically = checkAutomatically && !paused
+        let downloadAutomatically = downloadAutomatically && !paused
+        let installWhenIdleMinutes = paused ? nil : installWhenIdleMinutes
+        if paused, !settingsApplied { log.append("automatic updates paused: checks, downloads and idle installs only on the person's click") }
         if let ring { follow(ring: ring) }
         installWhenIdle = installWhenIdleMinutes.map { .seconds($0 * 60) }
         if let idleInstall {

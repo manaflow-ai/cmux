@@ -13,6 +13,7 @@ use crate::agent_host::{self, Liveness};
 use cmux_json::JsonSet as _;
 use futures_util::StreamExt;
 
+mod checkpoint;
 mod journal;
 
 /// How long adoption waits for the next replayed entry of one host to be logged before it recovers
@@ -20,9 +21,23 @@ mod journal;
 /// daemon startup (`REPLAY_CEILING`). A reattach's resend of unlogged answers waits the same.
 use crate::agent::{REPLAY_CEILING, REPLAY_STALL};
 
+fn replay_stalls() -> bool {
+    // Debug fixtures can hold replay proof back until a retry.
+    #[cfg(debug_assertions)]
+    {
+        std::env::var_os("ACPMUX_TEST_REPLAY_INCOMPLETE").is_some()
+            || std::env::var_os("ACPMUX_TEST_REPLAY_INCOMPLETE_FILE")
+                .is_some_and(|path| Path::new(&path).exists())
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        false
+    }
+}
+
 /// What the session log says about the work in flight under one host
 /// incarnation when the previous controller stopped.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct OpenWork {
     /// `turn_started` without `turn_result`: (seq, turnId, promptId, prompt,
     /// client, control; a Web steer's `turn_control` raises it).
@@ -33,6 +48,9 @@ pub(super) struct OpenWork {
     /// for an older record.
     turn_line: Option<String>,
     turn_trigger: bool,
+    /// That turn went through the trust gate (`turn_started` `trustGate`; an older record's is
+    /// gated, the stricter): a continuation of it goes through it too (`auto_resume.rs`).
+    turn_trust_gate: bool,
     /// That turn was carried on from the turn before (`turn_started` `carried`,
     /// `carried_turn.rs`): its prompt is the hub's own, and a steer is never it.
     turn_carried: bool,
@@ -101,6 +119,10 @@ pub(super) struct OpenWork {
     /// a lasting grant ("allow always").
     floor_cancelled: Option<String>,
     last_control: Option<Control>,
+    /// The paired device that drove the last Web turn (`turn_started`/`turn_control`
+    /// `device`), and the open turn's: a restart keeps the owner's own phone on the floor.
+    last_device: Option<String>,
+    turn_device: Option<String>,
     harness_grant: bool,
     /// A remote chain's Claude Code session whose current host has no
     /// passed sandbox canary just before it started (`remote_sandbox.rs`).
@@ -112,6 +134,21 @@ pub(super) struct OpenWork {
     /// previous controller stopped. Recovered from its logged `compaction`
     /// updates so Stop keeps the prompt-first path after a restart.
     compacting: bool,
+    /// The chat's process table as the adoption checkpoint keeps it (`journal.rs`
+    /// `keep_processes`): the adoption rebuilds the table from it (`recover_work`).
+    #[serde(skip)]
+    pub(super) processes: Option<super::processes::SavedProcesses>,
+}
+
+impl OpenWork {
+    fn can_end_replayed_host(&self) -> bool {
+        !self.receipts_unproven
+            && self.turn.is_none()
+            && self.carry_next.is_none()
+            && self.requests.is_empty()
+            && self.unwritten.is_empty()
+            && !self.compacting
+    }
 }
 
 /// What the host records say (`Hub::read_host_records`).
@@ -169,8 +206,8 @@ impl Hub {
     /// (its `initialize`), which only this reattach answers. Two at once make one link
     /// (`ChildAgent::reattach_if_lost`). Whether `child` is alive after it. False, and nothing
     /// reached, for an agent that exited, whose host is dead (its live lock, bounded as `readopt`
-    /// waits for it), whose link broke because an entry could not be logged (the next request
-    /// reattaches it: a full disk must not loop here), that another agent took the session from,
+    /// waits for it), whose link broke because an entry could not be logged (`reach_broken_link`
+    /// retries that one with a backoff: a full disk must not loop here), that another agent took the session from,
     /// or under MDM's off (an unheard agent ends then, `end_every_managed_full_access`).
     pub(super) async fn reach_lost_link(
         self: &Arc<Self>,
@@ -225,6 +262,61 @@ impl Hub {
                 tracing::warn!(session = %session.id, "agent host reattach after a lost link failed: {e:#}");
                 false
             }
+        }
+    }
+
+    /// Reach `child` again after its link broke on an entry the store could not log (a full disk,
+    /// F20): the reattach replays from the last logged entry, so the open turn gets its words and
+    /// its answer and the prompts queued behind it run. The next request cannot do it: it queues
+    /// behind that turn, which nothing else ends. While the store still cannot log, the replay
+    /// breaks the link again and this tries again after a backoff (250 ms doubling to 5 s), so a
+    /// full disk costs one connect and one failed write per try, never a loop. One per link
+    /// (`ChildAgent::claim_broken_retry`); it ends once the link reads clean, or the agent exits,
+    /// is replaced or ended, or the hub shuts down.
+    pub(super) async fn reach_broken_link(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+    ) {
+        const FIRST: std::time::Duration = std::time::Duration::from_millis(250);
+        const MOST: std::time::Duration = std::time::Duration::from_secs(5);
+        let mut backoff = FIRST;
+        loop {
+            tokio::time::sleep(backoff).await;
+            let still_asked =
+                session.child.lock().await.as_ref().is_some_and(|c| Arc::ptr_eq(c, child));
+            let over = !still_asked
+                || child.has_exited()
+                || child.is_retired()
+                || child.ended_on_purpose()
+                || self.shutting_down()
+                || self.full_access_managed_off();
+            if over || !child.is_broken() {
+                child.release_broken_retry();
+                // A break between the look and the release found this retry still claimed and
+                // started none: take it again.
+                if over || !child.is_broken() || !child.claim_broken_retry() {
+                    return;
+                }
+            }
+            let off = self.off_latch();
+            match child.reattach_if_lost().await {
+                Ok(true) => {
+                    self.append(
+                        session,
+                        "mux",
+                        "host_reattached",
+                        json!({"reason": "entry_unlogged"}),
+                    );
+                    let _ = self.judged_after_reattach(session, child, &off).await;
+                }
+                Ok(false) => {}
+                Err(e) => tracing::warn!(
+                    session = %session.id,
+                    "agent host reattach after an unlogged entry failed: {e:#}"
+                ),
+            }
+            backoff = (backoff * 2).min(MOST);
         }
     }
 
@@ -593,12 +685,12 @@ impl Hub {
     }
 
     pub(super) fn session_by_id(&self, id: &str) -> Option<Arc<Session>> {
-        self.sessions.lock().unwrap().get(id).cloned()
+        self.session_get(id)
     }
 
     pub(super) fn mark_unadoptable(&self, session: &Arc<Session>, detail: Value) {
         self.append(session, "mux", "host_unadoptable", detail);
-        self.set_status(session, SessionStatus::Disconnected);
+        self.set_status(session, NotWaiting::Disconnected);
         self.save_meta(session);
     }
 
@@ -649,6 +741,27 @@ impl Hub {
         hold: &mut Option<super::full_access_bound::FamilyHold>,
     ) -> anyhow::Result<()> {
         let incarnation = record.incarnation.clone();
+        // A host whose agent was still starting when the last daemon stopped: the chat never
+        // learned its conversation (no agent session id), so every prompt to it would answer
+        // "no agent session". It ends, and the chat's next prompt starts its agent as the cut
+        // start would have (a fork from its chat's conversation: `fork_start.rs`; cmux#50096).
+        if session.meta().agent_session_id.is_none() {
+            let dir = agent_host::hosts_dir();
+            let ended = end_host_blocking(
+                dir.clone(),
+                record.session_id.clone(),
+                Some(record.start_nonce.clone()),
+                Some(record.host_pid),
+            )
+            .await;
+            if ended {
+                agent_host::remove_artifacts(&dir, &record);
+                hold.take();
+            }
+            tracing::warn!(session = %session.id, ended, "agent host ended at adoption: its start was cut by the restart, so the chat has no agent session; the next prompt starts it again");
+            self.append(session, "mux", "host_ended", json!({"reason": "start_cut_by_restart"}));
+            return Ok(());
+        }
         let of = incarnation.clone();
         if session.meta().remote_origin
             && !self
@@ -679,7 +792,9 @@ impl Hub {
         let of = incarnation.clone();
         let (resume_after, subagents, turn_open) = self
             .read_whole_log(session, move |hub, s| {
-                (hub.last_host_seq(s, &of), hub.subagents_in_log(s), hub.log_turn_open(s))
+                // One fold of the log, which the reads below and recovery resume from.
+                hub.save_checkpoint_now(s, &of);
+                (hub.last_host_seq(s, &of), hub.subagents_from_log(s, &of), hub.log_turn_open(s))
             })
             .await?;
         // The subagents the host still runs, before its first replayed line reaches the tap:
@@ -695,7 +810,7 @@ impl Hub {
             record,
             resume_after,
             Vec::new(),
-            session.inbound_tx.clone(),
+            session.inbound_tx().clone(),
             tap,
         )
         .await?;
@@ -727,19 +842,27 @@ impl Hub {
         // back from the agent's own env, so its next start runs on it again (`agent_credentials.rs`).
         // Not from an agent that already exited: its host was reaped, so its pid may now be
         // another agent's (another session's credential on this one).
-        if adopted.exited.is_none() {
-            self.recover_credential(session, adopted.harness_pid);
+        // The host's own word comes first: it launched the agent, so it says the credential even
+        // when the agent's env no longer shows it (cmux#52399).
+        if !self.hold_launch_credential(session, &adopted.launch_credential.0)
+            && adopted.exited.is_none()
+        {
+            self.recover_credential(session, adopted.harness_pid.zip(adopted.harness_start));
         }
         let proven = self.adopt_caller_token(&session.id, caller_token, &incarnation);
         // A fork through an adopted agent asks for the list it started with
         // (`spawn.rs` decides it at session/new for a spawned one).
         let meta = session.meta();
+        let claude_recovery = super::credentials::claude_login_needs_restart(&meta)
+            || self.has_saved_claude_token(session, &meta).await;
         let (_, env) = self.harness_env(&meta).await;
         let (all, kind) = {
             let cfg = self.config.read().await;
             let profile = cfg.profile(&meta.harness);
             let all = profile.is_some_and(|p| {
-                crate::agent_tools::lists_all_tools(&meta.harness, p, &env, &meta.cwd)
+                crate::session_manifest::all_tools(meta.manifest.as_ref(), &meta.cwd, || {
+                    crate::agent_tools::lists_all_tools(&meta.harness, p, &env, &meta.cwd)
+                })
             });
             (all, profile.map(|p| p.kind))
         };
@@ -753,14 +876,22 @@ impl Hub {
         self.note_host_kind(session, &child, kind).await;
         // Scan only once every entry the host had is in the log: what the
         // previous daemon wrote or answered may still sit in its buffer.
-        // Debug builds only: `ACPMUX_TEST_REPLAY_INCOMPLETE` makes every replay count as incomplete,
-        // as a host that stalls mid-replay does. Release builds have no seam.
-        #[cfg(debug_assertions)]
-        let stalls = std::env::var_os("ACPMUX_TEST_REPLAY_INCOMPLETE").is_some();
-        #[cfg(not(debug_assertions))]
-        let stalls = false;
-        let replayed =
-            !stalls && child.wait_replayed(adopted.last_h, REPLAY_STALL, REPLAY_CEILING).await;
+        let mut replayed = !replay_stalls()
+            && child.wait_replayed(adopted.last_h, REPLAY_STALL, REPLAY_CEILING).await;
+        session.floor.left_host_read.store(false, Ordering::SeqCst);
+        let managed = off.off();
+        // Claude login recovery uses the rebuilt work state to decide whether it may end this
+        // host. The replay must reach the Resume boundary before that state is read.
+        if claude_recovery || managed {
+            replayed = replayed
+                && match child.learn_replay_end(REPLAY_STALL).await {
+                    Some(end) => child.wait_replayed(end, REPLAY_STALL, REPLAY_CEILING).await,
+                    None => false,
+                };
+        } else {
+            let learning = child.clone();
+            tokio::spawn(async move { learning.learn_replay_end(REPLAY_STALL).await });
+        }
         if !replayed {
             tracing::warn!(session = %session.id, "agent host replay incomplete; recovering from the partial log");
         }
@@ -774,17 +905,8 @@ impl Hub {
         // read the log before the replay reached it. With MDM unset the agent is handed out, and
         // the next off reads the log the replay added to: an earlier read of it no longer holds
         // (review 2 of #26057).
-        // The replay runs to what the host numbered before it handled this daemon's `Resume`, which
-        // may be past its hello's `last_h` (review 3 of #26057): under MDM's off that end is learned
-        // and waited for before the judgement; with MDM unset it is learned in the background and
-        // nothing waits on it, as before.
-        session.floor.left_host_read.store(false, Ordering::SeqCst);
-        if off.off() {
-            let replayed = replayed
-                && match child.learn_replay_end(REPLAY_STALL).await {
-                    Some(end) => child.wait_replayed(end, REPLAY_STALL, REPLAY_CEILING).await,
-                    None => false,
-                };
+        // The Resume boundary may be past the hello's `last_h` (review 3 of #26057).
+        if managed || (claude_recovery && off.off()) {
             let ended = if replayed {
                 self.end_if_runs_full_access(session, true).await
             } else {
@@ -797,9 +919,6 @@ impl Hub {
                 }
                 return Ok(());
             }
-        } else {
-            let learning = child.clone();
-            tokio::spawn(async move { learning.learn_replay_end(REPLAY_STALL).await });
         }
         self.append(
             session,
@@ -807,6 +926,8 @@ impl Hub {
             "host_adopted",
             json!({"incarnation": incarnation, "hostBuild": adopted.host_build, "resumedAfter": resume_after}),
         );
+        // Its loop's timers outlived the daemon that heard them (`agent_timer.rs`).
+        super::agent_timer::note_adopted_goal(session);
         // An agent that cannot keep the chat's policy (a build without its gate, a policy narrowed
         // while no daemon reached it) does not run on (`policy_mode.rs`).
         if self.refuse_unheld(session).await {
@@ -822,21 +943,33 @@ impl Hub {
             let told = replayed && adopted.version >= agent_host::QUEUED_VERSION;
             Self::hold_unwritten(session, hold, &record, told, &work);
         }
+        let intact = adopted.acked_h <= resume_after && !work.receipts_unproven;
+        let recovery_complete = claude_recovery && replayed && intact;
+        // The retry checks the drained journal without rebuilding work. An intact prefix
+        // can be checked again even if the work it described was still open at adoption.
+        let recovery_retryable = intact;
         let changes = session.status_changes.load(Ordering::SeqCst);
         self.recover_work(session, &child, &incarnation, work).await;
+        if recovery_complete {
+            child.mark_recovery_replay_complete();
+        }
+        if recovery_retryable {
+            child.mark_recovery_replay_retryable();
+        }
         // The status after recovery, not before it: set before, `ready` was logged and shown
         // between `host_adopted` and a turn the host still runs (an idle chat that was working).
         // Recovery sets the turn and `running` under the spawn lock every new prompt waits on, so
         // no prompt starts in between. When recovery wrote a status (a recovered turn, which may
         // also have ended by now; a permission asked again), it stands. Else the status loaded from
-        // disk is replaced as a turn's end does (`turns.rs` `finish_turn`): `waiting` while
+        // disk is replaced as a turn's end does (`turns/finish.rs` `finish_turn`): `waiting` while
         // something still asks the person, `ready` otherwise, read under the permissions lock
         // that an answer takes.
         if session.status_changes.load(Ordering::SeqCst) == changes && session.turn().is_none() {
             let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
-            let asking = !state.pending.is_empty() || self.secrets.waiting_in(&session.id);
-            let status = if asking { SessionStatus::Waiting } else { SessionStatus::Ready };
-            self.set_status(session, status);
+            match self.open_ask(session, &state) {
+                Some(reason) => self.set_waiting(session, reason),
+                None => self.set_status(session, super::NotWaiting::Ready),
+            }
             drop(state);
         }
         self.restart_unproven(session, proven);
@@ -852,8 +985,7 @@ impl Hub {
         session.floor.unsandboxed.store(work.unsandboxed, Ordering::SeqCst);
         session
             .floor
-            .last_turn_web
-            .store(work.last_control == Some(Control::Web), Ordering::SeqCst);
+            .mark_last_turn(work.last_control == Some(Control::Web), work.last_device.clone());
         session.floor.cloud_mobile_turn.store(work.cloud_mobile_turn, Ordering::SeqCst);
         if let Some((_, turn_id, ..)) = &work.turn
             && work.floor_cancelled.as_ref() == Some(turn_id)
@@ -869,27 +1001,35 @@ impl Hub {
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
         incarnation: &str,
-        work: OpenWork,
+        mut work: OpenWork,
     ) {
         Self::recover_floor(session, &work);
         session.compacting.store(work.compacting, Ordering::SeqCst);
-        self.recover_processes(session);
+        self.recover_processes(session, work.processes.take());
         // A carried turn the restart cut before its prompt went out (or before it started):
         // the agent runs it still, and it goes on (`carried_turn.rs`).
         if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) = work.turn.clone()
             && work.turn_carried
             && work.prompt_request.is_none()
         {
-            let mut turn = TurnInfo::prompted(&client, &prompt, &turn_id, &prompt_id, control);
-            if let Some(line) = &work.turn_line {
-                turn.show(line);
-            }
+            let mut turn = match &work.turn_line {
+                Some(line) => {
+                    TurnInfo::prompted_as(&client, &prompt, &turn_id, &prompt_id, control, line)
+                }
+                None => TurnInfo::prompted(&client, &prompt, &turn_id, &prompt_id, control),
+            };
             turn.trigger = work.turn_trigger;
             turn.turn_seq = turn_seq;
             if work.turn_at > 0 {
                 turn.started_at = work.turn_at;
             }
-            self.recover_carried(session, child, turn, None, Default::default());
+            // Its continuation, should an outage cut it, goes through the gate its start did.
+            let continues = super::carried_turn::Continues {
+                trust_gate: work.turn_trust_gate,
+                trigger: work.turn_trigger,
+                ..Default::default()
+            };
+            self.recover_carried(session, child, turn, None, continues);
         } else if work.turn.is_none()
             && let Some((from, record)) = &work.carry_next
             && let Some(next) = super::carried_turn::NextTurn::from_record(record)
@@ -914,6 +1054,13 @@ impl Hub {
                 }
                 (Some(request_id), answer) => {
                     let outcome = super::prompt_ledger::recover(session, &prompt_id);
+                    // A cut `/compact` is resent as itself (`auto_resume::resent_command`).
+                    let slash = super::auto_resume::resent_command(&prompt).map(str::to_owned);
+                    // The hub's own compactions are not continued, as a live turn's are not.
+                    let own_compaction = prompt_id.starts_with("cache-compact-")
+                        || prompt_id.starts_with(super::cold_wake::COMPACT_ID_PREFIX);
+                    let goes_on = !work.turn_trigger && !own_compaction;
+                    let trust_gate = work.turn_trust_gate;
                     // Before anything can force its end (`turn_answer`).
                     let ended = session.steer_end.subscribe();
                     // Its start as logged: a restart does not make it new.
@@ -925,6 +1072,12 @@ impl Hub {
                         .clone()
                         .unwrap_or_else(|| super::prompt_line::prompt_line(&prompt, &client, None));
                     self.resume_before_turn();
+                    // A daemon restart preserves whether this was the person's prompt. Keep
+                    // that waited-on protection until the restored turn's first token, just as
+                    // `auto_resume::start_turn` does for a fresh prompt.
+                    session
+                        .awaiting_reply
+                        .store(work.turn_persons && !work.turn_trigger, Ordering::SeqCst);
                     *session.turn.lock().unwrap() = Some(TurnInfo {
                         trigger: work.turn_trigger,
                         started_at,
@@ -942,26 +1095,28 @@ impl Hub {
                         // As logged (`turn_started` `persons`); an older record's takes notices.
                         persons: work.turn_persons,
                         accepted: true,
-                        device: None,
+                        // The paired device that sent it, as logged (`turn_started` `device`).
+                        device: work.turn_device.clone().filter(|_| control == Control::Web),
                     });
                     if work.turn_trigger {
                         self.restore_trigger_background(session, &turn_id);
                     }
-                    session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+                    let device = work.turn_device.clone().filter(|_| control == Control::Web);
+                    session.floor.mark_last_turn(control == Control::Web, device.clone());
                     // A Web turn in flight in an agent the sandbox did not
                     // start does not go on (tools that do not ask).
                     if control == Control::Web && session.floor.unsandboxed.load(Ordering::SeqCst) {
                         self.remote_floor_cancel(session, "remote.unsandboxed_agent");
                     }
-                    // Nor one in a mode only a machine's Full-access setting allows: which
-                    // machine sent it is not kept across a restart (`full_access_hold`).
-                    if self.full_access_hold(&session.meta(), control, None).is_err() {
+                    // Nor one in a mode only a machine's Full-access setting allows, unless the
+                    // machine that sent it (as logged) still has it (`full_access_hold`).
+                    if self.full_access_hold(&session.meta(), control, device.as_deref()).is_err() {
                         self.remote_floor_cancel(session, "remote.full_access_ended");
                     }
                     *session.open_tools.lock().unwrap_or_else(|e| e.into_inner()) =
                         work.open_tools.clone();
                     self.watch_stalled_turn(session, Some(work.heard_at.max(started_at)));
-                    self.set_status(session, SessionStatus::Running);
+                    self.set_status(session, NotWaiting::Running);
                     // Its cap counts from its start, as logged (`turn_cap.rs`).
                     self.arm_turn_cap(session, &turn_id);
                     // The answer is either logged already, or still to come
@@ -992,6 +1147,7 @@ impl Hub {
                     let next_raised = work.next_raised;
                     let s = session.clone();
                     let c = child.clone();
+                    let install_turn = self.harness_turn(session).await;
                     tokio::spawn(async move {
                         // New prompts queue behind the recovered turn.
                         let guard = s.turn_lock.lock().await;
@@ -1011,6 +1167,23 @@ impl Hub {
                             c.next.control = Control::Web;
                         }
                         let next = carried.as_deref();
+                        // A cut turn goes on by itself as a live one does (`auto_resume.rs`):
+                        // census 2026-11-24, 22 chats a 503/529/502 cut while their daemon
+                        // restarted sat idle 12 to 366 min because this end continued nothing.
+                        let cut_by = match &result {
+                            Err(e) if carried.is_none() && goes_on => Some((
+                                super::turn_errors::continuation_error(
+                                    Some(e.message.as_str()),
+                                    &e.message,
+                                )
+                                .to_owned(),
+                                super::auto_resume::reset_hint::error_reset_at(
+                                    e.data.as_ref(),
+                                    now_ms(),
+                                ),
+                            )),
+                            _ => None,
+                        };
                         let mut result = hub
                             .finish_turn(
                                 &s,
@@ -1034,14 +1207,27 @@ impl Hub {
                         // A notice's turn answers the messages it carried (`inbox.rs`).
                         hub.recovered_notice_done(&s, &prompt_id, &result);
                         outcome.send_replace(Some(result));
+                        super::turns::release_acceptance(&s, &prompt_id, &outcome);
                         super::prompt_ledger::prune(
                             &mut s.prompts.lock().unwrap_or_else(|e| e.into_inner()),
                         );
-                        // A recovered turn is not continued (`auto_resume.rs`); settle its mark.
-                        hub.schedule_auto_resume(&s, &turn_id, None);
+                        let cut = cut_by.as_ref().map(|(error, not_before)| {
+                            super::auto_resume::CutTurn {
+                                // Its family sender is not logged: it speaks as acpmux.
+                                from: None,
+                                prompt_id: &prompt_id,
+                                turn_id: &turn_id,
+                                control,
+                                trust_gate,
+                                error,
+                                not_before: *not_before,
+                                slash: slash.as_deref(),
+                            }
+                        });
+                        hub.schedule_auto_resume(&s, &turn_id, cut);
                         if let Some(carried) = &carried {
                             // Its task takes the turn lock once this one lets it go.
-                            hub.start_carried(&s, &c, &turn_id, carried, None);
+                            hub.start_carried(&s, &c, &turn_id, carried, None, install_turn);
                             if raised {
                                 hub.recovered_floor(&s, Control::Web);
                             }
@@ -1053,7 +1239,15 @@ impl Hub {
                         // now and the next prompt starts it again, resuming
                         // the chat. Not started here: this task runs inside
                         // the adoption a start itself may run.
-                        if s.route_switch.swap(false, Ordering::SeqCst) {
+                        // Work below it waits for quiet (`restart_waits_for_work_below`).
+                        // A recovered Claude login moves before the next prompt, after checking
+                        // the permissions and background work this host may still hold.
+                        if s.route_switch.load(Ordering::SeqCst)
+                            && !s.read_meta(super::credentials::claude_login_needs_restart)
+                            && hub.route_child_is_idle(&s)
+                            && !hub.restart_waits_for_work_below(&s)
+                            && s.route_switch.swap(false, Ordering::SeqCst)
+                        {
                             hub.detach_child(&s).await;
                         }
                         // A Stop ended its agent (`cancel.rs`). Not started again here, for the
@@ -1291,7 +1485,7 @@ impl Hub {
                    "personInstance": self.person.instance(), "request": request.clone(),
                    "agentRequestId": agent_request_id.clone()}),
         );
-        self.set_status(session, SessionStatus::Waiting);
+        self.set_waiting(session, super::WaitReason::of_request(&request));
         // A chat restored as Waiting changes no status here, so its parent's count of asks below
         // is decided now: a new daemon starts every count at none (`asks_below.rs`).
         self.refresh_parent_asks_below(session);
@@ -1311,17 +1505,13 @@ impl Hub {
             hub.append(&s, "mux", "permission_decision", decision);
             {
                 let state = s.permissions.lock().unwrap_or_else(|e| e.into_inner());
-                if state.pending.is_empty()
-                    && s.status() == SessionStatus::Waiting
-                    && !hub.secrets.waiting_in(&s.id)
-                {
-                    let next = if s.turn().is_some() {
-                        SessionStatus::Running
+                hub.settle_after_ask(&s, &state, || {
+                    if s.turn().is_some() {
+                        super::NotWaiting::Running
                     } else {
-                        SessionStatus::Ready
-                    };
-                    hub.set_status(&s, next);
-                }
+                        super::NotWaiting::Ready
+                    }
+                });
             }
             // An ancestor's answer: written under its fence (`subsession_answer.rs`).
             let fence = hub.answer_fences.lock().unwrap().remove(&permission_id);
@@ -1532,15 +1722,27 @@ impl Hub {
                 "machine environment changed; login env refresh failed",
             ));
         }
-        let cmd = crate::agent::harness_command_ready(
+        let (cmd, mut scratch) = crate::agent::harness_command_ready(
             &meta.harness,
             profile,
             &meta.cwd,
-            command_line,
+            command_line.clone(),
             Some((&session.id, &meta.name)),
         )
         .await
-        .map_err(internal)?;
+        .map_err(|error| {
+            #[cfg(unix)]
+            if error.is::<crate::agent::CopilotKeychainLocked>() {
+                return RpcError::invalid_params(error.to_string())
+                    .with_data(serde_json::json!({"reason": "subscription.keychain_locked"}));
+            }
+            if error.is::<crate::agent::CopilotReconnect>() {
+                crate::server::connections::announce_later(self);
+                return RpcError::invalid_params(error.to_string())
+                    .with_data(serde_json::json!({"reason": "subscription.reauth_required"}));
+            }
+            internal(error)
+        })?;
         self.record_preview_format(session, crate::agent::pinned_preview_format(&cmd));
         let std_cmd = cmd.as_std();
         let hosts = crate::agent_host::hosts_dir();
@@ -1572,6 +1774,21 @@ impl Hub {
             orphan_exit: None,
             prompt_suggestions_managed: crate::claude_stdio::prompt_suggestions::managed(),
             holder: None,
+            copilot_scratch: scratch
+                .as_ref()
+                .zip(profile.env.get(crate::agent_credentials::COPILOT_TOKEN))
+                .map(|(dir, token)| crate::agent_host::CopilotScratch {
+                    path: dir.path().to_owned(),
+                    redaction: token.clone(),
+                }),
+            local_kimi_expiry: profile
+                .env
+                .get(crate::subscriptions::LOCAL_KIMI_EXPIRY)
+                .and_then(|v| v.parse().ok()),
+            local_chatgpt_expiry: profile
+                .env
+                .get(crate::chatgpt::LOCAL_EXPIRY_ENV)
+                .and_then(|v| v.parse().ok()),
         };
         // The agent holder (`agent_host/custody.rs`): a harness that speaks ACP itself keeps its
         // turn through a host crash. A translated one still has its translator in the host.
@@ -1595,7 +1812,12 @@ impl Hub {
             child
         };
         let first = match self.start_hosted(session, meta, &launcher, &spec, tap.clone()).await {
-            Ok(child) => return Ok(launched(child)),
+            Ok(child) => {
+                if let Some(dir) = scratch {
+                    dir.keep();
+                }
+                return Ok(launched(child));
+            }
             Err(e) => e,
         };
         // A host that started but did not answer (a wedged or dead host: its hello missed the
@@ -1607,8 +1829,36 @@ impl Hub {
             return Err(internal(first.error));
         }
         tracing::warn!(session = %session.id, "agent host did not answer ({:#}); starting a fresh host", first.error);
+        if scratch.is_some() {
+            let (_, next) = crate::agent::harness_command_ready(
+                &meta.harness,
+                profile,
+                &meta.cwd,
+                command_line,
+                Some((&session.id, &meta.name)),
+            )
+            .await
+            .map_err(internal)?;
+            let dir = next
+                .as_ref()
+                .ok_or_else(|| RpcError::internal("missing GitHub Copilot launch folder"))?;
+            if let Some(launch) = spec.copilot_scratch.as_mut() {
+                launch.path = dir.path().to_owned();
+            }
+            if let Some((_, data_home)) =
+                spec.env.iter_mut().find(|(name, _)| name == "XDG_DATA_HOME")
+            {
+                *data_home = dir.path().to_string_lossy().into_owned();
+            }
+            scratch = next;
+        }
         match self.start_hosted(session, meta, &launcher, &spec, tap).await {
-            Ok(child) => Ok(launched(child)),
+            Ok(child) => {
+                if let Some(dir) = scratch {
+                    dir.keep();
+                }
+                Ok(launched(child))
+            }
             Err(second) => {
                 if let Some(failed) = &second.started {
                     let _ = self.end_unanswered_host(session, failed, &second.error).await;
@@ -1655,6 +1905,8 @@ impl Hub {
             started.set("remoteEnvPolicy", crate::agent::REMOTE_ENV_POLICY_ID.into());
         }
         self.append(session, "mux", "host_started", started);
+        // Its first adoption resumes from a checkpoint, not the whole log (`checkpoint.rs`).
+        self.prime_adoption_checkpoint(session, &record.incarnation);
         // A new host: its log is read back again under MDM's off, no end is pending for it, and
         // none of its reports waits (`full_access_bound.rs`).
         session.floor.left_host_read.store(false, Ordering::SeqCst);
@@ -1665,7 +1917,7 @@ impl Hub {
             record.clone(),
             0,
             Vec::new(),
-            session.inbound_tx.clone(),
+            session.inbound_tx().clone(),
             tap,
         )
         .await;

@@ -49,8 +49,15 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::{broadcast, oneshot, watch};
 use tokio::time::{Duration, timeout};
 
-/// Durable per-chat phone exposure. `configured=false` preserves the legacy
-/// Mac-wide master behavior until the person first uses a per-chat switch.
+/// The chat exposure every phone filter checks (`acpmux_policy`, `notify`,
+/// `tab_snapshots`, `mailbox_apply`). Remote Control is one app-wide switch
+/// (Leo: "just go all or nothing"): the app runs this host only while
+/// `mobile.allowIPhoneConnections` is on, and the host always supplies the
+/// default, unconfigured value, under which every chat on this Mac is
+/// reachable. No per-chat choice is read or written any more; a
+/// `remote-control-sessions.json` an earlier build left is not read. The
+/// filters' structural refusals (a request naming no chat, an unsolicited
+/// reply, invalid JSON) hold whatever this value is.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionExposure {
     /// Whether the file was successfully read and written. This is deliberately
@@ -76,42 +83,6 @@ impl Default for SessionExposure {
 
 fn default_available() -> bool {
     true
-}
-
-fn exposure_path() -> PathBuf {
-    crate::config::default_state_dir().join("remote-control-sessions.json")
-}
-
-fn load_session_exposure() -> SessionExposure {
-    load_session_exposure_at(&exposure_path())
-}
-
-/// Load the durable policy from an explicit path. Keeping the path-taking
-/// helper separate makes restart and fail-closed behavior testable without
-/// touching the process state directory.
-fn load_session_exposure_at(path: &std::path::Path) -> SessionExposure {
-    match std::fs::read(path) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => SessionExposure::default(),
-        Ok(data) => serde_json::from_slice(&data).unwrap_or_else(|_| SessionExposure {
-            available: false,
-            configured: true,
-            ..SessionExposure::default()
-        }),
-        Err(_) => SessionExposure { available: false, configured: true, ..SessionExposure::default() },
-    }
-}
-
-fn persist_session_exposure(state: &SessionExposure) -> Result<(), String> {
-    persist_session_exposure_at(&exposure_path(), state)
-}
-
-fn persist_session_exposure_at(path: &std::path::Path, state: &SessionExposure) -> Result<(), String> {
-    let Some(parent) = path.parent() else { return Err("state path has no parent".into()) };
-    std::fs::create_dir_all(parent).map_err(|error| format!("creating state directory: {error}"))?;
-    let data = serde_json::to_vec(state).map_err(|error| format!("encoding session exposure: {error}"))?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, data).map_err(|error| format!("writing session exposure: {error}"))?;
-    std::fs::rename(&tmp, path).map_err(|error| format!("committing session exposure: {error}"))
 }
 
 /// The acpmux WebSocket the app reported: URL and bearer token.
@@ -299,10 +270,6 @@ pub enum Inbound {
     PhoneCredentials {
         credentials: std::collections::HashMap<String, Secret>,
     },
-    SessionExposure {
-        session_id: String,
-        allowed: bool,
-    },
     /// The open requests of the app's own Feed, the whole set (`needs_you.rs`).
     NeedsYou {
         items: Vec<crate::needs_you::Request>,
@@ -310,6 +277,8 @@ pub enum Inbound {
     /// The app's theme and wallpaper, the whole state (`appearance.rs`).
     /// Boxed: the theme, wallpaper and look make it several times any other line.
     Appearance(Box<crate::appearance::FromApp>),
+    /// A browser tab's favicon or thumbnail the app wrote to a file (`tab_snapshots.rs`).
+    TabPicture(crate::tab_snapshots::PictureFile),
     /// The app's Cloud links for `need_cloud_links` `request`. `paid` (absent from an
     /// older app: false) says the account pays for cmux Cloud; `desktops` (absent: false) that
     /// the person lets phones view their Cloud machine's screen (`phone.cloudDesktop`).
@@ -320,6 +289,19 @@ pub enum Inbound {
         #[serde(default)]
         desktops: bool,
         links: Vec<CloudLink>,
+    },
+    /// The person's "hand sign-ins to iPhone" switch (`site_data.rs`); off until this line.
+    SiteDataHandoff {
+        enabled: bool,
+    },
+    /// What the app read from a tab's store for `need_site_data` `request`. Never logged.
+    SiteData {
+        request: u64,
+        data: Box<crate::site_data::FromApp>,
+    },
+    SiteDataFailed {
+        request: u64,
+        reason: String,
     },
 }
 
@@ -354,6 +336,10 @@ pub enum Event {
     /// 4002 `removed`). hostd exits after this line and must not be restarted until
     /// the person allows iPhone connections again (a new device id then).
     Removed,
+    /// The service refused this Mac's device id: another account registered it
+    /// (`POST /v1/devices` answered `403 not_owner`). hostd exits (status 79); the app
+    /// makes a new id for the signed-in account and starts hostd again.
+    DeviceNotOwned,
     /// A phone's link is up.
     PhoneUp {
         session_id: String,
@@ -387,10 +373,6 @@ pub enum Event {
         approval_key: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         registered_at_ms: Option<i64>,
-        /// The pre-approval from the Mac's pairing code the phone presented with its
-        /// signature (the app checks and burns it; hostd only forwards it). Absent without one.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pair_token: Option<String>,
         /// The phone app's bundle id as the phone states it at `auth` (`bundleId`), e.g.
         /// `dev.cmux.mobile.<tag>` for a tagged dev build; the app's DEBUG-only dev auto-approve
         /// pairs a same-tag phone with it (cmux-next-ios/SECURITY.md "Dev auto-approve"). A claim,
@@ -405,6 +387,16 @@ pub enum Event {
     /// A paired phone signed out and asks the Mac to forget it.
     Unpaired {
         phone_device_id: String,
+    },
+    /// Another of the person's paired devices (`by_device_id`) answered the waiting request of
+    /// `phone_device_id` with these keys (`pair_requests.rs`): the app answers it as the person's
+    /// Allow or Don't Allow, only while that request with these keys still waits.
+    PairAnswer {
+        phone_device_id: String,
+        identity_key: String,
+        approval_key: String,
+        allow: bool,
+        by_device_id: String,
     },
     /// A phone opened browser tab `tab`: start the app's browser host on
     /// `url` and answer with `browser` (or `browser_failed`) for `request`.
@@ -431,16 +423,13 @@ pub enum Event {
     NeedCloudLinks {
         request: u64,
     },
-    SessionExposureState {
-        available: bool,
-        configured: bool,
-        sessions: Vec<String>,
-        blocked_sessions: Vec<String>,
-    },
-    SessionExposureError {
-        session_id: String,
-        allowed: bool,
-        reason: String,
+    /// Read the cookies and local storage of browser tab `surface` for `site` only
+    /// (`site_data.rs`); answer `site_data` or `site_data_failed` for `request`.
+    NeedSiteData {
+        request: u64,
+        surface: u64,
+        site: String,
+        url: String,
     },
 }
 
@@ -453,19 +442,6 @@ pub fn emit(event: &Event) {
     let mut stdout = std::io::stdout().lock();
     let _ = writeln!(stdout, "{line}");
     let _ = stdout.flush();
-}
-
-fn emit_exposure_state(state: &SessionExposure) {
-    let mut sessions = state.allowed.iter().cloned().collect::<Vec<_>>();
-    let mut blocked = state.blocked.iter().cloned().collect::<Vec<_>>();
-    sessions.sort_unstable();
-    blocked.sort_unstable();
-    emit(&Event::SessionExposureState {
-        available: state.available,
-        configured: state.configured,
-        sessions,
-        blocked_sessions: blocked,
-    });
 }
 
 /// What the app supplies over stdin, as it changes.
@@ -489,14 +465,16 @@ pub fn spawn_stdin_reader() -> Supplied {
     let (acpmux_tx, acpmux) = watch::channel(None);
     let (devices_tx, devices) = watch::channel(None);
     let (identity_tx, identity) = watch::channel(None);
-    let (exposure_tx, session_exposure) = watch::channel(load_session_exposure());
-    let initial = exposure_tx.borrow().clone();
-    emit_exposure_state(&initial);
+    // App-wide Remote Control: every chat is reachable while the app runs this host, and the
+    // value never changes. The reader task below holds the sender for as long as stdin is open,
+    // as before: a dropped sender reads as a closed policy and ends live acpmux links.
+    let (exposure_tx, session_exposure) = watch::channel(SessionExposure::default());
     let browser = std::sync::Arc::new(crate::browser::BrowserBroker::new(std::sync::Arc::new(emit)));
     let broker = std::sync::Arc::clone(&browser);
     let surface = std::sync::Arc::new(crate::browser::BrowserBroker::for_surfaces(std::sync::Arc::new(emit)));
     let surfaces = std::sync::Arc::clone(&surface);
     tokio::spawn(async move {
+        let _exposure_tx = exposure_tx;
         let mut lines = BufReader::new(tokio::io::stdin()).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             match Inbound::parse(&line) {
@@ -519,60 +497,19 @@ pub fn spawn_stdin_reader() -> Supplied {
                     devices_tx.send_replace(Some(trust));
                 }
                 Some(Inbound::PhoneCredentials { credentials }) => set_phone_credentials(credentials),
-                Some(Inbound::SessionExposure { session_id, allowed }) => {
-                    let previous = exposure_tx.borrow().clone();
-                    let mut candidate = previous.clone();
-                    candidate.configured = true;
-                    candidate.available = true;
-                    if allowed {
-                        candidate.blocked.remove(&session_id);
-                        candidate.allowed.insert(session_id.clone());
-                    } else {
-                        candidate.allowed.remove(&session_id);
-                        candidate.blocked.insert(session_id.clone());
-                    }
-                    // Never overwrite an unreadable policy with a partial grant.
-                    if !previous.available {
-                        let mut effective = previous;
-                        effective.configured = true;
-                        effective.blocked.insert(session_id.clone());
-                        effective.allowed.remove(&session_id);
-                        exposure_tx.send_replace(effective);
-                        emit(&Event::SessionExposureError {
-                            session_id,
-                            allowed,
-                            reason: "durable policy unavailable".into(),
-                        });
-                        continue;
-                    }
-                    if !allowed {
-                        // Revocation takes effect immediately, even if persistence fails.
-                        let mut effective = candidate.clone();
-                        effective.available = previous.available;
-                        exposure_tx.send_replace(effective.clone());
-                    }
-                    match persist_session_exposure(&candidate) {
-                        Ok(()) => {
-                            exposure_tx.send_replace(candidate.clone());
-                            emit_exposure_state(&candidate);
-                        }
-                        Err(reason) => {
-                            let mut effective = candidate;
-                            effective.available = false;
-                            exposure_tx.send_replace(effective);
-                            emit(&Event::SessionExposureError { session_id, allowed, reason });
-                        }
-                    }
-                }
                 Some(Inbound::NeedsYou { items }) => crate::needs_you::set(items),
                 // Read off this loop: a wallpaper read never holds a token or a device line.
                 Some(Inbound::Appearance(appearance)) => {
                     tokio::spawn(crate::appearance::set(*appearance));
                 }
+                // Read off this loop, in line order.
+                Some(Inbound::TabPicture(file)) => crate::tab_snapshots::offer_file(file),
                 Some(Inbound::CloudLinks { request, paid, desktops, links }) => {
                     resolve_cloud_links(request, paid, desktops, links);
                 }
                 Some(Inbound::DropPhone { phone_device_id }) => {
+                    // A removed phone resumes no dormant tunnel either.
+                    cmux_mobile_link::dial::wireguard::dormant::forget(&phone_device_id);
                     let _ =
                         DROPS.get_or_init(|| broadcast::channel(16).0).send(phone_device_id.to_lowercase());
                 }
@@ -586,6 +523,11 @@ pub fn spawn_stdin_reader() -> Supplied {
                 }
                 Some(Inbound::SurfaceFailed { request, reason }) => surfaces.answer(request, Err(reason)),
                 Some(Inbound::SurfaceGone { tab }) => surfaces.gone(&tab),
+                Some(Inbound::SiteDataHandoff { enabled }) => crate::site_data::set_enabled(enabled),
+                Some(Inbound::SiteData { request, data }) => crate::site_data::answer(request, Ok(*data)),
+                Some(Inbound::SiteDataFailed { request, reason }) => {
+                    crate::site_data::answer(request, Err(reason));
+                }
                 None => tracing::warn!("ignoring an unknown control line"),
             }
         }
@@ -610,6 +552,8 @@ pub fn path_name(path: cmux_mobile_link::dial::LinkPath) -> &'static str {
         cmux_mobile_link::dial::LinkPath::Direct => "direct",
         cmux_mobile_link::dial::LinkPath::Turn => "turn",
         cmux_mobile_link::dial::LinkPath::TurnTls => "turn-tls",
+        cmux_mobile_link::dial::LinkPath::Hop => "hop",
+        cmux_mobile_link::dial::LinkPath::HttpsRelay => "https-relay",
         cmux_mobile_link::dial::LinkPath::NoPath => "none",
     }
 }
@@ -622,79 +566,19 @@ fn is_phone(kind: &crate::peer::PeerKind) -> bool {
 mod tests {
     use super::*;
 
-    const CHAT_A: &str = "00000000-0000-7000-8000-000000000001";
-    const CHAT_B: &str = "00000000-0000-7000-8000-000000000002";
-
-    fn disabled_chat(id: &str) -> SessionExposure {
-        SessionExposure {
-            available: true,
-            configured: true,
-            allowed: HashSet::new(),
-            blocked: [id.to_owned()].into_iter().collect(),
-        }
-    }
-
+    /// Per-chat Remote Control is gone: the app's old per-chat line parses to
+    /// nothing (it is ignored), and the exposure every filter reads is the
+    /// app-wide default, which blocks no chat.
     #[test]
-    fn missing_policy_defaults_to_available_and_unconfigured() {
-        let dir = tempfile::tempdir().unwrap();
-        let state = load_session_exposure_at(&dir.path().join("missing.json"));
-        assert_eq!(state, SessionExposure::default());
-    }
-
-    #[test]
-    fn corrupt_or_unreadable_policy_fails_closed() {
-        let dir = tempfile::tempdir().unwrap();
-        let corrupt = dir.path().join("corrupt.json");
-        std::fs::write(&corrupt, b"not-json").unwrap();
+    fn per_chat_exposure_lines_are_ignored_and_every_chat_is_reachable() {
         assert_eq!(
-            load_session_exposure_at(&corrupt),
-            SessionExposure { available: false, configured: true, ..SessionExposure::default() }
+            Inbound::parse(
+                r#"{"type":"session_exposure","session_id":"00000000-0000-7000-8000-000000000001","allowed":false}"#
+            ),
+            None
         );
-
-        // A regular file in the parent position makes the policy unreadable,
-        // exercising the same fail-closed branch as a permissions/IO error.
-        let parent_file = dir.path().join("not-a-directory");
-        std::fs::write(&parent_file, b"occupied").unwrap();
-        let unreadable = load_session_exposure_at(&parent_file.join("policy.json"));
-        assert!(!unreadable.available);
-        assert!(unreadable.configured);
-    }
-
-    #[test]
-    fn persisted_chat_off_survives_restart_while_other_chats_inherit() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("remote-control-sessions.json");
-        persist_session_exposure_at(&path, &disabled_chat(CHAT_A)).unwrap();
-
-        // A fresh load is the restart boundary. The explicit block remains,
-        // while an unmentioned chat has no block and inherits the Mac policy.
-        let restarted = load_session_exposure_at(&path);
-        assert!(restarted.available && restarted.configured);
-        assert!(restarted.blocked.contains(CHAT_A));
-        assert!(!restarted.blocked.contains(CHAT_B));
-        assert!(!restarted.allowed.contains(CHAT_B));
-    }
-
-    #[test]
-    fn failed_grant_persistence_does_not_replace_existing_chat_off_policy() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("remote-control-sessions.json");
-        let existing = disabled_chat(CHAT_A);
-        persist_session_exposure_at(&path, &existing).unwrap();
-
-        // Simulate a failed grant at the real policy path: the atomic
-        // replacement temp path is already a directory, so the write fails
-        // before rename. The durable A-off policy must remain intact.
-        std::fs::create_dir(path.with_extension("json.tmp")).unwrap();
-        let grant = SessionExposure {
-            available: true,
-            configured: true,
-            allowed: [CHAT_A.to_owned()].into_iter().collect(),
-            blocked: HashSet::new(),
-        };
-        assert!(persist_session_exposure_at(&path, &grant).is_err());
-        let after_failure = load_session_exposure_at(&path);
-        assert_eq!(after_failure, existing);
+        let state = SessionExposure::default();
+        assert!(state.available && !state.configured && state.blocked.is_empty());
     }
 
     #[test]
@@ -775,6 +659,20 @@ mod tests {
         let Some(Inbound::Appearance(appearance)) = appearance else { panic!("appearance did not parse") };
         assert_eq!(appearance.theme.accent, "blue");
         assert_eq!(appearance.wallpaper.map(|w| w.path), Some("/tmp/w.jpg".to_owned()));
+        assert_eq!(
+            Inbound::parse(
+                r#"{"type":"tab_picture","surface":7,"part":"thumb","path":"/tmp/t.jpg","w":576,"h":360,"mime":"image/jpeg","captured_at_ms":5}"#
+            ),
+            Some(Inbound::TabPicture(crate::tab_snapshots::PictureFile {
+                surface: 7,
+                part: crate::tab_snapshots::Part::Thumb,
+                path: "/tmp/t.jpg".into(),
+                w: 576,
+                h: 360,
+                captured_at_ms: 5,
+                tab: None,
+            }))
+        );
         assert_eq!(Inbound::parse(r#"{"type":"nope"}"#), None);
         assert_eq!(Inbound::parse("not json"), None);
     }
@@ -842,35 +740,27 @@ mod tests {
             r#"{"type":"phone_up","session_id":"s","phone_device_id":"p","transport":"wireguard","path":"turn-tls"}"#
         );
         assert_eq!(serde_json::to_string(&Event::NeedToken).unwrap(), r#"{"type":"need_token"}"#);
-        let request_with = |registered_at_ms, pair_token| Event::PairRequest {
+        let request = |registered_at_ms| Event::PairRequest {
             phone_device_id: "p".into(),
             name: "n".into(),
             identity_key: "04".into(),
             approval_key: "04".into(),
             registered_at_ms,
-            pair_token,
             bundle_id: None,
             kind: crate::peer::PeerKind::Phone,
         };
-        let request = |registered_at_ms| request_with(registered_at_ms, None);
         assert_eq!(
             serde_json::to_string(&request(Some(1_791_961_929_681))).unwrap(),
             r#"{"type":"pair_request","phone_device_id":"p","name":"n","identity_key":"04","approval_key":"04","registered_at_ms":1791961929681}"#
         );
         assert!(!serde_json::to_string(&request(None)).unwrap().contains("registered_at_ms"));
         assert!(!serde_json::to_string(&request(None)).unwrap().contains("pair_token"));
-        let scanned = request_with(None, Some("AbC-dEf_0123456789".into()));
-        assert_eq!(
-            serde_json::to_string(&scanned).unwrap(),
-            r#"{"type":"pair_request","phone_device_id":"p","name":"n","identity_key":"04","approval_key":"04","pair_token":"AbC-dEf_0123456789"}"#
-        );
         let tagged = Event::PairRequest {
             phone_device_id: "p".into(),
             name: "n".into(),
             identity_key: "04".into(),
             approval_key: "04".into(),
             registered_at_ms: None,
-            pair_token: None,
             bundle_id: Some("dev.cmux.mobile.my-tag".into()),
             kind: crate::peer::PeerKind::Phone,
         };
@@ -880,6 +770,7 @@ mod tests {
         );
         assert!(!serde_json::to_string(&request(None)).unwrap().contains("bundle_id"));
         assert_eq!(serde_json::to_string(&Event::Removed).unwrap(), r#"{"type":"removed"}"#);
+        assert_eq!(serde_json::to_string(&Event::DeviceNotOwned).unwrap(), r#"{"type":"device_not_owned"}"#);
         assert_eq!(
             serde_json::to_string(&Event::NeedBrowser {
                 request: 1,

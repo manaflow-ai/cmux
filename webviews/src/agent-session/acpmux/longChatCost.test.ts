@@ -10,7 +10,7 @@
 // at a million held records (the default keeps CI quick).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import type { EventRecord } from "./direct";
+import type { EventRecord } from "./eventRecord";
 import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -172,7 +172,10 @@ async function liveCost(held: number, mode: Mode) {
       }
       return held[low]?.seq === seq;
     };
-    await settle(() => dropped.every(holds), 120_000);
+    // A dropped record the window has since let go of (`HELD_RECORDS`, the chat follows its latest row) is read
+    // back on a scroll up like any shed one; every newer one is read back and held.
+    const kept = () => dropped.filter((seq) => seq >= (events()[0]?.seq ?? 0));
+    await settle(() => kept().every(holds), 120_000);
     for (let index = 0; index < 20; index += 1) await tick();
     flush();
     const elapsed = performance.now() - started;
@@ -184,8 +187,8 @@ async function liveCost(held: number, mode: Mode) {
       reducedPerRecord: reduced / LIVE,
       wholeSorts: (sorts.sorts ?? 0) - sortsBefore,
       lagReads,
-      repaired: dropped.every(holds),
-      drawn: dropped
+      repaired: (dropped.length === 0 || kept().length > 0) && kept().every(holds),
+      drawn: kept()
         .filter((seq) => recordAt(target, seq).kind === "agent_message_chunk")
         .every((seq) => text.includes(`w${seq} `)),
     };

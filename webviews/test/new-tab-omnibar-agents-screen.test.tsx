@@ -6,13 +6,15 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
-import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
-import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { proseMirrorGlobals } = await importWithDom(() => import("../src/agent-session/acpmux/promptFieldTesting"));
+const { EMPTY_OMNIBAR } = await importWithDom(() => import("../src/agent-session/acpmux/omnibar"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -159,14 +161,13 @@ test.each(["omnibar", "release", "cmux", "notes"])('a chat\'s title or folder fi
   expect(options().map(label)).not.toEqual(expect.arrayContaining(["Release notes"]));
 });
 
-test("commands omit their group and pages their host; the prompt's own Ask has no row", async () => {
+test("commands omit their group while Ask keeps its model and pages their host", async () => {
   await render([]);
   await type("omnibar");
   const row = (type: string) => options().find((option) => option.dataset.type === type)!;
   expect(row("action").querySelector(".nt-row-title")?.textContent).toBe("Split Right");
   expect(row("action").querySelector(".nt-row-detail")).toBeNull();
-  // Return asks the agent and model the chip names, with no row of its own (David Beyer 2026-11-20).
-  expect(options().some((option) => option.dataset.type === "ask")).toBe(false);
+  expect(row("ask").querySelector(".nt-row-detail")?.textContent).toBe("Opus 5.5");
   expect(row("tab").querySelector(".nt-row-detail")?.textContent).toBe("docs.example.com");
 });
 

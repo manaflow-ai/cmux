@@ -1,14 +1,18 @@
 // l10n-allow-file: synthetic transcript test fixture.
 import { expect, test } from "bun:test";
-import {
-  WorkflowTranscript,
-  workflowPaneId,
-  workflowPaneRequest,
-} from "../src/agent-session/acpmux/summary/workflowTranscript";
-import { openSubagentPane, revealedSubagent } from "../src/agent-session/acpmux/subagents/subagentPanes";
-import { SubagentFold } from "../src/agent-session/acpmux/subagents/subagentFold";
-import { createWorkflowAdapter } from "../src/agent-session/acpmux/summary/foldWorkflows";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { WorkflowTranscript, workflowPaneId, workflowPaneRequest } = await importWithDom(
+  () => import("../src/agent-session/acpmux/summary/workflowTranscript"),
+);
+const { openSubagentPane, revealedSubagent } = await importWithDom(
+  () => import("../src/agent-session/acpmux/subagents/subagentPanes"),
+);
+const { SubagentFold } = await importWithDom(() => import("../src/agent-session/acpmux/subagents/subagentFold"));
+const { createWorkflowAdapter } = await importWithDom(
+  () => import("../src/agent-session/acpmux/summary/foldWorkflows"),
+);
 
 const request = { sessionId: "chat", runId: "wf_demo", agentId: "review" };
 const text = (text: string) => ({
@@ -190,7 +194,6 @@ test("the hook refreshes only the selected agent, survives StrictMode, and drops
       "chat",
       true,
       { id: "ui-key", name: "Review", state: "running", lastProgressAt: progress },
-      "Parent",
       read,
       "connected",
     );
@@ -269,7 +272,7 @@ test("usage-only workflow progress refreshes once and coalesces events during a 
   let calls = 0;
   const read = async () => (++calls === 3 ? pending.promise : page(0, 1, 1, [text(`read ${calls}`)]));
   function Probe() {
-    useWorkflowTranscript(workflowPaneId(request), request.sessionId, true, agent, "Parent", read, "connected");
+    useWorkflowTranscript(workflowPaneId(request), request.sessionId, true, agent, read, "connected");
     return null;
   }
   const show = () => {

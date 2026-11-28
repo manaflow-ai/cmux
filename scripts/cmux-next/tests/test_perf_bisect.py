@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Perf bisect with repeated runs and a noise threshold: perf-cron.py's commit_verdict, bisect_step, the culprit a
 narrowed range names, and perf_bisect.py's replay walker. Pure functions only (no network, no git, no bench).
-Run: python3 -I scripts/cmux-next/tests/test_perf_bisect.py (not a CI job, Lawrence 2026-10-23)."""
+Run: python3 -I scripts/cmux-next/tests/test_perf_bisect.py (not a CI job, Lawrence 2026-10-23, since
+lifted)."""
 import datetime, importlib.util, os, random, unittest
 from unittest import mock
 
@@ -280,6 +281,134 @@ class ReplayTests(unittest.TestCase):
         self.assertEqual(again["culprit"], cs[20])
         self.assertEqual(runs, [], "every run of the second walk came from the cache")
 
+
+    def test_a_cache_kept_for_another_measurement_is_refused_not_read(self):
+        # hq docs/findings/2026-11-22-auto-bisect-bench.md: the same two commits, a changed measurement and a reused
+        # cache named a culprit with zero runs of the new measurement. Only the identity changes here.
+        import tempfile
+        cs = commits(6)
+        bad = {c: (1.0 if i < 3 else 3.0) for i, c in enumerate(cs)}
+        a = {"row": "r", "measure": "bench {sha}", "host": "h1 / cpu"}
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "cache.json")
+            self.assertEqual(pb.replay(cs, pb.cached(lambda s: bad[s], path, a), floor=0.5)["verdict"], "culprit")
+            for other in ({**a, "row": "r2"}, {**a, "measure": "bench2 {sha}"}, {**a, "host": "h2 / other cpu"}):
+                with self.assertRaises(pb.CacheMismatch):
+                    pb.cached(lambda s: 1.0, path, other)
+            runs = []
+
+            def flat(sha):
+                runs.append(sha)
+                return 1.0
+            fresh = pb.replay(cs, pb.cached(flat, os.path.join(d, "fresh.json"), {**a, "row": "r2"}), floor=0.5)
+            self.assertEqual(fresh["verdict"], "within noise")
+            self.assertTrue(runs, "the new measurement actually ran")
+
+    def test_a_cache_from_before_identities_is_read_only_without_one(self):
+        import json, tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "cache.json")
+            with open(path, "w") as f:
+                json.dump({"a": [2.5]}, f)
+            self.assertEqual(pb.cached(lambda s: 9.0, path)("a"), 2.5)
+            with self.assertRaises(pb.CacheMismatch):
+                pb.cached(lambda s: 9.0, path, {"row": "r"})
+
+    def test_the_cli_refuses_a_cache_of_another_row(self):
+        import json, subprocess, tempfile
+        with tempfile.TemporaryDirectory() as d:
+            subprocess.run(["git", "init", "-q", d], check=True)
+            for i in range(3):
+                subprocess.run(["git", "-C", d, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q",
+                                "--allow-empty", "-m", f"c{i}"], check=True)
+            path = os.path.join(d, "cache.json")
+            with open(path, "w") as f:
+                json.dump({"identity": {"row": "other"}, "runs": {"x": [1.0]}}, f)
+            rc = pb.main(["replay", "--repo", d, "--good", "HEAD~2", "--bad", "HEAD", "--row", "r",
+                          "--measure", "echo VALUE 1", "--cache", path])
+        self.assertEqual(rc, 2)
+
+    # hq docs/findings/2026-11-22-bisect-invalid-measurements.md: `printf 'VALUE 1\n'; exit 7` read as 1.0, and NaN
+    # runs at the bad end voted good, so the answer was "within noise".
+    def test_a_command_that_prints_a_value_then_fails_did_not_measure(self):
+        self.assertIsNone(pb.shell_measure("printf 'VALUE 1\\n'; exit 7", "r")("a"))
+        self.assertEqual(pb.shell_measure("printf 'VALUE 1\\n'", "r")("a"), 1.0)
+
+    def test_a_nonfinite_value_did_not_measure(self):
+        for v in ("nan", "NaN", "inf", "-Infinity"):
+            self.assertIsNone(pb.shell_measure(f"echo VALUE {v}", "r")("a"), v)
+
+    def test_nan_at_the_bad_end_is_unmeasured_not_within_noise(self):
+        cs = commits(6)
+        for bad in (float("nan"), float("inf")):
+            out = pb.replay(cs, lambda sha: 1.0 if sha == cs[0] else bad, floor=0.1)
+            self.assertEqual(out["verdict"], "unmeasured", bad)
+
+    def test_nan_at_the_good_end_is_unmeasured(self):
+        cs = commits(6)
+        out = pb.replay(cs, lambda sha: float("nan") if sha == cs[0] else 3.0, floor=0.1)
+        self.assertEqual(out["verdict"], "unmeasured")
+
+    def test_a_nonfinite_run_in_a_cache_is_not_read(self):
+        import json, tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "cache.json")
+            with open(path, "w") as f:
+                f.write('{"identity": {"row": "r"}, "runs": {"a": [NaN, Infinity, 2.5]}}')
+            self.assertEqual(pb.cached(lambda s: 9.0, path, {"row": "r"})("a"), 2.5)
+
+    # hq docs/findings/2026-11-22-bisect-range-ancestry.md: a sibling good end exited 0 with a culprit whose nominee
+    # parent was the sibling, not its parent.
+    def git_graph(self, d):
+        import subprocess
+        def g(*a):
+            return subprocess.run(["git", "-C", d, "-c", "user.name=t", "-c", "user.email=t@t", *a], check=True,
+                                  text=True, capture_output=True).stdout.strip()
+        g("init", "-q", "-b", "main")
+        g("commit", "-q", "--allow-empty", "-m", "root")
+        root = g("rev-parse", "HEAD")
+        g("commit", "-q", "--allow-empty", "-m", "m1")
+        m1 = g("rev-parse", "HEAD")
+        g("checkout", "-q", "-b", "side", root)
+        g("commit", "-q", "--allow-empty", "-m", "s1")
+        s1 = g("rev-parse", "HEAD")
+        g("checkout", "-q", "main")
+        g("merge", "-q", "--no-ff", "-m", "merge side", "side")
+        g("commit", "-q", "--allow-empty", "-m", "m2")
+        return g, root, m1, s1, g("rev-parse", "HEAD")
+
+    def replay_cli(self, d, good, bad):
+        import contextlib, io, json
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(io.StringIO()):
+            rc = pb.main(["replay", "--repo", d, "--good", good, "--bad", bad, "--row", "r", "--json", "--floor", "0.5",
+                          "--measure", f"[ {{sha}} = {good} ] && echo VALUE 1 || echo VALUE 3"])
+        return rc, json.loads(buf.getvalue())
+
+    def test_a_sibling_good_end_is_an_invalid_range(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            g, root, m1, s1, tip = self.git_graph(d)
+            g("checkout", "-q", "-b", "sib", root)
+            g("commit", "-q", "--allow-empty", "-m", "sib")
+            rc, out = self.replay_cli(d, g("rev-parse", "HEAD"), m1)
+        self.assertEqual((rc, out["verdict"]), (2, "invalid range"))
+        self.assertNotIn("nominee", out)
+
+    def test_a_good_end_on_a_merges_second_parent_is_an_invalid_range(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            g, root, m1, s1, tip = self.git_graph(d)
+            rc, out = self.replay_cli(d, s1, tip)
+        self.assertEqual((rc, out["verdict"]), (2, "invalid range"))
+
+    def test_a_first_parent_range_names_its_culprit_with_its_parent(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            g, root, m1, s1, tip = self.git_graph(d)
+            rc, out = self.replay_cli(d, root, tip)
+        self.assertEqual((rc, out["verdict"]), (0, "culprit"))
+        self.assertEqual((out["culprit"], out["nominee"]["parent"]), (m1, root))
 
 if __name__ == "__main__":
     unittest.main()

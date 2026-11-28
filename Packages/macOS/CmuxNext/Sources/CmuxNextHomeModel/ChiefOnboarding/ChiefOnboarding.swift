@@ -1,5 +1,6 @@
 public import Foundation
 public import Observation
+import CmuxNextCompat
 
 /// Meet Chief: the short first-run introduction on the person's empty Chief chat, so they know who Chief is, what
 /// it does for them and what it may do on this Mac before they start (David Beyer's first run, 2026-11-20: "who is
@@ -31,6 +32,8 @@ public final class ChiefOnboarding {
     public private(set) var decided: Bool
     /// The step on screen.
     public private(set) var step: ChiefOnboardingStep = .meet
+    /// Shown again by ``reopen()``: on any Chief chat, until a next message there or its end.
+    public private(set) var reopened = false
     /// The last settings write failed: the step says so, and shows the setting's value again.
     public private(set) var writeFailed = false
     /// The person's permission pick while its write runs (optimistic), else nil.
@@ -73,6 +76,12 @@ public final class ChiefOnboarding {
     /// Whether Chief's welcome and the Set Up cmux card wait: Meet Chief shows, or the launch has not decided yet.
     public var holdsWelcome: Bool { shows || !decided }
 
+    /// Returns once Meet Chief is not on screen: at once when it is not. The first run's own chat workspace waits on this, so Home
+    /// and Meet Chief stay in front until it ended (Continue, Skip, Start chatting): onboarding-golden-path-production red 2.
+    public func untilEnded() async {
+        for await shows in ObservationStream({ self.shows }) where !shows { return }
+    }
+
     /// The steps, in order.
     public var steps: [ChiefOnboardingStep] { ChiefOnboardingStep.allCases }
     /// The step's place, from 0.
@@ -102,14 +111,30 @@ public final class ChiefOnboarding {
         guard shows else { return }
         defaults.set("done", forKey: Self.stateKey)
         shows = false
+        reopened = false
         step = .meet
     }
 
-    /// Shows it again from the first step (Debug, captures); it stays ended for the next launch.
+    /// What a Chief chat shows: the first run only on the person's only Chief chat while it is empty, ended by its
+    /// first message; Meet Chief from the palette (``reopen()``) on any Chief chat, ended by the next message there.
+    /// - Parameters:
+    ///   - lastSeq: The chat's newest message (0: none).
+    ///   - shownAt: The chat's newest message when the card first showed there, nil before.
+    ///   - otherChiefs: How many other Chief chats the person has (``HomeArchivedChiefs``).
+    public func place(chatAt lastSeq: UInt64, shownAt: UInt64?, otherChiefs: Int) -> ChiefOnboardingPlace {
+        guard shows else { return .hidden }
+        if reopened { return shownAt.map { lastSeq > $0 } == true ? .ends : .shows }
+        guard otherChiefs == 0 else { return .hidden }
+        return lastSeq == 0 ? .shows : .ends
+    }
+
+    /// Shows it again from the first step on the Chief chat (Meet Chief in the palette, Debug, captures), also in a
+    /// chat with messages (``place(chatAt:shownAt:otherChiefs:)``); it stays ended for the next launch.
     public func reopen() {
         decided = true
         step = .meet
         writeFailed = false
+        reopened = true
         shows = true
     }
 

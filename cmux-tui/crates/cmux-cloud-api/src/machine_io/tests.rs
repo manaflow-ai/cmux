@@ -227,6 +227,28 @@ fn mints_once_then_reuses_the_cached_session_with_only_the_identity_token() {
     }
 }
 
+/// The daemon names no cache folder (`machine::worker` drops `cache_dir`), so before the memory
+/// cache every exec on a Worker machine minted a client session first: a round trip to the cmux
+/// API on each step of a chat start. With no folder the session now stays in the process.
+#[test]
+fn with_no_cache_folder_a_long_lived_process_still_mints_once() {
+    let origin_cell = Arc::new(Mutex::new(String::new()));
+    let cell = Arc::clone(&origin_cell);
+    let (origin, seen) =
+        fake(move |s| if s.is_mint() { minted(&cell.lock().unwrap()) } else { stat_reply() });
+    *origin_cell.lock().unwrap() = origin.clone();
+    let dir = tempfile::tempdir().unwrap();
+    let mut req = request(&origin, dir.path(), Op::Stat);
+    req.cache_dir = None;
+    let (route, _) = go(&req, T0);
+    assert_eq!(route, Route::Direct);
+    let (route, _) = go(&req, T0 + 60_000);
+    assert_eq!(route, Route::Direct);
+    assert_eq!(count(&seen, Seen::is_mint), 1, "the second call reuses the session in memory");
+    assert_eq!(count(&seen, Seen::is_exec_await), 2);
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0, "nothing is written to disk");
+}
+
 #[test]
 fn renews_a_session_close_to_its_end_and_keeps_the_cache_private() {
     use std::os::unix::fs::PermissionsExt;
@@ -1205,6 +1227,45 @@ fn a_command_longer_than_the_provider_edge_holds_a_request_runs_as_a_background_
     );
 }
 
+/// Rebake 45960390204 (2026-11-27): Freestyle answered 503 to every poll for 9 min while the
+/// command ran on. Five failed polls in a row lost it; failures now back off and keep polling.
+#[test]
+fn a_provider_overload_is_waited_out_and_the_stored_answer_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let cell = Arc::new(Mutex::new(String::new()));
+    let polls = Arc::new(Mutex::new(0usize));
+    let (c, p) = (Arc::clone(&cell), Arc::clone(&polls));
+    let (origin, seen) = fake(move |s| {
+        if s.is_mint() {
+            minted(&c.lock().unwrap())
+        } else if s.is_exec_await() {
+            (202, json!({ "requestId": "bg-3" }).to_string())
+        } else if s.line.starts_with("GET /v5/background-requests/bg-3 ") {
+            let mut n = p.lock().unwrap();
+            *n += 1;
+            if *n <= 9 {
+                (503, "{}".into())
+            } else {
+                (200, json!({ "statusCode": 0, "stdout": "ran\n", "stderr": "" }).to_string())
+            }
+        } else {
+            proxy_reply()
+        }
+    });
+    *cell.lock().unwrap() = origin.clone();
+    let req = Request {
+        command: Some("sleep 200; echo ran".into()),
+        timeout_ms: Some(290_000),
+        ..request(&origin, dir.path(), Op::Exec)
+    };
+    let (route, mut answer) = go(&req, T0);
+    assert_eq!((route, answer.status), (Route::Direct, 200));
+    let body = wire_body(route, &mut answer);
+    assert_eq!(body["stdout"], json!("ran\n"));
+    assert_eq!(*polls.lock().unwrap(), 10);
+    assert_eq!(count(&seen, Seen::is_proxy), 0, "a command that may have run never goes twice");
+}
+
 #[test]
 fn a_background_exec_whose_answer_never_comes_is_reported_as_maybe_run() {
     let dir = tempfile::tempdir().unwrap();
@@ -1223,8 +1284,9 @@ fn a_background_exec_whose_answer_never_comes_is_reported_as_maybe_run() {
     });
     *cell.lock().unwrap() = origin.clone();
     let req = Request {
+        // The shortest exec: polls past its deadline (1 s + 15 s) only while within the outage window.
         command: Some("touch /tmp/once".into()),
-        timeout_ms: Some(200_000),
+        timeout_ms: Some(1_000),
         ..request(&origin, dir.path(), Op::Exec)
     };
     let (route, answer) = go(&req, T0);
@@ -1233,4 +1295,79 @@ fn a_background_exec_whose_answer_never_comes_is_reported_as_maybe_run() {
         (Route::Direct, 502, Some("vm_unavailable"))
     );
     assert_eq!(count(&seen, Seen::is_proxy), 0);
+}
+
+/// A paused machine: every read and send first answers "not running; start it first". The resume
+/// wakes it, and the same operation then answers, so no caller sees the refusal.
+#[test]
+fn a_paused_machine_is_resumed_and_the_read_and_the_send_then_answer() {
+    let dir = tempfile::tempdir().unwrap();
+    let awake = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let polls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (flag, count) = (Arc::clone(&awake), Arc::clone(&polls));
+    let (origin, seen) = fake(move |s| {
+        use std::sync::atomic::Ordering::SeqCst;
+        if s.line.starts_with(&format!("POST /v1/machines/{VM}/resume ")) {
+            return (200, json!({"id": VM, "status": "running"}).to_string());
+        }
+        // The machine needs two asks after the resume to come up.
+        if flag.load(SeqCst) || count.fetch_add(1, SeqCst) >= 3 {
+            flag.store(true, SeqCst);
+            return proxy_reply();
+        }
+        (
+            409,
+            json!({"ok": false, "error": {"code": "vm_not_running",
+                "message": "the machine is not running; start it first"}})
+            .to_string(),
+        )
+    });
+    let steps = Arc::new(Mutex::new(Vec::<String>::new()));
+    for op in [Op::Read, Op::Exec] {
+        awake.store(false, std::sync::atomic::Ordering::SeqCst);
+        polls.store(0, std::sync::atomic::Ordering::SeqCst);
+        let req = Request {
+            route: RouteChoice::Proxy,
+            command: Some("echo hi".into()),
+            ..request(&origin, dir.path(), op)
+        };
+        let log = Arc::clone(&steps);
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let policy = Resume {
+            budget: std::time::Duration::from_secs(20),
+            poll: std::time::Duration::from_millis(20),
+        };
+        let started = std::time::Instant::now();
+        let (route, answer) =
+            runtime.block_on(perform_with(&client(), &req, || T0, policy, &move |step| {
+                log.lock().unwrap().push(step.to_owned())
+            }));
+        assert_eq!((route, answer.status), (Route::Proxy, 200), "{op:?}: {answer:?}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(20));
+    }
+    let steps = steps.lock().unwrap();
+    assert_eq!(steps.iter().filter(|s| s.contains("resuming")).count(), 2);
+    assert_eq!(steps.iter().filter(|s| s.contains("running again")).count(), 2);
+    let resumes = seen.lock().unwrap().iter().filter(|s| s.line.contains("/resume ")).count();
+    assert_eq!(resumes, 2, "one resume per paused operation, not one per ask");
+}
+
+/// A machine that never wakes ends as the refusal after the budget, not a hang.
+#[test]
+fn a_machine_that_stays_paused_ends_as_the_refusal_after_the_budget() {
+    let dir = tempfile::tempdir().unwrap();
+    let (origin, _seen) = fake(|s| {
+        if s.line.contains("/resume ") {
+            return (200, "{}".into());
+        }
+        (409, json!({"error": {"code": "cloud.machine.paused", "message": "paused"}}).to_string())
+    });
+    let req = Request { route: RouteChoice::Proxy, ..request(&origin, dir.path(), Op::Read) };
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let policy = Resume {
+        budget: std::time::Duration::from_millis(200),
+        poll: std::time::Duration::from_millis(20),
+    };
+    let (_, answer) = runtime.block_on(perform_with(&client(), &req, || T0, policy, &|_| {}));
+    assert_eq!(answer.status, 409);
 }

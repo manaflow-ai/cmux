@@ -1,0 +1,78 @@
+// Overdrive Daylight: the same energy on a cool white: a deep magenta accent dark enough to read
+// as text on white, a deep cyan for work in progress, the same floating round panes.
+{
+  "name": "Overdrive Daylight",
+  "description": "Cool white, deep magenta and cyan, fast motion.",
+
+  "appearance.theme": "Builtin Light",
+  "appearance.appTheme": "followTerminal",
+  "colors": { "background": "#fbf9ff", "foreground": "#16121f", "selection": "#f7cde0", "accent": "#c2185b" },
+  "appearance.accent": "theme",
+  "ghostty": [
+    "background = #fbf9ff",
+    "foreground = #16121f",
+    "cursor-color = #0a7f99",
+    "cursor-text = #fbf9ff",
+    "selection-background = #f7cde0",
+    "selection-foreground = #16121f",
+    "palette = 0=#16121f",
+    "palette = 1=#c62844",
+    "palette = 2=#0f7d50",
+    "palette = 3=#8a6100",
+    "palette = 4=#2756c9",
+    "palette = 5=#c2185b",
+    "palette = 6=#0a7f99",
+    "palette = 7=#5c566b",
+    "palette = 8=#6e6880",
+    "palette = 9=#c2203d",
+    "palette = 10=#0c7448",
+    "palette = 11=#805a00",
+    "palette = 12=#2350c0",
+    "palette = 13=#b31654",
+    "palette = 14=#08778f",
+    "palette = 15=#a39db3"
+  ],
+
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "appearance.fontSmoothing": "antialiased",
+
+  "appearance.chromeStyle": "floating",
+  "appearance.borders": "default",
+  "appearance.focusIndicator": "both",
+  "appearance.density": "comfortable",
+
+  "appearance.metrics.titlebarHeight": 38,
+  "appearance.metrics.sidebarWidth": 264,
+  "appearance.metrics.sidebarRowHeight": 40,
+  "appearance.metrics.chromeFontSize": 13,
+  "appearance.metrics.tabStripHeight": 36,
+  "appearance.metrics.tabFontSize": 13,
+  "appearance.metrics.columnGap": 8,
+  "appearance.metrics.dividerThickness": 2,
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#f1edf8",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#fbf9ff",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.terminal.color": "#fbf9ff",
+  "appearance.surfaces.terminal.opacity": 1,
+  "appearance.surfaces.splitDivider.color": "#e2d8ee",
+  "appearance.surfaces.splitDivider.opacity": 1,
+  "sidebar.sectionLook": "card",
+
+  "appearance.statusIndicator.style": "dot",
+  "appearance.statusIndicator.animation": "animated",
+  "appearance.statusIndicator.color": "#0a7f99",
+  "appearance.statusIndicator.size": 1.25,
+  "appearance.statusIndicator.thickness": 2.5,
+  "appearance.statusIndicator.showAgentWorkingOnTabs": true,
+
+  "ui.animationSpeed": "fast",
+  "appearance.colorTransition.enabled": true,
+  "appearance.colorTransition.curve": "spring",
+  "appearance.colorTransition.duration": 90,
+  "appearance.colorTransition.colorSpace": "oklab",
+  "appearance.colorTransition.reduceMotion": "instant"
+}

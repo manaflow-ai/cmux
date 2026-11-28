@@ -12,9 +12,6 @@ public nonisolated struct SidebarDoneFoldID: Hashable, Sendable {
         case settled
         /// Archived workspaces: the "Archived (N)" row, after the Done row (Lawrence 18470, gallery pick V2).
         case archived
-        /// The sidebar's one Archive section (``SidebarDoneFoldID/archive``): every archived workspace and wholly
-        /// archived group, under one "Archive (N)" row at the bottom (Lawrence 19197).
-        case archive
         /// The Projects list's own "Show N more" row past its first groups (`SidebarLayout+Recents`).
         case projects
     }
@@ -34,9 +31,6 @@ public nonisolated struct SidebarDoneFoldID: Hashable, Sendable {
         self.folder = folder
     }
 
-    /// The bottom "Archive (N)" row (`SidebarLayout+ArchiveSection`); its open state is kept with the folds'.
-    public static let archive = SidebarDoneFoldID(section: .pinned, group: nil, kind: .archive)
-
     /// The Projects list's "Show N more" row (`SidebarLayout+Recents`); its open state is kept with the other lists'.
     public static let projects = SidebarDoneFoldID(section: .pinned, group: nil, kind: .projects)
 
@@ -48,12 +42,14 @@ nonisolated extension SidebarLayoutOptions {
     /// Whether `ws` draws behind its list's "Settled (N)" row: a settled chat (``settled``), not the active one, and
     /// not while a filter shows matches where they are or the session tree nests rows.
     func settles(_ ws: SidebarWorkspace) -> Bool {
-        !settled.isEmpty && settled.contains(ws.id) && ws.id != activeWorkspaceID && filterMatches == nil && sessionTree == nil
+        !settled.isEmpty && settled.contains(ws.id) && ws.id != activeWorkspaceID && filterMatches == nil
+            && (sessionTree == nil || sessionTree?.hidesStarted == true)
     }
 
-    /// Clears every fold a drag or an external drop unfolds: Done, Archived, the Archive and Settled.
+    /// Clears every fold a drag or an external drop unfolds: Done, Archived and Settled. Archived rows stay
+    /// out of the sidebar (``archiveSection``): a drag never draws them back (cmux#51635).
     mutating func unfoldsAll() {
-        (foldsDone, foldsArchived, archiveSection) = (false, false, false)
+        (foldsDone, foldsArchived) = (false, false)
         settled = []
     }
 }
@@ -73,83 +69,43 @@ nonisolated extension SidebarLayout {
     /// The index `foldingDone` gives the "Settled (N)" row's entry (its depth is the fold's count).
     static let settledFoldIndex = -4
 
-    /// `drawn` with the workspaces marked Done moved behind one fold entry (`doneFoldIndex`) at the end, and after it
-    /// when the person opened the fold; then, past `rowLimit`, the rest behind a "Show N more" entry (`limiting`).
-    /// Unchanged while filtering (a match shows where it is) or with the session tree (it nests rows under others).
-    /// The active workspace keeps its place.
-    /// `limits` names the entries the limit counts and may hide: a section's groups and items always show.
+    /// `drawn` with its folds: Rust `sidebar_list_rules` rule `fold` (Done, Settled, Archived and "Show N more" entries
+    /// at the list's end). `limits` names the entries the row limit counts and may hide.
     static func foldingDone(_ drawn: [(index: Int, depth: Int)], workspace: (Int) -> SidebarWorkspace?, fold id: SidebarDoneFoldID,
                             limits: (Int) -> Bool = { _ in true }, options o: SidebarLayoutOptions) -> [(index: Int, depth: Int)] {
-        guard o.filterMatches == nil, o.sessionTree == nil else { return drawn }
-        var shown: [(index: Int, depth: Int)] = []
-        var done: [(index: Int, depth: Int)] = []
-        var settled: [(index: Int, depth: Int)] = []
-        var archived: [(index: Int, depth: Int)] = []
-        for entry in drawn {
-            let ws = workspace(entry.index)
-            if o.foldsArchived, let ws, ws.isArchived, ws.id != o.activeWorkspaceID {
-                archived.append(entry)
-            } else if o.foldsDone, let ws, ws.taskStatus == .done, ws.id != o.activeWorkspaceID {
-                done.append(entry)
-            } else if let ws, o.settles(ws) {
-                settled.append(entry)
-            } else {
-                shown.append(entry)
-            }
-        }
-        var listed = limiting(shown, workspace: workspace, limits: limits, list: id, options: o)
-        // Settled chats close the list's working rows: their own row first, then the Done and Archived rows.
-        if !settled.isEmpty {
-            listed += [(settledFoldIndex, settled.count)] + (o.openDoneFolds.contains(id.of(.settled)) ? settled : [])
-        }
-        if !done.isEmpty { listed += [(doneFoldIndex, done.count)] + (o.openDoneFolds.contains(id.of(.done)) ? done : []) }
-        if !archived.isEmpty {
-            listed += [(archivedFoldIndex, archived.count)] + (o.openDoneFolds.contains(id.of(.archived)) ? archived : [])
-        }
-        return listed
+        guard o.filterMatches == nil else { return drawn }
+        let indices = 0..<((drawn.map { $0.index }.max() ?? -1) + 1)
+        let rule = ListRule(rule: "fold", drawn: entries(drawn), workspaces: indices.map { workspace($0).map(ListWorkspace.init) },
+                            limits: indices.map(limits), options: ListOptions(o, list: id))
+        return rules(rule)?.drawn?.map { ($0.index, $0.depth) } ?? drawn
     }
 
-    /// `shown` past `rowLimit` rows (`sidebar.groupRowLimit`): the first ones, those that need you and the active one,
-    /// then a "Show N more" entry for the rest; opened, every row then a "Show fewer" entry. A list one row over the
-    /// limit shows whole: a row that hides one row saves nothing.
-    private static func limiting(_ shown: [(index: Int, depth: Int)], workspace: (Int) -> SidebarWorkspace?, limits: (Int) -> Bool,
-                                 list id: SidebarDoneFoldID, options o: SidebarLayoutOptions) -> [(index: Int, depth: Int)] {
-        let limited = shown.filter { limits($0.index) }.count
-        guard o.rowLimit > 0, limited > o.rowLimit + 1 else { return shown }
-        if o.openShowMore.contains(id) { return shown + [(showMoreIndex, 0)] }
-        var kept: [(index: Int, depth: Int)] = []
-        var n = 0
-        for entry in shown {
-            guard limits(entry.index) else { kept.append(entry); continue }
-            let stays = workspace(entry.index).map { $0.id == o.activeWorkspaceID || $0.agentChip == .needsYou } ?? false
-            if n < o.rowLimit || stays { kept.append(entry) }
-            n += 1
-        }
-        return kept.count == shown.count ? shown : kept + [(showMoreIndex, shown.count - kept.count)]
+    /// Whether a drag of `dragged` unfolds every list: Rust rule `dragUnfolds`. `workspace` looks up the session tree's
+    /// lineage by id.
+    static func dragUnfolds(_ dragged: [SidebarWorkspace], workspace: (WorkspaceID) -> SidebarWorkspace? = { _ in nil },
+                            options o: SidebarLayoutOptions) -> Bool {
+        guard o.foldsDone || o.foldsArchived || o.archiveSection || !o.settled.isEmpty, o.filterMatches == nil else { return false }
+        let lineage = Set((o.sessionTree?.parents ?? [:]).flatMap { [$0.key, $0.value] }).sorted { $0.rawValue < $1.rawValue }
+        let rule = ListRule(rule: "dragUnfolds", workspaces: lineage.compactMap { workspace($0).map(ListWorkspace.init) },
+                            options: ListOptions(o, list: nil, parents: true), dragged: dragged.map(ListWorkspace.init))
+        return rules(rule)?.unfolds ?? true
     }
 
-    /// Whether a drag of `dragged` unfolds every list: it carries a row the fold would hide or draw below it (marked
-    /// Done, not the active one). Such a row would leave its slot (`displayLayout` slides the dragged rows as one), or
-    /// make or drop a "Done (N)" row the drag's base rows lack, so the drag draws as it did before it kept the folds.
-    /// A drag of rows that never fold keeps them: it moves no fold row and changes no fold's count.
-    static func dragUnfolds(_ dragged: [SidebarWorkspace], options o: SidebarLayoutOptions) -> Bool {
-        guard o.foldsDone || o.foldsArchived || o.archiveSection || !o.settled.isEmpty, o.filterMatches == nil, o.sessionTree == nil else { return false }
-        return dragged.contains {
-            $0.id != o.activeWorkspaceID
-                && ((o.foldsDone && $0.taskStatus == .done) || ((o.foldsArchived || o.archiveSection) && $0.isArchived) || o.settles($0))
-        }
-    }
+    /// `gapEntry`'s answer when the gap opens after the list's last drawn entry.
+    static let gapAtEnd = Int.min
 
-    /// The `drawn` entry a drop gap opens before in a list that draws a fold (a drag keeps the folds): the first row
-    /// drawn before the fold whose model index is at or past the gap's, else the fold row. That is where the dropped
-    /// row (never Done) will show: a hidden index between two drawn rows, the list's end, and, with the fold open, an
-    /// index of a Done row drawn below the fold all open the gap among the rows above it. Nil when the list draws no
-    /// fold or the gap is elsewhere (`openGapIfNeeded` places it as before).
+    /// The `drawn` entry a drop gap opens before in a list whose drawn order is not its model order: Rust rule
+    /// `gapEntry`. Nil when the list draws in model order or the gap is elsewhere.
     static func gapEntry(_ drawn: [(index: Int, depth: Int)], gap: DropPosition?, section: SectionID, group: GroupID?, count: Int) -> Int? {
-        guard let gap, gap.section == section, gap.group == group, gap.index <= count, drawn.contains(where: { $0.index < 0 }) else { return nil }
-        // Shown rows come first in model order, then the fold rows and an open fold's Done rows (`foldingDone`).
-        return drawn.first { $0.index < 0 || $0.index >= gap.index }?.index
+        guard let gap else { return nil }
+        let rule = ListRule(rule: "gapEntry", drawn: entries(drawn), gap: ListGap(section: "\(gap.section)", group: gap.group?.rawValue, index: gap.index),
+                            section: "\(section)", group: group?.rawValue, count: count)
+        guard let reply = rules(rule) else { return nil }
+        return reply.atEnd == true ? gapAtEnd : reply.entry
     }
+
+    private static func entries(_ drawn: [(index: Int, depth: Int)]) -> [ListEntry] { drawn.map { ListEntry(index: $0.index, depth: $0.depth) } }
+    private static func rules(_ rule: ListRule) -> ListReply? { RustSidebarClient.call("sidebar_list_rules", rule, as: ListReply.self) }
 
     /// Appends the row of a `foldingDone` entry (`doneFoldIndex`, `settledFoldIndex`, `archivedFoldIndex` or `showMoreIndex`) at `y`: one
     /// line, as a document item's row.
@@ -167,18 +123,13 @@ nonisolated extension SidebarLayout {
         y += h + m.rowSpacing
     }
 
-    /// The groups a filter keeps for the path to a match (remote-groups-DESIGN.md slice 2): every group above a group
-    /// with a visible workspace.
+    /// The groups a filter keeps for the path to a match: Rust rule `pathToMatch`.
     static func pathToMatch(_ section: SidebarSection, visible: (SidebarWorkspace) -> Bool) -> Set<GroupID> {
-        var path = Set<GroupID>()
-        let parents = Dictionary(section.nodes.compactMap { node -> (GroupID, GroupID?)? in
-            if case let .group(group) = node { (group.id, group.parent) } else { nil }
-        }, uniquingKeysWith: { first, _ in first })
-        for node in section.nodes {
-            guard case let .group(group) = node, group.workspaces.contains(where: visible) else { continue }
-            var parent = group.parent
-            while let id = parent, path.insert(id).inserted { parent = parents[id] ?? nil }
+        let groups = section.nodes.compactMap { node -> ListMatchGroup? in
+            guard case let .group(group) = node else { return nil }
+            return ListMatchGroup(id: group.id.rawValue, parent: group.parent?.rawValue, visible: group.workspaces.contains(where: visible))
         }
-        return path
+        guard groups.contains(where: \.visible) else { return [] }
+        return Set((rules(ListRule(rule: "pathToMatch", groups: groups))?.path ?? []).map(GroupID.init))
     }
 }

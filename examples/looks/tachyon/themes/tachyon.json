@@ -5,7 +5,7 @@
 // raised blocks. Everything in the chat is monospaced, the chrome in Roboto.
 {
   "name": "Tachyon",
-  "description": "A modern terminal, dark: two-tone graphite, teal selected blocks, monospaced output as cards.",
+  "description": "Dark: graphite, command output as cards, a teal accent.",
 
   // A neutral base the ghostty block below repaints whole: the page, ink, cursor, selection and all
   // sixteen ANSI colors. The window, sidebar and pages follow it.
@@ -13,14 +13,14 @@
   "appearance.appTheme": "followTerminal",
   // background: the content graphite. foreground: the cool off-white of block text. selection: the
   // teal at 22% over the page (a selected block's wash). accent: the selected block's teal ring.
-  "colors": { "background": "#1e2021", "foreground": "#e3e9ec", "selection": "#2b4a46", "accent": "#81dfcf" },
+  "colors": { "background": "#1e2021", "foreground": "#e3e9ec", "selection": "#5c7b77", "accent": "#81dfcf" },
   "appearance.accent": "theme",
   "ghostty": [
     "background = #1e2021",
     "foreground = #e3e9ec",
     "cursor-color = #81dfcf",
     "cursor-text = #1e2021",
-    "selection-background = #2b4a46",
+    "selection-background = #5c7b77",
     "selection-foreground = #e3e9ec",
     "palette = 0=#43474a",
     "palette = 1=#e5787a",
@@ -80,7 +80,7 @@
 
   // The sidebar: the chrome graphite, a hairline at its edge, sections as plain lines.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#262a2d",
+  "appearance.surfaces.sidebar.color": "#1d2124",
   "appearance.surfaces.sidebar.opacity": 1,
   "sidebar.style": "standard",
   "sidebar.border": true,
@@ -92,11 +92,11 @@
   "appearance.surfaces.agentPane.opacity": 1,
   "appearance.surfaces.terminal.color": "#1e2021",
   "appearance.surfaces.terminal.opacity": 1,
-  "appearance.surfaces.tabBar.color": "#262a2d",
+  "appearance.surfaces.tabBar.color": "#1d2124",
   "appearance.surfaces.tabBar.opacity": 1,
-  "appearance.surfaces.browserChrome.color": "#262a2d",
+  "appearance.surfaces.browserChrome.color": "#1d2124",
   "appearance.surfaces.browserChrome.opacity": 1,
-  "appearance.surfaces.docks.color": "#262a2d",
+  "appearance.surfaces.docks.color": "#1d2124",
   "appearance.surfaces.docks.opacity": 1,
   "appearance.surfaces.editor.color": "#1e2021",
   "appearance.surfaces.editor.opacity": 1,
@@ -108,7 +108,7 @@
   "appearance.surfaces.splitDivider.opacity": 1,
 
   // Settings in the chrome tone (a modal over the terminal); pages in the content graphite.
-  "appearance.surfaces.settings.color": "#262a2d",
+  "appearance.surfaces.settings.color": "#1d2124",
   "appearance.surfaces.settings.opacity": 1,
   "appearance.surfaces.internalPage.color": "#1e2021",
   "appearance.surfaces.internalPage.opacity": 1,

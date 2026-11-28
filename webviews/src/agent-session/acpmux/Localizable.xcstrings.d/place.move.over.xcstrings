@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "place.move.over" : {
+      "comment" : "Agent pane: the move card's line when the move runs past its bound; {budget} is the bound in seconds, {step} what it waits on",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Taking longer than {budget} s. Waiting on: {step}"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يستغرق أكثر من {budget} ث. في انتظار: {step}"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Traje duže od {budget} s. Čeka se: {step}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tager længere end {budget} s. Venter på: {step}"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dauert länger als {budget} s. Wartet auf: {step}"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tarda más de {budget} s. Esperando: {step}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dépasse {budget} s. En attente de : {step}"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Richiede più di {budget} s. In attesa di: {step}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{budget} 秒を超えています。待機中: {step}"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ចំណាយពេលលើស {budget} វិ។ កំពុងរង់ចាំ៖ {step}"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{budget}초보다 오래 걸리고 있습니다. 대기 중: {step}"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tar lengre tid enn {budget} s. Venter på: {step}"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Trwa dłużej niż {budget} s. Oczekiwanie na: {step}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Demorando mais de {budget} s. Aguardando: {step}"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Дольше {budget} с. Ожидание: {step}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ใช้เวลานานกว่า {budget} วินาที กำลังรอ: {step}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{budget} sn'den uzun sürüyor. Beklenen: {step}"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Триває довше за {budget} с. Очікування: {step}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quá {budget} giây. Đang chờ: {step}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已超过 {budget} 秒。正在等待：{step}"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已超過 {budget} 秒。正在等待：{step}"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

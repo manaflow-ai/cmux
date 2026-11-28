@@ -36,6 +36,13 @@ public protocol SidebarSurfaceIsland: AnyObject {
     /// The height, in points, the Updated card's hover preview has once open; 0 from the moment it
     /// starts to close. The host's glass behind the page runs the page's motion to it.
     var previewHeight: CGFloat { get }
+    /// The Updated card's title line's middle, in points down from the top of the card's own box; 0 until
+    /// the page reports it (the host then keeps its x in the card's corner).
+    var titleLineMid: CGFloat { get }
+    /// The Updated card's words were final at its last report (its notes
+    /// answered); the host holds its remembered height only until then. False for a page that does not say:
+    /// the hold stays, as before.
+    var contentSettled: Bool { get }
     /// Points per CSS px of the page (its interface scale); 1 for a surface that is not zoomed.
     var zoom: CGFloat { get }
     /// Tells the page whether the pointer is on its view (the host's tracking area): WebKit sends a
@@ -52,6 +59,8 @@ extension SidebarSurfaceIsland {
     public var contentWidth: CGFloat { 0 }
     public var overlayHeight: CGFloat { 0 }
     public var previewHeight: CGFloat { 0 }
+    public var titleLineMid: CGFloat { 0 }
+    public var contentSettled: Bool { false }
     public var zoom: CGFloat { 1 }
     public func setPointerInside(_ inside: Bool) {}
     public var onDrag: ((SidebarCardDrag) -> Void)? {

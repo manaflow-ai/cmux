@@ -2,7 +2,7 @@
   "id": "upsell-a675-cloud-plan-required",
   "group": "upsell",
   "owner": "a675",
-  "about": "a Cloud machine refused with cloud.plan.required: one line on the plan, a Stripe Checkout link, no purchase claimed, no question",
+  "about": "a Cloud machine refused with cloud.plan.required: one line on the plan, a checkout link, no vendor name, no purchase claimed, no question",
   "history": [
     {
       "kind": "user",
@@ -44,6 +44,10 @@
         },
         {
           "type": "reply_not_matches",
+          "re": "(?i)(?:^|[^./])stripe"
+        },
+        {
+          "type": "reply_not_matches",
           "re": "(?i)\\b(I|we)('ve| have)? (bought|purchased|paid for|upgraded|subscribed)\\b"
         },
         {
@@ -55,7 +59,7 @@
         },
         {
           "type": "judge",
-          "rubric": "PASS when the reply says briefly (one or two sentences) that Cloud VMs need the Pro plan with its price, gives the Stripe Checkout link as a Markdown link, says nothing is charged until the person pays, and says the build starts once the plan is on without the person having to report back. FAIL when it claims a purchase, offers an alternative as a choice, asks the person to tell it after paying, sends no link, or is long."
+          "rubric": "PASS when the reply says briefly (one or two sentences) that Cloud VMs need the Pro plan with its price, gives the checkout link as a Markdown link without naming the payment provider, says nothing is charged until the person pays, and says the build starts once the plan is on without the person having to report back. FAIL when it claims a purchase, offers an alternative as a choice, asks the person to tell it after paying, sends no link, names the payment provider, or is long."
         }
       ]
     }
