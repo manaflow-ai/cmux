@@ -30,6 +30,10 @@ pub struct Team {
     /// Team-scoped display choices (RFD 0038 and RFD 0103). They never grant access or wake.
     #[serde(default)]
     pub customization: BTreeMap<String, String>,
+    /// Person ids who may set the team's customization (`settings.rs`). Display choices only: being
+    /// an admin grants nothing in a space.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub admins: Vec<String>,
 }
 
 /// A person or an agent. An agent is its own principal with an owner (`on_behalf_of`); it never
