@@ -8,6 +8,9 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextAccounts/SettingsHarnesses+Accounts.swift": {
   "string scan inside a loop": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAccounts/SettingsHistoryPage.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 3
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAccounts/SettingsTailnet.swift": {
   "JSON / property-list encode": 1
  },
@@ -19,6 +22,9 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/AgentActivitySocketSource.swift": {
   "JSON / property-list decode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/AgentLaneStore+DebugChiefSubagents.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentCursor/AgentCursorInputBridge.swift": {
   "JSON / property-list decode": 1,
@@ -84,8 +90,14 @@
   "JSON / property-list decode": 1,
   "JSON / property-list encode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneGitBranchPullRequest.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 2
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneGitReviewThreads.swift": {
   "line split of a whole input": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneHeaderState.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 2
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneImageCopies+Menu.swift": {
   "synchronous file write or file-system change": 1
@@ -120,9 +132,6 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneShell.swift": {
   "process launch": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTailCache+Bridge.swift": {
-  "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTheme.swift": {
   "JSON / property-list encode": 1,
@@ -167,6 +176,9 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView+Popup.swift": {
   "JSON / property-list encode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView+ProjectPalette.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView+SessionAdopt.swift": {
   "JSON / property-list encode": 1
  },
@@ -183,21 +195,24 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Approvals/AcpmuxApprovalAnswerer.swift": {
   "JSON / property-list decode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/ClickTraceControl.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/DaemonPageValue.swift": {
   "JSON / property-list decode": 1,
   "JSON / property-list encode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/NewTabChoiceMemory.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 2
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/RemoteAcpmuxWire.swift": {
   "JSON / property-list decode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/UIPointerNativeElement.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentActivity/AgentActivityPageProvider.swift": {
   "JSON / property-list encode": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentChatUploads.swift": {
-  "synchronous file write or file-system change": 5
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentPeerUploads.swift": {
-  "synchronous file write or file-system change": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentTabSeed.swift": {
   "line split of a whole input": 1
@@ -225,7 +240,8 @@
   "synchronous file write or file-system change": 2
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudFrontedChats.swift": {
-  "JSON / property-list encode": 1
+  "JSON / property-list encode": 1,
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudMoveAsks.swift": {
   "JSON / property-list encode": 1,
@@ -241,12 +257,9 @@
   "JSON / property-list encode": 1,
   "JSON encode with sorted keys": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudUploads.swift": {
-  "synchronous file write or file-system change": 4
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Cloud.swift": {
-  "JSON / property-list decode": 2,
-  "JSON / property-list encode": 2
+  "JSON / property-list decode": 1,
+  "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Updates.swift": {
   "JSON / property-list encode": 1
@@ -256,7 +269,8 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl.swift": {
   "JSON / property-list decode": 1,
-  "JSON / property-list encode": 1
+  "JSON / property-list encode": 1,
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugAXFrame.swift": {
   "Accessibility IPC (waits up to 6 s on an app that does not answer)": 8
@@ -303,14 +317,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Feed/FeedApproveProofCheck.swift": {
   "JSON / property-list decode": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Feed/FeedInstallPrincipal.swift": {
-  "JSON / property-list decode": 1,
-  "JSON / property-list encode": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Feed/FeedService.swift": {
-  "JSON / property-list decode": 1,
-  "JSON / property-list encode": 1
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/DebugPaletteCapture.swift": {
   "synchronous file write or file-system change": 1
  },
@@ -351,6 +357,9 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/HostPressure/HostPressureService.swift": {
   "JSON / property-list decode": 2
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/InputVerification/AppControl+Input.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/HandoffNotices.swift": {
   "JSON / property-list decode": 1,
   "line split of a whole input": 1
@@ -372,8 +381,8 @@
   "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/PageFactory.swift": {
-  "JSON / property-list decode": 3,
-  "JSON / property-list encode": 7
+  "JSON / property-list decode": 2,
+  "JSON / property-list encode": 5
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/SettingsPageProvider+Backdrop.swift": {
   "synchronous file write or file-system change": 1
@@ -410,8 +419,8 @@
   "JSON / property-list decode": 1,
   "JSON / property-list encode": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepyMacLock.swift": {
-  "process launch": 1
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/TerminalHostDelegate.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Themes/TerminalThemeStore.swift": {
   "JSON / property-list encode": 1
@@ -425,6 +434,9 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/IncognitoWorkspaceLedger.swift": {
   "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Customization/SidebarCustomizationService.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 2
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppFailureCopy.swift": {
   "regular expression": 3
@@ -446,13 +458,20 @@
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFEngine+BrowsingData.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1,
   "synchronous file write or file-system change": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFEngine+PageProfile.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFLinkText.swift": {
   "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFMediaBridge.swift": {
-  "JSON / property-list decode": 1
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFPageRendererGC.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFPaneHost.swift": {
   "synchronous file write or file-system change": 1
@@ -475,6 +494,9 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Engine/BrowserRestoredSession.swift": {
   "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Engine/BrowserTab+DesignMode.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 3
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Engine/MockBrowserEngine.swift": {
   "string scan inside a loop": 1
@@ -504,8 +526,14 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/ChiefMemoryInspectorModel.swift": {
   "JSON / property-list decode": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextChiefPetWiring/ChiefPetNotice+Daemon.swift": {
-  "line split of a whole input": 1
+ "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudMachineChanges.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 2
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/CloudCLICall.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 3
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Gateway/PersonalGateway.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandsEngine.swift": {
   "JSON / property-list decode": 2,
@@ -519,9 +547,18 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudMachineWire.swift": {
   "JSON / property-list decode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextCloudPlace/CloudPlaceFlows.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 21
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudEnvironmentsSettings.swift": {
   "JSON / property-list decode": 1,
   "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudSettingsPages.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 3
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextControl/SessionConsent/SessionConsentResponder+Nightly.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/CatalogRequestHandlers.swift": {
   "JSON / property-list encode": 2
@@ -535,6 +572,9 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/HoverCards/GroupHoverCardView.swift": {
   "line split of a whole input": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LayoutCache.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 2
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionFrameTrace.swift": {
   "JSON / property-list encode": 1,
@@ -555,11 +595,17 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/LabelParityProbe.swift": {
   "synchronous file write or file-system change": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tooltip/TooltipContentView.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextDiff/DiffPageProvider.swift": {
   "line split of a whole input": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextFeedClient/FeedDaemonClient.swift": {
   "string scan inside a loop": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextFloating/SleepyMode/SleepyMacLock.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomePromisedFiles.swift": {
   "synchronous file write or file-system change": 2
@@ -570,11 +616,14 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefSettleNotice.swift": {
   "synchronous file write or file-system change": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeChiefComputer.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeChiefComputerRoute+MachineInput.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeMentions.swift": {
   "string scan inside a loop": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeMessageRouting.swift": {
-  "line split of a whole input": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeSidebarSource.swift": {
   "JSON / property-list decode": 3,
@@ -583,6 +632,12 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/ChatColors/HomeChatColorStore.swift": {
   "JSON / property-list decode": 1,
   "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextHostedChief/ChiefComputerControlClient+Act.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextHostedChief/ChiefComputerControlClient.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 2
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextHostedChief/HostedChiefCopy.swift": {
   "JSON / property-list encode": 1
@@ -598,8 +653,14 @@
   "JSON / property-list decode": 1,
   "JSON / property-list encode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextImportCards/MoveToAutoCloudImport.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 2
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ChiefLauncherPanel.swift": {
   "string scan inside a loop": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/CmuxRemote/CmuxRemoteService+Capture.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 2
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenHubDebug.swift": {
   "JSON / property-list decode": 2,
@@ -626,6 +687,12 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextPages/BackdropImagesPageProvider.swift": {
   "synchronous file write or file-system change": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageInputReadiness.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageScriptPipeline.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebView+Chromium.swift": {
   "JSON / property-list encode": 1
@@ -668,11 +735,17 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteLocalhostService/ActionRegistry+WorkspaceLocalhost.swift": {
   "line split of a whole input": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots/ScreenshotsModel.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/DeviceDirectory.swift": {
   "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/JoinConsent.swift": {
   "JSON / property-list encode": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextServer/MachineStorage/MachineStoragePopover.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 2
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/AutoArchive/AutoArchiveLedger.swift": {
   "JSON / property-list decode": 1,
@@ -682,12 +755,16 @@
   "JSON / property-list decode": 1,
   "JSON / property-list encode": 1
  },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Store/SidebarDocStore+Intents.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
+ },
  "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Store/SidebarDocStore+PendingChief.swift": {
   "JSON / property-list decode": 2,
   "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Store/SidebarDocStore.swift": {
-  "JSON / property-list encode": 3
+  "JSON / property-list encode": 3,
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Store/SidebarMirror.swift": {
   "JSON / property-list decode": 2,
@@ -706,7 +783,14 @@
   "JSON / property-list encode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSession+CommentAnchor.swift": {
-  "line split of a whole input": 1
+  "line split of a whole input": 1,
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSession+Output.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/InstalledBuildRelaunch.swift": {
+  "main-actor-ok without an AppKit or Core Animation type (write main-actor-ok(NSView): ...)": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Launch/AppCopyGuide.swift": {
   "process launch": 1
@@ -716,8 +800,5 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdaterService+SurfaceHighlights.swift": {
   "JSON / property-list encode": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/WebUpdates/WebUpdater.swift": {
-  "synchronous file write or file-system change": 1
  }
 }
