@@ -194,20 +194,7 @@ enum TabHandlers {
     /// is saved and the window raised.
     private static func reveal(workspace: WorkspaceModel, screen: ScreenModel, pane: PaneModel?, tab: TabModel?, ctx: AppActionContext) {
         guard let controller = ctx.window(showing: workspace.id) ?? ctx.refuse(RefusalStrings.noWindowOpen) else { return }
-        // The window's observer swaps the content on a later turn; swap it
-        // now (idempotent), so the screen is selected in this workspace's
-        // content and not dropped (screen.focus from Home, chwsr4 E2E).
-        if controller.content?.workspace !== workspace { controller.showWorkspace(requested: workspace.id) }
-        if let content = controller.content, content.workspace === workspace {
-            ScreenCommands.select(LayoutScreenID(screen.id), in: content)
-        }
-        if let tab, let pane {
-            controller.state.selection.jump(to: tab.id, in: pane.id, byPerson: ActionRunScope.isPersonsAction())
-            controller.focus.send(.selectTab(pane: pane.id, tab: tab.id, workspace: workspace.id, source: .intent))
-            ctx.services.paneController(for: pane)?.select(StripTabID(tab.id))
-        } else if let pane {
-            controller.focus.send(.focusPane(pane.id, workspace: workspace.id, source: .intent))
-        }
+        ctx.services.show(in: controller, workspace: workspace, screen: screen, pane: pane, tab: tab?.id)
         ctx.services.windows.recordSaver.stateDidChange(controller.state)
         if let window = controller.window { WindowActivation.show(window, .raise) }
     }

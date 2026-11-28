@@ -28,11 +28,19 @@ bash scripts/cmux-next/check-state-roots.sh "$GITHUB_WORKSPACE"
 scripts/cmux-next/check-concurrency.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 # Why: note-506
 python3 -I scripts/cmux-next/check-main-actor-work.py --root "$GITHUB_WORKSPACE"
+# Why: cmux#59531 (a 2-6 s sidebar hang: fileRoot sent to Rust per Chief per row)
+python3 -I scripts/cmux-next/check-bridge-on-main.py --root "$GITHUB_WORKSPACE"
+# Why: reviewed-exemption markers (main-actor-ok, bridge-ok, ...) only go down (ci-rigor part 5)
+python3 -I scripts/cmux-next/check-exemption-ratchet.py --root "$GITHUB_WORKSPACE" --base-ref "${AFFECTED_BASE:-origin/feat-cmux-next}"
+python3 -I tests/test_cmux_next_exemption_ratchet.py
 [overlay-glass]
 python3 -I scripts/cmux-next/check-overlay-glass.py "$GITHUB_WORKSPACE"
 [conn-notices]
 scripts/cmux-next/check-connection-notices.sh "$GITHUB_WORKSPACE"
 python3 -I scripts/cmux-next/tests/test_check_connection_notices.py
+[retry-prompts]
+python3 -I scripts/cmux-next/check-retry-prompts.py --root "$GITHUB_WORKSPACE"
+python3 -I scripts/cmux-next/tests/test_check_retry_prompts.py
 [checks-structure]
 python3 tests/test_cmux_next_checks_workflow.py
 [package-dependency-lists]
@@ -120,6 +128,7 @@ bash scripts/cmux-next/tests/pin-cmux-tui-host-target.test.sh
 bash scripts/cmux-next/tests/pin-cmux-tui-windows-fetch.test.sh
 python3 tests/test_cmux_next_tree_notify.py
 python3 tests/test_cmux_next_same_tree_status_never_silent.py
+python3 tests/test_ci_same_tree_status_pool_tokens.py
 python3 tests/test_cmux_tui_tree_takeover.py
 python3 tests/test_cmux_next_same_tree_failed.py
 python3 tests/test_idea_ledger.py
@@ -146,6 +155,7 @@ bash scripts/cmux-next/tests/base-autofix-land.test.sh
 bash scripts/cmux-next/tests/base-autofix-action-exports.test.sh
 bash scripts/cmux-next/tests/base-autofix-changed.test.sh
 bash scripts/cmux-next/tests/base-autofix-window.test.sh
+bash scripts/cmux-next/tests/base-autofix-push-preflight.test.sh
 bash scripts/cmux-next/tests/generated-autofixable.test.sh
 bash scripts/cmux-next/tests/base-autofix-settings-landed.test.sh
 bash scripts/cmux-next/tests/judge-action-exports.test.sh
@@ -157,6 +167,7 @@ bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
 bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
 bash scripts/cmux-next/tests/stamp-app-ffi-mtimes.test.sh
 bash scripts/cmux-next/tests/cargo-test-selected.test.sh
+bash scripts/cmux-next/tests/cargo-test-wine.test.sh
 bash scripts/cmux-next/tests/daemon-capabilities-fresh.test.sh
 bash scripts/cmux-next/tests/app-capability-references.test.sh
 bash scripts/cmux-next/tests/tagged-launch-acpmux-env.test.sh
@@ -211,6 +222,7 @@ bash scripts/cmux-next/tests/bundle-ublock-locales.test.sh
 bash tests/test_strip_release_bundle_atom_info.sh
 bash scripts/cmux-next/tests/version-surfaces.test.sh
 bash scripts/cmux-next/tests/ratchet-tiers.test.sh
+bash scripts/cmux-next/tests/godfiles-grower.test.sh
 bash scripts/cmux-next/tests/base-autofix.test.sh
 bash scripts/cmux-next/tests/pr-autofix.test.sh
 bash tests/test_ci_generator_input_freshness.sh

@@ -295,6 +295,33 @@ const recentRank = (a: AcpmuxSessionEntry, b: AcpmuxSessionEntry) =>
 const normalized = (session: AcpmuxSnapshot["sessions"][number]) =>
   normalizedSessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>);
 
+/// The first `room` chats of the recent order, and whether that is every one the rows may list. A new or gone chat
+/// (the list's length changed) rebuilds this, and at 11k chats a sort of all of them with `recentRank` (which reads
+/// `sessionMark` on every compare) was 3 ms a rebuild; one pass that keeps the best `room` (`best`, with each chat's
+/// key read once) gives the same chats in the same order (test/new-tab-chat-list-dsa.test.ts, against
+/// `recentTopBySort`).
+export function recentTop(
+  sessions: readonly AcpmuxSnapshot["sessions"][number][],
+  room: number,
+): { top: AcpmuxSessionEntry[]; complete: boolean } {
+  const all: Ranked[] = [];
+  for (const session of sessions) {
+    const entry = normalized(session);
+    if (!recentEligible(entry)) continue;
+    all.push({ entry, urgency: sessionMark(entry, false) === "input" ? 0 : 1, at: activityTime(entry) ?? 0 });
+  }
+  return { top: best(all, room, () => true), complete: all.length <= room };
+}
+
+/// The old rebuild, a sort of every eligible chat: `recentTop`'s oracle.
+export function recentTopBySort(
+  sessions: readonly AcpmuxSnapshot["sessions"][number][],
+  room: number,
+): { top: AcpmuxSessionEntry[]; complete: boolean } {
+  const all = sessions.map(normalized).filter(recentEligible).sort(recentRank);
+  return { top: all.slice(0, room), complete: all.length <= room };
+}
+
 /// ``recentSessions`` of a chat list, kept at the cost of the chats that changed: it holds the first
 /// `room` chats of the recent order, which the rows are read from, and a list made in place from the
 /// last one (sessionIndex.ts `noteReplaced`) only moves the changed chats in or within it. A working
@@ -320,11 +347,7 @@ export class RecentChats {
     this.last = sessions;
     const patched = replaced ? this.patch(previous!, sessions, replaced) : false;
     if (patched === "same") return this.shown;
-    if (!patched) {
-      const all = sessions.map(normalized).filter(recentEligible).sort(recentRank);
-      this.complete = all.length <= this.room;
-      this.top = all.slice(0, this.room);
-    }
+    if (!patched) ({ top: this.top, complete: this.complete } = recentTop(sessions, this.room));
     const shown = recentSessions(this.top, this.count);
     // The rows are the held chats' only while the parents they fold under (the first `count` that
     // are no child) and the rows themselves are all held: else they read every chat.

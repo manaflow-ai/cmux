@@ -667,6 +667,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-file-lock",
  "cmux-process",
+ "cmux-rd-proto",
  "hpke",
  "libc",
  "p256",
@@ -742,8 +743,11 @@ dependencies = [
  "hmac",
  "libc",
  "md-5",
+ "rustls",
+ "rustls-native-certs",
  "sha1",
  "snow",
+ "socket2",
  "windows-sys 0.61.2",
 ]
 

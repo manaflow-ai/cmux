@@ -347,6 +347,9 @@ pub struct Session {
     /// Set on a freshly forked Claude session: the parent's agent session id
     /// to pass as `--resume <id> --fork-session` on first spawn.
     pub(super) fork_from: StdMutex<Option<String>>,
+    /// Set on a fresh OpenCode fork: the parent's agent session its own agent forks at its
+    /// first start, in place of a load (`fork_own_process.rs`).
+    pub(super) agent_fork: StdMutex<Option<super::fork_own_process::AgentFork>>,
     /// The model and the effort acpmux last set on this session (its own
     /// start values or a client's set), so a repeated set is no new pick
     /// (`start_defaults.rs`).
@@ -515,6 +518,12 @@ pub struct Session {
     /// requests, its harness's model lines; not its own bookkeeping, `tap.rs`
     /// `from_the_model`); a turn that hears none is silent (`silent_turn.rs`).
     pub(super) heard: AtomicU64,
+    /// `heard` when the running turn's prompt was written (`stalled_turn.rs`
+    /// `watch_stalled_turn`): equal to it while the model has not answered that prompt. codex-acp
+    /// takes a steer then as a new prompt that cancels the running one (`inbox_admit.rs`).
+    pub(super) prompt_heard: AtomicU64,
+    /// A stop-condition chat's open goal left idle (`goal_watch.rs`).
+    pub(super) goal_watch: StdMutex<super::goal_watch::GoalWatch>,
     /// The hub clock's time (`Hub::clock_now`, ns) of the running turn's last sign of its model,
     /// or of its prompt going out if none since; an adopted turn's comes from its log, so it may
     /// be before this daemon started (negative). A turn that hears nothing for `stalledTurnEndMs`
@@ -774,6 +783,12 @@ impl Session {
 
     pub fn meta(&self) -> SessionMeta {
         self.meta.lock().unwrap().clone()
+    }
+    /// Edits the metadata in place, as a test outside the crate sets up a saved state (an
+    /// integration test sees no `pub(super)` field). No row change is told.
+    #[doc(hidden)]
+    pub fn edit_meta_for_test(&self, edit: impl FnOnce(&mut SessionMeta)) {
+        edit(&mut self.meta.lock().unwrap_or_else(|e| e.into_inner()));
     }
     /// Leaves this chat marked as on its capacity fallback, as a past switch did
     /// (`hub/auto_resume/capacity_failover.rs`). For tests outside the crate, which cannot

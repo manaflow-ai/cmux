@@ -34,6 +34,8 @@ What CI runs on a PR into `feat-cmux-next` (checked against the workflows on 202
 
 ## Try a PR on the person's phone: cmux Dev
 
+The person's own page for every way onto their phone, cmux INTERNAL and iPhone YOLO included: [TESTING-ON-YOUR-IPHONE.md](TESTING-ON-YOUR-IPHONE.md).
+
 `cmux-next-ios/scripts/try.sh <PR|branch|sha|.>`, from the Mac the phone is attached to, puts that commit on every
 connected iPhone as **cmux Dev** (`dev.cmux.mobile.dev`): the iPhone twin of `cmux app try PR`. One app that
 every try replaces in place, so its sign-in and its pairing with the person's NIGHTLY Mac stay; it has no dev tag,
@@ -41,6 +43,13 @@ so it shows their real data (the Demo build's rule). A build step makes only the
 (`cmux-next-ios-sim.sh try`, keyed by the commit, cached on the Mac); the Mac signs, installs and launches it.
 `--sign-in` signs it in with the `personal` profile (first install), `--backend ORIGIN` points it at another
 Cloud backend, `try.sh status` lists the last tries and their times.
+
+Built ahead: every head of a same-repository iPhone PR into `feat-cmux-next` runs the `cmux Dev try build (ahead)`
+check (`.github/workflows/cmux-next-ios-try-ahead.yml`), the same fleet step under the same key try.sh asks for, so
+`try.sh N` then only downloads, signs and installs. In cmux Dev, Settings > Developer > Try a Pull Request lists the
+open iPhone PRs (`try.sh list`) with their build state and installs one through the Mac's hostd (`try-pr`,
+PROTOCOL.md). That Mac needs the script linked once: `ln -s <checkout>/cmux-next-ios/scripts/try.sh ~/.config/cmux/try.sh`
+(or `CMUX_MOBILE_TRY_SH`), with gh signed in and the cmux-ci client installed.
 
 ## Hand-off command
 
@@ -145,10 +154,10 @@ Never install the app with raw `devicectl`, skip a phone, or replace the phone w
 What it needs:
 
 - iPhone connections on in the person's cmux-next (Settings > Mobile > Allow iPhone connections,
-  `mobile.allowIPhoneConnections`). The setting lives in the shared `~/.config/cmux/cmux-next.json`
+  `mobile.allowIPhoneConnections`). The setting lives in the shared `~/.config/cmux-next/cmux-next.json`
   that every build reads, so a fresh tag starts with the person's choice. Only the person turns it
   on; when it is off, `review.sh` reports that as the blocker.
-- The `personal` profile in `~/.secrets/cmuxterm-dev.env` and `~/.config/cmux/dev-account` naming
+- The `personal` profile in `~/.secrets/cmuxterm-dev.env` and `~/.config/cmux-next/dev-account` naming
   it, so the tagged Mac signs in to the same account as the phone (`scripts/setup-team-dev.sh`).
 - A development profile on this Mac for each bundle (the app and its two notification
   extensions) that names each phone; the team wildcard profile covers all three. A phone no

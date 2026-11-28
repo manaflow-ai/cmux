@@ -24,14 +24,15 @@ import { isMousePress } from "../../ui/pressRelease";
 import { useOpenSide } from "../../ui/openSide";
 import { AddAccountDialog } from "./AddAccountDialog";
 import { SearchIcon } from "./ComposerPickers";
-import { reasoningChoices, type Choice, nearestLevel } from "./composerPickerModel";
+import { nearestLevel, reasoningChoices, type Choice } from "./composerPickerModel";
 import { isDefaultChoice } from "./defaultChoice";
 import { useT } from "./i18n";
 import { OnNewTab } from "./newTabComposer";
 import { isModelRouterKind } from "./routerKinds";
 import { authLoginText, authText, canSessionLogin } from "./sessionAuth";
-import { useChatAccounts, type ChatAccount } from "./chatAccounts";
+import { signInName, useChatAccounts, type ChatAccount } from "./chatAccounts";
 import { QuickModelMenu, StarIcon, UsedMark } from "./QuickModelMenu";
+import { ClaudeConnectRow } from "./ClaudeConnectRow";
 import { droppedOrder, orderTabs, setModelPickerOrder, useModelPickerOrder } from "./modelPickerOrder";
 import { startRailDrag } from "./railReorder";
 import { CHAT_COLUMN } from "./modelPickerLayout";
@@ -386,7 +387,8 @@ function Columns({
   // above never runs again: take the keyboard as the menu opens, not a frame later.
   useLayoutEffect(() => {
     const node = field.current;
-    if (open && node && !node.ownerDocument.activeElement?.closest(".acpmux-cols")) node.focus({ preventScroll: true });
+    const active = node?.ownerDocument.activeElement;
+    if (open && node && !active?.closest(".acpmux-cols")) node.focus({ preventScroll: true });
   }, [open]);
   const updateAction = useRef<HTMLButtonElement | null>(null);
   // The menu never shrinks while open: a tab, a search or a model with fewer rows keeps its size, so
@@ -441,6 +443,31 @@ function Columns({
     sizeHold.current = observer;
   }, []);
   const modelsList = useRef<HTMLDivElement | null>(null);
+  // The account card opens in the flow above the lists (cmux#63167: drawn over them, it hid the
+  // checked model). The menu grows by the card's height, away from the chip, as far as it has room
+  // (heightOf), so the lists keep theirs; past the room the card scrolls and the lists keep a floor
+  // (quickModelColumns.css). Its height is its content's, whatever room it was given.
+  const [cardHeight, setCardHeight] = useState(0);
+  useLayoutEffect(() => {
+    const card = profileOpen ? popupRef.current?.querySelector<HTMLElement>(".acpmux-cols-card") : null;
+    // The card and the rule under it.
+    const next = card ? card.scrollHeight + (card.nextElementSibling?.getBoundingClientRect().height ?? 0) : 0;
+    if (next !== cardHeight) setCardHeight(next);
+  });
+  // With the card open, the highlighted model (else the checked one) is scrolled back into the list's
+  // view if the shorter list hid it, within the list alone: nothing around the menu scrolls.
+  useLayoutEffect(() => {
+    const list = modelsList.current;
+    if (!profileOpen || !list) return;
+    const row =
+      list.querySelector<HTMLElement>("[data-hl]") ??
+      list.querySelector<HTMLElement>('[role="option"][aria-selected="true"]');
+    if (!row) return;
+    const view = list.getBoundingClientRect();
+    const box = row.getBoundingClientRect();
+    if (box.top < view.top) list.scrollTop -= view.top - box.top;
+    else if (box.bottom > view.bottom) list.scrollTop += box.bottom - view.bottom;
+  }, [profileOpen, cardHeight]);
   // A search or a tab removes rows: the rows that stay would jump up to their new slots in one frame.
   // A row that moves a short way (two rows at most) keeps its old place for the frame it lands and
   // glides to the new one on one clock (a CSS keyframe, see quickModelColumns.css). A row that moves
@@ -547,8 +574,10 @@ function Columns({
     (popup: HTMLElement | null | undefined) => {
       const frame = popup?.querySelector<HTMLElement>(":scope > .acpmux-cols-frame");
       if (!frame || dragging.current) return;
+      // The open account card's height on top of the menu's own (cmux#63167), never past the room.
+      const card = profileOpen ? cardHeight : 0;
       if (ownHeight) {
-        const size = `min(${ownHeight}px, var(--available-height, ${ownHeight}px))`;
+        const size = `min(${ownHeight + card}px, var(--available-height, ${ownHeight + card}px))`;
         delete frame.dataset.fitHeight;
         frame.style.minHeight = "";
         frame.style.height = size;
@@ -558,7 +587,8 @@ function Columns({
       // The default: the tallest effort column whole, from the search row to Fast (fitMenuHeight),
       // never past the room; before it is measured, the stylesheet's cap.
       if (natural?.height) {
-        const size = `min(${natural.height}px, var(--available-height, ${natural.height}px))`;
+        const tall = natural.height + card;
+        const size = `min(${tall}px, var(--available-height, ${tall}px))`;
         // The measured default, also readable where the style's min() is not (a test, an inspector).
         frame.dataset.fitHeight = String(natural.height);
         frame.style.minHeight = "";
@@ -570,7 +600,7 @@ function Columns({
       frame.style.height = "";
       frame.style.maxHeight = "";
     },
-    [ownHeight, natural],
+    [ownHeight, natural, profileOpen, cardHeight],
   );
   useLayoutEffect(() => heightOf(popupRef.current), [heightOf, popupNode]);
 
@@ -653,7 +683,10 @@ function Columns({
     observer.observe(column);
     return () => observer.disconnect();
   }, [widthOf, popupNode]);
-  const shown = list.find((family) => family.id === tab);
+  const shown =
+    list.find((family) => family.id === tab) ??
+    list.find((family) => family.id === families.current) ??
+    list.find((family) => !family.starred);
   // The person's tab order (modelPickerOrder.ts): Starred first, then theirs, then the rest.
   const order = useModelPickerOrder();
   const tabs = useMemo(
@@ -674,7 +707,7 @@ function Columns({
         to,
       ),
     );
-  const shownTab = tabs.find((entry) => entry.routes.some((route) => route.id === tab));
+  const shownTab = tabs.find((entry) => entry.routes.some((route) => route.id === shown?.id));
   const found = useMemo(() => (query && search ? search.find(query) : undefined), [query, search]);
   const groups = useMemo(
     () => (found ? searchGroups(found, list, families.current) : undefined),
@@ -686,12 +719,16 @@ function Columns({
     : shown
       ? [...shown.models, ...shown.more]
       : [];
+  const isRunning = (model: QuickModel) =>
+    model.family === families.current && (model.id === current || runsOffers(model, current));
+  // Only beside other rows: a tab that lists none (a harness that picks its own model) keeps its note.
+  if (!query && current && shown?.id && shown.id === families.current && rows.length > 0 && !rows.some(isRunning)) {
+    rows.unshift({ id: current, name: current, family: shown.id });
+  }
   // Rows listed twice under one name (two routes of one model, a search's or a tab's) show their
   // model id under the name, so the variants read apart (Lawrence 2026-11-05).
   // One pass over the listed rows; `rows` is rebuilt each render.
   const twins = twinRows(groups ?? [{ id: "", name: "", rows }]);
-  const isRunning = (model: QuickModel) =>
-    model.family === families.current && (model.id === current || runsOffers(model, current));
   const runningIndex = rows.findIndex(isRunning);
   // A started chat's pick of another harness's model, held for its next message (forkHold.ts): its
   // row is the checked one, and its settings column shows the held effort and Fast.
@@ -750,7 +787,10 @@ function Columns({
 
   // Until the arrows or the pointer move it, the running model's row is the one shown, else the
   // first one: the settings column always shows the model its rows apply to, never an empty column.
-  const firstIndex = rows.findIndex((model) => !model.disabled);
+  // A locked Cloud tab (no connection yet) still shows its first model's levels and Fast, muted, so the
+  // columns keep the local picker's size; nothing in it can be picked.
+  const locked = !query && !!shown?.locked;
+  const firstIndex = locked && rows.length > 0 ? 0 : rows.findIndex((model) => !model.disabled);
   // The chat's own tab with no row for the running model (its catalog has not loaded, or does not
   // list it: a model newer than the harness's catalog) still shows the session's levels and Fast,
   // as the list menu's Effort row did. Its first row never stands in for the running model: Fast
@@ -1061,12 +1101,12 @@ function Columns({
     const on = !fastOn;
     // A pick lands Fast only on (a combo never turns it off): off on a model that runs goes through
     // the session, also right after it was picked here.
-    if (focusRuns && fast && (!picked || !on)) {
+    if (focusRuns && fast) {
       setHeld({ ...mine, key: focusKey, fast: on });
       fast.onChange(on);
       if (picked && pending) {
         const { fast: _fast, ...rest } = picked;
-        setPending({ ...pending, model: rest });
+        setPending({ ...pending, model: on ? { ...rest, fast: true } : rest });
       }
     } else if (!picked && !on) {
       // Off on a model only shown: nothing lands yet; its pick lands it without Fast.
@@ -1241,6 +1281,12 @@ function Columns({
   const activeAccount = onChatTab
     ? accounts.list?.accounts.find((choice) => choice.id === accounts.list?.active)
     : undefined;
+  // No route bound on the chat's own harness: the sign-in acpmux reports its agent runs on (SR2, a
+  // subscription, an API key), never a "CLI login" a launcher harness does not have (cmux#63167).
+  // Only while the chat is known to be on its default: its routes read with none bound (or none to
+  // read, a Cloud chat), and no account picked in this opening, whose agent has not reported yet.
+  const onDefault = !account || (!!accounts.list && !accounts.list.active && !accounts.picked);
+  const signIn = onChatTab && !activeAccount && onDefault ? signInName(menu.signIn) : undefined;
   const signedOut = (!!owner?.note && !!owner.logIn) || (onChatTab && !!auth && canSessionLogin(auth.verdict));
   const authNote = auth ? authText(auth.verdict, t) : undefined;
   // No harness (an empty Starred tab) or one this Mac does not have: no account, so the corner draws
@@ -1252,7 +1298,9 @@ function Columns({
     ? undefined
     : onChatTab && activeAccount
       ? faceOf(activeAccount, t("picker.harnessLogin"))
-      : (routeFace ?? faceOf(undefined, t("picker.harnessLogin")));
+      : signIn
+        ? faceOf(undefined, signIn)
+        : (routeFace ?? faceOf(undefined, t("picker.harnessLogin")));
   const ownerName = ownerTab?.name ?? owner?.name ?? "";
   // The tab's brand mark when its routes are other products (Gemini for Antigravity, Lucas
   // 2026-11-25), else the route's own.
@@ -1262,15 +1310,20 @@ function Columns({
   const kindLabel = (kind: string | undefined) =>
     kind === "direct-api-key" ? t("turn.signIn.keyLabel") : isModelRouterKind(kind) ? t("picker.provider") : undefined;
   const faceName = signedOut
-    ? t("picker.notSignedIn")
+    ? ((owner?.logInLabel ? owner.note : undefined) ?? t("picker.notSignedIn"))
     : onChatTab && activeAccount
       ? activeAccount.name
-      : routes.length > 1 && owner
-        ? owner.name
-        : login;
+      : (signIn ?? (routes.length > 1 && owner ? owner.name : login));
+  // The harness the account is for by its own name ("Claude Code (sr2 internal)"), not its tab's
+  // ("Claude Code"), unless the name above already is it.
+  const accountHarness = owner && faceName !== owner.name ? owner.name : ownerName;
   const faceDetail = signedOut
-    ? t("picker.signInToUse", { harness: ownerName })
-    : [onChatTab && activeAccount ? kindLabel(activeAccount.kind) : undefined, ownerName].filter(Boolean).join(" · ");
+    ? owner?.logInLabel
+      ? ownerName
+      : t("picker.signInToUse", { harness: ownerName })
+    : [onChatTab && activeAccount ? kindLabel(activeAccount.kind) : undefined, accountHarness]
+        .filter(Boolean)
+        .join(" · ");
   const chatChoices = (accounts.list?.accounts ?? []).filter(
     (choice) =>
       choice.kind === "direct-subscription" ||
@@ -1349,14 +1402,14 @@ function Columns({
   const canSignIn = signedOut && (!!owner?.logIn || (onChatTab && !!auth?.onLogin));
 
   const card = profileOpen && (
-    <InlineCard
-      className="acpmux-cols-card ui-glass ui-glass-floats ui-glass-transient"
-      label={`${ownerName} · ${t("picker.account")}`}
-    >
+    <InlineCard className="acpmux-cols-card" label={`${ownerName} · ${t("picker.account")}`}>
       <div className="acpmux-cols-card-head">
-        <Avatar face={face} size={40} {...(badge ? { badge } : {})} />
+        <Avatar face={face} size={32} {...(badge ? { badge } : {})} />
         <span className="acpmux-cols-card-who">
-          <span className="acpmux-cols-card-name">{faceName}</span>
+          {/* tooltip-allow: a reported sign-in names where it came from ("SR2 token (sr2 claude)") */}
+          <span className="acpmux-cols-card-name" title={signIn ? menu.signIn : undefined}>
+            {faceName}
+          </span>
           <span className="acpmux-cols-detail">{faceDetail}</span>
         </span>
       </div>
@@ -1372,7 +1425,7 @@ function Columns({
               else auth?.onLogin?.();
             }}
           >
-            {t("picker.signInTo", { harness: ownerName })}
+            {owner?.logInLabel ?? t("picker.signInTo", { harness: ownerName })}
           </button>
         </div>
       )}
@@ -1557,7 +1610,7 @@ function Columns({
     );
   };
 
-  const tabEmpty = !query && !!shown && rows.length === 0;
+  const tabEmpty = !query && !!shown && !shown.cloudSoon && rows.length === 0;
   return (
     <>
       <button
@@ -1663,7 +1716,7 @@ function Columns({
           // from the search field (a caption, a note, a gap), except on a column's scroll bar.
           onPointerDown={(event) => {
             const target = event.target as Element;
-            if (profileOpen && !target.closest?.(".acpmux-cols-corner")) setProfileOpen(false);
+            if (profileOpen && !target.closest?.(".acpmux-cols-corner, .acpmux-cols-card")) setProfileOpen(false);
             if (
               target !== field.current &&
               !target.classList?.contains("acpmux-cols-list") &&
@@ -1699,7 +1752,6 @@ function Columns({
                     <Avatar face={face} size={24} {...(badge ? { badge } : {})} />
                   </button>
                 )}
-                {card}
               </span>
               <SearchIcon size={14} />
               <input
@@ -1722,6 +1774,15 @@ function Columns({
             </div>
             <div className="acpmux-cols-strips">
               <hr className="acpmux-cols-sep" />
+              {/* The account card opens here, in the flow over the rail and the models: they move down
+                  and stay whole, never under it (cmux#63167: drawn over the list, it hid the checked
+                  model). */}
+              {card && (
+                <>
+                  {card}
+                  <hr className="acpmux-cols-sep" />
+                </>
+              )}
               {/* The chat's own readiness (an expired login, a route that needs sign-in, an unreachable
               machine), whatever tab or search shows: the avatar is the account, not the readiness. */}
               {auth && authNote && (
@@ -1808,7 +1869,7 @@ function Columns({
                       data-tooltip-side="left"
                       className="acpmux-cols-tab"
                       data-hl={selected ? "" : undefined}
-                      data-off={family.setUp ? "" : undefined}
+                      data-off={family.setUp || (family.note && family.logInLabel) ? "" : undefined}
                       // Every harness tab moves along the rail; Starred stays first (railReorder.ts).
                       data-tab-key={entry.key}
                       data-movable={entry.starred ? undefined : ""}
@@ -1859,7 +1920,50 @@ function Columns({
                 data-cmux-scroll-only=""
                 onScroll={(event) => markFades(event.currentTarget)}
                 data-col-focus={col === 1 ? "" : undefined}
+                data-locked={locked ? "" : undefined}
               >
+                {/* A Cloud Connect row leads with the action and shows a reason when the picker has one. */}
+                {!query && shown?.logIn && (locked || shown.cloudSoon || (shown.logInLabel && !shown.note)) && (
+                  <DrivenRow
+                    kind="button"
+                    className="acpmux-cols-row acpmux-cols-unlock"
+                    data-cloud-connect=""
+                    onPick={() => {
+                      close();
+                      shown.logIn?.();
+                    }}
+                  >
+                    <span className="acpmux-cols-name">{shown.logInLabel ?? t("harness.logIn")}</span>
+                    {shown.cloudSoon ? (
+                      <span className="acpmux-cols-detail" data-cloud-coming-soon="">
+                        {t("picker.cloud.comingSoon")}
+                      </span>
+                    ) : (
+                      (shown.cloudReason ?? shown.note) && (
+                        <span className="acpmux-cols-detail">{shown.cloudReason ?? shown.note}</span>
+                      )
+                    )}
+                  </DrivenRow>
+                )}
+                {/* The connection row for a Cloud start already waiting for setup. */}
+                {!query && shown?.connect && (
+                  <DrivenRow
+                    kind="button"
+                    className="acpmux-cols-row acpmux-cols-connect"
+                    aria-disabled={shown.connect.connected || undefined}
+                    onPick={() => {
+                      if (shown.connect?.connected) return;
+                      close();
+                      shown.connect?.onConnect();
+                    }}
+                  >
+                    <ClaudeConnectRow
+                      name={shown.name}
+                      {...(shown.mark ? { mark: shown.mark } : {})}
+                      connected={shown.connect.connected}
+                    />
+                  </DrivenRow>
+                )}
                 {/* A harness this Mac lacks (or a signed-out one) leads its list with its note and its
                   Install or Log In row, above its catalog models, where the eye lands first. */}
                 {tabEmpty && (
@@ -1878,7 +1982,7 @@ function Columns({
                     </span>
                   </div>
                 )}
-                {!query && shown?.note && shown.logIn && (
+                {!query && !locked && !shown?.cloudSoon && shown?.note && shown.logIn && (
                   <DrivenRow
                     kind="button"
                     className="acpmux-cols-row"
@@ -1887,8 +1991,13 @@ function Columns({
                       shown.logIn?.();
                     }}
                   >
-                    <span className="acpmux-cols-name">{t("harness.logIn")}</span>
+                    <span className="acpmux-cols-name">{shown.logInLabel ?? t("harness.logIn")}</span>
                   </DrivenRow>
+                )}
+                {!query && shown?.cloudSoon && !shown.logIn && (
+                  <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true" data-cloud-coming-soon="">
+                    <span className="acpmux-cols-name">{t("picker.cloud.comingSoon")}</span>
+                  </div>
                 )}
                 {!query && shown?.note && shown.setUp && (
                   <DrivenRow
@@ -1922,6 +2031,7 @@ function Columns({
             <div
               className="acpmux-cols-list acpmux-cols-tune"
               data-col-focus={col === 2 ? "" : undefined}
+              data-locked={locked ? "" : undefined}
               aria-label={t("picker.reasoning")}
             >
               <div
