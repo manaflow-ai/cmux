@@ -5,6 +5,7 @@ import type { HybridBlocked, HybridBlockedWhy, SlotHolder } from "../hybrid/hybr
 import type { StringKey } from "../i18n";
 import { hybridStartOf, type HybridStart } from "../hybrid/hybridModel";
 import { computerStatusOf, type ComputerStatus } from "../auto/computerStatus";
+import { autoSizeRowsOf, type AutoSizeRow } from "../autosize/autosizeModel";
 
 export type PlaceMode = "local" | "cloud" | "auto";
 export type PlaceAt = "local" | "cloud";
@@ -67,6 +68,9 @@ export interface PlaceState {
   /// Local and Auto under AutoCloud alone (AutoCloud off or on for this chat), none while both are off.
   /// Missing from an older app: the control reads Cloud Toggle's switch, as before.
   readonly modes?: readonly PlaceMode[];
+  /// RFD 0080 piece 4: what AutoSize did to the chat's computer (Rust `autosize_row::Row`, oldest first), behind
+  /// `cmux.cloud.autosizeRows`; absent while there is none.
+  readonly autosize?: readonly AutoSizeRow[];
 }
 
 /// Keep Running's state for one chat: asked for (`priority`), holding a slot (`lit`) or waiting for one, and the plan's slots.
@@ -231,6 +235,7 @@ export function placeOf(value: unknown): PlaceState | undefined {
   const modes = Array.isArray(raw.modes)
     ? MODES.filter((mode) => (raw.modes as readonly unknown[]).includes(mode))
     : undefined;
+  const autosize = autoSizeRowsOf(raw.autosize);
   return {
     mode: raw.mode as PlaceMode,
     at: raw.at === "cloud" ? "cloud" : "local",
@@ -242,6 +247,7 @@ export function placeOf(value: unknown): PlaceState | undefined {
     ...(keep ? { keep } : {}),
     ...(status ? { status } : {}),
     ...(modes ? { modes } : {}),
+    ...(autosize ? { autosize } : {}),
   };
 }
 
