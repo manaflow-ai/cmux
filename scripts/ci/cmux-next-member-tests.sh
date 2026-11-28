@@ -30,6 +30,15 @@ rustup toolchain install "$channel" --profile minimal --component clippy,rustfmt
 # cmux-next-daemon-tests' env, word for word: the saved target's fingerprints hold it.
 export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_HTTP_MULTIPLEXING=false TMPDIR=/tmp CMUX_GHOSTTY_SRC=""
 export GHOSTTY_ZIG_SOURCE=ghostty-next CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2
+# MEM_FIT_JOBS: start at the job count this slot's memory holds (cargo-mem-jobs.sh, 6 GiB a job) when that is under 2.
+# The job count is not in rustc's fingerprints, so the saved target still covers it. At 2 jobs on a small slot the
+# acpmux and cmux-tui-core rustc OOM'd side by side, and the one-job rerun after the kill then ran past the step's
+# 2700 s (cmux#65293 run 46176617995 job 141076778482): the time spent before the kill is wasted.
+fit="$(env -u CARGO_BUILD_JOBS bash ../scripts/ci/cargo-mem-jobs.sh 2>/dev/null || true)"
+if [[ "$fit" =~ ^[0-9]+$ ]] && ((fit < CARGO_BUILD_JOBS)); then
+  echo "cmux_next_ tests: this slot's memory holds CARGO_BUILD_JOBS=$fit"
+  export CARGO_BUILD_JOBS=$fit
+fi
 unset CMUX_ZIG ZIG
 ../scripts/ci/cmux-tui-test-target.sh restore
 home="$(mktemp -d /tmp/acpmux-home.XXXXXX)"

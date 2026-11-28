@@ -8,7 +8,9 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 scratch="$(mktemp -d /tmp/member-tests-oom.XXXXXX)"
 trap 'rm -rf "$scratch"' EXIT
 mkdir -p "$scratch/repo/scripts/ci" "$scratch/repo/scripts/cmux-next" "$scratch/repo/cmux-tui" "$scratch/bin"
-cp "$here/scripts/ci/cmux-next-member-tests.sh" "$scratch/repo/scripts/ci/"
+cp "$here/scripts/ci/cmux-next-member-tests.sh" "$here/scripts/ci/cargo-mem-jobs.sh" "$scratch/repo/scripts/ci/"
+# A fake cgroup v2 tree: the slot's memory.max is MEM_GIB (cargo-mem-jobs.sh reads it, 6 GiB a job).
+mkdir -p "$scratch/cg/slot"; echo "0::/slot" > "$scratch/proc-cgroup"
 printf '#!/bin/sh\necho "-p cmux-tui --test it"\n' > "$scratch/repo/scripts/ci/cmux-next-daemon-test-packages.sh"
 printf '#!/bin/sh\nexit 0\n' > "$scratch/repo/scripts/ci/cmux-tui-test-target.sh"
 printf 'import sys\nsys.exit(1)\n' > "$scratch/repo/scripts/cmux-next/cargo-locks.py"
@@ -30,10 +32,12 @@ echo "test result: ok. 1 passed; 0 failed"
 STUB
 chmod +x "$scratch"/bin/* "$scratch"/repo/scripts/ci/*.sh
 fail=0
-run() { # NAME KILLS BUMP WANT_EXIT WANT_CALLS
+run() { # NAME KILLS BUMP WANT_EXIT WANT_CALLS [MEM_GIB]
   rm -f "$scratch/calls"; echo "oom_kill 0" > "$scratch/vmstat"
+  echo $(( ${6:-64} * 1073741824 )) > "$scratch/cg/slot/memory.max"
   set +e
   PATH="$scratch/bin:$PATH" STUB_DIR="$scratch" KILLS="$2" BUMP="$3" MEMBER_TESTS_VMSTAT="$scratch/vmstat" \
+    CARGO_GROUPS_CGROUP_ROOT="$scratch/cg" CARGO_GROUPS_PROC_CGROUP="$scratch/proc-cgroup" \
     bash "$scratch/repo/scripts/ci/cmux-next-member-tests.sh" crates/cmux-tui > "$scratch/out" 2>&1
   local got=$?
   set -e
@@ -47,4 +51,6 @@ run() { # NAME KILLS BUMP WANT_EXIT WANT_CALLS
 run "an OOM kill reruns once at one job and passes" 1 1 0 "2 1 "
 run "a second OOM kill fails" 2 1 101 "2 1 "
 run "a SIGKILL with no OOM kill is not rerun" 1 0 101 "2 "
+run "a slot whose memory holds one job starts at one job" 0 0 0 "1 " 8
+run "a slot whose memory holds two jobs keeps two" 0 0 0 "2 " 16
 exit "$fail"
