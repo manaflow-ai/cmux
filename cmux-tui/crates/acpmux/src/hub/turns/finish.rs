@@ -679,6 +679,8 @@ impl Hub {
     /// summary), so `wait` can report a failed turn after it resolves.
     pub(in crate::hub) fn record_last_turn(&self, session: &Session, turn_result: &Value) {
         let last = last_turn_of(turn_result, now_ms());
+        // Its next gap starts (`residency.rs`).
+        self.rhythm_turn_ended(session);
         self.lane_report_record_result(&session.id, turn_result);
         if turn_result.get("trigger") != Some(&Value::Bool(true)) {
             let mut meta = session.meta.lock().unwrap();
