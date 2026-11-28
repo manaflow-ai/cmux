@@ -208,6 +208,7 @@ final class ExternalOpenController {
         // The one file path every opener takes (Open File..., `file.open`); a refusal shows its reason.
         case .file(let url): services.viewers.openFile(url, in: pane, markdown: false)
         case .shareLink(let url): AgentShareLinks(host: services).open(url) { [weak pane] in pane?.newBrowserTab(url: $0) }
+        case .macScreen(let device): services.macScreenTabs.open(services.macScreenPages.record(forDevice: device, requesting: .view), in: pane.workspace?.pageTabPane(from: pane) ?? pane, focus: true, byPerson: true)
         case .attachImages(let urls, let source):
             // The pane's chat, else the one shown in the workspace's most recently focused pane; a New Tab page is no chat; a chat not made answers nil, so its files go with the next.
             let recent = pane.workspace.map { content in content.recentPanes.compactMap { content.panes[$0] } } ?? []
