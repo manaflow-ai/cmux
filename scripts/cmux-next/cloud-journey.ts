@@ -3911,7 +3911,7 @@ export const providerKeysProgram = (folders: readonly string[] = PROVIDER_KEY_FO
   "echo \"@@procs $(ls -d /proc/[0-9]* | wc -l)\"",
   "$R grep -aoE \"$P\" /proc/[0-9]*/environ /proc/[0-9]*/cmdline 2>/dev/null | while IFS= read -r l; do p=${l#/proc/}; p=${p%%/*}; echo \"$p $(printf '%s\\n' \"${l#*:}\" | kind)\"; done" +
     " | sort -u | while read -r p k; do echo \"@@hit env pid $p ($($R cat /proc/$p/comm 2>/dev/null)): $k\"; done",
-  `$R timeout 80 find ${folders.join(" ")} -xdev` + " \\( -name node_modules -o -name .git \\) -prune -o -type f -size -4M -print0 2>/dev/null" +
+  `$R timeout 80 find ${folders.join(" ")} -xdev` + " \\( -name node_modules -o -name site-packages -o -name dist-packages -o -name .git \\) -prune -o -type f -size -4M -print0 2>/dev/null" +
     " | $R xargs -0 -r grep -IlsE \"$P\" 2>/dev/null | while IFS= read -r f; do echo \"@@hit file $f: $($R grep -ohIsE \"$P\" \"$f\" | kind)\"; done",
   "echo @@done",
 ].join("\n");
