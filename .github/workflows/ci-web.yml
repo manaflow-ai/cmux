@@ -1552,6 +1552,8 @@ jobs:
             fi
             base="$RUNNER_TEMP/pr-scoped-base"
             base_run() {
+              # A re-used checkout keeps an earlier job's registration after RUNNER_TEMP is emptied.
+              git worktree prune &&
               git worktree add -q --detach "$base" HEAD^1 &&
                 ln -s "$PWD/webviews/node_modules" "$base/webviews/node_modules" &&
                 if [ -f "$base/$check" ]; then

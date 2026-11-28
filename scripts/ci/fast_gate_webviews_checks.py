@@ -196,8 +196,26 @@ SUMMARY = re.compile(r"^Found \d+ (?:errors? and \d+ warnings?|warnings? and \d+
 FIXIT_COMPILE = Path(__file__).resolve().parent / "oops" / "fixit_compile.py"
 
 
+# The fast-gates job's critical path is the bundle matrix's agent-pane build (105 s alone, ~200 s when the
+# other checks and gates share the runner's cores, 2026-11-28). It starts first and keeps full priority; the
+# shorter checks run at a lower priority so they take the cores it leaves idle. WEBVIEWS_CHECKS_NICE=0 turns it off.
+CRITICAL_CHECKS = ("check:bundle-matrix", "typecheck")
+
+
+def niced(argv: list[str], check: str) -> list[str]:
+    level = os.environ.get("WEBVIEWS_CHECKS_NICE", "10")
+    if check in CRITICAL_CHECKS or level in ("", "0") or not shutil.which("nice"):
+        return argv
+    return ["nice", "-n", level, *argv]
+
+
+def submit_order(checks: list[str] | tuple[str, ...]) -> list[str]:
+    """The critical checks first, then the rest in CHECKS order: a pool slot for the longest check at once."""
+    return [c for c in CRITICAL_CHECKS if c in checks] + [c for c in checks if c not in CRITICAL_CHECKS]
+
+
 def run_check(webviews: Path, check: str, fixit: bool = False) -> tuple[int, str]:
-    argv = ["bun", "run", check]
+    argv = niced(["bun", "run", check], check)
     if not (fixit and check == "typecheck" and FIXIT_COMPILE.is_file()):
         result = subprocess.run(argv, cwd=webviews, capture_output=True, text=True)
         return result.returncode, result.stdout + result.stderr
@@ -450,7 +468,7 @@ def main(argv: list[str] | None = None) -> int:
         # the base comparison read as before. WEBVIEWS_CHECKS_JOBS=1 restores the serial order.
         jobs = max(1, int(os.environ.get("WEBVIEWS_CHECKS_JOBS") or min(os.cpu_count() or 2, 6)))
         pool = concurrent.futures.ThreadPoolExecutor(max_workers=jobs)
-        futures = {check: pool.submit(run_check, webviews, check, True) for check in checks}
+        futures = {check: pool.submit(run_check, webviews, check, True) for check in submit_order(checks)}
         for check in checks:
             code, output = futures[check].result()
             print(output, end="", flush=True)
