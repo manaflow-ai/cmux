@@ -1765,7 +1765,7 @@ def redact_vnc(text):
     return re.sub(r"(vnc://[^:/@\s]*:)[^@\s]*@", r"\1***@", text or "")
 
 
-def screen_sharing_window(windows, host, exclude=()):
+def screen_sharing_window(windows, host, exclude=(), launched=()):
     """The Screen Sharing.app window showing HOST in WINDOWS (SS_WINDOWS_SWIFT's list, front to
     back): its {pid, window, title}, the frontmost normal-layer window owned by Screen Sharing
     whose title names HOST, skipping ids in EXCLUDE (there before). None when none names HOST:
@@ -1774,8 +1774,12 @@ def screen_sharing_window(windows, host, exclude=()):
             and w.get("layer") == 0 and w.get("window") and w["window"] not in exclude
             and (w.get("w") or 0) >= 200 and (w.get("h") or 0) >= 200]
     named = [w for w in ours if host and host in (w.get("title") or "")]
-    pick = (named or [None])[0]
-    return {k: pick[k] for k in ("pid", "window", "title")} if pick else None
+    if named:
+        return {**{k: named[0][k] for k in ("pid", "window", "title")}, "matched": "title"}
+    fresh = [w for w in ours if w.get("pid") in set(launched or ())]
+    if len(fresh) == 1 and not any(w.get("title") for w in ours):
+        return {**{k: fresh[0][k] for k in ("pid", "window", "title")}, "matched": "launched pid"}
+    return None
 
 
 def screen_sharing_pids():
@@ -1854,7 +1858,8 @@ def cmd_apple(args):
             deadline, win, windows = time.time() + args.wait, None, []
             while True:
                 windows = list_windows(state)
-                win = screen_sharing_window(windows, args.host, exclude=old)
+                win = screen_sharing_window(windows, args.host, exclude=old,
+                                            launched=screen_sharing_pids() - ran)
                 if win or time.time() >= deadline:
                     break
                 time.sleep(1)  # bounded wait (--wait) for the window to connect

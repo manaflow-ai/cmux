@@ -11,7 +11,10 @@ import {
   MAX_ROLLS_BEHIND,
   ROLLBACK_DEPLOYS,
   approve,
+  binarySkew,
   bootDrift,
+  channelCommit,
+  MAX_BINARY_SKEW,
   fallbackImage,
   withFallback,
   bootedImage,
@@ -370,6 +373,46 @@ describe("auto-roll check (stale boot image detector)", () => {
   });
 });
 
+describe("auto-roll skew (RFD 0224 phase 4: image from the binary's SHA)", () => {
+  const a = "a".repeat(40);
+  const b = "b".repeat(40);
+  const envelope = (commit: string) => JSON.stringify({ payload: Buffer.from(JSON.stringify({ channel: "cloud-machine", commit })).toString("base64"), signature: "x" });
+
+  test("reads the commit from the signed envelope's payload and from a bare file", () => {
+    expect(channelCommit(envelope(a))).toBe(a);
+    expect(channelCommit(JSON.stringify({ commit: b }))).toBe(b);
+    expect(() => channelCommit(envelope("main"))).toThrow("40-hex");
+  });
+
+  test("the same SHA is ok; any trailing commit is not by default; unknown ancestry is not ok", () => {
+    expect(MAX_BINARY_SKEW).toBe(0);
+    expect(binarySkew(a, a, 0)).toMatchObject({ same: true, ok: true, behindCommits: 0 });
+    expect(binarySkew(a, b, 629)).toMatchObject({ same: false, ok: false, behindCommits: 629 });
+    expect(binarySkew(a, b, 3, 5).ok).toBe(true);
+    expect(binarySkew(a, b, null)).toMatchObject({ ok: false, behindCommits: null });
+  });
+
+  test("the CLI exits 0 when the channel serves the lock's pin and 1 when it serves another commit", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "auto-roll-skew-"));
+    try {
+      const lockPath = new URL("../../images/cmux-vm/inputs.lock.json", import.meta.url).pathname;
+      const pin = (JSON.parse(readFileSync(lockPath, "utf8")) as { programs: Array<{ name: string; version: string }> }).programs.find((p) => p.name === "cmux-tui")!.version;
+      const script = new URL("../../images/cmux-vm/auto-roll.ts", import.meta.url).pathname;
+      const file = path.join(dir, "channel.json");
+      writeFileSync(file, envelope(pin));
+      const same = await runChild("bun", [script, "skew", "--channel", file]);
+      expect(same.status).toBe(0);
+      expect(JSON.parse(same.stdout).same).toBe(true);
+      writeFileSync(file, envelope("0".repeat(40)));
+      const other = await runChild("bun", [script, "skew", "--channel", file]);
+      expect(other.status).toBe(1);
+      expect(other.stderr).toContain("skew: image pin");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("auto-roll rollback", () => {
   test("takes the first auto-rolled image out of both lists, so the entry before it boots again", () => {
     const original = locate(wrangler, "production").images[0]!.id;
@@ -469,6 +512,17 @@ describe("auto-roll settle", () => {
     expect(settle(roll({ deploy: "skipped", product: "", bootImage: "", attempt: ROLLBACK_DEPLOYS })).outcome).toBe("rollback");
     // Gone from both lists already: nothing to deploy again.
     expect(settle(roll({ deploy: "skipped", product: "", tipHas: false })).outcome).toBe("superseded");
+  });
+
+  test("a deployed roll whose smoke job never ran a step (lost runner) is deployed and smoked again, within the bound", () => {
+    // 99de33e5-45840828684-1, 2026-11-26: deploy-production green, smoke-production's runner lost the server in setup.
+    for (let attempt = 1; attempt < ROLLBACK_DEPLOYS; attempt++)
+      expect(settle(roll({ product: "", bootImage: "", smokeRan: false, attempt }))).toMatchObject({ outcome: "retry", nextAttempt: attempt + 1 });
+    expect(settle(roll({ product: "", bootImage: "", smokeRan: false, attempt: ROLLBACK_DEPLOYS })).outcome).toBe("rollback");
+    // A smoke that started and went red before (or at) the create still rolls back; so does an unknown start.
+    expect(settle(roll({ product: "", bootImage: "", smokeRan: true })).outcome).toBe("rollback");
+    expect(settle(roll({ product: "", bootImage: "" })).outcome).toBe("rollback");
+    expect(settle(roll({ product: "failure", smokeRan: false })).outcome).toBe("rollback");
   });
 
   test("a failed roll a newer roll sits above still rolls back; only an image gone from both lists is superseded", () => {
@@ -949,6 +1003,63 @@ describe("auto-roll scripts", () => {
       expect(plan.pin).toBe(deepNew);
       expect(plan.cmuxTui).toBe(deepNew);
       expect(plan.reason).toMatch(/newest build published on HEAD/);
+    }), 60_000);
+
+  // RFD 0224 phase 4: 2026-11-28 17:48Z the lock pinned c6cd14b5 while the Cloud machine channel served 632a901e,
+  // 629 commits newer; a push roll pinned the newest published build, not the binary running VMs take.
+  test("a push roll pins the commit the Cloud machine channel serves, and falls back when it cannot", () =>
+    withDir(async (dir) => {
+      const full = path.join(dir, "full");
+      await git(dir, "init", "-q", "-b", "feat-cmux-next", full);
+      const commitOf = async (msg: string, file?: string) => {
+        if (file) {
+          mkdirSync(path.dirname(path.join(full, file)), { recursive: true });
+          writeFileSync(path.join(full, file), msg);
+          await git(full, "add", file);
+        }
+        await git(full, "commit", "-q", "--allow-empty", "-m", msg);
+        return (await git(full, "rev-parse", "HEAD")).stdout.trim();
+      };
+      const older = await commitOf("older build");
+      const pinned = await commitOf("pinned");
+      const served = await commitOf("channel build");
+      const newest = await commitOf("newest build");
+      const before = await commitOf("before");
+      await commitOf("image change", "images/cmux-vm/x.txt");
+      const tip = (await git(full, "rev-parse", "HEAD")).stdout.trim();
+      const lock = path.join(dir, "lock.json");
+      writeFileSync(lock, JSON.stringify({ programs: [{ name: "cmux-tui", version: pinned }] }));
+      const fakeBin = path.join(dir, "bin");
+      mkdirSync(fakeBin);
+      const realBun = (await runChildOk("bash", ["-c", "command -v bun"], { env: process.env })).stdout.trim();
+      writeFileSync(
+        path.join(fakeBin, "bun"),
+        `#!/usr/bin/env bash\ncase "\${1:-}" in *pin-cmux-tui.ts)\n  if [ "\${2:-}" = --commit ]; then case " \${PUBLISHED:-} " in *" $3 "*) printf '{"commit":"%s","unchanged":false}' "$3"; exit 0;; esac; echo "$3/manifest.json: 404" >&2; exit 1; fi\n  printf '{"commit":"%s","unchanged":false}' "$LATEST"; exit 0;;\nesac\nexec ${realBun} "$@"\n`,
+      );
+      await runChildOk("chmod", ["+x", path.join(fakeBin, "bun")]);
+      const script = path.join(repoRoot, "images/cmux-vm/auto-roll.ts");
+      const channel = path.join(dir, "cloud-machine.json");
+      const serve = (commit: string) =>
+        writeFileSync(channel, JSON.stringify({ payload: Buffer.from(JSON.stringify({ channel: "cloud-machine", commit })).toString("base64"), signature: "x" }));
+      const planWith = async (where: string, published: string[]) => {
+        const out = await runChildOk(path.join(fakeBin, "bun"), [script, "plan", "--event", "push", "--commit", tip, "--before", before, "--tip", "HEAD", "--lock", lock, "--repo", full, "--channel", where], {
+          env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, LATEST: newest, PUBLISHED: published.join(" ") },
+        });
+        return JSON.parse(out.stdout) as { roll: boolean; reason: string; pin: string; cmuxTui: string };
+      };
+      serve(served);
+      const fromChannel = await planWith(channel, [served, newest]);
+      expect(fromChannel).toMatchObject({ roll: true, pin: served, cmuxTui: served });
+      expect(fromChannel.reason).toContain("the commit the Cloud machine channel serves");
+      // The channel serves the pin: the image already carries it, so the newest build is not taken.
+      serve(pinned);
+      expect(await planWith(channel, [served, newest])).toMatchObject({ roll: true, pin: "", cmuxTui: pinned });
+      // Fallbacks to the newest published build: unreadable channel, an older commit, an unpublished one.
+      expect((await planWith(path.join(dir, "missing.json"), [newest])).pin).toBe(newest);
+      serve(older);
+      expect((await planWith(channel, [older, newest])).pin).toBe(newest);
+      serve(served);
+      expect((await planWith(channel, [newest])).pin).toBe(newest);
     }), 60_000);
 
   // Roll 44191283358's re-run (attempt 2) promoted cmux-tui 6c776483 at 2026-11-18 04:53Z over roll 44224051230's
