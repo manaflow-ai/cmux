@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { execConformanceCase, execConformanceOn, parseCaseNames, parseRows, rowText, verdict } from "./cloud-journey-exec-conformance.ts";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { execConformanceCargoStart, execConformanceCargoWait, execConformanceCase, execConformanceOn, execConformanceProbe, JOURNEY_ACPMUX_DIR, journeyAcpmuxAssemble, journeyAcpmuxPieces, parseCaseNames, parseRows, rowText, verdict } from "./cloud-journey-exec-conformance.ts";
 
 const row = (c: string, o: Record<string, unknown> = {}) => ({ case: c, identical: true, diffs: [], routedRan: "fork", ...o });
 
@@ -52,5 +56,44 @@ describe("exec conformance on prod", () => {
     expect(s).toContain('"cloud.autoCloud": true');
     expect(s).toContain("--json exec-router conformance --case 'echo'");
     expect(execConformanceCase("e", { api: "a", token: "t", machine: "m" }, "/d")).toContain("unset CMUX_CLOUD_TEAM");
+  });
+
+  test("the journey's acpmux is cut into fs/write pieces under 8 MiB, in order", () => {
+    const gz = new Uint8Array(13);
+    for (let i = 0; i < gz.length; i++) gz[i] = i;
+    const p = journeyAcpmuxPieces(gz, 5);
+    expect(p.map((x) => x.path)).toEqual([0, 1, 2].map((i) => `${JOURNEY_ACPMUX_DIR}/acpmux.gz.000${i}`));
+    expect(p.map((x) => x.data.length)).toEqual([5, 5, 3]);
+    expect(Array.from(p[2].data)).toEqual([10, 11, 12]);
+    expect(journeyAcpmuxPieces(new Uint8Array(0))).toEqual([]);
+  });
+
+  test("assembly checks the sum, unpacks, and prints the version", () => {
+    const s = journeyAcpmuxAssemble(2, "abc");
+    expect(s).toContain(`cat '${JOURNEY_ACPMUX_DIR}/acpmux.gz.0000' '${JOURNEY_ACPMUX_DIR}/acpmux.gz.0001' >`);
+    expect(s).toContain(`[ "$got" = 'abc' ]`);
+    expect(s).toContain("gunzip -c");
+    expect(s).toContain("@@ec journey_acpmux=");
+  });
+
+  test("the journey's acpmux is first on PATH, so `$a` and the routed side's own_bin are it", () => {
+    expect(execConformanceProbe()).toContain(`export PATH="${JOURNEY_ACPMUX_DIR}:$HOME/.cargo/bin:$PATH"`);
+  });
+  test("the toolchain install runs in the background and the wait proves cargo runs (run 46159895648: cut at 300 s, sides saw two toolchains)", () => {
+    const start = execConformanceCargoStart();
+    const wait = execConformanceCargoWait(10);
+    for (const s of [start, wait]) expect(spawnSync("sh", ["-n", "-c", s]).status).toBe(0);
+    expect(start).toContain("setsid nohup sh -c '( ");
+    expect(start).toContain("/tmp/cmux-ec-cargo.done");
+    // A cargo that answers: the start marks done at once and the wait reports ready.
+    const home = mkdtempSync(path.join(tmpdir(), "ec-cargo-"));
+    mkdirSync(path.join(home, ".cargo/bin"), { recursive: true });
+    writeFileSync(path.join(home, ".cargo/bin/cargo"), "#!/bin/sh\necho cargo 9.9.9\n");
+    chmodSync(path.join(home, ".cargo/bin/cargo"), 0o755);
+    const env = { HOME: home, PATH: "/usr/bin:/bin" };
+    expect(spawnSync("sh", ["-c", start], { env, encoding: "utf8" }).stdout).toContain("@@ec cargo already");
+    const w = spawnSync("sh", ["-c", wait], { env, encoding: "utf8" }).stdout;
+    expect(w).toContain("cargo_ready=yes install_exit=0");
+    expect(w).toContain("version=cargo 9.9.9");
   });
 });
