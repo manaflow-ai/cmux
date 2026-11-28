@@ -26,7 +26,7 @@ on:
         default: ""
         type: string
       nightly_build:
-        description: Numbered published NEXT NIGHTLY for isolated real-Claude journal recovery (leave ref empty)
+        description: Numbered published NEXT NIGHTLY for isolated real-Claude journal recovery (leave ref empty); empty runs it on the feed's newest build
         required: false
         default: ""
         type: string
@@ -198,7 +198,9 @@ jobs:
           bun scripts/cmux-next/auto-journey.ts --backend staging --cleanup "$OUT"
 
   nightly-journal-recovery:
-    if: github.ref == 'refs/heads/feat-cmux-next' && inputs.nightly_build != ''
+    # A dispatch without `ref` runs it too, on the feed's newest build (nightly_build empty),
+    # so a plain dispatch proves recovery on what ships; the lane broker allows only that form.
+    if: github.ref == 'refs/heads/feat-cmux-next' && inputs.ref == ''
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
@@ -211,8 +213,8 @@ jobs:
           AT: ${{ inputs.ref }}
         run: |
           set -euo pipefail
-          if [ -n "$AT" ] || ! printf '%s' "$BUILD" | grep -Eqx '[0-9]{3,20}'; then
-            echo '::error::nightly_build must be a numbered publication and ref must be empty'
+          if [ -n "$AT" ] || { [ -n "$BUILD" ] && ! printf '%s' "$BUILD" | grep -Eqx '[0-9]{3,20}'; }; then
+            echo '::error::nightly_build must be empty or a numbered publication, and ref must be empty'
             exit 1
           fi
 

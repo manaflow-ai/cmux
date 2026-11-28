@@ -70,6 +70,21 @@ def pick_build(xml: bytes, build: str) -> dict[str, str]:
     return matches[0]
 
 
+def newest_build(xml: bytes) -> str:
+    """The highest numbered build the feed holds: a dispatch without a build tests this one."""
+    builds = []
+    for item in ET.fromstring(xml).iter("item"):
+        enclosure = item.find("enclosure")
+        if enclosure is None:
+            continue
+        version = (item.findtext(SPARKLE + "version") or enclosure.get(SPARKLE + "version", "")).strip()
+        if re.fullmatch(r"[0-9]{3,}", version):
+            builds.append(version)
+    if not builds:
+        raise ValueError("the feed holds no numbered NIGHTLY")
+    return max(builds, key=int)
+
+
 def run(*args: str, timeout: int = 120) -> str:
     return subprocess.check_output(args, text=True, timeout=timeout).strip()
 
@@ -127,7 +142,7 @@ def app_receipt(app: Path, build: str, source: str, repo: Path, required: str) -
     }
 
 
-def prepare(build: str, out: Path, repo: Path, required: str, feed_file: Path | None = None) -> Path:
+def prepare(build: str | None, out: Path, repo: Path, required: str, feed_file: Path | None = None) -> Path:
     if sys.platform != "darwin":
         raise ValueError("NIGHTLY extraction requires a managed fleet Mac")
     out = out.resolve()
@@ -141,6 +156,8 @@ def prepare(build: str, out: Path, repo: Path, required: str, feed_file: Path | 
         run("curl", "-fsSL", "--proto", "=https", "--max-time", "60", "-A",
             "cmux-journal-nightly-recovery/1", "-H",
             "Cache-Control: no-cache", "-o", str(feed), FEED, timeout=70)
+    if not build:
+        build = newest_build(feed.read_bytes())
     selected = pick_build(feed.read_bytes(), build)
     dmg = out / "nightly.dmg"
     run("curl", "-fsSL", "--proto", "=https", "--max-time", "600", "-A",
@@ -177,7 +194,7 @@ def prepare(build: str, out: Path, repo: Path, required: str, feed_file: Path | 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--build", required=True)
+    parser.add_argument("--build", default="", help="numbered NIGHTLY; empty: the newest one the feed holds")
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--contains", required=True, help="merged product commit being verified")
