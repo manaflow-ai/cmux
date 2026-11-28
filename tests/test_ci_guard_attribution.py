@@ -19,6 +19,7 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
@@ -480,6 +481,26 @@ class FakeGitHub:
         return self.comment_map.get(number, [])
 
 
+class RecordingClient:
+    """A GitHub client that records every write; a payload-less DELETE keeps its None."""
+
+    def __init__(self, comments):
+        self.stored, self.calls = {c["id"]: dict(c) for c in comments}, []
+
+    def comments(self, number):
+        return [{"id": c["id"], "body": c["body"], "user": {"login": c["user"]["login"]}}
+                for c in self.stored.values()]
+
+    def request(self, method, path, body=None, text=False):
+        self.calls.append((method, path, body))
+        ident = int(path.rsplit("/", 1)[1])
+        if method == "PATCH":
+            self.stored[ident]["body"] = body["body"]
+        elif method == "DELETE":
+            self.stored.pop(ident, None)
+        return {}
+
+
 class Reporting(unittest.TestCase):
     def red_report(self, known: bool = False) -> dict:
         culprit = {"pr": 14724, "sha": "90e8953b0bb8", "author": "alice", "merger": "alice", "method": "only"}
@@ -542,6 +563,44 @@ class Reporting(unittest.TestCase):
         writer = ga.Writer(None, True)
         ga.report_pr(writer, FakeGitHub(), "manaflow-ai/cmux", {**report, "state": "green"})
         self.assertEqual(writer.log, [])  # never red here: nothing to say
+
+
+class TheWriter(unittest.TestCase):
+    """pr_status plans payload-less DELETEs (cleanup of folded comments); the writer's
+    `call` must carry them through instead of assuming every payload is a mapping."""
+
+    def migrate_comments(self) -> list[dict]:
+        return [{"id": 3, "body": ga.pr_status.render({"guards": "old"}), "user": {"login": ga.pr_status.BOT}},
+                {"id": 4, "body": ga.PR_MARKER + "\nold guard text", "user": {"login": ga.pr_status.BOT}}]
+
+    def test_a_payload_less_delete_is_recorded_in_a_dry_run(self) -> None:
+        writer = ga.Writer(None, True)
+        writer.call("DELETE", "repos/manaflow-ai/cmux/issues/comments/2", None)
+        self.assertEqual([entry.splitlines()[0] for entry in writer.log],
+                         ["--- would DELETE repos/manaflow-ai/cmux/issues/comments/2"])
+
+    def test_a_payload_less_delete_reaches_the_github_client(self) -> None:
+        client = RecordingClient([])
+        ga.Writer(client, False).call("DELETE", "repos/manaflow-ai/cmux/issues/comments/2", None)
+        self.assertEqual(client.calls, [("DELETE", "repos/manaflow-ai/cmux/issues/comments/2", None)])
+
+    def test_migrating_a_legacy_guard_comment_records_the_patch_then_the_delete(self) -> None:
+        writer = ga.Writer(None, True)
+        ga.upsert_comment(writer, "manaflow-ai/cmux", 7, ga.PR_MARKER, "new guard text",
+                          existing=self.migrate_comments(), section="guards")
+        self.assertEqual([entry.splitlines()[0] for entry in writer.log],
+                         ["--- would PATCH repos/manaflow-ai/cmux/issues/comments/3",
+                          "--- would DELETE repos/manaflow-ai/cmux/issues/comments/4"])
+
+    def test_a_live_migration_sends_the_patch_then_the_payload_less_delete(self) -> None:
+        client = RecordingClient(self.migrate_comments())
+        with mock.patch.object(ga.time, "sleep", lambda _: None):
+            ga.upsert_comment(ga.Writer(client, False), "manaflow-ai/cmux", 7, ga.PR_MARKER,
+                              "new guard text", existing=self.migrate_comments(), section="guards")
+        self.assertEqual(client.calls,
+                         [("PATCH", "repos/manaflow-ai/cmux/issues/comments/3",
+                           {"body": ga.pr_status.render({"guards": "new guard text"})}),
+                          ("DELETE", "repos/manaflow-ai/cmux/issues/comments/4", None)])
 
 
 class StepSelection(unittest.TestCase):
