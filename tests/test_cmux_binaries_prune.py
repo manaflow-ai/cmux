@@ -253,11 +253,11 @@ class Main(unittest.TestCase):
 
 class Workflow(unittest.TestCase):
     def test_only_main_prunes_and_only_on_an_explicit_opt_in(self):
-        workflow = yaml.safe_load((ROOT / ".github/workflows/r2-binaries-prune.yml").read_text())
+        workflow = yaml.safe_load((ROOT / ".github/workflows/storage-maintenance.yml").read_text())
         triggers = workflow.get("on", workflow.get(True))
         self.assertEqual(set(triggers), {"schedule", "workflow_dispatch"})
         self.assertEqual(workflow["permissions"], {})
-        job = workflow["jobs"]["prune"]
+        job = workflow["jobs"]["r2-binaries"]
         self.assertIn("github.ref == 'refs/heads/main'", job["if"])
         self.assertEqual(workflow_jobs.resolve(job).environment["name"], "artifacts")
         run_step = next(step for step in job["steps"] if "cmux_binaries_prune.py" in str(step.get("run", "")))

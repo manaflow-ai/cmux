@@ -129,3 +129,25 @@ export function prependOlderEventRecords(older: EventRecord[], events: EventReco
 export function sessionUpdate(event: EventRecord): any | undefined {
   return event.dir === "in" && event.msg.method === "session/update" ? event.msg.params?.update : undefined;
 }
+
+/// The records in `seq` order as a new array, only those with `seq <= through` when it is given: what a copy (or a
+/// filter) and a sort by `seq` give, a stable sort, so equal `seq`s keep their order. A held log is already in order
+/// (every merge and page keeps it so), and a full rebuild sorted it twice anyway; this checks the order in one pass and
+/// copies, and sorts only a log that is out of order (test/held-by-seq.test.ts: `heldBySeqBySort` is its oracle).
+export function heldBySeq(events: readonly EventRecord[], through?: number): EventRecord[] {
+  let end = events.length;
+  for (let i = 0; i < events.length; i++) {
+    const seq = events[i]!.seq;
+    // A NaN fails every comparison, so a log holding one takes the sort, which places it as it always did.
+    if (seq !== seq || (i > 0 && !(events[i - 1]!.seq <= seq))) return heldBySeqBySort(events, through);
+    // In order, every record after the first past `through` is past it too.
+    if (end === events.length && through !== undefined && !(seq <= through)) end = i;
+  }
+  return events.slice(0, end);
+}
+
+/// The old way: a copy or a filter, then a sort. The oracle of `heldBySeq`, and its path for a log out of order.
+export function heldBySeqBySort(events: readonly EventRecord[], through?: number): EventRecord[] {
+  const kept = through === undefined ? [...events] : events.filter((event) => event.seq <= through);
+  return kept.sort((a, b) => a.seq - b.seq);
+}

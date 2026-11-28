@@ -118,6 +118,8 @@ public enum ReservedWorkspaceRelease: String, Sendable {
     case pressure
     /// A press took its key but did not show it (the key never names another workspace).
     case unshown
+    /// The chat renderer recycle: its page leaves the old renderer, and the reservation comes back in the new one.
+    case recycle
 
     public var span: String { "cmdN.reserved.released.\(rawValue)" }
 }
