@@ -84,6 +84,13 @@ async fn automatic_restart_keeps_queued_prompts_and_work_below_even_before_retry
 async fn automatic_restart_ordinary_prompt_hibernates_required_stale_agent() {
     let (hub, session) = live_chat().await;
     let old = session.child.lock().await.clone().expect("live fake child");
+    let last_turn = session.meta().last_turn.expect("initial turn");
+    hub.set_waiting_for_test(
+        &session,
+        last_turn["turnId"].as_str().expect("initial turn ID"),
+        crate::protocol::session::RetryReason::Transport,
+    );
+    assert!(hub.continuation_pending(&session));
     hub.respawn_when_quiet_required(&session);
     assert_eq!(session.queued(), 0, "the ordinary prompt has not entered the queue yet");
 
@@ -109,6 +116,83 @@ async fn automatic_restart_ordinary_prompt_hibernates_required_stale_agent() {
         !session.respawn_required.load(Ordering::SeqCst),
         "required restart mark remained after replacement"
     );
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
+async fn automatic_restart_deadline_defers_and_restores_next_prompt_in_order() {
+    let (hub, session) = live_chat().await;
+    let old = session.child.lock().await.clone().expect("live fake child");
+    // Work outlives its turn and keeps the old harness alive across the admission deadline.
+    *session.work_below_since.lock().unwrap() = 1;
+    hub.respawn_when_quiet_required(&session);
+    let (accepted, receipt) = tokio::sync::oneshot::channel();
+    let opts = PromptOptions {
+        prompt_id: Some("next-after-fallback".into()),
+        on_accepted: Some(Box::new(move |v| {
+            let _ = accepted.send(v);
+        })),
+        ..PromptOptions::default()
+    };
+    let mut next = Box::pin(hub.prompt_with(
+        &session,
+        vec![json!({"type": "text", "text": "next after fallback"})],
+        "test",
+        false,
+        opts,
+    ));
+    let bound = std::time::Duration::from_secs(10);
+    let receipt = tokio::select! {
+        receipt = tokio::time::timeout(bound, receipt) => {
+            receipt.expect("admission answers by its deadline").unwrap()
+        }
+        result = &mut next => panic!("prompt completed before its held harness was quiet: {result:?}"),
+    };
+    assert_eq!(receipt["state"], "queued", "{receipt}");
+    assert_eq!(receipt["deferred"], true, "{receipt}");
+    let (accepted, later_receipt) = tokio::sync::oneshot::channel();
+    let mut later = Box::pin(hub.prompt_with(
+        &session,
+        vec![json!({"type": "text", "text": "later prompt"})],
+        "test",
+        false,
+        PromptOptions {
+            prompt_id: Some("later-prompt".into()),
+            on_accepted: Some(Box::new(move |v| {
+                let _ = accepted.send(v);
+            })),
+            ..PromptOptions::default()
+        },
+    ));
+    let later_receipt = tokio::select! {
+        receipt = tokio::time::timeout(bound, later_receipt) => {
+            receipt.expect("the later prompt is accepted while work continues").unwrap()
+        }
+        result = &mut later => panic!("later prompt ran while work continued: {result:?}"),
+    };
+    assert_eq!(later_receipt["state"], "queued", "{later_receipt}");
+    assert!(old.is_alive().await, "the harness was ended during active work");
+    let dispatched = || {
+        hub.events(&session.id, 0, 10_000)
+            .unwrap()
+            .into_iter()
+            .filter(|r| r.kind == "user_message")
+            .map(|r| r.msg["promptId"].clone())
+            .filter(|id| matches!(id.as_str(), Some("next-after-fallback" | "later-prompt")))
+            .collect::<Vec<_>>()
+    };
+    assert!(dispatched().is_empty(), "prompts were dispatched before the old child was quiet");
+    *session.work_below_since.lock().unwrap() = 0;
+    let (next, later) = tokio::time::timeout(bound, async { tokio::join!(next, later) })
+        .await
+        .expect("both prompts proceed once the harness is quiet");
+    for reply in [next.unwrap(), later.unwrap()] {
+        assert_eq!(reply["stopReason"], "end_turn", "{reply}");
+    }
+    assert_eq!(dispatched(), [json!("next-after-fallback"), json!("later-prompt")]);
+    let current = session.child.lock().await.clone().expect("replacement child");
+    assert!(!Arc::ptr_eq(&old, &current), "the restored prompt reused the stale child");
+    assert!(!old.is_alive().await);
     hub.shutdown_all().await;
 }
 

@@ -118,6 +118,91 @@ async fn live_retry_chat() -> (Arc<Hub>, Arc<Session>) {
 }
 
 #[tokio::test]
+async fn a_continuation_overtaken_during_admission_never_joins_the_queue() {
+    for during_probe in [true, false] {
+        let (hub, session) = live_retry_chat().await;
+        session.meta.lock().unwrap().last_turn = Some(json!({
+            "turnId": "cut", "promptId": "original", "status": "failed",
+        }));
+        hub.set_waiting_for_test(&session, "cut", RetryReason::Transport);
+        let fired = hub.fire_pending(&session, "cut").unwrap();
+        let turn_lock = session.turn_lock.lock().await;
+        let child_lock = if during_probe { Some(session.child.lock().await) } else { None };
+        let (accepted, mut receipt) = tokio::sync::oneshot::channel();
+        let mut continuation = Box::pin(hub.run_prompt(
+            &session,
+            vec![json!({"type": "text", "text": "continue"})],
+            "test",
+            false,
+            crate::hub::PromptOptions {
+                after_turn: Some("cut".into()),
+                fired: Some(fired),
+                prompt_id: Some("late-continuation".into()),
+                on_accepted: Some(Box::new(move |v| {
+                    let _ = accepted.send(v);
+                })),
+                ..Default::default()
+            },
+        ));
+        let config_lock = if during_probe {
+            assert!(futures::poll!(&mut continuation).is_pending());
+            assert_eq!(session.queued(), 0);
+            // Admission must recheck the cut before it enters queue_slot, whose first step
+            // needs a config read. Keep that read blocked until the continuation refuses.
+            Some(hub.config.write().await)
+        } else {
+            tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                loop {
+                    assert!(futures::poll!(&mut continuation).is_pending());
+                    if session.queued() == 1 {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("the continuation never reserved its queue slot");
+            None
+        };
+
+        let newer = TurnInfo::prompted("test", "person", "newer", "newer-prompt", Control::Local);
+        hub.start_turn(&session, None, None, false, false, newer).unwrap();
+        drop(child_lock);
+        drop(turn_lock);
+
+        let error = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            tokio::select! {
+                biased;
+                receipt = &mut receipt => {
+                    match receipt {
+                        Ok(receipt) => panic!("the stale continuation was accepted: {receipt}"),
+                        Err(_) => continuation.await.unwrap_err(),
+                    }
+                },
+                result = &mut continuation => {
+                    assert!(receipt.try_recv().is_err(), "the stale continuation was accepted");
+                    result.unwrap_err()
+                },
+            }
+        })
+        .await
+        .expect("the stale continuation waited behind the newer turn");
+        drop(config_lock);
+        assert_eq!(error.data.as_ref().unwrap()["reason"], "auto_resume.superseded");
+        assert_eq!(session.queued(), 0);
+        assert!(
+            hub.events(&session.id, 0, 10_000)
+                .unwrap()
+                .iter()
+                .all(|r| r.kind != "queued" || r.msg["promptId"] != "late-continuation")
+        );
+        hub.take_turn(&session, "newer", None);
+        hub.clear_fired(&session, "cut", fired);
+        hub.shutdown_all().await;
+    }
+}
+
+#[tokio::test]
 async fn automatic_restart_retry_waits_for_background_work_before_hibernating_the_old_route() {
     let (hub, session) = live_retry_chat().await;
     let old = session.child.lock().await.clone().expect("live fake child");
