@@ -24,3 +24,17 @@ test("every BranchIcon renders the shared BranchGlyph, not its own svg", () => {
   }
   expect(own).toEqual([]);
 });
+
+// The Mac draws the pack's git.branch (the same trunk, curve and two nodes) for a branch. Its folder
+// picker names SF arrow.triangle.branch for git repositories (PickerSession+Items/Places), and the
+// palette draws a pack icon in place of an SF symbol only when that icon overrides it.
+test("the Mac palette's git-repository symbol draws the pack's git.branch", () => {
+  const catalog = JSON.parse(
+    readFileSync(path.resolve(import.meta.dir, "../src/agent-session/acpmux/icons/iconCatalog.json"), "utf8"),
+  ) as { name: string; overrides?: string[] }[] | { icons: { name: string; overrides?: string[] }[] };
+  const entries = Array.isArray(catalog) ? catalog : catalog.icons;
+  const owners = entries
+    .filter((entry) => entry.overrides?.includes("arrow.triangle.branch"))
+    .map((entry) => entry.name);
+  expect(owners).toEqual(["git.branch"]);
+});

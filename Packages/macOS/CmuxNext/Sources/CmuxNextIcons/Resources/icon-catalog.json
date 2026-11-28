@@ -1061,7 +1061,10 @@
    "name": "git.branch",
    "meaning": "Session is on a git branch.",
    "sf": "questionmark.square.dashed",
-   "family": "git"
+   "family": "git",
+   "overrides": [
+    "arrow.triangle.branch"
+   ]
   },
   {
    "name": "git.issue",
