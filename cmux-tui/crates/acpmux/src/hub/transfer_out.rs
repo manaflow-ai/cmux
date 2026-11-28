@@ -326,9 +326,9 @@ pub(super) fn names_a_move(mark: &str) -> bool {
 
 /// The close of a chat's copy here once its move committed: reason `moved to HOST/NAME` (`to` is
 /// the commit's `movedTo`; NAME the chat's, which a move keeps), outcome `moved`, never
-/// `unfinished`: the work runs on at HOST. 2026-11-27, every source copy of a lane that
-/// lane_cap_rebalance moved read `daemon`/`unrecorded`/`unfinished`, and lane-deaths revived it
-/// on the machine it had left (leo-workspace#13747 reads `movedTo` meanwhile).
+/// `unfinished`: the work runs on at HOST. Before this, every source copy of a moved chat read
+/// `daemon`/`unrecorded`/`unfinished`, so a tool that revives unfinished chats started it again
+/// on the machine it had left.
 pub(super) fn moved_close_why(to: &Value, name: &str) -> crate::close_why::CloseWhy {
     let host = to
         .get("host")
