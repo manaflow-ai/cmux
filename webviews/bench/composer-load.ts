@@ -7,6 +7,9 @@ import { keyPhasesProbe, readKeyPhases } from "./keyPhases";
 /// One display refresh at 60 Hz, the headless browsers' frame interval (ms).
 const REFRESH_MS = 1000 / 60;
 
+/// One display refresh at 60 Hz, the headless browsers' frame interval (ms).
+const REFRESH_MS = 1000 / 60;
+
 type Surface = Page | Frame;
 type LoadReceipt = {
   running: boolean;
