@@ -5049,7 +5049,7 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
  * older than 24 h and not in use; never `cloud journey kept jr-*` (a --keep run's) and never anything else. When the
  * row leaves any doubt, the answer is no, with the reason.
  */
-export const JOURNEY_MACHINE_NAME = /^cloud journey (?:jr-[a-z0-9]+(?: long| gateway)?|auto jr-[a-z0-9]+ long)$/;
+export const JOURNEY_MACHINE_NAME = /^cloud journey (?:jr-[a-z0-9]+(?: gateway)?|auto jr-[a-z0-9]+ long)$/;
 /** A strict machine id (cloud-machine-ops.ts MachineId). */
 export const MACHINE_ID = /^vm_[a-z0-9]{20}$/;
 const HOUR_MS = 3_600_000;

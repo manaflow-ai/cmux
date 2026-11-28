@@ -1664,7 +1664,7 @@ describe("cloud journey: leaked machines (--machines, --delete-ids)", () => {
     expect(journeyMachineEligible(row("cloud journey auto jr-mwyywwss"), now).eligible).toBe(false);
     expect(journeyMachineEligible(row("cloud journey auto jr-mwyywwss long", { created_at: now - 3_600_000 }), now).eligible).toBe(false);
     expect(journeyMachineEligible(row("cloud journey auto jr-mwyywwss long", { last_active_at: now - 60_000 }), now).eligible).toBe(false);
-    for (const name of ["cloud journey kept jr-mwyywwss", "cloud journey auto jr-x long extra", "cloud journey auto kept jr-x", "my machine", ""]) {
+    for (const name of ["cloud journey kept jr-mwyywwss", "cloud journey auto jr-x long extra", "cloud journey jr-mwyywwss long", "cloud journey auto kept jr-x", "my machine", ""]) {
       expect(journeyMachineEligible(row(name), now).eligible).toBe(false);
     }
   });
