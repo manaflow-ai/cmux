@@ -100,7 +100,7 @@ import Testing
         PointerHover.setDebugPointer(nil, in: harness.window)
     }
 
-    /// A pinned tile leads with its pin, before its icon and title (#63247): without it a pinned row reads as any row.
+    /// A pinned tile leads with its pin, before its icon and title (#63247, #64286): without it a pinned row reads as any row.
     @Test func aPinnedTileDrawsItsLeadingPin() throws {
         let harness = SidebarHomePinnedDragHarness()
         defer { harness.close() }

@@ -1000,6 +1000,7 @@ pub mod sidebar_hover_card_rules;
 pub mod sidebar_item_info;
 pub mod sidebar_launch_order;
 pub mod sidebar_layout;
+pub mod sidebar_layout_engine;
 pub mod sidebar_layout_plan;
 pub mod sidebar_list_rules;
 pub mod sidebar_pending_records;
@@ -1013,3 +1014,6 @@ pub mod window_registry;
 #[cfg(test)]
 mod window_registry_tests;
 pub mod workspace_port_links;
+
+pub mod new_tab_prefetch;
+pub mod new_tab_split_layout;

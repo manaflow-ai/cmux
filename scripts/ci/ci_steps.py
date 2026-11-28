@@ -3,6 +3,7 @@
 
   ci/run route --paths-file F            the routed steps by job, as JSON
   ci/run run --job JOB [--paths-file F] [--label NAME] [--only NAMES] [--pr-scope] [--tier pr|full]
+  ci/run step NAME                       run that one step here, whatever routes it, and exit with its verdict
 
 `ci/run` is the entry (it calls this file). `run` starts the job's routed steps, as many at
 once as the machine has CPUs, each as `bash -euo pipefail -c RUN` in the current directory
@@ -24,6 +25,13 @@ runs only those of the routed steps; empty means every routed step. A name the t
 not have is a notice and is skipped, never an error: the pull request that adds a step runs
 against a base whose table lacks it. Two workflows run steps of the `advisory` job, each its
 own (pr-body-checks.yml the description lints, pr-checks.yml the rest), so each names them.
+
+`step NAME` runs one step by name, as its job runs it (the job's setup, the tools it needs, its timeout), with no
+diff (routing never skips it), the full tier, the step's first label as the event when it lists labels, and no step
+results (it always runs). Unlike `run` it exits 1 when the step fails whether or not it blocks, and 2 when the table
+has no such step or the step's job runs on another OS (STEP_JOB_OS). This is the build fleet's entry for any step
+(`cmux-ci run --step NAME --ref SHA`, through scripts/ci/run-step.sh; Leo, 2026-11-19: "can't you... just be able to
+run whatever ci steps?").
 
 The table's rules (checked on load): every step names one of the table's jobs, there are
 at most 8 jobs, and a step that does not block runs in the `advisory` job in class `idle`.
@@ -76,6 +84,7 @@ import argparse
 import hashlib
 import json
 import os
+import platform
 import re
 import signal
 import subprocess
@@ -114,6 +123,10 @@ EVENT_VARS = (
 MACHINE_VARS = ("RUNNER_OS", "RUNNER_ARCH", "ImageOS", "DEVELOPER_DIR")
 PIPELINE_PATHS = ("ci/steps.toml", "ci/run", "scripts/ci/ci_steps.py", ".github/workflows/pr-pipeline.yml")
 ADVISORY_JOB = "advisory"
+# The OS (platform.system()) a job's steps run on, for `step`; a job not listed runs on Linux. `verdict` has no
+# machine, so `step` refuses its steps.
+STEP_JOB_OS = {"mac": "Darwin", "ios": "Darwin"}
+NO_MACHINE_JOBS = ("verdict",)
 LOG_LOCK = threading.Lock()
 CLASSES = ("feed", "named", "pr", "batch", "idle")
 
@@ -595,7 +608,7 @@ def step_env(base: Mapping[str, str], tools: str) -> dict[str, str]:
 def run_job(table: Table, job: str, paths: list[str] | None, label: str | None = None, out=sys.stdout,
             workers: int | None = None, only: list[str] | None = None, store: StepResults | None = None,
             root: Path = ROOT, pr_scope: bool = False, tier: str = "full", tools_only: bool = False,
-            alone_on_red: bool = False) -> int:
+            alone_on_red: bool = False, strict: bool = False, fail_fast: bool = False) -> int:
     names = route(table, paths, label, pr_scope=pr_scope, tier=tier).get(job, [])
     if pr_scope:
         deferred = [n for n in route(table, paths, label, tier=tier).get(job, []) if n not in names]
@@ -666,11 +679,28 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
             with ThreadPoolExecutor(max_workers=limit) as pool:
                 # A step's log prints when it ends, so a job cut by its own timeout still shows the steps
                 # that finished and which one was running.
+                red = threading.Event()
+                red_name: list[str] = []
+
                 def run_and_print(step: Step) -> Result:
+                    # fail_fast: once a blocking step is red the job is red and the re-run runs every step again,
+                    # so a step not yet started would only spend the machine (253 of 493 linux runs were red on
+                    # 11-28 and held 3835 of 6006 runner-min). Steps already running finish.
+                    if fail_fast and red.is_set() and not alone_on_red:
+                        print(f"::notice title=Step table::step {step.name} skipped: blocking step "
+                              f"{red_name[0]} failed (fail-fast)", file=out)
+                        return Result(step, 0, 0.0, "", skipped=True)
                     result = run_step(step, env)
                     print_log(result, out)
+                    if fail_fast and not result.ok and result.step.blocks and not red.is_set():
+                        red_name.append(result.step.name)
+                        red.set()
                     return result
-                results += pool.map(run_and_print, [s for s in steps if not s.alone])
+                parallel = [s for s in steps if not s.alone]
+                if fail_fast:
+                    # The cheap steps first, so the likeliest reds (guards, lints) come before a heavy step starts.
+                    parallel.sort(key=lambda s: s.timeout)
+                results += pool.map(run_and_print, parallel)
             # An `alone` step takes the whole machine: it runs by itself, after the others, in table order.
             # Once a blocking step failed the job is red, and the re-run runs every step again: an alone step
             # (the long ones: 15 to 65 minutes) would only spend the machine, so it is skipped. `alone_on_red`
@@ -696,15 +726,39 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
                       f"inputs did not hold (the key is evicted)", file=out)
         if store.error:
             print(f"::warning title=Step results::{store.url} {store.error}; nothing reused or stored", file=out)
-    return finish(results, job, out)
+    return finish(results, job, out, strict=strict)
 
 
-def finish(results: list[Result], job: str, out=sys.stdout) -> int:
+def finish(results: list[Result], job: str, out=sys.stdout, strict: bool = False) -> int:
     summary = report(results, job, out, logs=False)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
             f.write(summary)
-    return 1 if any(not r.ok and r.step.blocks for r in results) else 0
+    # STRICT (`step`): the one step's own verdict, a step that does not block included.
+    return 1 if any(not r.ok and (r.step.blocks or strict) for r in results) else 0
+
+
+def run_named_step(table: Table, name: str, out=sys.stdout, workers: int | None = None, root: Path = ROOT,
+             system: str | None = None) -> int:
+    """`step NAME`: the one step, as its job runs it, with its own verdict (the module's docs). 2: no such step, or
+    its job runs on another OS (a Linux step on a Mac would say nothing about the Linux check)."""
+    step = table.steps.get(name)
+    if step is None:
+        print(f"ci/run step: no step {name!r} in {TABLE.relative_to(ROOT)} at this commit", file=out)
+        return 2
+    if step.job in NO_MACHINE_JOBS:
+        print(f"ci/run step: step {name} is in job {step.job}, which runs on no machine", file=out)
+        return 2
+    want = STEP_JOB_OS.get(step.job, "Linux")
+    here = system or platform.system()
+    if here != want:
+        print(f"ci/run step: step {name} is in job {step.job}, which runs on {want}; this machine is {here}", file=out)
+        return 2
+    label = step.labels[0] if step.labels else None
+    print(f"ci/run step: {name} (job {step.job}{', label ' + label if label else ''})", file=out, flush=True)
+    code = run_job(table, step.job, None, label, out=out, workers=workers, only=[name], store=None, root=root,
+                   tier="full", alone_on_red=True, strict=True)
+    return code
 
 
 def read_paths(path: str | None) -> list[str] | None:
@@ -727,6 +781,9 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--pr-scope", action="store_true", help="route by named inputs only (see the module's docs)")
     r.add_argument("--tier", choices=("pr", "full"), default="full",
                    help="pr: leave the steps marked `tier = \"push\"` to the push tier; full (default): every routed step")
+    one = sub.add_parser("step", help="run one step by name here and exit with its verdict (the module's docs)")
+    one.add_argument("name")
+    one.add_argument("--workers", type=int, default=0)
     x = sub.add_parser("run")
     x.add_argument("--job", required=True)
     x.add_argument("--paths-file")
@@ -743,19 +800,24 @@ def main(argv: list[str] | None = None) -> int:
     x.add_argument("--alone-on-red", action="store_true", default=os.environ.get("CI_RUN_ALONE_ON_RED") == "1",
                    help="run the `alone` steps even after a blocking step failed (the post-merge batch: no re-run); "
                         "CI_RUN_ALONE_ON_RED=1 says the same")
+    x.add_argument("--fail-fast", action="store_true", default=os.environ.get("CI_RUN_FAIL_FAST") == "1",
+                   help="after a blocking step fails, start no further step (running ones finish); "
+                        "CI_RUN_FAIL_FAST=1 says the same")
     args = parser.parse_args(argv)
     table = load(Path(args.table))
-    paths = read_paths(args.paths_file)
+    paths = read_paths(getattr(args, "paths_file", None))
     if args.command == "route":
         print(json.dumps(route(table, paths, pr_scope=args.pr_scope, tier=args.tier), indent=1, sort_keys=True))
         return 0
+    if args.command == "step":
+        return run_named_step(table, args.name, workers=args.workers or None, root=Path.cwd())
     if args.job not in table.jobs:
         parser.error(f"--job {args.job!r} is not one of {sorted(table.jobs)}")
     # A label event runs only the steps that name the label: those read the event, so none is reused.
     store = None if args.label or args.tools_only else StepResults.from_env(dict(os.environ))
     return run_job(table, args.job, paths, args.label or None, workers=args.workers or None,
                    only=parse_only(args.only), store=store, root=Path.cwd(), pr_scope=args.pr_scope, tier=args.tier,
-                   tools_only=args.tools_only, alone_on_red=args.alone_on_red)
+                   tools_only=args.tools_only, alone_on_red=args.alone_on_red, fail_fast=args.fail_fast)
 
 
 if __name__ == "__main__":

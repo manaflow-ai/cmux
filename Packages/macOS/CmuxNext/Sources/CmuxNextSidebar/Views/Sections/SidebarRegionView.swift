@@ -431,8 +431,9 @@ final class SidebarRegionView: NSView {
         case .chip: .chip
         default: section.look == .builtIn ? .builtIn : .list
         }
-        // Every pinned workspace row leads with its pin (#63247; earlier #42431, #49583, #56146): pinning showed no mark
-        // once #52050 turned this off, so a pinned row read as any other. Its close and regular menu stay (#52050).
+        // Every pinned workspace row leads with its pin (#63247, #64286; earlier #42431, #49583, #56146): pinning showed
+        // no mark once #52050 turned this off, so a pinned row read as any other (Lawrence 2026-11-28: "i dont see pinned
+        // icon for pinned workspaces anymore"). Its close x and regular menu stay (#52050).
         var info = activeInfo(content.infos[id] ?? .fallback(for: item), id)
         info.leadingPin = !style.isIconOnly && style != .chip && section.id == SidebarLayoutDocument.pinnedSectionID
             && item.ref.kind == LayoutItemRef.workspaceKind

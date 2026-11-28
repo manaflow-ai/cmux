@@ -70,10 +70,10 @@
 # The login-time pre-read goes beside bin/cmux as bin/cmux-launch-preread
 # (CMUX_NEXT_LAUNCH_PREREAD_BIN, a sibling of a local client, or the verified
 # tree/pin companion). Older publications without the reader bundle none.
-# The app host and the browser host: when the bundled cmux runs them by argv[0]
-# (link-folded-hosts.sh --probe), bin/cmux-app-host and bin/cmux-browser-host are
-# relative links to cmux like cmux-tui and acpmux, nothing is fetched or placed
-# for them and their *_sha256 fields stay empty; an explicit CMUX_NEXT_*_BIN still
+# The app host, the browser host, the screen-detection plugin and the Cloud
+# server: each one the bundled cmux runs by argv[0] (link-folded-hosts.sh --list)
+# is a relative link to cmux like cmux-tui and acpmux, nothing is fetched or
+# placed for it and its *_sha256 field stays empty; an explicit CMUX_NEXT_*_BIN still
 # places a copy, and a cmux from before the fold gets its own binaries as above.
 # Release signing (sign-cmux-bundle-helpers.sh)
 # signs every Mach-O in bin/ the same way as bin/cmux, and
@@ -250,29 +250,36 @@ companion_source() {
     fi
   fi
 }
-# The browser host and the app host run from bin/cmux by argv[0] when this
-# build carries them (link-folded-hosts.sh, CMUX-570): bin/cmux-browser-host
-# and bin/cmux-app-host are then links to cmux, like cmux-tui and acpmux, and
-# no copy is fetched or placed. An explicit CMUX_NEXT_*_BIN still places its
-# copy. A build from before the fold bundles its own binaries as before.
+# The programs bin/cmux runs by argv[0] when this build carries them
+# (link-folded-hosts.sh --list, CMUX-570): the browser host, the app host, the
+# screen-detection plugin and the Cloud server are then links to cmux, like
+# cmux-tui and acpmux, and no copy is fetched or placed. An explicit
+# CMUX_NEXT_*_BIN still places its copy. A build from before a fold bundles
+# that program's own binary as before.
 folded_hosts=()
-if "$repo_root/scripts/cmux-next/link-folded-hosts.sh" --probe "$src"; then
-  [[ -n "${CMUX_NEXT_APP_HOST_BIN:-}" ]] || folded_hosts+=(cmux-app-host)
-  [[ -n "${CMUX_NEXT_BROWSER_HOST_BIN:-}" ]] || folded_hosts+=(cmux-browser-host)
-fi
+while IFS= read -r folded_name; do
+  case "$folded_name" in
+    cmux-app-host) folded_override="${CMUX_NEXT_APP_HOST_BIN:-}" ;;
+    cmux-browser-host) folded_override="${CMUX_NEXT_BROWSER_HOST_BIN:-}" ;;
+    cmux-agent-screen-detection) folded_override="${CMUX_NEXT_AGENT_SCREEN_DETECTION_BIN:-}" ;;
+    cmux-cloud) folded_override="${CMUX_NEXT_CLOUD_SERVER_BIN:-}" ;;
+    *) continue ;;
+  esac
+  [[ -n "$folded_override" ]] || folded_hosts+=("$folded_name")
+done < <("$repo_root/scripts/cmux-next/link-folded-hosts.sh" --list "$src")
 is_folded() { [[ " ${folded_hosts[*]:-} " == *" $1 "* ]]; }
 app_host_src=""
 is_folded cmux-app-host || { companion_source cmux-app-host "${CMUX_NEXT_APP_HOST_BIN:-}" app_host_sha256; app_host_src="$companion_src"; }
-companion_source cmux-cloud "${CMUX_NEXT_CLOUD_SERVER_BIN:-}" cloud_server_sha256
-cloud_server_src="$companion_src"
+cloud_server_src=""
+is_folded cmux-cloud || { companion_source cmux-cloud "${CMUX_NEXT_CLOUD_SERVER_BIN:-}" cloud_server_sha256; cloud_server_src="$companion_src"; }
 browser_host_src=""
 is_folded cmux-browser-host || { companion_source cmux-browser-host "${CMUX_NEXT_BROWSER_HOST_BIN:-}" browser_host_sha256; browser_host_src="$companion_src"; }
 companion_source cmux-tui-host "${CMUX_NEXT_TERMINAL_HOST_BIN:-}" terminal_host_sha256
 terminal_host_src="$companion_src"
 companion_source cmux-holder "${CMUX_NEXT_HOLDER_BIN:-}" holder_sha256
 holder_src="$companion_src"
-companion_source cmux-agent-screen-detection "${CMUX_NEXT_AGENT_SCREEN_DETECTION_BIN:-}" agent_screen_detection_sha256
-agent_screen_detection_src="$companion_src"
+agent_screen_detection_src=""
+is_folded cmux-agent-screen-detection || { companion_source cmux-agent-screen-detection "${CMUX_NEXT_AGENT_SCREEN_DETECTION_BIN:-}" agent_screen_detection_sha256; agent_screen_detection_src="$companion_src"; }
 # Optional on older trees; hosted and pinned readers use the same checksum
 # verification as the other companions.
 companion_source cmux-launch-preread "${CMUX_NEXT_LAUNCH_PREREAD_BIN:-}" launch_preread_sha256
@@ -324,11 +331,11 @@ place_companion() {
   fi
 }
 is_folded cmux-app-host || place_companion "$app_host_src" cmux-app-host
-place_companion "$cloud_server_src" cmux-cloud
+is_folded cmux-cloud || place_companion "$cloud_server_src" cmux-cloud
 is_folded cmux-browser-host || place_companion "$browser_host_src" cmux-browser-host
 place_companion "$terminal_host_src" cmux-tui-host
 place_companion "$holder_src" cmux-holder
-place_companion "$agent_screen_detection_src" cmux-agent-screen-detection
+is_folded cmux-agent-screen-detection || place_companion "$agent_screen_detection_src" cmux-agent-screen-detection
 place_companion "$launch_preread_src" cmux-launch-preread
 if (( ${#folded_hosts[@]} )); then
   "$repo_root/scripts/cmux-next/link-folded-hosts.sh" "$dest_dir" "${folded_hosts[@]}"

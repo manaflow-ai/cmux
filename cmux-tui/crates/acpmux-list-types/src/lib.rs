@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
 pub mod folders;
+pub mod residency;
 pub mod resume;
 pub mod text;
 

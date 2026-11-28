@@ -19,7 +19,7 @@ import { intl } from "../../../ui/intl";
 /// A turn's "started working" line. What it says is decided before it draws (runningTray.ts
 /// `startedLineModel`): the first `row.startedNamed` subagents by name, the rest as one "+N more"
 /// whose hover card lists them, on one line that never runs past its width
-/// (SubagentStartedLine.css).
+/// (SubagentStartedLine.css). Beside a closed turn whose subagents all ended, it reads "finished".
 export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const language = usePaneLanguage();
@@ -30,6 +30,8 @@ export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
   const [crowdArm] = useState(() => experimentArm(startedLineCrowd));
   const agents = row.subagents ?? [];
   if (!agents.length) return null;
+  // Beside its turn's closed fold, once every one ended, the line says so (turns.ts `outside`).
+  const lineKey = row.startedEndedLine ? "subagents.finishedLine" : "subagents.startedLine";
   const shownCount = Math.max(1, Math.min(agents.length, row.startedNamed ?? agents.length));
   const shown = agents.slice(0, shownCount);
   const rest = agents.slice(shownCount);
@@ -39,7 +41,7 @@ export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
   const restNames = allNames.slice(shown.length);
   const more = rest.length ? t("tools.more", { n: rest.length }) : undefined;
   const list = intl.ListFormat(language, { type: "conjunction" });
-  const [before, after] = t("subagents.startedLine", { name: "\u0000" }).split("\u0000");
+  const [before, after] = t(lineKey, { name: "\u0000" }).split("\u0000");
   const identity = (index: number) => (
     <AgentIdentity
       harness={foreignHarness(agents[index]!.harness, harness, badge)}
@@ -51,7 +53,7 @@ export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
   // Three or more at once (startedLineCrowd.experiment.ts; Leo, 2026-11-22: "this is so fucking
   // awkward as ui"): seven chips on one line were a letter or two each, so the crowd reads as a count.
   if (agents.length >= STARTED_CROWD_FROM && crowdArm !== "chips") {
-    const sentence = t("subagents.startedLine", { name: list.format(allNames) });
+    const sentence = t(lineKey, { name: list.format(allNames) });
     // Each icon names its subagent under the pointer and opens it, as the chips did.
     const face = (index: number) => {
       const agent = agents[index]!;
@@ -69,9 +71,9 @@ export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
         </SubagentChipPreview>
       );
     };
-    const counted = t("subagents.startedLine", { name: t("subagents.count", { n: agents.length }) });
+    const counted = t(lineKey, { name: t("subagents.count", { n: agents.length }) });
     const [crowdBefore, crowdAfter] =
-      crowdArm === "first" ? t("subagents.startedLine", { name: "\u0000" }).split("\u0000") : [counted, undefined];
+      crowdArm === "first" ? t(lineKey, { name: "\u0000" }).split("\u0000") : [counted, undefined];
     return (
       <div className="cv-tools">
         <TranscriptActivityRow
@@ -160,7 +162,7 @@ export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
       <TranscriptActivityRow
         icon={identity(0)}
         className="cv-subagent-started"
-        ariaLabel={t("subagents.startedLine", { name: list.format([...names, ...restNames]) })}
+        ariaLabel={t(lineKey, { name: list.format([...names, ...restNames]) })}
         chevron={false}
         before={
           <>

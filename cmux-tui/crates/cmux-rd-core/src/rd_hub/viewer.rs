@@ -9,7 +9,7 @@ use super::reason::{EndReason, HubError, HubReason, Refusal};
 use serde::{Deserialize, Serialize};
 
 /// Where the tab's session stands.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "phase", rename_all = "snake_case")]
 pub enum Phase {
     /// The Connect card (View / Control).
