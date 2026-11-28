@@ -95,6 +95,53 @@ import Testing
         #expect(feed.isShowingKeptRows)
     }
 
+    /// The Mac's first window stays when it lands before the whole kept list. A relaunch draws the
+    /// kept head (40 of 200 rows); the Mac's first window (20 rows) arrives and the head's other
+    /// rows stay below it, so the rows on screen equal the head again, now as the Mac's (not
+    /// kept, not saved: the list is not complete). The whole kept list read after must not
+    /// replace them and mark them kept again. Before, the late read checked only that the rows
+    /// still equalled the head. The Mac's whole list is held back, as on a slow link.
+    @Test func theMacsFirstWindowIsNotReplacedByTheLateKeptList() async throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let account = Account()
+        let wire: [[String: Any]] = (0..<200).map { index in
+            ["id": "conv_\(index)", "owner": "local", "kind": "channel", "name": "Channel \(index)", "unread": 0,
+             "activity_at": String(format: "2026-10-21T%02d:%02d:00Z", 23 - index / 60, 59 - index % 60),
+             "pinned": false, "marked_unread": false, "muted": false]
+        }
+        let key = MacHomeRowsCache.key(account: "user-a", macID: "mac-1")
+        let writer = MacHomeRowsCache(directory: directory, writeDelay: .milliseconds(0))
+        writer.save(key, rows: wire.compactMap(MacHomeRow.init(wire:)))
+        writer.flush()
+
+        let owner = FakeHomeOwner(windows: .honors, rows: wire)
+        let relaunched = MacHomeRowsCache(directory: directory, writeDelay: .milliseconds(0))
+        // Hold the whole kept list's disk read until the Mac's first window has landed.
+        let held = DispatchSemaphore(value: 0)
+        relaunched.queue.async { held.wait() }
+        let feed = Self.feed(relaunched, account: account)
+        feed.showKeptRows(of: "mac-1")
+        let head = feed.rows?.map(\.id)
+        #expect(head?.count == MacHomeRowsCache.firstScreenRows)
+        await feed.connect(link: MockMacLink { _, request in
+            // The whole list (a home-inbox with no window) never answers here: only the first window.
+            if let object = try? JSONSerialization.jsonObject(with: request.dropLast()) as? [String: Any],
+               object["cmd"] as? String == "home-inbox", object["limit"] == nil, object["ids"] == nil { return [] }
+            return owner.respond(request)
+        }, macID: "mac-1")
+        #expect(await eventually { !feed.isShowingKeptRows })
+        let answered = feed.rows?.map(\.id)
+        #expect(answered == head, "the Mac's first window over the head's other rows: the head, row for row")
+
+        held.signal()
+        // The read is done once the queue runs a block after it.
+        await withCheckedContinuation { done in relaunched.queue.async { done.resume() } }
+        for _ in 0..<50 { await Task.yield() }
+        #expect(feed.rows?.map(\.id) == answered, "the Mac's rows, not the 200 kept")
+        #expect(!feed.isShowingKeptRows)
+    }
+
     /// Back-compat: a list kept by an app before head files (only `<key>.json` on disk) still
     /// shows after the update's first launch, read off the main thread as before, and its next
     /// save writes the head for the launch after.
@@ -254,5 +301,69 @@ import Testing
         let empty = feed.keptSession(for: route, orEmpty: true)
         #expect(empty != nil)
         #expect(empty?.lastMessage == nil)
+    }
+
+    /// The head files (`<key>.head.json`, #43289) are bounded and trimmed with the lists. Each
+    /// holds at most `firstScreenRows` rows, the list's own first rows. They count toward the one
+    /// byte limit for every account and Mac (`byteLimit`, 2 MiB in the app), and the oldest
+    /// lists and heads go first. Sign-out removes every one. The sizes print as `HEADBOUND` for
+    /// the PR: the default 200-row list with these previews, its head, and the directory.
+    @Test func theHeadFilesAreBoundedAndTrimmedWithTheLists() throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        func files() -> [URL: Int] {
+            let urls = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.fileSizeKey])) ?? []
+            return Dictionary(uniqueKeysWithValues: urls.map { ($0, (try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) })
+        }
+        func name(_ key: String) -> String { key.replacingOccurrences(of: "|", with: "_") }
+
+        // One list at the app's limits: its head is a small, bounded file next to it.
+        let one = MacHomeRowsCache(directory: directory, writeDelay: .milliseconds(0))
+        let key = MacHomeRowsCache.key(account: "user-a", macID: "mac-0")
+        let rows = HomeKeptRowsTimingTests.rows(MacHomeRowsCache.rowLimit + 50)
+        one.save(key, rows: rows)
+        one.flush()
+        let sized = files()
+        let head = try #require(sized.first { $0.key.lastPathComponent.hasSuffix(".head.json") })
+        let list = try #require(sized.first { !$0.key.lastPathComponent.hasSuffix(".head.json") })
+        let headRows = try JSONDecoder().decode([MacHomeRow].self, from: Data(contentsOf: head.key))
+        #expect(headRows == Array(rows.prefix(MacHomeRowsCache.firstScreenRows)), "the list's own first rows")
+        let listRows = try JSONDecoder().decode([MacHomeRow].self, from: Data(contentsOf: list.key))
+        #expect(listRows.count == MacHomeRowsCache.rowLimit)
+        print("HEADBOUND one-mac rows=\(listRows.count) list_bytes=\(list.value) head_rows=\(headRows.count) head_bytes=\(head.value) byte_limit=\(MacHomeRowsCache.byteLimit)")
+        #expect(head.value * MacHomeRowsCache.rowLimit <= list.value * MacHomeRowsCache.firstScreenRows + 4096,
+                "a head is the first 40 of 200 rows: about a fifth of its list")
+
+        // Many Macs past a small limit: the directory stays under it, heads included, and the
+        // oldest lists and their heads are trimmed first.
+        try FileManager.default.removeItem(at: directory)
+        let limit = 4 * list.value
+        let small = MacHomeRowsCache(directory: directory, byteLimit: limit, writeDelay: .milliseconds(0))
+        let keys = (0..<12).map { MacHomeRowsCache.key(account: "user-a", macID: "mac-\($0)") }
+        for each in keys {
+            small.save(each, rows: rows)
+            small.flush()
+            // Distinct modification times, so the trim's oldest-first order is the save order.
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        let after = files()
+        let total = after.values.reduce(0, +)
+        let heads = after.keys.filter { $0.lastPathComponent.hasSuffix(".head.json") }
+        print("HEADBOUND twelve-macs byte_limit=\(limit) dir_bytes=\(total) files=\(after.count) heads=\(heads.count)")
+        #expect(total <= limit, "lists and heads together within the byte limit")
+        let newest = name(keys.last!)
+        #expect(after.keys.contains { $0.lastPathComponent == "\(newest).json" }, "the newest list stays")
+        #expect(after.keys.contains { $0.lastPathComponent == "\(newest).head.json" }, "and its head")
+        let oldest = name(keys.first!)
+        #expect(!after.keys.contains { $0.lastPathComponent.hasPrefix(oldest + ".") }, "the oldest list and head are trimmed")
+        for head in heads {
+            let count = try JSONDecoder().decode([MacHomeRow].self, from: Data(contentsOf: head)).count
+            #expect(count <= MacHomeRowsCache.firstScreenRows)
+        }
+
+        // Sign-out: no list and no head stays.
+        small.removeAll()
+        small.flush()
+        #expect(!FileManager.default.fileExists(atPath: directory.path(percentEncoded: false)))
     }
 }
