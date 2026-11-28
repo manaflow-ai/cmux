@@ -1616,5 +1616,58 @@ class GhFailureTests(unittest.TestCase):
             risk.rust_sources("o/r", "a" * 40, {"x": "a.rs"})
 
 
+
+class RustSourcesFromGitTests(unittest.TestCase):
+    """Rust sources come from risk-tier.yml's blobless history, not the contents API, when it has them: risk
+    evidence went red on a refused REST budget (2026-11-28, ledger hq docs/findings/2026-11-28-rerun-green-ledger.md),
+    and a contents read per Rust file spent that budget."""
+
+    def git(self, repo, *args):
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",
+                   GIT_COMMITTER_EMAIL="t@t", GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+        return subprocess.run(["git", "-C", repo, *args], check=True, capture_output=True, text=True,
+                              env=env).stdout.strip()
+
+    def blobless(self, tmp):
+        origin = os.path.join(tmp, "origin")
+        os.makedirs(os.path.join(origin, "src"))
+        self.git(origin, "init", "-q", "-b", "main")
+        self.git(origin, "config", "uploadpack.allowFilter", "true")
+        self.git(origin, "config", "uploadpack.allowAnySHA1InWant", "true")
+        Path(origin, "src", "a.rs").write_text("fn a() {}\n")
+        self.git(origin, "add", ".")
+        self.git(origin, "commit", "-q", "-m", "a")
+        head = self.git(origin, "rev-parse", "HEAD")
+        history = os.path.join(tmp, "history")
+        os.makedirs(history)
+        self.git(history, "init", "-q")
+        self.git(history, "fetch", "-q", "--no-tags", "--filter=blob:none", f"file://{origin}",
+                 "+refs/heads/main:refs/remotes/origin/main")
+        return history, head
+
+    def test_a_blobless_history_serves_the_file_without_a_contents_read(self):
+        calls = []
+        saved = risk.gh_run
+        risk.gh_run = lambda args, attempts=3: calls.append(args[-1]) or "api\n"
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                history, head = self.blobless(tmp)
+                got = risk.rust_sources("o/r", head, {"x": "src/a.rs", "y": "src/gone.rs"}, history)
+        finally:
+            risk.gh_run = saved
+        self.assertEqual(got, {"x": "fn a() {}\n", "y": "api\n"})
+        self.assertEqual(calls, [f"repos/o/r/contents/src/gone.rs?ref={head}"])
+
+    def test_a_ref_git_lacks_falls_back_to_the_contents_api(self):
+        saved = risk.gh_run
+        risk.gh_run = lambda args, attempts=3: "api\n"
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                history, _head = self.blobless(tmp)
+                got = risk.rust_sources("o/r", "f" * 40, {"x": "src/a.rs"}, history)
+        finally:
+            risk.gh_run = saved
+        self.assertEqual(got, {"x": "api\n"})
+
 if __name__ == "__main__":
     unittest.main()

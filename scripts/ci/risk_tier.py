@@ -1182,11 +1182,67 @@ def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
 MAX_RUST_SOURCES = 20
 
 
-def rust_sources(repo: str, ref: str, paths: dict[str, str]) -> dict[str, str]:
-    """{key: the Rust file at `ref`} for paths given as {key: path at ref}. A file that can't be
-    read is left out, so its lines are graded on their hunks alone."""
+def git_files(repo_dir: str, ref: str, paths: list[str], timeout: float = 60) -> dict[str, str]:
+    """{path: its text at `ref`} read from the clone at `repo_dir` (risk-tier.yml's blobless base history, which
+    also holds the pull request's head): the blob ids from the trees it has, the blobs it lacks in one fetch
+    round trip (prefetch_blobs' way), then one `git cat-file --batch`. A path git cannot read is left out, for
+    the caller to read some other way; best effort, never raises. Git's fetch is not on the REST budget that a
+    contents read spends: risk evidence's reds on 2026-11-28 were that budget refused (a grade with Rust deletes
+    read up to 2 x MAX_RUST_SOURCES files through it)."""
+    if not repo_dir or not paths:
+        return {}
+    env = {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
+    try:
+        listed = subprocess.run(["git", "-C", repo_dir, "ls-tree", "-z", ref, "--", *paths], capture_output=True,
+                                text=True, env=env, timeout=timeout)
+        if listed.returncode != 0:
+            return {}
+        oid_of = {}
+        for entry in listed.stdout.split("\0"):
+            meta, _, path = entry.partition("\t")
+            parts = meta.split()
+            if len(parts) == 3 and parts[1] == "blob" and path in paths:
+                oid_of[path] = parts[2]
+        if not oid_of:
+            return {}
+        promisors = subprocess.run(["git", "-C", repo_dir, "config", "--get-regexp", r"^remote\..*\.promisor$"],
+                                   capture_output=True, text=True, timeout=10).stdout.split()
+        remote = next((key[len("remote."):-len(".promisor")] for key in promisors[::2]), None)
+        if remote:
+            have = subprocess.run(["git", "-C", repo_dir, "cat-file", "--batch-check=%(objectname)"],
+                                  input="\n".join(oid_of.values()) + "\n", capture_output=True, text=True, env=env,
+                                  timeout=timeout).stdout.split("\n")
+            missing = sorted({oid for oid, line in zip(oid_of.values(), have) if line.strip() != oid})
+            if missing:
+                subprocess.run(["git", "-C", repo_dir, "-c", "fetch.negotiationAlgorithm=noop", "fetch", "-q",
+                                "--no-tags", "--no-write-fetch-head", "--recurse-submodules=no", "--filter=blob:none",
+                                "--stdin", remote], input="\n".join(missing) + "\n", capture_output=True, text=True,
+                               timeout=timeout)
+        out = {}
+        for path, oid in oid_of.items():
+            got = subprocess.run(["git", "-C", repo_dir, "cat-file", "blob", oid], capture_output=True, env=env,
+                                 timeout=timeout)
+            if got.returncode == 0:
+                try:
+                    out[path] = got.stdout.decode("utf-8")
+                except UnicodeDecodeError:
+                    pass
+        return out
+    except (OSError, subprocess.SubprocessError):
+        return {}
+
+
+def rust_sources(repo: str, ref: str, paths: dict[str, str], repo_dir: str | None = None) -> dict[str, str]:
+    """{key: the Rust file at `ref`} for paths given as {key: path at ref}: from git in `repo_dir` when it has
+    `ref` (git_files), else one contents read each. A file that can't be read is left out, so its lines are
+    graded on their hunks alone."""
     sources = {}
-    for key, path in sorted(paths.items())[:MAX_RUST_SOURCES]:
+    wanted = sorted(paths.items())[:MAX_RUST_SOURCES]
+    local = git_files(repo_dir, ref, [path for _key, path in wanted]) if repo_dir else {}
+    for key, path in wanted:
+        if path in local:
+            sources[key] = local[path]
+            continue
         try:
             sources[key] = gh_run(["gh", "api", "-H", "Accept: application/vnd.github.raw+json",
                                    f"repos/{repo}/contents/{quote(path)}?ref={ref}"])
@@ -1255,8 +1311,8 @@ def pr_mode(args: argparse.Namespace) -> int:
                if e.get("status") != "added" and delete_lines(patches[path], "-")}
     # The patches' line numbers are relative to the merge base, not the base branch's tip.
     merge_base = merge_base_of(args.repo, pr, args.repo_dir) if removes or args.repo_dir else pr["base"]["sha"]
-    grade = classify(files, patches, rust_sources(args.repo, pr["head"]["sha"], adds),
-                     rust_sources(args.repo, merge_base, removes))
+    grade = classify(files, patches, rust_sources(args.repo, pr["head"]["sha"], adds, args.repo_dir),
+                     rust_sources(args.repo, merge_base, removes, args.repo_dir))
     undone: dict[int, list[str]] = {}
     if args.repo_dir:
         unread: list[str] = []
