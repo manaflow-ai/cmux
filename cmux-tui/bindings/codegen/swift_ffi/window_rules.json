@@ -42,6 +42,7 @@
     },
     "browser::PipRowFacts": {
       "swift": "WindowRules.PipRowFacts",
+      "fields": {"target": {"type": "String"}},
       "init": "enabled, target, video, floating"
     },
     "browser::PipRow": {
@@ -63,7 +64,7 @@
     },
     "remote::ConnectStep": {
       "swift": "WindowRules.ConnectStep",
-      "init": "showWorkspace"
+      "init": false
     },
     "chat::DockedOpen": {
       "swift": "WindowRules.DockedOpen",

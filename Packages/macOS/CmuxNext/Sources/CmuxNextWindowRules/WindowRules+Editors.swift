@@ -34,9 +34,3 @@ extension WindowRules {
         return call("window_editors_pick", Request(installed: installed, configured: configured), as: EditorPick.self)
     }
 }
-
-extension WindowRules.Editor {
-    public init(id: String, name: String, bundleIds: [String], symbol: String, remoteScheme: String? = nil) {
-        (self.id, self.name, self.bundleIds, self.symbol, self.remoteScheme) = (id, name, bundleIds, symbol, remoteScheme)
-    }
-}

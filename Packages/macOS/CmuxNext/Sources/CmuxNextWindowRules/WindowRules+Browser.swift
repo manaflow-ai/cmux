@@ -80,22 +80,3 @@ extension WindowRules {
         call("window_remote_connect_step", facts, as: ConnectStep.self)
     }
 }
-
-extension WindowRules.PipFacts {
-    public init(named: Bool, namedPage: Bool, card: Bool, shownVideo: Bool, focused: Bool, focusedVideo: Bool) {
-        (self.named, self.namedPage, self.card, self.shownVideo, self.focused, self.focusedVideo) = (named, namedPage, card, shownVideo, focused, focusedVideo)
-    }
-}
-
-extension WindowRules.PipRowFacts {
-    public init(enabled: Bool, target: String, video: Bool, floating: Bool) {
-        (self.enabled, self.target, self.video, self.floating) = (enabled, target, video, floating)
-    }
-}
-
-extension WindowRules.ConnectFacts {
-    public init(loaded: Bool, hasWindow: Bool, offline: Bool, needsRecovery: Bool, failureAttempt: UInt64?, currentAttempt: UInt64) {
-        (self.loaded, self.hasWindow, self.offline, self.needsRecovery) = (loaded, hasWindow, offline, needsRecovery)
-        (self.failureAttempt, self.currentAttempt) = (failureAttempt, currentAttempt)
-    }
-}
