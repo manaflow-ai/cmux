@@ -46,8 +46,8 @@ extension UpdaterService {
             }
             actions = [.install]
             // "What's in this build" (the popover's ``BuildPullRequests``): the staged span's PRs by area.
-            if let prs = stagedPullRequests, !prs.isEmpty,
-               case .object(var members)? = try? JSONValue.parse(JSONEncoder().encode(prs)) {
+            if let prs = stagedPullRequests, !prs.isEmpty {
+                var members = prs.settingsJSON
                 members["title"] = .string(UpdaterStrings.pullRequestsTitle)
                 members["other"] = .string(UpdaterStrings.pullRequestsOther)
                 json["prs"] = .object(members)
@@ -230,4 +230,22 @@ public final class AppUpdatePageProvider: PageProvider {
 nonisolated extension UpdaterStrings {
     static var settingsTitle: String { text("updater.settings.title", "App Update") }
     static var settingsCheckNow: String { text("updater.settings.checkNow", "Check Now") }
+}
+
+nonisolated extension BuildPullRequests {
+    /// The page's `prs` member in its Codable shape, built as values directly: no encode and parse
+    /// round-trip on the main actor for every status read.
+    var settingsJSON: [String: JSONValue] {
+        let groups: [JSONValue] = groups.map { group in
+            var members: [String: JSONValue] = ["items": .array(group.items.map { item in
+                var row: [String: JSONValue] = ["pr": .number(Double(item.pr)), "title": .string(item.title),
+                                                "url": .string(item.url.absoluteString), "build": .string(item.build)]
+                if let author = item.author { row["author"] = .string(author) }
+                return .object(row)
+            })]
+            if let area = group.area { members["area"] = .string(area) }
+            return .object(members)
+        }
+        return ["groups": .array(groups), "internalCount": .number(Double(internalCount))]
+    }
 }

@@ -54,6 +54,7 @@ public enum UpstreamError {
     /// `"retry_after":30` or `"retry-after":"30"` (a JSON body).
     public static func retryAfter(_ message: String) -> Int? {
         let lower = message.lowercased()
+        // retry-prompt-ok: the forms an upstream's error text names its wait in, parsed here, never shown.
         let leads = ["retry after ", "retry-after: ", "retry-after ", "\"retry_after\":", "\"retry-after\":", "\"retry_after_s\":"]
         for lead in leads {
             // The first occurrence of the lead, as Rust's `split_once`; a lead with no number falls to the next.

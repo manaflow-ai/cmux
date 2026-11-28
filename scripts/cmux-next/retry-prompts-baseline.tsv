@@ -85,7 +85,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddServer/AddServerStrings.swift	
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/PairInvite/PairInviteStrings.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalRetryButton.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdaterService+Rollback.swift	1
-cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/AgentChatStore.swift	1
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/AgentChatStore.swift	2
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/UpstreamError.swift	1
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAuth/TeamInviteFailure.swift	1
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileChief/AutoChatWords.swift	3
