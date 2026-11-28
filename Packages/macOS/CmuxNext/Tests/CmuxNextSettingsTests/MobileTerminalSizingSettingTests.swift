@@ -1,7 +1,7 @@
 import CmuxNextSettings
 import Testing
 
-/// `mobile.terminalSizing` and `mobile.terminalSizingOrder` (Settings > Mobile):
+/// `mobile.siteDataHandoff`, `mobile.terminalSizing` and `mobile.terminalSizingOrder` (Settings > Mobile):
 /// this Mac's terminal sizing policy, which the cmux-tui daemon applies and the
 /// iPhone app edits (cmux-next-ios/PROTOCOL.md "Terminal sizing policy").
 struct MobileTerminalSizingSettingTests {
@@ -14,6 +14,18 @@ struct MobileTerminalSizingSettingTests {
         let mobile = Self.parse(nil).mobile
         #expect(mobile.terminalSizing == .smallest)
         #expect(mobile.terminalSizingOrder.isEmpty)
+    }
+
+    @Test func siteDataHandoffIsOffUntilThePersonEnablesIt() {
+        #expect(!Self.parse(nil).mobile.siteDataHandoff)
+        #expect(Self.parse(["siteDataHandoff": .bool(true)]).mobile.siteDataHandoff)
+        #expect(!Self.parse(["siteDataHandoff": .bool(false)]).mobile.siteDataHandoff)
+    }
+
+    @Test func malformedSiteDataHandoffKeepsTheDefaultAndSaysWhy() {
+        let snapshot = Self.parse(["siteDataHandoff": .string("yes")])
+        #expect(!snapshot.mobile.siteDataHandoff)
+        #expect(snapshot.diagnostics.contains { $0.path == "mobile.siteDataHandoff" })
     }
 
     @Test func eachKeyLoads() {
@@ -45,9 +57,13 @@ struct MobileTerminalSizingSettingTests {
         #expect(choices.map(\.value) == ["smallest", "mac", "latest", "priority"])
         let order = try #require(SettingsSchema.descriptor(for: MobileSettings.terminalSizingOrderPath))
         #expect(order.defaultValue == .array([]))
+        let handoff = try #require(SettingsSchema.descriptor(for: MobileSettings.siteDataHandoffPath))
+        #expect(handoff.defaultValue == .bool(false))
+        #expect(handoff.kind == .toggle)
         let mobile = try #require(SettingsPageLayout().categories().first { $0.spec.id == "mobile" })
-        #expect(mobile.groups.flatMap(\.rows).filter { $0.hasPrefix("mobile.") } == ["mobile.allowIPhoneConnections", "mobile.terminalSizing"])
+        #expect(mobile.groups.flatMap(\.rows).filter { $0.hasPrefix("mobile.") } == ["mobile.allowIPhoneConnections", "mobile.siteDataHandoff", "mobile.terminalSizing"])
         // Only the person (here or on the phone, through the daemon) changes it.
+        #expect(SettingsSchema.agentRefusedKeys["mobile.siteDataHandoff"] == .userOnly)
         #expect(SettingsSchema.agentRefusedKeys["mobile.terminalSizing"] == .userOnly)
         #expect(SettingsSchema.agentRefusedKeys["mobile.terminalSizingOrder"] == .userOnly)
     }
