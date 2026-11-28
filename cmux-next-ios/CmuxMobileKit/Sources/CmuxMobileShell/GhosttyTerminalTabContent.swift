@@ -931,13 +931,17 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     }
 
     private func fitToPhoneAction(model: TerminalModel, tab: WorkspaceTab, in workspace: Workspace) -> TerminalTabAction {
-        let fits = !(model.session is TerminalProjectingSession)
+        // The program's remembered choice, which `TerminalSessionChoice` builds from:
+        // with Re-wrap on Phone off (the default, #62286) a page that keeps the Mac's
+        // grid is a plain session too, so the session's type can't say "not fit".
+        let fits = fitToPhoneMemory.fitToPhone(for: model.session.programName)
         return TerminalTabAction(title: TerminalFitToPhoneMemory.title, systemImage: fits ? "checkmark" : "iphone",
                                  isSelected: fits) { [weak self] in
             // Read the current session at the tap, even if an open menu predates a
             // reconnect or the foreground program changed while it was open.
             guard let self, let current = self.hosts[tab.id]?.model else { return }
-            self.setFitToPhone(current.session is TerminalProjectingSession, program: current.session.programName,
+            let program = current.session.programName
+            self.setFitToPhone(!self.fitToPhoneMemory.fitToPhone(for: program), program: program,
                               tab: tab, in: workspace)
         }
     }

@@ -27,10 +27,12 @@ import Testing
         _ = source.page(for: tab, in: workspace, context: context)
         let direct = try #require(source.titleAction(for: tab, in: workspace))
         #expect(!direct.isSelected)
-        #expect(source.model(forTabID: tab.id)?.session is TerminalProjectingSession)
+        // The tap rebuilds the page on a new session (`TerminalSessionChoice` reads the
+        // choice), whatever Re-wrap on Phone is set to.
+        let before = try #require(source.model(forTabID: tab.id))
         direct.perform()
         #expect(TerminalFitToPhoneMemory().fitToPhone(for: program))
-        #expect(source.model(forTabID: tab.id)?.session is FitActionSession)
+        #expect(source.model(forTabID: tab.id) !== before)
         #expect(source.titleAction(for: tab, in: workspace)?.isSelected == true)
 
         // Recreating the host reads the saved choice, and the original menu
@@ -38,11 +40,12 @@ import Testing
         source.reset()
         source.prepareCard(for: tab, in: workspace)
         _ = source.page(for: tab, in: workspace, context: context)
-        #expect(source.model(forTabID: tab.id)?.session is FitActionSession)
+        #expect(source.titleAction(for: tab, in: workspace)?.isSelected == true)
+        let fitted = try #require(source.model(forTabID: tab.id))
         let menu = try #require(source.actions(for: tab, in: workspace).first { $0.title == direct.title })
         menu.perform()
         #expect(!TerminalFitToPhoneMemory().fitToPhone(for: program))
-        #expect(source.model(forTabID: tab.id)?.session is TerminalProjectingSession)
+        #expect(source.model(forTabID: tab.id) !== fitted)
         #expect(source.titleAction(for: tab, in: workspace)?.isSelected == false)
     }
 }
