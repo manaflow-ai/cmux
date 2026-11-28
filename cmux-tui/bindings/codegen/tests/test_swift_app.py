@@ -273,6 +273,18 @@ class BindingErrorTests(unittest.TestCase):
             rendered(document, bindings)
         self.assertIn(message, str(raised.exception))
 
+    def test_a_duplicate_key_in_bindings_json_is_refused(self) -> None:
+        # json.loads keeps the last of two equal keys; a second "enums" once hid ColumnSide (#63368).
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "bindings.json"
+            path.write_text('{"families": {"Creation": {"enums": {"A": {}}, "enums": {"B": {}}}}}', encoding="utf-8")
+            with self.assertRaises(BindingError) as raised:
+                generate.load_bindings(path)
+        self.assertIn("duplicate key 'enums'", str(raised.exception))
+
+    def test_the_checked_in_bindings_json_has_no_duplicate_key(self) -> None:
+        generate.load_bindings(generate.DEFAULT_BINDINGS)
+
     def test_an_id_field_without_a_swift_id_type_is_refused(self) -> None:
         bindings = layout_bindings()
         del bindings["families"]["Layout"]["requests"]["swap-pane"]["fields"]

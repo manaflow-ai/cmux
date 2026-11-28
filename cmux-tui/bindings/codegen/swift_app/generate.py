@@ -47,9 +47,20 @@ _DECLARATION = re.compile(
 )
 
 
+def _refuse_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    # json.loads keeps the last of two equal keys, so a second "enums" in one family silently
+    # dropped the first's entries (#63368 hid ColumnSide and PaneKind and broke the app build).
+    seen: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in seen:
+            raise BindingError(f"duplicate key {key!r} in one object: merge the two into one")
+        seen[key] = value
+    return seen
+
+
 def load_bindings(path: Path) -> dict[str, Any]:
     try:
-        value = json.loads(Path(path).read_text(encoding="utf-8"))
+        value = json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=_refuse_duplicate_keys)
     except (OSError, json.JSONDecodeError) as error:
         raise BindingError(f"cannot read {path}: {error}") from error
     if not isinstance(value, dict):
