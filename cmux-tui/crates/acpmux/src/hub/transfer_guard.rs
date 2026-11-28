@@ -396,7 +396,7 @@ impl Hub {
 
     /// Rewrites a guarded receive's `session.json` to the chat it may be here, before the import,
     /// or refuses it: its folder (`cwd`, else its own) under a root, spelled canonically; its
-    /// family from this daemon's profile; no policy is `ask`, and under `web` its policy,
+    /// family from this daemon's profile; under `web` no policy is `ask`, and its policy,
     /// rules, mode and options asking; no preset, session env, store roots, argv or tags, and a remote origin (no
     /// preset args, no cmux MCP servers); a model only when the profile declares it; a Claude
     /// profile only when configured; and its agent store files exactly its session's. It keeps
@@ -443,11 +443,15 @@ impl Hub {
             meta.claude_profile =
                 meta.claude_profile.take().filter(|p| cfg.harnesses.contains_key(p));
         }
-        let policy = meta.permission_policy.get_or_insert_with(|| "ask".to_owned());
         // Under the Web's control everything must ask. A peer guard moves the person's chat
         // between their own machines, and a peer's prompts have no mode rule at dispatch, so it
-        // keeps its policy, rules and mode (`hub/web_control.rs`).
+        // keeps its policy, rules and mode (`hub/web_control.rs`): one it never set stays unset
+        // and follows the default, as it did there. Writing `ask` into it made every start after
+        // a move hold the chat to a mode that asks (`policy_mode.rs` `require_enforced`), so a
+        // chat on a harness that cannot ask was refused on each machine it moved to and its
+        // queued messages never ran (super-highway ring, 2026-11-28: 124 of 203 lost).
         if guard.control == Control::Web {
+            let policy = meta.permission_policy.get_or_insert_with(|| "ask".to_owned());
             if !person::asking_policy_value(Some(&json!(policy))) {
                 return Err(guard_error(
                     "policy",
@@ -572,6 +576,9 @@ mod durable_harness_tests;
 #[cfg(test)]
 #[path = "transfer_guard_retired_root_tests.rs"]
 mod retired_root_tests;
+#[cfg(test)]
+#[path = "transfer_guard_unset_policy_tests.rs"]
+mod unset_policy_tests;
 
 #[cfg(test)]
 #[path = "transfer_guard_config_root_tests.rs"]
