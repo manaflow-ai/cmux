@@ -35,6 +35,7 @@ pub(super) use run::{
 mod agent_open;
 mod batch;
 mod call;
+mod chat_memory;
 mod chat_perf;
 mod classic;
 mod events;
@@ -217,6 +218,15 @@ pub(super) enum AppCommand {
         params: Value,
         seconds: u64,
     },
+    /// `app chat memory`: `agent.chat.memory` pids, read here (app/chat_memory.rs).
+    ChatMemory {
+        empty: Value,
+    },
+    /// `app chat perf --page-source`: `agent.chat.perf {"page_source": true}`, how the chat pages
+    /// made since launch got their page; no tab, no capture (app/chat_perf.rs).
+    ChatPageSource {
+        params: Value,
+    },
     /// Local settings completion/schema/validation (`app/settings.rs`).
     Settings(settings::Command),
     /// `browser right <verb>` (app/right.rs): `browser.page.right` names the
@@ -376,6 +386,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("web-cas")) => web_cas::parse(rest)?,
         ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "perf") => {
             chat_perf::parse(rest)?
+        }
+        ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "memory") => {
+            chat_memory::parse(rest)?
         }
         // The Cloud desktop tabs (`remote_view.state`, every build): per tab its
         // viewer, whether it is connected and who has control; never a credential
@@ -1125,6 +1138,12 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         }
         AppCommand::ChatPerf { params, seconds } => {
             return Ran::Done(chat_perf::run(global, stream, params, seconds));
+        }
+        AppCommand::ChatMemory { empty } => {
+            return Ran::Done(chat_memory::run(global, stream, &empty));
+        }
+        AppCommand::ChatPageSource { params } => {
+            return Ran::Done(chat_perf::run_page_source(global, stream, params));
         }
         AppCommand::Record(request) => return Ran::Done(record::run(global, request)),
         AppCommand::Settings(command) => return Ran::Done(command.run(global)),

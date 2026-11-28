@@ -207,6 +207,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.prune_probe.long",
     "cloud.quota.vm_limit",
     "cloud.record.reconcile_failed",
+    "cloud.rows.scan_large",
     "cloud.record.stale",
     "cloud.record.unknown",
     "cloud.room.failed",
@@ -482,7 +483,10 @@ PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm":
                  # cmux-platform#2407's busy-object probe: cloud.commit_probe.size (state and last event's sizes, commits
                  # in the minute), cloud.wake_probe.long (an alarm run split drain/onWake), cloud.flight_join.long.
                  "state_bytes": INT, "effects_bytes": INT, "commits": INT, "drain_ms": INT, "wake_ms": INT,
-                 "waited_ms": INT}
+                 "waited_ms": INT,
+                 # cloud.rows.scan_large (cmux-platform#2511, AllRows.ts eachRow): the table a scan walked, rows it
+                 # read and kept; its `at` frames are kept only as function names (scan_callers).
+                 "table": TOKEN, "rows": INT, "yielded": INT}
 # Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
 # claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule;
 # cloud.machine.start_overdue and power_overdue: whether the machine's create or call was still running).
@@ -543,6 +547,10 @@ POWER_SPLIT = ("find_ms", "call_ms", "verify_ms", "provider_ms")
 # claim; only these say which spare wake they were. Each is kept only as one of its fixed words, any other dropped.
 START_KINDS = frozenset({"person", "window", "refresh", "warm"})
 START_BEFORE = frozenset({"paused", "stopped", "pausing", "starting", "running", "other"})
+# A create trace's `kind`, why the create ran (cmux-platform#2507 CloudCore.ts createKind): an unclaimed spare's, a
+# restore's or fork's, else a start kind. cmux-vm's create queue is 3 slots, shared by development and staging, and
+# 2026-11-28 01:36-01:48Z it refused 61 of 69 creates; only this says who filled it. Fixed words only, as above.
+CREATE_KINDS = START_KINDS | {"spare", "restore"}
 
 
 # cloud.start.first_reply (cmux-platform StartTrace.ts firstReplyOf): `steps`, each hop's ms of one real chat's start
@@ -1038,6 +1046,23 @@ def image_rev(image):
     return m.group(1) if m else None
 
 
+# cloud.rows.scan_large's `at` is three V8 stack frames joined by " < " ("at CloudDO.approvalAhead (index.js:9:1)").
+# Only each frame's function name is kept, when it is a plain identifier path of our code; file, line, column and any
+# other text are dropped. The 2026-11-28 04:40-05:06Z staging read kept 0 rows because the msg was unlisted.
+SCAN_FRAME = re.compile(r"^at (?:async )?([A-Za-z_$][A-Za-z0-9_$.]{0,63})(?: \[as [A-Za-z0-9_$]{1,32}\])? \(")
+
+
+def scan_callers(at):
+    if not isinstance(at, str):
+        return None
+    names = []
+    for frame in at.split(" < ")[:3]:
+        m = SCAN_FRAME.match(frame.strip())
+        if m and not base.ID_LIKE.search(m.group(1)):
+            names.append(m.group(1))
+    return names or None
+
+
 def public_log(j):
     """(fields, why): fields only for an allowlisted platform msg or cmux-vm event, else None and the drop reason."""
     if any(k in j for k in base.TENANT_KEYS):
@@ -1070,6 +1095,10 @@ def public_log(j):
         power = power_split(j.get("power"))
         if power is not None:
             out["power"] = power
+    if msg == "cloud.create.trace":
+        out.pop("kind", None)
+        if j.get("kind") in CREATE_KINDS:
+            out["kind"] = j["kind"]
     if msg == "cloud.start.trace":
         out.pop("kind", None)
         if j.get("kind") in START_KINDS:
@@ -1082,6 +1111,10 @@ def public_log(j):
         rev = image_rev(j.get("image"))
         if rev is not None:
             out["image_rev"] = rev
+    if msg == "cloud.rows.scan_large":
+        callers = scan_callers(j.get("at"))
+        if callers:
+            out["callers"] = callers
     if msg == "cloud.machine.bind_late" and j.get("kicked") in BIND_LATE_KICKED:
         out["kicked"] = j["kicked"]
     if msg in SPARE_COUNT_MSGS:
