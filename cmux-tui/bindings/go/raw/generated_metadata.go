@@ -6,7 +6,7 @@ package raw
 const (
 	SDKSchemaVersion   = 2
 	MuxProtocolVersion = 12
-	SDKIRSHA256        = "6558219fc95c08d3a088c88dbc9c81015f042cad7dacb50a02c64d081d016c7b"
+	SDKIRSHA256        = "7c8561a4135011b482fd504beee0a46752db809af03cdd5953e4e66673a78885"
 )
 
 type Authority string
