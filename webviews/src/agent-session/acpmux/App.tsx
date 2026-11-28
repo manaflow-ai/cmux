@@ -2231,7 +2231,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Until the chat's handoff is read the pane draws no review (reviews are rare): the composer and
   // a new chat's hero stay, and a review that arrives takes their place (Leo 2026-10-19: the
   // composer left for the read on every open, switch and reconnect).
-  const freshChat = !reviewing && isNewChat(snapshot, newSession);
+  const refusedChat = snapshot.openRefusal !== undefined || snapshot.unavailable?.reason === "notFound";
+  const freshChat = !refusedChat && !reviewing && isNewChat(snapshot, newSession);
   /// The chat's start folder (startFolder.tsx): the host's folder for a new chat or the user's
   /// pick, for every start of this new chat (the agent row, a harness pick, the first Send).
   /// Undefined: the host fills the chat's folder (the workspace's agent-home folder).
@@ -5489,7 +5490,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// and the transcript runs up under the row only when none is, so it never covers one.
   /// The tab's chat is not listed yet and its last-read rows are drawn (direct.ts `drawMissingTail`):
   /// why it is not here is a line under the header, over the transcript, not the centered state.
-  const missingRows = !!snapshot.unavailable && snapshot.missingSession !== undefined && snapshot.rows.length > 0;
+  const missingRows =
+    !refusedChat && !!snapshot.unavailable && snapshot.missingSession !== undefined && snapshot.rows.length > 0;
   // An Auto chat's line and its kept-changes notice (autoSession/AutoSessionBanner.tsx): where the
   // chat runs when that is not this Mac. A chat nobody runs says Resuming only once the person sent.
   const autoSession = snapshot.summary?.autoSession;
@@ -6688,8 +6690,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     active: cloudRecoveryShows || cloudWaking || cloudTypeWaking,
     recheck: recheckCloudChat,
   });
-  const cloudUnavailable =
-    cloudRecoveryShows &&
+  const cloudUnavailable = snapshot.openRefusal
+    ? { reason: "refused" as const, refusal: snapshot.openRefusal }
+    : cloudRecoveryShows &&
     (cloudRecovery.state === "paused" ||
       cloudRecovery.state === "deleted" ||
       (cloudRecovery.resuming && cloudRecovery.state === "live"))
@@ -7398,6 +7401,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const chatDrawn = (!awaitsChat || clientSnapshot.chatRead === true || openFailed) && adoptionDrawn;
   const hostErrorSaid = hostError !== undefined && (hostErrorShown || restartingAcpmux);
   const showsWhatItIs =
+    clientSnapshot.openRefusal !== undefined ||
     (!handshaken &&
       restoredTailSession !== undefined &&
       clientSnapshot.sessionId === restoredTailSession &&
@@ -7424,7 +7428,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       chatUnavailable: clientSnapshot.unavailable !== undefined && clientSnapshot.unavailable.reason !== "connecting",
     });
   // No chat screen before the page knows it is no New Tab page (`contextKnown`).
-  const knowsWhatItIs = contextKnown || newTab !== undefined || handshaken || hostError !== undefined;
+  const knowsWhatItIs = refusedChat || contextKnown || newTab !== undefined || handshaken || hostError !== undefined;
   useEffect(() => {
     if (!handshaken || chatDrawn) return;
     // A slow attach: the client draws what it has after the open's hold (direct.ts OPEN_HOLD_MS).
@@ -9167,6 +9171,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Before the handshake the New Tab frame shows (cx-0rpl.10) unless the host failed: then the
   // chat view's error card with Retry shows, as before.
   const showNewTab =
+    !refusedChat &&
     newTab !== undefined &&
     // The tab's Sandboxed result shows in the chat view (SandboxRunView). So does a draft a
     // Sandboxed refusal moved from the New Tab page into the chat composer: going back would remount
@@ -11706,6 +11711,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     toastTop,
     asks,
     hostLine,
+    refusedChat,
     forkPendingLine,
     composer,
     artifact,

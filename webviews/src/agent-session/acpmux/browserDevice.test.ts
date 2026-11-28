@@ -220,7 +220,7 @@ test("revocation discovered by a later request drops identity and blocks the nex
     JSON.stringify({ id: 99999, error: { code: -32003, message: "Revoked", data: { reason: "device.revoked" } } }),
   );
   await expect(pending).rejects.toMatchObject({ reason: "device.revoked" });
-  await expect(f.connect()).rejects.toMatchObject({ reason: "device.identity_required" });
+  await expect(f.connect()).rejects.toMatchObject({ reason: "device.revoked" });
   client.close();
 });
 

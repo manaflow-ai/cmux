@@ -15,6 +15,8 @@ export type BrowserDeviceIdentity = {
 
 let identity: BrowserDeviceIdentity | undefined;
 let generation = 0;
+// The hub's refusal outlives the dropped socket, until the next sign-in or sign-out.
+let deviceRefusal: "device.revoked" | "device.unauthorized" | undefined;
 
 export function browserDeviceError(reason = "device.identity_required"): Error & { reason: string } {
   return Object.assign(new Error(reason), { reason });
@@ -40,6 +42,7 @@ export function clearBrowserDeviceIdentity(): void {
     identity.enrolling = undefined;
   }
   identity = undefined;
+  deviceRefusal = undefined;
 }
 
 /** Check before opening the socket, so even its listener token cannot leave this origin. */
@@ -56,7 +59,7 @@ export function prepareBrowserDevice(endpoint: URL): BrowserDeviceIdentity {
     endpoint.hash
   )
     throw browserDeviceError("device.origin_mismatch");
-  if (!identity || identity.origin !== page.origin) throw browserDeviceError();
+  if (!identity || identity.origin !== page.origin) throw browserDeviceError(deviceRefusal);
   return identity;
 }
 
@@ -64,8 +67,14 @@ export function browserDeviceIsCurrent(device: BrowserDeviceIdentity): boolean {
   return identity === device;
 }
 
-export function invalidateBrowserDevice(device: BrowserDeviceIdentity | undefined): void {
-  if (device && device === identity) clearBrowserDeviceIdentity();
+export function invalidateBrowserDevice(
+  device: BrowserDeviceIdentity | undefined,
+  refusal?: "device.revoked" | "device.unauthorized",
+): void {
+  if (device && device === identity) {
+    clearBrowserDeviceIdentity();
+    deviceRefusal = refusal;
+  }
 }
 
 // A sign-in cannot wait forever on the ordinary RPC progress threshold.

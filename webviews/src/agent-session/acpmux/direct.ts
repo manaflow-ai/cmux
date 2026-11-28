@@ -88,7 +88,14 @@ import {
 import type { PeerLinkDetail } from "./linkState";
 import { readComposerStatus } from "./composerStatusModel";
 import { peerResourcesFromStatus } from "./machineResources";
-import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
+import {
+  type ChatOpenRefusal,
+  chatOpenRefusal,
+  type ChatUnavailable,
+  chatUnavailable,
+  type PeerStatus,
+  peerStatusFromStatus,
+} from "./chatUnavailable";
 import { resolvedTarget, whenIdle } from "./conversation/sessionRefs";
 import { isNews, isOthersNews } from "./conversation/sinceNews";
 import { noteReplaced } from "./sessionIndex";
@@ -1551,6 +1558,7 @@ export class AcpmuxDirectClient {
   private selectedSessionId?: string;
   /** The session a link named that the daemon does not have (`sessionMustExist`). */
   private missingSession?: string;
+  private openRefusal?: ChatOpenRefusal;
   /// When the pane found `missingSession` unlisted, and the machine its kept summary named: why it
   /// is missing (chatUnavailable.ts) reads both.
   private missingSince = 0;
@@ -2305,7 +2313,7 @@ export class AcpmuxDirectClient {
     /// Every message on the socket and its lifecycle, for the ACP inspector (wire.ts).
     private readonly wire: AcpWireLog = acpWire,
   ) {
-    this.host = host;
+    this.host = host.sessionId ? { ...host, sessionMustExist: true } : host;
     this.listener = listener;
     this.onLost = onLost;
     this.selectedSessionId = host.sessionId;
@@ -3101,10 +3109,8 @@ export class AcpmuxDirectClient {
           (session) => session.sessionId === this.selectedSessionId && typeof session.peer !== "string",
         );
       if (!localChat) await peersRead;
-      // A chat on another machine: that machine's daemon attached the session its store records for
-      // this tab (agent-session-attach checks it), so that session is the tab's chat even when this
-      // page holds another name for it: a session name the tab recorded, or the id from before the
-      // tab was rebound there. It opens; the tab's chat is never called missing for that.
+      // The remote tab can name a row outside this page. Look it up so chatNamedBy can
+      // verify it is an alias of the requested chat before rebinding the tab.
       const tabSession = first?.tab;
       if (
         tabSession !== undefined &&
@@ -3113,18 +3119,6 @@ export class AcpmuxDirectClient {
         !this.sessions.some((session) => session.sessionId === this.selectedSessionId)
       )
         await this.listOne(tabSession);
-      if (
-        tabSession !== undefined &&
-        this.selectedSessionId !== undefined &&
-        tabSession !== this.selectedSessionId &&
-        !this.sessions.some((session) => session.sessionId === this.selectedSessionId) &&
-        this.sessions.some((session) => session.sessionId === tabSession)
-      ) {
-        this.wire.lifecycle("tab session", { asked: this.selectedSessionId, attached: tabSession });
-        this.selectedSessionId = tabSession;
-        this.selectionGeneration += 1;
-        this.resetSessionState("open: tab session");
-      }
       // A tab that recorded the chat's name or its harness's session id in place of acpmux's id
       // opens the one listed chat that goes by it, and the app rebinds the tab to that chat's id
       // (`onSessionChange`), so it never waits on "Reconnecting…" for an id no machine will list.
@@ -3158,6 +3152,26 @@ export class AcpmuxDirectClient {
         // The machine the chat was on, from what the app host kept of it (another tab read it).
         const missing = this.missingSession;
         if (missing) {
+          // A local miss can mean the peer is still connecting. A device refusal is
+          // authoritative even if the separate session list omitted this chat.
+          if (early?.sessionId === missing) {
+            const generation = this.selectionGeneration;
+            void early.sent.attaching.catch((error: unknown) => {
+              const reason = chatOpenRefusal(error);
+              if (
+                !reason ||
+                reason === "no_session" ||
+                this.closed ||
+                this.socket !== openingSocket ||
+                this.selectionGeneration !== generation ||
+                this.missingSession !== missing
+              )
+                return;
+              this.openRefusal = reason;
+              this.resetSessionState("unlisted chat refused");
+              this.emit();
+            });
+          }
           await readHostTail(missing).catch(() => undefined);
           if (this.missingSession === missing && this.missingPeer === undefined) this.missingPeer = keptPeer(missing);
           if (this.missingSession === missing && this.selectedSessionId === undefined && this.drawMissingTail(missing))
@@ -3340,7 +3354,7 @@ export class AcpmuxDirectClient {
             else await bridge;
           }
         }
-      } else if (this.host.adopt) {
+      } else if (this.host.adopt && !this.missingSession) {
         await this.adoptChat(this.host.adopt);
       }
       // Permission and handoff reads tolerate their own failures. A socket lost during those
@@ -4055,6 +4069,7 @@ export class AcpmuxDirectClient {
   /// and nothing waits, and the open once the chat is listed (`reopenMissing`) draws the same tail
   /// and attaches from it. True when rows were drawn.
   private drawMissingTail(sessionId: string): boolean {
+    if (this.openRefusal) return false;
     const kept = keptTail(sessionId);
     if (!kept || kept.events.length === 0) return false;
     // The tail alone, not the Mac's copy's provenance: no attach of it is out while it is unlisted.
@@ -4327,7 +4342,7 @@ export class AcpmuxDirectClient {
         const reason = (message.error.data as { reason?: unknown } | undefined)?.reason;
         if (!stale && this.host.browserDevice && (reason === "device.revoked" || reason === "device.unauthorized")) {
           this.browserDeviceReady = false;
-          invalidateBrowserDevice(this.browserIdentity);
+          invalidateBrowserDevice(this.browserIdentity, reason);
           const socket = this.socket;
           if (socket)
             queueMicrotask(() => {
@@ -4989,7 +5004,7 @@ export class AcpmuxDirectClient {
   /// listing or Reconnect opens it.
   private reopenMissing(): boolean {
     const missing = this.missingSession;
-    if (this.selectedSessionId !== undefined || missing === undefined || this.closed) return false;
+    if (this.selectedSessionId !== undefined || missing === undefined || this.closed || this.openRefusal) return false;
     // The chat the tab's id names, when it is a name or a harness's session id (`chatNamedBy`).
     const named = chatNamedBy(missing, this.sessions);
     this.missingAmbiguous = named.ambiguous;
@@ -5075,6 +5090,7 @@ export class AcpmuxDirectClient {
   async recheckMissing(): Promise<void> {
     const missing = this.missingSession;
     if (missing === undefined || this.selectedSessionId !== undefined) return;
+    this.openRefusal = undefined;
     const [peer, generation] = [this.missingPeer, this.selectionGeneration];
     if (peer !== undefined && this.peerConnected[peer] === false) {
       await this.reconnectPeer(peer).catch(() => undefined);
@@ -7149,7 +7165,20 @@ export class AcpmuxDirectClient {
       this.earlyAttach.live.length = 0;
       this.earlyAttach = undefined;
     }
-    const result = await sent.attaching;
+    let result;
+    try {
+      result = await sent.attaching;
+    } catch (error) {
+      const reason = chatOpenRefusal(error);
+      if (!reason || !current()) throw error;
+      this.noteMissing(sessionId);
+      this.selectedSessionId = undefined;
+      this.selectionGeneration += 1;
+      this.resetSessionState("attach refused");
+      this.openRefusal = reason;
+      this.emit();
+      return [];
+    }
     acpmuxPerf.markLaunch("attachAnswered");
     // A switch drew the chat's kept tail: its frame paints before the reply's page renders, which
     // a local daemon's reply would otherwise beat. What came live meanwhile is held (`copyLive`).
@@ -12561,6 +12590,7 @@ export class AcpmuxDirectClient {
         : {}),
       missingSession: this.selectedSessionId ? undefined : this.missingSession,
       unavailable: this.unavailableNow(),
+      openRefusal: this.selectedSessionId ? undefined : this.openRefusal,
       missingReason: this.selectedSessionId ? undefined : this.missingReason,
       liveChat: this.liveAdopt && {
         canFork: this.liveAdopt.canFork,
@@ -12678,6 +12708,7 @@ export class AcpmuxDirectClient {
   }
 
   async ensureSession(): Promise<string | undefined> {
+    if (this.missingSession && !this.selectedSessionId) throw new Error(translate("error.notOpen"));
     // This send belongs to the requested chat. A refused or empty start must not send it to
     // the previous chat, or start the default harness instead of the one the person picked.
     if (this.creating || !this.selectedSessionId) {
@@ -15238,6 +15269,7 @@ export class AcpmuxDirectClient {
       this.sentSeen = undefined;
     }
     this.missingSession = undefined;
+    this.openRefusal = undefined;
     this.missingReason = undefined;
     this.missingAmbiguous = false;
     // A hidden pane does not see the chat it opens (the tab's missing chat came back while its

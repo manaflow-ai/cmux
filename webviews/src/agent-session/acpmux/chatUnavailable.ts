@@ -24,8 +24,30 @@ export type PeerStatus = {
   attempts?: number;
 };
 
+/** Terminal reasons returned by acpmux when opening a particular chat. */
+export type ChatOpenRefusal =
+  | "device.identity_required"
+  | "device.required"
+  | "device.unauthorized"
+  | "device.revoked"
+  | "no_session";
+
+export function chatOpenRefusal(error: unknown): ChatOpenRefusal | undefined {
+  const reason = (error as { reason?: unknown } | null)?.reason;
+  if (
+    reason === "device.identity_required" ||
+    reason === "device.required" ||
+    reason === "device.revoked" ||
+    reason === "device.unauthorized" ||
+    reason === "no_session"
+  )
+    return reason;
+  return undefined;
+}
+
 /// What the pane shows in place of a chat the daemon does not list.
 export type ChatUnavailable =
+  | { reason: "refused"; refusal: ChatOpenRefusal }
   | { reason: "paused"; machine?: string }
   | { reason: "machineDeleted"; machine?: string }
   /// Gone from the machine that listed it; `machine` when the pane knows which one.

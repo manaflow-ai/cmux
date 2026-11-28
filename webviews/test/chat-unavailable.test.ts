@@ -180,7 +180,7 @@ describe("ChatUnavailableState", () => {
 
   test("a chat never seen here is not found, never deleted", () => {
     const html = render({ reason: "notFound" }, "Studio");
-    expect(html).toContain("Can&#x27;t find this chat");
+    expect(html).toContain("This chat couldn&#x27;t be opened");
     expect(html).toContain("Studio doesn&#x27;t have it.");
     expect(html).not.toMatch(/was deleted|Remove from Sidebar/);
     expect(html).toContain("Close Tab");

@@ -59,6 +59,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     attachHeld?: Promise<void>;
     /// Sessions whose attach fails, as one on a machine that dropped again would.
     attachFails?: Set<string>;
+    refusal?: string;
     /// Sessions whose next attach fails once, then attaches.
     attachFailsOnce?: Set<string>;
   };
@@ -123,6 +124,11 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
           if (message.method === "_acpmux/attach") {
             attachAsked();
             await scenario.attachHeld;
+            if (scenario.refusal) {
+              const error = { code: -32003, message: "attach refused", data: { reason: scenario.refusal } };
+              ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, error }));
+              return;
+            }
           }
           try {
             const result = answer(message.method, message.params ?? {});
@@ -154,7 +160,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
-    const hash = new URLSearchParams({ endpoint, token: "t", session: chat, must: "" });
+    const hash = new URLSearchParams({ endpoint, token: "t", session: chat });
     if (machine) hash.set("machine", machine);
     await page.goto(`http://127.0.0.1:${port}/#${hash.toString()}`);
     return page;
@@ -591,7 +597,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     const gone = await open(chat, "Studio");
     const notFound = gone.locator('[data-unavailable="notFound"]');
     await notFound.waitFor({ timeout: 60_000 });
-    expect(await notFound.locator("h2").innerText()).toBe("Can't find this chat");
+    expect(await notFound.locator("h2").innerText()).toBe("This chat couldn't be opened");
     expect(await notFound.innerText()).toContain("Studio doesn't have it.");
     expect(await notFound.innerText()).toContain("Session 01a1201b-d3c3");
     expect(await gone.getByText(/was deleted|Remove from Sidebar/).count()).toBe(0);
@@ -753,6 +759,41 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     expect(await shown.getByRole("button", { name: "Close Tab" }).count()).toBe(1);
     expect((await state(page)).sessionId).toBeNull();
     await page.close();
+  });
+
+  test.each([
+    ["device.required", "Enroll this browser to read this chat."],
+    ["device.revoked", "Access for this device was revoked."],
+    ["no_session", "doesn't have it"],
+  ])("a refused attach shows its reason and removes the composer (%s)", async (refusal, detail) => {
+    scenario = { sessions: [summary("requested-chat")], peers: [], refusal };
+    const page = await open("requested-chat");
+    try {
+      const notice = page
+        .getByRole("alert")
+        .filter({ has: page.getByRole("heading", { name: "This chat couldn't be opened" }) });
+      await notice.waitFor();
+      expect(await notice.innerText()).toContain(detail);
+      expect(await page.locator(".acpmux-composer, .acpmux-composer-foot").count()).toBe(0);
+      expect(await page.getByText("What should we build?", { exact: true }).count()).toBe(0);
+      expect(await page.getByText("Can't reach the agent service", { exact: true }).count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("an explicit link never opens the unrelated session recorded for the tab", async () => {
+    scenario = { sessions: [summary("other-chat")], tabSessionId: "other-chat", peers: [] };
+    const page = await open("requested-chat");
+    try {
+      await page.locator('[data-unavailable="notFound"]').waitFor();
+      const opened = await state(page);
+      expect(opened.sessionId).toBeNull();
+      expect(opened.missingSession).toBe("requested-chat");
+      expect(await page.getByText("Opened other-chat").count()).toBe(0);
+    } finally {
+      await page.close();
+    }
   });
 
   test("a chat on another machine whose tab names it by another id than acpmux's opens", async () => {

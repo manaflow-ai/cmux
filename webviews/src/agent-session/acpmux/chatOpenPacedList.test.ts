@@ -10,11 +10,8 @@ import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
-const saved = {
-  window: "window" in scope,
-  document: "document" in scope,
-  values: { window: scope.window, document: scope.document },
-};
+const keys = ["window", "document", "cmuxAcpmuxComputerUseState"] as const;
+const saved = new Map(keys.filter((key) => key in scope).map((key) => [key, scope[key]]));
 
 beforeAll(() => {
   scope.window = dom.window;
@@ -22,18 +19,25 @@ beforeAll(() => {
 });
 afterAll(async () => {
   await settleReact();
-  for (const key of ["window", "document"] as const)
-    if (saved[key]) scope[key] = saved.values[key];
+  for (const key of keys)
+    if (saved.has(key)) scope[key] = saved.get(key);
     else delete scope[key];
 });
 
 const turns = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 const LISTS = new Set(["_acpmux/watch", "_acpmux/sessions"]);
 
-type Snapshot = { rows?: unknown[]; sessions?: { sessionId: string }[]; listedSessions?: boolean };
+type Snapshot = {
+  sessionId?: string;
+  missingSession?: string;
+  openRefusal?: string;
+  rows?: unknown[];
+  sessions?: { sessionId: string }[];
+  listedSessions?: boolean;
+};
 
 /// Connects `host` to a mock daemon whose session list replies wait until `release()`.
-async function openWithHeldList(host?: Record<string, unknown>) {
+async function openWithHeldList(host?: Record<string, unknown>, refusal?: string) {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const socket = new MockAcpmuxSocket(() => Promise.resolve());
@@ -49,7 +53,10 @@ async function openWithHeldList(host?: Record<string, unknown>) {
   daemon.send = (raw) => {
     const request = JSON.parse(raw) as { id?: number; method: string };
     if (holding && request.id !== undefined && LISTS.has(request.method)) held.push(raw);
-    else answer(raw);
+    else if (refusal && request.method === "_acpmux/attach") {
+      const error = { code: -32003, message: "refused", data: { reason: refusal } };
+      queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: request.id, error }) }));
+    } else answer(raw);
   };
   let last: Snapshot = {};
   let painted = false;
@@ -108,7 +115,7 @@ test("a chat opens on its attach while acpmux paces the session list", async () 
 });
 
 test("a chat its attach cannot find still waits for the list to say it is missing", async () => {
-  const open = await openWithHeldList({ sessionId: "no-such-chat", sessionMustExist: true });
+  const open = await openWithHeldList({ sessionId: "no-such-chat" });
   await settle(() => open.state().held > 0);
   for (let i = 0; i < 100; i += 1) await turns();
   try {
@@ -118,11 +125,43 @@ test("a chat its attach cannot find still waits for the list to say it is missin
     await settle(() => open.state().connected);
     expect(open.state().connected).toBe(true);
     expect(open.state().painted).toBe(false);
+    expect(open.state().last.sessionId).toBeUndefined();
+    expect(open.state().last.missingSession).toBe("no-such-chat");
   } finally {
     open.release();
     (await open.connecting).close();
   }
 });
+
+test("an unlisted chat keeps an explicit device refusal", async () => {
+  const open = await openWithHeldList({ sessionId: "unlisted" }, "device.required");
+  open.release();
+  const client = await open.connecting;
+  try {
+    expect(open.state().last).toMatchObject({ missingSession: "unlisted", openRefusal: "device.required" });
+    expect(open.state().last.sessionId).toBeUndefined();
+  } finally {
+    client.close();
+  }
+});
+
+test.each(["device.required", "device.revoked", "no_session"])(
+  "a listed chat carries its attach refusal %s",
+  async (reason) => {
+    const open = await openWithHeldList(undefined, reason);
+    open.release();
+    const client = await open.connecting;
+    try {
+      const { mockHost } = await import("./mock");
+      expect(open.state().last).toMatchObject({ missingSession: mockHost.sessionId, openRefusal: reason });
+      expect(open.state().last.sessionId).toBeUndefined();
+      expect(open.state().last.rows).toHaveLength(0);
+      await expect(client.ensureSession()).rejects.toThrow();
+    } finally {
+      client.close();
+    }
+  },
+);
 
 test("an attach reply names the open's row only for that chat on this machine", async () => {
   const { attachedLocalRow } = await import("./direct");

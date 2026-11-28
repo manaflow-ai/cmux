@@ -1,3 +1,4 @@
+import { chatOpenRefusal } from "../chatUnavailable";
 import { registerViewBridge } from "./viewBridges";
 import { startDevMotionAudit } from "../devMotionAudit";
 import { openFork, openInOwnTab } from "../conversation/openFork";
@@ -1055,6 +1056,7 @@ export function paneSnapshotEffect({
     // its identity, without unmounting ComposerContext and losing a pending machine selection.
     reconnectingRef.current = true;
     cloudTypingPrewarm.reset();
+    let requestedSession: string | undefined;
     // A `reconnect` only looks for a daemon; after its definite refusal this ask starts one (`startOnAsk`).
     const asksReconnect = reconnect && !startOnAsk;
     startOnAsk = false;
@@ -1118,6 +1120,7 @@ export function paneSnapshotEffect({
       // What another chat handed this new Cloud chat, by its token, read once (commandPlace.ts).
       const received = receiveHandedCloudStart(answered, reconnect, handoffStore(), Date.now());
       const host = received.host;
+      requestedSession = host.sessionId;
       if (received.folder) setHandedFolder(received.folder);
       // A started Cloud chat's pick of another agent: this new Cloud chat's Cloud send starts on it
       // (cloudAgentPick.ts), and this Mac's own remembered pick stays as it was (cmux#51731).
@@ -3103,6 +3106,21 @@ export function paneSnapshotEffect({
     } catch (error) {
       if (!cancelled) {
         acpWire.lifecycle("handshake failed", { message: String(error) });
+        const refusal = chatOpenRefusal(error);
+        if (requestedSession && refusal) {
+          const refused = {
+            ...emptySnapshot(),
+            connection: "failed",
+            missingSession: requestedSession,
+            openRefusal: refusal,
+          };
+          snapshotRef.current = refused;
+          setSnapshot(refused);
+          setHostError(undefined);
+          setHostErrorShown(false);
+          setAwaitsChat(false);
+          return;
+        }
         setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));
         // A chat too large to open says so in plain words; the reply's byte count stays in the log.
         const tooLarge = hostRefusedTooLarge(error);
