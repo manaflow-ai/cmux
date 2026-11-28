@@ -138,6 +138,74 @@ fn a_detached_child_outlives_its_handle() {
     }
 }
 
+/// Whether `pid` is gone from the process table (reaped), not a zombie.
+fn reaped(pid: libc::pid_t) -> bool {
+    // SAFETY: signal 0 only checks that the pid exists; a zombie still does.
+    unsafe { libc::kill(pid, 0) != 0 && *libc_errno() == libc::ESRCH }
+}
+
+#[cfg(target_vendor = "apple")]
+fn libc_errno() -> *mut libc::c_int {
+    // SAFETY: this thread's errno.
+    unsafe { libc::__error() }
+}
+
+#[cfg(not(target_vendor = "apple"))]
+fn libc_errno() -> *mut libc::c_int {
+    // SAFETY: this thread's errno.
+    unsafe { libc::__errno_location() }
+}
+
+/// A child handed to `reap_when_it_ends` outlives its handle and, once it
+/// exits, is reaped: no zombie per start (the acpmux daemon a command starts
+/// and that lost the lock race exits while the command still runs).
+#[test]
+fn a_child_reaped_when_it_ends_outlives_its_handle_and_leaves_no_zombie() {
+    let mut child = Command::new("/bin/sh")
+        .args(["-c", "read line; exit 0"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = child.id() as libc::pid_t;
+    let stdin = child.stdin.take().unwrap();
+    child.reap_when_it_ends("test: a child that outlives its handle");
+    std::thread::sleep(cmux_process::DROP_GRACE + Duration::from_millis(300));
+    assert!(alive(pid), "a child reaped when it ends was ended at its handle's drop");
+    // It ends on its own (stdin closes) and is reaped without anyone waiting on it.
+    drop(stdin);
+    let deadline = Instant::now() + GONE_WITHIN;
+    while !reaped(pid) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(reaped(pid), "the child exited but stayed a zombie");
+}
+
+/// The same child only detached stays a zombie after it exits: what the
+/// test above guards against.
+#[test]
+fn a_detached_child_that_exits_stays_a_zombie_until_reaped() {
+    let mut child = Command::new("/bin/sh")
+        .args(["-c", "exit 0"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = child.id() as libc::pid_t;
+    assert!(child.exited_within(GONE_WITHIN).unwrap());
+    child.detach("test: detached only");
+    drop(child);
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(!reaped(pid), "a detached child was reaped by its drop");
+    // SAFETY: the test's own exited child: reap it.
+    unsafe {
+        let mut status = 0;
+        assert_eq!(libc::waitpid(pid, &mut status, 0), pid);
+    }
+}
+
 #[test]
 fn a_waited_child_is_not_signalled_at_drop() {
     let mut child = Command::new("/bin/sh")
