@@ -123,7 +123,7 @@
   --cv-worked-rule-below: 6px;
   /* A name chip on a row (AgentTag.css): a quieter wash than the inset surface, and the theme's secondary ink, so the
      chips stop reading as a second row of buttons (same ask; gallery agent-pane.row-air, `data-chip-look`). */
-  --cv-chip-bg: color-mix(in srgb, var(--cv-text) 7%, transparent);
+  --cv-chip-bg: var(--ds-surface-inset);
   --cv-chip-ink: color-mix(in srgb, var(--cv-text) 82%, transparent);
   --cv-thought-pitch: var(--instrument-thinking-line-height, 20px); /* an opened thought's line pitch (.cv-thought__text line-height) */
   --cv-glyph-slot: var(--grid-transcript-icon-box);
@@ -567,7 +567,7 @@ img.cv-user__image {
   padding: 0 4px;
   border-radius: 4px;
   color: #fff; /* theme-fixed: on its own black scrim over media */
-  background: rgb(0 0 0 / 0.55);
+  background: rgb(0 0 0 / 0.55); /* chat-surface-allow: a scrim over video, dark in both themes so its white text reads on any frame */
   font-size: var(--text-detail);
   font-variant-numeric: var(--instrument-type-numerals, tabular-nums);
   line-height: 1.4;
@@ -651,13 +651,13 @@ img.cv-user__image {
   padding: var(--ds-space-1) var(--ds-space-2);
   border: 0;
   border-radius: var(--ds-radius-control);
-  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  background: var(--ds-surface-inset);
   color: var(--agent-text);
   font: inherit;
   cursor: default;
 }
 .cv-user__image-retry:hover {
-  background: color-mix(in srgb, var(--agent-text) 18%, transparent);
+  background: var(--ds-surface-hover-layer), var(--ds-surface-inset);
 }
 .cv-user__image-retry:focus-visible {
   outline: var(--cmux-focus-ring-width) solid var(--agent-text);
@@ -1641,7 +1641,7 @@ img.cv-user__image {
   background: var(--ds-surface-inset);
 }
 .acpmux-started-chip.cv-session-ref:hover > .cv-code {
-  background: color-mix(in srgb, var(--cv-text, var(--agent-text)) 16%, transparent);
+  background: var(--ds-surface-hover-layer), var(--ds-surface-inset);
 }
 /* Written UTC times stay quiet until the reader points at or focuses them. */
 .cv-time-hover {
@@ -2448,7 +2448,7 @@ img.cv-user__image {
 }
 .cv-edit-diff__loading-line > span {
   border-radius: 2px;
-  background: color-mix(in srgb, var(--cv-text-muted) 24%, transparent);
+  background: color-mix(in srgb, var(--cv-text-muted) 24%, transparent); /* chat-surface-allow: a loading bar is a mark in the muted ink, not a surface */
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
 }
@@ -2712,7 +2712,7 @@ pre.cv-math-source {
    row rather than the prose so a range remains visible while its rows virtualize in and out. */
 .acpmux-row[data-transcript-selected="true"] {
   border-radius: 8px;
-  background: color-mix(in srgb, var(--agent-accent) 8%, transparent);
+  background: color-mix(in srgb, var(--agent-accent) 8%, transparent); /* chat-surface-allow: the accent role colour, not a surface level */
 }
 /* Response focus rings are opt-in (focusRing.enabled, #23745): the shared desktop ring leaves the
    row out (desktop.css), so without the setting the row draws nothing, not the engine's own
@@ -2865,7 +2865,7 @@ pre.cv-math-source {
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ds-surface-card-line);
 }
 .acpmux-ask-action.is-primary:hover {
-  background: color-mix(in srgb, var(--agent-accent) 88%, var(--cv-fg));
+  background: color-mix(in srgb, var(--agent-accent) 88%, var(--cv-fg)); /* chat-surface-allow: the primary button is the accent role */
 }
 .acpmux-ask-action:disabled {
   opacity: 0.5;
@@ -4973,7 +4973,7 @@ button.cv-video-frames__frame:focus-visible {
   padding: 0 4px;
   border-radius: 4px;
   color: #fff; /* theme-fixed: on its own black scrim over media */
-  background: rgb(0 0 0 / 0.55);
+  background: rgb(0 0 0 / 0.55); /* chat-surface-allow: a scrim over video, dark in both themes so its white text reads on any frame */
   font-size: var(--text-detail);
   font-variant-numeric: var(--instrument-type-numerals, tabular-nums);
   line-height: 16px;
@@ -5058,7 +5058,7 @@ button.cv-video-frames__frame:focus-visible {
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ds-surface-card-line);
   border-radius: 8px;
   overflow: hidden;
-  background: color-mix(in srgb, var(--ds-surface-card) 72%, transparent);
+  background: var(--ds-surface-card);
 }
 :root[data-tool-steps-look="ios-sheet"] .cv-steps > .cv-step {
   padding: 0;
@@ -6700,7 +6700,7 @@ a.cv-sha:focus-visible {
   line-height: calc(var(--cv-font-size) * 18 / 14);
 }
 .cv-turn-auth-action:hover {
-  background: color-mix(in srgb, var(--agent-accent) 10%, transparent);
+  background: color-mix(in srgb, var(--agent-accent) 10%, transparent); /* chat-surface-allow: the accent role colour, not a surface level */
 }
 .cv-turn-auth-action:focus-visible {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
@@ -6780,7 +6780,7 @@ a.cv-sha:focus-visible {
 }
 .cv-read-aloud[data-reading] {
   color: var(--agent-accent, var(--cv-text));
-  background: color-mix(in srgb, var(--agent-accent, currentColor) 14%, transparent);
+  background: color-mix(in srgb, var(--agent-accent, currentColor) 14%, transparent); /* chat-surface-allow: the accent role colour, not a surface level */
 }
 /* Every reply's age in a prompt's age's type, its own row's too (MessageActions.tsx ReplyActions,
    which has no footer rail), so the two ages read as one label (Leo, 2026-11-08: "they need to be
@@ -6886,13 +6886,13 @@ a.cv-sha:focus-visible {
   display: block;
   block-size: 2px;
   max-inline-size: 240px;
-  background: color-mix(in srgb, currentColor 12%, transparent);
+  background: color-mix(in srgb, currentColor 12%, transparent); /* chat-surface-allow: a meter track and its fill are marks in the ink, not surfaces */
   overflow: hidden;
 }
 .cv-capacity-wait__fill {
   display: block;
   block-size: 100%;
-  background: color-mix(in srgb, currentColor 45%, transparent);
+  background: color-mix(in srgb, currentColor 45%, transparent); /* chat-surface-allow: a meter track and its fill are marks in the ink, not surfaces */
   transition: inline-size var(--cmux-motion-micro) linear;
 }
 /* An agent's ask for one setting or connection (settings_ask; the settings-ask-card experiment's
@@ -7024,7 +7024,7 @@ a.cv-sha:focus-visible {
   color: var(--transient-action-ink);
 }
 .cv-turn-error__primary:hover {
-  background: color-mix(in srgb, var(--transient-action-fill) 88%, var(--ds-color-fg));
+  background: color-mix(in srgb, var(--transient-action-fill) 88%, var(--ds-color-fg)); /* chat-surface-allow: the primary button is the transient action fill, a role */
 }
 /* The `link` arm: a link that ends the cause sentence, blue as every link (#22345). */
 .cv-turn-error__offer-link {
@@ -7963,7 +7963,7 @@ a.cv-sha:focus-visible {
   padding: 0 var(--ds-space-3);
   border: 0;
   border-radius: var(--ds-radius-popup);
-  background: var(--agent-control, color-mix(in srgb, var(--agent-text) 10%, var(--agent-page-bg)));
+  background: var(--agent-control, var(--ds-surface-inset));
   box-shadow: inset 0 0 0 1px var(--agent-border);
   color: var(--agent-text);
   font: inherit;
@@ -8070,10 +8070,10 @@ a.cv-sha:focus-visible {
 }
 /* Find matches: the theme's highlight (the yellow is only for an unthemed preview). */
 ::highlight(acpmux-find) {
-  background-color: color-mix(in srgb, var(--agent-highlight, #f5c542) 40%, transparent);
+  background-color: color-mix(in srgb, var(--agent-highlight, #f5c542) 40%, transparent); /* chat-surface-allow: the find highlight is its own role colour */
 }
 ::highlight(acpmux-find-active) {
-  background-color: var(--agent-highlight, #f5c542);
+  background-color: var(--agent-highlight, #f5c542); /* chat-surface-allow: the find highlight is its own role colour */
   color: var(--agent-highlight-text, #1d1d1f);
 }
 
@@ -8173,7 +8173,7 @@ a.cv-sha:focus-visible {
       width: 20px;
       height: 20px;
       border-radius: 50%;
-      background: radial-gradient(
+      background: radial-gradient( /* chat-surface-allow: the floating glass arrow backing (no backdrop-filter), glass not a level */
         closest-side,
         color-mix(in srgb, var(--glass-surface) 72%, transparent) 45%,
         transparent
@@ -8438,12 +8438,12 @@ a.cv-sha:focus-visible {
   padding: calc(var(--ds-space-1) / 2) var(--ds-space-2);
   border: 1px solid color-mix(in srgb, var(--agent-accent) 34%, transparent);
   border-radius: var(--ds-radius-control);
-  background: color-mix(in srgb, var(--agent-accent) 6%, transparent);
+  background: color-mix(in srgb, var(--agent-accent) 6%, transparent); /* chat-surface-allow: the accent role colour, not a surface level */
   color: var(--agent-accent);
   cursor: default;
 }
 .cv-bgtask__open:hover {
-  background: color-mix(in srgb, var(--agent-accent) 12%, transparent);
+  background: color-mix(in srgb, var(--agent-accent) 12%, transparent); /* chat-surface-allow: the accent role colour, not a surface level */
 }
 .cv-bgtask__open:focus-visible {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
@@ -8872,7 +8872,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   box-sizing: border-box;
   /* Small-radius rects, not capsules (agent-pane-no-capsules.test.ts). */
   border-radius: var(--ds-radius-control);
-  background: color-mix(in srgb, var(--acpmux-needs-you-mark) var(--instrument-ink-pill, 16%), transparent);
+  background: color-mix(in srgb, var(--acpmux-needs-you-mark) var(--instrument-ink-pill, 16%), transparent); /* chat-surface-allow: the needs-you mark is a status role colour */
   /* The words in the needs-you ink (the mark toward the text), not the raw mark on its own tint: the
      raw mark was 2.64:1 in light; the dot keeps the mark's hue. */
   color: var(--acpmux-needs-you-ink);
@@ -8884,7 +8884,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   width: var(--grid-glyph);
   height: var(--grid-glyph);
   border-radius: 50%;
-  background: radial-gradient(
+  background: radial-gradient( /* chat-surface-allow: the needs-you mark is a status role colour */
     circle closest-side,
     var(--acpmux-needs-you-mark) 66%,
     color-mix(in srgb, var(--acpmux-needs-you-mark) 30%, transparent) 67%
@@ -9121,7 +9121,7 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   color: var(--agent-text);
   background: var(--ds-surface-inset);
 }
-.cv-repo-recovery button:hover { background: color-mix(in srgb, var(--agent-text) 15%, transparent); }
+.cv-repo-recovery button:hover { background: var(--ds-surface-hover-layer), var(--ds-surface-inset); }
 /* The wait's ETA, beside its reason: tabular so the countdown does not jiggle. */
 .cv-repo-recovery__eta { font-variant-numeric: var(--instrument-type-numerals, tabular-nums); }
 /* The verified end of a recovery ("GitHub connected · owner/repo attached"): a small chip in the
@@ -9134,7 +9134,7 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   padding: 0 var(--ds-space-2);
   line-height: 1.6;
   color: var(--agent-status-success);
-  background: color-mix(in srgb, var(--agent-status-success) 12%, transparent);
+  background: color-mix(in srgb, var(--agent-status-success) 12%, transparent); /* chat-surface-allow: a status role colour, not a surface level */
 }
 /* Stacked (messageLineLook.ts): the received line holds the sender alone, so its name may take the
    line's width instead of sharing it with the first line, which is under it. */
@@ -9187,11 +9187,7 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   justify-content: center;
 }
 .cv-selection-reply:hover {
-  background: linear-gradient(
-      color-mix(in srgb, var(--agent-text) 8%, transparent),
-      color-mix(in srgb, var(--agent-text) 8%, transparent)
-    ),
-    var(--glass-tint);
+  background: var(--ds-surface-hover-layer), var(--glass-tint);
 }
 /* Liquid Glass off (appearance.liquidGlass): the same solid surface, through its veil, so the hover
    wash above still draws over a solid fill. */
@@ -9712,5 +9708,5 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   position: absolute;
   inset: 0;
   border-radius: var(--surface-card-radius);
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  background: var(--ds-surface-card);
 }

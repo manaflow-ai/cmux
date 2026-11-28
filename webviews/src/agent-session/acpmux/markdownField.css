@@ -447,7 +447,7 @@
   position: absolute;
   inset: 0 var(--acpmux-inline-room-after) 0 var(--acpmux-inline-room-before);
   border-radius: inherit;
-  background: color-mix(
+  background: color-mix( /* chat-surface-allow: the host text selection colour, a role */
     in srgb,
     var(--cmux-text-selection, color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent)) 55%,
     transparent
@@ -599,7 +599,7 @@
   opacity: 1;
 }
 .acpmux-md-inline-remove:hover {
-  background: color-mix(in srgb, var(--agent-text) 82%, var(--acpmux-base, Canvas));
+  background: color-mix(in srgb, var(--agent-text) 82%, var(--acpmux-base, Canvas)); /* chat-surface-allow: an inverted ink badge, a mark not a level */
 }
 .acpmux-md-inline-remove:focus-visible {
   outline: 1.5px solid var(--agent-text);
@@ -690,7 +690,7 @@
   padding-block: calc((var(--text-content--line-height) - 1.193em) / 2)
     calc((var(--text-content--line-height) - 1.193em) / 2 + var(--cmux-hairline) / 2);
   border-radius: 0;
-  background: var(
+  background: var( /* chat-surface-allow: the host text selection colour, a role */
     --cmux-selection-fill,
     var(--cmux-text-selection, color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent))
   );

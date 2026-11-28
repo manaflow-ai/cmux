@@ -184,7 +184,7 @@
   overflow: hidden;
   padding: 0 var(--ds-space-1);
   border-radius: 4px;
-  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 14%, transparent);
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 14%, transparent); /* chat-surface-allow: the accent role colour, not a surface level */
   color: var(--agent-text);
   font: var(--text-caption) var(--font-mono);
   text-overflow: ellipsis;

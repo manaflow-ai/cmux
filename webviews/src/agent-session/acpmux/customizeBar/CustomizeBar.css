@@ -47,11 +47,11 @@
   width: var(--acpmux-customize-bar-dot);
   height: var(--acpmux-customize-bar-dot);
   border-radius: 50%;
-  background: var(--cmux-accent, #3b82f6);
+  background: var(--cmux-accent, var(--ds-color-accent));
 }
 
 .acpmux-customize-bar-dot[data-state="applied"] {
-  background: var(--cmux-success, #22c55e);
+  background: var(--cmux-success, var(--ds-color-success));
 }
 
 .acpmux-customize-bar-parts {

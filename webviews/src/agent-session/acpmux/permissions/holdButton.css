@@ -19,7 +19,7 @@ button[data-hold]::before {
   inset: 0;
   /* Behind the label, over the button's fill: the button isolates its own stacking context. */
   z-index: var(--layer-backdrop);
-  background: color-mix(in srgb, currentColor 18%, transparent);
+  background: color-mix(in srgb, currentColor 18%, transparent); /* chat-surface-allow: a hold progress fill is a meter mark in the button ink, not a surface */
   transform: scaleX(var(--acpmux-hold-progress, 0));
   transform-origin: left center;
   pointer-events: none;

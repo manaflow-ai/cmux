@@ -63,10 +63,10 @@
   color: var(--agent-muted);
 }
 button.acpmux-env-card__row:hover:not(:disabled) {
-  background: var(--agent-control-hover, color-mix(in srgb, currentColor 7%, transparent));
+  background: var(--agent-control-hover, var(--ds-surface-hover));
 }
 button.acpmux-env-card__row:active:not(:disabled) {
-  background: color-mix(in srgb, currentColor 12%, transparent);
+  background: var(--ds-color-pressed);
 }
 button.acpmux-env-card__row:focus-visible {
   outline: 2px solid var(--agent-accent);
@@ -112,7 +112,7 @@ button.acpmux-env-card__row:disabled {
   padding: var(--ds-space-1) var(--ds-space-3);
   border: var(--cmux-hairline, 0.5px) solid color-mix(in srgb, var(--agent-text) 14%, transparent);
   border-radius: 999px;
-  background: var(--acpmux-changes-pill-bg, color-mix(in srgb, var(--agent-text) 6%, var(--agent-page-bg)));
+  background: var(--acpmux-changes-pill-bg, var(--ds-surface-inset));
   color: var(--agent-text);
   font: inherit;
   font-family: var(--font-ui);
@@ -121,7 +121,7 @@ button.acpmux-env-card__row:disabled {
   appearance: none;
 }
 .acpmux-changes-pill:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--agent-text) 10%, var(--agent-page-bg));
+  background: var(--ds-surface-hover-layer), var(--ds-surface-inset);
 }
 .acpmux-changes-pill:focus-visible {
   outline: 2px solid var(--agent-accent);

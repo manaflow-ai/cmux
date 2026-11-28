@@ -94,7 +94,7 @@
 .nt-chats-retry:not(:disabled):hover{background-image:var(--ds-surface-hover-layer)}
 .nt-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--ds-space-3);margin-top:var(--ds-space-2)}
 @container (max-width:520px){.nt-cards{grid-template-columns:minmax(0,1fr)}.nt-hint{display:none}}
-.nt-card{display:flex;flex-direction:column;align-items:stretch;gap:var(--ds-space-1);min-width:0;min-height:84px;padding:var(--ds-space-3) var(--ds-space-4);box-sizing:border-box;border:0;border-radius:16px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-soft);font:inherit;text-align:left}
+.nt-card{display:flex;flex-direction:column;align-items:stretch;gap:var(--ds-space-1);min-width:0;min-height:84px;padding:var(--ds-space-3) var(--ds-space-4);box-sizing:border-box;border:0;border-radius:16px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-soft);font:inherit;text-align:left} /* chat-surface-allow: New Tab's card takes the composer's own fill (one card with the composer, #57406) */
 .nt-card:hover{background:var(--acpmux-composer-bg);color:var(--agent-text)}
 .nt-card-meta{display:flex;align-items:center;gap:var(--ds-space-1);color:var(--acpmux-composer-dim);font-size:var(--text-caption)}
 .nt-card-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-text);font-size:var(--text-body);font-weight:var(--weight-emphasis)}
@@ -401,7 +401,7 @@
 .nt-all-row[data-state=input] .nt-all-state{color:var(--agent-warning,var(--agent-text))}
 .nt-all-row[data-state=error] .nt-all-state,.nt-all-row[data-state=failed] .nt-all-state{color:var(--agent-danger)}
 /* Status Pills in All Chats (agentPane.display.chatListStatusPills, Taste Board #19): a live chat's state as a small tinted pill at the row's end, in the status palette. */
-.nt-all-pill{--nt-pill:var(--agent-muted);flex:none;margin-left:auto;padding:0 var(--ds-space-2);border-radius:999px;background:color-mix(in srgb,var(--nt-pill) 14%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--nt-pill) 28%,transparent);color:var(--nt-pill);font-size:var(--text-detail);font-weight:500;line-height:18px;letter-spacing:var(--text-detail--letter-spacing);white-space:nowrap}
+.nt-all-pill{--nt-pill:var(--agent-muted);flex:none;margin-left:auto;padding:0 var(--ds-space-2);border-radius:999px;background:var(--ds-surface-inset);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--nt-pill) 28%,transparent);color:var(--nt-pill);font-size:var(--text-detail);font-weight:500;line-height:18px;letter-spacing:var(--text-detail--letter-spacing);white-space:nowrap}
 .nt-all-state+.nt-all-pill{margin-left:var(--ds-space-2)}
 .nt-all-pill[data-tone=running]{--nt-pill:var(--agent-accent)}
 .nt-all-pill[data-tone=input]{--nt-pill:var(--agent-status-warning)}
@@ -700,8 +700,8 @@
 .nt-style{position:absolute;bottom:2px;left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);margin:0;padding:0;border:0;min-width:0;font-family:var(--font-ui);-webkit-font-smoothing:antialiased}
 .nt-style-options{position:relative;display:flex}
 .nt-style-option{position:relative;display:flex;align-items:center;justify-content:center;width:24px;height:24px}
-.nt-style-option::after{content:"";width:6px;height:6px;border-radius:50%;background:color-mix(in srgb,var(--agent-text) 26%,transparent);transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}
-@media (hover: hover) and (pointer: fine){.nt-style-option:hover::after{background:color-mix(in srgb,var(--agent-text) 50%,transparent)}}
+.nt-style-option::after{content:"";width:6px;height:6px;border-radius:50%;background:color-mix(in srgb,var(--agent-text) 26%,transparent);transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)} /* chat-surface-allow: a style option dot is a mark in the ink, not a surface */
+@media (hover: hover) and (pointer: fine){.nt-style-option:hover::after{background:color-mix(in srgb,var(--agent-text) 50%,transparent)}} /* chat-surface-allow: a style option dot is a mark in the ink, not a surface */
 .nt-style-option:has(:focus-visible)::before{content:"";position:absolute;width:14px;height:14px;border-radius:50%;outline:var(--cmux-focus-ring-width,1.5px) solid var(--cmux-focus-ring-color,color-mix(in srgb,var(--agent-text) 40%,transparent))}
 .nt-style-input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;appearance:none;font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .nt-style-mark{position:absolute;top:0;left:0;display:flex;align-items:center;justify-content:center;width:24px;height:24px;pointer-events:none}
@@ -792,7 +792,7 @@
    card's fill. Nothing plays, or the setting is off: no card and no space. */
 .nt-player-host{display:contents}
 .nt-player{display:flex;align-items:center;gap:var(--ds-space-3);margin:var(--ds-space-4) var(--ds-space-1) 0;padding:var(--ds-space-3);width:calc(100% - 8px);max-width:440px;box-sizing:border-box;min-width:0;
-  border-radius:20px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);
+  border-radius:20px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent); /* chat-surface-allow: the player card takes the composer's own fill, as New Tab's cards do */
   box-shadow:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge),var(--elevation-1,none)}
 .nt-player-art{position:relative;flex:none;width:72px;height:72px;border-radius:var(--ds-radius-popup);overflow:hidden;
   background:var(--ds-surface-inset)}
@@ -828,8 +828,8 @@
 .nt-player-button:disabled{color:var(--acpmux-composer-dim);opacity:.5}
 .nt-player-button:focus-visible{outline:var(--cmux-focus-ring-width,2px) solid var(--cmux-focus-ring-color,currentColor);outline-offset:2px}
 .nt-player-play{width:32px;height:32px;padding:var(--ds-space-2);background:var(--agent-text);color:var(--cmux-surface-solid,var(--acpmux-base))}
-.nt-player-play:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 88%,transparent)}
-.nt-player-play:active:not(:disabled){background:color-mix(in srgb,var(--agent-text) 76%,transparent)}
+.nt-player-play:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 88%,transparent)} /* chat-surface-allow: the play disc is an inverted ink control, a mark not a level */
+.nt-player-play:active:not(:disabled){background:color-mix(in srgb,var(--agent-text) 76%,transparent)} /* chat-surface-allow: the play disc is an inverted ink control, a mark not a level */
 /* After Hide Now Playing: one quiet line with Undo where the card was, until the page goes. */
 .nt-player-note{display:flex;align-items:center;gap:var(--ds-space-2);margin:var(--ds-space-4) var(--ds-space-1) 0;width:calc(100% - 8px);max-width:440px;box-sizing:border-box;min-width:0;color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
 .nt-player-note-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1471,11 +1471,11 @@
    the Home lists under a new chat's composer (.acpmux-home-list). Fills, edges and shadows only: no card moves. */
 /* flat: a tonal fill, no edge, no shadow. */
 :root[data-home-cards="flat"] :is(.nt-cards:not([data-variant="list"]) .nt-card, .nt-stage-card, .acpmux-home-list) {
-  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
+  background: var(--ds-surface-card);
   box-shadow: none;
 }
 :root[data-home-cards="flat"] .nt-cards:not([data-variant="list"]) .nt-card:hover {
-  background: color-mix(in srgb, var(--agent-text) 11%, transparent);
+  background: var(--ds-surface-hover-layer), var(--ds-surface-card);
 }
 /* raised: an elevated card, the composer's solid surface with a hairline and a soft shadow. */
 :root[data-home-cards="raised"] :is(.nt-cards:not([data-variant="list"]) .nt-card, .nt-stage-card, .acpmux-home-list) {
@@ -1488,18 +1488,18 @@
   box-shadow: var(--elevation-2, 0 2px 6px color-mix(in srgb, black 11%, transparent));
 }
 :root[data-home-cards="raised"] .nt-cards:not([data-variant="list"]) .nt-card:hover {
-  background: color-mix(in srgb, var(--agent-text) 4%, var(--acpmux-composer-surface, var(--acpmux-base, Canvas)));
+  background: linear-gradient(var(--ds-surface-card), var(--ds-surface-card)), var(--acpmux-composer-surface, var(--acpmux-base, Canvas));
 }
 /* glass: see-through cards over the window's picture, the glass material's rim and depth. No backdrop blur: these
    cards scroll with the content (design/glass-system.md rules 2 and 7; check-one-material: only .ui-glass paints a
    blur). Reduce Transparency keeps the rim on an opaque fill. */
 :root[data-home-cards="glass"] :is(.nt-cards:not([data-variant="list"]) .nt-card, .nt-stage-card, .acpmux-home-list) {
-  background: color-mix(in srgb, var(--acpmux-base, Canvas) 42%, transparent);
+  background: color-mix(in srgb, var(--acpmux-base, Canvas) 42%, transparent); /* chat-surface-allow: the default-off glass home-cards look is a veil of the page, floating glass not a level */
   box-shadow: var(--glass-material-rim, inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, white 30%, transparent)),
     var(--glass-material-depth-composer, var(--elevation-2, none));
 }
 :root[data-home-cards="glass"] .nt-cards:not([data-variant="list"]) .nt-card:hover {
-  background: color-mix(in srgb, var(--acpmux-base, Canvas) 58%, transparent);
+  background: color-mix(in srgb, var(--acpmux-base, Canvas) 58%, transparent); /* chat-surface-allow: the default-off glass home-cards look is a veil of the page, floating glass not a level */
 }
 @media (prefers-reduced-transparency: reduce) {
   :root[data-home-cards="glass"] :is(.nt-cards:not([data-variant="list"]) .nt-card, .nt-stage-card, .acpmux-home-list) {

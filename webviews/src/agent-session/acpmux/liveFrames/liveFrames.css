@@ -97,7 +97,7 @@
   line-height: 1;
 }
 .acpmux-frames-dock__button:hover {
-  background: color-mix(in srgb, currentColor 12%, transparent);
+  background: var(--ds-surface-hover);
 }
 .acpmux-frames-dock__body {
   flex: 1;
@@ -128,5 +128,5 @@
   height: var(--ds-icon-16);
   cursor: nwse-resize;
   touch-action: none;
-  background: linear-gradient(135deg, transparent 55%, color-mix(in srgb, currentColor 40%, transparent) 55% 65%, transparent 65% 75%, color-mix(in srgb, currentColor 40%, transparent) 75% 85%, transparent 85%);
+  background: linear-gradient(135deg, transparent 55%, color-mix(in srgb, currentColor 40%, transparent) 55% 65%, transparent 65% 75%, color-mix(in srgb, currentColor 40%, transparent) 75% 85%, transparent 85%); /* chat-surface-allow: a resize grip hatching is a glyph, not a surface */
 }

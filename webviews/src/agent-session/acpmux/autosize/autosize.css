@@ -23,11 +23,11 @@
 }
 
 .autosize-row[data-kind="grow"] .autosize-row-mark {
-  background: var(--accent, #4a8cff);
+  background: var(--accent, var(--ds-color-accent));
 }
 
 .autosize-row[data-kind="hold"] .autosize-row-mark {
-  background: var(--warning, #d99a2b);
+  background: var(--warning, var(--ds-color-attention));
 }
 
 .autosize-row-body {
@@ -77,7 +77,7 @@
   align-self: center;
   padding: 3px 10px;
   border-radius: 999px;
-  background: var(--surface-subtle, rgba(127, 127, 127, 0.1));
+  background: var(--surface-subtle, var(--ds-surface-inset));
   max-width: 100%;
 }
 
@@ -93,7 +93,7 @@
   padding: 10px 12px;
   border-radius: var(--surface-card-radius);
   border: 1px solid var(--border, rgba(127, 127, 127, 0.25));
-  background: var(--surface-subtle, rgba(127, 127, 127, 0.06));
+  background: var(--surface-subtle, var(--ds-surface-card));
 }
 
 .autosize-row[data-look="card"] .autosize-row-mark {

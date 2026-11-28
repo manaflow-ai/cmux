@@ -18,7 +18,7 @@
   inset: 0;
   border-radius: inherit;
   z-index: var(--layer-backdrop);
-  background: linear-gradient(
+  background: linear-gradient( /* chat-surface-allow: the aurora look is a hue, not a level */
     100deg,
     color-mix(in oklab, var(--agent-ansi-6, #3cc) 14%, transparent),
     color-mix(in oklab, var(--agent-ansi-4, #36f) 10%, transparent) 45%,
@@ -33,7 +33,7 @@
   inset-inline: 8px;
   bottom: var(--cmux-hairline-ring);
   height: var(--cmux-hairline);
-  background: linear-gradient(90deg, var(--agent-ansi-6, #3cc), var(--agent-ansi-4, #36f), var(--agent-ansi-5, #a3f));
+  background: linear-gradient(90deg, var(--agent-ansi-6, #3cc), var(--agent-ansi-4, #36f), var(--agent-ansi-5, #a3f)); /* chat-surface-allow: the aurora look is a hue, not a level */
   background-size: 220% 100%;
   opacity: 0.7;
   pointer-events: none;
@@ -51,10 +51,10 @@
   color: var(--agent-muted);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
-  background: color-mix(in srgb, var(--agent-text) 4%, transparent);
+  background: var(--ds-surface-card);
 }
 .acpmux-auto-arrival[data-went="cloud"] {
-  background: linear-gradient(
+  background: linear-gradient( /* chat-surface-allow: the aurora look is a hue, not a level */
     100deg,
     color-mix(in oklab, var(--agent-ansi-4, #36f) 9%, transparent),
     color-mix(in oklab, var(--agent-ansi-5, #a3f) 6%, transparent)

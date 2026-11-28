@@ -135,7 +135,7 @@
   line-height: var(--ds-control-compact);
 }
 .acpmux-question-ask[data-folded] .acpmux-question-status:hover .acpmux-question-status-pill {
-  background: color-mix(in srgb, var(--agent-text) 13%, transparent);
+  background: var(--ds-surface-hover-layer), var(--ds-surface-inset);
 }
 .acpmux-question-ask[data-folded] .acpmux-question-status-pill > svg:first-child { color: var(--agent-muted); }
 .acpmux-question-ask[data-folded] .acpmux-question-status:focus-visible .acpmux-question-status-pill {
@@ -213,7 +213,7 @@
   border-radius: var(--ds-radius-control);
 }
 .acpmux-question-ask .acpmux-question-row:hover {
-  background-color: color-mix(in srgb, var(--agent-text) 4%, transparent);
+  background-color: var(--ds-surface-hover);
 }
 .acpmux-question-ask .acpmux-question-row:is([data-highlighted], :focus-visible) {
   background-color: var(--acpmux-question-highlight);
@@ -223,7 +223,7 @@
 .acpmux-question-ask .acpmux-question-preview {
   margin: 0;
   padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3);
-  background: color-mix(in srgb, var(--agent-text) 4%, transparent);
+  background: var(--ds-surface-card);
 }
 .acpmux-question-ask .acpmux-question-preview-label { padding-top: var(--grid-half-step); }
 .acpmux-question-ask .acpmux-question-body[data-preview-layout=below] .acpmux-question-preview { margin: var(--ds-space-2) 0 0; }
@@ -245,7 +245,7 @@
   font-variant-numeric: tabular-nums;
 }
 .acpmux-question-row[data-highlighted] .acpmux-question-number:not([data-chosen]) {
-  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  background: var(--ds-color-selection);
   color: var(--agent-text);
 }
 .acpmux-question-number[data-chosen] {
@@ -320,7 +320,7 @@
 .acpmux-question-footer .acpmux-question-other { color: var(--agent-text); }
 /* The typed answer has the keyboard: its pencil square firms up, as a highlighted row's number. */
 .acpmux-question-footer:focus-within .acpmux-question-number[data-edit] {
-  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  background: var(--ds-color-selection);
   color: var(--agent-text);
 }
 .acpmux-question-footer .acpmux-question-actions {

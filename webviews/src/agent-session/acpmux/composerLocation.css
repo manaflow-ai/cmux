@@ -184,7 +184,7 @@
   position: absolute;
   inset: -3px 0;
 }
-.acpmux-location-button:active { background: color-mix(in srgb, var(--agent-text) 18%, var(--agent-page-bg, var(--acpmux-base))); }
+.acpmux-location-button:active { background: var(--ds-color-pressed); }
 .acpmux-location-button:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--agent-text) 72%, transparent);
   outline-offset: 2px;
@@ -954,7 +954,7 @@
 .acpmux-permission-panel .acpmux-permission-card.acpmux-permission-surface {
   border: var(--cmux-hairline, .5px) solid var(--acpmux-composer-edge);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--agent-text) 5%, var(--agent-surface-elevated));
+  background: linear-gradient(var(--ds-surface-card), var(--ds-surface-card)), var(--agent-surface-elevated);
   box-shadow: var(--elevation-2);
 }
 .acpmux-permission-card-heading { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
@@ -1171,7 +1171,7 @@
    (composerLook.css), not over the solid tray tone (accent-glass-invariants). */
 @media not (prefers-reduced-transparency: reduce) {
   :root[data-top-strip="tray"]:not([data-reduce-transparency], [data-glass="off"]) .acpmux-composer > .acpmux-composer-strip {
-    background: color-mix(in srgb, var(--agent-text) 5%, var(--glass-tint));
+    background: linear-gradient(var(--ds-surface-card), var(--ds-surface-card)), var(--glass-tint);
   }
 }
 :root[data-top-strip="tray"] .acpmux-composer[data-queue] > .acpmux-composer-strip {
@@ -1328,7 +1328,7 @@
 .acpmux-folder-popover .acpmux-menu-item { display: flex; align-items: center; min-width: 0; border-radius: var(--ui-row-radius, 6px); }
 .acpmux-location-row,
 .acpmux-location-action { display: flex; align-items: center; gap: var(--cmux-menu-icon-gap); width: 100%; min-width: 0; }
-.acpmux-folder-popover .ui-combobox-pinned[data-placement="top"]::after { content: ""; display: block; height: 1px; margin: 4px 6px 0; background: color-mix(in srgb, currentColor 12%, transparent); }
+.acpmux-folder-popover .ui-combobox-pinned[data-placement="top"]::after { content: ""; display: block; height: 1px; margin: 4px 6px 0; background: var(--ds-color-divider); }
 /* The rule separates the pinned action from the folder choices. */
 .acpmux-folder-popover .ui-combobox-pinned[data-placement="bottom"]::before { content: ""; display: block; height: 0; margin: 0 var(--cmux-menu-highlight-inset) var(--ds-space-1); border-top: var(--cmux-hairline) solid color-mix(in srgb, currentColor 12%, transparent); }
 .acpmux-location-action-icon,
@@ -2291,10 +2291,10 @@
   text-align: start;
   cursor: default;
 }
-.acpmux-env-popover .acpmux-env-back:hover { color: var(--agent-text); background: color-mix(in srgb, var(--agent-text) 8%, transparent); }
+.acpmux-env-popover .acpmux-env-back:hover { color: var(--agent-text); background: var(--ds-surface-hover); }
 .acpmux-env-popover .acpmux-env-back-chevron { display: inline-flex; rotate: 180deg; }
 .acpmux-env-popover .acpmux-env-back-chevron:dir(rtl) { rotate: 0deg; }
 /* The agent machines' row while their list is open to the side: highlighted, as a Mac menu's open submenu row. */
 .acpmux-env-popover .acpmux-menu-item:has(> [data-action="agentMachines"][data-expanded]) {
-  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  background: var(--ds-color-selection);
 }

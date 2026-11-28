@@ -38,7 +38,7 @@
 .acpmux-composer-customize:hover,
 .acpmux-composer-customize[aria-expanded="true"] {
   opacity: 1;
-  background: var(--acpmux-hover-fill, color-mix(in srgb, currentColor 10%, transparent));
+  background: var(--acpmux-hover-fill, var(--ds-color-selection));
 }
 
 /* A narrow pane keeps its chips: the button would sit on them. */

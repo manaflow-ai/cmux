@@ -169,7 +169,7 @@
 /* An agent's block: its line, then its counts line, then its tasks. */
 .acpmux-bg__group {
   border-radius: var(--grid-cards-radius);
-  background: color-mix(in srgb, var(--ds-color-hover) 50%, transparent);
+  background: var(--ds-surface-card);
   padding: var(--ds-space-1);
 }
 .acpmux-bg__group + .acpmux-bg__group {
@@ -450,7 +450,7 @@
 }
 .acpmux-bg__list[data-rows="tile"] .acpmux-bg__glyph[data-kind="agent"] {
   color: var(--agent-accent);
-  background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
+  background: color-mix(in srgb, var(--agent-accent) 16%, transparent); /* chat-surface-allow: the accent role colour, not a surface level */
 }
 
 /* ---------- A subagent's transcript ---------- */
