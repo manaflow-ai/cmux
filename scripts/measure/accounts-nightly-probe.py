@@ -38,8 +38,13 @@ class ComputerUse:
         executable = shutil.which("cmux")
         if not executable:
             raise ProbeError("Host cmux CLI is unavailable")
+        self.executable = executable
+        self.starting = True
+        self.startup_stderr = b""
+        self.stderr_truncated = False
+        self.stderr_open = True
         self.process = subprocess.Popen([executable, "computer-use", "mcp"], stdin=subprocess.PIPE,
-                                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self.buffer = b""
         self.sequence = 0
         try:
@@ -47,9 +52,48 @@ class ComputerUse:
                          "clientInfo": {"name": "cmux-accounts-nightly-probe", "version": "1"}})
             self.process.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
             self.process.stdin.flush()
-        except Exception:
+            # Never retain stderr from later calls: Accounts passes sign-in data over MCP.
+            self.starting = False
+            self.startup_stderr = b""
+        except Exception as error:
             self.close()
-            raise
+            retained = self.startup_stderr
+            if self.stderr_truncated:
+                # The first retained line may begin inside a credential. Drop it entirely.
+                retained = retained.partition(b"\n")[2]
+            detail = retained.decode("utf-8", errors="replace")
+            secrets = set()
+            for name, value in os.environ.items():
+                if value and (name in SECRET_NAMES or
+                              re.search(r"password|secret|token|credential|key", name, re.I)):
+                    # Redact individual lines too: truncation can remove a multiline value's prefix.
+                    for part in [value, *value.splitlines()]:
+                        if part:
+                            secrets.add(part)
+            if secrets:
+                # A login may prefix a password. Match longest first, once, without rewriting markers.
+                pattern = "|".join(re.escape(part) for part in sorted(secrets, key=len, reverse=True))
+                detail = re.sub(pattern, "[redacted]", detail)
+            detail = re.sub(r"(?i)(bearer\s+)\S+", r"\1[redacted]", detail)
+            raise ProbeError(f"Computer Use startup failed ({self.executable}, "
+                             f"exit={self.process.returncode}): {error}; "
+                             f"stderr: {detail.strip() or '(empty)'}") from error
+
+    def read_stderr(self):
+        chunk = os.read(self.process.stderr.fileno(), 65536)
+        if not chunk:
+            self.stderr_open = False
+        elif self.starting:
+            combined = self.startup_stderr + chunk
+            self.stderr_truncated |= len(combined) > 4096
+            self.startup_stderr = combined[-4096:]
+
+    def drain_stderr(self):
+        # A dead child cannot keep producing. Bound cleanup even if a descendant holds its pipe.
+        for _ in range(16):
+            if not self.stderr_open or not select.select([self.process.stderr], [], [], 0)[0]:
+                break
+            self.read_stderr()
 
     def close(self):
         if self.process.stdin:
@@ -66,6 +110,10 @@ class ComputerUse:
             except subprocess.TimeoutExpired:
                 self.process.kill()
                 self.process.wait(timeout=5)
+        self.drain_stderr()
+        self.stderr_open = False
+        self.process.stderr.close()
+        self.process.stdout.close()
 
     def request(self, method, params):
         self.sequence += 1
@@ -83,8 +131,16 @@ class ComputerUse:
                     raise ProbeError("Computer Use MCP request failed")
                 return message["result"]
             remaining = deadline - time.monotonic()
-            if remaining <= 0 or not select.select([self.process.stdout], [], [], remaining)[0]:
+            streams = [self.process.stdout]
+            if self.stderr_open:
+                streams.append(self.process.stderr)
+            ready = select.select(streams, [], [], max(0, remaining))[0]
+            if remaining <= 0 or not ready:
                 raise ProbeError("Computer Use response exceeded 60 seconds")
+            if self.process.stderr in ready:
+                self.read_stderr()
+            if self.process.stdout not in ready:
+                continue
             chunk = os.read(self.process.stdout.fileno(), 65536)
             if not chunk:
                 raise ProbeError("Computer Use transport closed")

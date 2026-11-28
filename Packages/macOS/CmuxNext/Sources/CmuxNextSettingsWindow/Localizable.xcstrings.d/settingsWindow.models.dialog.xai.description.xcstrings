@@ -1,0 +1,136 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.dialog.xai.description" : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "سيستخدم cmux مفتاح API الخاص بك لدى xAI للوصول إلى نماذج Grok. تُحتسب تكلفة الاستخدام على حسابك لدى xAI."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux će koristiti tvoj API ključ za xAI za pristup opciji modeli Grok. Upotreba se naplaćuje na tvom nalogu za xAI."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruger din API-nøgle til xAI til at tilgå Grok-modeller. Forbrug faktureres på din xAI-konto."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux verwendet deinen API-Schlüssel für xAI für den Zugriff auf Modelle von Grok. Die Nutzung wird deinem xAI-Konto berechnet."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux will use your xAI API key to access Grok models. Usage bills to your xAI account."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux usará tu clave de API de xAI para acceder a los modelos de Grok. El consumo se factura en tu cuenta de xAI."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux utilisera votre clé API xAI pour accéder à des modèles Grok. L’utilisation est facturée sur votre compte xAI."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux userà la tua chiave API di xAI per accedere a modelli Grok. L’uso viene addebitato sul tuo account xAI."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmuxはお使いのxAIのAPIキーを使用してGrokモデルにアクセスします。使用料金はxAIアカウントに請求されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux នឹងប្រើ សោ API របស់អ្នកសម្រាប់ xAI ដើម្បីចូលប្រើ ម៉ូដែល Grok។ ថ្លៃប្រើប្រាស់គិតលើគណនី xAI របស់អ្នក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux에서 xAI API 키로 Grok 모델에 액세스합니다. 사용량은 xAI 계정으로 청구됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruker API-nøkkelen din for xAI for å få tilgang til modeller fra Grok. Bruken faktureres på xAI-kontoen din."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux użyje Twojego klucza API usługi xAI, aby uzyskać dostęp do modeli Grok. Koszt użycia zostanie rozliczony na Twoim koncie xAI."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O cmux usará sua chave de API de xAI para acessar os modelos de Grok. O uso será cobrado na sua conta de xAI."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux будет использовать ваш ключ API для xAI для доступа к следующему: модели Grok. Оплата списывается с аккаунта xAI."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux จะใช้คีย์ API ของ xAIเพื่อเข้าถึงโมเดล Grok ระบบจะเรียกเก็บค่าบริการจากบัญชี xAI ของคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux Grok modellerine erişmek için xAI API anahtarınızı kullanacak. Kullanım xAI hesabınıza faturalandırılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux використає ваш ключ API для xAI для доступу до такого: моделі Grok. Плата за використання нараховується на обліковий запис xAI."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sẽ dùng khóa API xAI của bạn để truy cập mô hình Grok. Phí sử dụng được tính vào tài khoản xAI của bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 将使用你的xAI API 密钥访问Grok模型。使用费用计入你的xAI账号。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 將使用你的xAI API 金鑰存取Grok模型。使用費用計入你的xAI帳號。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
