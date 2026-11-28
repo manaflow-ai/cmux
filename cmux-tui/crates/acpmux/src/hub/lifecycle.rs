@@ -1379,7 +1379,7 @@ impl Hub {
         self.wait_spawn_ready().await;
         // A chat on the owner's Cloud credential this daemon no longer holds (it restarted)
         // waits for the owner's Mac to send it again, and never starts on the machine's route.
-        // PROBE self.owner_credential_ready(session).await?;
+        self.owner_credential_ready(session).await?;
         let meta = session.meta();
         let agent = meta.harness.clone();
         let (profile, defaults) = {
