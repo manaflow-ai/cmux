@@ -10,7 +10,7 @@ nonisolated enum ChiefRules {
     /// predates it), so debug builds stop and release builds answer `fallback`.
     static func rule<In: Encodable, Out: Decodable>(_ op: String, _ input: In, else fallback: @autoclosure () -> Out) -> Out {
         do {
-            return try HomeEngineRules.call(op, input)
+            return try HomeEngineRules.call(area + op, input)
         } catch {
             assertionFailure(String(describing: error))
             return fallback()
@@ -18,8 +18,12 @@ nonisolated enum ChiefRules {
     }
 
     static func call<In: Encodable, Out: Decodable>(_ op: String, _ input: In) throws -> Out {
-        try HomeEngineRules.call(op, input)
+        try HomeEngineRules.call(area + op, input)
     }
+
+    /// The ops live in cmux-home-rules' `cloud` area; `cmux_home_call` takes `AREA.NAME` and answers a bare
+    /// name `unknownOp`, which stopped every debug build at launch on `chiefs_tab`.
+    static let area = "cloud."
 
     // MARK: Chiefs
 
