@@ -61,7 +61,8 @@ const HOOKS: Hook[] = [
     file: "agent-session/acpmux/composerStates.css",
     property: "--acpmux-stack-tint",
     token: "--cmux-composer-hat-fill",
-    today: "color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-tint), transparent)",
+    // The hat's frost is the docked card's transient material since #50119 ("one material per floating surface").
+    today: "color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-transient-web-tint), transparent)",
   },
   {
     file: "agent-session/acpmux/subagents/subagents.css",

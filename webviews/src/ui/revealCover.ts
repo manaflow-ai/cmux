@@ -85,10 +85,11 @@ export function revealControls(el: HTMLElement | null): (() => void) | void {
     observe(target);
   }
   return () => {
-    observer?.unobserve(el);
+    // A stand-in observer (a test's: observe and disconnect only) may have no unobserve.
+    observer?.unobserve?.(el);
     for (const target of watched) {
       controlsOf.delete(target);
-      observer?.unobserve(target);
+      observer?.unobserve?.(target);
     }
     if (!host) return;
     host.style.removeProperty(VAR);

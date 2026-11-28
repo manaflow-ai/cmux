@@ -4478,6 +4478,7 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   display: inline-flex;
   flex: none;
   align-items: center;
+  white-space: nowrap;
   color: var(--cv-text-dim);
   font-variant-numeric: var(--instrument-type-numerals, tabular-nums);
   transition: opacity var(--cv-fold-duration) var(--cv-fold-ease);

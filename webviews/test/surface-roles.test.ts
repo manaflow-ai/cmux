@@ -9,7 +9,8 @@ const surface = read("../src/ui/surface/surface.css");
 const FIELDS = ["material", "fill", "stroke", "radius", "elevation", "pad", "gap", "title-font", "body-font", "enter"];
 
 test("every role defines every --surface-<role>-* variable, as a reference", () => {
-  expect(roles.roles.length).toBe(10);
+  // Ten from the foundation (#51793), and the floating prompt's pill (#53765).
+  expect(roles.roles.length).toBe(11);
   for (const role of roles.roles) {
     for (const field of FIELDS) {
       const match = glass.match(new RegExp(`--surface-${role.name}-${field}:\\s*([^;]+);`));

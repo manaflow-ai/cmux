@@ -80,7 +80,7 @@ await requireBrowserLane("updated-card-native-glass.test.ts", async () => {
        flushSync(() => root.render(createElement(UpdatedCard, props)));
      };`,
   );
-  const built = await Bun.build({ entrypoints: [entry], target: "browser" });
+  const built = await Bun.build({ entrypoints: [entry], format: "iife", target: "browser" });
   fs.rmSync(dir, { recursive: true, force: true });
   if (!built.success) throw new Error(built.logs.join("\n"));
   const script = await built.outputs[0].text();

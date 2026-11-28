@@ -394,8 +394,12 @@ test("Session Info opens with a first chat: its environment, its context on one 
   // click unfolds its breakdown, never the composer's card (Lucas, 2026-11-06).
   const context = section(container, "context")!;
   expect(head(context).getAttribute("aria-expanded")).toBe("false");
-  expect(meta(context)).toBe("48K / 200K");
-  expect(context.querySelector<HTMLElement>(".acpmux-session-info-meter > span")?.style.width).toBe("24%");
+  // Its head is its title alone; unfolded, the share and tokens sit on a line above the bar (#53132;
+  // Lucas, 2026-11-23: "move the tokens and percentage to the context bar").
+  expect(meta(context)).toBeUndefined();
+  await click(head(context));
+  expect(context.querySelector(".acpmux-session-info-context__tokens")?.textContent).toBe("48K / 200K");
+  expect(context.querySelector<HTMLElement>(".acpmux-session-info-context__bar > span")?.style.width).toBe("24%");
 
   // Usage and Connectors with nothing to list: one plain line each, None.
   expect(meta(section(container, "usage"))).toBe(translate("sessionInfo.none"));
@@ -1261,6 +1265,7 @@ const subagent = (index: number, state: string): Subagent => ({
 
 /// The Subagents lines in order: each one's name and its state. The lean line (AgentLine `lean`) shows
 /// the state word only when it waits, failed or stopped; else the word is for screen readers.
+/// A running started chat is its spinner, no word (#56223; Leo, 2026-11-23: "\"running\" doesn't need text").
 const lines = (element: Element) =>
   [...element.querySelectorAll<HTMLButtonElement>("button.acpmux-agent-line__button")].map((line) => [
     line.querySelector(".acpmux-summary-agent__name")?.textContent,
@@ -1389,8 +1394,8 @@ test("the chats the agent started are listed under Subagents, counted with them,
   expect(lines(subagents)).toEqual([
     ["Rename the settings keys", "Waiting"],
     ["Agent 0", "Running"],
-    ["Port the history page", "Running"],
-    ["Migrate the settings store", "Running"],
+    ["Port the history page", ""],
+    ["Migrate the settings store", ""],
   ]);
   await click(subagents.querySelectorAll<HTMLButtonElement>("button.acpmux-agent-line__button")[2]!);
   expect(opened).toEqual(["c5"]);
@@ -1433,7 +1438,7 @@ test("with only started chats Subagents is still drawn, and the running line's c
   expect(panel(container)).not.toBeNull();
   const subagents = section(container, "subagents")!;
   expect(sessionInfoState().sections.subagents).toBe(true);
-  expect(lines(subagents)).toEqual([["Migrate the settings store", "Running"]]);
+  expect(lines(subagents)).toEqual([["Migrate the settings store", ""]]);
   expect(endedRow(subagents)!.textContent).toBe("1 done");
   await click(subagents.querySelector<HTMLButtonElement>("button.acpmux-agent-line__button")!);
   expect(opened).toEqual(["c1"]);
@@ -1497,7 +1502,7 @@ test("a Cloud VM chat's children, as its machine's daemon lists them with the ch
   expect(meta(subagents)).toBe("1 · 1 done");
   await click(endedRow(subagents)!);
   expect(lines(subagents)).toEqual([
-    ["Run the e2e suite", "Running"],
+    ["Run the e2e suite", ""],
     ["Draft the release notes", "Done"],
   ]);
   await click(subagents.querySelector<HTMLButtonElement>("button.acpmux-agent-line__button")!);

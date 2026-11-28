@@ -39,10 +39,12 @@ test("App.tsx gates every line under the header by the record the transcript rea
   expect(end).toBeGreaterThan(start);
   const between = body.slice(start, end);
   // Each top-level conditional there is a line under the header and reads `underHeader.`, except the ones that
-  // float over the chat (a feature tip portals out, the summary card is a popover).
+  // float over the chat (a feature tip portals out, the summary card is a popover, the Environment card
+  // is absolute at the chat's top right, #47049).
   const floating = [
     "!quick && !showNewTab && snapshot.sessionId && <PaneFeatureTips",
     "!sessionInfo.on && !summaryCard.column && summaryPanel",
+    "environmentCardNode}",
   ];
   const conditionals = [...between.matchAll(/^ {16}\{(?!\/\*)([^\n]*)/gm)].map((match) => match[1]!);
   expect(conditionals.length).toBeGreaterThan(5);

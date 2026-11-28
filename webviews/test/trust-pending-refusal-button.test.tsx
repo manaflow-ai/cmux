@@ -348,8 +348,9 @@ test("a refusal that left no failed row keeps no row replay", async () => {
 });
 
 test("the pane's failed-row Retry goes through the trust replay", () => {
-  const app = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/App.tsx"), "utf8");
-  const action = app.match(/"chat\.retryPrompt": \(\{ rowId, rowIds \}\) => \{([\s\S]*?)\n {10}\},/)?.[1] ?? "";
+  // The pane's actions live in its snapshot effect, pane/paneSnapshot.ts, since #50902 (RFD 0046 step 2).
+  const pane = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/pane/paneSnapshot.ts"), "utf8");
+  const action = pane.match(/"chat\.retryPrompt": \(\{ rowId, rowIds \}\) => \{([\s\S]*?)\n {8}\},/)?.[1] ?? "";
   expect(action).toContain("rowRetry.retry(failedRowIds(rowId, rowIds)");
   expect(action).not.toContain("client.retryPrompts(");
 });

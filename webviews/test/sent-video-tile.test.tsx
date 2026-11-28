@@ -50,6 +50,9 @@ const { TurnActionsContext } = await import("../src/agent-session/acpmux/convers
 const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
 const { SENT_IMAGE_HEIGHT } = await import("../src/agent-session/acpmux/conversation/userBubbleModel");
 const { linkAttachment, promptText } = await import("../src/agent-session/acpmux/attachments");
+const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
+// Strip is the default view since #55723; a video placed in the text draws there in the inline view.
+const inlineView = (attachmentView: "inline" | "strip") => act(async () => setComposerSettings({ attachmentView }));
 
 const PATH = "/Users/dev/Library/Application Support/cmux/Chat Uploads/0190a000-upload/0/screen-demo.mp4";
 const URI = `file://${encodeURI(PATH)}`;
@@ -166,6 +169,7 @@ try {
   });
 
   test("a video placed in the text is its tile where it was put", async () => {
+    await inlineView("inline");
     await render({
       id: "user-3",
       version: 1,
@@ -194,6 +198,7 @@ try {
   // agent got no frames for (its read failed or timed out, a remote chat, an agent that takes no
   // images) is still a video: its tile, square, never a file chip.
   test("a video sent without frames is its tile where it was put, square, never a file chip", async () => {
+    await inlineView("inline");
     await render({
       id: "user-4",
       version: 1,
@@ -219,6 +224,7 @@ try {
   // poster is whole, never banded in a square (Leo, 2026-11-22: "having this square is kinda strange").
   // A record sent from here on keeps its size (inlinePrompt.ts), and draws so from its first frame.
   test("a frameless video's tile reads its poster, length and shape from the file", async () => {
+    await inlineView("strip");
     const mov = PATH.replace(".mp4", "-read.mov");
     setChipHost(async (method, params) => {
       calls.push({ method, params });
