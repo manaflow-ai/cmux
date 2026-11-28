@@ -34,7 +34,6 @@ import {
   type ConversationLayout,
   LayoutBuffers,
   type RowHeights,
-  layoutGeometry,
   placedFromEstimate,
   placedWithOrigin,
   placeRowsIndexed,
