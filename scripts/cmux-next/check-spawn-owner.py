@@ -25,8 +25,8 @@ Existing sites are rows of scripts/cmux-next/spawn-owner-baseline.tsv (path, cou
 more than its row, or a new file with any, fails, with a `next:` line. A file with fewer prints a
 note to lower its row; `--update` lowers it (and deletes a row at 0). Rows are never raised here:
 the pre-push gate judges a push against the INSTALLED copy of the baseline, and CI
-(`--base-ref REF`) fails a baseline whose row is above the base's or new, unless the base's own copy of
-that file already has that many (debt the guard had missed, now recorded). A file that moved
+(`--base-ref REF`) fails a baseline whose row is above the base's or new, unless the rise is no more than
+what the old cut-at-the-first-test-module reading missed in the base's own copy (debt now recorded). A file that moved
 (baseline_renames.py: git's renames plus explicit seams) keeps its old path's row in both.
 
 An error in the guard itself prints a warning and passes (fail open), as the other ratchets do.
@@ -199,12 +199,22 @@ def base_baseline(root: str, ref: str) -> dict[str, int] | None:
     return parse_baseline(shown.stdout) if shown.returncode == 0 else None
 
 
-def base_file_count(root: str, ref: str, path: str) -> int:
-    """The unowned spawn lines this reading finds in REF's copy of PATH (0 when REF has no such file)."""
+# The reading before 2026-11-28: a file stopped at its first inline test module, so code after a mid-file one
+# was never counted. Kept only to size what that reading hid.
+_OLD_CUT = re.compile(r"^#\[cfg\(test\)\]\s*\n(?:#\[[^\n]*\]\s*\n)*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*\{",
+                      re.MULTILINE)
+
+
+def hidden_in_base(root: str, ref: str, path: str) -> int:
+    """The unowned spawn lines REF's copy of PATH has that the old cut-at-the-first-test-module reading missed
+    (0 when REF has no such file). Only that much may enter the baseline as recorded debt; a spawn the old
+    reading also saw is a base red or a raise, judged as before."""
     shown = subprocess.run(["git", "-C", root, "show", f"{ref}:{path}"], capture_output=True)
     if shown.returncode != 0:
         return 0
-    return len(matching_lines(shown.stdout.decode("utf-8", errors="replace")))
+    text = shown.stdout.decode("utf-8", errors="replace")
+    cut = _OLD_CUT.search(text)
+    return max(0, len(matching_lines(text)) - len(matching_lines(text[:cut.start()] if cut else text)))
 
 
 def judge_against_base(rows: dict[str, int], base: dict[str, int] | None, ref: str,
@@ -224,11 +234,11 @@ def judge_against_base(rows: dict[str, int], base: dict[str, int] | None, ref: s
             base_count = base[moved_from]
             print(f"check-spawn-owner: {BASELINE} carries {moved_from} -> {path} at {count} "
                   f"(base {ref}: {base_count})")
-        if count > (base_count or 0) and count <= base_file_count(root, ref, path):
-            # Debt the base's own file already holds, which an older reading missed (a mid-file inline test
+        if count > (base_count or 0) and count <= (base_count or 0) + hidden_in_base(root, ref, path):
+            # Debt the base's own file already held, which the old reading missed (a mid-file inline test
             # module hid everything after it): recorded, not added.
-            print(f"check-spawn-owner: {BASELINE} records {path} at {count}: {ref}'s own copy of the file "
-                  f"already has that many (base row {(base_count or 0)})")
+            print(f"check-spawn-owner: {BASELINE} records {path} at {count}: the old reading missed that "
+                  f"many in {ref}'s own copy (base row {(base_count or 0)})")
         elif count > (base_count or 0):
             status = 1
             print(f"check-spawn-owner: {BASELINE} raises {path} to {count} (base {ref}: {(base_count or 0)}). "
