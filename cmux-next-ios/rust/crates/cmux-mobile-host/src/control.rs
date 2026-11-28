@@ -336,6 +336,12 @@ pub enum Event {
     /// 4002 `removed`). hostd exits after this line and must not be restarted until
     /// the person allows iPhone connections again (a new device id then).
     Removed,
+    /// A removal the app recorded (`CMUX_MOBILE_RECORDED_REMOVAL`) did not happen: the service
+    /// still lists this Mac as `device_id` (an older hostd took a 4002 `silent` close for a
+    /// removal). The app forgets the record and keeps `device_id` as this Mac's id; hostd connects.
+    RemovalCleared {
+        device_id: String,
+    },
     /// The service refused this Mac's device id: another account registered it
     /// (`POST /v1/devices` answered `403 not_owner`). hostd exits (status 79); the app
     /// makes a new id for the signed-in account and starts hostd again.

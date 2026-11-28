@@ -45,6 +45,10 @@ public enum MobileHostEvent: Sendable, Equatable {
     /// The owner removed this Mac from the account's devices; hostd exits and must not
     /// be restarted until the person allows iPhone connections again.
     case removed
+    /// A removal the app recorded did not happen: the service still lists this Mac as `deviceID`
+    /// (an older hostd took a 4002 `silent` close for a removal). The app forgets its record and
+    /// keeps `deviceID` as this Mac's id; hostd connects.
+    case removalCleared(deviceID: String)
     /// The service answered `not_owner` for this Mac's device id (another account registered it);
     /// hostd exits (status 79) so the app can start it again with a new id for this account.
     case deviceIDTaken
@@ -110,6 +114,9 @@ public enum MobileHostEvent: Sendable, Equatable {
             self = .surfaceStop(tab: tab)
         case "removed":
             self = .removed
+        case "removal_cleared":
+            guard let device = wire.deviceId, !device.isEmpty else { return nil }
+            self = .removalCleared(deviceID: device)
         case "device_not_owned":
             self = .deviceIDTaken
         default:

@@ -34,6 +34,9 @@ public struct MobileHostState: Sendable, Equatable {
     public var teamID: String?
     /// This Mac's mobile device id, once online.
     public var deviceID: String?
+    /// The device id hostd found still listed when it checked a recorded removal
+    /// (``MobileHostEvent/removalCleared(deviceID:)``): the record is stale.
+    public var clearedRemoval: String?
 
     public init(phase: Phase = .off) {
         self.phase = phase
@@ -57,6 +60,8 @@ public struct MobileHostState: Sendable, Equatable {
         case .deviceIDTaken:
             phase = .deviceIDTaken
             phones = []
+        case .removalCleared(let device):
+            clearedRemoval = device
         case .needToken, .needAcpmux, .needCloudLinks, .pairRequest, .unpaired, .pairAnswer, .needBrowser, .browserStop, .needSurface, .surfaceStop:
             break
         case .phoneUp(var link):

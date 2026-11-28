@@ -120,6 +120,29 @@ pub struct HostConfig {
     pub exclude_cgnat: bool,
     pub session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
     pub services: ServiceConfig,
+    /// `CMUX_MOBILE_RECORDED_REMOVAL`: the app recorded that the owner removed this Mac, and asks
+    /// hostd to check it with the service before registering (`host::verify_removal`). The value
+    /// is the removed device id, or `legacy` for a record from before ids were kept.
+    pub recorded_removal: Option<RecordedRemoval>,
+}
+
+/// A removal the app recorded (`HostConfig::recorded_removal`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordedRemoval {
+    /// The device id that was removed; `None` for a record from before ids were kept.
+    pub device_id: Option<String>,
+}
+
+impl RecordedRemoval {
+    /// `CMUX_MOBILE_RECORDED_REMOVAL`'s value: `legacy`, or a device id.
+    pub fn parse(value: &str) -> Option<Self> {
+        let value = value.trim();
+        match value {
+            "" => None,
+            "legacy" => Some(Self { device_id: None }),
+            id => Some(Self { device_id: Some(id.to_owned()) }),
+        }
+    }
 }
 
 /// The build space `var` (an environment lookup) names, by the one rule every
@@ -493,6 +516,7 @@ impl HostConfig {
             owner_user_id: env("CMUX_MOBILE_OWNER_USER_ID"),
             include_loopback: env("CMUX_MOBILE_INCLUDE_LOOPBACK").is_some_and(|v| v == "1"),
             exclude_cgnat: env("CMUX_MOBILE_EXCLUDE_CGNAT").is_some_and(|v| v == "1"),
+            recorded_removal: env("CMUX_MOBILE_RECORDED_REMOVAL").and_then(|v| RecordedRemoval::parse(&v)),
             session_exposure: supplied.map(|value| value.session_exposure),
             services: ServiceConfig {
                 chief_socket: Some(chief_socket(

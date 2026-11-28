@@ -261,10 +261,35 @@ pub async fn run(config: HostConfig) -> Result<Stopped> {
 }
 
 async fn run_with_changes(
-    config: HostConfig,
+    mut config: HostConfig,
     mut changes: tokio::sync::watch::Receiver<u64>,
 ) -> Result<Stopped> {
     let tokens = Arc::new(Tokens::new(config.tokens.clone()));
+    // A removal the app recorded is checked before anything registers: a real one stays (registering
+    // would undo the owner's removal), a stale one (an older hostd took 4002 `silent` for one) must not
+    // keep this Mac off for good.
+    if let Some(recorded) = config.recorded_removal.take() {
+        match check_removal(&config, &tokens, recorded.device_id.as_deref()).await {
+            RemovalCheck::Removed => {
+                tracing::warn!(
+                    "the owner removed this Mac (the service no longer lists it); staying stopped"
+                );
+                control::emit(&Event::Removed);
+                return Ok(Stopped::Removed);
+            }
+            RemovalCheck::StillListed { device_id } => {
+                tracing::warn!(
+                    device_id,
+                    "the recorded removal is stale: the service still lists this Mac; connecting"
+                );
+                if let Some(pairing) = config.services.pairing.as_mut() {
+                    pairing.mac_device_id.clone_from(&device_id);
+                }
+                config.device_id.clone_from(&device_id);
+                control::emit(&Event::RemovalCleared { device_id });
+            }
+        }
+    }
     let mut services = config.services.clone();
     if let Some(pairing) = services.pairing.as_mut() {
         pairing.registration = Some(registration_lookup(
@@ -521,10 +546,83 @@ pub const EXIT_REMOVED: i32 = 78;
 /// forgets that id for the account and starts hostd with a new one.
 pub const EXIT_NOT_OWNED: i32 = 79;
 
-/// Whether the signaling socket closed because the owner removed this device
-/// (`DELETE /v1/devices/:id` closes it with 4002 `removed`, PROTOCOL.md).
+/// The close reason of a signaling socket the owner's removal ended: `DELETE /v1/devices/:id`
+/// and account deletion close it with 4002 `removed` (PROTOCOL.md; backend `team-hub.ts`
+/// `forgetDevice`, `purge`).
+pub const REMOVED_CLOSE: &str = "signaling closed by server: 4002 removed";
+
+/// Whether the signaling socket closed because the owner removed this device. Only 4002
+/// `removed` is: the service also closes with 4002 `silent` when a Mac stopped pinging for
+/// 90 s (asleep, a network change; backend `team-hub.ts` reaper), and that Mac reconnects.
+/// Taking any 4002 for a removal stopped hostd for good after one sleep (2026-11-27).
 pub fn removed(reason: &str) -> bool {
-    reason.starts_with("signaling closed by server: 4002 ")
+    reason == REMOVED_CLOSE
+}
+
+/// What [`verify_removal`] found about a removal an earlier run recorded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RemovalCheck {
+    /// The service still lists this Mac (`GET /v1/me/devices`): the removal never happened
+    /// (an older hostd took a 4002 `silent` for one). The record is stale; connect.
+    StillListed { device_id: String },
+    /// The service lists no record of this Mac: the owner removed it. Stay stopped.
+    Removed,
+}
+
+/// Whether the removal an earlier run recorded is real, from the caller's devices in this
+/// build space (`GET /v1/me/devices`; a removed device is never listed). `removed_id` is the
+/// device id the record names; a record from before ids were kept names none, and then this
+/// build's record is the Mac whose machine id is `machine_id` and whose id is none of the
+/// other builds' on this Mac (`siblings`).
+pub fn verify_removal(
+    devices: &[cmux_mobile_link::api::MyDevice],
+    removed_id: Option<&str>,
+    machine_id: Option<&str>,
+    siblings: &[String],
+) -> RemovalCheck {
+    let macs = devices.iter().filter(|d| d.kind == "mac");
+    let listed = match removed_id {
+        Some(id) => macs.into_iter().find(|d| d.device_id.eq_ignore_ascii_case(id)),
+        None => machine_id.and_then(|machine| {
+            macs.filter(|d| d.machine_id.as_deref().is_some_and(|m| m.eq_ignore_ascii_case(machine)))
+                .filter(|d| !siblings.iter().any(|s| s.eq_ignore_ascii_case(&d.device_id)))
+                .max_by(|a, b| a.created_at.cmp(&b.created_at))
+        }),
+    };
+    match listed {
+        Some(device) => RemovalCheck::StillListed { device_id: device.device_id.clone() },
+        None => RemovalCheck::Removed,
+    }
+}
+
+/// [`verify_removal`] against the service, retried on the backoff until it answers: an
+/// unanswered check must neither undo a real removal nor give up on a stale one.
+async fn check_removal(config: &HostConfig, tokens: &Tokens, removed_id: Option<&str>) -> RemovalCheck {
+    let mut backoff = Duration::from_secs(1);
+    loop {
+        let attempt = async {
+            let token = tokens.access_token().await.context("access token")?;
+            let owner = config
+                .owner_user_id
+                .clone()
+                .or_else(|| claims(&token).sub)
+                .context("the access token has no sub; set CMUX_MOBILE_OWNER_USER_ID")?;
+            let api = ApiClient::new(&config.base_url, &token).with_build_space(config.build_space.clone());
+            let devices = api.my_devices().await.context("GET /v1/me/devices")?;
+            let (machine_id, siblings) = config.machine(&owner);
+            anyhow::Ok(verify_removal(&devices, removed_id, machine_id.as_deref(), &siblings))
+        };
+        match attempt.await {
+            Ok(check) => return check,
+            Err(error) => {
+                let reason = format!("{error:#}");
+                tracing::warn!(reason, "could not check the recorded removal; retrying");
+                control::emit(&Event::Waiting { reason, retry_in_seconds: backoff.as_secs() });
+                tokio::time::sleep(backoff).await;
+                backoff = (backoff * 2).min(Duration::from_secs(60));
+            }
+        }
+    }
 }
 
 /// Whether registering this device was refused because another account owns its id
@@ -962,8 +1060,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_4002_close_is_a_removal() {
+    fn a_4002_removed_close_is_a_removal() {
         assert!(removed("signaling closed by server: 4002 removed"));
+        assert!(!removed("signaling closed by server: 4002 silent"));
         assert!(!removed("signaling closed by server: 4000 replaced"));
         assert!(!removed("signaling closed by server: 4001 moved"));
         assert!(!removed("signaling read failed: 4002"));
@@ -1021,6 +1120,10 @@ impl Drop for AbortTask {
 #[cfg(test)]
 #[path = "host_recovery_tests.rs"]
 mod recovery_tests;
+
+#[cfg(test)]
+#[path = "host_removal_tests.rs"]
+mod removal_tests;
 
 /// Whether this Mac accepts the reliable link (CMUX_MOBILE_RELIABLE=1).
 fn reliable_link() -> bool {

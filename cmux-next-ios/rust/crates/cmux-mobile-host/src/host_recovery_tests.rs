@@ -26,7 +26,7 @@ impl Drop for Tasks {
 }
 
 /// hostd's config for the rig: device `mac` of user `owner` in team `team`, state in `dir`.
-fn rig_config(base_url: String, dir: &std::path::Path) -> HostConfig {
+pub(super) fn rig_config(base_url: String, dir: &std::path::Path) -> HostConfig {
     HostConfig {
         base_url,
         build_space: None,
@@ -56,6 +56,7 @@ fn rig_config(base_url: String, dir: &std::path::Path) -> HostConfig {
             surface: crate::surface::SurfaceConfig::new(None, 1),
             viewport_sync: None,
         },
+        recorded_removal: None,
     }
 }
 
