@@ -196,6 +196,19 @@ fn answers_and_fields_shape_through_the_abi() {
 }
 
 #[test]
+fn a_change_gate_answers_whether_it_asks_and_never_toasts_a_routine_change() {
+    assert_eq!(
+        ok(c"cloud_handler_change_gate", json!({"action": "cloudResizeMachine"})),
+        json!({"asks": false, "toast": false})
+    );
+    assert_eq!(
+        ok(c"cloud_handler_change_gate", json!({"action": "palette.cloud.fork"})),
+        json!({"asks": true, "toast": false})
+    );
+    assert_eq!(call(c"cloud_handler_change_gate", b"{}").0, ERR_INVALID);
+}
+
+#[test]
 fn unknown_ops_and_bad_json_are_refused() {
     assert_eq!(call(c"cloud_handler_nope", b"{}").0, ERR_INVALID);
     assert_eq!(call(c"cloud_handler_arg", b"not json").0, ERR_INVALID);
