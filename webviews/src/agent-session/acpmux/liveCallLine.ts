@@ -181,7 +181,12 @@ export function drewLiveLine(rows: readonly AcpmuxRow[] | undefined): void {
     if (!drawn)
       lost = `open:${
         !line
-          ? "noline"
+          ? `noline/at=${rows ? rows.length - 1 - rows.findLastIndex((r) => r.id === LIVE_THINKING) : "x"}/n=${rows?.length}/tail=${(
+              rows ?? []
+            )
+              .slice(-3)
+              .map((r) => r.kind)
+              .join(",")}/shape=${shape ? shape.shaped.at(-1)?.kind : "-"}`
           : !basis
             ? "nobasis"
             : !shape
