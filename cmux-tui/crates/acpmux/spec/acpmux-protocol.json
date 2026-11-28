@@ -5809,6 +5809,26 @@
       ],
       "type": "object"
     },
+    "LinkTier": {
+      "description": "How an open link feels to a person typing or chatting over it (`quality`), as a game's ping\nbar says it: `good`, `slow` or `poor`, from its measured round trip and late pings, with\nhysteresis so it does not flap (`peer_link_quality.rs`). Null until the link measured a\nround trip, and while it is not up.",
+      "oneOf": [
+        {
+          "const": "good",
+          "description": "Within 200 ms and 5 % late pings: typing feels local.",
+          "type": "string"
+        },
+        {
+          "const": "slow",
+          "description": "Within 500 ms and 20 % late pings: each keystroke and send visibly waits a little.",
+          "type": "string"
+        },
+        {
+          "const": "poor",
+          "description": "Anything worse: the link is up, but slow enough that it can look stuck.",
+          "type": "string"
+        }
+      ]
+    },
     "LiveListParams": {
       "additionalProperties": false,
       "description": "`_acpmux/live_list` takes no params.",
@@ -6571,7 +6591,7 @@
       "type": "object"
     },
     "PeerStateChanged": {
-      "description": "`_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's\nlink changes (`link`, `carrier`, `cause`, `reason`, `downReason` or `nextRetryAt`), never twice for the same one: a\npeer that is added sends its first state, and one that is removed a last `offline` with\n`error: \"removed\"`. Listed as the `peerStateEvents` feature.",
+      "description": "`_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's\nlink changes (`link`, `carrier`, `cause`, `reason`, `downReason`, `nextRetryAt` or `quality`), never twice for the same one: a\npeer that is added sends its first state, and one that is removed a last `offline` with\n`error: \"removed\"`. Listed as the `peerStateEvents` feature.",
       "properties": {
         "action": {
           "anyOf": [
@@ -6658,6 +6678,18 @@
           "description": "The peer's name, as in `_acpmux/peers`.",
           "type": "string"
         },
+        "quality": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LinkTier"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How the open link feels (`good`, `slow` or `poor`), the ping bar a surface draws beside\nit; null while the link is not up, before it measured a round trip, and from an older\nacpmux. A tier this build does not know reads as null."
+        },
         "reason": {
           "anyOf": [
             {
@@ -6704,6 +6736,7 @@
         "link",
         "nextRetryAt",
         "peer",
+        "quality",
         "reason",
         "since",
         "state",
