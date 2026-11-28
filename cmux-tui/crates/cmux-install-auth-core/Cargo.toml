@@ -1,0 +1,19 @@
+[package]
+name = "cmux-install-auth-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Install principal rules shared by the Mac and the phones: the public JWK, the challenge and token checks, the /v1/ops bodies and replies of install registration (was Packages/Shared/CmuxInstallAuthCore)"
+
+[lints]
+workspace = true
+
+[dependencies]
+base64.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sha2.workspace = true
+# Display names are cut on a character (grapheme cluster) boundary, as Swift does.
+unicode-segmentation.workspace = true
