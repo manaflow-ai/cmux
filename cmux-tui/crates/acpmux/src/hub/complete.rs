@@ -379,7 +379,8 @@ impl Hub {
                 let isolated: Value = serde_json::from_str(value)
                     .map_err(|_| failed("invalid OpenCode completion configuration".into()))?;
                 if let Some(fields) = config.as_object_mut() {
-                    fields.insert("agent".into(), isolated["agent"].clone());
+                    fields
+                        .insert("agent".into(), isolated.get("agent").cloned().unwrap_or_default());
                 }
                 cmd.env(key, config.to_string());
             } else {

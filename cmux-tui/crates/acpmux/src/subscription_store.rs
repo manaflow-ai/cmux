@@ -636,10 +636,16 @@ fn metadata(provider: &str, id: &str, record: &Value) -> Value {
             fields.insert("workspace".into(), json!(chatgpt_workspace(record)));
         }
     }
-    out["signed_in"] =
-        json!(record.get("signed_in").and_then(serde_json::Value::as_bool).unwrap_or_else(|| {
-            record[token_field].as_str().is_some_and(|token| !token.is_empty())
-        }));
+    let signed_in =
+        record.get("signed_in").and_then(serde_json::Value::as_bool).unwrap_or_else(|| {
+            record
+                .get(token_field)
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|t| !t.is_empty())
+        });
+    if let Some(fields) = out.as_object_mut() {
+        fields.insert("signed_in".into(), json!(signed_in));
+    }
     out
 }
 
