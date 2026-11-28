@@ -235,6 +235,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             reason,
             status,
             hold_for,
+            thaw_order,
         } => {
             let client = connect(true).await?;
             if !client.daemon_lists(crate::hub::session_hold::FEATURE) {
@@ -315,6 +316,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 });
                 if let Some(reason) = reason {
                     cmux_json::JsonSet::set(&mut p, "reason", json!(reason));
+                }
+                if let Some(order) = thaw_order.filter(|_| held) {
+                    let order: Vec<&str> =
+                        order.iter().map(|o| o.trim()).filter(|o| !o.is_empty()).collect();
+                    cmux_json::JsonSet::set(&mut p, "thawOrder", json!(order));
                 }
                 let v = client.request(method::MUX_FLEET_HOLD, p).await?;
                 if json_out {

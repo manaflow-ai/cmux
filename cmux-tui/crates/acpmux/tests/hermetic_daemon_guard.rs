@@ -60,6 +60,9 @@ fn only_the_hermetic_helper_starts_the_acpmux_binary() {
         ("durable_agents.rs", "let exe = daemon_env::bin().to_path_buf();"),
         ("durable_agents/bg_replaced_binary.rs", "std::fs::copy(daemon_env::bin(), &copy)"),
         ("durable_agents/streaming_restart_gap.rs", "std::fs::copy(daemon_env::bin(), &copy)"),
+        // The copy a restart's check runs at the installed path; it starts with `command_at`,
+        // which calls `apply`.
+        ("daemon_handoff.rs", "std::fs::copy(daemon_env::bin(), &copy)"),
         // The god-chat bench's default binary; the next line starts it with `command_at`,
         // which calls `apply`.
         ("god_daemon.rs", ".unwrap_or_else(|| daemon_env::bin().to_path_buf());"),
