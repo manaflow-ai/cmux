@@ -466,8 +466,10 @@ private final class LiveResizeWindow: NSWindow {
         private(set) var fences: [(browser: Int32, port: mach_port_t, timeoutMs: Int32)] = []
         var dones: [@MainActor (Bool) -> Void] = []
         var takes = true
+        var detachable = false
         var fork: CEFLayerHosting.Fork {
             CEFLayerHosting.Fork(setLayerHosting: { _, enabled in enabled ? 7 : 0 },
+                                 setDetachedHosting: detachable ? { _, _ in true } : nil,
                                  resizeFence: { [self] browser, port, timeout, done in
                                      guard takes else { return false }
                                      fences.append((browser, port, timeout))
@@ -521,6 +523,22 @@ private final class LiveResizeWindow: NSWindow {
 
     /// Runs the blocks queued for the end of this turn (``CEFLayerHosting/atEndOfTurn(_:)``).
     func endTurn() { CFRunLoopRunInMode(.defaultMode, 0.005, false) }
+
+    @Test func aDetachedPageJoinsNoFence() {
+        let (hosting, _, window) = makeHosted()
+        defer { window.close() }
+        fork.detachable = true
+        hosting.pageWindowCreated(browser: 3, fork: fork.fork)
+        hosting.paneResizeDrag(active: true)
+        hosting.resizeMotion(active: true)
+        #expect(hosting.isDetached)
+        hosting.pageViewResized()
+        #expect(fork.fences.isEmpty, "a detached page cannot present to the fence: it would cost its whole deadline")
+        hosting.resizeMotion(active: false)
+        #expect(!hosting.isDetached)
+        hosting.pageViewResized()
+        #expect(fork.fences.count == 1)
+    }
 
     @Test func aResizeOutsideAPageSyncAsksNoFence() {
         let (hosting, _, window) = makeHosted()
