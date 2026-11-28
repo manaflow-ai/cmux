@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46114210062",
+  "recorded_at": "2026-11-28T06:13:35Z",
+  "reason": "image inputs changed in e6d2a3c33890039bf3290baff42fbcdf0f84381c..473bb26b2548d4fdbce3e5f8f65647183b838844; cmux-tui e2d3491b3979, the newest build published on HEAD (pinned d92f892154f3; latest build 9b73ef66975b is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "e2d3491b397921c27adc249fc05c2a0bb69cff3e",
+  "fixes": [
+    {
+      "sha": "473bb26b2548d4fdbce3e5f8f65647183b838844",
+      "mergedAt": "2026-11-27T21:54:39-08:00",
+      "subject": "cmux-vm image: log disk and CPU pressure after a slow or failed bake step and at each snapshot boot (#64182)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-28T06:13:35Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
