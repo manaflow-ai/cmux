@@ -108,7 +108,7 @@ impl Refusal {
             Self::BadRequest => "bad request",
             Self::UnknownTab => "not an agent tab with a session in this daemon",
             Self::NotAttached => "the tab is not attached on this connection",
-            Self::Limit => "the agent tab could not attach now; try again",
+            Self::Limit => "too many agent tab attachments at once",
             Self::Timeout => "acpmux did not answer in time",
             Self::Refused => "acpmux refused the request",
             Self::BadList => "acpmux's session list could not be read whole",
