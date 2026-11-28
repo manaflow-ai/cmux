@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.kimi.keychainOtherBuild" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open the cmux build that saved this sign-in and disconnect it there before reconnecting here."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "افتح إصدار cmux الذي حفظ بيانات تسجيل الدخول هذه واقطع الاتصال فيه قبل إعادة الاتصال هنا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otvorite verziju cmux-a koja je sačuvala ovu prijavu i prekinite vezu u njoj prije nego što se ovdje ponovo povežete."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Åbn den version af cmux, der gemte dette login, og afbryd forbindelsen dér, før du forbinder igen her."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffne die cmux-Version, die diese Anmeldung gespeichert hat, und trenne dort die Verbindung, bevor du sie hier neu herstellst."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abre la versión de cmux que guardó este inicio de sesión y desconéctalo allí antes de volver a conectarlo aquí."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ouvrez la version de cmux qui a enregistré cette connexion et déconnectez-la dans cette version avant de la rétablir ici."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apri la versione di cmux che ha salvato questo accesso e disconnettilo da lì prima di riconnetterlo qui."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このサインイン情報を保存した cmux のビルドを開き、そこで接続を解除してから、ここで再接続してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បើកកំណែ cmux ដែលបានរក្សាទុកព័ត៌មានចូលនេះ ហើយផ្តាច់ការតភ្ជាប់នៅទីនោះ មុនពេលភ្ជាប់ឡើងវិញនៅទីនេះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 로그인 정보를 저장한 cmux 빌드를 열어 연결을 해제한 다음, 여기에서 다시 연결하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Åpne cmux-versjonen som lagret denne påloggingen, og koble fra der før du kobler til på nytt her."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otwórz wersję cmux, która zapisała te dane logowania, i rozłącz połączenie w tej wersji, zanim połączysz się ponownie tutaj."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abra a versão do cmux que salvou este login e desconecte-o lá antes de reconectar aqui."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Откройте сборку cmux, которая сохранила эти данные входа, и отключите подключение в ней, прежде чем подключиться снова здесь."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เปิด cmux รุ่นที่บันทึกการลงชื่อเข้าใช้นี้ แล้วตัดการเชื่อมต่อในรุ่นนั้นก่อนเชื่อมต่อใหม่ที่นี่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu oturumu kaydeden cmux sürümünü açın ve burada yeniden bağlanmadan önce bağlantıyı oradan kesin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Відкрийте збірку cmux, яка зберегла ці дані входу, і від’єднайте підключення в ній, перш ніж підключитися тут знову."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mở bản dựng cmux đã lưu thông tin đăng nhập này và ngắt kết nối trong bản đó trước khi kết nối lại tại đây."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请打开保存了此登录信息的 cmux 版本，在那里断开连接后再回到这里重新连接。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請開啟儲存此登入資訊的 cmux 版本，在該版本中中斷連線後，再回到這裡重新連線。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
