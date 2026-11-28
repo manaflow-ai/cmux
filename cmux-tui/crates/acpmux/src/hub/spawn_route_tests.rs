@@ -158,7 +158,7 @@ fn save_kimi(root: &Path, id: &str, token: &str, expiry: i64) {
 fn api_key_route(root: &Path, provider: &str, family: &str, base_url: &str) -> routes::Route {
     let secret = root.join("selected-key");
     std::fs::write(&secret, "fixture-selected-key").unwrap();
-    crate::router_socket::owner_only(&secret);
+    crate::private_file::owner_only(&secret);
     routes::Route {
         id: "selected-key".into(),
         file: serde_json::from_value(json!({

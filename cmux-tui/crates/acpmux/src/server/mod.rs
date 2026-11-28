@@ -26,7 +26,7 @@ use tokio::sync::{Semaphore, broadcast, mpsc};
 /// Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
 /// same-user checks), in `windows_socket.rs`.
 #[cfg(windows)]
-pub use windows_socket::{UnixListener, bind_unix, router_admin, serve_unix};
+pub use windows_socket::{UnixListener, bind_unix, serve_unix};
 
 // One module per line, in alphabetical order (with its attributes above it), so two pull
 // requests that each add a module touch different lines and merge without a conflict.

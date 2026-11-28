@@ -671,9 +671,8 @@ fn adopt_tcp(fd: OwnedFd, wanted: &[SocketAddr]) -> Result<std::net::TcpListener
 /// On a handoff start, before this image starts any process: every child it has is the previous
 /// image's. Those that ended already are reaped here (`waitpid(-1)`, safe only now: later it
 /// would take tokio's own children from it). What a stop leaves running is named by its own
-/// record: the agent hosts (`agent_host/sweep.rs`), the share sessions (`share_host/records.rs`)
-/// and the local router, which stays while a kept agent uses it and names its pid in its status
-/// (one bounded ask of its socket, `daemon/router_owner.rs`). Their pids, for [`reap_inherited`];
+/// record: the agent hosts (`agent_host/sweep.rs`) and the share sessions
+/// (`share_host/records.rs`). Their pids, for [`reap_inherited`];
 /// one that is no child of this process costs one `waitpid` there.
 pub(super) fn inherited() -> Vec<libc::pid_t> {
     loop {
@@ -688,7 +687,6 @@ pub(super) fn inherited() -> Vec<libc::pid_t> {
         .into_iter()
         .map(|host| host.host_pid)
         .chain(crate::share_host::session_pids(&crate::config::home()))
-        .chain(super::router_owner::running_pid())
         .filter_map(|pid| libc::pid_t::try_from(pid).ok())
         .filter(|pid| *pid > 1)
         .collect()

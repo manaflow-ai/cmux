@@ -3,7 +3,7 @@
 //! the command in help and errors, and `daemon_prefix` is what the detached
 //! daemon is started with (`<current exe> <prefix…> daemon run`).
 
-use crate::cli::command::{Cli, Command, RouterCmd, aliases, flatten};
+use crate::cli::command::{Cli, Command, aliases, flatten};
 use crate::cli::errors;
 use crate::cli::run::run_client;
 use crate::daemon::{DaemonOptions, connect};
@@ -411,18 +411,6 @@ async fn async_main(parsed: Parsed) -> Result<()> {
         None => {
             let client = connect(true).await?;
             crate::tui_entry::run(client, None).await
-        }
-        #[cfg(unix)]
-        Some(Command::Router(RouterCmd::Serve)) => {
-            cmux_coderouter::serve(crate::config::home()).await
-        }
-        // Windows: the router's folder owner-only, its admin socket a local
-        // socket that refuses peers of another user (server/windows_socket.rs).
-        #[cfg(windows)]
-        Some(Command::Router(RouterCmd::Serve)) => {
-            let home = crate::config::home();
-            crate::owner_only::private_dir(&home.join("router"))?;
-            cmux_coderouter::serve_with_admin(home, crate::server::router_admin).await
         }
         Some(Command::DaemonRun {
             listen,

@@ -1941,8 +1941,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Router(_)
-        | Command::DaemonRun { .. }
+        Command::DaemonRun { .. }
         | Command::Stdio { .. }
         | Command::CliAgent { .. }
         | Command::UniichatAgent { .. }

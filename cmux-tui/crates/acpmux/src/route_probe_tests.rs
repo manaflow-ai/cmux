@@ -17,15 +17,6 @@ fn a_probe_speaks_for_the_family_whose_endpoint_it_tests() {
     let health = route(json!({"kind": "custom-anthropic", "anthropicBaseUrl": "http://a",
                               "openaiBaseUrl": "http://o", "healthUrl": "http://h"}));
     assert!(probes_for(&health, "claude") && probes_for(&health, "codex"));
-    // A relay route mints a key per family: a probe with Codex's says nothing of Claude's,
-    // OpenCode's or Pi's, health URL or not.
-    let relay = route(json!({"kind": "local-coderouter"}));
-    assert!(probes_for(&relay, "codex") && !probes_for(&relay, "claude"));
-    assert!(!probes_for(&relay, "opencode") && !probes_for(&relay, "pi"));
-    let relay = route(json!({"kind": "cmux-router", "healthUrl": "http://h"}));
-    assert!(probes_for(&relay, "codex") && !probes_for(&relay, "claude"));
-    let relay = route(json!({"kind": "local-coderouter", "anthropicBaseUrl": "http://a"}));
-    assert!(probes_for(&relay, "claude") && !probes_for(&relay, "codex"));
 }
 
 use super::*;

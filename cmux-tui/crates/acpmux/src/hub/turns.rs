@@ -1590,15 +1590,7 @@ impl Hub {
             } else {
                 None
             };
-            // A chat on a Cloud machine, or one a remote connection started, never falls over
-            // onto the local CodeRouter, nor names it in its error: the machine is signed in from
-            // the Mac (Leo, 2026-10-31: "STOP USING CODEROUTER").
-            if let Some(to) = &target
-                && self.no_coderouter_fallback(session, to).await
-            {
-                target = None;
-            }
-            // Its route cannot start (a local router that is down): the chat stays where it is
+            // Its route cannot start (a route whose key is missing): the chat stays where it is
             // rather than moving onto a profile every later turn fails on (`fallback_start.rs`).
             if let Some(to) = &target
                 && let Some(why) = Box::pin(self.route_refusal(&session.meta(), to)).await

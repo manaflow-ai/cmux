@@ -918,9 +918,7 @@ pub struct HarnessProfile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// Profile to move a session onto when this one's account reports a
-    /// usage or rate limit mid-turn. Discovery sets `claude-cr` for
-    /// `claude` only when a CodeRouter route is configured
-    /// (`coderouterClaudeRoute`); never the subrouter pool.
+    /// usage or rate limit mid-turn. Discovery never sets one; the user names it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<String>,
     /// Model family this profile belongs to (`claude`, `codex`, `opencode`,
@@ -1825,14 +1823,6 @@ pub struct Config {
     /// Set with `acpmux config --set direct_port=PORT`; the carrier takes it at its start.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub direct_port: Option<u16>,
-    /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
-    /// Claude Code through a CodeRouter route. When it is set (env
-    /// `ACPMUX_CODEROUTER_CLAUDE_ROUTE` wins) and `coderouter` or `cr` is on
-    /// PATH, discovery adds the `claude-cr` profile and `-m claude` prefers
-    /// it. Unset (the default): no CodeRouter profile, and `claude` is the
-    /// user's own login. The binary names no route.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub coderouter_claude_route: Option<String>,
     /// `sendRelay`: `{"argv": [...]}`, the command `acpmux send` hands a message to when its
     /// target names no session here and no peer lists it (`cli/send_relay.rs`). Unset (the
     /// default): such a send is refused as before.
@@ -1877,8 +1867,8 @@ pub struct Config {
     /// No config.json was there at load (`hub/policy_source.rs`: absence proves nothing).
     #[serde(skip)]
     pub file_missing: bool,
-    /// This machine is a cmux Cloud VM (`cloud_host.rs`), read at load: a chat here never fails
-    /// over onto the local CodeRouter, and a sign-in failure says only how to sign it in.
+    /// This machine is a cmux Cloud VM (`cloud_host.rs`), read at load: a sign-in failure here
+    /// says only how to sign it in.
     #[serde(skip)]
     pub cloud_host: bool,
     /// The `defaults.claude.prefer` list discovery filled in, not the user.
@@ -2126,10 +2116,8 @@ mod codex_adapter;
 mod discover;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};
 pub use discover::{
-    CHIEF_FAMILY, CHIEF_PROFILE, CMUX_ROUTER_MODEL_SETTING, CMUX_ROUTER_PROFILE,
-    CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, UNIICHAT_PROFILE, add_chief,
-    add_cmux_router, add_cmux_router_with, add_coderouter_route, cmux_router_model_setting,
-    coderouter_claude_route, discover_harnesses, discover_harnesses_from, discoverable,
+    CHIEF_FAMILY, CHIEF_PROFILE, UNIICHAT_PROFILE, add_chief, discover_harnesses,
+    discover_harnesses_from, discoverable,
 };
 mod peer;
 pub use peer::PeerConfig;

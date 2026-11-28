@@ -2330,7 +2330,6 @@ inputs = [
   "cmux-tui/crates/cmux-cloud-machine/**",
   "cmux-tui/crates/cmux-cloud-start-core/**",
   "cmux-tui/crates/cmux-cloud-wire/**",
-  "cmux-tui/crates/cmux-coderouter/**",
   "cmux-tui/crates/cmux-command-class/**",
   "cmux-tui/crates/cmux-computer-use/**",
   "cmux-tui/crates/cmux-config/**",

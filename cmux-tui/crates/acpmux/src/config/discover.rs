@@ -4,45 +4,18 @@ use std::collections::BTreeMap;
 
 use super::{HarnessKind, HarnessProfile, which};
 
-/// The profile name of a configured CodeRouter Claude route.
-pub const CODEROUTER_CLAUDE_PROFILE: &str = "claude-cr";
-
-/// Env that names the CodeRouter Claude route; wins over the config key.
-pub const CODEROUTER_CLAUDE_ROUTE_ENV: &str = "ACPMUX_CODEROUTER_CLAUDE_ROUTE";
-
-/// The configured CodeRouter Claude route: `ACPMUX_CODEROUTER_CLAUDE_ROUTE`
-/// (daemon or login env), else `coderouterClaudeRoute`. Only one plain
-/// subcommand word counts (no flag, no space).
-pub fn coderouter_claude_route(configured: Option<&str>) -> Option<String> {
-    let env = std::env::var(CODEROUTER_CLAUDE_ROUTE_ENV)
-        .ok()
-        .or_else(|| crate::login_env::var(CODEROUTER_CLAUDE_ROUTE_ENV));
-    valid_route(env.as_deref().or(configured))
-}
-
-fn valid_route(route: Option<&str>) -> Option<String> {
-    let route = route?.trim();
-    (!route.is_empty()
-        && !route.starts_with('-')
-        && route.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')))
-    .then(|| route.to_owned())
-}
-
-/// Look for agent adapters in the acpx config and on PATH. `route`: the
-/// configured CodeRouter Claude route, if any.
-pub fn discover_harnesses(route: Option<&str>) -> BTreeMap<String, HarnessProfile> {
+/// Look for agent adapters in the acpx config and on PATH.
+pub fn discover_harnesses() -> BTreeMap<String, HarnessProfile> {
     let acpx = dirs::home_dir()
         .and_then(|home| std::fs::read_to_string(home.join(".acpx").join("config.json")).ok());
     let mut found = discover_harnesses_from(acpx.as_deref(), &which);
-    add_coderouter_route(&mut found, route, &which);
-    add_cmux_router(&mut found, &which);
     add_uniichat(&mut found, self_argv());
     add_chief(&mut found, self_exe(), &|path| path.is_file());
     found
 }
 
 /// Whether PATH discovery adds a harness `head` names (a profile or a family) once its program is
-/// installed: `claude`, `codex`, `gemini`, `cmux`... A new session's start reads PATH again only
+/// installed: `claude`, `codex`, `gemini`... A new session's start reads PATH again only
 /// for such a name (`hub/rediscover.rs`); any other name (a typo) keeps its refusal at once.
 pub fn discoverable(head: &str) -> bool {
     static NAMES: std::sync::OnceLock<std::collections::BTreeSet<String>> =
@@ -51,9 +24,7 @@ pub fn discoverable(head: &str) -> bool {
         .get_or_init(|| {
             // Every program found: what discovery adds on a host that has them all.
             let every = |bin: &str| Some(format!("/{bin}"));
-            let mut found = discover_harnesses_from(None, &every);
-            add_coderouter_route(&mut found, Some("route"), &every);
-            add_cmux_router_with(&mut found, &every, None);
+            let found = discover_harnesses_from(None, &every);
             let families: Vec<String> =
                 found.iter().map(|(name, p)| super::derive_family(name, p)).collect();
             families.into_iter().chain(found.into_keys()).collect()
@@ -164,127 +135,6 @@ pub fn add_chief(
     );
 }
 
-/// The profile name of the cmux model router harness.
-pub const CMUX_ROUTER_PROFILE: &str = "cmux";
-
-/// The models the hosted cmux model router serves (backend
-/// apps/api/src/inference/catalog.ts and its deployments' `INFERENCE_MODEL_ALLOWLIST`):
-/// `(id, name)`: the DeepSeek models (user, 2026-10-28) and Gemini 4 Neon on our own Vertex AI
-/// (user, 2026-11-19). This list is the offline fallback; the live list is the model catalog's
-/// `cmux` harness (cloud-api `/v1/models/catalog`). The first is the profile
-/// default and the Claude fallback model: DeepSeek V4.1 Flash 1017, which takes images.
-/// The cmux setting `agents.modelRouter.model` picks another start model from this list
-/// (the app's Settings, palette, `cmux settings set` and MCP `settings.set` write it).
-/// The live list is GET /v1/models through the relay.
-pub const CMUX_ROUTER_MODELS: &[(&str, &str)] = &[
-    ("deepseek/deepseek-v4.1-flash-1017", "DeepSeek V4.1 Flash 1017"),
-    ("deepseek/deepseek-v4.1-flash", "DeepSeek V4.1 Flash"),
-    ("deepseek/deepseek-v4-flash", "DeepSeek V4 Flash"),
-    ("deepseek/deepseek-v4-pro", "DeepSeek V4 Pro"),
-    ("google/gemini-4-neon", "Gemini 4 Neon"),
-];
-
-/// The cmux setting that picks the cmux router profile's start model.
-pub const CMUX_ROUTER_MODEL_SETTING: &str = "agents.modelRouter.model";
-
-/// The model `agents.modelRouter.model` names in a settings document, if any.
-pub fn cmux_router_model_in(doc: &serde_json::Value) -> Option<String> {
-    crate::user_settings::value(doc, CMUX_ROUTER_MODEL_SETTING)?.as_str().map(str::to_owned)
-}
-
-/// The model `agents.modelRouter.model` names in the settings file now (blocking file IO).
-pub fn cmux_router_model_setting() -> Option<String> {
-    match crate::user_settings::read() {
-        crate::user_settings::Settings::Parsed(doc) => cmux_router_model_in(&doc),
-        _ => None,
-    }
-}
-
-/// Adds `cmux`: Claude Code (acpmux's own adapter) on the built-in `cmux`
-/// route, so it runs the cmux model router's open-source models through the
-/// local relay. Needs `claude` on PATH; a native agent comes later.
-pub fn add_cmux_router(
-    found: &mut BTreeMap<String, HarnessProfile>,
-    which: &dyn Fn(&str) -> Option<String>,
-) {
-    let setting = cmux_router_model_setting();
-    add_cmux_router_with(found, which, setting.as_deref());
-}
-
-/// `add_cmux_router` with the setting's value passed in. A model the router does not
-/// serve keeps the default.
-pub fn add_cmux_router_with(
-    found: &mut BTreeMap<String, HarnessProfile>,
-    which: &dyn Fn(&str) -> Option<String>,
-    setting: Option<&str>,
-) {
-    if found.contains_key(CMUX_ROUTER_PROFILE) {
-        return;
-    }
-    let Some(claude) = which("claude") else { return };
-    let Some(&(default, _)) = setting
-        .and_then(|m| CMUX_ROUTER_MODELS.iter().find(|(id, _)| *id == m))
-        .or_else(|| CMUX_ROUTER_MODELS.first())
-    else {
-        return;
-    };
-    let env = BTreeMap::from([
-        (crate::routes::PROFILE_ROUTE_KEY.to_owned(), crate::routes::CMUX_ROUTE_ID.to_owned()),
-        // Claude Code's background calls name Haiku/Sonnet aliases; the
-        // router serves only its own models.
-        ("ANTHROPIC_DEFAULT_HAIKU_MODEL".to_owned(), default.to_owned()),
-        ("ANTHROPIC_SMALL_FAST_MODEL".to_owned(), default.to_owned()),
-    ]);
-    found.insert(
-        CMUX_ROUTER_PROFILE.to_owned(),
-        HarnessProfile {
-            kind: HarnessKind::ClaudeStdio,
-            argv: vec![claude],
-            env,
-            description: Some("open-source models through the cmux model router".into()),
-            fallback: None,
-            family: Some("claude".into()),
-            models: CMUX_ROUTER_MODELS
-                .iter()
-                .map(|(id, name)| super::DeclaredModel::Full {
-                    id: (*id).into(),
-                    name: Some((*name).into()),
-                })
-                .collect(),
-            model: Some(default.into()),
-            effort: None,
-            policy: None,
-        },
-    );
-}
-
-/// Adds `claude-cr` (`coderouter <route>`, else `cr <route>`, kind
-/// `claude-stdio`) when a route is configured and the CLI is on PATH.
-/// `coderouter` goes first: another tool may be installed as `cr`.
-pub fn add_coderouter_route(
-    found: &mut BTreeMap<String, HarnessProfile>,
-    route: Option<&str>,
-    which: &dyn Fn(&str) -> Option<String>,
-) {
-    let Some(route) = valid_route(route) else { return };
-    let Some(bin) = which("coderouter").or_else(|| which("cr")) else { return };
-    found.insert(
-        CODEROUTER_CLAUDE_PROFILE.to_owned(),
-        HarnessProfile {
-            kind: HarnessKind::ClaudeStdio,
-            argv: vec![bin, route],
-            env: BTreeMap::new(),
-            description: Some("Claude through the configured CodeRouter route".into()),
-            fallback: None,
-            family: Some("claude".into()),
-            models: vec![],
-            model: None,
-            effort: None,
-            policy: None,
-        },
-    );
-}
-
 /// `discover_harnesses` over an `~/.acpx/config.json` text and a PATH lookup.
 pub fn discover_harnesses_from(
     acpx: Option<&str>,
@@ -370,7 +220,7 @@ pub fn discover_harnesses_from(
         // `claude` and `claude-sr` are acpmux's own Claude Code adapter
         // whenever their binary is on PATH (an ~/.acpx `claude` is usually
         // the claude-acp ACP adapter). Only config.json can rebind them.
-        let reserved = matches!(name, "claude" | "claude-sr" | "claude-cr");
+        let reserved = matches!(name, "claude" | "claude-sr");
         if agents.contains_key(name) && !reserved {
             continue;
         }

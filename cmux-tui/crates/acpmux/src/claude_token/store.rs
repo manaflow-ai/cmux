@@ -113,7 +113,7 @@ impl Store for Files {
         let account = new_account("claude-token");
         let path = self.0.join(&account);
         std::fs::write(&path, format!("{value}\n")).map_err(|e| e.to_string())?;
-        crate::router_socket::owner_only(&path);
+        crate::private_file::owner_only(&path);
         Ok((format!("file:{}", path.display()), account))
     }
 

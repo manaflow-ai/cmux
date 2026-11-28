@@ -45,7 +45,6 @@ cmux-tui/crates/acpmux/src/daemon/login_session.rs	2
 cmux-tui/crates/acpmux/src/daemon/managed_unit.rs	1
 cmux-tui/crates/acpmux/src/daemon/notify.rs	1
 cmux-tui/crates/acpmux/src/daemon/persist_retry.rs	1
-cmux-tui/crates/acpmux/src/daemon/router_owner/fifo.rs	1
 cmux-tui/crates/acpmux/src/daemon/socket_rebind.rs	2
 cmux-tui/crates/acpmux/src/deps/archive.rs	2
 cmux-tui/crates/acpmux/src/deps/warm.rs	1
@@ -162,7 +161,7 @@ cmux-tui/crates/acpmux/src/server/review_queue.rs	1
 cmux-tui/crates/acpmux/src/server/stream.rs	2
 cmux-tui/crates/acpmux/src/server/trigger_chat.rs	1
 cmux-tui/crates/acpmux/src/server/upload_frames.rs	1
-cmux-tui/crates/acpmux/src/server/windows_socket.rs	2
+cmux-tui/crates/acpmux/src/server/windows_socket.rs	1
 cmux-tui/crates/acpmux/src/server/workflow_activity.rs	2
 cmux-tui/crates/acpmux/src/session_scope.rs	1
 cmux-tui/crates/acpmux/src/ssh_forward.rs	1
@@ -188,8 +187,6 @@ cmux-tui/crates/cmux-automations/src/exec.rs	6
 cmux-tui/crates/cmux-automations/src/watch.rs	3
 cmux-tui/crates/cmux-browser-host/src/cdp/pipe.rs	1
 cmux-tui/crates/cmux-build-identity/build.rs	1
-cmux-tui/crates/cmux-coderouter/src/free_tier.rs	2
-cmux-tui/crates/cmux-coderouter/src/lib.rs	3
 cmux-tui/crates/cmux-git/src/run.rs	3
 cmux-tui/crates/cmux-git/src/write_run.rs	4
 cmux-tui/crates/cmux-holder-v3/src/client.rs	1

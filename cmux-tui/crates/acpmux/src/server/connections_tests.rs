@@ -379,7 +379,7 @@ fn access_check_will_only_send_saved_keys_to_their_configured_provider() {
 fn secret_file(d: &Dirs, name: &str, value: &str) -> String {
     let path = d._root.path().join(name);
     std::fs::write(&path, format!("{value}\n")).unwrap();
-    crate::router_socket::owner_only(&path);
+    crate::private_file::owner_only(&path);
     format!("file:{}", path.display())
 }
 

@@ -17,7 +17,6 @@ cmux-tui/crates/acpmux/src/hub/bg_tasks.rs	2	c-agenthost lock audit: wait lock f
 cmux-tui/crates/acpmux/src/vault/pull.rs	2	c-agenthost lock audit: unlocking Drop: Lock, Drop at line 167 does flock LOCK_UN.
 cmux-tui/crates/cmux-automations/src/store.rs	1	c-agenthost lock audit: unlocking Drop: Flock, Drop at line 138 calls unlock() (RunnerLock Drop at 99 too).
 cmux-tui/crates/cmux-browser-host/src/server.rs	1	c-agenthost lock audit: held for the process life: bind: lock is mem::forget'd and held until the browser host process exits.
-cmux-tui/crates/cmux-coderouter/src/lib.rs	1	c-agenthost lock audit: held for the process life: router.lock held for the router serve process run; drop(lock) at 539 is close-only just before main returns.
 cmux-tui/crates/cmux-customize/src/store.rs	1	c-agenthost lock audit: unlocking Drop: Lock, Drop at line 133 calls fs4 unlock.
 cmux-tui/crates/cmux-holder/src/lib.rs	1	c-agenthost lock audit: held for the process life: hold_copy_in_use: O_CLOEXEC fd kept open with LOCK_SH for the holder process life.
 cmux-tui/crates/cmux-host/src/team_ssh/store.rs	1	c-agenthost lock audit: audit OK no spawn: ApplyLock is held for one apply with no child started

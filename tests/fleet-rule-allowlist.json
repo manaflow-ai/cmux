@@ -15,7 +15,6 @@
     "cmux-tui/crates/acpmux/src/hub/remote_sandbox.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): Claude Code-credentials"},
     "cmux-tui/crates/acpmux/tests/fake_claude.py": {"count": 1, "reason": "safe: a test fake of the Claude CLI's keychain lookup"},
     "cmux-tui/crates/acpmux/tests/no_keychain.rs": {"count": 7, "reason": "safe: the test asserts acpmux never runs a keychain read"},
-    "cmux-tui/crates/acpmux/tests/router_no_keychain.rs": {"count": 7, "reason": "safe: the test asserts the router never runs a keychain read"},
     "scripts/ci/chief-first-turn-cost.sh": {"count": 1, "reason": "safe: checks whether the Claude Code-credentials item exists (no -w; the password is not read)"},
     "scripts/ci/macos-stubs/Security.tbd": {"count": 1, "reason": "safe: a linker text stub listing Security.framework's exported symbol names (_SecItemCopyMatching among them) so Linux CI can link; nothing runs a keychain read"},
     "scripts/ci/macos-stubs/include/Security/Security.h": {"count": 1, "reason": "safe: a link stub header that declares the Security.framework calls certstore's cgo code uses (SecItemCopyMatching among them) so Linux CI can cross-build; it reads no password"},

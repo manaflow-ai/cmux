@@ -238,7 +238,6 @@ pub fn brain_environment(
     // socket from the home); shared: the brain never shuts it down.
     put("ACPMUX_HOME", config.home.join("acpmux").display().to_string());
     put("OPTCHAT_ACPMUX_SHARED", "1".into());
-    put("ACPMUX_LOCAL_ROUTER", "1".into());
     put("ACPMUX_SECRET_TOOLS", "1".into());
     put("OPTCHAT_CHIEF_PARTICIPANT", chief.to_owned());
     // Lawrence 2026-10-13: Chiefs act on their own; the loop guard stops loops.

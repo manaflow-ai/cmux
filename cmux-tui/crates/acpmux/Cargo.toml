@@ -171,7 +171,6 @@ cmux-stack-auth.workspace = true
 cmux-journal.workspace = true
 cmux-chat-index.workspace = true
 cmux-palette-ranker.workspace = true
-cmux-coderouter.workspace = true
 cmux-local-auth.workspace = true
 # Loopback URLs a background process prints, for its preview (src/hub/process_preview.rs).
 cmux-local-url.workspace = true

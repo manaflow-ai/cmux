@@ -30,9 +30,6 @@ pub use running::connect_running;
 mod snapshot_clear;
 pub(crate) mod start_exe;
 pub(crate) use snapshot_clear::clear_peer_snapshots;
-mod router_owner;
-pub(crate) use router_owner::router_owner_path;
-use router_owner::{ensure_router, release_router};
 mod app_orphan;
 pub(crate) use app_orphan::in_dev_bundle;
 #[cfg(unix)]
@@ -638,13 +635,6 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Under systemd's watchdog: pings only while this socket answers hello (`daemon/watchdog.rs`).
     #[cfg(target_os = "linux")]
     watchdog::start(socket_path());
-    // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and `local-coderouter`
-    // routes read its port and mint keys from it. Opt-in (the cmux app sets ACPMUX_LOCAL_ROUTER=1).
-    // Its owner ties the router's life to this daemon (daemon/router_owner.rs: the owner FIFO,
-    // shared with the agent hosts, on Unix; a kill-on-close job on Windows).
-    if std::env::var("ACPMUX_LOCAL_ROUTER").as_deref() == Ok("1") {
-        ensure_router();
-    }
     // The dashboard and WebSocket always run. First run picks a loopback port
     // and a random token and saves both, so the URL is stable afterwards.
     // The token is mandatory (plans/cmux-next/identity.md section 4): a saved
@@ -1790,7 +1780,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         let hub = hub.clone();
         exit_tasks.spawn_named("shutdown-sessions", async move {
             // A signal can arrive while metadata loads. Snapshot every stored session before
-            // detaching or ending hosts. A timeout conservatively keeps their router below.
+            // detaching or ending hosts.
             let _ = metadata.await;
             tracing::debug!(target: HANDOFF_TIMING, "handoff timing: stop has the index");
             if restarting {
@@ -1802,16 +1792,12 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     };
     let mut unfinished_sessions = None;
     let sessions_started = tokio::time::Instant::now();
-    let kept = match tokio::time::timeout_at(cleanup_deadline, &mut sessions).await {
-        Ok(Ok(kept)) => kept,
-        _ => {
-            sessions.abort();
-            unfinished_sessions = Some(sessions);
-            tracing::warn!("agents did not stop within {SHUTDOWN_BUDGET:?}; exiting anyway");
-            // Persistence still runs below, even when session cleanup used its whole grace.
-            usize::MAX
-        }
-    };
+    if !matches!(tokio::time::timeout_at(cleanup_deadline, &mut sessions).await, Ok(Ok(_))) {
+        sessions.abort();
+        unfinished_sessions = Some(sessions);
+        tracing::warn!("agents did not stop within {SHUTDOWN_BUDGET:?}; exiting anyway");
+        // Persistence still runs below, even when session cleanup used its whole grace.
+    }
     let sessions_took = sessions_started.elapsed();
     // A take-over that asked for them gets the connections that hold no state
     // (`server/conn_handover.rs`): their readers stop, what each already read is answered, and
@@ -1855,17 +1841,6 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             drop(_lock_file);
         })
     };
-    // After the agents: their model streams go through the router.
-    // A lost home's router path may be another daemon's router now: let go of ours, never ask
-    // that path to stop.
-    // Read after the agents: the home may have been lost while they drained.
-    recheck_home();
-    let home_lost = crate::config::home_lost();
-    let _ = tokio::time::timeout(
-        shutdown_left(),
-        tokio::task::spawn_blocking(move || release_router(kept == 0 && !home_lost)),
-    )
-    .await;
     // Cancelled and finished before the removal, so a late retry never puts it back.
     if let Some(retry) = pid_retry {
         retry.abort();
@@ -2090,7 +2065,7 @@ pub(crate) const START_BUDGET: Duration = Duration::from_secs(8);
 #[doc(hidden)]
 pub const HANDOVER_BUDGET: Duration = Duration::from_secs(20);
 
-/// How long a stopping daemon may take to exit: the agents' budget, the router's stop and kill
+/// How long a stopping daemon may take to exit: the agents' budget, the stop and kill
 /// waits, and a margin.
 pub const EXIT_BUDGET: Duration = SHUTDOWN_BUDGET
     .saturating_add(crate::hub::AGENT_END_BUDGET)
