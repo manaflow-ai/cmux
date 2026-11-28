@@ -50,6 +50,10 @@ ALLOWED = [
     ("cmux-tui/crates/cmux-tui-core/src/release.rs", '"update the cmux app (cmux > Check for Updates)"'),
     ("cmux-tui/crates/cmux-tui-core/src/release.rs", 'PYPI_UPDATE: &str = "uv tool upgrade cmux";'),
     ("cmux-tui/crates/cmux-tui-core/src/release.rs", '"update cmux: `{NPM_UPDATE}` (npm), `{PYPI_UPDATE}` (PyPI), or Check for Updates in the cmux app"'),
+    # The machine-agent protocol handshake refusal (RFD 0224): the peer's
+    # protocol is outside this build's range, so updating the older side is
+    # the only fix; callers append the install-channel command.
+    ("cmux-tui/crates/cmux-tui-machine-agent-protocol/src/version_range.rs", '{ "update the cmux server" } else { "update cmux" }'),
 ]
 
 
