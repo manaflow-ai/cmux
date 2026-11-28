@@ -5,13 +5,6 @@ import { pageIsKey, watchPageKey } from "./pageKey";
 
 export type CloudConnectionReason = "none" | "signedOut" | "off" | "cloudOff";
 
-const reasonLabels = {
-  none: "composer.envNotConnected",
-  signedOut: "turn.signInAgain",
-  off: "picker.cloud.connectionOff",
-  cloudOff: "picker.cloud.connectionOff",
-} as const;
-
 export type CloudServed = {
   runnableFamilies: readonly string[];
   servedHarnesses?: readonly string[];
@@ -44,7 +37,15 @@ export function cloudPickerState(served: CloudServed | undefined, harness: strin
   return ready === undefined ? undefined : ready ? "ready" : "disconnected";
 }
 
+/// The picker's note for a locked Cloud family, drawn beside its Connect action (ModelPicker `signInActionFor`). The
+/// labels live here, not in a module map, so the connection check follows them one hop to that drawing.
 export function cloudPickerReason(served: CloudServed | undefined, harness: string) {
+  const reasonLabels = {
+    none: "composer.envNotConnected",
+    signedOut: "turn.signInAgain",
+    off: "picker.cloud.connectionOff",
+    cloudOff: "picker.cloud.connectionOff",
+  } as const satisfies Record<CloudConnectionReason, string>;
   const family = cloudPickerFamily(served, harness);
   return reasonLabels[(family && served?.reasons?.[family]) || "none"];
 }

@@ -75,6 +75,9 @@ public struct CloudDirectory: Decodable, Hashable, Sendable {
 /// Why a Cloud chat did not start, as copy for the person.
 public struct CloudChatStartError: Error {
     public let message: String
+    /// The machine has no GitHub access to the start's repository (`seed.needs_github`): the
+    /// start offers Sign in with GitHub, then starts again.
+    public var github: GitHubSignInNeed? = nil
 }
 
 /// One Cloud machine's ACP channel over a paired Mac. The existing chat hub
@@ -175,12 +178,20 @@ public final class CloudChatRelay {
                 "_meta": .object(["acpmux": .object(["harness": .string("claude"), "policy": .string("ask")])]),
             ]), timeout: Self.startTimeout)
         } catch {
-            throw CloudChatStartError(message: AcpmuxSessionSource.message(error))
+            throw CloudChatStartError(message: AcpmuxSessionSource.message(error), github: Self.gitHubNeed(error))
         }
         guard let session = reply["sessionId"]?.stringValue, !session.isEmpty else {
             throw CloudChatStartError(message: "The Cloud machine didn't start the chat.")
         }
         return session
+    }
+
+    /// A start refused for want of GitHub on the machine: `seed.needs_github` as the reply's
+    /// reason or code, with its details.
+    nonisolated static func gitHubNeed(_ error: any Error) -> GitHubSignInNeed? {
+        guard let rpc = error as? AcpmuxConnection.RPCError else { return nil }
+        let code = [rpc.reason, rpc.dataCode].first { $0 == GitHubSignInNeed.cloneCode } ?? nil
+        return GitHubSignInNeed(startCode: code, details: rpc.details)
     }
 
     /// The exact session listed on this machine, without a local-Mac fallback.

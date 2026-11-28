@@ -48,9 +48,7 @@ SETUP_ZIG = "mlugg/setup-zig@"
 
 # Workflows whose schedule runs main's copy: a change here reaches production only through a
 # twin PR against main, so they keep setup-zig's cache until that lands.
-SETUP_ZIG_ON_MAIN: dict[str, str] = {
-    "cloud-journey-prod.yml": "its schedule runs main's copy; the fix lands with a Main-Twin PR",
-}
+SETUP_ZIG_ON_MAIN: dict[str, str] = {}
 
 ALLOWED: dict[str, str] = {
     "ci-web.yml: Save the duration manifest":
@@ -70,6 +68,9 @@ ALLOWED: dict[str, str] = {
     "cmux-tui-spec.yml: Save the base's last test log":
         "a few hundred kB gzipped log per feat-cmux-next push of the acpmux tests; pull requests restore the newest by prefix "
         "so their reds need no rebuild of the merge parent",
+    "cmux-tui-clippy-seed.yml: Save the clippy verdict to R2":
+        "a few kB of red packages per seeded feat-cmux-next sha (at most one every 120 min), in R2, not the 10 GB store; "
+        "clippy-changed reads the base's own key, else the newest by prefix, to skip base-red crates",
 }
 
 

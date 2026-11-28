@@ -266,7 +266,7 @@ jobs:
   # Exclusive-fleet A/B stress measurement; command and artifact contract unchanged.
   stress-measure:
     if: github.event_name == 'workflow_dispatch' && inputs.suite == 'stress' && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (#54437)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (#54437)
     timeout-minutes: 300
     permissions: {}
     steps:
