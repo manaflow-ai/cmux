@@ -166,25 +166,84 @@ fn a_check_refused_any_other_way_is_unknown_and_never_starts_the_chat() {
     }
 }
 
-/// A clone that failed says so, with the bootstrap's status and log, and starts nothing.
+/// ask-17e4ae3662 (Austin: "surfacing right errors (ie ... repo did not clone ...)"): a clone that
+/// failed answers `cloud.clone_failed`, saying the repository did not clone and git's own error, with
+/// the bootstrap's status and log in details, and starts nothing.
 #[test]
 fn a_bootstrap_that_failed_to_clone_the_folder_says_why() {
     let status = r#"{"state":"failed","exit_code":1,"repo":{"status":"failed","url":"https://gitlab.com/g/sub/r.git"},"step":"repo"}"#;
-    let mut fake = Fake::new(vec![signed_in(), exec_out(&format!("ended\n{status}\n"))]);
-    let Outcome::Failed { error, exit } = run(&mut fake, &repo_start("/home/cmux/work/r", "900"))
+    for (answer, said) in [
+        (
+            format!(
+                "ended\n{status}\n\nlog: cmux repo: https://gitlab.com/g/sub/r.git needs access this machine does not have (private, not found, or offline)\nlog: fatal: repository 'https://gitlab.com/g/sub/r.git/' not found\n"
+            ),
+            Some("fatal: repository 'https://gitlab.com/g/sub/r.git/' not found"),
+        ),
+        (format!("ended\n{status}\n"), None),
+    ] {
+        let mut fake = Fake::new(vec![signed_in(), exec_out(&answer)]);
+        let Outcome::Failed { error, exit } =
+            run(&mut fake, &repo_start("/home/cmux/work/r", "900"))
+        else {
+            panic!("{:?}", fake.ran)
+        };
+        assert_eq!(error["code"], "cloud.clone_failed", "{answer}");
+        assert_eq!(exit, 1);
+        let message = error["message"].as_str().unwrap();
+        assert!(
+            message.starts_with("The repository did not clone on the Cloud machine")
+                && message.contains("/home/cmux/work/r"),
+            "{message}"
+        );
+        match said {
+            Some(said) => {
+                assert!(message.ends_with(said), "{message}");
+                assert!(error["details"]["git_error"].as_str().unwrap().contains(said));
+            }
+            None => {
+                assert!(message.contains("bootstrap.log"), "{message}");
+                assert!(error["details"]["git_error"].is_null());
+            }
+        }
+        assert_eq!(error["details"]["bootstrap"]["step"], "repo");
+        assert_eq!(error["details"]["log"], "~/.cmux/bootstrap/bootstrap.log");
+        assert_eq!(fake.ran.len(), 2);
+    }
+}
+
+/// The script itself reads git's error from the end of the log, cuts a credential out of a URL, and
+/// keeps only the last error lines.
+#[test]
+fn the_check_reads_the_git_error_from_the_end_of_the_bootstrap_log() {
+    let home = tempfile::tempdir().unwrap();
+    let cwd = home.path().join("work/r");
+    bootstrap(home.path(), FAILED_REPO, Some(r#"{"status":"failed"}"#));
+    std::fs::write(
+        home.path().join(".cmux/bootstrap/bootstrap.log"),
+        "== cmux bootstrap k at t\nCloning into 'r'...\nerror: early\nerror: middle\n\
+         remote: Repository not found.\nfatal: Authentication failed for 'https://x-access-token:SECRET@github.com/o/r.git/'\n",
+    )
+    .unwrap();
+    let mut fake = ShellFake::new(home.path());
+    let Outcome::Failed { error, .. } = run(&mut fake, &repo_start(cwd.to_str().unwrap(), "900"))
     else {
         panic!("{:?}", fake.ran)
     };
-    assert_eq!(error["code"], "cloud.folder_missing");
-    assert_eq!(exit, 1);
-    let message = error["message"].as_str().unwrap();
-    assert!(
-        message.contains("/home/cmux/work/r") && message.contains("repository failed"),
-        "{message}"
+    assert_eq!(error["code"], "cloud.clone_failed");
+    let git_error = error["details"]["git_error"].as_str().unwrap();
+    assert_eq!(
+        git_error,
+        "error: middle\nremote: Repository not found.\nfatal: Authentication failed for 'https://github.com/o/r.git/'"
     );
-    assert!(message.contains("bootstrap.log"), "{message}");
-    assert_eq!(error["details"]["bootstrap"]["step"], "repo");
-    assert_eq!(fake.ran.len(), 2);
+    assert!(!error.to_string().contains("SECRET"), "{error}");
+    assert!(
+        error["message"]
+            .as_str()
+            .unwrap()
+            .ends_with("fatal: Authentication failed for 'https://github.com/o/r.git/'"),
+        "{error}"
+    );
+    fake.assert_clean();
 }
 
 /// A clone that outlasts `--timeout` answers out of time, naming the command again, and starts nothing.
@@ -379,7 +438,10 @@ fn the_bootstrap_files_decide_whether_the_folder_is_ready() {
         match (starts, got) {
             (true, Outcome::Done(answer)) => assert_eq!(answer["reply"], "ok"),
             (false, Outcome::Failed { error, .. }) => {
-                assert_eq!(error["code"], "cloud.folder_missing", "{status:?} {repo:?}");
+                let clone = [FAILED_REPO, LEGACY_REPO_FAILED, LEGACY_NEEDS_GITHUB]
+                    .contains(&status.unwrap_or(""));
+                let code = if clone { "cloud.clone_failed" } else { "cloud.folder_missing" };
+                assert_eq!(error["code"], code, "{status:?} {repo:?}");
                 assert_eq!(fake.ran.len(), 2);
             }
             (_, other) => {
@@ -608,6 +670,8 @@ fn an_answer_with_more_than_its_line_is_malformed_and_asked_again() {
         "absent\nx\n",
         "x\nready\n",
         "ended\n{\"state\":\"failed\"}\nmore\n",
+        "ended\n{\"state\":\"failed\"}\n\nlog: fatal: x\nmore\n",
+        "ended\n{\"state\":\"failed\"}\n\nlog: a\nlog: b\nlog: c\nlog: d\n",
         "ended\nnot json\n",
     ] {
         let mut fake = chat(vec![signed_in(), exec_out(extra), exec_out("ready  \n")]);
