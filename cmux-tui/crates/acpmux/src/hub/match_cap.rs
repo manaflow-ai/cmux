@@ -1,4 +1,4 @@
-//! The cap on a request's `match` (`_acpmux/events`, `_acpmux/watch_add`).
+//! The cap on a watch's `match` text (moved from `hub/mod.rs` as is).
 
 /// The longest `match` a durable watch takes (`_acpmux/watch_add`): a stubbed reply chunk keeps
 /// that much of its text's end (`paging.rs` `stub_msg`), so a match across chunks is never lost.

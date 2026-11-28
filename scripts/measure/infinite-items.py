@@ -749,7 +749,7 @@ class Run:
 
     def park_idle(self):
         """--park-idle: what the app's freeing tier does to a hibernated workspace (CmuxNextHibernation
-        WorkspaceFreeingPlanner, `workspaces.freeing.*`, off by default): `park-tabs` on every tab of the run's
+        WorkspaceFreeingPlanner, `workspaces.freeing.*`, on by default after a day idle): `park-tabs` on every tab of the run's
         workspaces. The shells end, the tabs stay (dead, `relaunch.on_show`); non-terminal tabs are left as they
         are. Headless cmux-tui has no app, so without this no shell is ever freed here."""
         if not self.args.park_idle or not self.workspaces:
@@ -1107,11 +1107,12 @@ def main():
     p.add_argument("--browser-tabs", action="store_true", help="a browser tab in each workspace too (model only)")
     p.add_argument("--park-idle", action="store_true",
                    help="park every tab of the run's workspaces after the open and each day (park-tabs), as the app's "
-                        "freeing tier does to hibernated workspaces when workspaces.freeing is on (off by default)")
+                        "freeing tier does to hibernated workspaces (workspaces.freeing, on by default, after a day idle)")
     p.add_argument("--free-idle-seconds", type=int, default=0,
                    help="start cmux-tui with --freeing-idle-seconds N: the daemon's own freeing timer parks every "
-                        "terminal idle at its prompt with no client for N seconds (workspaces.freeing.*, off by "
-                        "default), with no park-tabs request; 0 (default) leaves it off")
+                        "terminal idle at its prompt with no client for N seconds (workspaces.freeing.*, on by default "
+                        "with a day's idle time, which a simulated day never reaches), with no park-tabs request; 0 "
+                        "(default) passes nothing, so the settings file decides")
     p.add_argument("--lazy-start", choices=("off", "on"), default="on",
                    help="CMUX_TUI_LAZY_START for cmux-tui: on, a never-shown plain shell (new-workspace, new-tab, "
                         "create-terminal in a workspace no client shows) gets no shell or host until its first need "
