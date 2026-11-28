@@ -79,6 +79,35 @@ class ReplayTests(unittest.TestCase):
             self.assertEqual(replay.count_at(table, "h", t), expected)
         self.assertEqual(replay.count_at(table, "absent", MIN), 0)
 
+    def test_capture_cutoff_censors_future_gaps_and_turns(self):
+        sessions = [{"host": "h", "id": "a", "observedAt": 100, "open": True,
+                     "turns": [{"startedAt": 10, "endedAt": 20},
+                               {"startedAt": 200, "endedAt": 210, "prompt": "hello"}]}]
+        for now, expected_gap in [(50, 30), (500, 80)]:
+            gaps = replay.gaps(sessions, now)
+            self.assertEqual(len(gaps), 1)
+            self.assertEqual(gaps[0]["g"], expected_gap)
+            self.assertFalse(gaps[0]["ends_in_turn"])
+            self.assertFalse(gaps[0]["person"])
+            table = replay.residents_at(gaps, sessions, now)
+            self.assertEqual(replay.count_at(table, "h", 205), 0)
+            self.assertEqual(replay.count_at(table, "h", min(now, 100)), 0)
+
+    def test_capture_cutoff_bounds_completed_active_spans(self):
+        sessions = [{"host": "h", "id": "a", "observedAt": 100,
+                     "turns": [{"startedAt": 10, "endedAt": 210}]}]
+        table = replay.residents_at([], sessions, 500)
+        self.assertEqual(replay.count_at(table, "h", 99), 1)
+        self.assertEqual(replay.count_at(table, "h", 100), 0)
+        self.assertEqual(replay.gaps(sessions, 500), [])
+        # Legacy histories still prove completed gaps, but --now-ms can censor them.
+        sessions[0].pop("observedAt")
+        sessions[0]["turns"] = [{"startedAt": 10, "endedAt": 20},
+                                 {"startedAt": 200, "endedAt": 210}]
+        gap, = replay.gaps(sessions, 50)
+        self.assertEqual(gap["g"], 30)
+        self.assertFalse(gap["ends_in_turn"])
+
     def test_load_keeps_single_running_turn_and_distinct_missing_ids(self):
         with tempfile.TemporaryDirectory() as folder:
             for name in ("a", "b"):
