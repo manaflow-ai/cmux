@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
-import { useStore } from "../context";
+import { useRowState, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
 import type {
   AutocloudAction,
@@ -752,6 +752,7 @@ type Created = { url: string | null; secret: string; text?: string };
 
 export function AutomationsCard() {
   const store = useStore();
+  const enabled = useRowState("labs.automations").value === true;
   const [state, setState] = useState<AutocloudState | null>(null);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState<FormOpen | null>(null);
@@ -765,8 +766,9 @@ export function AutomationsCard() {
     setState((await store.runAutocloud({ action: "refresh" })).state);
   }, [store]);
   useEffect(() => {
+    if (!enabled) return;
     void refresh();
-  }, [refresh]);
+  }, [enabled, refresh]);
   const act = useCallback<Act>(
     async (action) => {
       const quiet = action.action === "preview" || action.action === "runs";
@@ -800,6 +802,7 @@ export function AutomationsCard() {
   };
   const listError =
     state?.error && state.error.action !== "create" && state.error.action !== "update" ? state.error : null;
+  if (!enabled) return null;
   return (
     <div className="hub-card" data-card="automationsCloud">
       <section className="group" data-autocloud-group="header">

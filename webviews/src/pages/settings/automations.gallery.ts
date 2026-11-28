@@ -8,6 +8,7 @@ import { MOCK_AUTOCLOUD_CATALOG, mockAutocloudOverview, mockAutocloudState } fro
 const shown: PageFixtureStep = { selector: '[data-card="automationsCloud"]', action: "wait" };
 const variant = (patch: Partial<SettingsPageVariant> & { note: string }): SettingsPageVariant => ({
   section: "automations",
+  options: { values: { "labs.automations": true } },
   steps: [shown],
   ...patch,
 });
