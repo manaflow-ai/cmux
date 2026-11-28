@@ -174,7 +174,9 @@ pub static ACTIONS: &[Action] = &[
         group: GROUP,
         title: t("ActionCatalog", "action.openBrowser", "New Browser Tab"),
         keywords: &["tab", "web", "create"],
-        default_shortcut: Some(Shortcut { key: "l", modifiers: SHIFT | CMD }),
+        // Shift-Cmd-L is New Tab's second key (bindings::SCOPED_DEFAULTS): both open the New Tab
+        // page with its omnibar (Lawrence 2026-11-23).
+        default_shortcut: None,
         category: "tab",
         symbol: "globe.badge.chevron.backward",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,

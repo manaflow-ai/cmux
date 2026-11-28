@@ -83,7 +83,6 @@ import { AllChatsList } from "./AllChatsList";
 import { type LoadChatsPage } from "./allChatsListModel";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
-import { OpenTabsList } from "./OpenTabsList";
 import { NowPlayingPlayer } from "./NowPlayingPlayer";
 import { NewTabWidgets } from "./NewTabWidgets";
 import { type NowPlayingCommand } from "./nowPlayingPlayerModel";
@@ -2844,11 +2843,10 @@ export function NewTabScreen(props: Props) {
       </div>
     </ChromeArea>
   );
-  // The page's lists: the open tabs to move here, Recently Closed and the recent chats. In the stage
+  // The page's lists (no Open Tabs list, Lawrence 2026-11-23): Recently Closed and the recent chats. In the stage
   // layout they sit under the cards, over the composer.
   const lists = (
     <>
-      {props.openTabs && <OpenTabsList tabs={props.openTabs} onMoveHere={(id) => props.onJump("here", id)} />}
       {sections.closed && !minimal && <ClosedList items={closed} onReopen={(id) => props.onJump("closed", id)} />}
       {sections.chats !== "none" && !allChats && !minimal && (
         <ChatCards

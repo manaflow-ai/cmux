@@ -1,6 +1,7 @@
 import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextBrowser
 import CmuxNextChiefPetWiring
 import CmuxNextCloud
 import CmuxNextCompat
@@ -127,6 +128,17 @@ extension AgentTabStore {
         tabs.cloudRepositoryLocal = { [weak services] in
             guard let services else { throw DaemonError.notConnected }
             return try await services.daemon.cloudRepositoryLocal()
+        }
+        tabs.newTabTopBar = { [weak services] view in // the omnibar over a New Tab page, with only More (Lawrence 2026-11-23)
+            guard let services, view.topBar.view == nil else { return }
+            let bar = NewTabOmnibarBar(suggestionEngine: services.cache.suggestionEngine)
+            bar.open = { [weak view] url, beside in view?.model.onOpenTab?(AgentPaneOpenTab(kind: .browser, text: url.absoluteString, beside: beside)) }
+            bar.switchToTab = { [weak services] key in if let services { NewTabPage.jump(.tab, id: key, services: services) } }
+            bar.moreMenu = { [weak services, weak view] in
+                guard let services, let view, let pane = services.windows.controllers.lazy.compactMap({ $0.content?.panes.values.first { if case .agent(let shown)? = $0.currentContent { shown === view } else { false } } }).first else { return nil }
+                return services.registry.makePaneMoreMenu(pane: ActionTargetRef(kind: .pane, id: pane.paneKey), trimming: [], machineID: pane.daemon.machineID)
+            }
+            view.topBar.set(bar, height: bar.preferredHeight)
         }
         tabs.imessage = { [weak services] action, view in
             guard let services else { return AgentPaneReply.failure(code: "unavailable", message: "unavailable") }

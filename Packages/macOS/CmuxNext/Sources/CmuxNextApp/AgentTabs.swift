@@ -160,6 +160,8 @@ final class AgentTabStore {
     var cloudRepositoryLocal: @MainActor () async throws -> Data = {
         throw DaemonError.notConnected
     }
+    /// Puts the omnibar row over a New Tab page's view (``NewTabOmnibarBar``; the wiring sets it).
+    var newTabTopBar: ((AgentPaneView) -> Void)?
     var imessage: (@MainActor (AgentPaneIMessageAction, AgentPaneView) async -> [String: Any])?
     /// The daemon whose tree lists `tab`, by the record's identity (MachineRegistry.daemon(forTab:)):
     /// it reads no tab list, so a pane snapshot that asks hears no other pane's tabs. Nil in tests.
@@ -786,7 +788,7 @@ final class AgentTabStore {
         pageSettings.apply(to: view)
         // A New Tab page draws its own first frame: no native loading mark (Lawrence 2026-10-10,
         // React-only New Tab). Chat panes keep it.
-        if model.newTab != nil { view.showsLoadingState = false } else { model.whenPainted { [weak self] in self?.launchImages.pictures?.pagePainted() } } // a chat's first paint saves its picture (AgentLaunchPictures)
+        if model.newTab != nil { view.showsLoadingState = false; newTabTopBar?(view) } else { model.whenPainted { [weak self] in self?.launchImages.pictures?.pagePainted() } } // a chat's first paint saves its picture (AgentLaunchPictures)
         pageChats.seed(view)
         wireAgentAvatars(model, view: view)
         model.onComposerSetting = { [weak pageSettings] path, show in try await pageSettings?.setComposer(path, show) }

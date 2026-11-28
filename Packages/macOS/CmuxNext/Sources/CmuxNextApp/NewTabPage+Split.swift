@@ -37,7 +37,7 @@ extension NewTabPage {
         let machineID = source.daemon.machineID
         var page = Self.page(services, selected: source.selectedTab, pane: source, paletteActions: false)
         let cwd = page.cwd
-        page.openTabs = openTabs(services, in: source.pane)
+        // No Open Tabs list on the page (Lawrence 2026-11-23): the omnibar's Switch to Tab rows find open tabs.
         page.draft = services.windowController(showing: source).flatMap { services.agentTabs.unsentDrafts.leftover(inWindow: $0.state.id) }
         let opened = SplitPageKey()
         // Keys typed after the split wait for the new page's field, in order (cx-kql5h): the page
@@ -89,23 +89,6 @@ extension NewTabPage {
         if started, split != nil { BenchSpans.measure("split.layout") { source.workspace?.applyCurrent() } }
         if started { fillPaletteActions(services) }
         return started
-    }
-
-    /// The workspace's tabs as the Open Tabs list shows them, but New Tab pages.
-    static func openTabs(_ services: AppServices, in pane: PaneModel) -> [AgentPaneOmnibar.Tab] {
-        let workspace = services.daemon(for: pane).store.workspace(containing: pane.handle)
-        return (workspace?.screens ?? []).flatMap(\.panes).flatMap(\.tabs).compactMap { tab in
-            let agent = services.agentTabs.isAgentTab(tab.id)
-            if agent, services.agentTabs.isNewTabPage(tab.id) { return nil }
-            let kind: AgentPaneTabKind = agent ? .agent : tab.kind == .browser ? .browser : .terminal
-            // An untitled shell is named by its folder, a page by its address, as the bar names them.
-            let title = NewTabPlaces(home: NSHomeDirectory()).place(tab)?.title ?? tab.displayTitle
-            return AgentPaneOmnibar.Tab(
-                id: tab.id, kind: kind, title: title,
-                detail: kind == .browser ? tab.url.map(NewTabPlaces.displayURL) : tab.cwd.map(NewTabPlaces(home: NSHomeDirectory()).abbreviated),
-                icon: kind == .browser ? AppServices.dataURL(services.tabFavicon(tab)) : nil
-            )
-        }
     }
 
     /// The pane showing tab `key` now.

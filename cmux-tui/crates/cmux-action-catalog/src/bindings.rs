@@ -42,7 +42,8 @@ pub static SCOPED_DEFAULTS: &[Binding] = &[
     Binding { keys: &[Shortcut { key: "=", modifiers: SHIFT | CMD }], command: "home.zoomIn", argument: None, arguments: &[], when: Some("topPage == home || surfaceKind == home || surfaceKind == home-dock"), source: "default" },
     Binding { keys: &[Shortcut { key: "-", modifiers: CMD }], command: "home.zoomOut", argument: None, arguments: &[], when: Some("topPage == home || surfaceKind == home || surfaceKind == home-dock"), source: "default" },
     Binding { keys: &[Shortcut { key: "0", modifiers: CMD }], command: "home.zoomReset", argument: None, arguments: &[], when: Some("topPage == home || surfaceKind == home || surfaceKind == home-dock"), source: "default" },
-    Binding { keys: &[Shortcut { key: "w", modifiers: CMD }], command: "closeWorkspace", argument: None, arguments: &[], when: Some("sidebar.multiSelection"), source: "default" },
+    Binding { keys: &[Shortcut { key: "w", modifiers: CMD }], command: "closeWorkspace", argument: None, arguments: &[], when: Some("sidebar.multiSelection"), source: "default" },    // Shift-Cmd-L does what Cmd-T does: the New Tab page, with its omnibar on top (Lawrence 2026-11-23).
+    Binding { keys: &[Shortcut { key: "l", modifiers: SHIFT | CMD }], command: "newTab.default", argument: None, arguments: &[], when: None, source: "default" },
 ];
 
 #[rustfmt::skip]
