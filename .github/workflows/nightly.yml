@@ -1357,11 +1357,14 @@ jobs:
       contents: write
       attestations: write
       id-token: write
-    needs: decide
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *' || github.event.schedule == '5 8 * * *') && needs.decide.outputs.build_only != 'true'
-    # Zig 0.15.2 cannot link the real helper on macOS 26. Match the stable
-    # release workflow by building and verifying it on macOS 15 instead.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || contains(fromJSON('["blacksmith-6vcpu-macos-15"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_15) && fromJSON(vars.RUNNER_POOLS || '{}').macos_15 || 'blacksmith-6vcpu-macos-15' }}
+    needs: [decide, pick-nightly-app-runner]
+    # A failed or timed-out pick-nightly-app-runner must not skip the helper: runs-on falls back to Blacksmith macOS 26.
+    if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *' || github.event.schedule == '5 8 * * *') && needs.decide.outputs.build_only != 'true'"
+    # The helper links on macOS 26 now (Ghostty's pinned Zig; feat-cmux-next's note-23 runs it there), so it
+    # leaves blacksmith-6vcpu-macos-15, whose queue stalled the nightly (6 queued, 65 min, 2026-11-28).
+    # Attempt 1 of a main push or schedule takes the owned trusted pool, as nightly-next's helper does; otherwise
+    # pick-nightly-app-runner's moving cloud macOS 26 label, else Blacksmith macOS 26. Never macOS 15.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL || needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 20
     env:
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}

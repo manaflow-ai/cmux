@@ -82,8 +82,6 @@ PAID_ONLY_JOBS: dict[tuple[str, str], str] = {
     ("build-ghosttykit.yml", "build-ghosttykit"):
         "builds the published GhosttyKit against the macOS 15 SDK image and holds the Ghostty release token",
     ("release.yml", "build-ghostty-cli-helper"): "builds the release Ghostty CLI helper against the macOS 15 SDK image",
-    ("nightly.yml", "build-nightly-ghostty-cli-helper"):
-        "builds the nightly Ghostty CLI helper against the macOS 15 SDK image",
     ("plain-paste-worker.yml", "paste-worker-macos-15"): "exists to exercise the paste worker on the macOS 15 image",
     ("seed-swiftpm-manifests.yml", "seed"): "seeds the Blacksmith macOS 15 pool's own SwiftPM manifest cache",
     ("nightly.yml", "refresh-compilation-cache"): "refreshes the Blacksmith macOS pool's own compilation cache",
