@@ -420,9 +420,13 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         // And a row on screen above the bottom row they see (a late edited-files card measuring,
         // a tool row filling in): the rows under it hold and the rows above it move up, as the
         // list's own scroll, the way `reload` holds that bottom row for a row inserted above it.
+        // A following reader too: a card `reload` put in at its estimate measures here, in the
+        // collection view's layout, and the dock's pin to the newest row corrects only after that
+        // frame drew the rows under it pushed down. The newest row growing (a streamed answer)
+        // is not above the bottom row: the dock still pins it.
         let visibleTop = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
         let visibleBottom = collectionView.contentOffset.y + collectionView.bounds.height - collectionView.adjustedContentInset.bottom
-        if !followsBottom(), row < tops.count, tops[row] < visibleTop - 0.5 || row < lastIndex(topBefore: visibleBottom) {
+        if row < tops.count, (!followsBottom() && tops[row] < visibleTop - 0.5) || row < lastIndex(topBefore: visibleBottom) {
             context.contentOffsetAdjustment = CGPoint(x: 0, y: delta)
         }
         return context
