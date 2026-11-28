@@ -60,14 +60,18 @@ pub fn store_command(os: &str, id: &str, key: &str, value: &str) -> Result<Store
 /// The command that deletes harness `id`'s `key` item (`cmux-harness/<id>/<key>`): no value, so
 /// `stdin` is empty. Run it with [`run_delete`].
 pub fn delete_command(os: &str, id: &str, key: &str) -> StoreCommand {
-    let account = format!("{id}/{key}");
+    delete_item(os, SERVICE, &format!("{id}/{key}"))
+}
+
+/// The command that deletes one item by its service and account.
+pub(crate) fn delete_item(os: &str, service: &str, account: &str) -> StoreCommand {
     let argv: Vec<String> = if os == "macos" {
-        ["/usr/bin/security", "delete-generic-password", "-s", SERVICE, "-a", &account]
+        ["/usr/bin/security", "delete-generic-password", "-s", service, "-a", account]
             .iter()
             .map(|s| (*s).to_owned())
             .collect()
     } else {
-        ["secret-tool", "clear", "service", SERVICE, "account", &account]
+        ["secret-tool", "clear", "service", service, "account", account]
             .iter()
             .map(|s| (*s).to_owned())
             .collect()

@@ -12,6 +12,10 @@ fn the_three_typed_requests_become_argv() {
     );
     assert_eq!(argv(&json!({"customize": "keep"})).unwrap(), ["customize", "keep"]);
     assert_eq!(argv(&json!({"customize": "revert"})).unwrap(), ["customize", "revert"]);
+    assert_eq!(
+        argv(&json!({"customize": "go", "target": "pr:57001"})).unwrap(),
+        ["customize", "go", "pr:57001"]
+    );
 }
 
 #[test]
@@ -83,6 +87,10 @@ fn anything_else_is_refused() {
         json!({"customize": "try", "target": "pr:1", "minutes": 0}),
         json!({"customize": "try", "target": "pr:1", "minutes": 241}),
         json!({"customize": "try", "target": "pr:1", "minutes": "5"}),
+        json!({"customize": "go"}),
+        json!({"customize": "go", "target": "branch:x"}),
+        json!({"customize": "go", "target": "darker"}),
+        json!({"customize": "go", "target": "pr:"}),
     ] {
         assert!(argv(&bad).is_err(), "{bad}");
     }

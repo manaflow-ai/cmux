@@ -21,7 +21,7 @@ use std::thread;
 use std::time::Instant;
 
 use cmux_rd_ffi::{Carrier, InputChannel, Session};
-use cmux_rd_link::net::{Candidate, Net, NetConfig, NetEvent, TurnServer};
+use cmux_rd_link::net::{Candidate, Net, NetConfig, NetEvent, TurnServer, TurnTransport};
 use cmux_rd_link::{EndpointEvent, Event, KeyPair, Role};
 use cmux_rd_proto::control::Control;
 use cmux_rd_proto::{InputEvent, flags};
@@ -486,6 +486,7 @@ impl Run {
                     addr: resolve(&t.addr)?,
                     username: t.username.clone(),
                     password: t.password.clone(),
+                    transport: TurnTransport::Udp,
                 })
             })
             .collect();

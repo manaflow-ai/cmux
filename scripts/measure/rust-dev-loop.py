@@ -31,7 +31,7 @@ EDITS = {
     "shared_struct": "crates/cmux-host-budget/src/lib.rs",
     "test_only": "crates/acpmux/src/harness_icon_set.rs",
     # The daemon's server code: a field in `identify` (rust-live.py's own edit).
-    "tui_server": "crates/cmux-tui-core/src/server/cmd_server.rs",
+    "tui_server": "crates/cmux-tui/src/bin/cmux-tui/identify.rs",
     # cmux-tui-core outside the server: a statement in a Mux method body.
     "tui_core": "crates/cmux-tui-core/src/mux/resource_effects.rs",
 }
