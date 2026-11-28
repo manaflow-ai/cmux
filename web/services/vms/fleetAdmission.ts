@@ -96,7 +96,12 @@ export function fleetMaxActiveVms(env: Record<string, string | undefined> = proc
 export class FleetCapacityAdmissionError extends Error {
   readonly status = 409;
   readonly code = "PLACEMENT_REJECTED";
-  constructor(message: string) {
+  /**
+   * Which room is missing: "fleet_full" (CMUX_VM_FLEET_MAX_ACTIVE_VMS is
+   * reached) or "provider_cooldown" (the provider refused a start for
+   * capacity a moment ago). createWait.ts names each as its own wait.
+   */
+  constructor(message: string, readonly reason: "fleet_full" | "provider_cooldown") {
     super(message);
     this.name = "FleetCapacityAdmissionError";
   }
@@ -123,7 +128,7 @@ export function admitFleetCapacity(
     const now = input.now ?? Date.now();
     const cooldown = providerCapacityCooldownMs(input.provider, now);
     if (cooldown > 0) {
-      return yield* Effect.fail(refusal(input.provider, `create: no manager has enough capacity (the provider refused a start ${Math.round((FLEET_CAPACITY_COOLDOWN_MS - cooldown) / 1000)}s ago; admission waits ${Math.ceil(cooldown / 1000)}s more before trying it)`));
+      return yield* Effect.fail(refusal(input.provider, `create: no manager has enough capacity (the provider refused a start ${Math.round((FLEET_CAPACITY_COOLDOWN_MS - cooldown) / 1000)}s ago; admission waits ${Math.ceil(cooldown / 1000)}s more before trying it)`, "provider_cooldown"));
     }
     const cap = fleetMaxActiveVms(input.env);
     const countLive = repo.countLiveProviderVms;
@@ -140,7 +145,7 @@ export function admitFleetCapacity(
     }
     // `live` includes the row this create inserted.
     if (live > cap) {
-      return yield* Effect.fail(refusal(input.provider, `create: no manager has enough capacity (fleet holds ${live - 1} of ${cap} machines; admission refused before the provider start)`));
+      return yield* Effect.fail(refusal(input.provider, `create: no manager has enough capacity (fleet holds ${live - 1} of ${cap} machines; admission refused before the provider start)`, "fleet_full"));
     }
     return { live, cap };
   });
@@ -165,8 +170,8 @@ export function alertTeamQuotaUsage(input: {
   }, input.now ?? Date.now());
 }
 
-function refusal(provider: ProviderId, message: string): VmProviderOperationError {
-  return new VmProviderOperationError({ provider, operation: "create", cause: new FleetCapacityAdmissionError(message) });
+function refusal(provider: ProviderId, message: string, reason: FleetCapacityAdmissionError["reason"]): VmProviderOperationError {
+  return new VmProviderOperationError({ provider, operation: "create", cause: new FleetCapacityAdmissionError(message, reason) });
 }
 
 function alertOnce(key: string, message: string, fields: Record<string, unknown>, now: number): boolean {

@@ -12,6 +12,10 @@
 # mode=p0-casual    p0, then P0's first tasks the way a terminal person does them: a shell in a new tab, more tabs, a
 #                   split, switching by keyboard, a 2,000-line paste, Find, Settings.
 # mode=p0-hardcore  p0-casual, then a million lines of output, 20 tabs, and quit and reopen (tabs come back).
+# mode=p1           P1 (2024: one chat, chats by hand): p0's install and first window, then a chat beside the terminal,
+#                   an error pasted into it, a second chat started by hand, the first found again (Search Agent Chats),
+#                   and a file attached. Signed out, as a person bringing nothing yet: the walk records what they see.
+# mode=p1-casual    p1, then p0-casual's terminal tasks (the 2024 person still lives in the terminal).
 # mode=p2           p0, then P2 (2025): claude in two worktree tabs, a background tab's ask, the needs-you mark and its
 #                   click (scripts/measure/persona-walk-p2.sh).
 # New terminals open with Ctrl-` (Cmd-T opens a chat); Cmd-Q asks once, so quit presses it twice.
@@ -224,6 +228,42 @@ p0_hardcore() { # P0 task 7, and task 6: quit and reopen
   memory after-reopen "$pid"
 }
 
+seen() { # seen NAME SECONDS START_MS TEXT: done when TEXT is on screen (cua's desktop state), else a STUCK line
+  local name=$1 secs=$2 t=$3 text=$4 f="$out/state-seen-$1.json"
+  for _ in $(seq 1 $(( secs * 2 ))); do
+    cua get_desktop_state '{}' >"$f" 2>&1
+    pending "$f" && { blind=1; note "BLIND $name: cua-driver permissions_pending"; return 1; }
+    grep -qF -- "$text" "$f" && { step "$name" "$t"; return 0; }
+    sleep_s 0.5
+  done
+  note "STUCK $name: \"$text\" not on screen in ${secs} s"; return 1; }
+
+p1() { # P1 tasks 1-4: chats by hand, beside the terminal, no sign-in
+  local t err="bash: persona-p1-tool: command not found"
+  # Task 1: a chat beside the terminal. Cmd-T opens the New page on Agent chat; the person types into it.
+  main_window chat; t=$(now_ms); keys cmd t; sleep_s 1; main_window chat
+  # Task 2: paste an error from the terminal and ask about it (the reply may fail signed out; the question must land).
+  printf 'what does this mean? %s' "$err" | pbcopy
+  keys cmd v && ui press_key '"key":"return"'
+  seen first_chat_question 15 "$t" "persona-p1-tool"; shot 10-first-chat
+  # Task 3: a second chat for another topic, by hand.
+  t=$(now_ms); keys cmd t; sleep_s 1; main_window chat2
+  typeln "persona-p1-second: how do I list open ports on a Mac?"
+  seen second_chat 15 "$t" "persona-p1-second"; shot 11-second-chat
+  # Task 3, the next day: find the first chat again. The person opens the palette and searches their chats.
+  t=$(now_ms); keys cmd shift p; sleep_s 0.7; main_window palette
+  ui type_text '"text":"Search Agent Chats"' && ui press_key '"key":"return"'; sleep_s 0.7; main_window search
+  ui type_text '"text":"persona-p1-tool"' && ui press_key '"key":"return"'; sleep_s 1
+  seen find_first_chat 15 "$t" "persona-p1-tool"; shot 12-find-first-chat
+  # Task 4: attach a file: copy it in Finder's way (a file URL on the pasteboard) and paste into the composer.
+  echo "persona p1 attachment" >"$work/persona-p1-notes.txt"
+  osascript -e "set the clipboard to (POSIX file \"$work/persona-p1-notes.txt\")" >>"$log" 2>&1
+  t=$(now_ms); main_window attach; keys cmd v; sleep_s 1
+  seen attach_file 10 "$t" "persona-p1-notes"; shot 13-attach
+  memory after-p1 "$pid"
+  return 0
+}
+
 finish() {
   memory after-walk "$pid"
   inventory after-walk
@@ -240,6 +280,8 @@ case "$mode" in
   p0) p0 && finish ;;
   p0-casual) p0 && p0_casual; finish ;;
   p0-hardcore) p0 && p0_casual && p0_hardcore; finish ;;
+  p1) p0 && p1; finish ;;
+  p1-casual) p0 && p1 && p0_casual; finish ;;
   p2) . scripts/measure/persona-walk-p2.sh; p0 && p2; finish ;;  # P2 (2025): claude in two worktree tabs, needs-you
   *) echo "unknown mode $mode" >&2; exit 2 ;;
 esac

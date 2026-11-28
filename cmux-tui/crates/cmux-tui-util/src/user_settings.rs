@@ -217,7 +217,9 @@ pub enum UltraConnection {
 }
 
 /// Settings' Tailscale carrier policy (`transport.tailnetCarrier`). The
-/// default is deliberately off until a LocalAPI snapshot is available.
+/// default is off. With direct-only, the tailnet address joins the race only
+/// when tailscaled's LocalAPI reports a direct path, and must win it on round
+/// trip; without Tailscale it adds nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TailnetCarrier {
     /// Do not add Tailscale addresses to races.
@@ -235,10 +237,17 @@ pub fn tailnet_carrier_from_config_text(text: &str) -> TailnetCarrier {
     let Ok(document) = serde_json::from_str::<Value>(&strip_jsonc(text)) else {
         return TailnetCarrier::default();
     };
-    match document.pointer("/transport/tailnetCarrier").and_then(Value::as_str) {
-        Some("direct-only") | Some("direct_only") => TailnetCarrier::DirectOnly,
-        Some("on") => TailnetCarrier::On,
-        _ => TailnetCarrier::Off,
+    let value = document
+        .pointer("/transport/tailnetCarrier")
+        .or_else(|| document.get("transport.tailnetCarrier"));
+    match value {
+        None | Some(Value::Null) => TailnetCarrier::default(),
+        Some(Value::String(text)) if text == "direct-only" || text == "direct_only" => {
+            TailnetCarrier::DirectOnly
+        }
+        Some(Value::String(text)) if text == "on" => TailnetCarrier::On,
+        // "off", and anything not understood.
+        Some(_) => TailnetCarrier::Off,
     }
 }
 
@@ -253,7 +262,7 @@ pub fn tailnet_carrier() -> TailnetCarrier {
         };
     }
     if cfg!(test) {
-        return TailnetCarrier::default();
+        return TailnetCarrier::Off;
     }
     let path = config_path();
     match std::fs::metadata(&path) {

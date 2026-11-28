@@ -1,5 +1,5 @@
-use super::NewWorkspacePlacement as Placement;
 use super::resume_agents_from_config_text as resume_agents;
+use super::NewWorkspacePlacement as Placement;
 
 #[test]
 fn agents_resume_after_restart_unless_the_file_says_no() {
@@ -70,8 +70,8 @@ fn an_agent_switched_off_gets_no_cmux_tools_under_a_yes() {
 
 #[test]
 fn ultra_is_auto_unless_the_file_says_otherwise() {
-    use super::UltraConnection::{Always, Auto, Off};
     use super::ultra_from_config_text as ultra;
+    use super::UltraConnection::{Always, Auto, Off};
     assert_eq!(ultra(""), Auto);
     assert_eq!(ultra("{}"), Auto);
     assert_eq!(ultra(r#"{"remote": {"endSharingOnQuit": true}}"#), Auto);
@@ -90,14 +90,35 @@ fn ultra_is_auto_unless_the_file_says_otherwise() {
 }
 
 #[test]
-fn tailnet_carrier_is_off_unless_direct_only_or_on_is_named() {
-    use super::TailnetCarrier::{DirectOnly, Off, On};
+fn tailnet_carrier_is_off_unless_the_file_names_direct_only_or_on() {
     use super::tailnet_carrier_from_config_text as carrier;
-    assert_eq!(carrier(""), Off);
+    use super::TailnetCarrier::{DirectOnly, Off, On};
+    assert_eq!(carrier(""), Off, "no file: the default");
+    assert_eq!(carrier("{}"), Off, "no key: the default");
     assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"direct-only"}}"#), DirectOnly);
+    assert_eq!(carrier(r#"{"transport.tailnetCarrier":"on"}"#), On, "the flat key");
     assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"on"}}"#), On);
-    assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"bogus"}}"#), Off);
+    assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"off"}}"#), Off);
+    assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"bogus"}}"#), Off, "not understood");
     assert_eq!(carrier("{not json"), Off);
+    assert_eq!(super::tailnet_carrier(), Off, "unit tests never read the developer's file");
+}
+
+#[test]
+fn invalid_tailnet_setting_types_do_not_enable_the_default() {
+    use serde_json::json;
+    for value in [json!(false), json!(true), json!(0), json!(1), json!([]), json!({})] {
+        for doc in [
+            json!({"transport.tailnetCarrier": value}),
+            json!({"transport": {"tailnetCarrier": value}}),
+        ] {
+            assert_eq!(
+                super::tailnet_carrier_from_config_text(&doc.to_string()),
+                super::TailnetCarrier::Off,
+                "{doc}",
+            );
+        }
+    }
 }
 
 #[test]

@@ -37,16 +37,20 @@ LIGHT_NIGHTLY_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostt
                       "pick-nightly-build-runner", "prepare-nightly-variant-primary",
                       "prepare-nightly-variant",
                       "find-nightly-next-recovery")
-# Of those, the ones on our persistent Linux pool. The other two read the routing App key, so they stay on the
-# nightly-only minis.
-CMUX_LINUX_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
-                   "prepare-nightly-variant-primary", "prepare-nightly-variant", "published-build")
+# Of those, the ones on our persistent Linux pool. The other three read the routing App key or the helper lookup
+# token, so they stay on the nightly-only minis.
+CMUX_LINUX_JOBS = ("prepare-nightly-variant-primary", "prepare-nightly-variant")
 CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
 # RFD 0021 route by need: the essential ones take the nightly's reserved label on attempt 1 (no PR job can ask
 # for it, tests/test_ci_nightly_labels_reserved.py) and cmux-linux on a rerun or loop retry.
 NIGHTLY_PINNED_JOBS = ("resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant",
                        "published-build")
 NIGHTLY_PINNED_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}"
+# The pinned ones that hold the CI pool tokens as GH_TOKEN_SPARES (c-bedbdb1917, tests/test_gh_budget_wait.py):
+# no credential reaches cmux-linux, which pull request jobs share, so a rerun or loop retry takes decide's
+# nightly-only route instead (test_nightly_trusted_routing.py).
+NIGHTLY_PINNED_CREDENTIALED_JOBS = ("resolve-nightly-cmux-tui-client", "published-build")
+NIGHTLY_PINNED_CREDENTIALED_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"
 
 # A runs-on term that can put a nightly job on our own fleet: the owned nightly slot or side lane, the cmux-linux
 # pool, or a picker's owned output (pick-nightly-build-runner, pick-nightly-sign-runner).
@@ -106,9 +110,10 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         import yaml
         from test_nightly_trusted_routing import evaluate, parse_expression
         jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text())["jobs"]
-        # The resolver takes cmux-linux; the recovery finder reads the routing App key, so it takes the
-        # nightly-only minis. Never hosted Ubuntu or Blacksmith, except a fork's hosted Ubuntu.
-        for name, want in (("resolve-nightly-cmux-tui-client", "cmux-linux"),
+        # The resolver holds the CI pool tokens as GH_TOKEN_SPARES and the recovery finder reads the routing App
+        # key, so off its first attempt each takes the nightly-only minis. Never hosted Ubuntu or Blacksmith,
+        # except a fork's hosted Ubuntu.
+        for name, want in (("resolve-nightly-cmux-tui-client", "glaeda-nightly-only-m4pro"),
                            ("find-nightly-next-recovery", "glaeda-nightly-only-m4pro")):
             expression = parse_expression(runs_on_text(jobs[name], name).removeprefix("${{").removesuffix("}}"))
             for attempt in (1, 2, 3):
@@ -129,13 +134,15 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text())["jobs"]
         for name in NIGHTLY_PINNED_JOBS:
             expression = parse_expression(runs_on_text(jobs[name], name).removeprefix("${{").removesuffix("}}"))
+            # A job holding the CI pool tokens retries on the nightly-only minis, never the shared cmux-linux pool.
+            retry_pool = "glaeda-nightly-only-m4pro" if name in NIGHTLY_PINNED_CREDENTIALED_JOBS else "cmux-linux"
             for event, attempt, retry, expected in (
                 ("push", 1, "", "cmux-gcp-nightly-x64"),
                 ("schedule", 1, "", "cmux-gcp-nightly-x64"),
                 ("workflow_dispatch", 1, "", "cmux-gcp-nightly-x64"),
-                ("push", 2, "", "cmux-linux"),
-                ("workflow_dispatch", 1, "1", "cmux-linux"),
-                ("workflow_dispatch", 1, "2", "cmux-linux"),
+                ("push", 2, "", retry_pool),
+                ("workflow_dispatch", 1, "1", retry_pool),
+                ("workflow_dispatch", 1, "2", retry_pool),
             ):
                 context = {"github.event_name": event, "github.run_attempt": attempt,
                            "github.repository_owner": "manaflow-ai", "inputs.nightly_next_loop_retry": retry}
@@ -290,7 +297,9 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         for name in LIGHT_NIGHTLY_JOBS:
             with self.subTest(job=name):
                 runs_on = runs_on_text(jobs[name], name)
-                if name in CMUX_LINUX_JOBS:
+                if name in NIGHTLY_PINNED_CREDENTIALED_JOBS:
+                    self.assertEqual(runs_on, NIGHTLY_PINNED_CREDENTIALED_RUNS_ON)
+                elif name in CMUX_LINUX_JOBS:
                     self.assertEqual(runs_on, NIGHTLY_PINNED_RUNS_ON if name in NIGHTLY_PINNED_JOBS else CMUX_LINUX_RUNS_ON)
                 else:
                     expected_tail = "|| vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"
