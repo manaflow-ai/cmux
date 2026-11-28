@@ -45,6 +45,8 @@ jobs:
         with:
           persist-credentials: false
           ref: refs/heads/feat-cmux-next
+          # resolve-newest-published searches the last 50 commits for a published tree.
+          fetch-depth: 60
       - name: Checkout the GitHub API wait
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -68,25 +70,28 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # The client published for this tree (resolve-exact, as gateway-e2e.yml does). feat-cmux-next takes many
-          # pushes an hour, so the head this job checked out is often superseded before its tree publishes (run
-          # 46127178925: "no cmux-tui artifacts run will publish tree"). A superseded head needs no tree: move to
-          # the newest head (prompts, script and client all come from the same commit) and resolve that, up to 3 times.
+          # The client published for this tree (resolve-exact, as gateway-e2e.yml does), else the newest
+          # published tree on feat-cmux-next (resolve-newest-published: the last 50 commits, then the daemon-tested
+          # feat-cmux-next channel, CMUX_TUI_TREE_CHANNEL_LOOK=1, within 24 h).
+          # feat-cmux-next takes many pushes an hour and the artifacts runs coalesce, so the checked-out head,
+          # and often the next few heads too, never publish a tree (runs 46127178925: "no cmux-tui artifacts run
+          # will publish tree"; 45967889665: "not published after 30 min"). Waiting on newer heads does not
+          # converge (2026-11-28: no tree published in 400 commits, the channel 20 h back on 02b3b98c4); the
+          # newest published tree resolves without waiting. Its source commit is
+          # checked out, so the prompts, the script and the client still come from one commit.
           auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          resolved=""
-          for attempt in 1 2 3; do
-            head="$(git rev-parse HEAD)"
-            if resolved="$(CMUX_TUI_TREE_WAIT_SECONDS=900 CMUX_TUI_TREE_PUBLISHER_SHA="$head" scripts/cmux-next/pin-cmux-tui.sh resolve-exact)"; then
-              break
+          head="$(git rev-parse HEAD)"
+          if ! resolved="$(CMUX_TUI_TREE_WAIT_SECONDS=600 CMUX_TUI_TREE_PUBLISHER_SHA="$head" scripts/cmux-next/pin-cmux-tui.sh resolve-exact)"; then
+            echo "tree of ${head:0:12} not published within 10 min; resolving the newest published feat-cmux-next tree"
+            resolved="$(CMUX_TUI_TREE_CHANNEL_LOOK=1 CMUX_TUI_TREE_TIP_WAIT_SECONDS=0 scripts/cmux-next/pin-cmux-tui.sh resolve-newest-published)" ||
+              { echo "error: no published cmux-tui tree in feat-cmux-next's last 50 commits or its channel (24 h)" >&2; exit 1; }
+            source_commit="$(sed -n 's/^source_commit=//p' <<<"$resolved")"
+            [[ "$source_commit" =~ ^[0-9a-f]{40}$ ]]
+            if [[ "$source_commit" != "$head" ]]; then
+              git -c "http.https://github.com/.extraheader=$auth" fetch -q --depth=1 origin "$source_commit"
+              git checkout -q --detach -f "$source_commit"
             fi
-            resolved=""
-            newest="$(git -c "http.https://github.com/.extraheader=$auth" ls-remote origin refs/heads/feat-cmux-next | cut -f1)"
-            [[ "$newest" =~ ^[0-9a-f]{40}$ && "$newest" != "$head" && "$attempt" -lt 3 ]] || break
-            echo "feat-cmux-next moved from $head to $newest; resolving the newest head (attempt $((attempt + 1)) of 3)"
-            git -c "http.https://github.com/.extraheader=$auth" fetch --depth=1 origin "$newest"
-            git checkout --detach -f "$newest"
-          done
-          [[ -n "$resolved" ]] || { echo "error: no feat-cmux-next head published its cmux-tui tree in 3 attempts" >&2; exit 1; }
+          fi
           printf '%s\n' "$resolved"
           client_commit="$(sed -n 's/^commit=//p' <<<"$resolved")"
           [[ "$client_commit" =~ ^[0-9a-f]{40}$ ]]
