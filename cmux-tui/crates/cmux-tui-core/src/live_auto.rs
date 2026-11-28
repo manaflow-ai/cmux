@@ -37,6 +37,20 @@ use crate::Mux;
 use route::{Action, Dispatch, Live, Saved};
 use rules::{FfiClosure, Rules, Status};
 
+/// `live-auto`: the save router (`cmux live auto`) and its `swap.done`
+/// event. Trusted local connections only.
+pub const LIVE_AUTO_CAPABILITY: &str = "live-auto-v1";
+
+/// `live-auto` params: start, stop or read the router that watches a
+/// checkout and sends each save to the layer that swaps it, reporting
+/// `swap.done` on `subscribe`.
+#[derive(Debug, Deserialize)]
+pub struct Params {
+    pub op: String,
+    #[serde(default)]
+    pub worktree: Option<String>,
+}
+
 /// One saved path: its status against HEAD, the path, and (Swift only) its
 /// `-U0` diff lines.
 pub type SavedFile = (Status, String, Vec<(char, String)>);

@@ -118,7 +118,7 @@ fn dispatch_command(
         | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
         Command::ServerStats { include, .. } => cmd_server::server_stats(mux, client, include),
         Command::ProcessCensus => cmd_server::process_census(mux, client),
-        Command::LiveAuto { op, worktree } => {
+        Command::LiveAuto(crate::live_auto::Params { op, worktree }) => {
             if !mux.control_clients.is_unix(client) {
                 anyhow::bail!("live-auto requires a trusted local connection");
             }
