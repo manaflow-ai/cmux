@@ -6318,12 +6318,7 @@ function requireAccessibleUserVm(input: ExistingVmAccessInput) {
 export function requireUserVm(input: ExistingVmAccessInput) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
-    const vm = yield* repo.findUserVm({
-      userId: input.userId,
-      billingTeamId: input.billingTeamId,
-      providerVmId: input.providerVmId,
-      provider: input.provider,
-    });
+    const vm = yield* findCallerVmInAnyOwnedScope(repo, input);
     if (!vm || !vm.providerVmId || isRetiredProviderRow(vm)) {
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     }
@@ -6331,6 +6326,42 @@ export function requireUserVm(input: ExistingVmAccessInput) {
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     }
     return vm;
+  });
+}
+
+/**
+ * A machine id names one machine, but the request's team header (or the
+ * caller's default billing team) is only the scope the client had selected
+ * when it sent the request. A pane restored with a stale or guessed team, a
+ * team switch mid-flight, or a personal machine read while a team is selected
+ * all used to answer 404 vm_not_found for a machine the caller can reach.
+ * Look in the requested scope first, then in every other scope the caller
+ * belongs to (personal, then each team); callerStillOwnsBillingScope still
+ * gates the row that is found.
+ */
+function findCallerVmInAnyOwnedScope(repo: VmRepositoryShape, input: ExistingVmAccessInput) {
+  return Effect.gen(function* () {
+    const requested = input.billingTeamId?.trim() || input.userId;
+    const first = yield* repo.findUserVm({
+      userId: input.userId,
+      billingTeamId: requested,
+      providerVmId: input.providerVmId,
+      provider: input.provider,
+    });
+    if (first) return first;
+    const scopes = [input.userId, ...(input.teamIds ?? [])]
+      .map((scope) => scope.trim())
+      .filter((scope, index, all) => scope.length > 0 && scope !== requested && all.indexOf(scope) === index);
+    for (const scope of scopes) {
+      const vm = yield* repo.findUserVm({
+        userId: input.userId,
+        billingTeamId: scope,
+        providerVmId: input.providerVmId,
+        provider: input.provider,
+      });
+      if (vm) return vm;
+    }
+    return null;
   });
 }
 
