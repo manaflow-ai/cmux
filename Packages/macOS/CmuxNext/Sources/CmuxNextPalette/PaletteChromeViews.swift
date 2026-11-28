@@ -204,8 +204,6 @@ final class PaletteFooterView: NSView {
         label.frame = button.pixelAligned(NSRect(x: 0, y: labelY - bottom, width: labelSize.width, height: labelSize.height))
         keys.frame = button.pixelAligned(NSRect(x: labelSize.width + Metrics.space3, y: keysY - bottom,
                                                 width: keySize.width, height: keySize.height))
-        // The legends center on the footer's middle, not on the snapped frame's (PaletteKeycapsView.legendMidY).
-        keys.legendMidY = keys.convert(NSPoint(x: 0, y: midY), from: self).y
         return button.frame.minX
     }
 }

@@ -22,8 +22,6 @@ enum TabBarPlaygroundSection: Int, CaseIterable {
     case hoverCard
     /// The flush corner's tab row under One Color and Subtle Tone: every corner (Leo 2026-11-12).
     case folderCorners
-    /// How wide a tab grows in a roomy bar: three max widths (Leo 2026-11-24, "why half of the space taken up by blank!?").
-    case tabMaxWidth
 
     var title: String {
         switch self {
@@ -37,7 +35,6 @@ enum TabBarPlaygroundSection: Int, CaseIterable {
         case .statusSpacing: String(localized: "tabs.playground.section.statusSpacing", defaultValue: "Status Spacing", bundle: .localizedModule)
         case .hoverCard: String(localized: "tabs.playground.section.hoverCard", defaultValue: "Hover Card", bundle: .localizedModule)
         case .folderCorners: String(localized: "tabs.playground.section.folderCorners", defaultValue: "Folder Corners", bundle: .localizedModule)
-        case .tabMaxWidth: String(localized: "tabs.playground.section.tabMaxWidth", defaultValue: "Tab Max Width", bundle: .localizedModule)
         }
     }
 
@@ -53,7 +50,6 @@ enum TabBarPlaygroundSection: Int, CaseIterable {
         case .statusSpacing: StatusSpacingPlaygroundVariants().all
         case .hoverCard: HoverCardEntrancePlaygroundVariants().all
         case .folderCorners: FolderCornerPlaygroundVariants().all
-        case .tabMaxWidth: TabMaxWidthPlaygroundVariants().all
         }
     }
 }

@@ -47,8 +47,7 @@ public final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
     /// `endpoint` when nil). `onConnected` runs once the server accepted the credentials.
     public func connect(to endpoint: VNCEndpoint, credentials: VNCCredentials, transport: (any RFBTransport)? = nil,
                         onConnected: (@Sendable () -> Void)? = nil) {
-        let client = VNCClient(endpoint: endpoint, options: VNCSessionOptions(credentials: credentials, rules: RemoteVNCRules.rules),
-                               transport: transport)
+        let client = VNCClient(endpoint: endpoint, options: VNCSessionOptions(credentials: credentials), transport: transport)
         let (previous, generation) = state.withLock { state -> (VNCClient?, Int) in
             defer { state.client = client }
             for pump in state.pumps { pump.cancel() }

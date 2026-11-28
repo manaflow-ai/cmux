@@ -1,4 +1,3 @@
-#if canImport(Darwin)
 public import Foundation
 
 /// Main-actor work queued on the main run loop, to run on a later pass of it.
@@ -65,4 +64,3 @@ public nonisolated struct MainRunLoopBlock: Sendable {
         MainRunLoopBlock(body).perform(mode: mode)
     }
 }
-#endif

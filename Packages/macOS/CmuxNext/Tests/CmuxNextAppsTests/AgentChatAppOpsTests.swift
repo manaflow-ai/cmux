@@ -12,7 +12,7 @@ struct AgentChatAppOpsTests {
         AgentChatSummary(id: "s1", title: "Fix the flaky upload test", harness: "claude", state: "working", unread: false,
                          project: "cmux", cwd: "/Users/me/src/cmux", workspace: "ws_1", machine: nil, step: "Running the tests",
                          error: nil, since: start, updatedAt: start.addingTimeInterval(30), createdAt: start.addingTimeInterval(-600),
-                         pullRequests: ["https://github.com/o/r/pull/7"], branch: "fix/upload"),
+                         pullRequests: ["https://github.com/o/r/pull/7"]),
         AgentChatSummary(id: "s2", title: "Docs pass", harness: nil, state: "idle", unread: true, project: nil, cwd: nil,
                          workspace: nil, machine: "mini", step: nil, error: nil, since: nil, updatedAt: nil, createdAt: nil, pullRequests: []),
     ]
@@ -32,14 +32,13 @@ struct AgentChatAppOpsTests {
             "id": "s1", "title": "Fix the flaky upload test", "harness": "claude", "state": "working", "unread": false,
             "project": "cmux", "cwd": "/Users/me/src/cmux", "workspace": "ws_1", "machine": .null, "step": "Running the tests",
             "error": .null, "since_ms": 1_800_000_000_000, "updated_ms": 1_800_000_030_000, "created_ms": 1_799_999_400_000,
-            "pull_requests": ["https://github.com/o/r/pull/7"], "branch": "fix/upload",
+            "pull_requests": ["https://github.com/o/r/pull/7"],
         ])
         let second = try #require(chats.last)
         #expect(second["project"] == .null, "no folder: the script groups it apart")
         #expect(second["machine"] == "mini")
         #expect(second["unread"] == true)
         #expect(second["since_ms"] == .null)
-        #expect(second["branch"] == .null, "no branch known: null")
     }
 
     @Test func noParamsIsTheSameAsEmptyParams() async throws {

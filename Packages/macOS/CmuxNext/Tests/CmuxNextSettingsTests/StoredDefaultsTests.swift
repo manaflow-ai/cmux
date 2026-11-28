@@ -216,10 +216,6 @@ import Testing
         #expect(try await settings.file.value(at: ChromeStyleSetting.configPath) == .string("flat-sidebar-line"))
     }
 
-    /// The toggle `updates.automatic` replaced (Leo 2026-11-22: "maybe too many settings and bullshit that
-    /// can be consolidated"); files written before still carry it, and it still answers for the choice.
-    static let oldDownloadPath = ["updates", "downloadAutomatically"]
-
     /// cmux-next.json is one file for every build on the Mac (NIGHTLY, RC, each tagged DEV build), and
     /// each build has its own UserDefaults. The pass runs once per file: a build that launches later
     /// on the same file leaves the person's pick of a former default alone. It ran once per build, so
@@ -277,10 +273,9 @@ import Testing
         defer { try? FileManager.default.removeItem(at: home) }
         let off = try await controller(#"{ "updates": { "downloadAutomatically": false } }"#)
         let report = try #require(try await off.forgetStoredDefaults(marker: try marker()))
-        #expect(report.dropped[Self.oldDownloadPath.joined(separator: ".")] == nil)
-        #expect(try await off.file.value(at: Self.oldDownloadPath) == .bool(false))
+        #expect(report.dropped[UpdatesSettings.downloadAutomaticallyPath.joined(separator: ".")] == nil)
+        #expect(try await off.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(false))
         #expect(!off.snapshot.updates.downloadAutomatically)
-        #expect(off.snapshot.updates.automatic == .notify, "the retired toggle's off reads as Notify Only")
     }
 
     /// Writes the record an earlier build's pass left beside the file, with `dropped`.
@@ -300,7 +295,7 @@ import Testing
         await settings.runLaunchMigrations(marker: try marker())
         // On by default since Leo 2026-11-07, so the dropped `true` is the default: Automatic Updates
         // is on and the key stays unset, following the default.
-        #expect(try await settings.file.value(at: Self.oldDownloadPath) == nil)
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == nil)
         #expect(settings.snapshot.updates.downloadAutomatically)
         #expect(try await settings.file.value(at: ["diff", "layout"]) == nil)
         #expect(try await settings.file.value(at: ["workspaces", "newPlacement"]) == .string("bottom"))
@@ -313,11 +308,11 @@ import Testing
         try forgottenRecord(dropped: ["updates.downloadAutomatically": .bool(true)])
 
         #expect(try await settings.restoreWronglyForgottenDefaults() == [])
-        #expect(try await settings.file.value(at: Self.oldDownloadPath) == .bool(false))
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(false))
 
-        try await settings.file.remove(Self.oldDownloadPath)
+        try await settings.file.remove(UpdatesSettings.downloadAutomaticallyPath)
         #expect(try await settings.restoreWronglyForgottenDefaults() == nil, "once per file")
-        #expect(try await settings.file.value(at: Self.oldDownloadPath) == nil)
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == nil)
     }
 
     /// With no record beside the file (the pass never dropped anything), nothing is put back.
@@ -325,7 +320,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: home) }
         let settings = try await controller("{}")
         #expect(try await settings.restoreWronglyForgottenDefaults() == nil)
-        #expect(try await settings.file.value(at: Self.oldDownloadPath) == nil)
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == nil)
     }
 
     /// A null the first builds of this change stored for a default write goes once; a set value stays.

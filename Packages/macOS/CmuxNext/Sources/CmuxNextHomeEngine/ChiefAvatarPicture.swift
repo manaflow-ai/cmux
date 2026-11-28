@@ -1,4 +1,3 @@
-import CmuxNextHomeModel
 import CryptoKit
 public import Foundation
 
@@ -18,16 +17,16 @@ public nonisolated struct ChiefAvatarPicture: Sendable, Equatable {
         self.data = data
     }
 
-    /// The bytes' SHA-256 in lowercase hex, the registry's name for the picture. Stays on CryptoKit:
-    /// the home rules have no hash op.
+    /// The bytes' SHA-256 in lowercase hex, the registry's name for the picture.
     public var sha256: String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
-    /// The file extension for ``mediaType``: Rust's `chief_settings.pictureExtension`.
+    /// The file extension for ``mediaType``.
     var fileExtension: String {
-        (try? HomeRules.call("chief_settings.pictureExtension", MediaRequest(mediaType: mediaType))) ?? "png"
-    }
-
-    private nonisolated struct MediaRequest: Encodable {
-        var mediaType: String
+        switch mediaType {
+        case "image/jpeg": "jpg"
+        case "image/gif": "gif"
+        case "image/webp": "webp"
+        default: "png"
+        }
     }
 }

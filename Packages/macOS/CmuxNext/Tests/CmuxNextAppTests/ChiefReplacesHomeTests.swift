@@ -53,7 +53,7 @@ struct ChiefReplacesHomeTests {
 
     /// Lawrence 2026-11-23 (msg 48175): "get rid of the crown". With no picture, no Chief row draws the icon pack's
     /// `agent.chief` crown: the top row draws Home's house (#53281) and the Chief Activity item, placed in a section,
-    /// draws the icon pack's sparkles glyph.
+    /// draws the sparkles symbol.
     @Test func theChiefRowsDrawNoCrown() throws {
         let activity = LayoutItem(id: LayoutItemID("itm_chief_activity"), ref: .builtIn(.chief))
         let infos = SidebarBridge.itemInfo(for: SidebarLayoutDocument.defaults, registered: { _ in true }, homeUnread: 0,
@@ -64,9 +64,8 @@ struct ChiefReplacesHomeTests {
             #expect(row.icon != .agentChief, "\(name) draws the crown (\(String(describing: row.icon)))")
         }
         #expect(top.icon == .home && top.symbol == "house", "the top row draws \(String(describing: top.icon)) / \(top.symbol), not the house")
-        #expect(chief.icon == .sparkles && chief.symbol == "sparkles",
+        #expect(chief.icon == nil && chief.symbol == "sparkles",
                 "Chief Activity draws \(String(describing: chief.icon)) / \(chief.symbol), not sparkles")
-        #expect(IconPack.bundled.drawing(for: .sparkles) != nil, "the sparkles icon is missing from the icon pack")
     }
 
     /// The Chief's subagents draw as indented rows right under the Chief's top row, before the next item.
@@ -106,8 +105,6 @@ struct ChiefReplacesHomeTests {
     /// a new page opens the way the person left it, and the button is lit while the list shows.
     @Test func chatsShowsAndFoldsTheList() throws {
         _ = NSApplication.shared
-        Motion.reduceMotionOverride = true
-        defer { Motion.reduceMotionOverride = nil }
         let suite = "cmux.tests.chiefReplacesHome.chats.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }

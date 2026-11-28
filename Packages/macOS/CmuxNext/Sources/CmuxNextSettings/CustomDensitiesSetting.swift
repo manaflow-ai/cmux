@@ -19,7 +19,7 @@ public nonisolated struct CustomDensitiesSetting: Sendable {
     /// The custom densities in `root`, in file order. An entry that is not a valid density, or
     /// whose id repeats or names a built-in, is skipped with a diagnostic.
     public func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> [DensityTokens] {
-        let reply = SettingsRust.answer("densities.parse", ["root": root.keeping([Self.configPath])])
+        let reply = SettingsRust.answer("densities.parse", ["root": root])
         for diagnostic in reply["diagnostics"]?.arrayValue ?? [] {
             diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: diagnostic["path"]?.stringValue ?? Self.configPath.joined(separator: "."), message: diagnostic["message"]?.stringValue ?? "invalid density"))
         }

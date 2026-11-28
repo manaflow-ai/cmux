@@ -288,9 +288,7 @@ struct MacScreenAppKitViewTests {
         #expect(pane.model.card == .hubRefused(.notSignedIn, requested: .full))
         let refusedTitle = L.t("macScreen.hub.signedOutTitle", "Not Signed In")
         #expect(await settle { texts(under: pane.view.chrome.card).contains(refusedTitle) })
-        // No Try Again: the pane asks again on its own once signed in; the card offers Sign In.
-        #expect(findView("macScreen.card.retry", under: pane.view.chrome.card) == nil)
-        #expect(findView("macScreen.card.signIn", under: pane.view.chrome.card) != nil)
+        #expect(findView("macScreen.card.retry", under: pane.view.chrome.card) is NSButton)
         pane.view.layoutSubtreeIfNeeded()
         let card = pane.view.chrome.card.frame
         #expect(card.width == MacScreenCardView.width && card.height > 100)

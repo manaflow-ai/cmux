@@ -27,5 +27,5 @@ nonisolated struct PaletteRankerRequired: SuiteTrait, TestTrait, TestScoping {
 
 extension Trait where Self == PaletteRankerRequired {
     /// The suite ranks palette rows and needs the built ranker bundle.
-    nonisolated static var paletteRanker: Self { PaletteRankerRequired(loadError: { PaletteRankerRequired.sharedLoadError }) }
+    static var paletteRanker: Self { PaletteRankerRequired(loadError: { PaletteRankerRequired.sharedLoadError }) }
 }

@@ -121,19 +121,25 @@ import Testing
                     "\(c.testDescription): the first workspace row is \(space(lastPin, a)) pt under the last pin, the row gap is \(gap) pt")
 
             // One optical column (wide Home ink fits by height and starts on the title's column, so its left edge is the
-            // titles'). A text-only pinned row leads as a text-only workspace row does, with no pin (Leo 2026-11-23, ask
-            // c-b5d3e0efb6): its title starts where the workspace row's does.
+            // titles'), one glyph center line (the pin, narrower than the column, centers in Home's glyph square, #42431)
+            // and one title column.
             let homeInk = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home)
+            let inks = try pins.map { list.convert(try #require($0.pinInkFrame, "a pinned row drew no pin"), from: $0) }
             let titleX = list.convert(rowA.title.alignmentRect(forFrame: rowA.title.frame), from: rowA).minX
             let target = SidebarStyle.rowGlyphOpticalSide
             #expect(abs(homeInk.minX - titleX) <= Self.tolerance,
                     "\(c.testDescription): Home's ink starts at \(homeInk.minX), the title's column at \(titleX)")
             #expect(abs(SidebarOpticalGlyph.fittedExtent(homeInk.size) - target) <= Self.tolerance,
                     "\(c.testDescription): Home's ink keeps the shared optical size")
-            for pin in pins {
-                #expect(pin.pinInkFrame == nil, "\(c.testDescription): a pinned row draws a pin")
-                let x = list.convert(pin.title.alignmentRect(forFrame: pin.title.frame), from: pin).minX
-                #expect(abs(x - titleX) <= Self.tolerance, "\(c.testDescription): a pinned row's title at \(x), a workspace row's at \(titleX)")
+            for ink in inks {
+                #expect(abs(ink.midX - (titleX + target / 2)) <= Self.tolerance,
+                        "\(c.testDescription): a pin's center is at \(ink.midX), Home's glyph square's at \(titleX + target / 2)")
+                #expect(ink.minX >= titleX - Self.tolerance && ink.maxX <= homeInk.maxX + Self.tolerance,
+                        "\(c.testDescription): a pin's ink \(ink.minX)...\(ink.maxX) leaves Home's glyph column \(titleX)...\(homeInk.maxX)")
+            }
+            let titles = ([home] + pins).map { list.convert($0.titleFrame, from: $0).minX }
+            for x in titles {
+                #expect(abs(x - titles[0]) <= Self.tolerance, "\(c.testDescription): a top row's title at \(x), Home's at \(titles[0])")
             }
             print("TOPRHYTHM|\(c.testDescription)|pitch \(pitch) gap \(gap) row \(a.height)|fills \(fills.map { "\($0.minY)+\($0.height)" })"
                   + "|rows \(a.minY) \(b.minY)|titleX \(titleX) homeInk \(homeInk.minX)")

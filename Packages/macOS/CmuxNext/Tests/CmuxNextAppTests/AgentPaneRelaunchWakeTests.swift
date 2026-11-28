@@ -133,37 +133,6 @@ struct AgentPaneRelaunchWakeTests {
         #expect((drafts["s-chat\u{0}agent-2"]?["text"] as? String)?.count == long.count, "the draft past the tab's JSON budget was dropped")
     }
 
-    /// A subagent's pane (a tab on its chat's session, opened with a `subagent:` reveal) whose page
-    /// let go, while hidden or at a quit, comes back on that subagent, never as its chat's own pane:
-    /// the reveal was the first page's only, so the wake state keeps the subagent, and it alone is
-    /// not empty.
-    @Test func aSubagentsPaneComesBackOnItsSubagent() async throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appending(path: AgentPaneRelaunchWake.fileName)
-        let records = [
-            "tab_sub": AgentSessionRef(host: Self.thisMac, hostName: "This Mac", session: "s-chat", harness: "claude"),
-        ]
-        let held = AgentPaneWakeState(subagentPane: "agent-1")
-        #expect(!held.isEmpty, "a wake state holding only its pane's subagent counted as empty")
-        // The page's answer (webviews pane/paneSnapshot.ts) decodes into it.
-        let answered = try JSONDecoder().decode(AgentPaneWakeState.self, from: Data(#"{"subagentPane":"agent-1"}"#.utf8))
-        #expect(answered.subagentPane == "agent-1")
-
-        let before = Self.run(file: file, records: records)
-        before.wakeStates[AgentTabKey(machine: Self.thisMac, key: "tab_sub")] = held
-        before.relaunchWake.read = { _, _ in nil }
-        await before.relaunchWake.save(before.relaunchWakeStates())
-
-        let after = Self.run(file: file, records: records)
-        after.wakeStates = Self.scoped(await after.relaunchWake.take(on: Self.work))
-        let page = try #require(after.view(for: "tab_sub"))
-        let handshake = try await Self.ready(page)
-        let wake = try #require(handshake["wake"] as? [String: Any], "the subagent's pane came back with no wake state")
-        #expect(wake["subagentPane"] as? String == "agent-1", "the subagent's pane came back as its chat's")
-    }
-
     /// A restored New Tab page with chips from the last quit never adopts the prewarmed spare (its
     /// handshake is long past): it gets a page of its own whose handshake carries them, and the
     /// state is gone from the store, so no later page brings it back.

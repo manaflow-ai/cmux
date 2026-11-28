@@ -29,9 +29,7 @@ extension SettingDescriptor {
         }
         if path == HostsSetting.configPath { return HostsSetting.accepts(value) }
         if path == ThemeFileSetting.configPath { return value.stringValue.map(ThemeFileSetting.isValidName) ?? false }
-        if ThemeFlourishSetting.pictureListPaths.contains(path) { return ThemeFlourishSetting.acceptsPictures(value) }
-        if path == BackdropSelectionSetting.lightPath || path == BackdropSelectionSetting.darkPath
-            || ThemeFlourishSetting.picturePaths.contains(path) {
+        if path == BackdropSelectionSetting.lightPath || path == BackdropSelectionSetting.darkPath {
             return BackdropSelectionSetting.acceptsPicture(value)
         }
         if path == BackdropSelectionSetting.schedulePath { return BackdropSelectionSetting.acceptsSchedule(value) }

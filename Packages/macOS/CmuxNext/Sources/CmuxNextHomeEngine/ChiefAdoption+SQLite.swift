@@ -29,12 +29,8 @@ nonisolated extension ChiefAdoption {
     }
 
     /// A journal file of one of `databases` (copied inside the database's backup).
-    /// Rust `chief_home.adoption_is_sidecar`; without the rules, not a sidecar (it is cloned as a plain file).
     static func isSidecar(_ name: String, of databases: Set<String>) -> Bool {
-        struct Request: Encodable { let name: String; let databases: [String] }
-        struct Reply: Decodable { let sidecar: Bool }
-        let reply: Reply? = try? ChiefHomeRules().call("adoption_is_sidecar", Request(name: name, databases: databases.sorted()))
-        return reply?.sidecar ?? false
+        ["-wal", "-shm", "-journal"].contains { name.hasSuffix($0) && databases.contains(String(name.dropLast($0.count))) }
     }
 
     /// An APFS clone of one regular file (a byte copy where cloning fails).

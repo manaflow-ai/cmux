@@ -1,4 +1,3 @@
-#if canImport(Network)
 internal import Darwin
 public import Network
 
@@ -25,4 +24,3 @@ public extension NWEndpoint {
         return .unix(path: path)
     }
 }
-#endif

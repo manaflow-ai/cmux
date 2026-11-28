@@ -14,6 +14,7 @@ extension URL {
     @inlinable
     public func blockingResourceValues(forKeys keys: Set<URLResourceKey>, fileID: StaticString = #fileID,
                                        line: UInt = #line) throws -> URLResourceValues {
-        return try blockingCall(.fileIO, fileID: fileID, line: line) { try resourceValues(forKeys: keys) }
+        assertBlockingAllowed(.fileIO, fileID: fileID, line: line)
+        return try resourceValues(forKeys: keys)
     }
 }

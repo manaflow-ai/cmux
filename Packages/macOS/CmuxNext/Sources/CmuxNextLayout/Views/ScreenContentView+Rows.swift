@@ -122,16 +122,18 @@ extension ScreenContentView {
 
     @discardableResult
     func endRowScroll(_ column: ColumnID, timestamp: TimeInterval) -> Bool {
-        guard let scroll = rowScrolls[column] else { return false }
+        guard var scroll = rowScrolls[column] else { return false }
         let effects = scroll.state.reduce(.gestureEnded(time: timestamp, animated: !context.reduceMotion))
+        rowScrolls[column] = scroll
         return applyRow(effects)
     }
 
     /// One mouse wheel notch on the vertical axis.
     @discardableResult
     func discreteRowScroll(_ column: ColumnID, direction: Int) -> Bool {
-        guard let scroll = rowScrolls[column] else { return false }
+        guard var scroll = rowScrolls[column] else { return false }
         let effects = scroll.state.reduce(.wheel(direction: direction, animated: !context.reduceMotion))
+        rowScrolls[column] = scroll
         return applyRow(effects)
     }
 

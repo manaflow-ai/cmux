@@ -19,10 +19,12 @@ extension LayoutModel {
     /// without it, as the drop preview shows (`DropPreviewLayout`, #22287).
     public func splitSizingChanges(splitting pane: PaneID, axis: SplitAxis, removing: PaneID? = nil) -> [SplitRatioChange] {
         guard splitSizing == .even, let layout = screen(containing: pane)?.layout else { return [] }
-        struct Request: Encodable { var layout: ScreenLayout, pane: PaneID, axis: SplitAxis, removing: PaneID?, even = true }
-        let reply: EvenSplitRatios.Reply? = LayoutRules.call("layout_model_split_sizing",
-                                                             Request(layout: layout, pane: pane, axis: axis, removing: removing))
-        return reply?.changes ?? []
+        let tree: SplitNode? = switch layout {
+        case let .splits(root): root
+        case .columns: layout.column(containing: pane)?.tree(containing: pane)
+        }
+        let pruned = removing.flatMap { $0 == pane ? nil : tree?.removing($0) } ?? tree
+        return pruned.map { EvenSplitRatios.changes(splitting: pane, axis: axis, in: $0) } ?? []
     }
 
     /// The ratio intents a tab drop that splits `pane` at `zone` sends once its move landed: the

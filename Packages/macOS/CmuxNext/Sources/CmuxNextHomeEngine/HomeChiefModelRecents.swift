@@ -1,5 +1,4 @@
 public import Foundation
-import CmuxNextHomeModel
 
 /// The models the person last picked for a Chief, per harness, newest first: the Model popup's
 /// Recent section. The app passes its `UserDefaults`; without one the list lasts as long as the
@@ -25,16 +24,9 @@ public final class HomeChiefModelRecents {
     /// Puts `model` first in `harness`'s list, once, and keeps the list short.
     public func remember(_ model: String, harness: String) {
         var all = stored()
-        let list = all[harness] ?? []
-        all[harness] = (try? HomeRules.call("chief_settings.recentsRemember", RememberRequest(model: model, list: list)))
-            ?? Array(([model] + list.filter { $0 != model }).prefix(Self.limit))
+        all[harness] = Array(([model] + (all[harness] ?? []).filter { $0 != model }).prefix(Self.limit))
         memory = all
         defaults?.set(all, forKey: Self.key)
-    }
-
-    private nonisolated struct RememberRequest: Encodable {
-        var model: String
-        var list: [String]
     }
 
     private func stored() -> [String: [String]] {

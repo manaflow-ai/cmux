@@ -5,11 +5,16 @@ import Foundation
 /// 1 s). The quit sends it after the last window record save, so a relaunch on the same daemon
 /// draws its first frame from that save (`LaunchSnapshot`) and nothing moves when restore adopts
 /// the live record.
-extension FlushLaunchSnapshotRequest {
+public struct FlushLaunchSnapshotRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         /// True once the file holds the session's state as of the request.
         public var flushed: Bool?
     }
+
+    public static let command = "flush-launch-snapshot"
+    public static var requiredCapability: String? { DaemonCapability.launchSnapshotFlush.rawValue }
+
+    public init() {}
 }
 
 extension DaemonConnection {

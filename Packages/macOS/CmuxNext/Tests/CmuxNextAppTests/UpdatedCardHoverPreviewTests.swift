@@ -109,30 +109,6 @@ struct UpdatedCardHoverPreviewTests {
         host.configure(nil)
     }
 
-    /// Leo 2026-11-27: "this thing is just too weird there's a glass back that shouldnt be there". With the
-    /// changes beside the sidebar (shipped) the resting card draws no frost of its own: it sits on the sidebar.
-    @Test func theCardBesideTheSidebarHasNoFrostBehindIt() throws {
-        TunableStore.shared.activate(file: nil)
-        TunableStore.shared.register([UpdatedCardPreviewMode.tunable.descriptor])
-        let key = UpdatedCardPreviewMode.tunable.key, before = TunableStore.shared.override(key)
-        _ = TunableStore.shared.set(key, UpdatedCardPreviewMode.beside.tunableValue)
-        defer { _ = TunableStore.shared.set(key, before) }
-        let surfaces = FakeSurfaces()
-        let model = SidebarModel(sections: [])
-        model.updatedCard = Self.card
-        let sidebar = SidebarView(model: model, design: DesignSettings())
-        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
-        sidebar.updateSurfaces = surfaces
-        let host = sidebar.updatedCardView
-        host.configure(Self.card)
-        try #require(surfaces.islands.first).report(height: 48, overlay: 0)
-        sidebar.layoutSubtreeIfNeeded()
-        host.layoutSubtreeIfNeeded()
-        #expect(host.drawn && !host.isHidden, "the card shows")
-        #expect(host.glass.isHidden, "no glass backing under the resting card")
-        host.configure(nil)
-    }
-
     /// Leo 2026-11-08: "it turns from glass when it's unhovered into opaque when it does get hovered"
     /// and "the cursor propagates to, like, the actual workspace stuff on the sidebar". The host draws
     /// the card's glass behind the page, the card's size and its open preview's on the card's bottom
@@ -159,13 +135,11 @@ struct UpdatedCardHoverPreviewTests {
         island.report(height: 48, overlay: 0)
         sidebar.layoutSubtreeIfNeeded()
         host.layoutSubtreeIfNeeded()
-        // Leo 2026-11-27 (ask-d2dd4431bf): "there's a glass back that shouldnt be there". At rest the card
-        // has its own room and the page's material is its one glass: no native frost under it.
-        #expect(host.glass.isHidden, "the resting card stood on a second glass panel")
-        // The card's own rect is its height on its resting (bottom) edge. A slot bottom on a half point
-        // rounds the view's 48 out to 49 (see the test above), and the card stays its 48.
+        #expect(!host.glass.isHidden, "the resting card has its glass too: nothing swaps when the preview opens")
+        // The glass is the card's height on its resting (bottom) edge. A slot bottom on a half point
+        // rounds the view's 48 out to 49 (see the test above), and the glass stays the card's 48.
         let restingCard = NSRect(x: 0, y: host.bounds.height - host.height, width: host.bounds.width, height: host.height)
-        #expect(host.glassFrame == restingCard, "the resting card is on its bottom edge")
+        #expect(host.glass.frame == restingCard, "the resting glass is the card on its bottom edge")
         #expect(host.glass.superview === host && host.subviews.first === host.glass, "the glass is under the page")
 
         // The room first (the page waits for it), then the preview opens to 200 of rows.
@@ -180,7 +154,6 @@ struct UpdatedCardHoverPreviewTests {
         island.report(height: 48, overlay: 248, preview: 200)
         host.layoutSubtreeIfNeeded()
         #expect(host.glassFrame == host.bounds, "the glass is the card and its open preview")
-        #expect(!host.glass.isHidden, "the open preview over the rows lost its frost")
         #expect(host.covers(windowPoint: roomTop), "over the open preview the rows under it light nothing")
         #expect(sidebar.list.hoverOccluded?(roomTop) == true, "the list asks the card before it lights a row")
         let below = sidebar.convert(NSPoint(x: host.frame.midX, y: host.frame.maxY + 40), to: nil)
@@ -191,14 +164,6 @@ struct UpdatedCardHoverPreviewTests {
         host.layoutSubtreeIfNeeded()
         #expect(host.glassFrame.height == 48)
         #expect(!host.covers(windowPoint: roomTop))
-        #expect(host.glass.isHidden, "the closed card kept a frost at rest")
-        // Held over the rows (a drag), the card frosts them again; back at its rest it does not.
-        host.standsOffRest = true
-        host.layoutSubtreeIfNeeded()
-        #expect(!host.glass.isHidden, "a card held over the rows lost its frost")
-        host.standsOffRest = false
-        host.layoutSubtreeIfNeeded()
-        #expect(host.glass.isHidden)
         host.configure(nil)
         #expect(!host.covers(windowPoint: roomTop), "a dismissed card covers nothing")
     }

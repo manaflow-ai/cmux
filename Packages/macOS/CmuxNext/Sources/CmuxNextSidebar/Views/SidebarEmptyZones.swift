@@ -121,11 +121,9 @@ import AppKit
     }
 
     /// The document takes the drag into section `id` (a section the table lacks takes it, as its slot does). A
-    /// section that refuses the drag opens no zone that would take nothing. Pinned opens only when the table says it
-    /// takes the drag: a drag never pins (`drag_begin`'s pin tier), so no "Drop here to pin" row opens for it.
+    /// section that refuses the drag opens no zone that would take nothing.
     private static func takes(_ drag: SidebarListDrag, _ id: String) -> Bool {
-        if id == SidebarDocStore.pinnedSection, drag.docItems != nil { return drag.docAcceptance[id]?.into == true }
-        return drag.docItems == nil || drag.docAcceptance.isEmpty || (drag.docAcceptance[id]?.into ?? true)
+        drag.docItems == nil || drag.docAcceptance.isEmpty || (drag.docAcceptance[id]?.into ?? true)
     }
 
     private static func isWorkspaces(_ payload: DragPayload) -> Bool {

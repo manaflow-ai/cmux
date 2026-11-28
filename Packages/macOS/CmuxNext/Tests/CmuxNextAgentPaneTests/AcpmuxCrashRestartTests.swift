@@ -5,8 +5,7 @@ import Testing
 /// cx-6bgzj at the pane's reconnect boundary (``AcpmuxHost/reconnectHandshake(sessionId:)``):
 /// acpmux killed with kill -9 leaves its `daemon.pid` naming a dead process, and an open chat's
 /// reconnect starts a new daemon (which adopts the running agents). A daemon that was shut down
-/// removed its pid file; a reconnect starts that one too (a relaunch after an update finds it so),
-/// unless a restart this launch is carrying out is about to.
+/// removed its pid file; then a reconnect still never starts one.
 @Suite(.serialized)
 struct AcpmuxCrashRestartTests {
     /// A short temp root (unix socket paths stay under the macOS limit) with a stand-in `acpmux`
@@ -55,29 +54,19 @@ struct AcpmuxCrashRestartTests {
         #expect(fixture.launched, "a reconnect after kill -9 did not start acpmux; the chat stays on 'acpmux is not running'")
     }
 
-    /// After an update the relaunched app finds its daemon shut down cleanly (no pid file, so not a
-    /// crash) and holds no mark of the stop: every restored chat's reconnect ended as "The agent
-    /// service stopped." with a Retry. The reconnect starts the daemon itself, and never says so.
-    @Test func aReconnectAfterAShutdownStartsTheBundledDaemon() async throws {
+    @Test func aReconnectAfterAShutdownStillStartsNothing() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let host = AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: fixture.environment)
 
-        let error = await #expect(throws: AgentPaneHostError.self) { _ = try await host.reconnectHandshake(sessionId: "s") }
-        #expect(fixture.launched, "a reconnect left a cleanly stopped daemon down; the chat waits for a Retry")
-        #expect(error != .daemonStopped)
-        #expect(error?.isTransient == true, "the reconnect that starts the daemon showed a line: \(String(describing: error))")
+        await #expect(throws: AgentPaneHostError.daemonStopped) { _ = try await host.reconnectHandshake(sessionId: "s") }
+        #expect(!fixture.launched, "a reconnect started a daemon that was shut down")
     }
 
-    /// No failure of the app's own stopped daemon asks the person to retry: the page's retries
-    /// start it (above), so the handshake's failure is a reconnecting one.
-    @Test func aStoppedDaemonIsNeverSaidAtOnce() {
-        #expect(AgentPaneHostError.daemonStopped.isTransient)
-    }
-
-    /// A person's restart from another pane stops the daemon, and the reconnects of the other
-    /// chats start nothing while that restart's own start runs; one that never came is started by
-    /// the next reconnect after its window.
+    /// cmux#48605: the page's own retries are reconnects, which never start a stopped daemon, so a
+    /// stopped daemon is said at once (no `details.reconnecting`; AcpmuxRefusedRestartTests) and its
+    /// line offers Retry. A person's restart from another pane stops it too, and the reconnects of the
+    /// other chats stay quiet while that restart's start runs; one that never came is said after it.
     @Test func aReconnectAfterAPersonsRestartStaysQuietOnlyForItsWindow() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -179,9 +168,8 @@ struct AcpmuxCrashRestartTests {
         let asks = Asks()
         let host = AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: fixture.environment, startOwner: { await asks.ask(answer: true) })
 
-        await #expect(throws: (any Error).self) { _ = try await host.reconnectHandshake(sessionId: "s") }
+        await #expect(throws: AgentPaneHostError.daemonStopped) { _ = try await host.reconnectHandshake(sessionId: "s") }
         #expect(await asks.count == 0)
-        #expect(fixture.launched)
     }
 
     actor Asks {

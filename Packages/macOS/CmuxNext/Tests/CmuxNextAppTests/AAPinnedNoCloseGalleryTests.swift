@@ -7,8 +7,8 @@ import CmuxTheme
 import Foundation
 import Testing
 
-/// Hover crops for Leo's 2026-11-23 ask c-b5d3e0efb6 (a pinned row and tab keep their x, as unpinned ones do): a
-/// hovered pinned row ("cmux Performance Lead" in the Pinned block), a hovered unpinned
+/// Hover crops for Lawrence msg 19392 ("hover on pinned tab should not have close button, should only be able to
+/// close in right click"): a hovered pinned row ("cmux Performance Lead" in the Pinned block), a hovered unpinned
 /// workspace row, a hovered pinned tab and a hovered unpinned tab, dark and light. Written under
 /// `pinned-noclose-gallery/` with `all.png` (dark on top, light below, the four crops side by side), bundled to
 /// `pinned-noclose-gallery.tar` for `cmux-ci run --artifact`, so a before and an after run compare.
@@ -57,7 +57,7 @@ import Testing
         try theme(root, harness.window, dark: dark)
         harness.settle()
         let pinned = try harness.item(SidebarHomePinnedDragHarness.pins[0].id)
-        PinnedLikeRegularTests.hover(pinned, in: harness)
+        PinnedNoHoverCloseTests.hover(pinned, in: harness)
         let pinnedCrop = try crop(root, root.convert(pinned.bounds, from: pinned))
         PointerHover.setDebugPointer(nil, in: harness.window)
         let id = SidebarHomePinnedDragHarness.loose[0]
@@ -72,8 +72,8 @@ import Testing
     /// A hovered pinned tab and a hovered unpinned tab, in that order.
     static func tabCrops(dark: Bool) throws -> [CGImage] {
         var crops: [CGImage] = []
-        for id in [PinnedLikeRegularTests.StripHarness.pinned, PinnedLikeRegularTests.StripHarness.loose] {
-            let harness = PinnedLikeRegularTests.StripHarness()
+        for id in [PinnedNoHoverCloseTests.StripHarness.pinned, PinnedNoHoverCloseTests.StripHarness.loose] {
+            let harness = PinnedNoHoverCloseTests.StripHarness()
             defer { harness.window.closeAfterTest() }
             let root = NSView(frame: harness.window.contentView?.bounds ?? .zero)
             harness.window.contentView = root

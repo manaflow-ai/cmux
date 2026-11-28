@@ -3,31 +3,13 @@ import CmuxNextDesign
 import CmuxNextCompat
 
 /// The result list: an `NSTableView` with reused row views. Only visible
-/// rows exist. New results update the rows on screen in place without
-/// animation (no flicker, ``setSections(_:)``); selection and hover update
-/// just the affected row views.
+/// rows exist. Results reload in place without animation (no flicker);
+/// selection and hover update just the affected row views.
 final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableViewDelegate {
     enum DisplayRow {
         case header(String)
         case item(PaletteRow)
-
-        var isHeader: Bool {
-            if case .header = self { return true }
-            return false
-        }
-
-        /// What the row shows: its result's id, or its header's title.
-        var key: String {
-            switch self {
-            case .header(let title): "header:" + title
-            case .item(let row): row.id
-            }
-        }
     }
-
-    /// Cells the table asked the data source for (`tableView(_:viewFor:row:)`): a row it made or took again.
-    /// An update in place asks for none for the rows it keeps.
-    private(set) var cellsAsked = 0
 
     var onHover: ((String?) -> Void)?
     /// The pointer moved over the list (hover after a real mouse move, not a scroll).
@@ -41,9 +23,6 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
     private var middlePressID: String?
     private var rows: [DisplayRow] = []
     private var rowIndexByID: [String: Int] = [:]
-    /// The header and result row heights the table holds (``rowHeights``): rows kept in place keep theirs, so
-    /// results set under other heights (a settings change no text size or window size follows) reload.
-    private var heldHeights: [CGFloat] = []
     private var selectedID: String?
     private var hoveredID: String?
     /// No rubber band while every result fits.
@@ -106,69 +85,13 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
                 rows.append(.item(row))
             }
         }
-        let shown = self.rows, heights = rowHeights
         self.rows = rows
         rowIndexByID = index
-        if heights != heldHeights || !updateInPlace(from: shown) { table.reloadData() }
-        heldHeights = heights
+        table.reloadData()
         syncTableSelection()
         // Size the table now, not at the next display, so the rubber band
         // matches the new results before the next scroll event.
         table.tile()
-    }
-
-    /// Shows `rows` in the rows the table has, when they keep the shape of `shown` (a header where a header was, a
-    /// result where a result was, so every height stays): each row view and cell the table holds is configured again
-    /// with its new row, as a reused one is, and rows past the old end are inserted or removed. False when the shape
-    /// changed (the caller reloads). A reload took every row out of the table and made each one again, with its first
-    /// layout: every palette open (its first frame, then the full list after it) paid that for rows it already showed.
-    private func updateInPlace(from shown: [DisplayRow]) -> Bool {
-        let kept = min(shown.count, rows.count)
-        guard kept > 0, table.numberOfRows == shown.count,
-              (0..<kept).allSatisfy({ shown[$0].isHeader == rows[$0].isHeader }) else { return false }
-        if rows.count > shown.count {
-            table.insertRows(at: IndexSet(integersIn: shown.count..<rows.count), withAnimation: [])
-        } else if rows.count < shown.count {
-            table.removeRows(at: IndexSet(integersIn: rows.count..<shown.count), withAnimation: [])
-        }
-        var stale = IndexSet()
-        table.enumerateAvailableRowViews { rowView, row in
-            // Rows past the kept ones were just inserted (made for their rows); -1 is a row view leaving.
-            guard (0..<kept).contains(row) else { return }
-            if let rowView = rowView as? PaletteTableRowView {
-                // Another row in this place: a hover fade asked for the old one is dropped, as on reuse.
-                if shown[row].key != rows[row].key { rowView.dropPendingFade() }
-                style(rowView, row: row)
-            }
-            if !fill(table.view(atColumn: 0, row: row, makeIfNecessary: false), row: row) { stale.insert(row) }
-        }
-        // A cell of another kind than its row's (none expected while the shape holds) is asked for again.
-        if !stale.isEmpty { table.reloadData(forRowIndexes: stale, columnIndexes: IndexSet(integer: 0)) }
-        return true
-    }
-
-    /// The row view's state for row `row` (selected, hovered), as the table's delegate gives a new one.
-    private func style(_ view: PaletteTableRowView, row: Int) {
-        if case .item(let item) = rows[row] {
-            view.isPaletteSelected = item.id == selectedID
-            view.isHovered = item.id == hoveredID
-        } else {
-            view.isPaletteSelected = false
-            view.isHovered = false
-        }
-    }
-
-    /// Configures `cell` for row `row`; false when it is not a cell of that row's kind.
-    private func fill(_ cell: NSView?, row: Int) -> Bool {
-        switch rows[row] {
-        case .header(let title):
-            guard let cell = cell as? PaletteSectionHeaderCell else { return false }
-            cell.title = title
-        case .item(let item):
-            guard let cell = cell as? PaletteRowCell else { return false }
-            cell.configure(item, isSelected: item.id == selectedID)
-        }
-        return true
     }
 
     func setSelection(_ id: String?) {
@@ -207,13 +130,11 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
     /// Configures every row again, in the current text size (#26606).
     func reloadRows() {
         table.reloadData()
-        heldHeights = rowHeights
         syncTableSelection()
     }
 
     func relayoutRows() {
         table.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<rows.count))
-        heldHeights = rowHeights
     }
 
     private func refresh(_ id: String?, hoverAnimated: Bool = true) {
@@ -255,9 +176,6 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
 
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
 
-    /// A header's height and a result row's (``tableView(_:heightOfRow:)``).
-    private var rowHeights: [CGFloat] { [PaletteLayout.headerRowHeight, PaletteLayout.rowHeight] }
-
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         if case .header = rows[row] { return PaletteLayout.headerRowHeight }
         return PaletteLayout.rowHeight
@@ -272,22 +190,29 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
             view.identifier = identifier
             return view
         }()
-        style(view, row: row)
+        if case .item(let item) = rows[row] {
+            view.isPaletteSelected = item.id == selectedID
+            view.isHovered = item.id == hoveredID
+        } else {
+            view.isPaletteSelected = false
+            view.isHovered = false
+        }
         return view
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        cellsAsked += 1
-        let cell: NSView = switch rows[row] {
-        case .header:
-            tableView.makeView(withIdentifier: PaletteSectionHeaderCell.identifier, owner: nil) as? PaletteSectionHeaderCell
+        switch rows[row] {
+        case .header(let title):
+            let cell = tableView.makeView(withIdentifier: PaletteSectionHeaderCell.identifier, owner: nil) as? PaletteSectionHeaderCell
                 ?? PaletteSectionHeaderCell()
-        case .item:
-            tableView.makeView(withIdentifier: PaletteRowCell.identifier, owner: nil) as? PaletteRowCell
+            cell.title = title
+            return cell
+        case .item(let item):
+            let cell = tableView.makeView(withIdentifier: PaletteRowCell.identifier, owner: nil) as? PaletteRowCell
                 ?? PaletteRowCell(frame: .zero)
+            cell.configure(item, isSelected: item.id == selectedID)
+            return cell
         }
-        _ = fill(cell, row: row)
-        return cell
     }
 }
 

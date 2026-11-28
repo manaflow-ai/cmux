@@ -279,7 +279,6 @@ extension IconName {
     nonisolated public static let sitePermissionWindowmanagement = IconName("site.permission.windowmanagement")
     nonisolated public static let sourcesConnected = IconName("sources.connected")
     nonisolated public static let space = IconName("space")
-    nonisolated public static let sparkles = IconName("sparkles")
     nonisolated public static let stateChanged = IconName("state.changed")
     nonisolated public static let stateIdle = IconName("state.idle")
     nonisolated public static let stateOff = IconName("state.off")

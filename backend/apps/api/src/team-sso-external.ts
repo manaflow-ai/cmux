@@ -94,9 +94,7 @@ export const ssoExternal = async (deps: SsoExternalDeps, principal: Principal, f
   if (frame.op === "sso.connection.set_secret") {
     const d = decodeParams<{ connection: string; client_secret: string }>(SsoConnectionSetSecret, frame.params)
     if (!d.ok) return fail(d.code, d.message)
-    const target = deps.state.sso_connections?.[d.value.connection]
-    if (!target) return fail("selector.not_found", "connection not found")
-    if (target.kind === "saml") return fail("policy.invalid", "a SAML connection has no client secret; it verifies the identity provider's signing certificate")
+    if (!deps.state.sso_connections?.[d.value.connection]) return fail("selector.not_found", "connection not found")
     if (!deps.kek) return fail("sso.not_configured", "SSO secrets need INTEGRATIONS_KEK on this deployment")
     ensureSecretTable(deps.sql)
     const prev = deps.sql.exec<{ generation: number }>(`SELECT generation FROM sso_secrets WHERE connection = ?`, d.value.connection).toArray()[0]
@@ -124,13 +122,9 @@ export const ssoExternal = async (deps: SsoExternalDeps, principal: Principal, f
   // Checked before the fetch, so a refusal never enters the ledger under a key that fixing it would not change.
   const problem = activationProblem(deps.state, c)
   if (problem) return fail("policy.invalid", problem)
-  // SAML has nothing to discover: the IdP's sign-on URL and certificate were given at creation.
-  let endpoints: Awaited<ReturnType<typeof discovery>> | Record<string, never> = {}
+  let endpoints: Awaited<ReturnType<typeof discovery>>
   try {
-    if (c.kind === "oidc") {
-      if (!c.oidc) return fail("policy.invalid", "the connection has no OIDC settings")
-      endpoints = await discovery(deps.http, c.oidc.issuer)
-    }
+    endpoints = await discovery(deps.http, c.oidc.issuer)
   } catch (e) {
     return fail("sso.discovery_failed", String(e instanceof Error ? e.message : e), true)
   }

@@ -44,11 +44,6 @@ public final class BrowserVideoDecoder: @unchecked Sendable {
     public var now: @Sendable () -> UInt64 = { 0 }
     /// After each shown frame, on the decode queue.
     public var shown: @Sendable (Shown) -> Void = { _ in }
-    #if DEBUG
-    /// DEBUG only: each decoded picture right after the layer got it, on the decode queue (the
-    /// screen-stream eval's marker probe, `ScreenSharingRdLinkRoot`). Set it before frames arrive.
-    public var debugPicture: (@Sendable (CVPixelBuffer) -> Void)?
-    #endif
 
     public init(layer: AVSampleBufferDisplayLayer = AVSampleBufferDisplayLayer()) {
         self.layer = layer
@@ -173,9 +168,6 @@ public final class BrowserVideoDecoder: @unchecked Sendable {
         } else {
             lastPixels = pixels
             enqueue(pixels)
-            #if DEBUG
-            debugPicture?(pixels)
-            #endif
         }
         let done = now()
         let decodeMicros = UInt32(clamping: done >= started ? done - started : 0)

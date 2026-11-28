@@ -19,6 +19,8 @@ enum SidebarStatesPlaygroundState: String, CaseIterable, Sendable {
     case error
     /// A program asks a question through OSC 7501 (the detailed needs-input mark).
     case needsInput
+    /// A runaway agent chat: the usage warning triangle.
+    case usageWarning
     /// A pinned workspace: its row in the Pinned band (`SidebarItemRowView`).
     case pinned
     /// The active workspace: the selection fill.
@@ -69,6 +71,8 @@ enum SidebarStatesPlaygroundState: String, CaseIterable, Sendable {
         case .error: String(localized: "sidebar.statesPlayground.state.error", defaultValue: "Error (red warning)", bundle: .localizedModule)
         case .needsInput:
             String(localized: "sidebar.statesPlayground.state.needsInput", defaultValue: "Needs input (question)", bundle: .localizedModule)
+        case .usageWarning:
+            String(localized: "sidebar.statesPlayground.state.usageWarning", defaultValue: "Usage warning", bundle: .localizedModule)
         case .pinned: String(localized: "sidebar.statesPlayground.state.pinned", defaultValue: "Pinned", bundle: .localizedModule)
         case .selected: String(localized: "sidebar.statesPlayground.state.selected", defaultValue: "Selected", bundle: .localizedModule)
         case .hovered: String(localized: "sidebar.statesPlayground.state.hovered", defaultValue: "Hovered", bundle: .localizedModule)

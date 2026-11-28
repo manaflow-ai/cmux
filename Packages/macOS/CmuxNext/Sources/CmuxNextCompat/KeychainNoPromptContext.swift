@@ -1,4 +1,3 @@
-#if canImport(Security)
 internal import LocalAuthentication
 internal import Security
 
@@ -18,4 +17,3 @@ public struct KeychainNoPromptContext {
         return query
     }
 }
-#endif

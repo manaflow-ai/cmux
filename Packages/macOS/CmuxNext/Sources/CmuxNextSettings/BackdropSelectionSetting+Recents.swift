@@ -16,13 +16,13 @@ extension BackdropSelectionSetting {
 
     /// The valid recents in `root`, newest first.
     public static func recents(in root: JSONValue) -> [String] {
-        SettingsRust.answer("backdrop.recents", ["root": root.keeping([recentsPath])])["recents"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        SettingsRust.answer("backdrop.recents", ["root": root])["recents"]?.arrayValue?.compactMap(\.stringValue) ?? []
     }
 
     /// The background Switch to Previous Background goes to: the newest recent that is not the
     /// current one (cmux-config previous_background).
     public static func previous(in root: JSONValue) -> String? {
-        SettingsRust.answer("backdrop.previous", ["root": root.keeping([recentsPath, configPath])])["value"]?.stringValue
+        SettingsRust.answer("backdrop.previous", ["root": root])["value"]?.stringValue
     }
 }
 

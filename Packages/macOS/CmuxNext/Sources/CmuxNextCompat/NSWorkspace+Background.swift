@@ -1,4 +1,3 @@
-#if canImport(AppKit)
 public import AppKit
 
 /// Opening a URL or revealing a file without the main thread waiting (cx-050n).
@@ -45,4 +44,3 @@ extension NSWorkspace {
         }
     }
 }
-#endif

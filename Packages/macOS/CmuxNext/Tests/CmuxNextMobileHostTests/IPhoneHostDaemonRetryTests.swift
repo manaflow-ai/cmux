@@ -155,54 +155,6 @@ import Testing
         await Self.until { socket.asks == 2 }
     }
 
-    /// A start that fails past the socket (here this Mac's identity read) for a reason that may pass
-    /// tries again on its own backoff, and goes on once the read works. Before, it waited for an
-    /// account or toggle change; 2026-11-25 a relaunched NIGHTLY served no phone from 14:06 to 14:51Z.
-    @Test func aFailedStartIsTriedAgainOnTheBackoff() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let socket = Socket(failures: 0), reads = FailingReads(failures: 3), clock = ManualClock(), toggle = Toggle()
-        let host = IPhoneHostService(loginKeychain: LoginKeychain(), pairedStore: MobileHostPairedStore(seal: MobileHostMemoryPairingSeal()))
-        host.identityRetryClock = clock
-        host.dependencies = .init(executable: URL(fileURLWithPath: "/nonexistent/cmux-mobile-host"),
-                                  baseURL: URL(string: "https://mobile.invalid")!, stackProjectID: "test", buildSpace: .nightly,
-                                  stateDirectory: directory, accessToken: { _ in throw CancellationError() },
-                                  daemonSocket: { try socket.ask() }, acpmux: { nil }, fileRoots: { [] },
-                                  computerName: { "Mac" }, macIdentity: { _ in try reads.read() })
-        defer { host.stop() }
-        host.follow(allowed: { toggle.on })
-        host.accountChanged(Self.account)
-        for (attempt, base) in [1.0, 2, 4].enumerated() {
-            try await clock.waitForSleeper()
-            #expect(reads.reads == attempt + 1)
-            let wait = try #require(clock.sleeperDeadlines.first).offset - clock.now.offset
-            #expect(wait >= .seconds(base * 0.8) && wait <= .seconds(base * 1.2))
-            clock.advance(by: wait)
-        }
-        // The fourth read gets past the failure (it stops the start there, as ``Reads`` does).
-        await Self.until { reads.reads == 4 }
-        for _ in 0..<50 { await Task.yield() }
-        #expect(reads.reads == 4)
-        #expect(clock.sleeperCount == 0, "a cancelled start schedules no retry")
-    }
-
-    /// Identity reads whose first `failures` fail with an error that may pass; later ones cancel the
-    /// start (as ``Reads`` does), so this suite starts no hostd.
-    nonisolated final class FailingReads: Sendable {
-        struct Transient: Error {}
-        private let state = Mutex<(reads: Int, failures: Int)>((0, 0))
-        init(failures: Int) { state.withLock { $0.failures = failures } }
-        var reads: Int { state.withLock { $0.reads } }
-        func read() throws -> MobileHostMacIdentity {
-            let fail = state.withLock { state in
-                state.reads += 1
-                return state.reads <= state.failures
-            }
-            if fail { throw Transient() }
-            throw CancellationError()
-        }
-    }
-
     /// The first socket ask waits on the clock and then finds the endpoint blocked; later asks find it.
     nonisolated final class SlowBlockedSocket: Sendable {
         private let count = Mutex(0)

@@ -70,7 +70,6 @@ public enum CloudStrings {
     public static var notConnected: String { String(localized: "cloud.failed.notConnected", defaultValue: "The Cloud machine is not connected yet. Wait for it to connect; if it is paused, run `cmux cloud resume-machine --target machine:<id>`.", table: "Cloud", bundle: .localizedModule) }
     public static var commandRequired: String { String(localized: "cloud.failed.commandRequired", defaultValue: "Pass the command to run on the Cloud machine with --command \"<command>\".", table: "Cloud", bundle: .localizedModule) }
     /// A creation's Retry when this Mac's install now bills another team than its first send (cmuxterm-hq#4709).
-    // retry-prompt-ok: creating a Cloud machine is billed to a team
     nonisolated public static var createRetryOtherTeam: String { String(localized: "cloud.failed.createRetryOtherTeam", defaultValue: "This machine was requested in another team. Switch back to that team to retry it, or dismiss it and create a new one.", table: "Cloud", bundle: .localizedModule) }
     public static var alreadySignedIn: String { String(localized: "cloud.failed.alreadySignedIn", defaultValue: "Already signed in. To switch accounts, run `cmux cloud sign-out`, then sign in again.", table: "Cloud", bundle: .localizedModule) }
     /// Team Picker's `team` names no team of this account.
@@ -121,7 +120,6 @@ public enum CloudStrings {
     /// The create card's switch: creates the machine and stops asking (`cloud.agentsStartWithoutAsking` back on).
     public static var createStopAsking: String { String(localized: "cloud.create.request.stopAsking", defaultValue: "Don't Ask Again", table: "Cloud", bundle: .localizedModule) }
     nonisolated public static var createStillPending: String {
-        // retry-prompt-ok: creating a Cloud machine is billed; it waits for the person's approval
         String(localized: "cloud.create.stillPending", defaultValue: "The machine still waits for approval. Try again in a minute.", table: "Cloud", bundle: .localizedModule)
     }
     public static func createConfirmSize(cpu: Int, memoryGB: Int, diskGB: Int) -> String {
@@ -135,7 +133,6 @@ public enum CloudStrings {
         String(localized: "cloud.create.approvalMismatch", defaultValue: "The approval request does not match the machine you confirmed, so cmux did not approve it.", table: "Cloud", bundle: .localizedModule)
     }
     nonisolated public static var createApproveInFeed: String {
-        // retry-prompt-ok: creating a Cloud machine is billed; it waits for the person's approval
         String(localized: "cloud.create.approveInFeed", defaultValue: "Approve this machine in your cmux feed, then try again.", table: "Cloud", bundle: .localizedModule)
     }
     public static var cancel: String { String(localized: "cloud.button.cancel", defaultValue: "Cancel", table: "Cloud", bundle: .localizedModule) }
@@ -165,7 +162,6 @@ public enum CloudStrings {
     public static var fileContentsRequired: String { String(localized: "cloud.failed.fileContentsRequired", defaultValue: "Pass the file's contents with --contents \"<text>\".", table: "Cloud", bundle: .localizedModule) }
     public static var publicKeyRequired: String { String(localized: "cloud.failed.publicKeyRequired", defaultValue: "Pass an Ed25519 SSH public key with --public-key \"$(cat ~/.ssh/id_ed25519.pub)\".", table: "Cloud", bundle: .localizedModule) }
     /// A Cloud tunnel attach, detach or key rotation this Mac's agent daemon did not take.
-    // retry-prompt-ok: a Cloud tunnel change the person asked for; starting the agent daemon is their step
     public static var tunnelDaemonUnavailable: String { String(localized: "cloud.failed.tunnelDaemonUnavailable", defaultValue: "This Mac's agent daemon did not take the Cloud tunnel change. Open an agent chat to start it, then try again.", table: "Cloud", bundle: .localizedModule) }
     public static var filesTitle: String { String(localized: "cloud.result.filesTitle", defaultValue: "Cloud Files", table: "Cloud", bundle: .localizedModule) }
     public static var fileContentsTitle: String { String(localized: "cloud.result.fileContentsTitle", defaultValue: "Cloud File Contents", table: "Cloud", bundle: .localizedModule) }
@@ -213,7 +209,6 @@ public extension CloudStrings {
     nonisolated static func keychainTimedOut(_ error: any Error) -> String? {
         let stall = (error as? KeychainTimedOut)?.stall ?? (error as? CloudAppOpFailure).flatMap { KeychainStall(details: $0.details) }
         guard let stall else { return nil }
-        // retry-prompt-ok: unlocking the Keychain or allowing access is the person's decision
         return String(format: String(localized: "cloud.error.keychainTimedOut",
                                      defaultValue: "The Keychain didn't answer for \"%1$@\" (account %2$@) within %3$lld s. Unlock it or allow cmux access, then try again.",
                                      table: "Cloud", bundle: .localizedModule),

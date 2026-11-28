@@ -19,12 +19,11 @@ package struct HomeModelStrings {
         String(format: String(localized: "home.teamInvite.alreadyMember", defaultValue: "%@ is already in the team.", bundle: .localizedModule), email)
     }
     package static func teamInviteSendFailed(_ email: String) -> String {
-        // retry-prompt-ok: re-sending an invite emails someone
         String(format: String(localized: "home.teamInvite.sendFailed", defaultValue: "The invite email to %@ couldn’t be sent. Try again.",
                               bundle: .localizedModule), email)
     }
     package static var teamInviteCancelled: String {
-        String(localized: "home.teamInvite.cancelled", defaultValue: "No invite sent.", bundle: .localizedModule)
+        String(localized: "home.teamInvite.cancelled", defaultValue: "The invite was not sent: the dialog was closed.", bundle: .localizedModule)
     }
     package static var teamInviteNotAllowed: String {
         String(localized: "home.teamInvite.notAllowed", defaultValue: "Only the team’s admins can invite people.", bundle: .localizedModule)
@@ -38,7 +37,6 @@ package struct HomeModelStrings {
             String(format: String(localized: "home.outcome.notReachable",
                                   defaultValue: "You can’t message %@ yet. Invite them by email instead.", bundle: .localizedModule), name)
         case .rateLimited:
-            // retry-prompt-ok: rate limited: re-sending is a paid request
             String(localized: "home.outcome.rateLimited",
                    defaultValue: "You started too many conversations in the last hour. Try again later.", bundle: .localizedModule)
         case .invalidAddress(let text):
@@ -47,11 +45,9 @@ package struct HomeModelStrings {
         case .offline:
             String(localized: "home.outcome.offline", defaultValue: "You’re offline. Nothing was sent.", bundle: .localizedModule)
         case .cloudUnreachable:
-            // retry-prompt-ok: starting a conversation is a paid cloud request
             String(localized: "home.outcome.cloudUnreachable",
                    defaultValue: "cmux Cloud didn’t answer. Check your connection and try again.", bundle: .localizedModule)
         case .refused(let reason) where reason.isEmpty:
-            // retry-prompt-ok: re-running a conversation action the person started (paid or side-effecting)
             String(localized: "home.outcome.failed", defaultValue: "That didn’t work. Try again.", bundle: .localizedModule)
         case .refused(let reason):
             String(format: String(localized: "home.outcome.refused", defaultValue: "That didn’t work: %@", bundle: .localizedModule), reason)
@@ -107,7 +103,6 @@ package struct HomeModelStrings {
         case .offline:
             String(localized: "home.outcome.offline", defaultValue: "You’re offline. Nothing was sent.", bundle: .localizedModule)
         case .rateLimited:
-            // retry-prompt-ok: rate limited: the person's own changes
             String(localized: "home.group.outcome.rateLimited", defaultValue: "Too many changes at once. Try again later.",
                    bundle: .localizedModule)
         case .tooMany:
@@ -124,7 +119,6 @@ package struct HomeModelStrings {
         case "invite.blocked", "invite.recipient_limited":
             String(localized: "home.outcome.inviteBlocked", defaultValue: "This address can’t be invited right now.", bundle: .localizedModule)
         case "invite.rate_limited":
-            // retry-prompt-ok: re-sending invites emails people
             String(localized: "home.outcome.inviteRateLimited", defaultValue: "You sent too many invites. Try again later.",
                    bundle: .localizedModule)
         case "home.not_configured":

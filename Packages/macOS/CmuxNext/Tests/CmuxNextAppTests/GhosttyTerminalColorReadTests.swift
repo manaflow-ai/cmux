@@ -32,8 +32,6 @@ struct GhosttyTerminalColorReadTests {
             faint-opacity = 0.25
             palette-generate = true
             window-colorspace = display-p3
-            background-cells-opacity = 0.4
-            background-cells-neutral-fade = 0.5
             font-family = Menlo
             command = /bin/zsh
             keybind = cmd+k=clear_screen
@@ -50,8 +48,6 @@ struct GhosttyTerminalColorReadTests {
         #expect(lines.contains("faint-opacity = 0.25"))
         #expect(lines.contains("palette-generate = true"))
         #expect(lines.contains("window-colorspace = display-p3"))
-        #expect(lines.contains("background-cells-opacity = 0.4"))
-        #expect(lines.contains("background-cells-neutral-fade = 0.5"))
         #expect(!lines.contains { $0.hasPrefix("font-family") || $0.hasPrefix("command") || $0.hasPrefix("keybind") })
     }
 

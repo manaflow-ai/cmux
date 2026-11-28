@@ -203,9 +203,6 @@ public final class DeviceHub {
                 await hub.hub?.handle(event)
             }
         }
-        // The list over HTTP now, not only once the socket connects: a socket that never connects
-        // left This Mac undrawn and the page at "Loading your devices…" (CMUX-13, as the shared hub does).
-        await refreshDevices()
     }
 
     /// Signed out: closes the socket and forgets the account and every record.
@@ -383,8 +380,7 @@ public final class DeviceHub {
             devices = value
             devicesListed = true
             devicesListError = nil
-            let listsThis = value.contains { $0.id == identity.id }
-            logger.info("device hub list read: \(value.count, privacy: .public) devices, this device listed: \(listsThis, privacy: .public)")
+            logger.info("device hub list read: \(value.count, privacy: .public) devices")
             forgetPermissions(notListedIn: Set(value.map(\.id)))
         } catch {
             guard run == generation else { return }

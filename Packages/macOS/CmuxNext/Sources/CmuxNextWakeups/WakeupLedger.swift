@@ -10,8 +10,6 @@ import CmuxNextCompat
 /// ``activitySequence`` to know whether anything woke since its last look.
 public final class WakeupLedger: Sendable {
     public static let shared = WakeupLedger()
-    /// The deadlines that may run early on a wake that already happened (``DemandTimer`` `early`).
-    public let coalescer = WakeCoalescer()
 
     /// Seconds of history kept per owner; the rate covers the last
     /// `rateWindow` complete seconds.

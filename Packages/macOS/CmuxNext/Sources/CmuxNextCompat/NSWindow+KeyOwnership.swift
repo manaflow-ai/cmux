@@ -1,4 +1,3 @@
-#if canImport(AppKit)
 public import AppKit
 
 extension NSWindow {
@@ -18,4 +17,3 @@ extension NSWindow {
         return false
     }
 }
-#endif

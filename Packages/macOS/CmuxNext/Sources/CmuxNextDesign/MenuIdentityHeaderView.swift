@@ -87,8 +87,9 @@ public final class MenuIdentityHeaderView: NSView, ThemedMenuItemView {
             field.menuClosed(by: NSApp.currentEvent)
         } else {
             field.reset()
-            // Typing goes to the name at once, as in Chrome; the caret starts at its end (`becomeFirstResponder`).
+            // Typing renames at once, as in Chrome; the name starts selected.
             window?.makeFirstResponder(field)
+            field.currentEditor()?.selectAll(nil)
         }
     }
 }
@@ -124,14 +125,9 @@ public final class MenuNameField: NSTextField, NSTextFieldDelegate {
 
     /// The field editor that takes over while the name is edited paints its own background, which
     /// covered the header's box with a darker band; it draws none here, so the box shows through.
-    /// The caret goes to the end of the name, not the whole name selected (Lucas 2026-11-27), so a
-    /// keystroke adds to the name; a click still puts the caret where it lands.
     public override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
-        if became, let editor = currentEditor() as? NSTextView {
-            editor.drawsBackground = false
-            editor.selectedRange = NSRange(location: (editor.string as NSString).length, length: 0)
-        }
+        if became, let editor = currentEditor() as? NSTextView { editor.drawsBackground = false }
         return became
     }
 

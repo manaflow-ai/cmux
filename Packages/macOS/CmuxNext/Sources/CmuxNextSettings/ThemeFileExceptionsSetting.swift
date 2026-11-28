@@ -16,7 +16,7 @@ public nonisolated struct ThemeFileExceptionsSetting: Sendable {
     /// (``unexceptionable``), are ignored: a hand-written `"appearance"` must not switch the whole
     /// file off. Rust answers (`theme.exceptions`).
     public static func keys(in root: JSONValue) -> Set<String> {
-        Set(SettingsRust.answer("theme.exceptions", .object(["root": root.keeping([configPath])]))["keys"]?.arrayValue?.compactMap(\.stringValue) ?? [])
+        Set(SettingsRust.answer("theme.exceptions", .object(["root": root]))["keys"]?.arrayValue?.compactMap(\.stringValue) ?? [])
     }
 
     /// The list edit for writing `writes` (dotted key, whether the write sets a value) while `overlay`

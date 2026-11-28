@@ -9,7 +9,8 @@ extension DispatchSemaphore {
     ///   - line: The calling code's `#line`.
     @inlinable
     public func blockingWait(fileID: StaticString = #fileID, line: UInt = #line) {
-        blockingCall(.syncWait, fileID: fileID, line: line) { wait() }
+        assertBlockingAllowed(.syncWait, fileID: fileID, line: line)
+        wait()
     }
 
     /// Waits for the semaphore until `timeout`, like `wait(timeout:)`, as a checked blocking call
@@ -22,6 +23,7 @@ extension DispatchSemaphore {
     /// - Returns: Whether the semaphore was signaled before `timeout`.
     @inlinable @discardableResult
     public func blockingWait(timeout: DispatchTime, fileID: StaticString = #fileID, line: UInt = #line) -> DispatchTimeoutResult {
-        return blockingCall(.syncWait, fileID: fileID, line: line) { wait(timeout: timeout) }
+        assertBlockingAllowed(.syncWait, fileID: fileID, line: line)
+        return wait(timeout: timeout)
     }
 }

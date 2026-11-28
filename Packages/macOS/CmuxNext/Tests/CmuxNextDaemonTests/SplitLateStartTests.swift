@@ -103,14 +103,6 @@ struct SplitLateStartTests {
         #expect(created.terminalID == options.terminalID)
     }
 
-    @Test func creationRequestsKeepTheirOriginalCapabilityChecks() throws {
-        try NewColumnRequest.requireServed(by: nil)
-        try CreateTerminalRequest.requireServed(by: nil)
-        #expect(throws: DaemonError.self) { try NewRowRequest.requireServed(by: nil) }
-        #expect(throws: DaemonError.self) { try CloseTabGroupRequest.requireServed(by: nil) }
-        #expect(throws: DaemonError.self) { try CloseTabsRequest.requireServed(by: nil) }
-    }
-
     @Test func aRefusedSplitIsNotAskedAgain() async throws {
         let connection = connection("refuse")
         try await connection.start()

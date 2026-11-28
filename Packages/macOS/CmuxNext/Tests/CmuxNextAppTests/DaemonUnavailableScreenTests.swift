@@ -20,17 +20,6 @@ struct DaemonUnavailableScreenTests {
         view.subviews.flatMap { ($0 as? NSButton).map { [$0] } ?? buttons(in: $0) }
     }
 
-    @Test func automaticStartupRendersNoConnectionLine() {
-        let view = DaemonConnectingView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
-        #expect(view.titleText.isEmpty)
-        #expect(view.accessibilityLabel()?.isEmpty == true)
-        view.apply(.unavailable(.timedOut("session service")))
-        #expect(!view.titleText.isEmpty, "the bounded failure still offers recovery")
-        view.apply(.connecting)
-        #expect(view.titleText.isEmpty, "retrying clears the failure line")
-        #expect(view.accessibilityLabel()?.isEmpty == true)
-    }
-
     @Test(arguments: [
         DaemonError.connectFailed(path: "/tmp/cmux-501/tui.sock", errno: ECONNREFUSED),
         DaemonError.binaryNotFound(searched: ["/Applications/cmux.app/Contents/Resources/bin/cmux-tui"]),

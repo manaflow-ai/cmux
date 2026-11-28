@@ -22,7 +22,7 @@ import Testing
                 }
             },
             confirm: { _ in true },
-            approve: { request, _, _ in log.events.append("approve " + request); log.pending = false; return nil },
+            approve: { request, _, _ in log.events.append("approve " + request); log.pending = false },
             pause: { _ in })
         flow.beside = {
             log.events.append("ensure")
@@ -40,7 +40,7 @@ import Testing
         log.pending = false
         var flow = CloudMachineCreateFlow(
             run: { op, _, _, _ in await MainActor.run { log.events.append(op) }; return .object(["machine": .object(["id": .string("vm_1")])]) },
-            confirm: { _ in true }, approve: { _, _, _ in nil }, pause: { _ in })
+            confirm: { _ in true }, approve: { _, _, _ in }, pause: { _ in })
         flow.beside = { await Task.yield(); log.events.append("ensured") }
         _ = try await flow.create(name: "dev", startedByPerson: true)
         #expect(log.events.contains("ensured"), "the create answered before its ensure ended")

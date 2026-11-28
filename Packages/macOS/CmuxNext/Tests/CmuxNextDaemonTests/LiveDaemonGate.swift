@@ -8,7 +8,7 @@ import Testing
 /// live-daemon suite carries `.liveDaemon`; each of its tests takes one slot
 /// for its whole run, daemon start and teardown included, so load stays
 /// bounded without changing a deadline.
-nonisolated struct LiveDaemonGate: SuiteTrait, TestTrait, TestScoping {
+struct LiveDaemonGate: SuiteTrait, TestTrait, TestScoping {
     /// Concurrent live-daemon tests. Each uses a handful of PTYs, so this
     /// also bounds the run's PTY footprint.
     static let limit = 3
@@ -37,7 +37,7 @@ nonisolated struct LiveDaemonGate: SuiteTrait, TestTrait, TestScoping {
 
 extension Trait where Self == LiveDaemonGate {
     /// Runs each test of the suite under the process-wide live-daemon cap.
-    nonisolated static var liveDaemon: Self { LiveDaemonGate() }
+    static var liveDaemon: Self { LiveDaemonGate() }
 }
 
 /// A counting semaphore for async code: FIFO, no busy waiting.

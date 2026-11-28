@@ -1,4 +1,3 @@
-#if canImport(Darwin)
 public import CoreFoundation
 
 extension MainRunLoopObserver {
@@ -70,4 +69,3 @@ private nonisolated final class AfterCommitHandler {
         self.handler = handler
     }
 }
-#endif

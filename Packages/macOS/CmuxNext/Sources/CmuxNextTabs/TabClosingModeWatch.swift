@@ -29,23 +29,8 @@ import CmuxNextWakeups
                       height: bounds.height + g.closingModeBelowPad)
     }
 
-    /// Whether the watch follows the pointer now (its monitors are installed).
-    var isWatching: Bool { exitMonitor != nil }
-
     /// The pointer left the strip in closing mode: follow it until it leaves the extended area.
     func pointerLeft() {
-        begin()
-        pointerMoved(to: pointerInStrip)
-    }
-
-    /// Closing mode began (a mouse close): watch the pointer from now, as Chrome starts its mouse watcher
-    /// with the mode (tab_container_impl.cc), not from the strip's exit event. An exit that never arrives
-    /// (the strip's tracking area rebuilt under the pointer, a press forwarded from the pane, a drag in
-    /// between) left the tabs at their held widths with the bar's other half empty until a tab opened
-    /// (Leo 2026-11-24: "do we never expand out tab widths? ... why half of the space taken up by blank!?").
-    /// The pointer is on the close button now, so nothing is decided here: the next move, press or exit
-    /// of the extended area decides.
-    func begin() {
         if exitMonitor == nil {
             exitMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown]) { [weak self] event in
                 self?.pointerEvent(event)
@@ -61,6 +46,7 @@ import CmuxNextWakeups
             }
         }
         installTracking()
+        pointerMoved(to: pointerInStrip)
     }
 
     /// The strip's tracking areas changed: the extended rect follows while it is installed.
@@ -115,10 +101,7 @@ import CmuxNextWakeups
     }
 
     private func pointerMoved(to point: CGPoint?) {
-        guard let strip, strip.closingModeWidth != nil else { return end() }
-        // A drag keeps the widths and the watch: the first move after it decides. Ending the watch here
-        // left the mode on with nothing to end it.
-        guard strip.drag == nil else { return exitTimer.cancel() }
+        guard let strip, strip.closingModeWidth != nil, strip.drag == nil else { return end() }
         if let point, area.contains(point) {
             exitTimer.cancel()
         } else {

@@ -1,7 +1,8 @@
 import Foundation
 
-extension RemoteHostAppRequest {
-    /// The app socket's credentials for this app's own process. The secret must never be logged or stored.
+/// `remote-host-app`: the app socket's credentials for this app's own process (the host admits
+/// that process only). The secret must never be logged or stored.
+public struct RemoteHostAppRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var socket: String
         public var secret: String
@@ -12,4 +13,7 @@ extension RemoteHostAppRequest {
             case hostPID = "host_pid"
         }
     }
+    public static let command = "remote-host-app"
+    public static var requiredCapability: String? { DaemonCapability.remoteHost.rawValue }
+    public init() {}
 }

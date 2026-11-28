@@ -1,10 +1,8 @@
 import CmuxMobileArtifacts
 #if os(iOS)
-import CmuxAgentBrands
 import CmuxMobileDesign
 import CmuxMobileRealtime
 import CmuxMobileTransport
-import CmuxSpinner
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
@@ -23,7 +21,7 @@ struct ChatComposer: View {
     /// Expand and focus as soon as the composer appears (Reply instead,
     /// which swaps the permission bar back to the composer).
     var expandOnAppear = false
-    /// Replaces "Reply to <chat>" (e.g. while replying instead of a permission).
+    /// Replaces "Reply to <agent>" (e.g. while replying instead of a permission).
     var placeholderOverride: String?
     /// Sending answers the pending permission with a denial plus this message.
     var denyingPermission = false
@@ -39,7 +37,6 @@ struct ChatComposer: View {
     /// field's own height (the transcript's inset leaves it out).
     var fieldRef: ComposerFieldRef?
     @State private var showPhotos = false
-    @AppStorage(ComposerFooterFactsMode.key) private var footerFactsMode = ComposerFooterFactsMode.off.rawValue
     private let voice = AgentVoiceLauncher.shared
     @State private var showFiles = false
     @State private var showCamera = false
@@ -119,7 +116,8 @@ struct ChatComposer: View {
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             if case .success(let urls) = result {
                 let (files, refused) = Self.readFiles(urls)
-                appendPreparedFiles(files)
+                attachments += files
+                for file in files { readVideo(file) }
                 if let refused { store.clientError = refused }
             }
         }
@@ -134,7 +132,7 @@ struct ChatComposer: View {
         }
         // Files start for the Mac the moment they are picked, not at Send (AttachmentPrestager).
         .onChange(of: attachments.map(\.id), initial: true) { _, _ in
-            syncPreparedAttachments()
+            store.composerAttachmentsChanged(attachments)
         }
         .onChange(of: photoItems) { _, items in
             guard !items.isEmpty else { return }
@@ -242,43 +240,25 @@ struct ChatComposer: View {
             Task {
                 let pasted = await ComposerPastedFiles.load(providers)
                 for file in pasted.files {
-                    let isImage = file.type.conforms(to: .image)
-                    if !isImage {
+                    let image = file.type.conforms(to: .image) ? file.data.flatMap { UIImage(data: $0) } : nil
+                    if image == nil {
                         attachments.append(AgentAttachment(kind: .file, name: file.name, data: file.data,
                                                            fileURL: file.fileURL, byteCount: file.byteCount))
                     } else if let original = file.data {
                         appendOptimizedImage(original, name: file.name, fileURL: file.fileURL, byteCount: file.byteCount)
                     } else {
-                        appendOptimizedImage(fileURL: file.fileURL, name: file.name, byteCount: file.byteCount)
+                        attachments.append(AgentAttachment(kind: .image, name: file.name, fileURL: file.fileURL,
+                                                           byteCount: file.byteCount))
                     }
                 }
                 if let name = pasted.unreadable.first { store.clientError = "Couldn't read \(name)." }
             }
         } else if let urls = board.urls?.filter(\.isFileURL), !urls.isEmpty {
             let (files, refused) = Self.readFiles(urls)
-            appendPreparedFiles(files)
+            attachments += files
             if let refused { store.clientError = refused }
         }
     }
-
-
-    private func syncPreparedAttachments() {
-        store.composerAttachmentsChanged(attachments.filter { !optimizingImageIDs.contains($0.id) })
-    }
-
-    private func appendPreparedFiles(_ files: [AgentAttachment]) {
-        for file in files {
-            if file.kind == .image, let data = file.data {
-                appendOptimizedImage(data, name: file.name, fileURL: file.fileURL, byteCount: file.byteCount)
-            } else if file.kind == .image, let fileURL = file.fileURL {
-                appendOptimizedImage(fileURL: fileURL, name: file.name, byteCount: file.byteCount)
-            } else {
-                attachments.append(file)
-                readVideo(file)
-            }
-        }
-    }
-
 
     private func appendOptimizedImage(_ data: Data, name: String, fileURL: URL? = nil, byteCount: Int? = nil) {
         let id = UUID().uuidString
@@ -286,47 +266,12 @@ struct ChatComposer: View {
                                            fileURL: fileURL, byteCount: byteCount ?? data.count))
         optimizingImageIDs.insert(id)
         Task {
+            defer { optimizingImageIDs.remove(id) }
             let optimized = await AgentImageOptimizer.optimizeAsync(data)
-            guard let index = attachments.firstIndex(where: { $0.id == id }) else {
-                optimizingImageIDs.remove(id)
-                return
-            }
+            guard let index = attachments.firstIndex(where: { $0.id == id }) else { return }
             attachments[index].data = optimized
-            attachments[index].fileURL = nil
             attachments[index].byteCount = optimized.count
             attachments[index].name = AgentImageOptimizer.filename(attachments[index].name, for: optimized)
-
-            optimizingImageIDs.remove(id)
-            // Optimization mutates an attachment in place, so the ID-based change
-            // observer does not fire. Reconcile the prestager after the MIME changes.
-            syncPreparedAttachments()
-
-        }
-    }
-
-    private func appendOptimizedImage(fileURL: URL, name: String, byteCount: Int?) {
-        let id = UUID().uuidString
-        attachments.append(AgentAttachment(id: id, kind: .image, name: name, fileURL: fileURL, byteCount: byteCount))
-        optimizingImageIDs.insert(id)
-        Task {
-            guard attachments.contains(where: { $0.id == id }) else {
-                optimizingImageIDs.remove(id)
-                syncPreparedAttachments()
-                return
-            }
-            if let optimized = await AgentImageOptimizer.optimizeAsync(fileURL: fileURL, byteCount: byteCount) {
-                guard let finalIndex = attachments.firstIndex(where: { $0.id == id }) else {
-                    optimizingImageIDs.remove(id)
-                    syncPreparedAttachments()
-                    return
-                }
-                attachments[finalIndex].data = optimized
-                attachments[finalIndex].fileURL = nil
-                attachments[finalIndex].byteCount = optimized.count
-                attachments[finalIndex].name = AgentImageOptimizer.filename(attachments[finalIndex].name, for: optimized)
-            }
-            optimizingImageIDs.remove(id)
-            syncPreparedAttachments()
         }
     }
 
@@ -346,21 +291,6 @@ struct ChatComposer: View {
             defer { access.close() }
             guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize else {
                 refused = "Couldn't read \(url.lastPathComponent)."
-                continue
-            }
-            let isImage = UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true
-            if isImage {
-                if size > inlineFileBytes {
-                    files.append(AgentAttachment(kind: .image, name: url.lastPathComponent,
-                                                 fileURL: url, byteCount: size))
-                    continue
-                }
-                guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
-                    refused = "Couldn't read \(url.lastPathComponent)."
-                    continue
-                }
-                files.append(AgentAttachment(kind: .image, name: url.lastPathComponent, data: data,
-                                             fileURL: url, byteCount: size))
                 continue
             }
             // A video stays by its URL whatever its size: its frames are read from there.
@@ -411,8 +341,6 @@ struct ChatComposer: View {
                     .onTapGesture { expand() }
                     .accessibilityAddTraits(.isButton)
                     .accessibilityLabel(placeholder)
-                    // The label is the chat's name, so tests find the capsule by this id.
-                    .accessibilityIdentifier("agentChat.composer.collapsed")
             } else {
                 // Return starts a new line, the send button sends; a hardware
                 // keyboard's Return sends, Shift-Return starts a new line.
@@ -429,8 +357,6 @@ struct ChatComposer: View {
                     if store.currentModelID != nil || !store.models.isEmpty || !store.modes.isEmpty
                         || store.effortOption?.options.isEmpty == false { pickerMenu }
                     if let usage = store.contextUsage { ContextUsageRing(usage: usage) }
-                    // RFD 0130: live counters (or an info mark) opening the Session card; off by default.
-                    ComposerFooterFactsView(facts: store.footerFacts, mode: .stored(footerFactsMode))
                 }
                 // Voice mode instead of a dictation mic (the keyboard's own mic still
                 // dictates into the field): with no draft, the send circle is the voice
@@ -452,9 +378,7 @@ struct ChatComposer: View {
     }
 
     private var placeholder: String {
-        // A started chat is named by its title, never by the tab's title, which is the first
-        // prompt until the chat is named (issue 51331).
-        placeholderOverride ?? (store.isNewChat ? "Ask \(store.summary.agentName)" : store.replyPlaceholder)
+        placeholderOverride ?? (store.isNewChat ? "Ask \(store.summary.agentName)" : "Reply to \(store.summary.agentName)")
     }
 
     /// Expands the capsule, then focuses the field once it exists.
@@ -558,8 +482,7 @@ struct ChatComposer: View {
             .font(.subheadline.weight(.medium))
             .foregroundStyle(.primary)
             .lineLimit(1)
-            .padding(.leading, 10)
-            .padding(.trailing, 12)
+            .padding(.horizontal, 12)
             .frame(minHeight: 34)
             .background(Color.cmuxMobileFill, in: .capsule)
             // 44 pt high target around the 34 pt pill.
@@ -579,34 +502,17 @@ struct ChatComposer: View {
         .accessibilityIdentifier("agentChat.composer.model")
     }
 
-    /// The pill as the Mac's model chip draws it: the harness's mark, the model in full weight, and
-    /// the rest quieter. A mode other than the agent's first (Plan, Full access) is a small symbol,
-    /// not its name, and the effort a secondary word; a chevron says it opens a menu (issue 51331:
-    /// "Opus 5.5 Bypass permissions Medium" read as one long run of words).
     private func pickerLabel(withEffort: Bool) -> some View {
-        let hasModel = store.currentModelName != nil || store.currentModelID != nil
-        return HStack(spacing: 6) {
-            if let family = AgentSenderIcon.family(store.summary.harness),
-               AgentBrandCatalog.spec(forAgent: family) != nil {
-                AgentBrandMark(agent: family, size: 15, style: .brand)
-                    .accessibilityHidden(true)
-            }
+        HStack(spacing: 4) {
             Text(store.currentModelName ?? store.currentModelID ?? currentModeName ?? "Model")
-            if hasModel, let mode = store.currentModeID, mode != store.modes.first?.id, currentModeName != nil {
-                Image(systemName: ACPMode.pillSymbol(mode))
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(ACPMode.isFullAccess(mode) ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
-                    .accessibilityHidden(true)
+            // A mode other than the agent's first (Plan, Full access) stays in sight, as before.
+            if withEffort, store.currentModelName != nil || store.currentModelID != nil, let mode = currentModeName,
+               store.currentModeID != store.modes.first?.id {
+                Text(mode).foregroundStyle(.secondary)
             }
-            if withEffort, hasModel, let effort = currentEffortName {
-                Text(effort)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            if withEffort, store.currentModelName != nil || store.currentModelID != nil, let effort = currentEffortName {
+                Text(effort).foregroundStyle(.secondary)
             }
-            Image(systemName: "chevron.down")
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(.tertiary)
-                .accessibilityHidden(true)
         }
         .fixedSize(horizontal: withEffort, vertical: false)
     }
@@ -799,18 +705,9 @@ struct ChatComposer: View {
         LoadFrameProbe.shared?.event("send")
         #endif
         store.send(prompt: text, attachments: attachments, steer: steer, denyingPermission: denyingPermission)
-        // A send that glides (`ChatSendMotion`): the field clears and shrinks on the spring the
-        // sent bubble glides in on (the transcript's `ChatSendSettle`), as one motion. Otherwise
-        // a multi-line draft shrinks to one line on the line motion, with the transcript.
-        if ChatSendMotion.current != .off {
-            withAnimation(.cmuxMobileSmooth.unlessReduceMotion) {
-                text = ""
-                attachments = []
-            }
-        } else {
-            withAnimation(ComposerLineMotion.animation.unlessReduceMotion) { text = "" }
-            attachments = []
-        }
+        // A multi-line draft shrinks to one line on the line motion, with the transcript.
+        withAnimation(ComposerLineMotion.animation.unlessReduceMotion) { text = "" }
+        attachments = []
         sendCount += 1
         if CmuxMobilePreferences.dismissKeyboardAfterSend() { focus.wrappedValue = false }
     }
@@ -830,7 +727,7 @@ struct ChatComposer: View {
                 }
                 if preparingVideos > 0 {
                     HStack(spacing: 6) {
-                        CmuxSpinner().controlSize(.small)
+                        ProgressView().controlSize(.small)
                         Text(preparingVideos == 1 ? "Preparing video…" : "Preparing \(preparingVideos) videos…")
                             .font(.footnote).foregroundStyle(.secondary)
                     }

@@ -21,18 +21,15 @@ import Testing
     /// Every item a press or click opened.
     private(set) var activated: [LayoutItemID] = []
 
-    /// `pinsAreLinks`: the Pinned rows are links (same ids) instead of workspaces. A pinned workspace never drags
-    /// (`LayoutItem.isMovable(in:)`), so a test of a block row's drag itself drags pinned links.
-    init(pinsAreLinks: Bool = false) {
+    init() {
         _ = NSApplication.shared
         let top = LayoutSection(id: SidebarLayoutDocument.topSectionID, region: .top, look: .builtIn, arrangement: .list, items: [Self.home])
-        let pinItems = pinsAreLinks ? Self.pins.map { LayoutItem(id: $0.id, ref: .url("https://cmux.com/\($0.id.rawValue)")) } : Self.pins
-        let pinned = SidebarLayoutDocument.pinnedSection(items: pinItems)
+        let pinned = SidebarLayoutDocument.pinnedSection(items: Self.pins)
         var infos: [LayoutItemID: SidebarItemInfo] = [Self.home.id: .fallback(for: Self.home)]
         for (pin, title) in zip(Self.pins, ["cmux Performance Lead", "cmux-chromium lead", "Chief TUI + fast iteration"]) {
             var info = SidebarItemInfo(title: title, symbol: "textformat")
             info.textOnly = true
-            if !pinsAreLinks { info.workspace = WorkspaceID(pin.ref.value.replacingOccurrences(of: "local:", with: "")) }
+            info.workspace = WorkspaceID(pin.ref.value.replacingOccurrences(of: "local:", with: ""))
             infos[pin.id] = info
         }
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)

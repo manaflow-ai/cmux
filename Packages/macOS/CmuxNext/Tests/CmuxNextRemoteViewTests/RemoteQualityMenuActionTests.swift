@@ -3,9 +3,6 @@ import AppKit
 import Foundation
 import Testing
 
-// The API under test is DEBUG-only, so `swift test -c release` skips this file.
-#if DEBUG
-
 /// The Screen Sharing toolbar's Quality menu runs the palette's Set Screen Sharing Quality… (`remote.setQuality`):
 /// a row goes to the owner's `pickQuality` (the App runs the action, which calls `selectQuality`), so the menu and the
 /// palette run one handler. With no owner hook the row still applies itself.
@@ -43,4 +40,3 @@ import Testing
         #expect(sent == [.lowBandwidth])
     }
 }
-#endif

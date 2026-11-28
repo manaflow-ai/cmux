@@ -30,14 +30,9 @@ public nonisolated final class FocusInput {
     /// Closes `window` in the router: its focus state goes with it. Its one caller is a machine's `deinit`, the only
     /// call into the router the compiler does not keep on the main actor (a machine is freed where its last owner is):
     /// a machine freed off the main thread would race the main thread's calls into this shared router. Debug builds
-    /// and tests stop there. Off Darwin the check is the main actor's executor: swift-testing on Linux runs main-actor
-    /// tests on a thread Foundation does not call main.
+    /// and tests stop there.
     func closeWindow(_ window: [UInt8]) {
-        #if canImport(Darwin)
         assert(Thread.isMainThread, "a FocusMachine was freed off the main thread: its window close races the shared input router")
-        #else
-        MainActor.assertIsolated("a FocusMachine was freed off the main actor: its window close races the shared input router")
-        #endif
         window.withUnsafeBufferPointer { cmux_input_window_close(handle, $0.baseAddress, $0.count) }
     }
 }

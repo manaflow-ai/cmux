@@ -10,8 +10,7 @@ public import CoreGraphics
 public struct PaneTrailingSlots {
     public init() {}
 
-    /// One tab's need: its toolbar beside it alone, as it fits the pane (`intrinsic`, ``PaneToolbarView/fittedWidth(cap:)``:
-    /// never the room of buttons that fold), its toolbar beside its page's tools in the row
+    /// One tab's need: its toolbar beside it alone (`intrinsic`), its toolbar beside its page's tools in the row
     /// (`shared`, nil: the page shares no row), and those tools' need (`tools`), what decides whether they fit. Never
     /// the row's accessories (header/tabRow.ts TAB_ROW_ACCESSORY): they take only the room the tabs leave free
     /// (``TabRowAccessoryFit``), so an accessory kept for a tab not selected left an empty gap the tabs were squeezed

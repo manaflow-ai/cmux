@@ -1,11 +1,83 @@
 public import Foundation
 
-/// `TerminalSizeState`, `TerminalSizePolicy` and `TerminalSizeParticipant` are generated from the schema's
-/// `SizeState`, `SizePolicy` and `SizeParticipant` (swift_app/bindings.json, Terminals family).
-extension TerminalSizeState {
-    public typealias Grid = CellSize
-    public typealias Policy = TerminalSizePolicy
-    public typealias Participant = TerminalSizeParticipant
+/// The daemon's shared-sizing state of one terminal (`size-state`, docs/shared-terminal-sizing.md
+/// "Size state"): its grid, who sets it, and every view of it. A view reads it only to tell its
+/// user who the grid is sized for (plans/cmux-next/sync-ux/DESIGN.md 2.6).
+public struct TerminalSizeState: Decodable, Sendable, Hashable {
+    public struct Grid: Decodable, Sendable, Hashable {
+        public var cols: Int
+        public var rows: Int
+        public init(cols: Int, rows: Int) {
+            self.cols = cols
+            self.rows = rows
+        }
+    }
+
+    public struct Policy: Decodable, Sendable, Hashable {
+        /// `latest`, `smallest`, `largest`, `priority` or `fixed`.
+        public var mode: String?
+    }
+
+    public struct Participant: Decodable, Sendable, Hashable {
+        public var id: String
+        public var displayName: String?
+        /// `mac`, `iphone`, `ipad`, `tui`, `browser`, `linux`, `windows` or `unknown`.
+        public var deviceKind: String?
+        public var deviceName: String?
+        public var viewport: Grid?
+        public var counts: Bool?
+
+        public init(id: String, displayName: String? = nil, deviceKind: String? = nil, deviceName: String? = nil,
+                    viewport: Grid? = nil, counts: Bool? = nil) {
+            self.id = id
+            self.displayName = displayName
+            self.deviceKind = deviceKind
+            self.deviceName = deviceName
+            self.viewport = viewport
+            self.counts = counts
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case id, viewport, counts
+            case displayName = "display_name", deviceKind = "device_kind", deviceName = "device_name"
+        }
+    }
+
+    public var generation: UInt64
+    public var cols: Int
+    public var rows: Int
+    public var owners: [String]
+    public var policy: Policy?
+    /// Why the grid has this size: `latest`, `smallest`, `largest`, `priority`, `fixed`, `held` or
+    /// `priority-fallback` (no ranked view counts, so the grid follows activity).
+    public var reason: String?
+    public var participants: [Participant]
+
+    public init(generation: UInt64, cols: Int, rows: Int, owners: [String], policy: Policy? = nil,
+                reason: String? = nil, participants: [Participant]) {
+        self.generation = generation
+        self.cols = cols
+        self.rows = rows
+        self.owners = owners
+        self.policy = policy
+        self.reason = reason
+        self.participants = participants
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case generation, cols, rows, owners, policy, reason, participants
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        generation = try container.decode(UInt64.self, forKey: .generation)
+        cols = try container.decode(Int.self, forKey: .cols)
+        rows = try container.decode(Int.self, forKey: .rows)
+        owners = try container.decodeIfPresent([String].self, forKey: .owners) ?? []
+        policy = try container.decodeIfPresent(Policy.self, forKey: .policy)
+        reason = try container.decodeIfPresent(String.self, forKey: .reason)
+        participants = try container.decodeIfPresent([Participant].self, forKey: .participants) ?? []
+    }
 
     /// What view `me` shows about the grid: nil while it sets the grid itself, when nobody does
     /// (outside `fixed`), or when the grid already fits it (nothing is padded or cropped, so

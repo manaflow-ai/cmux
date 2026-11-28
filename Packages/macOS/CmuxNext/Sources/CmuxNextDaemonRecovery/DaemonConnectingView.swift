@@ -3,14 +3,19 @@ import CmuxNextCompat
 public import CmuxNextDaemon
 public import CmuxNextDaemonService
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Content of a window that has no workspace yet. The window opens at
 /// launch with this view, so the app is never windowless while the daemon
 /// is slow or unreachable. While connecting it is the empty main pane beside the
 /// sidebar, as the window looks without a workspace (no cmux mark: the window must look
-/// usable at once, cx-r650e). Automatic startup and restoration show no connection chatter.
-/// Once the startup deadline passes, the existing failure state offers Retry Now and, for a
-/// stuck owner, Restart cmux-tui, with Copy Details for the raw error.
+/// usable at once, cx-r650e); "Connecting to cmux-tui" shows after `launchTextDelay` only
+/// while not yet connected, so a fast launch replaces it first. Once the startup deadline
+/// passes, it shows the failure at once, in plain words, with the raw error
+/// behind Copy Details for a bug report, Retry Now and, for a stuck owner,
+/// Restart cmux-tui (`DaemonRecoveryControls`, cx-jniyz.1). While the session owner restores, the title says
+/// so and how long it has taken ("Restoring sessions… 4m 12s", ``DaemonRecovery/restoring``), at once and in
+/// either state (Leo, 2026-11-08: a 30-minute restore read only that the service isn't connected).
 public final class DaemonConnectingView: NSView {
     let mark = LaunchMarkView()
     private let titleLabel = ChromeLabel(labelWithString: "")
@@ -28,6 +33,9 @@ public final class DaemonConnectingView: NSView {
         NSPasteboard.general.setString(text, forType: .string)
     }
     private(set) var state: DaemonStartupState = .connecting
+    private let statusTimer: DemandTimer
+    /// The status line has waited out its delay (or a failure showed it).
+    private var statusDue = false
 
     public convenience override init(frame: NSRect) {
         self.init(frame: frame, clock: ContinuousClock())
@@ -38,9 +46,10 @@ public final class DaemonConnectingView: NSView {
     }
 
     /// - Parameters:
-    ///   - clock: Kept for callers that inject the startup clock.
+    ///   - clock: Times the status delay (tests step it).
     ///   - recovery: The local daemon's Retry Now and Restart; nil shows neither.
     init(frame: NSRect, clock: any Clock<Duration>, recovery: DaemonRecovery? = nil) {
+        statusTimer = DemandTimer(owner: "launch.status", clock: clock)
         recoveryControls = recovery.map(DaemonRecoveryControls.init(recovery:))
         self.recovery = recovery
         super.init(frame: frame)
@@ -99,20 +108,45 @@ public final class DaemonConnectingView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         viewDidChangeEffectiveAppearance()
+        if window == nil {
+            cancelStagger()
+        } else {
+            staggerIfConnecting()
+        }
     }
+
+    /// While connecting in a window: the status line, after its delay from
+    /// when this view entered the window.
+    private func staggerIfConnecting() {
+        guard window != nil, state == .connecting else { return }
+        if !statusDue {
+            statusTimer.scheduleIfIdle(after: .seconds(MotionTunables.launchTextDelay.value)) { @MainActor [weak self] in
+                guard let self else { return }
+                statusDue = true
+                DaemonLaunchTimings.shared.mark("connecting_status_shown")
+                Motion.panes.animate(.fadeIn, in: self.titleLabel) { self.titleLabel.animator().alphaValue = 1 }
+            }
+        }
+    }
+
+    private func cancelStagger() { statusTimer.cancel() }
 
     public func apply(_ state: DaemonStartupState) {
         self.state = state
         switch state {
         case .connecting, .connected:
             // Connected: what is left is the first workspace (cx-b4sjc), not cmux-tui, so no status line (cx-r650e).
-            titleLabel.stringValue = ""
-            titleLabel.alphaValue = 0
+            if state == .connected { statusTimer.cancel(); statusDue = false }
+            titleLabel.stringValue = DaemonRecoveryStrings.connecting
+            titleLabel.alphaValue = statusDue ? 1 : 0
             detailLabel.stringValue = ""
             detailLabel.isHidden = true
             copyDetailsButton.isHidden = true
             recoveryControls?.isOffered = false
+            staggerIfConnecting()
         case .unavailable(let error):
+            cancelStagger()
+            statusDue = true
             titleLabel.alphaValue = 1
             if !mark.isRevealed { mark.reveal() }
             if case .sessionRestoreTimedOut = error {
@@ -128,8 +162,10 @@ public final class DaemonConnectingView: NSView {
             copyDetailsButton.isHidden = false
             recoveryControls?.isOffered = true
         }
-        if state.isUnavailable, let restoring = recovery?.restoring {
-            // After the failure deadline, explain a restore that still needs recovery.
+        if state != .connected, let restoring = recovery?.restoring {
+            // The owner is restoring: say so now, with how long, in place of "Starting cmux…" or the restore timeout.
+            cancelStagger()
+            statusDue = true
             titleLabel.stringValue = RefusalStrings.restoringSessions(waitedMs: restoring.waitedMs)
             titleLabel.alphaValue = 1
         }

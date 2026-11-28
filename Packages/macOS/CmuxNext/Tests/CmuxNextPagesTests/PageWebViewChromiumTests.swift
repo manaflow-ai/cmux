@@ -85,41 +85,6 @@ struct PageWebViewChromiumTests {
         view.close()
     }
 
-    /// Health times a page only while its document can beat. A Chromium page under a clear ancestor (the reserved Cmd-N
-    /// workspace) is told it is hidden, so its document stops beating; health read it as shown and silent, called it
-    /// stuck, reloaded it and restarted its renderer, again and again at idle (cmux20-bench, 2026-11-25: two hidden
-    /// agent pages reloaded every 10 s, their boot ops and DevTools replies about 1 wakeup/s of the app's 3.4).
-    @Test func aChromiumPageToldItIsHiddenIsNotShownForHealth() async throws {
-        defer { try? FileManager.default.removeItem(at: root) }
-        let hosting = FakeChromiumHosting()
-        let view = try makeView(hosting)
-        view.chromiumClock = PageTestClock.never
-        await view.chromiumStart?.value
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .titled,
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        let container = NSView(frame: window.contentLayoutRect)
-        window.contentView = container
-        container.addSubview(view)
-        window.orderFrontRegardless()
-        let feed = RecordingHealthFeed()
-        view.healthFeed = feed
-        view.setChromiumVisibility(true)
-        #expect(view.chromiumShows)
-        let shownBefore = feed.visibilityChanges
-        container.alphaValue = 0
-        view.setChromiumVisibility(true)
-        #expect(!view.chromiumShows)
-        #expect(!view.isShownForHealth, "Chromium was told the page is hidden: its document sends no beats")
-        #expect(feed.visibilityChanges > shownBefore, "health hears that the page's visibility changed")
-        container.alphaValue = 1
-        view.setChromiumVisibility(true)
-        #expect(view.chromiumShows)
-        window.orderOut(nil)
-        window.close()
-        view.close()
-    }
-
     /// A page out of sight (a New Tab spare or a kept closed chat in an off-screen parking) draws until it painted at
     /// its size there, then reports hidden, so Chromium stops drawing it and it can be frozen and released (CMUX-571,
     /// cmux#43767: 3 of 4 live pages reported visible 150 s after the last chat opened, the GPU process at 93
@@ -604,20 +569,4 @@ private final class OneResource: PageDynamicResourceSource {
         default: return nil
         }
     }
-}
-
-/// Counts the page view's health reports (the App's feed is AppHealthPageFeed).
-@MainActor
-private final class RecordingHealthFeed: PageHealthFeed {
-    private(set) var visibilityChanges = 0
-    func pageBeat(_ page: PageWebView, handled: UInt64, resting: Bool) {}
-    var takesRestBeats: Bool { true }
-    func pageInput(_ page: PageWebView) {}
-    func pageVisibilityChanged(_ page: PageWebView) { visibilityChanges += 1 }
-    func pageNavigationStarted(_ page: PageWebView) {}
-    func pageLoaded(_ page: PageWebView) {}
-    func pageLoadFailed(_ page: PageWebView) {}
-    func pageCrashed(_ page: PageWebView) {}
-    func pageRenderer(_ page: PageWebView, unresponsive: Bool) {}
-    func pageClosed(_ page: PageWebView) {}
 }

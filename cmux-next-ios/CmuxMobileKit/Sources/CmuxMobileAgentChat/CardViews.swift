@@ -461,7 +461,6 @@ struct FailureCard: View {
                 .tint(.secondary)
             }
             HStack(spacing: 8) {
-                // retry-prompt-ok: re-runs the failed turn (spends tokens; the cause may need fixing first)
                 Button(leadsWithContinue ? "Continue" : "Retry", action: retry)
                     .buttonStyle(CmuxMobileCapsuleButtonStyle(.primary, size: .large))
                     .disabled(!canRetry)

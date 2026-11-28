@@ -10,22 +10,17 @@ import Testing
 /// CMUX-383's first two projection slices rendered through the real sidebar.
 /// The variants exercise the default, a hidden section, section order,
 /// workspace grouping and a hidden workspace: one per landed slice-2 setting.
-/// `threads` is the chats-under-projects look (`sidebar.groupBy` folder,
-/// `sidebar.showTimestamps` with `sidebar.relativeTimestamps`, `sidebar.workspaceRow.branch`).
 /// Set CMUX_TEST_REQUIRE_GUI=1 to write PNGs.
 @MainActor @Suite(.serialized, .closesItsWindows) struct AASidebarCustomizationGalleryTests {
     struct Variant: Sendable {
         let name: String
         let settings: SidebarProjectionCustomization
-        /// Chats under their project folders, each with its age and its branch (`SidebarThreadsLookTests`).
-        var threads = false
     }
 
     static let variants = [
         Variant(name: "default", settings: .defaults),
         Variant(name: "sections", settings: .init(hiddenSections: ["recents"], sectionOrder: ["projects"])),
         Variant(name: "workspace", settings: .init(workspaces: ["ws-2": .init(group: "grp", order: 0)])),
-        Variant(name: "threads", settings: .defaults, threads: true),
         // "projects" is the machine section's alias and already leads, so order shows only by moving Recents up.
         // The planner reorders within a region (the app and fixed bands stay put), so Recents sits in the machine
         // section's middle region here.
@@ -68,14 +63,10 @@ import Testing
         scope.root(root)
         root.layer?.backgroundColor = scope.perform { Palette.windowBackground.withAlphaComponent(1) }.cgColor
 
-        let rows = variant.threads ? SidebarThreadsLookTests.sections(now: Date()) : Self.sections()
-        let model = SidebarModel(sections: rows)
+        let model = SidebarModel(sections: sections())
         model.sectionCustomization = variant.settings
-        model.setSections(rows)
-        // The sidebar applies its design's `sidebar.*` preferences to the model: the look goes there.
-        let design = DesignSettings()
-        if variant.threads { SidebarThreadsLookTests.applyLook(&design.sidebarSections) }
-        let sidebar = SidebarView(model: model, design: design)
+        model.setSections(sections())
+        let sidebar = SidebarView(model: model, design: DesignSettings())
         sidebar.frame = root.bounds
         root.addSubview(sidebar)
         window.orderFrontRegardless()

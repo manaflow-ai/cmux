@@ -1,4 +1,3 @@
-import CCmuxScreenshots
 import CmuxNextFileGrid
 public import Foundation
 
@@ -35,6 +34,9 @@ public nonisolated struct ScreenshotSource: Sendable, Hashable, Identifiable {
     /// Whether files dropped on the pane may be saved here: the macOS screenshot folder and the
     /// person's own folders, never an app's private history or the preview folder.
     public var acceptsDrops: Bool {
-        ScreenshotsFFI.bytes(origin.name) { cmux_screenshots_origin_accepts_drops($0, $1) }
+        switch origin {
+        case .system, .custom, .tool: true
+        case .systemPreview, .toolHistory: false
+        }
     }
 }

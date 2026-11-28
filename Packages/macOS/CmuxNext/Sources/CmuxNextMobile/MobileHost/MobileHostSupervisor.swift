@@ -85,6 +85,14 @@ public actor MobileHostSupervisor {
     private var state = MobileHostState()
     private var run: Task<Void, Never>?
     private var process: MobileHostProcess?
+    private struct ExposureWaiter {
+        var sessionID: String
+        var allowed: Bool
+        var continuation: CheckedContinuation<Void, Error>
+    }
+    private var nextExposureRequest: UInt64 = 0
+    private var exposureWaiters: [UInt64: ExposureWaiter] = [:]
+    private var exposureTimeouts: [UInt64: DemandTimer] = [:]
     /// Bumped by every start and stop; an older call that resumes late drops out.
     private var generation: UInt64 = 0
 
@@ -150,6 +158,11 @@ public actor MobileHostSupervisor {
 
     /// Ends the current run and waits for its hostd to exit.
     private func halt() async {
+        let waiters = exposureWaiters
+        exposureWaiters.removeAll()
+        exposureTimeouts.values.forEach { $0.cancel() }
+        exposureTimeouts.removeAll()
+        waiters.values.forEach { $0.continuation.resume(throwing: SessionExposureError.hostUnavailable) }
         let task = run
         run = nil
         task?.cancel()
@@ -165,6 +178,89 @@ public actor MobileHostSupervisor {
     /// Ends the live links of a phone the owner removed (hostd closes them at once).
     public func drop(phoneDeviceIDs: [String]) {
         for id in phoneDeviceIDs { process?.send(MobileHostLaunch.dropPhoneLine(id)) }
+    }
+
+    public enum SessionExposureError: Error, LocalizedError, Equatable, Sendable {
+        case hostUnavailable
+        case rejected(String)
+        case timedOut
+
+        public var errorDescription: String? {
+            switch self {
+            case .hostUnavailable: return "cmux-mobile-host is not running"
+            case let .rejected(reason): return reason
+            case .timedOut: return "cmux-mobile-host did not confirm the Remote Control change"
+            }
+        }
+    }
+
+    /// Changes one chat's Remote Control exposure and waits for the Rust host's exact state
+    /// acknowledgement. A dead host never reports success; persistence remains Rust-owned.
+    public func setSessionExposure(sessionID: String, allowed: Bool) async throws {
+        guard let process else { throw SessionExposureError.hostUnavailable }
+        let id = nextExposureRequest
+        nextExposureRequest &+= 1
+        try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                exposureWaiters[id] = ExposureWaiter(sessionID: sessionID, allowed: allowed, continuation: continuation)
+                guard process.send(MobileHostLaunch.sessionExposureLine(sessionID: sessionID, allowed: allowed)) else {
+                    exposureWaiters.removeValue(forKey: id)
+                    continuation.resume(throwing: SessionExposureError.hostUnavailable)
+                    return
+                }
+                let timeout = DemandTimer(owner: "MobileHostSupervisor.sessionExposure")
+                exposureTimeouts[id] = timeout
+                timeout.schedule(after: .seconds(3)) { [weak self] in
+                    await self?.timeoutExposureRequest(id)
+                }
+            }
+        }, onCancel: {
+            // task-owner: one actor hop resolves this cancelled request; it never waits or repeats.
+            Task { [weak self] in await self?.cancelExposureRequest(id) }
+        })
+    }
+
+    private func timeoutExposureRequest(_ id: UInt64) {
+        guard let waiter = exposureWaiters.removeValue(forKey: id) else { return }
+        exposureTimeouts.removeValue(forKey: id)?.cancel()
+        waiter.continuation.resume(throwing: SessionExposureError.timedOut)
+    }
+
+    private func cancelExposureRequest(_ id: UInt64) {
+        guard let waiter = exposureWaiters.removeValue(forKey: id) else { return }
+        exposureTimeouts.removeValue(forKey: id)?.cancel()
+        waiter.continuation.resume(throwing: CancellationError())
+    }
+
+    private func resolveExposureRequests(for event: MobileHostEvent) {
+        switch event {
+        case let .sessionExposureState(available, configured, sessions, blockedSessions):
+            let exposed = Set(sessions)
+            let blocked = Set(blockedSessions)
+            let resolved = exposureWaiters.compactMap { id, waiter in
+                (available && (waiter.allowed
+                    ? (configured ? exposed.contains(waiter.sessionID) : true)
+                    : blocked.contains(waiter.sessionID))) ? id : nil
+            }
+            for id in resolved {
+                guard let waiter = exposureWaiters[id] else { continue }
+                exposureWaiters.removeValue(forKey: id)
+                exposureTimeouts.removeValue(forKey: id)?.cancel()
+                waiter.continuation.resume()
+            }
+        case let .sessionExposureError(sessionID, allowed, reason):
+            let resolved = exposureWaiters.compactMap { id, waiter in
+                (waiter.sessionID == sessionID && waiter.allowed == allowed) ? id : nil
+            }
+            for id in resolved {
+                guard let waiter = exposureWaiters[id] else { continue }
+                exposureWaiters.removeValue(forKey: id)
+                exposureTimeouts.removeValue(forKey: id)?.cancel()
+                waiter.continuation.resume(throwing: SessionExposureError.rejected(reason))
+            }
+        default:
+            break
+        }
     }
 
     /// The phones this Mac approved: kept at once for each new hostd, and sent to the running one
@@ -325,17 +421,14 @@ public actor MobileHostSupervisor {
         }, failed: { error in
             logger.error("no access token for cmux-mobile-host: \(String(describing: type(of: error)), privacy: .public)")
         })
-        let acpmux = MobileHostAcpmuxSupply(fetch: inputs.acpmux, send: { endpoint in
-            child.send(MobileHostLaunch.acpmuxLine(url: endpoint.url, token: endpoint.token))
-        })
         let result = await withTaskGroup(of: Watched.self) { group in
             group.addTask { .exited(await child.waitForExit()) }
             group.addTask {
-                await self.pump(child, inputs: inputs, tokens: tokens, acpmux: acpmux)
+                await self.pump(child, inputs: inputs, tokens: tokens)
                 return .drained
             }
             group.addTask {
-                await self.handOver(child, inputs: inputs, tokens: tokens, acpmux: acpmux)
+                await self.handOver(child, inputs: inputs, tokens: tokens)
                 return .handedOver
             }
             var exit: Int32?
@@ -353,19 +446,18 @@ public actor MobileHostSupervisor {
             return exit
         }
         await tokens.stop()
-        await acpmux.stop()
         return result
     }
 
     /// Reads hostd's status lines until its stdout ends, answering its requests.
-    private func pump(_ child: MobileHostProcess, inputs: Inputs, tokens: MobileHostTokenSupply, acpmux: MobileHostAcpmuxSupply) async {
+    private func pump(_ child: MobileHostProcess, inputs: Inputs, tokens: MobileHostTokenSupply) async {
         for await line in child.lines {
             guard let event = MobileHostEvent(line: line) else { continue }
             switch event {
             case .needToken:
                 await tokens.request()
             case .needAcpmux:
-                await acpmux.request()
+                await sendAcpmux(child, inputs: inputs)
             case let .needCloudLinks(request):
                 // task-owner: one bounded hostd request; sends only to the child that asked.
                 // Looking up an install token must not hold up pairing or token control lines.
@@ -398,12 +490,13 @@ public actor MobileHostSupervisor {
                     $0.apply(event, at: at)
                     if let refused { $0.stoppedDevice = refused }
                 }
+                resolveExposureRequests(for: event)
             }
         }
     }
 
-    /// Send initial state and start the independent token and acpmux lookups.
-    private func handOver(_ child: MobileHostProcess, inputs: Inputs, tokens: MobileHostTokenSupply, acpmux: MobileHostAcpmuxSupply) async {
+    /// What hostd needs before its first connect: a token and the acpmux endpoint.
+    private func handOver(_ child: MobileHostProcess, inputs: Inputs, tokens: MobileHostTokenSupply) async {
         if let identity = inputs.macIdentity { child.send(MobileHostLaunch.macIdentityLine(identity)) }
         if let devicesLine = devicesForNextHostd() { child.send(devicesLine) }
         if let phoneCredentialsLine { child.send(phoneCredentialsLine) }
@@ -411,7 +504,7 @@ public actor MobileHostSupervisor {
         if let appearanceLine { child.send(appearanceLine) }
         for line in tabPictureLines.values { child.send(line) }
         await tokens.request()
-        await acpmux.request()
+        await sendAcpmux(child, inputs: inputs)
     }
 
     /// Starts a browser host for hostd without holding up its other requests.
@@ -456,6 +549,11 @@ public actor MobileHostSupervisor {
                 child.send(MobileHostLaunch.surfaceFailedLine(request: request, reason: String(describing: error)))
             }
         }
+    }
+
+    private func sendAcpmux(_ child: MobileHostProcess, inputs: Inputs) async {
+        guard let endpoint = await inputs.acpmux() else { return }
+        child.send(MobileHostLaunch.acpmuxLine(url: endpoint.url, token: endpoint.token))
     }
 
     private func publish(_ change: (inout MobileHostState) -> Void) {

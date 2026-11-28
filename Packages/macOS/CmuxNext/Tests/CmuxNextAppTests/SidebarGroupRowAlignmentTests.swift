@@ -66,4 +66,24 @@ import Testing
             #expect(abs(name - title) < 0.5, "\(c): header name at \(name), member title at \(title)")
         }
     }
+
+    /// A row's warning triangle with no spinner sits on the spinners' column, in the spinner's box: the frame
+    /// `layoutColumnMark` gives a spinner (`statusGlyphFrame` centered on `trailingColumnCenterX`, on the row's middle).
+    @Test(arguments: SidebarDensity.allCases)
+    func theWarningTriangleSharesTheSpinnersCenterAndBox(_ density: SidebarDensity) throws {
+        try SidebarGroupRailAlignmentTests.with(density, .off) {
+            var warned = SidebarWorkspace(id: WorkspaceID("ws-warned"), title: "warned", lastActivity: Date(), kind: .harness)
+            warned.usageWarnings = ["90 subagents started in the last hour, above 40"]
+            let row = try SidebarUsageWarningTests.rowView(warned)
+            row.layoutSubtreeIfNeeded()
+            try #require(!row.usageWarningMark.isHidden, "the warned row shows its triangle")
+            let triangle = row.usageWarningMark.frame
+            let side = SidebarStyle.statusGlyphSize
+            let spinner = row.statusGlyphFrame(trailing: SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width) + side / 2,
+                                               centerY: triangle.midY)
+            #expect(abs(triangle.midX - spinner.midX) < 0.5, "\(density.rawValue): triangle center x \(triangle.midX), spinner column \(spinner.midX)")
+            #expect(triangle.size == spinner.size, "\(density.rawValue): triangle box \(triangle.size), spinner box \(spinner.size)")
+            #expect(abs(triangle.midY - row.bounds.midY) < 0.5, "\(density.rawValue): triangle center y \(triangle.midY), row middle \(row.bounds.midY)")
+        }
+    }
 }

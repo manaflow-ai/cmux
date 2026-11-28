@@ -132,7 +132,6 @@ final class HomeVoiceDictation: HomeVoiceInput {
         case .onDeviceRecognitionUnavailable:
             String(localized: "home.voice.languageUnavailable", defaultValue: "On-device dictation is not available for this language.", bundle: .localizedModule)
         case .modelDownloadFailed:
-            // retry-prompt-ok: a speech model download the person starts while online
             String(localized: "home.voice.modelDownloadFailed", defaultValue: "The speech model could not be downloaded. Try again when you are online.", bundle: .localizedModule)
         case .audioCaptureFailed:
             String(localized: "home.voice.noMicrophone", defaultValue: "No microphone is available.", bundle: .localizedModule)

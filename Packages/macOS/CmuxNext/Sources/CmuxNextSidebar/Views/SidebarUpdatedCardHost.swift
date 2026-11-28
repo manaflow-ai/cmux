@@ -20,10 +20,7 @@ import CmuxNextWakeups
 /// of turning solid (Leo 2026-11-08: "it turns from glass when it's unhovered into
 /// opaque when it does get hovered. I feel like we should be able to keep it as
 /// glass though, right?"). It is the card's size and its open preview's, and runs
-/// the page's preview motion with it (``MotionGate/cardCurve``). It shows only while
-/// the card stands over rows (an open or closing preview, a held or settling card): at
-/// rest the page's material is the card's one glass (Leo 2026-11-27: "there's a glass
-/// back that shouldnt be there").
+/// the page's preview motion with it (``MotionGate/cardCurve``).
 ///
 /// Resting on the card opens its changes beside the sidebar, in the app's one hover card window
 /// (``SidebarUpdatedNotesPopover``; Lawrence 2026-11-07, on the list that grew up over the
@@ -354,7 +351,6 @@ final class SidebarUpdatedCardHost: NSView {
             // A card that comes back starts at its rest, not on the way from an old drop.
             settleX.reset()
             settleY.reset()
-            standsOffRest = false
             // A card that comes back starts without its x until the pointer moves onto it.
             isHovered = false
             setHoverShown(closeButton, false, fades: false)
@@ -494,10 +490,7 @@ final class SidebarUpdatedCardHost: NSView {
         let preview = card == nil ? 0 : island?.previewHeight ?? 0
         let tall = min(bounds.height, (height > 0 ? height : bounds.height) + preview)
         let next = NSRect(x: 0, y: anchor == .top ? 0 : bounds.height - tall, width: bounds.width, height: tall)
-        // The frost only where the card stands over the sidebar's rows (an open preview, a held or settling
-        // card): at rest the card has its own room and the page's material is the card's one glass, so a
-        // second panel under it was a glass back the card should not have (Leo 2026-11-27, ask-d2dd4431bf).
-        defer { glass.isHidden = card == nil || tall <= 0 || !drawn || !frosts(preview: preview) }
+        glass.isHidden = card == nil || tall <= 0 || !drawn
         // The composer's corner at the page's zoom: the page's corner grows with the interface scale.
         glass.cornerRadius = LayoutGrid.composerRadius * (island?.zoom ?? 1) // concentric-allow: the composer's own corner under the page's card, which wears it too
         guard next != glassFrame else { return }
@@ -517,20 +510,9 @@ final class SidebarUpdatedCardHost: NSView {
             // An earlier motion's end leaves a later close's hold alone.
             guard let self, glassMotion == motion else { return }
             closingHeight = nil
-            // The close has ended: the card is at rest, without its frost.
-            if !frosts(preview: glassPreview) { glass.isHidden = true }
             pointerHover?.refresh()
         }
     }
-
-    /// The card stands off its rest (held, or springing back from a drop): over the rows, so it frosts them.
-    var standsOffRest = false {
-        didSet { if standsOffRest != oldValue { needsLayout = true } }
-    }
-
-    /// Whether the native frost shows under the page: only while the card or its open preview stands over the
-    /// rows, which the page's own blur cannot reach (Leo 2026-11-08: "we should be able to keep it as glass").
-    func frosts(preview: CGFloat) -> Bool { preview > 0 || closingHeight != nil || heldOffset != nil || standsOffRest }
 
     /// Whether the card's glass covers `windowPoint`: the rows under it light nothing and open no card
     /// (``SidebarListView/hoverOccluded``).

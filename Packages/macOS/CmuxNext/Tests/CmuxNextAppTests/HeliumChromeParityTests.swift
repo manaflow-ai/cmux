@@ -98,14 +98,15 @@ import Testing
         }
     }
 
-    /// tabs.patch (tab_close_button.cc): the x's hover is a rounded rect, not Chrome's circle: Helium's 14 pt square with
-    /// a 4 pt corner at Default (`HeliumTabCloseButtonTests` checks every density).
+    /// tabs.patch (tab_close_button.cc): the x's hover is a rounded rect, not Chrome's circle, with Helium's own 4 pt
+    /// corner on its 14 pt square (`RoundRectHighlightPathGenerator`), not one nested in the pill (Lawrence 2026-11-13:
+    /// "need to match the X icon on helium in terms of hover too (like roundness of it), should be applied to all
+    /// densities"; `HeliumTabCloseButtonTests` checks every density).
     @Test func tabCloseHoverIsHeliumsRoundedSquare() {
         DensityTokens.$scoped.withValue(DensityPreset.cozy.tokens) {
             let metrics = TabStripMetrics.standard
-            // tab_close_button.cc: a 4 pt rounded square, the 14 pt visible square itself on a tab under 32 pt.
-            #expect(metrics.closePlateSide == 14 && metrics.closeCornerRadius == 4)
-            #expect(metrics.closeCornerRadius < metrics.closePlateSide / 2, "a rounded square, not a circle")
+            #expect(metrics.closeCornerRadius == (metrics.closeButtonSize * 4 / 14 * 2).rounded() / 2)
+            #expect(metrics.closeCornerRadius < metrics.closeButtonSize / 2, "a rounded square, not a circle")
         }
     }
 }

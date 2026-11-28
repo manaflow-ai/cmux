@@ -50,7 +50,6 @@ public nonisolated enum DiffPageStrings {
     }
 
     static var pullRequestFailed: String {
-        // retry-prompt-ok: opening a pull request is a side effect on GitHub
         String(localized: "diff.page.pullRequestFailed", defaultValue: "The pull request could not be opened. Try again.",
                table: "DiffPage", bundle: .localizedModule)
     }

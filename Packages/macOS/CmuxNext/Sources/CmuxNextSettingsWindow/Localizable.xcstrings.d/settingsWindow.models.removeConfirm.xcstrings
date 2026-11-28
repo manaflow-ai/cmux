@@ -8,127 +8,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chats will stop using this connection."
+            "value" : "Remove %@? Threads stop using it."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ستتوقف المحادثات عن استخدام هذا الاتصال."
+            "value" : "هل تريد إزالة %@؟ ستتوقف المحادثات عن استخدامه."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Razgovori više neće koristiti ovu vezu."
+            "value" : "Ukloniti %@? Niti ga više neće koristiti."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chats holder op med at bruge denne forbindelse."
+            "value" : "Fjern %@? Tråde holder op med at bruge den."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chats verwenden diese Verbindung dann nicht mehr."
+            "value" : "%@ entfernen? Threads nutzen es dann nicht mehr."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Los chats dejarán de usar esta conexión."
+            "value" : "¿Eliminar %@? Los hilos dejarán de usarla."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les discussions cesseront d’utiliser cette connexion."
+            "value" : "Supprimer %@ ? Les fils cesseront de l’utiliser."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le chat smetteranno di usare questa connessione."
+            "value" : "Rimuovere %@? I thread smetteranno di usarla."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "チャットでこの接続が使用されなくなります。"
+            "value" : "%@ を削除しますか？スレッドで使われなくなります。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ការជជែកនឹងឈប់ប្រើការតភ្ជាប់នេះ។"
+            "value" : "ដក %@ ចេញ? ខ្សែសន្ទនានឹងឈប់ប្រើវា។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "채팅에서 이 연결을 더 이상 사용하지 않습니다."
+            "value" : "%@을(를) 제거할까요? 스레드에서 더 이상 사용하지 않습니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Samtaler slutter å bruke denne tilkoblingen."
+            "value" : "Fjerne %@? Tråder slutter å bruke den."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Czaty przestaną korzystać z tego połączenia."
+            "value" : "Usunąć %@? Wątki przestaną go używać."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "As conversas deixarão de usar esta conexão."
+            "value" : "Remover %@? As conversas deixarão de usá-la."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Чаты перестанут использовать это подключение."
+            "value" : "Удалить %@? Ветки перестанут его использовать."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "แชทจะหยุดใช้การเชื่อมต่อนี้"
+            "value" : "เอา %@ ออกไหม เธรดจะเลิกใช้รายการนี้"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sohbetler bu bağlantıyı kullanmayı bırakacak."
+            "value" : "%@ kaldırılsın mı? Sohbetler artık onu kullanmaz."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Чати більше не використовуватимуть це з’єднання."
+            "value" : "Вилучити %@? Гілки перестануть його використовувати."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Các cuộc trò chuyện sẽ ngừng dùng kết nối này."
+            "value" : "Xóa %@? Các luồng sẽ không dùng nó nữa."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "聊天将停止使用此连接。"
+            "value" : "移除 %@？线程将不再使用它。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "聊天將停止使用此連線。"
+            "value" : "移除 %@？執行緒將不再使用它。"
           }
         }
       }

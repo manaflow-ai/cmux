@@ -44,4 +44,12 @@ public enum TabKind: Sendable, Hashable, Codable {
     }
 }
 
-/// `CellSize` is generated from the schema's `Size` (swift_app/bindings.json, Tree family).
+public struct CellSize: Sendable, Hashable, Codable {
+    public var cols: Int
+    public var rows: Int
+
+    public init(cols: Int, rows: Int) {
+        self.cols = cols
+        self.rows = rows
+    }
+}

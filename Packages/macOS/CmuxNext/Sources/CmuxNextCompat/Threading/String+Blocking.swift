@@ -12,7 +12,8 @@ extension String {
     /// - Throws: What `String(contentsOf:encoding:)` throws.
     @inlinable
     public init(blockingContentsOf url: URL, encoding: String.Encoding, fileID: StaticString = #fileID, line: UInt = #line) throws {
-        self = try blockingCall(.fileIO, fileID: fileID, line: line) { try String(contentsOf: url, encoding: encoding) }
+        assertBlockingAllowed(.fileIO, fileID: fileID, line: line)
+        try self.init(contentsOf: url, encoding: encoding)
     }
 
     /// Reads a text file and detects its encoding, like `String(contentsOf:)`, as a checked
@@ -25,8 +26,9 @@ extension String {
     /// - Throws: What `String(contentsOf:usedEncoding:)` throws.
     @inlinable
     public init(blockingContentsOf url: URL, fileID: StaticString = #fileID, line: UInt = #line) throws {
+        assertBlockingAllowed(.fileIO, fileID: fileID, line: line)
         var encoding = String.Encoding.utf8
-        self = try blockingCall(.fileIO, fileID: fileID, line: line) { try String(contentsOf: url, usedEncoding: &encoding) }
+        try self.init(contentsOf: url, usedEncoding: &encoding)
     }
 
     /// Reads a text file at a path, like `String(contentsOfFile:encoding:)`, as a checked
@@ -40,7 +42,8 @@ extension String {
     /// - Throws: What `String(contentsOfFile:encoding:)` throws.
     @inlinable
     public init(blockingContentsOfFile path: String, encoding: String.Encoding, fileID: StaticString = #fileID, line: UInt = #line) throws {
-        self = try blockingCall(.fileIO, fileID: fileID, line: line) { try String(contentsOfFile: path, encoding: encoding) }
+        assertBlockingAllowed(.fileIO, fileID: fileID, line: line)
+        try self.init(contentsOfFile: path, encoding: encoding)
     }
 }
 
@@ -57,6 +60,7 @@ extension StringProtocol {
     /// - Throws: What `write(to:atomically:encoding:)` throws.
     @inlinable
     public func blockingWrite(to url: URL, atomically useAuxiliaryFile: Bool, encoding: String.Encoding, fileID: StaticString = #fileID, line: UInt = #line) throws {
-        try blockingCall(.fileIO, fileID: fileID, line: line) { try write(to: url, atomically: useAuxiliaryFile, encoding: encoding) }
+        assertBlockingAllowed(.fileIO, fileID: fileID, line: line)
+        try write(to: url, atomically: useAuxiliaryFile, encoding: encoding)
     }
 }

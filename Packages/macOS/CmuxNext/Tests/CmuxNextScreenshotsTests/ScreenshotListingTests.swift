@@ -70,7 +70,7 @@ import Testing
                 truth[item.id] = item
             }
         }
-        #expect(listing.items == ScreenshotListing(Array(truth.values)).items)
+        #expect(listing.items == truth.values.sorted(by: ScreenshotListing.precedes))
     }
 
     /// A screenshot landing in a folder of 20 000 files is placed without a re-sort.

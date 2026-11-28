@@ -54,7 +54,6 @@ extension PageWebView {
         applyTheme(force: true)
         applyLanguage()
         applyLiveDocumentAttributes()
-        overlayDocumentLoaded()
         resumeLoadWaiters()
         onDocumentLoaded?()
         healthFeed?.pageLoaded(self)

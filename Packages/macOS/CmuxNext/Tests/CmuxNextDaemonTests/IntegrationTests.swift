@@ -136,8 +136,6 @@ struct IntegrationTests {
             let workspace = try await connection.createWorkspace(name: "it")
             let terminal = try await connection.createTerminal(in: workspace.key, cwd: root.path, size: CellSize(cols: 80, rows: 24))
             let surface = try #require(terminal.surface)
-            // The barrier after the reply first, as for the move below.
-            await store.applied(through: await connection.eventSequence())
             try await store.waitUntil("store sees the new tab") { store.tab(surface: surface) != nil }
             let resourceID = await store.tab(surface: surface)?.terminalResourceID
             #expect(await store.workspace(key: workspace.key)?.name == "it")
@@ -194,17 +192,7 @@ struct IntegrationTests {
 
             // Tab drag: move the tab into a new workspace (fallback path on
             // daemons without tab-to-new-workspace).
-            // First the read-your-writes wait the app's own commands use (TabMoves, the
-            // split and column commands): the store applied the move's echo, every event up
-            // to the barrier taken after the reply, or a snapshot. Only the suite's time
-            // limit bounds it, since the event stream's pace under load is not the subject:
-            // a fixed 10 s from the request ran out on a loaded runner (base run 45003503840,
-            // the whole test 63 s; it passed in 189-200 s under the same load at earlier tips).
-            // The 10 s wait after it covers only a resync the echo itself asked for (an echo
-            // whose delta could not apply exactly is confirmed before the snapshot lands).
-            let move = ClientTransactionID.generate()
-            _ = try await connection.moveTabToNewWorkspace(surface, transaction: move)
-            await store.applied(move, connection: connection)
+            _ = try await connection.moveTabToNewWorkspace(surface, transaction: .generate())
             try await store.waitUntil("tab left the old workspace") {
                 let old = store.workspace(key: workspace.key)
                 return old?.screens.allSatisfy { $0.panes.allSatisfy { $0.tabs.isEmpty } } ?? true

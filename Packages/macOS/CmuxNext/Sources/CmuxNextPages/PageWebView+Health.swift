@@ -47,13 +47,10 @@ extension PageWebView {
     }
 
     /// Whether the person can see the page now: in a window that is on screen (not occluded, not in
-    /// the Dock), under no hidden ancestor, and not told it is hidden in Chromium (a clear ancestor, the
-    /// off-screen parking: ``setChromiumVisibility(_:)``). A page that cannot be seen stops its heartbeat
-    /// (the document is hidden), so health never times it. A Chromium page told it is hidden was timed
-    /// here, read as silent and reloaded every 10 s at idle (cmux20-bench, 2026-11-25).
+    /// the Dock) and under no hidden ancestor. A page that cannot be seen stops its heartbeat (the
+    /// document is hidden), so health never times it.
     public var isShownForHealth: Bool {
-        guard let window, !isHiddenOrHasHiddenAncestor, !isParkedSpare, !isDrawnAway,
-              chromiumSession?.toldHidden != true else { return false }
+        guard let window, !isHiddenOrHasHiddenAncestor, !isParkedSpare, !isDrawnAway else { return false }
         return window.isVisible && !window.isMiniaturized && window.occlusionState.contains(.visible)
     }
 
@@ -67,8 +64,6 @@ extension PageWebView {
         // A document that never loaded or whose process ended has nothing to save, and a WebKit
         // `reload()` of a view whose process ended does nothing: load it in a new process.
         guard loaded else {
-            // A crashed page its host holds (``holdsCrash``) is the host's to bring back.
-            guard !declinesCrashRepair("reloadPage") else { return false }
             reloadAfterCrashes()
             return true
         }
@@ -112,39 +107,20 @@ extension PageWebView {
     /// one. Chromium: the tab's own unresponsive-renderer answer (terminate), then its reload.
     /// WebKit: its web content process ends (WebKit's `_killWebContentProcess`) and the crash path
     /// reloads it (``contentProcessTerminated()``); a WebKit without that call loads the document again.
-    /// False when it did nothing: the page closed, or crashed and its host holds it (``holdsCrash``).
-    @discardableResult
-    public func restartRenderer() -> Bool {
-        guard !isClosed else { return false }
-        guard loaded else {
-            guard !declinesCrashRepair("restartRenderer") else { return false }
-            reloadAfterCrashes()
-            return true
-        }
+    public func restartRenderer() {
+        guard !isClosed else { return }
+        guard loaded else { return reloadAfterCrashes() }
         rendererRestartPending = true
         if let chromiumPage {
             // At once, not through the bridge's navigate (which waits on the renderer to turn the
             // Runtime domain on): the new document gets the binding with its commit.
             chromiumPage.restartRenderer()
-            return true
+            return
         }
         if !killWebContentProcess() {
             rendererRestartPending = false
             reloadAfterCrashes()
         }
-        return true
-    }
-
-    /// Whether app health's `repair` of this unloaded page must not run: its process ended and its host
-    /// holds it (the crash notice, the agent chat's own retry). A health reload here loaded the page under
-    /// the notice and reset its crash count (``reloadAfterCrashes()``), so a page that crashes as it loads
-    /// came back every few minutes forever instead of resting on the notice (hq#27887, class 2). Logged
-    /// with the crash's reason: the refusal names its cause.
-    private func declinesCrashRepair(_ repair: String) -> Bool {
-        guard holdsCrash else { return false }
-        let termination = lastTermination ?? .unknown
-        logger.error("page \(self.descriptor.id, privacy: .public) health \(repair, privacy: .public) declined: the page crashed (reason=\(termination.reason.rawValue, privacy: .public) pid=\(termination.pid)) and its host holds it for Reload")
-        return true
     }
 
     /// Ends this page's WebContent process (WebKit's `_killWebContentProcess`); false when WebKit has no such call.

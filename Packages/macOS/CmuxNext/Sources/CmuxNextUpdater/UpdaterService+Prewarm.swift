@@ -9,8 +9,6 @@ struct StagedPrewarmRun {
     let urgency: StagedUpdatePrewarm.Urgency
     /// The pre-warm's log line once it ended; nil while it runs.
     var line: String?
-    /// The pre-warm's task: cancelling it stops every process it started (``UpdaterService/stopPrewarm(_:)``).
-    var task: Task<Void, Never>?
 }
 
 /// An install click that waits for the pre-warm (``UpdaterService/installAfterPrewarm(_:)``).
@@ -47,20 +45,21 @@ extension UpdaterService {
         guard AppcastSelector.isOlder(identity.build, than: build) else {
             return skipPrewarm(of: build, "staged build \(build) is not newer than running build \(identity.build)")
         }
-        // Another build's pre-warm still running (Sparkle staged a newer build itself): its folder is gone or going.
-        stopPrewarm(": build \(build) is staged instead")
         let urgency = StagedUpdatePrewarm.Urgency()
         prewarmRun = StagedPrewarmRun(build: build, started: ContinuousClock.now, urgency: urgency)
         log.append("launch pre-warm of \(build): started (\(trigger))")
         let prewarm = StagedUpdatePrewarm(installations: UpdateInstallPreflight.stagedInstallations(bundleIdentifier: bundleIdentifier),
                                           bundleIdentifier: bundleIdentifier, build: build)
         let runner = prewarmRunner, log = log, work = work
-        let marker = prewarmMarker(bundleIdentifier: bundleIdentifier)
+        // The build's first launch records itself as pre-warmed (`cmux app launch-times`); no test writes the person's marker.
+        let process = ProcessInfo.processInfo
+        let marker = UpdateLogFile.isTestProcess(name: process.processName, environment: process.environment)
+            ? nil : StagedUpdatePrewarm.launchMarkerURL(bundleIdentifier: bundleIdentifier)
         // task-owner: one pre-warm per staged build; ends after its last process (each stopped at its timeout).
         // Best effort until an install click waits for it (``installAfterPrewarm(_:)`` raises `urgency`); its folder
         // scan runs on a files lane slot of its own
         // (``StagedUpdatePrewarm/perform(work:processes:timeout:total:clock:marker:urgency:progress:)``), its processes through AsyncProcess.
-        prewarmRun?.task = Task.detached(priority: WorkPriority.bestEffort.taskPriority) { [weak self] in
+        Task.detached(priority: WorkPriority.bestEffort.taskPriority) { [weak self] in
             let line: String
             if let runner { line = await runner(prewarm) } else { line = await prewarm.perform(work: work, marker: marker, urgency: urgency, progress: { log.append($0) }) }
             log.append(line)
@@ -101,35 +100,6 @@ extension UpdaterService {
         prewarmWaitTimer.schedule(after: left) { @MainActor [weak self] in self?.settlePrewarmWait(done: false) }
     }
 
-    /// Stops the staged build's pre-warm if it still runs, before the installer moves the staged copy (cmux#63767).
-    /// Every install reaches this: ``updaterWillInstallUpdate(build:)`` and ``updaterWillRelaunchApplication()``.
-    func stopPrewarmForInstall() {
-        stopPrewarm(" for the install")
-    }
-
-    /// Cancels the staged update's installer (``cancelStaged``), stopping its pre-warm first (cmux#63767): Sparkle's
-    /// cancel removes the staging folder, and Leo's NIGHTLY crashed exactly so, a newer build replacing the staged one
-    /// 1 s after its pre-warm started. Every cancel of a staged update in this app goes through here.
-    /// - Returns: whether an installer was held and is now cancelled.
-    func cancelStagedUpdate() -> Bool {
-        stopPrewarm(": the staged update was cancelled")
-        return cancelStaged()
-    }
-
-    /// Stops the staged build's pre-warm if it still runs, before its files move or go; `why` ends its log line
-    /// (`launch pre-warm of <build>: stopped<why>`, so `" for the install"` or `": the staged update was cancelled"`).
-    ///
-    /// Sparkle swaps the staged bundle into place on an install and removes its staging folder on an install or a
-    /// cancel; a pre-warm process still starting from there loads half a bundle and dies in dyld ("Library not
-    /// loaded: @rpath/Sparkle.framework", SIGABRT), a crash report for a process nobody started. Cancelling the
-    /// pre-warm's task signals each of its processes at once (their whole process group, ``AsyncProcess``), before
-    /// this returns, and starts no further run. A pre-warm that already ended is left as it was.
-    func stopPrewarm(_ why: String) {
-        guard let run = prewarmRun, run.line == nil, let task = run.task, !task.isCancelled else { return }
-        task.cancel()
-        log.append("launch pre-warm of \(run.build): stopped\(why)")
-    }
-
     /// The pre-warm `run` (its ``StagedPrewarmRun/urgency``) ended with `line`; an install waiting for it goes on.
     /// A pre-warm replaced since (another staged build) changes nothing.
     func prewarmEnded(_ run: StagedUpdatePrewarm.Urgency, line: String) {
@@ -153,25 +123,12 @@ extension UpdaterService {
         waiting.install()
     }
 
-    /// Logs why the staged build's pre-warm did not start, once per build and reason, and leaves it in the build's
-    /// marker, so its first launch records why it was not pre-warmed (`skipped:<why>` in `cmux app launch-times`).
+    /// Logs why the staged build's pre-warm did not start, once per build and reason, and returns the reason.
     private func skipPrewarm(of build: String?, _ reason: String) -> String {
         let key = "\(build ?? "")|\(reason)"
         guard prewarmSkipLogged != key else { return reason }
         prewarmSkipLogged = key
         log.append("launch pre-warm: skipped (\(reason))")
-        // Never the running build: its next launch is a relaunch, which reads `no_record`.
-        guard let build, !build.isEmpty, build != identity.build, let bundleIdentifier = identity.bundleIdentifier,
-              let marker = prewarmMarker(bundleIdentifier: bundleIdentifier) else { return reason }
-        work.post(.userVisible, mayBlock: .files) { StagedUpdatePrewarm.writeLaunchMarker(build: build, step: .skipped(reason), at: marker) }
         return reason
-    }
-
-    /// The app's pre-warm marker; nil in a test process, so no test writes the person's marker. The build's first
-    /// launch records what it says (`cmux app launch-times`' `prewarmed` and `prewarm_reason`).
-    private func prewarmMarker(bundleIdentifier: String) -> URL? {
-        let process = ProcessInfo.processInfo
-        return UpdateLogFile.isTestProcess(name: process.processName, environment: process.environment)
-            ? nil : StagedUpdatePrewarm.launchMarkerURL(bundleIdentifier: bundleIdentifier)
     }
 }

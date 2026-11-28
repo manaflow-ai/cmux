@@ -54,7 +54,7 @@ export class SecondaryStream<S> {
     const text = JSON.stringify(frame)
     for (const ws of this.ctx.getWebSockets()) {
       const a = ws.deserializeAttachment() as Attachment | null
-      if (a?.streams?.includes(this.spec.prefix) && this.live(ws, a) && this.engine && this.spec.maySubscribe(this.engine.currentState, a.principal, this.engine.stream.slice(this.spec.prefix.length + 1))) send(ws, text)
+      if (a?.streams?.includes(this.spec.prefix) && this.live(ws, a)) send(ws, text)
     }
   }
 
@@ -68,7 +68,7 @@ export class SecondaryStream<S> {
     const pending = Array.isArray(frame.pending) ? (frame.pending as Array<string>).filter((k) => typeof k === "string") : []
     switch (frame.t) {
       case "subscribe": {
-        if (!this.live(ws, a) || !this.spec.maySubscribe(engine.currentState, a.principal, entity)) return send(ws, { t: "error", code: "auth.forbidden", message: `not allowed on ${engine.stream}` })
+        if (!this.spec.maySubscribe(engine.currentState, a.principal, entity)) return send(ws, { t: "error", code: "auth.forbidden", message: `not allowed on ${engine.stream}` })
         a.streams = [...new Set([...(a.streams ?? []), this.spec.prefix])]
         ws.serializeAttachment(a)
         const after = typeof frame.after_seq === "number" ? frame.after_seq : undefined
@@ -79,7 +79,6 @@ export class SecondaryStream<S> {
       }
       case "snapshot.request":
         if (!a.streams?.includes(this.spec.prefix)) return send(ws, { t: "error", code: "validation.invalid", message: "subscribe first" })
-        if (!this.live(ws, a) || !this.spec.maySubscribe(engine.currentState, a.principal, entity)) return send(ws, { t: "error", code: "auth.forbidden", message: `not allowed on ${engine.stream}` })
         return send(ws, engine.snapshot(a.principal.identity, pending))
       case "unsubscribe":
         a.streams = (a.streams ?? []).filter((p) => p !== this.spec.prefix)
