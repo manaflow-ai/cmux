@@ -17,7 +17,7 @@ use super::*;
 pub(crate) const MAX_BYTES: u64 = 64 << 20;
 
 /// Reads the folder (line 1) and the byte bound (line 2) from stdin. Prints `missing` when the
-/// folder is not there, `big N` when its pack is N bytes over the bound, else `ok N` then the
+/// folder is not there, `big N` when its pack passed the bound (N = max+1, the most it wrote), else `ok N` then the
 /// pack in base64. Notes for the person go on stderr with the `acpmux move: ` prefix.
 pub(crate) const PACK_SCRIPT: &str = r#"read -r d || exit 2; read -r max || exit 2
 case "$d" in /*) ;; *) exit 2;; esac
@@ -25,17 +25,20 @@ if [ ! -d "$d" ]; then echo missing; exit 0; fi
 cd -- "$d" || exit 2
 s=$(mktemp -d) || exit 2
 trap 'rm -rf -- "$s"' EXIT
-tar -czf "$s/t" \
+# The pack streams through a byte bound: tar stops (SIGPIPE) once max+1 bytes are written, so an
+# over-limit folder never costs more than max+1 bytes of disk. Its exit status goes via a file.
+{ tar -czf - \
   --exclude='.env' --exclude='.env.*' --exclude='*.pem' --exclude='*.key' \
   --exclude='id_rsa*' --exclude='id_ed25519*' --exclude='.netrc' \
   --exclude='.ssh' --exclude='.aws' --exclude='.gnupg' --exclude='.docker' \
   --exclude='node_modules' --exclude='.venv' --exclude='.next' --exclude='__pycache__' \
-  --exclude='.gradle' --exclude='.cache' \
-  . 2>"$s/err" || { cat -- "$s/err" >&2; exit 3; }
-left=$(find . \( -name '.env' -o -name '.env.*' -o -name '*.pem' -o -name '*.key' -o -name 'id_rsa*' -o -name 'id_ed25519*' -o -name .netrc -o -name .ssh -o -name .aws -o -name .gnupg -o -name .docker -o -name node_modules -o -name .venv -o -name .next -o -name __pycache__ -o -name .gradle -o -name .cache \) -prune -print 2>/dev/null | head -20 | tr '\n' ' ')
-if [ -n "$left" ]; then echo "acpmux move: left on this machine: $left" >&2; fi
+  --exclude='.gradle' --exclude='.cache' --exclude='.wt-mirrors' \
+  . 2>"$s/err"; echo $? >"$s/rc"; } | head -c $((max + 1)) >"$s/t"
 n=$(wc -c <"$s/t" | tr -d ' ')
 if [ "$n" -gt "$max" ]; then echo "big $n"; exit 0; fi
+read -r rc <"$s/rc" 2>/dev/null; if [ "${rc:-1}" != 0 ]; then cat -- "$s/err" >&2; exit 3; fi
+left=$(find . \( -name '.env' -o -name '.env.*' -o -name '*.pem' -o -name '*.key' -o -name 'id_rsa*' -o -name 'id_ed25519*' -o -name .netrc -o -name .ssh -o -name .aws -o -name .gnupg -o -name .docker -o -name node_modules -o -name .venv -o -name .next -o -name __pycache__ -o -name .gradle -o -name .cache -o -name .wt-mirrors \) -prune -print 2>/dev/null | head -20 | tr '\n' ' ')
+if [ -n "$left" ]; then echo "acpmux move: left on this machine: $left" >&2; fi
 echo "ok $n"
 base64 <"$s/t" | tr -d '\n'
 echo"#;

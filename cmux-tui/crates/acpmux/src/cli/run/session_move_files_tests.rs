@@ -55,3 +55,49 @@ fn a_missing_folder_is_only_a_path_and_a_big_one_is_named() {
     let out = run_here(PACK_SCRIPT, input.as_bytes()).unwrap();
     assert!(out.stdout.starts_with("big "), "{out:?}");
 }
+
+#[test]
+fn an_over_max_folder_is_big_and_writes_at_most_max_plus_one_bytes() {
+    let base = tempfile::tempdir().unwrap();
+    let src = base.path().join("p");
+    // Incompressible-ish data well over the bound.
+    let data: Vec<u8> = (0..400_000u32).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect();
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(src.join("blob"), &data).unwrap();
+    // The script's temp dir is removed on exit: watch what it writes through a TMPDIR we own.
+    let tmp = base.path().join("tmp");
+    std::fs::create_dir_all(&tmp).unwrap();
+    let script = PACK_SCRIPT.replace(
+        "if [ \"$n\" -gt \"$max\" ]; then echo \"big $n\"; exit 0; fi",
+        "if [ \"$n\" -gt \"$max\" ]; then echo \"big $n\"; echo \"$n\" >\"$TMPDIR/size\"; exit 0; fi",
+    );
+    let input = format!("{}\n1000\n", src.display());
+    let out = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(&script)
+        .env("TMPDIR", &tmp)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut c| {
+            use std::io::Write as _;
+            c.stdin.take().unwrap().write_all(input.as_bytes())?;
+            c.wait_with_output()
+        })
+        .unwrap();
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "big 1001");
+    assert_eq!(std::fs::read_to_string(tmp.join("size")).unwrap().trim(), "1001");
+}
+
+#[test]
+fn the_wt_mirrors_folder_stays_behind() {
+    let base = tempfile::tempdir().unwrap();
+    let src = base.path().join("p");
+    write(&src.join("a.txt"), "a");
+    write(&src.join(".wt-mirrors/x/pack"), "m");
+    let Packed::Files(pack) = pack_folder(None, &src).unwrap() else { panic!("not packed") };
+    let there =
+        PathBuf::from(unpack_folder("", &base.path().join("t").to_string_lossy(), &pack).unwrap());
+    assert!(there.join("a.txt").exists());
+    assert!(!there.join(".wt-mirrors").exists());
+}
