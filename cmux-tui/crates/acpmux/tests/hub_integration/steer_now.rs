@@ -165,7 +165,7 @@ async fn send_now_for_a_queued_prompt_steers_it_in_at_once() {
     let sent = send_now(&hub, &id, "p-queued").await;
     assert_eq!(sent["sent"], "steer", "{sent}");
     let read = ended_and_carried(&mut c, turn, json!(["p-queued"])).await;
-    assert_eq!(read, "read: MANGO");
+    assert_eq!(read, read_now("MANGO"));
 }
 
 /// Send now on a queued `/compact` (one of the agent's own commands) stops the running turn and
@@ -321,6 +321,14 @@ async fn only_the_sender_takes_back_a_persons_steer() {
     assert!(!said(&seen, "read: PINEAPPLE"), "the agent read the withdrawn steer: {seen:?}");
 }
 
+/// What a steer sent now reads: its words, then acpmux's note that the stop was its delivery
+/// (#63480), so the model never takes the interrupt for a person's stop order.
+fn read_now(words: &str) -> String {
+    format!(
+        "read: {words}[acpmux] The interruption just before this message was acpmux delivering it at once, not anyone stopping you: no one asked you to stop or to wait for the user. Read this message, then go on with your work."
+    )
+}
+
 /// A steer that asks to be read now when it is sent (`_meta.acpmux.steerNow`): the Chief's tell
 /// (Lawrence, 2026-10-26: a Chief message lands in the agent's chat "with interrupt by default").
 /// It stops the agent's current step as the pane's Send now does, without a second request: the
@@ -339,7 +347,7 @@ async fn a_steer_sent_with_steer_now_stops_the_step_at_once() {
     let carried = ended_and_carried(&mut c, turn, json!(["p-now"]));
     let ended = tokio::time::timeout(std::time::Duration::from_secs(20), carried).await;
     let read = ended.expect("steerNow did not stop the step: the turn still runs");
-    assert_eq!(read, "read: PINEAPPLE");
+    assert_eq!(read, read_now("PINEAPPLE"));
 }
 
 /// Ten other sessions' messages sent while the step runs go in as one (Leo, 2026-10-27: "i also
