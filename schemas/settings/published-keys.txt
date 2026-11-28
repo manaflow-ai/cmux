@@ -37,6 +37,7 @@ agentPane.display.minimap
 agentPane.display.modelChipIcon
 agentPane.display.modelPickerOrder
 agentPane.display.modelPickerStyle
+agentPane.display.ownHarnessUpdatesOnly
 agentPane.display.pinnedPlan
 agentPane.display.presentation
 agentPane.display.promptCoach

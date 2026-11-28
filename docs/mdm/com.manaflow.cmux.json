@@ -301,6 +301,12 @@
       "title" : "Model Picker Style",
       "type" : "string"
     },
+    "agentPane.display.ownHarnessUpdatesOnly" : {
+      "default" : false,
+      "description" : "The model menu offers an update for this chat's agent only, not for every agent on this Mac.",
+      "title" : "Only This Chat's Agent Updates",
+      "type" : "boolean"
+    },
     "agentPane.display.presentation" : {
       "default" : "transcript",
       "description" : "Chat Presentation",
