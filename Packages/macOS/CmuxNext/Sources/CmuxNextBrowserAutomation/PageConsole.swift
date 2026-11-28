@@ -51,18 +51,12 @@ enum PageConsole {
     """
 
     /// The driver event for a handler message: `console {type, text}` or
-    /// `pageerror {message, stack}`.
+    /// `pageerror {message, stack}`. The mapping is Rust's (cmux-browser-rules
+    /// `page_events.rs`, op `browser_rules_automation_console_event`).
     static func event(_ body: Any) -> (name: String, payload: [String: DriverJSON])? {
-        guard let body = body as? [String: Any], let kind = body["kind"] as? String else { return nil }
-        switch kind {
-        case "console":
-            guard let type = body["type"] as? String, let text = body["text"] as? String else { return nil }
-            return ("console", ["type": .string(type), "text": .string(text)])
-        case "pageerror":
-            guard let message = body["message"] as? String else { return nil }
-            return ("pageerror", ["message": .string(message), "stack": .string(body["stack"] as? String ?? message)])
-        default:
-            return nil
-        }
+        guard JSONSerialization.isValidJSONObject(["body": body]) else { return nil }
+        guard case .object(let reply)? = BrowserRulesFFI.call("console_event", ["body": body]),
+              let name = reply["name"]?.stringValue, case .object(let payload)? = reply["payload"] else { return nil }
+        return (name, payload)
     }
 }

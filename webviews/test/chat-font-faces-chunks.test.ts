@@ -4,6 +4,7 @@
 // data URLs), faces.ts's own chunk carries no face, and each face's chunk carries exactly one.
 import { expect, test } from "bun:test";
 import { build } from "esbuild";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 
 test("each bundled chat face is a chunk of its own, and faces.ts carries none", async () => {
@@ -24,6 +25,10 @@ test("each bundled chat face is a chunk of its own, and faces.ts carries none", 
   const own = outputs.find((output) => output.entryPoint && path.resolve(output.entryPoint) === entry)!;
   expect(fonts(own.inputs)).toEqual([]);
   const faces = outputs.map((output) => fonts(output.inputs)).filter((list) => list.length > 0);
-  expect(faces).toHaveLength(8);
+  // One chunk per face faces.ts imports: the count follows the list (eight at #46989, eleven since cmux Sans
+  // Squat, Candy and Open joined it, #47609), so a new face never turns this red.
+  const imported = new Set(readFileSync(entry, "utf8").match(/import\("\.\/[^"]+\.woff2"\)/g));
+  expect(imported.size).toBeGreaterThanOrEqual(8);
+  expect(faces).toHaveLength(imported.size);
   for (const list of faces) expect(list).toHaveLength(1);
 });
