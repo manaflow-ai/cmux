@@ -460,7 +460,11 @@ impl Hub {
             from.set("host", json!(host));
         }
         let pages_ms = paging.elapsed().as_millis() as u64;
-        let finish = json!({"receiveId": receive_id, "from": from, "epoch": epoch, "cwd": cwd});
+        let mut finish = json!({"receiveId": receive_id, "from": from, "epoch": epoch, "cwd": cwd});
+        // The source's folder plan: the chat's own folder here, so its manifest rebinds to it.
+        if body.get("sameFolder") == Some(&Value::Bool(true)) {
+            finish.set("sameFolder", json!(true));
+        }
         let finishing = std::time::Instant::now();
         let moved = self.transfer_finish(&finish).await?;
         let finish_ms = finishing.elapsed().as_millis() as u64;
