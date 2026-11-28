@@ -68,7 +68,7 @@ fn recover_replay() {
     let total = OK_RUNS + fails;
     println!("class\tcount\taction");
     let mut sorted: Vec<_> = by.iter().collect();
-    sorted.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+    sorted.sort_by_key(|row| std::cmp::Reverse(row.1.0));
     for (k, (n, a)) in sorted {
         println!("{k}\t{n}\t{}", a.as_deref().unwrap_or("none"));
     }
