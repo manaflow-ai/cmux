@@ -635,9 +635,15 @@ async fn a_flapping_hub_gate_wakes_each_delivery_once_per_back_off_not_per_flap(
     flapper.abort();
     let posts = stub.posts.lock().unwrap().len() - before;
     let flaps = SPAN.as_secs() / FLAP.as_secs();
-    println!("FLAP sends={SENDS} flaps={flaps} posts_in_{}s={posts}", SPAN.as_secs());
-    // Back-off 2, 5, 10, 30, 60, 120, 300 s: about seven steps in ten minutes, at most two posts
-    // a step (its own timer, one gate wake). A wake per flap would be SENDS * flaps = 10000.
-    assert!(posts <= SENDS * 16, "{posts} posts in ten minutes for {SENDS} deliveries");
+    // An attempt is a store write and a request built whether or not the shut gate then keeps it
+    // from the hub, so attempts, not hub posts (the gate already bounds those), are the cost.
+    let attempts: u32 = ids.iter().map(|id| hub.outbox.get(id).unwrap().attempts).sum();
+    println!(
+        "FLAP sends={SENDS} flaps={flaps} attempts_in_{}s={attempts} hub_posts={posts}",
+        SPAN.as_secs()
+    );
+    // Back-off 2, 5, 10, 30, 60, 120, 300 s: about seven steps in ten minutes, at most two
+    // attempts a step (its own timer, one gate wake). A wake per flap is SENDS * flaps = 10000.
+    assert!(attempts as usize <= SENDS * 16, "{attempts} attempts in ten minutes for {SENDS}");
     assert!(ids.iter().all(|id| !hub.outbox.get(id).unwrap().settled()), "all still kept");
 }
