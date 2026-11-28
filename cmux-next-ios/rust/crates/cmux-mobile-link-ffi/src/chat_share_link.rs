@@ -188,7 +188,10 @@ fn parse(text: &str) -> Option<ParsedChatShareLink> {
     }
     let scheme = parts.scheme.to_ascii_lowercase();
     if scheme == "https" {
-        let fragment = parts.fragment.map(decode).transpose()?;
+        let fragment = match parts.fragment {
+            Some(text) => Some(decode(text)?),
+            None => None,
+        };
         return page(&parts, fragment);
     }
     // The guest page's open-in-app link carries the page, and the secret in its own fragment.
