@@ -3458,6 +3458,7 @@ inputs = [
   "cmux-tui/crates/cmux-tui/tests/agent_message_policy/*",
   "cmux-tui/crates/cmux-tui/tests/carrier_support/*",
   "cmux-tui/crates/cmux-tui/tests/cli/*",
+  "cmux-tui/crates/cmux-tui/tests/data/*",
   "cmux-tui/crates/cmux-tui/tests/fault_support/*",
   "cmux-tui/crates/cmux-tui/tests/fixtures/*",
   "cmux-tui/crates/cmux-tui/tests/holder_terminals/*",

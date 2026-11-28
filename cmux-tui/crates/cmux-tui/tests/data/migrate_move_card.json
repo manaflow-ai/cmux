@@ -1,0 +1,57 @@
+{
+  "apply_answer": {
+    "events": [
+      {
+        "detail": "machine m1 (/home/cmux/work/app)",
+        "event": "done",
+        "progress": 0.25,
+        "project": "~/code/app",
+        "step": "create-machine"
+      }
+    ],
+    "failed": 0,
+    "left": 0,
+    "median_first_chat_ms": 9000,
+    "moved": 2
+  },
+  "apply_event": {
+    "detail": "machine m1 (/home/cmux/work/app)",
+    "event": "done",
+    "progress": 0.25,
+    "project": "~/code/app",
+    "step": "create-machine"
+  },
+  "apply_failed": {
+    "events": [
+      {
+        "detail": "not signed in",
+        "event": "failed",
+        "progress": 0.25,
+        "project": "~/code/app",
+        "step": "create-machine"
+      }
+    ],
+    "failed": 1,
+    "left": 2,
+    "median_first_chat_ms": null,
+    "moved": 0,
+    "reason": "create-machine ~/code/app: not signed in"
+  },
+  "preview": {
+    "already": 1,
+    "carry": 1,
+    "left": 1,
+    "left_rows": [
+      "Docker volumes: not copied"
+    ],
+    "more": false,
+    "moving": 2,
+    "names": [
+      "app",
+      "web"
+    ],
+    "warnings": [
+      "web has uncommitted changes: they come along as a patch"
+    ]
+  }
+}

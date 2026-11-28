@@ -28,8 +28,27 @@ public nonisolated struct MoveToAutoCloudStrings: Sendable {
         String(localized: "moveToAutoCloud.preview.unchanged",
                defaultValue: "Nothing on this Mac changes. Projects already moved aren’t moved twice.", table: "ImportSuggestions", bundle: .localizedModule)
     }
-    public static var moved: String {
-        String(localized: "moveToAutoCloud.toast.moved", defaultValue: "Your projects are moving to AutoCloud.", table: "ImportSuggestions", bundle: .localizedModule)
+    /// After the project list: those an earlier run moved, which this one skips.
+    public static func already(_ count: Int) -> String {
+        format(String(localized: "moveToAutoCloud.preview.already", defaultValue: "Already on AutoCloud from an earlier move, skipped: %@",
+                      table: "ImportSuggestions", bundle: .localizedModule), count)
+    }
+    /// Apply finished: every project it was asked to move has its machine.
+    public static func moved(_ count: Int) -> String {
+        format(String(localized: "moveToAutoCloud.toast.movedCount", defaultValue: "Moved to AutoCloud: %@ projects.",
+                      table: "ImportSuggestions", bundle: .localizedModule), count)
+    }
+    /// Nothing left to move: an earlier run moved them all.
+    public static func allMoved(_ count: Int) -> String {
+        format(String(localized: "moveToAutoCloud.toast.allMoved", defaultValue: "Already on AutoCloud: %@ projects. Nothing left to move.",
+                      table: "ImportSuggestions", bundle: .localizedModule), count)
+    }
+    /// Apply ended with some projects still not moved; the card offers Try Again.
+    public static func unfinished(moved: Int, left: Int) -> String {
+        String(format: String(localized: "moveToAutoCloud.toast.unfinished",
+                              defaultValue: "Moved to AutoCloud: %1$@ projects. Not moved yet: %2$@. Try Again moves the rest.",
+                              table: "ImportSuggestions", bundle: .localizedModule),
+               moved.formatted(.number), left.formatted(.number))
     }
     public static var nothing: String {
         String(localized: "moveToAutoCloud.toast.nothing", defaultValue: "No projects to move.", table: "ImportSuggestions", bundle: .localizedModule)
