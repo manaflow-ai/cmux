@@ -63,7 +63,7 @@ different), **n/a** (no Mac equivalent).
 | --- | --- | --- | --- |
 | `example.com` | https (typed-navigation upgrade, http fallback) | https; when https cannot connect (refused, reset, timed out, TLS or certificate error, not a name error) the tab loads it once over http (`HTTPSUpgradeFallback`) | **fixed**; tests `typedAddressesAreMarkedAsUpgrades`, `aRefusedUpgradeFallsBackToHTTP`, `chromiumErrorsThatFallBack` |
 | `localhost:3000`, `127.0.0.1` | http | http | match |
-| `192.168.1.20:3000`, `10.0.0.5`, `100.89.225.106:18765` (tailnet) | http (non-unique, never upgraded) | https: dev servers and routers failed | **fixed** |
+| `192.168.1.20:3000`, `10.0.0.5`, `100.101.102.103:8080` (tailnet) | http (non-unique, never upgraded) | https: dev servers and routers failed | **fixed** |
 | `devbox:8080`, `router/`, `router/setup` | http URL | `devbox:8080` https; `router/` searched | **fixed** |
 | `nas.local`, `grafana.internal`, `*.home.arpa` | http | https | **fixed** |
 | `[fd00::1]:8080` | http | https | **fixed** |

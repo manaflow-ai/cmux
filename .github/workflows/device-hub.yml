@@ -17,7 +17,7 @@
 # backend.yml uses for the NEXT API on the same account. The jobs run in the GitHub environments
 # backend.yml uses, cmux-next-development and cmux-next-production, whose branch policy bounds who
 # gets the token (tests/test_supplychain_security.py wants every dispatchable credential job in an
-# environment). The account id is not a secret: backend.yml and DEPLOY.md name it too.
+# environment). The account id is not a secret: backend.yml names it too.
 
 name: device-hub
 

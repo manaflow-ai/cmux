@@ -46,8 +46,8 @@ These override the text below where they differ.
 
 ## 1. Measurements
 
-Hosts: m1max (Lawrence's M1 Max, load 20 to 60 from other agents' jobs during the run, so local
-numbers are pessimistic) and aws-m4pro-1 (M4 Pro, idle, ec2-user@100.106.216.105, scratch daemon
+Hosts: m1max (an M1 Max, load 20 to 60 from other agents' jobs during the run, so local
+numbers are pessimistic) and aws-m4pro-1 (M4 Pro, idle, a tailnet host, scratch daemon
 in `~/ffre-scratch-ffre2`, deleted after). Network m1max to aws-m4pro-1: ICMP RTT 66 ms, one warm
 daemon request over the SSH carrier 67.5 ms p50. Tools: a raw daemon client that repeats the app's
 request sequence (`split`, `list-workspaces`, new connection `identify` + `set-client-info`,

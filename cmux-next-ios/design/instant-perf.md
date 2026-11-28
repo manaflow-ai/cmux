@@ -125,7 +125,7 @@ owned simulators):
 
 ## Running it
 
-Locally (a Mac you may build on; never huge-blue, big-red, air-blue or cosmic-gray):
+Locally (a Mac you may build on; never a shared team machine):
 
     CMUX_MOBILE_KIT_TEST_TARGETS=CmuxMobileInstantPerfTests swift test --package-path cmux-next-ios/CmuxMobileKit --filter CmuxMobileInstantPerfTests
     CMUX_INSTANT_PERF_OUT=/tmp/instant-perf.jsonl CMUX_INSTANT_PERF_RUNS=9 swift test ...   # JSONL, more runs

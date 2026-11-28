@@ -293,7 +293,7 @@ What this doc adds:
 ## 5. Today's main-thread hot paths, measured cost
 
 **Fleet bench: not measured** (still true on 2026-11-10 when this doc merged: step 0, #40132, is open and no GUI
-host ran it). At 03:20Z the fleet controller (`http://100.89.225.106:18765`) did not answer
+host ran it). At 03:20Z the fleet controller did not answer
 (`cmux-ci status` timed out); the office minis and controller are down (status/LEAD.md 02:48Z-03:19Z: the only
 working routes are GitHub Actions runners on cmux-lawrence-2-light and the ultra1 pool, build-only, with no GUI
 session or input grant). The large-session bench needs a GUI host with the input grant and step 0's script.
