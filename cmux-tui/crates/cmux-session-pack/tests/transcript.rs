@@ -311,3 +311,34 @@ fn a_transcript_reads_back_and_has_an_outline_and_digests() {
     // The last turns are one range.
     assert_eq!(m.tail_turns(2), t.starts[118]);
 }
+
+#[test]
+fn acpmux_turn_summaries_restore_prompt_blobs_at_the_extraction_boundary() {
+    use cmux_session_pack::digest::{outline, turns, turns_window};
+
+    for field in ["promptLine", "prompt"] {
+        let prompts = ["x".repeat(383), "y".repeat(384), "z".repeat(385), "界".repeat(129)];
+        let mut bytes = String::new();
+        for (i, prompt) in prompts.iter().enumerate() {
+            writeln!(bytes, r#"{{"seq":{i},"at":1795000000000,"dir":"mux","kind":"turn_started","msg":{{"{field}":"{prompt}"}}}}"#).unwrap();
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("events.ndjson");
+        std::fs::write(&file, bytes).unwrap();
+        let store = Store::new(dir.path().join("store"));
+        let (manifest, _) = pack(&store, "mux", &[file], &small(), false).unwrap();
+        let pack = Pack::with_manifest(&store, manifest);
+        let all = turns(&pack).unwrap();
+        let text = outline(&pack).unwrap();
+        assert_eq!(all.len(), prompts.len());
+        for (i, prompt) in prompts.iter().enumerate() {
+            let mut end = prompt.len().min(160);
+            while !prompt.is_char_boundary(end) {
+                end -= 1;
+            }
+            assert_eq!(all[i].ask, prompt[..end], "{field}, turn {i}");
+            assert_eq!(turns_window(&pack, i, i + 1).unwrap(), all[i..i + 1]);
+            assert!(text.lines().nth(i).unwrap().ends_with(&prompt[..end]));
+        }
+    }
+}
