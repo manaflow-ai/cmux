@@ -94,7 +94,9 @@ public final class TerminalModel {
 
     /// The page menu's Reconnect: only past the quiet bound of an outage,
     /// and only with a recovery to run.
-    public var offersReconnect: Bool { connectionLine != nil && reconnect != nil }
+    /// Keyed on the quiet gate, not ``connectionLine``: a reattach puts no words on screen
+    /// (Leo 2026-11-22), yet a long one still gets the menu's Reconnect.
+    public var offersReconnect: Bool { quietStatus.isShown && !connectionState.isAttached && reconnect != nil }
     var sticky = TerminalStickyModifiers()
 
     // Composer
