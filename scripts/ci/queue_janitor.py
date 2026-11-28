@@ -513,6 +513,10 @@ PROTECTED_WORKFLOW = re.compile(r"release|nightly|testflight|app[-_ ]?store|apps
 # files nothing, so dep-fleet's ruling (#27521) does not cover it and the sweep treats it as any pull request run.
 PULL_REQUEST_PROTECTED_WORKFLOW = re.compile(r"release|testflight|app[-_ ]?store|appstore|publish|notar",
                                              re.IGNORECASE)
+# ci.yml's run-name carries routing settings (`v1;sha=...;release=arm64;coverage=...`). The `release=` setting names
+# no release workflow, so protected_reason() drops it before matching, as orphan_protected_reason() matches the path
+# alone and HQ's stale_runs.py drops the same setting.
+CI_RUN_NAME_RELEASE_SETTING = re.compile(r"(?<=;)release=[^;\s]*")
 TAG_LIKE_REF = re.compile(r"^(v\d|cmux-tui-v\d|.*-v\d+\.\d+)")
 
 UTC = dt.timezone.utc
@@ -545,7 +549,11 @@ def protected_reason(run: Mapping[str, Any]) -> str | None:
     """Why a run must never be cancelled, or None when policy may look at it."""
     event = run.get("event") or ""
     branch = run.get("head_branch") or ""
-    haystack = " ".join(str(run.get(key) or "") for key in ("name", "path"))
+    # Without dropping `;release=<arch>`, every ci.yml run read as a release workflow: run 46059745828, ten macOS
+    # jobs queued 179 minutes on blacksmith-12vcpu-macos-26 at the head of PR #53898 (merged 2026-11-27 19:51Z),
+    # was never a candidate for category b, which cancels a merged pull request's run on any pool.
+    haystack = CI_RUN_NAME_RELEASE_SETTING.sub(
+        "", " ".join(str(run.get(key) or "") for key in ("name", "path")))
     if not event or not branch:
         return "missing event or branch"
     if event in PROTECTED_EVENTS:
@@ -4995,15 +5003,25 @@ class GitHub:
         return names
 
     def jobs(self, run_id: int) -> list[dict[str, Any]]:
+        """Every job of the run's latest attempt, or RuntimeError when the listing is not complete.
+
+        A listing cut short at MAX_JOB_PAGES, or a short page under total_count, can hide a running job, and a cancel
+        made on it would cut that job (the review BLOCK on cmux#27114). Every caller takes RuntimeError as unread.
+        """
         jobs: list[dict[str, Any]] = []
+        total = 0
         for page in range(1, MAX_JOB_PAGES + 1):
             query = urllib.parse.urlencode({"filter": "latest", "per_page": 100, "page": page})
             payload = self.request("GET", f"/repos/{self.repo}/actions/runs/{run_id}/jobs?{query}")
             batch = payload.get("jobs") or []
             jobs.extend(batch)
+            if isinstance(payload.get("total_count"), int):
+                total = max(total, payload["total_count"])
             if len(batch) < 100:
-                break
-        return jobs
+                if total > len(jobs):
+                    raise RuntimeError(f"run {run_id}: job listing incomplete ({len(jobs)} of {total} jobs)")
+                return jobs
+        raise RuntimeError(f"run {run_id}: job listing incomplete (more than {MAX_JOB_PAGES * 100} jobs)")
 
     def pull_requests(self, branches: Sequence[str]) -> dict[str, list[dict[str, Any]]]:
         owner, name = self.repo.split("/", 1)

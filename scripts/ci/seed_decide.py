@@ -53,13 +53,17 @@ the far lane.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
+import os
+import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Callable, Iterable, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pr_runner_pool  # noqa: E402  (the queue janitor's snapshot)
 import simple_pool_picker  # noqa: E402
 import warm_distance  # noqa: E402
 
@@ -197,6 +201,7 @@ def decide(
     tier_of: Callable[[str], str] = warm_tier,
     far: list[str] | None = None,
     dead: Iterable[str] = (),
+    stalled: Mapping[str, str] | None = None,
 ) -> tuple[list[str], list[str]]:
     """(pools to build, in order, one reason per pool) for (pool, Xcode) pairs.
 
@@ -207,16 +212,27 @@ def decide(
     queued on a dead label waits forever (hosted#1015: seed (blacksmith-6vcpu-macos-15) queued for hours on
     every push to main), so such a pool is skipped, and each skip is logged. A workflow_dispatch builds
     what it is told to.
+
+    STALLED maps a Blacksmith label the queue janitor's snapshot shows stalled to why (stalled_pools()). Such a
+    label is starved, not dead: the org's macOS vCPU cap is full, it starts a job now and then, so RUNNER_POOLS
+    never marks it dead, and #63440's dead skip never fired. A seed queued there is replaced unstarted by the
+    next push (one pending job per concurrency group): job 140792910286, queued 23:55:56Z on 2026-11-27, was
+    replaced at 00:22:05Z without starting, so main's macOS 15 seed queued for hours on every push. Skipping
+    while the label stalls leaves the one pending seed in place to start when the cap frees.
     """
     unique: list[tuple[str, str]] = []
     skipped: list[str] = []
     dead = set(dead)
+    stalled = dict(stalled or {})
     for pool, xcode in pools:
         if pool and pool not in [seen for seen, _ in unique]:
-            if event_name != "workflow_dispatch" and pool.partition("@")[0] in dead:
+            label = pool.partition("@")[0]
+            if event_name != "workflow_dispatch" and (label in dead or label in stalled):
                 if pool not in [name.split(":")[0] for name in skipped]:
-                    skipped.append(f"{pool}: RUNNER_POOLS marks its label dead; skipping, a seed there would queue "
-                                   "forever and it is only cache warming.")
+                    why = ("RUNNER_POOLS marks its label dead" if label in dead
+                           else f"its label is stalled ({stalled[label]})")
+                    skipped.append(f"{pool}: {why}; skipping, a seed there would queue behind it and be replaced "
+                                   "unstarted, and it is only cache warming.")
                 continue
             unique.append((pool, xcode))
     if skipped:
@@ -275,6 +291,60 @@ def dead_pools(raw: str | None) -> set[str]:
         return set()
 
 
+# A Blacksmith macOS label (EPHEMERAL in runner_pools.py): the only seed pools the org's vCPU cap starves. An
+# owned glaeda label is our own machines; its queue is the PR picker's to read.
+BLACKSMITH_LABEL = re.compile(r"^blacksmith-\d+vcpu-[a-z0-9.-]+$")
+
+
+def stalled_pools(snapshot: Mapping[str, Any] | None, labels: Iterable[str], now: dt.datetime) -> dict[str, str]:
+    """Label -> why, for each Blacksmith label in LABELS that the queue janitor's snapshot shows stalled: a job
+    queued there has waited simple_pool_picker.BLACKSMITH_STALL_MINUTES by now (the snapshot's oldest wait plus
+    its age, simple_pool_picker.blacksmith_stalled(), the rule the PR pool picker avoids such a label by).
+
+    Starts do not clear it: a starved label starts a job now and then (2026-11-27, blacksmith-6vcpu-macos-15
+    ran none of the cap's 17 jobs at 22:51Z, yet started enough that it was never marked dead), and its queue
+    still waits. A truncated snapshot counts: a partial listing undercounts queues and waits, so a stall it
+    shows is real. An undated, future or older than pr_runner_pool.MAX_SNAPSHOT_MINUTES snapshot, or a
+    malformed row, shows nothing, so the pool builds as before."""
+    if not isinstance(snapshot, Mapping) or not isinstance(snapshot.get("pools"), Mapping):
+        return {}
+    age = pr_runner_pool.snapshot_age_minutes(snapshot, now)
+    if age is None or age < -5 or age > pr_runner_pool.MAX_SNAPSHOT_MINUTES:
+        return {}
+    age = max(0.0, age)
+    found = {}
+    for label in labels:
+        load = snapshot["pools"].get(label)
+        if not BLACKSMITH_LABEL.match(label) or not isinstance(load, Mapping):
+            continue
+        try:
+            queued, oldest = int(load.get("queued") or 0), float(load.get("oldest_queued_minutes") or 0)
+        except (TypeError, ValueError):
+            continue
+        if simple_pool_picker.blacksmith_stalled(queued, oldest + age):
+            found[label] = (f"{queued} queued, oldest {oldest:g} min in the janitor snapshot {age:.0f} min old, "
+                            f"past {simple_pool_picker.BLACKSMITH_STALL_MINUTES} min")
+    return found
+
+
+def fetch_stalled(repository: str, labels: Iterable[str], now: dt.datetime | None = None) -> dict[str, str]:
+    """stalled_pools() on the newest trusted janitor snapshot (two API requests with GH_TOKEN). No token or any
+    failure reads as nothing stalled, so the pools build as they did before."""
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    labels = [label for label in labels if BLACKSMITH_LABEL.match(label)]
+    if not token or not labels:
+        return {}
+    now = now or dt.datetime.now(dt.timezone.utc)
+    try:
+        snapshot = pr_runner_pool.GitHub(token, repository).snapshot(now=now)
+    except Exception as error:  # noqa: BLE001 - an unreadable signal must keep today's behaviour
+        print(f"Could not read the queue janitor snapshot ({type(error).__name__}: {error}); skipping no pool.")
+        return {}
+    if snapshot is None:
+        print("No trusted janitor snapshot within its age bound; skipping no pool for a stall.")
+    return stalled_pools(snapshot, labels, now)
+
+
 def parse_pool(value: str) -> tuple[str, str]:
     pool, separator, xcode = value.partition("=")
     if not separator:
@@ -294,7 +364,10 @@ def main(argv: list[str]) -> int:
         if pool:
             lane(pool)
     far: list[str] = []
-    build, reasons = decide(args.event_name, args.repository, args.pool, far=far, dead=dead_pools(args.runner_pools))
+    stalled = {} if args.event_name == "workflow_dispatch" else fetch_stalled(
+        args.repository, {pool.partition("@")[0] for pool, _ in args.pool if pool})
+    build, reasons = decide(args.event_name, args.repository, args.pool, far=far, dead=dead_pools(args.runner_pools),
+                            stalled=stalled)
     print("\n".join(reasons))
     if args.github_output:
         matrix = {"include": [lane(pool) for pool in build]}
