@@ -566,9 +566,15 @@ paths = [
   "cmux-tui/crates/cmux-app-ffi/src/updater.rs",
   "cmux-tui/crates/cmux-update-prewarm-core",
   "scripts/cmux-next/update-harness",
+  "scripts/bench/update_launch_budget.py",
 ]
 situations = ["main-thread"]
 benches = ["post-update"]
+# The wall-time budget (shadow-leo, 2026-11-28, ask c-5ad71ec59c): the first launch after an update, the arm NOW's
+# app_update_launch_ms reads, under 2 s. bench-relevance-pr.yml runs it only when these paths change; with no Mac or
+# no DMG it reads nothing and warns (fail open), a measured median over 2.0 s is red.
+run = ["python3 -I scripts/bench/update_launch_budget.py"]
+budget_s = 2.0
 tests = [
   "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml --lib updater",
   "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-update-prewarm-core",
