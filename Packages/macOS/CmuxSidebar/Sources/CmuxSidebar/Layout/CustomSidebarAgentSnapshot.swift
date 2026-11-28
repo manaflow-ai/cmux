@@ -42,6 +42,9 @@ public struct CustomSidebarAgentSnapshot: Sendable, Equatable {
     /// Child agent runs (Claude Task spawns, Codex subagent runs) observed
     /// under this session (`agents[j].children`).
     public let children: [CustomSidebarAgentChildSnapshot]
+    /// In-flight background tasks the agent last reported: Claude Code's
+    /// `background_tasks` list, what `/tasks` shows (`agents[j].backgroundTasks`).
+    public let backgroundTasks: [CustomSidebarAgentBackgroundTaskSnapshot]
 
     /// Creates an agent snapshot from already-resolved leaf values.
     public init(
@@ -57,7 +60,8 @@ public struct CustomSidebarAgentSnapshot: Sendable, Equatable {
         workingDirectory: String?,
         transcriptPath: String?,
         pid: Int?,
-        children: [CustomSidebarAgentChildSnapshot] = []
+        children: [CustomSidebarAgentChildSnapshot] = [],
+        backgroundTasks: [CustomSidebarAgentBackgroundTaskSnapshot] = []
     ) {
         self.sessionId = sessionId
         self.kind = kind
@@ -72,6 +76,7 @@ public struct CustomSidebarAgentSnapshot: Sendable, Equatable {
         self.transcriptPath = transcriptPath
         self.pid = pid
         self.children = children
+        self.backgroundTasks = backgroundTasks
     }
 }
 
@@ -96,5 +101,44 @@ public struct CustomSidebarAgentChildSnapshot: Sendable, Equatable {
         self.isRunning = isRunning
         self.startedAt = startedAt
         self.endedAt = endedAt
+    }
+}
+
+/// One in-flight background task an agent reported for its session
+/// (`workspaces[i].agents[j].backgroundTasks[k]`): a background shell,
+/// subagent, monitor, workflow or similar, as Claude Code's `/tasks` lists it.
+public struct CustomSidebarAgentBackgroundTaskSnapshot: Sendable, Equatable {
+    /// The agent's task identifier (`backgroundTasks[k].id`).
+    public let id: String
+    /// Task kind, e.g. "shell", "subagent", "monitor", "workflow"
+    /// (`backgroundTasks[k].type`).
+    public let type: String
+    /// Task status as reported, e.g. "running" (`backgroundTasks[k].status`).
+    public let status: String
+    /// Free-text description, when known (`backgroundTasks[k].description`).
+    public let description: String?
+    /// The redacted shell command for shell tasks (`backgroundTasks[k].command`).
+    public let command: String?
+    /// The subagent type for subagent tasks (`backgroundTasks[k].agentType`).
+    public let agentType: String?
+    /// The workflow name for workflow tasks (`backgroundTasks[k].name`).
+    public let name: String?
+
+    public init(
+        id: String,
+        type: String,
+        status: String,
+        description: String?,
+        command: String?,
+        agentType: String?,
+        name: String?
+    ) {
+        self.id = id
+        self.type = type
+        self.status = status
+        self.description = description
+        self.command = command
+        self.agentType = agentType
+        self.name = name
     }
 }

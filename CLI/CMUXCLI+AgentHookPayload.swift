@@ -315,6 +315,39 @@ extension CMUXCLI {
         }
     }
 
+    /// Claude's `background_tasks` (Stop and SubagentStop payloads; what
+    /// `/tasks` shows), bounded for the feed event that custom sidebars read.
+    ///
+    /// Keeps at most ``claudeBackgroundTaskFeedLimit`` entries and the
+    /// documented fields only. Shell commands are redacted and capped like
+    /// Bash tool input; descriptions are capped like tool-input descriptions.
+    /// Returns `nil` when the payload has no `background_tasks` array, so
+    /// older Claude Code versions forward nothing.
+    func claudeBackgroundTasksFeedValue(from rawObject: [String: Any]) -> [[String: String]]? {
+        guard let tasks = rawObject["background_tasks"] as? [Any] else { return nil }
+        var bounded: [[String: String]] = []
+        for element in tasks {
+            guard bounded.count < Self.claudeBackgroundTaskFeedLimit else { break }
+            guard let task = element as? [String: Any] else { continue }
+            var entry: [String: String] = [:]
+            for (key, maxLength) in [("id", 128), ("type", 64), ("status", 32), ("agent_type", 64), ("name", 128)] {
+                if let value = compactClaudeHookStringValue(task[key], maxLength: maxLength) {
+                    entry[key] = value
+                }
+            }
+            if let description = compactClaudeHookToolInputValue(task["description"], key: "description") {
+                entry["description"] = description
+            }
+            if let command = compactClaudeHookToolInputValue(task["command"], key: "command") {
+                entry["command"] = command
+            }
+            bounded.append(entry)
+        }
+        return bounded
+    }
+
+    static let claudeBackgroundTaskFeedLimit = 20
+
     private func compactClaudeHookStringValue(
         _ rawValue: Any?,
         maxLength: Int,

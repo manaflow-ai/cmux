@@ -395,6 +395,17 @@ with:
   "description": "<child label>"}`: start opens the child on the parent
   record, stop closes the oldest running child (FIFO). The `agent_id` field is
   not read; only `_opencode_request_id` can correlate a stop event to a child.
+  Claude sessions also carry `backgroundTasks` (omitted when none): the
+  in-flight background shells, subagents, monitors and workflows that
+  Claude Code lists in `/tasks`, from the latest `Stop` or `SubagentStop`
+  hook. Each `backgroundTasks[k]` has `id`, `type` (`shell`, `subagent`,
+  `monitor`, `workflow`, …) and `status`; when available it adds
+  `description`, `command` (shell tasks; redacted and truncated like Bash
+  tool input), `agentType` (subagent tasks) and `name` (workflows). The list
+  is replaced at each turn end and cleared when the session ends, so a task
+  that finishes while the session is idle stays listed until Claude's next
+  turn ends. A session whose turn ended with tasks still running reports
+  `status: "idle"`; check `backgroundTasks` to tell it from a finished one.
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
   `focused` (Bool), `pinned` (Bool), `hasUnread` (Bool, whether that surface
   has an unread notification). It is named differently from the workspace-level

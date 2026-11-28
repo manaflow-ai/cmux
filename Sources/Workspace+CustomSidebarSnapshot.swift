@@ -135,6 +135,17 @@ extension Workspace {
                             startedAt: child.startedAt,
                             endedAt: child.endedAt
                         )
+                    },
+                    backgroundTasks: record.backgroundTasks.map { task in
+                        CustomSidebarAgentBackgroundTaskSnapshot(
+                            id: task.id,
+                            type: task.type,
+                            status: task.status,
+                            description: task.description,
+                            command: task.command,
+                            agentType: task.agentType,
+                            name: task.name
+                        )
                     }
                 )
             )
