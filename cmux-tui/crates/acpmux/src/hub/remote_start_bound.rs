@@ -58,7 +58,7 @@ impl Hub {
         let hub = Arc::downgrade(self);
         let session = session.clone();
         let child = Arc::downgrade(child);
-        tokio::spawn(async move {
+        self.scope.spawn_named("remote-start-bound", async move {
             tokio::time::sleep(bound).await;
             let (Some(hub), Some(child)) = (hub.upgrade(), child.upgrade()) else { return };
             // It wrote a line, or another agent took the chat since.
