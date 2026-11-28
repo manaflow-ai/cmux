@@ -219,3 +219,38 @@ fn reads_never_fill_the_slots_a_push_needs() {
     assert!(is_read(&json!({"action": "merge"})));
     assert!(!is_read(&json!({"action": "draft_pr"})));
 }
+
+#[test]
+fn a_graphql_read_has_a_rest_form_on_the_core_pool_with_the_same_fields() {
+    use crate::github_pool::{Pool, pool_of};
+    let mut view = req(GithubAction::Read);
+    assert_eq!(pool_of(&gh_args(&view)), Pool::Graphql);
+    let rest = rest_read_args(&view).unwrap();
+    assert_eq!(rest[..2], ["api", "repos/o/r"]);
+    assert_eq!(pool_of(&rest), Pool::Core);
+    view.issue = Some(3);
+    assert_eq!(pool_of(&gh_args(&view)), Pool::Graphql);
+    let rest = rest_read_args(&view).unwrap();
+    assert_eq!(rest[..2], ["api", "repos/o/r/pulls/3"]);
+    assert_eq!(pool_of(&rest), Pool::Core);
+    // Every field the `--json` view prints, the REST form prints under the same name.
+    let fields = gh_args(&view).iter().find_map(|a| a.strip_prefix("--json=").map(String::from));
+    for field in fields.unwrap().split(',') {
+        assert!(rest[2].contains(field), "{field} missing from {}", rest[2]);
+    }
+    let mut write = req(GithubAction::Comment);
+    write.issue = Some(3);
+    write.body = Some("b".into());
+    assert_eq!(rest_read_args(&write), None, "only reads fall back");
+}
+
+#[test]
+fn only_a_whole_pool_refusal_falls_back() {
+    let pool = RpcError::new(-32044, "x").with_data(json!({"reason": "github.budget.pool"}));
+    assert!(pool_refusal(&pool));
+    for other in ["github.budget.caller", "github.budget.pace", "github.command_failed"] {
+        let e = RpcError::new(-32044, "x").with_data(json!({"reason": other}));
+        assert!(!pool_refusal(&e), "{other}");
+    }
+    assert!(!pool_refusal(&RpcError::new(-32044, "x")));
+}

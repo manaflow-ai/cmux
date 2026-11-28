@@ -971,6 +971,7 @@ pub mod dock_model;
 pub mod drop_overlay_geometry;
 pub mod drop_rules;
 pub mod floating_panes;
+pub mod geometry;
 
 pub mod group_hover_summary;
 pub mod keep_awake;
@@ -991,6 +992,7 @@ pub mod sidebar_doc_target;
 pub mod sidebar_drag;
 pub mod sidebar_drag_geometry;
 pub mod sidebar_drop;
+pub mod sidebar_drop_geometry;
 pub mod sidebar_edits;
 pub mod sidebar_face;
 pub mod sidebar_feeds;
@@ -1011,3 +1013,6 @@ pub mod window_registry;
 #[cfg(test)]
 mod window_registry_tests;
 pub mod workspace_port_links;
+
+pub mod new_tab_prefetch;
+pub mod new_tab_split_layout;
