@@ -252,7 +252,7 @@ jobs:
             --key "tab-switch-pr$PR-$HEAD_SHA-$GITHUB_RUN_ATTEMPT" \
             --arg="build=$HEAD_SHA" --arg="rounds=$ROUNDS" --arg="load=$LOADS" \
             --artifact "$REPORT_PATH" --timeout 3600 --queue-timeout "$QUEUE_WAIT_S" 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
-          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
+          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2 || true)"
           if [[ "$status" == 75 && -n "$step" ]]; then
             # Not started within QUEUE_WAIT_S: a non-background step stays queued after the client stops waiting.
             "$client" cancel "$step" --reason "tab switch: not started within ${QUEUE_WAIT_S}s" || true

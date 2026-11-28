@@ -1211,8 +1211,16 @@ def vm_log(text):
     code = base.typed(TOKEN, pairs.get("code"))
     if code is not None:
         out["code"] = code
+    # Why a dependency call threw, as one of workers/cmux-vm/src/handlers/common.ts failureClass's fixed words.
+    if pairs.get("cause_class") in VM_CAUSE_CLASSES:
+        out["cause_class"] = pairs["cause_class"]
     return out, None
 
+
+VM_CAUSE_CLASSES = frozenset({
+    "overloaded", "memory_limit", "cpu_limit", "connection_lost", "object_reset", "timeout", "write_unconfirmed",
+    "retryable", "other", "unknown",
+})
 
 UNLISTED_NAMED_MAX = 24
 

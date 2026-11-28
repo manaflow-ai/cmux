@@ -19,7 +19,7 @@ import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, 
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { carrierScrollProbe, parseScrollReport, scrollDetail, scrollNotes } from "./cloud-journey";
 import { sessionModelVerdict } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, deleteRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, machinesByState, FAILED_JOURNEY_MS, STALE_JOURNEY_MS, LONG_JOURNEY_MS, KEPT_JOURNEY_MS, autoMachineName } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, deleteRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, machinesByState, FAILED_JOURNEY_MS, STALE_JOURNEY_MS, SHORT_JOURNEY_MS, LONG_JOURNEY_MS, KEPT_JOURNEY_MS, autoMachineName } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 import { idleHeldBy, idlePauseDeadlineMs, machineIdleSeconds } from "./cloud-journey";
@@ -784,8 +784,8 @@ describe("cloud journey: leaked machine sweep", () => {
   });
 
   test("takes only an auto-named journey machine (and gateway) older than any journey run, in any state", () => {
-    const old = tagAt(now - STALE_JOURNEY_MS - 60_000);
-    const young = tagAt(now - STALE_JOURNEY_MS + 60_000);
+    const old = tagAt(now - SHORT_JOURNEY_MS - 60_000);
+    const young = tagAt(now - SHORT_JOURNEY_MS + 60_000);
     expect(ids([
       { id: "vm_running", name: `cloud journey auto ${old}`, status: "running" },
       { id: "vm_paused_gw", name: `cloud journey auto ${old} gateway`, status: "paused" },
@@ -796,9 +796,41 @@ describe("cloud journey: leaked machine sweep", () => {
       { id: "vm_deleting", name: `cloud journey auto ${old}`, status: "deleting" },
     ])).toEqual(["vm_running", "vm_paused_gw", "vm_move_b", "vm_cold"]);
     // Just inside the bound is a concurrent run's machine; just past it is leaked.
-    const edge = { id: "vm_edge", name: `cloud journey auto ${tagAt(now - STALE_JOURNEY_MS)}`, status: "paused" };
+    const edge = { id: "vm_edge", name: `cloud journey auto ${tagAt(now - SHORT_JOURNEY_MS)}`, status: "paused" };
     expect(ids([edge])).toEqual([]);
     expect(ids([edge], now + 1)).toEqual(["vm_edge"]);
+  });
+
+  test("a short run's paused or failed leftover goes past SHORT_JOURNEY_MS, the ttl's bound (run 46115218791's 86-machine pile)", () => {
+    expect(SHORT_JOURNEY_MS).toBe(STALE_JOURNEY_MS / 2);
+    expect(journey.journeyMachineTtl(false, { GITHUB_ACTIONS: "true" })).toEqual({ ttl_seconds: SHORT_JOURNEY_MS / 1000 });
+    // 2026-11-28 07:20Z: the 3 h bound swept 4 of 64 paused; every one under 3 h old stayed.
+    const twoHours = tagAt(now - 2 * 3_600_000);
+    const hour = tagAt(now - 3_600_000);
+    expect(ids([
+      { id: "paused_2h", name: `cloud journey auto ${twoHours}`, status: "paused", last_active_at: now - 2 * 3_600_000 },
+      { id: "cold_2h", name: `cloud journey auto ${twoHours} cold`, status: "paused" },
+      { id: "failed_1h", name: `cloud journey auto ${hour}`, status: "failed", last_active_at: now },
+      { id: "running_2h_idle", name: `cloud journey auto ${twoHours}`, status: "running", last_active_at: now - IDLE_JOURNEY_MS - 1 },
+      { id: "running_2h_active", name: `cloud journey auto ${twoHours}`, status: "running", last_active_at: now - 60_000 },
+      { id: "paused_1h", name: `cloud journey auto ${hour}`, status: "paused" },
+      { id: "long_2h", name: `cloud journey auto ${twoHours} long`, status: "paused" },
+      { id: "long_gw_2h", name: `cloud journey auto ${twoHours} long gateway`, status: "paused" },
+      { id: "bench_2h", name: `cloud start bench ${twoHours} source`, status: "paused" },
+      { id: "aj_2h", name: `auto journey aj-${(now - 2 * 3_600_000).toString(36)}`, status: "paused" },
+    ])).toEqual(["paused_2h", "cold_2h", "failed_1h", "running_2h_idle"]);
+  });
+
+  test("takes a leaked repro capsule (`repro capsule <id> jr-<tag>`, sweep.rs's name) by the 3 h bound", () => {
+    const old = tagAt(now - STALE_JOURNEY_MS - 60_000);
+    const young = tagAt(now - STALE_JOURNEY_MS + 60_000);
+    expect(ids([
+      { id: "cap_old", name: `repro capsule rc_abc ${old}`, status: "paused" },
+      { id: "cap_failed", name: `repro capsule rc_abc ${tagAt(now - FAILED_JOURNEY_MS - 60_000)}`, status: "failed" },
+      { id: "cap_young", name: `repro capsule rc_abc ${young}`, status: "paused" },
+      { id: "cap_noid", name: `repro capsule ${old}`, status: "paused" },
+      { id: "cap_suffix", name: `repro capsule rc_abc ${old} kept`, status: "paused" },
+    ])).toEqual(["cap_old", "cap_failed"]);
   });
 
   test("never a machine with recent activity, however old", () => {

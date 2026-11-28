@@ -18073,6 +18073,8 @@ SCANNERS = {
     "test_reds.parse_log": lambda f: TR.parse_log(f.log),
     "test_reds.lost_runner": lambda f: TR.lost_runner({"conclusion": "failure", "name": "job"}, (), f.log),
     "test_reds.runner_shut_down": lambda f: TR.runner_shut_down(f.log),
+    "test_reds.checkout_infra": lambda f: TR.checkout_infra(
+        {"conclusion": "failure", "steps": [{"name": "Run actions/checkout@v4", "conclusion": "failure"}]}, f.log),
     "test_reds.exported_observations": lambda f: TR.exported_observations(f.lines),
     "test_reds.observations": lambda f: TR.observations(f.log),
     "test_reds._observations": lambda f: TR._observations(f.log),

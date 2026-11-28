@@ -6379,11 +6379,13 @@ jobs:
       - name: Download the published build's dSYMs from the run that compiled it (parallel)
         id: dsyms-parallel
         continue-on-error: true
-        timeout-minutes: 10
+        # Off the publish path: waits up to an hour for github.token's reset when every spare is spent or dead (run 46125411693).
+        timeout-minutes: 65
         env:
           GITHUB_TOKEN: ${{ github.token }}
           # Spent hour: download-run-artifact.py moves to a CI pool's token at once (run 45823496118).
           GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          CMUX_ARTIFACT_RETRY_BUDGET_SECONDS: "3600"
           DSYMS_ARTIFACT: ${{ steps.producer.outputs.artifact }}
           DSYMS_RUN: ${{ steps.producer.outputs.run }}
         run: python3 .publish-tooling/scripts/ci/download-run-artifact.py --artifact-id "$DSYMS_ARTIFACT" --run-id "$DSYMS_RUN" --out "$RUNNER_TEMP/published-dsyms/dSYMs" --connections 32
@@ -6426,12 +6428,25 @@ jobs:
       - *github-token-for-git
       - *checkout-publication-tooling-a
 
+      # 2026-11-28 06:29Z (Finish run 46116773791): this job's first gh call died on "API rate limit exceeded for
+      # installation" because it had no waiter and no spare pool, while keep-published-dsyms beside it had both.
+      - *gh-app-token-read
+
+      - *gh-app-install-tooling
+
+      - *wait-through-github-api-rate-l-2
+
       - name: Find the attempt that compiled the published build
         id: producer
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           DSYMS_NAMES: nightly-next-dsyms nightly-next-cmux-tui-dsyms
         run: bash .publish-tooling/scripts/ci/nightly-steps/dsyms-find-attempt.sh
+
+      # The action below cannot wait through a limit itself: wait here until the budget has room for its calls.
+      - name: Wait for API budget before the dSYM download
+        run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --reserve 100
 
       - name: Download the build's dSYMs
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -6484,6 +6499,10 @@ jobs:
           ref: ${{ github.sha }}
           path: .publish-tooling
           sparse-checkout: scripts
+      # 2026-11-28 06:30Z (Finish run 46116773791): "Download published variant" died on the installation's spent
+      # hour, in the parallel downloader (no spare pool) and then in the action (no wait): the same pair
+      # publish-nightly already has.
+      - *wait-through-github-api-rate-l-2
       # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-nightly-deltas-select-xcode.md
       - name: Select Xcode
         run: ./.publish-tooling/scripts/select-ci-xcode.sh
@@ -6495,8 +6514,14 @@ jobs:
         timeout-minutes: 10
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          # Spent hour: download-run-artifact.py moves to a CI pool's token at once (run 45823496118).
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           SOURCE_RUN: ${{ needs.published-build.outputs.source_run || github.run_id }}
         run: python3 .publish-tooling/scripts/ci/download-run-artifact.py --name "cmux-nightly-variant-$NIGHTLY_VARIANT" --run-id "$SOURCE_RUN" --out "$RUNNER_TEMP/nightly-delta/input" --connections 32
+
+      - name: Wait for API budget before the variant download action
+        if: steps.variant-parallel.outcome != 'success'
+        run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --reserve 100
 
       - name: Download published variant
         if: steps.variant-parallel.outcome != 'success'

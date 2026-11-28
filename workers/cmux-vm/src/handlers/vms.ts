@@ -955,7 +955,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
     .handle("revokeVmPublicEgress", ({ path }) =>
       audited("vm.public_egress.revoke", auditableVmId(path.vmId), revokeVmPublicEgress(path.vmId), (receipt) => receipt.id),
     )
-    .handle("startVm", ({ path }) =>
+    .handle("startVm", ({ path, headers }) =>
       timedStart("start", (phases) => audited(
         "vm.start",
         auditableVmId(path.vmId),
@@ -965,7 +965,10 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
             phases["vmId"] = vm.value;
             // A team key's running and spend caps (RFD 0016): read the VM only when the key sets one.
             yield* agentStartAllows(caller, proofs.scope, upstream.getVmForWrite(vm, proofs).pipe(Effect.mapError(onRead)));
-            const started = yield* timedPhase(phases, "startMs", upstream.startVm(vm, proofs))
+            const started = yield* timedPhase(phases, "startMs", upstream.startVm(vm, proofs, {
+              tenant: caller.value.tenantId,
+              background: headers["x-cmux-create-priority"] === "background" || caller.value.agent !== undefined || caller.value.maxRunSeconds !== undefined,
+            }))
               .pipe(Effect.mapError(onVm("The VM cannot start now: it no longer exists or no capacity is available")));
             phases["stateAfter"] = started.state;
             return toVm(vm.value, proofs.owns, started);
@@ -973,7 +976,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
         ),
       )),
     )
-    .handle("resumeVm", ({ path }) =>
+    .handle("resumeVm", ({ path, headers }) =>
       timedStart("resume", (phases) => audited(
         "vm.resume",
         auditableVmId(path.vmId),
@@ -987,7 +990,10 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
             phases["vmId"] = vm.value;
             phases["stateBefore"] = current.state;
             yield* agentStartAllows(caller, proofs.scope, Effect.succeed(current));
-            const resumed = yield* timedPhase(phases, "startMs", upstream.startVm(vm, proofs))
+            const resumed = yield* timedPhase(phases, "startMs", upstream.startVm(vm, proofs, {
+              tenant: caller.value.tenantId,
+              background: headers["x-cmux-create-priority"] === "background" || caller.value.agent !== undefined || caller.value.maxRunSeconds !== undefined,
+            }))
               .pipe(Effect.mapError(onVm("The VM cannot resume now: no capacity is available")));
             phases["stateAfter"] = resumed.state;
             return toVm(vm.value, proofs.owns, resumed);

@@ -2436,6 +2436,23 @@ def _artifact_app(bundle: Path) -> Path:
     return apps[0]
 
 
+def app_build_failed(ci: str, job: str, waited: subprocess.CompletedProcess, cwd: Path) -> str:
+    """Why the fleet app build JOB gave no app: the job's own state and error (`cmux-ci status`), else the wait's
+    words. The wait's last lines are its progress ("job ... running on ... after 11m05s; still waiting"), so a
+    build that had failed read as one still running: cmux#63536's look, 2026-11-28, whose Linux-pool build had
+    stopped on an undefined-symbol link error."""
+    with contextlib.suppress(OSError, subprocess.SubprocessError, ValueError, IndexError, AttributeError):
+        done = subprocess.run([ci, "status", job], cwd=cwd, capture_output=True, text=True, errors="replace",
+                              timeout=60)
+        answer = json.loads(done.stdout.strip().splitlines()[0])
+        state, error = answer.get("state"), answer.get("error")
+        if state in {"failed", "cancelled"} or (state and error):
+            return (f"fleet app build {job} {state}" + (f": {str(error)[:500]}" if error else "")
+                    + f" (its log: cmux-ci log {job})")
+    said = why_failed(waited.stderr or waited.stdout, 500) or "no output"
+    return f"cmux-ci wait {job} exited {waited.returncode}: {said}"
+
+
 def build_swift_app(repo: Path, planned: dict, source: str, out: Path) -> Path:
     """Build the exact source tree on the fleet and return its complete app artifact."""
     ci = _ci_client()
@@ -2459,7 +2476,10 @@ def build_swift_app(repo: Path, planned: dict, source: str, out: Path) -> Path:
     measured = (f"the pool's p90 queue {metrics.get('queue_p90')} s + run {metrics.get('run_p90')} s"
                 if wait != APP_BUILD_UNREAD and metrics else "no pool reading")
     log(f"fleet app build {job} for {planned['head'][:12]}: waiting up to {wait} s ({measured})")
-    _ci_run([ci, "wait", "--timeout", str(wait), job], cwd=tree, timeout=wait + 30)
+    waited = subprocess.run([ci, "wait", "--timeout", str(wait), job], cwd=tree, capture_output=True, text=True,
+                            errors="replace", timeout=wait + 30)
+    if waited.returncode != 0:
+        raise LookError(app_build_failed(ci, job, waited, tree))
     bundle = out / "fleet-bundle"
     bundle.mkdir(parents=True, exist_ok=True)
     artifact = subprocess.run([ci, "artifact", job, str(bundle), "--bundle"], cwd=tree,

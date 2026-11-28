@@ -548,6 +548,34 @@ def ios_touched(files: list[str] | None) -> bool:
         return True
 
 
+# pr-pipeline.yml's ios fast verdict runner (ios-fast-runner) took a Linux runner on every pipeline only to read the diff
+# and answer run=false: 459 of them in 3 h to 05:27Z on 2026-11-28 (63 s median, 479 runner-min, about 1.9 per merged
+# PR), for 90 ios fast verdict jobs. Its plan (scripts/ci/ios_fast_verdict.py plan) runs only when a changed path is
+# this check's own file or one the ios-kit step routes that can change the Swift surface; affects() answers that from
+# the diff here, and base_marked_paths adds a Rust file whose base text named the FFI marks (a removed uniffi export),
+# so the router skips the runner exactly where its plan would say run=false. Unknown, unreadable or any error starts it.
+# Leo, 2026-11-28: "de facto, im asking for 99% fewer minutes of ci time, period." vars.CI_IOS_FAST_ROUTER_SKIP=0
+# starts the runner on every pipeline again.
+def ios_fast_skip(files: list[str] | None) -> tuple[bool, str]:
+    """(whether pr-pipeline.yml's ios fast verdict runner skips at this head, why)."""
+    if os.environ.get("CI_IOS_FAST_ROUTER_SKIP", "1").strip() == "0":
+        return False, "CI_IOS_FAST_ROUTER_SKIP=0: the runner plans"
+    if not files:
+        return False, "changed files unknown: the runner plans"
+    try:
+        import ios_fast_verdict
+        if ios_fast_verdict.affects(files):
+            return False, "a changed path reaches an iOS target: the runner plans"
+        step = ios_fast_verdict.kit_step()
+        routed_rust = [p for p in files if ios_fast_verdict.rust_inner(p) and ios_fast_verdict.routes_ios(step, p)]
+        if routed_rust and any(ios_fast_verdict.routes_ios(step, p)
+                               for p in ios_fast_verdict.base_marked_paths(routed_rust)):
+            return False, "a changed Rust file named the FFI marks at the base: the runner plans"
+    except Exception as e:  # noqa: BLE001 - the router routes more, never less
+        return False, f"the iOS check failed here ({type(e).__name__}): the runner plans"
+    return True, "no changed path reaches an iOS target: the ios fast verdict runner skips"
+
+
 def land_update_head(event: dict, callees: dict) -> bool:
     """Whether EVENT is a synchronize of a ready-to-land PR to a head GitHub made by merging the base
     (land's update-branch), read only when some callee is `land_handoff_only`. Unreadable is no."""
@@ -923,7 +951,7 @@ def areas_output(files: list[str] | None) -> str:
 def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None,
                   table: list[str] | None = None, status: str = "", ios: tuple[str, str] = ("", ""),
                   ui: tuple[str, str] = ("", ""), only: list[str] | None = None,
-                  preflight: tuple[bool, str] = (True, "")) -> None:
+                  preflight: tuple[bool, str] = (True, ""), ios_skip: tuple[bool, str] = (False, "")) -> None:
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
         out.write(f"start={json.dumps(start, separators=(',', ':'))}\n")
         out.write(f"areas={areas_output(files)}\n")
@@ -935,10 +963,12 @@ def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None
         out.write(f"ui_status={ui[0]}\n")
         out.write(f"ui_status_description={ui[1]}\n")
         out.write(f"preflight_web={'true' if preflight[0] else 'false'}\n")
+        out.write(f"ios_fast_skip={'true' if ios_skip[0] else 'false'}\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     lines = ["### pr router", "",
              f"changed files: {len(files) if files is not None else 'unknown'}", "",
              f"compile preflight web job: {'runs' if preflight[0] else 'skips'} ({preflight[1]})", "",
+             f"ios fast verdict runner: {'skips' if ios_skip[0] else 'plans'} ({ios_skip[1]})", "",
              "| workflow | starts | why |", "|---|---|---|"]
     lines += [f"| `{name}` | {'yes' if name in start else 'no'} | {reason} |" for name, reason in sorted(why.items())]
     text = "\n".join(lines) + "\n"
@@ -976,7 +1006,8 @@ def main(argv: list[str]) -> int:
         held = (carried or rows) and not head_tier.full_rerun(decided)
         status = "pending" if status and held else status
         write_outputs(start, why, files, table, status, ios_status(event, files, start, status),
-                      ui_status(event, files), only, preflight_web(event, callees, files, start))
+                      ui_status(event, files), only, preflight_web(event, callees, files, start),
+                      ios_fast_skip(files))
         return 0
     if mode == "check":
         problems = check(callees, ENTRY.read_text(), ENTRY.parent)

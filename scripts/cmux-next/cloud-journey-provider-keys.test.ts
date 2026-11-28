@@ -27,6 +27,10 @@ describe("no provider key on the machine", () => {
     const home = mkdtempSync(path.join(tmpdir(), "provider-keys-"));
     mkdirSync(path.join(home, ".codex"));
     writeFileSync(path.join(home, ".codex", "auth.json"), JSON.stringify({ tokens: { refresh_token: "r".repeat(40) } }));
+    // An installed library's own source names the field (authlib's grants); it is code, not a login.
+    const lib = path.join(home, "python", "lib", "site-packages", "authlib");
+    mkdirSync(lib, { recursive: true });
+    writeFileSync(path.join(lib, "token.py"), `x = '"refresh_token": "${"r".repeat(40)}'\n`);
     writeFileSync(path.join(home, "notes.md"), "set ANTHROPIC_API_KEY=sk-ant-api03-... in settings\n");
     const r = spawnSync("bash", ["-c", providerKeysProgram([home]).replace("sudo -n true", "false")], {
       env: { ...process.env, JOURNEY_PROVIDER_KEY_TEST: key },

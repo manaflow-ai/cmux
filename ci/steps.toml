@@ -492,6 +492,36 @@ git -C "$repo" checkout -q FETCH_HEAD
 python3 -I scripts/ci/workflow_twins.py --other-dir "$repo"
 '''
 
+# The ci group's runner-policy guards, which a feat-cmux-next pull request also reached only through
+# ci-guard-group (skipped there, cdn-user-agent above): a workflow change that broke them went red only on the
+# feat-cmux-next push, and the push's reds were left standing (the twin drift cmux#64088 fixes, a sweep job that
+# went red on main's fast guards after the merge). A change to a workflow, the pool rescue or these tests now runs
+# them before the merge: every owned-pool workflow is watched by the rescue, main twins keep their twin's runs-on
+# and token floor (MainTwinsAgree), and stalled CI paths take the runner set. test_ci_fork_runner_routing.py and
+# test_ci_paid_queue_pin.py join this step once they are green on feat-cmux-next (31 base reds on 11-28).
+[step.workflow-runner-guards]
+job = "linux"
+# 22 s on the pool (11-28), the main tip fetched at depth 1.
+timeout = 120
+title = "Workflow runner guards (owned-pool rescue, main twins, runner set)"
+about = "every owned-pool workflow is one the persistent-pool rescue watches or names why not, each main twin keeps its twin's runs-on and token floor, and stalled CI paths take the runner set"
+inputs = [
+  ".github/workflows/**",
+  "scripts/ci/owned_pool_rescue.py",
+  "scripts/ci/owned_pool_sources.py",
+  "scripts/ci/check_runs_on_pools.py",
+  "tests/test_ci_owned_pool_sources.py",
+  "tests/test_ci_runner_set.py",
+  "tests/workflow_jobs.py",
+  "tests/git_fixture_env.py",
+]
+run = '''
+status=0
+python3 tests/test_ci_owned_pool_sources.py || status=1
+python3 tests/test_ci_runner_set.py || status=1
+exit "$status"
+'''
+
 [step.skill-contracts]
 job = "linux"
 timeout = 300

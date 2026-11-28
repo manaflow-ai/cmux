@@ -39,12 +39,21 @@ GATEWAY_MAC = frozenset({
     "ios-sim-linux-build.yml#build-fleet",
     "ios-sim-linux-build.yml#shots-fleet",  # #57700 took it by vars.CI_EVAL_STEP_GATEWAY; #54437 froze it to the label
     "screen-stream-eval.yml#eval",
+    # The fleet controller is tailnet-only and the cmux-linux pool's VMs are not on the tailnet, so these fetch the client on
+    # the gateway runner (a fleet-client job on the pool fails "runner NAME has no route to the controller").
+    "bench-baselines-nightly.yml#record-mac-fleet",
+    "chief-evals.yml#fleet-ab",
+    "cmux-next-agent-conn-chaos.yml#chaos-fleet",
+    "cmux-next-sidebar-bench.yml#bench-fleet",
+    "cmux-next-split-table.yml#measure-fleet",
+    "cmux-next-tip-test-compile.yml#compile-fleet",
+    "nightly-interaction-latency.yml#benches",
 })
 
 MOVED = {
     "chief-evals.yml#fleet-ab": "scripts/measure/chief-evals.sh",
     "cmux-next-tip-test-compile.yml#compile-fleet": "scripts/ci/tip-test-compile.sh",
-    "cmux-next-sidebar-bench.yml#bench": "CMUX_CI_CLIENT",
+    "cmux-next-sidebar-bench.yml#bench-fleet": "CMUX_CI_CLIENT",
 }
 
 
@@ -73,7 +82,7 @@ def reusable_gateway_jobs_the_hook_refuses(root: Path = WORKFLOWS) -> list[str]:
             continue
         for name, job in (document.get("jobs") or {}).items():
             runs_on = yaml.safe_dump((job or {}).get("runs-on", ""))
-            if ("glaeda-gateway" in runs_on or GATEWAY_VAR.search(runs_on)) and not name.endswith("-fleet"):
+            if ("glaeda-gateway" in runs_on or "mac-gateway" in runs_on or GATEWAY_VAR.search(runs_on)) and not name.endswith("-fleet"):
                 refused.append(f"{path.name}#{name}")
     return refused
 
@@ -87,7 +96,8 @@ def jobs():
 
 
 def on_gateway(job: dict) -> bool:
-    return "glaeda-gateway" in yaml.safe_dump(job.get("runs-on", ""))
+    runs_on = yaml.safe_dump(job.get("runs-on", ""))
+    return "glaeda-gateway" in runs_on or "mac-gateway" in runs_on
 
 
 class GatewayJobsOnLinuxTests(unittest.TestCase):
@@ -119,7 +129,6 @@ class GatewayJobsOnLinuxTests(unittest.TestCase):
         for key, marker in MOVED.items():
             with self.subTest(key):
                 job = found[key]
-                self.assertEqual(job["runs-on"], LINUX)
                 steps = job["steps"]
                 checkouts = [s for s in steps if str(s.get("uses", "")).startswith("actions/checkout")]
                 uses = [str(s.get("uses", "")) for s in steps]
@@ -136,6 +145,18 @@ class GatewayJobsOnLinuxTests(unittest.TestCase):
                 later = yaml.safe_dump(steps[client + 1:])
                 self.assertIn(marker, later, "the fleet step runs after the client is in place")
 
+    def test_no_fleet_client_job_names_only_the_pool(self) -> None:
+        bare = []
+        for key, job in jobs():
+            uses = [str(s.get("uses", "")) for s in job.get("steps") or [] if isinstance(s, dict)]
+            if any(u.endswith("/.github/actions/fleet-client") for u in uses) and not on_gateway(job) \
+                    and "vars.CI_EVAL_STEP_GATEWAY" not in yaml.safe_dump(job.get("runs-on", "")) \
+                    and "cmux-linux" in yaml.safe_dump(job.get("runs-on", "")):
+                bare.append(key)
+        self.assertEqual(sorted(bare), [],
+                         "a job that fetches the fleet client on the cmux-linux pool alone has no route to the controller "
+                         "(\"runner NAME has no route to the controller\"): run it on the gateway runner (mac-gateway)")
+
     def test_batch_swift_reads_public_results_before_using_a_private_gateway(self) -> None:
         found = dict(jobs())
         read = found["cmux-next-fast-tier-batch.yml#swift-results"]
@@ -150,7 +171,7 @@ class GatewayJobsOnLinuxTests(unittest.TestCase):
         self.assertIn("Packages/**/Tests/**/*.swift", fallback)
         self.assertIn("scripts/ci/display-suites.txt", fallback)
         self.assertEqual(report["runs-on"], "${{ needs.swift-results.outputs.verdict == 'unavailable' "
-                         "&& 'glaeda-gateway-xcode-26.6' || 'cmux-linux' }}")
+                         "&& 'mac-gateway' || 'cmux-linux' }}")
         self.assertEqual(report["steps"][-1]["if"], "needs.swift-results.outputs.verdict == 'unavailable'")
 
     def test_the_action_checks_every_file_and_exports_the_client_only_when_whole(self) -> None:
