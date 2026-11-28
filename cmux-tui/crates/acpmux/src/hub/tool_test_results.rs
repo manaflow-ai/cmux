@@ -120,7 +120,11 @@ pub(super) fn add_test_results(session: &str, kind: &str, msg: &mut Value) {
         );
     }
     let Some(call) = all.get_mut(&key) else { return };
-    match update.pointer("/_meta/terminal_output/data").and_then(Value::as_str) {
+    match update
+        .get("_meta")
+        .and_then(|m| m.pointer("/terminal_output/data"))
+        .and_then(Value::as_str)
+    {
         Some(delta) => call.tally.feed(delta),
         None => {
             let snapshot = output_text(update);
