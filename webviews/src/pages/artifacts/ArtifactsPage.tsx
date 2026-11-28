@@ -62,7 +62,7 @@ export function ArtifactsPage({ store, strings }: { store: ArtifactsStore; strin
       </aside>
       <section className="artifacts-main">
         <header className="artifacts-header">
-          <span className="artifacts-path">{snapshot.selected ?? t("artifacts.file.choose")}</span>
+          <span className="artifacts-path selectable">{snapshot.selected ?? t("artifacts.file.choose")}</span>
         </header>
         <Preview snapshot={snapshot} store={store} strings={strings} />
         <History snapshot={snapshot} store={store} strings={strings} />
@@ -250,7 +250,7 @@ export function FileBody({ file, strings }: { file: ArtifactFile; strings: Strin
         referrerPolicy="no-referrer"
       />
     );
-  return <pre className="artifacts-preview artifacts-text">{text}</pre>;
+  return <pre className="artifacts-preview artifacts-text selectable">{text}</pre>;
 }
 
 function isHtml(file: ArtifactFile): boolean {

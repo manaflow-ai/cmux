@@ -14,8 +14,9 @@
 // No slider: 30 to 1000 characters in a 280pt popover is about 3.5 characters a pixel, too coarse
 // to pick a reading width and too fine to find a big one. Full width is a preset, never the top of
 // the range, so a huge width still keeps margins on a wider screen.
-import { useId, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { Select } from "../../ui/Select";
+import { watchPress } from "../../ui/pressRelease";
 import type { Strings } from "../shared/i18n";
 import {
   MARKDOWN_READING,
@@ -59,6 +60,8 @@ export function WidthField({ width, fullWidth, strings, setWidth, setFullWidth, 
   const [draft, setDraft] = useState<string | null>(null);
   const [invalid, setInvalid] = useState(false);
   const scrub = useRef<{ x: number; from: number; last: number } | null>(null);
+  const stopScrub = useRef<() => void>(undefined);
+  useEffect(() => () => stopScrub.current?.(), []);
   const range = MARKDOWN_READING.width;
   const chPixels = () => (characterWidth ?? (() => measureCharacterWidth()))();
   const preset = markdownWidthPreset({ width, fullWidth });
@@ -105,8 +108,22 @@ export function WidthField({ width, fullWidth, strings, setWidth, setFullWidth, 
   const onScrubStart = (event: PointerEvent<HTMLElement>) => {
     if (event.button !== 0) return;
     event.preventDefault();
-    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const label = event.currentTarget;
+    const pointerId = event.pointerId;
+    label.setPointerCapture?.(pointerId);
     scrub.current = { x: event.clientX, from: width, last: width };
+    // The scrub ends where its press does, also where the page never hears the pointerup (released
+    // over another window, or after the window lost focus mid-scrub): pressRelease.ts.
+    stopScrub.current?.();
+    stopScrub.current = watchPress(label.ownerDocument, {
+      pointerId,
+      end: () => {
+        stopScrub.current = undefined;
+        if (!scrub.current) return;
+        scrub.current = null;
+        label.releasePointerCapture?.(pointerId);
+      },
+    });
   };
   const onScrubMove = (event: PointerEvent<HTMLElement>) => {
     const state = scrub.current;
@@ -118,11 +135,6 @@ export function WidthField({ width, fullWidth, strings, setWidth, setFullWidth, 
     setDraft(null);
     setInvalid(false);
     setWidth(next);
-  };
-  const onScrubEnd = (event: PointerEvent<HTMLElement>) => {
-    if (!scrub.current) return;
-    scrub.current = null;
-    event.currentTarget.releasePointerCapture?.(event.pointerId);
   };
 
   const step = (direction: 1 | -1, big: boolean) => apply(width + (big ? range.bigStep : range.step) * direction);
@@ -152,8 +164,6 @@ export function WidthField({ width, fullWidth, strings, setWidth, setFullWidth, 
         htmlFor={id}
         onPointerDown={onScrubStart}
         onPointerMove={onScrubMove}
-        onPointerUp={onScrubEnd}
-        onPointerCancel={onScrubEnd}
       >
         {t(L.readingWidth)}
       </label>

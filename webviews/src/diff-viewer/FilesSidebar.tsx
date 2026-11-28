@@ -10,6 +10,7 @@ import type { CommentsSendState } from "../comments/types";
 import { type DiffItem, type FileTreeSource } from "../diff-stream";
 import { treeFileRowPath } from "../file-activation";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../ui/Menu";
+import { watchPress } from "../ui/pressRelease";
 import type { NativePopupDescription, NativePopupEvent } from "../ui/nativePopup";
 import { defaultDiffFileFilter, isDiffFileFilterActive, type DiffFileFilter } from "../file-filter";
 import {
@@ -154,6 +155,9 @@ export function FilesSidebar({
     }
   }
   const dragStart = useRef<{ startWidth: number; startX: number } | null>(null);
+  // The resize's press (pressRelease.ts): it ends also where the page never hears the release.
+  const stopResize = useRef<() => void>(undefined);
+  useEffect(() => () => stopResize.current?.(), []);
   const resizeFiles = (clientX: number) => {
     const start = dragStart.current;
     if (!start) {
@@ -181,17 +185,24 @@ export function FilesSidebar({
         tabIndex={0}
         onPointerDown={(event) => {
           dragStart.current = { startWidth: state.filesWidth, startX: event.clientX };
-          event.currentTarget.setPointerCapture(event.pointerId);
+          const handle = event.currentTarget;
+          handle.setPointerCapture(event.pointerId);
+          // Its pointerup sets the last width; any other end (cancelled, the window's blur, a move
+          // with no button down: released where the page never heard it) only stops the drag.
+          stopResize.current?.();
+          stopResize.current = watchPress(handle.ownerDocument, {
+            pointerId: event.pointerId,
+            end: (how, last) => {
+              stopResize.current = undefined;
+              if (how === "up" && last) {
+                resizeFiles(last.clientX);
+                dragStart.current = null;
+                handle.releasePointerCapture(last.pointerId);
+              } else dragStart.current = null;
+            },
+          });
         }}
         onPointerMove={(event) => resizeFiles(event.clientX)}
-        onPointerUp={(event) => {
-          resizeFiles(event.clientX);
-          dragStart.current = null;
-          event.currentTarget.releasePointerCapture(event.pointerId);
-        }}
-        onPointerCancel={() => {
-          dragStart.current = null;
-        }}
         onKeyDown={(event) => {
           if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
             return;

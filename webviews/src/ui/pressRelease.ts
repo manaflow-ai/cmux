@@ -44,15 +44,12 @@ export function trackPressRelease(start: PressStart, handlers: PressReleaseHandl
     return row;
   };
   const move = (event: PointerEvent) => {
-    if (event.pointerId !== start.pointerId) return;
     if (!moved) moved = Math.hypot(event.clientX - start.clientX, event.clientY - start.clientY) >= SLOP;
     if (!moved) return;
     const row = rowAt(event);
     if (row) handlers.hover?.(row);
   };
   const up = (event: PointerEvent) => {
-    if (event.pointerId !== start.pointerId) return;
-    stop();
     const target = doc.elementFromPoint?.(event.clientX, event.clientY);
     const onTrigger = target != null && trigger.contains(target);
     const held = Date.now() - startedAt >= PRESS_CLICK_MS;
@@ -65,20 +62,12 @@ export function trackPressRelease(start: PressStart, handlers: PressReleaseHandl
     }
     handlers.end?.(onTrigger);
   };
-  const cancel = (event: PointerEvent) => {
-    if (event.pointerId !== start.pointerId) return;
-    stop();
-    handlers.end?.(false);
-  };
-  function stop() {
-    doc.removeEventListener("pointermove", move, true);
-    doc.removeEventListener("pointerup", up, true);
-    doc.removeEventListener("pointercancel", cancel, true);
-  }
-  doc.addEventListener("pointermove", move, true);
-  doc.addEventListener("pointerup", up, true);
-  doc.addEventListener("pointercancel", cancel, true);
-  return stop;
+  // Any other end (cancelled, or released where the page never heard it) picks and closes nothing.
+  return watchPress(doc, {
+    pointerId: start.pointerId,
+    move,
+    end: (how, event) => (how === "up" && event ? up(event) : handlers.end?.(false)),
+  });
 }
 
 /**
@@ -141,4 +130,83 @@ function clickRow(row: HTMLElement) {
 /** A primary mouse press: the only press that drags to pick (touch and pen tap). */
 export function isMousePress(event: { pointerType: string; button: number }): boolean {
   return event.pointerType === "mouse" && event.button === 0;
+}
+
+/**
+ * How a press ended: its pointerup (mouseup), its pointercancel, its lost pointer capture, the
+ * window's blur, or a move with no button down.
+ */
+export type PressEnd = "up" | "cancel" | "lostcapture" | "blur" | "released";
+
+export interface PressWatch<E extends MouseEvent> {
+  /** Only this pointer's events count; every pointer's when absent. */
+  pointerId?: number;
+  /** A move while the press lasts (a move with no button down ends it instead). */
+  move?(event: E): void;
+  /** The press ended, once; `event` is the event that ended it, none for the window's blur. */
+  end(how: PressEnd, event?: E): void;
+}
+
+/**
+ * Follows one press in `doc` until it ends, and returns a stop that removes every listener (call it
+ * on unmount; it ends nothing). The page hears no pointerup for a press released where it cannot
+ * see it: a mouse has no implicit pointer capture, so a button let go over another window, or after
+ * the window lost focus mid-press, sends this page nothing. So besides the pointerup, the
+ * pointercancel and the press losing its pointer capture, the window's own blur ends it (an
+ * element's blur does not), and so does the first move with no button down (`buttons === 0`), the
+ * first event the page hears once the pointer is back.
+ *
+ * `events: "mouse"` follows a press that starts on a mousedown with mousemove and mouseup.
+ */
+export function watchPress(doc: Document, watch: PressWatch<PointerEvent> & { events?: "pointer" }): () => void;
+export function watchPress(doc: Document, watch: PressWatch<MouseEvent> & { events: "mouse" }): () => void;
+export function watchPress(
+  doc: Document,
+  watch: (PressWatch<PointerEvent> | PressWatch<MouseEvent>) & { events?: "pointer" | "mouse" },
+): () => void {
+  const view = doc.defaultView;
+  if (!view) return () => {};
+  const mouse = watch.events === "mouse";
+  const ours = (event: Event) =>
+    watch.pointerId === undefined || mouse || (event as PointerEvent).pointerId === watch.pointerId;
+  let done = false;
+  const finish = (how: PressEnd, event?: MouseEvent) => {
+    if (done) return;
+    stop();
+    (watch.end as (how: PressEnd, event?: MouseEvent) => void)(how, event);
+  };
+  const move = (event: Event) => {
+    if (!ours(event)) return;
+    const moved = event as MouseEvent;
+    if (moved.buttons === 0) finish("released", moved);
+    else (watch.move as ((event: MouseEvent) => void) | undefined)?.(moved);
+  };
+  const ends: [string, PressEnd][] = mouse
+    ? [["mouseup", "up"]]
+    : [
+        ["pointerup", "up"],
+        ["pointercancel", "cancel"],
+        ["lostpointercapture", "lostcapture"],
+      ];
+  const handlers = ends.map(([type, how]) => {
+    const handler = (event: Event) => {
+      if (ours(event)) finish(how, event as MouseEvent);
+    };
+    return [type, handler] as const;
+  });
+  // Only the window's own blur: an element's reaches the window in the capture phase alone.
+  const blur = (event: Event) => {
+    if (event.target === view) finish("blur");
+  };
+  const moveType = mouse ? "mousemove" : "pointermove";
+  function stop() {
+    done = true;
+    view!.removeEventListener(moveType, move, true);
+    for (const [type, handler] of handlers) view!.removeEventListener(type, handler, true);
+    view!.removeEventListener("blur", blur);
+  }
+  view.addEventListener(moveType, move, true);
+  for (const [type, handler] of handlers) view.addEventListener(type, handler, true);
+  view.addEventListener("blur", blur);
+  return stop;
 }

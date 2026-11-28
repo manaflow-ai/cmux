@@ -480,6 +480,38 @@ test("a press on the frozen box grabs it where it is drawn: the transcript does 
   }
 });
 
+// A drag released where the page never hears it (over another window, or after the window lost
+// focus mid-drag) ends too: on the window's own blur, or on the first move with no button down. A
+// later move over the map seeks nothing.
+for (const missed of ["the window's blur", "a move with no button down"] as const)
+  test(`a drag released where the page never hears it ends on ${missed}: a later move seeks nothing`, async () => {
+    setChatDisplay({ "agentPane.display.vscodeMinimap": true });
+    const pane = await mount();
+    try {
+      await pane.render("Done.");
+      await act(async () => flushFrames());
+      content(pane.scroller(), 20_000);
+      pane.scroller().scrollTop = 0;
+      const track = pane.host.querySelector<HTMLElement>(".acpmux-chat-minimap__track")!;
+      const event = (type: string, clientY: number, buttons: number) =>
+        act(async () => void track.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, button: 0, clientY, buttons }))); // prettier-ignore
+      await event("pointerdown", 300, 1);
+      expect(track.hasAttribute("data-dragging")).toBe(true);
+      if (missed === "the window's blur") {
+        await act(async () => void dom.window.dispatchEvent(new dom.window.FocusEvent("blur")));
+        // A move with a button down: only the blur can have ended the drag.
+        await event("pointermove", 20, 1);
+      } else await event("pointermove", 20, 0);
+      expect(track.hasAttribute("data-dragging")).toBe(false);
+      const at = pane.scroller().scrollTop;
+      await event("pointermove", 100, 1);
+      expect(pane.scroller().scrollTop).toBe(at);
+    } finally {
+      await pane.done();
+      setChatDisplay({});
+    }
+  });
+
 test("with the setting off the minimap reads no row", async () => {
   const host = document.createElement("div");
   document.body.append(host);

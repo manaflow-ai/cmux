@@ -9,6 +9,7 @@
 // fills the page with the viewer until Escape or the button again.
 import { createContext, use, useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { Dialog } from "../ui/Dialog";
+import { watchPress } from "../ui/pressRelease";
 import { keyedIconProps } from "../ui/DialogButton";
 import {
   displayFrame,
@@ -178,22 +179,29 @@ function FullGlyph({ exit }: { exit?: boolean }) {
  * step of the stage's width over the frame count (at least 12 px, at most 80 px). */
 function useDragScrub(count: number, index: number, goTo: (index: number) => void) {
   const drag = useRef<{ x: number; from: number; perFrame: number } | undefined>(undefined);
-  const end = () => {
-    drag.current = undefined;
-  };
+  // The scrub ends on its pointerup or pointercancel, and also where the page never hears one: the
+  // window's blur, or a move with no button down (pressRelease.ts).
+  const stopPress = useRef<() => void>(undefined);
+  useEffect(() => () => stopPress.current?.(), []);
   return {
     onPointerDown(event: PointerEvent<HTMLElement>) {
       if (event.button !== 0 || count < 2) return;
       const width = event.currentTarget.clientWidth || 0;
       drag.current = { x: event.clientX, from: index, perFrame: Math.min(Math.max(width / count, 12), 80) };
       event.currentTarget.setPointerCapture?.(event.pointerId);
+      stopPress.current?.();
+      stopPress.current = watchPress(event.currentTarget.ownerDocument, {
+        pointerId: event.pointerId,
+        end: () => {
+          stopPress.current = undefined;
+          drag.current = undefined;
+        },
+      });
     },
     onPointerMove(event: PointerEvent<HTMLElement>) {
       const start = drag.current;
       if (start) goTo(start.from + Math.round((event.clientX - start.x) / start.perFrame));
     },
-    onPointerUp: end,
-    onPointerCancel: end,
   };
 }
 

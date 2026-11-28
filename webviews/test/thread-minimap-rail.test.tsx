@@ -313,7 +313,7 @@ test("the tall initial rail does not make empty space a hit target", async () =>
     await pointer("pointermove", list, { clientY: 100 });
     expect(card()).toBeNull();
     await pointer("pointerdown", list, { clientY: 100, pointerId: 1 });
-    await pointer("pointermove", list, { clientY: 100, pointerId: 1 });
+    await pointer("pointermove", list, { clientY: 100, pointerId: 1, buttons: 1 });
     expect(list.closest("nav")!.hasAttribute("data-scrubbing")).toBe(false);
     await pointer("pointerup", list, { clientY: 100, pointerId: 1 });
   } finally {
@@ -689,11 +689,11 @@ test("dragging on the rail scrubs: each row crossed jumps the transcript to it, 
     const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
     // jsdom lays nothing out: the list's top is 0, so row n spans n*10 to n*10+10.
     await pointer("pointerdown", tick(1), { clientY: 15 });
-    await pointer("pointermove", list, { clientY: 45 });
+    await pointer("pointermove", list, { clientY: 45, buttons: 1 });
     await view.scrolled();
     expect(list.closest("nav")!.hasAttribute("data-scrubbing")).toBe(true);
     expect(view.scroller.scrollTop).toBe(landing(4));
-    await pointer("pointermove", list, { clientY: 75 });
+    await pointer("pointermove", list, { clientY: 75, buttons: 1 });
     await view.scrolled();
     expect(view.scroller.scrollTop).toBe(landing(7));
     expect(Math.round(length(7))).toBe(26);
@@ -724,6 +724,30 @@ test("a press released off the rail ends there: a later hover does not scrub", a
     await view.unmount();
   }
 });
+
+// A release the page never hears (over another window, or after the window lost focus mid-press;
+// the rail takes no capture before the slop) ends the press too: the window's own blur, or the first
+// move with no button down. Either way a later hover past the slop does not scrub.
+for (const missed of ["the window's blur", "a move with no button down"] as const)
+  test(`a press released where the page never hears it ends on ${missed}: a later move does not scrub`, async () => {
+    const view = await mount(12);
+    try {
+      const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+      const before = view.scroller.scrollTop;
+      await pointer("pointerdown", tick(1), { clientY: 15 });
+      if (missed === "the window's blur") {
+        await act(async () => void dom.window.dispatchEvent(new dom.window.FocusEvent("blur")));
+        // A move with a button down: only the blur can have ended the press.
+        await pointer("pointermove", list, { clientY: 45, buttons: 1 });
+      } else await pointer("pointermove", list, { clientY: 45, buttons: 0 });
+      await pointer("pointermove", list, { clientY: 75, buttons: 1 });
+      await view.scrolled();
+      expect(list.closest("nav")!.hasAttribute("data-scrubbing")).toBe(false);
+      expect(view.scroller.scrollTop).toBe(before);
+    } finally {
+      await view.unmount();
+    }
+  });
 
 test("a bookmark shows as the tick's dot; the prompt row, dot and card share its state", async () => {
   const view = await mount(8);

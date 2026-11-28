@@ -38,6 +38,7 @@
 // "Subagent · <name>" with a back button (subagentScope.ts, SubagentScopeHeader.tsx).
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
+import { watchPress } from "../../../ui/pressRelease";
 import { useConnectionQuiet } from "../../../ui/lasting";
 import "../../../ui/controls.css";
 import { useChatCut } from "./chatCut";
@@ -180,6 +181,10 @@ export function SessionInfoPanel({
   const t = useT();
   const frame = useRef<HTMLElement | null>(null);
   const drag = useRef<{ right: number } | undefined>(undefined);
+  // The resize ends where its press does (pressRelease.ts): a pointerup keeps the width there; any
+  // other end (a pointercancel, the window's blur, a move with no button down) drops the drag.
+  const stopPress = useRef<() => void>(undefined);
+  useEffect(() => () => stopPress.current?.(), []);
   // Glass only where the chat runs under it: floating over the chat's column (a foot) or as a popover.
   // Pushed beside the chat, or in the empty gutter, its sections sit on the pane with no card behind
   // them, as the native panel draws it (#32661; Leo, 2026-11-02: "we still HAVE AN ASININE BACKGROUND").
@@ -284,19 +289,20 @@ export function SessionInfoPanel({
           event.currentTarget.setPointerCapture?.(event.pointerId);
           drag.current = { right: frame.current.getBoundingClientRect().right };
           frame.current.dataset.resizing = "";
+          stopPress.current?.();
+          stopPress.current = watchPress(event.currentTarget.ownerDocument, {
+            pointerId: event.pointerId,
+            end: (how, last) => {
+              stopPress.current = undefined;
+              if (!drag.current) return;
+              if (how === "up" && last) setSessionInfoWidth(drag.current.right - last.clientX);
+              drag.current = undefined;
+              if (frame.current) delete frame.current.dataset.resizing;
+            },
+          });
         }}
         onPointerMove={(event) => {
           if (drag.current) setSessionInfoWidth(drag.current.right - event.clientX, false);
-        }}
-        onPointerUp={(event) => {
-          if (!drag.current) return;
-          setSessionInfoWidth(drag.current.right - event.clientX);
-          drag.current = undefined;
-          if (frame.current) delete frame.current.dataset.resizing;
-        }}
-        onPointerCancel={() => {
-          drag.current = undefined;
-          if (frame.current) delete frame.current.dataset.resizing;
         }}
         onDoubleClick={() => setSessionInfoWidth(SESSION_INFO_WIDTH.fallback)}
       />

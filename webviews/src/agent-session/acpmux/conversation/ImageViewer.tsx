@@ -9,6 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Dialog } from "../../../ui/Dialog";
+import { watchPress } from "../../../ui/pressRelease";
 
 import { belowTabRowStyle, useTabRow } from "../header/tabRow";
 import { useT } from "../i18n";
@@ -66,6 +67,9 @@ export function ImageViewer({
   }, []);
   const close = useRef<HTMLButtonElement>(null);
   const drag = useRef<{ id: number; x: number; y: number } | undefined>(undefined);
+  // Stops following the pan's press (watchPress); the viewer gone mid-pan leaves no listener behind.
+  const stopPress = useRef<() => void>(undefined);
+  useEffect(() => () => stopPress.current?.(), []);
   // A click beside the fitted image closes the viewer (ui/scrimClose.ts, shared by every media
   // viewer). Its `pressed` also keeps the second click of the double click that opened the viewer
   // from zooming the image that just opened (#27955).
@@ -163,6 +167,10 @@ export function ImageViewer({
     if (view.scale === MIN_SCALE || event.button !== 0) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
+    // The pan ends on its release, also one the page never hears (over another window, or after the
+    // window lost focus mid-pan).
+    stopPress.current?.();
+    stopPress.current = watchPress(event.currentTarget.ownerDocument, { pointerId: event.pointerId, end: endDrag });
   };
   const onPointerMove = (event: ReactPointerEvent) => {
     const from = drag.current;
@@ -174,7 +182,10 @@ export function ImageViewer({
       y: current.y + event.clientY - from.y,
     }));
   };
-  const endDrag = () => (drag.current = undefined);
+  const endDrag = () => {
+    stopPress.current = undefined;
+    drag.current = undefined;
+  };
 
   if (!image) return null;
   const copyLabel =
@@ -269,8 +280,6 @@ export function ImageViewer({
           onPointerDown={onPointerDown}
           onMouseDown={scrim.props.onMouseDown}
           onPointerMove={onPointerMove}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
           onDoubleClick={(event) => {
             if (!scrim.pressed.current) return;
             const point = fromCenter(event.clientX, event.clientY);

@@ -14,6 +14,7 @@ import { useChatDisplay, useChatMinimap } from "../chatDisplay";
 import { chatColumnOf, useChatSizing } from "../chatWidth";
 import type { RowsChange } from "../threadMinimap/model";
 import { stopScroll } from "../threadMinimap/scrollMotion";
+import { watchPress } from "../../../ui/pressRelease";
 import { THREAD_PADDING_TOP } from "../threadMinimap/model";
 
 import {
@@ -370,7 +371,11 @@ const Minimap = memo(function Minimap({
     writeScrollTop(node, physicalScrollTop(node, Math.max(0, y / scale - grab)), "minimap");
   };
   const press = useRef<{ pointer: number; grab: number } | undefined>(undefined);
+  // Stops following the press (watchPress); the map gone mid-drag leaves no listener behind.
+  const stopPress = useRef<() => void>(undefined);
+  useEffect(() => () => stopPress.current?.(), []);
   const release = () => {
+    stopPress.current = undefined;
     press.current = undefined;
     setDragging(false);
   };
@@ -411,6 +416,13 @@ const Minimap = memo(function Minimap({
           if (!inside) seek(y);
           press.current = { pointer: event.pointerId, grab };
           setDragging(true);
+          // The drag ends on its release, also one the page never hears (over another window, or
+          // after the window lost focus mid-drag).
+          stopPress.current?.();
+          stopPress.current = watchPress(event.currentTarget.ownerDocument, {
+            pointerId: event.pointerId,
+            end: release,
+          });
           try {
             event.currentTarget.setPointerCapture?.(event.pointerId);
           } catch {}
@@ -421,8 +433,6 @@ const Minimap = memo(function Minimap({
           if (!state || state.pointer !== event.pointerId) return;
           seek(local(event), state.grab);
         }}
-        onPointerUp={release}
-        onPointerCancel={release}
         onKeyDown={(event) => {
           const node = scroller.current;
           if (!node) return;

@@ -24,6 +24,8 @@ declare global {
     benchCommitRenders: { mark(): void; since(): number };
     /** Renames one older revision and has the page read the file and its history again. */
     benchChangeOne(index?: number): void | Promise<void>;
+    /** The file's whole text: what its preview shows, and every line its newest revision adds. */
+    benchFileText: string;
   }
 }
 
@@ -33,6 +35,7 @@ const sha = (index: number) => index.toString(16).padStart(40, "0");
 const text =
   Array.from({ length: n }, (_, index) => `const line${index} = "${"x".repeat(index % 60)}"; // ${index}`).join("\n") +
   "\n";
+window.benchFileText = text;
 const commits: ArtifactCommit[] = Array.from({ length: HISTORY_LIMIT }, (_, index) => ({
   sha: sha(index + 1),
   parents: [],

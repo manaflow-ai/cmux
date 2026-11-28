@@ -1271,6 +1271,41 @@ test("a Save begun and answered while cancel and edit reads the row's images kee
   expect(run.lost).toEqual([]);
 });
 
+// A press in the list gives its row focus without scrolling it in whole; the next keyboard focus
+// does scroll it in. A press released where the page never hears it (over another window) ends on the
+// next move with no button down, so keyboard focus scrolls rows in again.
+for (const release of ["none", "a move with no button down"] as const)
+  test(`a row's focus after a press ${release === "none" ? "still held does not scroll the list" : `ended by ${release} scrolls it in whole`}`, async () => {
+    const container = await render(
+      async () => true,
+      async () => true,
+    );
+    // An AbortSignal the page's own window takes (listeners may be added with one).
+    saved.set("AbortController", scope.AbortController);
+    scope.AbortController = dom!.window.AbortController;
+    const list = container.querySelector<HTMLElement>(".acpmux-composer-queue")!;
+    const row = container.querySelector<HTMLElement>('[data-prompt-id="p-2"]')!;
+    // A list 40px tall, the second row 60px down it: below the fold.
+    let scrollTop = 0;
+    Object.defineProperty(list, "clientHeight", { configurable: true, get: () => 40 });
+    Object.defineProperty(list, "scrollTop", {
+      configurable: true,
+      get: () => scrollTop,
+      set: (to) => (scrollTop = to),
+    });
+    const box = { top: 60, bottom: 100, left: 0, right: 100, width: 100, height: 40, x: 0, y: 60 };
+    row.getBoundingClientRect = () => ({ ...box, toJSON: () => box }) as DOMRect;
+    await act(async () => {
+      row.dispatchEvent(new dom!.window.MouseEvent("pointerdown", { bubbles: true, button: 0, buttons: 1 }));
+      if (release !== "none")
+        dom!.window.document.body.dispatchEvent(
+          new dom!.window.MouseEvent("pointermove", { bubbles: true, buttons: 0 }),
+        );
+      row.dispatchEvent(new dom!.window.FocusEvent("focusin", { bubbles: true }));
+    });
+    expect(scrollTop).toBe(release === "none" ? 0 : 60);
+  });
+
 test("a prompt listed twice draws one row, and the list carries no summary tooltip", async () => {
   const container = await render(
     async () => true,
