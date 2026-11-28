@@ -30,23 +30,35 @@ async function load() {
   const { installCatalog, t } = await import("../strings");
   installCatalog((await import("../generated/strings.json")).default);
   const { VaultLists } = await import("./EnvironmentVaultCard");
+  const { useEffect } = await import("react");
   return function EnvironmentVault({ entries = [], grants = [], keyShaped }: Props) {
+    // The app mounts Settings in the refined look (mount.tsx); the gallery shows that, not the base sheet.
+    useEffect(() => {
+      const previous = document.documentElement.dataset.settingsLook;
+      document.documentElement.dataset.settingsLook = "refined";
+      return () => {
+        if (previous === undefined) delete document.documentElement.dataset.settingsLook;
+        else document.documentElement.dataset.settingsLook = previous;
+      };
+    }, []);
     return (
-      <section className="settings-page" style={{ padding: 16 }}>
-        <section className="group" data-card="environmentVault">
-          <div className="rows models-rows">
-            <VaultLists
-              entries={entries}
-              grants={grants}
-              busy={false}
-              failure={keyShaped ? { message: t("settingsPage.vault.keyShaped", keyShaped), keyShaped } : null}
-              clearFailure={() => {}}
-              run={async () => true}
-              refuse={() => {}}
-            />
-          </div>
+      <div className="settings" style={{ display: "block" }}>
+        <section className="settings-page" style={{ padding: 16 }}>
+          <section className="group" data-card="environmentVault">
+            <div className="rows models-rows">
+              <VaultLists
+                entries={entries}
+                grants={grants}
+                busy={false}
+                failure={keyShaped ? { message: t("settingsPage.vault.keyShaped", keyShaped), keyShaped } : null}
+                clearFailure={() => {}}
+                run={async () => true}
+                refuse={() => {}}
+              />
+            </div>
+          </section>
         </section>
-      </section>
+      </div>
     );
   };
 }

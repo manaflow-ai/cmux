@@ -226,24 +226,22 @@ export function VaultLists({
         <div className="row">
           <div className="row-main">
             <div className="row-label">
-              <span className="row-title">
-                {t(env ? "settingsPage.vault.variables" : "settingsPage.vault.secrets")}
-              </span>
-              <span className="row-help">
+              <div className="row-title">{t(env ? "settingsPage.vault.variables" : "settingsPage.vault.secrets")}</div>
+              <div className="row-help">
                 {t(env ? "settingsPage.vault.variablesHelp" : "settingsPage.vault.secretsHelp")}
-              </span>
+              </div>
             </div>
+            <span className="row-control">
+              <Button
+                variant="ghost"
+                data-vault={env ? "addVariable" : "addSecret"}
+                disabled={busy || adding === delivery}
+                onClick={() => open(delivery)}
+              >
+                {t(env ? "settingsPage.vault.addVariable" : "settingsPage.vault.addSecret")}
+              </Button>
+            </span>
           </div>
-          <span className="row-control">
-            <Button
-              variant="ghost"
-              data-vault={env ? "addVariable" : "addSecret"}
-              disabled={busy || adding === delivery}
-              onClick={() => open(delivery)}
-            >
-              {t(env ? "settingsPage.vault.addVariable" : "settingsPage.vault.addSecret")}
-            </Button>
-          </span>
         </div>
         {rows.length === 0 && adding !== delivery && (
           <div className="row" data-vault-empty={delivery}>
@@ -256,17 +254,17 @@ export function VaultLists({
           <div className="row environment-row" key={entry.name} data-vault-entry={entry.name}>
             <div className="row-main">
               <div className="row-label">
-                <span className="row-title">
+                <div className="row-title">
                   <code>{entry.name}</code>
-                </span>
-                <span className="row-help">
+                </div>
+                <div className="row-help">
                   {t("settingsPage.vault.details", entry.revision, when(entry.updatedAt))}
                   {!env &&
                     " · " +
                       (entry.allowedHosts.length > 0
                         ? t("settingsPage.vault.hostsList", entry.allowedHosts.join(", "))
                         : t("settingsPage.vault.noHosts"))}
-                </span>
+                </div>
               </div>
               <span className="row-control">
                 <Button
@@ -338,9 +336,11 @@ export function VaultLists({
       {list("proxy")}
       <div className="vault-list" data-vault-list="grants">
         <div className="row">
-          <div className="row-label">
-            <span className="row-title">{t("settingsPage.vault.grants")}</span>
-            <span className="row-help">{t("settingsPage.vault.grantsHelp")}</span>
+          <div className="row-main">
+            <div className="row-label">
+              <div className="row-title">{t("settingsPage.vault.grants")}</div>
+              <div className="row-help">{t("settingsPage.vault.grantsHelp")}</div>
+            </div>
           </div>
         </div>
         {grantsFailed && (
@@ -358,18 +358,20 @@ export function VaultLists({
         )}
         {grants.map((grant) => (
           <div className="row" key={`${grant.kind}:${grant.id}`} data-vault-grant={grant.id}>
-            <div className="row-label">
-              <span className="row-title">
-                {t(grant.kind === "cloud" ? "settingsPage.vault.grantCloud" : "settingsPage.vault.grantJoined")}{" "}
-                <code>{grant.id}</code>
-              </span>
-              <span className="row-help">
-                {(grant.entries ? grant.entries.join(", ") : t("settingsPage.vault.grantAll")) +
-                  " · " +
-                  (grant.expiresAt === 0
-                    ? t("settingsPage.vault.grantRevoked")
-                    : t("settingsPage.vault.grantUntil", when(grant.expiresAt)))}
-              </span>
+            <div className="row-main">
+              <div className="row-label">
+                <div className="row-title">
+                  {t(grant.kind === "cloud" ? "settingsPage.vault.grantCloud" : "settingsPage.vault.grantJoined")}{" "}
+                  <code>{grant.id}</code>
+                </div>
+                <div className="row-help">
+                  {(grant.entries ? grant.entries.join(", ") : t("settingsPage.vault.grantAll")) +
+                    " · " +
+                    (grant.expiresAt === 0
+                      ? t("settingsPage.vault.grantRevoked")
+                      : t("settingsPage.vault.grantUntil", when(grant.expiresAt)))}
+                </div>
+              </div>
             </div>
           </div>
         ))}
