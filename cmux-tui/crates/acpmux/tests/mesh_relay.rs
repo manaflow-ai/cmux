@@ -380,7 +380,7 @@ async fn a_message_for_a_session_here_runs_once_and_is_acked_with_its_prompt_id(
     fake.lease(InMessage { attempt: 2, ..message("msg-1", "dep-land", Kind::Prompt) });
     fake.until("the second ack", |s| s.acked("msg-1").len() == 2).await;
     for ack in fake.with(|s| s.acked("msg-1")) {
-        assert_eq!(ack, Ack::delivered("msg-1", None));
+        assert_eq!(taken(&ack), Ack::delivered("msg-1", None));
     }
     let mut info = Value::Null;
     for _ in 0..600 {
@@ -503,7 +503,11 @@ async fn a_relayed_message_no_session_sent_names_the_machine_the_hub_proved_as_v
         [("msg-bare", "gcp-lane"), ("msg-relay", "gcp-lane/coord"), ("msg-other", "gcp-lane")]
     {
         fake.until("the ack", |s| !s.acked(id).is_empty()).await;
-        assert_eq!(fake.with(|s| s.acked(id)), vec![Ack::delivered(id, None)], "{id}");
+        assert_eq!(
+            fake.with(|s| s.acked(id)).iter().map(taken).collect::<Vec<_>>(),
+            vec![Ack::delivered(id, None)],
+            "{id}"
+        );
         let p = delivered_provenance(&mut local, &session, id).await;
         assert_eq!(p["fromName"], shown, "{id}: {p}");
         let record = acpmux::prompt_provenance::sender_record(Some(&p), None, None);
@@ -552,7 +556,12 @@ async fn a_relayed_send_that_names_no_sender_runs_in_an_idle_chat() {
     bare.body = "offload probe count msg-000001".into();
     fake.lease(bare);
     fake.until("the ack", |s| !s.acked("msg-bare").is_empty()).await;
-    assert_eq!(fake.with(|s| s.acked("msg-bare")), vec![Ack::delivered("msg-bare", None)]);
+    let acks = fake.with(|s| s.acked("msg-bare"));
+    // The ack says how the chat took it: into its inbox, not held, so the idle chat wakes.
+    assert_eq!(
+        acks,
+        vec![Ack::delivered("msg-bare", Some("inbox; threadId from:gcp-lane".into()))]
+    );
     let info = settled_turns(&mut local, &session, 2).await;
     assert_eq!(info.pointer("/result/turnCount"), Some(&json!(2)), "never ran: {info}");
     let p = delivered_provenance(&mut local, &session, "msg-bare").await;
@@ -771,7 +780,11 @@ async fn a_message_for_another_host_or_a_daemon_is_never_given_to_a_session_here
         for (id, target) in mine {
             fake.lease(InMessage { message_id: id.into(), ..to(target) });
             fake.until(id, |s| !s.acked(id).is_empty()).await;
-            assert_eq!(fake.with(|s| s.acked(id)[0].clone()), Ack::delivered(id, None), "{id}");
+            assert_eq!(
+                taken(&fake.with(|s| s.acked(id)[0].clone())),
+                Ack::delivered(id, None),
+                "{id}"
+            );
             ran.push(id.to_owned());
         }
     }
@@ -861,7 +874,7 @@ async fn a_daemon_the_hub_refused_for_a_while_is_listed_and_delivered_to_again()
     fake.until("the message after the refusals", |s| !s.acked("msg-after-refusal").is_empty())
         .await;
     assert_eq!(
-        fake.with(|s| s.acked("msg-after-refusal")),
+        fake.with(|s| s.acked("msg-after-refusal")).iter().map(taken).collect::<Vec<_>>(),
         vec![Ack::delivered("msg-after-refusal", None)]
     );
     assert!(fake.with(|s| s.heartbeats.iter().any(|b| !b.sessions.is_empty())));
@@ -1945,4 +1958,9 @@ async fn a_relayed_start_runs_under_the_senders_max_policy() {
         assert_eq!(meta.remote_origin, remote, "{id}");
     }
     hub.shutdown_all().await;
+}
+
+/// An ack with its acceptance detail (how the chat took the prompt) set aside.
+fn taken(ack: &Ack) -> Ack {
+    Ack { detail: None, ..ack.clone() }
 }
