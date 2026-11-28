@@ -17496,6 +17496,20 @@
         "required": true
       }
     },
+    "request:record-notification-delivery": {
+      "/desktop": {
+        "ty": "string",
+        "required": true
+      },
+      "/notification": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/reason": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
     "request:register-browser-provider": {
       "/authentication": {
         "ty": "enum",
@@ -27613,6 +27627,12 @@
       },
       "/data/state/rows": {
         "ty": "uint16",
+        "required": true
+      }
+    },
+    "response:record-notification-delivery": {
+      "/data": {
+        "ty": "json",
         "required": true
       }
     },
