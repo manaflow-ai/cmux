@@ -290,6 +290,28 @@ impl Hub {
         self.spawn_profile_read(meta, false, profile, defaults_env, None).await.map(|(p, ..)| p)
     }
 
+    /// The env `meta`'s agent runs with, as its spawn builds it ([`Self::spawn_profile_for`]:
+    /// the family defaults, the cmux Settings home, the preset, the chat store, the machine
+    /// sign-in's `HOME`/`CLAUDE_CONFIG_DIR`, the route), and whether it runs Claude Code. A reader
+    /// of the agent's own files (its transcript's usage, its subagents' transcripts) looks where
+    /// the agent writes only with this env: one rebuilt apart from the spawn drifted from it (the
+    /// usage pass left out the Settings home, the machine sign-in and the defaults, so such a chat
+    /// read as unmeasured, NOW `no_counters`, 2026-11-28). `None` when its spawn would refuse now.
+    pub(super) async fn launch_env(
+        &self,
+        meta: &SessionMeta,
+    ) -> Option<(bool, std::collections::BTreeMap<String, String>)> {
+        let (profile, defaults) = {
+            let cfg = self.config.read().await;
+            let profile =
+                super::resolve::session_profile(&cfg, &meta.harness, &meta.cwd, meta.remote_origin)
+                    .ok()?;
+            (profile, cfg.defaults_for(&meta.harness))
+        };
+        let p = self.spawn_profile_for(meta, &profile, &defaults.env).await.ok()?;
+        Some((p.kind == crate::config::HarnessKind::ClaudeStdio, p.env))
+    }
+
     /// `spawn_profile_for` on the owner's Cloud credential a chat launches with (the session
     /// pool's key and start for a hinted Cloud chat, `PrewarmShape`, cmux#45953).
     pub(super) async fn spawn_profile_with(
