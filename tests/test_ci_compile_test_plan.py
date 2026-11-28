@@ -412,7 +412,7 @@ class RetainedCompileCoverageTests(unittest.TestCase):
         self.assertIn("Packages/**", suite["paths"])
         batch = (ROOT / ".github" / "workflows" / "cmux-next-post-merge.yml").read_text()
         job = batch.split("\n  tip-test-compile:\n", 1)[1].split("\n  fast-tier:", 1)[0]
-        self.assertIn("base: ${{ needs.plan.outputs.base || (inputs.mode != 'probe' && '--all') || '' }}", job)
+        self.assertIn("base: ${{ needs.plan.outputs.tip_compile_base || needs.plan.outputs.base }}", job)
 
 
 if __name__ == "__main__":

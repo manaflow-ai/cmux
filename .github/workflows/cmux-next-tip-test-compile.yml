@@ -249,7 +249,7 @@ jobs:
               fi
               ;;
             fail)
-              history="The fleet compiled all test targets in the macOS package lane."
+              history="The compile selected all test targets in the macOS package lane."
               if [ "$BASE" != --all ]; then
                 # shellcheck disable=SC2016 # a jq filter, not shell
                 commits="$(gh api "repos/$GH_REPO/compare/$BASE...$sha" \
@@ -270,7 +270,7 @@ jobs:
               # A batch call never cancels the other suites. Its pass step is skipped, so
               # the batch planner retains the previous verified commit.
               if [ "$BATCH" = true ]; then
-                echo "No verdict ($VERDICT) in the post-merge batch; the next batch compiles from the last verified commit."
+                echo "No verdict ($VERDICT) in the post-merge batch; the verified compile checkpoint did not advance."
                 exit 0
               fi
               echo "No verdict ($VERDICT); cancelling this run so it is not a verified base."
