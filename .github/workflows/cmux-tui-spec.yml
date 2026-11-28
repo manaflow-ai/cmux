@@ -341,6 +341,10 @@ jobs:
           CI_FULL_CI_BASE_MERGE_CARRY: ${{ vars.CI_FULL_CI_BASE_MERGE_CARRY || '1' }}
           # Heavy jobs run only on the event that hands a head to land (head_tier.py's heavy-at-land rule); 0 turns that off.
           CI_HEAVY_AT_LAND: ${{ vars.CI_HEAVY_AT_LAND || '1' }}
+          CI_LAND_TIER_AT_ASK: ${{ vars.CI_LAND_TIER_AT_ASK || '1' }}
+          # A post-merge-tier workflow the post-merge batch runs plans nothing on a feat-cmux-next pull request
+          # head (head_tier.py's post-merge tier rule); off unless the repository variable is 1.
+          CI_POST_MERGE_TIER_PR: ${{ vars.CI_POST_MERGE_TIER_PR || '1' }}
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ ! -f scripts/ci/head_tier.py ]; then exit 0; fi
@@ -1384,13 +1388,19 @@ jobs:
         if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # Keyed on the toolchain and the UTC day, not cmux-tui/Cargo.lock (24 changes in the 24 h to 2026-11-28
+      # 02:30Z, each one a new entry in the 10 GB GitHub cache that evicts the rest): one save a day.
+      - name: Day of the target-dir cache
+        id: rust-day
+        if: ${{ steps.tree.outputs.hit != 'true' }}
+        run: echo "day=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
       - name: Cache cargo build
         if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-carrier-sim-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+          shared-key: cmux-tui-carrier-sim-${{ hashFiles('cmux-tui/rust-toolchain.toml', '.cargo/config.toml') }}-${{ steps.rust-day.outputs.day }}
           save-if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
@@ -1803,6 +1813,49 @@ jobs:
           BASE_SHA: ${{ steps.base.outputs.sha }}
           AUTOFIXED_OK: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_PR_AUTOFIX_PUSH == '1' && github.event.pull_request.head.sha || '' }}
         run: python3 "$RUNNER_TEMP/cmux-tui-clippy-changed.py" --repo "$GITHUB_WORKSPACE" --base "$BASE_SHA" ${AUTOFIXED_OK:+--autofixed-ok "$AUTOFIXED_OK"}
+
+      # Lists draw only their visible rows: no draw fn in a ratatui crate gains a walk or clone
+      # of a whole collection (cmux-tui/crates/cmux-source-scan/src/visible_only.rs). It reads
+      # the tree, so it runs on every change; its ratchet list only shrinks.
+      - name: visible-only draw ratchet
+        if: ${{ !cancelled() }}
+        working-directory: cmux-tui
+        run: cargo run -q --locked -p cmux-source-scan -- visible-only "$GITHUB_WORKSPACE"
+
+      # The runtime half of the ratchet above: each registered rail draws at 100 and 10,000
+      # items and its per-frame work (walked, cloned, built) stays flat in N, or keeps a baseline
+      # that only flips one way (cmux-view-rows/src/frame_work.rs). Only the full workspace gate
+      # ran them, and PR CI did not run acpmux-tui's, so a rail change could land a list that
+      # draws all of itself. Runs when a change touches either crate's inputs.
+      - name: visible-only frame work contracts
+        if: ${{ !cancelled() }}
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          set -o pipefail
+          run_acpmux=1 run_tui=1
+          if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] \
+            && changed=$(git diff --no-renames --name-only "$BASE_SHA" HEAD); then
+            { python3 scripts/ci/cargo_test_verdict.py touches cmux-tui/crates/acpmux-tui <<<"$changed" \
+              || python3 scripts/ci/cargo_test_verdict.py touches cmux-tui/crates/acpmux <<<"$changed"; } || run_acpmux=0
+            python3 scripts/ci/cargo_test_verdict.py touches cmux-tui/crates/cmux-tui <<<"$changed" || run_tui=0
+          fi
+          cd cmux-tui
+          check() {
+            local name=$1; shift
+            local log="$RUNNER_TEMP/frame-work-$name.log" start=$SECONDS
+            cargo test --locked "$@" 2>&1 | tee "$log"
+            echo "frame work contracts ($name): $((SECONDS - start)) s" >> "$GITHUB_STEP_SUMMARY"
+            if ! grep -qE 'test result: ok\. [1-9][0-9]* passed' "$log"; then
+              echo "::error title=visible-only frame work contracts::$name selected no frame_work test"
+              exit 1
+            fi
+          }
+          if [[ $run_acpmux == 1 ]]; then check acpmux-tui -p acpmux-tui --lib frame_work; fi
+          if [[ $run_tui == 1 ]]; then check cmux-tui -p cmux-tui --lib frame_work; fi
+          if [[ $run_acpmux == 0 && $run_tui == 0 ]]; then
+            echo "No acpmux or cmux-tui input changed; skipping the frame work contracts." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       # The host's clone/enrollment and root-peer IPC invariants must execute,
       # not only compile. Reuse this job's Rust setup and warm target directory.

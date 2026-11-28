@@ -81,7 +81,7 @@ public nonisolated struct CloudPersonCreate {
     public static let createTimeout: TimeInterval = 40
 
     /// The session a person's calls go on, each waiting `timeout` for its answer: no cache, no cookies, and
-    /// redirects refused, so the person's bearer never follows one (as `InstallHTTPTransport`).
+    /// redirects refused, so the person's bearer never follows one.
     public static func session(timeout: TimeInterval = callTimeout) -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil

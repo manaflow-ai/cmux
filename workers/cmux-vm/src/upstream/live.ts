@@ -14,7 +14,7 @@ import { makeRetireVm } from "./live-retire.ts";
 import { makeClientSessions } from "./live-client-sessions.ts";
 import { makeStatFile } from "./live-file-stat.ts";
 import { vmInstanceIdentity } from "./live-identity.ts";
-import { makeDurableCreate, makeRecoverCreation, makeInspectCancellation, makeDeleteCancellation } from "./live-create.ts";
+import { admitSend, makeDurableCreate, makeRecoverCreation, makeInspectCancellation, makeDeleteCancellation } from "./live-create.ts";
 import { UpstreamId } from "../lib/ids.ts";
 import type { Environment } from "../policy.ts";
 import type { CreateAdmissionClient } from "../limits/create-admission.ts";
@@ -73,6 +73,8 @@ export interface UpstreamConfig {
   readonly timeoutMs?: number;
   /** How often a background request's stored result is polled (live-background.ts); tests set 1. */
   readonly backgroundPollMs?: number;
+  /** How long background polls may fail before the request is unanswered (tests set it lower). */
+  readonly backgroundOutageMs?: number;
   /** How often a disk grow re-reads a VM that is still starting (GROW_START_POLLS times); tests set 1. */
   readonly startPollMs?: number;
   /** The environment's provider create queue (limits/create-admission.ts); none sends every create at once. */
@@ -254,7 +256,11 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
     deleteCancellingCreation: makeDeleteCancellation(config),
     createVm: makeDurableCreate(config, baseImageFor),
 
-    startVm: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => vmAction("startVm", id, "start")),
+    startVm: (_vm, { owns }, priority) => Effect.gen(function* () {
+      const id = yield* idOf(owns);
+      const release = yield* admitSend(config.createAdmission, `start:${crypto.randomUUID()}`, undefined, priority?.background === true, priority?.tenant);
+      return yield* vmAction("startVm", id, "start").pipe(Effect.ensuring(release));
+    }),
 
     pauseVm: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => vmAction("pauseVm", id, "pause")),
 
@@ -308,7 +314,7 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
         }).pipe(
           Effect.flatMap((response) =>
             response.status === 202
-              ? awaitBackground(send, "execVm", response, base.origin, deadlineAt, config.backgroundPollMs ?? DEFAULT_BACKGROUND_POLL_MS)
+              ? awaitBackground(send, "execVm", response, base.origin, deadlineAt, config.backgroundPollMs ?? DEFAULT_BACKGROUND_POLL_MS, config.backgroundOutageMs)
               : Effect.succeed(response),
           ),
           Effect.flatMap((response) =>

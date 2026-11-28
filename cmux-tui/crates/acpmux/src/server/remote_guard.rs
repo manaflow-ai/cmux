@@ -214,6 +214,11 @@ pub(super) fn sending_device(conn: &super::Conn, params: &Value) -> Option<Strin
     if conn.auth == super::ConnAuth::Device {
         return conn.device.clone();
     }
+    // The owner's own phone through this machine's cmux-tui (Cloud mobile or the Mac relay):
+    // only the unix socket, which controls every chat here already (`pairing::CLOUD_MOBILE_OWNER`).
+    if conn.origin == super::Origin::Local && conn.auth.authenticated() && cloud_mobile(params) {
+        return Some(crate::pairing::CLOUD_MOBILE_OWNER.to_owned());
+    }
     let (device, ..) = vouched_claim(conn, params)?;
     Some(crate::pairing::vouched_phone_id(&conn.id, device))
 }

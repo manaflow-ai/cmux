@@ -3,7 +3,9 @@
 before and after, and hands them to the agent that pushed, with no app build and no agent action.
 
     ui-preview-worker.py serve --state DIR [--bind ADDR] [--port 8765] [--public URL] [--send CMD]
-                               [--publish-receipts CMD] [--no-warm] [--no-swift] [--swift-peer URL] [--follow]
+                               [--publish-receipts CMD] [--no-warm] [--no-swift] [--swift-peer URL|--swift-pull]
+                               [--follow]
+    ui-preview-worker.py pull --state DIR --from URL[,URL...] [--no-warm]
     ui-preview-worker.py once --state DIR [REQUEST.json|-] [--send CMD] [--public URL]
     ui-preview-worker.py warm --state DIR
     ui-preview-worker.py submit --to http://HOST:PORT [REQUEST.json|-]
@@ -18,6 +20,10 @@ takes from the broker only requests with a web file, and names a request's Swift
 ({"sha", "scenes", "branch"}) answers each scene's PNG, base64, and this worker posts the look as before. The Mac needs
 Xcode, a display and the tailnet, but no lane-gh broker: no broker client is a Mac, so a Mac `--follow` never got a
 request, and every Swift push was a miss.
+--swift-pull (with --no-swift) reverses that connection: the tailnet ACL lets a lane VM reach a fleet Mac only on its
+SSH port, so a POST to the Mac's :8765 never answered and no Swift look ever posted. Instead the worker queues each
+Swift ask and the Mac's `pull --from URL` takes it over its own outbound connection (GET URL/swift/next, a 25 s
+long-poll), shoots it and answers POST URL/swift/result/ID, the /shoot answer's shape. The Mac listens on nothing.
 `publish FILE HOST` writes FILE (the receipts) as ui-preview/HOST.json on cmuxterm-hq's now-census through the
 broker's state_put, which NOW's ui_preview.p95_push_to_post_s reads:
 `--publish-receipts 'python3 ui-preview-worker.py publish {file} {host}'`.
@@ -40,19 +46,23 @@ What stays warm under --state:
   cmux/          a blob-less clone of manaflow-ai/cmux; each look fetches only its head and base
   swift/         a worktree of it holding Prototypes/UiLayerHost's `.build` (the UI shell, cmux-ui-layer): a changed
                  file in a shell module is an incremental `swift build` (5.8 s in the ui-shell ceiling run), never
-                 the app
+                 the app. The same warm `.build` holds the heavy modules' scene hosts (HEAVY_SCENES: cmux-ui-home
+                 for CmuxNextHomeEngine), each built only for a push to its module
   web/           a worktree of it with webviews' node_modules and the live gallery (`bun run gallery:dev`, vite with
                  hot reload) running over it: a checkout of another commit is picked up by the dev server's watcher,
                  so a web look is a checkout plus a headless shot (ui-preview-shoot.mjs), no gallery build
   shots/KIND/SHA/  every shot set this worker took, by commit: the before of a push is the after of the push before
                  it (cut 7), so an agent's second push shoots one side
   looks/TOKEN/   what the agent is sent: before/SCENE.png and after/SCENE.png, served at --public/looks/TOKEN/ under a
-                 128-bit random token on the worker's tailnet address only (private repo content never goes public)
+                 128-bit random token on the worker's tailnet address, and each changed scene's pair on the
+                 push's PR on pr-media (the broker's media call, its privacy check first), which fleet lanes with no
+                 route to the worker can read
   ui-preview-HOST.json  the ui-preview/v1 receipts (cmuxterm-hq tools/fleet-reconcilers/now_ui_preview.py), 36 h
 
 Scenes come from the diff alone:
   - a Swift file under Packages/macOS/CmuxNext/Sources/<module>/ of a shell module: that module's playground windows
-    (SWIFT_SCENES); the UI shell's own sources (Prototypes/UiLayerHost) shoot every scene
+    (SWIFT_SCENES), a heavy module's from its own host (HEAVY_SCENES); the UI shell's own sources
+    (Prototypes/UiLayerHost/Sources/UiLayerHost, UiShellShootKit) shoot every leaf scene, a heavy host's its scenes
   - a web file: the gallery entries webviews/scripts/gallery/touched.ts ranks first (WEB_CAP of them), each its
     default variant in dark at the gallery's narrow width
   - a Swift file outside the shell's modules, or a package manifest: no look, the receipt says the change needs an
@@ -105,14 +115,30 @@ SHELL_PRODUCT = "cmux-ui-layer"
 # The shell's scenes (UiShellShoot.swift scenes()) by the module whose views each draws. A module the scenes all
 # lean on (the design system, its tokens and icons) shoots them all. Other modules the shell links (Settings, Compat,
 # the preview leaf) draw in no scene: a change there has nothing to show here.
-ALL_SWIFT_SCENES = ("tabs", "sidebar-states", "all-themes", "keycaps")
+SHELL_SCENES = ("tabs", "sidebar-states", "all-themes", "keycaps")
+# The heavy modules' scenes, by the UiLayerHost product that draws them. Each host links one heavy module (and what it
+# needs), so a push to it is that module's incremental build plus the host's link, on the warm .build the leaf shell
+# shares (ui-preview-heavy-rebuild.sh, one-module rebuilds: a per-module build 7.0 s median for AgentPane, the app
+# library 31.2 s), and a leaf push never builds them. AgentPane draws in WKWebView: its looks are the web gallery's.
+# CmuxNextApp has no public view to draw, and a scene hook there grows the App (the arch ratchet's app_lines row):
+# it stays needs_build until a playground of its own moves out to a domain package.
+HEAVY_SCENES = {
+    "chief-teleport": "cmux-ui-home",  # CmuxNextHomeEngine: ChiefTeleportPlayground
+}
+HEAVY_HOST_SOURCES = {"UiHomeHost": ("chief-teleport",)}
+ALL_SWIFT_SCENES = SHELL_SCENES + tuple(HEAVY_SCENES)
 SWIFT_SCENES = {
     "CmuxNextTabs": ("tabs",),
     "CmuxNextSidebar": ("sidebar-states",),
-    "CmuxNextDesign": ALL_SWIFT_SCENES,
-    "CmuxNextDesignTokens": ALL_SWIFT_SCENES,
-    "CmuxNextIcons": ALL_SWIFT_SCENES,
+    "CmuxNextDesign": SHELL_SCENES,
+    "CmuxNextDesignTokens": SHELL_SCENES,
+    "CmuxNextIcons": SHELL_SCENES,
+    "CmuxNextHomeEngine": ("chief-teleport",),
 }
+# A host that links CmuxNext's CmuxGhosttyKit binary target needs the prebuilt GhosttyKit.xcframework at the tree's
+# root (HomeEngine's closure does not).
+GHOSTTY_PRODUCTS: set[str] = set()
+GHOSTTY_STAMP = ".ui-preview-ghostty-sha"
 SHELL_LINKED = {"CmuxNextUiLayerPreview", "CmuxNextSettings", "CmuxNextCompat"}
 WEB_CAP = 4
 # The Swift tree is whole but for the iOS app (0.5 of the tree's 1.35 GB, read by no macOS build). An allow-list drifts
@@ -146,12 +172,65 @@ SHOOT_SECONDS = 180
 # A peer's /shoot: its fetch, checkout, incremental build and shoot of one side (a cold build answers past it, and that
 # look names the timeout; the next push finds the Mac's .build warm).
 PEER_SECONDS = 10 * 60
+PULL_POLL_S = 25  # GET /swift/next holds this long for a job before answering 204
+PULL_STALE_S = 90  # no Mac asked for a job this long: a Swift ask fails at once instead of waiting PEER_SECONDS
+PULL = "pull"  # worker.swift_peer under --swift-pull: a pulling Mac shoots the Swift scenes
+
+
+class SwiftPulls:
+    """serve --swift-pull: the Swift asks waiting for a display Mac's `pull` (GET /swift/next) and their answers
+    (POST /swift/result/ID). An answer is taken only for a job still waiting; its id is random."""
+
+    def __init__(self):
+        self.cond = threading.Condition()
+        self.waiting: list[dict] = []  # asked, not yet taken by a Mac
+        self.answers: dict[str, dict | None] = {}  # id -> its answer (None until it comes), while its ask waits
+        self.polled_at = 0.0  # when a Mac last asked for a job
+
+    def ask(self, job: dict, timeout: float = PEER_SECONDS) -> dict:
+        job = dict(job, id=secrets.token_hex(16))
+        with self.cond:
+            if time.monotonic() - self.polled_at > PULL_STALE_S:
+                raise LookError(f"no display Mac has pulled a Swift job in {PULL_STALE_S} s (`pull --from` on the "
+                                f"ui-preview-swift holder)")
+            self.waiting.append(job)
+            self.answers[job["id"]] = None
+            self.cond.notify_all()
+            try:
+                if not self.cond.wait_for(lambda: self.answers[job["id"]] is not None, timeout):
+                    raise LookError(f"the pulling Mac did not answer in {int(timeout)} s")
+                return self.answers[job["id"]]
+            finally:
+                self.answers.pop(job["id"], None)
+                if job in self.waiting:
+                    self.waiting.remove(job)
+
+    def next(self, timeout: float = PULL_POLL_S) -> dict | None:
+        with self.cond:
+            self.polled_at = time.monotonic()
+            self.cond.wait_for(lambda: self.waiting, timeout)
+            self.polled_at = time.monotonic()
+            return self.waiting.pop(0) if self.waiting else None
+
+    def answer(self, job_id: str, doc: dict) -> bool:
+        with self.cond:
+            if self.answers.get(job_id, False) is not None:
+                return False
+            self.answers[job_id] = doc if isinstance(doc, dict) else {"error": "the answer is not an object"}
+            self.cond.notify_all()
+            return True
 INSTALL_SECONDS = 15 * 60
 GALLERY_UP_SECONDS = 180
 # The gallery's ranker of touched entries; a tree without it (a branch off main) has no gallery to shoot.
 GALLERY_RANKER = "webviews/scripts/gallery/touched.ts"
 STRINGS_GENERATOR = "scripts/pages/gen-strings.mjs"  # under webviews/; writes the gitignored generated/strings.json
 SEND_SECONDS = 60
+# The look's pictures also go to the push's PR on pr-media (the broker's `media` call: its privacy check, then
+# raw.githubusercontent.com), because the tailnet URL is unreachable from fleet lanes: no ACL grant gives them
+# the worker's port (fs-agent-lane-28's four fetches of 100.109.110.90:8765 timed out at 25 s each, 2026-11-28).
+MEDIA_SECONDS = 60
+MEDIA_MAX_FILES = 12  # 6 changed scenes, before and after
+PIXEL_THRESHOLD = 8  # a channel difference at most this is antialiasing noise, not a change
 SEND_RETRY_S = 2  # between a HOST/NAME send that failed and the bare-NAME lookup after it
 PREFETCH_SECONDS = 300
 # The VM's own mirror of manaflow-ai/cmux (repo-mirrors.timer, about every 15 min): the clone borrows its objects
@@ -207,6 +286,37 @@ def tail(text, most: int = 400) -> str:
     if isinstance(text, bytes):
         text = text.decode("utf-8", "replace")
     return " ".join((text or "").split())[-most:]
+
+
+def pixel_diff(before: Path, after: Path) -> dict | None:
+    """Changed pixels between two shots: {"changed_px", "pct", "bbox"} (bbox: left, top, right, bottom), or
+    {"size"} when the sizes differ; None without Pillow or for an unreadable PNG. A lane that cannot open the
+    images still learns how much changed and where."""
+    try:
+        from PIL import Image, ImageChops
+    except ImportError:
+        return None
+    try:
+        with Image.open(before) as a_img, Image.open(after) as b_img:
+            a, b = a_img.convert("RGB"), b_img.convert("RGB")
+    except (OSError, ValueError):
+        return None
+    if a.size != b.size:
+        return {"size": [list(a.size), list(b.size)]}
+    mask = ImageChops.difference(a, b).convert("L").point(lambda v: 255 if v > PIXEL_THRESHOLD else 0)
+    changed = mask.histogram()[255]
+    box = mask.getbbox()
+    return {"changed_px": changed, "pct": round(100 * changed / max(1, a.width * a.height), 2),
+            "bbox": list(box) if box else None}
+
+
+def diff_text(diff: dict) -> str:
+    if "size" in diff:
+        (bw, bh), (aw, ah) = diff["size"]
+        return f"size changed {bw}x{bh} -> {aw}x{ah}"
+    box = diff.get("bbox")
+    where = f", within x {box[0]}-{box[2]} y {box[1]}-{box[3]}" if box else ""
+    return f"{diff['changed_px']:,} px changed ({diff['pct']}%){where}"
 
 
 def send_targets(req: dict) -> list[str]:
@@ -313,7 +423,8 @@ def plan(files: list[str]) -> dict:
         if path.startswith(WEB_PREFIXES):
             web = True
         elif path.startswith(SHELL_PACKAGE + "/Sources/"):
-            swift.extend(ALL_SWIFT_SCENES)
+            target = path[len(SHELL_PACKAGE + "/Sources/"):].split("/", 1)[0]
+            swift.extend(HEAVY_HOST_SOURCES.get(target, SHELL_SCENES))
         elif path.startswith(SWIFT_ROOT):
             module = path[len(SWIFT_ROOT):].split("/", 1)[0]
             if module in SWIFT_SCENES:
@@ -610,9 +721,17 @@ class Worker:
         self.fetch_lock = threading.Lock()  # the clone's fetches (a prefetch and a look's fetch of one head)
         self.receipt_lock = threading.Lock()
         self.swift_on = True  # serve --no-swift: a web-only worker
-        self.swift_peer = ""  # serve --swift-peer: the display Mac that shoots this worker's Swift scenes
+        self.swift_peer = ""  # serve --swift-peer: the display Mac that shoots this worker's Swift scenes;
+        # PULL under --swift-pull: a display Mac's `pull` takes them from self.pulls
+        self.pulls = SwiftPulls()
         self.mirror = MIRROR if (MIRROR / "objects").is_dir() else None
         self.publisher = Publisher(self)
+        # The pictures go to pr-media too when this host has a broker client and a writer lane-gh accepts for a PR's
+        # media (a session's name; tools/lane-gh lease_for_write). The systemd worker has neither, and the broker
+        # fences a PR's media to its branch's lease, so there it stays off and the message carries the pixel diff.
+        self.lane_gh_bin = shutil.which("lane-gh") or ""
+        named = any((os.environ.get(k) or "").strip() for k in ("ACPMUX_SESSION_NAME", "LANE_GH_SERVICE"))
+        self.media_on = bool(self.lane_gh_bin) and named and os.environ.get("UI_PREVIEW_MEDIA", "1") != "0"
         self.newest: dict[str, tuple[float, str]] = {}  # branch -> (received, head) of its newest queued request
         self.newest_lock = threading.Lock()
         self.galleries_lock = threading.Lock()
@@ -754,34 +873,77 @@ class Worker:
         return bool(out.strip())
 
     # The Swift shell.
-    def shell_binary(self) -> Path:
+    def shell_binary(self, product: str = SHELL_PRODUCT) -> Path:
         pkg = self.swift_tree / SHELL_PACKAGE
-        out = run(["swift", "build", "--product", SHELL_PRODUCT, "--show-bin-path"], cwd=pkg, timeout=120,
+        out = run(["swift", "build", "--product", product, "--show-bin-path"], cwd=pkg, timeout=120,
                   what="swift build --show-bin-path")
-        return Path(out.strip().splitlines()[-1]) / SHELL_PRODUCT
+        return Path(out.strip().splitlines()[-1]) / product
 
-    def build_shell(self, cold: bool = False) -> None:
+    def build_shell(self, cold: bool = False, product: str = SHELL_PRODUCT) -> None:
+        """An incremental build of PRODUCT (the leaf shell, or a heavy scene host) on the tree's warm .build."""
         pkg = self.swift_tree / SHELL_PACKAGE
         if not (pkg / "Package.swift").is_file():
             raise LookError(f"{SHELL_PACKAGE} is not at this commit")
-        run(["swift", "build", "--product", SHELL_PRODUCT], cwd=pkg,
-            timeout=COLD_BUILD_SECONDS if cold else BUILD_SECONDS, what="the shell's swift build")
+        if f'"{product}"' not in (pkg / "Package.swift").read_text():
+            raise LookError(f"{SHELL_PACKAGE} has no {product} at this commit")
+        if product in GHOSTTY_PRODUCTS:
+            self.ensure_ghosttykit()
+        run(["swift", "build", "--product", product], cwd=pkg,
+            timeout=COLD_BUILD_SECONDS if cold else BUILD_SECONDS, what=f"the {product} swift build")
+
+    def ensure_ghosttykit(self) -> None:
+        """The prebuilt GhosttyKit.xcframework for the tree's ghostty pin (the sparse tree has no submodule): kept
+        across looks, fetched again only when the pin moves."""
+        tree = self.swift_tree
+        pin = git(tree, "rev-parse", "HEAD:ghostty").strip()
+        kit = tree / "GhosttyKit.xcframework"
+        stamp = kit / GHOSTTY_STAMP
+        if (kit / "Info.plist").is_file() and stamp.is_file() and stamp.read_text().strip() == pin:
+            return
+        shutil.rmtree(kit, ignore_errors=True)
+        run(["bash", "scripts/download-prebuilt-ghosttykit.sh"], cwd=tree, timeout=INSTALL_SECONDS,
+            env={"GHOSTTY_SHA": pin}, what="the GhosttyKit download")
+        stamp.write_text(pin + "\n")
 
     def shoot_shell(self, scenes: list[str], out: Path) -> dict:
-        """The shell's --shoot of SCENES into OUT; {scene: file} for each scene that wrote a PNG."""
+        """SCENES shot into OUT, each by its host (the leaf shell, or HEAVY_SCENES' product, built here first: the
+        caller built the leaf shell); {scene: file} for each scene that wrote a PNG."""
         if out.exists():
             shutil.rmtree(out)
         out.mkdir(parents=True)
+        shots: dict = {}
+        errors = []
+        for product in dict.fromkeys(HEAVY_SCENES.get(s, SHELL_PRODUCT) for s in scenes):
+            group = [s for s in scenes if HEAVY_SCENES.get(s, SHELL_PRODUCT) == product]
+            part = out / f".{product}"
+            try:
+                if product != SHELL_PRODUCT:
+                    self.build_shell(product=product)
+                got = self.shoot_product(product, group, part)
+            except LookError as err:
+                errors.append(str(err))
+                continue
+            for scene, name in got.items():
+                os.replace(part / name, out / name)
+                shots[scene] = name
+            shutil.rmtree(part, ignore_errors=True)
+        if not shots and errors:
+            raise LookError("; ".join(errors))
+        return shots
+
+    def shoot_product(self, product: str, scenes: list[str], out: Path) -> dict:
+        """PRODUCT's --shoot of SCENES into OUT; {scene: file} for each scene that wrote a PNG."""
+        out.mkdir(parents=True)
         pkg = self.swift_tree / SHELL_PACKAGE
-        binary = self.shell_binary()
+        binary = self.shell_binary(product)
         try:
             done = subprocess.run([str(binary), "--shoot", str(out), "--scene", ",".join(scenes)], cwd=pkg,
                                   capture_output=True, text=True, timeout=SHOOT_SECONDS)
         except subprocess.TimeoutExpired:
-            raise LookError(f"the shell's shoot ran past {SHOOT_SECONDS} s") from None
+            raise LookError(f"{product}'s shoot ran past {SHOOT_SECONDS} s") from None
         receipt_file = out / "receipt.json"
         if not receipt_file.is_file():
-            raise LookError(f"the shell's shoot exited {done.returncode} with no receipt.json: "
+            raise LookError(f"{product}'s shoot exited {done.returncode} with no receipt.json: "
                             f"{tail(done.stderr or done.stdout)}")
         shots = {}
         for shot in json.loads(receipt_file.read_text()).get("shots") or []:
@@ -802,7 +964,8 @@ class Worker:
                 shots = self.peer_shoot(sha, want, fresh, branch)
             else:
                 self.ensure_tree(self.swift_tree, SWIFT_SPARSE, sha)
-                self.build_shell()
+                if any(s in SHELL_SCENES for s in want):
+                    self.build_shell()
                 shots = self.shoot_shell(want, fresh)
             merged = {**self._cached(cache), **shots}
             cache.mkdir(parents=True, exist_ok=True)
@@ -818,6 +981,8 @@ class Worker:
         if out.exists():
             shutil.rmtree(out)
         out.mkdir(parents=True)
+        if self.swift_peer == PULL:
+            return self._peer_shots(self.pulls.ask({"sha": sha, "scenes": scenes, "branch": branch}), scenes, out)
         body = json.dumps({"sha": sha, "scenes": scenes, "branch": branch}).encode()
         request = urllib.request.Request(self.swift_peer.rstrip("/") + "/shoot", data=body,
                                          headers={"Content-Type": "application/json"})
@@ -829,6 +994,10 @@ class Worker:
                             f"{tail(err.read().decode(errors='replace'))}") from None
         except (OSError, ValueError) as err:
             raise LookError(f"the Swift peer {self.swift_peer} did not answer: {err}") from None
+        return self._peer_shots(doc, scenes, out)
+
+    @staticmethod
+    def _peer_shots(doc: dict, scenes: list[str], out: Path) -> dict:
         shots = {}
         for scene, data in (doc.get("shots") or {}).items():
             if scene in scenes and isinstance(data, str):
@@ -999,6 +1168,14 @@ class Worker:
                     self.build_shell(cold=True)
             except LookError as err:
                 errors.append(f"swift: {err}")
+            # The heavy scene hosts warm too (the app library's cold build is minutes), so a push to their module
+            # finds an incremental build; one that fails here leaves the leaf shell warm.
+            for product in dict.fromkeys(HEAVY_SCENES.values()):
+                try:
+                    with stages(f"swift_{product}"):
+                        self.build_shell(cold=True, product=product)
+                except LookError as err:
+                    errors.append(f"swift {product}: {err}")
         if web:
             try:
                 g = self.web
@@ -1161,7 +1338,12 @@ class Worker:
                             row[f"{side}_absent"] = True  # the entry is not in this side's commit (a new entry)
                 if before is not None and after is not None and before.is_file() and after.is_file():
                     row["changed"] = before.read_bytes() != after.read_bytes()
+                    if row["changed"]:
+                        diff = pixel_diff(before, after)
+                        if diff:
+                            row["diff"] = diff
                 scenes.append(row)
+            self.publish_media(req, scenes, receipt)
         receipt["scenes"] = scenes
         receipt["look"] = token
         if planned["needs_build"]:
@@ -1187,6 +1369,62 @@ class Worker:
         except LookError as err:
             receipt["error"] = f"{receipt['error']}; the error note: {err}"[:500]
 
+    def publish_media(self, req: dict, scenes: list[dict], receipt: dict) -> None:
+        """Each changed scene's before and after, onto the push's open PR on pr-media (lane-gh call media), so a
+        lane with no route to this worker's tailnet port can still read them: row[side + "_public"]. A push with no
+        open PR, or no broker client here, keeps the tailnet URLs only; receipt["media_error"] says why."""
+        if not self.media_on or not req.get("branch"):
+            return
+        rows = [s for s in scenes if s.get("changed", True) and s.get("before_path") and s.get("after_path")]
+        if not rows:
+            return
+        try:
+            number = self.open_pr(req["branch"])
+        except LookError as err:
+            receipt["media_error"] = str(err)[:300]
+            return
+        if not number:
+            receipt["media_error"] = f"no open PR for {req['branch']}: the pictures stay on the tailnet"
+            return
+        head = req["head_sha"][:12]
+        sent = 0
+        errors = []
+        for row in rows:
+            for side in ("before", "after"):
+                if sent >= MEDIA_MAX_FILES:
+                    break
+                path = Path(row[f"{side}_path"])
+                name = re.sub(r"[^A-Za-z0-9._-]", "_", f"ui-preview-{head}-{side}-{path.name}")
+                body = json.dumps({"number": number, "name": name,
+                                   "content": base64.b64encode(path.read_bytes()).decode()})
+                try:
+                    url = self.lane_gh(["call", "media", CMUX_REPO, "-", "--field", "url"], body).strip()
+                except LookError as err:
+                    errors.append(f"{name}: {err}")
+                    continue
+                sent += 1
+                if url.startswith("https://"):
+                    row[f"{side}_public"] = url
+        receipt["media_pr"] = number
+        if errors:
+            receipt["media_error"] = "; ".join(errors)[:300]
+
+    def open_pr(self, branch: str) -> int | None:
+        query = {"path": "pulls", "query": {"head": f"{CMUX_REPO.split('/')[0]}:{branch}", "state": "open",
+                                             "per_page": 1}}
+        out = self.lane_gh(["call", "get", CMUX_REPO, "-", "--field", "0.number"], json.dumps(query)).strip()
+        return int(out) if out.isdigit() else None
+
+    def lane_gh(self, argv: list[str], stdin: str) -> str:
+        try:
+            done = subprocess.run([self.lane_gh_bin, *argv], input=stdin, capture_output=True, text=True,
+                                  timeout=MEDIA_SECONDS)
+        except (subprocess.TimeoutExpired, OSError) as err:
+            raise LookError(f"lane-gh {argv[1]}: {err}") from None
+        if done.returncode != 0:
+            raise LookError(f"lane-gh {argv[1]} exited {done.returncode}: {send_why(done.stderr or done.stdout)}")
+        return done.stdout
+
     def url(self, token: str, side: str, name: str) -> str:
         rel = f"looks/{token}/{side}/{name}"
         return f"{self.public}/{rel}" if self.public else str(self.state / rel)
@@ -1198,10 +1436,18 @@ class Worker:
         for s in scenes:
             mark = (" (new: not in the base)" if s.get("before_absent") else " (removed)" if s.get("after_absent")
                     else "" if s.get("changed", True) else " (no visible change)")
-            lines.append(f"- {s['kind']} {s['scene']}{mark}: before {s.get('before') or 'none'}  after {s.get('after') or 'none'}")
+            before = s.get("before_public") or s.get("before") or "none"
+            after = s.get("after_public") or s.get("after") or "none"
+            lines.append(f"- {s['kind']} {s['scene']}{mark}: before {before}  after {after}")
+            if s.get("diff"):
+                lines.append(f"  diff: {diff_text(s['diff'])}")
         if receipt.get("error"):
             lines.append(f"Partly: {receipt['error']}")
-        if self.public:
+        public = any(s.get("before_public") or s.get("after_public") for s in scenes)
+        if public:
+            lines.append(f"Read one: d=$(mktemp -d) && curl -sL -o \"$d/ui-preview-{head}.png\" URL, then open it "
+                         f"(raw.githubusercontent.com: pr-media on #{receipt.get('media_pr')}).")
+        elif self.public:
             lines.append(f"Read one: d=$(mktemp -d) && curl -s -o \"$d/ui-preview-{head}.png\" URL, then open it (tailnet only).")
         return "\n".join(lines) + "\n"
 
@@ -1392,6 +1638,9 @@ def make_handler(worker: Worker, jobs: "queue.Queue"):
             if path == "/health":
                 return self.reply(200, {"ok": True, "host": worker.host, "queued": jobs.qsize(),
                                         "gallery": worker.web.up()})
+            if path == "/swift/next" and worker.swift_peer == PULL:
+                job = worker.pulls.next()
+                return self.reply(200, job) if job else self.reply(204, b"")
             if path == "/receipts":
                 try:
                     return self.reply(200, worker.receipts_path.read_bytes())
@@ -1405,6 +1654,16 @@ def make_handler(worker: Worker, jobs: "queue.Queue"):
             return self.reply(404, {"error": "not found"})
 
         def do_POST(self):
+            found = re.match(r"^/swift/result/([0-9a-f]{32})$", self.path)
+            if found:
+                try:
+                    size = int(self.headers.get("Content-Length") or 0)
+                    doc = json.loads(self.rfile.read(min(size, 1 << 26)))
+                except ValueError as err:
+                    return self.reply(400, {"error": str(err)})
+                if not worker.pulls.answer(found[1], doc):
+                    return self.reply(404, {"error": "no such job waiting"})
+                return self.reply(200, {"ok": True})
             if self.path == "/shoot":
                 try:
                     size = int(self.headers.get("Content-Length") or 0)
@@ -1627,7 +1886,7 @@ def follow(worker: "Worker", jobs: "queue.Queue", call=lane_gh_call) -> None:
 def command_serve(args) -> int:
     worker = Worker(Path(args.state), args.public, args.send, args.publish_receipts)
     worker.swift_on = not args.no_swift
-    worker.swift_peer = args.swift_peer or ""
+    worker.swift_peer = PULL if args.swift_pull else (args.swift_peer or "")
     bind = args.bind or tailnet_address() or "127.0.0.1"
     if not worker.public:
         worker.public = f"http://{bind}:{args.port}"
@@ -1646,6 +1905,61 @@ def command_serve(args) -> int:
     finally:
         worker.stop_shooter()
         worker.stop_gallery()
+    return 0
+
+
+def pull_from(worker: Worker, url: str, stop: threading.Event | None = None) -> None:
+    """`pull`'s loop for one web worker: take its next Swift ask over this Mac's own outbound connection, shoot it
+    and post the answer (the /shoot answer's shape, or {"error"})."""
+    url = url.rstrip("/")
+    said = ""  # the last failure logged: a candidate web host that does not hold the role's lease refuses each poll
+    while not (stop and stop.is_set()):
+        try:
+            with urllib.request.urlopen(url + "/swift/next", timeout=PULL_POLL_S + 20) as answer:
+                job = json.loads(answer.read()) if answer.status == 200 else None
+            if said:
+                log(f"pull {url}: answering again")
+                said = ""
+        except (OSError, ValueError) as err:
+            if str(err) != said:
+                log(f"pull {url}: {err} (retrying every {FOLLOW_RETRY_S} s)")
+                said = str(err)
+            (stop.wait if stop else time.sleep)(FOLLOW_RETRY_S)
+            continue
+        if not isinstance(job, dict) or not re.fullmatch(r"[0-9a-f]{32}", str(job.get("id") or "")):
+            continue
+        started = time.monotonic()
+        try:
+            doc = worker.peer_answer(job)
+        except LookError as err:
+            doc = {"error": str(err)[:500]}
+        except Exception as err:  # noqa: BLE001 - a crash in one shoot must not end the loop
+            doc = {"error": f"{type(err).__name__}: {err}"[:500]}
+        log(f"pull {url}: {job.get('sha', '')[:12]} {job.get('scenes')} in {time.monotonic() - started:.1f} s"
+            f"{': ' + doc['error'] if doc.get('error') else ''}")
+        result = urllib.request.Request(f"{url}/swift/result/{job['id']}", data=json.dumps(doc).encode(),
+                                        headers={"Content-Type": "application/json"})
+        try:
+            urllib.request.urlopen(result, timeout=60).close()
+        except (OSError, ValueError) as err:
+            log(f"pull {url}: posting {job['id']}: {err}")
+
+
+def command_pull(args) -> int:
+    worker = Worker(Path(args.state), None, None, None)
+    if not args.no_warm:
+        log(f"warming: {json.dumps(worker.warm(web=False, swift=True))}")
+    urls = [u for u in args.from_.split(",") if u.strip()]
+    threads = [threading.Thread(target=pull_from, args=(worker, u.strip()), name=f"pull-{n}", daemon=True)
+               for n, u in enumerate(urls)]
+    for t in threads:
+        t.start()
+    log(f"pulling Swift jobs from {', '.join(urls)} (state {worker.state})")
+    try:
+        for t in threads:
+            t.join()
+    finally:
+        worker.stop_shooter()
     return 0
 
 
@@ -1774,6 +2088,8 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--no-swift", action="store_true", help="a web-only worker (no display, no Xcode)")
             p.add_argument("--swift-peer", help="with --no-swift: the display Mac's serve URL (http://HOST:PORT) "
                                                 "that shoots the Swift scenes (POST /shoot)")
+            p.add_argument("--swift-pull", action="store_true",
+                           help="with --no-swift: queue the Swift scenes for a display Mac's `pull` (GET /swift/next)")
             p.add_argument("--follow", action="store_true",
                            help="take requests from the lane-gh broker's push trigger (ui_preview_requests)")
         else:
@@ -1783,6 +2099,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--state", required=True)
     p.add_argument("--no-web", action="store_true")
     p.add_argument("--no-swift", action="store_true")
+    p = sub.add_parser("pull")
+    p.add_argument("--state", required=True)
+    p.add_argument("--from", dest="from_", required=True, help="the web workers' serve URLs, comma-separated")
+    p.add_argument("--no-warm", action="store_true")
     p = sub.add_parser("submit")
     p.add_argument("--to", required=True)
     p.add_argument("request", nargs="?", default="-")
@@ -1791,7 +2111,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("host")
     args = ap.parse_args(argv)
     return {"serve": command_serve, "once": command_once, "warm": command_warm, "submit": command_submit,
-            "publish": command_publish}[args.command](args)
+            "publish": command_publish, "pull": command_pull}[args.command](args)
 
 
 if __name__ == "__main__":

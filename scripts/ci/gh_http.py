@@ -13,8 +13,18 @@ This is the same policy for every reader under scripts/ci, in one place:
   change them;
 - each wait honors Retry-After, else x-ratelimit-reset, else 5, 15, 30 s; never over MAX_WAIT_S, except a
   rate limit that NAMES its end (Retry-After, or x-ratelimit-remaining 0 with x-ratelimit-reset): that wait
-  is taken to the end, up to RATE_MAX_WAIT_S, and any number of times inside RATE_BUDGET_S (an installation
-  limit lasts minutes; cmux run 46019347396 gave up after 2 tries and 60 s and went red);
+  is taken to the end, up to RATE_MAX_WAIT_S, and any number of times inside rate_budget_s, which DEFAULTS to the caller's budget_s (BUDGET_S 110 s) so a job with a short
+  timeout-minutes is never cancelled by a sleep; only a caller that opts in (rate_budget_s=RATE_BUDGET_S, 1200 s) waits
+  longer (an installation
+  limit lasts minutes; cmux run 46019347396 gave up after 2 tries and 60 s and went red). A caller with
+  another token to try, or a job shorter than the wait, passes a smaller rate_budget_s: 0 gives up on a named
+  limit at once, so the caller's next token reads it (cmux's `ios fast verdict status`, a 5-min job, slept 900 s
+  on its run token's 403 and was cancelled at its timeout 23 times in 22:00-23:30Z 11-27, never trying the pool);
+- a job's own bound caps every wait: GH_HTTP_DEADLINE_S, set in the env of every workflow job with a
+  timeout-minutes that runs a reader (tests/test_ci_gh_http.py checks the workflows), is a budget no wait passes,
+  so a 403 gives up loudly, naming when the limit ends, before GitHub cancels the job silently (cmux run
+  46109204066: ios-fast-verdict-dispatch's 5-min resolve waited 405 s and was cancelled). It counts from the
+  job's first reader: that process writes the epoch GH_HTTP_DEADLINE_AT to $GITHUB_ENV for the later steps;
 - otherwise at most TRIES calls and BUDGET_S seconds in all: a wait that would pass the budget is not taken,
   and the last answer (or error) is the caller's. Giving up on a named rate limit logs
   "rate-limited until HH:MMZ" (limited_until) so the red names when to retry.
@@ -28,6 +38,7 @@ on every pass).
 from __future__ import annotations
 
 import io
+import os
 import sys
 import time
 import urllib.error
@@ -47,6 +58,49 @@ BACKOFF_S = (5.0, 15.0, 30.0)
 CALL_S = 30.0
 RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 READS = frozenset({"GET", "HEAD"})
+DEADLINE_ENV = "GH_HTTP_DEADLINE_S"
+DEADLINE_AT_ENV = "GH_HTTP_DEADLINE_AT"
+STARTED = time.monotonic()
+
+
+def _bound(env, name: str) -> float | None:
+    try:
+        return float(str(env.get(name) or "").strip())
+    except ValueError:
+        return None
+
+
+def share_deadline(env=None, now: Callable[[], float] = time.time) -> None:
+    """The first reader in a job turns GH_HTTP_DEADLINE_S into an epoch GH_HTTP_DEADLINE_AT for the job's later
+    steps ($GITHUB_ENV), so a second script in the same job does not start the clock again."""
+    env = os.environ if env is None else env
+    bound, path = _bound(env, DEADLINE_ENV), env.get("GITHUB_ENV")
+    if bound is None or _bound(env, DEADLINE_AT_ENV) is not None or not path:
+        return
+    at = f"{now() + bound:.0f}"
+    try:
+        with open(path, "a", encoding="utf-8") as out:
+            out.write(f"{DEADLINE_AT_ENV}={at}\n")
+    except OSError:
+        return
+    env[DEADLINE_AT_ENV] = at
+
+
+def deadline_left(clock: Callable[[], float] = time.monotonic, now: Callable[[], float] = time.time,
+                  env=None) -> float | None:
+    """Seconds left before the job's bound, or None when no bound is set: GH_HTTP_DEADLINE_AT (epoch, written by
+    the job's first reader) else GH_HTTP_DEADLINE_S from this process's start."""
+    env = os.environ if env is None else env
+    at = _bound(env, DEADLINE_AT_ENV)
+    if at is not None:
+        return max(0.0, at - now())
+    bound = _bound(env, DEADLINE_ENV)
+    if bound is None:
+        return None
+    return max(0.0, bound - (clock() - STARTED))
+
+
+share_deadline()
 
 
 def refusal_wait(status: int, headers, body: bytes, attempt: int, now: float) -> float | None:
@@ -89,7 +143,7 @@ def limited_until(headers, now: float | None = None) -> str | None:
 
 def request(req: urllib.request.Request | str, seconds: float = CALL_S, *, raise_errors: bool = False,
             follow_redirects: bool = True, max_bytes: int | None = None, tries: int = TRIES,
-            budget_s: float = BUDGET_S, sleep: Callable[[float], None] = time.sleep,
+            budget_s: float = BUDGET_S, rate_budget_s: float | None = None, sleep: Callable[[float], None] = time.sleep,
             clock: Callable[[], float] = time.monotonic, now: Callable[[], float] = time.time,
             log: Callable[[str], None] | None = None) -> tuple[int, bytes, deadline_http.Headers]:
     """deadline_http.request(REQ, SECONDS, ...), asked again on a refusal that can change (module doc).
@@ -100,7 +154,13 @@ def request(req: urllib.request.Request | str, seconds: float = CALL_S, *, raise
     method = req.get_method()
     tries = tries if method in READS else 1
     log = log or (lambda line: print(line, file=sys.stderr))
+    # A caller that does not opt in (rate_budget_s=RATE_BUDGET_S) never sleeps on a rate limit past its own
+    # budget_s: Actions jobs have timeout-minutes of 5-15, and a 20 min default cancelled them.
+    rate_budget_s = budget_s if rate_budget_s is None else rate_budget_s
     start = clock()
+    job_left = deadline_left(clock, now)
+    if job_left is not None:
+        budget_s, rate_budget_s = min(budget_s, job_left), min(rate_budget_s, job_left)
     attempt = -1
     while True:
         attempt += 1
@@ -121,7 +181,7 @@ def request(req: urllib.request.Request | str, seconds: float = CALL_S, *, raise
                 break
             if method in READS and named_wait(headers, now()) is not None:
                 # a rate limit that names its end: wait it out, bounded by RATE_BUDGET_S, not by tries
-                tries, budget_s = max(tries, attempt + 2), max(budget_s, RATE_BUDGET_S)
+                tries, budget_s = max(tries, attempt + 2), max(budget_s, rate_budget_s)
         last = attempt + 1 >= tries
         if not last and clock() - start + wait > budget_s:
             last = True
@@ -131,7 +191,9 @@ def request(req: urllib.request.Request | str, seconds: float = CALL_S, *, raise
                 raise error
             until = limited_until(headers, now())
             log(f"gh_http: {what}; gave up after {attempt + 1} tries"
-                + (f"; rate-limited until {until}" if until else ""))
+                + (f"; rate-limited until {until}" if until else "")
+                + (f"; the job's {DEADLINE_ENV} bound leaves no time to wait" if job_left is not None
+                   and clock() - start + wait > budget_s else ""))
             break
         log(f"gh_http: {what}; asking again in {wait:.0f} s (try {attempt + 2} of {tries})")
         sleep(wait)

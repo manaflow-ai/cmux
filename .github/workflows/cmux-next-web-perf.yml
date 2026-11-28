@@ -314,7 +314,7 @@ jobs:
               --artifact artifacts/split-spring/report.json ${target[@]+"${target[@]}"} \
               --arg=--suite=stress --arg="--angles=$ANGLES" --arg="--window=$WINDOW" --arg=--vdisplay=120 \
               2>&1 | tee "$log" || status=1
-            step="$(grep -o -E '\b[0-9a-f]{24}\b' "$log" | head -1)"
+            step="$(grep -o -E '\b[0-9a-f]{24}\b' "$log" | head -1 || true)"
             if [[ -n "$step" ]]; then
               "$client" artifact "$step" "$out/$side.json" || "$client" artifact --failed "$step" "$out/$side.json" || true
             fi

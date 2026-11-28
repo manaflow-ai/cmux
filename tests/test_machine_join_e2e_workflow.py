@@ -9,7 +9,8 @@ through `env`; no `set -x`; the platform origin
 is development's; the runner is an ephemeral Blacksmith label (never a runner
 variable that can name a persistent host); the evidence check, the upload and
 the disposable user's removal run under `always()`, the upload only when the
-check found the evidence clean; nothing else is uploaded. The disposable
+check found the evidence clean; nothing but the evidence and, with share, the
+viewer's PNG (read as the viewer) is uploaded. The disposable
 user's base is root:root 0755 before the user exists (acpmux refuses a state
 directory with another user's ancestor), and the real binary joins with
 malformed stdin as that user before any secret is in reach.
@@ -306,7 +307,19 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
     def test_only_the_evidence_is_uploaded(self) -> None:
         uploads = [s for s in steps() if "upload-artifact" in s.get("uses", "")]
         self.assertEqual(len(uploads), 1)
-        self.assertEqual(uploads[0]["with"]["path"], "${{ runner.temp }}/machine-join-e2e/evidence.json")
+        self.assertEqual(
+            [p.strip() for p in uploads[0]["with"]["path"].splitlines() if p.strip()],
+            ["${{ runner.temp }}/machine-join-e2e/evidence.json", "${{ runner.temp }}/machine-join-e2e/frame.png"],
+        )
+        # The picture is read as the viewer (never as root, which would follow a link the viewer planted),
+        # only after the evidence was found clean, and kept only as a PNG.
+        collect = step("Collect the viewer's picture")
+        self.assertEqual(collect["if"], "always() && steps.evidence.outputs.clean == 'true' && steps.share.outputs.viewer != ''")
+        self.assertIn('sudo -n -u "$VIEWER_USER" -- /bin/cat -- "$VIEWER_HOME/frame.png"', collect["run"])
+        self.assertIn("89504e470d0a1a0a", collect["run"])
+        names = [s.get("name") for s in steps()]
+        self.assertLess(names.index("Collect the viewer's picture"), names.index("Upload the evidence"))
+        self.assertLess(names.index("Upload the evidence"), names.index("Remove the viewer user"))
         # No restored build cache in a job that later holds secrets.
         self.assertFalse([s for s in steps() if re.search(r"actions/cache|rust-cache", s.get("uses", ""))])
 

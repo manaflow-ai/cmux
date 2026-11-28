@@ -196,7 +196,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 15d0894d846358897a8a60dc44af2158e9e77dda792044b2253002bacd75731a
+// app-ffi-pin-checksum: f8858d2c39450edc69baae390ebcf37c96be05610e399a91216a51a83b2ee47b
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -243,6 +243,9 @@ let uiLayerPreviewProducts: [Product] = [
         "CmuxNextSidebar",
         "CmuxNextTabs",
     ]),
+    // The UI shell's HomeEngine host (Prototypes/UiLayerHost cmux-ui-home --shoot) draws HomeEngine's playgrounds
+    // from an incremental build of HomeEngine and what it needs, without the app composition root.
+    .library(name: "CmuxNextUiHomeModules", targets: ["CmuxNextHomeEngine"]),
 ]
 
 // Debug-only: the preview leaf and its tests share this one condition.
@@ -726,6 +729,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPages",
                 "CmuxNextPalette",
                 "CmuxNextRemoteFetch",
+                "CmuxNextResources",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
                 "CmuxNextWindowRules",
@@ -2240,6 +2244,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextActions",
                 "CmuxNextCloud",
+                "CmuxNextCloudStart",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextDesign",
@@ -2571,6 +2576,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCopyMode",
                 "CmuxNextDesign",
                 "CmuxNextDictation",
+                "CmuxNextHibernation",
                 "CmuxNextIcons",
                 "CmuxNextProcessEnvironment",
                 "CmuxNextTerminalFind",

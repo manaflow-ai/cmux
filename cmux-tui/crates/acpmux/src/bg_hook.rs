@@ -691,6 +691,9 @@ pub(crate) fn answer(home: &std::path::Path, session: &str, input: Value) -> Opt
     // reads; with nothing else to say, the answer is the rewrite itself.
     let mut input = input;
     let shared = shared_cache(&mut input, &self_words);
+    // Harness magic `speculative` (RFD 0158 §4, `spec_exec.rs`): a check the daemon already ran
+    // ahead of the lane is served from that run while the tree is as it was.
+    let shared = speculative(&mut input, &self_words) || shared;
     let shared_answer = |input: &Value| shared.then(|| updated_answer(input)).flatten();
     let command = input.pointer("/tool_input/command").and_then(Value::as_str)?;
     // A heavy build or test on a Cloud machine with AutoCloud on runs on a fork (RFD 0144
@@ -776,6 +779,37 @@ fn shared_cache(input: &mut Value, self_words: &dyn Fn() -> Vec<String>) -> bool
     words.extend([crate::ci_log_cache::SUBCOMMAND.to_owned(), "--".to_owned()]);
     let Some(rewritten) =
         crate::ci_log_cache::rewrite(command, &crate::agent_tools::quoted(&words))
+    else {
+        return false;
+    };
+    match input.pointer_mut("/tool_input/command") {
+        Some(slot) => {
+            *slot = json!(rewritten);
+            true
+        }
+        None => false,
+    }
+}
+
+/// Rewrites `input`'s command through `spec-serve` when the feature is on and a kept run of
+/// that command in the call's folder exists; whether it did.
+fn speculative(input: &mut Value, self_words: &dyn Fn() -> Vec<String>) -> bool {
+    let (Some(command), Some(cwd)) = (
+        input.pointer("/tool_input/command").and_then(Value::as_str),
+        input.get("cwd").and_then(Value::as_str),
+    ) else {
+        return false;
+    };
+    if input.pointer("/tool_input/run_in_background").and_then(Value::as_bool) == Some(true)
+        || !crate::spec_exec::is_check(command)
+        || !crate::spec_exec::has_record(std::path::Path::new(cwd), command)
+        || !crate::spec_exec::enabled()
+    {
+        return false;
+    }
+    let mut words = self_words();
+    words.extend([crate::spec_exec::SUBCOMMAND.to_owned(), "--".to_owned()]);
+    let Some(rewritten) = crate::spec_exec::rewrite(command, &crate::agent_tools::quoted(&words))
     else {
         return false;
     };

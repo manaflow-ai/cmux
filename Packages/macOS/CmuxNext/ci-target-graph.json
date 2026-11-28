@@ -60,6 +60,7 @@
         "CmuxNextCloud",
         "CmuxNextCodeRouter",
         "CmuxNextCompat",
+        "CmuxNextDaemon",
         "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextHomeEngine",
@@ -211,10 +212,12 @@
         "CmuxNextDesignTokens",
         "CmuxNextDictation",
         "CmuxNextErrorJournal",
+        "CmuxNextHibernation",
         "CmuxNextIcons",
         "CmuxNextPages",
         "CmuxNextPalette",
         "CmuxNextRemoteFetch",
+        "CmuxNextResources",
         "CmuxNextSettings",
         "CmuxNextWakeups",
         "CmuxNextWindowRules"
@@ -1058,6 +1061,7 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextCloud",
+        "CmuxNextCloudStart",
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextDesign",
@@ -1635,6 +1639,8 @@
         "CmuxNextHome",
         "CmuxNextHomeModel",
         "CmuxNextIcons",
+        "CmuxNextPages",
+        "CmuxNextSettings",
         "CmuxNextWakeups",
         "CmuxNextWindowRules"
       ],
@@ -2403,6 +2409,7 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextIcons",
+        "CmuxNextPalette",
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
@@ -2518,6 +2525,7 @@
         "CmuxNextCopyMode",
         "CmuxNextDesign",
         "CmuxNextDictation",
+        "CmuxNextHibernation",
         "CmuxNextIcons",
         "CmuxNextProcessEnvironment",
         "CmuxNextTerminalFind",

@@ -61,6 +61,7 @@ GATE_SCRIPTS = {
     "webviews checks": "scripts/ci/fast_gate_webviews_checks.py",
     "protocol skew": "scripts/ci/protocol_skew_check.py",
     "entry logs": "scripts/ci/entry_logs.py",
+    "huge files": "scripts/ci/check_huge_files.py",
     "settings catalog keys": "scripts/ci/settings_catalog_keys.py",
     "egress gate": "scripts/ci/egress_new_sites.py",
 }
@@ -1675,6 +1676,7 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(calls["webviews checks"]["argv"], ["--base", base])
         self.assertEqual(calls["protocol skew"]["argv"], ["--base", base, "--head", merge])
         self.assertEqual(calls["entry logs"]["argv"], ["check", "--base", base, "--head", merge])
+        self.assertEqual(calls["huge files"]["argv"], ["check", "--base", base, "--head", merge])
         self.assertEqual(calls["settings catalog keys"]["argv"][0], "--root")
         self.assertEqual(calls["settings catalog keys"]["argv"][-2:], ["--base-rev", base])  # a base red is a note
         self.assertEqual(calls["egress gate"]["argv"][:4], ["--base", base, "--head", merge])

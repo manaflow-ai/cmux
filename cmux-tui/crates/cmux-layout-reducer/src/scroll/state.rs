@@ -100,6 +100,11 @@ pub enum ColumnScrollEvent {
         animated: bool,
         reveals: bool,
         anchor: Option<ColumnId>,
+        /// A keyboard resize press that trades width between two columns (Swift
+        /// `keptColumn`): the camera keeps `anchor` where it shows and reveals
+        /// nothing, so only the divider the press moves moves. The caller clears
+        /// it by not setting it on the next sync.
+        keeps_view: bool,
     },
     /// Center the column holding the pane once.
     Center {
@@ -196,9 +201,17 @@ impl ColumnScrollState {
     pub fn reduce(&mut self, event: ColumnScrollEvent) -> ColumnScrollEffects {
         let mut effects = ColumnScrollEffects::default();
         match event {
-            ColumnScrollEvent::Sync { strip, focused, source, animated, reveals, anchor } => {
+            ColumnScrollEvent::Sync {
+                strip,
+                focused,
+                source,
+                animated,
+                reveals,
+                anchor,
+                keeps_view,
+            } => {
                 let before = self.spring.target;
-                let shift = self.sync(strip, focused, source, reveals, anchor);
+                let shift = self.sync(strip, focused, source, reveals, anchor, keeps_view);
                 // A sync that leaves the target where the camera shift put it never snaps: a
                 // fling or wheel spring in flight keeps moving while pane layout motion is off
                 // (motion.md rule 9).
@@ -334,9 +347,11 @@ impl ColumnScrollState {
         source: ColumnFocusSource,
         reveals: bool,
         anchor: Option<ColumnId>,
+        keeps_view: bool,
     ) -> f64 {
         let old = self.strip.take();
-        let delta = self.sync_against(&new, old.as_ref(), focused, source, reveals, anchor);
+        let delta =
+            self.sync_against(&new, old.as_ref(), focused, source, reveals, anchor, keeps_view);
         self.strip = Some(new);
         self.spare = old;
         delta
@@ -350,6 +365,7 @@ impl ColumnScrollState {
         source: ColumnFocusSource,
         reveals: bool,
         anchor_override: Option<ColumnId>,
+        keeps_view: bool,
     ) -> f64 {
         let old_pane = self.focused_pane;
         let old_column = self.focused_column;
@@ -442,13 +458,15 @@ impl ColumnScrollState {
             });
         }
 
-        // A removed column cannot leave the camera past the new strip. The view carries the
-        // panes horizontally from where they showed; row cameras keep their vertical spring.
+        // A removed column, or a removed row of a row column, cannot leave the camera past the new
+        // strip. The removal is one commit: the frame that shows it shows the strip that stays up
+        // to its end, never that end with the window's ground beside it where the removed one was,
+        // on a camera that springs back.
         // Only a velocity out of the strip from where the camera now rests stops: one back into
         // it (a center or fling that was already coming back) goes on, so the close takes the
         // camera at the speed it shows. A strip that now fits has no inside to go back to: it
         // stops at 0.
-        if new.axis == Axis::Horizontal && any_removed {
+        if any_removed {
             let clamped = new.clamp(self.spring.value);
             if clamped != self.spring.value
                 && ((clamped >= new.max_offset() && self.spring.velocity > 0.)
@@ -464,8 +482,9 @@ impl ColumnScrollState {
         }
 
         // 3. Reveal. A live gesture owns the target; its end keeps the
-        //    focused column visible.
-        if self.gesture.is_some() {
+        //    focused column visible. A key press's trade (`keeps_view`) moves only its divider,
+        //    inside the window.
+        if self.gesture.is_some() || keeps_view {
             return delta;
         }
         if !reveals {

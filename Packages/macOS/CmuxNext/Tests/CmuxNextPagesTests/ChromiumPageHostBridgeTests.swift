@@ -240,6 +240,64 @@ struct ChromiumPageHostBridgeTests {
         #expect(!bridge.receive(devToolsMessage: #"{"method":"Page.loadEventFired","params":{}}"#))
     }
 
+    /// RFD 0062: V8 compiles and keeps every distinct script text, so a steady push of new data is one
+    /// fixed function called with the data as its argument, never a new `Runtime.evaluate` text. The
+    /// pushes queued together go in one call, in order with the scripts around them.
+    @Test func steadyPushesCallOneFixedFunctionWithTheirData() async {
+        let page = FakeChromiumPage()
+        let bridge = ChromiumPageHostBridge(page: page)
+        let done: Bool? = await PageTestWait.value("pushes") { done in
+            page.onCall = {
+                if page.calls.contains(where: { ($0.params["expression"] as? String) == "after()" }) { done(true) }
+            }
+            bridge.evaluate("before()")
+            for index in 0..<20 { bridge.receive(#"{"seq":\#(index)}"#) }
+            bridge.evaluate("after()")
+        }
+        #expect(done == true)
+        let calls = page.calls.filter { $0.method == "Runtime.callFunctionOn" }
+        let declarations = Set(calls.compactMap { $0.params["functionDeclaration"] as? String })
+        #expect(declarations == [ChromiumPageHostBridge.callDeclaration(body: PageRouter.receiveBody, argument: "envelope")])
+        #expect(calls.allSatisfy { $0.params["objectId"] as? String == "global-1" })
+        let texts = calls.flatMap { (($0.params["arguments"] as? [[String: any Sendable]])?.first?["value"] as? [String]) ?? [] }
+        #expect(texts == (0..<20).map { #"{"seq":\#($0)}"# })
+        let order = page.calls.compactMap { call -> String? in
+            call.method == "Runtime.callFunctionOn" ? "push" : (call.params["expression"] as? String).flatMap { $0 == "globalThis" ? nil : $0 }
+        }
+        #expect(order.first == "before()" && order.last == "after()" && order.dropFirst().dropLast().allSatisfy { $0 == "push" })
+        let evaluated = page.calls.compactMap { $0.params["expression"] as? String }
+        #expect(!evaluated.contains { $0.contains("seq") }, "a push went as a new script text")
+    }
+
+    /// The call's function runs `body` once per text, in order, and one that throws does not stop the rest.
+    @Test func theCallDeclarationRunsEachTextInTurn() throws {
+        let context = try #require(JSContext())
+        context.evaluateScript("var got = []; var fn = " + ChromiumPageHostBridge.callDeclaration(
+            body: "if (data === 'b') throw new Error('b'); got.push(data);", argument: "data"))
+        context.evaluateScript("console = { error() {} }; fn(['a', 'b', 'c'])")
+        #expect(context.evaluateScript("got.join(',')")?.toString() == "a,c")
+    }
+
+    /// A new document drops the kept `globalThis` handle: the next push asks for it again.
+    @Test func aCommittedDocumentAsksForTheGlobalHandleAgain() async {
+        let page = FakeChromiumPage()
+        let bridge = ChromiumPageHostBridge(page: page)
+        func pushAndWait(_ count: Int) async {
+            _ = await PageTestWait.value("push \(count)") { done in
+                page.onCall = {
+                    if page.calls.filter({ $0.method == "Runtime.callFunctionOn" }).count == count { done(true) }
+                }
+                bridge.evaluate("x", argument: "data", text: "\(count)")
+            }
+        }
+        await pushAndWait(1)
+        await pushAndWait(2)
+        #expect(page.calls.filter { $0.params["expression"] as? String == "globalThis" }.count == 1)
+        bridge.documentCommitted()
+        await pushAndWait(3)
+        #expect(page.calls.filter { $0.params["expression"] as? String == "globalThis" }.count == 2)
+    }
+
     /// Perf budgets 2026-10-21: each chat push is one script; a streaming reply queued hundreds and
     /// the bridge sent one DevTools round trip per script, so the queue grew while the reply streamed.
     /// The scripts queued when a send starts go in one `Runtime.evaluate`, in order.

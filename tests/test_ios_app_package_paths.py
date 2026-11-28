@@ -76,6 +76,11 @@ class FixtureTests(unittest.TestCase):
         problems = paths.check(self.root)
         self.assertTrue(any("names Packages/Shared/**" in p for p in problems), problems)
 
+    def test_resource_wildcard_cannot_admit_unlinked_packages(self) -> None:
+        self.workflows(["Packages/Shared/A/**", "Packages/Shared/B/**", "Packages/iOS/Conv/**",
+                        "Packages/Shared/**/Resources/**"])
+        self.assertTrue(any("names Packages/Shared/**/Resources/**" in p for p in paths.check(self.root)))
+
     def test_a_missing_transitive_package_fails(self) -> None:
         self.workflows(["Packages/Shared/A/**", "Packages/iOS/Conv/**"])
         problems = paths.check(self.root)

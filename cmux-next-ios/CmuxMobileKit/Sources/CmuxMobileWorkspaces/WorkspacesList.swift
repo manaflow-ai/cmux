@@ -1192,7 +1192,7 @@ public struct WorkspacesList: View {
                                                                            phoneOffline: store.isOffline)) : []
         let filterValue = scopedMac.map { mac in
             [displayName(mac), entries.first { $0.id == mac.id }?.detail].compactMap(\.self).filter { !$0.isEmpty }.joined(separator: ", ")
-        } ?? "All Macs"
+        } ?? WorkspacesScopeLabels.allComputers
         let model = WorkspacesToolbar.Model(
             showsFilter: macs.count > 1, entries: entries, scope: scope, filterValue: filterValue, target: target,
             showsMacPicker: scope == .all, sameNames: sameNames,
@@ -1420,7 +1420,7 @@ struct WorkspacesFilterMenu: View, Equatable {
             // Toggles, not an inline Picker: a Picker drops each Mac's
             // dot. The chosen row shows the checkmark.
             Toggle(isOn: host.chosen(.all)) {
-                Label("All Macs", systemImage: "square.stack.3d.up")
+                Label(WorkspacesScopeLabels.allComputers, systemImage: "square.stack.3d.up")
             }
             .accessibilityIdentifier("workspaces.filter.all")
             ForEach(model.entries) { mac in

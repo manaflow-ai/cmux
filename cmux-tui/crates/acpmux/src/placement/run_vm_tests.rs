@@ -344,6 +344,30 @@ fn a_run_vm_starts_at_the_smallest_size_that_covers_its_prediction() {
 }
 
 #[test]
+fn a_known_heavy_project_sizes_the_run_vm_to_its_published_memory_without_asking() {
+    use crate::heavy_precheck::Project;
+    const GB: u64 = 1_000_000_000;
+    // No history: Chromium's 16 GB (14.9 GiB) alone asks for `lg`, and the row names why.
+    let mut none = predicted(0, 1.0, 1.0);
+    none.need = None;
+    let s = sizing_floored(&none, Some((Project::Chromium, 16 * GB))).unwrap();
+    assert_eq!((s.size, s.floor), ("lg", Some("Chromium")));
+    assert_eq!(
+        sizing_notice("a Chromium build", &s),
+        "[run-vm] a Chromium build: running on a 8 vCPU, 16 GiB run VM, sized from Chromium's published memory minimum"
+    );
+    // A small history is raised to the floor: rustc's 8 GB is `md`.
+    let s = sizing_floored(&predicted(3, 1.0, 2.0), Some((Project::Rustc, 8 * GB))).unwrap();
+    assert_eq!((s.size, s.floor), ("md", Some("rustc")));
+    // A history above the floor keeps its own size and says so.
+    let s = sizing_floored(&predicted(4, 12.0, 30.0), Some((Project::Rustc, 8 * GB))).unwrap();
+    assert_eq!((s.size, s.floor), ("xl", None));
+    assert!(sizing_notice("a rustc build", &s).ends_with("sized from its last 4 runs here"));
+    // Without a floor it is `sizing`.
+    assert_eq!(sizing_floored(&predicted(3, 5.2, 6.0), None), sizing(&predicted(3, 5.2, 6.0)));
+}
+
+#[test]
 fn the_notice_row_says_what_it_runs_on_and_why() {
     let s = sizing(&predicted(4, 12.0, 10.0)).unwrap();
     assert_eq!(

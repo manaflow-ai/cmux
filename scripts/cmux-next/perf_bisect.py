@@ -23,7 +23,7 @@ CMD prints `VALUE <number>` for one run at {sha} (higher is worse), anything els
 culprit's JSON carries `nominee`, what culprit_revert.py takes (perf-cron.py culprit_nominee).
 Tests: scripts/cmux-next/tests/test_perf_bisect.py.
 """
-import argparse, importlib.util, json, os, re, statistics, subprocess, sys
+import argparse, importlib.util, json, os, platform, re, statistics, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 _spec = importlib.util.spec_from_file_location("perf_cron", os.path.join(HERE, "perf-cron.py"))
@@ -132,17 +132,50 @@ def shell_measure(template, row):
     return measure
 
 
-def cached(measure, path):
-    """measure, with every measured run kept in the JSON file path ({sha: [value, ...]}, in run order). A replay
-    started again (the host restarted, the job hit its cap) takes each commit's kept values first, in order, and runs
-    the bench only past them, so no measured run is paid twice. A run that did not measure is not kept: it is most
-    often the host (a missing tool, a timeout under load), so a replay started again tries that commit again."""
+class CacheMismatch(Exception):
+    """The --cache file holds runs of another measurement (another row, command or host)."""
+
+
+def host_kind():
+    """This machine's name and CPU model: the shared Linux runner has two host kinds 1.2x to 1.4x apart, so a run kept
+    on one is never a run of the other."""
+    model = platform.processor() or platform.machine()
+    try:
+        with open("/proc/cpuinfo") as f:
+            model = next((ln.split(":", 1)[1].strip() for ln in f if ln.startswith("model name")), model)
+    except OSError:
+        pass
+    return f"{platform.node()} / {model}"
+
+
+def cached(measure, path, identity=None):
+    """measure, with every measured run kept in the JSON file path ({"identity": {...}, "runs": {sha: [value, ...]}},
+    in run order). A replay started again (the host restarted, the job hit its cap) takes each commit's kept values
+    first, in order, and runs the bench only past them, so no measured run is paid twice. A run that did not measure
+    is not kept: it is most often the host (a missing tool, a timeout under load), so a replay started again tries
+    that commit again.
+
+    identity names what the runs measured (row, measure command, host kind). A file kept for another identity raises
+    CacheMismatch instead of being read: its runs are keyed by commit only, so another row's or host's values would
+    decide a commit with zero runs of this measurement (hq docs/findings/2026-11-22-auto-bisect-bench.md: a changed
+    function named a culprit from a reused cache with 0 new runs). A file from before identities (a bare {sha: [...]})
+    has no identity, so it matches only a caller that gives none."""
+    identity = identity or {}
     try:
         with open(path) as f:
-            kept = json.load(f)
+            data = json.load(f)
     except (OSError, ValueError):
-        kept = {}
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    if "runs" in data and isinstance(data.get("runs"), dict):
+        kept_identity, kept = data.get("identity") or {}, data["runs"]
+    else:
+        kept_identity, kept = {}, data
     kept = {sha: [x for x in xs if isinstance(x, (int, float))] for sha, xs in kept.items() if isinstance(xs, list)}
+    if kept and kept_identity != identity:
+        raise CacheMismatch(f"{path} keeps runs of {json.dumps(kept_identity, sort_keys=True)}, not "
+                            f"{json.dumps(identity, sort_keys=True)}: give this measurement its own --cache file")
     used = {}
 
     def run(sha):
@@ -157,7 +190,7 @@ def cached(measure, path):
         kept.setdefault(sha, []).append(x)
         tmp = path + ".tmp"
         with open(tmp, "w") as f:
-            json.dump(kept, f, indent=1, sort_keys=True)
+            json.dump({"identity": identity, "runs": kept}, f, indent=1, sort_keys=True)
         os.replace(tmp, path)
         return x
     return run
@@ -171,10 +204,16 @@ def cmd_replay(o):
     log = lambda s: print(f"perf-bisect: {s}", file=sys.stderr, flush=True)
     log(f"{o.row}: {len(commits) - 2} first-parent commits between {good[:12]} and {commits[-1][:12]}")
     measure = shell_measure(o.measure, o.row)
+    identity = {"row": o.row, "measure": o.measure, "host": host_kind()}
     if o.cache:
-        measure = cached(measure, o.cache)
+        try:
+            measure = cached(measure, o.cache, identity)
+        except CacheMismatch as e:
+            print(f"perf-bisect: {e}", file=sys.stderr)
+            return 2
     out = replay(commits, measure, o.floor, o.regression, o.runs, o.max_runs, log)
     out["row"] = o.row
+    out["identity"] = identity
     if out.get("culprit"):
         rows = [{"name": o.row, "ref": out["reference"], "value": out["value"], "threshold": out["threshold"]}]
         out["nominee"] = cron.culprit_nominee(out["culprit"], git("log", "-1", "--format=%s", out["culprit"]),
@@ -202,7 +241,7 @@ def main(argv=None):
     r.add_argument("--regression", type=float, default=REGRESSION)
     r.add_argument("--runs", type=int, default=cron.BISECT_RUNS)
     r.add_argument("--max-runs", type=int, default=cron.BISECT_MAX_RUNS)
-    r.add_argument("--cache", help="JSON file of every run's result; a replay started again resumes from it")
+    r.add_argument("--cache", help="JSON file of every run's result; a replay started again resumes from it. It is kept for one row, --measure and host; another one refuses it")
     r.add_argument("--json", action="store_true")
     return cmd_replay(p.parse_args(argv))
 

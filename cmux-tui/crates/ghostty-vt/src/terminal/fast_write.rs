@@ -18,19 +18,25 @@ impl Terminal {
     /// with no code point in progress, no empty probe (`ESC _ G ESC \`) can
     /// start in it, and the trackers only clear the boundary tracker's
     /// pending bytes. The three steps then run on the rest alone, as before.
+    ///
+    /// A frame that starts inside a sequence the previous frame cut off (a
+    /// CSI's parameters, a code point's continuation bytes) first finishes
+    /// it in [`Self::finish_cut_sequence`], then takes the same leading-run
+    /// scan from there.
     pub(super) fn prepare_write<'a>(&mut self, data: &'a [u8]) -> (Cow<'a, [u8]>, bool) {
+        let (start, mut mouse_modes_may_have_changed) = self.finish_cut_sequence(data);
         let neutral = if self.c1_normalizer.utf8_remaining == 0 && self.trackers_idle() {
-            byte_scan::neutral_run_end(data, 0, !self.prompt_semantic.waits_for_line_end())
+            byte_scan::neutral_run_end(data, start, !self.prompt_semantic.waits_for_line_end())
         } else {
-            0
+            start
         };
-        if neutral > 0 {
+        if neutral > start {
             self.vt_boundary.clear_pending();
         }
         let (head, rest) = data.split_at(neutral);
         let rest = self.c1_normalizer.normalize(rest);
         let rest = self.empty_kitty_probe_filter.write(rest);
-        let mouse_modes_may_have_changed = self.feed_trackers(&rest);
+        mouse_modes_may_have_changed |= self.feed_trackers(&rest);
         let normalized = match rest {
             Cow::Borrowed(_) => Cow::Borrowed(data),
             Cow::Owned(rest) => {
@@ -42,6 +48,44 @@ impl Terminal {
         };
         (normalized, mouse_modes_may_have_changed)
     }
+
+    /// Steps the normalizer and every tracker one byte at a time from the
+    /// start of `data` until both are idle again, and returns how many bytes
+    /// it stepped and whether mouse modes may have changed. Stops early, and
+    /// leaves the rest to the full steps, at an ESC, at a byte the
+    /// normalizer would replace, or after [`Self::CUT_SEQUENCE_LIMIT`] bytes.
+    ///
+    /// The stepped bytes hold no ESC and none the normalizer replaces, so
+    /// the normalizer and the empty probe filter pass them unchanged, no
+    /// empty probe overlaps them, and stepping them here equals running all
+    /// three steps on them as their own frame. Returns 0 at once when
+    /// nothing is in progress.
+    fn finish_cut_sequence(&mut self, data: &[u8]) -> (usize, bool) {
+        let mut mouse_modes_may_have_changed = false;
+        let mut at = 0;
+        let limit = data.len().min(Self::CUT_SEQUENCE_LIMIT);
+        while at < limit && !(self.c1_normalizer.utf8_remaining == 0 && self.trackers_idle()) {
+            let byte = data[at];
+            if byte == 0x1b || !self.c1_normalizer.step_if_unchanged(byte) {
+                break;
+            }
+            self.kitty_inflight.step(byte);
+            self.vt_boundary.step(byte);
+            self.prompt_semantic.step(byte);
+            self.cursor_override.step(byte);
+            self.palette_override.step(byte);
+            self.color_overrides.step(byte);
+            mouse_modes_may_have_changed |= self.mouse_mode_change_detector.step(byte);
+            at += 1;
+        }
+        (at, mouse_modes_may_have_changed)
+    }
+
+    /// The longest cut sequence [`Self::finish_cut_sequence`] steps: a cut
+    /// CSI's parameters or a code point's continuation bytes are a few
+    /// bytes, while a cut string (OSC, DCS, APC) can run long and is left
+    /// to the full steps.
+    const CUT_SEQUENCE_LIMIT: usize = 64;
 
     /// Feeds the accepted bytes to every tracker in one pass. The trackers
     /// never read one another, so stepping them byte by byte together equals

@@ -7,6 +7,13 @@ they spend none of the shared API quota.
 
 Local cache: a clone of that one branch at $CMUX_BENCH_CACHE (default ~/.cache/cmux-bench/ledger).
 A run that cannot push stays committed there and goes out with the next push (`cmux-bench ledger push`).
+A run that cannot even clone (a lane VM whose broker serves no git for cmuxterm-hq: "Repository not found") is kept
+as a file in $CMUX_BENCH_PENDING (default ~/.cache/cmux-bench/pending) and the append raises LedgerUnsent naming it;
+`cmux-bench ledger push` moves pending runs into the clone once one works. Before, such a run was kept nowhere while
+the CLI said "the run is kept in the local ledger" and exited 0 (11-28: a graceful-swap import on a lane VM).
+
+NOW does not read this ledger: a goal's `benches.rows[key=...]` hand-measure rows come from cmuxterm-hq
+tools/fleet-reconcilers/now_hand_measures.py publish (a bench's note prints that command).
 
 CMUX_BENCH_LEDGER=DIR uses a plain directory instead (tests, offline work); nothing is pushed.
 """
@@ -31,6 +38,14 @@ class LedgerError(RuntimeError):
     pass
 
 
+class LedgerUnsent(LedgerError):
+    """The run is not in the shared ledger; `kept` is where it is kept, `committed` whether a clone holds it."""
+
+    def __init__(self, cause: str, kept: Path, committed: bool):
+        super().__init__(cause)
+        self.cause, self.kept, self.committed = cause, kept, committed
+
+
 def _git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     proc = subprocess.run(["git", "-C", str(cwd), *args], text=True, capture_output=True)
     if check and proc.returncode != 0:
@@ -48,6 +63,7 @@ class Ledger:
             remote = remote or REMOTE
         self.root = Path(root)
         self.remote = remote
+        self.pending = Path(os.environ.get("CMUX_BENCH_PENDING") or self.root.parent / "pending")
 
     # --- sync -----------------------------------------------------------------------------------
     def _ensure_clone(self) -> None:
@@ -118,8 +134,22 @@ class Ledger:
         """Push local runs; raise LedgerError (the runs stay committed locally) when the remote refuses."""
         if self.remote is None:
             return
+        self._ensure_clone()
         with self._lock():
+            self._adopt_pending()
             self._push(attempts)
+
+    def _adopt_pending(self) -> None:
+        """Move runs kept in the pending folder (written while no clone could be made) into the clone's runs/."""
+        if not self.pending.is_dir():
+            return
+        for src in sorted(self.pending.glob("*.jsonl")):
+            first = src.read_text(encoding="utf-8").splitlines()[:1]
+            ts = json.loads(first[0])["timestamp"] if first else "0000-00"
+            dest = self.root / "runs" / ts[:4] / ts[5:7] / src.name
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if not dest.exists():
+                os.replace(src, dest)
 
     def _push(self, attempts: int) -> None:
         self._commit_stranded()
@@ -145,7 +175,18 @@ class Ledger:
         if len(run_ids) != 1:
             raise LedgerError(f"one run per append, got {sorted(run_ids)}")
         run_id = run_ids.pop()
-        self._ensure_clone()
+        try:
+            self._ensure_clone()
+        except LedgerError as err:
+            # No clone: keep the run as a file rather than nowhere, and say so (the caller exits nonzero).
+            self.pending.mkdir(parents=True, exist_ok=True)
+            kept = self.pending / f"{run_id}.jsonl"
+            tmp = kept.with_suffix(".jsonl.tmp")
+            with tmp.open("w", encoding="utf-8") as fh:
+                for row in rows:
+                    fh.write(json.dumps(row, sort_keys=True) + "\n")
+            os.replace(tmp, kept)
+            raise LedgerUnsent(str(err), kept, committed=False) from err
         ts = rows[0]["timestamp"]
         rel = Path("runs") / ts[:4] / ts[5:7] / f"{run_id}.jsonl"
         path = self.root / rel
@@ -163,7 +204,10 @@ class Ledger:
             if self.remote is not None:
                 self._commit_stranded()
                 if push:
-                    self._push(3)
+                    try:
+                        self._push(3)
+                    except LedgerError as err:
+                        raise LedgerUnsent(str(err), path, committed=True) from err
         return path
 
     # --- read -----------------------------------------------------------------------------------

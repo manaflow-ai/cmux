@@ -5,6 +5,7 @@ import type { HybridBlocked, HybridBlockedWhy, SlotHolder } from "../hybrid/hybr
 import type { StringKey } from "../i18n";
 import { hybridStartOf, type HybridStart } from "../hybrid/hybridModel";
 import { computerStatusOf, type ComputerStatus } from "../auto/computerStatus";
+import { autoSizeRowsOf, type AutoSizeRow } from "../autosize/autosizeModel";
 
 export type PlaceMode = "local" | "cloud" | "auto";
 export type PlaceAt = "local" | "cloud";
@@ -63,6 +64,9 @@ export interface PlaceState {
   readonly keep?: PlaceKeep;
   /// RFD 0080's one computer status for the chat (Rust `cloud_computer_status_live`): what the status line says.
   readonly status?: ComputerStatus;
+  /// RFD 0080 piece 4: what AutoSize did to the chat's computer (Rust `autosize_row::Row`, oldest first), behind
+  /// `cmux.cloud.autosizeRows`; absent while there is none.
+  readonly autosize?: readonly AutoSizeRow[];
 }
 
 /// Keep Running's state for one chat: asked for (`priority`), holding a slot (`lit`) or waiting for one, and the plan's slots.
@@ -224,6 +228,7 @@ export function placeOf(value: unknown): PlaceState | undefined {
   const start = hybridStartOf(raw.start);
   const keep = keepOf(raw.keep);
   const status = computerStatusOf(raw.status);
+  const autosize = autoSizeRowsOf(raw.autosize);
   return {
     mode: raw.mode as PlaceMode,
     at: raw.at === "cloud" ? "cloud" : "local",
@@ -234,6 +239,7 @@ export function placeOf(value: unknown): PlaceState | undefined {
     ...(start ? { start } : {}),
     ...(keep ? { keep } : {}),
     ...(status ? { status } : {}),
+    ...(autosize ? { autosize } : {}),
   };
 }
 

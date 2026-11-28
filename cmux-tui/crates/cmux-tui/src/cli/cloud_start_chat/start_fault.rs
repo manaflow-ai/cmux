@@ -17,7 +17,9 @@
 //! never deletes or starts on a machine the run did not ask for:
 //! - `MachineStuck`: fresh.rs releases a name no machine has (nothing to delete) and starts on a fresh machine.
 //! - `StartPending`: the rerun starts on the named machine, which the rerun creates for a new-machine run.
-//! - `MachineCap`: the error offers no machine to free, so even `--make-room` deletes nothing; it passes through.
+//! - `MachineCap`: the error offers to delete a machine id no machine has ([`drill_machine_id`]). With `--make-room`
+//!   the real delete runs, answers that no such machine is left, which counts as room made (make_room), and the start
+//!   runs again; without it the error passes through, as a person's does.
 
 use std::collections::VecDeque;
 use std::sync::{Mutex, OnceLock};
@@ -71,6 +73,11 @@ fn machine_name(request: &Request) -> String {
     }
 }
 
+/// A machine id no machine has, for the injected cap to offer: its delete frees nothing and deletes nothing.
+pub(super) fn drill_machine_id() -> String {
+    format!("vm_drill{}", uuid::Uuid::new_v4().simple())
+}
+
 /// The failure the start path answers for `class`, with `details.injected: true`. Exhaustive on purpose: a new class
 /// needs its injected error here to compile, so the drill always covers every row of the table.
 pub(super) fn error(class: Class, request: &Request) -> Outcome {
@@ -117,7 +124,15 @@ pub(super) fn error(class: Class, request: &Request) -> Outcome {
             json!({"last_error": null}),
             true,
         ),
-        Class::MachineCap => plain("cloud.machine_cap", "The account is at its machine cap"),
+        Class::MachineCap => {
+            let id = drill_machine_id();
+            failed(
+                "cloud.machine_cap",
+                "The account is at its machine cap".to_owned(),
+                json!({"make_room": {"machine_id": id, "name": id, "how": "delete"}}),
+                false,
+            )
+        }
         Class::SpendCap => plain("cloud.spend_cap", "The account is at its spend cap"),
         Class::SignedOut => plain("cloud.signed_out", "The app is signed out of Cloud"),
         Class::AccountChanged => {

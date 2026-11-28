@@ -51,6 +51,17 @@ pub(super) const UPGRADE_PROBE_EVERY: Duration = Duration::from_millis(750);
 /// LTE, 2026-11-25, flipped Direct/TURN a dozen times in two minutes).
 pub(super) const REGAIN_ANSWERS: u8 = 6;
 
+/// The current direct path counts as quiet once a send on it has gone
+/// unanswered this many smoothed round trips, at least [`QUIET_FLOOR`]
+/// ([`Paths::current_quiet`]). The probe that makes it suspect is judged
+/// two silence windows later (about 2.4 s at a 300 ms round trip), and on a
+/// path that drops for 1.5 s at a time (Leo's phone, 2026-11-27) everything
+/// sent in between was lost: a 2.3 s freeze per drop.
+const QUIET_RTTS: u32 = 2;
+/// The shortest quiet bound: below it, scheduling jitter alone would look
+/// quiet.
+const QUIET_FLOOR: Duration = Duration::from_millis(200);
+
 /// How long after the last data datagram the session counts as carrying
 /// data. An idle relayed link (keepalives only) keeps the 30 s turn, so a
 /// phone on cellular does not wake its radio every second for nothing.
@@ -281,6 +292,17 @@ impl Paths {
     /// The route the selector sends on: an alive path.
     pub fn current(&self) -> Option<Route> {
         self.route_of_id(self.current_id())
+    }
+
+    /// The path the selector sends on has a send unanswered for
+    /// [`QUIET_RTTS`] of its round trips: the underlay sends through the
+    /// relays too until it answers or the selector judges it.
+    pub fn current_quiet(&self, now: Instant) -> bool {
+        let Some(id) = self.current_id() else { return false };
+        let Some(entry) = self.entries.iter().find(|entry| entry.id == id) else { return false };
+        let Some(rtt_us) = self.selector.path(id).and_then(|view| view.rtt_us) else { return false };
+        let bound = Duration::from_micros(rtt_us).saturating_mul(QUIET_RTTS).max(QUIET_FLOOR);
+        entry.watch.quiet_for(now).is_some_and(|quiet| quiet >= bound)
     }
 
     /// The chosen path went quiet: datagrams go on every route.

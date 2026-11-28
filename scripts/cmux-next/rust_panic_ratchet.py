@@ -199,6 +199,8 @@ def read_clippy(path):
                 continue
             if "custom-build" in (item.get("target") or {}).get("kind", []):
                 continue  # build scripts run at build time, never in a daemon
+            if "example" in (item.get("target") or {}).get("kind", []):
+                continue  # examples ship nowhere; the run selects them only to unify features as --all-targets does
             message = item.get("message") or {}
             code = (message.get("code") or {}).get("code") or ""
             if not code.startswith("clippy::"):

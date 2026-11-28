@@ -202,6 +202,8 @@ export type ChiefWorkTask = {
 
 export type ClientInfo = {
   "attached": Array<Id>;
+  /** The capabilities this connection declared in set-client-info that the daemon recognized, sorted (for example agent-cli-hybrid-v1). Absent from daemons older than this field. */
+  "capabilities"?: Array<string>;
   "client": bigint;
   "connected_seconds": bigint;
   "kind": (string) | null;

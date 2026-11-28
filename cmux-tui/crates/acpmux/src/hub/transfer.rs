@@ -429,10 +429,31 @@ impl Hub {
             }
         };
         steps.step("native");
-        // Its images: a chat that shows none is no move (`prompt_images.rs`). One that cannot be
-        // kept leaves the chat showing that image as missing, as a pruned one does.
-        if let Err(e) = super::prompt_images::restore_images(bundle) {
+        // Its images: a chat that shows none is no move (`prompt_images.rs`). An image the
+        // source had pruned is not in the bundle, and the chat shows it as missing.
+        let images = crate::qos::off_worker(|| super::prompt_images::restore_images(bundle));
+        if let Err(e) = &images {
             tracing::warn!(session = %meta.id, "moved images not kept: {e:#}");
+        }
+        // The bundle is the source's manifest of what the chat owns (its agent files, their
+        // subagents' transcripts, its images): every entry is here now, or the move fails while
+        // the source still holds the chat. A restore that placed some and skipped others read
+        // as a move and lost the rest (`native::restore*` answered a count, and was unwrapped).
+        let unacked =
+            {
+                let mut unacked = crate::qos::off_worker(|| crate::native::unacked(bundle, &meta));
+                unacked.extend(super::prompt_images::unacked_images(bundle).into_iter().map(
+                    |id| format!("{}/{id}: image not kept", super::prompt_images::BUNDLE_DIR),
+                ));
+                unacked
+            };
+        if !unacked.is_empty() {
+            self.drop_failed_import(&meta);
+            let e = RpcError::new(
+                -32000,
+                format!("transfer.manifest: {} bundled file(s) not kept here", unacked.len()),
+            );
+            return Err(e.with_data(json!({"reason": "manifest_unacked", "unacked": unacked})));
         }
         // OpenCode's session is imported into its own database, in the chat's folder here. One
         // that fails leaves the chat to resume from its log, as a chat with no agent store does.

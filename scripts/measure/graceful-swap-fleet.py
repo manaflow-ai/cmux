@@ -44,6 +44,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import shlex
 import shutil
 import socket
@@ -82,8 +83,10 @@ EDITS = {
     "composer": ("webviews/src/agent-session/acpmux/ComposerFoot.tsx",
                  "{children}</InQuietRow.Provider>",
                  "{children}<span style={{marginLeft: 6}}>GSW</span></InQuietRow.Provider>"),
+    # Under the search field: Settings has no title since Lawrence 2026-11-23 ("remove settings header").
     "settings": ("webviews/src/pages/settings/components/SettingsApp.tsx",
-                 '{t("settingsPage.title")}</h2>', '{t("settingsPage.title")} GSW</h2>'),
+                 "<SearchField query={query} onQuery={setQuery} onSubmit={submit} />",
+                 "<SearchField query={query} onQuery={setQuery} onSubmit={submit} /><span>GSW</span>"),
 }
 DRAFTS = {"a": "half-typed in the focused chat, caret at the end",
           "b": "a draft for the unfocused chat, kept across the swap: line one\nand a second line",
@@ -139,6 +142,8 @@ class Scenario:
         return {**os.environ, "HOME": str(self.home), "CFFIXED_USER_HOME": str(self.home),
                 "TMPDIR": str(self.scratch / "tmp") + "/", "CMUX_NEXT_CONFIG_FILE": str(self.config),
                 "CMUX_WEB_SLOT_STATE_DIR": str(self.scratch / "web-slot"), "PATH": path, "APP": self.app,
+                # The dev server's in-page clock (webviews/dev-server/hotSwapTiming.ts) writes here: inpage() reads it.
+                "CMUX_WEBVIEWS_DEV_STATE_DIR": str(self.timing_log.parent),
                 # web-overlay.sh checks and writes for this app only; unset, it checks the Mac's installed
                 # NIGHTLY/NEXT, whose web ABI is not the tree's (step 294dc843: ABI 9 vs 7, every film no-op).
                 "CMUX_WEB_OVERLAY_APP": self.app,
@@ -516,6 +521,9 @@ class Scenario:
         path = self.tree / rel
         text = path.read_text()
         old, new = (plain, marked) if on else (marked, plain)
+        if plain not in text and marked not in text:
+            # The file moved on: a save that changes nothing films nothing, and must not read as a missed swap.
+            raise RuntimeError(f"{kind}: {rel} has neither edit anchor; update EDITS")
         if old not in text:
             return f"{kind} already {'on' if on else 'off'}"
         path.write_text(text.replace(old, new, 1))
@@ -523,20 +531,128 @@ class Scenario:
 
     def server(self):
         overlay = str(self.tree / "scripts/cmux-next/web-overlay.sh")
+        # The same read before: bundled pages count 0 Vite clients, so a 0 after the server is a real miss.
+        log(f"GSW-FLEET pages before the dev server (Vite clients): {self.page_sources()}")
         done = subprocess.run([overlay, "server", "--local", "--worktree", str(self.tree)], capture_output=True, text=True,
                               timeout=600, env=self.env())
         log(f"GSW-FLEET dev server: exit {done.returncode}: {(done.stdout + done.stderr).strip()[-800:]}")
+        found = re.search(r"\(log: (.+?)\)", done.stdout + done.stderr)
+        self.dev_server_log = Path(found.group(1)) if found else self.scratch / "web-slot" / "dev-server.log"
         if done.returncode:
+            self.keep_dev_log()
             raise RuntimeError("the dev server did not start")
         # Every page reloads onto the dev server (an asked change): the chats come back with composer and draft, and hold.
-        wait_until(lambda: all(r.get("composer_visible") and r.get("composer_text_length") == len(DRAFTS[k])
-                               for k, r in self.chat_pages().items()),
-                   "the chats back on the dev server", timeout=60, interval=0.25, raise_on_timeout=False)
+        if not wait_until(lambda: all(r.get("composer_visible") and r.get("composer_text_length") == len(DRAFTS[k])
+                                      for k, r in self.chat_pages().items()),
+                          "the chats back on the dev server", timeout=60, interval=0.25, raise_on_timeout=False):
+            log(f"GSW-FLEET the chats did not come back with their drafts in 60 s: {self.chat_pages()}")
         self.settle_pages("the pages on the dev server", timeout=60)
+        # Every save below needs each chat page served by the dev server and its HMR socket answering: wait for
+        # both, then stop with the one that failed named (a film of a page no save can reach draws nothing).
+        wait_until(lambda: all(m.get("hmr") == "connected" for m in self.hmr_marks().values()),
+                   "the chat pages' HMR sockets connected", timeout=30, interval=0.25, raise_on_timeout=False)
+        marks, pages = self.hmr_marks(), self.page_sources()
+        self.results["setup"]["dev_server"] = {"status": self.overlay_status(), "pages": pages, "hmr": marks}
+        log(f"GSW-FLEET dev server check: {json.dumps(self.results['setup']['dev_server'])[:1500]}")
+        cause = self.dev_server_miss(pages, marks)
+        if cause:
+            self.results["setup"]["dev_server"]["cause"] = cause
+            self.keep_dev_log()
+            log(f"GSW-FLEET dev server check failed: {cause}\n  dev-server.log tail:\n{self.dev_log_tail()}")
+            raise RuntimeError(cause)
+
+    def hmr_marks(self) -> dict:
+        """{chat key: {origin, hmr}} from `<html data-cmux-hmr-origin data-cmux-hmr>`, which the dev server's
+        hot-swap client sets (webviews/dev-server/hotSwapTiming.ts): hmr is "connected" once the server answered
+        the page's hello on its socket, "connecting" before, "disconnected" after it dropped; none on a page the
+        dev server did not serve. The origin is the app's own scheme: the app proxies the dev server through its
+        scheme handler, so a page on the dev server is told by its Vite client, not by 127.0.0.1:4200."""
+        out = {}
+        for k in ("a", "b"):
+            if k not in self.chats:
+                continue
+            got = self.rpc("debug.agent_pane", {"action": "query", "pane": self.chats[k]["pane"],
+                                                "selector": "html"}, 30) or {}
+            elements = got.get("elements") if isinstance(got.get("elements"), list) else []
+            data = (elements[0].get("data") or {}) if elements and isinstance(elements[0], dict) else {}
+            out[k] = {"origin": data.get("cmuxHmrOrigin"), "hmr": data.get("cmuxHmr"),
+                      **({"error": got["error"]} if "error" in got else {})}
+        return out
+
+    @staticmethod
+    def dev_server_miss(pages, marks) -> str | None:
+        """The named reason no save can reach a chat page, else None."""
+        for k, n in pages.items():
+            if not (isinstance(n, int) and n > 0):
+                return f"chat-{k} is not on the dev server (no /@vite/client script: {n})"
+        for k, m in marks.items():
+            if m.get("hmr") is None:
+                return (f"chat-{k} has the Vite client but no hot-swap client mark (CMUX_HOT_SWAP_TIMING=off, or the "
+                        f"dev server predates it): {m}")
+            if m["hmr"] != "connected":
+                return f"chat-{k}'s HMR socket is {m['hmr']} after 30 s (origin {m.get('origin')}): no save can reach it"
+        return None
+
+    def overlay_status(self) -> str:
+        """`web-overlay.sh status` for the measured app: where it loads its web UI from, and why."""
+        try:
+            done = subprocess.run([str(self.tree / "scripts/cmux-next/web-overlay.sh"), "status"], capture_output=True,
+                                  text=True, timeout=60, env=self.env())
+            return (done.stdout + done.stderr).strip()[-1500:]
+        except (OSError, subprocess.SubprocessError) as error:
+            return f"status failed: {error}"
+
+    def page_sources(self) -> dict:
+        """{chat key: how many Vite client scripts its page has}: a page the dev server served has /@vite/client (the
+        HMR socket that brings a save); a bundled or overlay page has none, and no save can reach it."""
+        out = {}
+        for k in ("a", "b"):
+            if k not in self.chats:
+                continue
+            got = self.rpc("debug.agent_pane", {"action": "query", "pane": self.chats[k]["pane"],
+                                                "selector": 'script[src*="@vite/client"]'}, 30) or {}
+            out[k] = len(got["elements"]) if isinstance(got.get("elements"), list) else got.get("error", "no answer")
+        return out
+
+    def keep_dev_log(self):
+        """The dev server's log into the artifact (diagnostics/dev-server.log): what it compiled and sent for each save."""
+        src = getattr(self, "dev_server_log", None)
+        if src and src.exists():
+            folder = self.out / "diagnostics"
+            folder.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, folder / "dev-server.log")
+
+    def dev_log_tail(self, lines=20) -> str:
+        src = getattr(self, "dev_server_log", None)
+        if not (src and src.exists()):
+            return f"no dev-server.log at {src}"
+        return "\n".join(src.read_text(errors="replace").splitlines()[-lines:])
+
+    def no_change_cause(self, kind, since_rows) -> str:
+        """Why warm run 0 of a save series drew nothing, named from what can be read: where the pages load from,
+        whether the save reached them (the in-page timing rows), and the dev server's last lines."""
+        pages = self.page_sources()
+        status = self.overlay_status()
+        rows = self.timing_lines() - since_rows
+        if not any(isinstance(n, int) and n > 0 for n in pages.values()):
+            cause = "the pages are not on the dev server (no /@vite/client script in chat-a or chat-b)"
+        elif rows <= 0:
+            cause = "the pages are on the dev server but the save reached none of them (no in-page hot-swap timing row)"
+        else:
+            cause = f"the pages took the hot update ({rows} in-page timing rows) but drew nothing in the watched region"
+        self.results["latency"][f"{kind}-cause"] = {"cause": cause, "pages": pages, "status": status,
+                                                    "timing_rows": rows, "dev_server_log_tail": self.dev_log_tail()}
+        log(f"GSW-FLEET {kind}: warm run 0 showed no change: {cause}\n  pages: {pages}\n  status: {status}\n"
+            f"  dev-server.log tail:\n{self.dev_log_tail()}")
+        return cause
 
     def summary(self, series, surface, watch, others, runs, sample="first_change_ms"):
         rows = [r.get("regions", {}) for r in runs]
-        seen = [float(r.get(watch, {}).get(sample)) for r in rows if r.get(watch, {}).get(sample) is not None]
+        # A film whose watched region never changed saw no swap: it is missed, not 0 ms. settled_ms reads 0 when
+        # nothing differs, so without this the hidden series scored 18 empty films of 20 as 0 ms (step 8c6948cc,
+        # 2026-11-28: samples [56, 0, 0, 57, 0 x16] published as a passing p95 56 ms).
+        seen = [float(r[watch][sample]) for r in rows
+                if r.get(watch, {}).get(sample) is not None and r.get(watch, {}).get("changed_frames", 1) > 0]
         out = {"version": GS.VERSION, "label": f"fleet-{series}", "runs": len(runs), "watch": watch, "surface": surface,
                "sample": sample, "window_ms": round(LATENCY_WINDOW_S * 1000),
                "fps": [r.get("video", {}).get("fps") for r in runs], "regions": {}}
@@ -553,8 +669,51 @@ class Scenario:
         print("GRACEFUL_SWAP_LATENCY " + json.dumps(out, separators=(",", ":")), flush=True)
         self.results["latency"][f"{series}-{surface}"] = {k: out["regions"][watch][k] for k in ("n", "missed", "p50_ms", "p95_ms")}
 
-    def series(self, kind, runs, before=None, trigger_for=None, after=None, post=LATENCY_WINDOW_S, edit="composer"):
+    @property
+    def timing_log(self) -> Path:
+        return self.scratch / "webviews-dev-state" / "hot-swap-timing.ndjson"
+
+    def timing_lines(self) -> int:
+        return len(self.timing_log.read_text(errors="replace").splitlines()) if self.timing_log.exists() else 0
+
+    def inpage(self, series, edit, since):
+        """The same saves on the pages' own clock (save mtime to the next drawn frame, per stage), no film:
+        the reading that resolves the focused pane's 150 ms bar, which a 10-18 fps film cannot."""
+        rel = EDITS[edit][0]
+        rows = []
+        for line in (self.timing_log.read_text(errors="replace").splitlines()[since:] if self.timing_log.exists() else []):
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if str(row.get("file", "")).endswith(rel) and row.get("total") is not None:
+                rows.append(row)
+        pages = {}
+        for row in rows:
+            pages.setdefault(str(row.get("page", "?")), []).append(row)
+        out = {"version": GS.VERSION, "label": f"fleet-{series}-inpage", "file": rel, "clock": "in-page",
+               "pages": {}}
+        for page, got in pages.items():
+            got = got[1:]  # run 0 warms the server's compile of the file, as in series()
+            entry = {"n": len(got)}
+            for stage in ("total", "watch", "server", "socket", "module", "refresh", "frame"):
+                seen = [float(r[stage]) for r in got if isinstance(r.get(stage), (int, float))]
+                entry[stage] = {"p50_ms": GS.percentile(seen, 50), "p95_ms": GS.percentile(seen, 95)}
+            out["pages"][page] = entry
+        folder = self.out / "latency"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / f"{series}-inpage.json").write_text(json.dumps(out, indent=2) + "\n")
+        print("GRACEFUL_SWAP_INPAGE " + json.dumps(out, separators=(",", ":")), flush=True)
+        self.results["latency"][f"{series}-inpage"] = {p: {"n": e["n"], **e["total"]} for p, e in out["pages"].items()}
+        if not rows:
+            log(f"GSW-FLEET {series}: no in-page timing rows in {self.timing_log}")
+
+    def series(self, kind, runs, before=None, trigger_for=None, after=None, post=LATENCY_WINDOW_S, edit="composer",
+               watch=()):
+        """`runs` filmed saves after a warm run 0. When warm run 0 changes none of `watch` (a save trigger only), the
+        series stops there with a named cause (no_change_cause) instead of filming `runs` saves that cannot show."""
         results = []
+        since_rows = self.timing_lines()
         for i in range(runs + 1):  # run 0 warms the dev server's compile of the file and is not counted
             on = i % 2 == 0
             try:
@@ -569,6 +728,10 @@ class Scenario:
                 after(on)
             if i:
                 results.append(result)
+            elif watch and not result.get("error") and not any(
+                    result.get("regions", {}).get(w, {}).get("first_change_ms") is not None for w in watch):
+                self.no_change_cause(kind, since_rows)
+                break
             time.sleep(0.5)
         if self.edit(edit, False) == "saved":
             self.settle_pages(f"the pages after the {edit} edit was undone")
@@ -578,7 +741,9 @@ class Scenario:
         self.server()
         wanted = self.opts.series.split(",")
         if "composer" in wanted:
-            runs = self.series("composer", self.opts.runs)
+            since = self.timing_lines()
+            runs = self.series("composer", self.opts.runs, watch=("focused", "unfocused"))
+            self.inpage("composer", "composer", since)
             self.summary("composer", "focused", "focused", ["sidebar", "settings"], runs)
             self.summary("composer", "unfocused", "unfocused", ["sidebar", "settings"], runs)
         if "hidden" in wanted:
@@ -592,10 +757,13 @@ class Scenario:
             self.summary("hidden", "hidden", "unfocused", ["sidebar", "settings", "focused"], runs, sample="settled_ms")
             self.st.focus_pane(self.panes[1])
         if "settings" in wanted:
-            runs = self.series("settings", self.opts.runs, edit="settings")
+            since = self.timing_lines()
+            runs = self.series("settings", self.opts.runs, edit="settings", watch=("settings",))
+            self.inpage("settings", "settings", since)
             self.summary("settings", "unfocused", "settings", ["sidebar", "focused", "unfocused"], runs)
 
     def stop(self):
+        self.keep_dev_log()  # before `server off` stops the server
         try:
             subprocess.run([str(self.tree / "scripts/cmux-next/web-overlay.sh"), "server", "off"], env=self.env(),
                            capture_output=True, timeout=60)

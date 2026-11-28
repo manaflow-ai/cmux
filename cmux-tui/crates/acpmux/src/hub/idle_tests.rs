@@ -49,6 +49,22 @@ async fn each_gate_keeps_a_session_awake() {
     hub.shutdown_all().await;
 }
 
+/// Under `adaptive-v1` a parent whose only work below is its open sub-sessions' sleeps through
+/// it; `static` keeps it up as before.
+#[tokio::test]
+async fn adaptive_lets_a_parent_sleep_while_only_its_sub_sessions_work() {
+    let (hub, session) = chat().await;
+    *session.work_below_since.lock().unwrap() = 1;
+    assert!(!hub.idle_eligible(&session), "static: a sub-session at work keeps it");
+    hub.set_idle_policy(IdlePolicyKind::AdaptiveV1);
+    assert!(hub.idle_eligible(&session), "adaptive-v1: its sub-sessions run in their own harness");
+    hub.set_idle_policy(IdlePolicyKind::Static);
+    assert!(!hub.idle_eligible(&session));
+    *session.work_below_since.lock().unwrap() = 0;
+    assert!(hub.idle_eligible(&session));
+    hub.shutdown_all().await;
+}
+
 /// A chat stored as hibernated comes back marked (after a restart it wakes for a turn), and
 /// clearing the hibernation drops the mark, a cause a wake recorded, and the stored flag.
 #[tokio::test]

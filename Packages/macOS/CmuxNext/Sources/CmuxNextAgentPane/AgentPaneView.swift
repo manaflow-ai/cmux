@@ -383,6 +383,7 @@ public final class AgentPaneView: NSView {
         model.paneShown = { [weak self] in self.map { $0.window != nil && !$0.isHidden } ?? false }
         model.onTabKeyChange = { [weak self] in self?.announceTab() }
         model.onPaintReport = { [weak self] in self?.documentCoverPaintReported() }
+        model.onRenderFailed = { [weak self] in self?.pageRenderFailed() }
         model.onRenderRate = { [weak self] full in
             guard let self, self.renderRate == .adaptive else { return }
             self.rendersAtFullRate = full

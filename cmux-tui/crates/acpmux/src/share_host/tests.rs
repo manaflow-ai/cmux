@@ -1464,6 +1464,34 @@ fn the_device_hub_tells_a_mesh_host_s_screen_by_its_name() {
     assert_eq!(shared.device_hub_of("mac"), Some(json!({"listed": false})));
 }
 
+/// A Mac's screen host registers its computer name ("Studio One"); the mesh lists its host label
+/// (`studio-one`). Both name the same machine.
+#[test]
+fn the_device_hub_matches_a_computer_name_to_its_host_label() {
+    let home = tempfile::tempdir().unwrap();
+    let shared = shared(home.path());
+    let own = shared.hub().device.id.clone();
+    shared.set_devices(&json!({"devices": [
+        {"id": own, "name": "Mac", "platform": "macos", "macScreenShared": true},
+        {"id": "d1", "name": "Studio One", "platform": "macos", "online": true,
+         "macScreenShared": true},
+        {"id": "d2", "name": "Work_Box ", "platform": "macos", "online": true},
+    ]}));
+    assert_eq!(
+        shared.device_hub_of("studio-one"),
+        Some(json!({"listed": true, "id": "d1", "platform": "macos", "online": true,
+            "screenShared": true}))
+    );
+    assert_eq!(
+        shared.device_hub_of("work-box.example.ts.net"),
+        Some(json!({"listed": true, "id": "d2", "platform": "macos", "online": true,
+            "screenShared": false}))
+    );
+    assert_eq!(shared.device_hub_of("studioone"), Some(json!({"listed": false})));
+    // This device's own record is never another machine's.
+    assert_eq!(shared.device_hub_of("mac"), Some(json!({"listed": false})));
+}
+
 #[test]
 fn a_join_made_while_the_daemon_runs_is_set_up_without_a_restart() {
     use super::NotRunning;

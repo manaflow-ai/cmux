@@ -352,6 +352,8 @@ cmux-tui-core = { workspace = true, features = ["bundled-identify"] }
 # tests/it/main.rs: the list of test files (tests/it/modules/build.rs).
 cmux-tui-test-modules = { path = "tests/it/modules" }
 cmux-build-space = { workspace = true, features = ["testing"] }
+# The TUI's list views are held to flat per-frame work in N (cmux-view-rows src/frame_work.rs).
+cmux-view-rows = { path = "../cmux-view-rows", features = ["frame-work"] }
 # cli/ext tests: the fake daemon renders a mount with the real QuickJS app host.
 cmux-app-host = { workspace = true, features = ["engine"] }
 # carrier/rd_link.rs tests: the rd host's own parser reads what the dial sends.

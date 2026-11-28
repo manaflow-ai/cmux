@@ -342,6 +342,12 @@ impl Drop for Daemon {
             .env("HOME", self.dir.join("home"))
             .env("ACPMUX_HOME", self.dir.join("acpmux"))
             .output();
+        // A stop that failed (a binary relinked mid-run refuses `--end-terminals`)
+        // left the server, its acp daemon and that daemon's `codex app-server`
+        // model probes running; once the home is gone nothing can reach them.
+        // gcp-agent-lane-2, 2026-11-22: 46 such trees lived 126 h under
+        // `systemd --user` (hq docs/findings/2026-11-24-test-daemon-probe-orphans.md).
+        end_processes_of_home(&self.dir);
         let _ = fs::remove_dir_all(&self.dir);
     }
 }

@@ -235,11 +235,59 @@ fn a_pinned_zig_later_on_path_wins_over_an_older_one_first_on_path() {
     // an explicit ZIG still comes first, and no PATH means the old list
     let explicit = zig_candidates("/x/zig".to_string(), Some(path.as_os_str()), None);
     assert_eq!(explicit.first().map(String::as_str), Some("/x/zig"));
-    assert_eq!(
-        zig_candidates("zig".to_string(), None, Some("0.17.0")),
-        vec!["zig".to_string(), "zig".to_string(), "/opt/zig-0.17.0/zig".to_string()]
-    );
+    let mut no_path = vec!["zig".to_string(), "zig".to_string()];
+    no_path.extend(installed_zig_paths("0.17.0"));
+    assert_eq!(zig_candidates("zig".to_string(), None, Some("0.17.0")), no_path);
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A dev Mac with Homebrew's Zig 0.16 on PATH and install-zig-ci.sh's 0.17 in
+/// ~/.local/zig-ci failed in `zig build` (ghostty-next pins 0.17): the build never
+/// looked there. It does now, and the pinned copy wins.
+#[test]
+fn install_zig_ci_copies_are_candidates_and_win_over_an_older_path_zig() {
+    let home = std::ffi::OsStr::new("/Users/x");
+    assert_eq!(
+        local_zig_paths("0.17.0", Some(home), "aarch64", "macos"),
+        vec![
+            "/opt/zig-0.17.0/zig".to_string(),
+            "/Users/x/.local/zig-ci/zig-aarch64-macos-0.17.0/zig".to_string(),
+            "/tmp/cmux-zig-ci/zig-aarch64-macos-0.17.0/zig".to_string(),
+        ]
+    );
+    assert_eq!(
+        local_zig_paths("0.17.0", None, "x86_64", "linux"),
+        vec![
+            "/opt/zig-0.17.0/zig".to_string(),
+            "/tmp/cmux-zig-ci/zig-x86_64-linux-0.17.0/zig".to_string()
+        ]
+    );
+    let local = "/Users/x/.local/zig-ci/zig-aarch64-macos-0.17.0/zig";
+    let versions = |zig: &str| match zig {
+        "zig" | "/opt/homebrew/bin/zig" => Some("0.16.0".to_string()),
+        z if z == local => Some("0.17.0".to_string()),
+        _ => None,
+    };
+    let mut candidates = vec!["zig".to_string(), "/opt/homebrew/bin/zig".to_string()];
+    candidates.extend(local_zig_paths("0.17.0", Some(home), "aarch64", "macos"));
+    assert_eq!(select_zig(&candidates, Some("0.17.0"), versions).0, local);
+}
+
+#[test]
+fn no_pinned_zig_says_what_was_tried_and_how_to_install_it() {
+    let tried = vec![
+        ("zig".to_string(), Some("0.16.0".to_string())),
+        ("zig".to_string(), Some("0.16.0".to_string())),
+        ("".to_string(), None),
+        ("/opt/zig-0.17.0/zig".to_string(), None),
+    ];
+    let message = pin_unmet_message("0.17.0", &tried);
+    assert!(message.contains("pins Zig 0.17.0"), "{message}");
+    assert!(message.contains("\n  zig: 0.16.0"), "{message}");
+    assert_eq!(message.matches("zig: 0.16.0").count(), 1, "each zig once: {message}");
+    assert!(message.contains("/opt/zig-0.17.0/zig: not found"), "{message}");
+    assert!(message.contains("scripts/install-zig-ci.sh"), "{message}");
+    assert!(message.contains("ZIG"), "{message}");
 }
 
 #[test]

@@ -22,9 +22,8 @@ extension HomeCloudChiefs {
     /// than open the cloud composer the person's choice sends nothing to. `ensureChiefTab` waits
     /// for the Chief owner and looks the conversation up in that case, so the tab arrives.
     public func chiefTab(local: String?, localHasHistory: Bool, choice: HomeChiefChoice, prefersLocal: Bool = false) -> String? {
-        if prefersLocal { return local }
-        if hosted == nil, let local, localHasHistory { return local }
-        return shown(choice: choice)?.mainConversation ?? local
+        let tab = ChiefRules.Tab(chiefs: self, local: local, localHasHistory: localHasHistory, choice: choice, prefersLocal: prefersLocal)
+        return ChiefRules.rule("chiefs_tab", tab, else: ChiefRules.Conversation()).conversation
     }
 
     /// The Chief moved to `chief` (a cloud Chief) from one of `from` (the
@@ -33,27 +32,40 @@ extension HomeCloudChiefs {
     /// pane, so Home keeps one Chief tab. Nothing moves while the Chief is
     /// local or it already has its tab.
     public static func move(from: [String], chief: String, in workspaces: [WorkspaceModel]) -> (close: [SurfaceID], pane: PaneID?) {
-        let from = Set(from.filter { $0 != chief })
-        guard !from.isEmpty, !HomeChiefTabKey.isOpen(chief: chief, in: workspaces) else { return ([], nil) }
-        var close: [SurfaceID] = []
-        var pane: PaneID?
-        for candidate in workspaces.flatMap(\.screens).flatMap(\.panes) {
-            for tab in candidate.tabs where tab.kind == .conversation && tab.snapshot.conversation?.conversation.map(from.contains) == true {
-                close.append(tab.surface)
-                pane = pane ?? candidate.handle
-            }
-        }
-        return (close, pane)
+        let tabs = TabPanes(workspaces)
+        let move = ChiefRules.rule("chiefs_move", ChiefRules.MoveRequest(from: from, chief: chief, panes: tabs.panes), else: ChiefRules.Move())
+        return (move.close.compactMap(tabs.surface), move.pane.flatMap(tabs.pane))
     }
 
     /// The tabs that show another cloud Chief's conversation (`stale`)
     /// while the Chief is `chief`: a switch or a relaunch gives the tab back.
     public static func staleChiefTabs(stale: [String], chief: String, in workspaces: [WorkspaceModel]) -> [SurfaceID] {
-        let stale = Set(stale.filter { $0 != chief })
-        guard !stale.isEmpty else { return [] }
-        return workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
-            .filter { $0.kind == .conversation && $0.snapshot.conversation?.conversation.map(stale.contains) == true }
-            .map(\.surface)
+        let tabs = TabPanes(workspaces)
+        let request = ChiefRules.StaleRequest(stale: stale, chief: chief, panes: tabs.panes)
+        return ChiefRules.rule("chiefs_stale_tabs", request, else: ChiefRules.Close()).close.compactMap(tabs.surface)
+    }
+
+    /// Home's panes as the tab rules read them, each pane and tab named by its index, and the
+    /// way back to their handles.
+    struct TabPanes {
+        var panes: [ChiefRules.Panes.Pane] = []
+        var handles: [PaneID] = []
+        var surfaces: [SurfaceID] = []
+
+        init(_ workspaces: [WorkspaceModel]) {
+            for candidate in workspaces.flatMap(\.screens).flatMap(\.panes) {
+                var tabs: [ChiefRules.Panes.Tab] = []
+                for tab in candidate.tabs {
+                    tabs.append(.init(surface: String(surfaces.count), conversation: tab.kind == .conversation ? tab.snapshot.conversation?.conversation : nil))
+                    surfaces.append(tab.surface)
+                }
+                panes.append(.init(pane: String(handles.count), tabs: tabs))
+                handles.append(candidate.handle)
+            }
+        }
+
+        func surface(_ index: String) -> SurfaceID? { Int(index).flatMap { surfaces.indices.contains($0) ? surfaces[$0] : nil } }
+        func pane(_ index: String) -> PaneID? { Int(index).flatMap { handles.indices.contains($0) ? handles[$0] : nil } }
     }
 
     /// The user's cloud Chiefs, with a Hosted Chief made when this service
@@ -62,8 +74,7 @@ extension HomeCloudChiefs {
     /// placed). A failure is logged by the caller, never shown.
     public static func read(call: Call, hostedBrains: Bool) async throws -> HomeCloudChiefs {
         if hostedBrains { return try await ensureHosted(call: call) }
-        let found = placed(in: try await list(call: call))
-        return HomeCloudChiefs(hosted: nil, placed: found?.mainConversation == nil ? nil : found)
+        return try ChiefRules.call("chiefs_placed_only", ChiefRules.Chiefs(chiefs: try await list(call: call)))
     }
 
     /// The active chiefs (`chief.list`; archived ones are never listed by default).
@@ -86,12 +97,16 @@ extension HomeCloudChiefs {
         func op(_ name: String, _ key: String, _ params: [String: Any]) async throws -> Any? {
             try okValue(try await call("v1/ops", ["op": name, "origin": "user", "idempotency_key": key, "params": params]))
         }
+        func ensure(_ chiefs: [CloudChief]) throws -> ChiefRules.Ensure {
+            try ChiefRules.call("chiefs_ensure", ChiefRules.EnsureRequest(chiefs: chiefs, chiefName: HomeStrings.chiefName, placedName: placedName))
+        }
         for attempt in 0..<2 {
             var chiefs = try await list(call: call)
             do {
                 // The fixed key makes one Hosted Chief across devices; when it replays a chief that
                 // is now placed or archived (not in the list as hosted), a fresh key makes a new one.
-                for key in ["chief-hosted-default", "chief-hosted-\(UUID().uuidString.lowercased())"] where hosted(in: chiefs) == nil {
+                for key in ["chief-hosted-default", "chief-hosted-\(UUID().uuidString.lowercased())"] {
+                    guard try ensure(chiefs).needsHosted else { break }
                     // Only a chief this Mac's create made gets its brain turned on; a replay is a chief that may be
                     // off on purpose, unless it replays this Mac's own earlier create whose reply never came back.
                     let sentBefore = createdHere("key:\(key)")
@@ -99,21 +114,23 @@ extension HomeCloudChiefs {
                     let reply = try await call("v1/ops", ["op": "chief.create", "origin": "user", "idempotency_key": key,
                                                           "params": ["display_name": HomeStrings.chiefName, "is_default": true]])
                     guard let created = CloudChief.parse(try okValue(reply)) else { throw HostedChiefError.badReply }
-                    if reply["replayed"] as? Bool != true || sentBefore { createdHere(created.id, true) }
+                    let replayed = ChiefRules.CreatedRequest(replayed: reply["replayed"] as? Bool == true, sentBefore: sentBefore)
+                    let here: ChiefRules.Created = try ChiefRules.call("chiefs_created_here", replayed)
+                    if here.createdHere {
+                        createdHere(created.id, true)
+                    }
                     createdHere("key:\(key)", false)
                     chiefs = try await list(call: call)
                 }
-                if let mini = placed(in: chiefs), [HomeStrings.chiefName, "Chief", ""].contains(mini.displayName) {
-                    _ = try await op("chief.update", "chief-placed-rename-\(mini.id)-\(mini.rev)",
-                                     ["chief": mini.id, "expected_rev": mini.rev, "display_name": placedName])
+                if let rename = try ensure(chiefs).rename {
+                    _ = try await op("chief.update", rename.idempotencyKey, rename.body)
                     chiefs = try await list(call: call)
                 }
-                if let chief = hosted(in: chiefs), !chief.isDefault {
-                    _ = try await op("chief.update", "chief-hosted-default-\(chief.id)-\(chief.rev)",
-                                     ["chief": chief.id, "expected_rev": chief.rev, "is_default": true])
+                if let makeDefault = try ensure(chiefs).makeDefault {
+                    _ = try await op("chief.update", makeDefault.idempotencyKey, makeDefault.body)
                     chiefs = try await list(call: call)
                 }
-                return HomeCloudChiefs(hosted: hosted(in: chiefs), placed: placed(in: chiefs))
+                return try ensure(chiefs).chiefs
             } catch HostedChiefError.owner(code: "revision.conflict", message: _) where attempt == 0 {
                 continue
             }
@@ -139,7 +156,10 @@ extension HomeCloudChiefs {
 
     /// The ops envelope's value; a refusal (`_tag` and `code`) throws.
     static func okValue(_ reply: [String: Any]) throws -> Any? {
-        if reply["_tag"] != nil, let code = reply["code"] as? String { throw HostedChiefError.owner(code: code, message: reply["message"] as? String ?? code) }
+        let fields = ChiefRules.OkValueRequest.Reply(tag: reply["_tag"] == nil ? nil : true, code: reply["code"] as? String,
+                                                     message: reply["message"] as? String)
+        let envelope: ChiefRules.OkValue = try ChiefRules.call("chiefs_ok_value", ChiefRules.OkValueRequest(reply: fields))
+        if let refused = envelope.refused { throw HostedChiefError.owner(code: refused.code, message: refused.message) }
         return reply["value"]
     }
 }

@@ -101,6 +101,9 @@ public final class FakeChromiumPage: PageChromiumPage {
     private func reply(_ method: String, _ params: [String: any Sendable]) -> String {
         if let answered = answer?(method, params) { return answered }
         if method == "Page.addScriptToEvaluateOnNewDocument" { return #"{"identifier":"test-script"}"# }
+        if method == "Runtime.evaluate", params["expression"] as? String == "globalThis" {
+            return #"{"result":{"type":"object","className":"Window","objectId":"global-1"}}"#
+        }
         if method == "Runtime.evaluate", params["expression"] as? String == "[location.href, window === window.top]" {
             return #"{"result":{"type":"object","value":["\#(senderURL)",\#(senderIsTop)]}}"#
         }

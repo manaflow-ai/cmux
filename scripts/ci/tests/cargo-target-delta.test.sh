@@ -88,6 +88,23 @@ delta pack "$target" "$stamp" "$TMP/out" > "$TMP/pack.log"
 [[ ! -e "$TMP/out/debug/incremental/crate-x/s-other/cgu.o" ]] || fail "pack leaves an untouched incremental file"
 rm -rf "$target/debug/incremental" "$TMP/out"
 
+# rustc reads only the newest finalized session of a crate: pack drops the older ones, their locks and
+# a session still being written, and keeps the newest session with its lock.
+inc="$target/debug/incremental/crate-y"; mkdir -p "$inc"
+sleep 1.1; touch "$stamp"; : > "$stamp.list"
+for s in s-hokdublowg-0jjusmf-aaa s-hokef11wet-0p07b8k-bbb s-hokezzzzzz-1abcdef-working; do
+  mkdir -p "$inc/$s"; echo unit > "$inc/$s/cgu.o"
+done
+: > "$inc/s-hokdublowg-0jjusmf.lock"; : > "$inc/s-hokef11wet-0p07b8k.lock"
+delta pack "$target" "$stamp" "$TMP/out" > "$TMP/pack.log"
+out_inc="$TMP/out/debug/incremental/crate-y"
+[[ -f "$out_inc/s-hokef11wet-0p07b8k-bbb/cgu.o" && -f "$out_inc/s-hokef11wet-0p07b8k.lock" ]] \
+  || fail "pack keeps the newest incremental session and its lock"
+[[ ! -e "$out_inc/s-hokdublowg-0jjusmf-aaa" && ! -e "$out_inc/s-hokdublowg-0jjusmf.lock" ]] \
+  || fail "pack drops an older incremental session and its lock"
+[[ ! -e "$out_inc/s-hokezzzzzz-1abcdef-working" ]] || fail "pack drops a session still being written"
+rm -rf "$target/debug/incremental" "$TMP/out"
+
 rm -f "$stamp"
 delta pack "$target" "$stamp" "$TMP/none" | grep -q "nothing packed" || fail "pack without apply packs nothing"
 [[ ! -e "$TMP/none" ]] || fail "and writes no tree"

@@ -10425,6 +10425,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/github/read": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/github_action": {
       "/*untyped*": {
         "ty": "json",
@@ -13328,6 +13334,9 @@
       }
     },
     "request:_acpmux/here": {
+      "/includeSync": {
+        "ty": "boolean"
+      },
       "/scope": {
         "ty": "string",
         "nullable": true
@@ -29499,6 +29508,12 @@
         "ty": "json"
       }
     },
+    "request:_acpmux/watchdog_hold": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/web_modes": {
       "/*untyped*": {
         "ty": "json",
@@ -34775,6 +34790,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/github/read": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/github_action": {
       "/data/*untyped*": {
         "ty": "json",
@@ -35011,6 +35032,29 @@
       },
       "/data/here/*/working": {
         "ty": "boolean",
+        "required": true
+      },
+      "/data/sync": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/data/sync/*": {
+        "ty": "object"
+      },
+      "/data/sync/*/acknowledged": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/sync/*/connected": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/sync/*/peer": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/sync/*/unacknowledgedEdits": {
+        "ty": "uint64",
         "required": true
       }
     },
@@ -41041,6 +41085,12 @@
       }
     },
     "response:_acpmux/watch_take_over": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/watchdog_hold": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true

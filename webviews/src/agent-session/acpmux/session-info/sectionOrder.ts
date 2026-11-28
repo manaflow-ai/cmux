@@ -80,11 +80,6 @@ export function tuckedSections(
   return shown.filter((id) => id !== MORE_LINE && order.indexOf(id) > line);
 }
 
-/// The block a section belongs to by default.
-export function sectionGroup(id: SessionInfoSectionId): SessionInfoGroupId {
-  return GROUPS.find((group) => GROUP_SECTIONS[group].includes(id)) ?? "about";
-}
-
 export const ORDER_KEY = "cmux.agentPane.inspector.order";
 
 type Order = readonly SessionInfoSectionId[];

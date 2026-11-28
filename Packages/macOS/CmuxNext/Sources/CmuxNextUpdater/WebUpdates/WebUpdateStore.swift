@@ -118,15 +118,22 @@ nonisolated public struct WebUpdateStore: Sendable {
         return destination
     }
 
+    /// Removes every `staging-*` folder: an unpack's or a `cas/1` fetch's, with its chunk store.
+    /// Only when no install is in flight (``prune(keeping:)``, the launch check).
+    public func removeLeftoverStaging() {
+        let manager = FileManager.default
+        for name in (try? manager.contentsOfDirectory(atPath: base.path)) ?? [] where name.hasPrefix("staging-") {
+            try? manager.removeItem(at: base.appending(path: name))
+        }
+    }
+
     /// Removes every kept tree and leftover staging folder but `keys`.
     public func prune(keeping keys: Set<String>) {
         let manager = FileManager.default
         for name in (try? manager.contentsOfDirectory(atPath: trees.path)) ?? [] where !keys.contains(name) {
             try? manager.removeItem(at: trees.appending(path: name))
         }
-        for name in (try? manager.contentsOfDirectory(atPath: base.path)) ?? [] where name.hasPrefix("staging-") {
-            try? manager.removeItem(at: base.appending(path: name))
-        }
+        removeLeftoverStaging()
         // An older build's `trees/` that moveLegacyTrees could not move (trees.noindex/ was already
         // there): nothing serves from it, since tree(for:) reads only trees.noindex/.
         if manager.fileExists(atPath: trees.path), manager.fileExists(atPath: legacyTrees.path) {
