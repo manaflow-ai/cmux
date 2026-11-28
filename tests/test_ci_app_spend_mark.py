@@ -144,7 +144,79 @@ class Workflows(unittest.TestCase):
         ("ci-compile-attribution.yml", "report", "scripts/ci/app_spend_mark.py", "pass"),
         ("ci-compile-attribution.yml", "fix", "scripts/ci/app_spend_mark.py", "pass"),
         ("ci-owned-pool-rescue.yml", "rescue", "scripts/ci/app_spend_mark.py", None),
+        ("ci-queue-janitor.yml", "sweep", "scripts/ci/app_spend_mark.py", None),
     ]
+
+    # Jobs that mint cmux-bot and do not yet print their spend. This list only shrinks: a new minting job is marked
+    # (start/end steps, an entry in MARKED), and marking one of these moves it from here to MARKED. Leo, 2026-11-18:
+    # "Make it count bash gh/curl and the cmux-repo workflows too: each minting workflow prints its spend from
+    # X-RateLimit headers, and they are summed."
+    UNMARKED = [
+        ("auto-resume-nightly-notarization.yml", "preflight"),
+        ("auto-resume-nightly-notarization.yml", "poll"),
+        ("auto-resume-nightly-notarization.yml", "wait-and-staple"),
+        ("auto-resume-nightly-notarization.yml", "poll-outer"),
+        ("auto-resume-nightly-notarization.yml", "staple-outer"),
+        ("auto-resume-nightly-notarization.yml", "poll-stapled"),
+        ("auto-resume-nightly-notarization.yml", "staple-stapled"),
+        ("ci-hosted-queue-rescue.yml", "rescue"),
+        ("ci-main-full-suite.yml", "dispatch"),
+        ("ci-main-full-suite.yml", "report"),
+        ("ci.yml", "changes"),
+        ("classic-api-guard.yml", "classic-api"),
+        ("classic-deploy-guard.yml", "guard"),
+        ("cloud-chat-proof-nightly-dispatch.yml", "proof"),
+        ("cloud-composer-journey.yml", "dispatch"),
+        ("cloud-vm-image-full-bake.yml", "dispatch"),
+        ("cmux-next-cef-publish.yml", "resolve"),
+        ("cmux-next-cef-publish.yml", "publish"),
+        ("cmux-next-ios-kit.yml", "start"),
+        ("cmux-next-perf-cron-dispatch.yml", "dispatch"),
+        ("cmux-next-post-merge-dispatch.yml", "tick"),
+        ("cmux-next-remote-browser-host-publish.yml", "publish"),
+        ("cmux-next-resource-budget-dispatch.yml", "dispatch"),
+        ("cmux-tui-release-delivery.yml", "delivery"),
+        ("cu-driver-eval-dispatch.yml", "dispatch"),
+        ("debug-labs-keys-dispatch.yml", "dispatch"),
+        ("dogfood-artifact-publish.yml", "capture-inputs"),
+        ("dogfood-artifact-publish.yml", "capture-report"),
+        ("executor-journey-nightly-dispatch.yml", "journey"),
+        ("first-user-journey-ios.yml", "start"),
+        ("first-user-journey-web-dispatch.yml", "dispatch"),
+        ("ios-app-review-readiness.yml", "review-gate"),
+        ("ios-reliability-matrix.yml", "start"),
+        ("machine-join-e2e.yml", "share"),
+        ("merge-freeze.yml", "check"),
+        ("merge-receipt.yml", "receipt"),
+        ("nightly-next-canary.yml", "failed"),
+        ("nightly-next-feed-watch.yml", "watch"),
+        ("nightly-next-health.yml", "start"),
+        ("nightly-next-launch-smoke.yml", "crashed"),
+        ("nightly-next-rollback-drill.yml", "start"),
+        ("pr-media.yml", "plan"),
+        ("pr-media.yml", "tour"),
+        ("real-login-canaries.yml", "dispatch"),
+        ("required-checks-drift.yml", "reconcile"),
+        ("resume-nightly-notarization.yml", "resume"),
+        ("risk-tier.yml", "evidence"),
+        ("screen-stream-eval-dispatch.yml", "dispatch"),
+        ("stable-next.yml", "tick"),
+        ("triage-radar.yml", "refresh"),
+    ]
+    UNMARKED_CEILING = 50
+
+    def test_every_job_minting_cmux_bot_is_marked_or_on_the_shrinking_list(self) -> None:
+        minting = set()
+        for path in sorted(WORKFLOWS.glob("*.y*ml")):
+            for job, body in (yaml.safe_load(path.read_text()).get("jobs") or {}).items():
+                if any("CMUX_BOT_APP_ID" in str((step.get("with") or {}).get("app-id", "")) for step in body.get("steps") or []):
+                    minting.add((path.name, job))
+        marked = {(workflow, job) for workflow, job, _, _ in self.MARKED}
+        unmarked = set(self.UNMARKED)
+        self.assertEqual(sorted(minting - marked - unmarked), [], "mints cmux-bot without app_spend_mark start/end")
+        self.assertEqual(sorted(marked & unmarked), [], "marked now: drop it from UNMARKED")
+        self.assertEqual(sorted(unmarked - minting), [], "no longer mints: drop it from UNMARKED")
+        self.assertLessEqual(len(self.UNMARKED), self.UNMARKED_CEILING, "UNMARKED only shrinks")
 
     def test_every_marked_job_reads_its_pool_after_the_mint_and_at_the_end(self) -> None:
         for workflow, job, script, floor in self.MARKED:
@@ -156,7 +228,8 @@ class Workflows(unittest.TestCase):
                 self.assertEqual(start["id"], "app-spend")
                 self.assertEqual(start["run"], f"python3 {script} start {tag}" + (f" --floor {floor}" if floor else ""))
                 self.assertTrue(start["continue-on-error"] and end["continue-on-error"])
-                self.assertEqual(end["if"], "always()")
+                # always(), or always() plus the job's own skip (the janitor's fresh snapshot).
+                self.assertTrue(end["if"] == "always()" or end["if"].startswith("always() && "), end["if"])
                 mint = next(i for i, s in enumerate(all_steps) if s.get("id") in ("cmux-bot-token", "read-token"))
                 self.assertLess(mint, all_steps.index(start))
                 # The script is checked out before it runs.

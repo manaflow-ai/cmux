@@ -228,23 +228,39 @@ jobs:
       # A dispatch's journey_ref runs with the production account, so it must already be on feat-cmux-next.
       - name: The journey commit is on feat-cmux-next
         if: env.SELECTED == 'true' && inputs.journey_ref != ''
+        # Bounded: an unbounded unshallow fetch hung 70 min here until the job timeout (run 46154385519).
+        timeout-minutes: 6
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           sha="$(git rev-parse HEAD)"
-          # Asked of git, not the REST compare endpoint: a spent installation REST budget failed this gate before any
-          # journey step ran (run 46107610051). Commits only (tree:0), unshallowed so merge-base can walk history.
+          # Asked of git first, not the REST compare endpoint: a spent installation REST budget failed this gate before
+          # any journey step ran (run 46107610051). Commits only (tree:0), unshallowed so merge-base can walk history.
+          # A stalled transfer aborts (low-speed limit) and retries once; only then is REST compare asked.
           auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          deepen=()
-          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then deepen=(--unshallow); fi
-          git -c "http.https://github.com/.extraheader=$auth" fetch --quiet --no-tags --filter=tree:0 "${deepen[@]}" \
-            origin +refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next
-          if git merge-base --is-ancestor "$sha" refs/remotes/origin/feat-cmux-next; then
-            echo "journey commit $sha is on feat-cmux-next"
-          else
+          fetch_tip() {
+            local deepen=()
+            if [ "$(git rev-parse --is-shallow-repository)" = true ]; then deepen=(--unshallow); fi
+            timeout 150 git -c "http.https://github.com/.extraheader=$auth" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 \
+              fetch --quiet --no-tags --filter=tree:0 "${deepen[@]}" \
+              origin +refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next
+          }
+          if fetch_tip || { echo "::warning::fetching feat-cmux-next failed or stalled; retrying once"; fetch_tip; }; then
+            if git merge-base --is-ancestor "$sha" refs/remotes/origin/feat-cmux-next; then
+              echo "journey commit $sha is on feat-cmux-next"; exit 0
+            fi
             echo "::error::journey_ref $sha is not on feat-cmux-next"; exit 1
           fi
+          echo "::warning::git could not fetch feat-cmux-next twice; asking the REST compare endpoint"
+          status="$(curl -fsS --max-time 30 --retry 2 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/compare/feat-cmux-next...$sha" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))')" || status=""
+          case "$status" in
+            behind|identical) echo "journey commit $sha is on feat-cmux-next (REST compare: $status)" ;;
+            "") echo "::error::could not tell whether journey_ref $sha is on feat-cmux-next: git fetch failed twice and REST compare did not answer"; exit 1 ;;
+            *) echo "::error::journey_ref $sha is not on feat-cmux-next (REST compare: $status)"; exit 1 ;;
+          esac
       # The shipped Linux cmux-tui, for the app's part on a warm spare (--preclaim-login: warm-spare, ready, installed
       # and the login receipt), built as the staging preclaim job below builds it.
       - name: Install Linux cmux-tui build dependencies
@@ -339,7 +355,10 @@ jobs:
           probe=cloud-chat-replies-production
           if [ "$AGENT" = codex ] && [ "$MODEL" = stub ]; then probe=cloud-chat-replies-production-codex-stub; elif [ "$AGENT" = codex ]; then probe=cloud-chat-replies-production-codex; elif [ "$MODEL" = real ]; then probe=cloud-chat-replies-production-real-model; fi
           home_chat_args=()
-          if [ "$MODEL" = stub ]; then home_chat_args+=(--home-chat reserved); fi
+          # The stub leg replays a real run's model time to first token (CAPTURED_FIRST_TOKEN_TRACE in cloud-journey.ts),
+          # so its first text has a real-sized model term and our_path_ms (first text minus the guest's model term) is
+          # judged every hour without the journey's Claude login; the six-hourly real legs check the model term itself.
+          if [ "$MODEL" = stub ]; then home_chat_args+=(--home-chat reserved --stub-replay captured); fi
           # The "cold create (asked size)" cell is a second machine create per run, and the test team may create 20
           # an hour (cloud.rate_limited took 7 of 12 red runs on 2026-11-26). The codex stub's four runs an hour skip it;
           # the claude stub (hourly) and the real legs still prove a cold create boots at the size it asked for.
