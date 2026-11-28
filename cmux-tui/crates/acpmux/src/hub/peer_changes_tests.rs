@@ -2,8 +2,8 @@
 //! the table it leaves is the one applying each alone leaves, and the lock is taken once a run,
 //! not once a row (sessions-2000-attached: 2000 takings by 16 shards were a round's serial step).
 
-use super::remote_table::under_writer;
 use super::*;
+use crate::hub::remote_table::under_writer;
 use crate::peer::{Peer, PeerNotice};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -14,7 +14,7 @@ const PEERS: usize = 4;
 const ROWS: usize = 500;
 
 fn setup() -> Arc<Hub> {
-    let mut cfg = Config::default();
+    let mut cfg = crate::config::Config::default();
     cfg.store.mode = crate::config::StoreMode::Memory;
     Hub::new(cfg.clone(), crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap())
 }
@@ -88,7 +88,7 @@ fn a_run_of_changed_rows_takes_the_writer_lock_once_and_leaves_what_each_alone_l
         let mut notices = round(&run_peers, turn).into_iter().peekable();
         let mut held_runs = 0;
         while notices.peek().is_some() {
-            let chunk: Vec<_> = notices.by_ref().take(super::peers::CHANGES_PER_HOLD).collect();
+            let chunk: Vec<_> = notices.by_ref().take(CHANGES_PER_HOLD).collect();
             let len = chunk.len();
             under_writer::take();
             let applied = runs.apply_session_changes(chunk);
@@ -98,7 +98,7 @@ fn a_run_of_changed_rows_takes_the_writer_lock_once_and_leaves_what_each_alone_l
                 runs.session_change_announce(change);
             }
         }
-        let chunks = count.div_ceil(super::peers::CHANGES_PER_HOLD as u64);
+        let chunks = count.div_ceil(CHANGES_PER_HOLD as u64);
         assert_eq!(held_runs, chunks, "one writer hold a run of {count} changes");
         assert_eq!(table(&alone), table(&runs), "turn {turn}: a run left another table");
     }
