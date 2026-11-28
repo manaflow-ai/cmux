@@ -8,6 +8,7 @@ import React, {
   type ErrorInfo,
 } from "react";
 import { LOAD_FADE_CLASS } from "../../shared/loadFade";
+import { rowFrameStyle } from "../conversation/settledRowSkip";
 import { sendPopEnabled } from "../chatDisplay";
 import { holdEntranceForFirstFrame } from "../conversation/entranceClock";
 import { markRecapEntrance } from "../conversation/turnEndFold";
@@ -144,6 +145,7 @@ export const RowFrame = React.memo(function RowFrame({
   lastTurn,
   index,
   setSizeRef,
+  intrinsicHeight,
   top,
   rowWidth,
   expanded,
@@ -219,6 +221,7 @@ export const RowFrame = React.memo(function RowFrame({
   /// The list's length for `aria-setsize`, held in a ref so a row that arrives changes no prop here
   /// (TranscriptView, `setSize`). The row writes the attribute on the mount that puts it in the list.
   setSizeRef: React.MutableRefObject<string>;
+  intrinsicHeight: number | undefined;
   top: number;
   rowWidth: number;
   expanded: boolean;
@@ -464,7 +467,9 @@ export const RowFrame = React.memo(function RowFrame({
       // Large CSS numeric offsets lose fractional bits in WebKit. Keep the integer offset and
       // its subpixel remainder separate so animated row heights remain adjacent in long chats.
       // The unread line's row takes no height and draws its mark over the gap under it
-      // (conversation/unread.css), so it reads the gap's length.
+      // (conversation/unread.css), so it reads the gap's length. A shelved row (shelvedRows.ts) holds
+      // its height hidden; any other settled row may hold its indexed height while the browser skips
+      // it (settledRowSkip.ts); with both off its style is exactly `{top, marginTop}`.
       data-shelved={shelved > 0 ? "true" : undefined}
       style={
         row.kind === SINCE_DIVIDER
@@ -475,7 +480,7 @@ export const RowFrame = React.memo(function RowFrame({
             } as React.CSSProperties)
           : shelved > 0
             ? { top: integralTop, marginTop: placedTop - integralTop, height: shelved, contentVisibility: "hidden" }
-            : { top: integralTop, marginTop: placedTop - integralTop }
+            : rowFrameStyle(integralTop, placedTop, intrinsicHeight)
       }
       onFocus={() => onFocus(row.id)}
     >

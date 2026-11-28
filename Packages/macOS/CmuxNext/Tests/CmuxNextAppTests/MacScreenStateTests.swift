@@ -1,4 +1,5 @@
 @testable import CmuxNextMacScreen
+import CmuxNextDevices
 import CmuxNextRemoteView
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -164,6 +165,16 @@ struct MacScreenStateControlTests {
 
     /// A still screen (the host's fresh heartbeat counts no frame this Mac lacks) reads apart from a stall
     /// (frames the host sent that never arrived) and from a host gone quiet.
+    /// A socket stuck reconnecting says why its last attempt failed, so a probe's red names the cause.
+    @Test func aReconnectingHubSaysWhyItsLastAttemptFailed() {
+        #expect(MacScreenPages.connectionDetail(.reconnecting("socket connect timed out after 15 seconds"))
+            == "socket connect timed out after 15 seconds")
+        #expect(MacScreenPages.connectionDetail(.reconnecting(String(repeating: "x", count: 900)))?.count == 300)
+        for state: DeviceHubSocket.State in [.connected, .connecting, .disconnected, .replaced] {
+            #expect(MacScreenPages.connectionDetail(state) == nil)
+        }
+    }
+
     @Test func aStillScreenReadsApartFromAStall() {
         #expect(MacScreenPages.screenStill(hostFrames: 3, hostStatsAgeMs: 1200, decoded: 2, dropped: 1) == true)
         #expect(MacScreenPages.screenStill(hostFrames: 90, hostStatsAgeMs: 800, decoded: 2, dropped: 0) == false)

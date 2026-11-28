@@ -41,6 +41,7 @@ nightly on? what about the fixit/ignoring and fixing forward for things?" Withou
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import os
 from collections import Counter
@@ -444,8 +445,14 @@ def main(argv: list[str] | None = None) -> int:
     failed = []
     shown: dict[str, list[str]] = {}  # a failed check's findings, for --advisory-out
     try:
+        # The checks are independent reads of the one installed tree: run them side by side (the serial sum was
+        # 280 s of 35 checks on 2026-11-28, the longest 63 s), then judge them in CHECKS order so the output and
+        # the base comparison read as before. WEBVIEWS_CHECKS_JOBS=1 restores the serial order.
+        jobs = max(1, int(os.environ.get("WEBVIEWS_CHECKS_JOBS") or min(os.cpu_count() or 2, 6)))
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=jobs)
+        futures = {check: pool.submit(run_check, webviews, check, True) for check in checks}
         for check in checks:
-            code, output = run_check(webviews, check, fixit=True)
+            code, output = futures[check].result()
             print(output, end="", flush=True)
             if code == 0:
                 continue
@@ -493,6 +500,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  {line}", flush=True)
                 print(f"::{'warning' if advisory else 'error'} title=webviews {check}::{line}", flush=True)
     finally:
+        pool.shutdown(wait=True, cancel_futures=True)
         if base:
             base.close()
     where = "the pull request merged with its base" if args.base else "this commit"

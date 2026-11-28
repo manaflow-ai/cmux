@@ -20,6 +20,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import glaeda_log  # noqa: E402
+
 FROM_GITHUB = re.compile(r"^\S*\s*From https://github\.com/", re.M)
 STATED = re.compile(r"github\.com git fetches this job: (\d+)")
 
@@ -40,11 +43,14 @@ def run_logs(repo: str, run: str):
         job = json.loads(line)
         if job.get("conclusion") in (None, "skipped"):
             continue
-        try:
-            log = gh("api", f"repos/{repo}/actions/jobs/{job['id']}/logs")
-        except subprocess.CalledProcessError:
-            yield job["name"], None
-            continue
+        # this host's glaeda-gh keeps job logs: no API read for one its daemon saw
+        log = glaeda_log.cached_job_log(repo, job["id"])
+        if log is None:
+            try:
+                log = gh("api", f"repos/{repo}/actions/jobs/{job['id']}/logs")
+            except subprocess.CalledProcessError:
+                yield job["name"], None
+                continue
         yield job["name"], log
 
 

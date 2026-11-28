@@ -5,16 +5,19 @@ Leo, 2026-11-27: "like we can have fast retrieval of bench reference per product
 
   - model-based: the prefix index answers exactly what the old whole-table scan answers, on every tracked path's
     shape and on random paths built from the map's own globs (the scan is the oracle);
-  - budget: a 2,000-path change resolves in under 1 s, and ten times the rules costs the index far less than ten
-    times (the scan grows linearly; the index reads only a path's own ancestors' buckets);
+  - budget, counted (Leo: "minimally rigorous things to be proving correctness and perf in fast fail open ways"):
+    ten times the rules tries exactly the same globs (the index reads only a path's own ancestors' buckets), at
+    most 64 a path, and twice the paths is twice the work; the 1 s wall check runs only with CMUX_BENCH_WALL=1;
   - joined: each [[area]] names a risky path row of docs/benches/coverage-map.md (same paths), and each bench it
     names is a row of that page (when the page is on this branch);
   - whole: every [[situation]] names a template that exists, every area's situations exist, and the generated
     [[unit]] section matches the repo layout (`scripts/bench/cmux-bench for-paths --write`);
+  - one table, two consumers: the [[live_rule]] table is live_apply.py's path rules, its literal block generated;
   - fail open: an unmapped path warns and takes its default; a broken map never blocks.
 """
 from __future__ import annotations
 
+import os
 import random
 import re
 import subprocess
@@ -164,31 +167,40 @@ ignore = ["a/**/*.md", "!a/keep/*.md"]
         self.assertEqual(idx.match("a/x/y.md").steps, [])
         self.assertEqual([s.name for s in idx.match("a/keep/y.md").steps], ["s"])
 
-    def test_budget_and_flat_at_ten_times_the_rules(self):
+    def test_counted_work_is_flat_at_ten_times_the_rules(self):
+        """Counted work, not a clock: a loaded host (load 30 failed the old 1 s wall assert at base) cannot fail it.
+
+        `probes` is glob patterns match() tried, `compiles` is globs compiled into buckets. The scan tries every
+        glob on every path; the index tries only the globs filed under a path's own ancestors.
+        """
+        paths = random.Random(3).sample(self.files, min(2000, len(self.files)))
+        half = paths[: len(paths) // 2]
+
+        def work(rules, ps):
+            idx = rel.Index(rules)
+            rel.plan(idx, ps)
+            return idx.probes, idx.compiles
+
+        rules = list(self.index.rules)
+        one, ten = work(rules, paths), work(rel.scaled(rules, 10), paths)
+        self.assertEqual(ten, one, f"10x rules: (probes, compiles) {ten} vs {one} (want identical: flat)")
+        globs = sum(len(r.globs) for r in rules)
+        per_path = one[0] / len(paths)
+        # Budget: 64 probes a path (32 today); the scan would try all `globs` (2,815 today) on each.
+        self.assertLessEqual(per_path, 64, f"{per_path:.1f} probes a path (budget 64; a scan is {globs})")
+        small = work(rules, half)
+        self.assertLessEqual(one[0], small[0] * 2.2, f"2x paths: {one[0]} probes vs {small[0]} (want linear)")
+
+    @unittest.skipUnless(os.environ.get("CMUX_BENCH_WALL"), "wall-clock check: set CMUX_BENCH_WALL=1 (a quiet host)")
+    def test_wall_budget_on_a_quiet_host(self):
         paths = random.Random(3).sample(self.files, min(2000, len(self.files)))
         def once():
             t = time.perf_counter()
             rel.plan(rel.load(), paths)
             return time.perf_counter() - t
 
-        one = min(once() for _ in range(3))  # best of 3: a busy CI host is noise, not a regression
-        self.assertLess(one, 1.0, f"for-paths on 2,000 paths took {one:.2f} s (budget 1 s, load included)")
-        big = list(self.index.rules)
-        for k in range(9):
-            big += [rel.Rule(kind=r.kind, name=f"{r.name}#{k}", order=len(big) + i, ignore=r.ignore,
-                             globs=tuple(f"x{k}/{g}" for g in r.globs)) for i, r in enumerate(self.index.rules)]
-
-        def cost(rules):
-            idx = rel.Index(rules)
-            for p in paths:  # warm: compile the buckets these paths touch
-                idx.match(p)
-            t = time.perf_counter()
-            for p in paths:
-                idx.match(p)
-            return time.perf_counter() - t
-
-        base, ten = cost(self.index.rules), cost(big)
-        self.assertLess(ten, base * 3 + 0.05, f"10x rules: {ten * 1e3:.1f} ms vs {base * 1e3:.1f} ms (want flat, < 3x)")
+        one = min(once() for _ in range(3))
+        self.assertLess(one, 1.0, f"for-paths on 2,000 paths took {one:.2f} s (budget 1 s)")
 
 
 class RelevanceMapFileTest(unittest.TestCase):
@@ -227,6 +239,21 @@ class RelevanceMapFileTest(unittest.TestCase):
                   "run scripts/bench/cmux-bench for-paths --write", file=sys.stderr)
         self.assertLess(len(drift), max(5, len(want) // 20),
                         "the [[unit]] section is stale: run scripts/bench/cmux-bench for-paths --write")
+
+    def test_every_package_file_is_mapped(self):
+        # lane/swift-out-rd-phone-4's advisory log (run 46166834064): "default:Packages has no mapping". A package's
+        # Package.swift, Package.resolved and non-Sources folders (CEFShim/, Plugins/, Demo/) take the package's
+        # unit; a module file still takes its narrower module unit.
+        index = rel.load()
+        files = [f for f in tracked() if f.startswith("Packages/")]
+        unmapped = [f for f in files if not index.match(f).mapped]
+        self.assertEqual(unmapped, [], f"{len(unmapped)} Packages/ files fall back to default:Packages")
+        if (ROOT / "Packages/macOS/CmuxNext/Package.swift").is_file():
+            self.assertEqual(index.match("Packages/macOS/CmuxNext/Package.swift").unit.name,
+                             "swiftpkg:Packages/macOS/CmuxNext")
+        if (ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar").is_dir():
+            self.assertEqual(index.match("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/x.swift").unit.name,
+                             "swift:CmuxNextSidebar")
 
     def test_a_crate_routes_its_direct_dependents_tests(self):
         # The 20-merge backtest's two misses (ask-5ad71ec59c): a path took only its own folder's unit.
@@ -328,6 +355,52 @@ class RelevanceMapFileTest(unittest.TestCase):
             self.assertFalse(paths - mapped[area], f"area {area!r}: risky paths missing from relevance-map.toml")
 
 
+class LiveRulesTest(unittest.TestCase):
+    """The map's [[live_rule]] table is scripts/cmux-next/live_apply.py's path rules (shadow-leo: "the same map
+    should answer landings-skip-rebuild too: a path that maps to web-only is exactly the hot-swap case, so one table,
+    two consumers"): live_apply.py's literal block is generated from it, so the two never differ."""
+
+    def test_live_apply_block_is_generated_from_the_map(self):
+        text = rel.LIVE_APPLY.read_text(encoding="utf-8")
+        want = rel.render_live_rules(rel.load_live_rules())
+        self.assertIn(want, text, "live_apply.py's live rules differ from the map: "
+                      "run scripts/bench/cmux-bench for-paths --write")
+
+    def test_live_apply_checks_the_map_rules_in_map_order(self):
+        sys.path.insert(0, str(rel.LIVE_APPLY.parent))
+        try:
+            import live_apply
+        finally:
+            sys.path.remove(str(rel.LIVE_APPLY.parent))
+        got = [(rx.pattern, cls, reason or "") for rx, cls, reason in live_apply.PATH_RULES]
+        want = [(r["pattern"], r["class"], r["reason"]) for r in rel.load_live_rules()]
+        self.assertEqual(got, want)
+        self.assertTrue(want, "the map has no [[live_rule]]")
+
+    def test_each_rule_is_one_literal_hq_can_parse(self):
+        # cmuxterm-hq tools/fleet-reconcilers/now_code_shape.py reads `NAME = re.compile(<one str literal>)` with ast.
+        import ast
+        tree = ast.parse(rel.LIVE_APPLY.read_text(encoding="utf-8"))
+        literal = {}
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) \
+                    and isinstance(node.value, ast.Call) and len(node.value.args) == 1 \
+                    and isinstance(node.value.args[0], ast.Constant) and isinstance(node.value.args[0].value, str):
+                literal[node.targets[0].id] = node.value.args[0].value
+        for r in rel.load_live_rules():
+            self.assertEqual(literal.get(r["name"]), r["pattern"], r["name"])
+
+    def test_bad_rules_are_refused(self):
+        for body in ('name = "X"\nclass = "hot"\npattern = "a"', 'name = "x"\nclass = "no-app"\npattern = "a"',
+                     'name = "X"\nclass = "no-app"\npattern = "("', "name = 'X'\nclass = 'no-app'\npattern = 'a\"'"):
+            with self.assertRaises(rel.MapError, msg=body):
+                rel.parse_live_rules("[[live_rule]]\n" + body + "\n")
+        self.assertEqual([r["name"] for r in rel.parse_live_rules(
+            '[[live_rule]]\nname = "B"\nclass = "daemon"\npattern = "b"\n'
+            '[[live_rule]]\nname = "A"\nclass = "web-live"\npattern = "a"\n')], ["B", "A"])
+        rel.parse(rel.MAP.read_text(encoding="utf-8"))  # the area parser accepts the table
+
+
 class ForPathsCliTest(unittest.TestCase):
     def run_cli(self, *args, map_text=None):
         cmd = [sys.executable, "-I", str(CLI), "for-paths", *args]
@@ -355,6 +428,83 @@ class ForPathsCliTest(unittest.TestCase):
         self.assertIn("docs/benches/templates/bridge.md", got.stdout)
         self.assertIn("cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi", got.stdout)
 
+
+
+class AreaOwnsReds(unittest.TestCase):
+    """shadow-leo push 3 (ask c-5ad71ec59c): nightly and probe reds resolve to an area, and an area can carry a
+    count budget (`checks`) that fails the PR job when a count is over."""
+
+    MAP = """
+[[area]]
+name = "pane"
+paths = ["p"]
+benches = ["local-start-matrix-nightly"]
+probes = ["local-chat-replies-nightly"]
+goals = ["local-chat-replies"]
+[[area]]
+name = "ci"
+paths = ["ci"]
+nightly = ["nightly-next-one"]
+checks = ["exit 0"]
+"""
+
+    def test_probe_goal_nightly_and_bench_each_name_their_area(self):
+        rules = rel.parse(self.MAP)
+        self.assertEqual([(h["area"], h["via"]) for h in rel.area_for(rules, "local-chat-replies-nightly")],
+                         [("pane", "probe")])
+        self.assertEqual([h["area"] for h in rel.area_for(rules, "local-chat-replies")], ["pane"])
+        self.assertEqual([(h["area"], h["via"]) for h in rel.area_for(rules, "nightly-next-one / cmux-tui tree")],
+                         [("ci", "nightly")])
+        self.assertEqual([(h["area"], h["via"]) for h in rel.area_for(rules, "local-start-matrix-nightly")],
+                         [("pane", "bench")])
+        self.assertEqual(rel.area_for(rules, "no-such-probe"), [])
+
+    def test_a_non_list_owner_key_is_a_map_error(self):
+        for key in ("checks", "probes", "goals", "nightly"):
+            with self.assertRaises(rel.MapError, msg=key):
+                rel.parse(f'[[area]]\nname = "a"\npaths = ["p"]\n{key} = "x"\n')
+
+    def test_the_real_map_names_the_local_chat_probe_and_the_nightly_build(self):
+        rules = rel.load_rules(rel.MAP, None)
+        self.assertEqual([h["area"] for h in rel.area_for(rules, "local-chat-replies-nightly")],
+                         ["Agent pane transport (daemon → pane)"])
+        self.assertEqual([h["area"] for h in rel.area_for(rules, "nightly-reliability")],
+                         ["CI pipeline and workflows"])
+        page = [r for r in rules if r.name == "Sidebar chats page (web)"]
+        self.assertEqual(len(page), 1)
+        self.assertTrue(page[0].checks, "the sidebar chats page carries a count budget")
+
+    def test_checks_fail_red_on_exit_and_warn_on_a_missing_tool(self):
+        plan = {"areas": [{"name": "a", "checks": ["exit 0", "exit 3", "no-such-tool-xyz"]},
+                          {"name": "b", "checks": ["exit 0"]}]}
+        got = {r["cmd"]: (r["status"], r["areas"]) for r in rel.run_checks(plan, timeout=10)}
+        self.assertEqual(got, {"exit 0": (rel.OK, ["a", "b"]), "exit 3": (rel.FAILED, ["a"]),
+                               "no-such-tool-xyz": (rel.MISSING, ["a"])})
+
+    def run_cli(self, *args, map_text=None):
+        cmd = [sys.executable, "-I", str(CLI), *args]
+        if map_text is not None:
+            tmp = Path(tempfile.mkdtemp()) / "map.toml"
+            tmp.write_text(map_text)
+            cmd += ["--map", str(tmp)]
+        return subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=60)
+
+    def test_area_for_cli_exits_1_on_an_unknown_name(self):
+        got = self.run_cli("area-for", "--json", "local-chat-replies-nightly", map_text=self.MAP)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertIn('"area": "pane"', got.stdout)
+        got = self.run_cli("area-for", "local-chat-replies-nightly", "nope", map_text=self.MAP)
+        self.assertEqual(got.returncode, 1, got.stdout)
+        self.assertIn("nope: no area", got.stdout)
+
+    def test_for_paths_checks_is_red_when_a_count_is_over(self):
+        over = self.MAP.replace('checks = ["exit 0"]', 'checks = ["echo drew 2 rows, budget 1; exit 1"]')
+        got = self.run_cli("for-paths", "--checks", "ci/x", map_text=over)
+        self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+        self.assertIn("count budget failed", got.stderr)
+        self.assertIn("drew 2 rows", got.stderr)
+        got = self.run_cli("for-paths", "--checks", "ci/x", map_text=self.MAP)
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
 
 
 def old_literal_prefix(glob: str) -> str:
@@ -432,6 +582,7 @@ budget_s = 2
         globs = [g for r in rel.load().rules for g in r.globs] + ["*.rs", "**/x", "a/b*/c", "a/[x]/y", "a/b/"]
         self.assertEqual([g for g in globs if rel.literal_prefix(g) != old_literal_prefix(g)], [])
 
+    @unittest.skipUnless(os.environ.get("CMUX_BENCH_WALL"), "wall-clock check: set CMUX_BENCH_WALL=1 (a quiet host)")
     def test_mapped_self_bench_runs_flat_at_ten_times_the_rules(self):
         one, ten = (min(rel.self_bench(2000, k) for _ in range(2)) for k in (1, 10))
         self.assertLess(ten, one * 3 + 0.1, f"self-bench: 10x rules {ten:.2f} s vs {one:.2f} s (want < 3x)")
