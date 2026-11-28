@@ -313,12 +313,11 @@ mod tests {
 
     #[test]
     fn a_free_lock_is_kept_for_good_and_a_held_one_for_live_for() {
-        use std::os::fd::AsRawFd;
+        use cmux_file_lock::{FileLock, Kind};
         let (_root, dir) = folder();
         bg_run::write_record(&dir, &record("a", "g1", false)).unwrap();
-        let lock = std::fs::File::create(bg_run::lock_path(&dir, "a")).unwrap();
-        // SAFETY: flock on a descriptor this test owns.
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        let file = std::fs::File::create(bg_run::lock_path(&dir, "a")).unwrap();
+        let lock = FileLock::take(file, Kind::Exclusive).unwrap();
         let folders = BgFolders::default();
         let look = folders.look(&dir);
         let task = &look.tasks[0];
@@ -329,8 +328,7 @@ mod tests {
         *task.held_at.lock().unwrap() = Some(std::time::Instant::now() - LIVE_FOR);
         assert!(task.gone(&dir), "a free lock was not seen past LIVE_FOR");
         let again = std::fs::File::open(bg_run::lock_path(&dir, "a")).unwrap();
-        // SAFETY: as above.
-        assert_eq!(unsafe { libc::flock(again.as_raw_fd(), libc::LOCK_EX) }, 0);
+        let _again = FileLock::take(again, Kind::Exclusive).unwrap();
         assert!(task.gone(&dir), "a lock once free was probed again");
     }
 }

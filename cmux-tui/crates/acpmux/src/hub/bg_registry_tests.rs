@@ -254,8 +254,7 @@ async fn a_died_runner_stops_counting_within_live_for_and_stays_lost() {
         .write(true)
         .open(bg_run::lock_path(&dir, &id))
         .unwrap();
-    // SAFETY: flock on a descriptor this test owns.
-    assert_eq!(unsafe { libc::flock(std::os::fd::AsRawFd::as_raw_fd(&again), libc::LOCK_EX) }, 0);
+    let _again = cmux_file_lock::FileLock::take(again, cmux_file_lock::Kind::Exclusive).unwrap();
     assert_eq!(hub.bg_running_count(&session), 0);
 }
 
