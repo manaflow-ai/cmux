@@ -1742,12 +1742,13 @@ function FolderIcon() {
 
 /// The computer chip's icon, in another machine's own color (machineColor); this Mac's stays quiet.
 function ComputerIcon({ name, peer }: { name?: string; peer?: string }) {
-  // The machine's own device glyph once the daemon says what it is (Leo 2026-11-14); this Mac is
-  // the MacBook until then, another machine the laptop it always drew. Only an SSH machine
-  // (`peer`) reads a peer's kind; a Cloud machine keeps the laptop. The box keeps its size.
+  // Another machine draws its own device glyph once its daemon says what it is (Leo 2026-11-14),
+  // else the laptop it always drew. This Mac always draws the MacBook, whatever kind this machine
+  // reports (#65784: "bring back the old icon"). Only an SSH machine (`peer`) reads a peer's kind;
+  // a Cloud machine keeps the laptop. The box keeps its size.
   const local = !name;
-  const reported = useDeviceKind(local ? undefined : (peer ?? ""));
-  const device = local ? (reported ?? "macbook") : reported;
+  const reported = useDeviceKind(local ? "" : (peer ?? ""));
+  const device = local ? "macbook" : reported;
   return (
     <svg
       className={`acpmux-icon acpmux-location-icon ui-ghost-icon${local ? " acpmux-macbook-icon" : ""}${device ? " acpmux-device-icon" : ""}`}
