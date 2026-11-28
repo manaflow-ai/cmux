@@ -98,3 +98,4 @@ Full rows (why each was not caught, evidence): [REGRESSIONS-2026-11.md](REGRESSI
 | 15 | App stops compiling: LocalLinkBrowser captured var (PR audit) | cmux#53717 | cmux#55156 | compile-app-and-tests | build-for-testing | yes |
 | 16 | Slow chat history never shows "Loading chat…" (PR audit) | cmux#51591 | cmux#54975 | chat-slow-history-loading | StartingAgentSourceTests | yes |
 | 17 | macOS half of the kit stops compiling and hides test reds (PR audit) | cmux#56000 | cmux#55509, #56732 | kit-macos-swift-test | `swift test` NoRawTimeoutCopyTests, WorkedFoldTests | yes |
+| 21 | Open on iPhone installs sign-in data in the previous web view when crossing ordinary/private pages; an obsolete handoff can reopen a page (caught in integration review before merge) | cmux#62304 integration | cmux#62304 | browser-site-data-destination | SiteDataHandOffTests, NativeBrowserTabTests | yes, destination-store and cancellation assertions |

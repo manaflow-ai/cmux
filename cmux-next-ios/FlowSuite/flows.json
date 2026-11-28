@@ -28,6 +28,19 @@
   },
   "flows": [
     {
+      "id": "browser-site-data-destination",
+      "title": "Open on iPhone hands sign-in data to the destination browser store and cancels obsolete handoffs",
+      "source": ["regression:21"],
+      "kit": ["CmuxMobileWorkspacesTests/SiteDataHandOffTests", "CmuxMobileWorkspacesTests/NativeBrowserTabTests"],
+      "ui": [],
+      "paths": [
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/BrowserTab.swift",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/NativeBrowserTabs.swift",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/SiteDataHandOff.swift",
+        "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileWorkspacesTests/SiteDataHandOffTests.swift"
+      ]
+    },
+    {
       "id": "smoke-launch-sign-in",
       "title": "The app launches, offers sign-in with Apple first, and every sign-in control responds",
       "source": ["aziz:app-store-readiness#3", "aziz:app-store-readiness#4"],

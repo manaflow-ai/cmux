@@ -506,6 +506,7 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
             "removal-v1",
             "file-preview-v1",
             "localhost-forward-v1",
+            "localhost-hosts-v1",
             "cloud-directory-v1",
             "cloud-acpmux-v1",
             "needs-you-v1",

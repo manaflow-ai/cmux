@@ -140,6 +140,229 @@ final class DevServerChannel: LinkChannel, @unchecked Sendable {
         source.browser(try #require(source.workspace?.tabs.first { $0.id == tab }))
     }
 
+    @Test func ordinaryCookiesSurviveAnIsolatedPrivatePageAndTheReturn() async throws {
+        let native = NativeBrowserTabs(defaults: defaults())
+        let forwarder = LocalhostForwarder(openHost: { _, _, _ in
+            throw LinkError(code: "unused", message: "No page request in this store test")
+        })
+        native.forwarder = forwarder
+        native.macForwardsPrivateHost = { _ in true }
+        defer { forwarder.retain(proxies: []) }
+        let model = native.open(tab: "cookies", macID: "mac-a", at: nil)
+        let ordinary = model.webView
+        let shared = ordinary.configuration.websiteDataStore
+        #expect(shared === WKWebsiteDataStore.default())
+        let cookie = try #require(HTTPCookie(properties: [
+            .domain: "cookie-test.example", .path: "/", .name: "rfd0089-\(UUID().uuidString)", .value: "signed-in"
+        ]))
+        await shared.httpCookieStore.setCookie(cookie)
+        let peer = native.open(tab: "peer", macID: "mac-a", at: nil)
+        let peerCookies = await peer.webView.configuration.websiteDataStore.httpCookieStore.allCookies()
+        #expect(peerCookies.contains { $0.name == cookie.name && $0.value == "signed-in" })
+
+        let target = try #require(URL(string: "http://studio.local:8080"))
+        #expect(await model.preparePrivateHostRoute(target))
+        let privateView = model.webView
+        let isolated = privateView.configuration.websiteDataStore
+        #expect(privateView !== ordinary)
+        #expect(isolated !== shared)
+        #expect(isolated.proxyConfigurations.count == 1)
+        let otherPort = try #require(URL(string: "http://studio.local:8081"))
+        #expect(await model.preparePrivateHostRoute(otherPort))
+        #expect(isolated.proxyConfigurations.count == 1, "one host uses one endpoint across allowed ports")
+        #expect(model.hasPrivateRoute(target) && model.hasPrivateRoute(otherPort))
+        #expect(shared.proxyConfigurations.isEmpty)
+        let privateCookies = await isolated.httpCookieStore.allCookies()
+        #expect(!privateCookies.contains { $0.name == cookie.name })
+
+        model.load(URL(string: "about:blank")!)
+        #expect(model.webView === ordinary, "returning keeps the original view and its history")
+        let returnedCookies = await shared.httpCookieStore.allCookies()
+        #expect(returnedCookies.contains { $0.name == cookie.name && $0.value == "signed-in" })
+        #expect(await model.preparePrivateHostRoute(target))
+        #expect(model.webView === privateView, "the private view also retains its history")
+        _ = native.close(tab: "cookies", macID: "mac-a")
+        #expect(isolated.proxyConfigurations.isEmpty, "mirroring cannot retain dead proxy endpoints")
+        #expect(!model.hasPrivateRoute(target))
+        await shared.httpCookieStore.delete(cookie)
+    }
+
+    @Test func privateRoutesAreIsolatedBetweenMacsAndFailedPreparationKeepsTheOrdinaryView() async throws {
+        let native = NativeBrowserTabs(defaults: defaults())
+        let forwarder = LocalhostForwarder(openHost: { _, _, _ in
+            throw LinkError(code: "unused", message: "No page request in this store test")
+        })
+        native.forwarder = forwarder
+        native.macForwardsPrivateHost = { _ in true }
+        defer { forwarder.retain(proxies: []) }
+        let first = native.open(tab: "same-tab", macID: "mac-a", at: nil)
+        let second = native.open(tab: "same-tab", macID: "mac-b", at: nil)
+        let target = try #require(URL(string: "http://studio.local:8080"))
+        #expect(await first.preparePrivateHostRoute(target))
+        #expect(await second.preparePrivateHostRoute(target))
+        #expect(first.webView.configuration.websiteDataStore !== second.webView.configuration.websiteDataStore)
+
+        let unavailable = native.open(tab: "unavailable", macID: "mac-c", at: nil)
+        let ordinary = unavailable.webView
+        native.macForwardsPrivateHost = { _ in false }
+        #expect(!(await unavailable.preparePrivateHostRoute(target)))
+        #expect(unavailable.webView === ordinary)
+        #expect(ordinary.configuration.websiteDataStore === WKWebsiteDataStore.default())
+    }
+
+    @Test(arguments: [false, true])
+    func obsoletePrivatePreparationCannotReplaceANewerPageOrMirroring(mirror: Bool) async throws {
+        let forwarder = LocalhostForwarder(openHost: { _, _, _ in
+            throw LinkError(code: "unused", message: "No page request in this race test")
+        })
+        defer { forwarder.retain(proxies: []) }
+        let route = try await forwarder.proxy(host: "studio.local", port: 8080, macID: "mac-a")
+        let target = URL(string: "http://studio.local:8080")!
+        let model = BrowserTabModel(url: nil, guardsMacAddresses: true)
+        let ordinary = model.webView
+        var waiting: CheckedContinuation<LocalhostForwarder.ProxyRoute?, Never>?
+        model.preparePrivateHost = { _ in
+            await withCheckedContinuation { waiting = $0 }
+        }
+        let pending = Task { await model.preparePrivateHostRoute(target) }
+        await until { waiting != nil }
+        let continuation = try #require(waiting)
+        if mirror { model.pause() }
+        else { model.load(URL(string: "about:blank")!) }
+        continuation.resume(returning: route)
+        #expect(!(await pending.value))
+        #expect(model.webView === ordinary)
+        #expect(!model.hasPrivateRoute(target))
+        #expect(ordinary.configuration.websiteDataStore.proxyConfigurations.isEmpty)
+    }
+
+    @Test func ordinarySameDocumentHistoryKeepsBackForwardAndDropsTheReplacedBranch() async throws {
+        let native = NativeBrowserTabs(defaults: defaults())
+        let forwarder = LocalhostForwarder { _, _ in
+            DevServerChannel(page: "<title>Same document</title>")
+        }
+        native.forwarder = forwarder
+        native.macForwardsLocalhost = { _ in true }
+        defer { forwarder.retain(ports: []) }
+        await Self.warmWebKit()
+        let model = native.open(tab: "history", macID: "mac-a", at: nil)
+        let window = UIWindow(frame: model.webView.frame)
+        window.addSubview(model.webView)
+        window.isHidden = false
+        defer { window.isHidden = true }
+        // loadHTMLString does not create the initial native history item. Use a
+        // real navigation so these assertions exercise WebKit's back/forward list.
+        model.load(URL(string: "http://127.0.0.1:\(try freePort())/history")!)
+        for _ in 0..<2000 where model.title != "Same document" || model.webView.backForwardList.currentItem == nil {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(model.title == "Same document")
+        let original = try #require(model.webView.backForwardList.currentItem)
+        _ = try await model.webView.evaluateJavaScript("history.pushState({}, '', '#one'); history.pushState({}, '', '#two')")
+        await until { model.url?.fragment == "two" && model.canGoBack }
+        #expect(model.url?.fragment == "two")
+        model.goBack()
+        await until { model.url?.fragment == "one" }
+        #expect(model.url?.fragment == "one")
+        #expect(model.canGoForward)
+        model.goForward()
+        await until { model.url?.fragment == "two" }
+        #expect(model.url?.fragment == "two")
+        model.goBack()
+        await until { model.url?.fragment == "one" }
+        _ = try await model.webView.evaluateJavaScript("history.pushState({}, '', '#branch')")
+        await until { model.url?.fragment == "branch" && !model.canGoForward }
+        #expect(!model.canGoForward, "the discarded #two entry cannot stay in the bridge")
+        model.goBack()
+        await until { model.url?.fragment == "one" }
+        model.goBack()
+        await until { model.webView.backForwardList.currentItem === original }
+        #expect(model.webView.backForwardList.currentItem === original)
+    }
+
+    @Test func backAndForwardCrossTheOrdinaryAndPrivateViews() async throws {
+        let native = NativeBrowserTabs(defaults: defaults())
+        let forwarder = LocalhostForwarder(openHost: { _, host, _ in
+            DevServerChannel(page: host == nil ? "<title>Ordinary history</title>" : "<title>Private history</title>")
+        })
+        native.forwarder = forwarder
+        native.macForwardsLocalhost = { _ in true }
+        native.macForwardsPrivateHost = { _ in true }
+        defer {
+            forwarder.retain(ports: [])
+            forwarder.retain(proxies: [])
+        }
+        await Self.warmWebKit()
+        let model = native.open(tab: "history", macID: "mac-a", at: nil)
+        let ordinary = model.webView
+        let window = UIWindow(frame: ordinary.frame)
+        window.addSubview(ordinary)
+        window.isHidden = false
+        defer { window.isHidden = true }
+        model.load(URL(string: "http://127.0.0.1:\(try freePort())/history")!)
+        for _ in 0..<2000 where model.title != "Ordinary history" || ordinary.backForwardList.currentItem == nil {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(model.title == "Ordinary history")
+        let originalItem = try #require(ordinary.backForwardList.currentItem)
+        model.load(URL(string: "http://studio.local:8080/history")!)
+        await until { model.webView !== ordinary }
+        window.addSubview(model.webView)
+        for _ in 0..<2000 where model.title != "Private history" {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(model.title == "Private history")
+        let privateView = model.webView
+        #expect(privateView !== ordinary)
+        #expect(model.canGoBack)
+        model.goBack()
+        await until { model.webView === ordinary }
+        #expect(model.webView === ordinary)
+        #expect(ordinary.backForwardList.currentItem === originalItem)
+        #expect(model.canGoForward)
+        model.goForward()
+        await until { model.webView === privateView }
+        #expect(model.webView === privateView)
+        #expect(model.title == "Private history")
+
+        // A branch discarded globally still exists inside the inactive view's
+        // native list. Opening a new private page must not bring it back.
+        _ = try await privateView.evaluateJavaScript("history.pushState({}, '', '#old')")
+        await until { model.url?.fragment == "old" }
+        model.goBack()
+        await until { model.webView === privateView && model.url?.fragment == nil }
+        model.goBack()
+        await until { model.webView === ordinary }
+        #expect(model.webView === ordinary)
+        _ = try await ordinary.evaluateJavaScript("history.pushState({}, '', '#branch')")
+        await until { model.url?.fragment == "branch" && !model.canGoForward }
+        #expect(!model.canGoForward)
+        model.load(URL(string: "http://studio.local:8080/new")!)
+        await until { model.webView === privateView && privateView.backForwardList.currentItem?.url.path == "/new" }
+        #expect(privateView.backForwardList.currentItem?.url.path == "/new")
+        model.goBack()
+        await until { model.webView === ordinary && model.url?.fragment == "branch" }
+        #expect(model.webView === ordinary, "discarded private history must not reappear before the ordinary branch")
+        #expect(model.url?.fragment == "branch")
+    }
+
+    @Test func privateNavigationKeepsTheLoopbackInitiationRulesAndOriginPorts() throws {
+        let target = try #require(URL(string: "http://studio.local:8080"))
+        let unrelated = try #require(URL(string: "https://example.com"))
+        let otherPort = try #require(URL(string: "http://studio.local:8081"))
+        for type in [WKNavigationType.other, .formSubmitted, .formResubmitted] {
+            #expect(!MacAddressGuard.admitsPrivateNavigation(target: target, own: false, source: unrelated, isOpen: false, type: type))
+            #expect(!MacAddressGuard.admitsPrivateNavigation(target: target, own: false, source: otherPort, isOpen: false, type: type))
+            #expect(MacAddressGuard.admitsPrivateNavigation(target: target, own: false, source: target, isOpen: false, type: type))
+        }
+        for type in [WKNavigationType.linkActivated, .backForward] {
+            #expect(MacAddressGuard.admitsPrivateNavigation(target: target, own: false, source: unrelated, isOpen: false, type: type))
+        }
+        #expect(MacAddressGuard.admitsPrivateNavigation(target: target, own: true, source: nil, isOpen: false, type: .other))
+        #expect(MacAddressGuard.admitsPrivateNavigation(target: target, own: false, source: unrelated, isOpen: true, type: .other))
+        #expect(!MacAddressGuard.sameOrigin(target, otherPort))
+    }
+
     @Test func openOnIPhoneLoadsTheMacsPageAndMirroringCarriesWhereThePersonWent() async throws {
         let (source, mac, _) = try await linked(at: "https://example.com/mac", native: NativeBrowserTabs(defaults: defaults()))
         #expect(try menuIDs(source).contains("browser.openOnPhone"))

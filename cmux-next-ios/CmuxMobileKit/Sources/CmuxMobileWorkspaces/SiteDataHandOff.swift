@@ -75,9 +75,13 @@ struct SiteDataHandOff: Decodable, Equatable {
 
     /// Puts it in `webView`'s data store; returns once the cookies are set.
     @MainActor
-    func apply(to webView: WKWebView) async {
+    func apply(to webView: WKWebView, isCurrent: @MainActor () -> Bool = { true }) async {
         let store = webView.configuration.websiteDataStore.httpCookieStore
-        for cookie in httpCookies { await store.setCookie(cookie) }
+        for cookie in httpCookies {
+            guard isCurrent() else { return }
+            await store.setCookie(cookie)
+        }
+        guard isCurrent() else { return }
         if let storageScript {
             webView.configuration.userContentController.addUserScript(
                 WKUserScript(source: storageScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
