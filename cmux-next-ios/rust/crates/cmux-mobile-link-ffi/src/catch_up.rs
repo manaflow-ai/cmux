@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use cmux_mobile_core::catch_up::relay::{self, Floors};
 use cmux_mobile_core::catch_up::service::{self as core, Answer, Ask, Workspaces};
 use cmux_mobile_core::catch_up::{Cursors, Wake};
-use cmux_mobile_link::relay_cache;
+use cmux_mobile_link::{relay_cache, zstd_stream};
 use serde_json::Value;
 
 /// The link service to open.
@@ -241,6 +241,8 @@ impl PhoneCatchUp {
         core_ask.known = ask.known_json.and_then(|text| serde_json::from_str::<Value>(&text).ok());
         core_ask.capabilities = ask.capabilities;
         core_ask.chats = ask.chats.into_iter().map(|chat| (chat.session_id, chat.last_seq)).collect();
+        // [`Self::apply`] opens the zstd envelope: a fifth of the bytes on the radio.
+        core_ask.compressions = vec![zstd_stream::NAME.to_string()];
         core::request(&self.cursors(), &core_ask).to_string()
     }
 }
@@ -391,6 +393,10 @@ impl PhoneCatchUp {
         if self.background.swap(false, Ordering::Relaxed) {
             self.cursors().spend_background(wall_secs(), reply.len() as u64);
         }
+        let reply = match zstd_stream::open_one_envelope(&reply) {
+            Some(text) => text.map_err(|error| CatchUpError::Reply { message: error.to_string() })?,
+            None => reply,
+        };
         let answer =
             core::read(&reply).map_err(|error| CatchUpError::Reply { message: error.to_string() })?;
         Ok(self.take(&answer, now))
