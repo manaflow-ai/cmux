@@ -44,6 +44,7 @@ mod pane_filter;
 mod read_store;
 mod relay_hold;
 mod row_layout;
+mod row_spill;
 mod screen;
 mod share_approval;
 mod tabs;
@@ -102,6 +103,7 @@ pub use pane_filter::{
     pane_filter_default, pane_filter_encode, pane_filter_shows,
 };
 pub use read_store::{PhoneReadKey, PhoneReadStore, PhoneReadStoreError};
+pub use row_spill::{RowSpillPages, row_spill_folder_name, row_spill_purge_runs};
 pub use share_approval::{ShareApprovalDraft, ShareAsk, share_approval_draft, share_approval_signed};
 pub use tabs::{TabsEvent, TabsMirror, TabsRow, TabsViewport};
 pub use task_composer::{
