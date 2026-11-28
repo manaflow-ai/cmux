@@ -515,6 +515,39 @@ fn a_snapshot_restore_counts_from_the_clock_offset_not_a_sync() {
     assert!(role::restored_between(Some(50 * second), 50 * second + 3 * 24 * 3600 * second));
 }
 
+/// A restored never-bound machine's first bind runs the step before the first bind itself
+/// unless the step already decided the build since the last stop (development read-back,
+/// 2026-11-26: the bind went first, its connect hold refused the step, and the guest served
+/// the image's build). A restore moves the clock offset or the pause count, or leaves the
+/// watch waking, and each makes the bind step again.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_first_bind_steps_again_after_any_stop_since_the_last_step() {
+    let second = 1_000_000_000_i128;
+    let seen = |pauses, last_look_ns| crate::agent::PauseSeen {
+        pauses,
+        last_look_ns,
+        pause_from_ns: i128::from(crate::agent::PAUSE_FROM_NONE),
+    };
+    let (offset, boot) = (50 * second, 100 * second);
+    // Never stepped in this process (or the bake's snapshot never did): step.
+    assert!(!role::stepped_since_restore(None, offset, seen(0, boot), boot));
+    // Stepped, no stop since: skip.
+    assert!(role::stepped_since_restore(Some((offset, 2)), offset, seen(2, boot), boot));
+    // A restore that moved `realtime - boottime` by the stopped time: step.
+    let restored = offset + 3 * 24 * 3600 * second;
+    assert!(!role::stepped_since_restore(Some((offset, 2)), restored, seen(2, boot), boot));
+    // A provider whose boot clock runs through: the pause watch counted it.
+    assert!(!role::stepped_since_restore(Some((offset, 2)), offset, seen(3, boot), boot));
+    // The watch has not looked since well before now: still waking, not counted yet.
+    assert!(!role::stepped_since_restore(
+        Some((offset, 2)),
+        offset,
+        seen(2, boot),
+        boot + 600 * second
+    ));
+}
+
 /// Attached carrier sessions hold an update, an unreadable list too, and only
 /// for [`carrier::CARRIER_MAX_HOLD`]: then the update goes at the next idle
 /// gap of the agent turns, and the bound is reported once. No sessions ends
@@ -2004,6 +2037,34 @@ fn the_updater_looks_again_within_20_s_idle_or_busy() {
     assert!(spread.len() > 8, "the jitter spreads the looks: {spread:?}");
 }
 
+/// An idle machine (no turn, no attached carrier session) stops reading the
+/// channel for longer than the provider's 300 s idle timeout, so the VM can
+/// pause; a busy machine, or a look that read nothing, keeps the 15 s look.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_idle_machine_goes_quiet_past_the_provider_idle_timeout() {
+    use std::time::Duration;
+    let reads = [
+        role::Outcome::Current("c".to_owned()),
+        role::Outcome::Older,
+        role::Outcome::RolledBackBefore,
+        role::Outcome::Failed("reading the channel: timeout".to_owned()),
+    ];
+    for outcome in &reads {
+        for draw in [0, 3_750, u64::MAX] {
+            let idle = role::next_look_when(outcome, true, draw);
+            assert!(idle > Duration::from_secs(300), "{outcome:?} idle: {idle:?}");
+            assert_eq!(role::next_look_when(outcome, false, draw), role::next_look(outcome, draw));
+        }
+    }
+    let busy = role::Outcome::Busy(vec!["1 carrier session(s) attached".to_owned()]);
+    let off = role::Outcome::Off("off".to_owned());
+    for outcome in [&busy, &off] {
+        assert!(!role::read_channel_look(outcome));
+        assert_eq!(role::next_look_when(outcome, true, 7), role::next_look(outcome, 7));
+    }
+}
+
 #[test]
 fn parse_response_reads_status_validators_and_body() {
     let raw = b"HTTP/2 200 \r\netag: \"abc\"\r\nLast-Modified: Fri, 13 Nov 2026 15:03:58 GMT\r\n\r\n{\"x\":1}";
@@ -2438,7 +2499,10 @@ struct FirstIo {
     files: Vec<(String, Vec<u8>)>,
     reads: usize,
     armed: Vec<u64>,
+    disarmed: usize,
     restarted: Vec<std::path::PathBuf>,
+    /// How long arming the guard takes (systemd-run waits on a busy manager).
+    arm_for: std::time::Duration,
 }
 
 #[cfg(target_os = "linux")]
@@ -2449,7 +2513,9 @@ impl FirstIo {
             files,
             reads: 0,
             armed: Vec::new(),
+            disarmed: 0,
             restarted: Vec::new(),
+            arm_for: std::time::Duration::ZERO,
         }
     }
 }
@@ -2472,10 +2538,13 @@ impl first_ready::Io for FirstIo {
         fs::write(to, bytes).map_err(|e| e.to_string())
     }
     fn arm_guard(&mut self, pending: &Pending) -> Result<(), String> {
+        std::thread::sleep(self.arm_for);
         self.armed.push(pending.to);
         Ok(())
     }
-    fn disarm_guard(&mut self) {}
+    fn disarm_guard(&mut self) {
+        self.disarmed += 1;
+    }
     fn restart_others(&mut self, old: &Path) {
         self.restarted.push(old.to_owned());
     }
@@ -2525,6 +2594,203 @@ fn a_machine_made_on_an_old_image_reports_ready_already_on_the_channel_build() {
     let again = first_ready::before_ready(&paths, TARGET, deadline, &mut io);
     assert!(matches!(again, first_ready::First::NotFirst(_)));
     assert_eq!(&look::report(&paths).unwrap()["first_ready"], timing);
+}
+
+/// A new machine restored from the image's memory snapshot (its `cmux host run`
+/// goes on from the bake, a session host with it) took the restore's
+/// five-minute resume hold, so it bound, reported ready and was linked on the
+/// image's build, two days behind (development read-back, 2026-11-25: no
+/// update within 180 s of the create). Before its first bind the step flips
+/// past that hold at once, inside the gate: the service's restart is queued,
+/// and a bind that comes now leaves `bind.json` for the restarted service.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_restored_machine_before_its_first_bind_takes_the_channel_build_past_the_resume_hold() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    // The snapshot's session host runs: the cold-start step would not go.
+    let pid = paths.at(crate::config::DAEMON_PID_FILE);
+    fs::create_dir_all(pid.parent().unwrap()).unwrap();
+    fs::write(&pid, "1\n").unwrap();
+    assert!(first_ready::not_first(&paths).is_some());
+    // The restore's hold.
+    let now = role::wall_ms();
+    assert!(gate::hold_connects(&paths, now, gate::HoldKind::Resume).unwrap());
+    let (new_tui, new_hook) = (sha(b"new"), sha(b"hok"));
+    let payload: Payload = serde_json::from_value(payload_json(&new_tui, &new_hook)).unwrap();
+    let mut io = FirstIo::serving(payload, first_files(&new_tui, &new_hook));
+    let deadline = std::time::Instant::now() + first_ready::RESTORE_BOUND;
+    // The commit section the last look enters is held through the queued restart.
+    let order = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let first = first_ready::after_restore(
+        &paths,
+        TARGET,
+        deadline,
+        &mut io,
+        || Ok(Recorded("commit left", order.clone())),
+        || order.borrow_mut().push("restart"),
+    );
+    assert_eq!(first, first_ready::First::Flipped(COMMIT.to_owned()));
+    assert_eq!(
+        *order.borrow(),
+        ["restart", "commit left"],
+        "the service restarts onto the channel's build"
+    );
+    assert_eq!(store::current_generation(&paths).unwrap(), 2);
+    assert_eq!(store::linked_package(&paths, 2, "cmux-tui").unwrap(), new_tui);
+    assert!(load_pending(&paths).is_some(), "the restarted service proves it or rolls it back");
+    assert_eq!(io.armed, vec![2]);
+    assert_eq!(io.restarted, vec![role::store_binary(OLD_TUI)]);
+    // The first bind waits for the restarted service.
+    let gate = gate::Gate::new(&paths);
+    assert!(!gate.begin_bind(role::wall_ms()).unwrap(), "a bind went out on the image's build");
+    // That service takes no start hold (its own flip), so nothing waits five minutes.
+    let started = role::wall_ms();
+    assert!(gate.service_started_at(started).unwrap(), "the flip's restart was not pending");
+    assert!(role::start_hold(&paths, started, crate::linux::realtime_minus_boottime_ns()));
+    // Its observation is saved, as the cold-start step's is.
+    let timing = &look::report(&paths).unwrap()["first_ready"];
+    assert_eq!(timing["image_behind"], true);
+    assert_eq!(timing["from_version"], OLD_TUI);
+    assert_eq!(timing["to_version"], new_tui);
+    assert_eq!(timing["channel_commit"], COMMIT);
+    assert_eq!(timing["outcome"], "updated");
+    assert!(timing["update_ms"].as_u64().unwrap() > 0);
+}
+
+/// Pushes its name to the shared record when dropped: when a commit section ends.
+#[cfg(target_os = "linux")]
+struct Recorded(&'static str, std::rc::Rc<std::cell::RefCell<Vec<&'static str>>>);
+
+#[cfg(target_os = "linux")]
+impl Drop for Recorded {
+    fn drop(&mut self) {
+        self.1.borrow_mut().push(self.0);
+    }
+}
+
+/// A worker stopped during the restore's step (its download) flips and
+/// restarts nothing, as the normal flip's last look under the commit section.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_restored_machine_whose_updater_stopped_does_not_flip() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    assert!(gate::hold_connects(&paths, role::wall_ms(), gate::HoldKind::Resume).unwrap());
+    let (new_tui, new_hook) = (sha(b"new"), sha(b"hok"));
+    let payload: Payload = serde_json::from_value(payload_json(&new_tui, &new_hook)).unwrap();
+    let mut io = FirstIo::serving(payload, first_files(&new_tui, &new_hook));
+    let deadline = std::time::Instant::now() + first_ready::RESTORE_BOUND;
+    let first = first_ready::after_restore(
+        &paths,
+        TARGET,
+        deadline,
+        &mut io,
+        || Err::<(), _>("the updater stopped".to_owned()),
+        || panic!("a stopped worker restarted the service"),
+    );
+    assert_eq!(first, first_ready::First::OnImage("the updater stopped".to_owned()));
+    assert_eq!(store::current_generation(&paths).unwrap(), 1, "a stopped worker flipped");
+    assert!(load_pending(&paths).is_none());
+    assert_eq!(io.disarmed, 1, "the guard it armed is disarmed");
+    assert!(io.restarted.is_empty());
+    assert_eq!(load_state(&paths).first_ready.unwrap().outcome, "on_image");
+}
+
+/// The restore's step holds the gate's flock, which a bind waits on, no longer
+/// than [`first_ready::RESTORE_BOUND`]: no flip once only the restarts' reserve
+/// is left, whether the download or arming the guard took the time.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_restored_machine_does_not_flip_past_the_bound() {
+    use std::time::{Duration, Instant};
+    let (new_tui, new_hook) = (sha(b"new"), sha(b"hok"));
+    let payload: Payload = serde_json::from_value(payload_json(&new_tui, &new_hook)).unwrap();
+    for (arm_for, reserve_left, why) in [
+        (Duration::ZERO, Duration::ZERO, "staged past the bound"),
+        (Duration::from_millis(400), Duration::from_millis(200), "armed the guard past the bound"),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = image(dir.path());
+        let mut io = FirstIo::serving(payload.clone(), first_files(&new_tui, &new_hook));
+        io.arm_for = arm_for;
+        let deadline = Instant::now() + first_ready::RESTART_RESERVE + reserve_left;
+        let first = first_ready::after_restore(
+            &paths,
+            TARGET,
+            deadline,
+            &mut io,
+            || Ok(()),
+            || panic!("restarted past the bound"),
+        );
+        assert_eq!(first, first_ready::First::OnImage(why.to_owned()));
+        assert_eq!(store::current_generation(&paths).unwrap(), 1, "{why}: flipped");
+        assert!(load_pending(&paths).is_none(), "{why}");
+        assert_eq!(io.disarmed, usize::from(!io.armed.is_empty()), "{why}");
+    }
+}
+
+/// Every systemctl and systemd-run in the restore's step ends by its deadline
+/// (`role::commands_within`): each gets what is left, at most 60 s, never `0`
+/// (no timeout at all), and none runs past it.
+#[test]
+fn commands_in_the_restore_step_end_by_its_deadline() {
+    use std::time::{Duration, Instant};
+    let now = Instant::now();
+    assert_eq!(role::command_timeout_at(None, now).as_deref(), Some("60.000"));
+    let at = |left: Duration| role::command_timeout_at(Some(now + left), now);
+    assert_eq!(at(Duration::from_secs(90)).as_deref(), Some("60.000"));
+    assert_eq!(at(Duration::from_millis(1500)).as_deref(), Some("1.500"));
+    assert_eq!(at(Duration::from_nanos(400)).as_deref(), Some("0.001"));
+    assert_eq!(role::command_timeout_at(Some(now), now), None);
+    assert_eq!(role::command_timeout_at(Some(now), now + Duration::from_secs(1)), None);
+    // Inside `commands_within` past its deadline nothing runs; outside, 60 s.
+    assert_eq!(role::commands_within(now, role::command_timeout), None);
+    assert_eq!(role::command_timeout().as_deref(), Some("60.000"));
+}
+
+/// The step at a restore never runs on a machine a person may be linked to:
+/// one bound to Cloud, or one whose bind's connect hold is on.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_restored_machine_after_a_bind_keeps_its_holds() {
+    let (new_tui, new_hook) = (sha(b"new"), sha(b"hok"));
+    let payload: Payload = serde_json::from_value(payload_json(&new_tui, &new_hook)).unwrap();
+    let deadline = std::time::Instant::now() + first_ready::RESTORE_BOUND;
+
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    let bound = paths.at(crate::cloud::wire::BOUND_FILE);
+    fs::create_dir_all(bound.parent().unwrap()).unwrap();
+    fs::write(&bound, "{}\n").unwrap();
+    let mut io = FirstIo::serving(payload.clone(), first_files(&new_tui, &new_hook));
+    let first = first_ready::after_restore(
+        &paths,
+        TARGET,
+        deadline,
+        &mut io,
+        || Ok(()),
+        || panic!("restart"),
+    );
+    assert!(matches!(first, first_ready::First::NotFirst(_)), "{first:?}");
+    assert_eq!(io.reads, 0);
+
+    // A bind just ended (its connect hold is on, `bound.json` not yet seen).
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    assert!(gate::hold_connects(&paths, role::wall_ms(), gate::HoldKind::Connect).unwrap());
+    let mut io = FirstIo::serving(payload, first_files(&new_tui, &new_hook));
+    let first = first_ready::after_restore(
+        &paths,
+        TARGET,
+        deadline,
+        &mut io,
+        || Ok(()),
+        || panic!("restart"),
+    );
+    assert!(matches!(first, first_ready::First::OnImage(_)), "{first:?}");
+    assert_eq!(store::current_generation(&paths).unwrap(), 1, "it flipped under a bind's hold");
+    assert!(load_pending(&paths).is_none());
 }
 
 #[cfg(target_os = "linux")]
@@ -2851,4 +3117,20 @@ fn a_pinned_build_replaces_only_cmux_tui() {
     assert_eq!(decide_pinned(&paths, &State::default(), &current), Ok(Decision::Current));
     let no_commit = Pinned { commit: "x".into(), ..pinned };
     assert!(decide_pinned(&paths, &State::default(), &no_commit).is_err());
+}
+
+/// A Windows or macOS host has no published build: the updater turns off there instead of fetching a
+/// Linux binary it cannot run (RFD 0157 D2: the updater had no Windows arm at all).
+#[test]
+fn target_for_names_only_published_linux_builds() {
+    assert_eq!(channel::target_for("linux", "x86_64"), Some("x86_64-unknown-linux-musl"));
+    assert_eq!(channel::target_for("linux", "aarch64"), Some("aarch64-unknown-linux-musl"));
+    assert_eq!(channel::target_for("windows", "x86_64"), None);
+    assert_eq!(channel::target_for("windows", "aarch64"), None);
+    assert_eq!(channel::target_for("macos", "aarch64"), None);
+    assert_eq!(channel::target_for("linux", "riscv64"), None);
+    assert_eq!(
+        channel::local_target(),
+        channel::target_for(std::env::consts::OS, std::env::consts::ARCH)
+    );
 }

@@ -10,9 +10,9 @@ use super::ledger::{LIMIT, Ledger, Send, WORKSPACE_LIMIT};
 use super::pick::{self, Candidate, Destination};
 use super::trust::{level_at, trusted_at};
 use super::{
-    Ensure, Flags, Keys, Lease, StartCopy, ensure_answer, github_repo, import, made_no_machine,
-    origin_url, percent_segment, pin, plan, plan_with, refused, remote_name, setup_state,
-    too_broad, valid_environment, valid_key, valid_repo, valid_workspace,
+    Ensure, Flags, Keys, Lease, StartCopy, ensure_answer, ensured_in_environment, github_repo,
+    import, made_no_machine, origin_url, percent_segment, pin, plan, plan_with, refused,
+    remote_name, setup_state, too_broad, valid_environment, valid_key, valid_repo, valid_workspace,
 };
 
 const ME: &str = "user-leo";
@@ -51,6 +51,25 @@ fn a_lost_create_answer_keeps_its_name_team_and_pending_create_before_a_workspac
         plan(&path, &json!({"key": key, "account": ACCOUNT, "loaded": false}).to_string())["machine"],
         "created-vm"
     );
+}
+
+#[test]
+fn a_settings_retry_pins_the_signed_in_machine_from_the_current_list() {
+    let scratch = scratch();
+    let path = ledger_in(scratch.path());
+    let key = key();
+    assert_eq!(pin(&path, &key, ACCOUNT, "vm-a", None)["ok"], true);
+    let mut request = json!({
+        "key": key, "account": ACCOUNT, "machine": "vm-b", "loaded": true,
+        "machines": [{"id": "vm-a"}, {"id": "vm-b"}]
+    });
+    let retry = plan(&path, &request.to_string());
+    assert_eq!(retry["machine"], "vm-b");
+    assert!(retry["ensured"].is_null(), "an existing VM must not be deleted on failure");
+    request["machines"] = json!([{"id": "vm-a"}]);
+    let missing = plan(&path, &request.to_string());
+    assert_eq!(missing["ok"], false);
+    assert_eq!(missing["error_code"], "not_found");
 }
 
 #[test]
@@ -217,9 +236,20 @@ fn a_stranded_start_deletes_its_machine_only_when_no_other_send_took_it() {
         super::strand(&path, &first, ACCOUNT, "vm-new"),
         json!({"ok": true, "delete": false})
     );
+    assert_eq!(
+        plan(&path, &on(&second))["machine"],
+        "vm-new",
+        "the pinned retry keeps its machine"
+    );
+    assert_eq!(
+        plan(&path, &on(&key()))["machine"],
+        Value::Null,
+        "a fresh send gets its own machine"
+    );
     // The second fails for good too, after a third was pinned to it: still shared.
     let third = key();
     assert_eq!(pin(&path, &third, ACCOUNT, "vm-new", Some("ws-1"))["ok"], true);
+    assert_eq!(plan(&path, &on(&third))["machine"], "vm-new");
     assert_eq!(super::strand(&path, &second, ACCOUNT, "vm-new")["delete"], false);
 
     // Alone on its machine: the strand deletes it, and the workspace's next send never finds it.
@@ -291,7 +321,10 @@ fn a_free_machine_of_mine_is_not_reused_for_a_new_workspace() {
     ];
     let mut pins = Ledger::default();
     pins.record("vm-free", &send(&key()));
-    assert_eq!(pick::destination(&send(&key()), &mut pins, &listed, &[], true), Destination::New);
+    assert_eq!(
+        pick::destination(&send(&key()), &mut pins, &listed, &[], true, None),
+        Destination::New
+    );
     assert_eq!(pins.workspace_machine("ws-new", ACCOUNT), None);
 }
 
@@ -310,20 +343,23 @@ fn a_retry_of_the_same_send_stays_on_its_first_trys_machine() {
     let mut pins = Ledger::default();
     let key = key();
     let first = [machine("vm-a", "spare-a"), machine("vm-b", "spare-b")];
-    assert_eq!(pick::destination(&send(&key), &mut pins, &first, &[], true), Destination::New);
+    assert_eq!(
+        pick::destination(&send(&key), &mut pins, &first, &[], true, None),
+        Destination::New
+    );
     // The App made vm-a for it and pinned it.
     pins.record("vm-a", &send(&key));
     let later = [machine("vm-b", "spare-b"), machine("vm-a", "spare-a")];
     assert_eq!(
-        pick::destination(&send(&key), &mut pins, &later, &[], true),
+        pick::destination(&send(&key), &mut pins, &later, &[], true, None),
         Destination::Machine("vm-a".into())
     );
     assert_eq!(
-        pick::destination(&send(&key.to_lowercase()), &mut pins, &later, &[], false),
+        pick::destination(&send(&key.to_lowercase()), &mut pins, &later, &[], false, None),
         Destination::Machine("vm-a".into())
     );
     assert_eq!(
-        pick::destination(&send(&self::key()), &mut pins, &later, &[], true),
+        pick::destination(&send(&self::key()), &mut pins, &later, &[], true, None),
         Destination::New
     );
 }
@@ -334,12 +370,12 @@ fn a_retry_whose_machine_is_gone_picks_afresh_and_a_retry_of_a_new_machine_stays
     let key = key();
     pins.record("vm-gone", &send(&key));
     let now = [machine("vm-b", "spare-b")];
-    assert_eq!(pick::destination(&send(&key), &mut pins, &now, &[], true), Destination::New);
+    assert_eq!(pick::destination(&send(&key), &mut pins, &now, &[], true, None), Destination::New);
     assert_eq!(pins.machine(&send(&key)), None);
     // A machine made for the first try (the list is not loaded yet) is kept for its retry.
     pins.record("vm-new", &send(&key));
     assert_eq!(
-        pick::destination(&send(&key), &mut pins, &now, &[], false),
+        pick::destination(&send(&key), &mut pins, &now, &[], false, None),
         Destination::Machine("vm-new".into())
     );
 }
@@ -442,20 +478,27 @@ fn plan_pins_a_machine_that_exists_and_names_a_new_one_otherwise() {
 }
 
 #[test]
-fn a_copied_folder_keeps_move_to_clouds_name_under_the_sends_place() {
-    // The name `CloudMoveFolder.remoteName` gives: the folder's name and 24 bits of FNV-1a.
-    assert_eq!(remote_name("/Users/me/src/paint"), "paint");
-    assert_eq!(remote_name("/"), "folder");
+fn a_copied_folder_keeps_its_basename_under_the_sends_unique_place() {
+    let paint = remote_name("/Users/me/src/paint");
+    assert_eq!(paint, "paint");
+    let folder = remote_name("/");
+    assert_eq!(folder, "folder");
+    assert_eq!(remote_name("/tmp/.."), "folder");
+    assert_eq!(remote_name("/tmp/."), "folder");
+    for basename in ["a".repeat(255), "é".repeat(127)] {
+        let remote = remote_name(&format!("/tmp/{basename}"));
+        assert_eq!(remote, basename);
+    }
     let copy = copy_of("/Users/me/src/paint", "web/app");
     let place = copy.fresh_place();
     let send = format!("chats/{}/", copy.key.to_lowercase());
     assert!(place.starts_with(&send) && place.len() == send.len() + 8, "{place}");
     assert_ne!(copy.fresh_place(), place, "each copy gets a folder of its own");
     let (folder, chat) = copy.remote("/home/cmux/work", &place);
-    assert_eq!(folder, format!("/home/cmux/work/{place}/paint"));
-    assert_eq!(chat, format!("/home/cmux/work/{place}/paint/web/app"));
+    assert_eq!(folder, format!("/home/cmux/work/{place}/{paint}"));
+    assert_eq!(chat, format!("/home/cmux/work/{place}/{paint}/web/app"));
     let top = StartCopy { subpath: String::new(), ..copy };
-    assert_eq!(top.remote("/root/work/", &place).1, format!("/root/work/{place}/paint"));
+    assert_eq!(top.remote("/root/work/", &place).1, format!("/root/work/{place}/{paint}"));
 }
 
 fn copy_of(local: &str, subpath: &str) -> StartCopy {
@@ -498,7 +541,8 @@ fn a_copy_tries_the_next_work_root_only_when_the_first_is_not_the_machines_home(
     // Both roots were tried with the same folder of the send's own.
     let place = seen.borrow()[1].strip_prefix("/root/work/").unwrap().to_string();
     assert_eq!(seen.borrow()[0], format!("/home/cmux/work/{place}"));
-    let place = place.strip_suffix("/paint").unwrap();
+    let suffix = format!("/{}", remote_name(&copy.local));
+    let place = place.strip_suffix(&suffix).unwrap();
     assert_eq!(answer["chat"], json!(copy.remote("/root/work", place).1));
 
     // Another failure stops at once, with its code (the App's outdated-machine retry reads it).
@@ -536,6 +580,35 @@ fn a_retry_after_a_finished_copy_never_copies_again() {
     let elsewhere = StartCopy { machine: "vm-b".into(), ..copy }.run(&path, &push);
     assert_eq!(elsewhere["copied"], json!(true));
     assert_eq!(*count.borrow(), 2);
+}
+
+#[test]
+fn a_projected_chat_opens_at_the_selected_subpath_and_retries_at_the_same_path() {
+    for subpath in ["", "web/app"] {
+        let dir = scratch();
+        let path = ledger_in(dir.path());
+        let copy = copy_of("/Users/me/src/paint", subpath);
+        let first = copy.run(&path, &|_: &Path, _: &Path, _: &str| {
+            Ok(super::pushed_fields(&json!({
+                "mode": "projected", "projected": {"name": "chat-key"},
+                "chat": "chat-key", "folder": "wrong", "copied": false,
+            })))
+        });
+        assert_eq!(first["ok"], true, "{first}");
+        assert_eq!(first["mode"], "projected");
+        assert_eq!(first["projected"]["name"], "chat-key");
+        assert_eq!(first["copied"], true, "the first preparation is complete, not cached");
+        let folder = first["folder"].as_str().unwrap();
+        let expected =
+            if subpath.is_empty() { folder.to_string() } else { format!("{folder}/{subpath}") };
+        assert_eq!(first["chat"], expected);
+        let retry = copy.run(&path, &|_: &Path, _: &Path, _: &str| {
+            panic!("a prepared projection must not be replaced on retry")
+        });
+        assert_eq!(retry["chat"], first["chat"]);
+        assert_eq!(retry["folder"], first["folder"]);
+        assert_eq!(retry["copied"], false);
+    }
 }
 
 /// A seed that answered at the chat's head is the send's copy: the chat opens in that
@@ -804,7 +877,10 @@ fn a_send_is_kept_under_the_account_it_began_in() {
     let in_b = Send::new(&key, TEAM_B);
     let listed = [machine("vm-a", "spare-a"), machine("vm-b", "spare-b")];
     assert_eq!(pins.machine(&in_b), None);
-    assert_eq!(pick::destination(&in_b, &mut pins, &listed[1..], &[], true), Destination::New);
+    assert_eq!(
+        pick::destination(&in_b, &mut pins, &listed[1..], &[], true, None),
+        Destination::New
+    );
     pins.record("vm-b", &in_b);
     assert_eq!(pins.machine(&send(&key)).as_deref(), Some("vm-a"));
     assert_eq!(pins.machine(&in_b).as_deref(), Some("vm-b"));
@@ -814,11 +890,11 @@ fn a_send_is_kept_under_the_account_it_began_in() {
     let only_a = [machine("vm-a", "spare-a")];
     pins.bind("ws-a", ACCOUNT, "vm-a");
     assert_eq!(
-        pick::destination(&send(&self::key()), &mut pins, &only_a, &[], true),
+        pick::destination(&send(&self::key()), &mut pins, &only_a, &[], true, None),
         Destination::New
     );
     assert_eq!(
-        pick::destination(&Send::new(&self::key(), TEAM_B), &mut pins, &only_a, &[], true),
+        pick::destination(&Send::new(&self::key(), TEAM_B), &mut pins, &only_a, &[], true, None),
         Destination::New
     );
     assert_eq!(pins.workspace_machine("ws-a", TEAM_B), None);
@@ -835,10 +911,13 @@ fn a_pin_to_a_machine_made_since_the_list_was_read_is_kept() {
     let listed = [machine("vm-free", "spare")];
     let stored = ["vm-new".to_string()];
     assert_eq!(
-        pick::destination(&send(&key), &mut pins, &listed, &stored, true),
+        pick::destination(&send(&key), &mut pins, &listed, &stored, true, None),
         Destination::Machine("vm-new".into())
     );
-    assert_eq!(pick::destination(&send(&key), &mut pins, &listed, &[], true), Destination::New);
+    assert_eq!(
+        pick::destination(&send(&key), &mut pins, &listed, &[], true, None),
+        Destination::New
+    );
     assert_eq!(pins.machine(&send(&key)), None);
 }
 
@@ -1100,7 +1179,7 @@ fn the_sends_the_app_kept_before_carry_over_once() {
 fn destination_alone_gives_a_new_send_no_machine_even_in_a_workspace_that_has_one() {
     let mut pins = Ledger::default();
     let to = |pins: &mut Ledger, listed: &[Candidate], loaded: bool| {
-        pick::destination(&send(&key()), pins, listed, &[], loaded)
+        pick::destination(&send(&key()), pins, listed, &[], loaded, None)
     };
     assert_eq!(to(&mut pins, &[], true), Destination::New);
     // The App made vm-a and pinned it to the workspace (`pin --workspace`).
@@ -1189,7 +1268,10 @@ fn a_machine_bound_to_one_workspace_is_not_taken_by_another() {
     let mut pins = Ledger::default();
     assert!(pick::claim(&mut pins, "ws-a", ACCOUNT, "vm-a"));
     let listed = [machine("vm-a", "cloud-chats")];
-    assert_eq!(pick::destination(&send(&key()), &mut pins, &listed, &[], true), Destination::New);
+    assert_eq!(
+        pick::destination(&send(&key()), &mut pins, &listed, &[], true, None),
+        Destination::New
+    );
     assert!(!pick::claim(&mut pins, "ws-b", ACCOUNT, "vm-a"));
     assert_eq!(pins.workspace_machine("ws-b", ACCOUNT), None);
     // The same workspace may claim it again; another account's workspace of that id is apart.
@@ -1217,7 +1299,7 @@ fn a_retry_stays_on_its_first_trys_machine_even_after_its_workspace_moved_on() {
     pins.bind("ws-a", ACCOUNT, "vm-b");
     let listed = [machine("vm-a", "a"), machine("vm-b", "b")];
     assert_eq!(
-        pick::destination(&send(&first), &mut pins, &listed, &[], true),
+        pick::destination(&send(&first), &mut pins, &listed, &[], true, None),
         Destination::Machine("vm-a".into())
     );
 }
@@ -1613,6 +1695,17 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
         json!("vm-hot")
     );
     assert_eq!(asked.borrow().len(), 1);
+
+    // With the install token on stdin after the session's, the ensure sends the install token: the
+    // platform's machine route verifies a team claim, which the session's lacks (its 401 in production).
+    let with_install = plan_with(
+        &path,
+        &request(&self::key(), "user-leo/"),
+        &mut "session-1\ninstall-1\n".as_bytes(),
+        &made,
+    );
+    assert_eq!(with_install["machine"], json!("vm-hot"), "{with_install}");
+    assert_eq!(asked.borrow().last().map(|(_, credential)| credential.as_str()), Some("install-1"));
 
     // A team's send, and a personal one without the credential flag, keep the App's create.
     let never = |_: &Ensure, _: &str| -> Result<Value, E> { panic!("no ensure") };
@@ -2372,4 +2465,135 @@ fn a_projection_goes_first_and_only_a_folder_not_projected_is_seeded_or_copied()
     assert!(ran.get(), "a folder not projected is seeded or copied");
     let failure = answer.unwrap_err();
     assert_eq!(failure["ok"], json!(false), "{failure}");
+}
+
+#[test]
+fn claude_plans_keep_the_explicit_machine_and_environment() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let mut request = json!({
+        "key": key(), "account": ACCOUNT, "loaded": true, "environment": ENV, "claude_machine_login": true,
+        "machines": [
+            {"id": "vm_a", "claude_ready": true, "environment": "env_fedcba9876543210fedcba98"},
+            {"id": "vm_b", "claude_ready": true, "environment": ENV},
+            {"id": "vm_c", "claude_ready": true},
+            {"id": "vm_d", "environment": ENV}
+        ],
+    });
+    assert_eq!(plan(&path, &request.to_string())["machine"], "vm_b");
+    request["machine"] = json!("vm_d");
+    assert_eq!(plan(&path, &request.to_string())["machine"], "vm_d");
+    request["machine"] = json!("vm_a");
+    assert_eq!(plan(&path, &request.to_string())["error_code"], "environment_mismatch");
+    request["machine"] = Value::Null;
+    assert_eq!(plan(&path, &request.to_string())["machine"], "vm_d");
+    request["environment"] = json!("env_fedcba9876543210fedcba98");
+    assert_eq!(plan(&path, &request.to_string())["error_code"], "environment_mismatch");
+    request["key"] = json!(key());
+    request["machines"] = json!([{"id": "vm_c", "claude_ready": true}]);
+    assert_eq!(plan(&path, &request.to_string())["machine"], Value::Null);
+}
+
+#[test]
+fn an_explicit_machine_requires_environment_proof_before_it_can_be_pinned() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let mut request = json!({
+        "key": key(), "account": ACCOUNT, "loaded": true, "environment": ENV,
+        "machine": "vm_a", "machines": [{"id": "vm_a"}]
+    });
+    assert_eq!(plan(&path, &request.to_string())["error_code"], "environment_mismatch");
+    request["machines"] = json!([{"id": "vm_a", "environment": ENV}]);
+    assert_eq!(plan(&path, &request.to_string())["machine"], "vm_a");
+    request["machine"] = Value::Null;
+    assert_eq!(plan(&path, &request.to_string())["machine"], "vm_a");
+    request["machines"] = json!([]);
+    request["stored"] = json!(["vm_a"]);
+    assert_eq!(plan(&path, &request.to_string())["machine"], "vm_a");
+    request["machines"] = json!([{"id": "vm_a", "environment": "env_fedcba9876543210fedcba98"}]);
+    assert_eq!(plan(&path, &request.to_string())["error_code"], "environment_mismatch");
+}
+
+#[test]
+fn a_ready_machine_releases_the_unused_compose_reservation() {
+    use super::reservations::{Action, Call};
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let compose = key();
+    let team = "team_0123456789abcdef0123";
+    let request = json!({
+        "key": key(), "account": ACCOUNT, "loaded": true, "claude_machine_login": true,
+        "size": "md", "machines": [{"id": "vm_ready", "claude_ready": true, "disk_mb": 131072}],
+        "reservation_key": compose, "credential_on_stdin": true
+    })
+    .to_string();
+    let calls = std::cell::Cell::new(0);
+    let credential = format!("test-session\n{}\n", super::spare_warm::install_token(team));
+    let release = |call: &Call, token: &str| {
+        calls.set(calls.get() + 1);
+        assert_eq!(call.action, Action::Release);
+        assert_eq!(call.compose_key, compose.to_lowercase());
+        assert!(call.send_key.is_none());
+        assert_eq!(call.team.as_deref(), Some(team));
+        assert_eq!(token, "test-session");
+        Ok(Value::Null)
+    };
+    for _ in 0..2 {
+        let result = super::plan_with_calls(
+            &path,
+            &request,
+            &mut credential.as_bytes(),
+            &|_, _| panic!("ready machine needs no ensure"),
+            &release,
+        );
+        assert_eq!(result["machine"], "vm_ready");
+        assert_eq!(calls.get(), 1);
+    }
+}
+
+#[test]
+fn a_cloud_route_keeps_the_default_plan_even_if_a_machine_has_a_claude_login() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let mut request = json!({
+        "key": key(), "account": ACCOUNT, "loaded": true, "claude_machine_login": false,
+        "machines": [{"id": "vm_signed_in", "title": "cloud-chats", "claude_ready": true}],
+    });
+    let gateway = plan(&path, &request.to_string());
+    assert_eq!(gateway["ok"], true, "{gateway}");
+    assert_eq!(gateway["machine"], Value::Null, "{gateway}");
+    assert_eq!(gateway["new_name"], "cloud-chats-2", "{gateway}");
+
+    request["key"] = json!(key());
+    request["claude_machine_login"] = json!(true);
+    let own = plan(&path, &request.to_string());
+    assert_eq!(own["machine"], "vm_signed_in", "{own}");
+}
+
+#[test]
+fn an_existing_binding_needs_environment_proof_before_it_can_receive_a_send() {
+    let derived = "denv_0123456789abcdef01234567";
+    let mut line = json!({"environment_id": derived, "created": false});
+    assert!(!ensured_in_environment(&line, ENV));
+    assert!(ensured_in_environment(&line, derived));
+    line["created"] = json!(true);
+    assert!(ensured_in_environment(&line, ENV));
+    line["environment_id"] = Value::Null;
+    assert!(!ensured_in_environment(&line, ENV));
+}
+
+#[test]
+fn an_automatic_claude_send_tries_ready_machines_that_can_hold_the_folder() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let mut request = json!({
+        "key": key(), "account": ACCOUNT, "loaded": true, "size": "md", "environment": ENV, "claude_machine_login": true,
+        "machines": [
+            {"id": "vm_a", "claude_ready": true, "environment": ENV, "disk_mb": 4096},
+            {"id": "vm_b", "claude_ready": true, "environment": ENV, "disk_mb": 131072}
+        ]
+    });
+    assert_eq!(plan(&path, &request.to_string())["machine"], "vm_b");
+    request["machine"] = json!("vm_a");
+    assert_eq!(plan(&path, &request.to_string())["fallback_code"], "machine.too_small");
 }

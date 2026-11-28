@@ -201,7 +201,7 @@ fn claim_refresh(cache: &Path) -> Option<RelayLease> {
     let mark = cache.with_file_name(REFRESH_MARK);
     let lock_path = cache.with_file_name(REFRESH_LOCK);
     let now = crate::store::now_ms();
-    let Ok(mut file) = std::fs::OpenOptions::new()
+    let Ok(mut file) = crate::home_fs::OpenOptions::new()
         .create(true)
         .truncate(false)
         .read(true)
@@ -504,7 +504,7 @@ pub(crate) fn read_cache(path: &Path, now: u64) -> Option<(u64, Vec<Value>)> {
 /// Whether a detached refresh started within the relay's own deadline is still marked.
 fn refreshing(cache: &Path, now: u64) -> bool {
     let lock_path = cache.with_file_name(REFRESH_LOCK);
-    if let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(lock_path) {
+    if let Ok(file) = crate::home_fs::OpenOptions::new().read(true).write(true).open(lock_path) {
         return match file.try_lock() {
             Ok(()) => {
                 let _ = file.unlock();
@@ -529,7 +529,6 @@ fn refresh_detached(cache: &Path) {
         return;
     }
     // Not marked: start none, or two could race.
-    #[cfg_attr(test, allow(unused_variables))]
     let Some(lease) = claim_refresh(cache) else { return };
     #[cfg(not(test))]
     {
@@ -545,8 +544,12 @@ fn refresh_detached(cache: &Path) {
                 "refreshes the relay cache after this ls exits; its relay child is killed at send_relay::LS_DEADLINE",
             );
         }
+        drop(lease);
     }
-    drop(lease);
+    // This process is the test binary, so no child runs: the lease stands for the child's,
+    // held (with its mark) for as long as that read would run, here the rest of the test.
+    #[cfg(test)]
+    std::mem::forget(lease);
 }
 
 /// `ls --refresh-relay-cache`: one relay listing, by [`send_relay::LS_DEADLINE`], kept as the

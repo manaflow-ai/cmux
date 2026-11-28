@@ -43,6 +43,11 @@
           "scripts/ci/pr_owned_findings.py",
           "scripts/ci/fast_gate_webviews_checks.py",
           "scripts/ci/entry_logs.py",
+          "scripts/ci/egress_new_sites.py",
+          "tests/test_egress_gate.py",
+          "tests/test_outbound_hosts.py",
+          "tests/test_classic_cloud_routes.py",
+          "tests/guard_delta.py",
           "backend/apps/api/"
         ],
         "push_cover": [

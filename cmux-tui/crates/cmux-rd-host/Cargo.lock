@@ -595,6 +595,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-braid-class"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-braid-path"
 version = "0.1.0"
 dependencies = [
@@ -663,6 +667,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-file-lock",
  "cmux-process",
+ "cmux-rd-proto",
  "hpke",
  "libc",
  "p256",
@@ -738,8 +743,11 @@ dependencies = [
  "hmac",
  "libc",
  "md-5",
+ "rustls",
+ "rustls-native-certs",
  "sha1",
  "snow",
+ "socket2",
  "windows-sys 0.61.2",
 ]
 
@@ -767,6 +775,7 @@ dependencies = [
  "base64",
  "boringtun",
  "bytes",
+ "cmux-braid-class",
  "cmux-braid-path",
  "cmux-transport",
  "getrandom 0.3.4",

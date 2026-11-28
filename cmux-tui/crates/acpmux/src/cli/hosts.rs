@@ -528,7 +528,7 @@ fn push_update(
 /// Prints the new binary's version. Once it is in place nothing fails the
 /// install: a staging folder that will not go is left for the next push
 /// to clear.
-const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x .acpmux-new/acpmux && { v=$(.acpmux-new/acpmux --version) || { rm -rf .acpmux-new; echo 'the pushed acpmux does not run on this host' >&2; exit 1; }; } && { ! acpmux_window_refuses || { rm -rf .acpmux-new; exit 1; }; } && { ! acpmux_downgrade acpmux .acpmux-new/acpmux || { rm -rf .acpmux-new; exit 1; }; } && { if [ ! -e acpmux ]; then rm -f acpmux.prev; elif [ -f acpmux.prev ] && ! { [ -n \"$c\" ] && grep -qaF \"($c\" acpmux; }; then :; else ln -f acpmux acpmux.prev 2>/dev/null || { cp -p acpmux .acpmux.prev.new && mv -f .acpmux.prev.new acpmux.prev; } || { rm -f .acpmux.prev.new; false; }; fi; } && mv -f .acpmux-new/acpmux acpmux && { rmdir .acpmux-new 2>/dev/null; printf '%s\\n' \"$v\"; }";
+const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x .acpmux-new/acpmux && { v=$(.acpmux-new/acpmux --version) || { rm -rf .acpmux-new; echo 'the pushed acpmux does not run on this host' >&2; exit 1; }; } && { ! acpmux_window_refuses || { rm -rf .acpmux-new; exit 1; }; } && { ! acpmux_downgrade acpmux .acpmux-new/acpmux || { rm -rf .acpmux-new; exit 1; }; } && if [ -x acpmux ] && cmp -s acpmux .acpmux-new/acpmux; then rm -rf .acpmux-new; printf '%s\n' \"$v\"; else { if [ ! -e acpmux ]; then rm -f acpmux.prev; elif [ -f acpmux.prev ] && ! { [ -n \"$c\" ] && grep -qaF \"($c\" acpmux; }; then :; else ln -f acpmux acpmux.prev 2>/dev/null || { cp -p acpmux .acpmux.prev.new && mv -f .acpmux.prev.new acpmux.prev; } || { rm -f .acpmux.prev.new; false; }; fi; } && mv -f .acpmux-new/acpmux acpmux && { rmdir .acpmux-new 2>/dev/null; printf '%s\n' \"$v\"; }; fi";
 
 /// Put `acpmux.prev` back as `~/.local/bin/acpmux`; fails without one.
 const RESTORE_PREV: &str = "(cd ~/.local/bin && [ -f acpmux.prev ] && rm -f acpmux && { ln acpmux.prev acpmux 2>/dev/null || cp -p acpmux.prev acpmux; })";
@@ -649,12 +649,21 @@ if ! acpmux_why=$(plutil -lint "$acpmux_plist" 2>&1); then acpmux_refuse launchd
 acpmux_old=$(launchctl print "$acpmux_job" 2>/dev/null | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p' | head -n 1)
 acpmux_p=$(~/.local/bin/acpmux --json daemon status 2>/dev/null | sed -n 's/^ *"pid": *\([0-9][0-9]*\).*/\1/p' | head -n 1)
 if [ -n "$acpmux_p" ] && [ "$acpmux_p" != "$acpmux_old" ]; then {SHUTDOWN_KEEPING_AGENTS}
-if ~/.local/bin/acpmux --json daemon status 2>/dev/null | grep -q '"pid": *[0-9]'; then acpmux_refuse daemonStillRuns "the daemon (pid $acpmux_p) runs outside launchd's com.acpmux.daemon and did not shut down"; fi; fi
+acpmux_q=$(~/.local/bin/acpmux --json daemon status 2>/dev/null | sed -n 's/^ *"pid": *\([0-9][0-9]*\).*/\1/p' | head -n 1)
+if [ "$acpmux_q" = "$acpmux_p" ]; then acpmux_refuse daemonStillRuns "the daemon (pid $acpmux_p) runs outside launchd's com.acpmux.daemon and did not shut down"; fi; fi
 launchctl bootout "$acpmux_job" 2>/dev/null || true
 if [ -n "$acpmux_old" ]; then acpmux_i=0; while ps -p "$acpmux_old" >/dev/null 2>&1 && [ "$acpmux_i" -lt 150 ]; do sleep 0.2; acpmux_i=$((acpmux_i+1)); done; fi
 launchctl bootstrap gui/$acpmux_uid "$acpmux_plist" || {{ echo {IN_PLACE}bootstrapFailed; {detached}; }}
 else echo {IN_PLACE}noGuiLogin; {detached}; fi"#
     )
+}
+
+/// [`launchd_reload`] that asks, stops and (in place) starts the daemon through `bin`, the acpmux
+/// the job runs (`daemon service install`: on a Mac that has only the cmux app there is no
+/// `~/.local/bin/acpmux`, and the app's bundled one runs the job).
+pub(crate) fn launchd_reload_with(json: bool, bin: &Path) -> String {
+    launchd_reload(json)
+        .replace(DAEMON_BIN, &crate::run_elsewhere::shell_quote(&bin.display().to_string()))
 }
 
 /// What [`launchd_reload`] prints when it started the daemon in place, then
@@ -1255,12 +1264,37 @@ pub(crate) fn install_daemon(
         return Ok((linux_status(r, out, json)?, auto_update_off));
     }
     let home = run(r, "echo $HOME")?;
-    let plist = PLIST.replace("__HOME__", &home);
+    // A LaunchAgent a cmux app runs stays the app's (`daemon_service::launchd_program`): a
+    // rewrite back to ~/.local/bin would only have the app take it over again.
+    use crate::cli::daemon_service;
+    let existing = run(r, "cat ~/Library/LaunchAgents/com.acpmux.daemon.plist 2>/dev/null; true")?;
+    let held = daemon_service::plist_program(&existing).filter(|program| {
+        daemon_service::app_bin_dir(program).is_some()
+            && run(
+                r,
+                &format!(
+                    "[ -x {} ] && echo yes || true",
+                    crate::run_elsewhere::shell_quote(&program.display().to_string())
+                ),
+            )
+            .is_ok_and(|out| out == "yes")
+    });
+    let home_path = Path::new(&home);
+    let program = daemon_service::launchd_program(
+        home_path,
+        Path::new(DAEMON_BIN),
+        held.is_some().then_some(existing.as_str()),
+        &|_| true,
+    );
+    let (plist, reload) = if held.is_some() {
+        (daemon_service::plist_for(home_path, &program), launchd_reload_with(json, &program))
+    } else {
+        (PLIST.replace("__HOME__", &home), launchd_reload(json))
+    };
     run(
         r,
         &format!(
-            "mkdir -p ~/Library/LaunchAgents && cat > ~/Library/LaunchAgents/com.acpmux.daemon.plist <<'ACPMUX_PLIST'\n{plist}\nACPMUX_PLIST\n{}",
-            launchd_reload(json)
+            "mkdir -p ~/Library/LaunchAgents && cat > ~/Library/LaunchAgents/com.acpmux.daemon.plist <<'ACPMUX_PLIST'\n{plist}\nACPMUX_PLIST\n{reload}"
         ),
     )?;
     std::thread::sleep(LAUNCHD_START_GRACE);

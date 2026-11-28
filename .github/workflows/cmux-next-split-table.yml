@@ -1,0 +1,181 @@
+name: cmux-next split table
+
+# Instant-splits goal (Leo's persona: one probe, one table, run on every PR): a pull request into feat-cmux-next that
+# touches split, pane, panel or divider code gets one split-scale run (scripts/cmux-next/split-scale-bench.py --quick:
+# 1 and 4 splits, empty and browser panes, one round) on the bench Mac, and the table of every transition, worst row
+# first, input to first frame in ms and blank frames, on the run's summary and in one pull request comment (updated
+# in place). A row over 16 ms, with a blank frame or unmeasured is marked. REPORT-ONLY: no job here fails on a row
+# and no required check reads it (no new blocking gate without data; the pull request that added it proposes one).
+# Same-repo, non-draft pull requests only (a fork's head cannot run on an owned Mac). A fleet step is queued
+# as a measurement on the bench Mac alone; no bench Mac in time leaves a note, not a red.
+# Leo: "we can't be letting important rfds like that take breaks unless I put in fleet wide pauses, esp when this is
+# stuff that materially improves the app".
+
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - .github/workflows/cmux-next-split-table.yml
+      - scripts/measure/split-spring.sh
+      - scripts/cmux-next/split-scale-bench.py
+      - scripts/cmux-next/split_scale_metrics.py
+      - scripts/cmux-next/frame_timing.py
+      - scripts/cmux-next/split-spring-terminal.py
+      - Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Diagnostics/TransitionFrameLog.swift
+      - "Packages/macOS/CmuxNext/Sources/**/*Split*.swift"
+      - "Packages/macOS/CmuxNext/Sources/**/*Divider*.swift"
+      - "Packages/macOS/CmuxNext/Sources/**/*Pane*.swift"
+      - "Packages/macOS/CmuxNext/Sources/**/*Panel*.swift"
+      - "Packages/macOS/CmuxNext/Sources/**/*Layout*.swift"
+
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "sha (40 hex) to measure"
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-split-table-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  # The id ends in -fleet: the gateway runner's hook admits thin cmux-ci client jobs by that suffix.
+  measure-fleet:
+    if: >-
+      ${{ github.repository == 'manaflow-ai/cmux' && vars.CI_EVAL_STEP_GATEWAY != ''
+      && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository
+      && !github.event.pull_request.draft)) }}
+    runs-on: mac-gateway # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    timeout-minutes: 120
+    permissions: {}
+    steps:
+      # No checkout: the gateway runner takes only thin cmux-ci clients. The bench Mac checks the sha out itself.
+      - name: split-scale (quick) on the bench Mac
+        env:
+          SHA: ${{ inputs.ref || github.event.pull_request.head.sha }}
+          # The measure script's own build config (split-spring.sh --config=...): a bench build for the fleet step, never a shipped one.
+          MEASURE_CONFIG: bench
+          # The longest this job holds its Mac mini gateway runner while the step waits in the exclusive queue. It was
+          # 3600 s: of the 19 "successful" runs in 16:43-21:15Z on 2026-11-27, 13 held a gateway runner 60-64 min
+          # waiting it out and returned no report (run 46063032927: step 5fef8fd13e39246893d2ef5a never left the
+          # queue; that class's p90 queue wait was 1124 min). 1200 s matches cmux-next-tab-switch.yml and
+          # nightly-pr-build.yml; past it the step is cancelled, so it gives its place back.
+          QUEUE_WAIT_S: "1200"
+        run: |
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::warning title=Split table::$client is not installed on runner $RUNNER_NAME; nothing was measured."
+            exit 0
+          fi
+          if ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::warning title=Split table::'$SHA' is not a 40-hex commit sha"
+            exit 0
+          fi
+          out="$RUNNER_TEMP/split-table"
+          mkdir -p "$out"
+          log="$out/run.log"
+          status=0
+          "$client" run --class exclusive --measurement --label bench --display \
+            --script scripts/measure/split-spring.sh --ref "$SHA" --timeout 5400 --queue-timeout "$QUEUE_WAIT_S" \
+            --key "split-table-$SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --artifact artifacts/split-spring/report.json \
+            --arg=--suite=split-scale --arg=--config=$MEASURE_CONFIG --arg=--quick --arg=--vdisplay=120 \
+            2>&1 | tee "$log" || status=${PIPESTATUS[0]}
+          [[ "$status" == 0 ]] || echo "::warning title=Split table::the fleet step did not finish (exit $status; report-only: nothing fails)"
+          step="$(grep -o -E '\b[0-9a-f]{24}\b' "$log" | head -1)"
+          if [[ "$status" == 75 && -n "$step" ]]; then
+            # Not started within QUEUE_WAIT_S: a queued step keeps its place after the client stops waiting and later
+            # runs on the bench Mac for nobody, ahead of every later measurement (cmux-next-tab-switch.yml does the same).
+            "$client" cancel "$step" --reason "split table: not started within ${QUEUE_WAIT_S}s" || true
+          fi
+          if [[ -n "$step" ]]; then
+            "$client" artifact "$step" "$out/report.json" || "$client" artifact --failed "$step" "$out/report.json" || true
+          fi
+          echo "fleet step ${step:-none}; report $([[ -s "$out/report.json" ]] && echo returned || echo none)"
+          exit 0
+      # A newer push cancels this run (concurrency above), but the fleet step it queued keeps its place and later runs
+      # on the bench Mac for nobody. Cancel it too: the client prints the step id as soon as it is queued.
+      - name: Cancel the superseded fleet step
+        if: ${{ cancelled() }}
+        timeout-minutes: 2
+        run: |
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          log="$RUNNER_TEMP/split-table/run.log"
+          step="$( [[ -r "$log" ]] && grep -o -E '\b[0-9a-f]{24}\b' "$log" | head -1 || true)"
+          if [[ -x "$client" && -n "$step" ]]; then
+            "$client" cancel "$step" --reason "split table: superseded (run $GITHUB_RUN_ID cancelled)" || true
+          fi
+      - name: Upload the report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: split-table-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/split-table/
+          if-no-files-found: warn
+
+  report:
+    needs: measure-fleet
+    if: ${{ !cancelled() && needs.measure-fleet.result != 'skipped' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write # the one comment
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: scripts/cmux-next
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        continue-on-error: true
+        with:
+          name: split-table-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/split-table
+      - name: The table, worst row first
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ inputs.ref || github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # Report-only: a failed comment read or write warns, never fails the job (a bare `id="$(gh ...)"` under bash -e and pipefail exited 1 silently on #61185).
+          set -uo pipefail
+          report="$RUNNER_TEMP/split-table/report.json"
+          body="$RUNNER_TEMP/split-table/comment.md"
+          mkdir -p "$RUNNER_TEMP/split-table" # no artifact (measure refused or failed) leaves no directory
+          python3 - "$report" "$body" <<'PY'
+          import json, os, sys
+          sys.path.insert(0, "scripts/cmux-next")
+          import split_scale_metrics as ssm
+          report, out = sys.argv[1:3]
+          sha, run = os.environ["SHA"], os.environ["RUN_URL"]
+          try:
+              rows = json.load(open(report)).get("row_table")
+          except (OSError, ValueError):
+              rows = None
+          head = "<!-- cmux-next-split-table -->\n## Split table (report-only)\n\n"
+          foot = f"\n\nSplit-scale quick (1 and 4 splits, empty and browser) at `{sha[:12]}`; [run]({run}). Report-only: no check reads it."
+          text = ssm.row_table_markdown(rows) if rows else "No table: the bench Mac returned no report (none free in time, or the run failed; see the run)."
+          open(out, "w").write(head + text + foot)
+          PY
+          cat "$body" >> "$GITHUB_STEP_SUMMARY"
+          if [[ -n "$PR" ]]; then
+            id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments?per_page=100" \
+              --jq '[.[] | select(.user.type == "Bot" and (.body | startswith("<!-- cmux-next-split-table -->")))] | last | .id // empty' 2>"$RUNNER_TEMP/split-table/lookup.err" | tail -n 1)" \
+              || { echo "::warning title=Split table::could not list the PR comments ($(head -c 300 "$RUNNER_TEMP/split-table/lookup.err")); posting a new one"; id=""; }
+            if [[ -n "$id" ]]; then
+              gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@"$body" >/dev/null || echo "::warning title=Split table::could not update the comment"
+            else
+              gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@"$body" >/dev/null || echo "::warning title=Split table::could not post the comment"
+            fi
+          fi

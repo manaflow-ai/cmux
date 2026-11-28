@@ -1,0 +1,75 @@
+name: Fleet client from the controller
+description: >-
+  Fetches the build fleet's client (ci-client.py) from the controller, checks each file's sha256 against the
+  controller's manifest, and exports CMUX_CI_CLIENT (a `cmux-ci` wrapper) and CMUX_CI_CONTROLLER for later steps.
+  A gateway job only runs this client and waits; the suites build and run on a fleet Mac, so the job itself runs on
+  Linux (Leo, 2026-11-26: "How about freeing up the Mac's from doing things that don't need Mac's asap?").
+  An unset or unreachable controller fails the step: a gateway Mac always had ~/.local/bin/cmux-ci, so a missing
+  client here is a setup defect, and a green job with no verdict would hide every later compile.
+inputs:
+  controller:
+    description: The controller's URL (vars.CMUX_FLEET_CONTROLLER).
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Fetch the fleet client
+      shell: bash
+      env:
+        CONTROLLER: ${{ inputs.controller }}
+      run: |
+        set -uo pipefail
+        if [[ -z "$CONTROLLER" ]]; then
+          echo "::error title=fleet client::no CMUX_FLEET_CONTROLLER variable, so no client to drive the fleet"
+          exit 1
+        fi
+        client_dir="$RUNNER_TEMP/fleet-client"
+        mkdir -p "$client_dir"
+        ok=0
+        for try in 1 2 3; do
+          if curl -fsS -m 30 "$CONTROLLER/v1/client/manifest" -o "$client_dir/manifest.json" &&
+            python3 -I - "$client_dir" "$CONTROLLER" <<'PY'
+        import hashlib, json, sys, urllib.request
+        from pathlib import Path
+        root, controller = Path(sys.argv[1]), sys.argv[2]
+        for name, digest in json.loads((root / "manifest.json").read_text())["files"].items():
+            if "/" in name or name.startswith("."):
+                raise SystemExit(f"bad client file name {name!r}")
+            data = urllib.request.urlopen(f"{controller}/v1/client/files/{name}", timeout=30).read()
+            if hashlib.sha256(data).hexdigest() != digest:
+                raise SystemExit(f"{name}: sha256 mismatch")
+            (root / name).write_bytes(data)
+        PY
+          then ok=1; break; fi
+          sleep $((try * 5))
+        done
+        if [[ "$ok" != 1 || ! -f "$client_dir/ci-client.py" ]]; then
+          echo "::error title=fleet client::the controller's client could not be fetched after 3 tries"
+          exit 1
+        fi
+        printf '#!/bin/sh\nexec python3 -I %q "$@"\n' "$client_dir/ci-client.py" > "$client_dir/cmux-ci"
+        chmod +x "$client_dir/cmux-ci"
+        env_name="CMUX_CI_"CLIENT
+        printf '%s=%s\n' "$env_name" "$client_dir/cmux-ci" >> "$GITHUB_ENV"
+        export "$env_name=$client_dir/cmux-ci"
+        client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+        if ! [[ -x "$client" ]]; then
+          echo "::error title=fleet client::installed client is not executable: $client"
+          exit 1
+        fi
+        # Why a client did not start goes to the log (run 46078464708 on a gateway Mac failed here after 106 s
+        # with nothing to read). URLs are cut from it: the controller's address is not for a public log.
+        if ! "$client" --help >"$client_dir/help.out" 2>&1; then
+          echo "fetched client did not start (python3: $(command -v python3), $(python3 -V 2>&1)); its last lines:"
+          tail -n 20 "$client_dir/help.out" | sed -E 's#[a-z]+://[^[:space:]"]+#<url>#g; s#[0-9]+(\.[0-9]+){3}(:[0-9]+)?#<addr>#g; s#[A-Za-z0-9.-]+\.ts\.net(:[0-9]+)?#<addr>#g'
+          # A gateway Mac carries its own installed client; use it when the fetched one cannot start there.
+          installed="$HOME/.local/bin/cmux-ci"
+          if [[ -x "$installed" ]] && "$installed" --help >/dev/null 2>&1; then
+            echo "fleet client: the fetched client could not start; using this runner's installed client ($installed)"
+            printf '%s=%s\n' "$env_name" "$installed" >> "$GITHUB_ENV"
+          else
+            echo "::error title=fleet client::installed client could not start: $client"
+            exit 1
+          fi
+        fi
+        printf '%s=%s\n' "CMUX_CI_"CONTROLLER "$CONTROLLER" >> "$GITHUB_ENV"

@@ -369,14 +369,18 @@ impl Hub {
     pub(super) async fn ensure_checked_child(
         self: &Arc<Self>,
         session: &Arc<Session>,
-        spawn: &super::spawn::Spawn,
+        launch: (
+            &crate::config::HarnessProfile,
+            String,
+            &std::collections::BTreeMap<String, String>,
+        ),
         checked: Option<&CheckedFolder>,
         stops: u64,
     ) -> Result<Arc<ChildAgent>, RpcError> {
-        let Some(checked) = checked else { return self.ensure_child(session, spawn, stops).await };
+        let Some(checked) = checked else { return self.ensure_child(session, launch, stops).await };
         let cwd = session.meta().cwd;
         checked.still_at(&cwd)?;
-        let pinned = self.ensure_child(session, spawn, stops);
+        let pinned = self.ensure_child(session, launch, stops);
         let started = Box::pin(crate::cwd_pin::CwdPin::scope(checked.pin, pinned)).await;
         // A spawn its harness's own check failed (the folder moved since) says why.
         started.map_err(|e| checked.still_at(&cwd).err().unwrap_or(e))
@@ -699,7 +703,12 @@ impl Hub {
     ) -> Result<bool, RpcError> {
         self.subsession_harness_check(pm, harness, model, folder).await?;
         self.subsession_folder_check(pm, folder, Walk::BeforeCard).await?;
-        let decided = self.ensure_folder_trusted(parent, folder, harness, short).await?;
+        // None: the parent's full access lent its trust (no card, no decision). The walk before
+        // the card already refused a folder marked untrusted; the one after it is for an answer.
+        let Some(decided) = self.ensure_folder_trusted(parent, folder, harness, short).await?
+        else {
+            return Ok(false);
+        };
         let rules = !Self::web_turn(parent);
         // The parent as it is after the card: one that left full access meanwhile walks as it is now.
         self.subsession_folder_check(&parent.meta(), folder, Walk::Answered { rules }).await?;

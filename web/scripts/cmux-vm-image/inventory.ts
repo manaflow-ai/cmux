@@ -10,11 +10,11 @@
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { collectInventory } from "./bake";
-import { argValue, deleteVm, freestyleClient, Ledger, StepLog, type Vm } from "./guest";
+import { argValue, deleteVm, freestyleClient, Ledger, StepLog, type Vm, wakeVm } from "./guest";
 import { DEFAULT_LOCK_PATH, readInputsLock } from "./lock";
 
 /** Tries of the whole collect: a connection the provider cut (run 42410303540: ECONNRESET on the file manifest's
- * exec after 49 s) is retried, a step that ran and failed (StepLog's "step X failed") is not. */
+ * exec after 49 s) or a call that timed out is retried, a step that ran and failed (StepLog's "step X failed") is not. */
 export const INVENTORY_TRIES = 3;
 
 export function retriesInventory(error: unknown, attempt: number): boolean {
@@ -24,6 +24,9 @@ export function retriesInventory(error: unknown, attempt: number): boolean {
   // freestyle's FreestyleApiError carries the HTTP status apart from its prose message (cleanup.ts notFound).
   const status = (error as { status?: unknown } | null)?.status;
   if (status === 502 || status === 503 || status === 504) return true;
+  // A call the client gave up on (TimeoutError, no status: rolls 45829777164 and 45883186922) never reached a guest
+  // verdict; the steps are detached (StepLog.detachedStep), so only a short start, poll or download can time out.
+  if ((error as { name?: unknown } | null)?.name === "TimeoutError" || /\bTimeoutError\b/.test(text)) return true;
   return /ECONNRESET|socket connection was closed|socket hang up|ETIMEDOUT|EPIPE|ECONNREFUSED|fetch failed|UND_ERR|\b50[234]\b/i.test(text);
 }
 
@@ -45,10 +48,14 @@ export async function main(argv = process.argv): Promise<number> {
   const vm = freestyleClient().vms.ref(vmId) as unknown as Vm;
   const inventory: Record<string, unknown> = {};
   const t0 = Date.now();
+  // The builder was idle on the network since its snapshot (createVm's idle pause); roll 46078031124 lost it mid-scan
+  // and every retry's first exec timed out. Each try and each run of failed polls reads its state and starts it.
+  const wake = () => wakeVm(vm, (line) => L.log(line), `${record.name} (inventory)`);
   try {
     for (let attempt = 1; ; attempt++) {
       try {
-        await collectInventory(vm, L, { devTree: false, outDir }, lock, inventory, record.name, attempt === 1 ? undefined : `/tmp/cmux-out-${attempt}`);
+        await wake().catch((error: unknown) => L.log(`WARN inventory wake before try ${attempt}: ${String(error)}`));
+        await collectInventory(vm, L, { devTree: false, outDir }, lock, inventory, record.name, attempt === 1 ? undefined : `/tmp/cmux-out-${attempt}`, wake);
         delete inventory.error;
         break;
       } catch (error) {
