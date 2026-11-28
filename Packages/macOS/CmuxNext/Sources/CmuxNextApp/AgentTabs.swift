@@ -381,9 +381,11 @@ final class AgentTabStore {
     /// The header's Terminal or Browser on chat tab `chat`'s right (``AgentChatTabActions/openTool``).
     var openTool: (@MainActor (_ chat: String, _ kind: RightColumnPlacement.Kind, _ cwd: String?) -> Bool)?
     var openToolScoped: (@MainActor (_ chat: AgentTabKey, _ kind: RightColumnPlacement.Kind, _ cwd: String?) -> Bool)?
+    /// Split Down on a Cloud chat a Mac tab shows in place: a terminal on its machine (cmux#55413); false for any other chat.
+    var openCloudTerminalScoped: (@MainActor (_ chat: AgentTabKey, _ cwd: String?) -> Bool)?
     var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?
     var gitLinkScoped: (@MainActor (AgentTabKey) -> AgentPaneGitLink?)?
-    var openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?
+    var openFiles: (@MainActor (_ chat: AgentTabKey, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?
     /// Where a started chat's tab can move (the composer's and the title menu's Move to…). The page
     /// receives only the current live list; it never invents or persists machine ids.
     /// The chat's place for the header (`place`), as JSON bytes (``CloudPlaceFlows/placeJSON(session:onCloud:cloudName:)``); set by the app.
