@@ -81,6 +81,13 @@ public final class ScreenPresentProbe: NSObject, RTCVideoRenderer, @unchecked Se
     private var displayLinkStarted = false
     private var ticks = 0
     private var tickInterval: (min: CFTimeInterval, max: CFTimeInterval)?
+    /// Metal in the simulator: draws the hook forwarded, those that rendered a new frame, and those
+    /// on an empty view (none means the renderer never asked its delegate to draw).
+    private var hookDraws = 0
+    private var hookDrawsAdvanced = 0
+    private var hookDrawsEmptyBounds = 0
+    /// Metal hooks `watch(_:)` installed (0 with no `hook_problem`: the view was already hooked).
+    private var hooksInstalled = 0
     /// Every Metal hook installed (an `MTKView` holds its delegate weakly); dead views' are dropped.
     private var metalHooks: [PresentHook] = []
     /// Why presents are not observed (no renderer the probe knows), or nil.
@@ -110,7 +117,11 @@ public final class ScreenPresentProbe: NSObject, RTCVideoRenderer, @unchecked Se
                 clock["presents"] = presents
                 clock["presented_time"] = presentedTimes
                 clock["handler_time"] = handlerTimes
+                clock["hooks_installed"] = hooksInstalled
                 #if targetEnvironment(simulator)
+                clock["hook_draws"] = hookDraws
+                clock["hook_draws_advanced"] = hookDrawsAdvanced
+                clock["hook_draws_empty_bounds"] = hookDrawsEmptyBounds
                 clock["display_link_ticks"] = ticks
                 clock["tick_ms_min"] = tickInterval.map { $0.min * 1000 as Any } ?? NSNull()
                 clock["tick_ms_max"] = tickInterval.map { $0.max * 1000 as Any } ?? NSNull()
@@ -137,7 +148,7 @@ public final class ScreenPresentProbe: NSObject, RTCVideoRenderer, @unchecked Se
             let start = lock.withLock { () -> Bool in
                 renderer = .metal
                 metalHooks.removeAll { !$0.isLive }
-                if hook.isLive { metalHooks.append(hook) }
+                if hook.isLive { metalHooks.append(hook); hooksInstalled += 1 }
                 #if targetEnvironment(simulator)
                 defer { displayLinkStarted = true }
                 return !displayLinkStarted
@@ -250,6 +261,15 @@ public final class ScreenPresentProbe: NSObject, RTCVideoRenderer, @unchecked Se
         guard let waiter, Self.reached(value, waiter.value) else { return nil }
         self.waiter = nil
         return (waiter.resume, Shown(decoded: firstDecoded(atOrPast: waiter.value), presented: at))
+    }
+
+    /// Metal in the simulator: the hook forwarded a draw; whether it moved `lastFrameTimeNs`.
+    fileprivate func hookDraw(advanced: Bool, emptyBounds: Bool) {
+        lock.withLock {
+            hookDraws += 1
+            if advanced { hookDrawsAdvanced += 1 }
+            if emptyBounds { hookDrawsEmptyBounds += 1 }
+        }
     }
 
     fileprivate func hookFailed(_ problem: String) {
@@ -422,16 +442,24 @@ extension PresentHook: @preconcurrency MTKViewDelegate {
     }
 
     func draw(in view: MTKView) {
+        #if targetEnvironment(simulator)
+        // No drawable is needed here (the simulator's Metal reports no presents), so no guard runs
+        // before the renderer's draw: a draw rendered a frame exactly when it moved
+        // `lastFrameTimeNs`. The first iphone-sim run (46111989381) counted 0 presents against
+        // 200 decoded samples behind the old guards (`drawsNewFrame`, `currentDrawable`), with
+        // nothing saying which one stopped it; `presentClock` now counts each outcome.
+        let before = lastDrawn()
+        original?.draw(in: view)
+        let after = lastDrawn()
+        let advanced = after != nil && after != before
+        probe?.hookDraw(advanced: advanced, emptyBounds: view.bounds.isEmpty)
+        if let probe, let after, advanced { probe.drew(timeStampNs: after, drawnAt: CACurrentMediaTime()) }
+        #else
         guard let probe, drawsNewFrame(), !view.bounds.isEmpty, let drawable = view.currentDrawable else {
             original?.draw(in: view)
             return
         }
         let before = lastDrawn()
-        #if targetEnvironment(simulator)
-        _ = drawable
-        original?.draw(in: view)
-        if let after = lastDrawn(), after != before { probe.drew(timeStampNs: after, drawnAt: CACurrentMediaTime()) }
-        #else
         // The handler goes on before the renderer presents; the frame it drew is known after.
         let drawn = DrawnFrame()
         drawable.addPresentedHandler(Self.presentedHandler(probe: probe, drawn: drawn))
