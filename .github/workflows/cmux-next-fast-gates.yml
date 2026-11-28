@@ -818,6 +818,7 @@ jobs:
   # checks nothing out and reads nothing the gates jobs wrote. A skipped
   # panic-ratchet (nothing to rejudge) does not fail it.
   post:
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     name: post cmux-next/fast-gates
     needs: [resolve, fast-gates, panic-ratchet]
     # A valid receipt posted the status itself; an audited one is judged here again by the gates.
