@@ -2549,6 +2549,105 @@ finally:
 CMUX_FIRST_TEXT`;
 }
 
+/**
+ * Where a first turn's model_ms went, from the chat's own log on the guest (one `acp tail --since 0`, read after the
+ * reply, so it costs the first-reply clock nothing). Every time is the daemon's record clock from the turn's
+ * `turn_started`: `agent_first` the agent's first line of any kind, `agent_init` Claude Code's `system/init` (its
+ * deferred start work, MCP servers and settings, done on the first message), `request` the model request going out
+ * (`_meta.acpmux.timing.requestAt` on the first call's usage_update, model_calls.rs), `first_token` its
+ * `message_start` and `ttft` the two apart: the API's own wait. `retries` counts Claude Code's `system/api_retry`
+ * before the first token (a refused call, its last status), and `cache_write`/`cache_read` the first call's prompt
+ * tokens, the size the API reads before it answers. goal: "fix the largest stage of the 17 s" (shadow-leo).
+ */
+export type FirstTurnSplit = { agent_first?: number; agent_init?: number; request?: number; first_token?: number; ttft?: number; first_text?: number; retries: number; retry_status?: string; cache_write?: number; cache_read?: number };
+
+export function firstTurnSplitCommand(session: string): string {
+  return `timeout 60 "$c" acp tail ${shq(session)} --since 0 2>/dev/null | python3 -c ${shq(FIRST_TURN_SPLIT_PY)}`;
+}
+
+const FIRST_TURN_SPLIT_PY = [
+  "import json, sys",
+  "out = {'retries': 0}",
+  "t0 = None",
+  "def put(k, at):",
+  "    if t0 is not None and k not in out and isinstance(at, (int, float)):",
+  "        out[k] = int(at - t0)",
+  "for line in sys.stdin:",
+  "    try:",
+  "        e = json.loads(line)",
+  "    except ValueError:",
+  "        continue",
+  "    if not isinstance(e, dict):",
+  "        continue",
+  "    kind = str(e.get('kind') or '')",
+  "    at = e.get('at')",
+  "    if kind == 'turn_started':",
+  "        if t0 is None and isinstance(at, (int, float)):",
+  "            t0 = at",
+  "        continue",
+  "    if t0 is None:",
+  "        continue",
+  "    if kind in ('turn_result', 'turn_error', 'turn_end'):",
+  "        break",
+  "    if e.get('dir') == 'in':",
+  "        put('agent_first', at)",
+  "    if kind == 'claude.system.init':",
+  "        put('agent_init', at)",
+  "    if kind == 'claude.system.api_retry' and 'first_token' not in out:",
+  "        out['retries'] += 1",
+  "        m = e.get('msg') if isinstance(e.get('msg'), dict) else {}",
+  "        m = m.get('params') if isinstance(m.get('params'), dict) else m",
+  "        st = m.get('error_status') or m.get('error')",
+  "        if st is not None:",
+  "            out['retry_status'] = str(st)[:40]",
+  "    m = e.get('msg') if isinstance(e.get('msg'), dict) else {}",
+  "    p = m.get('params') if isinstance(m.get('params'), dict) else {}",
+  "    u = p.get('update') if isinstance(p.get('update'), dict) else {}",
+  "    meta = p.get('_meta') if isinstance(p.get('_meta'), dict) else {}",
+  "    if isinstance(meta.get('acpmux'), dict) and meta['acpmux'].get('subagent'):",
+  "        continue",
+  "    su = u.get('sessionUpdate')",
+  "    if su == 'agent_message_chunk' and isinstance(u.get('content'), dict) and u['content'].get('text'):",
+  "        put('first_text', at)",
+  "    if su == 'usage_update' and 'first_token' not in out:",
+  "        a = (u.get('_meta') or {}).get('acpmux') or {}",
+  "        tm = a.get('timing') if isinstance(a, dict) else None",
+  "        if isinstance(tm, dict) and isinstance(tm.get('firstTokenAt'), (int, float)):",
+  "            put('first_token', tm['firstTokenAt'])",
+  "            if isinstance(tm.get('requestAt'), (int, float)):",
+  "                put('request', tm['requestAt'])",
+  "                out['ttft'] = int(tm['firstTokenAt'] - tm['requestAt'])",
+  "            for k, f in (('cache_write', 'cachedWriteTokens'), ('cache_read', 'cachedReadTokens')):",
+  "                if isinstance(u.get(f), (int, float)):",
+  "                    out[k] = int(u[f])",
+  "print('@@split ' + json.dumps(out if t0 is not None else {'retries': 0, 'none': 'no turn_started'}))",
+].join("\n");
+
+/** The `@@split` line of firstTurnSplitCommand, or null. */
+export function parseFirstTurnSplit(stdout: string): (FirstTurnSplit & { none?: string }) | null {
+  const line = stdout.split("\n").find((l) => l.startsWith("@@split "));
+  if (!line) return null;
+  try {
+    const v = JSON.parse(line.slice(8));
+    return v && typeof v === "object" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** One line a person reads: the parts in time order, then what the first call held. */
+export function describeFirstTurnSplit(s: FirstTurnSplit & { none?: string }): string {
+  if (s.none) return `no split: ${s.none}`;
+  const at = (k: keyof FirstTurnSplit, label: string) => (typeof s[k] === "number" ? [`${label} +${s[k]} ms`] : []);
+  const parts = [...at("agent_first", "agent's first line"), ...at("agent_init", "Claude Code init"), ...at("request", "model request out"), ...at("first_token", "first token"), ...at("first_text", "first text")];
+  const extra = [
+    ...(typeof s.ttft === "number" ? [`API wait ${s.ttft} ms`] : []),
+    `${s.retries} retried call(s)${s.retry_status ? ` (last ${s.retry_status})` : ""}`,
+    ...(typeof s.cache_write === "number" ? [`prompt ${s.cache_write} written + ${s.cache_read ?? 0} read from cache`] : []),
+  ];
+  return `from turn start: ${parts.join(", ") || "no marks"}; ${extra.join("; ")}`;
+}
+
 /** A machine answer that clears on its own: staging's VM API answers 502/503 vm_unavailable for a minute or two at a
  * time (cloud-journey-ci.sh), and the CLI marks it retryable:false, so the reason is read from the text. */
 export function transientMachineError(text: string): boolean {
@@ -7617,6 +7716,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           });
         }
       }
+      // Where the first turn's model_ms went (agent init, request out, the API's wait, retries), read after the reply.
+      await J.step("first turn split", async () => {
+        const r = await exec(`${GUEST}${firstTurnSplitCommand(session)}`, 90_000);
+        const split = parseFirstTurnSplit(r.stdout);
+        if (!split) return { value: null, detail: `no split: exit ${r.code}; ${(r.stderr || r.stdout).slice(-200)}` };
+        if (!split.none) for (const k of ["agent_init", "request", "ttft"] as const) J.firstText.guest(`split_${k}`, split[k] ?? null);
+        return { value: null, detail: describeFirstTurnSplit(split) };
+      });
       if (!lifecycle) {
         J.skip("turn 2 (same session)", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}`);
         J.skip("daemon restart keeps the session", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}`);
