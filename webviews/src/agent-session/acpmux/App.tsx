@@ -51,7 +51,7 @@ import {
 import { pendingMessagesRow, searchablePendingRows, withWaitingRows } from "./conversation/pendingMessages";
 import { type QueuedMessageActionsValue } from "./conversation/QueuedMessageCard";
 import { AcpmuxDirectClient, type HarnessBlock, isTrustRefusal } from "./direct";
-import { watchRestoredTail } from "./restoredTail";
+import { restoredChatSession, watchRestoredTail } from "./restoredTail";
 import { drawsCopy } from "./conversation/turnEndFold";
 import {
   authBlocksSend,
@@ -7421,8 +7421,30 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       openRefused: clientSnapshot.connection === "failed",
       chatUnavailable: clientSnapshot.unavailable !== undefined && clientSnapshot.unavailable.reason !== "connecting",
     });
+  // A tab's chat built again before acpmux answered its handshake (a stalled or restarting daemon:
+  // the handshake pending for the host's whole lookup, or failed quietly, hostRetry.ts
+  // `hostSelfRetrying`), with none of its rows drawn yet: the chat view would be an empty chat with
+  // only a composer, which the host shows once its loading state gives up (AgentPaneView+Loading.swift),
+  // and which read as the person's chat gone and a new one in its place
+  // (https://github.com/manaflow-ai/cmux/issues/63350). It shows the loading mark until acpmux answers,
+  // its rows come from a kept tail, or a failure is said. Never a step back: once this page showed the
+  // named chat's view (its last launch's copy, or a composer someone may have typed in), it keeps it.
+  const [namedChatViewShown, setNamedChatViewShown] = useState(false);
+  const namedChat = restoredChatSession();
+  const waitsForNamedChat =
+    !namedChatViewShown &&
+    !handshaken &&
+    newTab === undefined &&
+    !hostErrorSaid &&
+    clientSnapshot.rows.length === 0 &&
+    !showsChatSnapshot() &&
+    namedChat !== undefined;
   // No chat screen before the page knows it is no New Tab page (`contextKnown`).
-  const knowsWhatItIs = contextKnown || newTab !== undefined || handshaken || hostError !== undefined;
+  const knowsWhatItIs =
+    (contextKnown || newTab !== undefined || handshaken || hostError !== undefined) && !waitsForNamedChat;
+  useEffect(() => {
+    if (knowsWhatItIs && namedChat !== undefined && !namedChatViewShown) setNamedChatViewShown(true);
+  }, [knowsWhatItIs, namedChat, namedChatViewShown]);
   useEffect(() => {
     if (!handshaken || chatDrawn) return;
     // A slow attach: the client draws what it has after the open's hold (direct.ts OPEN_HOLD_MS).
