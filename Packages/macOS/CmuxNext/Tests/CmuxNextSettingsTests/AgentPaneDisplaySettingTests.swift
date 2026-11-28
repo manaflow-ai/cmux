@@ -31,6 +31,9 @@ struct AgentPaneDisplaySettingTests {
         // Where the composer names the effort (webviews ComposerPickers.tsx): as the look decides unless a look joins it to the model chip.
         Row(key: "agentPane.display.effortChip", fallback: .string("auto"), accepted: [.string("joined")],
             refused: [.string("split"), .bool(true)]),
+        // The model menus' update footer: every outdated agent CLI unless a look keeps it to the chat's own.
+        Row(key: "agentPane.display.ownHarnessUpdatesOnly", fallback: .bool(false), accepted: [.bool(true)],
+            refused: [.string("own")]),
         // The VS Code-style chat minimap: off unless turned on.
         Row(key: "agentPane.display.vscodeMinimap", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // Status pills on the live chats of All Chats (a taste prototype): off unless turned on.
