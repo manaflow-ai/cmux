@@ -80,7 +80,6 @@ enum AppActions {
         ColumnDocking.bind(into: registry, context: context); laps.lap("ColumnDocking.bind")
         ColumnAvailability.bind(into: registry, context: context); laps.lap("ColumnAvailability.bind")
         ScreenHandlers.bind(into: registry, context: context); laps.lap("ScreenHandlers.bind")
-        TerminalHandlers.bind(into: registry, context: context); laps.lap("TerminalHandlers.bind")
         BrowserHandlers.bind(into: registry, context: context); laps.lap("BrowserHandlers.bind")
         ScreenshotHandlers.bind(into: registry, context: context); laps.lap("ScreenshotHandlers.bind")
         DevToolsHandlers.bind(into: registry, context: context); laps.lap("DevToolsHandlers.bind")
@@ -144,6 +143,9 @@ enum AppActions {
         VoiceRoomHandlers.bind(into: registry, context: context); laps.lap("post_frame.VoiceRoomHandlers"); NowPlayingCardHandlers.bind(into: registry, context: context); laps.lap("post_frame.NowPlayingCardHandlers")
         PictureInPictureHandlers.bind(into: registry, context: context); laps.lap("post_frame.PictureInPictureHandlers"); StatsPageTab.bind(into: registry, context: context); laps.lap("post_frame.StatsPageTab")
         AccountsHandlers.bind(into: registry, context: context); laps.lap("post_frame.AccountsHandlers"); ProfileMenuHandlers.bind(into: registry, context: context); laps.lap("post_frame.ProfileMenuHandlers")
+        // Terminal actions (copy, paste, find, text box, keep, copy mode): every reader is a key, menu, context menu or palette
+        // row the person opens after the frame, and the gate runs this in the frame's commit, before any input is read.
+        TerminalHandlers.bind(into: registry, context: context); laps.lap("post_frame.TerminalHandlers")
     }
 
     static func scope(_ services: AppServices, _ invocation: ActionInvocation = ActionInvocation()) -> ActionScope {
