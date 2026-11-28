@@ -819,3 +819,31 @@ test("the machine back with a slow read of the records it missed draws no hole w
   }
   expect(JSON.stringify(chat.drawn.at(-1)!.rows)).toContain("missed 17.");
 });
+
+// settled-page bench, chat_switch (Leo, 2026-11-21: "workspace switch, opening a recent workspace, chat
+// switch and restart reach a settled page ... within 2x of a derived bound"): a chat opened again is
+// refolded from its kept tail; each row that came out unchanged is the object the pane drew when the
+// chat was left, so the pane's per-row work (shaped turns, drawn heights, memoized rows) is not redone.
+test("a chat left and opened again from its kept tail draws the row objects it was left with", async () => {
+  const chat = await openChat();
+  const client = chat.client as any;
+  const tail = client.currentTail();
+  expect(client.rememberCurrentTail()).toBeDefined();
+  // Another chat on screen: this one's rows are gone from the client.
+  const other = [prompt(901), reply(902, "another chat's reply")].map((record) => ({
+    ...record,
+    sessionId: "other-chat",
+  }));
+  client.drawKeptTail("other-chat", {
+    ...tail,
+    events: other,
+    summary: { ...tail.summary, sessionId: "other-chat" },
+    queue: [],
+  });
+  expect((client.rows.sorted() as AcpmuxRow[]).map((row) => row.id)).not.toEqual(chat.shown.rows.map((row) => row.id));
+  expect(client.drawKeptTail(SESSION, { ...tail, queue: [] })).toBeGreaterThan(0);
+  const now = client.rows.sorted() as AcpmuxRow[];
+  const before = new Map(chat.shown.rows.map((row) => [row.id, row]));
+  expect(now.map((row) => row.id)).toEqual(chat.shown.rows.map((row) => row.id));
+  expect(now.filter((row) => before.get(row.id) !== row).map((row) => row.id)).toEqual([]);
+});
