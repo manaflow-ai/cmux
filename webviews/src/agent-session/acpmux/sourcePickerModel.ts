@@ -1,5 +1,5 @@
 import { isCloudChatFolder } from "./folderlessCloud";
-import { githubFolder, githubFolderRepo, type GitHubPickerState } from "./githubRepos";
+import { githubFolder, githubFolderRepo, githubFullName, type GitHubPickerState } from "./githubRepos";
 import { githubRepository } from "./githubRepository";
 import type { StringKey } from "./i18n";
 import { isAgentHome, projectLabel } from "./sessionList";
@@ -97,4 +97,30 @@ export function cloudSourceFolders(
 export function cloudRepositoryPick(folder: string | undefined, remote?: string): string | undefined {
   const repo = githubFolderRepo(folder) ?? githubRepository(remote);
   return repo ? githubFolder(repo) : undefined;
+}
+
+/// Why a typed Git URL names no repository to clone, or nothing when it is an https URL with an owner and a name.
+export function gitURLValidation(url: string): StringKey | undefined {
+  if (!/^https:\/\//i.test(url) || /\s/.test(url)) return "source.url.invalid";
+  try {
+    const parsed = new URL(url);
+    if (parsed.username || parsed.password || parsed.search || parsed.hash) return "source.url.credentials";
+    return parsed.pathname.split("/").filter(Boolean).length < 2 ? "source.url.invalid" : undefined;
+  } catch {
+    return "source.url.invalid";
+  }
+}
+
+/// A Git URL typed into Add project with Cloud picked: nothing is cloned on this Mac. A GitHub repository (an https,
+/// scp or ssh URL, or `owner/name`) becomes the chat's `github:owner/name` folder, which the Cloud machine clones
+/// (AgentPaneCloudStart+Repository.swift). Another host's URL is refused in words: the machine's repo step clones
+/// GitLab and other https hosts (cmux-cloud-start-core `machine_repo.rs`), but the app's Cloud start carries a
+/// GitHub repository only (AgentPaneGitHubFolder), so a GitLab URL here would start a chat with no folder.
+export function cloudGitURLFolder(url: string): { folder: string } | { error: StringKey } {
+  const typed = url.trim();
+  const name = githubFullName(typed);
+  if (name && !/^https?:\/\/[^/]*@/i.test(typed)) return { folder: githubFolder(name) };
+  const invalid = gitURLValidation(typed);
+  if (invalid) return { error: invalid };
+  return { error: "source.url.cloudGitHubOnly" };
 }
