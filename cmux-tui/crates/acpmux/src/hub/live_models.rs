@@ -311,6 +311,12 @@ impl Hub {
                 let hub = self.clone();
                 let cfg = cfg.clone();
                 tokio::spawn(async move {
+                    // Nobody waits on it: one of the background probe slots (`model_probe.rs`).
+                    let _slot = super::model_probe::background_probe_slot(
+                        &super::model_probe::BACKGROUND_PROBES,
+                        wait,
+                    )
+                    .await;
                     let id = name.clone();
                     // Resolving a profile can consult its credential store. Only do it for a scheduled probe.
                     match tokio::task::spawn_blocking(move || target(&cfg, &id, cli)).await {
