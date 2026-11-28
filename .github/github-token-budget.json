@@ -87,6 +87,7 @@
     "cmux-next-dev-daily.yml: Resolve the source run": "baseline 2026-11-04",
     "cmux-next-fast-gates.yml: Post the cmux-next/fast-gates status": "baseline 2026-11-04",
     "cmux-next-fast-gates.yml: Resolve the head and the base": "baseline 2026-11-04",
+    "cmux-next-fast-gates.yml: Route the pull request (scripts/ci/fast_check_route.py)": "a dispatch only: one pulls/N/files read (one page per 100 files, at most 30), no retry; a failed read runs every gate. It skips the whole gates job (about 5 runner-minutes) on a pull request that touches no gate input",
     "cmux-next-generated-catch-up.yml: Select PRs that conflict with feat-cmux-next": "polls (tests/test_ci_no_github_token_polling.py): per feat-cmux-next push, only while a PR's mergeable is UNKNOWN: re-lists open PRs every 20 s, at most 5 more times",
     "cmux-next-hot-verify.yml: Dispatch the look": "one workflow dispatch per eligible same-repo PR push, no poll; a skipped plan spends nothing",
     "cmux-next-hot-verify.yml: Is the gallery advisory also on this head": "one runs list (per_page=1) per posted look, to add the first-look note",

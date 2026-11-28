@@ -60,6 +60,7 @@
         "Select Xcode": {"plumbing": true},
         "Select the SDK of the selected Xcode": {"plumbing": true},
         "Download published variant": {"plumbing": true, "note": "a ranged, digest-checked download (download-run-artifact.py, tests/test_download_run_artifact_modes.py) of the published variant"},
+        "Import signing cert for the .pkg": {"nightly_only": "imports the Developer ID Installer signing certificate; a pull request holds no signing secret"},
         "Build, sign, notarize and upload the pre-warming .pkg": {"pr": "cmux-next-guards.yml:tooling-tests:cmux NEXT installer package and its pre-warm postinstall", "note": "next-pkg.test.sh runs build-pkg.sh and the postinstall on fixtures; signing, notarization and the upload need release-next secrets only the nightly holds (RFD 0134 cut 2, #54859)"},
         "Cleanup keychain": {"nightly_only": "deletes the signing keychain"},
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"}},
@@ -423,10 +424,9 @@
       "sentry-dsyms-nightly": {
         "Wait for API budget before the dSYM download": {"plumbing": true},
         "Wait through GitHub API rate limits in this job's gh calls": {"plumbing": true},
-        "Send this job's gh calls as the release App, github.token as the fallback": {"plumbing": true},
-        "Mint the release App token for this job's gh calls": {"plumbing": true},
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"},
         "Find the attempt that compiled the published build": {"nightly_only": "looks up the published binary's producing run and its dSYM artifacts; a pull request has no published nightly build"},
+        "Download the build's dSYMs (parallel, waits through a rate limit)": {"plumbing": true, "note": "a ranged, digest-checked download (download-run-artifact.py, tests/test_download_run_artifact_modes.py); download-artifact stays the fallback"},
         "Upload the build's dSYMs to Sentry": {"nightly_only": "uploads the published build's dSYMs to Sentry with the Sentry token, in the tail run outside the push group"}},
       "restore-historical-notes": {
         "Take the nightly-next publish lease": {"nightly_only": "takes the nightly-next publish lease on a manual restore dispatch (#62726); a pull request publishes nothing"},
