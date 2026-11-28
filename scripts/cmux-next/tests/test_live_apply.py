@@ -213,5 +213,80 @@ class GitRangeTests(unittest.TestCase):
             self.assertEqual(live_apply.classify_range(repo, "HEAD~1", "HEAD")["verdict"], "rebuild")
 
 
+class ScopeTests(unittest.TestCase):
+    """classify_range reads both sides of each changed file, so it knows a function's body from a type's members."""
+
+    def range_verdict(self, files):
+        """files: [(path, before or None, after or None)] -> classify_range's verdict for that one commit."""
+        with tempfile.TemporaryDirectory() as repo:
+            def git(*args):
+                subprocess.run(["git", "-C", repo, *args], check=True, capture_output=True)
+            git("init", "-q")
+            git("config", "user.email", "t@example.com")
+            git("config", "user.name", "t")
+            for path, before, _ in files:
+                if before is not None:
+                    Path(repo, path).parent.mkdir(parents=True, exist_ok=True)
+                    Path(repo, path).write_text(before)
+            git("add", "-A")
+            git("commit", "-qm", "base", "--allow-empty")
+            for path, _, after in files:
+                if after is None:
+                    Path(repo, path).unlink()
+                else:
+                    Path(repo, path).parent.mkdir(parents=True, exist_ok=True)
+                    Path(repo, path).write_text(after)
+            git("add", "-A")
+            git("commit", "-qm", "change")
+            return live_apply.classify_range(repo, "HEAD~1", "HEAD")
+
+    def test_a_type_declared_in_a_function_body_is_the_functions_code(self):
+        before = "struct V {\n    func load() {\n        let x = 1\n    }\n}\n"
+        after = ("struct V {\n    func load() {\n        struct Reply: Decodable { var stale: Bool }\n"
+                 "        func name(_ id: String) -> String { id }\n        let x = 1\n    }\n}\n")
+        self.assertEqual(self.range_verdict([(VIEW, before, after)])["verdict"], "swift-live")
+
+    def test_members_of_a_type_with_any_modifier_are_still_members(self):
+        before = "nonisolated public struct Flow: Sendable {\n    var a = 1\n}\n"
+        after = "nonisolated public struct Flow: Sendable {\n    var a = 1\n    private var b = 2\n}\n"
+        self.assertEqual(self.range_verdict([(VIEW, before, after)])["reasons"], {"stored property": [VIEW]})
+
+    def test_a_type_moved_to_another_file_is_still_compared(self):
+        # Codegen moving a struct out of a hand-written file: the build defines it and the loader compares it.
+        other = VIEW.replace("HomeHostView", "Generated")
+        old = "public struct Snap: Decodable {\n    public var a: Int\n}\n"
+        new = "public struct Snap: Decodable {\n    public var a: Int\n    public var b: Int\n}\n"
+        self.assertEqual(self.range_verdict([(VIEW, old + "struct V {}\n", "struct V {}\n"),
+                                             (other, "// gen\n", "// gen\n" + new)])["verdict"], "rebuild")
+
+    def test_a_brand_new_type_in_a_changed_file_is_live(self):
+        before = "struct V {\n    var a = 1\n}\n"
+        after = before + "private struct Chip {\n    var on = false\n    func f(_ x: Int) {}\n}\n"
+        self.assertEqual(self.range_verdict([(VIEW, before, after)])["verdict"], "swift-live")
+
+    def test_a_private_signature_change_is_live_unless_the_runtime_calls_it_by_name(self):
+        before = "struct V {\n    private func f(_ a: Int) {}\n}\n"
+        after = "struct V {\n    private func f(_ a: Int, b: Int = 0) {}\n}\n"
+        self.assertEqual(self.range_verdict([(VIEW, before, after)])["verdict"], "swift-live")
+        objc = [(VIEW, "final class V {\n    @objc\n    private func f(_ a: Int) {}\n}\n",
+                 "final class V {\n    @objc\n    private func f(_ a: Int, b: Int) {}\n}\n")]
+        self.assertEqual(self.range_verdict(objc)["verdict"], "rebuild")
+
+    def test_a_signature_change_is_live_when_every_file_that_names_it_is_patched(self):
+        caller = VIEW.replace("HomeHostView", "Caller")
+        before = "enum Rules {\n    static func row(_ a: Int) -> Int { a }\n}\n"
+        after = "enum Rules {\n    static func row(_ a: Int, b: Int = 0) -> Int { a + b }\n}\n"
+        uses = "struct C {\n    var n: Int { Rules.row(1) }\n}\n"
+        self.assertEqual(self.range_verdict([(VIEW, before, after), (caller, uses, uses + "\n")])["verdict"],
+                         "swift-live")
+        # An unchanged caller still calls the build's old symbol (a defaulted parameter keeps it compiling).
+        self.assertEqual(self.range_verdict([(VIEW, before, after), (caller, uses, uses)])["verdict"], "rebuild")
+
+    def test_a_method_of_a_class_that_can_be_subclassed_keeps_its_vtable_slot(self):
+        before = "class V {\n    func f(_ a: Int) {}\n}\n"
+        after = "class V {\n    func f(_ a: Int, b: Int) {}\n}\n"
+        self.assertEqual(self.range_verdict([(VIEW, before, after)])["verdict"], "rebuild")
+
+
 if __name__ == "__main__":
     unittest.main()

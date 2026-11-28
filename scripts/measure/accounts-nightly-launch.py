@@ -55,6 +55,12 @@ def pick_feed(xml, requested_build="", requested_url=""):
     return max(choices, key=lambda row: int(row["build"]))
 
 
+def probe_command(app, pid, socket, evidence, cu_host=None):
+    return [sys.executable, str(ROOT / "scripts/measure/accounts-nightly-probe.py"),
+            "--app", str(app), "--pid", str(pid), "--socket", socket, "--out", str(evidence)] + (
+                ["--cu-host", cu_host] if cu_host else [])
+
+
 def main():
     out = ROOT / ".build/accounts-nightly-probe"
     out.mkdir(parents=True, exist_ok=True)
@@ -71,8 +77,10 @@ def main():
         requested = {}
         for arg in sys.argv[1:]:
             key, sep, value = arg.partition("=")
-            if key not in ("build", "dmg") or not sep:
-                raise RuntimeError("arguments are build=NUMBER or dmg=FEED_URL")
+            if key not in ("build", "dmg", "cu_host") or not sep:
+                raise RuntimeError("arguments are build=NUMBER, dmg=FEED_URL or cu_host=nightly")
+            if key == "cu_host" and value != "nightly":
+                raise RuntimeError("cu_host must be nightly")
             requested[key] = value
         run(["curl", "-fsSL", "--max-time", "60", "-o", str(work / "feed.xml"), FEED])
         selected = pick_feed((work / "feed.xml").read_bytes(), requested.get("build", ""), requested.get("dmg", ""))
@@ -143,9 +151,7 @@ def main():
         if owned_pid is None:
             raise RuntimeError("NIGHTLY did not identify its exact private app path within 90 seconds")
         with (evidence / "run.log").open("w") as log:
-            result = subprocess.run([sys.executable, str(ROOT / "scripts/measure/accounts-nightly-probe.py"),
-                                     "--app", str(app), "--pid", str(owned_pid), "--socket", socket,
-                                     "--out", str(evidence), "--api", "https://cloud-api.cmux.dev"],
+            result = subprocess.run(probe_command(app, owned_pid, socket, evidence, requested.get("cu_host")),
                                     stdout=log, stderr=subprocess.STDOUT, timeout=900)
             status = result.returncode
     except Exception as error:

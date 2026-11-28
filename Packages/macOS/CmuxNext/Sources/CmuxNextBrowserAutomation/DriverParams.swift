@@ -20,6 +20,9 @@ public nonisolated struct DriverParams: Sendable {
         _ = try values([])
     }
 
+    /// The params as sent (an object; null reads as empty), for a rule that takes them whole.
+    var json: DriverJSON { .object(fields) }
+
     public func has(_ key: String) -> Bool {
         (try? value(key, "has")?.boolValue) == true
     }
